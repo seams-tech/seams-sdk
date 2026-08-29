@@ -15,7 +15,7 @@ import {
 import {
   parseAuthFactorId,
   parseMpcWalletSigningQuotaId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
@@ -248,7 +248,7 @@ test('one owner proof mints both curve tokens for one Wallet Session and rejects
         principalId: fixture.session.principalId,
         walletId,
         authority: fixture.authorityRef,
-        mintId: required(parseReusableWalletSessionMintId('unlock:owner-proof-multi-curve')),
+        mintId: required(parseWalletSessionMintId('unlock:owner-proof-multi-curve')),
         authorizationId: required(
           parseWalletSessionAuthorizationId('authorization:owner-proof-multi-curve'),
         ),
@@ -355,7 +355,7 @@ test('one owner proof mints both curve tokens for one Wallet Session and rejects
         principalId: fixture.session.principalId,
         walletId,
         authority: fixture.authorityRef,
-        mintId: required(parseReusableWalletSessionMintId('unlock:owner-proof-other-scope')),
+        mintId: required(parseWalletSessionMintId('unlock:owner-proof-other-scope')),
         authorizationId: required(
           parseWalletSessionAuthorizationId('authorization:owner-proof-other-scope'),
         ),

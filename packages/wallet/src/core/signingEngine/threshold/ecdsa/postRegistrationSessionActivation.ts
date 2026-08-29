@@ -12,7 +12,7 @@ import {
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { base64UrlDecode } from '@shared/utils/base64';
 import type { ThresholdEcdsaSessionId } from '@shared/utils/domainIds';
-import type { ReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
+import type { WalletSessionMintId } from '@shared/authorization/capabilityKinds';
 import type {
   EcdsaRoleLocalPersistedMaterialRef,
   EcdsaRoleLocalWorkerHandle,
@@ -46,7 +46,7 @@ export type ActivateStrictEcdsaPostRegistrationSessionInput = {
   readonly persistedRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
   readonly walletId: string;
   readonly thresholdSessionId: ThresholdEcdsaSessionId;
-  readonly walletSessionMintId: ReusableWalletSessionMintId;
+  readonly walletSessionMintId: WalletSessionMintId;
   readonly ttlMs: number;
   readonly remainingUses: number;
   readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -74,7 +74,7 @@ function routeFailureMessage(
 export function buildStrictEcdsaPostRegistrationSessionActivationRequest(input: {
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   readonly thresholdSessionId: ThresholdEcdsaSessionId;
-  readonly walletSessionMintId: ReusableWalletSessionMintId;
+  readonly walletSessionMintId: WalletSessionMintId;
   readonly ttlMs: number;
   readonly remainingUses: number;
   readonly runtimePolicyScope: ThresholdRuntimePolicyScope;

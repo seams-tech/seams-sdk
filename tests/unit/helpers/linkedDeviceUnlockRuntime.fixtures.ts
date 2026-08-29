@@ -31,7 +31,7 @@ import {
   parseDeviceId as parseAuthorizationDeviceId,
   parseMpcWalletSigningQuotaId,
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseTenantId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -481,7 +481,7 @@ export async function buildLinkedDeviceUnlockRuntimeFixture(): Promise<LinkedDev
   ] as const;
   const tenantId = required(parseTenantId('tenant:linked-runtime'));
   const principalId = required(parsePrincipalId('principal:linked-runtime'));
-  const mintId = required(parseReusableWalletSessionMintId('wallet-mint:linked-runtime'));
+  const mintId = required(parseWalletSessionMintId('wallet-mint:linked-runtime'));
   const authorizationId = required(
     parseWalletSessionAuthorizationId('authorization:linked-runtime'),
   );

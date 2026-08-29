@@ -1,7 +1,7 @@
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import {
   parsePrincipalId,
-  type ReusableWalletSessionMintId,
+  type WalletSessionMintId,
 } from '@shared/authorization/capabilityKinds';
 import {
   parseWebAuthnCredentialIdB64u,
@@ -149,7 +149,7 @@ export type SyncAccountBootstrapInputV1 = {
   readonly walletAuthMethodId: WalletAuthMethodId;
   readonly authorityRef: WalletAuthAuthorityRef;
   readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
-  readonly mintId: ReusableWalletSessionMintId;
+  readonly mintId: WalletSessionMintId;
   readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
   readonly issuedAtMs: number;
   readonly ecdsaThresholdSessionId: string;

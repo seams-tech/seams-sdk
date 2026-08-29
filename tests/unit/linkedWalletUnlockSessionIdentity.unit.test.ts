@@ -20,7 +20,7 @@ import {
 } from '../../packages/wallet-server/src/router/framework/authServicePort';
 import {
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseTenantId,
   WALLET_SESSION_CLIENT_CAPABILITY_V1,
 } from '@shared/authorization/capabilityKinds';
@@ -42,7 +42,7 @@ function buildLinkedWalletSession(
 ): IssuedWalletSessionAuthorizationV2 {
   const tenantId = required(parseTenantId('tenant:linked-runtime'));
   const principalId = required(parsePrincipalId('principal:linked-runtime'));
-  const mintId = required(parseReusableWalletSessionMintId('wallet-mint:linked-runtime'));
+  const mintId = required(parseWalletSessionMintId('wallet-mint:linked-runtime'));
   const session = buildWalletSessionAuthorizationV2({
     tenantId,
     principalId,

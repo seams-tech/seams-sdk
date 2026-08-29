@@ -124,7 +124,7 @@ export type AuthorizationGrantRef = WalletSessionAuthorizationRef;
 export type AuthorizedOperationId = DomainId<'AuthorizedOperationId'>;
 export type WalletSessionId = DomainId<'WalletSessionId'>;
 export type MpcWalletSigningQuotaId = DomainId<'MpcWalletSigningQuotaId'>;
-export type ReusableWalletSessionMintId = DomainId<'ReusableWalletSessionMintId'>;
+export type WalletSessionMintId = DomainId<'WalletSessionMintId'>;
 export type AuthorizationEvidenceId = DomainId<'AuthorizationEvidenceId'>;
 export type AuthorizationEvidenceSetId = DomainId<'AuthorizationEvidenceSetId'>;
 export type GrantChallengeId = DomainId<'GrantChallengeId'>;
@@ -374,10 +374,10 @@ export function parseMpcWalletSigningQuotaId(
   return parseAuthorizationId(value, 'mpcWalletSigningQuotaId');
 }
 
-export function parseReusableWalletSessionMintId(
+export function parseWalletSessionMintId(
   value: unknown,
-): AuthorizationParseResult<ReusableWalletSessionMintId> {
-  return parseAuthorizationId(value, 'reusableWalletSessionMintId');
+): AuthorizationParseResult<WalletSessionMintId> {
+  return parseAuthorizationId(value, 'walletSessionMintId');
 }
 
 export function parseAuthorizationEvidenceId(

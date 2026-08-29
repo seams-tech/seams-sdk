@@ -1,10 +1,10 @@
 import {
   parseMpcWalletSigningQuotaId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
-  type ReusableWalletSessionMintId,
+  type WalletSessionMintId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from './capabilityKinds';
@@ -28,7 +28,7 @@ export type WalletSessionCommittedIdentityV1 = {
   readonly walletId: WalletId;
   readonly authorityId: WalletAuthorityId;
   readonly walletAuthMethodId: WalletAuthMethodId;
-  readonly mintId: ReusableWalletSessionMintId;
+  readonly mintId: WalletSessionMintId;
   readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
@@ -84,7 +84,7 @@ function parseCommittedIdentity(value: unknown): WalletSessionCommittedIdentityV
   const walletId = parseWalletId(value.walletId);
   const authorityId = parseWalletAuthorityId(value.authorityId);
   const walletAuthMethodId = parseWalletAuthMethodId(value.walletAuthMethodId);
-  const mintId = parseReusableWalletSessionMintId(value.mintId);
+  const mintId = parseWalletSessionMintId(value.mintId);
   const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
   const walletSessionId = parseWalletSessionId(value.walletSessionId);
   const quotaId = parseMpcWalletSigningQuotaId(value.quotaId);

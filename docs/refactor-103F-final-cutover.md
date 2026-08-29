@@ -1179,7 +1179,7 @@ Primary persistence files:
 ### I9 — Public types, iframe protocol, and vocabulary (B9, B16)
 
 - [ ] Delete `ReusableWalletSessionState` from the SDK domain model.
-- [ ] Rename `ReusableWalletSessionMintId` and parser to
+- [x] Rename `ReusableWalletSessionMintId` and parser to
       `WalletSessionMintId` and `parseWalletSessionMintId` without an alias.
 - [ ] Preserve stored `mint_id` and frozen wire `wallet_session_mint_id` names.
 - [ ] Delete reusable-session fields from the public `WalletSession` shape.

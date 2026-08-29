@@ -14,7 +14,7 @@ import {
 } from './ecdsaMaterialRef.fixtures';
 import {
   parseMpcWalletSigningQuotaId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseEcdsaAuthorizationSessionId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -485,7 +485,7 @@ export function createEcdsaSessionActivationFixture(args: {
       session_policy: {
         threshold_session_id: bootstrap.session.thresholdSessionId,
         wallet_session_mint_id: requireBootstrapAuthorizationId(
-          parseReusableWalletSessionMintId('wallet-session-mint-fixture'),
+          parseWalletSessionMintId('wallet-session-mint-fixture'),
         ),
         ttl_ms: Math.max(1, bootstrap.session.expiresAtMs - Date.now()),
         remaining_uses: bootstrap.session.remainingUses,

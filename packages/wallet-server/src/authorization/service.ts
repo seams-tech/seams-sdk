@@ -47,7 +47,7 @@ import {
   type MpcWalletSigningQuotaId,
   type AuthorizedOperationId,
   type PrincipalId,
-  type ReusableWalletSessionMintId,
+  type WalletSessionMintId,
   type TenantId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
@@ -242,7 +242,7 @@ export type IssueWalletSessionAuthorizationV2Input = {
   readonly walletId: WalletId;
   readonly authority: import('@shared/authorization/walletAuthority').ActiveWalletAuthorityV1;
   readonly walletAuthMethodId: WalletAuthMethodId;
-  readonly mintId: ReusableWalletSessionMintId;
+  readonly mintId: WalletSessionMintId;
   readonly remainingUses: number;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;

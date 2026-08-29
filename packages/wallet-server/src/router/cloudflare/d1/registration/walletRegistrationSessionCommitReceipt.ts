@@ -18,8 +18,8 @@ import type {
   RegistrationEstablishedSessionProjectionV2,
 } from '@shared/utils/registrationEstablishedSession';
 import {
-  parseReusableWalletSessionMintId,
-  type ReusableWalletSessionMintId,
+  parseWalletSessionMintId,
+  type WalletSessionMintId,
 } from '@shared/authorization/capabilityKinds';
 import { parseWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import {
@@ -309,8 +309,8 @@ function assertNeverRegistrationReplayAuthMethod(value: never): never {
 
 export function registrationEstablishedMintId(
   registrationCeremonyId: string,
-): ReusableWalletSessionMintId {
-  const parsed = parseReusableWalletSessionMintId(
+): WalletSessionMintId {
+  const parsed = parseWalletSessionMintId(
     `registration-established:${registrationCeremonyId}`,
   );
   if (!parsed.ok) throw new Error(parsed.error.message);
@@ -444,7 +444,7 @@ export function parseWalletRegistrationSessionCommitReceiptV2(
   }
   const foundingAuthority = parseWalletAuthorityV1(raw.foundingAuthority);
   const foundingAuthMethod = parseWalletAuthMethodRecordV2(raw.foundingAuthMethod);
-  const mintId = parseReusableWalletSessionMintId(raw.mintId);
+  const mintId = parseWalletSessionMintId(raw.mintId);
   const issuedAtMs = parsePositiveSafeInteger(raw.issuedAtMs);
   const expiresAtMs = parsePositiveSafeInteger(raw.expiresAtMs);
   let custodyKeyManifestDigestB64u: DigestB64u;

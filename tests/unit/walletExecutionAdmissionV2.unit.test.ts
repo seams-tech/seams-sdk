@@ -12,7 +12,7 @@ import {
   parseDeviceId,
   parseMpcWalletSigningQuotaId,
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseTenantId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -282,7 +282,7 @@ function buildSession(input: {
     walletAuthMethodId: input.authMethodId,
     authorityDigestB64u: input.authorityDigestB64u,
     authorityRevocationEpoch: input.authorityRevocationEpoch,
-    mintId: required(parseReusableWalletSessionMintId(`mint:admission-${input.label}`)),
+    mintId: required(parseWalletSessionMintId(`mint:admission-${input.label}`)),
     authorizationId: required(
       parseWalletSessionAuthorizationId(`authorization:admission-${input.label}`),
     ),
