@@ -709,7 +709,7 @@ Primary files:
       lifetime and exact receipt/session/quota/method/runtime binding. Extend
       resolution and cleanup without weakening the ordinary opaque-token
       table's unique wallet-session/curve constraint.
-- [ ] Update Route 3 comments and tests from byte-identical bearer output to
+- [x] Update Route 3 comments and tests from byte-identical bearer output to
       stable fingerprint and committed-projection identity.
 - [x] Make the receipt parser reject bearer fields, credential-bearing
       bootstraps, local secrets, and generic persisted response payloads.
@@ -1258,7 +1258,7 @@ R4. The bridge never projects a V1 bearer into a V2 credential.
 - [x] Replace both registration completion journals with
       `WalletRegistrationSessionCommitReceiptV2`.
 - [ ] Deploy the writer, parser, and bounded old-client adapter together.
-- [ ] Update registration replay from byte-identical bearer output to stable
+- [x] Update registration replay from byte-identical bearer output to stable
       fingerprint and committed-projection identity.
 - [ ] Quiesce old writers and run the bounded historical remediation.
 - [ ] Prove repeated zero-credential counts and record backup/time-travel
@@ -1495,14 +1495,14 @@ Remaining causal baseline work:
 - [ ] Registration remediation tests for both prefixes: known-shape rewrite or
       deletion, unrelated-row preservation, mapped-bearer retirement,
       unknown/unmappable abort, old-writer quiescence, and repeated zero count.
-- [ ] Compatibility-adapter test proving stable fingerprint/projection with an
+- [x] Compatibility-adapter test proving stable fingerprint/projection with an
       in-memory V1 bearer whose bytes may differ; delete the test with the
       adapter.
 - [ ] Adapter-table tests proving identical retries remain usable despite
       response reordering, conflicting replay fails closed, adapter expiry does
       not retire the parent session, parent retirement and method cleanup reject
       adapter tokens, and no plaintext enters durable storage.
-- [ ] Contract update proving Route 3, service comments, and staging assertions
+- [x] Contract update proving Route 3, service comments, and staging assertions
       no longer promise byte-identical credential-bearing replay.
 - [ ] `already_committed` replay test proving no credential fabrication and
       successor exact unlock retirement.
