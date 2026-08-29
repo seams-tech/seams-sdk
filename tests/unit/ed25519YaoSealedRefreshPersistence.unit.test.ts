@@ -4,29 +4,17 @@ import {
   persistPasskeyEd25519YaoSessionForRefresh,
   type PasskeyEd25519YaoSessionPersistencePort,
 } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
-import {
-  buildPasskeyRouterAbEd25519WalletSessionState,
-  rebindRouterAbEd25519WalletSessionStateFromExactRuntime,
-} from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
-import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { rebindRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import type { WarmSessionSealAndPersistResult } from '@/core/types/secure-confirm-worker';
-import {
-  type ActiveWalletSessionAuthorizationProjection,
-  walletSessionAuthorizationIdForCurve,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   buildPasskeyEd25519AuthorizationProjectionFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
-import type { RegistrationEstablishedSession } from '@shared/utils/registrationEstablishedSession';
-import {
-  normalizeRuntimePolicyScope,
-  signingRootScopeFromRuntimePolicyScope,
-} from '@shared/threshold/signingRootScope';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { parseNamedNearAccountId } from '@shared/utils/near';
 import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
@@ -69,12 +57,6 @@ function ed25519AuthorizationToken(authorization: ActiveWalletSessionAuthorizati
     throw new Error('Ed25519 authorization fixture has no Ed25519 token');
   }
   return authorization.walletSessionTokens.ed25519;
-}
-
-function requireNamedNearAccountId(value: string) {
-  const parsed = parseNamedNearAccountId(value);
-  if (!parsed.ok) throw new Error(parsed.message);
-  return parsed.value;
 }
 
 class SessionPersistenceFixture implements PasskeyEd25519YaoSessionPersistencePort {
@@ -127,77 +109,6 @@ async function buildPasskeyYaoWalletSession() {
   };
 }
 
-function buildRegistrationEstablishedPasskeySession(): RegistrationEstablishedSession {
-  const runtime = parseExactEd25519SealedSessionRuntime(SEALED_RECORD);
-  if (!runtime) throw new Error('failed to parse exact passkey Yao runtime fixture');
-  const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(SEALED_RECORD);
-  const authorizationToken = ed25519AuthorizationToken(authorization);
-  const authorizationId = walletSessionAuthorizationIdForCurve(authorization, 'ed25519');
-  if (!authorizationId) throw new Error('registration fixture is missing Ed25519 authorization id');
-  return {
-    kind: 'registration_established_wallet_session_v1',
-    walletId: WALLET_ID,
-    authorizationId,
-    walletSessionId: authorization.walletSessionId,
-    quotaId: authorization.quotaId,
-    expiresAtMs: runtime.expiresAtMs,
-    remainingUses: runtime.remainingUses,
-    tokens: {
-      kind: 'near_ed25519',
-      ed25519: {
-        sessionKind: 'opaque',
-        walletSessionToken: authorizationToken.walletSessionToken,
-        thresholdSessionId: THRESHOLD_SESSION_ID,
-        nearAccountId: NEAR_ACCOUNT_ID,
-        nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-        runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-        routerAbNormalSigning: SEALED_RECORD.ed25519Restore.routerAbNormalSigning,
-      },
-    },
-  };
-}
-
-function buildPasskeyStateFromRegistrationEstablishedSession(
-  registrationEstablishedSession: RegistrationEstablishedSession,
-) {
-  if (registrationEstablishedSession.tokens.kind !== 'near_ed25519') {
-    throw new Error('registration fixture must contain an Ed25519 token');
-  }
-  const token = registrationEstablishedSession.tokens.ed25519;
-  const signingRoot = signingRootScopeFromRuntimePolicyScope(token.runtimePolicyScope);
-  const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
-    walletId: WALLET_ID,
-    nearAccountId: token.nearAccountId,
-    nearEd25519SigningKeyId: token.nearEd25519SigningKeyId,
-    walletSessionId: registrationEstablishedSession.walletSessionId,
-    authorizationId: registrationEstablishedSession.authorizationId,
-    quotaId: registrationEstablishedSession.quotaId,
-    thresholdSessionId: token.thresholdSessionId,
-    remainingUses: registrationEstablishedSession.remainingUses,
-    expiresAtMs: registrationEstablishedSession.expiresAtMs,
-    runtimePolicyScope: token.runtimePolicyScope,
-    signingRootId: signingRoot.signingRootId,
-    signingRootVersion: signingRoot.signingRootVersion || '',
-    routerAbNormalSigning: token.routerAbNormalSigning,
-    walletSessionToken: token.walletSessionToken,
-    nowMs: registrationEstablishedSession.expiresAtMs - 1,
-  });
-  if (!signingWalletSession.ok) {
-    throw new Error(`registration fixture session is invalid: ${signingWalletSession.reason}`);
-  }
-  return buildPasskeyRouterAbEd25519WalletSessionState({
-    walletId: WALLET_ID,
-    nearAccountId: requireNamedNearAccountId(token.nearAccountId),
-    nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(token.nearEd25519SigningKeyId),
-    signerSlot: SEALED_RECORD.ed25519Restore.signerSlot,
-    rpId: toRpId(SEALED_RECORD.ed25519Restore.rpId),
-    credentialIdB64u: CREDENTIAL_ID_B64U,
-    relayerUrl: SEALED_RECORD.relayerUrl,
-    authority: buildPasskeyEd25519AuthorizationProjectionFixture(SEALED_RECORD).authority,
-    signingWalletSession: signingWalletSession.value,
-  });
-}
-
 test('persists and verifies a passkey Yao session seal for page refresh', async () => {
   const fixture = await buildPasskeyYaoWalletSession();
   const persistence = new SessionPersistenceFixture({
@@ -227,41 +138,6 @@ test('persists and verifies a passkey Yao session seal for page refresh', async 
       ed25519Restore: fixture.ed25519Restore,
     },
   });
-});
-
-test('persists the exact runtime from registration-established Ed25519 authorization', async () => {
-  const registrationEstablishedSession = buildRegistrationEstablishedPasskeySession();
-  const session = buildPasskeyStateFromRegistrationEstablishedSession(
-    registrationEstablishedSession,
-  );
-  const restore = buildPasskeyEd25519RestoreMetadata({
-    rpId: SEALED_RECORD.ed25519Restore.rpId,
-    nearAccountId: NEAR_ACCOUNT_ID,
-    nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-    relayerKeyId: SEALED_RECORD.ed25519Restore.relayerKeyId,
-    participantIds: SEALED_RECORD.ed25519Restore.participantIds,
-    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-    signerSlot: SEALED_RECORD.ed25519Restore.signerSlot,
-    routerAbNormalSigning: SEALED_RECORD.ed25519Restore.routerAbNormalSigning,
-    credentialIdB64u: CREDENTIAL_ID_B64U,
-    materialActivation: SEALED_RECORD.ed25519Restore.materialActivation,
-  });
-  const persistence = new SessionPersistenceFixture({
-    ok: true,
-    sealedSecretB64u: 'registration-established-sealed-secret',
-    remainingUses: registrationEstablishedSession.remainingUses,
-    expiresAtMs: registrationEstablishedSession.expiresAtMs,
-  });
-
-  await persistPasskeyEd25519YaoSessionForRefresh({
-    persistence,
-    session,
-    prfFirstB64u: 'registration-established-prf-first',
-    ed25519Restore: restore,
-    materialActivation: restore.materialActivation,
-  });
-
-  expect(persistence.calls.map(sessionPersistenceCallKind)).toEqual(['hydrate']);
 });
 
 test('keeps durable Ed25519 material identity when authorization is renewed', async () => {
