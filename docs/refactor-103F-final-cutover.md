@@ -990,26 +990,26 @@ Primary files:
 
 ### I7 — Hosted and management request boundaries (B10, B15)
 
-- [ ] Back hosted issue and redemption with an origin-bound V2 child credential
+- [x] Back hosted issue and redemption with an origin-bound V2 child credential
       that resolves one parent, shares its quota, and preserves the primary.
-- [ ] Give primary and child credentials separate nominal types, `wst_`/`wsh_`
+- [x] Give primary and child credentials separate nominal types, `wst_`/`wsh_`
       encodings, parsers, tables, and lookup branches.
-- [ ] Make hosted issue accept `{ appOrigin, walletOrigin }`, redemption accept
+- [x] Make hosted issue accept `{ appOrigin, walletOrigin }`, redemption accept
       `{ exchangeCode, nonce, appOrigin, walletOrigin }`, and success return the
       parent Wallet Session ID, one hosted child credential, and its expiry.
-- [ ] Remove `curve` and `walletSessionToken` from exact hosted wire shapes.
-- [ ] Require issue request Origin to equal `appOrigin`.
-- [ ] Require requested `walletOrigin` to equal authenticated tenant wallet-origin
+- [x] Remove `curve` and `walletSessionToken` from exact hosted wire shapes.
+- [x] Require issue request Origin to equal `appOrigin`.
+- [x] Require requested `walletOrigin` to equal authenticated tenant wallet-origin
       metadata or a server allowlist entry.
-- [ ] Require redemption and child-authorized HTTP Origin to equal stored
+- [x] Require redemption and child-authorized HTTP Origin to equal stored
       `walletOrigin`, and all supplied origins to equal the exchange row.
-- [ ] Cache a hosted child in the iframe only when adopted parent origin equals
+- [x] Cache a hosted child in the iframe only when adopted parent origin equals
       stored `appOrigin`.
-- [ ] Add the parent composite foreign key and unique child digest.
-- [ ] Retire hosted children during parent replacement, explicit retirement,
+- [x] Add the parent composite foreign key and unique child digest.
+- [x] Retire hosted children during parent replacement, explicit retirement,
       method revocation, and authority revocation; enforce parent expiry during
       resolution.
-- [ ] Convert the iframe hosted-session cache from per-curve token maps to one
+- [x] Convert the iframe hosted-session cache from per-curve token maps to one
       audience-bound child credential.
 - [x] Convert Email factor-release `wallet_session` admission. The route admits
       one exact active Email OTP method whose normalized email hash matches the
@@ -1095,9 +1095,9 @@ Convert every reader or legacy writer:
 - [ ] `login.ts`;
 - [ ] registration legacy persistence in `registration.ts`;
 - [ ] recovery/sync legacy persistence in `syncAccount.ts`;
-- [ ] `SigningSessionCoordinator.ts`;
+- [x] `SigningSessionCoordinator.ts`;
 - [ ] `PasskeyMpcSessionManager.ts`;
-- [ ] `session/availability/readiness.ts`;
+- [x] `session/availability/readiness.ts`;
 - [x] `clientSessionPersistence.ts`;
 - [x] `ecdsaLoginPrefill.ts`;
 - [x] `routerAbEd25519WalletSessionState.ts`;
@@ -1331,7 +1331,7 @@ remaining consumers are converted.
 - [ ] Convert method and authority revocation plus same-method replacement to
       atomic exact retirement.
 - [ ] Convert every route in the route policy matrix.
-- [ ] Implement hosted child credentials and exact parent lifecycle handling.
+- [x] Implement hosted child credentials and exact parent lifecycle handling.
 - [ ] Update material promotion and exact status readback.
 
 Exit: every server session is direct V2, and core server services receive only
@@ -1447,7 +1447,7 @@ Remaining causal baseline work:
 - [ ] `tests/unit/d1AuthorizationCore.unit.test.ts`
 - [x] `tests/unit/d1OwnerProofWalletSessionIssuance.unit.test.ts`
 - [x] `tests/unit/d1WalletAuthMethodStore.unit.test.ts`
-- [ ] `tests/unit/d1WalletSessionAuthMethodProvenance.unit.test.ts`
+- [x] `tests/unit/d1WalletSessionAuthMethodProvenance.unit.test.ts`
 - [ ] `tests/unit/linkedDeviceManagement.unit.test.ts`
 - [ ] `tests/unit/walletSessionAuthorizationStatus.unit.test.ts`
 - [x] `tests/unit/walletSessionStatusExactAdmission.unit.test.ts`, proving the
