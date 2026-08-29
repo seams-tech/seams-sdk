@@ -1527,59 +1527,6 @@ export class CloudflareD1AuthorizationStore
     });
   }
 
-  async putWalletSessionAuthorizationV2OperationCredential(input: {
-    readonly session: WalletSessionAuthorizationV2;
-    readonly tokenHash: import('@shared/utils/canonicalPrimitives').DigestB64u;
-  }): Promise<void> {
-    const result = await this.database
-      .prepare(
-        `UPDATE wallet_session_authorizations_v2
-            SET operation_credential_hash = ?
-          WHERE namespace = ?
-            AND org_id = ?
-            AND project_id = ?
-            AND env_id = ?
-            AND tenant_id = ?
-            AND authorization_id = ?
-            AND mint_id = ?
-            AND wallet_session_id = ?
-            AND quota_id = ?
-            AND principal_id = ?
-            AND wallet_id = ?
-            AND authority_id = ?
-            AND wallet_auth_method_id = ?
-            AND authority_digest_b64u = ?
-            AND authority_revocation_epoch = ?
-            AND issued_at_ms = ?
-            AND expires_at_ms = ?
-            AND retired_at_ms IS NULL`,
-      )
-      .bind(
-        input.tokenHash,
-        this.namespace,
-        this.walletSignerScope.orgId,
-        this.walletSignerScope.projectId,
-        this.walletSignerScope.envId,
-        input.session.tenantId,
-        String(input.session.authorizationId),
-        String(input.session.mintId),
-        String(input.session.walletSessionId),
-        String(input.session.quotaId),
-        String(input.session.principalId),
-        String(input.session.walletId),
-        String(input.session.authorityId),
-        String(input.session.walletAuthMethodId),
-        String(input.session.authorityDigestB64u),
-        input.session.authorityRevocationEpoch,
-        requirePositiveInteger(input.session.createdAtMs, 'V2 session.createdAtMs'),
-        requirePositiveInteger(input.session.expiresAtMs, 'V2 session.expiresAtMs'),
-      )
-      .run();
-    if (d1ChangedRows(result) !== 1) {
-      throw new Error('V2 Wallet Session operation credential binding was not persisted');
-    }
-  }
-
   private async existingWalletSessionAuthorizationV2QuotaMatches(
     quota: ActiveWalletSessionQuota,
   ): Promise<boolean> {

@@ -129,10 +129,6 @@ export interface AuthorizationGrantPort {
     readonly authorizationId: WalletSessionAuthorizationId;
     readonly nowMs: number;
   }): Promise<IssuedWalletSessionAuthorizationV2 | null>;
-  putWalletSessionAuthorizationV2OperationCredential(input: {
-    readonly session: WalletSessionAuthorizationV2;
-    readonly tokenHash: DigestB64u;
-  }): Promise<void>;
   readWalletSessionAuthorizationV2ByOperationCredential(input: {
     readonly tenantId: TenantId;
     readonly tokenHash: DigestB64u;
@@ -433,26 +429,6 @@ export class AuthorizationService {
       session: prepared.session,
       quota: prepared.quota,
       operationCredential,
-    };
-  }
-
-  /**
-   * Issues the separately transported ordinary-operation bearer. The digest is
-   * persisted against the exact V2 authorization row; the plaintext remains
-   * in the activation/unlock response only.
-   */
-  async issueWalletSessionAuthorizationV2OperationCredential(input: {
-    readonly session: WalletSessionAuthorizationV2;
-  }): Promise<WalletSessionOperationCredentialV1> {
-    const token = `wst_${secureRandomBase64Url(32, 'V2 Wallet Session operation credentials')}`;
-    await this.ports.grants.putWalletSessionAuthorizationV2OperationCredential({
-      session: input.session,
-      tokenHash: await digestOpaqueValue(token),
-    });
-    return {
-      kind: 'opaque_wallet_session_operation_credential_v1',
-      token,
-      walletSessionId: input.session.walletSessionId,
     };
   }
 

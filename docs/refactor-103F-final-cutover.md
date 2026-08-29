@@ -633,9 +633,9 @@ Primary files:
 - [x] Delete `issueWalletSessionAuthorizationV2FromReusableSession`.
 - [x] Delete `refreshWalletSessionAuthorizationV2FromReusableSession`.
 - [x] Delete `projectReusableWalletSessionV2` and its projection types.
-- [ ] Replace separate session and credential writers with one issuer that
+- [x] Replace separate session and credential writers with one issuer that
       prepares `{ session, quota, primaryCredential, credentialDigest }`.
-- [ ] Delete `putWalletSessionAuthorizationV2OperationCredential` and
+- [x] Delete `putWalletSessionAuthorizationV2OperationCredential` and
       `issueWalletSessionAuthorizationV2OperationCredential`; no production API
       may update `operation_credential_hash` after session insertion.
 - [x] Persist the session, quota, and primary digest in one batch or owning
