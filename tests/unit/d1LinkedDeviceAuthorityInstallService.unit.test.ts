@@ -97,7 +97,9 @@ type HarnessOptions = {
   readonly deviceId?: string;
   readonly authorizationService?: Pick<
     AuthorizationService,
-    'prepareWalletSessionAuthorizationV2' | 'issueWalletSessionAuthorizationV2'
+    | 'prepareWalletSessionAuthorizationV2'
+    | 'issueWalletSessionAuthorizationV2'
+    | 'issueWalletSessionAuthorizationV2OperationCredential'
   >;
   readonly authorizationStore?: D1LinkedDeviceAuthorityInstallServiceOptionsV1['authorizationStore'];
   readonly materialActivation?: D1LinkedDeviceAuthorityInstallServiceOptionsV1['materialActivation'];
@@ -621,6 +623,7 @@ async function buildHarness(
     authorizationService: options.authorizationService ?? {
       prepareWalletSessionAuthorizationV2: unsupportedAuthorizationOperation,
       issueWalletSessionAuthorizationV2: unsupportedAuthorizationOperation,
+      issueWalletSessionAuthorizationV2OperationCredential: unsupportedAuthorizationOperation,
     },
     authorizationStore: options.authorizationStore ?? {
       prepareWalletSessionAuthorizationV2Statements: unsupportedAuthorizationStatements,
