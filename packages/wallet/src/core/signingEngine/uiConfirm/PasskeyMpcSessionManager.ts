@@ -54,7 +54,9 @@ import { restorePasskeyEcdsaSealedRecordForWallet } from '../session/passkey/ecd
 import { parseSigningSessionSealKeyVersion } from '../session/keyMaterialBrands';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
+import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -62,9 +64,10 @@ import {
 import { PasskeyMpcSessionDurableState } from './PasskeyMpcSessionDurableState';
 import {
   walletSessionAuthorizations,
-  walletSessionTokenForCurve,
-  type ActiveWalletSessionAuthorizationProjection,
+  type ActiveWalletSessionV1,
+  type WalletSessionOperationCredentialV1,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { IndexedDBManager } from '@/core/indexedDB';
 import { toWalletId } from '../interfaces/ecdsaChainTarget';
 import {
   resolveThresholdEcdsaSigningQueueKey,
@@ -124,7 +127,6 @@ function requirePasskeyEcdsaRestoreOutcome(
 
 async function passkeyEcdsaRestoreMetadataFromRecoveryRecord(
   record: Extract<SealedRecoveryRecord, { authMethod: 'passkey' }>,
-  authorization: ActiveWalletSessionAuthorizationProjection,
 ): Promise<Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }>> {
   return {
     chainTarget: record.chainTarget,
@@ -146,6 +148,77 @@ async function passkeyEcdsaRestoreMetadataFromRecoveryRecord(
     routerAbEcdsaDerivationNormalSigning: record.routerAbEcdsaDerivationNormalSigning,
     publicCapability: record.publicCapability,
   };
+}
+
+function hasExactEcdsaSigningSubject(args: {
+  session: ActiveWalletSessionV1;
+  materialActivation: MpcMaterialActivationRef;
+}): boolean {
+  return args.session.capabilitySubjects.some(
+    (subject) =>
+      subject.kind === 'sign' &&
+      subject.keyFamily === 'ecdsa_secp256k1' &&
+      mpcMaterialActivationRefsEqual(subject.materialActivation, args.materialActivation),
+  );
+}
+
+async function readExactPasskeyRestoreCredential(args: {
+  walletId: string;
+  factorAuthority: PasskeyWalletAuthAuthority;
+  materialActivation: MpcMaterialActivationRef;
+  nowMs: number;
+}): Promise<WalletSessionOperationCredentialV1 | null> {
+  const walletId = toWalletId(args.walletId);
+  let selected: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
+  try {
+    selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+  } catch {
+    return null;
+  }
+  if (selected.kind !== 'resolved') return null;
+  const { selection, authMethod, authority } = selected;
+  if (
+    selection.lockState !== 'unlocked' ||
+    selection.walletId !== walletId ||
+    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    authMethod.kind !== 'passkey' ||
+    authMethod.status !== 'active' ||
+    authMethod.walletId !== walletId ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    authMethod.walletAuthMethodId !== args.factorAuthority.bindingId ||
+    authMethod.rpId !== args.factorAuthority.verifier.rpId ||
+    authMethod.credentialIdB64u !== args.factorAuthority.factor.credentialIdB64u ||
+    authority.state !== 'active' ||
+    authority.walletId !== walletId
+  ) {
+    return null;
+  }
+  let read: Awaited<ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>>;
+  try {
+    read = await walletSessionAuthorizations.readExactWithOperationCredential({
+      walletId,
+      authorityId: authority.authorityId,
+      authMethodId: authMethod.walletAuthMethodId,
+    });
+  } catch {
+    return null;
+  }
+  if (
+    read.kind !== 'found' ||
+    read.record.walletId !== walletId ||
+    read.record.authorityId !== authority.authorityId ||
+    read.record.authMethodId !== authMethod.walletAuthMethodId ||
+    read.record.authorityDigestB64u !== authority.authorityDigestB64u ||
+    read.record.authorityRevocationEpoch !== authority.revocationEpoch ||
+    read.record.expiresAtMs <= args.nowMs ||
+    !hasExactEcdsaSigningSubject({
+      session: read.record,
+      materialActivation: args.materialActivation,
+    })
+  ) {
+    return null;
+  }
+  return read.operationCredential;
 }
 
 async function deleteInvalidPasskeyEcdsaRecord(args: {
@@ -568,27 +641,15 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
     });
     if (!lease) return null;
     try {
-      const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
-        toWalletId(args.walletId),
-      );
-      const expectedAuthority = await walletAuthAuthorityRef({ authority: args.record.authority });
-      if (
-        authorizationRead.kind !== 'found' ||
-        authorizationRead.projection.authMethod !== 'passkey' ||
-        authorizationRead.projection.walletId !== toWalletId(args.walletId) ||
-        authorizationRead.projection.authority.authorityDigest !==
-          expectedAuthority.authorityDigest ||
-        authorizationRead.projection.expiresAtMs <= Date.now()
-      ) {
-        return null;
-      }
-      const authorization = authorizationRead.projection;
-      const ecdsaRestore = await passkeyEcdsaRestoreMetadataFromRecoveryRecord(
-        args.record,
-        authorization,
-      );
-      const walletSessionToken = walletSessionTokenForCurve(authorization, 'ecdsa');
-      if (!walletSessionToken) return null;
+      const operationCredential = await readExactPasskeyRestoreCredential({
+        walletId: args.walletId,
+        factorAuthority: args.record.authority,
+        materialActivation: args.purpose.materialActivation,
+        nowMs: Date.now(),
+      });
+      if (!operationCredential) return null;
+      const ecdsaRestore = await passkeyEcdsaRestoreMetadataFromRecoveryRecord(args.record);
+      const walletSessionToken = operationCredential.token;
       const restoreWalletId = String(ecdsaRestore.authority.walletId).trim();
       if (!restoreWalletId || restoreWalletId !== String(args.walletId).trim()) return null;
       const groupId = String(args.record.groupId || '').trim();
