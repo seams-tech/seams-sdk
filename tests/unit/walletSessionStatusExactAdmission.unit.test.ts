@@ -48,7 +48,6 @@ function quotaProjection(
 
 class WalletSessionStatusHarness {
   exactStatusReads = 0;
-  legacyCredentialReads = 0;
 
   constructor(readonly status: ExactWalletSessionStatusV2) {}
 
@@ -57,10 +56,6 @@ class WalletSessionStatusHarness {
     return this.status;
   }
 
-  async readLegacyCredential(): Promise<null> {
-    this.legacyCredentialReads += 1;
-    return null;
-  }
 }
 
 async function invokeStatus(input: {
@@ -92,9 +87,6 @@ async function invokeStatus(input: {
         readExactWalletSessionStatusByOperationCredential: input.harness.readExactStatus.bind(
           input.harness,
         ),
-        readWalletSessionAuthorizationV2ByOperationCredential:
-          input.harness.readLegacyCredential.bind(input.harness),
-        resolveOpaqueWalletSessionToken: input.harness.readLegacyCredential.bind(input.harness),
       },
     },
   } as unknown as FetchRouterApiContext);
@@ -161,7 +153,6 @@ test('Wallet Session status returns the exact authorization quota projection', a
   expect(JSON.stringify(body)).not.toContain('operationCredential');
   expect(JSON.stringify(body)).not.toContain('primaryOperationCredentialDigestB64u');
   expect(harness.exactStatusReads).toBe(1);
-  expect(harness.legacyCredentialReads).toBe(0);
 });
 
 const OBSERVED_WIRE_CASES: readonly {
@@ -231,7 +222,6 @@ test('Wallet Session status rejects a different exact tuple', async () => {
     ok: false,
     code: 'wallet_session_scope_mismatch',
   });
-  expect(harness.legacyCredentialReads).toBe(0);
 });
 
 test('Wallet Session status rejects a quota identity the authorization does not own', async () => {
@@ -291,7 +281,6 @@ test('Wallet Session status returns invalid for missing exact state', async () =
   expect(response.status).toBe(200);
   await expect(response.json()).resolves.toMatchObject({ ok: true, status: 'invalid' });
   expect(harness.exactStatusReads).toBe(1);
-  expect(harness.legacyCredentialReads).toBe(0);
 });
 
 test('Wallet Session status requires a presented operation credential', async () => {

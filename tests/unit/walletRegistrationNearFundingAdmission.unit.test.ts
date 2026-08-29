@@ -79,7 +79,6 @@ async function exactFundingAdmission(): Promise<{
 
 class NearFundingAdmissionHarness {
   exactReads = 0;
-  legacyReads = 0;
   fundCalls = 0;
 
   constructor(
@@ -89,11 +88,6 @@ class NearFundingAdmissionHarness {
   async readExact(): Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null> {
     this.exactReads += 1;
     return this.exactContext;
-  }
-
-  async resolveLegacy(): Promise<null> {
-    this.legacyReads += 1;
-    return null;
   }
 
   async fund(input: { readonly walletId: string; readonly nearAccountId: string }): Promise<{
@@ -131,7 +125,6 @@ function routeInput(input: {
         tenantId: 'tenant:management',
         readWalletSessionAuthorizationV2ByOperationCredential:
           input.harness.readExact.bind(input.harness),
-        resolveOpaqueWalletSessionToken: input.harness.resolveLegacy.bind(input.harness),
       },
       walletRegistration: {
         fundImplicitNearAccount: input.harness.fund.bind(input.harness),
@@ -154,7 +147,6 @@ test('implicit NEAR funding derives wallet and account from one exact operation 
 
   expect(response.status).toBe(200);
   expect(harness.exactReads).toBe(1);
-  expect(harness.legacyReads).toBe(0);
   expect(harness.fundCalls).toBe(1);
 });
 
@@ -173,7 +165,6 @@ test('implicit NEAR funding rejects a different signer before funding', async ()
 
   expect(response.status).toBe(403);
   expect(harness.exactReads).toBe(1);
-  expect(harness.legacyReads).toBe(0);
   expect(harness.fundCalls).toBe(0);
 });
 
@@ -191,6 +182,5 @@ test('implicit NEAR funding rejects missing exact state without legacy lookup', 
 
   expect(response.status).toBe(401);
   expect(harness.exactReads).toBe(1);
-  expect(harness.legacyReads).toBe(0);
   expect(harness.fundCalls).toBe(0);
 });

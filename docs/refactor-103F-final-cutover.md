@@ -605,10 +605,10 @@ input, or invents a new layer is deferred until its operating path works.
 - [x] Delete `revokeReusableWalletSessionsForAuthMethod` and its prepared SQL
       statement builder; exact auth-method retirement now targets V2
       authorizations directly.
-- [ ] Delete `putOpaqueWalletSessionToken`.
-- [ ] Delete `readOpaqueWalletSessionToken`.
-- [ ] Delete `readOpaqueWalletSessionTokenByIdentity`.
-- [ ] Delete `issueOpaqueWalletSessionToken` and
+- [x] Delete `putOpaqueWalletSessionToken`.
+- [x] Delete `readOpaqueWalletSessionToken`.
+- [x] Delete `readOpaqueWalletSessionTokenByIdentity`.
+- [x] Delete `issueOpaqueWalletSessionToken` and
       `resolveOpaqueWalletSessionToken` from the service and route port.
 - [ ] Delete `ResolvedOpaqueWalletSessionToken`, legacy curve-binding types,
       and pre-provenance runtime branches that depend on those APIs.
@@ -1488,7 +1488,9 @@ Remaining causal baseline work:
 #### Existing focused test inventory
 
 - [x] `tests/unit/d1AuthorizationCore.unit.test.ts`
-- [x] `tests/unit/d1OwnerProofWalletSessionIssuance.unit.test.ts`
+- [x] Delete obsolete
+      `tests/unit/d1OwnerProofWalletSessionIssuance.unit.test.ts`; its only
+      invariant was issuance through the retired opaque-token service.
 - [x] `tests/unit/d1WalletAuthMethodStore.unit.test.ts`
 - [x] `tests/unit/d1WalletSessionAuthMethodProvenance.unit.test.ts`
 - [x] `tests/unit/linkedDeviceManagement.unit.test.ts`

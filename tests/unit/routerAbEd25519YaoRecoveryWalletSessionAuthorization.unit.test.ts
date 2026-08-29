@@ -249,28 +249,14 @@ async function unsupportedAuthorizationSessionOperation(): Promise<never> {
   throw new Error('authorization session operation is outside this test boundary');
 }
 
-async function noOpaqueWalletSession(): Promise<null> {
-  return null;
-}
-
 class AuthorizationSessionsFixture implements RouterApiAuthorizationSessionService {
   readonly tenantId: RouterApiAuthorizationSessionService['tenantId'];
   exactReads = 0;
-  opaqueReads = 0;
 
   constructor(
     private readonly exactContext: RouterApiWalletSessionAuthorizationV2AdmissionContext | null,
   ) {
     this.tenantId = exactContext?.authorization.session.tenantId ?? requireTenantId();
-  }
-
-  async issueOpaqueWalletSessionToken(): Promise<never> {
-    return await unsupportedAuthorizationSessionOperation();
-  }
-
-  async resolveOpaqueWalletSessionToken() {
-    this.opaqueReads += 1;
-    return await noOpaqueWalletSession();
   }
 
   async readWalletSessionAuthorizationV2ByOperationCredential(): Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null> {
@@ -479,7 +465,6 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
       message: 'wallet recovery admission is unavailable',
     });
     expect(reader.calls).toHaveLength(0);
-    expect(authorizationSessions.opaqueReads).toBe(0);
   });
 
   test('rejects an unknown or spent durable challenge', async () => {
@@ -609,7 +594,6 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
       });
     }
     expect(reader.calls).toHaveLength(0);
-    expect(authorizationSessions.opaqueReads).toBe(0);
   });
 
   test('authorizes warm recovery from the exact Ed25519 operation credential and active material', async () => {
@@ -640,7 +624,6 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
       authorization: { kind: 'wallet_session_v2', context: exactContext },
     });
     expect(authorizationSessions.exactReads).toBe(1);
-    expect(authorizationSessions.opaqueReads).toBe(0);
     expect(materialResolver.calls).toEqual([
       {
         walletId: WALLET_ID,
@@ -671,7 +654,6 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
       message: 'Wallet Session is invalid',
     });
     expect(authorizationSessions.exactReads).toBe(1);
-    expect(authorizationSessions.opaqueReads).toBe(0);
   });
 
   test('rejects warm recovery when the request substitutes the active threshold session', async () => {
@@ -709,7 +691,6 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
       code: 'wallet_session_scope_mismatch',
     });
     expect(authorizationSessions.exactReads).toBe(1);
-    expect(authorizationSessions.opaqueReads).toBe(0);
   });
 
   test('does not accept the removed JWT admission path', async () => {

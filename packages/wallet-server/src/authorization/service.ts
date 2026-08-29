@@ -168,19 +168,6 @@ export interface AuthorizationGrantPort {
     readonly tokenHash: DigestB64u;
     readonly nowMs: number;
   }): Promise<ExactWalletSessionStatusV2>;
-  putOpaqueWalletSessionToken(input: {
-    readonly tokenHash: DigestB64u;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly binding: OpaqueOwnerWalletSessionBinding;
-    readonly tenantId: TenantId;
-    readonly walletSessionId: WalletSessionId;
-  }): Promise<void>;
-  readOpaqueWalletSessionToken(input: {
-    readonly tenantId: TenantId;
-    readonly tokenHash: DigestB64u;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly nowMs: number;
-  }): Promise<ResolvedOpaqueWalletSessionToken | null>;
 }
 
 export interface AuthorizedOperationPort {
@@ -253,8 +240,6 @@ export type IssueDirectWalletSessionAuthorizationV2Input =
     readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
     readonly responseFamily: WalletSessionIssuanceResponseFamilyV1;
   };
-
-export type OpaqueWalletSessionCurve = 'ecdsa' | 'ed25519';
 
 /** Trusted, curve-local data retained for an opaque owner Wallet Session. */
 export type OpaqueOwnerWalletSessionBinding =
@@ -498,40 +483,9 @@ export function parseOpaqueOwnerWalletSessionBinding(
   }
 }
 
-export type IssuedOpaqueWalletSessionToken = {
-  readonly kind: 'opaque_wallet_session_token';
-  readonly token: string;
-  readonly curve: OpaqueWalletSessionCurve;
-  readonly expiresAtMs: number;
-};
-
 export type PreparedWalletSessionAuthorizationV2 = {
   readonly session: WalletSessionAuthorizationV2;
   readonly quota: ActiveWalletSessionQuota;
-};
-
-export type ResolvedOpaqueWalletSessionToken = {
-  readonly kind: 'resolved_opaque_wallet_session_token';
-  readonly curve: OpaqueWalletSessionCurve;
-  readonly binding: OpaqueOwnerWalletSessionBinding;
-  readonly authorization: {
-    readonly tenantId: TenantId;
-    readonly principalId: PrincipalId;
-    readonly walletId: WalletId;
-    readonly authorityDigest: DigestB64u;
-    /**
-     * Which wallet auth method issued this session, when the row records one.
-     *
-     * Null for sessions minted before provenance was persisted: they are
-     * unattributed and cannot be fenced by binding, so they run out on their
-     * own clock instead. Everything minted since carries its issuer.
-     */
-    readonly walletAuthMethodId: WalletAuthMethodId | null;
-    readonly authorizationId: WalletSessionAuthorizationId;
-    readonly walletSessionId: WalletSessionId;
-    readonly quotaId: MpcWalletSigningQuotaId;
-    readonly expiresAtMs: number;
-  };
 };
 
 export class AuthorizationService {
@@ -944,80 +898,6 @@ export class AuthorizationService {
       tenantId: input.tenantId,
       tokenHash: await digestOpaqueValue(input.token),
       requestOrigin: input.requestOrigin,
-      nowMs: input.nowMs,
-    });
-  }
-
-  async issueOpaqueWalletSessionToken(input: {
-    readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
-    readonly tenantId: TenantId;
-    readonly authorizationId: WalletSessionAuthorizationId;
-    readonly walletSessionId: WalletSessionId;
-    readonly quotaId: MpcWalletSigningQuotaId;
-    readonly expiresAtMs: number;
-    readonly consumedAtMs: number;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly binding: OpaqueOwnerWalletSessionBinding;
-  }): Promise<IssuedOpaqueWalletSessionToken> {
-    if (input.proof.tenantId !== input.tenantId) {
-      throw new Error('owner proof does not match the opaque Wallet Session tenant');
-    }
-    if (
-      input.binding.curve !== input.curve ||
-      input.binding.authorizationId !== input.authorizationId ||
-      input.binding.walletSessionId !== input.walletSessionId ||
-      input.binding.quotaId !== input.quotaId ||
-      input.binding.thresholdExpiresAtMs !== input.expiresAtMs
-    ) {
-      throw new Error('opaque Wallet Session binding does not match its authorization');
-    }
-    const consumedAtMs = requirePositiveTimestamp(
-      input.consumedAtMs,
-      'owner proof consumption time',
-    );
-    if (
-      input.proof.verifiedAtMs > consumedAtMs ||
-      input.proof.expiresAtMs <= consumedAtMs ||
-      input.expiresAtMs <= consumedAtMs
-    ) {
-      throw new Error('owner proof or Wallet Session expiry is invalid');
-    }
-    const bindingJson = JSON.stringify(input.binding);
-    if (!bindingJson || bindingJson === '{}') {
-      throw new Error('opaque Wallet Session binding is required');
-    }
-    const consumed = await this.ports.evidence.consumeVerifiedOwnerProof(
-      input.proof,
-      consumedAtMs,
-      String(input.walletSessionId),
-    );
-    if (!consumed) throw new Error('owner proof has already been consumed');
-    const token = `wst_${secureRandomBase64Url(32, 'opaque Wallet Session tokens')}`;
-    await this.ports.grants.putOpaqueWalletSessionToken({
-      tokenHash: await digestOpaqueValue(token),
-      curve: input.curve,
-      binding: input.binding,
-      tenantId: input.tenantId,
-      walletSessionId: input.walletSessionId,
-    });
-    return {
-      kind: 'opaque_wallet_session_token',
-      token,
-      curve: input.curve,
-      expiresAtMs: input.expiresAtMs,
-    };
-  }
-
-  async resolveOpaqueWalletSessionToken(input: {
-    readonly tenantId: TenantId;
-    readonly token: string;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly nowMs: number;
-  }): Promise<ResolvedOpaqueWalletSessionToken | null> {
-    return await this.ports.grants.readOpaqueWalletSessionToken({
-      tenantId: input.tenantId,
-      tokenHash: await digestOpaqueValue(input.token),
-      curve: input.curve,
       nowMs: input.nowMs,
     });
   }

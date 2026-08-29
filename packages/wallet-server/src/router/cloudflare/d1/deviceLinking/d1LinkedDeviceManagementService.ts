@@ -25,7 +25,7 @@ export function createD1LinkedDeviceManagementServiceV1(input: {
   readonly walletSessionAuthorizations: Pick<
     CloudflareD1AuthorizationStore,
     | 'readActiveWalletSessionAuthorizationV2ByIdentity'
-    | 'prepareRevokeReusableWalletSessionsForAuthority'
+    | 'prepareRetireWalletSessionAuthorizationsV2ForAuthority'
   >;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly materialDeactivation?: OrdinaryInactiveSignerMaterialDeactivationPortV1;
@@ -79,7 +79,7 @@ function authorityPortV1(input: {
   readonly tenantId: TenantId;
   readonly walletSessionAuthorizations: Pick<
     CloudflareD1AuthorizationStore,
-    'prepareRevokeReusableWalletSessionsForAuthority'
+    'prepareRetireWalletSessionAuthorizationsV2ForAuthority'
   >;
 }): ConstructorParameters<typeof LinkedDeviceManagementServiceV1>[0]['authority'] {
   return {
@@ -116,7 +116,7 @@ function authorityPortV1(input: {
       await input.store.revokeWalletAuthMethod({
         ...request,
         sessionRevocationStatements:
-          input.walletSessionAuthorizations.prepareRevokeReusableWalletSessionsForAuthority({
+          input.walletSessionAuthorizations.prepareRetireWalletSessionAuthorizationsV2ForAuthority({
             tenantId: input.tenantId,
             walletId: request.walletId,
             authorityId: request.authorityId,

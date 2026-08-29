@@ -304,7 +304,6 @@ async function unsupportedAuthorizedOperationOperation(): Promise<never> {
 
 class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessionService {
   readonly tenantId: WalletSessionAuthorizationV2['tenantId'];
-  legacyReads = 0;
   statusReads = 0;
 
   constructor(
@@ -319,15 +318,6 @@ class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessi
   }) => {
     return this.expectedToken === null || input.token === this.expectedToken ? this.context : null;
   };
-
-  async issueOpaqueWalletSessionToken(): Promise<never> {
-    return await unsupportedAuthorizationSessionOperation();
-  }
-
-  async resolveOpaqueWalletSessionToken(): Promise<null> {
-    this.legacyReads += 1;
-    return null;
-  }
 
   async readExactWalletSessionStatusByOperationCredential(): Promise<never> {
     this.statusReads += 1;
@@ -1356,7 +1346,6 @@ test('ordinary signing validators reject missing exact state without V1 token fa
     code: 'wallet_session_invalid',
     message: expect.any(String),
   });
-  expect(service.legacyReads).toBe(0);
 });
 
 test('strict Ed25519 V2 finalize admits the exact receipt operation and rejects drift', async () => {

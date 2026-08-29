@@ -119,7 +119,6 @@ test('V2 operation credential authorizes linked ECDSA pool fill without legacy f
   });
   if (!parsedRequest.ok) throw new Error(parsedRequest.body.message);
 
-  let legacyFallbacks = 0;
   const admittedOperationCredentials: string[] = [];
   const request = new Request('https://wallet.example.test/router-ab/pool-fill', {
     headers: { authorization: `Bearer ${fixture.operationCredential.token}` },
@@ -139,10 +138,6 @@ test('V2 operation credential authorizes linked ECDSA pool fill without legacy f
             authMethod: fixture.authMethod,
             retiredAtMs: null,
           };
-        },
-        async resolveOpaqueWalletSessionToken() {
-          legacyFallbacks += 1;
-          return null;
         },
       },
       walletRegistration: {
@@ -179,7 +174,6 @@ test('V2 operation credential authorizes linked ECDSA pool fill without legacy f
   if (!parsedStep.ok) throw new Error(parsedStep.body.message);
   const authorizedStep = await authorizeEcdsaPoolFill({ ctx, request: parsedStep.request });
 
-  expect(legacyFallbacks).toBe(0);
   expect(admittedOperationCredentials).toEqual([
     fixture.operationCredential.token,
     fixture.operationCredential.token,
