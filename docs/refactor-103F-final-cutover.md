@@ -794,14 +794,14 @@ and both credential-bearing registration replay functions are deleted.
 - [x] Delete the opaque-bearer override from prepared recovery admission and
       receipt-backed execute/activate. A retired `wst_` bearer cannot bypass
       the durable challenge or change the protocol-receipt authorization path.
-- [ ] Resolve the capability subject's exact material activation before either
+- [x] Resolve the capability subject's exact material activation before either
       curve constructs a Router A/B request.
 - [ ] Assign every `OpaqueOwnerWalletSessionBinding` field to the authoritative
       material resolver or delete its consumer, including
       `thresholdSessionId`, `participantIds`, `keyManifestDigestB64u`,
       `relayerKeyId`, `runtimePolicyScope`, `keyHandle`, and
       `authorizationSessionId`.
-- [ ] Reject any path that substitutes a Wallet Session or authorization ID for
+- [x] Reject any path that substitutes a Wallet Session or authorization ID for
       a threshold runtime identity.
 
 Primary files:
