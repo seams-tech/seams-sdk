@@ -281,7 +281,6 @@ import {
 } from '@shared/utils/sessionTokens';
 import {
   buildActiveWalletSessionAuthorizationProjection,
-  retireWalletSessionAuthorizationProjection,
   WalletSessionAuthorizationUpgradeRequiredError,
   walletSessionAuthorizationIdForCurve,
   walletSessionThresholdSessionIdForCurve,
@@ -3255,23 +3254,6 @@ export class BrowserSigningSurface {
     }
   }
 
-  /**
-   * Retires an owner Wallet Session projection and destroys the unlocked
-   * Ed25519 export-root capability it authorized (R103): a retired, replaced, or
-   * expired session must not leave a sealing capability behind.
-   */
-  private async retireWalletSessionAuthorizationV1(input: {
-    readonly active: ActiveWalletSessionAuthorizationProjection;
-    readonly reason: 'expired' | 'invalidated' | 'replaced' | 'wallet_locked';
-    readonly retiredAtMs: number;
-  }): Promise<void> {
-    await walletSessionAuthorizations.write(retireWalletSessionAuthorizationProjection(input));
-    void this.destroyUnlockedWalletEd25519ExportRootCapabilitiesV1({
-      kind: 'wallet_session',
-      walletSessionId: String(input.active.walletSessionId),
-    });
-  }
-
   readWalletAuthenticationState(): WalletAuthenticationState {
     return this.walletAuthenticationState;
   }
@@ -3288,25 +3270,6 @@ export class BrowserSigningSurface {
         kind: 'wallet',
         walletId: String(walletId),
       });
-    }
-    const read = await walletSessionAuthorizations.readActiveForWallet(walletId);
-    switch (read.kind) {
-      case 'found':
-        await this.retireWalletSessionAuthorizationV1({
-          active: read.projection,
-          reason: 'wallet_locked',
-          retiredAtMs,
-        });
-        return;
-      case 'missing':
-        return;
-      case 'corrupt':
-        throw new Error('Wallet Session authorization projection is corrupt');
-      case 'persistence_unavailable':
-        throw new Error('Wallet Session authorization persistence is unavailable');
-      default:
-        read satisfies never;
-        throw new Error('Wallet Session authorization read returned an unknown result');
     }
   }
 

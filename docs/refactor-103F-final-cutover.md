@@ -1142,7 +1142,7 @@ Convert every reader or legacy writer:
 - [x] `emailOtp/ecdsaLogin.ts`: unlock/recovery publication now obtains its
       session authority from the selected exact tuple and rejects wallet-wide
       or mismatched authorization state;
-- [ ] `browserSigningSurfaceAssembly.ts`;
+- [x] `browserSigningSurfaceAssembly.ts`;
 - [x] `createBrowserRecoveryPublicDeps.ts`;
 - [x] `stepUpRuntime.ts`;
 - [x] `ed25519YaoWarmRecovery.ts`: Passkey warm recovery requires the unlocked
@@ -1169,7 +1169,7 @@ Remove exact-first/V1 fallback from:
 - [ ] `walletIframe/shared/exactSessionState.ts`;
 - [ ] wallet iframe host auth handlers;
 - [ ] wallet iframe client router handlers; and
-- [ ] `BrowserSigningSurface.ts` lock/retirement cleanup.
+- [x] `BrowserSigningSurface.ts` lock/retirement cleanup.
 
 Primary persistence files:
 
