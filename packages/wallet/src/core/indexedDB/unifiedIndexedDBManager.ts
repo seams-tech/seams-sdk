@@ -45,6 +45,7 @@ import {
   type StoreWalletSignerFinalizeRollbackReceipt,
   type StoreWalletRegistrationFinalizeBatchInput,
   type StoreWalletRegistrationFinalizeBatchResult,
+  type PublishPendingWalletRegistrationCommitInputV1,
   type AtomicKeyMaterialRecoveryFinalizationInput,
   type LocalAuthorityInstallationInputV1,
   type PersistFoundingWalletAuthorityInputV1,
@@ -528,6 +529,12 @@ export class UnifiedIndexedDBManager {
     input: StoreWalletRegistrationFinalizeBatchInput,
   ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
     return this.seamsWalletRepositories.persistWalletRegistrationFinalize(input);
+  }
+
+  async publishPendingWalletRegistrationCommit(
+    input: PublishPendingWalletRegistrationCommitInputV1,
+  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+    return this.seamsWalletRepositories.publishPendingWalletRegistrationCommit(input);
   }
 
   async persistWalletSignerFinalize(
