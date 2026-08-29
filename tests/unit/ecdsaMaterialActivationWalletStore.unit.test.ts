@@ -406,6 +406,7 @@ async function stepUpRouteFixture(input: {
     authorizationSessionId: 'wallet-session-material-activation',
     walletSessionId: 'wallet-session-material-activation',
     quotaId: 'quota-material-activation',
+    thresholdSessionId: 'threshold-session-material-activation',
     walletAuthAuthorityRef: sessionFixture.authorityRef,
     authSource: {
       kind: 'passkey',
@@ -1099,6 +1100,16 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
             ...(testCase.authorizationKind === 'operation_step_up' ? { operation } : {}),
           };
     if (testCase.authorizationKind === 'reusable_wallet_session') {
+      const reusableSessionFixture = await buildPasskeyWalletSessionIssuanceFixture({
+        tenantId: signer.runtimePolicyScope.orgId,
+        principalId: 'principal-material-activation',
+        walletId: String(walletId),
+        walletAuthMethodId: 'wallet-auth-method:material-activation',
+        credentialIdB64u: 'credential-material-activation',
+        rpId: 'app.example.test',
+        origin: 'https://app.example.test',
+        expiresAtMs: Date.now() + 50_000,
+      });
       const claims = buildRouterAbEcdsaWalletSessionClaimsFixture({
         walletId: String(walletId),
         keyHandle: signer.walletKey.keyHandle,
@@ -1111,11 +1122,17 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
           envId: 'env-material-activation',
           signingRootVersion: signer.walletKey.signingRootVersion,
         },
+        authorizationId: 'authorization-grant-pool',
         normalSigningScope: reusableScope,
         authorizationSessionId: 'authorization-session-pool',
         walletSessionId: 'wallet-session-pool',
         quotaId: 'wallet-quota-pool',
         thresholdSessionId: 'threshold-session-pool',
+        walletAuthAuthorityRef: reusableSessionFixture.authorityRef,
+        authSource: {
+          kind: 'passkey',
+          credentialIdB64u: reusableSessionFixture.authority.factor.credentialIdB64u,
+        },
       });
       ctx.opts.session = {
         async parse() {
