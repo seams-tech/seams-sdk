@@ -238,7 +238,6 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
         authorityRef,
         proof,
         mintId: mintId.value,
-        walletSessionClientCapability: parsed.request.walletSessionClientCapability,
         issuedAtMs,
         ecdsaThresholdSessionId: `sync-account-ecdsa:${parsed.request.challengeId}`,
         custody: { kind: 'read_verified_factor' },

@@ -1,8 +1,6 @@
 import { BrowserSigningSurface } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
-import {
-  walletSessionAuthorizations,
-  type ActiveWalletSessionAuthorizationProjection,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import {
   addWalletSigner as addWalletSignerWithUnifiedCeremony,
   isRegistrationBenchmarkDiagnosticsEnabled,
@@ -74,6 +72,8 @@ import type { EmailOtpVerifiedAuthorityProjection } from '@/core/signingEngine/s
 import {
   isEmailOtpWalletAuthAuthority,
   walletAuthAuthoritiesMatch,
+  parseWalletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
   type ActiveWalletSession,
 } from '@shared/utils/walletAuthAuthority';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
@@ -278,14 +278,27 @@ function requireWalletAuthMethodId(value: string): WalletAuthMethodId {
   return parsed.value;
 }
 
+function exactEmailOtpAuthorityRefFromLoginResult(
+  result: LoginWithEmailOtpEcdsaCapabilityInternalResult,
+): WalletAuthAuthorityRef {
+  const authority = result.recovery.verifiedAuthorityProjection.authority;
+  const authorityRef = parseWalletAuthAuthorityRef({
+    kind: 'wallet_auth_authority_ref',
+    walletId: authority.walletId,
+    walletAuthMethodId: result.authorization.record.authMethodId,
+    authorityDigest: authority.authorityDigestB64u,
+  });
+  if (!authorityRef) {
+    throw new Error('Email OTP unlock returned an invalid authority reference');
+  }
+  return authorityRef;
+}
+
 type EmailOtpUnlockActivationPlan = {
   kind: 'email_otp_unlock_activation_plan_v1';
   mode: 'evm_family_ecdsa';
-  activeAuthorization: ActiveWalletSessionAuthorizationProjection;
-  authorizations: readonly [
-    ActiveWalletSessionAuthorizationProjection,
-    ...ActiveWalletSessionAuthorizationProjection[],
-  ];
+  activeAuthorization: ExactWalletSessionAuthorization;
+  authorizations: readonly [ExactWalletSessionAuthorization, ...ExactWalletSessionAuthorization[]];
   runtimeState: EmailOtpUnlockActiveRuntimeState;
 };
 
@@ -515,7 +528,7 @@ function buildEmailOtpEcdsaUnlockActivationPlan(args: {
   result: LoginWithEmailOtpEcdsaCapabilityInternalResult;
   runtimeInventory: WalletRuntimeInventory;
 }): EmailOtpUnlockActivationPlan {
-  if (args.result.authorization.walletId !== args.walletSession.walletId) {
+  if (args.result.authorization.record.walletId !== args.walletSession.walletId) {
     throw new Error('Email OTP unlock authorization does not match the wallet session');
   }
   return {
@@ -532,9 +545,11 @@ function logEmailOtpUnlockActivationPlan(plan: EmailOtpUnlockActivationPlan): vo
   console.info('[EmailOtpUnlock] activation plan constructed', {
     kind: plan.kind,
     mode: plan.mode,
-    walletId: plan.activeAuthorization.walletId,
-    authorityDigest: plan.activeAuthorization.authority.authorityDigest,
-    walletSessionIds: plan.authorizations.map((authorization) => authorization.walletSessionId),
+    walletId: plan.activeAuthorization.record.walletId,
+    authorityDigest: plan.activeAuthorization.record.authorityDigestB64u,
+    walletSessionIds: plan.authorizations.map(
+      (authorization) => authorization.operationCredential.walletSessionId,
+    ),
     runtimeTargetCount: plan.runtimeState.inventory.ecdsaByTarget.size,
   });
 }
@@ -2552,7 +2567,7 @@ export class SeamsWeb {
                 bootstrap: result.ed25519YaoRecovery.bootstrap,
                 activeClientHandle: result.ed25519YaoRecovery.activeClientHandle,
                 metadata: result.ed25519YaoRecovery.metadata,
-                authority: result.authorization.authority,
+                authority: exactEmailOtpAuthorityRefFromLoginResult(result),
               });
             break;
           case 'cache_absent':
@@ -2618,7 +2633,7 @@ export class SeamsWeb {
         timingStartedAtMs,
       );
       timingStartedAtMs = nowMs();
-      const ownerAuthority = result.authorization.authority;
+      const ownerAuthority = exactEmailOtpAuthorityRefFromLoginResult(result);
       const runtimeInventory = await assertWalletRuntimePostconditions({
         source: 'wallet_unlock',
         walletId,

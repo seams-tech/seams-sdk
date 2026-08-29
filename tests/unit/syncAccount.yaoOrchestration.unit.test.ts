@@ -161,7 +161,6 @@ const indexedDbDirectMethods = [
 const originalIndexedDbDirectMethods = new Map<IndexedDbDirectMethod, unknown>();
 const originalWriteExactWithOperationCredential =
   walletSessionAuthorizations.writeExactWithOperationCredential;
-const originalUpsertActiveWithCurveMerge = walletSessionAuthorizations.upsertActiveWithCurveMerge;
 type ExactWalletSessionWriteInput = Parameters<
   typeof walletSessionAuthorizations.writeExactWithOperationCredential
 >[0];
@@ -180,9 +179,6 @@ class SyncAccountPersistenceFixture {
   readonly keyMaterial = new Map<string, KeyMaterialRecord>();
   readonly profileSeeds: Array<Parameters<typeof IndexedDBManager.upsertProfile>[0]> = [];
   readonly exactWalletSessionWrites: ExactWalletSessionWriteInput[] = [];
-  readonly legacyWalletSessionCurveWrites: Array<
-    Parameters<typeof walletSessionAuthorizations.upsertActiveWithCurveMerge>[0]
-  > = [];
 
   async getKeyMaterial(
     profileId: string,
@@ -306,7 +302,6 @@ function restorePersistenceFixture(): void {
   originalIndexedDbDirectMethods.clear();
   walletSessionAuthorizations.writeExactWithOperationCredential =
     originalWriteExactWithOperationCredential;
-  walletSessionAuthorizations.upsertActiveWithCurveMerge = originalUpsertActiveWithCurveMerge;
 }
 
 function requireActiveYaoScenario(): YaoScenario {
@@ -1239,10 +1234,6 @@ function setupSyncAccountTest(): void {
   walletSessionAuthorizations.writeExactWithOperationCredential = async (input) => {
     activePersistenceFixture?.exactWalletSessionWrites.push(input);
   };
-  walletSessionAuthorizations.upsertActiveWithCurveMerge = async (input) => {
-    activePersistenceFixture?.legacyWalletSessionCurveWrites.push(input);
-    return input.incoming;
-  };
   globalThis.fetch = syncAccountFetch;
   installPersistenceFixture(activePersistenceFixture);
   installYaoClientMock();
@@ -1281,7 +1272,6 @@ test.describe('public syncAccount Yao orchestration', () => {
     const fetchScenario = requireActiveFetchScenario();
     expect(fetchScenario.verifyRequest).not.toBeNull();
     expect(fetchScenario.verifyRequest).not.toHaveProperty('threshold_ed25519');
-    expect(fetchScenario.verifyRequest).not.toHaveProperty('walletSessionClientCapability');
     expect(fetchScenario.verifyRequest).toMatchObject({
       challengeId: 'sync-challenge-id',
       webauthn_authentication: { clientExtensionResults: null },
@@ -1488,7 +1478,6 @@ test.describe('public syncAccount Yao orchestration', () => {
     expect(persistence.exactWalletSessionWrites[0]?.operationCredential.token).toBe(
       OPERATION_CREDENTIAL_TOKEN,
     );
-    expect(persistence.legacyWalletSessionCurveWrites).toEqual([]);
   });
 
   test('rejects a mixed-wallet ECDSA session whose authorization identity drifts', async () => {

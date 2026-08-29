@@ -16,7 +16,7 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ProvisionWarmEd25519CapabilityResult } from '@/core/signingEngine/session/warmCapabilities/types';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
   AvailableSigningLanes,
@@ -844,10 +844,10 @@ export interface EmailOtpSigningSessionSurface {
   }): Promise<{
     recovery: EmailOtpBootstrapRecovery;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    authorization: ActiveWalletSessionAuthorizationProjection;
+    authorization: ExactWalletSessionAuthorization;
     authorizations: readonly [
-      ActiveWalletSessionAuthorizationProjection,
-      ...ActiveWalletSessionAuthorizationProjection[],
+      ExactWalletSessionAuthorization,
+      ...ExactWalletSessionAuthorization[],
     ];
   }>;
   enrollEmailOtpInternal(args: EnrollEmailOtpInternalArgs): Promise<EnrollEmailOtpInternalResult>;

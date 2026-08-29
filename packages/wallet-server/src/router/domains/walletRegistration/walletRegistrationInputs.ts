@@ -10,7 +10,6 @@ import type {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletRegistrationAuthorityInput } from '../../../core/registrationContracts';
 import type { ThresholdRuntimePolicyScope } from '../../../core/types';
-import type { WalletSessionClientCapabilityV1 } from '@shared/authorization/capabilityKinds';
 import type {
   WalletRegistrationSetupMinter,
   WalletRegistrationSetupVerifier,
@@ -56,7 +55,6 @@ export type WalletRegistrationActivateInput = {
   readonly registrationCeremonyId: string;
   readonly signedSetup: unknown;
   readonly idempotencyKey: string;
-  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
   /**
    * No `expectedKeyHandles`. That field was the client's cross-check between
    * two separate requests: activate returned the key handle, and the client
@@ -82,7 +80,6 @@ export type WalletRegistrationNearProvisioningInput = {
   readonly registrationCeremonyId: string;
   readonly signedSetup: unknown;
   readonly idempotencyKey: string;
-  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
   readonly ed25519: unknown;
   readonly emailOtpEnrollment?: unknown;
   /**

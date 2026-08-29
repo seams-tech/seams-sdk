@@ -18,7 +18,6 @@ import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
 } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import { WALLET_SESSION_CLIENT_CAPABILITY_V1 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { createCloudflareRouter } from '../../packages/wallet-server/src/router/cloudflare/runtime/createCloudflareRouter';
 import type { SessionAdapter } from '../../packages/wallet-server/src/router/framework/routerApi';
@@ -358,7 +357,6 @@ function syncAccountVerifyRequest(): Request {
     },
     body: JSON.stringify({
       challengeId: 'sync-challenge-1',
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       webauthn_authentication: {
         id: CREDENTIAL_ID,
         type: 'public-key',
@@ -376,7 +374,6 @@ function syncAccountVerifyRequestWithObsoleteSessionPolicy(): Request {
     },
     body: JSON.stringify({
       challengeId: 'sync-challenge-1',
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       webauthn_authentication: {
         id: CREDENTIAL_ID,
         type: 'public-key',
@@ -438,7 +435,6 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
     expect(webAuthn.verificationCalls).toEqual([
       {
         challengeId: 'sync-challenge-1',
-        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
         webauthn_authentication: {
           id: CREDENTIAL_ID,
           type: 'public-key',

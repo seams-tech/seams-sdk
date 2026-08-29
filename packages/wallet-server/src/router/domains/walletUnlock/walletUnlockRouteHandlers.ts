@@ -2,9 +2,7 @@ import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
   parseAuthFactorId,
   parsePrincipalId,
-  parseWalletSessionClientCapabilityV1,
   type TenantId,
-  type WalletSessionClientCapabilityV1,
 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
@@ -1070,22 +1068,6 @@ export async function handleWalletUnlockVerifyRoute(input: {
       body: { ok: false, code: 'invalid_body', message: 'challengeId is required' },
     };
   }
-  const parsedWalletSessionClientCapability = parseWalletSessionClientCapabilityV1(
-    body.walletSessionClientCapability,
-  );
-  if (!parsedWalletSessionClientCapability.ok) {
-    return {
-      status: 400,
-      body: {
-        ok: false,
-        code: 'invalid_body',
-        message: parsedWalletSessionClientCapability.error.message,
-      },
-    };
-  }
-  const walletSessionClientCapability: WalletSessionClientCapabilityV1 =
-    parsedWalletSessionClientCapability.value;
-
   if (unlockBackend === 'passkey') {
     if (input.capabilityContext.kind !== 'passkey_unlock') {
       return {
@@ -1180,7 +1162,6 @@ export async function handleWalletUnlockVerifyRoute(input: {
         rpId: rpId.value,
         credentialIdB64u: credentialIdB64u.value,
         verifiedChallengeId: challengeId,
-        walletSessionClientCapability,
       });
       switch (authorityResolution.kind) {
         case 'active_authority':
@@ -1477,7 +1458,6 @@ export async function handleWalletUnlockVerifyRoute(input: {
         walletAuthMethodId: requestedWalletAuthMethodId.value,
         providerUserId: result.providerUserId,
         verifiedChallengeId: challengeId,
-        walletSessionClientCapability,
       });
     } catch (error: unknown) {
       return {
@@ -1631,8 +1611,6 @@ function walletUnlockIssuanceRejectionStatus(
   switch (rejection.code) {
     case 'internal':
       return 500;
-    case 'protocol_mismatch':
-      return 409;
     case 'unauthorized':
     case 'invalid_body':
     case 'invalid_state':
