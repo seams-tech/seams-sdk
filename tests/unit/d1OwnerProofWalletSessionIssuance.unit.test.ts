@@ -14,6 +14,7 @@ import {
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { sha256BytesUtf8 } from '../../packages/shared-ts/src/utils/digests';
 import {
   parseWalletId,
   parseWalletAuthMethodId,
@@ -24,6 +25,7 @@ import {
   cleanupTemporaryD1Database,
   createTemporaryD1Database,
   listD1MigrationFiles,
+  readTableColumnNames,
 } from '../helpers/sqliteD1';
 import { buildPasskeyWalletSessionIssuanceFixture } from './helpers/authorizationCore.fixtures';
 import { insertWalletAuthMethod } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
@@ -434,6 +436,324 @@ test('registration replay opaque tokens are authority-bound and expire before th
         )
         .first(),
     ).resolves.toMatchObject({ token_expires_at_ms: issued.expiresAtMs });
+
+    const replayTokenColumns = await readTableColumnNames(
+      temporary.database,
+      'registration_replay_opaque_wallet_session_tokens_v1',
+    );
+    expect(replayTokenColumns).toContain('token_hash');
+    expect(replayTokenColumns).toContain('binding_json');
+    expect(replayTokenColumns).not.toContain('token');
+    expect(replayTokenColumns).not.toContain('plaintext_token');
+    const digestOnlyRow = await temporary.database
+      .prepare(
+        `SELECT *
+           FROM registration_replay_opaque_wallet_session_tokens_v1
+          WHERE token_hash = ?`,
+      )
+      .bind(base64UrlEncode(await sha256BytesUtf8(issued.token)))
+      .first<Record<string, unknown>>();
+    expect(digestOnlyRow).toBeTruthy();
+    expect(JSON.stringify(digestOnlyRow)).not.toContain(issued.token);
+
+    const replacement = await service.issueReusableWalletSession({
+      tenantId: fixture.session.tenantId,
+      principalId: fixture.session.principalId,
+      walletId,
+      authority: fixture.authorityRef,
+      mintId: required(parseReusableWalletSessionMintId('unlock:registration-replay-replacement')),
+      remainingUses: 3,
+      issuedAtMs: fixture.session.createdAtMs + 3,
+      expiresAtMs: sessionExpiresAtMs,
+    });
+    expect(replacement.session.walletSessionId).not.toBe(session.session.walletSessionId);
+    await expect(
+      service.resolveOpaqueWalletSessionToken({
+        tenantId: fixture.session.tenantId,
+        token: issued.token,
+        curve: 'ecdsa',
+        nowMs: issued.expiresAtMs - 1,
+      }),
+    ).resolves.toBeNull();
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
+test('registration replay auth-method cleanup removes only matching adapter tokens', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, signerMigrations);
+    const namespace = 'owner-proof-registration-replay-cleanup';
+    const store = new CloudflareD1AuthorizationStore({
+      database: temporary.database,
+      namespace,
+      walletSignerScope: {
+        namespace,
+        orgId: 'test-org',
+        projectId: 'test-project',
+        envId: 'test-env',
+      },
+    });
+    const service = new AuthorizationService({
+      policy: capabilityPolicyPort,
+      sessions: store,
+      evidence: store,
+      grants: store,
+      authorizedOperations: store,
+      audit: store,
+    });
+    const firstFixture = await buildPasskeyWalletSessionIssuanceFixture({
+      tenantId: 'tenant-registration-replay-cleanup',
+      principalId: 'principal-registration-replay-cleanup',
+      walletId: 'wallet-registration-replay-cleanup',
+      walletAuthMethodId: 'wallet-auth-method:registration-replay-cleanup-a',
+      credentialIdB64u: 'credential-registration-replay-cleanup-a',
+      rpId: 'example.test',
+      origin: 'https://app.example.test',
+      expiresAtMs: 1_900_002_000_000,
+    });
+    const siblingFixture = await buildPasskeyWalletSessionIssuanceFixture({
+      tenantId: firstFixture.session.tenantId,
+      principalId: firstFixture.session.principalId,
+      walletId: String(firstFixture.authority.walletId),
+      walletAuthMethodId: 'wallet-auth-method:registration-replay-cleanup-b',
+      credentialIdB64u: 'credential-registration-replay-cleanup-b',
+      rpId: 'example.test',
+      origin: 'https://app.example.test',
+      expiresAtMs: firstFixture.session.expiresAtMs,
+    });
+    await insertWalletAuthMethod({
+      database: temporary.database,
+      namespace,
+      orgId: 'test-org',
+      projectId: 'test-project',
+      envId: 'test-env',
+      record: {
+        kind: 'passkey',
+        walletAuthMethodId: String(firstFixture.authority.bindingId),
+        walletAuthorityId: 'wallet-authority:registration-replay-cleanup-a',
+        walletId: String(firstFixture.authority.walletId),
+        rpId: String(firstFixture.authority.verifier.rpId),
+        credentialIdB64u: String(firstFixture.authority.factor.credentialIdB64u),
+        credentialPublicKeyB64u: 'credential-public-key-registration-replay-cleanup-a',
+        counter: 0,
+        createdAtMs: firstFixture.session.createdAtMs,
+        updatedAtMs: firstFixture.session.createdAtMs,
+      },
+    });
+    await insertWalletAuthMethod({
+      database: temporary.database,
+      namespace,
+      orgId: 'test-org',
+      projectId: 'test-project',
+      envId: 'test-env',
+      record: {
+        kind: 'passkey',
+        walletAuthMethodId: String(siblingFixture.authority.bindingId),
+        walletAuthorityId: 'wallet-authority:registration-replay-cleanup-b',
+        walletId: String(siblingFixture.authority.walletId),
+        rpId: String(siblingFixture.authority.verifier.rpId),
+        credentialIdB64u: String(siblingFixture.authority.factor.credentialIdB64u),
+        credentialPublicKeyB64u: 'credential-public-key-registration-replay-cleanup-b',
+        counter: 0,
+        createdAtMs: siblingFixture.session.createdAtMs,
+        updatedAtMs: siblingFixture.session.createdAtMs,
+      },
+    });
+    const firstWalletId = required(parseWalletId(firstFixture.authority.walletId));
+    const firstProof = await service.buildVerifiedOwnerProof({
+      purpose: 'wallet_session',
+      proofId: parseVerifiedOwnerProofId('owner-proof-registration-replay-cleanup-a'),
+      factor: buildVerifiedWalletSessionPasskeyFactorResult({
+        tenantId: firstFixture.session.tenantId,
+        principalId: firstFixture.session.principalId,
+        walletId: firstWalletId,
+        authorityRef: firstFixture.authorityRef,
+        requestOrigin: firstFixture.session.origin,
+        audience: firstFixture.session.origin,
+        factorId: required(parseAuthFactorId('passkey:registration-replay-cleanup-a')),
+        credentialIdB64u: required(
+          parseWebAuthnCredentialIdB64u('credential-registration-replay-cleanup-a'),
+        ),
+        assertionDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(21))),
+        verifiedAtMs: firstFixture.session.createdAtMs + 1,
+        expiresAtMs: firstFixture.session.expiresAtMs - 1,
+      }),
+    });
+    const siblingWalletId = required(parseWalletId(siblingFixture.authority.walletId));
+    const siblingProof = await service.buildVerifiedOwnerProof({
+      purpose: 'wallet_session',
+      proofId: parseVerifiedOwnerProofId('owner-proof-registration-replay-cleanup-b'),
+      factor: buildVerifiedWalletSessionPasskeyFactorResult({
+        tenantId: siblingFixture.session.tenantId,
+        principalId: siblingFixture.session.principalId,
+        walletId: siblingWalletId,
+        authorityRef: siblingFixture.authorityRef,
+        requestOrigin: siblingFixture.session.origin,
+        audience: siblingFixture.session.origin,
+        factorId: required(parseAuthFactorId('passkey:registration-replay-cleanup-b')),
+        credentialIdB64u: required(
+          parseWebAuthnCredentialIdB64u('credential-registration-replay-cleanup-b'),
+        ),
+        assertionDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(22))),
+        verifiedAtMs: siblingFixture.session.createdAtMs + 1,
+        expiresAtMs: siblingFixture.session.expiresAtMs - 1,
+      }),
+    });
+    const firstSession = await service.issueReusableWalletSession({
+      tenantId: firstFixture.session.tenantId,
+      principalId: firstFixture.session.principalId,
+      walletId: firstWalletId,
+      authority: firstFixture.authorityRef,
+      mintId: required(parseReusableWalletSessionMintId('unlock:registration-replay-cleanup-a')),
+      remainingUses: 3,
+      issuedAtMs: firstFixture.session.createdAtMs + 3,
+      expiresAtMs: firstFixture.session.expiresAtMs,
+    });
+    const siblingSession = await service.issueReusableWalletSession({
+      tenantId: siblingFixture.session.tenantId,
+      principalId: siblingFixture.session.principalId,
+      walletId: siblingWalletId,
+      authority: siblingFixture.authorityRef,
+      mintId: required(parseReusableWalletSessionMintId('unlock:registration-replay-cleanup-b')),
+      remainingUses: 3,
+      issuedAtMs: siblingFixture.session.createdAtMs + 3,
+      expiresAtMs: siblingFixture.session.expiresAtMs,
+    });
+    const firstBinding = ownerWalletSessionBinding({
+      fixture: firstFixture,
+      identity: {
+        authorizationId: String(firstSession.session.authorizationId),
+        walletSessionId: String(firstSession.quota.walletSessionId),
+        quotaId: String(firstSession.quota.quotaId),
+        expiresAtMs: firstSession.session.expiresAtMs,
+      },
+      curve: 'ecdsa',
+    });
+    const siblingBinding = ownerWalletSessionBinding({
+      fixture: siblingFixture,
+      identity: {
+        authorizationId: String(siblingSession.session.authorizationId),
+        walletSessionId: String(siblingSession.quota.walletSessionId),
+        quotaId: String(siblingSession.quota.quotaId),
+        expiresAtMs: siblingSession.session.expiresAtMs,
+      },
+      curve: 'ecdsa',
+    });
+    const firstIssued = await service.issueRegistrationReplayOpaqueWalletSessionToken({
+      proof: firstProof,
+      tenantId: firstFixture.session.tenantId,
+      authorizationId: firstSession.session.authorizationId,
+      walletSessionId: firstSession.quota.walletSessionId,
+      quotaId: firstSession.quota.quotaId,
+      expiresAtMs: firstSession.session.expiresAtMs,
+      consumedAtMs: firstFixture.session.createdAtMs + 4,
+      curve: 'ecdsa',
+      binding: firstBinding,
+      registrationCeremonyId: 'registration:replay-cleanup-a',
+      operation: 'registration_activate',
+      operationFingerprint: 'fingerprint:registration-replay-cleanup-a',
+    });
+    const siblingIssued = await service.issueRegistrationReplayOpaqueWalletSessionToken({
+      proof: siblingProof,
+      tenantId: siblingFixture.session.tenantId,
+      authorizationId: siblingSession.session.authorizationId,
+      walletSessionId: siblingSession.quota.walletSessionId,
+      quotaId: siblingSession.quota.quotaId,
+      expiresAtMs: siblingSession.session.expiresAtMs,
+      consumedAtMs: siblingFixture.session.createdAtMs + 4,
+      curve: 'ecdsa',
+      binding: siblingBinding,
+      registrationCeremonyId: 'registration:replay-cleanup-b',
+      operation: 'registration_activate',
+      operationFingerprint: 'fingerprint:registration-replay-cleanup-b',
+    });
+    await expect(
+      service.resolveOpaqueWalletSessionToken({
+        tenantId: firstFixture.session.tenantId,
+        token: firstIssued.token,
+        curve: 'ecdsa',
+        nowMs: firstIssued.expiresAtMs - 1,
+      }),
+    ).resolves.toMatchObject({ kind: 'resolved_opaque_wallet_session_token' });
+    await expect(
+      service.resolveOpaqueWalletSessionToken({
+        tenantId: siblingFixture.session.tenantId,
+        token: siblingIssued.token,
+        curve: 'ecdsa',
+        nowMs: siblingIssued.expiresAtMs - 1,
+      }),
+    ).resolves.toMatchObject({ kind: 'resolved_opaque_wallet_session_token' });
+
+    await service.revokeReusableWalletSessionsForAuthMethod({
+      tenantId: firstFixture.session.tenantId,
+      walletId: firstWalletId,
+      walletAuthMethodId: firstFixture.authorityRef.walletAuthMethodId,
+      nowMs: firstFixture.session.createdAtMs + 5,
+    });
+    await expect(
+      service.resolveOpaqueWalletSessionToken({
+        tenantId: firstFixture.session.tenantId,
+        token: firstIssued.token,
+        curve: 'ecdsa',
+        nowMs: firstIssued.expiresAtMs - 1,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      service.resolveOpaqueWalletSessionToken({
+        tenantId: siblingFixture.session.tenantId,
+        token: siblingIssued.token,
+        curve: 'ecdsa',
+        nowMs: siblingIssued.expiresAtMs - 1,
+      }),
+    ).resolves.toMatchObject({ kind: 'resolved_opaque_wallet_session_token' });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT COUNT(*) AS count
+             FROM registration_replay_opaque_wallet_session_tokens_v1
+            WHERE wallet_auth_method_id = ?`,
+        )
+        .bind(firstFixture.authorityRef.walletAuthMethodId)
+        .first<{ readonly count?: unknown }>(),
+    ).resolves.toMatchObject({ count: 0 });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT COUNT(*) AS count
+             FROM registration_replay_opaque_wallet_session_tokens_v1
+            WHERE wallet_auth_method_id = ?`,
+        )
+        .bind(siblingFixture.authorityRef.walletAuthMethodId)
+        .first<{ readonly count?: unknown }>(),
+    ).resolves.toMatchObject({ count: 1 });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT session.lifecycle_kind AS session_lifecycle_kind,
+                  quota.lifecycle_kind AS quota_lifecycle_kind,
+                  quota.remaining_uses AS quota_remaining_uses
+             FROM reusable_wallet_sessions AS session
+             JOIN authorization_wallet_session_quotas AS quota
+               ON quota.namespace = session.namespace
+              AND quota.tenant_id = session.tenant_id
+              AND quota.quota_id = session.quota_id
+            WHERE session.namespace = ?
+              AND session.tenant_id = ?
+              AND session.wallet_session_id = ?`,
+        )
+        .bind(namespace, siblingSession.session.tenantId, siblingSession.session.walletSessionId)
+        .first<{
+          readonly session_lifecycle_kind?: unknown;
+          readonly quota_lifecycle_kind?: unknown;
+          readonly quota_remaining_uses?: unknown;
+        }>(),
+    ).resolves.toMatchObject({
+      session_lifecycle_kind: 'active',
+      quota_lifecycle_kind: 'active',
+      quota_remaining_uses: 3,
+    });
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
