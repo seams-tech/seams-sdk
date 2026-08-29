@@ -11,7 +11,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ActiveWalletSessionAuthorizationProjection,
-  WalletSessionAuthorizationReadResult,
+  WalletSessionAuthorizationExactOperationCredentialReadResult,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type {
   acquireSigningSessionRestoreLease,
@@ -26,6 +26,7 @@ import type { ThresholdEcdsaActivationRequest } from '@/core/signingEngine/sessi
 import type { ThresholdEcdsaEmailOtpExportActivationRequest } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
 import type { EmailOtpEcdsaExplicitExportBootstrapResult } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { WalletAuthorityId, WalletAuthMethodId } from '@shared/utils/domainIds';
 import type { EmailOtpWalletCustodyEd25519MaterialRequest } from '../../workerManager/workerTypes';
 import type { ImportWalletCustodyEcdsaContinuityInput } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 
@@ -34,9 +35,11 @@ export type EmailOtpCoordinatorRuntimePorts = {
   signerWorkerManager: SignerWorkerManager;
   getRpId: () => string | null;
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
-  readActiveWalletSessionAuthorization: (
-    walletId: WalletId,
-  ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
+  readExactWalletSessionAuthorization: (input: {
+    walletId: WalletId;
+    authorityId: WalletAuthorityId;
+    authMethodId: WalletAuthMethodId;
+  }) => Promise<WalletSessionAuthorizationExactOperationCredentialReadResult>;
 };
 
 export type EmailOtpEcdsaSessionPorts = {

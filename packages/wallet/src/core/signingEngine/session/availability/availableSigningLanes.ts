@@ -51,7 +51,7 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import type {
-  ActiveEvmFamilyWalletSessionAuthorization,
+  ExactEvmFamilyWalletSessionAuthorization,
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../material/ecdsaSigningCapability';
 import {
@@ -149,7 +149,7 @@ export type ConcreteAvailableEcdsaSigningLane =
       thresholdSessionId?: never;
     } & (
         | {
-            authorization: ActiveEvmFamilyWalletSessionAuthorization;
+            authorization: ExactEvmFamilyWalletSessionAuthorization;
             remainingUses: number;
             expiresAtMs: number;
           }
@@ -196,6 +196,17 @@ export function activeWalletAuthorityAvailableLaneFromProjection(
 export type AvailableEcdsaSigningLane =
   | MissingAvailableEcdsaSigningLane
   | ConcreteAvailableEcdsaSigningLane;
+
+function ecdsaAuthorizationPolicyMatchesLane(
+  lane: Extract<ConcreteAvailableEcdsaSigningLane, { source: 'canonical_capability' }>,
+): boolean {
+  const authorization = lane.authorization;
+  if (!authorization) return true;
+  return (
+    lane.remainingUses === authorization.runtime.remainingUses &&
+    lane.expiresAtMs === authorization.runtime.expiresAtMs
+  );
+}
 
 function materialActivationKey(activation: MpcMaterialActivationRef): string {
   return [
@@ -674,6 +685,9 @@ export function isConcreteAvailableSigningLane(
     ),
   );
   if (!hasEcdsaFields) return false;
+  if (lane.source === 'canonical_capability' && !ecdsaAuthorizationPolicyMatchesLane(lane)) {
+    return false;
+  }
   if (signingLaneAuthMethod(lane.auth) === 'passkey') {
     return (
       lane.resolvedKey?.kind === 'resolved_evm_family_ecdsa_key' &&
@@ -968,7 +982,7 @@ function laneCandidateExpiry(
   }
   const expiresAtMs =
     candidate.curve === 'ecdsa'
-      ? candidate.authorization.status.expiresAtMs
+      ? candidate.authorization.runtime.expiresAtMs
       : nullablePositiveInteger(candidate.expiresAtMs);
   return expiresAtMs
     ? { kind: 'known', expiresAtMs }
