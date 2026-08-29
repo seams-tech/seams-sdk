@@ -92,7 +92,10 @@ test.describe('Wallet iframe handshake', () => {
   test('rejects when READY advertises a mismatched protocol version', async ({ page }) => {
     await registerWalletServiceRoute(
       page,
-      buildWalletServiceHtml({ protocolVersion: '0.0.0' }),
+      buildWalletServiceHtml({
+        protocolVersion: '1.0.0',
+        expectedConnectProtocolVersion: null,
+      }),
       WALLET_SERVICE_ROUTE,
     );
     await initRouter(page, { walletOrigin: WALLET_ORIGIN, connectTimeoutMs: 1000 });
@@ -103,13 +106,45 @@ test.describe('Wallet iframe handshake', () => {
         await router.init();
         return { ok: true };
       } catch (err: any) {
-        return { ok: false, name: err?.name, message: err?.message };
+        return { ok: false, code: err?.code, name: err?.name, message: err?.message };
       }
     });
 
     expect(result.ok).toBe(false);
+    expect(result.code).toBe('WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH');
     expect(result.name).toBe('WalletIframeProtocolVersionMismatchError');
-    expect(result.message).toContain('expected 1.0.0, received 0.0.0');
+    expect(result.message).toContain('expected 2.0.0, received 1.0.0');
+
+    const readyState = await page.evaluate(() => {
+      const router = (window as any).__walletRouter;
+      return router.isReady();
+    });
+
+    expect(readyState).toBe(false);
+  });
+
+  test('rejects when CONNECT advertises an older host SDK protocol version', async ({ page }) => {
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({ expectedConnectProtocolVersion: '3.0.0' }),
+      WALLET_SERVICE_ROUTE,
+    );
+    await initRouter(page, { walletOrigin: WALLET_ORIGIN, connectTimeoutMs: 1000 });
+
+    const result = await page.evaluate(async () => {
+      const router = (window as any).__walletRouter;
+      try {
+        await router.init();
+        return { ok: true };
+      } catch (err: any) {
+        return { ok: false, code: err?.code, name: err?.name, message: err?.message };
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH');
+    expect(result.name).toBe('WalletIframeProtocolVersionMismatchError');
+    expect(result.message).toContain('expected 2.0.0, received 3.0.0');
 
     const readyState = await page.evaluate(() => {
       const router = (window as any).__walletRouter;

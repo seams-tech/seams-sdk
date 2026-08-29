@@ -47,8 +47,6 @@ export type WalletIframeTransportDiagnostics = {
 
 // Message constants (typed string literals, tree‑shake friendly)
 export const IframeMessage = {
-  Connect: 'CONNECT',
-  Ready: 'READY',
   HostBooted: 'SERVICE_HOST_BOOTED',
   HostDebugOrigin: 'SERVICE_HOST_DEBUG_ORIGIN',
   HostLog: 'SERVICE_HOST_LOG',
@@ -245,7 +243,7 @@ export class IframeTransport {
 
   /**
    * Connect to the wallet iframe using a MessageChannel handshake.
-   * - Repeatedly posts {type:'CONNECT'} with a fresh port until a 'READY' message arrives
+   * - Repeatedly posts CONNECT with the protocol version and a fresh port until READY arrives
    * - Times out after connectTimeoutMs
    * - Deduplicates concurrent calls and returns the same MessagePort promise
    */
@@ -284,8 +282,6 @@ export class IframeTransport {
         connectTimeoutMs: this.opts.connectTimeoutMs,
         walletOrigin: this.walletOrigin,
         walletServiceUrl: this.walletServiceUrl,
-        connectType: IframeMessage.Connect,
-        readyType: IframeMessage.Ready,
         expectedProtocolVersion: WALLET_PROTOCOL_VERSION,
         getTargetOrigin: (attempt) => this.getConnectTargetOrigin(attempt),
         onAttempt: (attempt) => {

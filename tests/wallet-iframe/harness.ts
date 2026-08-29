@@ -1,11 +1,16 @@
 import type { Page } from '@playwright/test';
 import { injectImportMap } from '../setup/bootstrap';
 import { SDK_ESM_PATHS } from '../setup/sdkEsmPaths';
+import {
+  WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH,
+  WALLET_PROTOCOL_VERSION,
+} from '../../packages/wallet/src/SeamsWeb/walletIframe/shared/messages';
 
 export interface WalletServiceHtmlOptions {
   respondReady?: boolean;
   handshakeDelayMs?: number;
   protocolVersion?: string;
+  expectedConnectProtocolVersion?: string | null;
   exactSessionState?: Record<string, unknown>;
   extraScript?: string;
 }
@@ -35,7 +40,8 @@ export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): 
   const {
     respondReady = true,
     handshakeDelayMs = 0,
-    protocolVersion = '1.0.0',
+    protocolVersion = WALLET_PROTOCOL_VERSION,
+    expectedConnectProtocolVersion = WALLET_PROTOCOL_VERSION,
     exactSessionState = { kind: 'wallet_locked' },
     extraScript = '',
   } = options;
@@ -43,6 +49,7 @@ export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): 
     respondReady,
     handshakeDelayMs,
     protocolVersion,
+    expectedConnectProtocolVersion,
     exactSessionState,
   });
 
@@ -213,6 +220,26 @@ export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): 
         console.warn('[wallet-stub] CONNECT message without port');
       }
       if (!port) return;
+      const receivedProtocolVersion = typeof data.payload?.protocolVersion === 'string'
+        ? data.payload.protocolVersion
+        : null;
+      if (
+        CONFIG.expectedConnectProtocolVersion !== null &&
+        receivedProtocolVersion !== CONFIG.expectedConnectProtocolVersion
+      ) {
+        port.postMessage({
+          type: 'ERROR',
+          payload: {
+            code: '${WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH}',
+            message: 'Wallet iframe protocol version mismatch',
+            details: {
+              expectedProtocolVersion: CONFIG.expectedConnectProtocolVersion,
+              receivedProtocolVersion,
+            },
+          },
+        });
+        return;
+      }
       adoptPort(port);
     });
 
