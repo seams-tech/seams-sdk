@@ -101,6 +101,7 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   readonly materialActivation?: MpcMaterialActivationRef;
   readonly sourceAuthorityId?: ActiveWalletAuthorityV1['authorityId'];
   readonly identity?: LinkedDeviceManagementAuthorityIdentityV1;
+  readonly expiresAtMs?: number;
 }): Promise<LinkedDeviceManagementAuthorityFixture> {
   const walletId = required(parseWalletId(input.identity?.walletId ?? 'wallet:management'));
   const authorityId = required(
@@ -249,6 +250,7 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   const mintId = required(
     parseReusableWalletSessionMintId(`wallet-mint:management-${input.label}`),
   );
+  const expiresAtMs = input.expiresAtMs ?? 10_000;
   const session = buildWalletSessionAuthorizationV2({
     tenantId,
     principalId,
@@ -263,7 +265,7 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
     quotaId,
     capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
     createdAtMs: 300,
-    expiresAtMs: 10_000,
+    expiresAtMs,
   });
   return {
     authority,
@@ -276,7 +278,7 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
         walletSessionId,
         quotaId,
         remainingUses: 10,
-        expiresAtMs: 10_000,
+        expiresAtMs,
       }),
     },
   };

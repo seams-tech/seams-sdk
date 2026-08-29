@@ -20,6 +20,10 @@ import type {
   WalletKeyRecord,
 } from '@shared/signing-lanes';
 import { isPlainObject } from '@shared/utils/validation';
+import {
+  EVM_ECDSA_MPC_OPERATION_KINDS,
+  NEAR_ED25519_MPC_OPERATION_KINDS,
+} from '@shared/authorization/capabilityKinds';
 
 export const OWNER_WALLET_EXECUTION_LANE_PREFLIGHT_PATH = '/wallet/execution-lane/owner';
 
@@ -224,26 +228,54 @@ export async function handleOwnerWalletExecutionLanePreflight(
       body: request,
       headers,
       authorizationSessions: ctx.service.authorizationSessions,
+      operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
     });
     if (!validated.ok) return validationFailure(validated);
-    walletIdRaw = validated.binding.walletId;
-    authorization = {
-      kind: 'wallet_auth_method',
-      walletAuthMethodId: validated.walletSessionAuth.walletAuthMethodId,
-    };
+    switch (validated.kind) {
+      case 'wallet_session_operation_credential_v1':
+        walletIdRaw = String(validated.context.authorization.session.walletId);
+        authorization = {
+          kind: 'wallet_auth_method',
+          walletAuthMethodId: validated.context.authorization.session.walletAuthMethodId,
+        };
+        break;
+      case 'owner_wallet_session':
+        walletIdRaw = validated.binding.walletId;
+        authorization = {
+          kind: 'wallet_auth_method',
+          walletAuthMethodId: validated.walletSessionAuth.walletAuthMethodId,
+        };
+        break;
+      default:
+        return assertNever(validated);
+    }
   } else {
     const validated = await validateRouterAbEcdsaDerivationWalletSessionInputs({
       body: request,
       headers,
       authorizationSessions: ctx.service.authorizationSessions,
+      operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
     });
     if (!validated.ok) return validationFailure(validated);
-    walletIdRaw = validated.binding.walletId;
-    authorization = {
-      kind: 'authority_ref',
-      authorityRef: validated.walletSessionAuth.walletAuthAuthorityRef,
-      authSource: validated.walletSessionAuth.authSource,
-    };
+    switch (validated.kind) {
+      case 'wallet_session_operation_credential_v1':
+        walletIdRaw = String(validated.context.authorization.session.walletId);
+        authorization = {
+          kind: 'wallet_auth_method',
+          walletAuthMethodId: validated.context.authorization.session.walletAuthMethodId,
+        };
+        break;
+      case 'owner_wallet_session':
+        walletIdRaw = validated.binding.walletId;
+        authorization = {
+          kind: 'authority_ref',
+          authorityRef: validated.walletSessionAuth.walletAuthAuthorityRef,
+          authSource: validated.walletSessionAuth.authSource,
+        };
+        break;
+      default:
+        return assertNever(validated);
+    }
   }
 
   const walletId = parseWalletId(walletIdRaw);
