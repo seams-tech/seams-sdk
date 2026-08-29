@@ -1107,6 +1107,7 @@ function activeWalletSessionWireV1(issued: D1IssuedWalletSessionV1): ActiveWalle
     authorityId: session.authorityId,
     authMethodId: session.walletAuthMethodId,
     authorizationId: session.authorizationId,
+    quotaId: issued.quota.quotaId,
     authorityDigestB64u: session.authorityDigestB64u,
     authorityRevocationEpoch: session.authorityRevocationEpoch,
     capabilitySubjects: [first, ...capabilitySubjects.slice(1)],

@@ -352,6 +352,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       parseWalletAuthMethodId(`auth-method:ecdsa-bootstrap:${sessionId}`),
     ),
     authorizationId,
+    quotaId,
     authorityDigestB64u: VALID_ECDSA_SHARE32_B64U,
     authorityRevocationEpoch: 0,
     capabilitySubjects: [

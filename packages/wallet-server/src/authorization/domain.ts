@@ -305,6 +305,7 @@ export function projectActiveWalletSession(
     authorityId: issued.session.authorityId,
     authMethodId: issued.session.walletAuthMethodId,
     authorizationId: issued.session.authorizationId,
+    quotaId: issued.quota.quotaId,
     authorityDigestB64u: issued.session.authorityDigestB64u,
     authorityRevocationEpoch: issued.session.authorityRevocationEpoch,
     capabilitySubjects: [first, ...capabilitySubjects.slice(1)],

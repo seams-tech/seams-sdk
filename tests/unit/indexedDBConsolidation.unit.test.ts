@@ -19,6 +19,7 @@ import {
 } from '@shared/authorization/walletAuthority';
 import {
   parseDeviceId,
+  parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
   parseWalletSessionAuthorizationId,
 } from '@shared/authorization/capabilityKinds';
@@ -1557,12 +1558,14 @@ test.describe('IndexedDB consolidation', () => {
     const authorizationId = unwrap(
       parseWalletSessionAuthorizationId('wallet-session:r103e-install'),
     );
+    const quotaId = unwrap(parseMpcWalletSigningQuotaId('quota:r103e-install'));
     const activeWalletSession = parseActiveWalletSessionV1({
       kind: 'active_wallet_session_v1',
       walletId: fixture.walletId,
       authorityId: activeAuthority.authorityId,
       authMethodId: activeAuthMethod.walletAuthMethodId,
       authorizationId,
+      quotaId,
       authorityDigestB64u: activeAuthority.authorityDigestB64u,
       authorityRevocationEpoch: activeAuthority.revocationEpoch,
       capabilitySubjects: [

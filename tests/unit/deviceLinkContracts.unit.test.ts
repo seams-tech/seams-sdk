@@ -11,6 +11,7 @@ import {
 } from '@shared/device-linking/digests';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import {
+  parseMpcWalletSigningQuotaId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -22,6 +23,7 @@ import {
 } from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseLinkedDeviceApprovalResultV1,
+  parseActiveWalletSessionV1,
   parseLinkSessionProjectionV1,
   parseLinkSessionStateV1,
   parseLinkSessionTransportEventV1,
@@ -72,8 +74,9 @@ test.describe('R103E link-session contracts', () => {
     const fixture = buildR103DeviceLinkFixture();
     const walletSessionId = parseWalletSessionId('wallet-session:persisted-credential');
     const authorizationId = parseWalletSessionAuthorizationId('authorization:persisted-credential');
+    const quotaId = parseMpcWalletSigningQuotaId('quota:persisted-credential');
     const authorityId = parseWalletAuthorityId('authority:persisted-credential');
-    if (!walletSessionId.ok || !authorizationId.ok || !authorityId.ok) {
+    if (!walletSessionId.ok || !authorizationId.ok || !quotaId.ok || !authorityId.ok) {
       throw new Error('R103 persistence identifiers are invalid');
     }
     const record = buildActiveWalletSessionV1({
@@ -81,6 +84,7 @@ test.describe('R103E link-session contracts', () => {
       authorityId: authorityId.value,
       authMethodId: fixture.sourceWalletAuthMethodId,
       authorizationId: authorizationId.value,
+      quotaId: quotaId.value,
       authorityDigestB64u: fixture.packageSetDigestB64u,
       authorityRevocationEpoch: 0,
       capabilitySubjects: [
@@ -102,6 +106,7 @@ test.describe('R103E link-session contracts', () => {
 
     expect(stored.wallet_session_id).toBe(walletSessionId.value);
     expect(stored.wallet_session_id).not.toBe(record.authorizationId);
+    expect(stored.record.quotaId).toBe(quotaId.value);
     expect(
       parseStoredExactWalletSessionAuthorizationWithOperationCredential(
         JSON.parse(JSON.stringify(stored)),
@@ -113,6 +118,10 @@ test.describe('R103E link-session contracts', () => {
         wallet_session_id: record.authorizationId,
       }),
     ).toBeNull();
+    const withoutQuota = Object.fromEntries(
+      Object.entries(record).filter(([field]) => field !== 'quotaId'),
+    );
+    expect(() => parseActiveWalletSessionV1(withoutQuota)).toThrow(/quotaId/);
   });
 
   test('round-trips the QR payload through its strict wire parser', () => {

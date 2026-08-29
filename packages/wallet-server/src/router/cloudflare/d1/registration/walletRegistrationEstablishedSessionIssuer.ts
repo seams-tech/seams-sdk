@@ -744,8 +744,9 @@ function assertNeverRegistrationCapabilitySubject(value: never): never {
 }
 
 function activeWalletSessionFromAuthorization(
-  authorization: IssuedWalletSessionAuthorizationV2['session'],
+  issued: IssuedWalletSessionAuthorizationV2,
 ): ActiveWalletSessionV1 {
+  const authorization = issued.session;
   const subjects = authorization.capabilitySubjects.map(walletSessionSubjectForClient);
   const [first, ...remaining] = subjects;
   if (!first) throw new Error('Direct registration Wallet Session has no capability subjects');
@@ -755,6 +756,7 @@ function activeWalletSessionFromAuthorization(
     authorityId: authorization.authorityId,
     authMethodId: authorization.walletAuthMethodId,
     authorizationId: authorization.authorizationId,
+    quotaId: issued.quota.quotaId,
     authorityDigestB64u: authorization.authorityDigestB64u,
     authorityRevocationEpoch: authorization.authorityRevocationEpoch,
     capabilitySubjects: [first, ...remaining],
@@ -801,7 +803,7 @@ function directRegistrationSession(
   tokens: RegistrationEstablishedSessionProjectionTokensV2,
   operationCredential: WalletSessionOperationCredentialV1,
 ): RegistrationEstablishedSessionV2 {
-  const walletSession = activeWalletSessionFromAuthorization(authorization.session);
+  const walletSession = activeWalletSessionFromAuthorization(authorization);
   if (operationCredential.walletSessionId !== authorization.session.walletSessionId) {
     throw new Error('Direct registration operation credential identity does not match the session');
   }

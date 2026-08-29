@@ -111,7 +111,8 @@ async function readEd25519ClientWalletSessionAuthorization(
     authorization.record.walletId !== walletId ||
     authorization.record.authorityId !== selected.authority.authorityId ||
     authorization.record.authMethodId !== selected.authMethod.walletAuthMethodId ||
-    authorization.operationCredential.walletSessionId !== identity.walletSessionId
+    authorization.operationCredential.walletSessionId !== identity.walletSessionId ||
+    authorization.record.quotaId !== identity.quotaId
   ) {
     return parseWalletSessionAuthorizationBoundary({
       observation: { kind: 'invalid', source, reason: 'scope_mismatch' },

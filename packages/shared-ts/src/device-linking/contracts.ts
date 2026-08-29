@@ -1,6 +1,7 @@
 import type { DelegatedWalletAuthorityV1 } from '../authorization/delegatedAuthority';
 import type {
   DeviceId,
+  MpcWalletSigningQuotaId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '../authorization/capabilityKinds';
@@ -849,6 +850,7 @@ export type ActiveWalletSessionV1 = {
   readonly authorityId: WalletAuthorityId;
   readonly authMethodId: WalletAuthMethodId;
   readonly authorizationId: WalletSessionAuthorizationId;
+  readonly quotaId: MpcWalletSigningQuotaId;
   readonly authorityDigestB64u: DigestB64u;
   readonly authorityRevocationEpoch: number;
   readonly capabilitySubjects: readonly [WalletCapabilitySubjectV1, ...WalletCapabilitySubjectV1[]];

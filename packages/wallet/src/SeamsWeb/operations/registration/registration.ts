@@ -2116,6 +2116,7 @@ function mixedRegistrationSessionFromDeferredResult(
           authorityId: ecdsaSession.walletSession.authorityId,
           authMethodId: ecdsaSession.walletSession.authMethodId,
           authorizationId: ecdsaSession.walletSession.authorizationId,
+          quotaId: ecdsaSession.walletSession.quotaId,
           authorityDigestB64u: ecdsaSession.walletSession.authorityDigestB64u,
           authorityRevocationEpoch: ecdsaSession.walletSession.authorityRevocationEpoch,
           capabilitySubjects: appendRegistrationEd25519SigningCapability(
