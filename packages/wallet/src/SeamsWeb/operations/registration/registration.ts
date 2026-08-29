@@ -95,7 +95,10 @@ import {
   WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
   type LoadedWalletCustodyEd25519MaterialV1,
 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
-import { joinCustodyJsonFromEstablishedCommitPayload } from '@/core/signingEngine/walletCustody/registrationCeremony';
+import {
+  joinCustodyJsonFromEstablishedCommitPayload,
+  walletCustodyCommitPayloadForWire,
+} from '@/core/signingEngine/walletCustody/registrationCeremony';
 import {
   openWalletCustodyEd25519ActiveClientV1,
   type WalletCustodyActivationFactsV1,
@@ -1701,7 +1704,9 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
         await args.persistPendingCommit({
           localMaterial: {
             keyFamilies: ['ecdsa_secp256k1'],
-            custodyCommit: bootstrap.preActivationCommitPayload,
+            custodyCommit: walletCustodyCommitPayloadForWire(
+              bootstrap.preActivationCommitPayload,
+            ),
             ecdsa: {
               activationJournalId: persisted.journalId,
             },
