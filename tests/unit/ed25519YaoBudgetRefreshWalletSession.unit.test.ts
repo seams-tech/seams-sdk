@@ -276,6 +276,7 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
     expect(capture.body).toContain('"signature":"signature-b64u"');
     expect(capture.body).not.toContain(PRF_FIRST_B64U);
     expect(capture.body).toContain('"projectEnvironmentId":"env-refresh"');
+    expect(capture.body).toContain('"walletSessionTarget":{"kind":"new_wallet_session"}');
   } finally {
     activeRefreshFetchCapture = null;
     activeRefreshResponseBody = null;
@@ -386,79 +387,6 @@ test('Wallet Session parser normalizes the flat exact-method already-committed r
     },
   });
   expect(parseWalletSessionAlreadyCommittedResponseV1(flatResponse)).toBeNull();
-});
-
-test('Wallet Session mint preserves a reused identity without a second credential', async () => {
-  const originalFetch = globalThis.fetch;
-  const capture: RefreshFetchCapture = {
-    authorization: '',
-    body: '',
-    credentials: undefined,
-  };
-  const existingWalletSessionToken = `wst_${'E'.repeat(43)}`;
-  activeRefreshFetchCapture = capture;
-  activeRefreshResponseBody = {
-    ok: true,
-    sessionKind: 'already_committed_exact_wallet_session',
-    thresholdSessionId: 'threshold-session-1',
-    walletSessionId: 'wallet-session-1',
-    authorizationId: 'authorization-1',
-    quotaId: 'quota-1',
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    remainingUses: 3,
-    runtimePolicyScope: {
-      orgId: 'org-refresh',
-      projectId: 'project-refresh',
-      envId: 'env-refresh',
-      signingRootVersion: 'root-version-refresh',
-    },
-  };
-  globalThis.fetch = refreshWalletSessionFetch;
-
-  try {
-    const result = await mintEd25519WalletSession({
-      relayerUrl: 'https://relay.example.test',
-      sessionKind: 'opaque',
-      relayerKeyId: 'ed25519:relayer-key',
-      sessionPolicy: refreshSessionPolicyFixture(),
-      auth: {
-        kind: 'threshold_session_policy_webauthn',
-        policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
-          credential: refreshCredentialFixture(),
-          rpId: 'localhost',
-        }),
-      },
-      existingWalletSessionToken,
-      publishableKey: PUBLISHABLE_KEY,
-      projectEnvironmentId: 'env-refresh',
-    });
-
-    expect(result).toEqual({
-      ok: true,
-      sessionKind: 'already_committed_exact_wallet_session',
-      thresholdSessionId: 'threshold-session-1',
-      walletSessionId: 'wallet-session-1',
-      authorizationId: 'authorization-1',
-      quotaId: 'quota-1',
-      expiresAtMs: expect.any(Number),
-      remainingUses: 3,
-      runtimePolicyScope: {
-        orgId: 'org-refresh',
-        projectId: 'project-refresh',
-        envId: 'env-refresh',
-        signingRootVersion: 'root-version-refresh',
-      },
-    });
-    expect(result).not.toHaveProperty('operationCredential');
-    expect(result).not.toHaveProperty('walletSessionToken');
-    expect(capture.authorization).toBe(`Bearer ${existingWalletSessionToken}`);
-    expect(capture.body).toContain('"walletSessionTarget":{"kind":"reuse_ecdsa_wallet_session"}');
-    expect(capture.body).not.toContain('"projectEnvironmentId"');
-  } finally {
-    activeRefreshFetchCapture = null;
-    activeRefreshResponseBody = null;
-    globalThis.fetch = originalFetch;
-  }
 });
 
 test('Wallet Session mint rejects an issued credential bound to another session', async () => {
@@ -577,11 +505,7 @@ test('Ed25519 session connection rejects success without a runtime policy scope'
   }
 });
 
-async function connectRefreshEd25519Session(
-  input: {
-    existingWalletSessionToken?: string;
-  } = {},
-) {
+async function connectRefreshEd25519Session() {
   const authority = buildPasskeyWalletAuthAuthority({
     walletId: 'refresh-wallet',
     rpId: 'localhost',
@@ -611,9 +535,6 @@ async function connectRefreshEd25519Session(
         rpId: 'localhost',
       }),
     },
-    ...(input.existingWalletSessionToken
-      ? { existingWalletSessionToken: input.existingWalletSessionToken }
-      : {}),
   });
 }
 
@@ -632,47 +553,6 @@ test('Ed25519 session connection returns the issued operation credential exactly
     if (!result.ok) throw new Error('expected an issued Ed25519 session');
     expect(result.sessionKind).toBe('issued_exact_wallet_session');
     expect(result.operationCredential.walletSessionId).toBe(result.walletSessionId);
-    expect(result).not.toHaveProperty('walletSessionToken');
-  } finally {
-    activeRefreshFetchCapture = null;
-    activeRefreshResponseBody = null;
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test('Ed25519 session connection keeps reused sessions credential-free', async () => {
-  const originalFetch = globalThis.fetch;
-  activeRefreshFetchCapture = {
-    authorization: '',
-    body: '',
-    credentials: undefined,
-  };
-  activeRefreshResponseBody = {
-    ok: true,
-    sessionKind: 'already_committed_exact_wallet_session',
-    thresholdSessionId: 'threshold-session-1',
-    walletSessionId: 'wallet-session-1',
-    authorizationId: 'authorization-1',
-    quotaId: 'quota-1',
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    remainingUses: 3,
-    runtimePolicyScope: {
-      orgId: 'org-refresh',
-      projectId: 'project-refresh',
-      envId: 'env-refresh',
-      signingRootVersion: 'root-version-refresh',
-    },
-  };
-  globalThis.fetch = refreshWalletSessionFetch;
-
-  try {
-    const result = await connectRefreshEd25519Session({
-      existingWalletSessionToken: `wst_${'E'.repeat(43)}`,
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error('expected a reused Ed25519 session');
-    expect(result.sessionKind).toBe('already_committed_exact_wallet_session');
-    expect(result).not.toHaveProperty('operationCredential');
     expect(result).not.toHaveProperty('walletSessionToken');
   } finally {
     activeRefreshFetchCapture = null;

@@ -644,7 +644,7 @@ Primary files:
       non-null primary digest.
 - [x] Make same-method replacement retire its predecessor session and close its
       quota in the successor transaction without mutating same-mint replay.
-- [ ] Retire hosted children in the same successor transaction.
+- [x] Retire hosted children in the same successor transaction.
 - [ ] Add the full-scope exact-tuple partial unique index after deterministic
       duplicate preflight.
 - [x] Preserve historical `mint_id` uniqueness; every replacement receives a
@@ -885,7 +885,7 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
       proves the fence and isolation.
 - [ ] Convert explicit exact-session retirement to close its V2 parent and
       quota in one transaction.
-- [ ] Retire hosted children in the same owning auth-method, authority, or
+- [x] Retire hosted children in the same owning auth-method, authority, or
       explicit-session CAS after I7 introduces production hosted-child rows;
       migration `0028` currently has no production child writer or reader.
 - [ ] Transition a consumed quota to exhausted through V2 while retaining exact

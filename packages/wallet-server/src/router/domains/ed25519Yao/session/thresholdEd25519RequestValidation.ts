@@ -102,8 +102,6 @@ function parseWalletSessionTarget(
   switch (raw.kind) {
     case 'new_wallet_session':
       return { ok: true, request: { kind: 'new_wallet_session' } };
-    case 'reuse_ecdsa_wallet_session':
-      return { ok: true, request: { kind: 'reuse_ecdsa_wallet_session' } };
     default:
       return invalidThresholdEd25519Body('walletSessionTarget.kind is invalid');
   }
