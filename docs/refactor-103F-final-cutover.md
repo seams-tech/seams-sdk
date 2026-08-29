@@ -1122,13 +1122,22 @@ Convert every reader or legacy writer:
 - [x] `clientSessionPersistence.ts`;
 - [x] `ecdsaLoginPrefill.ts`;
 - [x] `routerAbEd25519WalletSessionState.ts`;
-- [ ] `signingFlowRuntime.ts`;
-- [ ] `emailOtpSigningSession.ts`;
-- [ ] `emailOtp/ecdsaLogin.ts`;
+- [x] `signingFlowRuntime.ts`: operation step-up resolves the unlocked selected
+      authority and method, requires the exact ECDSA capability subject and
+      material activation, and sends only its operation credential;
+- [x] `emailOtpSigningSession.ts`: sealed-runtime signing-session authority
+      resolution now validates the selected Email OTP method, active authority,
+      exact ECDSA session, and material activation;
+- [x] `emailOtp/ecdsaLogin.ts`: unlock/recovery publication now obtains its
+      session authority from the selected exact tuple and rejects wallet-wide
+      or mismatched authorization state;
 - [ ] `browserSigningSurfaceAssembly.ts`;
 - [ ] `createBrowserRecoveryPublicDeps.ts`;
 - [ ] `stepUpRuntime.ts`;
-- [ ] `ed25519YaoWarmRecovery.ts`;
+- [x] `ed25519YaoWarmRecovery.ts`: Passkey warm recovery requires the unlocked
+      selected method, exact V6 operation credential, matching Ed25519 subject,
+      authority digest and epoch, material activation, and sealed threshold
+      session identity before requesting a bootstrap;
 - [x] `addAuthMethodSourceClaim.ts`: resolve the unlocked selected
       authority/method tuple, validate its active exact record, and use the
       credential-bound Wallet Session identity in the source claim;
