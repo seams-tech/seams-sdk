@@ -946,6 +946,7 @@ Primary files:
 - [x] Require the exact operation credential in execution-lane preflight;
       Ed25519 and ECDSA preflight supply their concrete signing operation and
       resolve the exact session's auth-method identity before lane projection.
+      The parallel opaque-owner projection branches are deleted.
 - [ ] Add the P-256 ECDH delivery recipient to target preparation and bind it to
       the verified link.
 - [ ] Persist Device 2 profile, authenticator, method/factor, authority,
