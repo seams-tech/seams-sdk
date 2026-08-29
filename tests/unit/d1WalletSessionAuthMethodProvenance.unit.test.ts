@@ -6,6 +6,7 @@ import {
   computeWalletAuthorityDigestB64u,
   computeWalletSignerActivationSetDigestB64u,
   type ActiveWalletAuthorityV1,
+  type PendingWalletAuthorityV1,
 } from '@shared/authorization/walletAuthority';
 import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 import {
@@ -28,6 +29,7 @@ import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
   parseWalletId,
+  parseWalletRecoveryOperationId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
   type WalletAuthMethodId,
@@ -380,6 +382,90 @@ function authorityWithProvenance(
     updatedAtMs,
     state: authority.state,
     activatedAtMs: authority.activatedAtMs,
+  });
+}
+
+async function recoveredAuthority(
+  authority: ActiveWalletAuthorityV1,
+): Promise<ActiveWalletAuthorityV1> {
+  const recoveryProvenance = {
+    kind: 'wallet_recovery' as const,
+    recoveryOperationId: requiredParsed(
+      parseWalletRecoveryOperationId('wallet-recovery:v2-direct-issuance'),
+    ),
+    continuityAuthorityId: requiredParsed(
+      parseWalletAuthorityId('authority:v2-recovery-continuity'),
+    ),
+  };
+  const draft = buildActiveWalletAuthorityV1({
+    kind: authority.kind,
+    authorityId: authority.authorityId,
+    walletId: authority.walletId,
+    principal: authority.principal,
+    provenance: recoveryProvenance,
+    permissions: authority.permissions,
+    signerActivations: authority.signerActivations,
+    signerActivationSetDigestB64u: authority.signerActivationSetDigestB64u,
+    authorityDigestB64u: authority.authorityDigestB64u,
+    revocationEpoch: authority.revocationEpoch,
+    createdAtMs: authority.createdAtMs,
+    updatedAtMs: authority.updatedAtMs,
+    state: authority.state,
+    activatedAtMs: authority.activatedAtMs,
+  });
+  return buildActiveWalletAuthorityV1({
+    kind: draft.kind,
+    authorityId: draft.authorityId,
+    walletId: draft.walletId,
+    principal: draft.principal,
+    provenance: draft.provenance,
+    permissions: draft.permissions,
+    signerActivations: draft.signerActivations,
+    signerActivationSetDigestB64u: draft.signerActivationSetDigestB64u,
+    authorityDigestB64u: parseDigestB64u(await computeWalletAuthorityDigestB64u(draft)),
+    revocationEpoch: draft.revocationEpoch,
+    createdAtMs: draft.createdAtMs,
+    updatedAtMs: draft.updatedAtMs,
+    state: draft.state,
+    activatedAtMs: draft.activatedAtMs,
+  });
+}
+
+async function pendingRecoveredAuthority(
+  authority: ActiveWalletAuthorityV1,
+  localInstallPackageSetDigestB64u: DigestB64u,
+): Promise<PendingWalletAuthorityV1> {
+  const draft = buildPendingWalletAuthorityV1({
+    kind: authority.kind,
+    authorityId: authority.authorityId,
+    walletId: authority.walletId,
+    principal: authority.principal,
+    provenance: authority.provenance,
+    permissions: authority.permissions,
+    signerActivations: authority.signerActivations,
+    signerActivationSetDigestB64u: authority.signerActivationSetDigestB64u,
+    authorityDigestB64u: authority.authorityDigestB64u,
+    revocationEpoch: authority.revocationEpoch,
+    createdAtMs: authority.createdAtMs,
+    updatedAtMs: authority.createdAtMs,
+    state: 'pending_local_install',
+    localInstallPackageSetDigestB64u,
+  });
+  return buildPendingWalletAuthorityV1({
+    kind: draft.kind,
+    authorityId: draft.authorityId,
+    walletId: draft.walletId,
+    principal: draft.principal,
+    provenance: draft.provenance,
+    permissions: draft.permissions,
+    signerActivations: draft.signerActivations,
+    signerActivationSetDigestB64u: draft.signerActivationSetDigestB64u,
+    authorityDigestB64u: parseDigestB64u(await computeWalletAuthorityDigestB64u(draft)),
+    revocationEpoch: draft.revocationEpoch,
+    createdAtMs: draft.createdAtMs,
+    updatedAtMs: draft.updatedAtMs,
+    state: draft.state,
+    localInstallPackageSetDigestB64u: draft.localInstallPackageSetDigestB64u,
   });
 }
 
@@ -1010,6 +1096,84 @@ test('direct V2 issuance is replay-stable and exhausts the same-method predecess
         lifecycle_kind: 'active',
       },
     ]);
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
+test('direct V2 recovery login issues and replays the exact recovered authority session', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, signerMigrations);
+    const namespace = 'wallet-session-v2-recovery-direct';
+    const service = createService(temporary.database, namespace);
+    const fixture = await buildActiveAuthorityFixture('recovery-direct');
+    const authority = await recoveredAuthority(fixture.authority);
+    const pendingAuthority = await pendingRecoveredAuthority(
+      authority,
+      fixture.pendingAuthority.localInstallPackageSetDigestB64u,
+    );
+    const authorityStore = new D1WalletAuthorityStore({
+      database: temporary.database,
+      scope: {
+        namespace,
+        orgId: 'test-org',
+        projectId: 'test-project',
+        envId: 'test-env',
+      },
+      ensureSchema: false,
+    });
+    await expect(
+      authorityStore.commitPendingAuthority({
+        authority: pendingAuthority,
+        authMethod: fixture.pendingAuthMethod,
+      }),
+    ).resolves.toMatchObject({ kind: 'committed_wallet_authority_v1' });
+    await expect(
+      authorityStore.activatePendingAuthority({
+        pendingAuthority,
+        activeAuthority: authority,
+        pendingAuthMethod: fixture.pendingAuthMethod,
+        activeAuthMethod: fixture.authMethod,
+      }),
+    ).resolves.toMatchObject({ kind: 'activated' });
+    const input = {
+      tenantId: requiredParsed(parseTenantId('tenant:v2-recovery-direct')),
+      principalId: requiredParsed(parsePrincipalId('principal:v2-recovery-direct')),
+      walletId: authority.walletId,
+      authority,
+      walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+      mintId: requiredMintId('unlock:v2-recovery-direct'),
+      remainingUses: 3,
+      issuedAtMs: 300,
+      expiresAtMs: 500,
+    } as const;
+
+    const first = await service.issueDirectWalletSessionAuthorizationV2(input);
+    expect(first.kind).toBe('issued');
+    if (first.kind !== 'issued') throw new Error('recovered direct issuance did not issue');
+    expect(first.session).toMatchObject({
+      kind: 'wallet_session_authorization_v2',
+      walletId: authority.walletId,
+      authorityId: authority.authorityId,
+      walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+      authorityDigestB64u: authority.authorityDigestB64u,
+    });
+
+    const replay = await service.issueDirectWalletSessionAuthorizationV2(input);
+    expect(replay).toEqual({
+      kind: 'already_committed',
+      walletId: first.session.walletId,
+      authorityId: first.session.authorityId,
+      walletAuthMethodId: first.session.walletAuthMethodId,
+      mintId: first.session.mintId,
+      authorizationId: first.session.authorizationId,
+      walletSessionId: first.session.walletSessionId,
+      quotaId: first.session.quotaId,
+      next: 'unlock_exact_method',
+    });
+    expect(replay).not.toHaveProperty('operationCredential');
+    expect(replay).not.toHaveProperty('walletSessionToken');
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
