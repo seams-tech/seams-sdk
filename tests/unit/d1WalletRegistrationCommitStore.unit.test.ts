@@ -7,14 +7,26 @@ import type {
 } from '../../packages/wallet-server/src/core/WalletStore';
 import { CloudflareD1WalletRegistrationCommitStore } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/d1WalletRegistrationCommitStore';
 import { CloudflareD1WalletAuthMethodService } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthMethodService';
-import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
+import {
+  D1WalletAuthMethodStore,
+  prepareD1WalletAuthMethodV2PutStatement,
+} from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
+import { AuthorizationService } from '../../packages/wallet-server/src/authorization/service';
+import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
+import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { CloudflareD1WebAuthnStore } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
 import { D1WalletAuthorityStore } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
 import { CloudflareD1EmailOtpEnrollmentStore } from '../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1EmailOtpEnrollmentStore';
 import type { D1EmailOtpRegistrationCommitPlan } from '../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
 import type { EmailOtpWalletEnrollmentRecord } from '../../packages/wallet-server/src/core/EmailOtpStores';
 import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
-import { parseDeviceId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import {
+  parseDeviceId,
+  parseMpcWalletSigningQuotaId,
+  parsePrincipalId,
+  parseTenantId,
+  parseWalletSessionMintId,
+} from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import {
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
@@ -138,7 +150,10 @@ async function testFoundingRecords(input: {
   readonly now: number;
 }): Promise<{
   readonly authority: ActiveWalletAuthorityV1;
-  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+  readonly authMethod: Extract<
+    WalletAuthMethodRecordV2,
+    { readonly kind: 'passkey'; readonly status: 'active' }
+  >;
 }> {
   const walletKeyId = requireTestParsed(
     parseWalletKeyId(`wallet-key:ecdsa:${input.walletId}:ecdsa-slot-1`),
@@ -215,8 +230,40 @@ async function testFoundingRecords(input: {
     updatedAtMs: input.now,
     activatedAtMs: input.now,
   });
-  if (authMethod.status !== 'active') throw new Error('test auth method is not active');
+  if (authMethod.kind !== 'passkey' || authMethod.status !== 'active') {
+    throw new Error('test auth method is not active passkey');
+  }
   return { authority, authMethod };
+}
+
+function testSiblingAuthMethod(
+  source: Extract<WalletAuthMethodRecordV2, { readonly kind: 'passkey'; readonly status: 'active' }>,
+): Extract<WalletAuthMethodRecordV2, { readonly kind: 'passkey'; readonly status: 'active' }> {
+  const authMethod = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: requireTestParsed(
+      parseWalletAuthMethodId('wallet-auth-method:registration-sibling'),
+      'sibling auth method id',
+    ),
+    walletId: source.walletId,
+    walletAuthorityId: source.walletAuthorityId,
+    kind: 'passkey',
+    status: 'active',
+    rpId: source.rpId,
+    credentialIdB64u: requireTestParsed(
+      parseWebAuthnCredentialIdB64u('credential-sibling'),
+      'sibling credential id',
+    ),
+    credentialPublicKeyB64u: 'credential-public-key-sibling',
+    counter: 0,
+    createdAtMs: source.createdAtMs,
+    updatedAtMs: source.updatedAtMs,
+    activatedAtMs: source.activatedAtMs,
+  });
+  if (authMethod.kind !== 'passkey' || authMethod.status !== 'active') {
+    throw new Error('sibling auth method is not active passkey');
+  }
+  return authMethod;
 }
 
 async function testCombinedFoundingAuthority(input: {
@@ -528,6 +575,193 @@ test('deferred mixed registration extends the persisted founding authority', asy
     expect(persisted?.signerActivations.ecdsa).toEqual(founding.authority.signerActivations.ecdsa);
     expect(persisted?.signerActivations.ed25519).toEqual(
       combinedAuthority.signerActivations.ed25519,
+    );
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('deferred authority promotion refreshes sibling sessions before fresh issuance', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const walletId = walletIdFromString('amber-atlas-abcdef');
+    const createdAtMs = 1_900_000_000_000;
+    const settledAtMs = createdAtMs + 4_000;
+    const tenantId = requireTestParsed(
+      parseTenantId('tenant:registration-promotion'),
+      'promotion tenant id',
+    );
+    const principalId = requireTestParsed(
+      parsePrincipalId('principal:registration-promotion'),
+      'promotion principal id',
+    );
+    const ecdsaSigner = testEcdsaSigner(walletId, createdAtMs);
+    const founding = await testFoundingRecords({
+      walletId,
+      signer: ecdsaSigner,
+      now: createdAtMs,
+    });
+    const registrationStore = new CloudflareD1WalletRegistrationCommitStore({
+      database,
+      ...TEST_SCOPE,
+    });
+    await registrationStore.commit({
+      kind: 'passkey_wallet_registration_commit_v1',
+      wallet: testWalletRecord(walletId, createdAtMs),
+      walletSigners: [ecdsaSigner],
+      authority: testPasskeyAuthority(walletId),
+      foundingAuthority: founding.authority,
+      foundingAuthMethod: founding.authMethod,
+      now: createdAtMs,
+    });
+
+    const siblingAuthMethod = testSiblingAuthMethod(founding.authMethod);
+    await prepareD1WalletAuthMethodV2PutStatement({
+      database,
+      scope: TEST_SCOPE,
+      record: siblingAuthMethod,
+      insertOnly: true,
+    }).run();
+    const authorizationStore = new CloudflareD1AuthorizationStore({
+      database,
+      namespace: TEST_SCOPE.namespace,
+      walletSignerScope: TEST_SCOPE,
+    });
+    const authorizationService = new AuthorizationService({
+      policy: capabilityPolicyPort,
+      sessions: authorizationStore,
+      evidence: authorizationStore,
+      grants: authorizationStore,
+      authorizedOperations: authorizationStore,
+      audit: authorizationStore,
+    });
+    const initiating = await authorizationService.issueDirectWalletSessionAuthorizationV2({
+      tenantId,
+      principalId,
+      walletId,
+      authority: founding.authority,
+      walletAuthMethodId: founding.authMethod.walletAuthMethodId,
+      mintId: requireTestParsed(
+        parseWalletSessionMintId('mint:registration-promotion-initiating'),
+        'initiating promotion mint id',
+      ),
+      remainingUses: 3,
+      issuedAtMs: createdAtMs + 100,
+      expiresAtMs: createdAtMs + 10_000,
+    });
+    const sibling = await authorizationService.issueDirectWalletSessionAuthorizationV2({
+      tenantId,
+      principalId,
+      walletId,
+      authority: founding.authority,
+      walletAuthMethodId: siblingAuthMethod.walletAuthMethodId,
+      mintId: requireTestParsed(
+        parseWalletSessionMintId('mint:registration-promotion-sibling'),
+        'sibling promotion mint id',
+      ),
+      remainingUses: 3,
+      issuedAtMs: createdAtMs + 100,
+      expiresAtMs: createdAtMs + 10_000,
+    });
+    if (initiating.kind !== 'issued' || sibling.kind !== 'issued') {
+      throw new Error('promotion session fixture did not issue both methods');
+    }
+    const hashesBefore = await database
+      .prepare(
+        `SELECT wallet_session_id, authorization_id, quota_id, operation_credential_hash
+           FROM wallet_session_authorizations_v2
+          WHERE namespace = ?
+            AND wallet_session_id IN (?, ?)
+          ORDER BY wallet_session_id`,
+      )
+      .bind(
+        TEST_SCOPE.namespace,
+        String(initiating.session.walletSessionId),
+        String(sibling.session.walletSessionId),
+      )
+      .all();
+
+    const combinedAuthority = await testCombinedFoundingAuthority({
+      authority: founding.authority,
+      ed25519Signer: testEd25519Signer(walletId, settledAtMs),
+      now: settledAtMs,
+    });
+    await registrationStore.commit({
+      kind: 'passkey_wallet_registration_commit_v1',
+      wallet: testWalletRecord(walletId, settledAtMs),
+      walletSigners: [testEd25519Signer(walletId, settledAtMs)],
+      authority: testPasskeyAuthority(walletId),
+      foundingAuthority: combinedAuthority,
+      foundingAuthMethod: founding.authMethod,
+      now: settledAtMs,
+    });
+
+    const refreshedInitiating =
+      await authorizationService.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId,
+        token: initiating.operationCredential.token,
+        nowMs: settledAtMs + 1,
+      });
+    const refreshedSibling =
+      await authorizationService.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId,
+        token: sibling.operationCredential.token,
+        nowMs: settledAtMs + 1,
+      });
+    expect(refreshedInitiating?.session).toMatchObject({
+      authorizationId: initiating.session.authorizationId,
+      walletSessionId: initiating.session.walletSessionId,
+      quotaId: initiating.session.quotaId,
+      authorityDigestB64u: combinedAuthority.authorityDigestB64u,
+      authorityRevocationEpoch: combinedAuthority.revocationEpoch,
+    });
+    expect(refreshedSibling?.session).toMatchObject({
+      authorizationId: sibling.session.authorizationId,
+      walletSessionId: sibling.session.walletSessionId,
+      quotaId: sibling.session.quotaId,
+      authorityDigestB64u: combinedAuthority.authorityDigestB64u,
+      authorityRevocationEpoch: combinedAuthority.revocationEpoch,
+    });
+    const hashesAfter = await database
+      .prepare(
+        `SELECT wallet_session_id, authorization_id, quota_id, operation_credential_hash
+           FROM wallet_session_authorizations_v2
+          WHERE namespace = ?
+            AND wallet_session_id IN (?, ?)
+          ORDER BY wallet_session_id`,
+      )
+      .bind(
+        TEST_SCOPE.namespace,
+        String(initiating.session.walletSessionId),
+        String(sibling.session.walletSessionId),
+      )
+      .all();
+    expect(hashesAfter.results).toEqual(hashesBefore.results);
+
+    const fresh = await authorizationService.issueDirectWalletSessionAuthorizationV2({
+      tenantId,
+      principalId,
+      walletId,
+      authority: combinedAuthority,
+      walletAuthMethodId: founding.authMethod.walletAuthMethodId,
+      mintId: requireTestParsed(
+        parseWalletSessionMintId('mint:registration-promotion-fresh'),
+        'fresh promotion mint id',
+      ),
+      remainingUses: 3,
+      issuedAtMs: settledAtMs + 1,
+      expiresAtMs: settledAtMs + 10_000,
+    });
+    expect(fresh.kind).toBe('issued');
+    const siblingAfterFresh =
+      await authorizationService.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId,
+        token: sibling.operationCredential.token,
+        nowMs: settledAtMs + 2,
+      });
+    expect(siblingAfterFresh?.session.authorityDigestB64u).toBe(
+      combinedAuthority.authorityDigestB64u,
     );
   } finally {
     cleanupTemporaryD1Database(tempDir);

@@ -11,6 +11,10 @@ import {
   type WalletIframeExactSessionState,
 } from '../../shared/exactSessionState';
 import {
+  reconcileWalletIframeExactSessions,
+  type WalletIframeExactSessionReconciliationDependencies,
+} from '../../shared/exactSessionReconciliation';
+import {
   pmUnlockPayloadToLoginHooksOptions,
   requirePMUnlockPayload,
   type PMUnlockLoginHooksOptions,
@@ -43,14 +47,22 @@ async function readWalletIframeExactSessionStatus(
 
 function exactSessionReadDependenciesForRelay(
   relayUrl: string,
-): WalletIframeExactSessionReadDependencies {
+): WalletIframeExactSessionReadDependencies & WalletIframeExactSessionReconciliationDependencies {
   return {
     resolveSelectedWalletAuthority:
       IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
+    listWalletAuthMethodsV2ForWallet:
+      IndexedDBManager.listWalletAuthMethodsV2ForWallet.bind(IndexedDBManager),
+    resolveWalletAuthorityForMethod:
+      IndexedDBManager.resolveWalletAuthorityForMethod.bind(IndexedDBManager),
     readExactActiveForWallet: walletSessionAuthorizations.readExactActiveForWallet.bind(
       walletSessionAuthorizations,
     ),
     readStatus: readWalletIframeExactSessionStatus.bind(null, relayUrl),
+    writeExactWithOperationCredential:
+      walletSessionAuthorizations.writeExactWithOperationCredential.bind(
+        walletSessionAuthorizations,
+      ),
     nowMs: Date.now,
   };
 }
@@ -145,9 +157,21 @@ async function resolveExactWalletSessionState(
       break;
   }
   if (!walletId) return { kind: 'wallet_locked' };
+  const dependencies = exactSessionReadDependenciesForRelay(pm.configs.network.relayer.url);
+  const reconciliation = await reconcileWalletIframeExactSessions(
+    { walletId: toWalletId(walletId) },
+    dependencies,
+  );
+  if (reconciliation.kind === 'failed') {
+    return {
+      kind: 'wallet_unlocked_without_signing_session',
+      walletId: toWalletId(walletId),
+      reason: reconciliation.reason,
+    };
+  }
   return await readSelectedWalletIframeExactSessionState(
     { walletId: toWalletId(walletId) },
-    exactSessionReadDependenciesForRelay(pm.configs.network.relayer.url),
+    dependencies,
   );
 }
 

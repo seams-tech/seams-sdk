@@ -691,9 +691,9 @@ Primary files:
 - [ ] Rewrite complete historical registration rows to the credential-free
       receipt or delete replay-incomplete rows in the cutover migration; test
       both known prefixes and unknown-shape abort.
-- [ ] Update material promotion so the authority CAS refreshes every affected
+- [x] Update material promotion so the authority CAS refreshes every affected
       non-retired V2 snapshot while preserving session identity.
-- [ ] Extend authenticated exact status to return the complete digest-free
+- [x] Extend authenticated exact status to return the complete digest-free
       projection used for promotion-response loss and bootstrap reconciliation.
 
 Convert every current issuer:
@@ -835,7 +835,7 @@ and `authorizeSigningSessionSealWithExactWalletSession`.
       validates the authorization against its own authority, method, quota, and
       capability rows; the route validates tenant and the requested
       Wallet Session/quota tuple against the credential-resolved projection.
-- [ ] Reconcile stale browser records during bootstrap and after lost promotion
+- [x] Reconcile stale browser records during bootstrap and after lost promotion
       responses before publishing the promoted runtime.
 - [x] Return typed missing, expired, exhausted, retired, authority-unavailable,
       method-unavailable, and capability-unavailable results from persistence.
@@ -1389,7 +1389,7 @@ remaining consumers are converted.
       atomic exact retirement.
 - [ ] Convert every route in the route policy matrix.
 - [x] Implement hosted child credentials and exact parent lifecycle handling.
-- [ ] Update material promotion and exact status readback.
+- [x] Update material promotion and exact status readback.
 
 Exit: every server session is direct V2, and core server services receive only
 exact admission contexts. No V1 request or persistence resolver remains.
@@ -1411,7 +1411,7 @@ exact admission contexts. No V1 request or persistence resolver remains.
       machine, including local pending prerequisites and recipient-loss recovery.
 - [ ] Close the post-promotion recovery crash window with resumable local
       continuity and normal exact login.
-- [ ] Reconcile all affected browser records after material promotion.
+- [x] Reconcile all affected browser records after material promotion.
 - [x] Bump the host/iframe protocol and remove reusable-session message fields.
 - [x] Rename `ReusableWalletSessionMintId` to `WalletSessionMintId` without an
       alias; preserve stored and frozen wire field names.
@@ -1683,7 +1683,7 @@ Remaining causal baseline work:
 - [ ] Hosted nominal-type, disjoint-prefix, issue/redeem/use Origin,
       iframe-parent Origin, authoritative wallet-origin, quota, parent lifecycle,
       and primary-preservation tests.
-- [ ] Authority/material-promotion tests covering stable identities, all
+- [x] Authority/material-promotion tests covering stable identities, all
       affected server snapshots, all same-authority browser records, and lost
       response readback.
 - [x] Host/iframe protocol-skew tests in both directions with removed fields

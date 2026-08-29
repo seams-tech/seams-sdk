@@ -7,6 +7,7 @@ import {
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { parseWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { buildWalletSessionCapabilitySubjectsV1 } from '../../../../authorization/domain';
 import {
   prepareD1WalletAuthMethodV2PutStatement,
   type D1WalletAuthMethodStoreScope,
@@ -32,6 +33,7 @@ import {
 import {
   prepareD1WalletAuthorityPutStatement,
 } from '../wallet/d1WalletAuthorityStore';
+import { prepareD1WalletSessionAuthorityProjectionStatements } from '../authorization/walletSessionAuthorityProjection';
 import {
   prepareD1WebAuthnAuthenticatorPutStatement,
   type D1WebAuthnStoreScope,
@@ -329,6 +331,7 @@ async function prepareFoundingStatements(input: {
   readonly foundingAuthMethod:
     | Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>
     | undefined;
+  readonly now: number;
 }): Promise<readonly D1PreparedStatementLike[]> {
   if (!input.foundingAuthority) return [];
   const foundingAuthMethod = requireFoundingAuthMethod(input.foundingAuthMethod);
@@ -420,6 +423,18 @@ async function prepareFoundingStatements(input: {
         next: input.foundingAuthority,
       }),
       prepareFoundingAuthorityExtensionCasGuard(input.database),
+      ...prepareD1WalletSessionAuthorityProjectionStatements({
+        database: input.database,
+        scope: input.scope,
+        projection: {
+          walletId: input.foundingAuthority.walletId,
+          authorityId: input.foundingAuthority.authorityId,
+          authorityDigestB64u: input.foundingAuthority.authorityDigestB64u,
+          authorityRevocationEpoch: input.foundingAuthority.revocationEpoch,
+          capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(input.foundingAuthority),
+          promotionAtMs: input.now,
+        },
+      }),
     );
   }
   if (!authMethodRow) {
@@ -481,6 +496,7 @@ export class CloudflareD1WalletRegistrationCommitStore
       scope: this.scope,
       foundingAuthority: input.foundingAuthority,
       foundingAuthMethod: input.foundingAuthMethod,
+      now: input.now,
     });
     const statements: D1PreparedStatementLike[] = [
       prepareD1WalletPutSubjectStatement({
