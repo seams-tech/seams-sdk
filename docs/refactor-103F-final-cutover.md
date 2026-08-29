@@ -1037,6 +1037,8 @@ Primary files:
 - [ ] Remove only obsolete Wallet Session rows; preserve every unrelated wallet,
       authority, method, signer-material, export-root, and recovery-code store.
 - [ ] Publish the future-row-tolerant precursor before any V6 production write.
+- [x] Define the exact rollout client-capability literal and boundary parser;
+      reject omission separately from invalid, aliased, or non-canonical values.
 - [ ] Add the temporary client capability to every issuance boundary, record
       replay family, drain unmarked issuance, normalize tagged receipts, and
       delete the capability.
