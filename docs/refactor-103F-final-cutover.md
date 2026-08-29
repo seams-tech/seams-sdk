@@ -1193,6 +1193,8 @@ Primary persistence files:
 - [x] Delete `ReusableWalletSessionState` from the SDK domain model.
 - [x] Rename `ReusableWalletSessionMintId` and parser to
       `WalletSessionMintId` and `parseWalletSessionMintId` without an alias.
+- [x] Delete `ReusableWalletSessionAuthorizationId` and its compatibility
+      parser; use the exact `WalletSessionAuthorizationId` identity directly.
 - [x] Preserve stored `mint_id` and frozen wire `wallet_session_mint_id` names.
 - [x] Delete reusable-session fields from the public `WalletSession` shape.
 - [x] Delete curve-specific reusable-session signing-surface ports.

@@ -25,15 +25,12 @@ import type {
   WalletId,
 } from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodBinding } from '@shared/utils/walletCapabilityBindings';
-import type { WalletSessionAuthorizationId } from '@shared/authorization/capabilityKinds';
 import type { ThresholdEcdsaChainTarget } from '../signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EvmFamilyEcdsaWalletUnlockSubject,
   NearEd25519WalletUnlockSubject,
   WalletUnlockSubjectSet,
 } from '../signingEngine/session/identity/walletUnlockSubject';
-
-export type ReusableWalletSessionAuthorizationId = WalletSessionAuthorizationId;
 
 export type {
   SensitiveOperationPolicy,

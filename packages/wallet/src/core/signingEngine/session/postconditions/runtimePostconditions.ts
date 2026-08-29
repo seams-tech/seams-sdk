@@ -16,7 +16,7 @@ import { signingLaneAuthMethod, type OwnerLaneScope } from '../identity/signingL
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 import type {
   MpcWalletSigningQuotaId,
-  ReusableWalletSessionAuthorizationId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
@@ -48,7 +48,7 @@ type UsableRuntimeLaneIdentity =
   | {
       authMethod: SigningSessionSealAuthMethod;
       target: { curve: 'ecdsa'; chainTarget: ThresholdEcdsaChainTarget };
-      authorizationId: ReusableWalletSessionAuthorizationId;
+      authorizationId: WalletSessionAuthorizationId;
       materialActivationId: string;
     };
 

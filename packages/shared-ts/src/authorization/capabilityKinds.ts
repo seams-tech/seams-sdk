@@ -99,7 +99,6 @@ export type CapabilityId = DomainId<'CapabilityId'>;
 export type CapabilityBindingId = DomainId<'CapabilityBindingId'>;
 export type CapabilityOperationId = DomainId<'CapabilityOperationId'>;
 export type WalletSessionAuthorizationId = DomainId<'WalletSessionAuthorizationId'>;
-export type ReusableWalletSessionAuthorizationId = WalletSessionAuthorizationId;
 
 export const AUTHORIZATION_GRANT_KINDS = {
   walletSession: 'wallet_session_authorization',
@@ -113,7 +112,7 @@ export type WalletSessionAuthorizationRef = {
   readonly authorizationId: WalletSessionAuthorizationId;
 };
 
-/** Each reusable authorization branch carries exactly one authorization identity. */
+/** Each authorization grant carries exactly one Wallet Session authorization identity. */
 export type AuthorizationGrantRef = WalletSessionAuthorizationRef;
 export type AuthorizedOperationId = DomainId<'AuthorizedOperationId'>;
 export type WalletSessionId = DomainId<'WalletSessionId'>;
@@ -319,12 +318,6 @@ export function parseWalletSessionAuthorizationId(
   value: unknown,
 ): AuthorizationParseResult<WalletSessionAuthorizationId> {
   return parseAuthorizationId(value, 'walletSessionAuthorizationId');
-}
-
-export function parseReusableWalletSessionAuthorizationId(
-  value: unknown,
-): AuthorizationParseResult<ReusableWalletSessionAuthorizationId> {
-  return parseAuthorizationId(value, 'reusableWalletSessionAuthorizationId');
 }
 
 export function parseAuthorizedOperationId(

@@ -49,7 +49,6 @@ void canonicalRequirement;
 const authFactorKinds = [AUTH_FACTOR_KINDS.passkey, AUTH_FACTOR_KINDS.emailOtp] as const;
 void authFactorKinds;
 
-
 // @ts-expect-error A vault capability cannot carry a NEAR operation.
 const invalidVaultOperation: CapabilityOperationRef = {
   capabilityKind: CAPABILITY_KINDS.vaultAccess,
@@ -79,7 +78,7 @@ const authorizationRef: AuthorizationGrantRef = {
   authorizationId,
 };
 void authorizationRef;
-// @ts-expect-error Session identity cannot substitute for reusable authorization identity.
+// @ts-expect-error Session identity cannot substitute for Wallet Session authorization identity.
 const invalidAuthorizationId: WalletSessionAuthorizationId = ecdsaAuthorizationSessionId;
 void invalidAuthorizationId;
 // @ts-expect-error Wallet authorization identity cannot substitute for operation identity.
