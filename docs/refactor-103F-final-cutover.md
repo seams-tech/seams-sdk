@@ -964,9 +964,15 @@ Primary files:
 - [x] Make server-issued replay return the already committed result without
       rotating its credential. A flow that cannot reproduce the plaintext
       returns an explicit retry/unlock result.
-- [ ] Add `PendingWalletRegistrationCommitV1` before the terminal request. Make
-      it sufficient to resume after page reload or worker termination while
-      keeping it invisible to normal wallet discovery.
+- [ ] Complete the `PendingWalletRegistrationCommitV1` recovery lifecycle.
+  - [x] Persist the strict credential-free record before the terminal request,
+        keep it invisible to normal wallet discovery, and persist only the
+        custody commit plus activation-journal identity for pre-terminal ECDSA
+        work. Commit `1d0e2aa2f` removes the pre-activation temporal-dead-zone
+        read; the 10 focused pending/three-route tests and wallet type-check pass.
+  - [ ] Resume it after page reload or worker termination, validate it against
+        the committed server projection, and atomically publish every local
+        prerequisite before exact-method unlock.
 - [ ] Change the final founding-registration replay contract from fresh V1
       bearer issuance to `already_committed -> unlock_exact_method`. Validate a
       credential-free committed projection against the pending record,
