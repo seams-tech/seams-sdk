@@ -9,6 +9,7 @@ import type {
   ActiveWalletSessionV1,
   WalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
+import { parseActiveWalletSessionV1 } from '@shared/device-linking/parsers';
 import {
   parseExactAdministeredSignerManifestV1,
   type ExactAdministeredSignerManifestV1,
@@ -76,6 +77,29 @@ type LinkedEcdsaMaterial = Extract<
   WalletAuthorityLinkedSignerMaterialRecordV1,
   { readonly keyFamily: 'ecdsa_secp256k1' }
 >;
+
+export function buildLinkedDeviceActiveWalletSessionFixture(input: {
+  readonly source: ActiveWalletSessionV1;
+  readonly authMethodId: ActiveWalletSessionV1['authMethodId'];
+  readonly authorizationId: ActiveWalletSessionV1['authorizationId'];
+  readonly quotaId: ActiveWalletSessionV1['quotaId'];
+  readonly authorityDigestB64u: ActiveWalletSessionV1['authorityDigestB64u'];
+  readonly authorityRevocationEpoch: number;
+}): ActiveWalletSessionV1 {
+  return parseActiveWalletSessionV1({
+    kind: 'active_wallet_session_v1',
+    walletId: input.source.walletId,
+    authorityId: input.source.authorityId,
+    authMethodId: input.authMethodId,
+    authorizationId: input.authorizationId,
+    quotaId: input.quotaId,
+    authorityDigestB64u: input.authorityDigestB64u,
+    authorityRevocationEpoch: input.authorityRevocationEpoch,
+    capabilitySubjects: input.source.capabilitySubjects,
+    issuedAtMs: input.source.issuedAtMs,
+    expiresAtMs: input.source.expiresAtMs,
+  });
+}
 
 function required<T>(
   result:

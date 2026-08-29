@@ -12,6 +12,14 @@ import {
 } from './helpers/passkeyCustodyEnvelope.fixtures';
 import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 import { buildFullOwnerDelegatedWalletAuthorityV1 } from '../../packages/shared-ts/src/authorization/delegatedAuthority';
+import { buildWalletRecoveryCommittedProjectionV1 } from '../../packages/shared-ts/src/wallet-recovery/walletRecoveryCommittedProjection';
+import { parseDeviceId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWalletId,
+  parseWalletRecoveryOperationId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 
 const REGISTRATION: WebAuthnRegistrationCredential = {
   id: 'replacement-credential',
@@ -32,6 +40,18 @@ const REGISTRATION: WebAuthnRegistrationCredential = {
     },
   },
 };
+
+function required<T>(result: { readonly ok: true; readonly value: T } | { readonly ok: false }): T {
+  if (!result.ok) throw new Error('invalid recovery fixture identity');
+  return result.value;
+}
+
+const RECOVERY_OPERATION_ID = required(
+  parseWalletRecoveryOperationId('wallet-recovery-operation:wire-1'),
+);
+const TARGET_DEVICE_ID = required(parseDeviceId('device:management-wire-1'));
+const TARGET_AUTHORITY_ID = required(parseWalletAuthorityId('wallet-authority:replacement'));
+const TARGET_AUTH_METHOD_ID = required(parseWalletAuthMethodId('wallet-auth-method:replacement'));
 
 type CapturedRequest = {
   url: string;
@@ -63,9 +83,9 @@ function finalizeWith(fetchImpl: typeof fetch) {
     walletId: WALLET_ID,
     reservationId: 'reservation-1',
     recoveryOperationId: 'wallet-recovery-operation:wire-1',
-    targetDeviceId: 'device:wire-1',
+    targetDeviceId: String(TARGET_DEVICE_ID),
     targetAuthorityId: 'wallet-authority:replacement',
-    targetWalletAuthMethodId: 'wallet-auth-method:replacement',
+    targetWalletAuthMethodId: String(TARGET_AUTH_METHOD_ID),
     challengeId: 'challenge-1',
     replacementId: ENVELOPE_ID,
     webauthnRegistration: REGISTRATION,
@@ -77,14 +97,15 @@ function finalizeWith(fetchImpl: typeof fetch) {
 
 async function recoveryProjectionFixture() {
   return await buildLinkedDeviceManagementAuthorityFixture({
-    label: 'recovery-wire',
+    label: 'wire-1',
     permissions: buildFullOwnerDelegatedWalletAuthorityV1().permissions,
     provenance: 'wallet_recovery',
     identity: {
       walletId: WALLET_ID,
       authorityId: 'wallet-authority:replacement',
       walletAuthMethodId: 'wallet-auth-method:replacement',
-      rpId: 'example.localhost',
+      rpId: 'wallet.example.localhost',
+      credentialIdB64u: 'Y3JlZGVudGlhbC0x',
     },
   });
 }
@@ -98,12 +119,21 @@ test('the route is registered where the client posts', () => {
 test('finalize posts only the atomic R115 promotion request', async () => {
   const captured: CapturedRequest = { url: '', body: null };
   const projection = await recoveryProjectionFixture();
+  const committedProjection = buildWalletRecoveryCommittedProjectionV1({
+    kind: 'passkey',
+    storeVersion: '2',
+    walletId: required(parseWalletId(WALLET_ID)),
+    recoveryOperationId: RECOVERY_OPERATION_ID,
+    targetDeviceId: TARGET_DEVICE_ID,
+    targetAuthorityId: TARGET_AUTHORITY_ID,
+    targetWalletAuthMethodId: TARGET_AUTH_METHOD_ID,
+    authority: projection.authority,
+    authMethod: projection.authMethod,
+  });
   const result = await finalizeWith(
     captureRequest(captured, {
       ok: true,
-      storeVersion: '2',
-      authority: projection.authority,
-      authMethod: projection.authMethod,
+      projection: committedProjection,
     }),
   );
 
@@ -125,7 +155,7 @@ test('finalize posts only the atomic R115 promotion request', async () => {
     walletId: WALLET_ID,
     reservationId: 'reservation-1',
     recoveryOperationId: 'wallet-recovery-operation:wire-1',
-    targetDeviceId: 'device:wire-1',
+    targetDeviceId: String(TARGET_DEVICE_ID),
     targetAuthorityId: 'wallet-authority:replacement',
     targetWalletAuthMethodId: 'wallet-auth-method:replacement',
     challengeId: 'challenge-1',

@@ -6,3 +6,4 @@ export * from './recoveryKekContext';
 export * from './walletRecoveryEnvelopeSet';
 export * from './walletRecoveryRotation';
 export * from './walletRecoveryEcdsaPossession';
+export * from './walletRecoveryCommittedProjection';
