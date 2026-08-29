@@ -918,7 +918,6 @@ test.describe('wallet registration route boundaries', () => {
     const digest = await computeAddAuthMethodIntentDigestB64u(intent);
     const token = String(fixture.operationCredential.token);
     let exactReadInput: unknown = null;
-    let legacyReads = 0;
     let serviceRequest: unknown = null;
     const response = await handleRouterApiWalletAddAuthMethodStart(
       addAuthMethodInputFor({
@@ -942,10 +941,6 @@ test.describe('wallet registration route boundaries', () => {
               retiredAtMs: null,
             };
           },
-          resolveOpaqueWalletSessionToken: async () => {
-            legacyReads += 1;
-            return null;
-          },
         },
         authService: {
           startWalletAddAuthMethod: async (request: unknown) => {
@@ -957,7 +952,6 @@ test.describe('wallet registration route boundaries', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(legacyReads).toBe(0);
     expect(exactReadInput).toMatchObject({
       tenantId: fixture.issuedSession.session.tenantId,
       token,

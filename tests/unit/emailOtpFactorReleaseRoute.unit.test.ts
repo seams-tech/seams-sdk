@@ -81,7 +81,6 @@ async function exactEmailOtpAdmission(input: {
 }
 
 class WalletSessionFactorReleaseHarness {
-  legacyReads = 0;
   removeSealCalls = 0;
 
   constructor(
@@ -91,11 +90,6 @@ class WalletSessionFactorReleaseHarness {
 
   async readExactAdmission(): Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null> {
     return this.exactAdmission;
-  }
-
-  async resolveLegacySession(): Promise<null> {
-    this.legacyReads += 1;
-    return null;
   }
 
   async readEnrollment() {
@@ -134,7 +128,6 @@ class WalletSessionFactorReleaseHarness {
       authorizationSessions: {
         tenantId: 'tenant:email-otp-factor-release',
         readWalletSessionAuthorizationV2ByOperationCredential: this.readExactAdmission.bind(this),
-        resolveOpaqueWalletSessionToken: this.resolveLegacySession.bind(this),
       },
       emailOtp: {
         readActiveEmailOtpEnrollment: this.readEnrollment.bind(this),
@@ -275,7 +268,6 @@ test('Wallet Session factor release admits the exact Email OTP method and Ed2551
     `wallet-session:${admission.authorization.session.walletSessionId}`,
   );
   expect(harness.removeSealCalls).toBe(1);
-  expect(harness.legacyReads).toBe(0);
 });
 
 test('Wallet Session factor release rejects a different Email OTP enrollment before unsealing', async () => {
@@ -293,7 +285,6 @@ test('Wallet Session factor release rejects a different Email OTP enrollment bef
 
   expect(response.status).toBe(401);
   expect(harness.removeSealCalls).toBe(0);
-  expect(harness.legacyReads).toBe(0);
 });
 
 test('Wallet Session factor release rejects an exact session without an Ed25519 sign subject', async () => {
@@ -311,7 +302,6 @@ test('Wallet Session factor release rejects an exact session without an Ed25519 
 
   expect(response.status).toBe(401);
   expect(harness.removeSealCalls).toBe(0);
-  expect(harness.legacyReads).toBe(0);
 });
 
 test('Wallet Session factor release rejects missing exact state without legacy lookup', async () => {
@@ -324,5 +314,4 @@ test('Wallet Session factor release rejects missing exact state without legacy l
 
   expect(response.status).toBe(401);
   expect(harness.removeSealCalls).toBe(0);
-  expect(harness.legacyReads).toBe(0);
 });

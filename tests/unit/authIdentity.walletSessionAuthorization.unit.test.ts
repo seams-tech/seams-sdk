@@ -20,7 +20,6 @@ class AuthIdentityRouteHarness {
   readonly listedUserIds: string[] = [];
   readonly unlinked: Array<{ readonly userId: string; readonly subject: string }> = [];
   readonly strongAuthWalletIds: string[] = [];
-  legacyReads = 0;
 
   constructor(
     readonly exactAdmission: RouterApiWalletSessionAuthorizationV2AdmissionContext | null,
@@ -29,11 +28,6 @@ class AuthIdentityRouteHarness {
 
   async readExactAdmission(): Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null> {
     return this.exactAdmission;
-  }
-
-  async resolveLegacySession(): Promise<null> {
-    this.legacyReads += 1;
-    return null;
   }
 
   async listIdentities(input: { readonly userId: string }) {
@@ -72,7 +66,6 @@ class AuthIdentityRouteHarness {
       authorizationSessions: {
         tenantId: 'tenant:auth-identity',
         readWalletSessionAuthorizationV2ByOperationCredential: this.readExactAdmission.bind(this),
-        resolveOpaqueWalletSessionToken: this.resolveLegacySession.bind(this),
       },
       webAuthn: {
         verifyWebAuthnLogin: this.verifyStepUp.bind(this),
@@ -177,7 +170,6 @@ test('identity inventory derives the wallet from one exact operation credential'
 
   expect(response.status).toBe(200);
   expect(harness.listedUserIds).toEqual([String(admission.authorization.session.walletId)]);
-  expect(harness.legacyReads).toBe(0);
 });
 
 test('identity mutation accepts a fresh proof from the exact session method and authority', async () => {
@@ -192,7 +184,6 @@ test('identity mutation accepts a fresh proof from the exact session method and 
   expect(harness.unlinked).toEqual([
     { userId: walletId, subject: 'google:auth-identity@example.test' },
   ]);
-  expect(harness.legacyReads).toBe(0);
 });
 
 test('identity mutation rejects a sibling same-wallet method before side effects', async () => {
@@ -211,7 +202,6 @@ test('identity mutation rejects a sibling same-wallet method before side effects
   expect(response.status).toBe(403);
   expect(harness.strongAuthWalletIds).toEqual([]);
   expect(harness.unlinked).toEqual([]);
-  expect(harness.legacyReads).toBe(0);
 });
 
 test('identity inventory rejects a missing exact session without probing legacy sessions', async () => {
@@ -221,5 +211,4 @@ test('identity inventory rejects a missing exact session without probing legacy 
 
   expect(response.status).toBe(401);
   expect(harness.listedUserIds).toEqual([]);
-  expect(harness.legacyReads).toBe(0);
 });

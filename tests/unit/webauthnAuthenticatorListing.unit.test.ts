@@ -233,17 +233,11 @@ test('GET /webauthn/authenticators serves the metadata the service contract prom
   try {
     await seedListingFixture(stores);
     const exactAdmission = await exactWalletSessionAdmission();
-    let legacyReads = 0;
-
     const service = {
       authorizationSessions: {
         tenantId: 'tenant-listing',
         async readWalletSessionAuthorizationV2ByOperationCredential() {
           return exactAdmission;
-        },
-        async resolveOpaqueWalletSessionToken() {
-          legacyReads += 1;
-          return null;
         },
       },
       webAuthn: {
@@ -264,7 +258,6 @@ test('GET /webauthn/authenticators serves the metadata the service contract prom
     const response = await handleWebAuthnAuthenticators(routeContext(service));
 
     expect(response?.status).toBe(200);
-    expect(legacyReads).toBe(0);
     const body = (await response?.json()) as {
       readonly ok: boolean;
       readonly authenticators: readonly {
@@ -319,15 +312,10 @@ test('GET /webauthn/authenticators serves the metadata the service contract prom
 });
 
 test('GET /webauthn/authenticators fails closed when the exact session is absent', async () => {
-  let legacyReads = 0;
   const service = {
     authorizationSessions: {
       tenantId: 'tenant-listing',
       async readWalletSessionAuthorizationV2ByOperationCredential() {
-        return null;
-      },
-      async resolveOpaqueWalletSessionToken() {
-        legacyReads += 1;
         return null;
       },
     },
@@ -341,5 +329,4 @@ test('GET /webauthn/authenticators fails closed when the exact session is absent
   const response = await handleWebAuthnAuthenticators(routeContext(service));
 
   expect(response?.status).toBe(401);
-  expect(legacyReads).toBe(0);
 });

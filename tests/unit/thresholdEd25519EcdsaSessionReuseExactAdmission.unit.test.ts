@@ -10,14 +10,12 @@ import { buildEcdsaSigningSessionSealAdmissionFixture } from './helpers/signingS
 type AuthorizationSessionFixture = {
   readonly service: RouterApiAuthorizationSessionService;
   readonly exactReads: () => number;
-  readonly legacyReads: () => number;
 };
 
 function buildAuthorizationSessionFixture(
   context: RouterApiWalletSessionAuthorizationV2AdmissionContext | null,
 ): AuthorizationSessionFixture {
   let exactReads = 0;
-  let legacyReads = 0;
   const issued = context?.authorization;
   const service = {
     tenantId: issued?.session.tenantId,
@@ -25,15 +23,10 @@ function buildAuthorizationSessionFixture(
       exactReads += 1;
       return context;
     },
-    async resolveOpaqueWalletSessionToken() {
-      legacyReads += 1;
-      return null;
-    },
   } as unknown as RouterApiAuthorizationSessionService;
   return {
     service,
     exactReads: () => exactReads,
-    legacyReads: () => legacyReads,
   };
 }
 
@@ -78,7 +71,6 @@ test('Ed25519 mint reuses an exact active ECDSA session without legacy admission
     },
   });
   expect(sessions.exactReads()).toBe(1);
-  expect(sessions.legacyReads()).toBe(0);
 });
 
 test('missing exact ECDSA session fails without reading the opaque-token store', async () => {
@@ -98,7 +90,6 @@ test('missing exact ECDSA session fails without reading the opaque-token store',
   });
   expect(result.response.status).toBe(401);
   expect(sessions.exactReads()).toBe(1);
-  expect(sessions.legacyReads()).toBe(0);
 });
 
 test('exact ECDSA session cannot cross into a different runtime policy scope', async () => {
@@ -116,7 +107,6 @@ test('exact ECDSA session cannot cross into a different runtime policy scope', a
   await expect(result.response.json()).resolves.toMatchObject({ code: 'scope_mismatch' });
   expect(result.response.status).toBe(403);
   expect(sessions.exactReads()).toBe(1);
-  expect(sessions.legacyReads()).toBe(0);
 });
 
 test('exact ECDSA session cannot cross into a sibling Passkey method', async () => {
@@ -138,5 +128,4 @@ test('exact ECDSA session cannot cross into a sibling Passkey method', async () 
   await expect(result.response.json()).resolves.toMatchObject({ code: 'scope_mismatch' });
   expect(result.response.status).toBe(403);
   expect(sessions.exactReads()).toBe(1);
-  expect(sessions.legacyReads()).toBe(0);
 });

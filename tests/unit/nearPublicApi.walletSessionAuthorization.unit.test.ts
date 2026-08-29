@@ -64,7 +64,6 @@ function fundingConfigs() {
 
 class NearPublicKeysRouteHarness {
   readonly listedUserIds: string[] = [];
-  legacyReads = 0;
 
   constructor(
     readonly exactAdmission: RouterApiWalletSessionAuthorizationV2AdmissionContext | null,
@@ -72,11 +71,6 @@ class NearPublicKeysRouteHarness {
 
   async readExactAdmission(): Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null> {
     return this.exactAdmission;
-  }
-
-  async resolveLegacySession(): Promise<null> {
-    this.legacyReads += 1;
-    return null;
   }
 
   async listNearPublicKeys(input: { readonly userId: string }) {
@@ -89,7 +83,6 @@ class NearPublicKeysRouteHarness {
       authorizationSessions: {
         tenantId: 'tenant:near-public-keys',
         readWalletSessionAuthorizationV2ByOperationCredential: this.readExactAdmission.bind(this),
-        resolveOpaqueWalletSessionToken: this.resolveLegacySession.bind(this),
       },
       nearFunding: {
         listNearPublicKeysForUser: this.listNearPublicKeys.bind(this),
@@ -149,7 +142,6 @@ test('NEAR public-key listing admits the exact operation credential without prob
 
   expect(response.status).toBe(200);
   expect(harness.listedUserIds).toEqual([String(admission.authorization.session.walletId)]);
-  expect(harness.legacyReads).toBe(0);
 });
 
 test('NEAR public-key listing rejects a missing exact session without probing legacy sessions', async () => {
@@ -159,7 +151,6 @@ test('NEAR public-key listing rejects a missing exact session without probing le
 
   expect(response.status).toBe(401);
   expect(harness.listedUserIds).toEqual([]);
-  expect(harness.legacyReads).toBe(0);
 });
 
 test('implicit NEAR funding reads the selected exact Wallet Session tuple', async () => {

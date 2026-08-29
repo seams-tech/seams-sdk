@@ -20,7 +20,6 @@ type UpgradeInput = {
 
 class CustodyOwnershipRouteHarness {
   readonly upgrades: UpgradeInput[] = [];
-  legacyReads = 0;
 
   constructor(
     readonly exactAdmission: RouterApiWalletSessionAuthorizationV2AdmissionContext | null,
@@ -28,11 +27,6 @@ class CustodyOwnershipRouteHarness {
 
   async readExactAdmission(): Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null> {
     return this.exactAdmission;
-  }
-
-  async resolveLegacySession(): Promise<null> {
-    this.legacyReads += 1;
-    return null;
   }
 
   async upgradeEnvelopeOwnership(input: UpgradeInput) {
@@ -45,7 +39,6 @@ class CustodyOwnershipRouteHarness {
       authorizationSessions: {
         tenantId: 'tenant:custody-ownership',
         readWalletSessionAuthorizationV2ByOperationCredential: this.readExactAdmission.bind(this),
-        resolveOpaqueWalletSessionToken: this.resolveLegacySession.bind(this),
       },
       passkeyCustody: {
         upgradeEnvelopeOwnership: this.upgradeEnvelopeOwnership.bind(this),
@@ -131,7 +124,6 @@ test('custody ownership upgrade forwards the exact session method without legacy
   expect(harness.upgrades).toHaveLength(1);
   expect(String(harness.upgrades[0]?.walletId)).toBe(WALLET_ID);
   expect(String(harness.upgrades[0]?.walletAuthMethodId)).toBe(OWNING_WALLET_AUTH_METHOD_ID);
-  expect(harness.legacyReads).toBe(0);
 });
 
 test('custody ownership upgrade rejects a missing exact session without legacy reads', async () => {
@@ -141,5 +133,4 @@ test('custody ownership upgrade rejects a missing exact session without legacy r
 
   expect(response.status).toBe(401);
   expect(harness.upgrades).toEqual([]);
-  expect(harness.legacyReads).toBe(0);
 });

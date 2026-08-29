@@ -122,14 +122,9 @@ test('owner execution-lane preflight authenticates the Wallet Session and serial
     authMethod: exact.authMethod,
     retiredAtMs: null,
   };
-  let legacyReads = 0;
   const authorizationSessions = {
     tenantId: exact.issuedSession.session.tenantId,
     readWalletSessionAuthorizationV2ByOperationCredential: async () => admissionContext,
-    resolveOpaqueWalletSessionToken: async () => {
-      legacyReads += 1;
-      return null;
-    },
   };
 
   let received:
@@ -168,7 +163,6 @@ test('owner execution-lane preflight authenticates the Wallet Session and serial
   );
 
   expect(response?.status).toBe(200);
-  expect(legacyReads).toBe(0);
   expect(received?.walletId).toBe(walletId);
   expect(received?.authorization).toEqual({
     kind: 'wallet_auth_method',

@@ -252,7 +252,6 @@ type RouteSideEffects = {
   audits: number;
   quotaWrites: number;
   runtimeCalls: number;
-  opaqueReads: number;
 };
 
 function emptyRouteSideEffects(): RouteSideEffects {
@@ -265,7 +264,6 @@ function emptyRouteSideEffects(): RouteSideEffects {
     audits: 0,
     quotaWrites: 0,
     runtimeCalls: 0,
-    opaqueReads: 0,
   };
 }
 
@@ -492,10 +490,6 @@ async function stepUpRouteFixture(input: {
             retiredAtMs: null,
           };
         },
-        async resolveOpaqueWalletSessionToken() {
-          input.sideEffects.opaqueReads += 1;
-          throw new Error('operation step-up must not probe the opaque Wallet Session store');
-        },
       },
       authorizedOperations: {
         tenantId: sessionFixture.session.tenantId,
@@ -611,7 +605,6 @@ test('strict post-registration refresh admits exact sign operation credentials b
   await expect(response?.json()).resolves.toMatchObject({ result: 'stopped' });
   expect(calls.refresh).toBe(1);
   expect(calls.export).toBe(0);
-  expect(sideEffects.opaqueReads).toBe(0);
 });
 
 test('strict post-registration rejects an opaque bearer without probing the opaque session resolver', async () => {
@@ -645,7 +638,6 @@ test('strict post-registration rejects an opaque bearer without probing the opaq
   await expect(response?.json()).resolves.toMatchObject({ code: 'wallet_session_invalid' });
   expect(calls.refresh).toBe(0);
   expect(calls.export).toBe(0);
-  expect(sideEffects.opaqueReads).toBe(0);
 });
 
 test('strict post-registration export compares the exact V2 step-up admission before forwarding', async () => {
@@ -700,7 +692,6 @@ test('strict post-registration export compares the exact V2 step-up admission be
   await expect(response?.json()).resolves.toMatchObject({ code: 'scope_mismatch' });
   expect(reads).toBe(2);
   expect(calls.export).toBe(0);
-  expect(sideEffects.opaqueReads).toBe(0);
 });
 
 test('wallet store resolves ECDSA signers only by the exact material activation ref', async () => {
@@ -838,7 +829,6 @@ test('operation step-up admits one authorized operation for the exact canonical 
   expect(sideEffects.claims).toBe(0);
   expect(sideEffects.audits).toBe(0);
   expect(sideEffects.quotaWrites).toBe(0);
-  expect(sideEffects.opaqueReads).toBe(0);
 });
 
 test('operation step-up rejects a material replacement before proof, evidence, or admission', async () => {
