@@ -67,6 +67,7 @@ export type RegistrationEstablishedSessionIssuerAuthorizationService = Pick<
   | 'refreshWalletSessionAuthorizationV2FromReusableSession'
   | 'readWalletSessionAuthorizationByMint'
   | 'issueOpaqueWalletSessionToken'
+  | 'issueRegistrationReplayOpaqueWalletSessionToken'
 >;
 
 export type RegistrationEstablishedSessionIssuerWalletAuthMethodReader = {
@@ -498,6 +499,11 @@ export async function replayRegistrationEstablishedEcdsaSession(input: {
     relayerKeyId: bootstrap.relayerKeyId,
     fallbackParticipantIds: bootstrap.participantIds,
     invalidPayloadErrorMessage: 'Registration replay ECDSA Wallet Session is invalid',
+    registrationReplay: {
+      registrationCeremonyId: receipt.registrationCeremonyId,
+      operation: receipt.operation,
+      operationFingerprint: receipt.operationFingerprint,
+    },
     sessionInfo: {
       sessionKind: 'opaque',
       authorizationKind: 'owner_wallet_session',
@@ -541,7 +547,7 @@ export async function replayRegistrationEstablishedEcdsaSession(input: {
     authorizationId: projected.authorizationId,
     walletSessionId: projected.walletSessionId,
     quotaId: projected.quotaId,
-    expiresAtMs: projected.expiresAtMs,
+    expiresAtMs: signed.expiresAtMs,
     remainingUses: projected.remainingUses,
     tokens: {
       kind: 'evm_family_ecdsa',
@@ -589,6 +595,11 @@ export async function replayRegistrationEstablishedEd25519Session(input: {
     authority: receipt.authority,
     fallbackParticipantIds: publicResult.participantIds,
     invalidPayloadErrorMessage: 'Registration replay Ed25519 Wallet Session is invalid',
+    registrationReplay: {
+      registrationCeremonyId: receipt.registrationCeremonyId,
+      operation: receipt.operation,
+      operationFingerprint: receipt.operationFingerprint,
+    },
     sessionInfo: {
       sessionKind: 'opaque',
       authorizationKind: 'owner_wallet_session',
@@ -617,7 +628,7 @@ export async function replayRegistrationEstablishedEd25519Session(input: {
     authorizationId: projected.authorizationId,
     walletSessionId: projected.walletSessionId,
     quotaId: projected.quotaId,
-    expiresAtMs: projected.expiresAtMs,
+    expiresAtMs: signed.expiresAtMs,
     remainingUses: projected.remainingUses,
     tokens: {
       kind: 'near_ed25519',

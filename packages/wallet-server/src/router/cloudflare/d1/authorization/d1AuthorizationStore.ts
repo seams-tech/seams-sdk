@@ -75,7 +75,10 @@ import type {
   D1ResultLike,
 } from '../../../../storage/tenantRoute';
 import { parseWalletId } from '@shared/utils/domainIds';
-import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import {
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 
 export type D1AuthorizationStoreOptions = {
   readonly database: D1DatabaseLike;
@@ -389,6 +392,21 @@ export class CloudflareD1AuthorizationStore
         input.walletId,
         input.walletAuthMethodId,
       );
+    const deleteRegistrationReplayTokens = this.database
+      .prepare(
+        `DELETE FROM registration_replay_opaque_wallet_session_tokens_v1
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND wallet_session_id IN (SELECT session.wallet_session_id ${sessionFilter})`,
+      )
+      .bind(
+        this.namespace,
+        input.tenantId,
+        this.namespace,
+        input.tenantId,
+        input.walletId,
+        input.walletAuthMethodId,
+      );
     const exhaustQuotas = this.database
       .prepare(
         `UPDATE authorization_wallet_session_quotas
@@ -418,7 +436,7 @@ export class CloudflareD1AuthorizationStore
             AND lifecycle_kind = 'active'`,
       )
       .bind(this.namespace, input.tenantId, input.walletId, input.walletAuthMethodId);
-    return [deleteTokens, exhaustQuotas, supersedeSessions];
+    return [deleteTokens, deleteRegistrationReplayTokens, exhaustQuotas, supersedeSessions];
   }
 
   async putIssuedHostedWalletSeamsSessionExchange(
@@ -504,6 +522,30 @@ export class CloudflareD1AuthorizationStore
           input.codeHash,
           input.curve,
         );
+      const revokeExistingRegistrationReplayToken = this.database
+        .prepare(
+          `DELETE FROM registration_replay_opaque_wallet_session_tokens_v1
+            WHERE namespace = ?
+              AND tenant_id = (
+                SELECT tenant_id
+                  FROM hosted_wallet_session_exchange_codes
+                 WHERE namespace = ? AND code_hash = ?
+              )
+              AND wallet_session_id = (
+                SELECT wallet_session_id
+                  FROM hosted_wallet_session_exchange_codes
+                 WHERE namespace = ? AND code_hash = ?
+              )
+              AND curve = ?`,
+        )
+        .bind(
+          this.namespace,
+          this.namespace,
+          input.codeHash,
+          this.namespace,
+          input.codeHash,
+          input.curve,
+        );
       const updateStatement = this.database
         .prepare(
           `UPDATE hosted_wallet_session_exchange_codes
@@ -538,8 +580,12 @@ export class CloudflareD1AuthorizationStore
           input.redeemedAtMs,
           input.redeemedAtMs,
         );
-      const results = await this.database.batch([revokeExistingToken, updateStatement]);
-      const update = results[1] as D1ResultLike;
+      const results = await this.database.batch([
+        revokeExistingToken,
+        revokeExistingRegistrationReplayToken,
+        updateStatement,
+      ]);
+      const update = results[2] as D1ResultLike;
       if (d1ChangedRows(update) !== 1) {
         return (
           classifyHostedWalletExchange(
@@ -2030,6 +2076,136 @@ export class CloudflareD1AuthorizationStore
     requireOneChangedRow(result, 'opaque Wallet Session token');
   }
 
+  async putRegistrationReplayOpaqueWalletSessionToken(
+    input: Parameters<AuthorizationGrantPort['putRegistrationReplayOpaqueWalletSessionToken']>[0],
+  ): Promise<void> {
+    const bindingJson = JSON.stringify(input.binding);
+    const binding = parseOpaqueOwnerWalletSessionBinding(input.binding);
+    const authorityRef =
+      binding?.curve === 'ecdsa'
+        ? binding.walletAuthAuthorityRef
+        : binding?.curve === 'ed25519'
+          ? await walletAuthAuthorityRef({ authority: binding.authority })
+          : null;
+    const issuedAtMs = requirePositiveInteger(input.issuedAtMs, 'registration replay issuedAtMs');
+    const sessionExpiresAtMs = requirePositiveInteger(
+      input.sessionExpiresAtMs,
+      'registration replay sessionExpiresAtMs',
+    );
+    const tokenExpiresAtMs = requirePositiveInteger(
+      input.tokenExpiresAtMs,
+      'registration replay tokenExpiresAtMs',
+    );
+    if (
+      !bindingJson ||
+      !binding ||
+      !authorityRef ||
+      binding.curve !== input.curve ||
+      binding.authorizationId !== input.authorizationId ||
+      binding.walletSessionId !== input.walletSessionId ||
+      binding.quotaId !== input.quotaId ||
+      binding.walletId !== input.walletId ||
+      binding.thresholdExpiresAtMs !== sessionExpiresAtMs ||
+      sessionExpiresAtMs <= issuedAtMs ||
+      tokenExpiresAtMs <= issuedAtMs ||
+      tokenExpiresAtMs > sessionExpiresAtMs
+    ) {
+      throw new Error('registration replay Wallet Session binding is invalid');
+    }
+    const insertReplayToken = this.database
+      .prepare(
+        `INSERT INTO registration_replay_opaque_wallet_session_tokens_v1 (
+          namespace,
+          tenant_id,
+          token_hash,
+          curve,
+          registration_ceremony_id,
+          operation,
+          operation_fingerprint,
+          authorization_id,
+          wallet_session_id,
+          quota_id,
+          principal_id,
+          wallet_id,
+          authority_digest,
+          wallet_auth_method_id,
+          binding_json,
+          issued_at_ms,
+          session_expires_at_ms,
+          token_expires_at_ms
+        )
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          FROM reusable_wallet_sessions AS session
+          JOIN authorization_wallet_session_quotas AS quota
+            ON quota.namespace = session.namespace
+           AND quota.tenant_id = session.tenant_id
+           AND quota.quota_id = session.quota_id
+         WHERE session.namespace = ?
+           AND session.tenant_id = ?
+           AND session.wallet_session_id = ?
+           AND session.authorization_id = ?
+           AND session.quota_id = ?
+           AND session.principal_id = ?
+           AND session.wallet_id = ?
+           AND session.authority_digest = ?
+           AND session.wallet_auth_method_id = ?
+           AND session.lifecycle_kind = 'active'
+           AND session.expires_at_ms = ?
+           AND quota.namespace = session.namespace
+           AND quota.tenant_id = session.tenant_id
+           AND quota.wallet_session_id = session.wallet_session_id
+           AND quota.principal_id = session.principal_id
+           AND quota.quota_id = session.quota_id
+           AND quota.expires_at_ms = ?
+           AND quota.lifecycle_kind = 'active'
+           AND quota.remaining_uses > 0`,
+      )
+      .bind(
+        this.namespace,
+        input.tenantId,
+        input.tokenHash,
+        input.curve,
+        input.registrationCeremonyId,
+        input.operation,
+        input.operationFingerprint,
+        input.authorizationId,
+        input.walletSessionId,
+        input.quotaId,
+        input.principalId,
+        input.walletId,
+        authorityRef.authorityDigest,
+        authorityRef.walletAuthMethodId,
+        bindingJson,
+        issuedAtMs,
+        sessionExpiresAtMs,
+        tokenExpiresAtMs,
+        this.namespace,
+        input.tenantId,
+        input.walletSessionId,
+        input.authorizationId,
+        input.quotaId,
+        input.principalId,
+        input.walletId,
+        authorityRef.authorityDigest,
+        authorityRef.walletAuthMethodId,
+        sessionExpiresAtMs,
+        sessionExpiresAtMs,
+      );
+    const pruneExpired = this.database
+      .prepare(
+        `DELETE FROM registration_replay_opaque_wallet_session_tokens_v1
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND token_expires_at_ms <= ?`,
+      )
+      .bind(this.namespace, input.tenantId, issuedAtMs);
+    const results = await this.database.batch([pruneExpired, insertReplayToken]);
+    requireOneChangedRow(
+      results[1] as D1ResultLike,
+      'registration replay opaque Wallet Session token',
+    );
+  }
+
   async readOpaqueWalletSessionToken(input: {
     readonly tenantId: TenantId;
     readonly tokenHash: import('@shared/utils/canonicalPrimitives').DigestB64u;
@@ -2057,8 +2233,23 @@ export class CloudflareD1AuthorizationStore
            quota.quota_id AS quota_quota_id,
            quota.remaining_uses AS quota_remaining_uses,
            quota.lifecycle_kind AS quota_lifecycle_kind,
-           quota.expires_at_ms AS quota_expires_at_ms
-         FROM opaque_wallet_session_tokens AS token
+           quota.expires_at_ms AS quota_expires_at_ms,
+           token.token_expires_at_ms AS token_expires_at_ms,
+           token.token_authority_digest AS token_authority_digest,
+           token.token_wallet_auth_method_id AS token_wallet_auth_method_id
+         FROM (
+           SELECT namespace, tenant_id, token_hash, curve, wallet_session_id, binding_json,
+                  NULL AS token_expires_at_ms,
+                  NULL AS token_authority_digest,
+                  NULL AS token_wallet_auth_method_id
+             FROM opaque_wallet_session_tokens
+           UNION ALL
+           SELECT namespace, tenant_id, token_hash, curve, wallet_session_id, binding_json,
+                  token_expires_at_ms,
+                  authority_digest AS token_authority_digest,
+                  wallet_auth_method_id AS token_wallet_auth_method_id
+             FROM registration_replay_opaque_wallet_session_tokens_v1
+         ) AS token
          JOIN reusable_wallet_sessions AS session
            ON session.namespace = token.namespace
           AND session.tenant_id = token.tenant_id
@@ -2083,9 +2274,14 @@ export class CloudflareD1AuthorizationStore
       'session.expiresAtMs',
     );
     const quotaExpiresAtMs = requirePositiveInteger(row.quota_expires_at_ms, 'quota.expiresAtMs');
+    const tokenExpiresAtMs =
+      row.token_expires_at_ms === null || row.token_expires_at_ms === undefined
+        ? sessionExpiresAtMs
+        : requirePositiveInteger(row.token_expires_at_ms, 'token.expiresAtMs');
     if (
       row.token_curve !== input.curve ||
       row.session_lifecycle_kind !== 'active' ||
+      tokenExpiresAtMs <= nowMs ||
       sessionExpiresAtMs <= nowMs ||
       quotaExpiresAtMs <= nowMs
     ) {
@@ -2154,6 +2350,20 @@ export class CloudflareD1AuthorizationStore
     }
     const binding = parseOpaqueOwnerWalletSessionBinding(String(row.token_binding_json || ''));
     if (!binding) throw new Error('opaque Wallet Session binding is invalid');
+    if (row.token_authority_digest !== null && row.token_authority_digest !== undefined) {
+      const authorityRef =
+        binding.curve === 'ecdsa'
+          ? binding.walletAuthAuthorityRef
+          : await walletAuthAuthorityRef({ authority: binding.authority });
+      if (
+        String(row.token_authority_digest) !== String(authorityRef.authorityDigest) ||
+        String(row.token_wallet_auth_method_id) !== String(authorityRef.walletAuthMethodId) ||
+        String(row.token_authority_digest) !== String(row.session_authority_digest) ||
+        String(row.token_wallet_auth_method_id) !== String(row.session_wallet_auth_method_id)
+      ) {
+        throw new Error('registration replay Wallet Session identity is inconsistent');
+      }
+    }
     return {
       kind: 'resolved_opaque_wallet_session_token',
       curve: input.curve,
@@ -2178,6 +2388,29 @@ export class CloudflareD1AuthorizationStore
     readonly curve: OpaqueWalletSessionCurve;
     readonly nowMs: number;
   }): Promise<ResolvedOpaqueWalletSessionToken | null> {
+    const replayRow = await this.database
+      .prepare(
+        `SELECT token_hash
+           FROM registration_replay_opaque_wallet_session_tokens_v1
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND wallet_session_id = ?
+            AND curve = ?
+          ORDER BY token_expires_at_ms DESC, issued_at_ms DESC, token_hash DESC
+          LIMIT 1`,
+      )
+      .bind(this.namespace, input.tenantId, input.walletSessionId, input.curve)
+      .first<{ readonly token_hash?: unknown }>();
+    if (replayRow) {
+      const tokenHash = parseDigestB64u(replayRow.token_hash);
+      const resolved = await this.readOpaqueWalletSessionToken({
+        tenantId: input.tenantId,
+        tokenHash,
+        curve: input.curve,
+        nowMs: input.nowMs,
+      });
+      if (resolved) return resolved;
+    }
     const row = await this.database
       .prepare(
         `SELECT token_hash

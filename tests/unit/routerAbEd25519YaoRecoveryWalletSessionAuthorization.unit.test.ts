@@ -294,6 +294,10 @@ class AuthorizationSessionsFixture implements RouterApiAuthorizationSessionServi
     return await unsupportedAuthorizationSessionOperation();
   }
 
+  async issueRegistrationReplayOpaqueWalletSessionToken(): Promise<never> {
+    return await unsupportedAuthorizationSessionOperation();
+  }
+
   async resolveOpaqueWalletSessionToken() {
     return await noOpaqueWalletSession();
   }

@@ -84,6 +84,7 @@ import type {
 import {
   parseWalletAuthAuthority,
   parseWalletAuthAuthorityRef,
+  walletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { ProviderSubject, WebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import {
@@ -95,6 +96,8 @@ import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope'
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../core/ThresholdService/validation';
 import type { CapabilityOperationFingerprintDigest } from '@shared/authorization/operationFingerprint';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+
+const REGISTRATION_REPLAY_OPAQUE_TOKEN_TTL_MS = 5 * 60 * 1000;
 
 export interface AuthorizationSessionPort {
   readReusableWalletSessionStatus(input: {
@@ -180,6 +183,23 @@ export interface AuthorizationGrantPort {
     readonly binding: OpaqueOwnerWalletSessionBinding;
     readonly tenantId: TenantId;
     readonly walletSessionId: WalletSessionId;
+  }): Promise<void>;
+  putRegistrationReplayOpaqueWalletSessionToken(input: {
+    readonly tokenHash: DigestB64u;
+    readonly curve: OpaqueWalletSessionCurve;
+    readonly binding: OpaqueOwnerWalletSessionBinding;
+    readonly tenantId: TenantId;
+    readonly authorizationId: WalletSessionAuthorizationId;
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: MpcWalletSigningQuotaId;
+    readonly principalId: PrincipalId;
+    readonly walletId: WalletId;
+    readonly registrationCeremonyId: string;
+    readonly operation: 'registration_activate' | 'near_provisioning';
+    readonly operationFingerprint: string;
+    readonly issuedAtMs: number;
+    readonly sessionExpiresAtMs: number;
+    readonly tokenExpiresAtMs: number;
   }): Promise<void>;
   readOpaqueWalletSessionToken(input: {
     readonly tenantId: TenantId;
@@ -563,6 +583,21 @@ export type IssuedOpaqueWalletSessionToken = {
   readonly token: string;
   readonly curve: OpaqueWalletSessionCurve;
   readonly expiresAtMs: number;
+};
+
+export type RegistrationReplayOpaqueWalletSessionTokenInput = {
+  readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
+  readonly tenantId: TenantId;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly expiresAtMs: number;
+  readonly consumedAtMs: number;
+  readonly curve: OpaqueWalletSessionCurve;
+  readonly binding: OpaqueOwnerWalletSessionBinding;
+  readonly registrationCeremonyId: string;
+  readonly operation: 'registration_activate' | 'near_provisioning';
+  readonly operationFingerprint: string;
 };
 
 export type PreparedWalletSessionAuthorizationV2 = {
@@ -1056,6 +1091,94 @@ export class AuthorizationService {
       token,
       curve: input.curve,
       expiresAtMs: input.expiresAtMs,
+    };
+  }
+
+  async issueRegistrationReplayOpaqueWalletSessionToken(
+    input: RegistrationReplayOpaqueWalletSessionTokenInput,
+  ): Promise<IssuedOpaqueWalletSessionToken> {
+    if (input.proof.tenantId !== input.tenantId) {
+      throw new Error('owner proof does not match the registration replay tenant');
+    }
+    const bindingAuthority =
+      input.binding.curve === 'ecdsa'
+        ? input.binding.walletAuthAuthorityRef
+        : await walletAuthAuthorityRef({ authority: input.binding.authority });
+    if (
+      input.binding.walletId !== input.proof.walletId ||
+      bindingAuthority.walletId !== input.proof.authority.walletId ||
+      bindingAuthority.authorityDigest !== input.proof.authority.authorityDigest ||
+      bindingAuthority.walletAuthMethodId !== input.proof.authority.walletAuthMethodId
+    ) {
+      throw new Error('registration replay binding does not match its owner proof');
+    }
+    if (
+      input.binding.curve !== input.curve ||
+      input.binding.authorizationId !== input.authorizationId ||
+      input.binding.walletSessionId !== input.walletSessionId ||
+      input.binding.quotaId !== input.quotaId ||
+      input.binding.thresholdExpiresAtMs !== input.expiresAtMs
+    ) {
+      throw new Error('registration replay binding does not match its authorization');
+    }
+    const consumedAtMs = requirePositiveTimestamp(
+      input.consumedAtMs,
+      'registration replay proof consumption time',
+    );
+    const sessionExpiresAtMs = requirePositiveTimestamp(
+      input.expiresAtMs,
+      'registration replay Wallet Session expiry',
+    );
+    if (
+      input.proof.verifiedAtMs > consumedAtMs ||
+      input.proof.expiresAtMs <= consumedAtMs ||
+      sessionExpiresAtMs <= consumedAtMs
+    ) {
+      throw new Error('registration replay proof or Wallet Session expiry is invalid');
+    }
+    if (!input.registrationCeremonyId.trim() || !input.operationFingerprint.trim()) {
+      throw new Error('registration replay identity is required');
+    }
+    const tokenExpiresAtMs = Math.min(
+      sessionExpiresAtMs,
+      consumedAtMs + REGISTRATION_REPLAY_OPAQUE_TOKEN_TTL_MS,
+    );
+    if (tokenExpiresAtMs <= consumedAtMs) {
+      throw new Error('registration replay bearer expiry is invalid');
+    }
+    const bindingJson = JSON.stringify(input.binding);
+    if (!bindingJson || bindingJson === '{}') {
+      throw new Error('registration replay binding is required');
+    }
+    const consumed = await this.ports.evidence.consumeVerifiedOwnerProof(
+      input.proof,
+      consumedAtMs,
+      String(input.walletSessionId),
+    );
+    if (!consumed) throw new Error('owner proof has already been consumed');
+    const token = `wst_${secureRandomBase64Url(32, 'registration replay Wallet Session tokens')}`;
+    await this.ports.grants.putRegistrationReplayOpaqueWalletSessionToken({
+      tokenHash: await digestOpaqueValue(token),
+      curve: input.curve,
+      binding: input.binding,
+      tenantId: input.tenantId,
+      authorizationId: input.authorizationId,
+      walletSessionId: input.walletSessionId,
+      quotaId: input.quotaId,
+      principalId: input.proof.principalId,
+      walletId: input.proof.walletId,
+      registrationCeremonyId: input.registrationCeremonyId,
+      operation: input.operation,
+      operationFingerprint: input.operationFingerprint,
+      issuedAtMs: consumedAtMs,
+      sessionExpiresAtMs,
+      tokenExpiresAtMs,
+    });
+    return {
+      kind: 'opaque_wallet_session_token',
+      token,
+      curve: input.curve,
+      expiresAtMs: tokenExpiresAtMs,
     };
   }
 

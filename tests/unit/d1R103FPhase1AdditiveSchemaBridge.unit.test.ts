@@ -243,8 +243,8 @@ async function insertV1Session(database: Database): Promise<void> {
       `INSERT INTO reusable_wallet_sessions (
          namespace, tenant_id, wallet_session_id, principal_id, wallet_id,
          authority_digest, mint_id, quota_id, lifecycle_kind, created_at_ms,
-         expires_at_ms, authorization_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         expires_at_ms, authorization_id, wallet_auth_method_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       SCOPE.namespace,
@@ -259,6 +259,7 @@ async function insertV1Session(database: Database): Promise<void> {
       1,
       100,
       'authorization:v1',
+      AUTH_METHOD_ID,
     )
     .run();
 }
@@ -1119,9 +1120,9 @@ test('R103F bridge inventory counters and applied migration fingerprint stay sta
   const temporary = createTemporaryD1Database();
   try {
     const migrations = readMigrationFiles(SIGNER_MIGRATION_DIRECTORY);
-    expect(migrations.at(-1)?.name).toBe('0028_r103f_phase1_additive_schema_bridge.sql');
+    expect(migrations.at(-1)?.name).toBe('0029_r103f_phase0_registration_replay_tokens.sql');
     expect(digestMigrations(migrations.slice(0, -1))).toBe(
-      '5861bd5e27f3cf15a35f69f0ddb62fc95c607e3c792c1e36bf67147b0ddfe50a',
+      'b4d1f650437642c4a6c16c3b2fd56253eff4dde308fd44e5fdd90aa2393b2f2a',
     );
     await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
     await expect(readBridgeCounters(temporary.database, 50)).resolves.toEqual({
@@ -1306,5 +1307,157 @@ test('R103F bridge retires unusable V2 rows and aborts duplicate usable tuples',
   } finally {
     cleanupTemporaryD1Database(cleanup.tempDir);
     cleanupTemporaryD1Database(duplicates.tempDir);
+  }
+});
+
+test('R103F Phase 0 replay tokens persist only exact, short-lived digests', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    await insertAuthorityAndAuthMethod(temporary.database);
+    await insertV1Session(temporary.database);
+
+    const columns = await readTableColumnNames(
+      temporary.database,
+      'registration_replay_opaque_wallet_session_tokens_v1',
+    );
+    expect(columns).toEqual([
+      'namespace',
+      'tenant_id',
+      'token_hash',
+      'curve',
+      'registration_ceremony_id',
+      'operation',
+      'operation_fingerprint',
+      'authorization_id',
+      'wallet_session_id',
+      'quota_id',
+      'principal_id',
+      'wallet_id',
+      'authority_digest',
+      'wallet_auth_method_id',
+      'binding_json',
+      'issued_at_ms',
+      'session_expires_at_ms',
+      'token_expires_at_ms',
+    ]);
+    expect(columns).not.toContain('token');
+    await expect(
+      readRequiredIndexes(
+        temporary.database,
+        'registration_replay_opaque_wallet_session_tokens_v1',
+      ),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        'registration_replay_opaque_wallet_session_tokens_v1_identity_idx',
+        'registration_replay_opaque_wallet_session_tokens_v1_session_idx',
+        'registration_replay_opaque_wallet_session_tokens_v1_expiry_idx',
+      ]),
+    );
+    await expect(
+      readForeignKeyTables(
+        temporary.database,
+        'registration_replay_opaque_wallet_session_tokens_v1',
+      ),
+    ).resolves.toEqual(['reusable_wallet_sessions']);
+
+    const bindingJson = JSON.stringify({
+      kind: 'opaque_owner_wallet_session_binding_v1',
+      curve: 'ed25519',
+      walletId: WALLET_ID,
+      authorizationId: 'authorization:v1',
+      walletSessionId: 'session:v1',
+      quotaId: 'quota:v1',
+      thresholdExpiresAtMs: 100,
+    });
+    const insert = temporary.database
+      .prepare(
+        `INSERT INTO registration_replay_opaque_wallet_session_tokens_v1 (
+           namespace, tenant_id, token_hash, curve, registration_ceremony_id,
+           operation, operation_fingerprint, authorization_id, wallet_session_id,
+           quota_id, principal_id, wallet_id, authority_digest, wallet_auth_method_id,
+           binding_json, issued_at_ms, session_expires_at_ms, token_expires_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        SCOPE.namespace,
+        SCOPE.tenantId,
+        'digest:registration-replay',
+        'ed25519',
+        'registration:migration',
+        'registration_activate',
+        'fingerprint:migration',
+        'authorization:v1',
+        'session:v1',
+        'quota:v1',
+        PRINCIPAL_ID,
+        WALLET_ID,
+        'digest:migration',
+        AUTH_METHOD_ID,
+        bindingJson,
+        10,
+        100,
+        20,
+      );
+    await insert.run();
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT token_hash, token_expires_at_ms
+             FROM registration_replay_opaque_wallet_session_tokens_v1`,
+        )
+        .first(),
+    ).resolves.toEqual({
+      token_hash: 'digest:registration-replay',
+      token_expires_at_ms: 20,
+    });
+
+    await expect(
+      temporary.database
+        .prepare(
+          `UPDATE registration_replay_opaque_wallet_session_tokens_v1
+              SET token_hash = 'digest:rewritten'`,
+        )
+        .run(),
+    ).rejects.toThrow(/registration_replay_identity_rejected/u);
+    await expect(
+      temporary.database
+        .prepare(
+          `INSERT INTO registration_replay_opaque_wallet_session_tokens_v1 (
+             namespace, tenant_id, token_hash, curve, registration_ceremony_id,
+             operation, operation_fingerprint, authorization_id, wallet_session_id,
+             quota_id, principal_id, wallet_id, authority_digest, wallet_auth_method_id,
+             binding_json, issued_at_ms, session_expires_at_ms, token_expires_at_ms
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          SCOPE.namespace,
+          SCOPE.tenantId,
+          'digest:wrong-parent',
+          'ed25519',
+          'registration:migration',
+          'registration_activate',
+          'fingerprint:migration',
+          'authorization:v1',
+          'session:v1',
+          'quota:v1',
+          PRINCIPAL_ID,
+          WALLET_ID,
+          'digest:wrong-authority',
+          AUTH_METHOD_ID,
+          bindingJson,
+          10,
+          100,
+          20,
+        )
+        .run(),
+    ).rejects.toThrow(/registration_replay_parent_rejected/u);
+    await expect(
+      temporary.database.prepare('PRAGMA foreign_key_check').all(),
+    ).resolves.toMatchObject({
+      results: [],
+    });
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
   }
 });
