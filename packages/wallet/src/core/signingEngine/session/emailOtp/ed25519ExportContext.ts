@@ -49,7 +49,7 @@ import type {
 type EmailOtpEd25519LaneAuth = Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>;
 type ExactEmailOtpWalletSessionStatus = Extract<
   ReusableWalletSessionStatus,
-  { readonly status: 'active' | 'exhausted' }
+  { readonly status: 'active' }
 >;
 
 export type EmailOtpEd25519YaoRecoveredCapabilityActivationV1 =
@@ -82,7 +82,17 @@ export type EmailOtpEd25519ExportAuthorizationReadResultV1 =
       readonly authorization: ExactWalletSessionAuthorizationForEd25519ExportV1;
     }
   | {
-      readonly kind: 'missing' | 'upgrade_required' | 'corrupt' | 'persistence_unavailable';
+      readonly kind:
+        | 'missing'
+        | 'upgrade_required'
+        | 'corrupt'
+        | 'persistence_unavailable'
+        | 'exhausted'
+        | 'expired'
+        | 'superseded'
+        | 'authority_unavailable'
+        | 'method_unavailable'
+        | 'capability_unavailable';
       readonly authorization?: never;
     };
 
@@ -535,10 +545,8 @@ function assertExactEmailOtpExportAuthorization(args: {
     record.authMethodId !== selectedAuthMethod.walletAuthMethodId ||
     String(record.authorityDigestB64u) !== String(selectedAuthority.authorityDigestB64u) ||
     record.authorityRevocationEpoch !== selectedAuthority.revocationEpoch ||
-    (status.status === 'active' &&
-      (status.quotaLifecycle !== 'active' || status.remainingUses <= 0)) ||
-    (status.status === 'exhausted' &&
-      (status.quotaLifecycle !== 'exhausted' || status.remainingUses !== 0)) ||
+    status.quotaLifecycle !== 'active' ||
+    status.remainingUses <= 0 ||
     status.walletSessionId !== operationCredential.walletSessionId ||
     status.quotaId !== record.quotaId ||
     !activeWalletSessionV1RecordsEqual(status.authorization, record) ||
@@ -578,6 +586,28 @@ function resolveExactEmailOtpExportAuthorization(args: {
     case 'persistence_unavailable':
       throw new Error(
         '[SigningEngine][ed25519-export] exact Email OTP authorization persistence is unavailable',
+      );
+    case 'exhausted':
+      throw new Error(
+        '[SigningEngine][ed25519-export] exact Email OTP authorization is exhausted',
+      );
+    case 'expired':
+      throw new Error('[SigningEngine][ed25519-export] exact Email OTP authorization is expired');
+    case 'superseded':
+      throw new Error(
+        '[SigningEngine][ed25519-export] exact Email OTP authorization is superseded',
+      );
+    case 'authority_unavailable':
+      throw new Error(
+        '[SigningEngine][ed25519-export] exact Email OTP authority is unavailable',
+      );
+    case 'method_unavailable':
+      throw new Error(
+        '[SigningEngine][ed25519-export] exact Email OTP method is unavailable',
+      );
+    case 'capability_unavailable':
+      throw new Error(
+        '[SigningEngine][ed25519-export] exact Email OTP export capability is unavailable',
       );
     default: {
       const exhaustive: never = args.result;

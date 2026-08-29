@@ -701,7 +701,7 @@ test('Email OTP Ed25519 step-up sends exact operation proof without material rec
     const authorityRef = await walletAuthAuthorityRef({ authority });
     const result = await issueEd25519OperationStepUpAuthorization({
       relayerUrl: 'https://relay.example.test',
-      credential: { kind: 'app_session_cookie' },
+      credential: { kind: 'operation_step_up' },
       normalSigningRequest: await operationStepUpPrepareRequest(),
       displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
       proof: {
@@ -723,7 +723,7 @@ test('Email OTP Ed25519 step-up sends exact operation proof without material rec
       expiresAtMs: result.expiresAtMs,
       materialRecovery: { kind: 'not_requested' },
     });
-    expect(capture.credentials).toBe('include');
+    expect(capture.credentials).toBe('omit');
     expect(capture.authorization).toBe('');
     const body = JSON.parse(capture.body) as Record<string, unknown>;
     expect(body).toMatchObject({
@@ -785,7 +785,7 @@ test('Email OTP Ed25519 step-up serializes and parses factor-release material re
     const authorityRef = await walletAuthAuthorityRef({ authority });
     const result = await issueEd25519OperationStepUpAuthorization({
       relayerUrl: 'https://relay.example.test',
-      credential: { kind: 'app_session_cookie' },
+      credential: { kind: 'operation_step_up' },
       normalSigningRequest: await operationStepUpPrepareRequest(),
       displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
       proof: {
@@ -862,7 +862,7 @@ test('Ed25519 operation step-up rejects a factor-release response for a request 
     await expect(
       issueEd25519OperationStepUpAuthorization({
         relayerUrl: 'https://relay.example.test',
-        credential: { kind: 'app_session_cookie' },
+        credential: { kind: 'operation_step_up' },
         normalSigningRequest: await operationStepUpPrepareRequest(),
         displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
         proof: {
@@ -914,7 +914,7 @@ test('Ed25519 operation step-up rejects unexpected success-response fields', asy
     await expect(
       issueEd25519OperationStepUpAuthorization({
         relayerUrl: 'https://relay.example.test',
-        credential: { kind: 'app_session_cookie' },
+        credential: { kind: 'operation_step_up' },
         normalSigningRequest: await operationStepUpPrepareRequest(),
         displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
         proof: {
