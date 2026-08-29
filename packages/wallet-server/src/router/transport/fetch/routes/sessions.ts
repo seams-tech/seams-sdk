@@ -6,7 +6,7 @@ import { emitRouterApiWebhookEvent } from '../../../framework/routerApiWebhooks'
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json, readJson } from '../../../framework/http';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { alphabetizeStringify } from '@shared/utils/digests';
+import { alphabetizeStringify, sha256HexUtf8 } from '@shared/utils/digests';
 import {
   handleWalletUnlockChallengeRoute,
   handleWalletUnlockVerifyRoute,
@@ -29,6 +29,7 @@ import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
   parseWalletUnlockIssuanceRejectionCode,
   routerApiEmailOtpRouteService,
+  type RouterApiWalletSessionAuthorizationV2AdmissionContext,
   type WalletUnlockEmailOtpAuthorityResolution,
 } from '../../../framework/authServicePort';
 import {
@@ -1189,6 +1190,15 @@ function parseWalletEmailOtpFactorReleaseRequest(
   };
 }
 
+function hasEd25519SigningSubject(
+  context: RouterApiWalletSessionAuthorizationV2AdmissionContext,
+): boolean {
+  for (const subject of context.authorization.session.capabilitySubjects) {
+    if (subject.kind === 'sign' && subject.keyFamily === 'ed25519') return true;
+  }
+  return false;
+}
+
 export async function handleWalletEmailOtpFactorRelease(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
@@ -1236,27 +1246,29 @@ export async function handleWalletEmailOtpFactorRelease(
   let factorReleaseChallengeId: string;
   if (body.kind === 'wallet_session') {
     const token = extractBearerCredential(ctx.request.headers);
-    const resolved = token
-      ? await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-          tenantId: ctx.service.authorizationSessions.tenantId,
-          token,
-          curve: 'ed25519',
-          nowMs: Date.now(),
-        })
+    const exact = token
+      ? await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential(
+          {
+            tenantId: ctx.service.authorizationSessions.tenantId,
+            token,
+            nowMs: Date.now(),
+          },
+        )
       : null;
+    const enrollmentEmailHashHex = await sha256HexUtf8(enrollment.enrollment.verifiedEmail);
     if (
-      !resolved ||
-      resolved.binding.curve !== 'ed25519' ||
-      resolved.authorization.walletId !== walletId.value ||
-      resolved.binding.authority.factor.kind !== 'email_otp' ||
-      resolved.binding.authority.factor.providerUserId !== enrollment.enrollment.providerUserId
+      !exact ||
+      exact.authorization.session.walletId !== walletId.value ||
+      exact.authMethod.kind !== 'email_otp' ||
+      exact.authMethod.emailHashHex !== enrollmentEmailHashHex ||
+      !hasEd25519SigningSubject(exact)
     ) {
       return json(
         { ok: false, code: 'unauthorized', message: 'No valid Email OTP Wallet Session' },
         { status: 401 },
       );
     }
-    factorReleaseChallengeId = `wallet-session:${resolved.authorization.walletSessionId}`;
+    factorReleaseChallengeId = `wallet-session:${exact.authorization.session.walletSessionId}`;
   } else {
     let loginGrant: string;
     if (body.kind === 'verified_grant') {
