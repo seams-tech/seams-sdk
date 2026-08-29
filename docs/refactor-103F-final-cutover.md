@@ -1015,12 +1015,10 @@ Convert every current bridge caller:
 
 - [ ] founding registration in `d1WalletRegistrationService.ts`;
 - [ ] registration session reuse in `d1WalletRegistrationService.ts`;
-- [x] Wallet Session budget refresh in `d1WalletRegistrationService.ts`
-      (server issuer conversion in `11bd6da3e`; exact refresh test passes);
+- [ ] Wallet Session budget refresh in `d1WalletRegistrationService.ts`;
 - [ ] linked Ed25519 activation in `d1WalletRegistrationService.ts`;
 - [ ] active unlock in `d1RouterApiAuthService.ts`;
-- [x] sync bootstrap in `syncAccountBootstrap.ts` (server issuer conversion in
-      `11bd6da3e`; four focused sync guard tests pass);
+- [ ] sync bootstrap in `syncAccountBootstrap.ts`;
 - [ ] ECDSA post-registration activation in `thresholdEcdsa.ts`;
 - [ ] `mintRouterAbEd25519YaoWalletSessionV1` in
       `routerAbEd25519YaoProductRegistration.ts` and its sync/registration
