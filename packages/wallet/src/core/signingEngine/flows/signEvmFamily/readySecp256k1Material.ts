@@ -245,7 +245,7 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
   if (hydrated.kind === 'unavailable') return hydrated;
   return {
     kind: 'ready',
-    material: attachReusableEcdsaWalletSessionAuthorization({
+    material: attachExactEcdsaWalletSessionAuthorization({
       material: hydrated.material,
       capability: args.authorized.capability,
       authorization: args.authorized.authorization,
@@ -254,7 +254,7 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
   };
 }
 
-export function attachReusableEcdsaWalletSessionAuthorization(args: {
+export function attachExactEcdsaWalletSessionAuthorization(args: {
   material: HydratedEcdsaSignerMaterial;
   capability: CanonicalEvmFamilyEcdsaSigningCapability;
   authorization: ExactEvmFamilyWalletSessionAuthorization;

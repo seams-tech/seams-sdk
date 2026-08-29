@@ -10,7 +10,7 @@ import type { EcdsaSigningMaterialPlan, SupersededEcdsaSigningMaterial } from '.
 import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilyStepUpAuth';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
 import {
-  attachReusableEcdsaWalletSessionAuthorization,
+  attachExactEcdsaWalletSessionAuthorization,
   buildActiveWalletAuthorityReadySecp256k1Material,
   resolveHydratedSecp256k1SigningMaterial,
 } from './readySecp256k1Material';
@@ -333,7 +333,7 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
     kind: 'ready',
     value: {
       kind: 'material_from_canonical_capability',
-      material: attachReusableEcdsaWalletSessionAuthorization({
+      material: attachExactEcdsaWalletSessionAuthorization({
         material: resolution.material,
         capability: args.capability,
         authorization: args.currentAuthorization,
