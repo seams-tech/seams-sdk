@@ -74,6 +74,7 @@ import {
   validateRouterAbEcdsaDerivationWalletSessionInputs,
 } from '../../packages/wallet-server/src/router/auth/commonRouterUtils';
 import { authorizeStrictEcdsaSessionActivationFromOperationCredential } from '../../packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa';
+import { authenticateDeviceLinkingOwnerWalletSessionRequestV1 } from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceLinkingOwnerAuthorization';
 import type {
   RouterApiAuthorizedOperationService,
   RouterApiAuthorizationSessionService,
@@ -383,6 +384,73 @@ class WalletAuthorizedOperationFixture implements RouterApiAuthorizedOperationSe
     return await unsupportedAuthorizedOperationOperation();
   }
 }
+
+test('device-link owner approval requires the exact V2 operation credential', async () => {
+  const authority = await buildAuthority('both', 'device-link-owner');
+  const authMethod = buildAuthMethod(authority, 'device-link-owner', 'active');
+  const session = buildSession({
+    authority,
+    authMethodId: authMethod.walletAuthMethodId,
+    label: 'device-link-owner',
+    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
+    authorityDigestB64u: authority.authorityDigestB64u,
+    authorityRevocationEpoch: authority.revocationEpoch,
+    expiresAtMs: 10_000,
+  });
+  const quota = buildActiveWalletSessionQuota({
+    tenantId: session.tenantId,
+    principalId: session.principalId,
+    walletSessionId: session.walletSessionId,
+    quotaId: session.quotaId,
+    remainingUses: 3,
+    expiresAtMs: session.expiresAtMs,
+  });
+  const context: RouterApiWalletSessionAuthorizationV2AdmissionContext = {
+    authorization: { session, quota },
+    authority,
+    authMethod,
+    retiredAtMs: null,
+  };
+  const request = new Request('https://wallet.example.test/wallet/device-linking/v1/claim', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer exact-device-link-owner',
+      'content-type': 'application/json',
+    },
+    body: '{}',
+  });
+  const authenticated = await authenticateDeviceLinkingOwnerWalletSessionRequestV1({
+    request,
+    method: 'POST',
+    pathname: '/wallet/device-linking/v1/claim',
+    bodyDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(21))),
+    requestedAtMs: 500,
+    authorizationSessions: new WalletSessionAuthorizationV2Fixture(
+      context,
+      'exact-device-link-owner',
+    ),
+    nowV1: () => 500,
+  });
+  expect(authenticated.kind).toBe('authorized');
+  if (authenticated.kind !== 'authorized') throw new Error(authenticated.message);
+  expect(authenticated.owner.walletSessionId).toBe(session.walletSessionId);
+  expect(authenticated.owner.authorizationId).toBe(session.authorizationId);
+
+  const missingExact = await authenticateDeviceLinkingOwnerWalletSessionRequestV1({
+    request,
+    method: 'POST',
+    pathname: '/wallet/device-linking/v1/claim',
+    bodyDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(21))),
+    requestedAtMs: 500,
+    authorizationSessions: new WalletSessionAuthorizationV2Fixture(context, 'different-token'),
+    nowV1: () => 500,
+  });
+  expect(missingExact).toEqual({
+    kind: 'denied',
+    code: 'unauthorized',
+    message: 'An exact owner Wallet Session is required',
+  });
+});
 
 class Ed25519MaterialActivationFixture {
   readonly runtimePolicyScope: RuntimePolicyScope = {
