@@ -2542,6 +2542,7 @@ export class CloudflareD1WalletRegistrationService {
             readonly authorizationId: WalletSessionAuthorizationId;
             readonly walletSessionId: WalletSessionId;
             readonly quotaId: MpcWalletSigningQuotaId;
+            readonly expiresAtMs: number;
             readonly remainingUses: number;
             readonly walletSessionCredential: Extract<
               RouterAbEd25519YaoWalletSessionCredentialV1,
@@ -2599,6 +2600,7 @@ export class CloudflareD1WalletRegistrationService {
                 authorizationId: directIssue.session.authorizationId,
                 walletSessionId: directIssue.quota.walletSessionId,
                 quotaId: directIssue.quota.quotaId,
+                expiresAtMs: directIssue.session.expiresAtMs,
                 remainingUses,
                 walletSessionCredential: {
                   kind: 'issued_wallet_session_v1',
@@ -2636,6 +2638,7 @@ export class CloudflareD1WalletRegistrationService {
             authorizationId: sessionIdentity.authorizationId,
             walletSessionId: sessionIdentity.walletSessionId,
             quotaId: sessionIdentity.quotaId,
+            expiresAtMs: sessionIdentity.expiresAtMs,
             remainingUses: sessionIdentity.remainingUses,
             participantIds: exactParticipantIds,
             runtimePolicyScope,

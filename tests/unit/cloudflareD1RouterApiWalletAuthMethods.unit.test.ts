@@ -558,6 +558,21 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
        issued, and nothing else can reach it. */
     expect(refreshed.operationCredential.walletSessionId).toBe(refreshed.walletSessionId);
     expect(refreshed.operationCredential.token).toMatch(/^wst_[A-Za-z0-9_-]{43}$/);
+    const persistedExpiry = await database
+      .prepare(
+        `SELECT expires_at_ms
+           FROM wallet_session_authorizations_v2
+          WHERE namespace = ?1
+            AND tenant_id = ?2
+            AND wallet_session_id = ?3`,
+      )
+      .bind(
+        scope.namespace,
+        service.authorizationSessions.tenantId,
+        String(refreshed.walletSessionId),
+      )
+      .first<{ readonly expires_at_ms: number }>();
+    expect(persistedExpiry).toEqual({ expires_at_ms: refreshed.expiresAtMs });
 
     /* Replaying the same verified challenge cannot mint a second credential
        for the committed session; it returns the exact-method continuation. */

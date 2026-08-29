@@ -117,7 +117,7 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'same_identity_budget_refresh_v1';
-      readonly expiresAtMs?: never;
+      readonly expiresAtMs: number;
       readonly remainingUses: number;
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
@@ -413,8 +413,11 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
         ),
       };
     case 'same_identity_budget_refresh_v1':
+      if (!Number.isSafeInteger(input.expiresAtMs) || input.expiresAtMs <= nowMs) {
+        throw new Error('Budget refresh expiry must follow issuance');
+      }
       return {
-        expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
+        expiresAtMs: input.expiresAtMs,
         remainingUses: Math.min(
           DEFAULT_WALLET_SESSION_REMAINING_USES,
           Math.max(1, Math.floor(input.remainingUses)),
