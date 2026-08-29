@@ -33,16 +33,12 @@ import {
   type ReadySecp256k1SigningMaterial,
 } from './signers/secp256k1';
 import type {
-  ActiveEvmFamilyWalletSessionAuthorization,
   AuthorizedEvmFamilyEcdsaSigningCapability,
   CanonicalEvmFamilyEcdsaSigningCapability,
+  ExactEvmFamilyWalletSessionAuthorization,
 } from '../../session/material/ecdsaSigningCapability';
 import { authorizeEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
-import { walletSessionTokenForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import type {
-  ActiveWalletSessionV1,
-  WalletSessionOperationCredentialV1,
-} from '@shared/device-linking/contracts';
+import type { ActiveWalletSessionV1 } from '@shared/device-linking/contracts';
 import type { ActiveWalletAuthorityEcdsaRuntimeV1 } from '../../session/material/activeWalletAuthorityEcdsaRuntime';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 
@@ -225,11 +221,13 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
   runtime: ExactEcdsaSealedRuntime;
   chainTarget: ThresholdEcdsaChainTarget;
   materialActivation: MpcMaterialActivationRef;
+  nowMs: number;
   workerCtx: WorkerOperationContext;
 }): Promise<ReadySecp256k1SigningMaterialResolution> {
   const runtimeState = laneCandidateStateFromRuntimePolicy({
     remainingUses: args.runtime.remainingUses,
     expiresAtMs: args.runtime.expiresAtMs,
+    nowMs: args.nowMs,
   });
   if (runtimeState === 'expired') {
     return { kind: 'unavailable', reason: 'authorization_expired' };
@@ -251,6 +249,7 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
       material: hydrated.material,
       capability: args.authorized.capability,
       authorization: args.authorized.authorization,
+      nowMs: args.nowMs,
     }),
   };
 }
@@ -258,20 +257,28 @@ export async function resolveReadySecp256k1SigningMaterial(args: {
 export function attachReusableEcdsaWalletSessionAuthorization(args: {
   material: HydratedEcdsaSignerMaterial;
   capability: CanonicalEvmFamilyEcdsaSigningCapability;
-  authorization: ActiveEvmFamilyWalletSessionAuthorization;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
+  nowMs: number;
 }): ReadySecp256k1SigningMaterial {
   const authorized = authorizeEvmFamilyEcdsaSigningCapability({
     capability: args.capability,
     authorization: args.authorization,
+    nowMs: args.nowMs,
   });
-  const projection = authorized.authorization.projection;
-  if (String(projection.walletId) !== String(args.material.walletId)) {
+  const session = authorized.authorization.session;
+  const operationCredential = authorized.authorization.operationCredential;
+  if (
+    session.walletId !== args.material.walletId ||
+    !mpcMaterialActivationRefsEqual(
+      args.material.materialActivation,
+      args.capability.manifest.activation.materialActivation,
+    )
+  ) {
     throw new Error(
       'Reusable Wallet Session authorization wallet does not match hydrated material',
     );
   }
-  const walletSessionToken = walletSessionTokenForCurve(projection, 'ecdsa');
-  if (!walletSessionToken) {
+  if (operationCredential.token.trim().length === 0) {
     throw new Error('Reusable Wallet Session authorization is unavailable');
   }
   return buildReadySecp256k1SigningMaterial({
@@ -279,13 +286,13 @@ export function attachReusableEcdsaWalletSessionAuthorization(args: {
     signerSession: args.material,
     authorization: {
       kind: 'reusable_wallet_session',
-      wallet_session_id: projection.walletSessionId,
+      wallet_session_id: operationCredential.walletSessionId,
     },
     credential: {
       kind: 'reusable_wallet_session',
-      walletSessionToken,
+      walletSessionToken: operationCredential.token,
     },
-    expiresAtMs: authorized.authorization.status.expiresAtMs,
+    expiresAtMs: session.expiresAtMs,
     singleUseEmailOtpSession: false,
   });
 }
