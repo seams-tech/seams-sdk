@@ -6,6 +6,7 @@ import {
   D1WalletStore,
   type D1WalletStoreScope,
 } from '../../packages/wallet-server/src/core/d1WalletStore';
+import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
 import {
   applyD1MigrationFiles,
@@ -64,6 +65,7 @@ test.describe('D1 authorization core', () => {
         origin: 'https://app.example.test',
         expiresAtMs: 1_900_000_100_000,
       });
+      await seedActiveWalletAuthMethod(temporary.database, 'wallet-session-issuance', fixture);
       const mintId = requiredMintId('registration:wallet-session');
       const issued = await service.issueReusableWalletSession({
         tenantId: fixture.session.tenantId,
@@ -112,6 +114,11 @@ test.describe('D1 authorization core', () => {
         origin: 'https://app.example.test',
         expiresAtMs: 1_900_000_100_000,
       });
+      await seedActiveWalletAuthMethod(
+        temporary.database,
+        'wallet-session-timestamp-replay',
+        fixture,
+      );
       const mintId = requiredMintId('unlock:wallet-session-timestamp-replay');
       const issued = await service.issueReusableWalletSession({
         tenantId: fixture.session.tenantId,
@@ -155,6 +162,7 @@ test.describe('D1 authorization core', () => {
         origin: 'https://app.example.test',
         expiresAtMs: 1_900_000_100_000,
       });
+      await seedActiveWalletAuthMethod(temporary.database, 'wallet-session-rollback', fixture);
       const issued = await service.issueReusableWalletSession({
         tenantId: fixture.session.tenantId,
         principalId: fixture.session.principalId,
@@ -207,6 +215,7 @@ test.describe('D1 authorization core', () => {
         origin: 'https://app.example.test',
         expiresAtMs: 1_900_000_100_000,
       });
+      await seedActiveWalletAuthMethod(temporary.database, namespace, fixture);
       const issued = await service.issueReusableWalletSession({
         tenantId: fixture.session.tenantId,
         principalId: fixture.session.principalId,
@@ -285,6 +294,11 @@ test.describe('D1 authorization core', () => {
         origin: 'https://app.example.test',
         expiresAtMs: 1_900_000_100_000,
       });
+      await seedActiveWalletAuthMethod(
+        temporary.database,
+        'wallet-session-conflicting-replay',
+        fixture,
+      );
       const mintId = requiredMintId('unlock:wallet-session-conflict');
       await service.issueReusableWalletSession({
         tenantId: fixture.session.tenantId,
@@ -873,6 +887,22 @@ function createService(
     authorizedOperations: store,
     audit: store,
   });
+}
+
+async function seedActiveWalletAuthMethod(
+  database: Parameters<typeof rowCount>[0],
+  namespace: string,
+  fixture: Awaited<ReturnType<typeof buildPasskeyWalletSessionIssuanceFixture>>,
+): Promise<void> {
+  const store = new D1WalletAuthMethodStore({
+    database,
+    namespace,
+    orgId: 'test-org',
+    projectId: 'test-project',
+    envId: 'test-env',
+    ensureSchema: false,
+  });
+  await store.putV2(fixture.authMethod);
 }
 
 function signerPersistenceScope(
