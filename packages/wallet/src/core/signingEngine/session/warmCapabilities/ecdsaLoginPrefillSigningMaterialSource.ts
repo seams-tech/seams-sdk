@@ -13,7 +13,6 @@ import {
 import type { RouterAbEcdsaDerivationClientSigningMaterialSource } from '../../routerAb/ecdsaDerivation/presignaturePool';
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '../material/ecdsaCapabilityManifest';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   ecdsaRoleLocalPersistedMaterialSource,
   resolveEcdsaRoleLocalMaterial,
@@ -42,7 +41,6 @@ function requireResolvedLoginPrefillMaterial(
 export function createEcdsaLoginPrefillClientSigningMaterialSource(args: {
   manifest: ActiveEcdsaCapabilityManifest;
   runtime: ExactEcdsaSealedRuntime;
-  authorization: ActiveWalletSessionAuthorizationProjection;
 }): RouterAbEcdsaDerivationClientSigningMaterialSource {
   return {
     kind: 'router_ab_ecdsa_derivation_client_signing_material_source_v1',

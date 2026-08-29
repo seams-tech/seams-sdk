@@ -41,10 +41,7 @@ export type HydrateSigningSessionInput = {
 };
 
 export type WarmCapabilitiesPublicDeps = {
-  statusReader: Pick<
-    ThresholdWarmSessionStatusReader,
-    'getEd25519SigningSessionStatus'
-  >;
+  statusReader: Pick<ThresholdWarmSessionStatusReader, 'getEd25519SigningSessionStatus'>;
   persistThresholdEcdsaBootstrapForWalletTarget: (
     args: PersistThresholdEcdsaBootstrapForWalletTargetInput,
   ) => Promise<void>;
@@ -54,6 +51,12 @@ export type WarmCapabilitiesPublicDeps = {
   getSignerWorkerContext: Parameters<
     typeof scheduleRouterAbEcdsaDerivationLoginPresignaturePrefillValue
   >[0]['getSignerWorkerContext'];
+  resolveActiveWalletAuthority: Parameters<
+    typeof scheduleRouterAbEcdsaDerivationLoginPresignaturePrefillValue
+  >[0]['resolveActiveWalletAuthority'];
+  readExactWalletSessionWithOperationCredential: Parameters<
+    typeof scheduleRouterAbEcdsaDerivationLoginPresignaturePrefillValue
+  >[0]['readExactWalletSessionWithOperationCredential'];
   resolveClientSigningMaterialSource: Parameters<
     typeof scheduleRouterAbEcdsaDerivationLoginPresignaturePrefillValue
   >[0]['resolveClientSigningMaterialSource'];
@@ -108,8 +111,12 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
   return await scheduleRouterAbEcdsaDerivationLoginPresignaturePrefillValue(
     {
       getSignerWorkerContext: deps.getSignerWorkerContext,
+      resolveActiveWalletAuthority: deps.resolveActiveWalletAuthority,
+      readExactWalletSessionWithOperationCredential:
+        deps.readExactWalletSessionWithOperationCredential,
       resolveClientSigningMaterialSource: deps.resolveClientSigningMaterialSource,
-      routerAbEcdsaDerivationPresignaturePoolPolicy: deps.routerAbEcdsaDerivationPresignaturePoolPolicy,
+      routerAbEcdsaDerivationPresignaturePoolPolicy:
+        deps.routerAbEcdsaDerivationPresignaturePoolPolicy,
     },
     args,
   );
