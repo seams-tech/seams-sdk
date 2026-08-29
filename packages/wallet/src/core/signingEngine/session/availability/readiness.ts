@@ -851,7 +851,7 @@ export function statusFromClaim(args: {
 export type WalletSessionClearFailure =
   | 'touch_confirm_material'
   | 'email_otp_material'
-  | 'ecdsa_projection';
+  | 'wallet_session_authorization';
 
 export type WalletSessionClearResult =
   | {
