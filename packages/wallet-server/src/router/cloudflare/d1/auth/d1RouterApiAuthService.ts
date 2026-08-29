@@ -2629,6 +2629,10 @@ function createD1AuthorizationSessionRouteService(
     issueOpaqueWalletSessionToken: assembly.authorizationService.issueOpaqueWalletSessionToken.bind(
       assembly.authorizationService,
     ),
+    issueRegistrationReplayOpaqueWalletSessionToken:
+      assembly.authorizationService.issueRegistrationReplayOpaqueWalletSessionToken.bind(
+        assembly.authorizationService,
+      ),
     resolveOpaqueWalletSessionToken:
       assembly.authorizationService.resolveOpaqueWalletSessionToken.bind(
         assembly.authorizationService,

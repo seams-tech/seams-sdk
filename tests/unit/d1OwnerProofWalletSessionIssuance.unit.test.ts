@@ -16,6 +16,7 @@ import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
   parseWalletId,
+  parseWalletAuthMethodId,
   parseWebAuthnCredentialIdB64u,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import {
@@ -269,6 +270,170 @@ test('one owner proof mints both curve tokens for one Wallet Session and rejects
         binding: otherEd25519Binding,
       }),
     ).rejects.toThrow('owner proof has already been consumed');
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
+test('registration replay opaque tokens are authority-bound and expire before their session', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, signerMigrations);
+    const namespace = 'owner-proof-registration-replay';
+    const store = new CloudflareD1AuthorizationStore({
+      database: temporary.database,
+      namespace,
+      walletSignerScope: {
+        namespace,
+        orgId: 'test-org',
+        projectId: 'test-project',
+        envId: 'test-env',
+      },
+    });
+    const service = new AuthorizationService({
+      policy: capabilityPolicyPort,
+      sessions: store,
+      evidence: store,
+      grants: store,
+      authorizedOperations: store,
+      audit: store,
+    });
+    const fixture = await buildPasskeyWalletSessionIssuanceFixture({
+      tenantId: 'tenant-registration-replay',
+      principalId: 'principal-registration-replay',
+      walletId: 'wallet-registration-replay',
+      walletAuthMethodId: 'wallet-auth-method:registration-replay',
+      credentialIdB64u: 'credential-registration-replay',
+      rpId: 'example.test',
+      origin: 'https://app.example.test',
+      expiresAtMs: 1_900_001_000_000,
+    });
+    await insertWalletAuthMethod({
+      database: temporary.database,
+      namespace,
+      orgId: 'test-org',
+      projectId: 'test-project',
+      envId: 'test-env',
+      record: {
+        kind: 'passkey',
+        walletAuthMethodId: String(fixture.authority.bindingId),
+        walletAuthorityId: 'wallet-authority:registration-replay',
+        walletId: String(fixture.authority.walletId),
+        rpId: String(fixture.authority.verifier.rpId),
+        credentialIdB64u: String(fixture.authority.factor.credentialIdB64u),
+        credentialPublicKeyB64u: 'credential-public-key-registration-replay',
+        counter: 0,
+        createdAtMs: fixture.session.createdAtMs,
+        updatedAtMs: fixture.session.createdAtMs,
+      },
+    });
+    const walletId = required(parseWalletId(fixture.authority.walletId));
+    const sessionExpiresAtMs = fixture.session.expiresAtMs + 600_000;
+    const proof = await service.buildVerifiedOwnerProof({
+      purpose: 'wallet_session',
+      proofId: parseVerifiedOwnerProofId('owner-proof-registration-replay'),
+      factor: buildVerifiedWalletSessionPasskeyFactorResult({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletId,
+        authorityRef: fixture.authorityRef,
+        requestOrigin: fixture.session.origin,
+        audience: fixture.session.origin,
+        factorId: required(parseAuthFactorId('passkey:registration-replay')),
+        credentialIdB64u: required(parseWebAuthnCredentialIdB64u('credential-registration-replay')),
+        assertionDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(17))),
+        verifiedAtMs: fixture.session.createdAtMs + 1,
+        expiresAtMs: fixture.session.expiresAtMs - 1,
+      }),
+    });
+    const session = await service.issueReusableWalletSession({
+      tenantId: fixture.session.tenantId,
+      principalId: fixture.session.principalId,
+      walletId,
+      authority: fixture.authorityRef,
+      mintId: required(parseReusableWalletSessionMintId('unlock:registration-replay')),
+      remainingUses: 3,
+      issuedAtMs: fixture.session.createdAtMs + 1,
+      expiresAtMs: sessionExpiresAtMs,
+    });
+    const binding = ownerWalletSessionBinding({
+      fixture,
+      identity: {
+        authorizationId: String(session.session.authorizationId),
+        walletSessionId: String(session.quota.walletSessionId),
+        quotaId: String(session.quota.quotaId),
+        expiresAtMs: session.session.expiresAtMs,
+      },
+      curve: 'ecdsa',
+    });
+    if (binding.curve !== 'ecdsa') throw new Error('ECDSA replay binding fixture is invalid');
+    const mismatchedBinding: OpaqueOwnerWalletSessionBinding = {
+      ...binding,
+      walletAuthAuthorityRef: {
+        ...binding.walletAuthAuthorityRef,
+        walletAuthMethodId: required(
+          parseWalletAuthMethodId('wallet-auth-method:registration-replay-mismatch'),
+        ),
+      },
+    };
+    const replayInput = {
+      proof,
+      tenantId: fixture.session.tenantId,
+      authorizationId: session.session.authorizationId,
+      walletSessionId: session.quota.walletSessionId,
+      quotaId: session.quota.quotaId,
+      expiresAtMs: session.session.expiresAtMs,
+      consumedAtMs: fixture.session.createdAtMs + 2,
+      curve: 'ecdsa' as const,
+      registrationCeremonyId: 'registration:replay',
+      operation: 'registration_activate' as const,
+      operationFingerprint: 'fingerprint:registration-replay',
+    };
+    await expect(
+      service.issueRegistrationReplayOpaqueWalletSessionToken({
+        ...replayInput,
+        binding: mismatchedBinding,
+      }),
+    ).rejects.toThrow('registration replay binding does not match its owner proof');
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT COUNT(*) AS count
+             FROM registration_replay_opaque_wallet_session_tokens_v1`,
+        )
+        .first<{ readonly count?: unknown }>(),
+    ).resolves.toMatchObject({ count: 0 });
+
+    const issued = await service.issueRegistrationReplayOpaqueWalletSessionToken({
+      ...replayInput,
+      binding,
+    });
+    expect(issued.expiresAtMs).toBe(replayInput.consumedAtMs + 5 * 60 * 1000);
+    expect(issued.expiresAtMs).toBeLessThan(session.session.expiresAtMs);
+    await expect(
+      service.resolveOpaqueWalletSessionToken({
+        tenantId: fixture.session.tenantId,
+        token: issued.token,
+        curve: 'ecdsa',
+        nowMs: issued.expiresAtMs - 1,
+      }),
+    ).resolves.toMatchObject({ kind: 'resolved_opaque_wallet_session_token' });
+    await expect(
+      service.resolveOpaqueWalletSessionToken({
+        tenantId: fixture.session.tenantId,
+        token: issued.token,
+        curve: 'ecdsa',
+        nowMs: issued.expiresAtMs,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT token_hash, token_expires_at_ms
+             FROM registration_replay_opaque_wallet_session_tokens_v1`,
+        )
+        .first(),
+    ).resolves.toMatchObject({ token_expires_at_ms: issued.expiresAtMs });
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }

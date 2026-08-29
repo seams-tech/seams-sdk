@@ -6,7 +6,9 @@ import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../cor
 import type { RouterApiAuthorizationSessionService } from '../framework/authServicePort';
 import type { RouterApiWalletSessionAuthorizationV2AdmissionContext } from '../framework/authServicePort';
 import {
+  type IssuedOpaqueWalletSessionToken,
   type OpaqueOwnerWalletSessionBinding,
+  type RegistrationReplayOpaqueWalletSessionTokenInput,
   type ResolvedOpaqueWalletSessionToken,
 } from '../../authorization/service';
 import type {
@@ -547,6 +549,7 @@ export type WalletSessionIssuanceResult =
       token: string;
       thresholdSessionId: string;
       thresholdExpiresAtMs: number;
+      expiresAtMs: number;
       participantIds: number[];
     }
   | {
@@ -558,8 +561,12 @@ export type WalletSessionIssuanceResult =
 
 type WalletSessionIssuanceFailure = Extract<WalletSessionIssuanceResult, { ok: false }>;
 
-type RouterAbOpaqueWalletSessionSigningInput = {
-  opaqueWalletSessions: Pick<RouterApiAuthorizationSessionService, 'issueOpaqueWalletSessionToken'>;
+type RegistrationReplayIssuanceMetadata = Pick<
+  RegistrationReplayOpaqueWalletSessionTokenInput,
+  'registrationCeremonyId' | 'operation' | 'operationFingerprint'
+>;
+
+type RouterAbOpaqueWalletSessionSigningInputCommon = {
   tenantId: TenantId;
   userId: unknown;
   relayerKeyId: unknown;
@@ -578,6 +585,57 @@ type RouterAbOpaqueWalletSessionSigningInput = {
   invalidPayloadErrorMessage: string;
   sessionsDisabledMessage?: string;
 };
+
+type RouterAbOpaqueWalletSessionSigningInput =
+  | (RouterAbOpaqueWalletSessionSigningInputCommon & {
+      opaqueWalletSessions: Pick<
+        RouterApiAuthorizationSessionService,
+        'issueOpaqueWalletSessionToken'
+      >;
+      registrationReplay?: never;
+    })
+  | (RouterAbOpaqueWalletSessionSigningInputCommon & {
+      opaqueWalletSessions: Pick<
+        RouterApiAuthorizationSessionService,
+        'issueOpaqueWalletSessionToken'
+      > &
+        Required<
+          Pick<
+            RouterApiAuthorizationSessionService,
+            'issueRegistrationReplayOpaqueWalletSessionToken'
+          >
+        >;
+      registrationReplay: RegistrationReplayIssuanceMetadata;
+    });
+
+type OpaqueWalletSessionTokenIssueInput = {
+  readonly tenantId: TenantId;
+  readonly curve: 'ecdsa' | 'ed25519';
+  readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
+  readonly binding: OpaqueOwnerWalletSessionBinding;
+  readonly invalidPayloadErrorMessage: string;
+} & (
+  | {
+      readonly opaqueWalletSessions: Pick<
+        RouterApiAuthorizationSessionService,
+        'issueOpaqueWalletSessionToken'
+      >;
+      readonly registrationReplay?: never;
+    }
+  | {
+      readonly opaqueWalletSessions: Pick<
+        RouterApiAuthorizationSessionService,
+        'issueOpaqueWalletSessionToken'
+      > &
+        Required<
+          Pick<
+            RouterApiAuthorizationSessionService,
+            'issueRegistrationReplayOpaqueWalletSessionToken'
+          >
+        >;
+      readonly registrationReplay: RegistrationReplayIssuanceMetadata;
+    }
+);
 
 export type RouterAbEd25519OpaqueWalletSessionSigningInput =
   RouterAbOpaqueWalletSessionSigningInput & {
@@ -1008,17 +1066,9 @@ function buildRouterAbEcdsaDerivationWalletSessionBinding(
     : binding;
 }
 
-async function issueOpaqueWalletSessionToken(args: {
-  readonly opaqueWalletSessions: Pick<
-    RouterApiAuthorizationSessionService,
-    'issueOpaqueWalletSessionToken'
-  >;
-  readonly tenantId: TenantId;
-  readonly curve: 'ecdsa' | 'ed25519';
-  readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
-  readonly binding: OpaqueOwnerWalletSessionBinding;
-  readonly invalidPayloadErrorMessage: string;
-}): Promise<WalletSessionIssuanceResult> {
+async function issueOpaqueWalletSessionToken(
+  args: OpaqueWalletSessionTokenIssueInput,
+): Promise<WalletSessionIssuanceResult> {
   const runtimePolicyScope =
     args.binding.curve === 'ecdsa'
       ? args.binding.runtimePolicyScope
@@ -1043,23 +1093,41 @@ async function issueOpaqueWalletSessionToken(args: {
     };
   }
   try {
-    const issued = await args.opaqueWalletSessions.issueOpaqueWalletSessionToken({
-      tenantId: tenantId.value,
-      authorizationId: args.binding.authorizationId,
-      walletSessionId: args.binding.walletSessionId,
-      quotaId: args.binding.quotaId,
-      expiresAtMs: args.binding.thresholdExpiresAtMs,
-      proof: args.proof,
-      consumedAtMs: Date.now(),
-      curve: args.curve,
-      binding: args.binding,
-    });
+    const consumedAtMs = Date.now();
+    let issued: IssuedOpaqueWalletSessionToken;
+    if (args.registrationReplay) {
+      issued = await args.opaqueWalletSessions.issueRegistrationReplayOpaqueWalletSessionToken({
+        tenantId: tenantId.value,
+        authorizationId: args.binding.authorizationId,
+        walletSessionId: args.binding.walletSessionId,
+        quotaId: args.binding.quotaId,
+        expiresAtMs: args.binding.thresholdExpiresAtMs,
+        proof: args.proof,
+        consumedAtMs,
+        curve: args.curve,
+        binding: args.binding,
+        ...args.registrationReplay,
+      });
+    } else {
+      issued = await args.opaqueWalletSessions.issueOpaqueWalletSessionToken({
+        tenantId: tenantId.value,
+        authorizationId: args.binding.authorizationId,
+        walletSessionId: args.binding.walletSessionId,
+        quotaId: args.binding.quotaId,
+        expiresAtMs: args.binding.thresholdExpiresAtMs,
+        proof: args.proof,
+        consumedAtMs,
+        curve: args.curve,
+        binding: args.binding,
+      });
+    }
     return {
       ok: true,
       authorizationKind: 'owner_wallet_session',
       token: issued.token,
       thresholdSessionId: args.binding.thresholdSessionId,
       thresholdExpiresAtMs: args.binding.thresholdExpiresAtMs,
+      expiresAtMs: issued.expiresAtMs,
       participantIds: [...args.binding.participantIds],
     };
   } catch {
@@ -1116,6 +1184,17 @@ export async function issueRouterAbEd25519OpaqueWalletSessionToken(
     authority: args.authority,
     binding: rawBinding,
   });
+  if (args.registrationReplay) {
+    return await issueOpaqueWalletSessionToken({
+      opaqueWalletSessions: args.opaqueWalletSessions,
+      tenantId: args.tenantId,
+      curve: 'ed25519',
+      proof: args.proof,
+      binding,
+      invalidPayloadErrorMessage: args.invalidPayloadErrorMessage,
+      registrationReplay: args.registrationReplay,
+    });
+  }
   return await issueOpaqueWalletSessionToken({
     opaqueWalletSessions: args.opaqueWalletSessions,
     tenantId: args.tenantId,
@@ -1167,6 +1246,17 @@ export async function issueRouterAbEcdsaDerivationOpaqueWalletSessionToken(
     runtimePolicyScope: runtimePolicyScope.value,
     binding: rawBinding,
   });
+  if (args.registrationReplay) {
+    return await issueOpaqueWalletSessionToken({
+      opaqueWalletSessions: args.opaqueWalletSessions,
+      tenantId: args.tenantId,
+      curve: 'ecdsa',
+      proof: args.proof,
+      binding,
+      invalidPayloadErrorMessage: args.invalidPayloadErrorMessage,
+      registrationReplay: args.registrationReplay,
+    });
+  }
   return await issueOpaqueWalletSessionToken({
     opaqueWalletSessions: args.opaqueWalletSessions,
     tenantId: args.tenantId,
