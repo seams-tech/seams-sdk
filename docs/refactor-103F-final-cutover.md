@@ -785,9 +785,12 @@ budget-refresh and linked-activation `issue_wallet_session_v1` branches, and
 
 ### I3 — Exact operation admission and runtime binding (B4, B5)
 
-- [ ] Make `readWalletSessionAuthorizationV2ByOperationCredential` required in
-      `authServicePort.ts`.
-- [ ] Delete `WalletSessionOperationCredentialResolution.kind === 'not_v2'`.
+- [x] Make `readWalletSessionAuthorizationV2ByOperationCredential` required in
+      `authServicePort.ts`; the production assembly and every exact admission
+      consumer now call one non-optional port.
+- [x] Delete `WalletSessionOperationCredentialResolution.kind === 'not_v2'`;
+      an absent exact digest returns `not_found`, while only the named bridge
+      request resolvers continue to the bounded V1 persistence lookup.
 - [ ] Keep `resolveOpaqueOwnerWalletSessionAdmission` reachable only from the
       bridge request resolver, then delete it at R4.
 - [ ] Delete the Ed25519 validator's V1-token fallback.
