@@ -68,7 +68,6 @@ async function exerciseCanonicalEcdsaRefreshReconciliation(input: {
         getWarmThresholdEd25519SessionStatus: async () => null,
         listWarmThresholdEcdsaSessionStatuses: async () => [],
         readPersistedAvailableSigningLanes: async () => input.availableLanes,
-        getReusableWalletSessionStatus: async () => null,
         getNonceCoordinator: () => ({ getDiagnostics: () => null }),
       },
     },
@@ -164,7 +163,6 @@ test.describe('wallet session profile identity restore', () => {
               }),
               listWarmThresholdEcdsaSessionStatuses: async () => [],
               readPersistedAvailableSigningLanes: async () => availableLanes,
-              getReusableWalletSessionStatus: async () => null,
               getNonceCoordinator: () => ({ getDiagnostics: () => null }),
             },
           },
@@ -265,7 +263,6 @@ test.describe('wallet session profile identity restore', () => {
             }),
             listWarmThresholdEcdsaSessionStatuses: async () => [],
             readPersistedAvailableSigningLanes: async () => availableLanes,
-            getReusableWalletSessionStatus: async () => null,
             getNonceCoordinator: () => ({ getDiagnostics: () => null }),
           },
         };
@@ -391,7 +388,6 @@ test.describe('wallet session profile identity restore', () => {
             }),
             listWarmThresholdEcdsaSessionStatuses: async () => [],
             readPersistedAvailableSigningLanes: async () => availableLanes,
-            getReusableWalletSessionStatus: async () => null,
             getNonceCoordinator: () => ({ getDiagnostics: () => null }),
           },
         };
@@ -514,7 +510,6 @@ test.describe('wallet session profile identity restore', () => {
               getWarmThresholdEd25519SessionStatus: async () => null,
               listWarmThresholdEcdsaSessionStatuses: async () => [],
               readPersistedAvailableSigningLanes: async () => null,
-              getReusableWalletSessionStatus: async () => null,
               getNonceCoordinator: () => ({ getDiagnostics: () => null }),
             },
           };
