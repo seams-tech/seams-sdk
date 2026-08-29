@@ -822,6 +822,9 @@ budget-refresh and linked-activation `issue_wallet_session_v1` branches, and
       material, validates the authoritative signer, activation, threshold
       session, worker, and participants, and never probes the opaque-token
       store.
+- [x] Delete the opaque-bearer override from prepared recovery admission and
+      receipt-backed execute/activate. A retired `wst_` bearer cannot bypass
+      the durable challenge or change the protocol-receipt authorization path.
 - [ ] Resolve the capability subject's exact material activation before either
       curve constructs a Router A/B request.
 - [ ] Assign every `OpaqueOwnerWalletSessionBinding` field to the authoritative
@@ -847,8 +850,7 @@ Live admission symbols include `WalletSessionOperationCredentialResolution`,
 `resolveWalletSessionOperationCredentialAdmission`,
 `resolveOpaqueOwnerWalletSessionAdmission`, `validateOwnerWalletSessionV1`,
 `resolveRouteOpaqueOwnerWalletSession`,
-`authorizeSigningSessionSealWithExactWalletSession`, and
-`authorizeOpaqueOwnerRecovery`.
+and `authorizeSigningSessionSealWithExactWalletSession`.
 
 ### I4 — Status, replay, quota, and source activity (B6)
 
@@ -1568,8 +1570,9 @@ Remaining causal baseline work:
 - [x] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`
 - [x] `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts`,
       proving exact active-material admission, threshold-session substitution
-      rejection, opaque-token rejection, and zero legacy-store reads; obsolete
-      linked-JWT and opaque-bootstrap fixtures were removed
+      rejection, opaque-token rejection, durable-challenge enforcement despite
+      a retired opaque bearer, receipt-path isolation, and zero legacy-store
+      reads; obsolete linked-JWT and opaque-bootstrap fixtures were removed
 - [x] `tests/unit/walletExecutionAdmissionV2.unit.test.ts`, including exact-only
       device-link owner approval, fail-closed missing-credential behavior, and
       zero legacy reads from both ordinary signing validators
