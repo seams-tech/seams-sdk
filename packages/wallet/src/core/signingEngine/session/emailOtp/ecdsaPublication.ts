@@ -23,7 +23,7 @@ import {
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import { type ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactWalletSessionAuthorization } from '../persistence/walletSessionAuthorizationProjection';
 import type { EmailOtpEcdsaReadyPersistInput } from '@/core/signingEngine/session/warmCapabilities/persistencePorts';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { SigningSessionIds } from '../operationState/types';
@@ -102,7 +102,7 @@ export type EmailOtpEcdsaPublicationPorts = {
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   }) => Promise<{
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    authorization: ActiveWalletSessionAuthorizationProjection;
+    authorization: ExactWalletSessionAuthorization;
   }>;
   registerSigningSession: (
     record: Extract<BuildCurrentSealedSessionRecordInput, { curve: 'ecdsa' }>,
@@ -276,8 +276,7 @@ export async function resolveEmailOtpExistingEcdsaKey(args: {
         })
       : null;
   const requestedKeyHandle = String(args.keyHandle || '').trim();
-  const exactAuthorityRef =
-    args.scope.kind === 'durable_manifest' ? null : args.scope.authorityRef;
+  const exactAuthorityRef = args.scope.kind === 'durable_manifest' ? null : args.scope.authorityRef;
   const manifests = await args.listActiveEcdsaCapabilityManifestsForWallet(args.walletId);
   const candidates = manifests
     .filter((manifest) => {
@@ -285,8 +284,7 @@ export async function resolveEmailOtpExistingEcdsaKey(args: {
       return (
         manifest.signer.walletId === args.walletId &&
         (!exactAuthorityRef ||
-          (manifest.signer.authority.walletAuthMethodId ===
-            exactAuthorityRef.walletAuthMethodId &&
+          (manifest.signer.authority.walletAuthMethodId === exactAuthorityRef.walletAuthMethodId &&
             String(manifest.signer.authority.authorityDigest) ===
               String(exactAuthorityRef.authorityDigest))) &&
         manifest.signer.scope.targetMemberships.some((membership) =>
@@ -295,7 +293,8 @@ export async function resolveEmailOtpExistingEcdsaKey(args: {
         (!requestedKeyHandle || String(publicFacts.keyHandle).trim() === requestedKeyHandle) &&
         (!identity || String(publicFacts.signingRootId).trim() === identity.signingRootId) &&
         (!identity ||
-          String(publicFacts.signingRootVersion || 'default').trim() === identity.signingRootVersion)
+          String(publicFacts.signingRootVersion || 'default').trim() ===
+            identity.signingRootVersion)
       );
     })
     .map(manifestEmailOtpEcdsaCandidate)
@@ -369,11 +368,8 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
   ports: EmailOtpEcdsaPublicationPorts,
 ): Promise<{
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  authorization: ActiveWalletSessionAuthorizationProjection;
-  authorizations: readonly [
-    ActiveWalletSessionAuthorizationProjection,
-    ...ActiveWalletSessionAuthorizationProjection[],
-  ];
+  authorization: ExactWalletSessionAuthorization;
+  authorizations: readonly [ExactWalletSessionAuthorization, ...ExactWalletSessionAuthorization[]];
   timings: EmailOtpEcdsaPublicationTimings;
 }> {
   if (args.bootstraps.length !== args.publicationChainTargets.length) {
@@ -435,7 +431,7 @@ type CommitEmailOtpEcdsaPublicationLaneContext = {
 type CommittedEmailOtpEcdsaPublicationLane = {
   result: {
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    authorization: ActiveWalletSessionAuthorizationProjection;
+    authorization: ExactWalletSessionAuthorization;
   };
   timings: EmailOtpEcdsaPublicationTimings;
 };
@@ -519,7 +515,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     emailOtpAuthContext: args.emailOtpAuthContext,
   });
 
-  const walletSessionToken = String(session?.walletSessionToken || '').trim();
+  const operationCredentialToken = String(session.operationCredential.token || '').trim();
   const runtimePolicyScope = args.runtimePolicyScope;
   const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
   const signingRootId = String(signingRootScope?.signingRootId || '').trim();
@@ -564,7 +560,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     !publicCapability ||
     !roleLocalMaterialRef ||
     !participantIds.length ||
-    !walletSessionToken ||
+    !operationCredentialToken ||
     !signingRootId ||
     !signingRootVersion
   ) {
@@ -614,7 +610,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     target: { kind: 'ecdsa', thresholdSessionId: emailOtpWorkerSessionId },
     transport: {
       relayerUrl,
-      ...(walletSessionToken ? { walletSessionToken } : {}),
+      walletSessionToken: operationCredentialToken,
       groupId,
     },
   }).catch((error) => {

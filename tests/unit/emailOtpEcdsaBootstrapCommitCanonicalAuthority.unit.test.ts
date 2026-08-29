@@ -51,6 +51,17 @@ test('Email OTP ECDSA bootstrap commit keeps canonical manifest authority', asyn
   expect(canonicalAuthorityValue.factor.provider).toBe('google');
   expect(routeAuthContext.authority.factor.provider).toBe('email');
   expect(routeAuthority.authorityDigest).not.toBe(canonicalAuthority.authorityDigest);
+  const canonicalBootstrap = {
+    ...bootstrap,
+    session: {
+      ...bootstrap.session,
+      walletSession: {
+        ...bootstrap.session.walletSession,
+        authMethodId: canonicalAuthority.walletAuthMethodId,
+        authorityDigestB64u: canonicalAuthority.authorityDigest,
+      },
+    },
+  };
 
   let persistedExact:
     | Parameters<typeof walletSessionAuthorizations.writeExactWithOperationCredential>[0]
@@ -81,18 +92,26 @@ test('Email OTP ECDSA bootstrap commit keeps canonical manifest authority', asyn
     const committed = await commitWorkerProvisionedThresholdEcdsaSession(deps, {
       walletId,
       chainTarget: tempoTarget,
-      bootstrap,
+      bootstrap: canonicalBootstrap,
       source: 'email_otp',
       authority: canonicalAuthority,
       emailOtpAuthContext: routeAuthContext,
     });
 
-    expect(committed.authorization.authority).toEqual(canonicalAuthority);
-    expect(committed.authorization.authority.authorityDigest).not.toBe(
-      routeAuthority.authorityDigest,
+    expect(committed.authorization.record).toEqual(canonicalBootstrap.session.walletSession);
+    expect(committed.authorization.operationCredential).toEqual(
+      bootstrap.session.operationCredential,
     );
-    expect(persistedExact?.record).toEqual(bootstrap.session.walletSession);
-    expect(persistedExact?.operationCredential).toEqual(bootstrap.session.operationCredential);
+    expect(String(committed.authorization.record.authorityDigestB64u)).toBe(
+      String(canonicalAuthority.authorityDigest),
+    );
+    expect(String(committed.authorization.record.authorityDigestB64u)).not.toBe(
+      String(routeAuthority.authorityDigest),
+    );
+    expect(persistedExact?.record).toEqual(canonicalBootstrap.session.walletSession);
+    expect(persistedExact?.operationCredential).toEqual(
+      canonicalBootstrap.session.operationCredential,
+    );
   } finally {
     walletSessionAuthorizations.writeExactWithOperationCredential = originalWriteExact;
   }
