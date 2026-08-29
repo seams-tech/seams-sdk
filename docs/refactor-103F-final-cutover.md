@@ -1516,7 +1516,7 @@ Remaining causal baseline work:
 - [x] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
 - [ ] `tests/unit/relayWalletRegistration.boundary.unit.test.ts`
 - [x] `tests/unit/ed25519YaoSealedRefreshPersistence.unit.test.ts`
-- [ ] `tests/unit/d1LinkedDeviceAuthorityInstallService.unit.test.ts`
+- [x] `tests/unit/d1LinkedDeviceAuthorityInstallService.unit.test.ts`
 - [x] `tests/unit/d1LinkedDeviceVerifiedLinkSourceReader.unit.test.ts`, proving
       exact-source absence fails closed and combined authorities preserve both
       signer families
@@ -1526,7 +1526,7 @@ Remaining causal baseline work:
 - [x] `tests/unit/linkDeviceAuthorityResume.unit.test.ts`
 - [x] `tests/unit/authMenuPasskeyContinuation.unit.test.ts`, preserving the
       terminal retry state when the other device cancels
-- [ ] `tests/unit/emailOtpEcdsaSigningRefreshRuntimeScope.unit.test.ts`
+- [x] `tests/unit/emailOtpEcdsaSigningRefreshRuntimeScope.unit.test.ts`
 - [x] `tests/unit/passkeyEd25519YaoWarmRecovery.unit.test.ts`
 - [x] `tests/unit/walletRecoverySourceSelection.unit.test.ts`, preserving
       eligibility, registration-authority preference, target-family preference,
@@ -1544,10 +1544,10 @@ Remaining causal baseline work:
       finalization
 - [x] `tests/unit/passkeyCustodyRouteService.unit.test.ts`, proving promotion
       replay returns the same server-read committed authority/method projection
-- [ ] `tests/unit/scanDevice.firstEmail.unit.test.ts` when linking orchestration
+- [x] `tests/unit/scanDevice.firstEmail.unit.test.ts` when linking orchestration
       changes, preserving first-Email routing and release of the iframe
       foreground surface while Device 1 waits
-- [ ] `tests/unit/qrCodeScanner.progress.unit.test.ts` when scanner/progress UI
+- [x] `tests/unit/qrCodeScanner.progress.unit.test.ts` when scanner/progress UI
       changes, preserving interactive cancellation and opener focus
 
 #### Intended-behaviour and operating-path inventory
