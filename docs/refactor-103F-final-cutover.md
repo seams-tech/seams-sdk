@@ -1305,7 +1305,7 @@ signing.
 - [x] Narrow V2 mint replay and implement `issued` / `already_committed`.
 - [ ] Convert one registration path through direct issuance, exact browser
       installation, exact admission, and immediate NEAR/EVM-family signing.
-- [ ] Add failure injection proving a failed batch exposes no usable session or
+- [x] Add failure injection proving a failed batch exposes no usable session or
       quota and replay cannot rotate the credential.
 - [ ] Assign every live opaque runtime-binding field to the exact material
       resolver or delete its consumer.
@@ -1517,7 +1517,7 @@ Remaining causal baseline work:
 
 #### Required targeted additions and updates
 
-- [ ] Direct-V2 atomic issuance failure and replay tests.
+- [x] Direct-V2 atomic issuance failure and replay tests.
 - [ ] Registration receipt tests proving activation and deferred provisioning
       persist no bearer, child credential, or credential-bearing response.
 - [ ] Registration remediation tests for both prefixes: known-shape rewrite or
