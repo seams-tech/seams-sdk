@@ -863,7 +863,9 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
 
 ### I5 — Revocation, recovery, and custody (B7, B13)
 
-- [ ] Retire V2 authorizations by exact auth-method ID during method revocation.
+- [x] Retire V2 authorizations by exact auth-method ID during method revocation;
+      `tests/unit/r109cSiblingRevocation.unit.test.ts` proves quota exhaustion,
+      same-authority sibling preservation, and repeat safety.
 - [ ] Retire V2 authorizations by exact authority during linked-device
       revocation.
 - [ ] Append exact session retirement, quota closure, and hosted-child
