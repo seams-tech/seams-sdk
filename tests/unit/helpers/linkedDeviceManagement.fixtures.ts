@@ -54,6 +54,12 @@ import type {
   WalletSessionOperationCredentialV1,
 } from '../../../packages/shared-ts/src/device-linking/contracts';
 import type { WalletSelectionRecordV1 } from '../../../packages/wallet/src/core/indexedDB/passkeyClientDB.types';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type EmailOtpWalletAuthAuthority,
+  type WalletAuthAuthorityRef,
+} from '../../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
 
 const MANAGEMENT_DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(33)));
@@ -66,6 +72,11 @@ type ActivePasskeyWalletAuthMethodRecordV2 = Extract<
 type RevokedPasskeyWalletAuthMethodRecordV2 = Extract<
   WalletAuthMethodRecordV2,
   { readonly kind: 'passkey'; readonly status: 'revoked' }
+>;
+
+type ActiveEmailOtpWalletAuthMethodRecordV2 = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'email_otp'; readonly status: 'active' }
 >;
 
 function required<T>(
@@ -104,6 +115,71 @@ export type LinkedDeviceManagementAuthorityFixture = {
   readonly activeWalletSession: ActiveWalletSessionV1;
   readonly operationCredential: WalletSessionOperationCredentialV1;
 };
+
+export type EmailOtpEcdsaWalletSessionFixture = Omit<
+  LinkedDeviceManagementAuthorityFixture,
+  'authMethod'
+> & {
+  readonly authMethod: ActiveEmailOtpWalletAuthMethodRecordV2;
+  readonly exactFactorAuthority: EmailOtpWalletAuthAuthority;
+  readonly factorAuthority: WalletAuthAuthorityRef;
+  readonly materialActivation: MpcMaterialActivationRef;
+};
+
+export async function buildEmailOtpEcdsaWalletSessionFixture(input: {
+  readonly label: string;
+  readonly expiresAtMs: number;
+  readonly walletId?: string;
+  readonly walletAuthMethodId?: string;
+  readonly materialActivation?: MpcMaterialActivationRef;
+  readonly providerUserId?: string;
+  readonly emailHashHex?: string;
+}): Promise<EmailOtpEcdsaWalletSessionFixture> {
+  const walletId = input.walletId ?? `wallet:email-otp-ecdsa-${input.label}`;
+  const emailHashHex = input.emailHashHex ?? 'a'.repeat(64);
+  const emailOtpAuthority = buildEmailOtpWalletAuthAuthority({
+    walletId,
+    provider: 'google',
+    providerUserId: input.providerUserId ?? `provider-user-${input.label}`,
+    emailHashHex,
+  });
+  const fixture = await buildLinkedDeviceManagementAuthorityFixture({
+    label: input.label,
+    permissions: buildFullOwnerPermissionsV1(),
+    provenance: 'wallet_registration',
+    keyFamily: 'ecdsa_secp256k1',
+    ...(input.materialActivation ? { materialActivation: input.materialActivation } : {}),
+    expiresAtMs: input.expiresAtMs,
+    identity: {
+      walletId,
+      authorityId: `authority:email-otp-ecdsa-${input.label}`,
+      walletAuthMethodId: input.walletAuthMethodId ?? String(emailOtpAuthority.bindingId),
+      rpId: 'email-otp-unused.example.test',
+    },
+  });
+  const authMethod = buildActiveEmailOtpWalletAuthMethodRecord({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+    walletId: fixture.authMethod.walletId,
+    walletAuthorityId: fixture.authMethod.walletAuthorityId,
+    kind: 'email_otp',
+    status: 'active',
+    emailHashHex,
+    registrationAuthorityId: `registration-authority:${input.label}`,
+    createdAtMs: fixture.authMethod.createdAtMs,
+    updatedAtMs: fixture.authMethod.updatedAtMs,
+    activatedAtMs: fixture.authMethod.activatedAtMs,
+  });
+  const materialActivation = fixture.authority.signerActivations.ecdsa?.materialActivation;
+  if (!materialActivation) throw new Error('Email OTP ECDSA fixture lacks ECDSA activation');
+  return {
+    ...fixture,
+    authMethod,
+    exactFactorAuthority: emailOtpAuthority,
+    factorAuthority: await walletAuthAuthorityRef({ authority: emailOtpAuthority }),
+    materialActivation,
+  };
+}
 
 export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   readonly label: string;
@@ -448,6 +524,16 @@ function buildRevokedPasskeyWalletAuthMethodRecord(
   const record = buildWalletAuthMethodRecordV2(input);
   if (record.kind !== 'passkey' || record.status !== 'revoked') {
     throw new Error('revoked Passkey fixture unexpectedly changed branch');
+  }
+  return record;
+}
+
+function buildActiveEmailOtpWalletAuthMethodRecord(
+  input: ActiveEmailOtpWalletAuthMethodRecordV2,
+): ActiveEmailOtpWalletAuthMethodRecordV2 {
+  const record = buildWalletAuthMethodRecordV2(input);
+  if (record.kind !== 'email_otp' || record.status !== 'active') {
+    throw new Error('active Email OTP fixture unexpectedly changed branch');
   }
   return record;
 }
