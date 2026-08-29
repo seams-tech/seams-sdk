@@ -41,7 +41,6 @@ export function thresholdStatusCode(result: ThresholdRouteResult): number {
     case 'wallet_session_scope_mismatch':
       return 403;
     case 'wallet_budget_exhausted':
-    case 'already_committed':
       return 409;
     case 'wallet_session_unavailable':
       return 503;

@@ -16,7 +16,6 @@ import type {
 } from '@shared/authorization/capabilityKinds';
 import type { ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import type { VerifiedOwnerProof } from '../../../../authorization/factorEvidence';
-import type { DirectV2IssueResult } from '../../../../authorization/domain';
 
 export type RouterAbEd25519YaoSessionPolicyV1 = {
   readonly version: 'threshold_session_v1';
@@ -153,11 +152,6 @@ export type RouterAbEd25519YaoBudgetRefreshResponseV1 =
       readonly routerAbNormalSigning: RouterAbEd25519NormalSigningState;
       readonly walletSessionToken: string;
     }
-  | ({
-      readonly ok: false;
-      readonly code: 'already_committed';
-      readonly message: string;
-    } & Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }>)
   | { readonly ok: false; readonly code: string; readonly message: string };
 
 type RouterAbEd25519YaoVerifiedWalletUnlockRequestBaseV1 = {

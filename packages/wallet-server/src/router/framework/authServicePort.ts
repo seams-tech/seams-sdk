@@ -270,7 +270,6 @@ import type {
   VerifiedOwnerProofInput,
 } from '../../authorization/factorEvidence';
 import type {
-  IssueWalletSessionAuthorizationV2Input,
   IssueReusableWalletSessionInput,
   IssuedReusableWalletSession,
   IssuedOpaqueWalletSessionToken,
@@ -1526,10 +1525,6 @@ export interface RouterApiAuthorizedOperationService {
 
 export interface RouterApiAuthorizationSessionService {
   readonly tenantId: TenantId;
-  /** Direct exact issuance is the only mint path for converted callers. */
-  readonly issueDirectWalletSessionAuthorizationV2?: (
-    input: IssueWalletSessionAuthorizationV2Input,
-  ) => Promise<DirectV2IssueResult>;
   issueReusableWalletSession(
     input: IssueReusableWalletSessionInput,
   ): Promise<IssuedReusableWalletSession>;

@@ -73,7 +73,6 @@ async function refreshWalletSessionFetch(
     JSON.stringify({
       ok: true,
       thresholdSessionId: 'threshold-session-1',
-      authorizationId: 'authorization-1',
       walletSessionId: 'wallet-session-1',
       quotaId: 'quota-1',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -88,7 +87,7 @@ async function refreshWalletSessionFetch(
             },
           }
         : {}),
-      walletSessionToken: 'wst_refreshed-wallet-session-token',
+      jwt: 'refreshed-wallet-session-jwt',
     }),
     {
       status: 200,
@@ -230,7 +229,7 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
   try {
     const result = await mintEd25519WalletSession({
       relayerUrl: 'https://relay.example.test',
-      sessionKind: 'opaque',
+      sessionKind: 'jwt',
       relayerKeyId: 'ed25519:relayer-key',
       sessionPolicy: refreshSessionPolicyFixture(),
       auth: {
@@ -250,7 +249,7 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
       walletSessionId: 'wallet-session-1',
       quotaId: 'quota-1',
       remainingUses: 3,
-      walletSessionToken: 'wst_refreshed-wallet-session-token',
+      jwt: 'refreshed-wallet-session-jwt',
     });
     expect(capture.authorization).toBe(`Bearer ${PUBLISHABLE_KEY}`);
     expect(capture.credentials).toBe('omit');

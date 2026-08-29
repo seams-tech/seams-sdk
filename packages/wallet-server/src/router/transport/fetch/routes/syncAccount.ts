@@ -229,8 +229,6 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
         ctx,
         result: normalizedResult,
         authority,
-        activeAuthority: activeAuthority.walletAuthority,
-        walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
         authorityRef,
         proof,
         mintId: mintId.value,
@@ -238,17 +236,6 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
         ecdsaThresholdSessionId: `sync-account-ecdsa:${parsed.request.challengeId}`,
         custody: { kind: 'read_verified_factor' },
       });
-      if (bootstrap.kind === 'already_committed') {
-        return json(
-          {
-            ok: false,
-            code: 'already_committed',
-            message: 'Wallet Session sync is already committed; retry the exact method',
-            ...bootstrap.committed,
-          },
-          { status: 409 },
-        );
-      }
       if (bootstrap.kind === 'error') {
         return json(
           { ok: false, code: bootstrap.code, message: bootstrap.message },
