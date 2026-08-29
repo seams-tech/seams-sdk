@@ -1034,7 +1034,10 @@ Primary files:
 - [ ] Convert the iframe hosted-session cache from per-curve token maps to one
       audience-bound child credential.
 - [ ] Convert Email factor-release `wallet_session` admission.
-- [ ] Convert `/auth/identities` link/unlink admission.
+- [x] Convert `/auth/identities` link/unlink admission. Inventory and mutations
+      derive the wallet, method, and authority from one exact credential;
+      mutation step-up must prove that same method and authority, so a sibling
+      same-wallet passkey fails before strong-auth or identity side effects.
 - [x] Convert `/near/public-keys` admission. The route resolves the presented
       operation credential through the exact V2 authorization, derives the
       wallet from that projection, and fails closed without probing either
@@ -1544,6 +1547,9 @@ Remaining causal baseline work:
 - [x] `tests/unit/webauthnAuthenticators.walletSessionAuthorization.unit.test.ts`,
       proving exact authenticator inventory admission, RP forwarding, and
       fail-closed absence without legacy opaque-token reads
+- [x] `tests/unit/authIdentity.walletSessionAuthorization.unit.test.ts`, proving
+      exact identity inventory and mutation, same-method fresh step-up, sibling
+      same-wallet rejection before side effects, and no legacy resolver reads
 - [ ] `tests/unit/walletHostOwnerAuthority.unit.test.ts`
 - [ ] `tests/unit/walletSessionOperationCredential.unit.test.ts`
 - [ ] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
