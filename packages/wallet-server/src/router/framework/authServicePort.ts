@@ -1605,7 +1605,7 @@ export interface RouterApiAuthorizationSessionService {
     readonly nowMs: number;
   }): Promise<ResolvedOpaqueWalletSessionToken | null>;
   /** Reads the opaque V2 operation credential and its active authority records. */
-  readonly readWalletSessionAuthorizationV2ByOperationCredential?: (input: {
+  readonly readWalletSessionAuthorizationV2ByOperationCredential: (input: {
     readonly tenantId: TenantId;
     readonly token: string;
     readonly nowMs: number;

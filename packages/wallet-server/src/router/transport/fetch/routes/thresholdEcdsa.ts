@@ -722,7 +722,7 @@ type RouterAbEcdsaResolvedMaterialActivation = Omit<
 >;
 
 type RouterAbEcdsaV2OperationStepUpResolution =
-  | { readonly kind: 'not_v2' }
+  | { readonly kind: 'not_found' }
   | {
       readonly kind: 'admitted';
       readonly operationKind: 'evm.sign_transaction';
@@ -745,7 +745,7 @@ async function resolveV2EcdsaOperationStepUpAdmission(input: {
   readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
 }): Promise<RouterAbEcdsaV2OperationStepUpResolution> {
   const token = extractBearerCredential(input.ctx.request.headers);
-  if (!token) return { kind: 'not_v2' };
+  if (!token) return { kind: 'not_found' };
   let resolution: Awaited<ReturnType<typeof resolveWalletSessionOperationCredentialAdmission>>;
   try {
     resolution = await resolveWalletSessionOperationCredentialAdmission({
@@ -760,7 +760,7 @@ async function resolveV2EcdsaOperationStepUpAdmission(input: {
   } catch {
     return { kind: 'unavailable' };
   }
-  if (resolution.kind === 'not_v2') return { kind: 'not_v2' };
+  if (resolution.kind === 'not_found') return { kind: 'not_found' };
   if (resolution.kind === 'rejected') {
     return {
       kind: 'rejected',
@@ -3257,7 +3257,7 @@ export async function authorizeStrictEcdsaSessionActivationFromOperationCredenti
   }
   if (resolution.kind !== 'admitted' || resolution.admission.curve !== 'ecdsa') {
     return walletSessionFailure(
-      resolution.kind === 'not_v2'
+      resolution.kind === 'not_found'
         ? WALLET_SESSION_FAILURE_CODES.invalid
         : WALLET_SESSION_FAILURE_CODES.scopeMismatch,
     );

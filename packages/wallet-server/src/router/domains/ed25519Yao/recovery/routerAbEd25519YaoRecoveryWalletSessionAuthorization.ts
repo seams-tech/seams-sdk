@@ -228,7 +228,7 @@ async function authorizeV2WarmBootstrap(input: {
       message: walletSessionFailureMessage('wallet_session_unavailable'),
     });
   }
-  if (resolution.kind === 'not_v2') return null;
+  if (resolution.kind === 'not_found') return null;
   if (resolution.kind !== 'admitted' || resolution.admission.curve !== 'ed25519') {
     return authorizationFailure({
       status: 403,
