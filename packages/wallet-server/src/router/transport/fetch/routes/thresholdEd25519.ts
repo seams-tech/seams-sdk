@@ -636,39 +636,15 @@ export async function resolveReusedEcdsaWalletSession(input: {
       403,
     );
   }
-  let status: Awaited<
-    ReturnType<RouterApiAuthorizationSessionService['readReusableWalletSessionStatus']>
-  >;
-  try {
-    status = await input.authorizationSessions.readReusableWalletSessionStatus({
-      tenantId: session.tenantId,
-      principalId: session.principalId,
-      walletSessionId: session.walletSessionId,
-      quotaId: session.quotaId,
-      nowMs,
-    });
-  } catch {
-    return reusedEcdsaWalletSessionFailure(
-      'wallet_session_unavailable',
-      'Existing ECDSA Wallet Session is unavailable',
-      503,
-    );
-  }
-  if (status.kind !== 'active') {
-    return reusedEcdsaWalletSessionFailure(
-      'wallet_session_invalid',
-      'Existing ECDSA Wallet Session is no longer active',
-      401,
-    );
-  }
+  const quota = context.authorization.quota;
   return {
     ok: true,
     existingWalletSession: {
       authorizationId: session.authorizationId,
       walletSessionId: session.walletSessionId,
       quotaId: session.quotaId,
-      expiresAtMs: status.expiresAtMs,
-      remainingUses: status.remainingUses,
+      expiresAtMs: quota.expiresAtMs,
+      remainingUses: quota.remainingUses,
     },
   };
 }
