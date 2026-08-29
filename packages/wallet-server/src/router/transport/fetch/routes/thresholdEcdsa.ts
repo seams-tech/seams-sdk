@@ -1,10 +1,5 @@
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json, readJson } from '../../../framework/http';
-import type { OpaqueOwnerWalletSessionBinding } from '../../../../authorization/service';
-type OpaqueOwnerEcdsaWalletSessionBinding = Extract<
-  OpaqueOwnerWalletSessionBinding,
-  { readonly curve: 'ecdsa' }
->;
 import { thresholdEcdsaStatusCode } from '../../../../threshold/statusCodes';
 import {
   resolveWalletSessionOperationCredentialAdmission,
@@ -2769,7 +2764,7 @@ type StrictEcdsaDirectWalletSessionAuthorization = {
   readonly principalId: PrincipalId;
   readonly authorizationSessionId: EcdsaAuthorizationSessionId;
   readonly authorityRef: WalletAuthAuthorityRef;
-  readonly authSource: OpaqueOwnerEcdsaWalletSessionBinding['authSource'];
+  readonly authSource: VerifiedOwnerWalletSessionProof['authSource'];
 };
 
 function assertNeverStrictEcdsaSessionActivationAuthorization(value: never): never {

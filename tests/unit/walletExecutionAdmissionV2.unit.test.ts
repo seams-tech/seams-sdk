@@ -305,6 +305,7 @@ async function unsupportedAuthorizedOperationOperation(): Promise<never> {
 class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessionService {
   readonly tenantId: WalletSessionAuthorizationV2['tenantId'];
   legacyReads = 0;
+  statusReads = 0;
 
   constructor(
     private readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext,
@@ -326,6 +327,11 @@ class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessi
   async resolveOpaqueWalletSessionToken(): Promise<null> {
     this.legacyReads += 1;
     return null;
+  }
+
+  async readExactWalletSessionStatusByOperationCredential(): Promise<never> {
+    this.statusReads += 1;
+    throw new Error('exact ECDSA activation must use the admitted V2 quota projection');
   }
 
   async mintHostedWalletSeamsSessionExchange(): Promise<never> {
@@ -887,6 +893,7 @@ test('authorizes ECDSA activation from the shared exact operation credential', a
   expect(admission.admission.context.authorization.session.walletSessionId).toBe(
     operationCredential.walletSessionId,
   );
+  expect(operationCredentialService.statusReads).toBe(0);
 });
 
 test('rejects provenance drift, retirement, expiry, subject drift, and missing signer family', async () => {
