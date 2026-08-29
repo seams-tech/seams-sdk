@@ -10,7 +10,6 @@ import {
 
 const EMAIL_OTP_ENROLLMENT_SEAL_KEY_VERSION = 'enrollment-seal-v1';
 import { parseCorrelationId } from '@shared/utils/canonicalPrimitives';
-import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   D1WalletStore,
   parseWalletEd25519SignerRecord,
@@ -383,6 +382,7 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
     const currentWalletSessionId = 'wallet-session-current';
     const currentQuotaId = 'wallet-quota-current';
     const rpId = 'example.com';
+    const credentialIdB64u = 'passkey-budget-refresh-credential';
     const walletAuthMethodId = requiredDomainValue(
       parseWalletAuthMethodId('wallet-auth-method:passkey-budget-refresh'),
       'walletAuthMethodId',
@@ -394,6 +394,21 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       envId: scope.envId,
       signingRootVersion: 'root-v1',
     });
+    const authority = {
+      walletId,
+      factor: {
+        kind: 'passkey' as const,
+        credentialIdB64u: requiredDomainValue(
+          parseWebAuthnCredentialIdB64u(credentialIdB64u),
+          'credentialIdB64u',
+        ),
+      },
+      verifier: {
+        kind: 'webauthn' as const,
+        rpId: requiredDomainValue(parseWebAuthnRpId(rpId), 'rpId'),
+      },
+      bindingId: walletAuthMethodId,
+    };
     const activeYao = buildEd25519YaoCapabilityFixture({
       walletId,
       nearAccountId,
@@ -432,25 +447,22 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
     if (!persistedSigner) throw new Error('test Ed25519 signer did not parse');
 
     await insertSignerWallet({ database, ...scope, walletId });
-    const founding = await seedFoundingPasskeyAuthority({
+    await insertWalletAuthMethod({
       database,
       ...scope,
-      identity: {
-        walletId: String(walletId),
-        authorityId: 'wallet-authority:passkey-budget-refresh',
-        walletAuthMethodId: String(walletAuthMethodId),
-        rpId,
-      },
-    });
-    const credentialIdB64u = String(founding.authMethod.credentialIdB64u);
-    const authority = {
-      ...buildPasskeyWalletAuthAuthority({
-        walletId: String(walletId),
+      record: {
+        kind: 'passkey',
+        walletAuthMethodId,
+        walletAuthorityId: 'wallet-authority:passkey-budget-refresh',
+        walletId,
         rpId,
         credentialIdB64u,
-      }),
-      bindingId: walletAuthMethodId,
-    };
+        credentialPublicKeyB64u: 'test-passkey-public-key',
+        counter: 0,
+        createdAtMs: 1_000,
+        updatedAtMs: 1_000,
+      },
+    });
     const walletStore = new D1WalletStore({
       database,
       ...scope,
@@ -506,45 +518,6 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
     if (!refreshed.ok) throw new Error(refreshed.message);
     expect(refreshed.walletSessionId).not.toBe(currentWalletSessionId);
     expect(refreshed.quotaId).not.toBe(currentQuotaId);
-    expect(refreshed.walletSessionToken).toMatch(/^wst_/);
-
-    const replayed = await service.walletRegistration.refreshEd25519YaoWalletSession({
-      kind: 'router_ab_ed25519_yao_budget_refresh_v1',
-      sessionPolicy: {
-        version: 'threshold_session_v1',
-        nearAccountId,
-        nearEd25519SigningKeyId,
-        authority,
-        relayerKeyId: TEST_YAO_SIGNING_WORKER_ID,
-        thresholdSessionId: currentThresholdSessionId,
-        walletSessionId: currentWalletSessionId,
-        quotaId: currentQuotaId,
-        runtimePolicyScope,
-        routerAbNormalSigning: {
-          kind: 'router_ab_ed25519_normal_signing_v1',
-          signingWorkerId: TEST_YAO_SIGNING_WORKER_ID,
-        },
-        participantIds,
-        ttlMs: 60_000,
-        remainingUses: 1,
-      },
-      authorization: {
-        kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
-        authority,
-        verifiedChallengeId: 'passkey-budget-refresh-challenge',
-      },
-    });
-    expect(replayed).toMatchObject({
-      ok: false,
-      code: 'already_committed',
-      kind: 'already_committed',
-      walletId,
-      authorizationId: refreshed.authorizationId,
-      walletSessionId: refreshed.walletSessionId,
-      quotaId: refreshed.quotaId,
-      next: 'unlock_exact_method',
-    });
-    expect(replayed).not.toHaveProperty('walletSessionToken');
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
