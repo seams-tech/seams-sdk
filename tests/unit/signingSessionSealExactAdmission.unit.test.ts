@@ -48,10 +48,6 @@ class AuthorizationSessionsFixture implements RouterApiAuthorizationSessionServi
     return this.context;
   }
 
-  async readReusableWalletSessionStatus(): Promise<never> {
-    return await unsupportedAuthorizationSessionOperation();
-  }
-
   async readLinkedDeviceWalletSessionAuthorization(): Promise<never> {
     return await unsupportedAuthorizationSessionOperation();
   }
