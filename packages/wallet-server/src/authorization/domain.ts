@@ -303,10 +303,115 @@ export type IssuedWalletSessionAuthorizationV2 = {
   readonly quota: ActiveWalletSessionQuota;
 };
 
-export function projectActiveWalletSession(
-  issued: IssuedWalletSessionAuthorizationV2,
+/**
+ * Quota lifecycle as persistence observes it. `ActiveWalletSessionQuota` cannot
+ * carry an exhausted quota because it requires a positive remaining count, yet
+ * status must still report exhaustion with the quota identity and expiry the
+ * exact authorization committed.
+ */
+export type ExactWalletSessionQuotaProjectionV1 = {
+  readonly kind: 'exact_wallet_session_quota_projection_v1';
+  readonly lifecycle: 'active' | 'exhausted';
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly remainingUses: number;
+  readonly expiresAtMs: number;
+};
+
+/**
+ * The digest-free exact status projection. Every branch that observed a stored
+ * authorization returns the whole `WalletSessionAuthorizationV2` record; the
+ * primary operation-credential digest that resolved the read never leaves
+ * persistence. Lifecycle outcomes are data — exceptions stay reserved for
+ * corrupt rows, disagreeing columns, broken foreign-key identity, and
+ * impossible state combinations.
+ */
+export type ExactWalletSessionStatusV2 =
+  | {
+      readonly kind:
+        | 'active'
+        | 'exhausted'
+        | 'expired'
+        | 'authority_unavailable'
+        | 'method_unavailable'
+        | 'capability_unavailable';
+      readonly session: WalletSessionAuthorizationV2;
+      readonly quota: ExactWalletSessionQuotaProjectionV1;
+      readonly retiredAtMs?: never;
+    }
+  | {
+      readonly kind: 'retired';
+      readonly session: WalletSessionAuthorizationV2;
+      readonly quota: ExactWalletSessionQuotaProjectionV1;
+      readonly retiredAtMs: number;
+    }
+  | { readonly kind: 'missing'; readonly session?: never; readonly quota?: never };
+
+export function buildExactWalletSessionQuotaProjectionV1(
+  fields: Omit<ExactWalletSessionQuotaProjectionV1, 'kind'>,
+): ExactWalletSessionQuotaProjectionV1 {
+  requireNonnegativeInteger(fields.remainingUses, 'Wallet Session quota remaining uses');
+  requirePositiveTime(fields.expiresAtMs, 'Wallet Session quota expiry');
+  if ((fields.lifecycle === 'exhausted') !== (fields.remainingUses === 0)) {
+    throw new Error('Wallet Session quota lifecycle disagrees with its remaining uses');
+  }
+  return {
+    kind: 'exact_wallet_session_quota_projection_v1',
+    lifecycle: fields.lifecycle,
+    tenantId: fields.tenantId,
+    principalId: fields.principalId,
+    walletSessionId: fields.walletSessionId,
+    quotaId: fields.quotaId,
+    remainingUses: fields.remainingUses,
+    expiresAtMs: fields.expiresAtMs,
+  };
+}
+
+/**
+ * Every capability subject must resolve through the authoritative active
+ * authority that the authorization names. A signing or export subject resolves
+ * only when its key family is activated and names the same material the
+ * authority currently holds; an administration subject resolves only when it
+ * names that same authority. Anything else is a capability the caller can no
+ * longer exercise, not a corrupt row.
+ */
+export function exactWalletSessionCapabilitySubjectsResolveAuthority(input: {
+  readonly session: WalletSessionAuthorizationV2;
+  readonly signerActivations: WalletSignerActivationSetV1;
+}): boolean {
+  return input.session.capabilitySubjects.every((subject) => {
+    switch (subject.kind) {
+      case 'sign':
+      case 'export_keys': {
+        const activation =
+          subject.keyFamily === 'ed25519'
+            ? input.signerActivations.ed25519
+            : input.signerActivations.ecdsa;
+        return (
+          activation !== undefined &&
+          mpcMaterialActivationRefsEqual(activation.materialActivation, subject.materialActivation)
+        );
+      }
+      case 'link_devices':
+      case 'revoke_devices':
+        return subject.authorityId === input.session.authorityId;
+      default:
+        return false;
+    }
+  });
+}
+
+/**
+ * The digest-free authorization projection published to the browser. It carries
+ * the exact wallet, authority, method, capability, and lifetime identity a
+ * reader needs to reconcile its own record, and never the credential digest.
+ */
+export function projectExactWalletSessionAuthorizationV1(
+  session: WalletSessionAuthorizationV2,
 ): ActiveWalletSessionV1 {
-  const capabilitySubjects = issued.session.capabilitySubjects.map((subject) => {
+  const capabilitySubjects = session.capabilitySubjects.map((subject) => {
     switch (subject.kind) {
       case 'sign':
       case 'export_keys':
@@ -326,17 +431,26 @@ export function projectActiveWalletSession(
   if (!first) throw new Error('Issued linked-device Wallet Session has no subjects');
   return parseActiveWalletSessionV1({
     kind: 'active_wallet_session_v1',
-    walletId: issued.session.walletId,
-    authorityId: issued.session.authorityId,
-    authMethodId: issued.session.walletAuthMethodId,
-    authorizationId: issued.session.authorizationId,
-    quotaId: issued.quota.quotaId,
-    authorityDigestB64u: issued.session.authorityDigestB64u,
-    authorityRevocationEpoch: issued.session.authorityRevocationEpoch,
+    walletId: session.walletId,
+    authorityId: session.authorityId,
+    authMethodId: session.walletAuthMethodId,
+    authorizationId: session.authorizationId,
+    quotaId: session.quotaId,
+    authorityDigestB64u: session.authorityDigestB64u,
+    authorityRevocationEpoch: session.authorityRevocationEpoch,
     capabilitySubjects: [first, ...capabilitySubjects.slice(1)],
-    issuedAtMs: issued.session.createdAtMs,
-    expiresAtMs: issued.session.expiresAtMs,
+    issuedAtMs: session.createdAtMs,
+    expiresAtMs: session.expiresAtMs,
   });
+}
+
+export function projectActiveWalletSession(
+  issued: IssuedWalletSessionAuthorizationV2,
+): ActiveWalletSessionV1 {
+  if (issued.quota.quotaId !== issued.session.quotaId) {
+    throw new Error('Issued Wallet Session quota does not belong to its authorization');
+  }
+  return projectExactWalletSessionAuthorizationV1(issued.session);
 }
 
 /** Exact response families are persisted so replay cannot cross route contracts. */

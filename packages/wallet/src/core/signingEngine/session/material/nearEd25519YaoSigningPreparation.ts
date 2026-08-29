@@ -1,7 +1,5 @@
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import type {
-  ReusableWalletSessionStatus,
-} from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import type { ActiveWalletSessionQuotaStatusV1 } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import type { MpcCapabilityHydrationPlan } from './mpcCapabilityHydration';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
@@ -9,7 +7,7 @@ import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 export type ActiveNearEd25519WalletSessionAuthorization = {
   readonly kind: 'active_reusable_wallet_session_authorization';
   readonly projection: ActiveWalletSessionAuthorizationProjection;
-  readonly status: Extract<ReusableWalletSessionStatus, { readonly status: 'active' }>;
+  readonly status: ActiveWalletSessionQuotaStatusV1;
 };
 
 export type NearEd25519OperationAuthorizationState =
@@ -34,9 +32,7 @@ export type NearEd25519YaoSigningPreparation = {
   readonly prepareOperationStepUp?: never;
 };
 
-function hydrationAuthority(
-  hydration: MpcCapabilityHydrationPlan,
-): WalletAuthAuthorityRef | null {
+function hydrationAuthority(hydration: MpcCapabilityHydrationPlan): WalletAuthAuthorityRef | null {
   switch (hydration.kind) {
     case 'use_live_runtime':
     case 'rehydrate_material_activation':
@@ -80,7 +76,7 @@ function assertAuthorizationMatchesRequirement(args: {
 
 export function buildActiveNearEd25519WalletSessionAuthorization(args: {
   projection: ActiveWalletSessionAuthorizationProjection;
-  status: Extract<ReusableWalletSessionStatus, { readonly status: 'active' }>;
+  status: ActiveWalletSessionQuotaStatusV1;
 }): ActiveNearEd25519WalletSessionAuthorization {
   if (
     args.projection.walletSessionId !== args.status.walletSessionId ||

@@ -65,6 +65,7 @@ import {
   parseWalletSessionId,
   WALLET_SESSION_CLIENT_CAPABILITY_V1,
   type MpcWalletSigningQuotaId,
+  type TenantId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseWebAuthnCredentialIdB64u, parseWebAuthnRpId } from '@shared/utils/domainIds';
@@ -74,6 +75,8 @@ import {
   parseHostedWalletSeamsSessionExchangeNonce,
   parsePrimaryWalletSessionOperationCredentialToken,
   parseSessionOrigin,
+  projectExactWalletSessionAuthorizationV1,
+  type ExactWalletSessionStatusV2,
   type SessionOrigin,
 } from '../../../../authorization/domain';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
@@ -474,11 +477,14 @@ export async function handleHostedWalletSessionExchangeIssue(
     >
   >;
   try {
-    resolved = await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
-      tenantId: ctx.service.authorizationSessions.tenantId,
-      token: primaryToken,
-      nowMs: Date.now(),
-    });
+    resolved =
+      await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential(
+        {
+          tenantId: ctx.service.authorizationSessions.tenantId,
+          token: primaryToken,
+          nowMs: Date.now(),
+        },
+      );
   } catch {
     return json(
       { ok: false, code: 'wallet_session_unavailable', message: 'Wallet Session is unavailable' },
@@ -800,82 +806,88 @@ function parseReusableWalletSessionStatusBody(body: unknown): {
   };
 }
 
-type WalletSessionStatusAuthorization = {
-  readonly walletId: string;
+type ExactWalletSessionStatusRequest = {
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
-  readonly remainingUses: number;
-  readonly expiresAtMs: number;
 };
 
-function walletSessionStatusInvalidResponse(body: {
-  readonly walletSessionId: WalletSessionId;
-  readonly quotaId: MpcWalletSigningQuotaId;
-}): {
-  readonly ok: false;
-  readonly response: Response;
-} {
-  return {
-    ok: false,
-    response: json(
-      {
-        ok: true,
-        status: 'invalid',
-        walletSessionId: body.walletSessionId,
-        quotaId: body.quotaId,
-      },
-      { status: 200 },
-    ),
-  };
+/**
+ * The immutable identities the presented operation credential must carry. The
+ * credential resolves one authorization; the request may only name the Wallet
+ * Session and quota that authorization already committed. Authority and auth
+ * method identity is validated against their own rows in persistence, so the
+ * route never infers either from wallet-wide uniqueness.
+ */
+function exactWalletSessionStatusIdentityMatches(input: {
+  readonly status: ExactWalletSessionStatusV2;
+  readonly request: ExactWalletSessionStatusRequest;
+  readonly tenantId: TenantId;
+}): boolean {
+  if (input.status.kind === 'missing') return true;
+  const session = input.status.session;
+  if (
+    session.tenantId !== input.tenantId ||
+    session.walletSessionId !== input.request.walletSessionId ||
+    session.quotaId !== input.request.quotaId
+  ) {
+    return false;
+  }
+  switch (input.status.kind) {
+    case 'active':
+    case 'exhausted':
+    case 'expired':
+      return (
+        input.status.quota.tenantId === session.tenantId &&
+        input.status.quota.principalId === session.principalId &&
+        input.status.quota.walletSessionId === session.walletSessionId &&
+        input.status.quota.quotaId === session.quotaId
+      );
+    default:
+      return true;
+  }
 }
 
-async function readAndValidateWalletSessionStatusAuthorization(
-  ctx: FetchRouterApiContext,
-  body: {
-    readonly walletSessionId: WalletSessionId;
-    readonly quotaId: MpcWalletSigningQuotaId;
-  },
-): Promise<
-  | { readonly ok: true; readonly authorization: WalletSessionStatusAuthorization }
-  | { readonly ok: false; readonly response: Response }
-> {
-  const bearerToken = extractBearerCredential(ctx.request.headers);
-  if (!bearerToken) {
-    return {
-      ok: false,
-      response: json(
-        { authenticated: false, code: 'unauthorized', message: 'No valid Wallet Session' },
-        { status: 401 },
-      ),
-    };
-  }
-
-  const nowMs = Date.now();
-  const exactV2 =
-    await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
-      tenantId: ctx.service.authorizationSessions.tenantId,
-      token: bearerToken,
-      nowMs,
-    });
-  if (!exactV2) return walletSessionStatusInvalidResponse(body);
-  return {
-    ok: true,
-    authorization: {
-      walletId: String(exactV2.authorization.session.walletId),
-      walletSessionId: exactV2.authorization.session.walletSessionId,
-      quotaId: exactV2.authorization.session.quotaId,
-      remainingUses: exactV2.authorization.quota.remainingUses,
-      expiresAtMs: exactV2.authorization.quota.expiresAtMs,
-    },
+/**
+ * Projects the persistence lifecycle onto the status vocabulary. Every branch
+ * that observed a stored authorization publishes the complete digest-free
+ * authorization projection and its quota, so a browser reconciles its own
+ * record from one read; the credential digest never leaves persistence.
+ *
+ * Retirement is `superseded`; exact absence is `invalid`, which is also the
+ * only branch a caller cannot distinguish from a credential that never existed.
+ */
+function exactWalletSessionStatusResponseBody(
+  status: ExactWalletSessionStatusV2,
+  request: ExactWalletSessionStatusRequest,
+): Record<string, unknown> {
+  const identity = { walletSessionId: request.walletSessionId, quotaId: request.quotaId };
+  if (status.kind === 'missing') return { ok: true, status: 'invalid', ...identity };
+  const observed = {
+    ...identity,
+    remainingUses: status.quota.remainingUses,
+    expiresAtMs: status.quota.expiresAtMs,
+    quotaLifecycle: status.quota.lifecycle,
+    authorization: projectExactWalletSessionAuthorizationV1(status.session),
   };
+  switch (status.kind) {
+    case 'active':
+    case 'exhausted':
+    case 'expired':
+    case 'authority_unavailable':
+    case 'method_unavailable':
+    case 'capability_unavailable':
+      return { ok: true, status: status.kind, ...observed };
+    case 'retired':
+      return { ok: true, status: 'superseded', ...observed };
+  }
 }
 
 export async function handleReusableWalletSessionStatus(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/session/status') return null;
-  const body = parseReusableWalletSessionStatusBody(await readJson(ctx.request));
-  if (!body) {
+  const request = parseReusableWalletSessionStatusBody(await readJson(ctx.request));
+  if (!request) {
     return json(
       {
         ok: false,
@@ -885,12 +897,22 @@ export async function handleReusableWalletSessionStatus(
       { status: 400 },
     );
   }
-  const validated = await readAndValidateWalletSessionStatusAuthorization(ctx, body);
-  if (!validated.ok) return validated.response;
-  if (
-    validated.authorization.walletSessionId !== body.walletSessionId ||
-    validated.authorization.quotaId !== body.quotaId
-  ) {
+  const bearerToken = extractBearerCredential(ctx.request.headers);
+  if (!bearerToken) {
+    return json(
+      { authenticated: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+      { status: 401 },
+    );
+  }
+
+  const tenantId = ctx.service.authorizationSessions.tenantId;
+  const status =
+    await ctx.service.authorizationSessions.readExactWalletSessionStatusByOperationCredential({
+      tenantId,
+      token: bearerToken,
+      nowMs: Date.now(),
+    });
+  if (!exactWalletSessionStatusIdentityMatches({ status, request, tenantId })) {
     return json(
       {
         ok: false,
@@ -900,17 +922,7 @@ export async function handleReusableWalletSessionStatus(
       { status: 403 },
     );
   }
-  return json(
-    {
-      ok: true,
-      status: validated.authorization.remainingUses === 0 ? 'exhausted' : 'active',
-      walletSessionId: validated.authorization.walletSessionId,
-      quotaId: validated.authorization.quotaId,
-      remainingUses: validated.authorization.remainingUses,
-      expiresAtMs: validated.authorization.expiresAtMs,
-    },
-    { status: 200 },
-  );
+  return json(exactWalletSessionStatusResponseBody(status, request), { status: 200 });
 }
 
 export async function handleWalletUnlockChallenge(

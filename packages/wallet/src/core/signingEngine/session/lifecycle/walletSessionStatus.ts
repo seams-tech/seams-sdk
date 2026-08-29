@@ -129,6 +129,17 @@ export function signingSessionStatusFromWalletSessionStatus(
         status: 'not_found',
         statusCode: status.status,
       };
+    // The authorization exists but no longer resolves: its authority, method,
+    // or capability is gone. That is definitive, not unknown.
+    case 'authority_unavailable':
+    case 'method_unavailable':
+    case 'capability_unavailable':
+      return {
+        sessionId,
+        status: 'unavailable',
+        statusCode: status.status,
+        expiresAtMs: status.expiresAtMs,
+      };
     case 'invalid':
       return {
         sessionId,

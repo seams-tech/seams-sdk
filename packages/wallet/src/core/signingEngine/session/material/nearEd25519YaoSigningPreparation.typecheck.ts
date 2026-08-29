@@ -1,7 +1,5 @@
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import type {
-  ReusableWalletSessionStatus,
-} from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import type { ActiveWalletSessionQuotaStatusV1 } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import type { MpcCapabilityHydrationPlan } from './mpcCapabilityHydration';
 import {
@@ -14,7 +12,7 @@ import {
 declare const hydration: MpcCapabilityHydrationPlan;
 declare const requirement: SigningLaneAuthBinding;
 declare const projection: ActiveWalletSessionAuthorizationProjection;
-declare const status: Extract<ReusableWalletSessionStatus, { readonly status: 'active' }>;
+declare const status: ActiveWalletSessionQuotaStatusV1;
 
 const authorization = buildActiveNearEd25519WalletSessionAuthorization({
   projection,
