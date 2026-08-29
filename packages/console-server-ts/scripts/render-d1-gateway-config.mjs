@@ -336,6 +336,7 @@ function buildWorkerVars(deployment, siteOrigin, walletOrigin, emailOtpDelivery,
     RELAY_SESSION_ISSUER: deployment.session.issuer,
     RELAY_SESSION_AUDIENCE: DEFAULT_RELAY_SESSION_AUDIENCE,
     RELAY_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
+    HOSTED_WALLET_ORIGINS: walletOrigin,
     SESSION_COOKIE_NAME: DEFAULT_SESSION_COOKIE_NAME,
     SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION: deployment.signingSessionSeal.currentKeyVersion,
     SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS:
