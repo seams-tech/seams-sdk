@@ -1091,10 +1091,14 @@ export function parseHostedWalletSessionOperationCredentialV1(
   if (typeof raw.token !== 'string' || !/^wsh_[A-Za-z0-9_-]{43}$/.test(raw.token)) {
     throw new Error('HostedWalletSessionOperationCredentialV1.token is invalid');
   }
+  const walletSessionId = parseWalletSessionId(raw.walletSessionId);
+  if (!walletSessionId.ok) {
+    throw new Error(`walletSessionId is invalid: ${walletSessionId.error.message}`);
+  }
   return {
     kind: raw.kind,
     token: raw.token,
-    walletSessionId: parseWalletSessionId(raw.walletSessionId),
+    walletSessionId: walletSessionId.value,
   };
 }
 

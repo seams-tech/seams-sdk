@@ -189,6 +189,14 @@ export type RouterApiWalletSessionAuthorizationV2AdmissionContext = {
   readonly retiredAtMs: number | null;
 };
 
+export type RouterApiHostedWalletSessionAuthorizationV2AdmissionContext =
+  RouterApiWalletSessionAuthorizationV2AdmissionContext & {
+    readonly hostedCredentialId: HostedWalletSessionCredentialId;
+    readonly appOrigin: SessionOrigin;
+    readonly walletOrigin: SessionOrigin;
+    readonly expiresAtMs: number;
+  };
+
 export type ActiveWalletSessionAuthorityResolution =
   | {
       readonly kind: 'active_authority';
@@ -298,9 +306,10 @@ import type {
   AuthorizedOperation,
   AuthorizedOperationInput,
   HostedWalletSeamsSessionExchangeCode,
-  HostedWalletSeamsSessionExchangeDelivery,
   HostedWalletSeamsSessionExchangeNonce,
-  RedeemHostedWalletSeamsSessionExchangeResult,
+  HostedWalletSeamsSessionExchangeDeliveryV2,
+  RedeemHostedWalletSeamsSessionExchangeV2Result,
+  HostedWalletSessionCredentialId,
   ReusableWalletSessionStatus,
   SessionOrigin,
   VerifiedAuthorizationEvidenceSet,
@@ -1618,23 +1627,25 @@ export interface RouterApiAuthorizationSessionService {
     readonly nowMs: number;
   }): Promise<ReusableWalletSessionStatus>;
   mintHostedWalletSeamsSessionExchange(input: {
-    readonly tenantId: TenantId;
-    readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
+    readonly authorization: IssuedWalletSessionAuthorizationV2;
     readonly appOrigin: SessionOrigin;
     readonly walletOrigin: SessionOrigin;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly binding: Readonly<Record<string, unknown>>;
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
-  }): Promise<HostedWalletSeamsSessionExchangeDelivery>;
+  }): Promise<HostedWalletSeamsSessionExchangeDeliveryV2>;
   redeemHostedWalletSeamsSessionExchange(input: {
     readonly exchangeCode: HostedWalletSeamsSessionExchangeCode;
     readonly nonce: HostedWalletSeamsSessionExchangeNonce;
     readonly appOrigin: SessionOrigin;
     readonly walletOrigin: SessionOrigin;
-    readonly curve: OpaqueWalletSessionCurve;
     readonly redeemedAtMs: number;
-  }): Promise<RedeemHostedWalletSeamsSessionExchangeResult>;
+  }): Promise<RedeemHostedWalletSeamsSessionExchangeV2Result>;
+  readHostedWalletSessionOperationCredentialV2(input: {
+    readonly tenantId: TenantId;
+    readonly token: string;
+    readonly requestOrigin: SessionOrigin;
+    readonly nowMs: number;
+  }): Promise<RouterApiHostedWalletSessionAuthorizationV2AdmissionContext | null>;
 }
 
 export function routerApiWalletRegistrationRouteService(

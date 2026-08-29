@@ -13,7 +13,6 @@ import type {
   PersistedHostedWalletSeamsSessionExchangeV2Result,
   RedeemHostedWalletSeamsSessionExchangeV2Input,
   RedeemHostedWalletSeamsSessionExchangeV2Result,
-  HostedWalletSessionOperationCredentialV1,
   ResolvedHostedWalletSessionOperationCredentialV2,
   ReusableWalletSessionStatus,
   SessionOrigin,
@@ -676,13 +675,16 @@ export class AuthorizationService {
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
   }): Promise<HostedWalletSeamsSessionExchangeDeliveryV2> {
+    const expiresAtMs = Math.min(
+      input.expiresAtMs,
+      input.authorization.session.expiresAtMs,
+      input.authorization.quota.expiresAtMs,
+    );
     if (
       !Number.isSafeInteger(input.issuedAtMs) ||
       input.issuedAtMs <= 0 ||
-      !Number.isSafeInteger(input.expiresAtMs) ||
-      input.expiresAtMs <= input.issuedAtMs ||
-      input.expiresAtMs > input.authorization.session.expiresAtMs ||
-      input.expiresAtMs > input.authorization.quota.expiresAtMs
+      !Number.isSafeInteger(expiresAtMs) ||
+      expiresAtMs <= input.issuedAtMs
     ) {
       throw new Error('hosted-wallet Seams session exchange expiry must follow issuance');
     }
@@ -712,7 +714,7 @@ export class AuthorizationService {
       appOrigin: input.appOrigin,
       walletOrigin: input.walletOrigin,
       issuedAtMs: input.issuedAtMs,
-      expiresAtMs: input.expiresAtMs,
+      expiresAtMs,
     });
     return {
       kind: 'hosted_wallet_session_exchange_delivery_v2',
@@ -720,7 +722,7 @@ export class AuthorizationService {
       nonce,
       appOrigin: input.appOrigin,
       walletOrigin: input.walletOrigin,
-      expiresAtMs: input.expiresAtMs,
+      expiresAtMs,
     };
   }
 

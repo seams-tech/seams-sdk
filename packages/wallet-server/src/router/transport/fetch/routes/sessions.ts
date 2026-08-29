@@ -75,7 +75,6 @@ import {
   parseSessionOrigin,
   type SessionOrigin,
 } from '../../../../authorization/domain';
-import type { OpaqueWalletSessionCurve } from '../../../../authorization/service';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
@@ -83,11 +82,6 @@ import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthor
 import { base58Encode } from '@shared/utils/base58';
 
 const HOSTED_WALLET_EXCHANGE_TTL_MS = 5 * 60 * 1000;
-
-function parseHostedWalletExchangeCurve(value: unknown): OpaqueWalletSessionCurve {
-  if (value === 'ecdsa' || value === 'ed25519') return value;
-  throw new Error('hosted-wallet exchange curve is invalid');
-}
 
 function parseExactHostedWalletExchangeBody(
   value: unknown,
@@ -111,6 +105,23 @@ function requiredExchangeOrigin(record: Record<string, unknown>, field: string):
 
 function requestOrigin(request: Request): SessionOrigin {
   return parseSessionOrigin(request.headers.get('origin'));
+}
+
+function parsePrimaryWalletSessionToken(value: string): string {
+  if (!/^wst_[A-Za-z0-9_-]{43}$/.test(value)) {
+    throw new Error('primary Wallet Session credential is invalid');
+  }
+  return value;
+}
+
+function hostedWalletOriginIsAllowed(ctx: FetchRouterApiContext, origin: SessionOrigin): boolean {
+  return (ctx.opts.hostedWalletOrigins ?? []).some((candidate) => {
+    try {
+      return parseSessionOrigin(candidate) === origin;
+    } catch {
+      return false;
+    }
+  });
 }
 
 type WalletEmailOtpChallengeSelector =
@@ -406,6 +417,7 @@ function hostedWalletExchangeFailure(result: { readonly kind: string }): {
       };
     case 'nonce_mismatch':
     case 'app_origin_mismatch':
+    case 'wallet_origin_mismatch':
     case 'invalid_code':
       return {
         status: 401,
@@ -428,22 +440,22 @@ export async function handleHostedWalletSessionExchangeIssue(
   let record: Record<string, unknown>;
   try {
     record = parseExactHostedWalletExchangeBody(await readJson(ctx.request), [
-      'curve',
       'appOrigin',
       'walletOrigin',
     ]);
   } catch (error) {
     return json({ ok: false, code: 'invalid_body', message: String(error) }, { status: 400 });
   }
-  let curve: OpaqueWalletSessionCurve;
   let appOrigin: SessionOrigin;
   let walletOrigin: SessionOrigin;
   try {
-    curve = parseHostedWalletExchangeCurve(record.curve);
     appOrigin = requiredExchangeOrigin(record, 'appOrigin');
     walletOrigin = requiredExchangeOrigin(record, 'walletOrigin');
     if (requestOrigin(ctx.request) !== appOrigin)
       throw new Error('request Origin does not match appOrigin');
+    if (!hostedWalletOriginIsAllowed(ctx, walletOrigin)) {
+      throw new Error('walletOrigin is not an allowed server origin');
+    }
   } catch (error) {
     return json({ ok: false, code: 'origin_mismatch', message: String(error) }, { status: 403 });
   }
@@ -453,16 +465,24 @@ export async function handleHostedWalletSessionExchangeIssue(
       { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
       { status: 401 },
     );
+  let primaryToken: string;
+  try {
+    primaryToken = parsePrimaryWalletSessionToken(token);
+  } catch {
+    return json(
+      { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+      { status: 401 },
+    );
+  }
   let resolved: Awaited<
     ReturnType<
-      FetchRouterApiContext['service']['authorizationSessions']['resolveOpaqueWalletSessionToken']
+      FetchRouterApiContext['service']['authorizationSessions']['readWalletSessionAuthorizationV2ByOperationCredential']
     >
   >;
   try {
-    resolved = await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
+    resolved = await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
       tenantId: ctx.service.authorizationSessions.tenantId,
-      token,
-      curve,
+      token: primaryToken,
       nowMs: Date.now(),
     });
   } catch {
@@ -484,12 +504,9 @@ export async function handleHostedWalletSessionExchangeIssue(
   try {
     const issuedAtMs = Date.now();
     delivery = await ctx.service.authorizationSessions.mintHostedWalletSeamsSessionExchange({
-      tenantId: ctx.service.authorizationSessions.tenantId,
-      walletSessionId: resolved.authorization.walletSessionId,
+      authorization: resolved.authorization,
       appOrigin,
       walletOrigin,
-      curve: resolved.curve,
-      binding: resolved.binding,
       issuedAtMs,
       expiresAtMs: issuedAtMs + HOSTED_WALLET_EXCHANGE_TTL_MS,
     });
@@ -523,7 +540,6 @@ export async function handleHostedWalletSessionExchangeRedeem(
     record = parseExactHostedWalletExchangeBody(await readJson(ctx.request), [
       'exchangeCode',
       'nonce',
-      'curve',
       'appOrigin',
       'walletOrigin',
     ]);
@@ -534,15 +550,16 @@ export async function handleHostedWalletSessionExchangeRedeem(
   let nonce: ReturnType<typeof parseHostedWalletSeamsSessionExchangeNonce>;
   let appOrigin: SessionOrigin;
   let walletOrigin: SessionOrigin;
-  let curve: OpaqueWalletSessionCurve;
   try {
     exchangeCode = parseHostedWalletSeamsSessionExchangeCode(record.exchangeCode);
     nonce = parseHostedWalletSeamsSessionExchangeNonce(record.nonce);
-    curve = parseHostedWalletExchangeCurve(record.curve);
     appOrigin = requiredExchangeOrigin(record, 'appOrigin');
     walletOrigin = requiredExchangeOrigin(record, 'walletOrigin');
     if (requestOrigin(ctx.request) !== walletOrigin) {
       throw new Error('request Origin does not match walletOrigin');
+    }
+    if (!hostedWalletOriginIsAllowed(ctx, walletOrigin)) {
+      throw new Error('walletOrigin is not an allowed server origin');
     }
   } catch (error) {
     return json({ ok: false, code: 'origin_mismatch', message: String(error) }, { status: 403 });
@@ -552,7 +569,6 @@ export async function handleHostedWalletSessionExchangeRedeem(
     nonce,
     appOrigin,
     walletOrigin,
-    curve,
     redeemedAtMs: Date.now(),
   });
   if (result.kind !== 'redeemed') {
@@ -566,8 +582,7 @@ export async function handleHostedWalletSessionExchangeRedeem(
     {
       ok: true,
       walletSessionId: result.walletSessionId,
-      walletSessionToken: result.walletSessionToken,
-      curve: result.curve,
+      operationCredential: result.operationCredential,
       expiresAtMs: result.expiresAtMs,
     },
     { status: 200 },
