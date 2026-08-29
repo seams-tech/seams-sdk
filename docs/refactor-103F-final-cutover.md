@@ -930,8 +930,9 @@ Primary files:
 
 ### I6 — Device-link source, activation, and acknowledgement (B11, B12)
 
-- [ ] Delete the opaque-token fallback from
-      `d1LinkedDeviceVerifiedLinkSourceReader.ts`.
+- [x] Delete the opaque-token fallback from
+      `d1LinkedDeviceVerifiedLinkSourceReader.ts`; a missing exact identity now
+      fails before method, authority, or signer material is exposed.
 - [ ] Require the exact V2 source session for owner approval.
 - [x] Require the exact operation credential in execution-lane preflight;
       Ed25519 and ECDSA preflight supply their concrete signing operation and
@@ -1534,6 +1535,9 @@ Remaining causal baseline work:
 - [ ] `tests/unit/relayWalletRegistration.boundary.unit.test.ts`
 - [ ] `tests/unit/ed25519YaoSealedRefreshPersistence.unit.test.ts`
 - [ ] `tests/unit/d1LinkedDeviceAuthorityInstallService.unit.test.ts`
+- [x] `tests/unit/d1LinkedDeviceVerifiedLinkSourceReader.unit.test.ts`, proving
+      exact-source absence fails closed and combined authorities preserve both
+      signer families
 - [ ] `tests/unit/deviceLinkingRoutes.unit.test.ts`
 - [ ] `tests/unit/linkDeviceAuthorityResume.unit.test.ts`
 - [ ] `tests/unit/authMenuPasskeyContinuation.unit.test.ts`, preserving the
