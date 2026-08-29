@@ -803,7 +803,10 @@ budget-refresh and linked-activation `issue_wallet_session_v1` branches, and
 - [ ] Delete the `operationKind === null` ECDSA branch.
 - [ ] Convert operation step-up identity resolution in
       `routerAbPrivateSigningWorker.ts`.
-- [ ] Convert signing-session seal authorization in `createFetchRouter.ts`.
+- [x] Convert signing-session seal authorization in `createFetchRouter.ts`.
+      Seal removal now accepts only an exact signing operation credential,
+      resolves the admitted family's active material, derives the authoritative
+      threshold-session identity, and never probes the opaque-token store.
 - [ ] Convert Ed25519 reuse of an ECDSA V1 session in `thresholdEd25519.ts`.
 - [x] Convert ECDSA pool-fill admission in `thresholdEcdsa.ts`. Pool fill now
       requires the exact ECDSA operation credential and resolves every runtime
@@ -840,7 +843,7 @@ Live admission symbols include `WalletSessionOperationCredentialResolution`,
 `resolveWalletSessionOperationCredentialAdmission`,
 `resolveOpaqueOwnerWalletSessionAdmission`, `validateOwnerWalletSessionV1`,
 `resolveRouteOpaqueOwnerWalletSession`,
-`authorizeSigningSessionSealWithOpaqueWalletSession`, and
+`authorizeSigningSessionSealWithExactWalletSession`, and
 `authorizeOpaqueOwnerRecovery`.
 
 ### I4 — Status, replay, quota, and source activity (B6)
@@ -1569,6 +1572,10 @@ Remaining causal baseline work:
       opaque-token store
 - [x] `tests/unit/ecdsaV2PoolFillAdmission.unit.test.ts`, proving linked ECDSA
       pool fill admits the exact operation credential without V1 fallback
+- [x] `tests/unit/signingSessionSealExactAdmission.unit.test.ts`, proving both
+      signer families bind seal authorization to active material and the exact
+      threshold-session identity, with mismatch and missing-credential paths
+      failing without legacy-store reads
 - [x] `tests/unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts`
 - [x] `tests/unit/nearPublicApi.walletSessionAuthorization.unit.test.ts`,
       proving exact `/near/public-keys` admission and missing-session rejection
