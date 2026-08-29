@@ -7,7 +7,6 @@ type OpaqueOwnerEcdsaWalletSessionBinding = Extract<
 >;
 import { thresholdEcdsaStatusCode } from '../../../../threshold/statusCodes';
 import {
-  issueRouterAbEcdsaDerivationOpaqueWalletSessionToken,
   resolveWalletSessionOperationCredentialAdmission,
   resolveOpaqueOwnerWalletSessionAdmission,
   validateRouterAbEcdsaDerivationWalletSessionInputs,
@@ -89,11 +88,9 @@ import {
   parsePrincipalId,
   parseReusableWalletSessionMintId,
   parseEcdsaAuthorizationSessionId,
-  type MpcWalletSigningQuotaId,
   type PrincipalId,
   type EcdsaAuthorizationSessionId,
-  type WalletSessionAuthorizationId,
-  type WalletSessionId,
+  type WalletSessionClientCapabilityV1,
 } from '@shared/authorization/capabilityKinds';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 import {
@@ -115,7 +112,14 @@ import { buildCapabilityOperationEnvelope } from '@shared/authorization/operatio
 import { buildEvmEcdsaMpcOperationRef } from '@shared/authorization/capabilityKinds';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { AuthorizedOperation, VerifiedOwnerProof } from '../../../../authorization/domain';
+import {
+  buildWalletSessionCapabilitySubjectsV1,
+  projectActiveWalletSession,
+  WALLET_ECDSA_ACTIVATION_EXACT_RESPONSE_FAMILY_V1,
+  type AuthorizedOperation,
+  type VerifiedOwnerProof,
+  type WalletSessionCapabilitySubjectsV1,
+} from '../../../../authorization/domain';
 import {
   buildVerifiedWalletOperationEmailOtpFactorResult,
   buildVerifiedWalletOperationPasskeyFactorResult,
@@ -3052,21 +3056,19 @@ export type StrictEcdsaOperationCredentialAuthorization =
     }
   | WalletSessionBoundaryFailure;
 
-type StrictEcdsaReusableWalletSessionAuthorization =
-  | {
-      readonly ok: true;
-      readonly kind: 'reuse_reusable_wallet_session';
-      readonly proof: VerifiedOwnerWalletSessionProof;
-      readonly principalId: PrincipalId;
-      readonly authorizationSessionId: EcdsaAuthorizationSessionId;
-      readonly authorizationId: WalletSessionAuthorizationId;
-      readonly walletSessionId: WalletSessionId;
-      readonly quotaId: MpcWalletSigningQuotaId;
-      readonly expiresAtMs: number;
-      readonly remainingUses: number;
-      readonly authorityRef: WalletAuthAuthorityRef;
-      readonly authSource: OpaqueOwnerEcdsaWalletSessionBinding['authSource'];
-    }
+type StrictEcdsaDirectWalletSessionAuthorization = {
+  readonly ok: true;
+  readonly kind: 'issue_direct_wallet_session_v2';
+  readonly proof: VerifiedOwnerWalletSessionProof;
+  readonly principalId: PrincipalId;
+  readonly authorizationSessionId: EcdsaAuthorizationSessionId;
+  readonly authorityRef: WalletAuthAuthorityRef;
+  readonly authSource: OpaqueOwnerEcdsaWalletSessionBinding['authSource'];
+  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
+};
+
+type StrictEcdsaSessionActivationAuthorization =
+  | StrictEcdsaDirectWalletSessionAuthorization
   | StrictEcdsaOperationCredentialAuthorization
   | {
       readonly ok: false;
@@ -3075,12 +3077,17 @@ type StrictEcdsaReusableWalletSessionAuthorization =
     }
   | WalletSessionBoundaryFailure;
 
+function assertNeverStrictEcdsaSessionActivationAuthorization(value: never): never {
+  throw new Error(`Unsupported ECDSA session activation authorization: ${String(value)}`);
+}
+
 async function authorizeStrictEcdsaSessionActivationFromOpaqueEd25519Session(input: {
   readonly ctx: FetchRouterApiContext;
   readonly walletId: string;
   readonly walletSessionToken: string;
   readonly proof: VerifiedOwnerWalletSessionProof;
-}): Promise<StrictEcdsaReusableWalletSessionAuthorization> {
+  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
+}): Promise<StrictEcdsaSessionActivationAuthorization> {
   let admission: OpaqueOwnerWalletSessionAdmissionValue | null;
   try {
     admission = await resolveOpaqueOwnerWalletSessionAdmission({
@@ -3155,17 +3162,13 @@ async function authorizeStrictEcdsaSessionActivationFromOpaqueEd25519Session(inp
   }
   return {
     ok: true,
-    kind: 'reuse_reusable_wallet_session',
+    kind: 'issue_direct_wallet_session_v2',
     proof: input.proof,
     principalId: principalId.value,
     authorizationSessionId: authorizationSessionId.value,
-    authorizationId: binding.authorizationId,
-    walletSessionId: binding.walletSessionId,
-    quotaId: binding.quotaId,
-    expiresAtMs: status.expiresAtMs,
-    remainingUses: status.remainingUses,
     authorityRef: await walletAuthAuthorityRef({ authority: binding.authority }),
     authSource,
+    walletSessionClientCapability: input.walletSessionClientCapability,
   };
 }
 
@@ -3191,21 +3194,11 @@ function strictEcdsaAuthSourceFromAuthority(
 }
 
 async function authorizeStrictEcdsaSessionActivation(input: {
-  readonly ctx: FetchRouterApiContext;
   readonly walletId: string;
-  readonly source: 'verified_wallet_unlock' | 'additional_wallet_target';
   readonly proof: VerifiedOwnerWalletSessionProof;
+  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
 }): Promise<
-  | {
-      readonly ok: true;
-      readonly kind: 'issue_reusable_wallet_session';
-      readonly proof: VerifiedOwnerWalletSessionProof;
-      readonly principalId: PrincipalId;
-      readonly authorizationSessionId: EcdsaAuthorizationSessionId;
-      readonly authority: WalletAuthAuthorityRef;
-      readonly authSource: OpaqueOwnerEcdsaWalletSessionBinding['authSource'];
-    }
-  | StrictEcdsaReusableWalletSessionAuthorization
+  StrictEcdsaDirectWalletSessionAuthorization | WalletSessionBoundaryFailure
 > {
   if (String(input.proof.walletId) !== input.walletId) {
     return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
@@ -3216,12 +3209,13 @@ async function authorizeStrictEcdsaSessionActivation(input: {
   }
   return {
     ok: true,
-    kind: 'issue_reusable_wallet_session',
+    kind: 'issue_direct_wallet_session_v2',
     proof: input.proof,
     principalId: input.proof.principalId,
     authorizationSessionId: authorizationSessionId.value,
-    authority: input.proof.authority,
+    authorityRef: input.proof.authority,
     authSource: input.proof.authSource,
+    walletSessionClientCapability: input.walletSessionClientCapability,
   };
 }
 
@@ -3230,12 +3224,14 @@ async function authorizeStrictEcdsaSessionActivationFromEd25519(input: {
   readonly walletId: string;
   readonly walletSessionToken: string;
   readonly proof: VerifiedOwnerWalletSessionProof;
-}): Promise<StrictEcdsaReusableWalletSessionAuthorization> {
+  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
+}): Promise<StrictEcdsaSessionActivationAuthorization> {
   return authorizeStrictEcdsaSessionActivationFromOpaqueEd25519Session({
     ctx: input.ctx,
     walletId: input.walletId,
     walletSessionToken: input.walletSessionToken,
     proof: input.proof,
+    walletSessionClientCapability: input.walletSessionClientCapability,
   });
 }
 
@@ -3302,6 +3298,20 @@ function walletSessionPrincipalSubject(authority: WalletAuthAuthority): string {
   }
 }
 
+function exactEcdsaMaterialMatchesActivation(
+  capabilitySubjects: WalletSessionCapabilitySubjectsV1,
+  request: RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+): boolean {
+  for (const subject of capabilitySubjects) {
+    if (subject.kind !== 'sign' || subject.keyFamily !== 'ecdsa_secp256k1') continue;
+    return sameRouterAbMpcMaterialActivationRef(
+      request.public_capability.material_activation,
+      routerAbMpcMaterialActivationRefToWire(subject.materialActivation),
+    );
+  }
+  return false;
+}
+
 type StrictEcdsaSessionActivationInput =
   | {
       readonly ctx: FetchRouterApiContext;
@@ -3350,6 +3360,7 @@ export async function handleStrictEcdsaSessionActivation(
           walletId: request.public_capability.client_id,
           walletSessionToken: input.walletSessionToken,
           proof: input.proof,
+          walletSessionClientCapability: request.wallet_session_client_capability,
         })
       : input.source === 'wallet_session_operation_credential_v1'
         ? await authorizeStrictEcdsaSessionActivationFromOperationCredential({
@@ -3359,10 +3370,9 @@ export async function handleStrictEcdsaSessionActivation(
             proof: input.proof,
           })
         : await authorizeStrictEcdsaSessionActivation({
-            ctx: input.ctx,
             walletId: request.public_capability.client_id,
-            source: input.source,
             proof: input.proof,
+            walletSessionClientCapability: request.wallet_session_client_capability,
           });
   if (!authorized.ok) {
     return json(authorized, {
@@ -3408,13 +3418,23 @@ export async function handleStrictEcdsaSessionActivation(
   }
   const walletKey = activated.walletKey;
   const normalSigning = activated.normalSigning;
+  if (
+    activated.session.thresholdSessionId !== request.session_policy.threshold_session_id ||
+    walletKey.walletId !== request.public_capability.client_id
+  ) {
+    return json(
+      {
+        ok: false,
+        code: 'scope_mismatch',
+        message: 'ECDSA activation did not preserve the requested wallet and threshold session',
+      },
+      { status: 403 },
+    );
+  }
   if (authorized.kind === 'reuse_wallet_session_operation_credential_v1') {
     const session = authorized.admission.context.authorization.session;
     const quota = authorized.admission.context.authorization.quota;
-    if (
-      activated.session.thresholdSessionId !== request.session_policy.threshold_session_id ||
-      session.walletId !== walletKey.walletId
-    ) {
+    if (session.walletId !== walletKey.walletId) {
       return json(
         {
           ok: false,
@@ -3442,14 +3462,7 @@ export async function handleStrictEcdsaSessionActivation(
       { status: 200 },
     );
   }
-  let walletSessionId: WalletSessionId;
-  let quotaId: MpcWalletSigningQuotaId;
-  let authorizationId: WalletSessionAuthorizationId;
-  let walletAuthAuthorityRef: WalletAuthAuthorityRef;
-  let authSource: OpaqueOwnerEcdsaWalletSessionBinding['authSource'];
-  let expiresAtMs = activated.session.expiresAtMs;
-  let remainingUses = activated.session.remainingUses;
-  if (authorized.kind === 'issue_reusable_wallet_session') {
+  if (authorized.kind === 'issue_direct_wallet_session_v2') {
     const mintId = parseReusableWalletSessionMintId(request.session_policy.wallet_session_mint_id);
     if (!mintId.ok) {
       return json(
@@ -3464,7 +3477,7 @@ export async function handleStrictEcdsaSessionActivation(
     const activeAuthority =
       await input.ctx.service.walletAuthMethods.resolveActiveWalletSessionAuthority({
         walletId: walletIdFromString(walletKey.walletId),
-        authorityRef: authorized.authority,
+        authorityRef: authorized.authorityRef,
         authSource: authorized.authSource,
       });
     if (activeAuthority.kind === 'rejected') {
@@ -3477,119 +3490,71 @@ export async function handleStrictEcdsaSessionActivation(
         { status: 401 },
       );
     }
-    const issued = await input.ctx.service.authorizationSessions.issueReusableWalletSession({
-      tenantId: input.ctx.service.authorizationSessions.tenantId,
-      principalId: authorized.principalId,
-      walletId: walletIdFromString(walletKey.walletId),
-      authority: authorized.authority,
-      mintId: mintId.value,
-      remainingUses: activated.session.remainingUses,
-      issuedAtMs: activated.session.expiresAtMs - request.session_policy.ttl_ms,
-      expiresAtMs: activated.session.expiresAtMs,
-    });
-    await input.ctx.service.authorizationSessions.issueWalletSessionAuthorizationV2FromReusableSession(
-      {
-        reusableWalletSession: issued,
+    const capabilitySubjects = buildWalletSessionCapabilitySubjectsV1(activeAuthority.authority);
+    if (!exactEcdsaMaterialMatchesActivation(capabilitySubjects, request)) {
+      return json(
+        {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'ECDSA activation material is outside the resolved Wallet Session authority',
+        },
+        { status: 403 },
+      );
+    }
+    const directIssue =
+      await input.ctx.service.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
+        tenantId: input.ctx.service.authorizationSessions.tenantId,
+        principalId: authorized.principalId,
+        walletId: walletIdFromString(walletKey.walletId),
         authority: activeAuthority.authority,
         walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
-      },
-    );
-    walletSessionId = issued.quota.walletSessionId;
-    quotaId = issued.quota.quotaId;
-    authorizationId = issued.session.authorizationId;
-    walletAuthAuthorityRef = authorized.authority;
-    authSource = authorized.authSource;
-  } else {
-    authorizationId = authorized.authorizationId;
-    walletSessionId = authorized.walletSessionId;
-    quotaId = authorized.quotaId;
-    expiresAtMs = authorized.expiresAtMs;
-    remainingUses = authorized.remainingUses;
-    walletAuthAuthorityRef = authorized.authorityRef;
-    authSource = authorized.authSource;
-  }
-  const signed = await issueRouterAbEcdsaDerivationOpaqueWalletSessionToken({
-    opaqueWalletSessions: input.ctx.service.authorizationSessions,
-    tenantId: input.ctx.service.authorizationSessions.tenantId,
-    proof: authorized.proof,
-    walletAuthAuthorityRef,
-    authSource,
-    userId: walletKey.walletId,
-    relayerKeyId: walletKey.relayerKeyId,
-    sessionInfo: {
-      sessionKind: 'opaque',
-      authorizationKind: 'owner_wallet_session',
-      authorizationSessionId: authorized.authorizationSessionId,
-      authorizationId,
-      thresholdSessionId: activated.session.thresholdSessionId,
-      walletSessionId,
-      quotaId,
-      expiresAtMs,
-      participantIds: walletKey.participantIds,
-      runtimePolicyScope: request.session_policy.runtime_policy_scope,
-      keyManifestDigestB64u: activated.keyManifestDigestB64u,
-      keyHandle: walletKey.keyHandle,
-      stableKeyContext: {
-        walletId: walletKey.walletId,
-        keyScope: walletKey.keyScope,
-        ecdsaThresholdKeyId: walletKey.ecdsaThresholdKeyId,
-        signingRootId: walletKey.signingRootId,
-        signingRootVersion: walletKey.signingRootVersion,
-        applicationBindingDigestB64u: normalSigning.scope.context.application_binding_digest_b64u,
-        contextBinding32B64u: normalSigning.scope.public_identity.context_binding_b64u,
-      },
-      publicIdentity: {
-        derivationClientSharePublicKey33B64u:
-          normalSigning.scope.public_identity.derivation_client_share_public_key33_b64u,
-        relayerPublicKey33B64u: normalSigning.scope.public_identity.server_public_key33_b64u,
-        groupPublicKey33B64u: normalSigning.scope.public_identity.threshold_public_key33_b64u,
-        ethereumAddress: walletKey.thresholdOwnerAddress,
-      },
-      activationEpoch: normalSigning.scope.activation_epoch,
-      signingWorkerId: normalSigning.scope.signing_worker.server_id,
-      routerAbEcdsaDerivationNormalSigning: normalSigning,
-    },
-    fallbackParticipantIds: walletKey.participantIds,
-    invalidPayloadErrorMessage: 'invalid Router A/B ECDSA post-registration Wallet Session payload',
-  });
-  if (!signed.ok) {
+        mintId: mintId.value,
+        remainingUses: activated.session.remainingUses,
+        issuedAtMs: activated.session.expiresAtMs - request.session_policy.ttl_ms,
+        expiresAtMs: activated.session.expiresAtMs,
+        walletSessionClientCapability: authorized.walletSessionClientCapability,
+        responseFamily: WALLET_ECDSA_ACTIVATION_EXACT_RESPONSE_FAMILY_V1,
+      });
+    if (directIssue.kind === 'protocol_mismatch') {
+      return json(directIssue, { status: 409 });
+    }
+    if (directIssue.kind === 'already_committed') {
+      return json(
+        {
+          ok: false,
+          code: 'already_committed',
+          next: directIssue.next,
+          wallet_id: directIssue.walletId,
+          authority_id: directIssue.authorityId,
+          wallet_auth_method_id: directIssue.walletAuthMethodId,
+          authorization_id: directIssue.authorizationId,
+          wallet_session_id: directIssue.walletSessionId,
+          quota_id: directIssue.quotaId,
+        },
+        { status: 409 },
+      );
+    }
     return json(
       {
-        ok: false,
-        code: signed.code,
-        message: signed.message,
+        kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
+        public_capability: request.public_capability,
+        session: {
+          authorization_session_id: authorized.authorizationSessionId,
+          authorization_id: directIssue.session.authorizationId,
+          threshold_session_id: activated.session.thresholdSessionId,
+          wallet_session_id: directIssue.session.walletSessionId,
+          quota_id: directIssue.session.quotaId,
+          expires_at_ms: directIssue.session.expiresAtMs,
+          remaining_uses: directIssue.quota.remainingUses,
+          wallet_session: projectActiveWalletSession(directIssue),
+          operation_credential: directIssue.operationCredential,
+        },
+        normal_signing: normalSigning,
       },
-      { status: signed.status },
+      { status: 200 },
     );
   }
-  if (signed.authorizationKind !== 'owner_wallet_session') {
-    return json(
-      {
-        ok: false,
-        code: 'internal',
-        message: 'ECDSA post-registration Wallet Session issuance returned the wrong authority',
-      },
-      { status: 500 },
-    );
-  }
-  return json(
-    {
-      kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
-      public_capability: request.public_capability,
-      session: {
-        authorization_session_id: authorized.authorizationSessionId,
-        authorization_id: authorizationId,
-        threshold_session_id: activated.session.thresholdSessionId,
-        wallet_session_id: walletSessionId,
-        quota_id: quotaId,
-        expires_at_ms: expiresAtMs,
-        remaining_uses: remainingUses,
-        wallet_session_token: signed.token,
-      },
-      normal_signing: normalSigning,
-    },
-    { status: 200 },
-  );
+  return assertNeverStrictEcdsaSessionActivationAuthorization(authorized);
 }
 
 export async function handleThresholdEcdsa(ctx: FetchRouterApiContext): Promise<Response | null> {

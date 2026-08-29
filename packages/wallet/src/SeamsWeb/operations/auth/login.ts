@@ -4477,7 +4477,7 @@ function resolveUnlockEcdsaKeyFactsInventoryAuthority(args: {
   if (!args.wantsEcdsaWarmup) return null;
   if (args.completedActivation) {
     const walletSessionToken = String(
-      args.completedActivation.response.session.wallet_session_token || '',
+      args.completedActivation.response.session.operation_credential.token || '',
     ).trim();
     if (!walletSessionToken) {
       throw new Error('[login] completed ECDSA unlock omitted its Wallet Session token');
@@ -5104,7 +5104,8 @@ function preauthorizedEcdsaActivationFromBootstrap(
       quota_id: session.quotaId,
       expires_at_ms: session.expiresAtMs,
       remaining_uses: session.remainingUses,
-      wallet_session_token: session.walletSessionToken,
+      wallet_session: session.walletSession,
+      operation_credential: session.operationCredential,
     },
     normal_signing: normalSigning,
   };

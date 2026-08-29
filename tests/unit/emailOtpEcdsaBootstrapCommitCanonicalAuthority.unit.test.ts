@@ -8,7 +8,6 @@ import { buildEmailOtpAuthContextForCanonicalWallet } from '@/core/signingEngine
 import { accountSignerRecordFromActivateInput } from './helpers/accountSignerRecord.fixtures';
 import { canonicalEvmFamilyEcdsaSigningCapabilityFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 test('Email OTP ECDSA bootstrap commit keeps canonical manifest authority', async () => {
@@ -53,12 +52,13 @@ test('Email OTP ECDSA bootstrap commit keeps canonical manifest authority', asyn
   expect(routeAuthContext.authority.factor.provider).toBe('email');
   expect(routeAuthority.authorityDigest).not.toBe(canonicalAuthority.authorityDigest);
 
-  let persistedProjection: ActiveWalletSessionAuthorizationProjection | undefined;
-  const originalRead = walletSessionAuthorizations.readActiveForWallet;
-  const originalReplace = walletSessionAuthorizations.replaceActive;
-  walletSessionAuthorizations.readActiveForWallet = async () => ({ kind: 'missing' });
-  walletSessionAuthorizations.replaceActive = async ({ active }) => {
-    persistedProjection = active;
+  let persistedExact:
+    | Parameters<typeof walletSessionAuthorizations.writeExactWithOperationCredential>[0]
+    | undefined;
+  const originalWriteExact = walletSessionAuthorizations.writeExactWithOperationCredential;
+  walletSessionAuthorizations.writeExactWithOperationCredential = async (input) => {
+    persistedExact = input;
+    return input.record;
   };
 
   const deps: CommitWorkerProvisionedThresholdEcdsaSessionDeps = {
@@ -88,10 +88,12 @@ test('Email OTP ECDSA bootstrap commit keeps canonical manifest authority', asyn
     });
 
     expect(committed.authorization.authority).toEqual(canonicalAuthority);
-    expect(persistedProjection?.authority).toEqual(canonicalAuthority);
-    expect(persistedProjection?.authority.authorityDigest).not.toBe(routeAuthority.authorityDigest);
+    expect(committed.authorization.authority.authorityDigest).not.toBe(
+      routeAuthority.authorityDigest,
+    );
+    expect(persistedExact?.record).toEqual(bootstrap.session.walletSession);
+    expect(persistedExact?.operationCredential).toEqual(bootstrap.session.operationCredential);
   } finally {
-    walletSessionAuthorizations.readActiveForWallet = originalRead;
-    walletSessionAuthorizations.replaceActive = originalReplace;
+    walletSessionAuthorizations.writeExactWithOperationCredential = originalWriteExact;
   }
 });

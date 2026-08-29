@@ -257,7 +257,6 @@ import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntim
 import {
   parseReusableWalletSessionAuthorizationId,
   parseReusableWalletSessionMintId,
-  parseWalletSessionAuthorizationId,
 } from '@shared/authorization/capabilityKinds';
 import {
   NEAR_ED25519_YAO_KEY_VERSION_V1,
@@ -576,26 +575,15 @@ async function persistRehydratedEmailOtpEcdsaWalletSession(args: {
 }): Promise<void> {
   const session = args.response.session;
   if (
-    session.wallet_session_id !== args.ed25519Authorization.walletSessionId ||
-    session.quota_id !== args.ed25519Authorization.quotaId
+    session.wallet_session.walletId !== args.walletId ||
+    session.wallet_session.authorizationId !== session.authorization_id ||
+    session.operation_credential.walletSessionId !== session.wallet_session_id
   ) {
-    throw new Error('[SigningEngine][near] refreshed Wallet Session curves do not share a budget');
+    throw new Error('[SigningEngine][near] refreshed ECDSA exact Wallet Session is inconsistent');
   }
-  const authorizationId = parseWalletSessionAuthorizationId(String(session.authorization_id));
-  if (!authorizationId.ok) {
-    throw new Error('[SigningEngine][near] refreshed ECDSA authorization id is invalid');
-  }
-  await persistActiveWalletSessionAuthorizationCurve(walletSessionAuthorizations, {
-    walletId: args.walletId,
-    authorizationId: authorizationId.value,
-    walletSessionId: session.wallet_session_id,
-    quotaId: session.quota_id,
-    expiresAtMs: session.expires_at_ms,
-    authority: args.ed25519Authorization.authority,
-    authMethod: WALLET_AUTH_METHODS.emailOtp,
-    walletSessionToken: session.wallet_session_token,
-    thresholdSessionId: session.threshold_session_id,
-    curve: 'ecdsa',
+  await walletSessionAuthorizations.writeExactWithOperationCredential({
+    record: session.wallet_session,
+    operationCredential: session.operation_credential,
   });
 }
 
