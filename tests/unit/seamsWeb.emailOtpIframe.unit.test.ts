@@ -4,19 +4,22 @@ import { buildWalletServiceHtml, registerWalletServiceRoute } from '../wallet-if
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
-const HOSTED_SESSION_EXCHANGE_ROUTE = 'https://relay.example/session/exchange';
+const HOSTED_SESSION_EXCHANGE_ROUTE = 'https://relay.example/wallet/session/exchange/issue';
 const APP_SESSION_JWT =
   'eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJraW5kIjoiYXBwX3Nlc3Npb25fdjEiLCJzdWIiOiJhbGljZS50ZXN0bmV0In0.fixture';
 
 async function fulfillHostedWalletSessionExchange(route: Route): Promise<void> {
   const appOrigin = String(route.request().headers().origin || '').trim();
+  expect(route.request().postDataJSON()).toEqual({
+    appOrigin,
+    walletOrigin: WALLET_ORIGIN,
+  });
   await route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({
       ok: true,
       delivery: {
-        kind: 'hosted_wallet_session_exchange_delivery',
         appOrigin,
         walletOrigin: WALLET_ORIGIN,
         exchangeCode: 'hosted-wallet-exchange-code-1',
@@ -641,6 +644,17 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
     expect(messageTypes).toContain('PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH');
     expect(messageTypes).toContain('PM_ENROLL_EMAIL_OTP');
     expect(messageTypes).toContain('PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY');
+    const hostedRedemption = messages.find(
+      (message: { type: string }) => message.type === 'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION',
+    );
+    const parentOrigin = new URL(page.url()).origin;
+    expect(hostedRedemption?.payload).toEqual({
+      exchangeCode: 'hosted-wallet-exchange-code-1',
+      nonce: 'hosted-wallet-exchange-nonce-1',
+      appOrigin: parentOrigin,
+      walletOrigin: WALLET_ORIGIN,
+      relayUrl: 'https://relay.example',
+    });
 
     const emailOtpMessages = messages.filter((message: { type: string }) =>
       message.type.includes('EMAIL_OTP'),

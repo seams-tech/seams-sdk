@@ -15,9 +15,8 @@ import {
 } from '../../shared/unlockOptions';
 import type { PMGetExactWalletSessionStatePayload } from '../../shared/messages';
 import {
-  activeWalletSessionToken,
+  activeHostedWalletSessionOperationCredential,
   clearHostedWalletSessions,
-  hostedWalletSessionCurveFromBoundary,
 } from '../hostedWalletSeamsSession';
 import { createHostedAuthMenuHandlers } from './authMenu';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -56,18 +55,15 @@ function walletOriginUnlockOptions(
   if (inventory.mode === 'webauthn') {
     return { ...optionsWithoutInventory, ecdsaKeyFactsInventory: inventory };
   }
-  const walletSessionToken = activeWalletSessionToken(
-    hostedWalletSessionCurveFromBoundary(inventory.curve),
-    relayUrl,
-  );
-  if (!walletSessionToken) {
+  const operationCredential = activeHostedWalletSessionOperationCredential(relayUrl);
+  if (!operationCredential) {
     throw new Error('Hosted-wallet Wallet Session is required for opaque key-facts lookup');
   }
   return {
     ...optionsWithoutInventory,
     ecdsaKeyFactsInventory: {
       ...inventory,
-      walletSessionToken,
+      walletSessionToken: operationCredential.token,
     },
   };
 }
