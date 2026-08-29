@@ -703,6 +703,9 @@ Primary files:
       row in-transaction, validate Passkey/Email OTP and founding identities,
       roll back all local state on failure, and retain mixed activation pending
       state until deferred NEAR publication.
+- [x] Convert the Passkey Ed25519-only deferred-NEAR registration caller to the
+      publication primitive, including custody material, and prove a late
+      key-material failure exposes no partial wallet before a successful retry.
 - [x] Replace activation and deferred-provisioning completion rows with
       `WalletRegistrationSessionCommitReceiptV2`.
 - [ ] Use one committed installation projection for compatibility replay and
