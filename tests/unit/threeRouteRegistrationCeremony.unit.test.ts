@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { runEcdsaEnabledThreeRouteRegistrationCeremony } from '../../packages/wallet/src/SeamsWeb/operations/registration/registration';
+import { buildPendingRegistrationCommit } from '../../packages/wallet/src/SeamsWeb/operations/registration/registrationTerminalCommit';
+import {
+  parsePendingWalletRegistrationCommitStorageRow,
+  toPendingWalletRegistrationCommitStorageRow,
+  type PendingWalletRegistrationCommitV1,
+} from '../../packages/wallet/src/core/indexedDB/pendingWalletRegistrationCommit';
 import { buildFixtureRespondEd25519DeferredWork } from '../helpers/ed25519YaoAdmissionFixtures';
 import { initialEcdsaCapabilityActivationFixture } from './helpers/initialEcdsaCapabilityActivation.fixtures';
 
@@ -17,6 +23,9 @@ import { initialEcdsaCapabilityActivationFixture } from './helpers/initialEcdsaC
  */
 
 const RELAYER = 'https://relay.example';
+
+type ThreeRouteCeremonyArgs = Parameters<typeof runEcdsaEnabledThreeRouteRegistrationCeremony>[0];
+type PendingCommitInput = Parameters<ThreeRouteCeremonyArgs['persistPendingCommit']>[0];
 
 /** Records the order routes are called so ordering can be asserted directly. */
 function stubbedRoutes(responses: Record<string, unknown>) {
@@ -154,11 +163,31 @@ test('a mixed plan starts the NEAR custody join before activate is called', asyn
   const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
   const callsAtStart: string[] = [];
   let pendingCommitPersistedBeforeActivate = false;
+  let persistedPending: PendingWalletRegistrationCommitV1 | null = null;
   try {
     await runEcdsaEnabledThreeRouteRegistrationCeremony(
       await ceremonyArgs({
-        persistPendingCommit: async () => {
+        persistPendingCommit: async (input: PendingCommitInput) => {
           expect(routes.calls).toEqual(['respond']);
+          const pending = buildPendingRegistrationCommit({
+            operation: 'registration_activate',
+            registrationCeremonyId: 'wrc_test',
+            idempotencyKey: 'idem-1',
+            walletId: String(input.localMaterial.custodyCommit.walletId),
+            walletAuthMethodId: 'wallet-auth-method:pending',
+            signedSetup: 'signed-setup',
+            auth: {
+              kind: 'passkey',
+              rpId: 'wallet.example.test',
+              credentialIdB64u: 'new-passkey-credential',
+            },
+            localMaterial: input.localMaterial,
+            createdAtMs: 1,
+            updatedAtMs: 1,
+          });
+          const storageRow = toPendingWalletRegistrationCommitStorageRow(pending);
+          persistedPending =
+            parsePendingWalletRegistrationCommitStorageRow(storageRow)?.record ?? null;
           pendingCommitPersistedBeforeActivate = true;
         },
         startDeferredNearCustody: () => {
@@ -172,6 +201,15 @@ test('a mixed plan starts the NEAR custody join before activate is called', asyn
   }
   expect(callsAtStart).toEqual(['respond']);
   expect(pendingCommitPersistedBeforeActivate).toBe(true);
+  expect(persistedPending?.localMaterial).toEqual({
+    keyFamilies: ['ecdsa_secp256k1'],
+    custodyCommit: {
+      walletId: 'alice.testnet',
+      keySet: 'evm_family_ecdsa_v1',
+      keyManifestDigestB64u: FIXTURE_DIGEST32_B64U,
+    },
+    ecdsa: { activationJournalId: 'initial-ecdsa-registration-ceremony' },
+  });
   expect(routes.calls).toContain('activate');
 });
 

@@ -25,17 +25,6 @@ const ed25519LocalMaterial = {
   applicationBindingDigestB64u: 'ed25519-binding',
 };
 
-const ecdsaPublicFacts = {
-  contextBinding32B64u: 'ecdsa-context-binding',
-  derivationClientSharePublicKey33B64u: 'ecdsa-derivation-share',
-  clientVerifyingShare33B64u: 'ecdsa-client-share',
-  relayerPublicKey33B64u: 'ecdsa-relayer-share',
-  groupPublicKey33B64u: 'ecdsa-group-share',
-  ethereumAddress: '0x1111111111111111111111111111111111111111',
-  clientShareRetryCounter: 0,
-  relayerShareRetryCounter: 1,
-};
-
 function pendingRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     kind: 'pending_wallet_registration_commit_v1',
@@ -140,7 +129,6 @@ test('pending registration parser keeps ECDSA and mixed local-material branches 
         custodyCommit: { ...custodyCommit, keySet: 'evm_family_ecdsa_v1' },
         ecdsa: {
           activationJournalId: 'ecdsa-activation-journal-pending',
-          publicFacts: ecdsaPublicFacts,
         },
       },
     }),
@@ -158,7 +146,6 @@ test('pending registration parser keeps ECDSA and mixed local-material branches 
         },
         ecdsa: {
           activationJournalId: 'ecdsa-activation-journal-pending',
-          publicFacts: ecdsaPublicFacts,
         },
       },
     }),
@@ -213,7 +200,7 @@ test('pending registration parser rejects credentials, responses, malformed time
         custodyCommit,
         ecdsa: {
           activationJournalId: 'ecdsa-activation-journal-pending',
-          publicFacts: ecdsaPublicFacts,
+          publicFacts: {},
           readyStateBlobB64u: 'unencrypted-ready-state',
         },
       },
@@ -246,7 +233,6 @@ test('pending registration parser rejects credentials, responses, malformed time
           custodyCommit,
           ecdsa: {
             activationJournalId: 'ecdsa-activation-journal-pending',
-            publicFacts: ecdsaPublicFacts,
           },
         },
       }),
