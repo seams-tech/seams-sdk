@@ -1045,7 +1045,10 @@ Primary files:
 - [x] Convert `/webauthn/authenticators` admission. The inventory route uses
       the exact credential's wallet identity, preserves its existing RP filter,
       and rejects missing exact state without legacy curve-token probes.
-- [ ] Convert custody-envelope ownership upgrade admission.
+- [x] Convert custody-envelope ownership upgrade admission. The route checks
+      the exact credential wallet against the path and forwards its required
+      auth-method identity; the ownership service rejects an envelope naming a
+      sibling method before any envelope-store access.
 - [ ] Convert registration funding/session admission.
 
 Primary files:
@@ -1550,6 +1553,10 @@ Remaining causal baseline work:
 - [x] `tests/unit/authIdentity.walletSessionAuthorization.unit.test.ts`, proving
       exact identity inventory and mutation, same-method fresh step-up, sibling
       same-wallet rejection before side effects, and no legacy resolver reads
+- [x] `tests/unit/walletCustodyEnvelopeOwnershipAdmission.unit.test.ts`,
+      proving exact wallet/method forwarding and fail-closed absence without
+      legacy opaque-token reads; the sibling production-service assertion is
+      in `tests/unit/passkeyCustodyRouteService.unit.test.ts`
 - [ ] `tests/unit/walletHostOwnerAuthority.unit.test.ts`
 - [ ] `tests/unit/walletSessionOperationCredential.unit.test.ts`
 - [ ] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
