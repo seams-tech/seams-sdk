@@ -683,8 +683,9 @@ Primary files:
       authority-activation CAS before returning success.
 - [ ] Rebuild V2 in the enforcement migration so an active row requires a
       non-null primary digest.
-- [ ] Make same-method replacement retire its predecessor session, close its
-      quota, and retire hosted children in the successor transaction.
+- [x] Make same-method replacement retire its predecessor session and close its
+      quota in the successor transaction without mutating same-mint replay.
+- [ ] Retire hosted children in the same successor transaction.
 - [ ] Add the full-scope exact-tuple partial unique index after deterministic
       duplicate preflight.
 - [x] Preserve historical `mint_id` uniqueness; every replacement receives a
