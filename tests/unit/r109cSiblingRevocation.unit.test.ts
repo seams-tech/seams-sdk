@@ -269,7 +269,7 @@ test('method revocation retires only its exact V2 sessions and exhausts their qu
       },
     ]);
 
-    await exact.authorizationStore.revokeReusableWalletSessionsForAuthMethod({
+    await exact.authorizationStore.retireWalletSessionAuthorizationsForAuthMethod({
       tenantId: exact.tenantId,
       walletId,
       walletAuthMethodId: required(parseWalletAuthMethodId(EMAIL_METHOD_ID)),

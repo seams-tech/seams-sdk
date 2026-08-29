@@ -17,6 +17,7 @@ function activeStatus(fixture: LinkedDeviceUnlockRuntimeFixture): WalletIframeEx
     quotaId: fixture.activeWalletSession.quotaId,
     remainingUses: 10,
     expiresAtMs: fixture.activeWalletSession.expiresAtMs,
+    quotaLifecycle: 'active',
     authorization: fixture.activeWalletSession,
   };
 }
@@ -30,6 +31,7 @@ function exhaustedStatus(
     quotaId: fixture.activeWalletSession.quotaId,
     remainingUses: 0,
     expiresAtMs: fixture.activeWalletSession.expiresAtMs,
+    quotaLifecycle: 'exhausted',
     authorization: fixture.activeWalletSession,
   };
 }
@@ -40,6 +42,8 @@ function expiredStatus(fixture: LinkedDeviceUnlockRuntimeFixture): WalletIframeE
     walletSessionId: fixture.operationCredential.walletSessionId,
     quotaId: fixture.activeWalletSession.quotaId,
     expiresAtMs: fixture.activeWalletSession.expiresAtMs,
+    remainingUses: 10,
+    quotaLifecycle: 'active',
     authorization: fixture.activeWalletSession,
   };
 }

@@ -1666,7 +1666,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     getWalletAuthMethodStore,
     googleEmailOtpRegistrationAttempts,
     prepareOwnerWalletSessionRevocation: (sessionInput) =>
-      authorizationStore.prepareRevokeReusableWalletSessionsForAuthMethod({
+      authorizationStore.prepareRetireWalletSessionAuthorizationsForAuthMethod({
         tenantId: authorizationTenantId.value,
         walletId: sessionInput.walletId,
         walletAuthMethodId: sessionInput.walletAuthMethodId,
