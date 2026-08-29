@@ -11,18 +11,25 @@ import {
   parseWalletSessionAuthorizationBoundary,
   requireActiveWalletSessionAuthorization,
 } from '@/core/signingEngine/session/identity/clientSessionPersistenceState';
-import { readClientWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/clientSessionPersistence';
+import {
+  readClientWalletSessionAuthorization,
+  type ClientWalletSessionAuthorizationPersistenceDeps,
+} from '@/core/signingEngine/session/persistence/clientSessionPersistence';
 import {
   buildActiveWalletSessionAuthorizationProjection,
   parseWalletSessionAuthorizationProjection,
-  walletSessionAuthorizations,
+  type WalletSessionAuthorizationExactActiveReadResult,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import {
+  parseThresholdEd25519SessionId,
+  parseWebAuthnCredentialIdB64u,
+  type WebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
 import { buildWalletAuthAuthorityRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { buildEd25519PasskeySigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
@@ -30,6 +37,7 @@ import { toAccountId } from '@/core/types/accountIds';
 import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import type { SessionParseFailureReason } from '@server/core/sessionValidation';
+import { buildLinkedDeviceUnlockRuntimeFixture } from './helpers/linkedDeviceUnlockRuntime.fixtures';
 
 const NOW_MS = 1_900_000_000_000;
 const NOW_SECONDS = Math.floor(NOW_MS / 1_000);
@@ -53,6 +61,71 @@ class FixedNowSessionService extends SessionService {
   override nowSeconds(): number {
     return NOW_SECONDS;
   }
+}
+
+type SelectedWalletAuthorityResult = Awaited<
+  ReturnType<ClientWalletSessionAuthorizationPersistenceDeps['resolveSelectedWalletAuthority']>
+>;
+
+class ClientWalletSessionAuthorizationPersistenceHarness {
+  readonly deps: ClientWalletSessionAuthorizationPersistenceDeps;
+  readResult: WalletSessionAuthorizationExactActiveReadResult;
+  readInput:
+    | Parameters<ClientWalletSessionAuthorizationPersistenceDeps['readExactActiveForWallet']>[0]
+    | null = null;
+
+  constructor(
+    readonly selected: SelectedWalletAuthorityResult,
+    readResult: WalletSessionAuthorizationExactActiveReadResult,
+  ) {
+    this.readResult = readResult;
+    this.deps = {
+      resolveSelectedWalletAuthority: this.resolveSelectedWalletAuthority.bind(this),
+      readExactActiveForWallet: this.readExactActiveForWallet.bind(this),
+    };
+  }
+
+  async resolveSelectedWalletAuthority(): Promise<SelectedWalletAuthorityResult> {
+    return this.selected;
+  }
+
+  async readExactActiveForWallet(
+    input: Parameters<
+      ClientWalletSessionAuthorizationPersistenceDeps['readExactActiveForWallet']
+    >[0],
+  ): Promise<WalletSessionAuthorizationExactActiveReadResult> {
+    this.readInput = input;
+    return this.readResult;
+  }
+}
+
+function linkedRuntimeEd25519Lane(
+  fixture: Awaited<ReturnType<typeof buildLinkedDeviceUnlockRuntimeFixture>>,
+  credentialIdB64u: WebAuthnCredentialIdB64u = fixture.authMethod.credentialIdB64u,
+) {
+  return buildEd25519PasskeySigningLane({
+    walletId: fixture.walletId,
+    nearAccountId: toAccountId(fixture.ed25519Session.nearAccountId),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
+      fixture.ed25519Session.nearEd25519SigningKeyId,
+    ),
+    signerSlot: 1,
+    auth: {
+      kind: 'passkey',
+      rpId: toRpId(String(fixture.authMethod.rpId)),
+      credentialIdB64u,
+    },
+    walletSessionId: fixture.operationCredential.walletSessionId,
+    quotaId: fixture.ed25519Session.quotaId,
+    thresholdSessionId: fixture.ed25519Session.thresholdSessionId,
+    storageSource: 'login',
+  });
+}
+
+function webAuthnCredentialId(value: string): WebAuthnCredentialIdB64u {
+  const parsed = parseWebAuthnCredentialIdB64u(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
 }
 
 function validTokenVerifier(): { valid: true; payload: { sub: string; exp: number } } {
@@ -179,34 +252,72 @@ test('persistence boundary rejects pairwise aliased authorization identities', (
   ).toBeNull();
 });
 
-test('Ed25519 export preflight reads canonical Wallet Session authorization', async () => {
-  const originalRead = walletSessionAuthorizations.readActiveForWallet;
-  try {
-    walletSessionAuthorizations.readActiveForWallet = async () => ({
+test('Ed25519 export preflight reads only the selected exact Wallet Session', async () => {
+  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  const lane = linkedRuntimeEd25519Lane(fixture);
+  const harness = new ClientWalletSessionAuthorizationPersistenceHarness(
+    {
+      kind: 'resolved',
+      selection: fixture.selection,
+      authMethod: fixture.authMethod,
+      authority: fixture.authority,
+      signerMaterials: fixture.signerMaterials,
+      exportRoot: null,
+    },
+    {
       kind: 'found',
-      projection: activeAuthorizationFixture(NOW_MS + 1, 'passkey'),
-    });
-    await expect(
-      readClientWalletSessionAuthorization({
-        kind: 'ed25519',
-        laneIdentity: LANE.identity,
-        nowMs: NOW_MS,
-      }),
-    ).resolves.toEqual(expect.objectContaining({ kind: 'active', expiresAtMs: NOW_MS + 1 }));
+      record: fixture.activeWalletSession,
+      operationCredential: fixture.operationCredential,
+    },
+  );
+  const nowMs = Date.now();
+  await expect(
+    readClientWalletSessionAuthorization(harness.deps, {
+      kind: 'ed25519',
+      laneIdentity: lane.identity,
+      nowMs,
+    }),
+  ).resolves.toEqual(
+    expect.objectContaining({
+      kind: 'active',
+      expiresAtMs: fixture.activeWalletSession.expiresAtMs,
+    }),
+  );
+  expect(harness.readInput).toEqual({
+    walletId: fixture.walletId,
+    authorityId: fixture.authority.authorityId,
+    authMethodId: fixture.authMethod.walletAuthMethodId,
+  });
 
-    walletSessionAuthorizations.readActiveForWallet = async () => ({
-      kind: 'found',
-      projection: activeAuthorizationFixture(NOW_MS + 1, 'email_otp'),
-    });
+  const siblingLane = linkedRuntimeEd25519Lane(fixture, webAuthnCredentialId('sibling-credential'));
+  await expect(
+    readClientWalletSessionAuthorization(harness.deps, {
+      kind: 'ed25519',
+      laneIdentity: siblingLane.identity,
+      nowMs,
+    }),
+  ).resolves.toEqual(expect.objectContaining({ kind: 'invalid', reason: 'scope_mismatch' }));
+
+  const failures = [
+    { read: { kind: 'missing' as const }, expected: { kind: 'missing' } },
+    {
+      read: { kind: 'corrupt' as const },
+      expected: { kind: 'invalid', reason: 'malformed' },
+    },
+    {
+      read: { kind: 'persistence_unavailable' as const },
+      expected: { kind: 'unavailable', reason: 'persistence_unavailable' },
+    },
+  ];
+  for (const failure of failures) {
+    harness.readResult = failure.read;
     await expect(
-      readClientWalletSessionAuthorization({
+      readClientWalletSessionAuthorization(harness.deps, {
         kind: 'ed25519',
-        laneIdentity: LANE.identity,
-        nowMs: NOW_MS,
+        laneIdentity: lane.identity,
+        nowMs,
       }),
-    ).resolves.toEqual(expect.objectContaining({ kind: 'invalid', reason: 'scope_mismatch' }));
-  } finally {
-    walletSessionAuthorizations.readActiveForWallet = originalRead;
+    ).resolves.toEqual(expect.objectContaining(failure.expected));
   }
 });
 
