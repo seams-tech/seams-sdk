@@ -23,6 +23,7 @@ function request(
 async function openDialog(
   page: Page,
   continuation: 'registration_may_defer' | 'pending_backup_must_finish' = 'registration_may_defer',
+  options: { suspendAnimationFrame?: boolean } = {},
 ): Promise<void> {
   await page.goto('/');
   // injectImportMap re-serves the *current* document with the map injected, so
@@ -35,6 +36,11 @@ async function openDialog(
   await page.evaluate((base) => {
     (window as unknown as { __W3A_WALLET_SDK_BASE__?: string }).__W3A_WALLET_SDK_BASE__ = base;
   }, `${SDK_ESM_BASE_PATH}/sdk/`);
+  if (options.suspendAnimationFrame) {
+    await page.evaluate(() => {
+      window.requestAnimationFrame = () => 1;
+    });
+  }
   await page.evaluate(
     async ({ moduleUrl, backupRequest }) => {
       const module = await import(moduleUrl);
@@ -46,6 +52,11 @@ async function openDialog(
     { moduleUrl: MODULE_URL, backupRequest: request(continuation) },
   );
 }
+
+test('wallet recovery backup opens without waiting for an animation frame', async ({ page }) => {
+  await openDialog(page, 'registration_may_defer', { suspendAnimationFrame: true });
+  await expect(page.getByRole('dialog')).toBeVisible({ timeout: 2_000 });
+});
 
 async function readResult(page: Page): Promise<unknown> {
   return await page.evaluate(async () => {
@@ -67,24 +78,56 @@ async function openAccountMenuRecoveryDialog(page: Page): Promise<void> {
   await page.evaluate(
     async ({ moduleUrl, backupRequest }) => {
       const module = await import(moduleUrl);
-      const result = module.showWalletRecoveryCodesUi({
-        walletId: backupRequest.walletId,
-        loadStatus: async () => ({
-          kind: 'transport_failed' as const,
-          message: 'Recovery status is temporarily unavailable',
-        }),
-        loadPendingBackup: async () => {
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
-          return backupRequest;
+      const measurements: unknown[] = [];
+      const result = module.showWalletRecoveryCodesUi(
+        {
+          walletId: backupRequest.walletId,
+          loadStatus: async () => ({
+            kind: 'transport_failed' as const,
+            message: 'Recovery status is temporarily unavailable',
+          }),
+          loadPendingBackup: async () => {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
+            return backupRequest;
+          },
         },
-      });
-      (
-        window as unknown as { walletRecoveryBackupResult: Promise<unknown> }
-      ).walletRecoveryBackupResult = result;
+        {
+          kind: 'wallet_iframe',
+          requestId: 'recovery-summary-measurement-test',
+          postMeasurement: measurements.push.bind(measurements),
+        },
+      );
+      const testWindow = window as unknown as {
+        walletRecoveryBackupResult: Promise<unknown>;
+        walletRecoveryMeasurements: unknown[];
+      };
+      testWindow.walletRecoveryBackupResult = result;
+      testWindow.walletRecoveryMeasurements = measurements;
     },
     { moduleUrl: MODULE_URL, backupRequest: request('pending_backup_must_finish') },
   );
 }
+
+test('wallet-iframe recovery summary measures its intrinsic width from a narrow prior surface', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await openAccountMenuRecoveryDialog(page);
+  await expect(page.getByRole('dialog')).toBeVisible();
+
+  await expect
+    .poll(async () => {
+      return await page.evaluate(() => {
+        const measurements = (
+          window as unknown as {
+            walletRecoveryMeasurements: Array<{ widthCssPx?: number }>;
+          }
+        ).walletRecoveryMeasurements;
+        return measurements.at(-1)?.widthCssPx ?? 0;
+      });
+    })
+    .toBe(480);
+});
 
 test('account-menu recovery codes use one Lit dialog for summary, opening, and codes', async ({
   page,
@@ -97,7 +140,9 @@ test('account-menu recovery codes use one Lit dialog for summary, opening, and c
   await expect(dialog).toHaveAttribute('data-w3a-recovery-stage', 'summary');
   await expect(dialog.getByRole('heading', { name: 'Wallet recovery codes' })).toBeVisible();
   await expect(dialog.getByText('Could not load')).toBeVisible();
-  await expect(dialog.getByRole('heading', { name: 'Wallet recovery codes' })).toBeFocused();
+  const summaryTitle = dialog.getByRole('heading', { name: 'Wallet recovery codes' });
+  await expect(summaryTitle).toBeFocused();
+  await expect(summaryTitle).toHaveCSS('outline-style', 'none');
   const summaryBox = await dialog.boundingBox();
   await page.evaluate(() => {
     (

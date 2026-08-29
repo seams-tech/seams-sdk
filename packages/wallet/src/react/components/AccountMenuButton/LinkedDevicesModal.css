@@ -5,19 +5,14 @@
     --w3a-z-underlay-backdrop,
     calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-backdrop-offset, 2))
   );
-  background: oklch(0.2 0.01 240 / 0.8);
-  backdrop-filter: blur(8px);
+  background: rgb(0 0 0 / 0.26);
   display: flex;
   justify-content: center;
   align-items: center;
   padding: var(--w3a-spacing-sm, 12px);
   box-sizing: border-box;
   overflow: auto;
-  animation: w3a-linked-devices-backdrop-opacity 160ms ease-out;
-}
-
-.w3a-linked-devices-modal-backdrop.theme-light {
-  background: oklch(0.2 0.01 240 / 0.6);
+  animation: w3a-linked-devices-backdrop-opacity 80ms ease-out;
 }
 
 .w3a-linked-devices-modal-content {
@@ -35,21 +30,30 @@
   max-height: calc(100dvh - 24px);
   overflow: hidden;
   padding: var(--w3a-spacing-lg, 1.5rem);
-  border: 1px solid var(--w3a-colors-borderPrimary);
+  border: none;
   border-radius: var(--w3a-shape-card, 1.5rem);
   background: var(--w3a-colors-colorBackground);
   box-sizing: border-box;
 }
 
+.w3a-linked-devices-modal-content:focus {
+  outline: none;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .w3a-linked-devices-modal-content {
-    transform-origin: center;
-    animation: w3a-linked-devices-modal-content-enter 180ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation: w3a-linked-devices-modal-content-enter 80ms ease-out both;
   }
 }
 
 .w3a-auth-methods-modal-content {
   width: min(520px, 100%);
+}
+
+/* The device inventory is two short rows of text; a narrower dialog keeps the
+   metadata lines scannable. */
+.w3a-linked-devices-inventory-content {
+  width: min(500px, 100%);
 }
 
 .w3a-auth-methods-modal-intro {
@@ -66,6 +70,14 @@
   letter-spacing: -0.01em;
   line-height: 1.25;
   color: var(--w3a-colors-textPrimary);
+}
+
+.w3a-linked-devices-modal-subtitle {
+  margin: -0.5rem 2.5rem 1rem 0;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 .w3a-linked-devices-modal-close {
@@ -90,6 +102,11 @@
 .w3a-linked-devices-modal-close:hover {
   color: var(--w3a-colors-textPrimary);
   background: var(--w3a-colors-surface);
+}
+
+.w3a-linked-devices-modal-close:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 .w3a-linked-devices-modal-body {
@@ -188,43 +205,101 @@
   font-weight: 500;
 }
 
-.w3a-linked-devices-modal-item-identity {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.2rem 0.35rem;
-  color: var(--w3a-colors-textSecondary);
-  font-size: 0.8rem;
-  font-weight: 500;
-  line-height: 1.35;
+/* The device inventory renders as one bordered group with hairline dividers
+   rather than a stack of cards; the auth-methods modal keeps the card look. */
+.w3a-linked-devices-modal-list--grouped {
+  gap: 0;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 0.75rem;
+  background: var(--w3a-colors-surface);
+  overflow: hidden;
 }
 
-.w3a-linked-devices-modal-device-id {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  overflow-wrap: anywhere;
-}
-
-/* Reads as part of the metadata line rather than a control, so the row keeps
-   wrapping as one sentence at narrow widths and at 200% zoom. */
-.w3a-linked-devices-modal-disclosure {
-  padding: 0;
+.w3a-linked-devices-modal-item--row {
+  position: relative;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0 0.75rem;
+  padding: 1rem;
   border: none;
-  background: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* Divider inset to the row padding so the group reads as one card. */
+.w3a-linked-devices-modal-item--row + .w3a-linked-devices-modal-item--row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 1rem;
+  right: 1rem;
+  border-top: 1px solid var(--w3a-colors-borderPrimary);
+}
+
+.w3a-linked-devices-modal-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 92%);
   color: var(--w3a-colors-textSecondary);
-  font: inherit;
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
-  cursor: pointer;
 }
 
-.w3a-linked-devices-modal-disclosure:hover {
-  color: var(--w3a-colors-textPrimary);
+.w3a-linked-devices-modal-item-content {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
 }
 
-.w3a-linked-devices-modal-disclosure:focus-visible {
-  outline: 2px solid var(--w3a-colors-primary);
-  outline-offset: 2px;
-  border-radius: 0.25rem;
+/* Title and chip sit together on the left; the shared rule spreads them. */
+.w3a-linked-devices-modal-item--row .w3a-linked-devices-modal-item-main {
+  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-height: 1.25rem;
+}
+
+.w3a-linked-devices-modal-item--row .w3a-linked-devices-modal-item-name {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+/* Why this row cannot be removed right now, shaped as part of the row. */
+.w3a-linked-devices-modal-hint {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 92%);
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.w3a-linked-devices-modal-hint svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.w3a-linked-devices-modal-remove {
+  align-self: start;
+  margin-top: 2px;
+  color: oklch(0.52 0.17 25);
+}
+
+.theme-dark .w3a-linked-devices-modal-remove {
+  color: oklch(0.74 0.15 25);
+}
+
+.w3a-linked-devices-modal-item--row .w3a-linked-devices-modal-confirm,
+.w3a-linked-devices-modal-item--row .w3a-linked-devices-modal-otp-form {
+  margin-top: 0.6rem;
 }
 
 .w3a-linked-devices-modal-confirm {
@@ -385,11 +460,9 @@
 @keyframes w3a-linked-devices-modal-content-enter {
   from {
     opacity: 0;
-    transform: scale(0.98);
   }
   to {
     opacity: 1;
-    transform: none;
   }
 }
 
@@ -409,6 +482,27 @@
   .w3a-linked-devices-modal-item-main {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  /* Row layout keeps the chip beside the title; it wraps on its own. */
+  .w3a-linked-devices-modal-item--row .w3a-linked-devices-modal-item-main {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .w3a-linked-devices-modal-item--row {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    padding: 0.85rem;
+  }
+
+  .w3a-linked-devices-modal-item-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .w3a-linked-devices-modal-item--row + .w3a-linked-devices-modal-item--row::before {
+    left: 0.85rem;
+    right: 0.85rem;
   }
 }
 

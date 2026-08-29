@@ -76,7 +76,7 @@ export function buildWalletServiceHtml(
     <link rel="prefetch" as="style" href="${haloBorderCss}" />
     <link rel="prefetch" as="style" href="${passkeyHaloLoadingCss}" />
     <!-- Component theme CSS: shared tokens + component-scoped tokens -->
-    <link rel="stylesheet" href="${componentsCss}" />
+    <link rel="stylesheet" href="${componentsCss}" data-w3a-components-css />
     <link rel="stylesheet" href="${drawerCss}" />
     <link rel="stylesheet" href="${txTreeCss}" />
     <link rel="stylesheet" href="${txConfirmerCss}" />
