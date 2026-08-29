@@ -1062,35 +1062,6 @@ export async function buildAuthorizedOperation(
   };
 }
 
-type ReusableWalletSessionStatusIdentity = {
-  readonly tenantId: TenantId;
-  readonly principalId: PrincipalId;
-  readonly walletSessionId: WalletSessionId;
-  readonly quotaId: MpcWalletSigningQuotaId;
-};
-
-export type ReusableWalletSessionStatus =
-  | (ReusableWalletSessionStatusIdentity & {
-      readonly kind: 'active';
-      readonly remainingUses: number;
-      readonly expiresAtMs: number;
-    })
-  | (ReusableWalletSessionStatusIdentity & {
-      readonly kind: 'exhausted';
-      readonly remainingUses: 0;
-      readonly expiresAtMs: number;
-    })
-  | (ReusableWalletSessionStatusIdentity & {
-      readonly kind: 'expired';
-      readonly expiresAtMs: number;
-      readonly remainingUses?: never;
-    })
-  | (ReusableWalletSessionStatusIdentity & {
-      readonly kind: 'superseded' | 'missing' | 'invalid';
-      readonly remainingUses?: never;
-      readonly expiresAtMs?: never;
-    });
-
 export type CompletedCapabilityOperationResult =
   | 'succeeded'
   | 'failed_before_side_effect'

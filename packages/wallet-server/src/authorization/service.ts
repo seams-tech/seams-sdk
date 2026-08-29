@@ -15,7 +15,6 @@ import type {
   RedeemHostedWalletSeamsSessionExchangeV2Result,
   ExactWalletSessionStatusV2,
   ResolvedHostedWalletSessionOperationCredentialV2,
-  ReusableWalletSessionStatus,
   SessionOrigin,
   VerifiedAuthorizationEvidenceSet,
   IssuedWalletSessionAuthorizationV2,
@@ -103,13 +102,6 @@ import type { CapabilityOperationFingerprintDigest } from '@shared/authorization
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 
 export interface AuthorizationSessionPort {
-  readReusableWalletSessionStatus(input: {
-    readonly tenantId: TenantId;
-    readonly principalId: PrincipalId;
-    readonly walletSessionId: WalletSessionId;
-    readonly quotaId: MpcWalletSigningQuotaId;
-    readonly nowMs: number;
-  }): Promise<ReusableWalletSessionStatus>;
   putIssuedHostedWalletSeamsSessionExchange(
     exchange: IssuedHostedWalletSeamsSessionExchangeV2,
   ): Promise<void>;
@@ -619,16 +611,6 @@ export type ResolvedOpaqueWalletSessionToken = {
 
 export class AuthorizationService {
   constructor(private readonly ports: AuthorizationServicePorts) {}
-
-  async readReusableWalletSessionStatus(input: {
-    readonly tenantId: TenantId;
-    readonly principalId: PrincipalId;
-    readonly walletSessionId: WalletSessionId;
-    readonly quotaId: MpcWalletSigningQuotaId;
-    readonly nowMs: number;
-  }): Promise<ReusableWalletSessionStatus> {
-    return await this.ports.sessions.readReusableWalletSessionStatus(input);
-  }
 
   async revokeReusableWalletSessionsForAuthMethod(input: {
     readonly tenantId: TenantId;
