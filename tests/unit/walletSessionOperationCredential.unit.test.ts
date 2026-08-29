@@ -123,7 +123,20 @@ test('V6 parser cross-checks the Wallet Session key and authorization identity',
         authorityId: activeWalletSession.authorityId,
         authMethodId: activeWalletSession.authMethodId,
       });
-      return { row, valid, sessionMismatch, authorizationMismatch };
+      await db.put(storeName, row);
+      await db.put(storeName, {
+        ...row,
+        record: {
+          ...row.record,
+          walletSessionId: 'wallet-session:v6-record-wrong',
+        },
+      });
+      const recordSessionMismatch = await repository.readExactActiveForWallet({
+        walletId: activeWalletSession.walletId,
+        authorityId: activeWalletSession.authorityId,
+        authMethodId: activeWalletSession.authMethodId,
+      });
+      return { row, valid, sessionMismatch, authorizationMismatch, recordSessionMismatch };
     },
     {
       activeWalletSession: fixture.activeWalletSession,
@@ -135,6 +148,9 @@ test('V6 parser cross-checks the Wallet Session key and authorization identity',
     record_version: 'wallet_session_authorization_v6',
     wallet_session_id: fixture.operationCredential.walletSessionId,
     authorization_id: fixture.activeWalletSession.authorizationId,
+    record: {
+      walletSessionId: fixture.operationCredential.walletSessionId,
+    },
   });
   expect(result.valid).toEqual({
     kind: 'found',
@@ -143,6 +159,7 @@ test('V6 parser cross-checks the Wallet Session key and authorization identity',
   });
   expect(result.sessionMismatch).toEqual({ kind: 'corrupt' });
   expect(result.authorizationMismatch).toEqual({ kind: 'corrupt' });
+  expect(result.recordSessionMismatch).toEqual({ kind: 'corrupt' });
 });
 
 test('same-wallet sibling exact sessions coexist and read by their exact method', async ({

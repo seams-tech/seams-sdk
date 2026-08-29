@@ -681,12 +681,17 @@ type StoredExactWalletSessionAuthorizationRowV5 = Omit<
   readonly operation_credential: WalletSessionOperationCredentialV1;
 };
 
+type StoredActiveWalletSessionV6 = ActiveWalletSessionV1 & {
+  readonly walletSessionId: WalletSessionId;
+};
+
 export type StoredExactWalletSessionAuthorizationRowV6 = Omit<
   StoredExactWalletSessionAuthorizationRowV5,
-  'record_version'
+  'record_version' | 'record'
 > & {
   readonly record_version: typeof WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V6;
   readonly authorization_id: string;
+  readonly record: StoredActiveWalletSessionV6;
 };
 
 const EXACT_ACTIVE_FIELDS = [
@@ -1073,7 +1078,20 @@ export function toStoredExactWalletSessionAuthorizationRowV6(
     status: 'active',
     issued_at_ms: parsedRecord.issuedAtMs,
     expires_at_ms: parsedRecord.expiresAtMs,
-    record: parsedRecord,
+    record: {
+      kind: parsedRecord.kind,
+      walletId: parsedRecord.walletId,
+      authorityId: parsedRecord.authorityId,
+      authMethodId: parsedRecord.authMethodId,
+      authorizationId: parsedRecord.authorizationId,
+      walletSessionId: parsedOperationCredential.walletSessionId,
+      quotaId: parsedRecord.quotaId,
+      authorityDigestB64u: parsedRecord.authorityDigestB64u,
+      authorityRevocationEpoch: parsedRecord.authorityRevocationEpoch,
+      capabilitySubjects: parsedRecord.capabilitySubjects,
+      issuedAtMs: parsedRecord.issuedAtMs,
+      expiresAtMs: parsedRecord.expiresAtMs,
+    },
     operation_credential: parsedOperationCredential,
   };
   if (!parseStoredExactWalletSessionAuthorizationRowV6(row)) {
@@ -1158,7 +1176,14 @@ export function parseStoredExactWalletSessionAuthorizationRowV6(value: unknown):
     return null;
   }
   if (walletSessionId.value !== operationCredential.walletSessionId) return null;
-  const record = parseExactWalletSessionRecord(value.record);
+  if (!isRecord(value.record)) return null;
+  const recordWalletSessionId = parseWalletSessionId(value.record.walletSessionId);
+  if (!recordWalletSessionId.ok || recordWalletSessionId.value !== walletSessionId.value) {
+    return null;
+  }
+  const recordWithoutWalletSessionId = { ...value.record };
+  delete recordWithoutWalletSessionId.walletSessionId;
+  const record = parseExactWalletSessionRecord(recordWithoutWalletSessionId);
   if (
     !record ||
     record.kind !== 'active_wallet_session_v1' ||
