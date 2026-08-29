@@ -57,6 +57,7 @@ import {
   WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
 } from '../../packages/wallet-server/src/authorization/domain';
 import { D1WalletAuthorityStore } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
+import { prepareD1WalletAuthMethodV2PutStatement } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
 import {
@@ -144,8 +145,13 @@ async function digestOpaqueCredentialForTest(value: string): Promise<DigestB64u>
 
 type ActiveAuthorityFixture = {
   readonly authority: ActiveWalletAuthorityV1;
-  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+  readonly authMethod: ActivePasskeyAuthMethod;
 };
+
+type ActivePasskeyAuthMethod = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'passkey'; readonly status: 'active' }
+>;
 
 function requiredParsed<T>(
   result:
@@ -154,6 +160,32 @@ function requiredParsed<T>(
 ): T {
   if (result.ok) return result.value;
   throw new Error(result.error.message);
+}
+
+function buildSiblingActivePasskeyAuthMethod(
+  source: ActivePasskeyAuthMethod,
+  credentialByte: number,
+): ActivePasskeyAuthMethod {
+  const credentialIdB64u = requiredParsed(
+    parseWebAuthnCredentialIdB64u(base64UrlEncode(new Uint8Array(32).fill(credentialByte))),
+  );
+  return buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: requiredWalletAuthMethodId(
+      `passkey:${source.rpId}:${credentialIdB64u}`,
+    ),
+    walletId: source.walletId,
+    walletAuthorityId: source.walletAuthorityId,
+    kind: 'passkey',
+    status: 'active',
+    rpId: source.rpId,
+    credentialIdB64u,
+    credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(credentialByte + 1)),
+    counter: 0,
+    createdAtMs: source.createdAtMs,
+    updatedAtMs: source.updatedAtMs,
+    activatedAtMs: source.activatedAtMs,
+  });
 }
 
 async function buildActiveAuthorityFixture(
@@ -1282,11 +1314,9 @@ test('admits a V2 Wallet Session operation and replays against its exact source'
       claimedAtMs: 301,
     });
 
-    await expect(
-      service.admitAuthorizedOperation({ operation: claimInput }),
-    ).resolves.toMatchObject({
-      kind: 'claimed',
-    });
+    const claimed = await service.admitAuthorizedOperation({ operation: claimInput });
+    expect(claimed.kind).toBe('claimed');
+    if (claimed.kind !== 'claimed') throw new Error('V2 operation admission was not claimed');
     await expect(
       temporary.database
         .prepare(
@@ -1319,6 +1349,81 @@ test('admits a V2 Wallet Session operation and replays against its exact source'
         .bind(namespace, session.session.tenantId, session.session.quotaId)
         .first(),
     ).resolves.toEqual({ remaining_uses: 1 });
+
+    const siblingMethod = buildSiblingActivePasskeyAuthMethod(fixture.authMethod, 41);
+    await prepareD1WalletAuthMethodV2PutStatement({
+      database: temporary.database,
+      scope: {
+        namespace,
+        orgId: 'test-org',
+        projectId: 'test-project',
+        envId: 'test-env',
+      },
+      record: siblingMethod,
+      insertOnly: true,
+    }).run();
+    const siblingIssue = await service.issueDirectWalletSessionAuthorizationV2({
+      tenantId: session.session.tenantId,
+      principalId: session.session.principalId,
+      walletId: fixture.authority.walletId,
+      authority: fixture.authority,
+      walletAuthMethodId: siblingMethod.walletAuthMethodId,
+      mintId: requiredMintId('unlock:v2-claim-sibling'),
+      remainingUses: 2,
+      issuedAtMs: 303,
+      expiresAtMs: 400,
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
+      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
+    });
+    if (siblingIssue.kind !== 'issued') {
+      throw new Error('Sibling-method V2 operation fixture did not issue');
+    }
+    const siblingRetry = await buildAuthorizedOperation({
+      ...retry,
+      authorization: {
+        kind: 'authorization_grant',
+        authorizationGrantRef: buildAuthorizationGrantRef(siblingIssue.session.authorizationId),
+      },
+      quota: {
+        kind: 'consume_reusable_wallet_session',
+        quotaId: siblingIssue.session.quotaId,
+      },
+      claimedAtMs: 304,
+    });
+    await expect(
+      service.admitAuthorizedOperation({ operation: siblingRetry }),
+    ).resolves.toEqual({ kind: 'authorization_grant_rejected' });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT remaining_uses
+             FROM authorization_wallet_session_quotas
+            WHERE namespace = ? AND tenant_id = ? AND quota_id = ?`,
+        )
+        .bind(namespace, siblingIssue.session.tenantId, siblingIssue.session.quotaId)
+        .first(),
+    ).resolves.toEqual({ remaining_uses: 2 });
+
+    const completed = await service.completeAuthorizedOperation({
+      operation: claimed.operation,
+      result: 'succeeded',
+      response: { status: 200, contentType: 'application/json', bodyText: '{"ok":true}' },
+      completedAtMs: 305,
+    });
+    expect(completed.lifecycle).toBe('completed');
+    await expect(
+      service.admitAuthorizedOperation({ operation: { ...retry, claimedAtMs: 306 } }),
+    ).resolves.toMatchObject({ kind: 'replayed' });
+
+    await service.retireWalletSessionAuthorizationsForAuthMethod({
+      tenantId: session.session.tenantId,
+      walletId: session.session.walletId,
+      walletAuthMethodId: session.session.walletAuthMethodId,
+      nowMs: 307,
+    });
+    await expect(
+      service.admitAuthorizedOperation({ operation: { ...retry, claimedAtMs: 308 } }),
+    ).resolves.toEqual({ kind: 'authorization_grant_rejected' });
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }

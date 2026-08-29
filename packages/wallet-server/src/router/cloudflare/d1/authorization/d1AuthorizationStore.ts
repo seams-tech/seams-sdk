@@ -2717,9 +2717,16 @@ export class CloudflareD1AuthorizationStore
         existing: existing.row,
         incoming: operation,
         material: input.material,
+        scope: this.walletSignerScope,
       });
       if (replayMismatch) return replayMismatch;
       if (existing.operation.lifecycle === 'completed') {
+        if (
+          existing.operation.authorization.kind === 'authorization_grant' &&
+          !(await this.isAuthorizedOperationSourceActive(existing.row, operation.claimedAtMs))
+        ) {
+          return { kind: 'authorization_grant_rejected' };
+        }
         return { kind: 'replayed', operation: existing.operation };
       }
       if (!(await this.isAuthorizedOperationSourceActive(existing.row, operation.claimedAtMs))) {
@@ -2828,9 +2835,16 @@ export class CloudflareD1AuthorizationStore
           existing: raced.row,
           incoming: operation,
           material: input.material,
+          scope: this.walletSignerScope,
         });
         if (replayMismatch) return replayMismatch;
         if (raced.operation.lifecycle === 'completed') {
+          if (
+            raced.operation.authorization.kind === 'authorization_grant' &&
+            !(await this.isAuthorizedOperationSourceActive(raced.row, operation.claimedAtMs))
+          ) {
+            return { kind: 'authorization_grant_rejected' };
+          }
           return { kind: 'replayed', operation: raced.operation };
         }
         if (!(await this.isAuthorizedOperationSourceActive(raced.row, operation.claimedAtMs))) {
@@ -2888,6 +2902,7 @@ export class CloudflareD1AuthorizationStore
               AND session.tenant_id = ?
               AND session.authorization_id = ?
               AND session.principal_id = ?
+              AND (? = 'quota_neutral' OR session.quota_id = ?)
               AND session.retired_at_ms IS NULL
               AND session.expires_at_ms > ?
               AND authority.lifecycle_state = 'active'
@@ -2902,6 +2917,8 @@ export class CloudflareD1AuthorizationStore
           requireString(row.tenant_id, 'operation.tenantId'),
           requireString(row.authorization_id, 'operation.authorizationId'),
           requireString(row.principal_id, 'operation.principalId'),
+          requireString(row.quota_kind, 'operation.quota.kind'),
+          row.quota_id,
           requirePositiveInteger(nowMs, 'operation replay time'),
         )
         .first<D1Row>();
@@ -3074,6 +3091,7 @@ function authorizedOperationReplayMismatch(input: {
   readonly existing: D1Row;
   readonly incoming: AuthorizedOperation;
   readonly material?: AuthorizedOperationMaterialScope;
+  readonly scope: D1WalletStoreScope;
 }): AuthorizedOperationReplayMismatch | null {
   const sourceKind = requireString(
     input.existing.authorization_source_kind,
@@ -3083,6 +3101,13 @@ function authorizedOperationReplayMismatch(input: {
     return authorizationSourceRejected(input.incoming.authorization);
   }
   if (input.incoming.authorization.kind === 'authorization_grant') {
+    if (
+      input.existing.linked_scope_org_id !== input.scope.orgId ||
+      input.existing.linked_scope_project_id !== input.scope.projectId ||
+      input.existing.linked_scope_env_id !== input.scope.envId
+    ) {
+      return { kind: 'authorization_grant_rejected' };
+    }
     const expectedGrantKind = input.incoming.authorization.authorizationGrantRef.kind;
     if (input.existing.authorization_grant_kind !== expectedGrantKind) {
       return { kind: 'authorization_grant_rejected' };
@@ -3113,12 +3138,25 @@ function authorizedOperationReplayMismatch(input: {
     return { kind: 'authorization_grant_rejected' };
   }
 
-  const existingMaterialActivationId = input.existing.material_activation_id;
-  const incomingMaterialActivationId = input.material?.materialActivation.activation_id ?? null;
-  if (existingMaterialActivationId !== incomingMaterialActivationId) {
+  if (!authorizedOperationMaterialMatches(input.existing, input.material)) {
     return { kind: 'material_mismatch' };
   }
   return null;
+}
+
+function authorizedOperationMaterialMatches(
+  existing: D1Row,
+  incoming: AuthorizedOperationMaterialScope | undefined,
+): boolean {
+  const material = incoming?.materialActivation;
+  return (
+    existing.material_activation_id === (material?.activation_id ?? null) &&
+    existing.material_activation_capability === (material?.capability ?? null) &&
+    existing.material_activation_owner === (material?.material_owner ?? null) &&
+    existing.material_activation_key_binding === (material?.key_binding ?? null) &&
+    existing.material_activation_lifecycle_binding === (material?.lifecycle_binding ?? null) &&
+    existing.material_activation_signing_worker === (material?.signing_worker ?? null)
+  );
 }
 
 function authorizationSourceRejected(
