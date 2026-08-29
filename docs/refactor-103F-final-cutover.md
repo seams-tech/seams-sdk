@@ -1498,7 +1498,7 @@ Remaining causal baseline work:
 - [x] Compatibility-adapter test proving stable fingerprint/projection with an
       in-memory V1 bearer whose bytes may differ; delete the test with the
       adapter.
-- [ ] Adapter-table tests proving identical retries remain usable despite
+- [x] Adapter-table tests proving identical retries remain usable despite
       response reordering, conflicting replay fails closed, adapter expiry does
       not retire the parent session, parent retirement and method cleanup reject
       adapter tokens, and no plaintext enters durable storage.
