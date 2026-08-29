@@ -42,7 +42,20 @@ export async function buildExactPasskeyEvmFamilyWalletSessionAuthorizationFixtur
   readonly authorizationLabel: string;
   readonly quotaLabel: string;
 }): Promise<ExactEvmFamilyWalletSessionAuthorization> {
-  const { fixture, runtime } = await canonicalEcdsaSealedRuntimeFixture('passkey');
+  return buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeFixture({
+    ...input,
+    canonicalRuntime: await canonicalEcdsaSealedRuntimeFixture('passkey'),
+  });
+}
+
+export function buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeFixture(input: {
+  readonly label: string;
+  readonly walletSessionLabel: string;
+  readonly authorizationLabel: string;
+  readonly quotaLabel: string;
+  readonly canonicalRuntime: Awaited<ReturnType<typeof canonicalEcdsaSealedRuntimeFixture>>;
+}): ExactEvmFamilyWalletSessionAuthorization {
+  const { fixture, runtime } = input.canonicalRuntime;
   if (!isPasskeyWalletAuthAuthority(fixture.authority)) {
     throw new Error('[fixture] exact Passkey authorization requires a Passkey authority');
   }

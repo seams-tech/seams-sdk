@@ -11,7 +11,7 @@ import {
   toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { canonicalEcdsaSealedRuntimeFixture } from './helpers/ecdsaOperationStepUp.fixtures';
-import { activeEvmFamilyWalletSessionAuthorizationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
+import { buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeFixture } from './helpers/exactEvmFamilyWalletSessionAuthorization.fixtures';
 import {
   buildPasskeyEd25519AuthorizationProjectionFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
@@ -19,9 +19,14 @@ import {
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 
 async function createEnvelope(): Promise<WarmSessionEnvelope> {
-  const { fixture, runtime } = await canonicalEcdsaSealedRuntimeFixture('passkey');
-  const authorization = activeEvmFamilyWalletSessionAuthorizationFixture({
-    manifest: fixture.manifest,
+  const canonicalRuntime = await canonicalEcdsaSealedRuntimeFixture('passkey');
+  const { fixture, runtime } = canonicalRuntime;
+  const authorization = buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeFixture({
+    label: 'warm-transition',
+    walletSessionLabel: 'warm-transition',
+    authorizationLabel: 'warm-transition',
+    quotaLabel: 'warm-transition',
+    canonicalRuntime,
   });
   const publicFacts = fixture.manifest.durableMaterial.roleLocalPublicFacts;
   if (

@@ -38,7 +38,6 @@ import {
   parseSdkEcdsaDerivationSigningRootId,
   parseSdkEcdsaDerivationSigningRootVersion,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 import type {
   ActiveEcdsaCapabilityManifest,
   EcdsaActivationBinding,
@@ -674,7 +673,7 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
   authMethod?: 'passkey' | 'email_otp';
   expiresAtMs?: number;
   remainingUses?: number;
-}): ActiveEvmFamilyWalletSessionAuthorization {
+}) {
   const walletId = args.walletId ?? args.manifest?.signer.walletId;
   const authority = args.authority ?? args.manifest?.signer.authority;
   if (!walletId || !authority) {
@@ -750,7 +749,7 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
       remainingUses,
       expiresAtMs,
     },
-  };
+  } as const;
 }
 
 function requireFixtureId<T>(result: { ok: true; value: T } | { ok: false }, label: string): T {
