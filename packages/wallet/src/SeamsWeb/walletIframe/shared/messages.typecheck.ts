@@ -5,6 +5,8 @@ import {
   hostedAuthMenuSessionIdFromBoundary,
   parseWalletIframeSurfaceMeasurement,
   buildHostedAuthMenuCancelPayload,
+  buildPMRedeemHostedWalletSeamsSessionPayload,
+  type PMRedeemHostedWalletSeamsSessionPayload,
   type HostedAuthMenuExternalAuthRequest,
   type HostedAuthMenuOutcome,
   type WalletIframeSurfaceMeasurement,
@@ -108,3 +110,34 @@ const callbackBearingExternalRequest: HostedAuthMenuExternalAuthRequest = {
   onResolve: () => undefined,
 };
 void callbackBearingExternalRequest;
+
+const hostedRedemption = buildPMRedeemHostedWalletSeamsSessionPayload({
+  exchangeCode: 'exchange-code',
+  nonce: 'exchange-nonce',
+  appOrigin: 'https://app.example.test',
+  walletOrigin: 'https://wallet.example.test',
+  relayUrl: 'https://relay.example.test',
+});
+const exactHostedRedemption: PMRedeemHostedWalletSeamsSessionPayload = hostedRedemption;
+void exactHostedRedemption;
+
+buildPMRedeemHostedWalletSeamsSessionPayload({
+  exchangeCode: 'exchange-code',
+  nonce: 'exchange-nonce',
+  appOrigin: 'https://app.example.test',
+  walletOrigin: 'https://wallet.example.test',
+  relayUrl: 'https://relay.example.test',
+  // @ts-expect-error Hosted V2 redemption is curve-free.
+  curve: 'ecdsa',
+});
+
+const unbrandedHostedRedemption: PMRedeemHostedWalletSeamsSessionPayload = {
+  // @ts-expect-error Exchange codes enter through the hosted redemption builder/parser.
+  exchangeCode: 'exchange-code',
+  // @ts-expect-error Exchange nonces enter through the hosted redemption builder/parser.
+  nonce: 'exchange-nonce',
+  appOrigin: 'https://app.example.test',
+  walletOrigin: 'https://wallet.example.test',
+  relayUrl: 'https://relay.example.test',
+};
+void unbrandedHostedRedemption;

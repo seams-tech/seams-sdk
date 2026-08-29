@@ -1,14 +1,19 @@
 import { expect, test } from '@playwright/test';
 import { createWalletIframeHandlers } from '@/SeamsWeb/walletIframe/host/wallet-iframe-handlers';
 import {
-  activeWalletSessionToken,
+  activeHostedWalletSessionOperationCredential,
   clearHostedWalletSessions,
+  recordAdoptedWalletIframeParentOrigin,
   redeemHostedWalletSeamsSession,
 } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import { routeWalletHostRequest } from '@/SeamsWeb/walletIframe/host/requestRouter';
 import type {
   ChildToParentEnvelope,
   ParentToChildEnvelope,
+} from '@/SeamsWeb/walletIframe/shared/messages';
+import {
+  buildPMRedeemHostedWalletSeamsSessionPayload,
+  parsePMRedeemHostedWalletSeamsSessionPayload,
 } from '@/SeamsWeb/walletIframe/shared/messages';
 
 type RecoveryCodeStatusRequest = Extract<
@@ -20,17 +25,16 @@ type RegisterWalletRequest = Extract<ParentToChildEnvelope, { type: 'PM_REGISTER
 const RELAY_URL = 'https://relay.example.test';
 const APP_ORIGIN = 'https://app.example.test';
 const WALLET_ORIGIN = 'https://wallet.example.test';
-const WALLET_SESSION_TOKEN = 'wst_hosted-wallet-token';
+const HOSTED_OPERATION_CREDENTIAL = `wsh_${'c'.repeat(43)}`;
 
 function redemptionRequest() {
-  return {
+  return buildPMRedeemHostedWalletSeamsSessionPayload({
     exchangeCode: 'exchange-1',
     nonce: 'nonce-1',
-    curve: 'ecdsa' as const,
     appOrigin: APP_ORIGIN,
     walletOrigin: WALLET_ORIGIN,
     relayUrl: RELAY_URL,
-  };
+  });
 }
 
 function handlerDeps(input: { seamsWeb: unknown; posts: ChildToParentEnvelope[] }) {
@@ -44,17 +48,62 @@ function handlerDeps(input: { seamsWeb: unknown; posts: ChildToParentEnvelope[] 
 }
 
 test.describe('wallet iframe Email OTP recovery-code RPC', () => {
+  test('parses only the exact curve-free hosted-wallet redemption message', () => {
+    expect(parsePMRedeemHostedWalletSeamsSessionPayload(redemptionRequest())).toEqual(
+      redemptionRequest(),
+    );
+    expect(() =>
+      parsePMRedeemHostedWalletSeamsSessionPayload({
+        ...redemptionRequest(),
+        curve: 'ecdsa',
+      }),
+    ).toThrow(/payload fields are invalid/);
+    expect(() =>
+      parsePMRedeemHostedWalletSeamsSessionPayload({
+        ...redemptionRequest(),
+        walletSessionToken: 'wst_legacy',
+      }),
+    ).toThrow(/payload fields are invalid/);
+  });
+
+  test('rejects redemption before fetch when appOrigin differs from the adopted parent', async () => {
+    const originalWindow = Reflect.get(globalThis, 'window');
+    const originalFetch = globalThis.fetch;
+    let fetchCount = 0;
+    Reflect.set(globalThis, 'window', { location: { origin: WALLET_ORIGIN } });
+    recordAdoptedWalletIframeParentOrigin('https://other-app.example.test');
+    globalThis.fetch = async () => {
+      fetchCount += 1;
+      throw new Error('fetch must not run');
+    };
+    try {
+      await expect(
+        redeemHostedWalletSeamsSession(redemptionRequest(), RELAY_URL),
+      ).rejects.toThrow(/appOrigin does not match the adopted iframe parent/);
+      expect(fetchCount).toBe(0);
+    } finally {
+      clearHostedWalletSessions();
+      globalThis.fetch = originalFetch;
+      if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
+      else Reflect.set(globalThis, 'window', originalWindow);
+    }
+  });
+
   test('rejects unsupported fields in the hosted-wallet session exchange response', async () => {
     const originalWindow = Reflect.get(globalThis, 'window');
     const originalFetch = globalThis.fetch;
     Reflect.set(globalThis, 'window', { location: { origin: WALLET_ORIGIN } });
+    recordAdoptedWalletIframeParentOrigin(APP_ORIGIN);
     globalThis.fetch = async () =>
       new Response(
         JSON.stringify({
           ok: true,
           walletSessionId: 'wallet-session-1',
-          walletSessionToken: WALLET_SESSION_TOKEN,
-          curve: 'ecdsa',
+          operationCredential: {
+            kind: 'opaque_hosted_wallet_session_operation_credential_v1',
+            token: HOSTED_OPERATION_CREDENTIAL,
+            walletSessionId: 'wallet-session-1',
+          },
           expiresAtMs: Date.now() + 60_000,
           session_id: 'legacy-session',
         }),
@@ -63,9 +112,39 @@ test.describe('wallet iframe Email OTP recovery-code RPC', () => {
     try {
       await expect(
         redeemHostedWalletSeamsSession(redemptionRequest(), RELAY_URL),
-      ).rejects.toThrow(
-        /Unsupported hosted-wallet session redemption response field: session_id/,
+      ).rejects.toThrow(/hosted-wallet session redemption response fields are invalid/);
+    } finally {
+      clearHostedWalletSessions();
+      globalThis.fetch = originalFetch;
+      if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
+      else Reflect.set(globalThis, 'window', originalWindow);
+    }
+  });
+
+  test('rejects a hosted credential for a different parent Wallet Session', async () => {
+    const originalWindow = Reflect.get(globalThis, 'window');
+    const originalFetch = globalThis.fetch;
+    Reflect.set(globalThis, 'window', { location: { origin: WALLET_ORIGIN } });
+    recordAdoptedWalletIframeParentOrigin(APP_ORIGIN);
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          walletSessionId: 'wallet-session-1',
+          operationCredential: {
+            kind: 'opaque_hosted_wallet_session_operation_credential_v1',
+            token: HOSTED_OPERATION_CREDENTIAL,
+            walletSessionId: 'wallet-session-2',
+          },
+          expiresAtMs: Date.now() + 60_000,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
+    try {
+      await expect(
+        redeemHostedWalletSeamsSession(redemptionRequest(), RELAY_URL),
+      ).rejects.toThrow(/does not identify its parent Wallet Session/);
+      expect(activeHostedWalletSessionOperationCredential(RELAY_URL)).toBeUndefined();
     } finally {
       clearHostedWalletSessions();
       globalThis.fetch = originalFetch;
@@ -98,6 +177,7 @@ test.describe('wallet iframe Email OTP recovery-code RPC', () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const originalWindow = Reflect.get(globalThis, 'window');
     Reflect.set(globalThis, 'window', { location: { origin: WALLET_ORIGIN } });
+    recordAdoptedWalletIframeParentOrigin(APP_ORIGIN);
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url, init) => {
       requests.push({ url: String(url), init });
@@ -105,8 +185,11 @@ test.describe('wallet iframe Email OTP recovery-code RPC', () => {
         JSON.stringify({
           ok: true,
           walletSessionId: 'wallet-session-1',
-          walletSessionToken: WALLET_SESSION_TOKEN,
-          curve: 'ecdsa',
+          operationCredential: {
+            kind: 'opaque_hosted_wallet_session_operation_credential_v1',
+            token: HOSTED_OPERATION_CREDENTIAL,
+            walletSessionId: 'wallet-session-1',
+          },
           expiresAtMs: Date.now() + 60_000,
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -150,15 +233,18 @@ test.describe('wallet iframe Email OTP recovery-code RPC', () => {
       expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({
         exchangeCode: 'exchange-1',
         nonce: 'nonce-1',
-        curve: 'ecdsa',
         appOrigin: APP_ORIGIN,
         walletOrigin: WALLET_ORIGIN,
       });
 
-      // The token stays in the wallet origin; the parent only learns the expiry.
-      expect(activeWalletSessionToken('ecdsa', RELAY_URL)).toBe(WALLET_SESSION_TOKEN);
+      // The child credential stays in the wallet origin; the parent only learns the expiry.
+      expect(activeHostedWalletSessionOperationCredential(RELAY_URL)).toEqual({
+        kind: 'opaque_hosted_wallet_session_operation_credential_v1',
+        token: HOSTED_OPERATION_CREDENTIAL,
+        walletSessionId: 'wallet-session-1',
+      });
       const redeemResult = posts.find((post) => post.requestId === 'redeem-1');
-      expect(JSON.stringify(redeemResult)).not.toContain(WALLET_SESSION_TOKEN);
+      expect(JSON.stringify(redeemResult)).not.toContain(HOSTED_OPERATION_CREDENTIAL);
 
       await handlers.PM_GET_WALLET_RECOVERY_CODE_STATUS!({
         type: 'PM_GET_WALLET_RECOVERY_CODE_STATUS',
@@ -204,6 +290,9 @@ test.describe('wallet iframe Email OTP recovery-code RPC', () => {
       // Registration maps the auth method onto its exact union, so a posted bearer never lands.
       expect(registrationCalls).toHaveLength(1);
       expect(JSON.stringify(registrationCalls[0])).not.toContain('wst_parent-supplied-token');
+
+      recordAdoptedWalletIframeParentOrigin('https://replacement-app.example.test');
+      expect(activeHostedWalletSessionOperationCredential(RELAY_URL)).toBeUndefined();
     } finally {
       clearHostedWalletSessions();
       globalThis.fetch = originalFetch;
