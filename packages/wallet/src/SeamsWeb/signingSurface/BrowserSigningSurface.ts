@@ -285,13 +285,7 @@ import {
   requireOpaqueWalletSessionToken,
   type OpaqueWalletSessionToken,
 } from '@shared/utils/sessionTokens';
-import {
-  buildActiveWalletSessionAuthorizationProjection,
-  WalletSessionAuthorizationUpgradeRequiredError,
-  walletSessionAuthorizationIdForCurve,
-  walletSessionThresholdSessionIdForCurve,
-  walletSessionTokenForCurve,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { WalletSessionAuthorizationUpgradeRequiredError } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import {
   buildThresholdEd25519WebAuthnPrfSecretSource,
@@ -522,10 +516,9 @@ import type {
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 async function resolveActiveEd25519WalletSessionAuthorization(
   walletId: WalletId,
-): Promise<ActiveWalletSessionAuthorizationProjection | null> {
-  const read = await walletSessionAuthorizations.readActiveForWallet(walletId);
-  if (read.kind !== 'found') return null;
-  return walletSessionTokenForCurve(read.projection, 'ed25519') ? read.projection : null;
+  relayerUrl: string,
+): Promise<ExactNearEd25519WalletSessionAuthorization | null> {
+  return await resolveBrowserActiveNearEd25519WalletSessionAuthorization(walletId, relayerUrl);
 }
 
 function requireEmailOtpEcdsaRehydrationManifest(
@@ -1735,152 +1728,6 @@ async function readExactOwnerLaneWalletSession(args: {
 
 function assertNeverWalletSessionAuthorizationExactActiveRead(value: never): never {
   throw new Error(`Unknown exact Wallet Session authorization read: ${String(value)}`);
-}
-
-async function resolveNearEd25519WalletSessionAuthorizationForSigning(args: {
-  walletId: WalletId;
-  authorization: ActiveWalletSessionAuthorizationProjection;
-  materialActivation: MpcMaterialActivationRef;
-}): Promise<ActiveWalletSessionAuthorizationProjection> {
-  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
-  if (selected.kind !== 'resolved') {
-    const detail = selected.kind === 'integrity_error' ? `: ${selected.reason}` : '';
-    throw new Error(`[SigningEngine][near] selected Wallet Authority is ${selected.kind}${detail}`);
-  }
-  const { selection, authMethod, authority } = selected;
-  if (
-    selection.lockState !== 'unlocked' ||
-    authMethod.status !== 'active' ||
-    authority.state !== 'active' ||
-    String(selection.walletId) !== String(args.walletId) ||
-    String(authMethod.walletId) !== String(args.walletId) ||
-    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
-    authMethod.walletAuthorityId !== authority.authorityId ||
-    args.authorization.status !== 'active' ||
-    String(args.authorization.walletId) !== String(args.walletId) ||
-    args.authorization.expiresAtMs <= Date.now()
-  ) {
-    throw new Error('[SigningEngine][near] Wallet Session authority correlation changed');
-  }
-
-  const exactSession = exactWalletSessionWithOperationCredentialOrThrow(
-    await walletSessionAuthorizations.readExactWithOperationCredential({
-      walletId: args.walletId,
-      authorityId: authority.authorityId,
-      authMethodId: authMethod.walletAuthMethodId,
-    }),
-    '[SigningEngine][near] exact linked Wallet Session requires a newer client',
-  );
-  if (
-    authority.provenance.kind === 'wallet_registration' ||
-    authority.provenance.kind === 'wallet_recovery'
-  ) {
-    const authorizationId = walletSessionAuthorizationIdForCurve(args.authorization, 'ed25519');
-    const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
-    let factorAuthorityMatches = false;
-    try {
-      await resolveExactWalletAuthAuthority(args.authorization.authority, {
-        getWalletAuthMethodV2: IndexedDBManager.getWalletAuthMethodV2.bind(IndexedDBManager),
-        listWalletAuthMethodsForWallet:
-          IndexedDBManager.listWalletAuthMethodsForWallet.bind(IndexedDBManager),
-        readEmailOtpProviderSubjectForWallet: (walletId) =>
-          readEmailOtpProviderSubjectForWalletV1(IndexedDBManager, walletId),
-      });
-      factorAuthorityMatches = true;
-    } catch {
-      factorAuthorityMatches = false;
-    }
-    if (
-      !authorizationId ||
-      !walletSessionToken ||
-      !factorAuthorityMatches ||
-      args.authorization.authority.walletAuthMethodId !== authMethod.walletAuthMethodId
-    ) {
-      throw new Error('[SigningEngine][near] Ed25519 Wallet Session token is unavailable');
-    }
-    return args.authorization;
-  }
-  const hasSigningSubject =
-    exactSession?.record.capabilitySubjects.some(
-      (subject) =>
-        subject.kind === 'sign' &&
-        subject.keyFamily === 'ed25519' &&
-        mpcMaterialActivationRefsEqual(subject.materialActivation, args.materialActivation),
-    ) ?? false;
-  if (
-    !exactSession ||
-    !hasSigningSubject ||
-    exactSession.record.walletId !== args.walletId ||
-    exactSession.record.authorityId !== authority.authorityId ||
-    exactSession.record.authMethodId !== authMethod.walletAuthMethodId ||
-    exactSession.record.authorityDigestB64u !== authority.authorityDigestB64u ||
-    exactSession.record.authorityRevocationEpoch !== authority.revocationEpoch ||
-    exactSession.record.expiresAtMs <= Date.now()
-  ) {
-    throw new Error('[SigningEngine][near] exact linked Wallet Session is unavailable');
-  }
-  const walletSessionToken = requireOpaqueWalletSessionToken(
-    exactSession.operationCredential.token,
-    '[SigningEngine][near] exact linked Wallet Session token',
-  );
-  const authorizationId = parseReusableWalletSessionAuthorizationId(
-    exactSession.record.authorizationId,
-  );
-  const thresholdSessionId = walletSessionThresholdSessionIdForCurve(args.authorization, 'ed25519');
-  const authorityRef =
-    authMethod.kind === WALLET_AUTH_METHODS.passkey
-      ? await walletAuthAuthorityRef({
-          authority: {
-            walletId: authMethod.walletId,
-            factor: {
-              kind: WALLET_AUTH_METHODS.passkey,
-              credentialIdB64u: authMethod.credentialIdB64u,
-            },
-            verifier: {
-              kind: 'webauthn',
-              rpId: authMethod.rpId,
-            },
-            bindingId: authMethod.walletAuthMethodId,
-          },
-        })
-      : args.authorization.authority;
-  if (
-    !authorizationId.ok ||
-    !thresholdSessionId ||
-    authorityRef.walletId !== args.walletId ||
-    authorityRef.walletAuthMethodId !== authMethod.walletAuthMethodId
-  ) {
-    throw new Error('[SigningEngine][near] exact linked Wallet Session identity is invalid');
-  }
-  return buildActiveWalletSessionAuthorizationProjection({
-    walletId: exactSession.record.walletId,
-    walletSessionId: exactSession.operationCredential.walletSessionId,
-    quotaId: args.authorization.quotaId,
-    authMethod: authMethod.kind,
-    authority: authorityRef,
-    expiresAtMs: exactSession.record.expiresAtMs,
-    walletSessionTokens: {
-      kind: 'near_ed25519',
-      ed25519: {
-        authorizationId: authorizationId.value,
-        walletSessionToken,
-        thresholdSessionId,
-      },
-    },
-  });
-}
-
-async function resolveNearEd25519WalletSessionTokenForSigning(args: {
-  walletId: WalletId;
-  authorization: ActiveWalletSessionAuthorizationProjection;
-  materialActivation: MpcMaterialActivationRef;
-}): Promise<OpaqueWalletSessionToken> {
-  const authorization = await resolveNearEd25519WalletSessionAuthorizationForSigning(args);
-  const token = walletSessionTokenForCurve(authorization, 'ed25519');
-  if (!token) {
-    throw new Error('[SigningEngine][near] Ed25519 Wallet Session token is unavailable');
-  }
-  return token;
 }
 
 function operationStepUpProofMatchesSelectedWalletAuthMethod(args: {
@@ -3540,10 +3387,9 @@ export class BrowserSigningSurface {
       if (!parsedWalletId.ok) return;
       const authorization = await resolveActiveEd25519WalletSessionAuthorization(
         parsedWalletId.value,
+        relayerUrl,
       );
-      const walletSessionToken = authorization
-        ? walletSessionTokenForCurve(authorization, 'ed25519')
-        : null;
+      const walletSessionToken = authorization?.operationCredential.token;
       if (!walletSessionToken) return;
       const outcome = await upgradeWalletCustodyEnvelopeOwnership({
         relayUrl: relayerUrl,
@@ -5205,6 +5051,7 @@ export class BrowserSigningSurface {
     let thresholdSessionId = args.laneIdentity.thresholdSessionId;
     const activeAuthorization = await resolveActiveEd25519WalletSessionAuthorization(
       runtime.walletId,
+      relayerUrl,
     );
     if (activeAuthorization) {
       const walletSessionState = await walletSessionStateFromExactEd25519Runtime({
