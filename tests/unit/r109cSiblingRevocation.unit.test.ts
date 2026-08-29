@@ -16,22 +16,13 @@ import {
 import { parseWalletAuthMethodId } from '../../packages/shared-ts/src/utils/domainIds';
 import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
-import {
-  buildActiveWalletSessionQuota,
-  buildWalletSessionAuthorizationV2,
-  buildWalletSessionCapabilitySubjectsV1,
-} from '../../packages/wallet-server/src/authorization/domain';
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import {
-  parseMpcWalletSigningQuotaId,
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
   parseTenantId,
-  parseWalletSessionAuthorizationId,
-  parseWalletSessionId,
-  type PrincipalId,
   type TenantId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import { buildExactWalletSessionAuthorizationFixture } from './helpers/exactWalletSessionAuthorization.fixtures';
 
 /**
  * Refactor 109C Phase 0: exact method revocation between two SIBLINGS on ONE
@@ -128,7 +119,6 @@ async function seedAuthorityWithBothSiblings(
 async function seedExactSiblingWalletSessions(input: {
   readonly database: SiblingDatabase;
   readonly authority: Awaited<ReturnType<typeof seedAuthorityWithBothSiblings>>['authority'];
-  readonly walletId: ReturnType<typeof walletIdFromString>;
 }) {
   const tenantId = required(parseTenantId(SCOPE.orgId));
   const principalId = required(parsePrincipalId('principal:r109c-sibling-revocation'));
@@ -137,67 +127,29 @@ async function seedExactSiblingWalletSessions(input: {
     namespace: SCOPE.namespace,
     walletSignerScope: SCOPE,
   });
-  await seedExactSiblingWalletSession({
-    authorizationStore,
-    authority: input.authority,
-    walletId: input.walletId,
-    walletAuthMethodId: PASSKEY_METHOD_ID,
-    suffix: 'r109c-passkey',
+  const passkey = buildExactWalletSessionAuthorizationFixture({
+    label: 'r109c-passkey',
     tenantId,
     principalId,
-  });
-  await seedExactSiblingWalletSession({
-    authorizationStore,
     authority: input.authority,
-    walletId: input.walletId,
-    walletAuthMethodId: EMAIL_METHOD_ID,
-    suffix: 'r109c-email',
-    tenantId,
-    principalId,
-  });
-  return { authorizationStore, tenantId };
-}
-
-async function seedExactSiblingWalletSession(input: {
-  readonly authorizationStore: CloudflareD1AuthorizationStore;
-  readonly authority: Awaited<ReturnType<typeof seedAuthorityWithBothSiblings>>['authority'];
-  readonly walletId: ReturnType<typeof walletIdFromString>;
-  readonly walletAuthMethodId: string;
-  readonly suffix: string;
-  readonly tenantId: TenantId;
-  readonly principalId: PrincipalId;
-}): Promise<void> {
-  const walletSessionId = required(parseWalletSessionId(`wallet-session:${input.suffix}`));
-  const quotaId = required(parseMpcWalletSigningQuotaId(`quota:${input.suffix}`));
-  const session = buildWalletSessionAuthorizationV2({
-    tenantId: input.tenantId,
-    principalId: input.principalId,
-    walletId: input.walletId,
-    authorityId: input.authority.authorityId,
-    walletAuthMethodId: required(parseWalletAuthMethodId(input.walletAuthMethodId)),
-    authorityDigestB64u: input.authority.authorityDigestB64u,
-    authorityRevocationEpoch: input.authority.revocationEpoch,
-    mintId: required(parseReusableWalletSessionMintId(`mint:${input.suffix}`)),
-    authorizationId: required(
-      parseWalletSessionAuthorizationId(`authorization:${input.suffix}`),
-    ),
-    walletSessionId,
-    quotaId,
-    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(input.authority),
-    createdAtMs: 3_000,
+    walletAuthMethodId: required(parseWalletAuthMethodId(PASSKEY_METHOD_ID)),
+    issuedAtMs: 3_000,
     expiresAtMs: 10_000,
+    remainingUses: 3,
   });
-  await input.authorizationStore.putWalletSessionAuthorizationV2({
-    session,
-    quota: buildActiveWalletSessionQuota({
-      tenantId: input.tenantId,
-      principalId: input.principalId,
-      walletSessionId,
-      quotaId,
-      remainingUses: 3,
-      expiresAtMs: session.expiresAtMs,
-    }),
+  await authorizationStore.putWalletSessionAuthorizationV2(passkey);
+  const email = buildExactWalletSessionAuthorizationFixture({
+    label: 'r109c-email',
+    tenantId,
+    principalId,
+    authority: input.authority,
+    walletAuthMethodId: required(parseWalletAuthMethodId(EMAIL_METHOD_ID)),
+    issuedAtMs: 3_000,
+    expiresAtMs: 10_000,
+    remainingUses: 3,
   });
+  await authorizationStore.putWalletSessionAuthorizationV2(email);
+  return { authorizationStore, tenantId };
 }
 
 async function readExactSiblingWalletSessions(input: {
@@ -288,7 +240,7 @@ test('method revocation retires only its exact V2 sessions and exhausts their qu
   try {
     await applySignerMigrations(database);
     const { walletId, authority } = await seedAuthorityWithBothSiblings(database);
-    const exact = await seedExactSiblingWalletSessions({ database, authority, walletId });
+    const exact = await seedExactSiblingWalletSessions({ database, authority });
     const service = createCloudflareD1RouterApiAuthService({ database, ...SCOPE });
 
     const revoked = await service.walletAuthMethods.revokeWalletAuthMethod(

@@ -24,7 +24,8 @@ export function createD1LinkedDeviceManagementServiceV1(input: {
   readonly authorizationService: AuthorizationService;
   readonly walletSessionAuthorizations: Pick<
     CloudflareD1AuthorizationStore,
-    'readActiveWalletSessionAuthorizationV2ByIdentity'
+    | 'readActiveWalletSessionAuthorizationV2ByIdentity'
+    | 'prepareRevokeReusableWalletSessionsForAuthority'
   >;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly materialDeactivation?: OrdinaryInactiveSignerMaterialDeactivationPortV1;
@@ -32,7 +33,11 @@ export function createD1LinkedDeviceManagementServiceV1(input: {
   return new LinkedDeviceManagementServiceV1({
     tenantId: input.tenantId,
     authenticator: ownerSessionPortV1(input.walletSessionAuthorizations),
-    authority: authorityPortV1(input.authorityStore),
+    authority: authorityPortV1({
+      store: input.authorityStore,
+      tenantId: input.tenantId,
+      walletSessionAuthorizations: input.walletSessionAuthorizations,
+    }),
     authMethod: authMethodPortV1(input.authMethodStore),
     sessions: input.authorizationService,
     credentials: {
@@ -69,12 +74,17 @@ function ownerSessionPortV1(
   };
 }
 
-function authorityPortV1(
-  store: D1WalletAuthorityStore,
-): ConstructorParameters<typeof LinkedDeviceManagementServiceV1>[0]['authority'] {
+function authorityPortV1(input: {
+  readonly store: D1WalletAuthorityStore;
+  readonly tenantId: TenantId;
+  readonly walletSessionAuthorizations: Pick<
+    CloudflareD1AuthorizationStore,
+    'prepareRevokeReusableWalletSessionsForAuthority'
+  >;
+}): ConstructorParameters<typeof LinkedDeviceManagementServiceV1>[0]['authority'] {
   return {
     listActiveForWalletV1: async ({ walletId, limit, cursor }) => {
-      const page = await store.listForWallet({
+      const page = await input.store.listForWallet({
         walletId,
         lifecycleState: 'active',
         limit,
@@ -101,8 +111,18 @@ function authorityPortV1(
       } satisfies LinkedDeviceManagementAuthorityPageV1;
     },
     readByIdV1: async (authorityId: WalletAuthorityId): Promise<WalletAuthorityV1 | null> =>
-      await store.readById(authorityId),
-    revokeWalletAuthMethodV1: async (request) => await store.revokeWalletAuthMethod(request),
+      await input.store.readById(authorityId),
+    revokeWalletAuthMethodV1: async (request) =>
+      await input.store.revokeWalletAuthMethod({
+        ...request,
+        sessionRevocationStatements:
+          input.walletSessionAuthorizations.prepareRevokeReusableWalletSessionsForAuthority({
+            tenantId: input.tenantId,
+            walletId: request.walletId,
+            authorityId: request.authorityId,
+            nowMs: request.requestedAtMs,
+          }),
+      }),
   };
 }
 
