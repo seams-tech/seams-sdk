@@ -1379,19 +1379,23 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
   );
 }
 
-type RouterAbEcdsaPoolFillBinding = Omit<
+type RouterAbEcdsaActiveMaterial = Extract<
+  Awaited<ReturnType<RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation']>>,
+  { readonly ok: true }
+>;
+
+type RouterAbEcdsaPoolFillBinding =
   Pick<
-    OpaqueOwnerEcdsaWalletSessionBinding,
-    | 'walletId'
-    | 'relayerKeyId'
+    RouterAbEcdsaActiveMaterial,
     | 'keyHandle'
+    | 'relayerKeyId'
     | 'runtimePolicyScope'
     | 'participantIds'
-    | 'thresholdExpiresAtMs'
     | 'routerAbEcdsaDerivationNormalSigning'
-  >,
-  'participantIds'
-> & { readonly participantIds: number[] };
+  > & {
+    readonly walletId: string;
+    readonly thresholdExpiresAtMs: number;
+  };
 
 type RouterAbEcdsaPoolFillAuthorizationResult =
   | {
@@ -1745,7 +1749,7 @@ export async function authorizeEcdsaPoolFill(input: {
           relayerKeyId: activeMaterial.relayerKeyId,
           keyHandle: activeMaterial.keyHandle,
           runtimePolicyScope: activeMaterial.runtimePolicyScope,
-          participantIds: [...activeMaterial.participantIds],
+          participantIds: activeMaterial.participantIds,
           thresholdExpiresAtMs: session.expiresAtMs,
           routerAbEcdsaDerivationNormalSigning: normalSigning,
         },
