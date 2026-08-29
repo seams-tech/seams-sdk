@@ -58,6 +58,7 @@ function validThresholdEd25519SessionBody(): Record<string, unknown> {
     relayerKeyId: 'ed25519:relayer',
     sessionKind: 'opaque',
     sessionPolicy: validThresholdEd25519SessionPolicy(),
+    walletSessionTarget: { kind: 'new_wallet_session' },
     webauthn_authentication: validWebAuthnAuthentication(),
   };
 }

@@ -248,9 +248,7 @@ export async function mintEd25519WalletSession(args: {
         relayerKeyId: args.relayerKeyId,
         sessionPolicy: args.sessionPolicy,
         ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
-        walletSessionTarget: existingWalletSessionToken
-          ? { kind: 'reuse_ecdsa_wallet_session' }
-          : { kind: 'new_wallet_session' },
+        walletSessionTarget: { kind: 'new_wallet_session' },
         ...(webauthn_authentication ? { webauthn_authentication } : {}),
       }),
     });
