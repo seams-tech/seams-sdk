@@ -1053,7 +1053,10 @@ Primary files:
       the exact credential wallet against the path and forwards its required
       auth-method identity; the ownership service rejects an envelope naming a
       sibling method before any envelope-store access.
-- [ ] Convert registration funding/session admission.
+- [x] Convert registration funding/session admission. Implicit-NEAR funding
+      admits one exact Ed25519 operation credential, derives the wallet and
+      implicit account from its signer, and rejects missing exact state or a
+      different signer without reading the V1 opaque-token store.
 
 Primary files:
 
@@ -1565,6 +1568,9 @@ Remaining causal baseline work:
       OTP enrollment and Ed25519-subject admission, fail-closed mismatch and
       absence, zero legacy resolver reads, and the live worker-sealing helper;
       stale tests for removed route-handler exports were deleted
+- [x] `tests/unit/walletRegistrationNearFundingAdmission.unit.test.ts`, proving
+      exact operation-credential funding, signer-derived implicit-account
+      binding, fail-closed absence, and zero legacy resolver reads
 - [ ] `tests/unit/walletHostOwnerAuthority.unit.test.ts`
 - [ ] `tests/unit/walletSessionOperationCredential.unit.test.ts`
 - [ ] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
