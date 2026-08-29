@@ -847,7 +847,7 @@ and `authorizeSigningSessionSealWithExactWalletSession`.
       capability, or material disagreement.
 - [x] Remove the V1 status call from Ed25519 reuse; the exact credential read's
       active quota projection supplies expiry and remaining uses.
-- [ ] Remove the V1 status call from ECDSA activation.
+- [x] Remove the V1 status call from ECDSA activation.
 
 Primary files:
 
@@ -1180,13 +1180,13 @@ Primary persistence files:
 
 ### I9 — Public types, iframe protocol, and vocabulary (B9, B16)
 
-- [ ] Delete `ReusableWalletSessionState` from the SDK domain model.
+- [x] Delete `ReusableWalletSessionState` from the SDK domain model.
 - [x] Rename `ReusableWalletSessionMintId` and parser to
       `WalletSessionMintId` and `parseWalletSessionMintId` without an alias.
 - [x] Preserve stored `mint_id` and frozen wire `wallet_session_mint_id` names.
-- [ ] Delete reusable-session fields from the public `WalletSession` shape.
-- [ ] Delete curve-specific reusable-session signing-surface ports.
-- [ ] Delete legacy reusable-session iframe message fields.
+- [x] Delete reusable-session fields from the public `WalletSession` shape.
+- [x] Delete curve-specific reusable-session signing-surface ports.
+- [x] Delete legacy reusable-session iframe message fields.
 - [x] Bump `WALLET_PROTOCOL_VERSION`, add the host version to CONNECT, validate
       before iframe port adoption, and retain host READY validation.
 - [x] Return `WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH` for either skew direction.
