@@ -300,7 +300,7 @@ import {
   issueDirectRegistrationEstablishedEcdsaSession,
   replayDirectRegistrationEstablishedEd25519Session,
   replayDirectRegistrationEstablishedEcdsaSession,
-  reusableWalletSessionPrincipalId,
+  walletSessionPrincipalId,
 } from './walletRegistrationEstablishedSessionIssuer';
 import type { RegistrationEstablishedSessionIssuanceResultV2 } from './walletRegistrationEstablishedSessionIssuer';
 import type { CloudflareD1VersionedJsonRecordReadManyEntryV1 } from '../versionedJson/d1VersionedJsonRecordStore';
@@ -2575,7 +2575,7 @@ export class CloudflareD1WalletRegistrationService {
           const directIssue =
             await this.authorizationService.issueDirectWalletSessionAuthorizationV2({
               tenantId: this.authorizationTenantId,
-              principalId: reusableWalletSessionPrincipalId(authority),
+              principalId: walletSessionPrincipalId(authority),
               walletId: activeAuthority.authority.walletId,
               authority: activeAuthority.authority,
               walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
@@ -2903,7 +2903,7 @@ export class CloudflareD1WalletRegistrationService {
           const directIssue =
             await this.authorizationService.issueDirectWalletSessionAuthorizationV2({
               tenantId: this.authorizationTenantId,
-              principalId: reusableWalletSessionPrincipalId(authority),
+              principalId: walletSessionPrincipalId(authority),
               walletId: activeAuthority.authority.walletId,
               authority: activeAuthority.authority,
               walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,

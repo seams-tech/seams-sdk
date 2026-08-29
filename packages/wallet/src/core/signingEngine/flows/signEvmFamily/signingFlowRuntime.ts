@@ -10,7 +10,7 @@ import type { EcdsaSigningMaterialPlan, SupersededEcdsaSigningMaterial } from '.
 import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilyStepUpAuth';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
 import {
-  attachReusableEcdsaWalletSessionAuthorization,
+  attachExactEcdsaWalletSessionAuthorization,
   buildActiveWalletAuthorityReadySecp256k1Material,
   resolveHydratedSecp256k1SigningMaterial,
 } from './readySecp256k1Material';
@@ -333,7 +333,7 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
     kind: 'ready',
     value: {
       kind: 'material_from_canonical_capability',
-      material: attachReusableEcdsaWalletSessionAuthorization({
+      material: attachExactEcdsaWalletSessionAuthorization({
         material: resolution.material,
         capability: args.capability,
         authorization: args.currentAuthorization,
@@ -357,7 +357,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   onAuthSideEffectStarted?: (sideEffect: EvmFamilySigningAuthSideEffect) => void;
   signingOperation?: SigningOperationContext;
   onSigningOperationTransition?: SigningOperationTransitionObserver;
-  // The exact material identity, whether or not a reusable Wallet Session
+  // The exact material identity, whether or not an exact Wallet Session
   // authorizes it. Everything below is resolved from wallet, chain target and
   // material activation.
   getEcdsaSigningLaneIdentity: () => ExactEcdsaSigningLaneIdentity;
