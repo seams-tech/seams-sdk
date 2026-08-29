@@ -365,13 +365,13 @@ test('replaces duplicate exact V6 Wallet Session rows at the write boundary', as
       walletSessionId: 'wallet-session:linked-runtime-replacement',
     },
   });
-  expect(result.rows).toHaveLength(2);
+  expect(result.rows).toHaveLength(1);
   expect(
     result.rows.filter((row) => row.record_version === 'wallet_session_authorization_v6'),
   ).toHaveLength(1);
   expect(
     result.rows.find((row) => row.record_version === 'wallet_session_authorization_v4'),
-  ).toMatchObject({ status: 'retired' });
+  ).toBeUndefined();
 });
 
 test('retiring an exact V6 session removes its Wallet Session key', async ({ page }) => {
@@ -554,7 +554,7 @@ test('rejects a malformed V6 row during exact replacement', async ({ page }) => 
   expect(result.errorMessage).toBe('Stored Wallet Session authorization v6 is corrupt');
 });
 
-test('quarantines V3, V4, and V5 rows during exact installation', async ({ page }) => {
+test('readExact quarantines V3, V4, and V5 rows at the persistence boundary', async ({ page }) => {
   const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
   const authorityRef = buildWalletAuthAuthorityRefForAuthorityFixture(fixture.factorAuthority);
   await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
@@ -609,6 +609,14 @@ test('quarantines V3, V4, and V5 rows during exact installation', async ({ page 
           walletSessionId: 'wallet-session:quarantine-v5',
         }),
       );
+      const v3Read = await repository.readExact(legacyActive.walletSessionId);
+      const v4Read = await repository.readExact(legacyExactRetired.authorizationId);
+      const v5Read = await repository.readExact('wallet-session:quarantine-v5');
+      const quarantinedRows = {
+        v3: await db.get(storeName, legacyActive.walletSessionId),
+        v4: await db.get(storeName, legacyExactRetired.authorizationId),
+        v5: await db.get(storeName, 'wallet-session:quarantine-v5'),
+      };
       await repository.replaceExactActive({
         active: activeWalletSession,
         operationCredential,
@@ -619,12 +627,7 @@ test('quarantines V3, V4, and V5 rows during exact installation', async ({ page 
         schemaNames.SEAMS_WALLET_INDEXES.walletId,
         activeWalletSession.walletId,
       );
-      const read = await repository.readExactActiveForWallet({
-        walletId: activeWalletSession.walletId,
-        authorityId: activeWalletSession.authorityId,
-        authMethodId: activeWalletSession.authMethodId,
-      });
-      return { rows, read };
+      return { rows, v3Read, v4Read, v5Read, quarantinedRows };
     },
     {
       activeWalletSession: fixture.activeWalletSession,
@@ -634,28 +637,118 @@ test('quarantines V3, V4, and V5 rows during exact installation', async ({ page 
     },
   );
 
-  expect(result.rows).toHaveLength(4);
-  expect(result.rows).toContainEqual(
-    expect.objectContaining({
-      record: expect.objectContaining({
-        recordVersion: 'wallet_session_authorization_v3',
-      }),
-    }),
+  expect(result.v3Read).toBeNull();
+  expect(result.v4Read).toBeNull();
+  expect(result.v5Read).toBeNull();
+  expect(result.quarantinedRows).toEqual({ v3: undefined, v4: undefined, v5: undefined });
+  expect(result.rows).toHaveLength(1);
+  expect(result.rows[0]).toMatchObject({
+    record_version: 'wallet_session_authorization_v6',
+    status: 'active',
+  });
+});
+
+test('readExactActiveForWallet quarantines legacy rows and preserves a matching future row', async ({
+  page,
+}) => {
+  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  const authorityRef = buildWalletAuthAuthorityRefForAuthorityFixture(fixture.factorAuthority);
+  await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+
+  const result = await page.evaluate(
+    async ({ activeWalletSession, authorityRef, walletSessionToken, operationCredential }) => {
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const repositoryModule =
+        await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore.js');
+      const dbName = schemaNames.createSeamsTestWalletDbName(
+        `quarantine_active_legacy_${crypto.randomUUID()}`,
+      );
+      const manager = new managerModule.SeamsWalletDBManager();
+      manager.setDbName(dbName);
+      const repository = new repositoryModule.WalletSessionAuthorizationRepository(manager);
+      await repository.writeExactWithOperationCredential({
+        record: activeWalletSession,
+        operationCredential,
+      });
+      const legacyActive = repositoryModule.buildActiveWalletSessionAuthorizationProjection({
+        walletId: activeWalletSession.walletId,
+        walletSessionId: 'wallet-session:active-quarantine-v3',
+        quotaId: 'wallet-quota:active-quarantine-v3',
+        walletSessionTokens: {
+          kind: 'near_ed25519',
+          ed25519: {
+            authorizationId: 'authorization:active-quarantine-v3',
+            walletSessionToken,
+            thresholdSessionId: 'threshold-ed25519:linked-runtime',
+          },
+        },
+        authMethod: 'passkey',
+        authority: authorityRef,
+        expiresAtMs: activeWalletSession.expiresAtMs,
+      });
+      const legacyRetired = repositoryModule.retireWalletSessionAuthorizationProjection({
+        active: legacyActive,
+        reason: 'replaced',
+        retiredAtMs: activeWalletSession.expiresAtMs,
+      });
+      const legacyExactRetired = repositoryModule.retireWalletSessionV1({
+        active: activeWalletSession,
+        reason: 'replaced',
+        retiredAtMs: activeWalletSession.expiresAtMs,
+      });
+      const storeName = schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations;
+      const db = await manager.getDB();
+      await repository.write(legacyRetired);
+      await repository.writeExact(legacyExactRetired);
+      await db.put(
+        storeName,
+        repositoryModule.toStoredExactWalletSessionAuthorizationRowV5(activeWalletSession, {
+          kind: 'opaque_wallet_session_operation_credential_v1',
+          token: `wst_${'A'.repeat(43)}`,
+          walletSessionId: 'wallet-session:active-quarantine-v5',
+        }),
+      );
+      const future = {
+        record_version: 'wallet_session_authorization_v7',
+        wallet_session_id: 'wallet-session:active-quarantine-future',
+        wallet_id: activeWalletSession.walletId,
+        wallet_authority_id: activeWalletSession.authorityId,
+        wallet_auth_method_id: activeWalletSession.authMethodId,
+        future_payload: { preserved: true, marker: 'active-quarantine' },
+      };
+      await db.put(storeName, future);
+      const read = await repository.readExactActiveForWallet({
+        walletId: activeWalletSession.walletId,
+        authorityId: activeWalletSession.authorityId,
+        authMethodId: activeWalletSession.authMethodId,
+      });
+      return {
+        read,
+        future,
+        persistedFuture: await db.get(storeName, future.wallet_session_id),
+        legacyRows: {
+          v3: await db.get(storeName, legacyActive.walletSessionId),
+          v4: await db.get(storeName, legacyExactRetired.authorizationId),
+          v5: await db.get(storeName, 'wallet-session:active-quarantine-v5'),
+        },
+        current: await db.get(storeName, operationCredential.walletSessionId),
+      };
+    },
+    {
+      activeWalletSession: fixture.activeWalletSession,
+      authorityRef,
+      walletSessionToken: fixture.operationCredential.token,
+      operationCredential: fixture.operationCredential,
+    },
   );
-  expect(
-    result.rows
-      .map((row) => row.record_version)
-      .filter(Boolean)
-      .sort(),
-  ).toEqual([
-    'wallet_session_authorization_v4',
-    'wallet_session_authorization_v5',
-    'wallet_session_authorization_v6',
-  ]);
-  expect(result.read).toEqual({
-    kind: 'found',
-    record: fixture.activeWalletSession,
-    operationCredential: fixture.operationCredential,
+
+  expect(result.read).toEqual({ kind: 'upgrade_required' });
+  expect(result.persistedFuture).toEqual(result.future);
+  expect(result.legacyRows).toEqual({ v3: undefined, v4: undefined, v5: undefined });
+  expect(result.current).toMatchObject({
+    record_version: 'wallet_session_authorization_v6',
+    status: 'active',
   });
 });
 
@@ -692,16 +785,24 @@ test('returns upgrade_required and preserves a future exact Wallet Session row',
         authorityId: activeWalletSession.authorityId,
         authMethodId: activeWalletSession.authMethodId,
       });
+      let directReadWasUpgradeRequired = false;
+      try {
+        await repository.readExact(future.wallet_session_id);
+      } catch (error) {
+        directReadWasUpgradeRequired =
+          error instanceof repositoryModule.WalletSessionAuthorizationUpgradeRequiredError;
+      }
       const persisted = await db.get(
         schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations,
         future.wallet_session_id,
       );
-      return { read, future, persisted };
+      return { read, directReadWasUpgradeRequired, future, persisted };
     },
     { activeWalletSession: fixture.activeWalletSession },
   );
 
   expect(result.read).toEqual({ kind: 'upgrade_required' });
+  expect(result.directReadWasUpgradeRequired).toBe(true);
   expect(result.persisted).toEqual(result.future);
 });
 
@@ -978,7 +1079,9 @@ test('preserves unknown future rows across legacy Wallet Session writers', async
   );
 });
 
-test('contains late legacy and future rows during exact V6 replacement', async ({ page }) => {
+test('replaceExactActive deletes late legacy rows while preserving sibling and future rows', async ({
+  page,
+}) => {
   const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
   const authorityRef = buildWalletAuthAuthorityRefForAuthorityFixture(fixture.factorAuthority);
   await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
@@ -996,6 +1099,27 @@ test('contains late legacy and future rows during exact V6 replacement', async (
       await repository.writeExactWithOperationCredential({
         record: activeWalletSession,
         operationCredential,
+      });
+      const sibling = repositoryModule.buildActiveWalletSessionV1({
+        walletId: activeWalletSession.walletId,
+        authorityId: activeWalletSession.authorityId,
+        authMethodId: 'wallet-auth-method:late-sibling',
+        authorizationId: 'authorization:late-sibling',
+        quotaId: 'wallet-quota:late-sibling',
+        authorityDigestB64u: activeWalletSession.authorityDigestB64u,
+        authorityRevocationEpoch: activeWalletSession.authorityRevocationEpoch,
+        capabilitySubjects: activeWalletSession.capabilitySubjects,
+        issuedAtMs: activeWalletSession.issuedAtMs,
+        expiresAtMs: activeWalletSession.expiresAtMs,
+      });
+      const siblingCredential = {
+        kind: 'opaque_wallet_session_operation_credential_v1' as const,
+        token: `wst_${'S'.repeat(43)}`,
+        walletSessionId: 'wallet-session:late-sibling',
+      };
+      await repository.writeExactWithOperationCredential({
+        record: sibling,
+        operationCredential: siblingCredential,
       });
       const legacyActive = repositoryModule.buildActiveWalletSessionAuthorizationProjection({
         walletId: activeWalletSession.walletId,
@@ -1080,7 +1204,19 @@ test('contains late legacy and future rows during exact V6 replacement', async (
       );
       const legacyRaw = await db.get(storeName, legacy.walletSessionId);
       const futureRaw = await db.get(storeName, future.wallet_session_id);
-      return { rows, legacy, legacyRaw, future, futureRaw, latest, latestCredential };
+      const siblingRaw = await db.get(storeName, siblingCredential.walletSessionId);
+      return {
+        rows,
+        legacy,
+        legacyRaw,
+        future,
+        futureRaw,
+        sibling,
+        siblingCredential,
+        siblingRaw,
+        latest,
+        latestCredential,
+      };
     },
     {
       activeWalletSession: fixture.activeWalletSession,
@@ -1090,30 +1226,23 @@ test('contains late legacy and future rows during exact V6 replacement', async (
     },
   );
 
-  expect(result.legacyRaw).toMatchObject({
-    wallet_session_id: result.legacy.walletSessionId,
-    wallet_id: result.legacy.walletId,
-    status: result.legacy.status,
-    expires_at_ms: result.legacy.expiresAtMs,
-    record: result.legacy,
-  });
+  expect(result.legacyRaw).toBeUndefined();
   expect(result.futureRaw).toEqual(result.future);
-  expect(result.rows).toHaveLength(5);
+  expect(result.siblingRaw).toMatchObject({
+    record_version: 'wallet_session_authorization_v6',
+    wallet_session_id: result.siblingCredential.walletSessionId,
+    authorization_id: result.sibling.authorizationId,
+    wallet_auth_method_id: result.sibling.authMethodId,
+  });
+  expect(result.rows).toHaveLength(4);
   expect(
     result.rows.filter((row) => row.record_version === 'wallet_session_authorization_v6'),
-  ).toHaveLength(1);
+  ).toHaveLength(2);
   expect(result.rows).toContainEqual(
     expect.objectContaining({
       record_version: 'wallet_session_authorization_v6',
       status: 'active',
       wallet_session_id: 'wallet-session:late-v4-replacement',
-    }),
-  );
-  expect(result.rows).toContainEqual(
-    expect.objectContaining({
-      record_version: 'wallet_session_authorization_v4',
-      status: 'retired',
-      wallet_session_id: 'authorization:linked-runtime',
     }),
   );
   expect(result.rows).toContainEqual(

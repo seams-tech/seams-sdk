@@ -803,6 +803,13 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
+function storedWalletSessionRowKey(value: unknown): string {
+  if (!isRecord(value) || typeof value.wallet_session_id !== 'string') {
+    throw new Error('Stored Wallet Session authorization key is invalid');
+  }
+  return value.wallet_session_id;
+}
+
 async function settleAbortedTransaction(transaction: {
   readonly done: Promise<unknown>;
 }): Promise<void> {
@@ -1480,8 +1487,38 @@ export class WalletSessionAuthorizationRepository {
     walletSessionId: WalletSessionId,
   ): Promise<WalletSessionAuthorizationRecordV4 | null> {
     const db = await this.manager.getDB();
-    const raw = await db.get(STORE, walletSessionId);
-    return parseStoredExactWalletSessionAuthorizationRowV6(raw)?.record ?? null;
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    try {
+      const raw = await store.get(walletSessionId);
+      if (raw === undefined) {
+        await tx.done;
+        return null;
+      }
+      if (isFutureWalletSessionAuthorizationRow(raw)) {
+        throw new WalletSessionAuthorizationUpgradeRequiredError(
+          'Wallet Session authorization requires a newer client',
+        );
+      }
+      if (isKnownLegacyWalletSessionAuthorizationRow(raw)) {
+        await store.delete(storedWalletSessionRowKey(raw));
+        await tx.done;
+        return null;
+      }
+      if (!isStoredExactWalletSessionAuthorizationRowV6(raw)) {
+        throw new Error('Stored Wallet Session authorization v6 is corrupt');
+      }
+      const parsed = parseStoredExactWalletSessionAuthorizationRowV6(raw);
+      if (!parsed) throw new Error('Stored Wallet Session authorization v6 is corrupt');
+      await tx.done;
+      return parsed.record;
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {}
+      await settleAbortedTransaction(tx);
+      throw error;
+    }
   }
 
   async readExactWithOperationCredential(input: {
@@ -1509,40 +1546,69 @@ export class WalletSessionAuthorizationRepository {
   }): Promise<WalletSessionAuthorizationExactActiveReadResult> {
     try {
       const db = await this.manager.getDB();
-      const rows = await db.getAllFromIndex(STORE, SEAMS_WALLET_INDEXES.walletId, input.walletId);
-      let match: {
-        readonly record: ActiveWalletSessionV1;
-        readonly operationCredential: WalletSessionOperationCredentialV1;
-      } | null = null;
-      let upgradeRequired = false;
-      for (const raw of rows) {
-        if (futureWalletSessionAuthorizationRowMatchesExactScope(raw, input)) {
-          upgradeRequired = true;
-          continue;
+      const tx = db.transaction(STORE, 'readwrite');
+      const store = tx.objectStore(STORE);
+      try {
+        const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(input.walletId);
+        let match: {
+          readonly record: ActiveWalletSessionV1;
+          readonly operationCredential: WalletSessionOperationCredentialV1;
+        } | null = null;
+        let upgradeRequired = false;
+        let corrupt = false;
+        for (const raw of rows) {
+          if (futureWalletSessionAuthorizationRowMatchesExactScope(raw, input)) {
+            upgradeRequired = true;
+            continue;
+          }
+          if (isKnownLegacyWalletSessionAuthorizationRow(raw)) {
+            await store.delete(storedWalletSessionRowKey(raw));
+            continue;
+          }
+          if (!isStoredExactWalletSessionAuthorizationRowV6(raw)) {
+            corrupt = true;
+            break;
+          }
+          const parsed = parseStoredExactWalletSessionAuthorizationRowV6(raw);
+          if (!parsed) {
+            corrupt = true;
+            break;
+          }
+          if (
+            parsed.record.walletId !== input.walletId ||
+            parsed.record.authorityId !== input.authorityId ||
+            parsed.record.authMethodId !== input.authMethodId
+          ) {
+            continue;
+          }
+          if (match) {
+            corrupt = true;
+            break;
+          }
+          match = parsed;
         }
-        if (isKnownLegacyWalletSessionAuthorizationRow(raw)) continue;
-        if (!isStoredExactWalletSessionAuthorizationRowV6(raw)) continue;
-        const parsed = parseStoredExactWalletSessionAuthorizationRowV6(raw);
-        if (!parsed) {
+        if (corrupt) {
+          try {
+            tx.abort();
+          } catch {}
+          await settleAbortedTransaction(tx);
           return { kind: 'corrupt' };
         }
-        if (
-          parsed.record.walletId !== input.walletId ||
-          parsed.record.authorityId !== input.authorityId ||
-          parsed.record.authMethodId !== input.authMethodId
-        ) {
-          continue;
-        }
-        if (match) return { kind: 'corrupt' };
-        match = parsed;
+        await tx.done;
+        if (upgradeRequired) return { kind: 'upgrade_required' };
+        if (!match) return { kind: 'missing' };
+        return {
+          kind: 'found',
+          record: match.record,
+          operationCredential: match.operationCredential,
+        };
+      } catch {
+        try {
+          tx.abort();
+        } catch {}
+        await settleAbortedTransaction(tx);
+        return { kind: 'persistence_unavailable' };
       }
-      if (upgradeRequired) return { kind: 'upgrade_required' };
-      if (!match) return { kind: 'missing' };
-      return {
-        kind: 'found',
-        record: match.record,
-        operationCredential: match.operationCredential,
-      };
     } catch {
       return { kind: 'persistence_unavailable' };
     }
@@ -1614,7 +1680,10 @@ export class WalletSessionAuthorizationRepository {
       const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(incoming.walletId);
       for (const raw of rows) {
         if (isFutureWalletSessionAuthorizationRow(raw)) continue;
-        if (isKnownLegacyWalletSessionAuthorizationRow(raw)) continue;
+        if (isKnownLegacyWalletSessionAuthorizationRow(raw)) {
+          await store.delete(storedWalletSessionRowKey(raw));
+          continue;
+        }
         if (!isStoredExactWalletSessionAuthorizationRowV6(raw)) {
           if (!parseStoredRow(raw)) {
             tx.abort();
