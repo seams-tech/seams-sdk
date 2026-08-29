@@ -707,6 +707,9 @@ Primary files:
 - [x] Convert the Passkey Ed25519-only deferred-NEAR registration caller to the
       publication primitive, including custody material, and prove a late
       key-material failure exposes no partial wallet before a successful retry.
+- [x] Convert the Email OTP Ed25519-only deferred-NEAR registration caller to
+      the same publication primitive, including custody material, and prove the
+      same rollback-and-retry behavior through the production batch builder.
 - [x] Replace activation and deferred-provisioning completion rows with
       `WalletRegistrationSessionCommitReceiptV2`.
 - [ ] Use one committed installation projection for compatibility replay and
