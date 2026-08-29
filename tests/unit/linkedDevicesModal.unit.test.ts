@@ -337,6 +337,45 @@ test.describe('linked devices modal lifecycle', () => {
     });
   });
 
+  test('uses a quick opacity-only entrance with the recovery modal backdrop', async ({ page }) => {
+    const components = [
+      { kind: 'authentication_methods' as const, name: 'Authentication methods' },
+      { kind: 'linked_devices' as const, name: 'Your devices' },
+    ];
+
+    for (const component of components) {
+      await renderModal(page, {
+        component: component.kind,
+        devices: [],
+        revokeOutcomes: [],
+      });
+
+      const dialog = page.getByRole('dialog', { name: component.name });
+      await expect(dialog).toBeVisible();
+      const styles = await dialog.evaluate((element) => {
+        const content = getComputedStyle(element);
+        const backdropElement = element.parentElement;
+        if (!backdropElement) throw new Error('Modal backdrop missing');
+        const backdrop = getComputedStyle(backdropElement);
+        return {
+          backdropColor: backdrop.backgroundColor,
+          backdropFilter: backdrop.backdropFilter,
+          backdropAnimationDuration: backdrop.animationDuration,
+          contentAnimationDuration: content.animationDuration,
+          contentTransform: content.transform,
+        };
+      });
+
+      expect(styles).toEqual({
+        backdropColor: 'rgba(0, 0, 0, 0.26)',
+        backdropFilter: 'none',
+        backdropAnimationDuration: '0.12s',
+        contentAnimationDuration: '0.12s',
+        contentTransform: 'none',
+      });
+    }
+  });
+
   test('offers the missing family for the selected authority', async ({ page }) => {
     const passkeyOwner = ownerDeviceFixture('Original passkey');
     await renderModal(page, {
