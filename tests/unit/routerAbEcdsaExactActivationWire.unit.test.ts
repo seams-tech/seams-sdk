@@ -1,9 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
-  parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
-import { WALLET_SESSION_CLIENT_CAPABILITY_V1 } from '@shared/authorization/capabilityKinds';
+import { parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { createEcdsaSessionActivationFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 test('ECDSA activation wire carries an exact session and its primary operation credential', () => {
@@ -13,9 +9,7 @@ test('ECDSA activation wire carries an exact session and its primary operation c
     sessionId: 'ecdsa-exact-activation',
   });
 
-  expect(fixture.request.wallet_session_client_capability).toBe(
-    WALLET_SESSION_CLIENT_CAPABILITY_V1,
-  );
+  expect(fixture.request).not.toHaveProperty('wallet_session_client_capability');
   expect(fixture.response.session.wallet_session.authorizationId).toBe(
     fixture.response.session.authorization_id,
   );
@@ -23,22 +17,6 @@ test('ECDSA activation wire carries an exact session and its primary operation c
     fixture.response.session.wallet_session_id,
   );
   expect(fixture.response.session.operation_credential.token).toMatch(/^wst_[A-Za-z0-9_-]{43}$/);
-});
-
-test('ECDSA activation request rejects clients without the direct exact capability', () => {
-  const fixture = createEcdsaSessionActivationFixture({
-    walletId: 'ecdsa-capability.testnet',
-    chain: 'tempo',
-    sessionId: 'ecdsa-capability',
-  });
-
-  expect(() =>
-    parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1({
-      kind: fixture.request.kind,
-      public_capability: fixture.request.public_capability,
-      session_policy: fixture.request.session_policy,
-    }),
-  ).toThrow(/wallet_session_client_capability/);
 });
 
 test('ECDSA activation response rejects legacy bearers and mismatched exact material', () => {

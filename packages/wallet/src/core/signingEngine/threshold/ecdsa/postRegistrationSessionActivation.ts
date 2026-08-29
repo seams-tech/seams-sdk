@@ -12,10 +12,7 @@ import {
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { base64UrlDecode } from '@shared/utils/base64';
 import type { ThresholdEcdsaSessionId } from '@shared/utils/domainIds';
-import {
-  WALLET_SESSION_CLIENT_CAPABILITY_V1,
-  type ReusableWalletSessionMintId,
-} from '@shared/authorization/capabilityKinds';
+import type { ReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
 import type {
   EcdsaRoleLocalPersistedMaterialRef,
   EcdsaRoleLocalWorkerHandle,
@@ -84,7 +81,6 @@ export function buildStrictEcdsaPostRegistrationSessionActivationRequest(input: 
 }): RouterAbEcdsaPostRegistrationSessionActivationRequestV1 {
   return parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1({
     kind: 'router_ab_ecdsa_post_registration_session_activation_v1',
-    wallet_session_client_capability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
     public_capability: input.publicCapability,
     session_policy: {
       threshold_session_id: input.thresholdSessionId,

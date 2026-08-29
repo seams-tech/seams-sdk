@@ -57,7 +57,6 @@ import type {
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
-  WALLET_SESSION_CLIENT_CAPABILITY_V1,
   parseMpcWalletSigningQuotaId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -2221,7 +2220,6 @@ function walletRegistrationActivateBody(
     kind: args.signerPlanKind,
     signedSetup: args.signedSetup,
     idempotencyKey: args.idempotencyKey,
-    walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
   };
   if (args.ecdsa) body.ecdsa = args.ecdsa;
   if (args.emailOtpEnrollment) body.emailOtpEnrollment = args.emailOtpEnrollment;
@@ -2376,7 +2374,6 @@ export async function completeWalletRegistrationNearProvisioning(args: {
     registrationCeremonyId: args.registrationCeremonyId,
     signedSetup: args.signedSetup,
     idempotencyKey: args.idempotencyKey,
-    walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
     ed25519: args.ed25519,
   };
 

@@ -40,7 +40,6 @@ import {
 import {
   EVM_ECDSA_MPC_OPERATION_KINDS,
   parseMpcWalletSigningQuotaId,
-  parseWalletSessionClientCapabilityV1,
   parseReusableWalletSessionMintId,
   parseEcdsaAuthorizationSessionId,
   parseWalletSessionAuthorizationId,
@@ -50,7 +49,6 @@ import {
   type ReusableWalletSessionMintId,
   type EcdsaAuthorizationSessionId,
   type WalletSessionAuthorizationId,
-  type WalletSessionClientCapabilityV1,
   type WalletSessionId,
 } from '../authorization/capabilityKinds';
 import type {
@@ -391,7 +389,6 @@ export type RouterAbEcdsaPostRegistrationSessionActivationPolicyV1 = {
 
 export type RouterAbEcdsaPostRegistrationSessionActivationRequestV1 = {
   kind: 'router_ab_ecdsa_post_registration_session_activation_v1';
-  wallet_session_client_capability: WalletSessionClientCapabilityV1;
   public_capability: RouterAbEcdsaDerivationPublicCapabilityV1;
   session_policy: RouterAbEcdsaPostRegistrationSessionPolicyV1;
 };
@@ -998,15 +995,6 @@ function requireAsciiNonEmptyString(value: unknown, label: string): string {
   if (!parsed) throw new Error(`${label} is required`);
   if (!/^[\x20-\x7e]+$/.test(parsed)) throw new Error(`${label} must be printable ASCII`);
   return parsed;
-}
-
-function requireWalletSessionClientCapability(
-  value: unknown,
-  label: string,
-): WalletSessionClientCapabilityV1 {
-  const parsed = parseWalletSessionClientCapabilityV1(value);
-  if (!parsed.ok) throw new Error(`${label} is invalid: ${parsed.error.message}`);
-  return parsed.value;
 }
 
 function requireRootShareEpoch(value: unknown, label: string): RootShareEpoch {
@@ -2340,22 +2328,13 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
 ): RouterAbEcdsaPostRegistrationSessionActivationRequestV1 {
   const label = 'postRegistrationSessionActivation';
   const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
-    'kind',
-    'wallet_session_client_capability',
-    'public_capability',
-    'session_policy',
-  ]);
+  requireExactKeys(record, label, ['kind', 'public_capability', 'session_policy']);
   if (record.kind !== 'router_ab_ecdsa_post_registration_session_activation_v1') {
     throw new Error(`${label}.kind is invalid`);
   }
   const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(record.public_capability);
   return {
     kind: 'router_ab_ecdsa_post_registration_session_activation_v1',
-    wallet_session_client_capability: requireWalletSessionClientCapability(
-      record.wallet_session_client_capability,
-      `${label}.wallet_session_client_capability`,
-    ),
     public_capability: publicCapability,
     session_policy: parsePostRegistrationSessionPolicy(record.session_policy),
   };
