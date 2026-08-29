@@ -13,6 +13,7 @@ import type {
   PersistedHostedWalletSeamsSessionExchangeV2Result,
   RedeemHostedWalletSeamsSessionExchangeV2Input,
   RedeemHostedWalletSeamsSessionExchangeV2Result,
+  ExactWalletSessionStatusV2,
   ResolvedHostedWalletSessionOperationCredentialV2,
   ReusableWalletSessionStatus,
   SessionOrigin,
@@ -184,6 +185,11 @@ export interface AuthorizationGrantPort {
     readonly tokenHash: DigestB64u;
     readonly nowMs: number;
   }): Promise<IssuedWalletSessionAuthorizationV2 | null>;
+  readExactWalletSessionStatusByOperationCredential(input: {
+    readonly tenantId: TenantId;
+    readonly tokenHash: DigestB64u;
+    readonly nowMs: number;
+  }): Promise<ExactWalletSessionStatusV2>;
   putOpaqueWalletSessionToken(input: {
     readonly tokenHash: DigestB64u;
     readonly curve: OpaqueWalletSessionCurve;
@@ -1077,6 +1083,24 @@ export class AuthorizationService {
     readonly nowMs: number;
   }): Promise<IssuedWalletSessionAuthorizationV2 | null> {
     return await this.ports.grants.readWalletSessionAuthorizationV2ByOperationCredential({
+      tenantId: input.tenantId,
+      tokenHash: await digestOpaqueValue(input.token),
+      nowMs: input.nowMs,
+    });
+  }
+
+  /**
+   * Resolves the exact `/wallet/session/status` lifecycle. A credential from
+   * another family never reaches persistence: only the primary `wst_` token
+   * names a V2 authorization, so anything else is absent by construction.
+   */
+  async readExactWalletSessionStatusByOperationCredential(input: {
+    readonly tenantId: TenantId;
+    readonly token: string;
+    readonly nowMs: number;
+  }): Promise<ExactWalletSessionStatusV2> {
+    if (!/^wst_[A-Za-z0-9_-]{43}$/.test(input.token)) return { kind: 'missing' };
+    return await this.ports.grants.readExactWalletSessionStatusByOperationCredential({
       tenantId: input.tenantId,
       tokenHash: await digestOpaqueValue(input.token),
       nowMs: input.nowMs,

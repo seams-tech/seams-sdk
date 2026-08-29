@@ -814,14 +814,22 @@ and `authorizeSigningSessionSealWithExactWalletSession`.
 - [x] Make `/wallet/session/status` resolve only exact operation credentials in
       the final worker. Exact absence returns `invalid`, tuple mismatch fails
       closed, and neither curve-token probing nor V1 status lookup remains.
-- [ ] Return the complete digest-free authorization and quota lifecycle from
-      the active status branch.
-- [ ] Validate immutable authorization, Wallet Session, quota, authority, and
-      method identities against the credential-bound request.
+- [x] Return the complete digest-free authorization and quota lifecycle from
+      the active status branch. Every branch that observed a stored
+      authorization publishes `ActiveWalletSessionV1` plus the quota
+      projection; the credential digest stays in persistence.
+- [x] Validate immutable authorization, Wallet Session, quota, authority, and
+      method identities against the credential-bound request. Persistence
+      validates the authorization against its own authority, method, quota, and
+      capability rows; the route validates tenant and the requested
+      Wallet Session/quota tuple against the credential-resolved projection.
 - [ ] Reconcile stale browser records during bootstrap and after lost promotion
       responses before publishing the promoted runtime.
-- [ ] Return typed missing, expired, exhausted, retired, authority-unavailable,
+- [x] Return typed missing, expired, exhausted, retired, authority-unavailable,
       method-unavailable, and capability-unavailable results from persistence.
+      `readExactWalletSessionStatusByOperationCredential` returns
+      `ExactWalletSessionStatusV2`; exceptions remain reserved for corrupt rows,
+      disagreeing columns, and broken foreign-key identity.
 - [ ] Convert fully scoped `isAuthorizedOperationSourceActive` rows to V2 exact
       lookup.
 - [ ] Delete the all-null-scope V1 source-activity branch and reject partial or
@@ -1645,8 +1653,12 @@ Remaining causal baseline work:
 - [ ] Bootstrap quarantine test for observed V3/V4/V5 rows.
 - [ ] Shared-IndexedDB tests for future-row preservation, terminal
       `upgrade_required`, legacy-row quarantine, and final-reader containment.
-- [ ] Typed lifecycle tests for missing, expired, exhausted, retired,
+- [x] Typed lifecycle tests for missing, expired, exhausted, retired,
       method-revoked, authority-revoked, and capability-unavailable results.
+      `tests/unit/walletSessionStatusExactLifecycle.unit.test.ts` proves them
+      against seeded signer D1 rows;
+      `tests/unit/walletSessionStatusExactAdmission.unit.test.ts` proves the
+      wire projection each one publishes.
 - [ ] Authorized-operation full-scope claim and exact replay tests.
 - [ ] Hosted nominal-type, disjoint-prefix, issue/redeem/use Origin,
       iframe-parent Origin, authoritative wallet-origin, quota, parent lifecycle,

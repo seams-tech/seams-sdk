@@ -4,8 +4,14 @@ import {
   type MpcWalletSigningQuotaId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
-import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
+import {
+  parseActiveWalletSessionV1,
+  parseWalletSessionOperationCredentialV1,
+} from '@shared/device-linking/parsers';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '@shared/device-linking/contracts';
 import {
   buildBearerAuthorizationHeader,
   buildRelayerJsonPostRequestInit,
@@ -19,26 +25,60 @@ type ReusableWalletSessionStatusIdentity = {
   readonly quotaId: MpcWalletSigningQuotaId;
 };
 
+/** The quota facts every observed status carries, whatever its lifecycle. */
+type ObservedWalletSessionQuotaFacts = {
+  readonly remainingUses: number;
+  readonly expiresAtMs: number;
+  readonly quotaLifecycle: 'active' | 'exhausted';
+};
+
+/**
+ * The facts an observed status carries: the server's complete digest-free
+ * authorization projection alongside its quota, so a reader reconciles its own
+ * record from the same read that reports the lifecycle.
+ */
+type ObservedWalletSessionStatusFacts = ObservedWalletSessionQuotaFacts & {
+  readonly authorization: ActiveWalletSessionV1;
+};
+
+/**
+ * The quota facts a caller can assemble locally from an already-resolved
+ * authorization, without a status read. This is deliberately narrower than a
+ * status response: it makes no claim about the server's current projection.
+ */
+export type ActiveWalletSessionQuotaStatusV1 = ReusableWalletSessionStatusIdentity & {
+  readonly status: 'active';
+  readonly remainingUses: number;
+  readonly expiresAtMs: number;
+};
+
+/**
+ * Every branch that observed a stored authorization carries it in full. The two
+ * terminal branches name no authorization the caller can reconcile against and
+ * cannot carry one.
+ */
 export type ReusableWalletSessionStatus =
+  | (ActiveWalletSessionQuotaStatusV1 & ObservedWalletSessionStatusFacts)
+  | (ReusableWalletSessionStatusIdentity &
+      ObservedWalletSessionStatusFacts & {
+        readonly status: 'exhausted';
+        readonly remainingUses: 0;
+      })
+  | (ReusableWalletSessionStatusIdentity &
+      ObservedWalletSessionStatusFacts & {
+        readonly status:
+          | 'expired'
+          | 'superseded'
+          | 'authority_unavailable'
+          | 'method_unavailable'
+          | 'capability_unavailable';
+      })
   | (ReusableWalletSessionStatusIdentity & {
-      readonly status: 'active';
-      readonly remainingUses: number;
-      readonly expiresAtMs: number;
-    })
-  | (ReusableWalletSessionStatusIdentity & {
-      readonly status: 'exhausted';
-      readonly remainingUses: 0;
-      readonly expiresAtMs: number;
-    })
-  | (ReusableWalletSessionStatusIdentity & {
-      readonly status: 'expired';
-      readonly expiresAtMs: number;
-      readonly remainingUses?: never;
-    })
-  | (ReusableWalletSessionStatusIdentity & {
-      readonly status: 'superseded' | 'missing' | 'invalid';
+      readonly status: 'missing' | 'invalid';
       readonly remainingUses?: never;
       readonly expiresAtMs?: never;
+      readonly quotaLifecycle?: never;
+      readonly authorization?: never;
     });
 
 export interface ReusableWalletSessionStatusPort {
@@ -57,15 +97,16 @@ const statusReadsByFetch = new WeakMap<
   Map<string, Promise<ReusableWalletSessionStatus>>
 >();
 
-const ACTIVE_FIELDS = [
+const OBSERVED_FIELDS = [
   'ok',
   'status',
   'walletSessionId',
   'quotaId',
   'remainingUses',
   'expiresAtMs',
+  'quotaLifecycle',
+  'authorization',
 ] as const;
-const EXPIRED_FIELDS = ['ok', 'status', 'walletSessionId', 'quotaId', 'expiresAtMs'] as const;
 const TERMINAL_FIELDS = ['ok', 'status', 'walletSessionId', 'quotaId'] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -101,6 +142,39 @@ function parseIdentity(
   };
 }
 
+function isNonnegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+/**
+ * Reads the facts every observed branch carries. The authorization must be a
+ * complete `ActiveWalletSessionV1` naming the quota the caller asked about, and
+ * the quota lifecycle must agree with its own remaining-use count.
+ */
+function parseObservedStatusFacts(
+  value: Record<string, unknown>,
+  identity: ReusableWalletSessionStatusIdentity,
+): ObservedWalletSessionStatusFacts | null {
+  if (!hasExactFields(value, OBSERVED_FIELDS)) return null;
+  if (value.quotaLifecycle !== 'active' && value.quotaLifecycle !== 'exhausted') return null;
+  if (!isNonnegativeSafeInteger(value.remainingUses)) return null;
+  if ((value.quotaLifecycle === 'exhausted') !== (value.remainingUses === 0)) return null;
+  if (!isPositiveSafeInteger(value.expiresAtMs)) return null;
+  let authorization: ActiveWalletSessionV1;
+  try {
+    authorization = parseActiveWalletSessionV1(value.authorization);
+  } catch {
+    return null;
+  }
+  if (authorization.quotaId !== identity.quotaId) return null;
+  return {
+    remainingUses: value.remainingUses,
+    expiresAtMs: value.expiresAtMs,
+    quotaLifecycle: value.quotaLifecycle,
+    authorization,
+  };
+}
+
 export function parseReusableWalletSessionStatusResponse(
   value: unknown,
   expected: ReusableWalletSessionStatusIdentity,
@@ -109,44 +183,24 @@ export function parseReusableWalletSessionStatusResponse(
   const identity = parseIdentity(value, expected);
   if (!identity) return null;
   switch (value.status) {
-    case 'active':
-      if (
-        !hasExactFields(value, ACTIVE_FIELDS) ||
-        !isPositiveSafeInteger(value.remainingUses) ||
-        !isPositiveSafeInteger(value.expiresAtMs)
-      ) {
-        return null;
-      }
-      return {
-        status: 'active',
-        ...identity,
-        remainingUses: value.remainingUses,
-        expiresAtMs: value.expiresAtMs,
-      };
-    case 'exhausted':
-      if (
-        !hasExactFields(value, ACTIVE_FIELDS) ||
-        value.remainingUses !== 0 ||
-        !isPositiveSafeInteger(value.expiresAtMs)
-      ) {
-        return null;
-      }
-      return {
-        status: 'exhausted',
-        ...identity,
-        remainingUses: 0,
-        expiresAtMs: value.expiresAtMs,
-      };
+    case 'active': {
+      const facts = parseObservedStatusFacts(value, identity);
+      if (!facts || facts.quotaLifecycle !== 'active') return null;
+      return { status: 'active', ...identity, ...facts };
+    }
+    case 'exhausted': {
+      const facts = parseObservedStatusFacts(value, identity);
+      if (!facts || facts.remainingUses !== 0) return null;
+      return { status: 'exhausted', ...identity, ...facts, remainingUses: 0 };
+    }
     case 'expired':
-      if (!hasExactFields(value, EXPIRED_FIELDS) || !isPositiveSafeInteger(value.expiresAtMs)) {
-        return null;
-      }
-      return {
-        status: 'expired',
-        ...identity,
-        expiresAtMs: value.expiresAtMs,
-      };
     case 'superseded':
+    case 'authority_unavailable':
+    case 'method_unavailable':
+    case 'capability_unavailable': {
+      const facts = parseObservedStatusFacts(value, identity);
+      return facts ? { status: value.status, ...identity, ...facts } : null;
+    }
     case 'missing':
     case 'invalid':
       return hasExactFields(value, TERMINAL_FIELDS) ? { status: value.status, ...identity } : null;

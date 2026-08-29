@@ -310,6 +310,7 @@ import type {
   HostedWalletSeamsSessionExchangeDeliveryV2,
   RedeemHostedWalletSeamsSessionExchangeV2Result,
   HostedWalletSessionCredentialId,
+  ExactWalletSessionStatusV2,
   ReusableWalletSessionStatus,
   SessionOrigin,
   VerifiedAuthorizationEvidenceSet,
@@ -1615,6 +1616,12 @@ export interface RouterApiAuthorizationSessionService {
     readonly token: string;
     readonly nowMs: number;
   }) => Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null>;
+  /** Reads the exact digest-free authorization and quota status lifecycle. */
+  readonly readExactWalletSessionStatusByOperationCredential: (input: {
+    readonly tenantId: TenantId;
+    readonly token: string;
+    readonly nowMs: number;
+  }) => Promise<ExactWalletSessionStatusV2>;
   readReusableWalletSessionStatus(input: {
     readonly tenantId: TenantId;
     readonly principalId: PrincipalId;

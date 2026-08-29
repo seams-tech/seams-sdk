@@ -3233,6 +3233,19 @@ export class BrowserSigningSurface {
           authMethod: authMethod.kind,
           detectedAtMs: nowMs,
         };
+      // The authorization exists but its authority, method, or capability no
+      // longer resolves: the local record is stale, not merely unverified.
+      case 'authority_unavailable':
+      case 'method_unavailable':
+      case 'capability_unavailable':
+        return {
+          kind: 'superseded',
+          walletId: exactWalletId,
+          authorizationId: authorization.authorizationId,
+          walletSessionId: operationCredential.walletSessionId,
+          authMethod: authMethod.kind,
+          detectedAtMs: nowMs,
+        };
       case 'invalid':
         return {
           kind: 'invalid',

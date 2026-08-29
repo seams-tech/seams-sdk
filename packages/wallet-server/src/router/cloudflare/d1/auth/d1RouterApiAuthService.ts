@@ -2481,6 +2481,10 @@ function createD1AuthorizationSessionRouteService(
         retiredAtMs: null,
       };
     },
+    readExactWalletSessionStatusByOperationCredential:
+      assembly.authorizationService.readExactWalletSessionStatusByOperationCredential.bind(
+        assembly.authorizationService,
+      ),
     readReusableWalletSessionStatus:
       assembly.authorizationService.readReusableWalletSessionStatus.bind(
         assembly.authorizationService,
