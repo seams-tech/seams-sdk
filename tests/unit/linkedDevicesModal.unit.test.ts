@@ -362,6 +362,7 @@ test.describe('linked devices modal lifecycle', () => {
           backdropFilter: backdrop.backdropFilter,
           backdropAnimationDuration: backdrop.animationDuration,
           contentAnimationDuration: content.animationDuration,
+          contentBorderStyle: content.borderStyle,
           contentTransform: content.transform,
         };
       });
@@ -369,8 +370,9 @@ test.describe('linked devices modal lifecycle', () => {
       expect(styles).toEqual({
         backdropColor: 'rgba(0, 0, 0, 0.26)',
         backdropFilter: 'none',
-        backdropAnimationDuration: '0.12s',
-        contentAnimationDuration: '0.12s',
+        backdropAnimationDuration: '0.08s',
+        contentAnimationDuration: '0.08s',
+        contentBorderStyle: 'none',
         contentTransform: 'none',
       });
     }
@@ -426,13 +428,16 @@ test.describe('linked devices modal lifecycle', () => {
     });
 
     const dialog = page.getByRole('dialog', { name: 'Your devices' });
-    await expect(dialog.getByText('Device 1 · Phone passkey')).toBeVisible();
-    await expect(dialog.getByText('Device 2 · Email OTP')).toBeVisible();
-    await expect(dialog.getByText('Device 3 · Laptop passkey')).toBeVisible();
+    const names = dialog.locator('.w3a-linked-devices-modal-item-name');
+    await expect(names.filter({ hasText: 'Phone passkey' })).toBeVisible();
+    await expect(names.filter({ hasText: 'Email code' })).toBeVisible();
+    await expect(names.filter({ hasText: 'Laptop passkey' })).toBeVisible();
+    await expect(names.filter({ hasText: 'Old passkey' })).toHaveCount(0);
     await expect(
-      dialog.locator('.w3a-linked-devices-modal-item-name').filter({ hasText: 'Old passkey' }),
-    ).toHaveCount(0);
-    await expect(dialog.getByText('Can use this wallet', { exact: true })).toHaveCount(2);
+      dialog.locator('.w3a-linked-devices-modal-item[data-device-state="active"]'),
+    ).toHaveCount(2);
+    /* Healthy devices carry no chip; only interesting lifecycle states do. */
+    await expect(dialog.locator('.w3a-linked-devices-modal-standing')).toHaveCount(1);
     await expect(dialog.getByText('Paused', { exact: true })).toBeVisible();
     await expect(
       dialog.getByRole('button', { name: /Remove Device 1, Phone passkey/ }),
@@ -450,10 +455,17 @@ test.describe('linked devices modal lifecycle', () => {
     });
 
     const dialog = page.getByRole('dialog', { name: 'Your devices' });
-    await expect(dialog.getByText('Device 1 · Original passkey')).toBeVisible();
-    await expect(dialog.getByText('Device 2 · Linked passkey')).toBeVisible();
-    await expect(dialog.getByText('Original device', { exact: true })).toBeVisible();
-    await expect(dialog.getByText('Can use this wallet', { exact: true })).toHaveCount(1);
+    const names = dialog.locator('.w3a-linked-devices-modal-item-name');
+    await expect(names.first()).toHaveText('Original passkey');
+    await expect(names.nth(1)).toHaveText('Linked passkey');
+    await expect(
+      dialog.locator('.w3a-linked-devices-modal-item[data-device-kind="owner"]'),
+    ).toHaveCount(1);
+    await expect(
+      dialog.locator(
+        '.w3a-linked-devices-modal-item[data-device-kind="linked"][data-device-state="active"]',
+      ),
+    ).toHaveCount(1);
     await expect(dialog.getByText(/These devices can use this wallet/)).toHaveCount(0);
     await expect(dialog.getByText(/manage it from that device/)).toHaveCount(0);
     await expect(
@@ -464,6 +476,32 @@ test.describe('linked devices modal lifecycle', () => {
     ).toBeVisible();
   });
 
+  test('marks the signed-in method and explains removal in plain language', async ({ page }) => {
+    const passkeyOwner = ownerDeviceFixture('Original passkey');
+    const emailOtpOwner = ownerEmailOtpDeviceFixture();
+    const ownerDevices = [passkeyOwner, emailOtpOwner];
+    await renderModal(page, {
+      ownerDevices,
+      devices: [],
+      revokeOutcomes: [],
+      session: selectedOwnerSessionFixture(ownerDevices, 'passkey'),
+    });
+
+    const dialog = page.getByRole('dialog', { name: 'Your devices' });
+    await expect(dialog.getByText('Anything listed here can unlock this wallet.')).toBeVisible();
+    await expect(dialog.getByText('In use now', { exact: true })).toHaveCount(1);
+    await expect(
+      dialog.getByText(
+        "You're signed in with this passkey. To remove it, sign in with your email code first.",
+      ),
+    ).toBeVisible();
+    /* The signed-in method offers no Remove button; the sibling does. */
+    await expect(
+      dialog.getByRole('button', { name: /Remove Device 1, Original passkey/ }),
+    ).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: /Remove Device 2, Email code/ })).toBeVisible();
+  });
+
   test('does not offer removal for the final wallet method', async ({ page }) => {
     await renderModal(page, {
       ownerDevices: [ownerDeviceFixture('Only passkey')],
@@ -472,7 +510,9 @@ test.describe('linked devices modal lifecycle', () => {
     });
 
     const dialog = page.getByRole('dialog', { name: 'Your devices' });
-    await expect(dialog.getByText('Device 1 · Only passkey')).toBeVisible();
+    await expect(
+      dialog.locator('.w3a-linked-devices-modal-item-name').filter({ hasText: 'Only passkey' }),
+    ).toBeVisible();
     await expect(dialog.getByRole('button', { name: /Remove Device 1/ })).toHaveCount(0);
   });
 
