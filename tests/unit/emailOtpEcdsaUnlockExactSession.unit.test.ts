@@ -49,6 +49,7 @@ class ExactUnlockReadHarness {
     readonly exactFactorAuthority: EmailOtpWalletAuthAuthority,
   ) {
     this.read = read;
+    this.selected = selected;
   }
 
   async resolveSelectedWalletAuthority() {
