@@ -809,8 +809,12 @@ budget-refresh and linked-activation `issue_wallet_session_v1` branches, and
       requires the exact ECDSA operation credential and resolves every runtime
       binding from the credential's active authority material; the parallel
       opaque-binding branch was deleted.
-- [ ] Convert recovery warm-session authorization in
-      `routerAbEd25519YaoRecoveryWalletSessionAuthorization.ts`.
+- [x] Convert recovery warm-session authorization in
+      `routerAbEd25519YaoRecoveryWalletSessionAuthorization.ts`. Bootstrap now
+      requires the exact Ed25519 signing credential, resolves its active
+      material, validates the authoritative signer, activation, threshold
+      session, worker, and participants, and never probes the opaque-token
+      store.
 - [ ] Resolve the capability subject's exact material activation before either
       curve constructs a Router A/B request.
 - [ ] Assign every `OpaqueOwnerWalletSessionBinding` field to the authoritative
@@ -1553,7 +1557,10 @@ Remaining causal baseline work:
       required direct-client capability, exact session/credential response,
       retired-bearer rejection, and ECDSA material binding
 - [x] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`
-- [ ] `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts`
+- [x] `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts`,
+      proving exact active-material admission, threshold-session substitution
+      rejection, opaque-token rejection, and zero legacy-store reads; obsolete
+      linked-JWT and opaque-bootstrap fixtures were removed
 - [x] `tests/unit/walletExecutionAdmissionV2.unit.test.ts`, including exact-only
       device-link owner approval, fail-closed missing-credential behavior, and
       zero legacy reads from both ordinary signing validators
