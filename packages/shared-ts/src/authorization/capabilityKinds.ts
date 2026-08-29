@@ -10,6 +10,12 @@ export type AuthorizationParseResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: AuthorizationParseError };
 
+export const WALLET_SESSION_CLIENT_CAPABILITY_V1 =
+  'direct_exact_response_future_record_tolerant' as const;
+
+export type WalletSessionClientCapabilityV1 =
+  typeof WALLET_SESSION_CLIENT_CAPABILITY_V1;
+
 export const CAPABILITY_KINDS = {
   vaultAccess: 'vault_access',
   nearEd25519MpcSigning: 'near_ed25519_mpc_signing',
@@ -231,6 +237,31 @@ export function buildAuthorizationEvidenceRequirement(input: {
 
 export function parseTenantId(value: unknown): AuthorizationParseResult<TenantId> {
   return parseAuthorizationId(value, 'tenantId');
+}
+
+export function parseWalletSessionClientCapabilityV1(
+  value: unknown,
+): AuthorizationParseResult<WalletSessionClientCapabilityV1> {
+  if (value === WALLET_SESSION_CLIENT_CAPABILITY_V1) {
+    return { ok: true, value };
+  }
+  if (value === undefined) {
+    return {
+      ok: false,
+      error: {
+        code: 'missing',
+        message: 'walletSessionClientCapability is required',
+      },
+    };
+  }
+  return {
+    ok: false,
+    error: {
+      code: 'invalid',
+      message:
+        'walletSessionClientCapability must be direct_exact_response_future_record_tolerant',
+    },
+  };
 }
 
 export function parsePrincipalId(value: unknown): AuthorizationParseResult<PrincipalId> {
