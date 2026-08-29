@@ -699,6 +699,10 @@ Primary files:
       plus `unlock_exact_method`.
 - [ ] Validate replay against the pending record and atomically publish profile,
       authenticator, authority, method, signer/account state, and selection.
+- [x] Implement the nine-store publication primitive: re-read the exact pending
+      row in-transaction, validate Passkey/Email OTP and founding identities,
+      roll back all local state on failure, and retain mixed activation pending
+      state until deferred NEAR publication.
 - [x] Replace activation and deferred-provisioning completion rows with
       `WalletRegistrationSessionCommitReceiptV2`.
 - [ ] Use one committed installation projection for compatibility replay and
