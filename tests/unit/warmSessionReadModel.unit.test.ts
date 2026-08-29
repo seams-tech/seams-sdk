@@ -12,7 +12,7 @@ import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/
 import { ecdsaCapabilityHydrationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import {
   buildEmailOtpEcdsaSealedRuntimeRecordFixture,
-  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyExactEd25519AuthorizationFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
@@ -136,7 +136,7 @@ test.describe('warmSessionReadModel', () => {
     const record = buildPasskeyEd25519SealedSessionRecordFixture();
     const runtime = parseExactEd25519SealedSessionRuntime(record);
     if (!runtime) throw new Error('expected exact Ed25519 runtime fixture');
-    const auth = buildPasskeyEd25519AuthorizationProjectionFixture(record);
+    const auth = buildPasskeyExactEd25519AuthorizationFixture(record);
 
     expect(
       deriveEd25519CapabilityState({

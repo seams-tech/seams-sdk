@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import {
-  buildEmailOtpEd25519AuthorizationProjectionFixture,
+  buildEmailOtpExactEd25519AuthorizationFixture,
   buildEmailOtpEd25519SealedSessionRecordFixture,
-  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyExactEd25519AuthorizationFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
@@ -54,7 +54,7 @@ test.describe('available signing lane curve isolation', () => {
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 7,
     });
-    const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(sealedRecord);
+    const authorization = buildPasskeyExactEd25519AuthorizationFixture(sealedRecord);
     const restore = sealedRecord.ed25519Restore;
     const publicCapabilityReference = {
       walletId: sealedRecord.walletId,
@@ -147,7 +147,7 @@ test.describe('available signing lane curve isolation', () => {
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 9,
     });
-    const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(currentRecord);
+    const authorization = buildPasskeyExactEd25519AuthorizationFixture(currentRecord);
     const restore = currentRecord.ed25519Restore;
     const publicCapabilityReference = {
       walletId: currentRecord.walletId,
@@ -243,7 +243,7 @@ test.describe('available signing lane curve isolation', () => {
         walletId,
       ),
     });
-    const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(currentRecord);
+    const authorization = buildPasskeyExactEd25519AuthorizationFixture(currentRecord);
     const result = await page.evaluate(
       async ({ modulePath, retiredRecord, currentRecord, authorization }) => {
         const { readAvailableSigningLanes } = await import(modulePath);
@@ -303,7 +303,7 @@ test.describe('available signing lane curve isolation', () => {
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 0,
     });
-    const authorization = buildEmailOtpEd25519AuthorizationProjectionFixture(record, {
+    const authorization = buildEmailOtpExactEd25519AuthorizationFixture(record, {
       remainingUses: 3,
     });
     const restore = record.ed25519Restore;

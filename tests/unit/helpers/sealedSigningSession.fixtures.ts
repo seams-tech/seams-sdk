@@ -260,7 +260,7 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
   return record;
 }
 
-export function buildPasskeyEd25519AuthorizationProjectionFixture(
+export function buildPasskeyExactEd25519AuthorizationFixture(
   record: CurrentEd25519SealedSessionRecord,
   args: {
     authorizationId?: string;
@@ -369,7 +369,7 @@ export function buildEmailOtpEd25519SealedSessionRecordFixture(
   return record;
 }
 
-export function buildEmailOtpEd25519AuthorizationProjectionFixture(
+export function buildEmailOtpExactEd25519AuthorizationFixture(
   record: CurrentEd25519SealedSessionRecord,
   args: {
     authorizationId?: string;

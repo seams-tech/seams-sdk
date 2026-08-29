@@ -8,7 +8,7 @@ import { rebindRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import type { WarmSessionSealAndPersistResult } from '@/core/types/secure-confirm-worker';
 import {
-  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyExactEd25519AuthorizationFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
@@ -52,7 +52,7 @@ const RUNTIME_POLICY_SCOPE = normalizeRuntimePolicyScope(
 type SessionPersistenceCall = { kind: 'hydrate'; input: unknown };
 
 function ed25519AuthorizationToken(
-  authorization: ReturnType<typeof buildPasskeyEd25519AuthorizationProjectionFixture>,
+  authorization: ReturnType<typeof buildPasskeyExactEd25519AuthorizationFixture>,
 ) {
   return authorization.operationCredential;
 }
@@ -81,7 +81,7 @@ function sessionPersistenceCallKind(call: SessionPersistenceCall): SessionPersis
 async function buildPasskeyYaoWalletSession() {
   const runtime = parseExactEd25519SealedSessionRuntime(SEALED_RECORD);
   if (!runtime) throw new Error('failed to parse exact passkey Yao runtime fixture');
-  const authorizationFixture = buildPasskeyEd25519AuthorizationProjectionFixture(SEALED_RECORD);
+  const authorizationFixture = buildPasskeyExactEd25519AuthorizationFixture(SEALED_RECORD);
   const authorizationToken = ed25519AuthorizationToken(authorizationFixture);
   const session = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
     runtime,
@@ -151,7 +151,7 @@ test('keeps durable Ed25519 material identity when authorization is renewed', as
   });
   const runtime = parseExactEd25519SealedSessionRuntime(durableRecord);
   if (!runtime) throw new Error('failed to parse durable Ed25519 runtime fixture');
-  const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(renewedRecord);
+  const authorization = buildPasskeyExactEd25519AuthorizationFixture(renewedRecord);
 
   const rebound = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
     runtime,
@@ -183,7 +183,7 @@ test('persists the exact durable Ed25519 material identity after authorization r
   });
   const runtime = parseExactEd25519SealedSessionRuntime(durableRecord);
   if (!runtime) throw new Error('failed to parse durable Ed25519 runtime fixture');
-  const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(renewedRecord);
+  const authorization = buildPasskeyExactEd25519AuthorizationFixture(renewedRecord);
   const rebound = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
     runtime,
     authorization,
