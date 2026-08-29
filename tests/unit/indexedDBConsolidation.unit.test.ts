@@ -216,6 +216,22 @@ async function buildLocalAuthorityInstallationFixture(
     input: {
       authority,
       authMethod,
+      profile: {
+        profileId: String(walletId),
+        defaultSignerSlot: 1,
+        passkeyCredential: {
+          id: credentialIdB64u,
+          rawId: credentialIdB64u,
+        },
+      },
+      authenticator: {
+        profileId: String(walletId),
+        signerSlot: 1,
+        credentialId: credentialIdB64u,
+        credentialPublicKey: new Uint8Array(32).fill(4),
+        registered: new Date(10).toISOString(),
+        syncedAt: new Date(10).toISOString(),
+      },
       signerMaterials,
       exportRoot,
       receipt,
@@ -248,10 +264,14 @@ function replayInput(
   signerMaterials = fixture.input.signerMaterials,
   exportRoot = fixture.input.exportRoot,
   receipt = fixture.input.receipt,
+  profile = fixture.input.profile,
+  authenticator = fixture.input.authenticator,
 ) {
   return {
     authority: fixture.input.authority,
     authMethod: fixture.input.authMethod,
+    profile,
+    authenticator,
     signerMaterials,
     exportRoot,
     receipt,
@@ -1415,6 +1435,11 @@ test.describe('IndexedDB consolidation', () => {
         const exportRootConflict =
           await repositories.installLocalAuthority(exportRootConflictInput);
         const receiptConflict = await repositories.installLocalAuthority(receiptConflictInput);
+        const storedProfile = await db.get(
+          schemaNames.SEAMS_WALLET_STORES.wallets,
+          fixture.walletId,
+        );
+        const storedAuthenticators = await repositories.listProfileAuthenticators(fixture.walletId);
         const storedMaterial = await db.get(
           schemaNames.SEAMS_WALLET_STORES.walletAuthoritySignerMaterials,
           [
@@ -1482,6 +1507,14 @@ test.describe('IndexedDB consolidation', () => {
           storedMaterial: storedMaterial.record.sealedMaterialB64u,
           storedExportRoot: storedExportRoot.record.envelope.sealedCustodySecretB64u,
           storedReceipt: storedReceipt.record.installedRecordSetDigestB64u,
+          storedProfileId: storedProfile.record.profileId,
+          storedProfileCredential: storedProfile.record.passkeyCredential,
+          storedAuthenticatorCount: storedAuthenticators.length,
+          storedAuthenticatorCredentialId: storedAuthenticators[0]?.credentialId,
+          storedAuthenticatorSignerSlot: storedAuthenticators[0]?.signerSlot,
+          storedAuthenticatorPublicKey: storedAuthenticators[0]
+            ? Array.from(storedAuthenticators[0].credentialPublicKey)
+            : null,
           stale: stale.kind,
           actualLockGeneration:
             stale.kind === 'stale_lock_generation' ? stale.actualLockGeneration : null,
@@ -1510,11 +1543,20 @@ test.describe('IndexedDB consolidation', () => {
       storedMaterial: 'sealed-material-r103e',
       storedExportRoot: fixture.input.exportRoot?.envelope.sealedCustodySecretB64u,
       storedReceipt: fixture.input.receipt.installedRecordSetDigestB64u,
+      storedProfileId: fixture.walletId,
+      storedProfileCredential: {
+        id: fixture.input.authMethod.credentialIdB64u,
+        rawId: fixture.input.authMethod.credentialIdB64u,
+      },
+      storedAuthenticatorCount: 1,
+      storedAuthenticatorCredentialId: fixture.input.authMethod.credentialIdB64u,
+      storedAuthenticatorSignerSlot: 1,
+      storedAuthenticatorPublicKey: Array.from(new Uint8Array(32).fill(4)),
       stale: 'stale_lock_generation',
       actualLockGeneration: 8,
       counts: {
         authorityCount: 1,
-        authMethodCount: 1,
+        authMethodCount: 2,
         materialCount: 2,
         receiptCount: 1,
         exportRootCount: 1,
