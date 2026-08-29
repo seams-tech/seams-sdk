@@ -6276,8 +6276,9 @@ export async function getWalletSession(
       error instanceof Error ? error.message : String(error || 'unknown error'),
     );
   });
-  const [appIdentity, availableLanes] = await Promise.all([
+  const [appIdentity, reusableWalletSession, availableLanes] = await Promise.all([
     resolveWalletSessionAppIdentity(context, readResolution),
+    context.signingEngine.readReusableWalletSessionState(readResolution.walletId),
     readExactWalletSessionAvailableLanes(context, readResolution.walletId),
   ]);
   const capabilityProjection = buildWalletSessionCapabilityProjection({
@@ -6309,7 +6310,7 @@ export async function getWalletSession(
   return {
     appIdentity,
     authentication,
-    reusableWalletSession: { kind: 'absent' },
+    reusableWalletSession,
     capabilityProjection,
     nonceDiagnostics: readWalletSessionNonceDiagnostics(context, appIdentity.nearAccountId),
   };
@@ -6320,9 +6321,10 @@ async function buildCapabilityUnresolvableWalletSession(args: {
   readonly walletId: WalletId;
   readonly reason: WalletSessionIdentityResolveFailure;
 }): Promise<WalletSession> {
-  const [appIdentity, exactAuthenticationRead] = await Promise.all([
+  const [appIdentity, exactAuthenticationRead, reusableWalletSession] = await Promise.all([
     resolveWalletSessionAppIdentityForWallet(args.context, args.walletId),
     readExactWalletSessionAuthentication(args.walletId),
+    args.context.signingEngine.readReusableWalletSessionState(args.walletId),
   ]);
   let authentication: WalletAuthenticationState = { kind: 'signed_out' };
   switch (exactAuthenticationRead.kind) {
@@ -6340,7 +6342,7 @@ async function buildCapabilityUnresolvableWalletSession(args: {
   return {
     appIdentity,
     authentication,
-    reusableWalletSession: { kind: 'absent' },
+    reusableWalletSession,
     capabilityProjection: {
       kind: 'unresolvable',
       reason: args.reason,
