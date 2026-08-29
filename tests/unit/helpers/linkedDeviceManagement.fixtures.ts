@@ -93,6 +93,7 @@ export type LinkedDeviceManagementAuthorityIdentityV1 = {
   readonly authorityId: string;
   readonly walletAuthMethodId: string;
   readonly rpId: string;
+  readonly credentialIdB64u?: string;
 };
 
 export type LinkedDeviceManagementAuthorityFixture = {
@@ -232,7 +233,8 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   const rpId = required(parseWebAuthnRpId(input.identity?.rpId ?? 'management.example.test'));
   const credentialIdB64u = required(
     parseWebAuthnCredentialIdB64u(
-      base64UrlEncode(new Uint8Array(32).fill(input.label === 'owner' ? 35 : 36)),
+      input.identity?.credentialIdB64u ??
+        base64UrlEncode(new Uint8Array(32).fill(input.label === 'owner' ? 35 : 36)),
     ),
   );
   const authMethodId = required(
