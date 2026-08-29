@@ -53,10 +53,19 @@ import type {
   ProfileAuthenticatorRecord,
   SignerActivationPolicy,
 } from '@/core/indexedDB';
-import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
+import type {
+  StoreWalletRegistrationFinalizeBatchInput,
+  StoreWalletRegistrationPublicationInputV1,
+  StoreWalletSignerFinalizeRollbackReceipt,
+} from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { RegistrationAccountLifecycleDeps } from '../../interfaces/operationDeps';
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import type { EcdsaRoleLocalPersistedMaterialRef } from '../../session/keyMaterialBrands';
+import {
+  buildWalletCustodyEd25519MaterialRecordV1,
+  type WalletCustodyEd25519MaterialBindingV1,
+  type WalletCustodySealedEd25519MaterialV1,
+} from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
@@ -93,9 +102,20 @@ export type StoreWalletEd25519RegistrationInput = {
   operationalPublicKey: string;
   relayerKeyId: string;
   keyVersion: string;
-  participantIds?: number[];
+  readonly participantIds?: readonly number[];
   clientParticipantId?: number;
   relayerParticipantId?: number;
+};
+
+export type PrepareWalletEd25519RegistrationPublicationInput = Omit<
+  StoreWalletEd25519RegistrationInput,
+  'participantIds' | 'clientParticipantId' | 'relayerParticipantId'
+> & {
+  readonly participantIds: readonly [number, number];
+  readonly custodyMaterial: {
+    readonly binding: WalletCustodyEd25519MaterialBindingV1;
+    readonly sealed: WalletCustodySealedEd25519MaterialV1;
+  };
 };
 
 type StoreWalletEd25519RegistrationMode =
@@ -836,7 +856,9 @@ async function emailOtpAuthMethod(args: {
     String(args.authority.walletId) !== walletId ||
     args.authority.verifier.emailHashHex !== emailHashHex
   ) {
-    throw new Error('SeamsWalletDB: Email OTP auth method authority does not match wallet or email');
+    throw new Error(
+      'SeamsWalletDB: Email OTP auth method authority does not match wallet or email',
+    );
   }
   const nowMs = Date.now();
   return {
@@ -996,12 +1018,11 @@ function walletEcdsaSignerActivationPolicy(args: {
   }
 }
 
-async function storeWalletEd25519RegistrationDataWithMode(
-  deps: RegistrationAccountLifecycleDeps,
+function prepareWalletEd25519RegistrationBatch(
   args: StoreWalletEd25519RegistrationInput,
   mode: StoreWalletEd25519RegistrationMode,
   composition: StoreWalletRegistrationComposition,
-): Promise<StoreWalletMixedRegistrationResult> {
+): StoreWalletRegistrationFinalizeBatchInput {
   const credentialId = String(args.credential.rawId || '').trim();
   if (!credentialId) {
     throw new Error('SeamsWalletDB: registration credential rawId is required');
@@ -1130,7 +1151,7 @@ async function storeWalletEd25519RegistrationDataWithMode(
       );
     }
   }
-  const result = await deps.accountStore.persistWalletRegistrationFinalize({
+  return {
     profiles: [
       {
         profileId: walletId,
@@ -1174,7 +1195,17 @@ async function storeWalletEd25519RegistrationDataWithMode(
     signerActivations,
     keyMaterials,
     lastProfileState: { profileId: walletId, activeSignerSlot: signerSlot },
-  });
+  };
+}
+
+function storedRegistrationResult(
+  result: Awaited<
+    ReturnType<
+      RegistrationAccountLifecycleDeps['accountStore']['persistWalletRegistrationFinalize']
+    >
+  >,
+  preparedEcdsa: ReturnType<typeof prepareWalletEcdsaSignerActivations> | null,
+): StoreWalletMixedRegistrationResult {
   const storedNearActivation = result.signerActivations[1];
   if (!storedNearActivation) {
     throw new Error('SeamsWalletDB: wallet Ed25519 registration batch did not complete');
@@ -1196,6 +1227,71 @@ async function storeWalletEd25519RegistrationDataWithMode(
     }
   }
   return { signerSlot: storedNearActivation.signerSlot, storedSigners };
+}
+
+export function prepareWalletEd25519RegistrationPublication(
+  args: PrepareWalletEd25519RegistrationPublicationInput,
+): StoreWalletRegistrationPublicationInputV1 {
+  const prepared = prepareWalletEd25519RegistrationBatch(
+    args,
+    { kind: 'fresh_registration' },
+    { kind: 'near_ed25519_only' },
+  );
+  const nearAccountId = toAccountId(args.nearAccountId);
+  const binding = args.custodyMaterial.binding;
+  if (
+    binding.walletId !== String(args.walletId) ||
+    binding.nearAccountId !== String(nearAccountId) ||
+    binding.nearEd25519SigningKeyId !== String(args.nearEd25519SigningKeyId) ||
+    binding.signerSlot !== Number(args.signerSlot) ||
+    binding.participantIds[0] !== args.participantIds[0] ||
+    binding.participantIds[1] !== args.participantIds[1]
+  ) {
+    throw new Error('Wallet custody Ed25519 material does not match registration identity');
+  }
+  const custodyMaterial = buildWalletCustodyEd25519MaterialRecordV1({
+    target: {
+      profileId: String(buildNearProfileId(nearAccountId)),
+      chainIdKey: inferNearChainIdKey(nearAccountId),
+      accountAddress: normalizeIndexedDbAccountAddress(nearAccountId),
+    },
+    binding,
+    sealed: args.custodyMaterial.sealed,
+  });
+  const lastProfileState = prepared.lastProfileState;
+  if (!lastProfileState) {
+    throw new Error('Wallet Ed25519 registration publication requires last profile state');
+  }
+  return {
+    profiles: prepared.profiles,
+    initialAuthMethod: prepared.initialAuthMethod,
+    authenticators: prepared.authenticators,
+    signerActivations: prepared.signerActivations,
+    keyMaterials: [...prepared.keyMaterials, custodyMaterial],
+    lastProfileState: {
+      profileId: lastProfileState.profileId,
+      activeSignerSlot: lastProfileState.activeSignerSlot,
+      scope: lastProfileState.scope ?? null,
+    },
+  };
+}
+
+async function storeWalletEd25519RegistrationDataWithMode(
+  deps: RegistrationAccountLifecycleDeps,
+  args: StoreWalletEd25519RegistrationInput,
+  mode: StoreWalletEd25519RegistrationMode,
+  composition: StoreWalletRegistrationComposition,
+): Promise<StoreWalletMixedRegistrationResult> {
+  const prepared = prepareWalletEd25519RegistrationBatch(args, mode, composition);
+  const result = await deps.accountStore.persistWalletRegistrationFinalize(prepared);
+  const preparedEcdsa =
+    composition.kind === 'near_ed25519_and_evm_family_ecdsa'
+      ? prepareWalletEcdsaSignerActivations({
+          walletId: args.walletId,
+          walletKeys: composition.walletKeys,
+        })
+      : null;
+  return storedRegistrationResult(result, preparedEcdsa);
 }
 
 export async function storeWalletEd25519RegistrationData(
