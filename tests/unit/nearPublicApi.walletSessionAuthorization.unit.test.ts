@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { fundImplicitNearAccountFromCurrentSession } from '@/SeamsWeb/publicApi/near';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
+import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 import {
   buildActiveWalletSessionAuthorizationProjection,
   walletSessionAuthorizations,
@@ -13,7 +14,11 @@ import {
 import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
+import type { RouterApiWalletSessionAuthorizationV2AdmissionContext } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/fetchRouter.types';
+import { handleNearPublicKeys } from '../../packages/wallet-server/src/router/transport/fetch/routes/nearPublicKeys';
 import { buildWalletAuthAuthorityRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 
 const WALLET_ID = toWalletId('wallet-near-public-funding');
 const NEAR_ACCOUNT_ID = toAccountId('a'.repeat(64));
@@ -62,6 +67,106 @@ function fundingConfigs() {
     },
   };
 }
+
+class NearPublicKeysRouteHarness {
+  readonly listedUserIds: string[] = [];
+  legacyReads = 0;
+
+  constructor(
+    readonly exactAdmission: RouterApiWalletSessionAuthorizationV2AdmissionContext | null,
+  ) {}
+
+  async readExactAdmission(): Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null> {
+    return this.exactAdmission;
+  }
+
+  async resolveLegacySession(): Promise<null> {
+    this.legacyReads += 1;
+    return null;
+  }
+
+  async listNearPublicKeys(input: { readonly userId: string }) {
+    this.listedUserIds.push(input.userId);
+    return { ok: true as const, keys: [] };
+  }
+
+  service() {
+    return {
+      authorizationSessions: {
+        tenantId: 'tenant:near-public-keys',
+        readWalletSessionAuthorizationV2ByOperationCredential: this.readExactAdmission.bind(this),
+        resolveOpaqueWalletSessionToken: this.resolveLegacySession.bind(this),
+      },
+      nearFunding: {
+        listNearPublicKeysForUser: this.listNearPublicKeys.bind(this),
+      },
+    };
+  }
+}
+
+function nearPublicKeysRouteContext(
+  request: Request,
+  harness: NearPublicKeysRouteHarness,
+): FetchRouterApiContext {
+  const url = new URL(request.url);
+  return {
+    request,
+    url,
+    pathname: url.pathname,
+    method: request.method,
+    runtime: { kind: 'inline' },
+    service: harness.service(),
+    opts: {},
+    logger: {},
+    routeDefinitions: [],
+  } as unknown as FetchRouterApiContext;
+}
+
+async function exactNearPublicKeysAdmission(): Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext> {
+  const exact = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'near-public-keys-route',
+    permissions: buildFullOwnerPermissionsV1(),
+    provenance: 'wallet_registration',
+    keyFamily: 'ed25519',
+    expiresAtMs: Date.now() + 60_000,
+  });
+  return {
+    authorization: exact.issuedSession,
+    authority: exact.authority,
+    authMethod: exact.authMethod,
+    retiredAtMs: null,
+  };
+}
+
+async function invokeNearPublicKeysRoute(harness: NearPublicKeysRouteHarness): Promise<Response> {
+  const request = new Request('https://relay.example.test/near/public-keys', {
+    headers: { authorization: 'Bearer wallet-session-operation-credential' },
+  });
+  const response = await handleNearPublicKeys(nearPublicKeysRouteContext(request, harness));
+  if (!response) throw new Error('NEAR public-keys route did not match');
+  return response;
+}
+
+test('NEAR public-key listing admits the exact operation credential without probing legacy sessions', async () => {
+  const admission = await exactNearPublicKeysAdmission();
+  const harness = new NearPublicKeysRouteHarness(admission);
+
+  const response = await invokeNearPublicKeysRoute(harness);
+
+  expect(response.status).toBe(200);
+  expect(harness.listedUserIds).toEqual([String(admission.authorization.session.walletId)]);
+  expect(harness.legacyReads).toBe(0);
+});
+
+test('NEAR public-key listing rejects a missing exact session without probing legacy sessions', async () => {
+  const harness = new NearPublicKeysRouteHarness(null);
+
+  const response = await invokeNearPublicKeysRoute(harness);
+
+  expect(response.status).toBe(401);
+  expect(harness.listedUserIds).toEqual([]);
+  expect(harness.legacyReads).toBe(0);
+});
 
 test('implicit NEAR funding reads the canonical Wallet Session authorization projection', async () => {
   const originalRead = walletSessionAuthorizations.readActiveForWallet;
