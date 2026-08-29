@@ -81,7 +81,7 @@ This plan consumes:
 - [Refactor 104](./refactor-104-agent-id-spending.md) for agent identities,
   delegated authorizations, server-canonical budgets, replay state, and Agent
   Wallet projections;
-- [Refactor 120](./refactor-120-rotate-korg-secrets.md) for the authoritative
+- [Refactor 120](./refactor-120-rotate-tenant-secrets.md) for the authoritative
   managed deployment-root boundary and production Deriver isolation policy;
 - [Refactor 90](./refactor-90-modular-auth-capabilities-plan.md) for exact
   authorization resources, operation identity, atomic claims, fencing, audit,
