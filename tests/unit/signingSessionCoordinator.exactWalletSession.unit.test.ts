@@ -27,7 +27,10 @@ type ExactSessionRead = Awaited<
   ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
 >;
 
-function laneForFixture(fixture: LinkedDeviceUnlockRuntimeFixture) {
+function laneForFixtureWithQuota(
+  fixture: LinkedDeviceUnlockRuntimeFixture,
+  quotaId: ReturnType<typeof SigningSessionIds.walletSessionQuota>,
+) {
   return buildNearTransactionSigningLane({
     walletId: fixture.walletId,
     nearAccountId: toAccountId('linked-runtime.testnet'),
@@ -39,12 +42,16 @@ function laneForFixture(fixture: LinkedDeviceUnlockRuntimeFixture) {
       credentialIdB64u: fixture.authMethod.credentialIdB64u,
     },
     walletSessionId: fixture.operationCredential.walletSessionId,
-    quotaId: SigningSessionIds.walletSessionQuota('wallet-quota:linked-runtime'),
+    quotaId,
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
       'threshold-ed25519:linked-runtime',
     ),
     storageSource: 'registration',
   });
+}
+
+function laneForFixture(fixture: LinkedDeviceUnlockRuntimeFixture) {
+  return laneForFixtureWithQuota(fixture, fixture.activeWalletSession.quotaId);
 }
 
 function installSelectedAuthority(fixture: LinkedDeviceUnlockRuntimeFixture): void {
@@ -143,6 +150,48 @@ test.describe('SigningSessionCoordinator exact Wallet Session reads', () => {
           ...fixture.operationCredential,
           walletSessionId: siblingSessionId.value,
         },
+      }));
+
+      const resolved = await coordinator.resolveAuthPlanFromReadiness({
+        lane,
+        readiness: {
+          curve: 'ed25519',
+          status: 'ready',
+          thresholdSessionId: lane.thresholdSessionId,
+          remainingUses: 3,
+          expiresAtMs: Date.now() + 60_000,
+        },
+        remainingUses: 3,
+        expiresAtMs: Date.now() + 60_000,
+        usesNeeded: 1,
+      });
+
+      expect(statusReads).toBe(0);
+      expect(resolved.readiness.status).toBe('missing_session');
+      expect(resolved.signingSessionPlan.kind).toBe(SigningSessionPlanKind.PasskeyReauth);
+    });
+  });
+
+  test('requires reauthorization when the lane names a sibling quota', async () => {
+    const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+    const lane = laneForFixtureWithQuota(
+      fixture,
+      SigningSessionIds.walletSessionQuota('wallet-quota:sibling'),
+    );
+    let statusReads = 0;
+    const coordinator = new SigningSessionCoordinator({
+      getStatus: async () => {
+        statusReads += 1;
+        return null;
+      },
+    });
+
+    await withStubbedExactWalletSessionState(async () => {
+      installSelectedAuthority(fixture);
+      installExactSessionRead(async () => ({
+        kind: 'found',
+        record: fixture.activeWalletSession,
+        operationCredential: fixture.operationCredential,
       }));
 
       const resolved = await coordinator.resolveAuthPlanFromReadiness({

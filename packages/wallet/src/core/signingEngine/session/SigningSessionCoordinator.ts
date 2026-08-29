@@ -252,6 +252,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
       walletId: args.state.walletId,
       authMethod: args.state.authMethod,
       walletSessionId: args.state.walletSessionId,
+      quotaId: args.state.quotaId,
       requiredSigningSubject: requiredSigningSubjectForExactSigningLane(args.state.laneIdentity),
       expiry: { kind: 'expired', nowMs: args.state.detectedAtMs },
     });
@@ -605,6 +606,7 @@ async function buildSessionStatusCheckForLane(args: {
     walletId: owner.walletId,
     authMethod: signingLaneAuthMethod(args.lane.auth),
     walletSessionId: args.lane.walletSessionId,
+    quotaId: args.lane.quotaId,
     requiredSigningSubject: requiredSigningSubjectForExactSigningLane(args.lane.identity),
     expiry: { kind: 'unexpired', nowMs: args.nowMs },
   });
@@ -613,7 +615,7 @@ async function buildSessionStatusCheckForLane(args: {
     owner,
     authorization: {
       walletSessionId: credential.resolved.walletSessionId,
-      quotaId: args.lane.quotaId,
+      quotaId: credential.resolved.session.quotaId,
     },
   });
 }
