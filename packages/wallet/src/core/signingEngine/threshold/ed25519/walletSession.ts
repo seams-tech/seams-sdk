@@ -1,6 +1,11 @@
-import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
+import { isPlainObject, stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
+import { errorMessage } from '@shared/utils/errors';
 import { ROUTER_AB_ED25519_WALLET_SESSION_PATH } from '@shared/utils/signingSessionSeal';
-import { type Ed25519SessionPolicy, type ThresholdRuntimePolicyScope } from '../sessionPolicy';
+import {
+  normalizeThresholdRuntimePolicyScope,
+  type Ed25519SessionPolicy,
+  type ThresholdRuntimePolicyScope,
+} from '../sessionPolicy';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
@@ -35,7 +40,14 @@ import {
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking';
+import {
+  parseWalletSessionOperationCredentialV1,
+  type WalletSessionOperationCredentialV1,
+} from '@shared/device-linking';
+import {
+  parseWalletSessionAlreadyCommittedResponseV1,
+  type WalletSessionCommittedIdentityV1,
+} from '@shared/authorization';
 
 const ED25519_WALLET_SESSION_MINT_TIMEOUT_MS = 15_000;
 
@@ -110,33 +122,61 @@ export function localPrfFirstForEd25519WalletSessionMintAuthorization(
   return auth.policySecretSource.secretSource.prfFirstB64u;
 }
 
-/**
- * A refresh that issued a new Wallet Session carries its own primary
- * credential. A same-session curve mint reuses the session the caller already
- * holds, so it carries none and the caller keeps the credential it sent.
- */
-function ed25519WalletSessionMintCredentialToken(input: {
-  readonly data: { readonly sessionKind?: string; readonly operationCredential?: unknown };
-  readonly walletSessionId: WalletSessionId;
-  readonly existingWalletSessionToken: string;
-}): string {
-  if (input.data.sessionKind === 'issued_wallet_session_v1') {
-    const issued = parseWalletSessionOperationCredentialV1(input.data.operationCredential);
-    if (issued.walletSessionId !== input.walletSessionId) {
-      throw new Error('Wallet Session mint credential does not identify its session');
+export type Ed25519WalletSessionMintSuccess =
+  | {
+      readonly ok: true;
+      readonly sessionKind: 'issued_wallet_session_v1';
+      readonly thresholdSessionId: ThresholdEd25519SessionId;
+      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
+      readonly expiresAtMs: number;
+      readonly remainingUses: number;
+      readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
+      readonly operationCredential: WalletSessionOperationCredentialV1;
     }
-    return issued.token;
-  }
-  if (input.data.sessionKind !== 'reused_wallet_session_v2') {
-    throw new Error('Wallet Session mint returned an unsupported session kind');
-  }
-  if (input.data.operationCredential !== undefined) {
-    throw new Error('Reused Wallet Session must not carry its own credential');
-  }
-  if (!input.existingWalletSessionToken) {
-    throw new Error('Reused Wallet Session mint requires the credential the caller already holds');
-  }
-  return input.existingWalletSessionToken;
+  | {
+      readonly ok: true;
+      readonly sessionKind: 'reused_wallet_session_v2';
+      readonly thresholdSessionId: ThresholdEd25519SessionId;
+      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
+      readonly expiresAtMs: number;
+      readonly remainingUses: number;
+      readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
+      readonly operationCredential?: never;
+    };
+
+export type Ed25519WalletSessionMintAlreadyCommitted = {
+  readonly ok: false;
+  readonly code: 'already_committed';
+  readonly message: string;
+  readonly next: 'unlock_exact_method';
+  readonly committed: WalletSessionCommittedIdentityV1;
+};
+
+export type Ed25519WalletSessionMintFailure = {
+  readonly ok: false;
+  readonly code: string;
+  readonly message: string;
+  readonly next?: never;
+  readonly committed?: never;
+};
+
+export type Ed25519WalletSessionMintResult =
+  | Ed25519WalletSessionMintSuccess
+  | Ed25519WalletSessionMintAlreadyCommitted
+  | Ed25519WalletSessionMintFailure;
+
+function parseWalletSessionMintExpiresAtMs(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const expiresAtMs = Date.parse(value);
+  return Number.isSafeInteger(expiresAtMs) && expiresAtMs > Date.now() ? expiresAtMs : null;
+}
+
+function parseWalletSessionMintRemainingUses(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
 /**
@@ -157,19 +197,7 @@ export async function mintEd25519WalletSession(args: {
   projectEnvironmentId?: string;
   publishableKey?: string;
   existingWalletSessionToken?: string;
-}): Promise<{
-  ok: boolean;
-  thresholdSessionId?: ThresholdEd25519SessionId;
-  authorizationId?: WalletSessionAuthorizationId;
-  walletSessionId?: WalletSessionId;
-  quotaId?: MpcWalletSigningQuotaId;
-  expiresAtMs?: number;
-  remainingUses?: number;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  walletSessionToken?: string;
-  code?: string;
-  message?: string;
-}> {
+}): Promise<Ed25519WalletSessionMintResult> {
   const relayerUrl = stripTrailingSlashes(toTrimmedString(args.relayerUrl));
   if (!relayerUrl) {
     return {
@@ -190,21 +218,6 @@ export async function mintEd25519WalletSession(args: {
   const webauthn_authentication = redactCredentialExtensionOutputs(
     args.auth.policySecretSource.credential,
   );
-
-  type Ed25519WalletSessionMintResponseBody = Partial<{
-    ok: boolean;
-    thresholdSessionId: string;
-    walletSessionId: string;
-    authorizationId: string;
-    quotaId: string;
-    expiresAt: string;
-    remainingUses: number;
-    runtimePolicyScope: ThresholdRuntimePolicyScope;
-    sessionKind: string;
-    operationCredential: unknown;
-    code: string;
-    message: string;
-  }>;
 
   const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -242,30 +255,37 @@ export async function mintEd25519WalletSession(args: {
       }),
     });
 
-    let data: Ed25519WalletSessionMintResponseBody;
+    let data: Record<string, unknown>;
     try {
-      data = (await response.json()) as Ed25519WalletSessionMintResponseBody;
+      const parsed: unknown = await response.json();
+      data = isPlainObject(parsed) ? parsed : {};
     } catch (error: unknown) {
       if (controller.signal.aborted) throw error;
       data = {};
     }
     if (!response.ok) {
+      const alreadyCommitted = parseWalletSessionAlreadyCommittedResponseV1(data);
+      if (alreadyCommitted) return alreadyCommitted;
       return {
         ok: false,
-        code: data.code || 'http_error',
-        message: data.message || `HTTP ${response.status}`,
+        code: typeof data.code === 'string' ? data.code : 'http_error',
+        message: typeof data.message === 'string' ? data.message : `HTTP ${response.status}`,
       };
     }
-
-    const expiresAtMs = (() => {
-      const raw = data.expiresAt ? Date.parse(data.expiresAt) : NaN;
-      return Number.isFinite(raw) ? raw : undefined;
-    })();
-
-    const thresholdSessionId = data.thresholdSessionId
-      ? parseThresholdEd25519SessionId(data.thresholdSessionId)
-      : null;
-    if (data.thresholdSessionId && !thresholdSessionId?.ok) {
+    const alreadyCommitted = parseWalletSessionAlreadyCommittedResponseV1(data);
+    if (alreadyCommitted) return alreadyCommitted;
+    if (data.ok !== true) {
+      return {
+        ok: false,
+        code: typeof data.code === 'string' ? data.code : 'invalid_response',
+        message:
+          typeof data.message === 'string'
+            ? data.message
+            : 'Wallet Session mint returned an unsuccessful response',
+      };
+    }
+    const thresholdSessionId = parseThresholdEd25519SessionId(data.thresholdSessionId);
+    if (!thresholdSessionId.ok) {
       return {
         ok: false,
         code: 'invalid_response',
@@ -282,42 +302,64 @@ export async function mintEd25519WalletSession(args: {
         message: 'Wallet Session mint returned invalid authorization identity',
       };
     }
-    let walletSessionToken: string;
-    try {
-      walletSessionToken = ed25519WalletSessionMintCredentialToken({
-        data,
-        walletSessionId: walletSessionId.value,
-        existingWalletSessionToken,
-      });
-    } catch (error: unknown) {
+    const expiresAtMs = parseWalletSessionMintExpiresAtMs(data.expiresAt);
+    const remainingUses = parseWalletSessionMintRemainingUses(data.remainingUses);
+    const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(data.runtimePolicyScope);
+    if (!expiresAtMs || !remainingUses || !runtimePolicyScope) {
       return {
         ok: false,
         code: 'invalid_response',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Wallet Session mint returned an invalid operation credential',
+        message: 'Wallet Session mint returned invalid lifecycle or policy data',
       };
     }
-    return {
-      ok: data.ok === true,
-      ...(thresholdSessionId?.ok ? { thresholdSessionId: thresholdSessionId.value } : {}),
+    const base = {
+      ok: true as const,
+      thresholdSessionId: thresholdSessionId.value,
       walletSessionId: walletSessionId.value,
       authorizationId: authorizationId.value,
       quotaId: quotaId.value,
       expiresAtMs,
-      remainingUses: data.remainingUses,
-      ...(data.runtimePolicyScope ? { runtimePolicyScope: data.runtimePolicyScope } : {}),
-      walletSessionToken,
-      ...(data.code ? { code: data.code } : {}),
-      ...(data.message ? { message: data.message } : {}),
+      remainingUses,
+      runtimePolicyScope,
     };
+    if (data.sessionKind === 'issued_wallet_session_v1') {
+      let operationCredential: WalletSessionOperationCredentialV1;
+      try {
+        operationCredential = parseWalletSessionOperationCredentialV1(data.operationCredential);
+      } catch (error: unknown) {
+        return {
+          ok: false,
+          code: 'invalid_response',
+          message:
+            errorMessage(error) || 'Wallet Session mint returned an invalid operation credential',
+        };
+      }
+      if (operationCredential.walletSessionId !== walletSessionId.value) {
+        return {
+          ok: false,
+          code: 'invalid_response',
+          message: 'Wallet Session mint credential does not identify its session',
+        };
+      }
+      return { ...base, sessionKind: data.sessionKind, operationCredential };
+    }
+    if (data.sessionKind !== 'reused_wallet_session_v2' || data.operationCredential !== undefined) {
+      return {
+        ok: false,
+        code: 'invalid_response',
+        message: 'Wallet Session mint returned an invalid session branch',
+      };
+    }
+    if (!existingWalletSessionToken) {
+      return {
+        ok: false,
+        code: 'invalid_response',
+        message: 'Reused Wallet Session mint requires the credential the caller already holds',
+      };
+    }
+    return { ...base, sessionKind: data.sessionKind };
   } catch (e: unknown) {
-    const msg = String(
-      e && typeof e === 'object' && 'message' in e
-        ? (e as { message?: unknown }).message
-        : e || 'Failed to mint threshold session',
-    );
+    const msg = errorMessage(e) || 'Failed to mint threshold session';
     const timedOut = controller.signal.aborted;
     return {
       ok: false,

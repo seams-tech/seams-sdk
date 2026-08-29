@@ -598,9 +598,9 @@ input, or invents a new layer is deferred until its operating path works.
 - [x] Delete `readReusableWalletSessionStatus` from
       `d1AuthorizationStore.ts`, `authorization/service.ts`, and
       `authServicePort.ts`.
-- [ ] Delete `putWalletSessionAuthorization` and its V1 readback helpers.
-- [ ] Delete `issueReusableWalletSession` and its preparation/domain inputs.
-- [ ] Delete the V1 `readWalletSessionAuthorizationByMint`; narrow the V2
+- [x] Delete `putWalletSessionAuthorization` and its V1 readback helpers.
+- [x] Delete `issueReusableWalletSession` and its preparation/domain inputs.
+- [x] Delete the V1 `readWalletSessionAuthorizationByMint`; narrow the V2
       reader around full scope, exact method, and `WalletSessionMintId`.
 - [ ] Delete `revokeReusableWalletSessionsForAuthMethod` and its prepared SQL
       statement builder.
@@ -621,9 +621,9 @@ Primary files:
 
 ### I2 — Direct V2 issuance, registration replay, and promotion (B1, B2, B3, B14)
 
-- [ ] Delete `issueWalletSessionAuthorizationV2FromReusableSession`.
-- [ ] Delete `refreshWalletSessionAuthorizationV2FromReusableSession`.
-- [ ] Delete `projectReusableWalletSessionV2` and its projection types.
+- [x] Delete `issueWalletSessionAuthorizationV2FromReusableSession`.
+- [x] Delete `refreshWalletSessionAuthorizationV2FromReusableSession`.
+- [x] Delete `projectReusableWalletSessionV2` and its projection types.
 - [ ] Replace separate session and credential writers with one issuer that
       prepares `{ session, quota, primaryCredential, credentialDigest }`.
 - [ ] Delete `putWalletSessionAuthorizationV2OperationCredential` and

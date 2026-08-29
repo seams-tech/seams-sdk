@@ -629,7 +629,7 @@ test('quarantines V3, V4, and V5 rows during exact installation', async ({ page 
     {
       activeWalletSession: fixture.activeWalletSession,
       authorityRef,
-      walletSessionToken: fixture.ed25519Session.walletSessionToken,
+      walletSessionToken: fixture.operationCredential.token,
       operationCredential: fixture.operationCredential,
     },
   );
@@ -949,7 +949,7 @@ test('preserves unknown future rows across legacy Wallet Session writers', async
     {
       activeWalletSession: fixture.activeWalletSession,
       authorityRef,
-      walletSessionToken: fixture.ed25519Session.walletSessionToken,
+      walletSessionToken: fixture.operationCredential.token,
     },
   );
 
@@ -1086,7 +1086,7 @@ test('contains late legacy and future rows during exact V6 replacement', async (
       activeWalletSession: fixture.activeWalletSession,
       operationCredential: fixture.operationCredential,
       authorityRef,
-      walletSessionToken: fixture.ed25519Session.walletSessionToken,
+      walletSessionToken: fixture.operationCredential.token,
     },
   );
 

@@ -17,6 +17,10 @@ import {
   issueEd25519OperationStepUpAuthorization,
   mintEd25519WalletSession,
 } from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/walletSession';
+import {
+  parseWalletSessionAlreadyCommittedResponseV1,
+  parseWalletUnlockAlreadyCommittedResponseV1,
+} from '../../packages/shared-ts/src/authorization';
 import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/wallet/src/core/rpcClients/relayer/routerAbNormalSigning';
 
 const PUBLISHABLE_KEY = 'pk_test_refresh';
@@ -33,6 +37,7 @@ type RefreshFetchCapture = {
 
 let activeRefreshFetchCapture: RefreshFetchCapture | null = null;
 let activeRefreshResponseIncludesRuntimePolicyScope = true;
+let activeRefreshResponseBody: Record<string, unknown> | null = null;
 let activeOperationStepUpFetchCapture: RefreshFetchCapture | null = null;
 let activeOperationStepUpResponseBody: Record<string, unknown> | null = null;
 
@@ -70,25 +75,33 @@ async function refreshWalletSessionFetch(
   capture.body = String(init?.body || '');
   capture.credentials = init?.credentials;
   return new Response(
-    JSON.stringify({
-      ok: true,
-      thresholdSessionId: 'threshold-session-1',
-      walletSessionId: 'wallet-session-1',
-      quotaId: 'quota-1',
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      remainingUses: 3,
-      ...(activeRefreshResponseIncludesRuntimePolicyScope
-        ? {
-            runtimePolicyScope: {
-              orgId: 'org-refresh',
-              projectId: 'project-refresh',
-              envId: 'env-refresh',
-              signingRootVersion: 'root-version-refresh',
-            },
-          }
-        : {}),
-      jwt: 'refreshed-wallet-session-jwt',
-    }),
+    JSON.stringify(
+      activeRefreshResponseBody || {
+        ok: true,
+        sessionKind: 'issued_wallet_session_v1',
+        thresholdSessionId: 'threshold-session-1',
+        walletSessionId: 'wallet-session-1',
+        authorizationId: 'authorization-1',
+        quotaId: 'quota-1',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        remainingUses: 3,
+        ...(activeRefreshResponseIncludesRuntimePolicyScope
+          ? {
+              runtimePolicyScope: {
+                orgId: 'org-refresh',
+                projectId: 'project-refresh',
+                envId: 'env-refresh',
+                signingRootVersion: 'root-version-refresh',
+              },
+            }
+          : {}),
+        operationCredential: {
+          kind: 'opaque_wallet_session_operation_credential_v1',
+          token: `wst_${'R'.repeat(43)}`,
+          walletSessionId: 'wallet-session-1',
+        },
+      },
+    ),
     {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -229,7 +242,7 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
   try {
     const result = await mintEd25519WalletSession({
       relayerUrl: 'https://relay.example.test',
-      sessionKind: 'jwt',
+      sessionKind: 'opaque',
       relayerKeyId: 'ed25519:relayer-key',
       sessionPolicy: refreshSessionPolicyFixture(),
       auth: {
@@ -249,7 +262,12 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
       walletSessionId: 'wallet-session-1',
       quotaId: 'quota-1',
       remainingUses: 3,
-      jwt: 'refreshed-wallet-session-jwt',
+      sessionKind: 'issued_wallet_session_v1',
+      operationCredential: {
+        kind: 'opaque_wallet_session_operation_credential_v1',
+        token: `wst_${'R'.repeat(43)}`,
+        walletSessionId: 'wallet-session-1',
+      },
     });
     expect(capture.authorization).toBe(`Bearer ${PUBLISHABLE_KEY}`);
     expect(capture.credentials).toBe('omit');
@@ -260,7 +278,245 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
     expect(capture.body).toContain('"projectEnvironmentId":"env-refresh"');
   } finally {
     activeRefreshFetchCapture = null;
+    activeRefreshResponseBody = null;
     activeRefreshResponseIncludesRuntimePolicyScope = true;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Wallet Session mint returns a credential-free already-committed identity', async () => {
+  const originalFetch = globalThis.fetch;
+  const capture: RefreshFetchCapture = {
+    authorization: '',
+    body: '',
+    credentials: undefined,
+  };
+  activeRefreshFetchCapture = capture;
+  activeRefreshResponseBody = {
+    ok: false,
+    code: 'already_committed',
+    message: 'Wallet Session issuance was already committed',
+    next: 'unlock_exact_method',
+    committed: {
+      kind: 'already_committed_wallet_session_v1',
+      walletId: 'wallet:refresh',
+      authorityId: 'authority:refresh',
+      walletAuthMethodId: 'auth-method:refresh',
+      mintId: 'mint:refresh',
+      authorizationId: 'authorization:refresh',
+      walletSessionId: 'wallet-session:refresh',
+      quotaId: 'quota:refresh',
+    },
+  };
+  globalThis.fetch = refreshWalletSessionFetch;
+
+  try {
+    const result = await mintEd25519WalletSession({
+      relayerUrl: 'https://relay.example.test',
+      sessionKind: 'opaque',
+      relayerKeyId: 'ed25519:relayer-key',
+      sessionPolicy: refreshSessionPolicyFixture(),
+      auth: {
+        kind: 'threshold_session_policy_webauthn',
+        policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+          credential: refreshCredentialFixture(),
+          rpId: 'localhost',
+        }),
+      },
+      projectEnvironmentId: 'env-refresh',
+      publishableKey: PUBLISHABLE_KEY,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'already_committed',
+      message: 'Wallet Session issuance was already committed',
+      next: 'unlock_exact_method',
+      committed: {
+        kind: 'already_committed_wallet_session_v1',
+        walletId: 'wallet:refresh',
+        authorityId: 'authority:refresh',
+        walletAuthMethodId: 'auth-method:refresh',
+        mintId: 'mint:refresh',
+        authorizationId: 'authorization:refresh',
+        walletSessionId: 'wallet-session:refresh',
+        quotaId: 'quota:refresh',
+      },
+    });
+    expect(result).not.toHaveProperty('operationCredential');
+    expect(result).not.toHaveProperty('walletSessionToken');
+  } finally {
+    activeRefreshFetchCapture = null;
+    activeRefreshResponseBody = null;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Wallet Session parser normalizes the flat exact-method already-committed response', () => {
+  const flatResponse = {
+    ok: false,
+    unlocked: false,
+    unlockBackend: 'passkey',
+    code: 'already_committed',
+    message: 'Wallet Session unlock is already committed; retry the exact method',
+    kind: 'already_committed',
+    walletId: 'wallet:refresh',
+    authorityId: 'authority:refresh',
+    walletAuthMethodId: 'auth-method:refresh',
+    mintId: 'mint:refresh',
+    authorizationId: 'authorization:refresh',
+    walletSessionId: 'wallet-session:refresh',
+    quotaId: 'quota:refresh',
+    next: 'unlock_exact_method',
+  };
+  expect(parseWalletUnlockAlreadyCommittedResponseV1(flatResponse)).toEqual({
+    ok: false,
+    code: 'already_committed',
+    message: flatResponse.message,
+    next: 'unlock_exact_method',
+    committed: {
+      kind: 'already_committed_wallet_session_v1',
+      walletId: 'wallet:refresh',
+      authorityId: 'authority:refresh',
+      walletAuthMethodId: 'auth-method:refresh',
+      mintId: 'mint:refresh',
+      authorizationId: 'authorization:refresh',
+      walletSessionId: 'wallet-session:refresh',
+      quotaId: 'quota:refresh',
+    },
+  });
+  expect(parseWalletSessionAlreadyCommittedResponseV1(flatResponse)).toBeNull();
+});
+
+test('Wallet Session mint preserves a reused identity without a second credential', async () => {
+  const originalFetch = globalThis.fetch;
+  const capture: RefreshFetchCapture = {
+    authorization: '',
+    body: '',
+    credentials: undefined,
+  };
+  const existingWalletSessionToken = `wst_${'E'.repeat(43)}`;
+  activeRefreshFetchCapture = capture;
+  activeRefreshResponseBody = {
+    ok: true,
+    sessionKind: 'reused_wallet_session_v2',
+    thresholdSessionId: 'threshold-session-1',
+    walletSessionId: 'wallet-session-1',
+    authorizationId: 'authorization-1',
+    quotaId: 'quota-1',
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    remainingUses: 3,
+    runtimePolicyScope: {
+      orgId: 'org-refresh',
+      projectId: 'project-refresh',
+      envId: 'env-refresh',
+      signingRootVersion: 'root-version-refresh',
+    },
+  };
+  globalThis.fetch = refreshWalletSessionFetch;
+
+  try {
+    const result = await mintEd25519WalletSession({
+      relayerUrl: 'https://relay.example.test',
+      sessionKind: 'opaque',
+      relayerKeyId: 'ed25519:relayer-key',
+      sessionPolicy: refreshSessionPolicyFixture(),
+      auth: {
+        kind: 'threshold_session_policy_webauthn',
+        policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+          credential: refreshCredentialFixture(),
+          rpId: 'localhost',
+        }),
+      },
+      existingWalletSessionToken,
+      publishableKey: PUBLISHABLE_KEY,
+      projectEnvironmentId: 'env-refresh',
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      sessionKind: 'reused_wallet_session_v2',
+      thresholdSessionId: 'threshold-session-1',
+      walletSessionId: 'wallet-session-1',
+      authorizationId: 'authorization-1',
+      quotaId: 'quota-1',
+      expiresAtMs: expect.any(Number),
+      remainingUses: 3,
+      runtimePolicyScope: {
+        orgId: 'org-refresh',
+        projectId: 'project-refresh',
+        envId: 'env-refresh',
+        signingRootVersion: 'root-version-refresh',
+      },
+    });
+    expect(result).not.toHaveProperty('operationCredential');
+    expect(result).not.toHaveProperty('walletSessionToken');
+    expect(capture.authorization).toBe(`Bearer ${existingWalletSessionToken}`);
+    expect(capture.body).toContain('"walletSessionTarget":{"kind":"reuse_ecdsa_wallet_session"}');
+    expect(capture.body).not.toContain('"projectEnvironmentId"');
+  } finally {
+    activeRefreshFetchCapture = null;
+    activeRefreshResponseBody = null;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Wallet Session mint rejects an issued credential bound to another session', async () => {
+  const originalFetch = globalThis.fetch;
+  const capture: RefreshFetchCapture = {
+    authorization: '',
+    body: '',
+    credentials: undefined,
+  };
+  activeRefreshFetchCapture = capture;
+  activeRefreshResponseBody = {
+    ok: true,
+    sessionKind: 'issued_wallet_session_v1',
+    thresholdSessionId: 'threshold-session-1',
+    walletSessionId: 'wallet-session-1',
+    authorizationId: 'authorization-1',
+    quotaId: 'quota-1',
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    remainingUses: 3,
+    runtimePolicyScope: {
+      orgId: 'org-refresh',
+      projectId: 'project-refresh',
+      envId: 'env-refresh',
+      signingRootVersion: 'root-version-refresh',
+    },
+    operationCredential: {
+      kind: 'opaque_wallet_session_operation_credential_v1',
+      token: `wst_${'R'.repeat(43)}`,
+      walletSessionId: 'wallet-session-other',
+    },
+  };
+  globalThis.fetch = refreshWalletSessionFetch;
+
+  try {
+    const result = await mintEd25519WalletSession({
+      relayerUrl: 'https://relay.example.test',
+      sessionKind: 'opaque',
+      relayerKeyId: 'ed25519:relayer-key',
+      sessionPolicy: refreshSessionPolicyFixture(),
+      auth: {
+        kind: 'threshold_session_policy_webauthn',
+        policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+          credential: refreshCredentialFixture(),
+          rpId: 'localhost',
+        }),
+      },
+      projectEnvironmentId: 'env-refresh',
+      publishableKey: PUBLISHABLE_KEY,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'invalid_response',
+      message: 'Wallet Session mint credential does not identify its session',
+    });
+  } finally {
+    activeRefreshFetchCapture = null;
+    activeRefreshResponseBody = null;
     globalThis.fetch = originalFetch;
   }
 });
@@ -311,10 +567,11 @@ test('Ed25519 session connection rejects success without a runtime policy scope'
     expect(result).toEqual({
       ok: false,
       code: 'invalid_response',
-      message: 'Threshold Ed25519 session mint returned incomplete lifecycle metadata',
+      message: 'Wallet Session mint returned invalid lifecycle or policy data',
     });
   } finally {
     activeRefreshFetchCapture = null;
+    activeRefreshResponseBody = null;
     activeRefreshResponseIncludesRuntimePolicyScope = true;
     globalThis.fetch = originalFetch;
   }

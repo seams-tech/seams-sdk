@@ -48,9 +48,9 @@ import {
   type WalletAuthMethodId,
 } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type {
   MpcWalletSigningQuotaId,
-  ReusableWalletSessionAuthorizationId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -603,20 +603,13 @@ export type WalletRegistrationEd25519YaoActivationReference = {
   session_id: RouterAbEd25519YaoBytes32V1;
 };
 
-/**
- * The client view of one exact Wallet Session. The response branch that issued
- * the session and the branch that reused it are resolved at the parse
- * boundary, so every consumer holds the one credential that admits it.
- */
-export type WalletRegistrationEd25519YaoBootstrapSession = {
-  sessionKind: 'opaque';
-  walletSessionToken: string;
+export type WalletRegistrationEd25519YaoSignerRuntimeBootstrap = {
   walletId: WalletId;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   authorityScope: Ed25519AuthorityScope;
   thresholdSessionId: string;
-  authorizationId: ReusableWalletSessionAuthorizationId;
+  authorizationId: WalletSessionAuthorizationId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
@@ -627,6 +620,21 @@ export type WalletRegistrationEd25519YaoBootstrapSession = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
+
+/**
+ * The response branch is retained alongside signer-runtime bootstrap facts.
+ * A reused response carries no new credential; the caller's exact credential
+ * remains the only admission proof for that existing session.
+ */
+export type WalletRegistrationEd25519YaoBootstrapSession =
+  | (WalletRegistrationEd25519YaoSignerRuntimeBootstrap & {
+      sessionKind: 'issued_wallet_session_v1';
+      operationCredential: WalletSessionOperationCredentialV1;
+    })
+  | (WalletRegistrationEd25519YaoSignerRuntimeBootstrap & {
+      sessionKind: 'reused_wallet_session_v2';
+      operationCredential?: never;
+    });
 
 export type WalletEd25519YaoSignerPublicResult = {
   signerSlot: number;
