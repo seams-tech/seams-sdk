@@ -42,7 +42,16 @@ import {
   FixtureRouterAbEcdsaStrictRegistrationPort,
   SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort,
 } from '../helpers/routerAbSigningRuntimeTestUtils';
-import { base64UrlDecode } from '../../packages/shared-ts/src/utils/encoders';
+import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
+import { buildVerifiedWalletSessionPasskeyFactorResult } from '../../packages/wallet-server/src/authorization/factorEvidence';
+import { parseVerifiedOwnerProofId } from '../../packages/wallet-server/src/authorization/domain';
+import {
+  parseAuthFactorId,
+  parsePrincipalId,
+  parseTenantId,
+} from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { walletAuthAuthorityRef } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { computeWalletAddSignerEcdsaActivationRequestDigestB64u } from '../../packages/shared-ts/src/utils/walletAddSignerActivation';
 import type { ActiveWalletAuthorityV1 } from '../../packages/shared-ts/src/authorization/walletAuthority';
 import { extendFixtureAuthorityWithEcdsaSigner } from './helpers/linkedDeviceManagement.fixtures';
@@ -447,20 +456,19 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
     if (!persistedSigner) throw new Error('test Ed25519 signer did not parse');
 
     await insertSignerWallet({ database, ...scope, walletId });
-    await insertWalletAuthMethod({
+    /* Refresh resolves the authority the method belongs to, so a wallet with
+       only an auth-method row is a state production cannot reach. The founding
+       authority comes from the shared factory, which is also what makes this
+       test's provenance claim meaningful. */
+    await seedFoundingPasskeyAuthority({
       database,
       ...scope,
-      record: {
-        kind: 'passkey',
-        walletAuthMethodId,
-        walletAuthorityId: 'wallet-authority:passkey-budget-refresh',
-        walletId,
+      identity: {
+        walletId: String(walletId),
+        authorityId: 'wallet-authority:passkey-budget-refresh',
+        walletAuthMethodId: String(walletAuthMethodId),
         rpId,
         credentialIdB64u,
-        credentialPublicKeyB64u: 'test-passkey-public-key',
-        counter: 0,
-        createdAtMs: 1_000,
-        updatedAtMs: 1_000,
       },
     });
     const walletStore = new D1WalletStore({
@@ -483,41 +491,99 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       ed25519YaoProductRegistration: yaoRuntime,
     });
 
+    const verifiedChallengeId = 'passkey-budget-refresh-challenge';
+    const refreshVerifiedAtMs = Date.now();
+    const refreshProof = await service.authorizedOperations.buildVerifiedOwnerProof({
+      purpose: 'wallet_session',
+      proofId: parseVerifiedOwnerProofId(`owner-proof:${verifiedChallengeId}`),
+      factor: buildVerifiedWalletSessionPasskeyFactorResult({
+        tenantId: requiredDomainValue(parseTenantId(scope.orgId), 'tenantId'),
+        principalId: requiredDomainValue(parsePrincipalId(String(walletId)), 'principalId'),
+        walletId,
+        authorityRef: await walletAuthAuthorityRef({ authority }),
+        requestOrigin: 'https://wallet.example.test',
+        audience: 'https://wallet.example.test',
+        factorId: requiredDomainValue(parseAuthFactorId(`passkey:${credentialIdB64u}`), 'factorId'),
+        credentialIdB64u: requiredDomainValue(
+          parseWebAuthnCredentialIdB64u(credentialIdB64u),
+          'credentialIdB64u',
+        ),
+        assertionDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(9))),
+        verifiedAtMs: refreshVerifiedAtMs,
+        expiresAtMs: refreshVerifiedAtMs + 300_000,
+      }),
+    });
+    const refreshSessionPolicy = {
+      version: 'threshold_session_v1',
+      nearAccountId,
+      nearEd25519SigningKeyId,
+      authority,
+      relayerKeyId: TEST_YAO_SIGNING_WORKER_ID,
+      thresholdSessionId: currentThresholdSessionId,
+      walletSessionId: currentWalletSessionId,
+      quotaId: currentQuotaId,
+      runtimePolicyScope,
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1',
+        signingWorkerId: TEST_YAO_SIGNING_WORKER_ID,
+      },
+      participantIds,
+      ttlMs: 60_000,
+      remainingUses: 1,
+    } as const;
     const refreshed = await service.walletRegistration.refreshEd25519YaoWalletSession({
       kind: 'router_ab_ed25519_yao_budget_refresh_v1',
-      sessionPolicy: {
-        version: 'threshold_session_v1',
-        nearAccountId,
-        nearEd25519SigningKeyId,
-        authority,
-        relayerKeyId: TEST_YAO_SIGNING_WORKER_ID,
-        thresholdSessionId: currentThresholdSessionId,
-        walletSessionId: currentWalletSessionId,
-        quotaId: currentQuotaId,
-        runtimePolicyScope,
-        routerAbNormalSigning: {
-          kind: 'router_ab_ed25519_normal_signing_v1',
-          signingWorkerId: TEST_YAO_SIGNING_WORKER_ID,
-        },
-        participantIds,
-        ttlMs: 60_000,
-        remainingUses: 1,
-      },
+      sessionPolicy: refreshSessionPolicy,
       authorization: {
         kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
         authority,
-        verifiedChallengeId: 'passkey-budget-refresh-challenge',
+        proof: refreshProof,
+        verifiedChallengeId,
       },
     });
     expect(refreshed, JSON.stringify(refreshed)).toMatchObject({
       ok: true,
+      sessionKind: 'issued_wallet_session_v1',
       walletId,
       thresholdSessionId: currentThresholdSessionId,
       remainingUses: 1,
     });
     if (!refreshed.ok) throw new Error(refreshed.message);
+    if (refreshed.sessionKind !== 'issued_wallet_session_v1') {
+      throw new Error('budget refresh must issue a fresh Wallet Session');
+    }
     expect(refreshed.walletSessionId).not.toBe(currentWalletSessionId);
     expect(refreshed.quotaId).not.toBe(currentQuotaId);
+    /* The refresh hands over the credential that admits the session it just
+       issued, and nothing else can reach it. */
+    expect(refreshed.operationCredential.walletSessionId).toBe(refreshed.walletSessionId);
+    expect(refreshed.operationCredential.token).toMatch(/^wst_[A-Za-z0-9_-]{43}$/);
+
+    /* Replaying the same verified challenge cannot mint a second credential
+       for the committed session; it returns the exact-method continuation. */
+    const replay = await service.walletRegistration.refreshEd25519YaoWalletSession({
+      kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+      sessionPolicy: refreshSessionPolicy,
+      authorization: {
+        kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
+        authority,
+        proof: refreshProof,
+        verifiedChallengeId,
+      },
+    });
+    expect(replay, JSON.stringify(replay)).toMatchObject({
+      ok: false,
+      code: 'already_committed',
+      next: 'unlock_exact_method',
+      committed: {
+        kind: 'already_committed_wallet_session_v1',
+        walletId,
+        authorizationId: refreshed.authorizationId,
+        walletSessionId: refreshed.walletSessionId,
+        quotaId: refreshed.quotaId,
+      },
+    });
+    expect(replay).not.toHaveProperty('operationCredential');
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

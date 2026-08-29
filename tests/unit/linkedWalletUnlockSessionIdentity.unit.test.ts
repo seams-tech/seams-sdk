@@ -130,8 +130,7 @@ function buildEd25519Session(
 ): WalletRegistrationEd25519YaoBootstrapSession {
   const runtimePolicyScope = fixture.ed25519Session.runtimePolicyScope;
   return {
-    sessionKind: 'opaque',
-    walletSessionToken: fixture.ed25519Session.walletSessionToken,
+    sessionKind: 'reused_wallet_session_v2',
     walletId: fixture.walletId,
     nearAccountId: fixture.ed25519Session.nearAccountId,
     nearEd25519SigningKeyId: fixture.ed25519Session.nearEd25519SigningKeyId,
@@ -274,8 +273,7 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     body: {
       ok: false,
       code: 'invalid_body',
-      message:
-        'walletSessionClientCapability must be direct_exact_response_future_record_tolerant',
+      message: 'walletSessionClientCapability must be direct_exact_response_future_record_tolerant',
     },
   });
 
@@ -303,11 +301,16 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     remainingUses: linkedWalletSession.quota.remainingUses,
   });
   expect(response.body.ed25519Session).toMatchObject({
-    walletSessionToken: fixture.ed25519Session.walletSessionToken,
+    sessionKind: 'reused_wallet_session_v2',
     authorizationId: linkedWalletSession.session.authorizationId,
     walletSessionId: linkedWalletSession.session.walletSessionId,
     quotaId: linkedWalletSession.session.quotaId,
   });
+  /* The reused branch never carries a second credential: the unlock response
+     already delivered the one that admits this exact Wallet Session. */
+  expect(response.body.ed25519Session).not.toHaveProperty('operationCredential');
+  expect(response.body.ed25519Session).not.toHaveProperty('walletSessionToken');
+  expect(response.body.operationCredential).toEqual(fixture.operationCredential);
 
   sessionResolution = {
     kind: 'already_committed',
