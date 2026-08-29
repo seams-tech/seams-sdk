@@ -17,21 +17,15 @@ export async function handleWebAuthnAuthenticators(
       );
     }
     const nowMs = Date.now();
-    const ecdsa = await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-      tenantId: ctx.service.authorizationSessions.tenantId,
-      token,
-      curve: 'ecdsa',
-      nowMs,
-    });
-    const walletSession =
-      ecdsa ??
-      (await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-        tenantId: ctx.service.authorizationSessions.tenantId,
-        token,
-        curve: 'ed25519',
-        nowMs,
-      }));
-    if (!walletSession) {
+    const exact =
+      await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential(
+        {
+          tenantId: ctx.service.authorizationSessions.tenantId,
+          token,
+          nowMs,
+        },
+      );
+    if (!exact) {
       return json(
         { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
         { status: 401 },
@@ -43,7 +37,7 @@ export async function handleWebAuthnAuthenticators(
     ).trim();
 
     const result = await ctx.service.webAuthn.listWebAuthnAuthenticatorsForUser({
-      userId: walletSession.authorization.walletId,
+      userId: String(exact.authorization.session.walletId),
       ...(rpIdFromQuery ? { rpId: rpIdFromQuery } : {}),
     });
     if (!result.ok) {
