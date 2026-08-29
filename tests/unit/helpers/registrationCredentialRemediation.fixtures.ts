@@ -46,7 +46,6 @@ export type RegistrationCredentialRemediationFixture = {
   ): Promise<RegistrationCredentialRemediationReportV1>;
   insertLegacySession(): Promise<void>;
   insertOrdinaryBearer(curve: HistoricalCurve, token: string): Promise<void>;
-  insertRegistrationReplayBearer(curve: HistoricalCurve, token: string): Promise<void>;
   insertHistoricalCompletion(
     operation: HistoricalOperation,
     bearers: readonly { readonly curve: HistoricalCurve; readonly token: string }[],
@@ -58,7 +57,6 @@ export type RegistrationCredentialRemediationFixture = {
   insertHistoricalCredentialFreeError(): Promise<void>;
   insertUnrelatedCredentialRow(): Promise<void>;
   ordinaryBearerCount(): Promise<number>;
-  registrationReplayBearerCount(): Promise<number>;
   sessionLifecycle(): Promise<unknown>;
   quotaLifecycle(): Promise<Record<string, unknown> | null>;
   journalRowExists(recordKey: string): Promise<boolean>;
@@ -171,50 +169,6 @@ class RegistrationCredentialRemediationFixtureImpl implements RegistrationCreden
       .run();
   }
 
-  async insertRegistrationReplayBearer(curve: HistoricalCurve, token: string): Promise<void> {
-    const digest = await digestOpaqueValue(token);
-    const binding = {
-      kind: 'opaque_owner_wallet_session_binding_v1',
-      curve,
-      authorizationId: AUTHORIZATION_ID,
-      walletSessionId: WALLET_SESSION_ID,
-      quotaId: QUOTA_ID,
-      walletId: WALLET_ID,
-      thresholdExpiresAtMs: EXPIRES_AT_MS,
-    };
-    await this.temporary.database
-      .prepare(
-        `INSERT INTO registration_replay_opaque_wallet_session_tokens_v1 (
-           namespace, tenant_id, token_hash, curve, registration_ceremony_id,
-           operation, operation_fingerprint, authorization_id, wallet_session_id,
-           quota_id, principal_id, wallet_id, authority_digest, wallet_auth_method_id,
-           binding_json, issued_at_ms, session_expires_at_ms, token_expires_at_ms
-         ) VALUES (
-           ?1, ?2, ?3, ?4, ?5, 'near_provisioning', ?6, ?7, ?8, ?9, ?10,
-           ?11, ?12, ?13, ?14, ?15, ?16, ?16
-         )`,
-      )
-      .bind(
-        AUTHORIZATION_NAMESPACE,
-        AUTHORIZATION_TENANT_ID,
-        digest,
-        curve,
-        'ceremony-remediation',
-        'operation-fingerprint-remediation',
-        AUTHORIZATION_ID,
-        WALLET_SESSION_ID,
-        QUOTA_ID,
-        WALLET_ID,
-        WALLET_ID,
-        'authority-digest-remediation',
-        'auth-method-remediation',
-        JSON.stringify(binding),
-        EXPIRES_AT_MS - 300_000,
-        EXPIRES_AT_MS,
-      )
-      .run();
-  }
-
   async insertHistoricalCompletion(
     operation: HistoricalOperation,
     bearers: readonly { readonly curve: HistoricalCurve; readonly token: string }[],
@@ -291,13 +245,6 @@ class RegistrationCredentialRemediationFixtureImpl implements RegistrationCreden
   async ordinaryBearerCount(): Promise<number> {
     const row = await this.temporary.database
       .prepare('SELECT COUNT(*) AS count FROM opaque_wallet_session_tokens')
-      .first<{ readonly count?: unknown }>();
-    return Number(row?.count);
-  }
-
-  async registrationReplayBearerCount(): Promise<number> {
-    const row = await this.temporary.database
-      .prepare('SELECT COUNT(*) AS count FROM registration_replay_opaque_wallet_session_tokens_v1')
       .first<{ readonly count?: unknown }>();
     return Number(row?.count);
   }

@@ -35,7 +35,6 @@ const CREDENTIAL_FIELD_NAMES = new Set([
 
 type RegistrationJournalOperation = 'registration_activate' | 'near_provisioning';
 type HistoricalBearerCurve = 'ecdsa' | 'ed25519';
-type HistoricalBearerSource = 'ordinary' | 'registration_replay';
 
 type HistoricalBearer = {
   readonly curve: HistoricalBearerCurve;
@@ -68,7 +67,6 @@ type CandidateInventory = {
 };
 
 type HistoricalBearerMapping = {
-  readonly source: HistoricalBearerSource;
   readonly curve: HistoricalBearerCurve;
   readonly tokenHash: string;
 };
@@ -598,13 +596,8 @@ async function prepareHistoricalRetirements(
     const mappings: HistoricalBearerMapping[] = [];
     for (const bearer of completion.bearers) {
       const tokenHash = String(await digestOpaqueValue(bearer.plaintext));
-      const source = await resolveHistoricalBearerSource(
-        input,
-        completion,
-        bearer.curve,
-        tokenHash,
-      );
-      mappings.push({ source, curve: bearer.curve, tokenHash });
+      await requireHistoricalBearerMapping(input, completion, bearer.curve, tokenHash);
+      mappings.push({ curve: bearer.curve, tokenHash });
     }
     const first = mappings[0];
     if (!first) throw new Error('Registration credential remediation prepared no bearer');
@@ -613,12 +606,12 @@ async function prepareHistoricalRetirements(
   return prepared;
 }
 
-async function resolveHistoricalBearerSource(
+async function requireHistoricalBearerMapping(
   input: RegistrationCredentialRemediationInput,
   completion: HistoricalCompletionProjection,
   curve: HistoricalBearerCurve,
   tokenHash: string,
-): Promise<HistoricalBearerSource> {
+): Promise<void> {
   const result = await input.database
     .prepare(historicalBearerMappingSql())
     .bind(
@@ -637,9 +630,9 @@ async function resolveHistoricalBearerSource(
   if (!result.success || !Array.isArray(result.results) || result.results.length !== 1) {
     throw new Error('Registration credential remediation bearer mapping is not unique');
   }
-  const source = result.results[0]?.token_source;
-  if (source === 'ordinary' || source === 'registration_replay') return source;
-  throw new Error('Registration credential remediation bearer mapping is invalid');
+  if (result.results[0]?.token_source !== 'ordinary') {
+    throw new Error('Registration credential remediation bearer mapping is invalid');
+  }
 }
 
 function historicalBearerMappingSql(): string {
@@ -658,39 +651,6 @@ function historicalBearerMappingSql(): string {
              AND token.token_hash = ?3
              AND token.curve = ?4
              AND token.wallet_session_id = ?5
-             AND session.authorization_id = ?6
-             AND session.quota_id = ?7
-             AND session.wallet_id = ?8
-             AND session.expires_at_ms = ?9
-             AND session.lifecycle_kind = 'active'
-             AND session.expires_at_ms > ?10
-             AND quota.wallet_session_id = session.wallet_session_id
-             AND quota.lifecycle_kind = 'active'
-             AND quota.remaining_uses > 0
-             AND quota.expires_at_ms = session.expires_at_ms
-             AND quota.expires_at_ms > ?10
-          UNION ALL
-          SELECT 'registration_replay' AS token_source
-            FROM registration_replay_opaque_wallet_session_tokens_v1 AS token
-            JOIN reusable_wallet_sessions AS session
-              ON session.namespace = token.namespace
-             AND session.tenant_id = token.tenant_id
-             AND session.wallet_session_id = token.wallet_session_id
-            JOIN authorization_wallet_session_quotas AS quota
-              ON quota.namespace = session.namespace
-             AND quota.tenant_id = session.tenant_id
-             AND quota.quota_id = session.quota_id
-           WHERE token.namespace = ?1
-             AND token.tenant_id = ?2
-             AND token.token_hash = ?3
-             AND token.curve = ?4
-             AND token.wallet_session_id = ?5
-             AND token.authorization_id = ?6
-             AND token.quota_id = ?7
-             AND token.wallet_id = ?8
-             AND token.session_expires_at_ms = ?9
-             AND token.token_expires_at_ms = ?9
-             AND token.token_expires_at_ms > ?10
              AND session.authorization_id = ?6
              AND session.quota_id = ?7
              AND session.wallet_id = ?8
@@ -737,23 +697,14 @@ function prepareBearerDelete(
   completion: HistoricalCompletionProjection,
   bearer: HistoricalBearerMapping,
 ): D1PreparedStatementLike {
-  const table =
-    bearer.source === 'ordinary'
-      ? 'opaque_wallet_session_tokens'
-      : 'registration_replay_opaque_wallet_session_tokens_v1';
-  const replayPredicates =
-    bearer.source === 'registration_replay'
-      ? 'AND token_expires_at_ms = ?9 AND session_expires_at_ms = ?9'
-      : '';
   return input.database
     .prepare(
-      `DELETE FROM ${table}
+      `DELETE FROM opaque_wallet_session_tokens
         WHERE namespace = ?1
           AND tenant_id = ?2
           AND token_hash = ?3
           AND curve = ?4
           AND wallet_session_id = ?5
-          ${replayPredicates}
           AND EXISTS (
             SELECT 1
               FROM reusable_wallet_sessions AS session

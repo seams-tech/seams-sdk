@@ -48,7 +48,7 @@ test.describe('registration credential remediation', () => {
 
   test('handles the deferred NEAR prefix with the same exact retirement semantics', async () => {
     await fixture.insertLegacySession();
-    await fixture.insertRegistrationReplayBearer('ed25519', fixture.ed25519Token);
+    await fixture.insertOrdinaryBearer('ed25519', fixture.ed25519Token);
     await fixture.insertHistoricalCompletion('near_provisioning', [
       { curve: 'ed25519', token: fixture.ed25519Token },
     ]);
@@ -57,7 +57,7 @@ test.describe('registration credential remediation', () => {
 
     expect(report.retired.tokenRows).toBe(1);
     expect(report.retired.deletedCompletionRows).toBe(1);
-    expect(await fixture.registrationReplayBearerCount()).toBe(0);
+    expect(await fixture.ordinaryBearerCount()).toBe(0);
     expect(await fixture.sessionLifecycle()).toBe('superseded');
   });
 
