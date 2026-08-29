@@ -116,9 +116,6 @@ export class RecoveryCodeBackupHost extends LitElementWithProps {
   private async showDialogWhenReady(viewer: RecoveryCodeBackupViewer): Promise<void> {
     await viewer.updateComplete;
     await viewer.whenStylesReady();
-    // Style readiness queues the viewer's gated content render. Cross one
-    // frame boundary so layout and updateComplete both reflect that update.
-    await new Promise<number>(requestAnimationFrame);
     await viewer.updateComplete;
     const currentDialog = this.dialogEl;
     if (this.viewerEl !== viewer || !currentDialog?.isConnected || currentDialog.open) return;
