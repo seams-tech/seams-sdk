@@ -119,6 +119,7 @@ export interface CloudflareD1GatewayBaseEnv
   readonly RELAY_SESSION_ISSUER?: string;
   readonly RELAY_SESSION_AUDIENCE?: string;
   readonly RELAY_CORS_ORIGINS?: string;
+  readonly HOSTED_WALLET_ORIGINS?: string;
   readonly RELAYER_ACCOUNT_ID?: string;
   readonly RELAYER_PUBLIC_KEY?: string;
   readonly RELAYER_PRIVATE_KEY?: string;
@@ -186,6 +187,12 @@ type CloudflareD1RouterApiStagingEnv = CloudflareD1GatewayBaseEnv &
     readonly CONSOLE_SESSION_ISSUER: string;
     readonly CONSOLE_SESSION_AUDIENCE: string;
   };
+
+export function readStagingHostedWalletOrigins(
+  env: Pick<CloudflareD1GatewayBaseEnv, 'HOSTED_WALLET_ORIGINS'>,
+): string[] {
+  return readCsvList(requireEnvString(env, 'HOSTED_WALLET_ORIGINS'));
+}
 
 export interface CloudflareD1GatewayEnv extends CloudflareD1GatewayBaseEnv {
   readonly WALLET_CONSOLE: WalletConsoleServiceBinding;
@@ -494,6 +501,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     healthz: true,
     readyz: true,
     corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS),
+    hostedWalletOrigins: readStagingHostedWalletOrigins(env),
     session,
     sessionCookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
     routerAbPublicKeyset: requireStagingRouterAbPublicKeyset(env),
@@ -587,6 +595,7 @@ export async function createSplitGatewayRouterHandler(
     healthz: true,
     readyz: true,
     corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS),
+    hostedWalletOrigins: readStagingHostedWalletOrigins(env),
     session,
     sessionCookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
     routerAbPublicKeyset: requireStagingRouterAbPublicKeyset(env),

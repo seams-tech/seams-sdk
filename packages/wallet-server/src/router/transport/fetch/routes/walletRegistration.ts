@@ -77,6 +77,7 @@ export async function handleWalletRegistration(
   const common = {
     body,
     headers: Object.fromEntries(ctx.request.headers.entries()),
+    hostedWalletOrigins: ctx.opts.hostedWalletOrigins ?? [],
     logger: ctx.logger,
     origin:
       String(ctx.request.headers.get('origin') || ctx.request.headers.get('Origin') || '').trim() ||

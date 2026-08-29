@@ -65,6 +65,8 @@ import {
   resolveActiveRuntimePolicyScopeForEnvironment,
   resolveOpaqueOwnerWalletSessionAdmission,
   resolveWalletSessionOperationCredentialAdmission,
+  resolveWalletSessionOperationCredentialAdmissionFromContext,
+  type WalletSessionOperationCredentialAdmission,
 } from '../../auth/commonRouterUtils';
 import { extractBearerCredential } from '../../auth/routerApiKeyAuth';
 import { enforceRoutePolicy } from '../../framework/enforceRoutePolicy';
@@ -85,7 +87,10 @@ import type { RouteErrorBody } from '../../framework/routeResponses';
 import { routeError, routeJson } from '../../framework/routeResponses';
 import { isPlainObject } from '@shared/utils/validation';
 import { base58Encode, base64UrlDecode } from '@shared/utils/encoders';
-import { NEAR_ED25519_MPC_OPERATION_KINDS } from '@shared/authorization/capabilityKinds';
+import {
+  EVM_ECDSA_MPC_OPERATION_KINDS,
+  NEAR_ED25519_MPC_OPERATION_KINDS,
+} from '@shared/authorization/capabilityKinds';
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import {
   parseRouterAbEcdsaRegistrationActivationRequestV1,
@@ -140,6 +145,12 @@ import {
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
 import type { RouterAbEd25519YaoGatewaySpanV1 } from '../ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
+import {
+  parseHostedWalletSessionOperationCredentialToken,
+  parsePrimaryWalletSessionOperationCredentialToken,
+  parseSessionOrigin,
+  type SessionOrigin,
+} from '../../../authorization/domain';
 
 type RouterApiWalletRegistrationServices = {
   walletRegistration: RouterApiWalletRegistrationRouteService;
@@ -160,6 +171,7 @@ type ParsedRegistrationSignerSet = {
 type RouterApiWalletRegistrationInput = {
   body: unknown;
   headers: HeaderRecord;
+  hostedWalletOrigins: readonly (string | undefined)[];
   logger: NormalizedRouterLogger;
   origin?: string;
   pathParams?: Record<string, string | undefined>;
@@ -847,6 +859,101 @@ async function resolveRouteOpaqueOwnerWalletSession(
   } catch {
     return null;
   }
+}
+
+type EcdsaInventorySessionAdmission = Extract<
+  WalletSessionOperationCredentialAdmission,
+  { readonly curve: 'ecdsa' }
+>;
+
+type EcdsaInventorySessionResolution =
+  | { readonly kind: 'admitted'; readonly admission: EcdsaInventorySessionAdmission }
+  | { readonly kind: 'hosted_origin_rejected' }
+  | { readonly kind: 'unavailable' };
+
+const ECDSA_INVENTORY_SESSION_OPERATION = {
+  keyFamily: 'ecdsa_secp256k1',
+  operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
+} as const;
+
+function hostedInventoryRequestOrigin(
+  input: RouterApiWalletRegistrationInput,
+): SessionOrigin | null {
+  let requestOrigin: SessionOrigin;
+  try {
+    requestOrigin = parseSessionOrigin(input.origin);
+  } catch {
+    return null;
+  }
+  for (const candidate of input.hostedWalletOrigins) {
+    try {
+      if (parseSessionOrigin(candidate) === requestOrigin) return requestOrigin;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function admittedEcdsaInventorySession(
+  resolution: ReturnType<typeof resolveWalletSessionOperationCredentialAdmissionFromContext>,
+): EcdsaInventorySessionAdmission | null {
+  if (resolution.kind !== 'admitted' || resolution.admission.curve !== 'ecdsa') return null;
+  return resolution.admission;
+}
+
+async function resolveRouteEcdsaInventorySession(
+  input: RouterApiWalletRegistrationInput,
+): Promise<EcdsaInventorySessionResolution> {
+  const token = extractBearerCredential(input.headers);
+  if (!token) return { kind: 'unavailable' };
+  const nowMs = Date.now();
+  if (token.startsWith('wst_')) {
+    let primaryToken: ReturnType<typeof parsePrimaryWalletSessionOperationCredentialToken>;
+    try {
+      primaryToken = parsePrimaryWalletSessionOperationCredentialToken(token);
+    } catch {
+      return { kind: 'unavailable' };
+    }
+    const resolution = await resolveWalletSessionOperationCredentialAdmission({
+      authorizationSessions: input.services.authorizationSessions,
+      token: primaryToken,
+      nowMs,
+      operation: ECDSA_INVENTORY_SESSION_OPERATION,
+    });
+    if (resolution.kind !== 'admitted' || resolution.admission.curve !== 'ecdsa') {
+      return { kind: 'unavailable' };
+    }
+    return { kind: 'admitted', admission: resolution.admission };
+  }
+  if (!token.startsWith('wsh_')) return { kind: 'unavailable' };
+  let hostedToken: ReturnType<typeof parseHostedWalletSessionOperationCredentialToken>;
+  try {
+    hostedToken = parseHostedWalletSessionOperationCredentialToken(token);
+  } catch {
+    return { kind: 'unavailable' };
+  }
+  const requestOrigin = hostedInventoryRequestOrigin(input);
+  if (!requestOrigin) return { kind: 'hosted_origin_rejected' };
+  const context =
+    await input.services.authorizationSessions.readHostedWalletSessionOperationCredentialV2({
+      tenantId: input.services.authorizationSessions.tenantId,
+      token: hostedToken,
+      requestOrigin,
+      nowMs,
+    });
+  if (!context) return { kind: 'unavailable' };
+  const admission = admittedEcdsaInventorySession(
+    resolveWalletSessionOperationCredentialAdmissionFromContext({
+      context,
+      nowMs,
+      operation: ECDSA_INVENTORY_SESSION_OPERATION,
+    }),
+  );
+  if (admission) {
+    return { kind: 'admitted', admission };
+  }
+  return { kind: 'unavailable' };
 }
 
 type NearFundingWalletSessionAdmission = {
@@ -2934,6 +3041,7 @@ export async function handleRouterApiWalletEcdsaKeyFactsInventory(
   }
   const parsedBody = await parseWalletEcdsaInventoryBody(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
+  let inventoryWalletId = walletId;
   switch (parsedBody.value.auth.kind) {
     case 'webauthn_assertion': {
       const origin = requireWebAuthnExpectedOrigin(input);
@@ -2957,25 +3065,35 @@ export async function handleRouterApiWalletEcdsaKeyFactsInventory(
       break;
     }
     case 'opaque_wallet_session': {
-      const admission = await resolveRouteOpaqueOwnerWalletSession(input, 'ecdsa');
-      if (!admission || admission.curve !== 'ecdsa') {
-        return routeError(401, 'unauthorized', 'Opaque ECDSA Wallet Session is unavailable');
+      let resolution: EcdsaInventorySessionResolution;
+      try {
+        resolution = await resolveRouteEcdsaInventorySession(input);
+      } catch {
+        return routeError(503, 'internal', 'ECDSA Wallet Session is unavailable');
       }
-      if (admission.binding.walletId !== walletId) {
+      if (resolution.kind === 'hosted_origin_rejected') {
+        return routeError(403, 'forbidden', 'Hosted Wallet Session origin is unavailable');
+      }
+      if (resolution.kind !== 'admitted') {
+        return routeError(401, 'unauthorized', 'ECDSA Wallet Session is unavailable');
+      }
+      const admittedWalletId = resolution.admission.context.authorization.session.walletId;
+      if (admittedWalletId !== walletId) {
         return routeError(403, 'forbidden', 'Wallet session does not match walletId');
       }
+      inventoryWalletId = admittedWalletId;
       break;
     }
     default:
       return assertNeverWalletEcdsaInventoryAuth(parsedBody.value.auth);
   }
   const keyInventory = await input.services.walletRegistration.listWalletEcdsaKeyFactsInventory({
-    walletId,
+    walletId: inventoryWalletId,
     rpId: parsedBody.value.rpId,
     keyTargets: parsedBody.value.keyTargets,
   });
   input.logger.info('[wallet][ecdsa-key-facts-inventory][diagnostic]', {
-    walletId,
+    walletId: inventoryWalletId,
     ...keyInventory.diagnostics,
   });
   return routeJson(200, {

@@ -576,6 +576,11 @@ const LOCAL_ROUTER_API_CORS_ORIGINS = Object.freeze([
   'http://127.0.0.1:8787',
   'http://localhost:8787',
 ]);
+const LOCAL_HOSTED_WALLET_ORIGINS = Object.freeze(['https://localhost:4002']);
+
+export function localHostedWalletOrigins(): string[] {
+  return [...LOCAL_HOSTED_WALLET_ORIGINS];
+}
 const CONSOLE_READY_TABLES = Object.freeze([
   'organizations',
   'projects',
@@ -1150,6 +1155,7 @@ async function createLocalRouterApiHandler(
     healthz: true,
     readyz: true,
     corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
+    hostedWalletOrigins: localHostedWalletOrigins(),
     ...(routerAbPublicKeyset ? { routerAbPublicKeyset } : {}),
     session,
     ...(ed25519Yao.kind === 'enabled' ? { routerAbEd25519YaoProduct: ed25519Yao.runtime } : {}),
