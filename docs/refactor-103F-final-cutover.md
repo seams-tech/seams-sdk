@@ -1114,6 +1114,11 @@ Convert every reader or legacy writer:
       and fail closed for missing selection, identity drift, expiry, corruption,
       persistence failure, or a future record version. The former wallet-wide
       registration/recovery and missing-selection fallbacks are deleted;
+- [x] NEAR operation step-up in `BrowserSigningSurface.ts`: bind the Passkey or
+      Email OTP proof to the unlocked selected method, validate its exact
+      Ed25519 signing subject and material activation, and use only the exact
+      operation credential. The wallet-wide Passkey and Email OTP fallbacks are
+      deleted;
 - [x] `clientSessionPersistence.ts`;
 - [x] `ecdsaLoginPrefill.ts`;
 - [x] `routerAbEd25519WalletSessionState.ts`;
