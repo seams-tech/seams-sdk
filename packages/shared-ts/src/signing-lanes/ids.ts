@@ -4,9 +4,6 @@ import type {
 } from '../utils/ecdsaCapabilityActivation';
 
 export type {
-  AgentPrincipalId,
-  DelegatedIdempotencyKey,
-  DelegatedIntentDigest,
   LaneShareEpoch,
   LaneEnrollmentId,
   LaneOperationId,
@@ -14,7 +11,6 @@ export type {
   LinkedDeviceId,
   LinkedDeviceEnrollmentId,
   LinkDeviceSessionId,
-  MandatePolicyId,
   SigningLaneId,
   WalletKeyId,
   Ed25519YaoSuiteId,
@@ -41,9 +37,6 @@ export type ThresholdEcdsaChainTarget =
     };
 
 export {
-  parseAgentPrincipalId,
-  parseDelegatedIdempotencyKey,
-  parseDelegatedIntentDigest,
   parseLaneShareEpoch,
   parseLaneEnrollmentId,
   parseLaneOperationId,
@@ -51,7 +44,6 @@ export {
   parseLinkedDeviceId,
   parseLinkedDeviceEnrollmentId,
   parseLinkDeviceSessionId,
-  parseMandatePolicyId,
   parseSigningLaneId,
   parseWalletKeyId,
   parseEd25519YaoSuiteId,
