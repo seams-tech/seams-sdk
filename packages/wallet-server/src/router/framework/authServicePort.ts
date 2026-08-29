@@ -319,13 +319,7 @@ import type {
   VerifiedWalletOperationFactorEvidenceSetInput,
   VerifiedOwnerProofInput,
 } from '../../authorization/factorEvidence';
-import type {
-  IssuedOpaqueWalletSessionToken,
-  OpaqueWalletSessionCurve,
-  OpaqueOwnerWalletSessionBinding,
-  ResolvedOpaqueWalletSessionToken,
-  EcdsaMaterialActivationScope,
-} from '../../authorization/service';
+import type { EcdsaMaterialActivationScope } from '../../authorization/service';
 import type {
   PrincipalId,
   TenantId,
@@ -1582,23 +1576,6 @@ export interface RouterApiAuthorizationSessionService {
   issueDirectWalletSessionAuthorizationV2(
     input: IssueDirectWalletSessionAuthorizationV2Input,
   ): Promise<DirectV2IssueResult>;
-  issueOpaqueWalletSessionToken(input: {
-    readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
-    readonly tenantId: TenantId;
-    readonly authorizationId: import('@shared/authorization/capabilityKinds').WalletSessionAuthorizationId;
-    readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
-    readonly quotaId: import('@shared/authorization/capabilityKinds').MpcWalletSigningQuotaId;
-    readonly expiresAtMs: number;
-    readonly consumedAtMs: number;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly binding: OpaqueOwnerWalletSessionBinding;
-  }): Promise<IssuedOpaqueWalletSessionToken>;
-  resolveOpaqueWalletSessionToken(input: {
-    readonly tenantId: TenantId;
-    readonly token: string;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly nowMs: number;
-  }): Promise<ResolvedOpaqueWalletSessionToken | null>;
   /** Reads the opaque V2 operation credential and its active authority records. */
   readonly readWalletSessionAuthorizationV2ByOperationCredential: (input: {
     readonly tenantId: TenantId;

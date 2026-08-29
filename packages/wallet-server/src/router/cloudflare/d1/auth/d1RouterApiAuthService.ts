@@ -347,7 +347,6 @@ function createD1LinkedDeviceComposition(input: {
     CloudflareD1AuthorizationStore,
     | 'prepareWalletSessionAuthorizationV2Statements'
     | 'prepareRevokeReusableWalletSessionsForAuthority'
-    | 'readOpaqueWalletSessionTokenByIdentity'
     | 'readActiveWalletSessionAuthorizationV2ByIdentity'
   >;
   readonly walletRegistration: Pick<
@@ -2438,13 +2437,6 @@ function createD1AuthorizationSessionRouteService(
     tenantId: tenantId.value,
     issueDirectWalletSessionAuthorizationV2:
       assembly.authorizationService.issueDirectWalletSessionAuthorizationV2.bind(
-        assembly.authorizationService,
-      ),
-    issueOpaqueWalletSessionToken: assembly.authorizationService.issueOpaqueWalletSessionToken.bind(
-      assembly.authorizationService,
-    ),
-    resolveOpaqueWalletSessionToken:
-      assembly.authorizationService.resolveOpaqueWalletSessionToken.bind(
         assembly.authorizationService,
       ),
     readWalletSessionAuthorizationV2ByOperationCredential: async (input) => {
