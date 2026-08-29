@@ -13,9 +13,10 @@ import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/acti
 import type { ExactEcdsaSealedRuntime } from '../../session/material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
 import {
+  emailOtpEcdsaSigningSessionAuthLane,
   resolveExactEmailOtpEcdsaSigningSessionAuthority,
-  type EmailOtpEcdsaSigningSessionAuthority,
 } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 import {
   mpcMaterialActivationRefsEqual,
   type MpcMaterialActivationRef,
@@ -309,7 +310,7 @@ export async function resolveEmailOtpEcdsaSigningSessionAuth(args: {
 }): Promise<{
   manifest: ActiveEcdsaCapabilityManifest;
   runtime: ExactEcdsaSealedRuntime;
-  authority: EmailOtpEcdsaSigningSessionAuthority;
+  authority: ExactEvmFamilyWalletSessionAuthorization;
 }> {
   const resolved = await resolveActiveEcdsaCapabilityRuntime({
     walletId: args.walletId,
@@ -357,7 +358,7 @@ export async function requestEmailOtpSigningSessionChallenge(
     kind: 'wallet_session_challenge',
     walletSession: args.walletSession,
     chain: args.chainTarget.kind,
-    authLane: authority.authLane,
+    authLane: emailOtpEcdsaSigningSessionAuthLane(authority),
   });
 }
 
@@ -413,7 +414,7 @@ async function runFencedEmailOtpSigningSessionRefresh(input: {
   });
   const routePlan = buildEmailOtpRoutePlan({
     routeFamily: 'signing_session',
-    authLane: authority.authLane,
+    authLane: emailOtpEcdsaSigningSessionAuthLane(authority),
     operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
   });
   // Public facts are the manifest's half of the capability split.

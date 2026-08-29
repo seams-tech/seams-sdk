@@ -13,15 +13,21 @@ import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/d
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseWalletAuthorityId } from '@shared/utils/domainIds';
 import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
-import { isPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
 import { projectActiveWalletSession } from '../../../packages/wallet-server/src/authorization/domain';
 import {
   buildExactEvmFamilyWalletSessionAuthorization,
   type ExactEvmFamilyWalletSessionAuthorization,
 } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
+import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
+import type { CanonicalEvmFamilyEcdsaSigningCapability } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 import { canonicalEcdsaSealedRuntimeFixture } from './ecdsaOperationStepUp.fixtures';
 import { buildExactWalletSessionAuthorizationFixture } from './exactWalletSessionAuthorization.fixtures';
+import { buildEmailOtpEcdsaWalletSessionFixture } from './linkedDeviceManagement.fixtures';
 
 function required<T>(
   result:
@@ -164,6 +170,79 @@ export function buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeF
       walletSessionId,
     }),
     runtime,
+    nowMs,
+  });
+}
+
+export async function buildExactEmailOtpEvmFamilyWalletSessionAuthorizationFixture(input: {
+  readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
+  readonly runtime: ExactEcdsaSealedRuntime;
+  readonly label: string;
+}): Promise<ExactEvmFamilyWalletSessionAuthorization> {
+  if (input.runtime.authBinding.kind !== 'email_otp') {
+    throw new Error('[fixture] exact Email OTP authorization requires an Email OTP runtime');
+  }
+  if (!isEmailOtpWalletAuthAuthority(input.capability.authority)) {
+    throw new Error('[fixture] exact Email OTP authorization requires an Email OTP capability');
+  }
+  const factor = input.capability.authority;
+  const walletSessionFixture = await buildEmailOtpEcdsaWalletSessionFixture({
+    label: input.label,
+    walletId: String(input.capability.manifest.signer.walletId),
+    walletAuthMethodId: String(factor.bindingId),
+    materialActivation: input.runtime.materialActivation,
+    providerUserId: String(factor.factor.providerUserId),
+    emailHashHex: String(factor.verifier.emailHashHex),
+    expiresAtMs: input.runtime.expiresAtMs,
+  });
+  const selectedAuthority = buildActiveWalletAuthorityV1({
+    kind: walletSessionFixture.authority.kind,
+    authorityId: walletSessionFixture.authority.authorityId,
+    walletId: walletSessionFixture.authority.walletId,
+    principal: walletSessionFixture.authority.principal,
+    provenance: walletSessionFixture.authority.provenance,
+    permissions: walletSessionFixture.authority.permissions,
+    signerActivations: walletSessionFixture.authority.signerActivations,
+    signerActivationSetDigestB64u: walletSessionFixture.authority.signerActivationSetDigestB64u,
+    authorityDigestB64u: authorityDigest(
+      String(input.capability.manifest.signer.authority.authorityDigest),
+    ),
+    revocationEpoch: walletSessionFixture.authority.revocationEpoch,
+    createdAtMs: walletSessionFixture.authority.createdAtMs,
+    updatedAtMs: walletSessionFixture.authority.updatedAtMs,
+    state: 'active',
+    activatedAtMs: walletSessionFixture.authority.activatedAtMs,
+  });
+  const nowMs = Math.max(0, Math.min(Date.now(), input.runtime.expiresAtMs - 1));
+  const issued = buildExactWalletSessionAuthorizationFixture({
+    label: input.label,
+    tenantId: required(parseTenantId('tenant:exact-session')),
+    principalId: required(parsePrincipalId('principal:exact-session')),
+    authority: selectedAuthority,
+    walletAuthMethodId: walletSessionFixture.authMethod.walletAuthMethodId,
+    issuedAtMs: Math.max(0, nowMs - 1_000),
+    expiresAtMs: input.runtime.expiresAtMs,
+    remainingUses: Math.max(1, input.runtime.remainingUses),
+  });
+  const session = projectActiveWalletSession(issued);
+  const operationCredential = parseWalletSessionOperationCredentialV1({
+    kind: 'opaque_wallet_session_operation_credential_v1',
+    token: `wst_${'E'.repeat(43)}`,
+    walletSessionId: issued.session.walletSessionId,
+  });
+  return buildExactEvmFamilyWalletSessionAuthorization({
+    capability: input.capability,
+    selected: {
+      kind: 'resolved',
+      selection: walletSessionFixture.selection,
+      authMethod: walletSessionFixture.authMethod,
+      authority: selectedAuthority,
+      signerMaterials: [],
+      exportRoot: null,
+    },
+    session,
+    operationCredential,
+    runtime: input.runtime,
     nowMs,
   });
 }
