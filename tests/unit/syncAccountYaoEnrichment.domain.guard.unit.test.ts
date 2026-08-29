@@ -23,10 +23,8 @@ import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-se
 import { createCloudflareRouter } from '../../packages/wallet-server/src/router/cloudflare/runtime/createCloudflareRouter';
 import type { SessionAdapter } from '../../packages/wallet-server/src/router/framework/routerApi';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
-import type {
-  RouterAbEd25519YaoWalletSessionMintInputV1,
-  RouterAbEd25519YaoWalletSessionMintResultV1,
-} from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+import type { RouterAbEd25519YaoWalletSessionMintInputV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../packages/wallet-server/src/core/registrationContracts';
 import type {
   RouterAbEd25519YaoActiveCapabilityDescriptorV1,
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,
@@ -302,7 +300,7 @@ class RecordingYaoProductRuntime implements RouterAbEd25519YaoProductRegistratio
 
   async mintWalletSession(
     input: RouterAbEd25519YaoWalletSessionMintInputV1,
-  ): Promise<RouterAbEd25519YaoWalletSessionMintResultV1> {
+  ): Promise<WalletRegistrationEd25519YaoBootstrapSession> {
     this.mintCalls.push(input);
     throw new Error('sync-account must issue the exact Wallet Session directly');
   }
@@ -668,7 +666,8 @@ async function syncAccountRejectsCapabilityMaterialActivationMismatch(): Promise
     expect(await response.json()).toEqual({
       ok: false,
       code: 'capability_conflict',
-      message: 'Active Ed25519 Yao capability does not match the wallet authority material activation',
+      message:
+        'Active Ed25519 Yao capability does not match the wallet authority material activation',
     });
     expect(runtime.mintCalls).toEqual([]);
   } finally {

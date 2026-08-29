@@ -215,10 +215,11 @@ async function readDirectRegistrationAuthorization(input: {
   ) {
     throw new Error('Direct registration Wallet Session commit identity changed');
   }
-  const persisted = await input.authorizationService.readWalletSessionAuthorizationV2ByAuthorizationId({
-    expected: mintRead.session,
-    nowMs: Date.now(),
-  });
+  const persisted =
+    await input.authorizationService.readWalletSessionAuthorizationV2ByAuthorizationId({
+      expected: mintRead.session,
+      nowMs: Date.now(),
+    });
   if (!persisted) throw new Error('Direct registration Wallet Session quota is unavailable');
   return persisted;
 }
@@ -276,7 +277,9 @@ function registrationSignMaterialActivation(
     (candidate) => candidate.kind === 'sign' && candidate.keyFamily === keyFamily,
   );
   if (!subject || subject.kind !== 'sign') {
-    throw new Error(`Direct registration Wallet Session is missing ${keyFamily} signing capability`);
+    throw new Error(
+      `Direct registration Wallet Session is missing ${keyFamily} signing capability`,
+    );
   }
   return subject.materialActivation;
 }
@@ -293,10 +296,7 @@ function registrationSessionPolicy(input: {
     throw new Error('Registration-established session expiry is invalid');
   }
   return {
-    expiresAtMs: Math.min(
-      input.expiresAtMs,
-      input.issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS,
-    ),
+    expiresAtMs: Math.min(input.expiresAtMs, input.issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS),
     remainingUses: Math.min(DEFAULT_WALLET_SESSION_REMAINING_USES, input.remainingUses),
   };
 }
@@ -437,29 +437,29 @@ function assertNeverDirectRegistrationIssue(value: never): never {
   throw new Error(`Unsupported direct registration Wallet Session result: ${String(value)}`);
 }
 
-async function assertDirectRegistrationOwnerProof(
-  proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>,
-  input: {
-    readonly tenantId: TenantId;
-    readonly authority: WalletAuthAuthority;
-    readonly activeAuthority: ActiveWalletAuthorityV1;
-    readonly walletAuthMethodId: WalletAuthMethodId;
-  },
-): Promise<void> {
+export async function assertDirectWalletSessionOwnerProof(input: {
+  readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
+  readonly tenantId: TenantId;
+  readonly authority: WalletAuthAuthority;
+  readonly activeAuthority: ActiveWalletAuthorityV1;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly nowMs: number;
+}): Promise<void> {
   const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
   if (
-    proof.tenantId !== input.tenantId ||
-    proof.walletId !== input.authority.walletId ||
-    proof.principalId !== reusableWalletSessionPrincipalId(input.authority) ||
-    proof.authority.walletId !== authorityRef.walletId ||
-    proof.authority.authorityDigest !== authorityRef.authorityDigest ||
-    proof.authority.walletAuthMethodId !== authorityRef.walletAuthMethodId ||
+    input.proof.tenantId !== input.tenantId ||
+    input.proof.walletId !== input.authority.walletId ||
+    input.proof.principalId !== reusableWalletSessionPrincipalId(input.authority) ||
+    input.proof.authority.walletId !== authorityRef.walletId ||
+    input.proof.authority.authorityDigest !== authorityRef.authorityDigest ||
+    input.proof.authority.walletAuthMethodId !== authorityRef.walletAuthMethodId ||
     input.activeAuthority.walletId !== input.authority.walletId ||
     input.activeAuthority.state !== 'active' ||
     input.walletAuthMethodId !== authorityRef.walletAuthMethodId ||
-    proof.expiresAtMs <= Date.now()
+    input.proof.verifiedAtMs > input.nowMs ||
+    input.proof.expiresAtMs <= input.nowMs
   ) {
-    throw new Error('Registration owner proof does not authorize direct Wallet Session issuance');
+    throw new Error('Owner proof does not authorize direct Wallet Session issuance');
   }
 }
 
@@ -488,13 +488,15 @@ export async function issueDirectRegistrationEstablishedEcdsaSession(
   ) {
     throw new Error('Registration founding authority is unavailable after commit');
   }
-  await assertDirectRegistrationOwnerProof(input.proof, {
+  const issuedAtMs = Date.now();
+  await assertDirectWalletSessionOwnerProof({
+    proof: input.proof,
     tenantId: input.authorizationTenantId,
     authority: input.authority,
     activeAuthority: activeRegistration.authority,
     walletAuthMethodId: activeRegistration.walletAuthMethodId,
+    nowMs: issuedAtMs,
   });
-  const issuedAtMs = Date.now();
   const policy = registrationSessionPolicy({
     issuedAtMs,
     expiresAtMs: input.expiresAtMs,
@@ -573,13 +575,15 @@ export async function issueDirectRegistrationEstablishedEd25519Session(
   ) {
     throw new Error('Registration founding authority is unavailable after commit');
   }
-  await assertDirectRegistrationOwnerProof(input.proof, {
+  const issuedAtMs = Date.now();
+  await assertDirectWalletSessionOwnerProof({
+    proof: input.proof,
     tenantId: input.authorizationTenantId,
     authority: input.authority,
     activeAuthority: activeRegistration.authority,
     walletAuthMethodId: activeRegistration.walletAuthMethodId,
+    nowMs: issuedAtMs,
   });
-  const issuedAtMs = Date.now();
   const policy = registrationSessionPolicy({
     issuedAtMs,
     expiresAtMs: input.expiresAtMs,
@@ -611,11 +615,12 @@ export async function issueDirectRegistrationEstablishedEd25519Session(
         registrationCeremonyId: input.registrationCeremonyId,
         committed: directIssue,
       });
-      authorization = await input.authorizationService.refreshWalletSessionAuthorizationV2AuthorityProjection({
-        existing,
-        authority: activeRegistration.authority,
-        walletAuthMethodId: activeRegistration.walletAuthMethodId,
-      });
+      authorization =
+        await input.authorizationService.refreshWalletSessionAuthorizationV2AuthorityProjection({
+          existing,
+          authority: activeRegistration.authority,
+          walletAuthMethodId: activeRegistration.walletAuthMethodId,
+        });
       break;
     }
     case 'protocol_mismatch':
