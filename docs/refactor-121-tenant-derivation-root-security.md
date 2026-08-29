@@ -3,7 +3,7 @@
 Created: August 28, 2026
 
 Status: proposed follow-up to
-[Refactor 120](./refactor-120-rotate-korg-secrets.md). Implementation starts
+[Refactor 120](./refactor-120-rotate-tenant-secrets.md). Implementation starts
 after Refactor 120 materializes the tenant-root identity, root algebra,
 operational lifecycle, and recovery-sharing contracts. This plan freezes the
 tenant-facing artifact, authorization, CLI, download, and restore contracts.
