@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
-import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import {
+  createRelayerReusableWalletSessionStatusPort,
+  parseReusableWalletSessionStatusResponse,
+} from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
 import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 
@@ -109,5 +112,26 @@ test.describe('Wallet Session authorization status client', () => {
 
     await firstPort.read(identity);
     expect(requestCount).toBe(2);
+  });
+
+  test('rejects authorization and quota expiry disagreement', async () => {
+    const { body, identity } = await activeStatusResponseBody();
+    const authorization = body.authorization;
+    if (!authorization || typeof authorization !== 'object' || Array.isArray(authorization)) {
+      throw new Error('status fixture authorization is invalid');
+    }
+
+    expect(
+      parseReusableWalletSessionStatusResponse(
+        {
+          ...body,
+          authorization: {
+            ...authorization,
+            expiresAtMs: Number(body.expiresAtMs) + 1,
+          },
+        },
+        identity,
+      ),
+    ).toBeNull();
   });
 });
