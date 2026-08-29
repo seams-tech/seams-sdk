@@ -696,7 +696,7 @@ Primary files:
       fabrication.
 - [x] Persist `PendingWalletRegistrationCommitV1` before the terminal request;
       keep it sufficient for reload and invisible to normal discovery.
-- [ ] Change final registration replay to credential-free committed projection
+- [x] Change final registration replay to credential-free committed projection
       plus `unlock_exact_method`.
 - [ ] Validate replay against the pending record and atomically publish profile,
       authenticator, authority, method, signer/account state, and selection.
@@ -733,8 +733,8 @@ Primary files:
 
 Convert every current issuer:
 
-- [ ] founding registration in `d1WalletRegistrationService.ts`;
-- [ ] registration session replay/reuse in `d1WalletRegistrationService.ts`;
+- [x] founding registration in `d1WalletRegistrationService.ts`;
+- [x] registration session replay/reuse in `d1WalletRegistrationService.ts`;
 - [ ] Wallet Session budget refresh in `d1WalletRegistrationService.ts`;
 - [ ] linked Ed25519 activation in `d1WalletRegistrationService.ts`;
 - [x] active unlock in `d1RouterApiAuthService.ts`, including exact request
@@ -1493,6 +1493,8 @@ Remaining causal baseline work:
 - [ ] `tests/unit/walletSessionAuthorizationStatus.unit.test.ts`
 - [ ] `tests/unit/walletSessionExpiry.boundaryAndServer.unit.test.ts`
 - [ ] `tests/unit/registrationEstablishedWalletSessionProjection.unit.test.ts`
+- [x] `tests/unit/walletRegistrationActivateRoute.unit.test.ts`, covering direct
+      issuance, credential-free same-mint replay, and strict response parsing
 - [x] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`
 - [ ] `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts`
 - [x] `tests/unit/walletExecutionAdmissionV2.unit.test.ts`
