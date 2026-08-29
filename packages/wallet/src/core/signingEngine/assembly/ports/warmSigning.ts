@@ -38,7 +38,7 @@ import type { SigningEnginePorts } from './shared';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import type { DurableRecordStore } from '@/core/platform';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 import { IndexedDBManager } from '@/core/indexedDB';
@@ -112,7 +112,7 @@ const activeWalletAuthorityFactorStores: OwnerLaneScopeStores = {
 
 type WarmSigningAuthorizationResolver = (
   walletId: import('../../interfaces/ecdsaChainTarget').WalletId,
-) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
+) => Promise<ExactEvmFamilyWalletSessionAuthorization | null>;
 
 type WarmSigningEd25519AuthorizationResolver = (
   walletId: import('../../interfaces/ecdsaChainTarget').WalletId,
