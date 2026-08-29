@@ -1164,9 +1164,14 @@ Convert every reader or legacy writer:
 - [ ] `createBrowserRecoveryPublicDeps.ts`;
 - [ ] `stepUpRuntime.ts`;
 - [ ] `ed25519YaoWarmRecovery.ts`;
-- [ ] `addAuthMethodSourceClaim.ts`;
-- [ ] `walletHostOwnerAuthority.ts`; and
-- [ ] `publicApi/near.ts`.
+- [x] `addAuthMethodSourceClaim.ts`: resolve the unlocked selected
+      authority/method tuple, validate its active exact record, and use the
+      credential-bound Wallet Session identity in the source claim;
+- [x] `walletHostOwnerAuthority.ts`: inject the selected-authority resolver and
+      use the selected exact record and operation credential for owner approval
+      and management requests; and
+- [x] `publicApi/near.ts`: require the selected exact record, an Ed25519 signing
+      subject, and its operation credential for implicit-account funding.
 
 Each consumer must use an authenticated exact tuple, the current validated
 method selection, a credential-bound session identity, or an intentional
@@ -1599,9 +1604,9 @@ Remaining causal baseline work:
       isolation, and fail-closed absence without opaque-token or V1 status reads
 - [x] `tests/unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts`
 - [x] `tests/unit/nearPublicApi.walletSessionAuthorization.unit.test.ts`,
-      proving exact `/near/public-keys` admission and missing-session rejection
-      never read the legacy opaque-token resolver while preserving the existing
-      client projection checks
+      proving exact `/near/public-keys` admission and exact selected-tuple
+      implicit-account funding; missing or expired sessions fail before fetch
+      without legacy session reads
 - [x] `tests/unit/webauthnAuthenticatorListing.unit.test.ts`, proving exact
       authenticator inventory admission, RP forwarding, metadata projection,
       and fail-closed absence without legacy opaque-token reads
@@ -1619,7 +1624,11 @@ Remaining causal baseline work:
 - [x] `tests/unit/walletRegistrationNearFundingAdmission.unit.test.ts`, proving
       exact operation-credential funding, signer-derived implicit-account
       binding, fail-closed absence, and zero legacy resolver reads
-- [ ] `tests/unit/walletHostOwnerAuthority.unit.test.ts`
+- [x] `tests/unit/addAuthMethodSourceClaim.unit.test.ts`, proving a source claim
+      uses the selected exact tuple and fails closed when that tuple is absent
+- [x] `tests/unit/walletHostOwnerAuthority.unit.test.ts`, proving owner approval
+      uses the selected exact tuple and requires a matching unexpired export-root
+      capability for delegated key export
 - [ ] `tests/unit/walletSessionOperationCredential.unit.test.ts`
 - [ ] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
 - [ ] `tests/unit/relayWalletRegistration.boundary.unit.test.ts`
