@@ -29,7 +29,7 @@ import {
 import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { WalletId } from '@shared/utils/domainIds';
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 import { AuthorizationService } from '../../../packages/wallet-server/src/authorization/service';
 import {
@@ -52,6 +52,9 @@ import {
   type LinkedDeviceManagementAuthorityFixture,
 } from './linkedDeviceManagement.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
+import { createWalletEcdsaSignerRecord } from './walletRegistrationSigner.fixtures';
+import { D1WalletStore } from '../../../packages/wallet-server/src/core/d1WalletStore';
+import { routerAbMpcMaterialActivationRefFromWire } from '../../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 
 type D1DatabaseForTest = Parameters<typeof applyD1MigrationFiles>[0];
 type ActiveAuthMethod = LinkedDeviceManagementAuthorityFixture['authMethod'];
@@ -148,10 +151,18 @@ export async function seedExactWalletSessionStatusFixture(input: {
     const principalId = required(parsePrincipalId(`principal:${input.label}`));
     const issuedAtMs = 300;
     const expiresAtMs = 400;
+    const signer = createWalletEcdsaSignerRecord({
+      walletId: required(parseWalletId(`wallet:${input.label}`)),
+      now: 100,
+    });
     const records = await buildLinkedDeviceManagementAuthorityFixture({
       label: input.label,
       permissions: fullOwnerPermissionsForManagementFixture(),
       provenance: 'wallet_registration',
+      keyFamily: 'ecdsa_secp256k1',
+      materialActivation: routerAbMpcMaterialActivationRefFromWire(
+        signer.walletKey.publicCapability.material_activation,
+      ),
       tenantId: String(tenantId),
       principalId: String(principalId),
       expiresAtMs,
@@ -169,6 +180,13 @@ export async function seedExactWalletSessionStatusFixture(input: {
       scope: { namespace, ...STORE_SCOPE },
       ensureSchema: false,
     });
+    const walletStore = new D1WalletStore({
+      database: temporary.database,
+      namespace,
+      ...STORE_SCOPE,
+      ensureSchema: false,
+    });
+    await walletStore.putSigner(signer);
     await authorityStore.commitPendingAuthority({
       authority: pending.authority,
       authMethod: pending.authMethod,
@@ -240,6 +258,8 @@ export type SeededStatusTransition =
   | 'revoke_authority'
   | 'revoke_auth_method'
   | 'retarget_session_material'
+  | 'corrupt_authority_signer_column'
+  | 'remove_signer_material'
   | 'exhaust_quota'
   | 'retire_authorization';
 
@@ -334,6 +354,62 @@ async function retargetSessionMaterial(
     .run();
 }
 
+/** Leaves the canonical authority record intact while making its selected D1
+ * signer-activation column disagree with that record. */
+async function corruptAuthoritySignerColumn(
+  fixture: ExactWalletSessionStatusPersistenceFixture,
+): Promise<void> {
+  const signerActivations = fixture.authority.signerActivations;
+  if (signerActivations.keyFamilies.length !== 1 || !signerActivations.ecdsa) {
+    throw new Error('seeded exact authority fixture must contain one ECDSA signer activation');
+  }
+  const disagreedSignerActivations = {
+    ...signerActivations,
+    ecdsa: {
+      ...signerActivations.ecdsa,
+      materialActivation: {
+        ...signerActivations.ecdsa.materialActivation,
+        activationId: `${signerActivations.ecdsa.materialActivation.activationId}-column`,
+      },
+    },
+  };
+  await fixture.database
+    .prepare(
+      `UPDATE wallet_authorities
+          SET signer_activations_json = ?
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+          AND authority_id = ?`,
+    )
+    .bind(
+      JSON.stringify(disagreedSignerActivations),
+      fixture.namespace,
+      STORE_SCOPE.orgId,
+      STORE_SCOPE.projectId,
+      STORE_SCOPE.envId,
+      String(fixture.authority.authorityId),
+    )
+    .run();
+}
+
+async function removeSignerMaterial(
+  fixture: ExactWalletSessionStatusPersistenceFixture,
+): Promise<void> {
+  await fixture.database
+    .prepare(
+      `DELETE FROM wallet_signers
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+          AND wallet_id = ? AND signer_family = 'ecdsa'`,
+    )
+    .bind(
+      fixture.namespace,
+      STORE_SCOPE.orgId,
+      STORE_SCOPE.projectId,
+      STORE_SCOPE.envId,
+      String(fixture.walletId),
+    )
+    .run();
+}
+
 /**
  * Applies one deviation to the seeded state. Each rewrites whole records so the
  * schema's record/column coherence checks stay satisfied.
@@ -347,6 +423,10 @@ export async function applySeededStatusTransition(
       return await revokeAuthority(fixture);
     case 'retarget_session_material':
       return await retargetSessionMaterial(fixture);
+    case 'corrupt_authority_signer_column':
+      return await corruptAuthoritySignerColumn(fixture);
+    case 'remove_signer_material':
+      return await removeSignerMaterial(fixture);
     case 'revoke_auth_method': {
       const revoked = buildWalletAuthMethodRecordV2({
         ...fixture.authMethod,

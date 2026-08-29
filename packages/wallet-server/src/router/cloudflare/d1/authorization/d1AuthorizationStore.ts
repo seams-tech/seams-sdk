@@ -1,5 +1,6 @@
 import {
   parseWalletAuthMethodId,
+  parseWalletAuthorityId,
   type WalletAuthorityId,
   type WalletAuthMethodId,
   type WalletId,
@@ -48,7 +49,7 @@ import type {
   VerifiedOwnerProof,
   WalletSessionId,
 } from '../../../../authorization/domain';
-import { parseWalletSignerActivationSetV1 } from '@shared/authorization/walletAuthority';
+import type { WalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import {
   buildActiveWalletSessionQuota,
   buildExactWalletSessionQuotaProjectionV1,
@@ -81,7 +82,9 @@ import type {
   ResolvedOpaqueWalletSessionToken,
 } from '../../../../authorization/service';
 import { parseOpaqueOwnerWalletSessionBinding } from '../../../../authorization/service';
+import { D1WalletStore } from '../../../../core/d1WalletStore';
 import type { D1WalletStoreScope } from '../../../../core/d1WalletStore';
+import { D1WalletAuthorityStore } from '../wallet/d1WalletAuthorityStore';
 import { d1ChangedRows, parseD1JsonColumn, type D1Row } from '../../../../storage/d1Sql';
 import type {
   D1DatabaseLike,
@@ -89,6 +92,7 @@ import type {
   D1ResultLike,
 } from '../../../../storage/tenantRoute';
 import { parseWalletId } from '@shared/utils/domainIds';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export type D1AuthorizationStoreOptions = {
@@ -304,6 +308,8 @@ export class CloudflareD1AuthorizationStore
   private readonly database: D1DatabaseLike;
   private readonly namespace: string;
   private readonly walletSignerScope: D1WalletStoreScope;
+  private readonly walletAuthorityStore: D1WalletAuthorityStore;
+  private readonly walletStore: D1WalletStore;
 
   constructor(options: D1AuthorizationStoreOptions) {
     this.database = options.database;
@@ -320,6 +326,19 @@ export class CloudflareD1AuthorizationStore
       ),
       envId: requireOpaqueString(options.walletSignerScope.envId, 'walletSignerScope.envId'),
     };
+    this.walletAuthorityStore = new D1WalletAuthorityStore({
+      database: this.database,
+      scope: this.walletSignerScope,
+      ensureSchema: false,
+    });
+    this.walletStore = new D1WalletStore({
+      database: this.database,
+      namespace: this.walletSignerScope.namespace,
+      orgId: this.walletSignerScope.orgId,
+      projectId: this.walletSignerScope.projectId,
+      envId: this.walletSignerScope.envId,
+      ensureSchema: false,
+    });
   }
 
   async readReusableWalletSessionStatus(input: {
@@ -2638,6 +2657,8 @@ export class CloudflareD1AuthorizationStore
       throw new Error('Stored V2 Wallet Session tenant does not match the request');
     }
     const quota = parseExactWalletSessionQuotaProjectionRow(row, session);
+    if (session.expiresAtMs <= nowMs) return { kind: 'expired', session, quota };
+
     if (row.session_retired_at_ms !== null && row.session_retired_at_ms !== undefined) {
       return {
         kind: 'retired',
@@ -2647,20 +2668,29 @@ export class CloudflareD1AuthorizationStore
       };
     }
 
+    if (quota.lifecycle === 'exhausted') return { kind: 'exhausted', session, quota };
+
     if (row.authority_id === null || row.authority_id === undefined) {
       return { kind: 'authority_unavailable', session, quota };
     }
+    const authority = await this.readExactStatusAuthority(row);
+    if (!authority) return { kind: 'authority_unavailable', session, quota };
     if (
-      row.authority_id !== String(session.authorityId) ||
-      row.authority_wallet_id !== String(session.walletId)
+      authority.authorityId !== session.authorityId ||
+      authority.walletId !== session.walletId ||
+      authority.state !== row.authority_lifecycle_state ||
+      authority.authorityDigestB64u !== row.authority_digest_b64u ||
+      authority.revocationEpoch !==
+        integerColumn(row.authority_revocation_epoch, 'authority.revocationEpoch')
     ) {
       throw new Error('Stored V2 Wallet Session authority identity does not match the record');
     }
     if (
-      row.authority_lifecycle_state !== 'active' ||
-      row.authority_digest_b64u !== String(session.authorityDigestB64u) ||
-      integerColumn(row.authority_revocation_epoch, 'authority.revocationEpoch') !==
-        session.authorityRevocationEpoch
+      authority.authorityId !== session.authorityId ||
+      authority.walletId !== session.walletId ||
+      authority.authorityDigestB64u !== session.authorityDigestB64u ||
+      authority.revocationEpoch !== session.authorityRevocationEpoch ||
+      authority.state !== 'active'
     ) {
       return { kind: 'authority_unavailable', session, quota };
     }
@@ -2677,24 +2707,60 @@ export class CloudflareD1AuthorizationStore
     }
     if (row.auth_method_status !== 'active') return { kind: 'method_unavailable', session, quota };
 
-    const signerActivations = parseWalletSignerActivationSetV1(
-      parseD1JsonColumn(row.authority_signer_activations_json),
-    );
-    if (!signerActivations.ok) {
-      throw new Error('Stored wallet authority signer activations are corrupt');
-    }
     if (
       !exactWalletSessionCapabilitySubjectsResolveAuthority({
         session,
-        signerActivations: signerActivations.value,
+        signerActivations: authority.signerActivations,
       })
     ) {
       return { kind: 'capability_unavailable', session, quota };
     }
-
-    if (session.expiresAtMs <= nowMs) return { kind: 'expired', session, quota };
-    if (quota.lifecycle === 'exhausted') return { kind: 'exhausted', session, quota };
+    if (!(await this.exactWalletSessionCapabilitySubjectsResolveMaterial(session))) {
+      return { kind: 'capability_unavailable', session, quota };
+    }
     return { kind: 'active', session, quota };
+  }
+
+  private async readExactStatusAuthority(row: D1Row): Promise<WalletAuthorityV1 | null> {
+    const authorityId = parseWalletAuthorityId(row.authority_id);
+    if (!authorityId.ok) throw new Error('Stored V2 Wallet Session authority identity is invalid');
+    return await this.walletAuthorityStore.readById(authorityId.value);
+  }
+
+  private async exactWalletSessionCapabilitySubjectsResolveMaterial(
+    session: WalletSessionAuthorizationV2,
+  ): Promise<boolean> {
+    for (const subject of session.capabilitySubjects) {
+      switch (subject.kind) {
+        case 'sign':
+        case 'export_keys': {
+          const materialActivation = routerAbMpcMaterialActivationRefToWire(
+            subject.materialActivation,
+          );
+          const signer =
+            subject.keyFamily === 'ed25519'
+              ? await this.walletStore.getEd25519SignerByMaterialActivation({
+                  walletId: session.walletId,
+                  materialActivation,
+                })
+              : await this.walletStore.getEcdsaSignerByMaterialActivation({
+                  walletId: session.walletId,
+                  materialActivation,
+                });
+          if (!signer) return false;
+          if (signer.walletId !== session.walletId) {
+            throw new Error('Stored wallet signer material identity does not match the session');
+          }
+          break;
+        }
+        case 'link_devices':
+        case 'revoke_devices':
+          break;
+        default:
+          return false;
+      }
+    }
+    return true;
   }
 
   private async readJoinedWalletSessionAuthorizationV2Row(input: {
