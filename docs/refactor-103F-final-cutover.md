@@ -695,8 +695,8 @@ Convert every current issuer:
 - [x] Wallet Session budget refresh in `d1WalletRegistrationService.ts`;
 - [x] linked Ed25519 activation in `d1WalletRegistrationService.ts`;
 - [x] active unlock in `d1RouterApiAuthService.ts`, including exact request
-      capability parsing, durable response-family replay binding, and typed
-      protocol-mismatch rejection without credential rotation;
+      identity parsing, credential-free same-mint replay, and exact committed
+      identity and credential-digest validation without credential rotation;
 - [x] sync bootstrap in `syncAccountBootstrap.ts`, including mixed-wallet
       ECDSA activation through the same primary V2 credential; this item cannot
       close while `thresholdEcdsa.ts` resolves that credential only through the
@@ -707,13 +707,14 @@ Convert every current issuer:
       and fail closed if the replacement terminal repeats or changes identity;
 - [x] ECDSA post-registration activation in `thresholdEcdsa.ts`: direct-capable
       requests now issue the exact V2 session and primary operation credential
-      atomically, bind replay to a dedicated response family, validate the
-      resolved ECDSA material before persistence, and persist only the exact
-      browser record. `tests/unit/routerAbEcdsaExactActivationWire.unit.test.ts`
-      rejects the retired bearer response and material drift;
-- [ ] `mintRouterAbEd25519YaoWalletSessionV1` and its sync/registration callers;
-- [ ] `issueRouterAbEd25519OpaqueWalletSessionToken` and every direct caller;
-      and
+      atomically, validate same-mint replay and resolved ECDSA material before
+      persistence, and persist only the exact browser record.
+      `tests/unit/routerAbEcdsaExactActivationWire.unit.test.ts` rejects the
+      retired bearer response and material drift;
+- [x] Delete `mintRouterAbEd25519YaoWalletSessionV1`; its sync and registration
+      callers use the exact Ed25519 session projector;
+- [x] Delete `issueRouterAbEd25519OpaqueWalletSessionToken` and every direct
+      caller; and
 - [ ] recovery or device-link issuers found by the final searches.
 
 Primary files:
@@ -1101,7 +1102,7 @@ Primary files:
       future rows, and contain late legacy writes in every reader/install.
 - [ ] Remove only obsolete Wallet Session rows; preserve every unrelated wallet,
       authority, method, signer-material, export-root, and recovery-code store.
-- [ ] Delete `walletSessionClientCapability`, its response-family tags,
+- [x] Delete `walletSessionClientCapability`, its response-family tags,
       request parsers, persistence columns, fixtures, and migration-era code.
 - [ ] Retain the existing DB version and keyPath while the general upgrade
       function remains destructive.
@@ -1339,7 +1340,7 @@ After deletion, update the required-table manifests in:
       `WalletRegistrationSessionCommitReceiptV2`.
 - [x] Update registration replay from byte-identical bearer output to stable
       fingerprint and committed-projection identity.
-- [ ] Delete the old-client adapter and its digest table/service surface.
+- [x] Delete the old-client adapter and its digest table/service surface.
 - [ ] Prove terminal replay and stored completion rows contain no Wallet
       Session credential.
 
@@ -1384,7 +1385,7 @@ exact admission contexts. No V1 request or persistence resolver remains.
 
 ### Phase 3 — Convert browser, SDK, recovery, and device linking
 
-- [ ] Delete the temporary client capability and response-family tags from every
+- [x] Delete the temporary client capability and response-family tags from every
       issuance boundary.
 - [ ] Define the V6 builder/parser and make `replaceExactActive` the only active
       install API.
@@ -1410,7 +1411,7 @@ resume without creating a second authority or ceremony.
 
 ### Phase 4 — Delete V1 and verify the cutover
 
-- [ ] Delete the registration adapter and temporary client capability.
+- [x] Delete the registration adapter and temporary client capability.
 - [ ] Delete every V1 request and persistence resolver.
 - [ ] Apply the enforcement/deletion migration and update table manifests.
 - [ ] Delete remaining V1 stores, ports, services, parsers, types, browser
