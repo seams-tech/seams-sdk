@@ -11,7 +11,6 @@ type AuthorizationSessionFixture = {
   readonly service: RouterApiAuthorizationSessionService;
   readonly exactReads: () => number;
   readonly legacyReads: () => number;
-  readonly v1StatusReads: () => number;
 };
 
 function buildAuthorizationSessionFixture(
@@ -19,7 +18,6 @@ function buildAuthorizationSessionFixture(
 ): AuthorizationSessionFixture {
   let exactReads = 0;
   let legacyReads = 0;
-  let v1StatusReads = 0;
   const issued = context?.authorization;
   const service = {
     tenantId: issued?.session.tenantId,
@@ -31,16 +29,11 @@ function buildAuthorizationSessionFixture(
       legacyReads += 1;
       return null;
     },
-    async readReusableWalletSessionStatus(): Promise<never> {
-      v1StatusReads += 1;
-      throw new Error('exact ECDSA reuse must not read V1 Wallet Session status');
-    },
   } as unknown as RouterApiAuthorizationSessionService;
   return {
     service,
     exactReads: () => exactReads,
     legacyReads: () => legacyReads,
-    v1StatusReads: () => v1StatusReads,
   };
 }
 
@@ -86,7 +79,6 @@ test('Ed25519 mint reuses an exact active ECDSA session without legacy admission
   });
   expect(sessions.exactReads()).toBe(1);
   expect(sessions.legacyReads()).toBe(0);
-  expect(sessions.v1StatusReads()).toBe(0);
 });
 
 test('missing exact ECDSA session fails without reading the opaque-token store', async () => {
@@ -107,7 +99,6 @@ test('missing exact ECDSA session fails without reading the opaque-token store',
   expect(result.response.status).toBe(401);
   expect(sessions.exactReads()).toBe(1);
   expect(sessions.legacyReads()).toBe(0);
-  expect(sessions.v1StatusReads()).toBe(0);
 });
 
 test('exact ECDSA session cannot cross into a different runtime policy scope', async () => {
@@ -126,7 +117,6 @@ test('exact ECDSA session cannot cross into a different runtime policy scope', a
   expect(result.response.status).toBe(403);
   expect(sessions.exactReads()).toBe(1);
   expect(sessions.legacyReads()).toBe(0);
-  expect(sessions.v1StatusReads()).toBe(0);
 });
 
 test('exact ECDSA session cannot cross into a sibling Passkey method', async () => {
@@ -149,5 +139,4 @@ test('exact ECDSA session cannot cross into a sibling Passkey method', async () 
   expect(result.response.status).toBe(403);
   expect(sessions.exactReads()).toBe(1);
   expect(sessions.legacyReads()).toBe(0);
-  expect(sessions.v1StatusReads()).toBe(0);
 });

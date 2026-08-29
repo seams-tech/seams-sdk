@@ -91,9 +91,7 @@ import {
   buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import {
-  buildMpcMaterialActivationRefFixture,
-} from './helpers/ecdsaMaterialRef.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 type SignerFamily = 'ed25519' | 'ecdsa_secp256k1' | 'both';
@@ -332,10 +330,6 @@ class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessi
   async resolveOpaqueWalletSessionToken(): Promise<null> {
     this.legacyReads += 1;
     return null;
-  }
-
-  async readReusableWalletSessionStatus(): Promise<never> {
-    return await unsupportedAuthorizationSessionOperation();
   }
 
   async mintHostedWalletSeamsSessionExchange(): Promise<never> {

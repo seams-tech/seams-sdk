@@ -23,9 +23,7 @@ import type { AuthorizedOperationInput } from '../../packages/wallet-server/src/
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
-import {
-  parseReusableWalletSessionMintId,
-} from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import { parseReusableWalletSessionMintId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 
 const signerMigrations = listD1MigrationFiles('d1-signer');
 
@@ -179,86 +177,6 @@ test.describe('D1 authorization core', () => {
     }
   });
 
-  test('reads exact Wallet Session authorization lifecycle from session and quota rows', async () => {
-    const temporary = createTemporaryD1Database();
-    const namespace = 'wallet-session-status';
-    try {
-      await applyD1MigrationFiles(temporary.database, signerMigrations);
-      const service = createService(temporary.database, namespace);
-      const fixture = await buildPasskeyWalletSessionIssuanceFixture({
-        tenantId: 'tenant-wallet-session-status',
-        principalId: 'principal-wallet-session-status',
-        walletId: 'wallet-session-status-wallet',
-        walletAuthMethodId: 'wallet-auth-method:wallet-session-status',
-        credentialIdB64u: 'credential-wallet-session-status',
-        rpId: 'example.test',
-        origin: 'https://app.example.test',
-        expiresAtMs: 1_900_000_100_000,
-      });
-      await seedActiveWalletAuthMethod(temporary.database, namespace, fixture);
-      const issued = await service.issueReusableWalletSession({
-        tenantId: fixture.session.tenantId,
-        principalId: fixture.session.principalId,
-        walletId: fixture.authority.walletId,
-        authority: fixture.authorityRef,
-        mintId: requiredMintId('unlock:wallet-session-status'),
-        remainingUses: 3,
-        issuedAtMs: fixture.session.createdAtMs + 1,
-        expiresAtMs: fixture.session.expiresAtMs,
-      });
-      const statusInput = {
-        tenantId: issued.session.tenantId,
-        principalId: issued.session.principalId,
-        walletSessionId: issued.quota.walletSessionId,
-        quotaId: issued.quota.quotaId,
-        nowMs: fixture.session.createdAtMs + 2,
-      } as const;
-      await expect(service.readReusableWalletSessionStatus(statusInput)).resolves.toMatchObject({
-        kind: 'active',
-        remainingUses: 3,
-      });
-      await temporary.database
-        .prepare(
-          `UPDATE authorization_wallet_session_quotas
-              SET lifecycle_kind = 'exhausted',
-                  remaining_uses = 0
-            WHERE namespace = ?
-              AND tenant_id = ?
-              AND quota_id = ?`,
-        )
-        .bind(namespace, issued.session.tenantId, issued.quota.quotaId)
-        .run();
-      await expect(service.readReusableWalletSessionStatus(statusInput)).resolves.toMatchObject({
-        kind: 'exhausted',
-        remainingUses: 0,
-      });
-      const replacement = await service.issueReusableWalletSession({
-        tenantId: fixture.session.tenantId,
-        principalId: fixture.session.principalId,
-        walletId: fixture.authority.walletId,
-        authority: fixture.authorityRef,
-        mintId: requiredMintId('unlock:wallet-session-status-replacement'),
-        remainingUses: 3,
-        issuedAtMs: fixture.session.createdAtMs + 2,
-        expiresAtMs: fixture.session.expiresAtMs,
-      });
-      await expect(service.readReusableWalletSessionStatus(statusInput)).resolves.toMatchObject({
-        kind: 'superseded',
-      });
-      await expect(
-        service.readReusableWalletSessionStatus({
-          tenantId: replacement.session.tenantId,
-          principalId: replacement.session.principalId,
-          walletSessionId: replacement.quota.walletSessionId,
-          quotaId: replacement.quota.quotaId,
-          nowMs: replacement.session.expiresAtMs,
-        }),
-      ).resolves.toMatchObject({ kind: 'expired' });
-    } finally {
-      cleanupTemporaryD1Database(temporary.tempDir);
-    }
-  });
-
   test('rejects a conflicting Wallet Session authorization replay', async () => {
     const temporary = createTemporaryD1Database();
     try {
@@ -381,7 +299,6 @@ test.describe('D1 authorization core', () => {
       cleanupTemporaryD1Database(temporary.tempDir);
     }
   });
-
 });
 
 function createService(

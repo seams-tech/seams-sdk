@@ -595,7 +595,7 @@ input, or invents a new layer is deferred until its operating path works.
 
 ### I1 — Server V1 persistence and service surface (B1, B6, B7)
 
-- [ ] Delete `readReusableWalletSessionStatus` from
+- [x] Delete `readReusableWalletSessionStatus` from
       `d1AuthorizationStore.ts`, `authorization/service.ts`, and
       `authServicePort.ts`.
 - [ ] Delete `putWalletSessionAuthorization` and its V1 readback helpers.

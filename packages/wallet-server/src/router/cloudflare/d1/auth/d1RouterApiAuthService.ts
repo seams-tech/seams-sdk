@@ -2485,10 +2485,6 @@ function createD1AuthorizationSessionRouteService(
       assembly.authorizationService.readExactWalletSessionStatusByOperationCredential.bind(
         assembly.authorizationService,
       ),
-    readReusableWalletSessionStatus:
-      assembly.authorizationService.readReusableWalletSessionStatus.bind(
-        assembly.authorizationService,
-      ),
     mintHostedWalletSeamsSessionExchange:
       assembly.authorizationService.mintHostedWalletSeamsSessionExchange.bind(
         assembly.authorizationService,

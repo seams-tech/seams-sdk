@@ -311,7 +311,6 @@ import type {
   RedeemHostedWalletSeamsSessionExchangeV2Result,
   HostedWalletSessionCredentialId,
   ExactWalletSessionStatusV2,
-  ReusableWalletSessionStatus,
   SessionOrigin,
   VerifiedAuthorizationEvidenceSet,
   VerifiedOwnerProof,
@@ -1622,13 +1621,6 @@ export interface RouterApiAuthorizationSessionService {
     readonly token: string;
     readonly nowMs: number;
   }) => Promise<ExactWalletSessionStatusV2>;
-  readReusableWalletSessionStatus(input: {
-    readonly tenantId: TenantId;
-    readonly principalId: PrincipalId;
-    readonly walletSessionId: ReusableWalletSessionStatus['walletSessionId'];
-    readonly quotaId: ReusableWalletSessionStatus['quotaId'];
-    readonly nowMs: number;
-  }): Promise<ReusableWalletSessionStatus>;
   mintHostedWalletSeamsSessionExchange(input: {
     readonly authorization: IssuedWalletSessionAuthorizationV2;
     readonly appOrigin: SessionOrigin;

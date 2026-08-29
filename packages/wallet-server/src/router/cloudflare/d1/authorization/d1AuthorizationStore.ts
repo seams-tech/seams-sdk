@@ -44,7 +44,6 @@ import type {
   ExactWalletSessionQuotaProjectionV1,
   ExactWalletSessionStatusV2,
   ResolvedHostedWalletSessionOperationCredentialV2,
-  ReusableWalletSessionStatus,
   VerifiedAuthorizationEvidenceSet,
   VerifiedOwnerProof,
   WalletSessionId,
@@ -339,97 +338,6 @@ export class CloudflareD1AuthorizationStore
       envId: this.walletSignerScope.envId,
       ensureSchema: false,
     });
-  }
-
-  async readReusableWalletSessionStatus(input: {
-    readonly tenantId: ReusableWalletSessionStatus['tenantId'];
-    readonly principalId: ReusableWalletSessionStatus['principalId'];
-    readonly walletSessionId: ReusableWalletSessionStatus['walletSessionId'];
-    readonly quotaId: ReusableWalletSessionStatus['quotaId'];
-    readonly nowMs: number;
-  }): Promise<ReusableWalletSessionStatus> {
-    const identity = {
-      tenantId: input.tenantId,
-      principalId: input.principalId,
-      walletSessionId: input.walletSessionId,
-      quotaId: input.quotaId,
-    } as const;
-    const row = await this.database
-      .prepare(
-        `SELECT
-           wallet_session.principal_id AS session_principal_id,
-           wallet_session.quota_id AS session_quota_id,
-           wallet_session.lifecycle_kind AS session_lifecycle_kind,
-           wallet_session.expires_at_ms AS session_expires_at_ms,
-           quota.wallet_session_id AS quota_wallet_session_id,
-           quota.principal_id AS quota_principal_id,
-           quota.remaining_uses AS quota_remaining_uses,
-           quota.lifecycle_kind AS quota_lifecycle_kind,
-           quota.expires_at_ms AS quota_expires_at_ms
-         FROM reusable_wallet_sessions AS wallet_session
-         LEFT JOIN authorization_wallet_session_quotas AS quota
-           ON quota.namespace = wallet_session.namespace
-          AND quota.tenant_id = wallet_session.tenant_id
-          AND quota.quota_id = wallet_session.quota_id
-        WHERE wallet_session.namespace = ?
-          AND wallet_session.tenant_id = ?
-          AND wallet_session.wallet_session_id = ?
-        LIMIT 1`,
-      )
-      .bind(this.namespace, input.tenantId, input.walletSessionId)
-      .first<D1Row>();
-    if (!row) return { kind: 'missing', ...identity };
-    if (
-      row.session_principal_id !== input.principalId ||
-      row.session_quota_id !== input.quotaId ||
-      row.quota_wallet_session_id !== input.walletSessionId ||
-      row.quota_principal_id !== input.principalId
-    ) {
-      return { kind: 'invalid', ...identity };
-    }
-    const sessionLifecycle = String(row.session_lifecycle_kind || '');
-    const quotaLifecycle = String(row.quota_lifecycle_kind || '');
-    const sessionExpiresAtMs = Number(row.session_expires_at_ms);
-    const quotaExpiresAtMs = Number(row.quota_expires_at_ms);
-    const remainingUses = Number(row.quota_remaining_uses);
-    if (
-      !Number.isSafeInteger(sessionExpiresAtMs) ||
-      sessionExpiresAtMs <= 0 ||
-      !Number.isSafeInteger(quotaExpiresAtMs) ||
-      quotaExpiresAtMs !== sessionExpiresAtMs ||
-      !Number.isSafeInteger(remainingUses) ||
-      remainingUses < 0 ||
-      (sessionLifecycle !== 'active' && sessionLifecycle !== 'superseded') ||
-      (quotaLifecycle !== 'active' && quotaLifecycle !== 'exhausted')
-    ) {
-      return { kind: 'invalid', ...identity };
-    }
-    if (sessionLifecycle === 'superseded') {
-      if (quotaLifecycle !== 'exhausted' || remainingUses !== 0) {
-        return { kind: 'invalid', ...identity };
-      }
-      return { kind: 'superseded', ...identity };
-    }
-    if (sessionExpiresAtMs <= requirePositiveInteger(input.nowMs, 'Wallet Session status time')) {
-      return { kind: 'expired', ...identity, expiresAtMs: sessionExpiresAtMs };
-    }
-    if (quotaLifecycle === 'exhausted' && remainingUses === 0) {
-      return {
-        kind: 'exhausted',
-        ...identity,
-        remainingUses: 0,
-        expiresAtMs: sessionExpiresAtMs,
-      };
-    }
-    if (quotaLifecycle !== 'active' || remainingUses === 0) {
-      return { kind: 'invalid', ...identity };
-    }
-    return {
-      kind: 'active',
-      ...identity,
-      remainingUses,
-      expiresAtMs: sessionExpiresAtMs,
-    };
   }
 
   async revokeReusableWalletSessionsForAuthMethod(input: {

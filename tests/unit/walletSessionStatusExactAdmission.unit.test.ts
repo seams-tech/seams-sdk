@@ -49,7 +49,6 @@ function quotaProjection(
 class WalletSessionStatusHarness {
   exactStatusReads = 0;
   legacyCredentialReads = 0;
-  reusableStatusReads = 0;
 
   constructor(readonly status: ExactWalletSessionStatusV2) {}
 
@@ -61,11 +60,6 @@ class WalletSessionStatusHarness {
   async readLegacyCredential(): Promise<null> {
     this.legacyCredentialReads += 1;
     return null;
-  }
-
-  async readReusableStatus(): Promise<never> {
-    this.reusableStatusReads += 1;
-    throw new Error('Exact status must not read the V1 reusable-session store');
   }
 }
 
@@ -101,7 +95,6 @@ async function invokeStatus(input: {
         readWalletSessionAuthorizationV2ByOperationCredential:
           input.harness.readLegacyCredential.bind(input.harness),
         resolveOpaqueWalletSessionToken: input.harness.readLegacyCredential.bind(input.harness),
-        readReusableWalletSessionStatus: input.harness.readReusableStatus.bind(input.harness),
       },
     },
   } as unknown as FetchRouterApiContext);
@@ -169,7 +162,6 @@ test('Wallet Session status returns the exact authorization quota projection', a
   expect(JSON.stringify(body)).not.toContain('primaryOperationCredentialDigestB64u');
   expect(harness.exactStatusReads).toBe(1);
   expect(harness.legacyCredentialReads).toBe(0);
-  expect(harness.reusableStatusReads).toBe(0);
 });
 
 const OBSERVED_WIRE_CASES: readonly {
@@ -217,7 +209,6 @@ for (const testCase of OBSERVED_WIRE_CASES) {
         quotaId: authorization.session.quotaId,
       }),
     ).toMatchObject({ status: testCase.status });
-    expect(harness.reusableStatusReads).toBe(0);
   });
 }
 
@@ -241,7 +232,6 @@ test('Wallet Session status rejects a different exact tuple', async () => {
     code: 'wallet_session_scope_mismatch',
   });
   expect(harness.legacyCredentialReads).toBe(0);
-  expect(harness.reusableStatusReads).toBe(0);
 });
 
 test('Wallet Session status rejects a quota identity the authorization does not own', async () => {
@@ -272,7 +262,6 @@ test('Wallet Session status rejects a quota identity the authorization does not 
   });
 
   expect(response.status).toBe(403);
-  expect(harness.reusableStatusReads).toBe(0);
 });
 
 test('Wallet Session status rejects an authorization minted for another tenant', async () => {
@@ -291,10 +280,9 @@ test('Wallet Session status rejects an authorization minted for another tenant',
   });
 
   expect(response.status).toBe(403);
-  expect(harness.reusableStatusReads).toBe(0);
 });
 
-test('Wallet Session status returns invalid for missing exact state without V1 reads', async () => {
+test('Wallet Session status returns invalid for missing exact state', async () => {
   const { response, harness } = await invokeForStatus(
     { kind: 'missing' },
     await exactStatusAuthorization(),
@@ -304,7 +292,6 @@ test('Wallet Session status returns invalid for missing exact state without V1 r
   await expect(response.json()).resolves.toMatchObject({ ok: true, status: 'invalid' });
   expect(harness.exactStatusReads).toBe(1);
   expect(harness.legacyCredentialReads).toBe(0);
-  expect(harness.reusableStatusReads).toBe(0);
 });
 
 test('Wallet Session status requires a presented operation credential', async () => {
@@ -331,12 +318,10 @@ test('Wallet Session status requires a presented operation credential', async ()
       authorizationSessions: {
         tenantId: STATUS_TENANT_ID,
         readExactWalletSessionStatusByOperationCredential: harness.readExactStatus.bind(harness),
-        readReusableWalletSessionStatus: harness.readReusableStatus.bind(harness),
       },
     },
   } as unknown as FetchRouterApiContext);
 
   expect(response?.status).toBe(401);
   expect(harness.exactStatusReads).toBe(0);
-  expect(harness.reusableStatusReads).toBe(0);
 });
