@@ -1076,9 +1076,9 @@ Primary files:
 - [ ] Delete V3 `replaceActive`, `createOrMergeExactActive`, and
       `upsertActiveWithCurveMerge` behavior.
 - [ ] Delete `readActiveForWallet`.
-- [ ] Delete `persistActiveWalletSessionAuthorizationCurve` and
+- [x] Delete `persistActiveWalletSessionAuthorizationCurve` and
       `persistActiveWalletSessionAuthorizationFromRegistration`.
-- [ ] Delete the V3 ECDSA bootstrap projection.
+- [x] Delete the V3 ECDSA bootstrap projection.
 - [x] Correct the V5 boundary so its physical `wallet_session_id` is the
       operation credential's Wallet Session ID, reject key/credential drift,
       and preserve same-wallet sibling methods during exact replacement.
