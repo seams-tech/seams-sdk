@@ -11,7 +11,6 @@ import {
   resolveWalletSessionOperationCredentialAdmission,
   resolveThresholdRuntimePolicyScope,
 } from '../../../auth/commonRouterUtils';
-import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
 import { normalizeCorsOrigin } from '../../../../core/SessionService';
 import {
   authenticateRouterAbWalletOperationStepUpIdentity,
@@ -52,7 +51,6 @@ import {
   parseAuthorizationEvidenceId,
   parseAuthorizationEvidenceSetId,
   parsePrincipalId,
-  EVM_ECDSA_MPC_OPERATION_KINDS,
 } from '@shared/authorization/capabilityKinds';
 import {
   buildCapabilityOperationEnvelope,
@@ -104,9 +102,7 @@ import {
 import { sealEmailOtpFactorSecretForWorker } from '../../../domains/emailOtp/emailOtpRouteHandlers';
 import type { RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse } from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
 import type {
-  RouterApiAuthorizationSessionService,
   RouterApiEmailOtpRouteService,
-  RouterApiWalletRegistrationService,
   RouterApiWalletAuthMethodService,
 } from '../../../framework/authServicePort';
 import {
@@ -446,156 +442,6 @@ type PasskeyEd25519AuthorizationResult =
       >;
     }
   | { ok: false; response: Response };
-
-type ReusedEcdsaWalletSessionResult =
-  | {
-      readonly ok: true;
-      readonly existingWalletSession: Extract<
-        RouterAbEd25519YaoBudgetRefreshRequestV1,
-        { readonly kind: 'router_ab_ed25519_yao_same_wallet_session_curve_mint_v1' }
-      >['existingWalletSession'];
-    }
-  | { readonly ok: false; readonly response: Response };
-
-function reusedEcdsaWalletSessionFailure(
-  code: string,
-  message: string,
-  status: number,
-): Extract<ReusedEcdsaWalletSessionResult, { readonly ok: false }> {
-  return {
-    ok: false,
-    response: json({ ok: false, code, message }, { status }),
-  };
-}
-
-export async function resolveReusedEcdsaWalletSession(input: {
-  readonly authorizationSessions: RouterApiAuthorizationSessionService;
-  readonly walletRegistration: Pick<
-    RouterApiWalletRegistrationService,
-    'resolveEcdsaMaterialActivation'
-  >;
-  readonly headers: Headers;
-  readonly runtimePolicyScope: RouterAbEd25519YaoSessionRouteCommandV1['sessionPolicy']['runtimePolicyScope'];
-  readonly authority: PasskeyWalletAuthAuthority;
-}): Promise<ReusedEcdsaWalletSessionResult> {
-  const token = extractBearerCredential(input.headers);
-  if (!token) {
-    return reusedEcdsaWalletSessionFailure(
-      'unauthorized',
-      'Existing ECDSA Wallet Session authorization is required',
-      401,
-    );
-  }
-  const nowMs = Date.now();
-  let resolution: Awaited<ReturnType<typeof resolveWalletSessionOperationCredentialAdmission>>;
-  try {
-    resolution = await resolveWalletSessionOperationCredentialAdmission({
-      authorizationSessions: input.authorizationSessions,
-      token,
-      nowMs,
-      operation: {
-        keyFamily: 'ecdsa_secp256k1',
-        operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
-      },
-    });
-  } catch {
-    return reusedEcdsaWalletSessionFailure(
-      'wallet_session_unavailable',
-      'Existing ECDSA Wallet Session is unavailable',
-      503,
-    );
-  }
-  if (resolution.kind === 'not_found') {
-    return reusedEcdsaWalletSessionFailure(
-      'wallet_session_invalid',
-      'Existing ECDSA Wallet Session is invalid',
-      401,
-    );
-  }
-  const admission = resolution.kind === 'admitted' ? resolution.admission : null;
-  const context = admission?.context;
-  const authMethod = context?.authMethod;
-  const session = context?.authorization.session;
-  if (
-    !admission ||
-    admission.curve !== 'ecdsa' ||
-    !context ||
-    !session ||
-    !authMethod ||
-    authMethod.kind !== 'passkey' ||
-    String(session.walletId) !== String(input.authority.walletId) ||
-    authMethod.walletAuthMethodId !== input.authority.bindingId ||
-    authMethod.credentialIdB64u !== input.authority.factor.credentialIdB64u ||
-    authMethod.rpId !== input.authority.verifier.rpId
-  ) {
-    return reusedEcdsaWalletSessionFailure(
-      'scope_mismatch',
-      'ECDSA Wallet Session does not match the requested Ed25519 signing lane',
-      403,
-    );
-  }
-  const materialActivation = routerAbMpcMaterialActivationRefToWire(
-    admission.admission.materialActivation,
-  );
-  let activeMaterial: Awaited<
-    ReturnType<RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation']>
-  >;
-  try {
-    activeMaterial = await input.walletRegistration.resolveEcdsaMaterialActivation({
-      walletId: String(session.walletId),
-      materialActivation,
-    });
-  } catch {
-    return reusedEcdsaWalletSessionFailure(
-      'wallet_session_unavailable',
-      'Existing ECDSA Wallet Session material is unavailable',
-      503,
-    );
-  }
-  if (!activeMaterial.ok) {
-    return activeMaterial.code === 'internal'
-      ? reusedEcdsaWalletSessionFailure(
-          'wallet_session_unavailable',
-          'Existing ECDSA Wallet Session material is unavailable',
-          503,
-        )
-      : reusedEcdsaWalletSessionFailure(
-          'scope_mismatch',
-          'Existing ECDSA Wallet Session material is not active',
-          403,
-        );
-  }
-  const normalSigning = activeMaterial.routerAbEcdsaDerivationNormalSigning;
-  if (
-    normalSigning.scope.wallet_id !== String(session.walletId) ||
-    normalSigning.scope.public_identity.threshold_public_key33_b64u !==
-      admission.admission.signer.thresholdPublicKey33B64u ||
-    !sameRouterAbMpcMaterialActivationRef(activeMaterial.materialActivation, materialActivation) ||
-    !sameRouterAbMpcMaterialActivationRef(
-      normalSigning.scope.material_activation,
-      materialActivation,
-    ) ||
-    alphabetizeStringify(activeMaterial.runtimePolicyScope) !==
-      alphabetizeStringify(input.runtimePolicyScope)
-  ) {
-    return reusedEcdsaWalletSessionFailure(
-      'scope_mismatch',
-      'ECDSA Wallet Session does not match the requested Ed25519 signing lane',
-      403,
-    );
-  }
-  const quota = context.authorization.quota;
-  return {
-    ok: true,
-    existingWalletSession: {
-      authorizationId: session.authorizationId,
-      walletSessionId: session.walletSessionId,
-      quotaId: session.quotaId,
-      expiresAtMs: quota.expiresAtMs,
-      remainingUses: quota.remainingUses,
-    },
-  };
-}
 
 async function validatePasskeyEd25519SessionAuthorization(input: {
   ctx: FetchRouterApiContext;
@@ -2281,33 +2127,11 @@ export async function handleThresholdEd25519(ctx: FetchRouterApiContext): Promis
       });
       if (!authorization.ok) return authorization.response;
 
-      let refreshRequest: RouterAbEd25519YaoBudgetRefreshRequestV1;
-      switch (b.walletSessionTarget.kind) {
-        case 'new_wallet_session':
-          refreshRequest = {
-            kind: 'router_ab_ed25519_yao_budget_refresh_v1',
-            sessionPolicy: b.sessionPolicy,
-            authorization: authorization.authorization,
-          };
-          break;
-        case 'reuse_ecdsa_wallet_session': {
-          const reused = await resolveReusedEcdsaWalletSession({
-            authorizationSessions: ctx.service.authorizationSessions,
-            walletRegistration: ctx.service.walletRegistration,
-            headers: ctx.request.headers,
-            runtimePolicyScope: b.sessionPolicy.runtimePolicyScope,
-            authority,
-          });
-          if (!reused.ok) return reused.response;
-          refreshRequest = {
-            kind: 'router_ab_ed25519_yao_same_wallet_session_curve_mint_v1',
-            sessionPolicy: b.sessionPolicy,
-            authorization: authorization.authorization,
-            existingWalletSession: reused.existingWalletSession,
-          };
-          break;
-        }
-      }
+      const refreshRequest: RouterAbEd25519YaoBudgetRefreshRequestV1 = {
+        kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+        sessionPolicy: b.sessionPolicy,
+        authorization: authorization.authorization,
+      };
       const result =
         await ctx.service.walletRegistration.refreshEd25519YaoWalletSession(refreshRequest);
       const status = thresholdEd25519StatusCode(result);
