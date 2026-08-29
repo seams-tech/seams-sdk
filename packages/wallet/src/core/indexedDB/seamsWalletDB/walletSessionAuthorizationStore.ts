@@ -175,31 +175,53 @@ const EXACT_STORED_ROW_V6_FIELDS = [
   'operation_credential',
 ] as const;
 
-const FUTURE_WALLET_SESSION_AUTHORIZATION_RECORD_VERSION =
+const WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_PATTERN =
   /^wallet_session_authorization_v([0-9]+)$/;
+const FIRST_SUPPORTED_LEGACY_WALLET_SESSION_AUTHORIZATION_VERSION = 3;
+const CURRENT_WALLET_SESSION_AUTHORIZATION_VERSION = 6;
 
-function isFutureWalletSessionAuthorizationRow(value: unknown): boolean {
-  if (!isRecord(value) || typeof value.record_version !== 'string') return false;
-  const match = FUTURE_WALLET_SESSION_AUTHORIZATION_RECORD_VERSION.exec(value.record_version);
-  if (!match) return false;
+type WalletSessionAuthorizationRowClassification =
+  | { readonly kind: 'legacy'; readonly version: number }
+  | {
+      readonly kind: 'current';
+      readonly version: typeof CURRENT_WALLET_SESSION_AUTHORIZATION_VERSION;
+    }
+  | { readonly kind: 'future'; readonly version: number }
+  | { readonly kind: 'unknown' };
+
+function parseWalletSessionAuthorizationRecordVersion(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const match = WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_PATTERN.exec(value);
+  if (!match) return null;
   const version = Number(match[1]);
-  return Number.isSafeInteger(version) && version > 6;
+  return Number.isSafeInteger(version) ? version : null;
 }
 
-function isKnownLegacyWalletSessionAuthorizationRow(value: unknown): boolean {
-  if (!isRecord(value)) return false;
+function classifyWalletSessionAuthorizationRow(
+  value: unknown,
+): WalletSessionAuthorizationRowClassification {
+  if (!isRecord(value)) return { kind: 'unknown' };
+  const hasTopLevelVersion = Object.prototype.hasOwnProperty.call(value, 'record_version');
+  const topLevelVersion = parseWalletSessionAuthorizationRecordVersion(value.record_version);
+  const nestedVersion =
+    !hasTopLevelVersion && isRecord(value.record)
+      ? parseWalletSessionAuthorizationRecordVersion(value.record.recordVersion)
+      : null;
+  const version = topLevelVersion ?? nestedVersion;
+  if (version === null) return { kind: 'unknown' };
   if (
-    value.record_version === 'wallet_session_authorization_v4' ||
-    value.record_version === 'wallet_session_authorization_v5'
+    version >= FIRST_SUPPORTED_LEGACY_WALLET_SESSION_AUTHORIZATION_VERSION &&
+    version < CURRENT_WALLET_SESSION_AUTHORIZATION_VERSION
   ) {
-    return true;
+    return { kind: 'legacy', version };
   }
-  if (Object.prototype.hasOwnProperty.call(value, 'record_version')) return false;
-  return isRecord(value.record) && value.record.recordVersion === 'wallet_session_authorization_v3';
-}
-
-function isStoredExactWalletSessionAuthorizationRowV6(value: unknown): boolean {
-  return isRecord(value) && value.record_version === WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V6;
+  if (hasTopLevelVersion && version === CURRENT_WALLET_SESSION_AUTHORIZATION_VERSION) {
+    return { kind: 'current', version };
+  }
+  if (hasTopLevelVersion && version > CURRENT_WALLET_SESSION_AUTHORIZATION_VERSION) {
+    return { kind: 'future', version };
+  }
+  return { kind: 'unknown' };
 }
 
 function futureWalletSessionAuthorizationRowMatchesExactScope(
@@ -210,7 +232,8 @@ function futureWalletSessionAuthorizationRowMatchesExactScope(
     readonly authMethodId: WalletAuthMethodId;
   },
 ): boolean {
-  if (!isFutureWalletSessionAuthorizationRow(value) || !isRecord(value)) return false;
+  const classification = classifyWalletSessionAuthorizationRow(value);
+  if (classification.kind !== 'future' || !isRecord(value)) return false;
   if (value.wallet_id !== scope.walletId) return false;
   if (
     typeof value.wallet_authority_id !== 'string' ||
@@ -566,18 +589,20 @@ export class WalletSessionAuthorizationRepository {
         await tx.done;
         return null;
       }
-      if (isFutureWalletSessionAuthorizationRow(raw)) {
-        throw new WalletSessionAuthorizationUpgradeRequiredError(
-          'Wallet Session authorization requires a newer client',
-        );
-      }
-      if (isKnownLegacyWalletSessionAuthorizationRow(raw)) {
-        await store.delete(storedWalletSessionRowKey(raw));
-        await tx.done;
-        return null;
-      }
-      if (!isStoredExactWalletSessionAuthorizationRowV6(raw)) {
-        throw new Error('Stored Wallet Session authorization v6 is corrupt');
+      const classification = classifyWalletSessionAuthorizationRow(raw);
+      switch (classification.kind) {
+        case 'future':
+          throw new WalletSessionAuthorizationUpgradeRequiredError(
+            'Wallet Session authorization requires a newer client',
+          );
+        case 'legacy':
+          await store.delete(storedWalletSessionRowKey(raw));
+          await tx.done;
+          return null;
+        case 'current':
+          break;
+        case 'unknown':
+          throw new Error('Stored Wallet Session authorization v6 is corrupt');
       }
       const parsed = parseStoredExactWalletSessionAuthorizationRowV6(raw);
       if (!parsed) throw new Error('Stored Wallet Session authorization v6 is corrupt');
@@ -632,11 +657,12 @@ export class WalletSessionAuthorizationRepository {
             upgradeRequired = true;
             continue;
           }
-          if (isKnownLegacyWalletSessionAuthorizationRow(raw)) {
+          const classification = classifyWalletSessionAuthorizationRow(raw);
+          if (classification.kind === 'legacy') {
             await store.delete(storedWalletSessionRowKey(raw));
             continue;
           }
-          if (!isStoredExactWalletSessionAuthorizationRowV6(raw)) {
+          if (classification.kind !== 'current') {
             corrupt = true;
             break;
           }
@@ -700,12 +726,13 @@ export class WalletSessionAuthorizationRepository {
     try {
       const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(args.walletId);
       for (const raw of rows) {
-        if (isFutureWalletSessionAuthorizationRow(raw)) continue;
-        if (isKnownLegacyWalletSessionAuthorizationRow(raw)) {
+        const classification = classifyWalletSessionAuthorizationRow(raw);
+        if (classification.kind === 'future') continue;
+        if (classification.kind === 'legacy') {
           await store.delete(storedWalletSessionRowKey(raw));
           continue;
         }
-        if (!isStoredExactWalletSessionAuthorizationRowV6(raw)) continue;
+        if (classification.kind !== 'current') continue;
         const parsedCurrent = parseStoredExactWalletSessionAuthorizationRowV6(raw);
         if (!parsedCurrent) {
           tx.abort();
@@ -748,12 +775,13 @@ export class WalletSessionAuthorizationRepository {
     try {
       const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(incoming.walletId);
       for (const raw of rows) {
-        if (isFutureWalletSessionAuthorizationRow(raw)) continue;
-        if (isKnownLegacyWalletSessionAuthorizationRow(raw)) {
+        const classification = classifyWalletSessionAuthorizationRow(raw);
+        if (classification.kind === 'future') continue;
+        if (classification.kind === 'legacy') {
           await store.delete(storedWalletSessionRowKey(raw));
           continue;
         }
-        if (!isStoredExactWalletSessionAuthorizationRowV6(raw)) {
+        if (classification.kind !== 'current') {
           tx.abort();
           throw new Error('Stored Wallet Session authorization row is corrupt');
         }
