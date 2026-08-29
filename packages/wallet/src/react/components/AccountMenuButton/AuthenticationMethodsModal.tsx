@@ -162,7 +162,6 @@ export const AuthenticationMethodsModal: React.FC<AuthenticationMethodsModalProp
   const loginStateRef = React.useRef(loginState);
   const refreshLoginStateRef = React.useRef(refreshLoginState);
   const dialogRef = React.useRef<HTMLDivElement>(null);
-  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const previousFocusRef = React.useRef<HTMLElement | null>(null);
   const emailInputId = React.useId();
   const { theme, tokens } = useTheme();
@@ -253,7 +252,7 @@ export const AuthenticationMethodsModal: React.FC<AuthenticationMethodsModalProp
     if (!isOpen || !initialContentReady) return;
     previousFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closeButtonRef.current?.focus();
+    dialogRef.current?.focus({ preventScroll: true });
     window.addEventListener('keydown', handleDialogKeyDown);
     return () => {
       window.removeEventListener('keydown', handleDialogKeyDown);
@@ -358,7 +357,6 @@ export const AuthenticationMethodsModal: React.FC<AuthenticationMethodsModalProp
           tabIndex={-1}
         >
           <button
-            ref={closeButtonRef}
             type="button"
             className="w3a-linked-devices-modal-close"
             onClick={onClose}
