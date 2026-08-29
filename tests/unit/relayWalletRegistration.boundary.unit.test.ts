@@ -31,7 +31,6 @@ import {
   type WebAuthnRpId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
-import { WALLET_SESSION_CLIENT_CAPABILITY_V1 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { thresholdEcdsaChainTargetKey } from '../../packages/wallet-server/src/core/thresholdEcdsaChainTarget';
 import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
@@ -1496,7 +1495,6 @@ test.describe('wallet registration route boundaries', () => {
         registrationCeremonyId: 'registration-ceremony',
         signedSetup: 'signed-setup',
         idempotencyKey: 'near-provisioning-key',
-        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
         ed25519: { activationReference: {} },
       },
       headers: {},

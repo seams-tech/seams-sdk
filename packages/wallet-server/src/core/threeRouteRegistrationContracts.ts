@@ -23,7 +23,6 @@ import type {
   RegistrationEstablishedSessionProjectionV2,
   RegistrationEstablishedSessionResultV2,
 } from '@shared/utils/registrationEstablishedSession';
-import type { WalletSessionClientCapabilityV1 } from '@shared/authorization/capabilityKinds';
 import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
 import type { WalletSessionMintId } from '@shared/authorization/capabilityKinds';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
@@ -390,7 +389,6 @@ type WalletRegistrationActivateRequestBaseV2 = {
   registrationCeremonyId: string;
   signedSetup: SignedSetupPayloadB64u;
   idempotencyKey: ActivateIdempotencyKey;
-  walletSessionClientCapability: WalletSessionClientCapabilityV1;
 };
 
 export type ActivateEcdsaWorkV2 = {
@@ -508,7 +506,6 @@ export type WalletRegistrationNearProvisioningRequestV2 = {
   idempotencyKey: ActivateIdempotencyKey;
   ed25519: Extract<WalletRegistrationFinalizeRequest, { kind: 'near_ed25519' }>['ed25519'];
   emailOtpEnrollment?: NonNullable<WalletRegistrationFinalizeRequest['emailOtpEnrollment']>;
-  walletSessionClientCapability: WalletSessionClientCapabilityV1;
 };
 
 type WalletRegistrationNearProvisioningSuccessV2 = Extract<

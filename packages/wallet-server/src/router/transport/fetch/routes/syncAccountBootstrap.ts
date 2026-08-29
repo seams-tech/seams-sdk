@@ -21,7 +21,6 @@ import {
   type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
 import type {
-  WalletSessionClientCapabilityV1,
   MpcWalletSigningQuotaId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -43,7 +42,6 @@ import {
 import { isPlainObject } from '@shared/utils/validation';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
-  WALLET_SYNC_EXACT_RESPONSE_FAMILY_V1,
   type DirectV2IssueResult,
   type VerifiedOwnerProof,
 } from '../../../../authorization/domain';
@@ -150,7 +148,6 @@ export type SyncAccountBootstrapInputV1 = {
   readonly authorityRef: WalletAuthAuthorityRef;
   readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
   readonly mintId: WalletSessionMintId;
-  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
   readonly issuedAtMs: number;
   readonly ecdsaThresholdSessionId: string;
   readonly custody:
@@ -315,14 +312,9 @@ export async function issueSyncAccountBootstrapV1(
       remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
       issuedAtMs: input.issuedAtMs,
       expiresAtMs: input.issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS,
-      walletSessionClientCapability: input.walletSessionClientCapability,
-      responseFamily: WALLET_SYNC_EXACT_RESPONSE_FAMILY_V1,
     });
   if (directIssue.kind === 'already_committed') {
     return { kind: 'already_committed', committed: directIssue };
-  }
-  if (directIssue.kind === 'protocol_mismatch') {
-    return bootstrapError(directIssue.code, directIssue.message, 409);
   }
 
   const ecdsaSigners = await ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({

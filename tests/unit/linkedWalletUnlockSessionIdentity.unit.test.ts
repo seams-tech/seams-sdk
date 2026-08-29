@@ -22,7 +22,6 @@ import {
   parsePrincipalId,
   parseWalletSessionMintId,
   parseTenantId,
-  WALLET_SESSION_CLIENT_CAPABILITY_V1,
 } from '@shared/authorization/capabilityKinds';
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
@@ -240,49 +239,11 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     },
   } satisfies Omit<Parameters<typeof handleWalletUnlockVerifyRoute>[0], 'body'>;
 
-  const missingCapabilityResponse = await handleWalletUnlockVerifyRoute({
-    ...routeDependencies,
-    body: {
-      unlockBackend: 'passkey',
-      challengeId: 'challenge:linked-runtime',
-      webauthn_authentication: {},
-      ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
-    },
-  });
-  expect(missingCapabilityResponse).toEqual({
-    status: 400,
-    body: {
-      ok: false,
-      code: 'invalid_body',
-      message: 'walletSessionClientCapability is required',
-    },
-  });
-
-  const invalidCapabilityResponse = await handleWalletUnlockVerifyRoute({
-    ...routeDependencies,
-    body: {
-      unlockBackend: 'passkey',
-      challengeId: 'challenge:linked-runtime',
-      walletSessionClientCapability: 'direct_exact_response_future_record_tolerant_v2',
-      webauthn_authentication: {},
-      ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
-    },
-  });
-  expect(invalidCapabilityResponse).toEqual({
-    status: 400,
-    body: {
-      ok: false,
-      code: 'invalid_body',
-      message: 'walletSessionClientCapability must be direct_exact_response_future_record_tolerant',
-    },
-  });
-
   const response = await handleWalletUnlockVerifyRoute({
     ...routeDependencies,
     body: {
       unlockBackend: 'passkey',
       challengeId: 'challenge:linked-runtime',
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       webauthn_authentication: {},
       ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
     },
@@ -322,7 +283,6 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     body: {
       unlockBackend: 'passkey',
       challengeId: 'challenge:linked-runtime',
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       webauthn_authentication: {},
       ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
     },
@@ -353,7 +313,6 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     body: {
       unlockBackend: 'passkey',
       challengeId: 'challenge:linked-runtime',
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       webauthn_authentication: {},
       ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
     },

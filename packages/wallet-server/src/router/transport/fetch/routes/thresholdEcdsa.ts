@@ -81,7 +81,6 @@ import {
   EVM_ECDSA_MPC_OPERATION_KINDS,
   parseWalletSessionMintId,
   parseEcdsaAuthorizationSessionId,
-  WALLET_SESSION_CLIENT_CAPABILITY_V1,
   type PrincipalId,
   type EcdsaAuthorizationSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -107,7 +106,6 @@ import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   buildWalletSessionCapabilitySubjectsV1,
   projectActiveWalletSession,
-  WALLET_ECDSA_ACTIVATION_EXACT_RESPONSE_FAMILY_V1,
   type AuthorizedOperation,
   type VerifiedOwnerProof,
   type WalletSessionCapabilitySubjectsV1,
@@ -3045,12 +3043,7 @@ export async function handleStrictEcdsaSessionActivation(
         remainingUses: activated.session.remainingUses,
         issuedAtMs: activated.session.expiresAtMs - request.session_policy.ttl_ms,
         expiresAtMs: activated.session.expiresAtMs,
-        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-        responseFamily: WALLET_ECDSA_ACTIVATION_EXACT_RESPONSE_FAMILY_V1,
       });
-    if (directIssue.kind === 'protocol_mismatch') {
-      return json(directIssue, { status: 409 });
-    }
     if (directIssue.kind === 'already_committed') {
       return json(
         {

@@ -23,7 +23,6 @@ import type {
   PersistedActiveWalletSessionAuthorizationV2,
   WalletSessionAuthorizationV2MintLookup,
   WalletSessionAuthorizationV2MintRead,
-  WalletSessionIssuanceResponseFamilyV1,
   WalletSessionAuthorizationV2,
   VerifiedOwnerProof,
 } from './domain';
@@ -52,7 +51,6 @@ import {
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { WalletSessionClientCapabilityV1 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
@@ -234,12 +232,6 @@ export type IssueWalletSessionAuthorizationV2Input = {
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };
-
-export type IssueDirectWalletSessionAuthorizationV2Input =
-  IssueWalletSessionAuthorizationV2Input & {
-    readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
-    readonly responseFamily: WalletSessionIssuanceResponseFamilyV1;
-  };
 
 /** Trusted, curve-local data retained for an opaque owner Wallet Session. */
 export type OpaqueOwnerWalletSessionBinding =
@@ -659,7 +651,7 @@ export class AuthorizationService {
    * committed digest cannot reproduce plaintext.
    */
   async issueDirectWalletSessionAuthorizationV2(
-    input: IssueDirectWalletSessionAuthorizationV2Input,
+    input: IssueWalletSessionAuthorizationV2Input,
   ): Promise<DirectV2IssueResult> {
     if (input.authority.walletId !== input.walletId) {
       throw new Error('Wallet Session authorization authority does not identify the wallet');
@@ -673,7 +665,7 @@ export class AuthorizationService {
       mintId: input.mintId,
     };
     const alreadyCommitted = await this.ports.grants.readWalletSessionAuthorizationV2ByMint(lookup);
-    if (alreadyCommitted) return directV2ReplayResult(alreadyCommitted, input);
+    if (alreadyCommitted) return directV2AlreadyCommitted(alreadyCommitted.session);
 
     const prepared = await this.prepareWalletSessionAuthorizationV2(input);
     const token = `wst_${secureRandomBase64Url(32, 'direct V2 Wallet Session operation credentials')}`;
@@ -686,12 +678,10 @@ export class AuthorizationService {
       session: prepared.session,
       quota: prepared.quota,
       primaryOperationCredentialDigestB64u: await digestOpaqueValue(token),
-      walletSessionClientCapability: input.walletSessionClientCapability,
-      responseFamily: input.responseFamily,
     });
     const commit = await this.ports.grants.commitDirectWalletSessionAuthorizationV2({ persisted });
     if (commit.kind === 'already_committed') {
-      return directV2ReplayResult(commit.committed, input);
+      return directV2AlreadyCommitted(commit.committed.session);
     }
     const committed = await this.ports.grants.readWalletSessionAuthorizationV2ByMint(lookup);
     if (!committed) {
@@ -702,9 +692,6 @@ export class AuthorizationService {
       persisted.primaryOperationCredentialDigestB64u
     ) {
       throw new Error('Direct V2 Wallet Session credential digest does not match its commit');
-    }
-    if (!directV2CommitMetadataMatches(committed, input)) {
-      return directV2ProtocolMismatch();
     }
     return {
       kind: 'issued',
@@ -956,43 +943,6 @@ function directV2AlreadyCommitted(
     quotaId: session.quotaId,
     next: 'unlock_exact_method',
   };
-}
-
-function directV2CommitMetadataMatches(
-  committed: WalletSessionAuthorizationV2MintRead,
-  expected: Pick<
-    IssueDirectWalletSessionAuthorizationV2Input,
-    'walletSessionClientCapability' | 'responseFamily'
-  >,
-): boolean {
-  return (
-    committed.walletSessionClientCapability === expected.walletSessionClientCapability &&
-    committed.responseFamily === expected.responseFamily
-  );
-}
-
-function directV2ProtocolMismatch(): Extract<
-  DirectV2IssueResult,
-  { readonly kind: 'protocol_mismatch' }
-> {
-  return {
-    kind: 'protocol_mismatch',
-    code: 'protocol_mismatch',
-    message: 'Wallet Session unlock protocol does not match the committed issuance',
-  };
-}
-
-function directV2ReplayResult(
-  committed: WalletSessionAuthorizationV2MintRead,
-  expected: Pick<
-    IssueDirectWalletSessionAuthorizationV2Input,
-    'walletSessionClientCapability' | 'responseFamily'
-  >,
-): DirectV2IssueResult {
-  if (!directV2CommitMetadataMatches(committed, expected)) {
-    return directV2ProtocolMismatch();
-  }
-  return directV2AlreadyCommitted(committed.session);
 }
 
 function parseRequired<T>(

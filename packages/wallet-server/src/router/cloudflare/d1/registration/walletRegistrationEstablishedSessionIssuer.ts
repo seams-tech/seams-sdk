@@ -14,7 +14,6 @@ import type {
   DirectV2IssueResult,
   IssuedWalletSessionAuthorizationV2,
 } from '../../../../authorization/domain';
-import { WALLET_REGISTRATION_EXACT_RESPONSE_FAMILY_V1 } from '../../../../authorization/domain';
 import type { EcdsaDerivationServerBootstrapResponse } from '../../../../core/types';
 import type { WalletRegistrationSessionCommitReceiptV2 } from '../../../../core/threeRouteRegistrationContracts';
 import type { StoredRegistrationAuthority } from '../../../../core/RegistrationCeremonyStore';
@@ -67,7 +66,6 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
-import type { WalletSessionClientCapabilityV1 } from '@shared/authorization/capabilityKinds';
 import { registrationEstablishedMintId } from './walletRegistrationSessionCommitReceipt';
 
 export type RegistrationEstablishedSessionIssuerAuthorizationService = Pick<
@@ -185,11 +183,6 @@ export type RegistrationEstablishedSessionIssuanceResultV2 =
       readonly session: RegistrationEstablishedSessionProjectionV2;
       readonly next: 'unlock_exact_method';
       readonly issuedAtMs: number;
-    }
-  | {
-      readonly kind: 'protocol_mismatch';
-      readonly code: 'protocol_mismatch';
-      readonly message: string;
     };
 
 async function readDirectRegistrationAuthorization(input: {
@@ -426,8 +419,6 @@ function directRegistrationResultFromIssue(input: {
         next: input.directIssue.next,
         issuedAtMs: input.authorization.session.createdAtMs,
       };
-    case 'protocol_mismatch':
-      return input.directIssue;
     default:
       return assertNeverDirectRegistrationIssue(input.directIssue);
   }
@@ -475,7 +466,6 @@ export async function issueDirectRegistrationEstablishedEcdsaSession(
     readonly runtimePolicyScope: RuntimePolicyScope;
     readonly keyManifestDigestB64u: DigestB64u;
     readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
-    readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
   },
 ): Promise<RegistrationEstablishedSessionIssuanceResultV2> {
   const activeRegistration = await input.walletAuthMethods.readActiveRegistrationAuthority(
@@ -512,8 +502,6 @@ export async function issueDirectRegistrationEstablishedEcdsaSession(
     remainingUses: policy.remainingUses,
     issuedAtMs,
     expiresAtMs: policy.expiresAtMs,
-    walletSessionClientCapability: input.walletSessionClientCapability,
-    responseFamily: WALLET_REGISTRATION_EXACT_RESPONSE_FAMILY_V1,
   });
   let authorization: IssuedWalletSessionAuthorizationV2;
   switch (directIssue.kind) {
@@ -529,8 +517,6 @@ export async function issueDirectRegistrationEstablishedEcdsaSession(
         committed: directIssue,
       });
       break;
-    case 'protocol_mismatch':
-      return directIssue;
     default:
       return assertNeverDirectRegistrationIssue(directIssue);
   }
@@ -562,7 +548,6 @@ export async function issueDirectRegistrationEstablishedEd25519Session(
     readonly publicResult: WalletRegistrationEd25519YaoPublicResult;
     readonly keyManifestDigestB64u: DigestB64u;
     readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
-    readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
   },
 ): Promise<RegistrationEstablishedSessionIssuanceResultV2> {
   const activeRegistration = await input.walletAuthMethods.readActiveRegistrationAuthority(
@@ -599,8 +584,6 @@ export async function issueDirectRegistrationEstablishedEd25519Session(
     remainingUses: policy.remainingUses,
     issuedAtMs,
     expiresAtMs: policy.expiresAtMs,
-    walletSessionClientCapability: input.walletSessionClientCapability,
-    responseFamily: WALLET_REGISTRATION_EXACT_RESPONSE_FAMILY_V1,
   });
   let authorization: IssuedWalletSessionAuthorizationV2;
   switch (directIssue.kind) {
@@ -623,8 +606,6 @@ export async function issueDirectRegistrationEstablishedEd25519Session(
         });
       break;
     }
-    case 'protocol_mismatch':
-      return directIssue;
     default:
       return assertNeverDirectRegistrationIssue(directIssue);
   }

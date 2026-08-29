@@ -11,7 +11,6 @@ import {
   type TenantId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
-  WALLET_SESSION_CLIENT_CAPABILITY_V1,
 } from '@shared/authorization/capabilityKinds';
 import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 import {
@@ -34,10 +33,7 @@ import {
   type ExactAdministeredSignerManifestV1,
 } from '@shared/device-linking/delegatedActivationPlan';
 import type { VerifiedOwnerProof } from '../../../../authorization/factorEvidence';
-import {
-  WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
-  type DirectV2IssueResult,
-} from '../../../../authorization/domain';
+import type { DirectV2IssueResult } from '../../../../authorization/domain';
 import type { AuthorizationService } from '../../../../authorization/service';
 import { projectRouterAbEd25519YaoExactWalletSession } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import type { SessionAdapter } from '../../../framework/routerApi';
@@ -1185,10 +1181,7 @@ function assertNeverD1RegistrationSideEffectRecord(value: never): never {
 }
 
 function registrationEstablishedSessionResultFromIssuance(
-  result: Exclude<
-    RegistrationEstablishedSessionIssuanceResultV2,
-    { readonly kind: 'protocol_mismatch' }
-  >,
+  result: RegistrationEstablishedSessionIssuanceResultV2,
 ): RegistrationEstablishedSessionResultV2 {
   switch (result.kind) {
     case 'issued':
@@ -2590,8 +2583,6 @@ export class CloudflareD1WalletRegistrationService {
               remainingUses,
               issuedAtMs,
               expiresAtMs,
-              walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-              responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
             });
           switch (directIssue.kind) {
             case 'issued':
@@ -2610,8 +2601,6 @@ export class CloudflareD1WalletRegistrationService {
               break;
             case 'already_committed':
               return ed25519AlreadyCommittedWalletSessionResponse(directIssue);
-            case 'protocol_mismatch':
-              return { ok: false, code: directIssue.code, message: directIssue.message };
             default:
               return assertNeverEd25519WalletSessionIssue(directIssue);
           }
@@ -2922,8 +2911,6 @@ export class CloudflareD1WalletRegistrationService {
               remainingUses: issuedRemainingUses,
               issuedAtMs,
               expiresAtMs,
-              walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-              responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
             });
           switch (directIssue.kind) {
             case 'issued':
@@ -2941,8 +2928,6 @@ export class CloudflareD1WalletRegistrationService {
               break;
             case 'already_committed':
               return ed25519AlreadyCommittedWalletSessionResponse(directIssue);
-            case 'protocol_mismatch':
-              return { ok: false, code: directIssue.code, message: directIssue.message };
             default:
               return assertNeverEd25519WalletSessionIssue(directIssue);
           }
@@ -3804,15 +3789,8 @@ export class CloudflareD1WalletRegistrationService {
       publicResult: finalized.ed25519,
       keyManifestDigestB64u: finalized.custodyKeyManifestDigestB64u,
       proof,
-      walletSessionClientCapability: args.input.walletSessionClientCapability,
     });
     switch (issuedRegistrationSession.kind) {
-      case 'protocol_mismatch':
-        return unissuedRegistrationCommit({
-          ok: false,
-          code: issuedRegistrationSession.code,
-          message: issuedRegistrationSession.message,
-        });
       case 'issued':
         return {
           kind: 'session_issued',
@@ -4739,15 +4717,7 @@ export class CloudflareD1WalletRegistrationService {
         authMethod: commit.authMethod,
         authority: commit.authority,
       }),
-      walletSessionClientCapability: context.input.walletSessionClientCapability,
     });
-    if (registrationEstablishedSession.kind === 'protocol_mismatch') {
-      return unissuedRegistrationCommit({
-        ok: false,
-        code: registrationEstablishedSession.code,
-        message: registrationEstablishedSession.message,
-      });
-    }
     const registrationEstablishedSessionResult = registrationEstablishedSessionResultFromIssuance(
       registrationEstablishedSession,
     );

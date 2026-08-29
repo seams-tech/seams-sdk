@@ -18,7 +18,6 @@ import {
   parseCapabilityId,
   parseCapabilityOperationId,
   parseDeviceId,
-  WALLET_SESSION_CLIENT_CAPABILITY_V1,
 } from '@shared/authorization/capabilityKinds';
 import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 import {
@@ -54,7 +53,6 @@ import {
   parseHostedWalletSeamsSessionExchangeCode,
   parseHostedWalletSeamsSessionExchangeNonce,
   parseSessionOrigin,
-  WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
 } from '../../packages/wallet-server/src/authorization/domain';
 import { D1WalletAuthorityStore } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
 import { prepareD1WalletAuthMethodV2PutStatement } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
@@ -518,8 +516,6 @@ test('hosted V2 exchange issues one origin-bound child and retires it with its p
       remainingUses: 3,
       issuedAtMs: 300,
       expiresAtMs: 700,
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
     } as const;
     const first = await service.issueDirectWalletSessionAuthorizationV2(firstInput);
     expect(first.kind).toBe('issued');
@@ -689,8 +685,6 @@ test('hosted exchange routes require the dedicated wallet-origin policy and V2 w
       remainingUses: 2,
       issuedAtMs: 300,
       expiresAtMs: 700,
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
     });
     expect(issued.kind).toBe('issued');
     if (issued.kind !== 'issued') throw new Error('hosted route parent issuance did not issue');
@@ -821,8 +815,6 @@ test('direct V2 issuance is replay-stable and exhausts the same-method predecess
       remainingUses: 3,
       issuedAtMs: 300,
       expiresAtMs: 500,
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
     } as const;
 
     const first = await service.issueDirectWalletSessionAuthorizationV2(firstInput);
@@ -838,127 +830,34 @@ test('direct V2 issuance is replay-stable and exhausts the same-method predecess
       next: 'unlock_exact_method',
     });
 
-    const firstMetadata = await temporary.database
-      .prepare(
-        `SELECT operation_credential_hash,
-                wallet_session_client_capability,
-                response_family
-           FROM wallet_session_authorizations_v2
-          WHERE namespace = ? AND tenant_id = ? AND mint_id = ?`,
-      )
-      .bind(namespace, firstInput.tenantId, String(firstInput.mintId))
-      .first<{
-        readonly operation_credential_hash: string;
-        readonly wallet_session_client_capability: string;
-        readonly response_family: string;
-      }>();
-    expect(firstMetadata).toEqual({
-      operation_credential_hash: await digestOpaqueCredentialForTest(
-        first.operationCredential.token,
-      ),
-      wallet_session_client_capability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-      response_family: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
-    });
-
-    await temporary.database
-      .prepare(
-        `UPDATE wallet_session_authorizations_v2
-            SET wallet_session_client_capability = NULL
-          WHERE namespace = ? AND tenant_id = ? AND mint_id = ?`,
-      )
-      .bind(namespace, firstInput.tenantId, String(firstInput.mintId))
-      .run();
-    await expect(service.issueDirectWalletSessionAuthorizationV2(firstInput)).resolves.toEqual({
-      kind: 'protocol_mismatch',
-      code: 'protocol_mismatch',
-      message: 'Wallet Session unlock protocol does not match the committed issuance',
-    });
-
-    await temporary.database
-      .prepare(
-        `UPDATE wallet_session_authorizations_v2
-            SET wallet_session_client_capability = 'future_wallet_session_capability_v1'
-          WHERE namespace = ? AND tenant_id = ? AND mint_id = ?`,
-      )
-      .bind(namespace, firstInput.tenantId, String(firstInput.mintId))
-      .run();
-    await expect(service.issueDirectWalletSessionAuthorizationV2(firstInput)).resolves.toEqual({
-      kind: 'protocol_mismatch',
-      code: 'protocol_mismatch',
-      message: 'Wallet Session unlock protocol does not match the committed issuance',
-    });
-
-    await temporary.database
-      .prepare(
-        `UPDATE wallet_session_authorizations_v2
-            SET wallet_session_client_capability = ?, response_family = 'future_wallet_unlock_family_v1'
-          WHERE namespace = ? AND tenant_id = ? AND mint_id = ?`,
-      )
-      .bind(
-        WALLET_SESSION_CLIENT_CAPABILITY_V1,
-        namespace,
-        firstInput.tenantId,
-        String(firstInput.mintId),
-      )
-      .run();
-    await expect(service.issueDirectWalletSessionAuthorizationV2(firstInput)).resolves.toEqual({
-      kind: 'protocol_mismatch',
-      code: 'protocol_mismatch',
-      message: 'Wallet Session unlock protocol does not match the committed issuance',
-    });
-
-    await temporary.database
-      .prepare(
-        `UPDATE wallet_session_authorizations_v2
-            SET wallet_session_client_capability = ?, response_family = ?
-          WHERE namespace = ? AND tenant_id = ? AND mint_id = ?`,
-      )
-      .bind(
-        WALLET_SESSION_CLIENT_CAPABILITY_V1,
-        WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
-        namespace,
-        firstInput.tenantId,
-        String(firstInput.mintId),
-      )
-      .run();
-    const firstAfterMismatch = await temporary.database
-      .prepare(
-        `SELECT operation_credential_hash, retired_at_ms
-           FROM wallet_session_authorizations_v2
-          WHERE namespace = ? AND tenant_id = ? AND mint_id = ?`,
-      )
-      .bind(namespace, firstInput.tenantId, String(firstInput.mintId))
-      .first<{
-        readonly operation_credential_hash: string;
-        readonly retired_at_ms: number | null;
-      }>();
-    expect(firstAfterMismatch).toEqual({
-      operation_credential_hash: firstMetadata?.operation_credential_hash,
-      retired_at_ms: null,
-    });
-
     const losingDigest = await digestOpaqueCredentialForTest('concurrent-losing-credential');
-    const concurrentLoser = await createAuthorizationStore(
+    const committedDigest = await digestOpaqueCredentialForTest(first.operationCredential.token);
+    const concurrentReplay = await createAuthorizationStore(
       temporary.database,
       namespace,
     ).commitDirectWalletSessionAuthorizationV2({
       persisted: buildPersistedActiveWalletSessionAuthorizationV2({
         session: first.session,
         quota: first.quota,
-        primaryOperationCredentialDigestB64u: losingDigest,
-        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-        responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
+        primaryOperationCredentialDigestB64u: committedDigest,
       }),
     });
-    expect(concurrentLoser).toMatchObject({
+    expect(concurrentReplay).toMatchObject({
       kind: 'already_committed',
       committed: {
         session: first.session,
-        primaryOperationCredentialDigestB64u: await digestOpaqueCredentialForTest(
-          first.operationCredential.token,
-        ),
+        primaryOperationCredentialDigestB64u: committedDigest,
       },
     });
+    await expect(
+      createAuthorizationStore(temporary.database, namespace).commitDirectWalletSessionAuthorizationV2({
+        persisted: buildPersistedActiveWalletSessionAuthorizationV2({
+          session: first.session,
+          quota: first.quota,
+          primaryOperationCredentialDigestB64u: losingDigest,
+        }),
+      }),
+    ).rejects.toThrow('different credential digest');
 
     const replacementInput = {
       ...firstInput,
@@ -1270,8 +1169,6 @@ test('admits a V2 Wallet Session operation and replays against its exact source'
       remainingUses: 2,
       issuedAtMs: 300,
       expiresAtMs: 400,
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
     });
     if (directIssue.kind !== 'issued') {
       throw new Error('V2 operation admission fixture did not issue its direct credential');
@@ -1372,8 +1269,6 @@ test('admits a V2 Wallet Session operation and replays against its exact source'
       remainingUses: 2,
       issuedAtMs: 303,
       expiresAtMs: 400,
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
     });
     if (siblingIssue.kind !== 'issued') {
       throw new Error('Sibling-method V2 operation fixture did not issue');

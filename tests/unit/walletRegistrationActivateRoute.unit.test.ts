@@ -6,7 +6,6 @@ import type { WalletRegistrationActivateResponseV2 } from '../../packages/wallet
 import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { projectRegistrationEstablishedSessionV2 } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/walletRegistrationSessionCommitReceipt';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
-import { WALLET_SESSION_CLIENT_CAPABILITY_V1 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { implicitNearAccountProvisioning } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseRegistrationEstablishedSessionResultV2 } from '../../packages/shared-ts/src/utils/registrationEstablishedSession';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
@@ -301,7 +300,6 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
     registrationCeremonyId: setup.registrationCeremonyId,
     signedSetup: setup.signedSetup,
     idempotencyKey: 'activate-key-1',
-    walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
     planKind: 'evm_family_ecdsa',
     session: signer,
     ecdsa: {
@@ -606,7 +604,6 @@ test('activate refuses a ceremony whose authority proof is not yet verified', as
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'activate-unverified',
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       ecdsa: { clientActivation: fixtureRouterAbEcdsaActivationFacts() },
       verifier: signer,
       minter: signer,
@@ -850,7 +847,6 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'ed25519-e2e-activate',
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       planKind: 'near_ed25519',
       session: signer,
       verifier: signer,
@@ -883,7 +879,6 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
         registrationCeremonyId: setup.registrationCeremonyId,
         signedSetup: setup.signedSetup,
         idempotencyKey: 'ed25519-e2e-provisioning',
-        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
         ed25519: {
           activationReference: {
             lifecycle_id: setup.registrationCeremonyId,
@@ -1022,7 +1017,6 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'ed25519-otp-activate',
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       planKind: 'near_ed25519',
       emailOtpEnrollment: {
         enrollmentSealKeyVersion: 'seal-v1',
@@ -1200,7 +1194,6 @@ test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not a
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'ed25519-custody-activate',
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       planKind: 'near_ed25519',
       session: signer,
       verifier: signer,
@@ -1224,7 +1217,6 @@ test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not a
         registrationCeremonyId: setup.registrationCeremonyId,
         signedSetup: setup.signedSetup,
         idempotencyKey: 'ed25519-custody-provisioning',
-        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
         ed25519: {
           activationReference: {
             lifecycle_id: setup.registrationCeremonyId,
