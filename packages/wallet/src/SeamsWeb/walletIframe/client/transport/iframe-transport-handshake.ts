@@ -66,8 +66,8 @@ function createProtocolVersionMismatchError(args: {
     if (payload?.code !== WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH) return null;
     const details = payload.details;
     const receivedProtocolVersion =
-      isObject(details) && typeof details.expectedProtocolVersion === 'string'
-        ? details.expectedProtocolVersion
+      isObject(details) && typeof details.receivedProtocolVersion === 'string'
+        ? details.receivedProtocolVersion
         : null;
     return new WalletIframeProtocolVersionMismatchError({
       expectedProtocolVersion: args.expectedProtocolVersion,

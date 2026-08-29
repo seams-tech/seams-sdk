@@ -63,6 +63,9 @@ function rejectProtocolVersionMismatch(
       },
     } satisfies ChildToParentEnvelope);
   } catch {}
+  try {
+    port.close();
+  } catch {}
   return true;
 }
 
