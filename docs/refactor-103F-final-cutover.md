@@ -917,7 +917,7 @@ Primary files:
       Ed25519 and ECDSA preflight supply their concrete signing operation and
       resolve the exact session's auth-method identity before lane projection.
       The parallel opaque-owner projection branches are deleted.
-- [ ] Add the P-256 ECDH delivery recipient to target preparation and bind it to
+- [x] Add the P-256 ECDH delivery recipient to target preparation and bind it to
       the verified link.
 - [ ] Persist Device 2 profile, authenticator, method/factor, authority,
       signer-material state, receipt, and selection as one invisible
@@ -1092,6 +1092,11 @@ Primary files:
 Convert every reader or legacy writer:
 
 - [ ] `BrowserSigningSurface.ts`;
+- [x] Make `BrowserSigningSurface.readReusableWalletSessionState` and
+      `getWalletSession` project the selected exact V6 authority/method session,
+      authenticate status with its operation credential, and reject legacy or
+      mismatched status identity. The isolated Email OTP-to-Passkey intended
+      contract proves the registration result remains immediately usable;
 - [x] `login.ts`;
 - [ ] registration legacy persistence in `registration.ts`;
 - [ ] recovery/sync legacy persistence in `syncAccount.ts`;

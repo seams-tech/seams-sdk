@@ -82,7 +82,10 @@ import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { EmailOtpTransactionSigningChallenge } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { RestorePersistedSessionForSigningInput } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
-import { walletSessionTokenForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  walletSessionAuthorizationIdForCurve,
+  walletSessionTokenForCurve,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { readOwnerWalletExecutionLaneProjectionV1 } from '@/core/rpcClients/relayer/ownerWalletExecutionLanePreflight';
 import { hydrateWalletExecutionLane } from '@/core/signingEngine/session/lanes/walletExecutionLaneHydration';
 import type { EcdsaCapabilityManifestLookup } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
@@ -198,19 +201,37 @@ export async function resolveBrowserActiveEcdsaWalletSessionAuthorization(
   }
   const relayerUrl = String(args.seamsWebConfigs.network.relayer?.url || '').trim();
   if (!relayerUrl) throw new Error('Reusable Wallet Session status requires a relayer URL');
-  const walletSessionToken = walletSessionTokenForCurve(projection, 'ecdsa');
-  if (!walletSessionToken) {
+  const exactAuthorization = await readExactWalletSessionAuthorization(walletId);
+  if (exactAuthorization.kind !== 'found') {
     return {
       kind: 'inactive',
-      reason: 'Reusable Wallet Session authorization has no ECDSA token',
+      reason: `Exact Wallet Session authorization is ${exactAuthorization.kind}`,
+    };
+  }
+  const walletSessionToken = walletSessionTokenForCurve(projection, 'ecdsa');
+  const authorizationId = walletSessionAuthorizationIdForCurve(projection, 'ecdsa');
+  if (
+    !walletSessionToken ||
+    !authorizationId ||
+    projection.walletSessionId !== exactAuthorization.operationCredential.walletSessionId ||
+    projection.quotaId !== exactAuthorization.record.quotaId ||
+    authorizationId !== exactAuthorization.record.authorizationId ||
+    projection.walletId !== exactAuthorization.record.walletId ||
+    projection.authority.walletAuthMethodId !== exactAuthorization.record.authMethodId ||
+    String(projection.authority.authorityDigest) !==
+      String(exactAuthorization.record.authorityDigestB64u)
+  ) {
+    return {
+      kind: 'inactive',
+      reason: 'Reusable and exact Wallet Session authorization identities differ',
     };
   }
   const status = await createRelayerReusableWalletSessionStatusPort({
     relayerUrl,
-    auth: { kind: 'opaque_wallet_session', walletSessionToken },
+    operationCredential: exactAuthorization.operationCredential,
   }).read({
-    walletSessionId: projection.walletSessionId,
-    quotaId: projection.quotaId,
+    walletSessionId: exactAuthorization.operationCredential.walletSessionId,
+    quotaId: exactAuthorization.record.quotaId,
   });
   if (status.status !== 'active') {
     return { kind: 'inactive', reason: `Reusable Wallet Session is ${status.status}` };
