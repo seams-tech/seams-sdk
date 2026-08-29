@@ -53,7 +53,6 @@ import {
   buildEcdsaRoleLocalPersistedMaterialRefFixture,
   buildMpcMaterialActivationRefFixture,
   buildWalletAuthAuthorityRefForAuthorityFixture,
-  buildWalletAuthAuthorityRefFixture,
 } from './helpers/ecdsaMaterialRef.fixtures';
 import {
   buildEmailOtpWalletAuthAuthority,
@@ -61,10 +60,7 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { buildActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import {
-  activeEvmFamilyWalletSessionAuthorizationFixture,
-  canonicalEvmFamilyEcdsaSigningCapabilityFixture,
-} from './helpers/ecdsaCapabilityManifest.fixtures';
+import { canonicalEvmFamilyEcdsaSigningCapabilityFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
 import { buildEmailOtpEcdsaWalletSessionFixture } from './helpers/linkedDeviceManagement.fixtures';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
@@ -573,7 +569,7 @@ function emailOtpWorkerBackendBindingFixture(args: {
   };
 }
 
-function emailOtpProvisionedEcdsaBootstrapFixture(args: {
+async function emailOtpProvisionedEcdsaBootstrapFixture(args: {
   request: any;
   chainTarget: ReturnType<typeof thresholdEcdsaChainTargetFromChainFamily>;
   sessionAuthority: {
@@ -609,8 +605,14 @@ function emailOtpProvisionedEcdsaBootstrapFixture(args: {
     ethereumAddress,
     thresholdSessionId,
   });
-  const walletSessionToken = `opaque-wallet-session-token:ecdsa:${thresholdSessionId}`;
   const remainingUses = args.remainingUses ?? 3;
+  const expiresAtMs =
+    request.preauthorizedSessionActivation?.session?.expires_at_ms || Date.now() + 60_000;
+  const exactSession = await buildEmailOtpEcdsaWalletSessionFixture({
+    label: 'coordinator-bootstrap',
+    walletId,
+    expiresAtMs,
+  });
   return {
     thresholdEcdsaKeyRef: {
       type: 'threshold-ecdsa-secp256k1',
@@ -640,13 +642,15 @@ function emailOtpProvisionedEcdsaBootstrapFixture(args: {
       ok: true,
       thresholdSessionId,
       authorizationSessionId: args.sessionAuthority.authorizationSessionId,
-      walletSessionId: args.sessionAuthority.walletSessionId,
-      quotaId: args.sessionAuthority.quotaId,
-      expiresAtMs:
-        request.preauthorizedSessionActivation?.session?.expires_at_ms || Date.now() + 60_000,
+      authorizationId: exactSession.activeWalletSession.authorizationId,
+      walletSessionId: exactSession.operationCredential.walletSessionId,
+      quotaId: exactSession.activeWalletSession.quotaId,
+      expiresAtMs,
       remainingUses,
       runtimePolicyScope,
-      walletSessionToken,
+      walletSessionToken: exactSession.operationCredential.token,
+      walletSession: exactSession.activeWalletSession,
+      operationCredential: exactSession.operationCredential,
       clientVerifyingShareB64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
     },
   };
@@ -820,8 +824,7 @@ function createCoordinator(overrides?: {
   resolveSelectedWalletAuthority?: (
     walletId: string,
   ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
-  readExactWalletSessionAuthorization?: () =>
-    Promise<WalletSessionAuthorizationExactOperationCredentialReadResult>;
+  readExactWalletSessionAuthorization?: () => Promise<WalletSessionAuthorizationExactOperationCredentialReadResult>;
   listActiveEcdsaCapabilityManifestsForWallet?: () => Promise<
     readonly ActiveEcdsaCapabilityManifest[]
   >;
@@ -1023,10 +1026,10 @@ function createCoordinator(overrides?: {
       ecdsaCommitCalls.push(args);
       return {
         bootstrap: args.bootstrap,
-        authorization: activeEvmFamilyWalletSessionAuthorizationFixture({
-          walletId: TEST_SUBJECT_ID,
-          authority: buildWalletAuthAuthorityRefFixture({ walletId: TEST_SUBJECT_ID }),
-        }).projection,
+        authorization: {
+          record: args.bootstrap.session.walletSession,
+          operationCredential: args.bootstrap.session.operationCredential,
+        },
       };
     },
     listActiveEcdsaCapabilityManifestsForWallet:
@@ -1066,7 +1069,7 @@ function createCoordinator(overrides?: {
           walletSessionId: 'wallet-session',
           quotaId: 'wallet-signing-quota',
         };
-        const bootstrap = emailOtpProvisionedEcdsaBootstrapFixture({
+        const bootstrap = await emailOtpProvisionedEcdsaBootstrapFixture({
           request,
           chainTarget: lanePolicy.chainTarget,
           sessionAuthority: ecdsaSessionAuthority,

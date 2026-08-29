@@ -19,11 +19,11 @@ import {
   type ThresholdEcdsaBootstrapStorePort,
 } from '../warmCapabilities/ecdsaBootstrapPersistence';
 import type { ThresholdEcdsaBootstrapParityArgs } from '../warmCapabilities/sealedRefreshParity';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
-  walletSessionAuthorizations,
-  type ActiveWalletSessionAuthorizationProjection,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { persistActiveWalletSessionAuthorizationFromEcdsaBootstrap } from '../persistence/walletSessionAuthorizationProjection';
+  persistExactWalletSessionAuthorizationFromEcdsaBootstrap,
+  type ExactWalletSessionAuthorization,
+} from '../persistence/walletSessionAuthorizationProjection';
 
 export type CommitWorkerProvisionedThresholdEcdsaSessionDeps = {
   queueByWallet: Map<string, Promise<void>>;
@@ -105,12 +105,6 @@ function signerDomainForThresholdEcdsaSource(
   }
 }
 
-function signerAuthMethodForThresholdEcdsaSource(
-  source: ThresholdEcdsaSessionStoreSource,
-): (typeof SIGNER_AUTH_METHODS)[keyof typeof SIGNER_AUTH_METHODS] {
-  return signerDomainForThresholdEcdsaSource(source).authMethod;
-}
-
 function assertNeverThresholdEcdsaBootstrapBackendBinding(value: never): never {
   throw new Error(
     `[SigningEngine] unsupported threshold ECDSA bootstrap backend binding: ${JSON.stringify(value)}`,
@@ -159,7 +153,7 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
   args: CommitWorkerProvisionedThresholdEcdsaSessionArgs,
 ): Promise<{
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorization: ExactWalletSessionAuthorization;
 }> {
   if (args.source === 'email_otp') {
     await deps.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
@@ -194,12 +188,11 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
       deps,
       bootstrap: canonicalBootstrap,
     });
-    const authorization = await persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(
+    const authorization = await persistExactWalletSessionAuthorizationFromEcdsaBootstrap(
       walletSessionAuthorizations,
       {
         walletId: args.walletId,
         authority: args.authority,
-        authMethod: signerAuthMethodForThresholdEcdsaSource(args.source),
         bootstrap: canonicalBootstrap,
       },
     );
@@ -212,7 +205,7 @@ export async function commitEvmFamilyThresholdEcdsaSessions(
   args: CommitEvmFamilyThresholdEcdsaSessionsArgs,
 ): Promise<{
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorization: ExactWalletSessionAuthorization;
 }> {
   const committed =
     args.source === 'email_otp'

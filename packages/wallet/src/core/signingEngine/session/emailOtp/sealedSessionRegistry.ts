@@ -5,7 +5,7 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactWalletSessionAuthorization } from '../persistence/walletSessionAuthorizationProjection';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   buildCurrentSealedSessionRecord,
@@ -34,7 +34,7 @@ export class EmailOtpSealedSessionRegistry {
         emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
       }) => Promise<{
         bootstrap: ThresholdEcdsaSessionBootstrapResult;
-        authorization: ActiveWalletSessionAuthorizationProjection;
+        authorization: ExactWalletSessionAuthorization;
       }>;
       writeExactSealedSession: typeof writeExactSealedSession;
       readExactSealedSession: typeof readExactSealedSession;
@@ -43,9 +43,7 @@ export class EmailOtpSealedSessionRegistry {
     },
   ) {}
 
-  async registerSigningSession(
-    record: BuildCurrentSealedSessionRecordInput,
-  ): Promise<void> {
+  async registerSigningSession(record: BuildCurrentSealedSessionRecordInput): Promise<void> {
     const currentRecord = buildCurrentSealedSessionRecord(record);
     if (!currentRecord) {
       throw new Error('[SigningSessionSealedStore] invalid sealed session record write input');
@@ -58,8 +56,7 @@ export class EmailOtpSealedSessionRegistry {
     return {
       configs: this.ports.configs,
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
-      commitEvmFamilyThresholdEcdsaSessions:
-        this.ports.commitEvmFamilyThresholdEcdsaSessions,
+      commitEvmFamilyThresholdEcdsaSessions: this.ports.commitEvmFamilyThresholdEcdsaSessions,
       registerSigningSession: (record) => this.registerSigningSession(record),
       readExactSealedSession: this.ports.readExactSealedSession,
       listActiveEcdsaCapabilityManifestsForWallet:
@@ -71,7 +68,9 @@ export class EmailOtpSealedSessionRegistry {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    runtimePolicyScope: Parameters<typeof persistEmailOtpEcdsaSigningSessionForRefresh>[0]['runtimePolicyScope'];
+    runtimePolicyScope: Parameters<
+      typeof persistEmailOtpEcdsaSigningSessionForRefresh
+    >[0]['runtimePolicyScope'];
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   }): Promise<void> {
     await persistEmailOtpEcdsaSigningSessionForRefresh(
@@ -87,5 +86,4 @@ export class EmailOtpSealedSessionRegistry {
       this.ecdsaPublicationPorts(),
     );
   }
-
 }

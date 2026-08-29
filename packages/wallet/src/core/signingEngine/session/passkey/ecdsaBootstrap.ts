@@ -2,9 +2,7 @@ import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { RouterAbNormalSigningConfig } from '@/core/types/seams';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManagerContext } from '../../workerManager/SignerWorkerManager';
-import type {
-  ThresholdCredentialStorePort,
-} from '../../threshold/crypto/webauthn';
+import type { ThresholdCredentialStorePort } from '../../threshold/crypto/webauthn';
 import {
   activateEcdsaSession,
   activateExplicitKeyExportEcdsaSession,
@@ -46,7 +44,7 @@ import type {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { persistActiveWalletSessionAuthorizationFromEcdsaBootstrap } from '../persistence/walletSessionAuthorizationProjection';
+import { persistExactWalletSessionAuthorizationFromEcdsaBootstrap } from '../persistence/walletSessionAuthorizationProjection';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export type ExistingEcdsaBootstrapKeyIntent = {
@@ -159,10 +157,7 @@ export type PasskeyPreauthorizedEcdsaBootstrapRequest = EcdsaBootstrapExactReque
 export type WalletSessionReconnectEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase & {
   kind: 'wallet_session_reconnect_ecdsa_bootstrap';
   authorizationAuthority: WalletAuthAuthorityRef;
-  routeAuth: Extract<
-    WalletSessionRouteAuth,
-    { kind: 'opaque_wallet_session' }
-  >;
+  routeAuth: Extract<WalletSessionRouteAuth, { kind: 'opaque_wallet_session' }>;
   passkeyCredentialIdB64u: string;
   webauthnAuthentication?: never;
   passkeyPrfFirstB64u?: never;
@@ -429,10 +424,9 @@ export async function bootstrapEcdsaSessionValue(
   });
   // Combined unlock overlaps both curves, then commits their shared authorization in curve order.
   await request.beforeAuthorizationPersistence?.();
-  await persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(walletSessionAuthorizations, {
+  await persistExactWalletSessionAuthorizationFromEcdsaBootstrap(walletSessionAuthorizations, {
     walletId,
     authority,
-    authMethod: signerAuth.authMethod,
     bootstrap: canonicalBootstrap,
   });
   return canonicalBootstrap;

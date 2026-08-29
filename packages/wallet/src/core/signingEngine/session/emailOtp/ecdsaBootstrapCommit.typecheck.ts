@@ -14,7 +14,7 @@ declare const authority: WalletAuthAuthorityRef;
 declare const ports: EmailOtpEcdsaSessionPorts;
 
 void bootstrap.session.runtimePolicyScope.projectId;
-void bootstrap.session.walletSessionToken.trim();
+void bootstrap.session.operationCredential.token.trim();
 void bootstrap.session.clientVerifyingShareB64u.trim();
 void bootstrap.thresholdEcdsaKeyRef.keyHandle.trim();
 void bootstrap.thresholdEcdsaKeyRef.participantIds.map(Number);
@@ -26,9 +26,9 @@ void bootstrap.session.projectionVersion;
 void bootstrap.keygen;
 
 const emailOtpAuthContext = buildEmailOtpAuthContextForCanonicalWallet({
-walletId: 'wallet.testnet',
-emailHashHex: 'email-hash',
-policy: 'session',
+  walletId: 'wallet.testnet',
+  emailHashHex: 'email-hash',
+  policy: 'session',
   retention: 'session',
   reason: 'login',
   provider: 'google',

@@ -12,7 +12,6 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  activeEvmFamilyWalletSessionAuthorizationFixture,
   canonicalEvmFamilyEcdsaSigningCapabilityFixture,
   ecdsaCapabilityHydrationLookupFixture,
 } from './helpers/ecdsaCapabilityManifest.fixtures';
@@ -23,8 +22,7 @@ import {
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
 import { buildExactEmailOtpEvmFamilyWalletSessionAuthorizationFixture } from './helpers/exactEvmFamilyWalletSessionAuthorization.fixtures';
 import { resolveThresholdEcdsaSigningQueueKey } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
-import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 
 // Email OTP refresh renews authorization over material that already exists. It
 // resolves the exact manifest plus sealed runtime, takes the Email OTP binding
@@ -58,61 +56,11 @@ function resolvedRuntime(
   return { manifest, walletId, runtime: resolution.runtime, record };
 }
 
-function activeAuthorization(walletSessionId: string) {
-  return activeEvmFamilyWalletSessionAuthorizationFixture({
-    manifest: ecdsaCapabilityHydrationLookupFixture().active.manifest,
-    walletSessionId,
-    authMethod: 'email_otp',
-  }).projection;
-}
-
-function requiredParsed<T>(result: { ok: true; value: T } | { ok: false }): T {
-  if (!result.ok) throw new Error('focused authorization fixture identity is invalid');
-  return result.value;
-}
-
-function activeCanonicalAuthorization(
-  manifest: Awaited<ReturnType<typeof canonicalEvmFamilyEcdsaSigningCapabilityFixture>>['manifest'],
-  thresholdSessionId: string,
-) {
-  const active = activeEvmFamilyWalletSessionAuthorizationFixture({
-    manifest,
-    authMethod: 'email_otp',
-  }).projection;
-  if (active.walletSessionTokens.kind !== 'evm_family_ecdsa') {
-    throw new Error('ECDSA authorization fixture must carry an ECDSA token');
-  }
-  const [header, payload, signature] =
-    active.walletSessionTokens.ecdsa.walletSessionToken.split('.');
-  if (!header || !payload || !signature) throw new Error('invalid ECDSA JWT fixture');
-  const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<
-    string,
-    unknown
-  >;
-  claims.thresholdSessionId = thresholdSessionId;
-  return buildActiveWalletSessionAuthorizationProjection({
-    walletId: active.walletId,
-    walletSessionId: active.walletSessionId,
-    quotaId: active.quotaId,
-    walletSessionTokens: {
-      kind: 'evm_family_ecdsa',
-      ecdsa: {
-        authorizationId: active.walletSessionTokens.ecdsa.authorizationId,
-        walletSessionToken: `${header}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.${signature}`,
-        thresholdSessionId: requiredParsed(parseThresholdEcdsaSessionId(thresholdSessionId)),
-      },
-    },
-    authMethod: active.authMethod,
-    authority: active.authority,
-    expiresAtMs: active.expiresAtMs,
-  });
-}
-
 function canonicalEmailOtpExportLaneFixture(args: {
   capability: Awaited<
     ReturnType<typeof canonicalEvmFamilyEcdsaSigningCapabilityFixture>
   >['capability'];
-  authorization: ReturnType<typeof activeEvmFamilyWalletSessionAuthorizationFixture>;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
   chainTarget: ThresholdEcdsaChainTarget;
 }): ExactEcdsaExportLane {
   const manifest = args.capability.manifest;
@@ -176,14 +124,12 @@ test.describe('Email OTP ECDSA refresh canonical authority', () => {
     );
     const tempoTarget = manifest.signer.scope.targetMemberships[1];
     if (!tempoTarget) throw new Error('ECDSA fixture must have a sibling Tempo target');
-    const active = activeEvmFamilyWalletSessionAuthorizationFixture({
-      manifest,
-      authMethod: 'email_otp',
+    const { runtime } = resolvedRuntime({ manifest });
+    const authorization = await buildExactEmailOtpEvmFamilyWalletSessionAuthorizationFixture({
+      capability,
+      runtime,
+      label: 'canonical-export',
     });
-    const authorization = {
-      ...active,
-      projection: activeCanonicalAuthorization(manifest, 'ec-session-registration-export'),
-    };
     const lane = canonicalEmailOtpExportLaneFixture({
       capability,
       authorization,

@@ -40,7 +40,6 @@ class ExactUnlockReadHarness {
   readonly exactReadInputs: Parameters<
     typeof walletSessionAuthorizations.readExactWithOperationCredential
   >[0][] = [];
-  activeReadCalled = false;
   persistenceFailure = false;
 
   constructor(
@@ -73,30 +72,22 @@ class ExactUnlockReadHarness {
     this.exactReadInputs.push(input);
     return this.read;
   }
-
-  async rejectActiveWalletRead(): Promise<never> {
-    this.activeReadCalled = true;
-    throw new Error('wallet-wide session lookup must not run');
-  }
 }
 
 function installExactUnlockReadHarness(harness: ExactUnlockReadHarness): () => void {
   const originalResolveSelectedWalletAuthority = IndexedDBManager.resolveSelectedWalletAuthority;
   const originalListWalletAuthMethodsForWallet = IndexedDBManager.listWalletAuthMethodsForWallet;
   const originalReadExact = walletSessionAuthorizations.readExactWithOperationCredential;
-  const originalReadActive = walletSessionAuthorizations.readActiveForWallet;
   IndexedDBManager.resolveSelectedWalletAuthority =
     harness.resolveSelectedWalletAuthority.bind(harness);
   IndexedDBManager.listWalletAuthMethodsForWallet =
     harness.listWalletAuthMethodsForWallet.bind(harness);
   walletSessionAuthorizations.readExactWithOperationCredential =
     harness.readExactWithOperationCredential.bind(harness);
-  walletSessionAuthorizations.readActiveForWallet = harness.rejectActiveWalletRead.bind(harness);
   return () => {
     IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelectedWalletAuthority;
     IndexedDBManager.listWalletAuthMethodsForWallet = originalListWalletAuthMethodsForWallet;
     walletSessionAuthorizations.readExactWithOperationCredential = originalReadExact;
-    walletSessionAuthorizations.readActiveForWallet = originalReadActive;
   };
 }
 
@@ -118,7 +109,7 @@ test('reuses only the exact selected Email OTP ECDSA operation credential', asyn
       materialActivation: fixture.materialActivation,
     });
 
-    expect(credential).toBe(String(fixture.operationCredential.token));
+    expect(credential).toEqual(fixture.operationCredential);
     expect(harness.exactReadInputs).toEqual([
       {
         walletId: fixture.authority.walletId,
@@ -126,7 +117,6 @@ test('reuses only the exact selected Email OTP ECDSA operation credential', asyn
         authMethodId: fixture.authMethod.walletAuthMethodId,
       },
     ]);
-    expect(harness.activeReadCalled).toBe(false);
   } finally {
     restore();
   }

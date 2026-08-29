@@ -673,8 +673,9 @@ Primary files:
       already-finalized ECDSA state before reconstructing the narrow ceremony.
 - [x] Delete the old-client replay adapter, its V1 bearer reconstruction, and
       every adapter-only resolver and test.
-- [ ] Drop `registration_replay_opaque_wallet_session_tokens_v1` in the
-      enforcement migration and delete its service/store surface.
+- [x] Drop `registration_replay_opaque_wallet_session_tokens_v1` in migration
+      `0031_r103f_delete_registration_replay_tokens.sql` and delete its
+      service/store surface.
 - [x] Update Route 3 comments and tests from byte-identical bearer output to
       stable fingerprint and committed-projection identity.
 - [x] Make the receipt parser reject bearer fields, credential-bearing
@@ -1075,9 +1076,9 @@ Primary files:
 - [ ] Delete V3 `replaceActive`, `createOrMergeExactActive`, and
       `upsertActiveWithCurveMerge` behavior.
 - [ ] Delete `readActiveForWallet`.
-- [ ] Delete `persistActiveWalletSessionAuthorizationCurve` and
+- [x] Delete `persistActiveWalletSessionAuthorizationCurve` and
       `persistActiveWalletSessionAuthorizationFromRegistration`.
-- [ ] Delete the V3 ECDSA bootstrap projection.
+- [x] Delete the V3 ECDSA bootstrap projection.
 - [x] Correct the V5 boundary so its physical `wallet_session_id` is the
       operation credential's Wallet Session ID, reject key/credential drift,
       and preserve same-wallet sibling methods during exact replacement.
@@ -1260,7 +1261,7 @@ R103F adds no second deletion task for them. Migration `0026` rebuilds
 `wallet_authorities` and recreates the `0024` trigger, so the additive bridge
 migration replaces the post-`0026` definition.
 
-At the current checkpoint `0028`, `0029`, and `0030` are landed. The next file
+At the current checkpoint `0028`, `0029`, `0030`, and `0031` are landed. The next file
 number is allocated only after reconciling landed and pending migrations from
 concurrent workstreams and is rechecked after each rebase. Applied files are
 never renamed to resolve an allocation race.
@@ -1274,7 +1275,8 @@ their schema surfaces and may receive a non-contiguous file number.
 
 Migration `0029` added the digest-only
 `registration_replay_opaque_wallet_session_tokens_v1` boundary. It remains
-immutable history. The enforcement migration drops the table, and production
+immutable history. Migration `0031_r103f_delete_registration_replay_tokens.sql`
+drops the table, and production
 TypeScript deletes every issuer, resolver, cleanup branch, and adapter-only
 test.
 
