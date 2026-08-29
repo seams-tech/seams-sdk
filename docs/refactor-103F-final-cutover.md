@@ -1098,6 +1098,9 @@ Convert every reader or legacy writer:
 - [x] `SigningSessionCoordinator.ts`;
 - [x] `PasskeyMpcSessionManager.ts`;
 - [x] `session/availability/readiness.ts`;
+- [x] Canonical Wallet Session status: resolve the unlocked selected
+      authority/method, read its exact V6 record, authenticate status with the
+      stored operation credential, and reject mismatched session/quota identity;
 - [x] `clientSessionPersistence.ts`;
 - [x] `ecdsaLoginPrefill.ts`;
 - [x] `routerAbEd25519WalletSessionState.ts`;
@@ -1355,7 +1358,7 @@ exact admission contexts. No V1 request or persistence resolver remains.
 - [ ] Close the post-promotion recovery crash window with resumable local
       continuity and normal exact login.
 - [ ] Reconcile all affected browser records after material promotion.
-- [ ] Bump the host/iframe protocol and remove reusable-session message fields.
+- [x] Bump the host/iframe protocol and remove reusable-session message fields.
 - [ ] Rename `ReusableWalletSessionMintId` to `WalletSessionMintId` without an
       alias; preserve stored and frozen wire field names.
 
