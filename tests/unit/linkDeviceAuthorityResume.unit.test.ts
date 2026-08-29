@@ -17,7 +17,9 @@ import {
   parseDeviceId,
   parseMpcWalletSigningQuotaId,
   parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
 import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 import {
   parseLinkDeviceSessionId,
@@ -231,6 +233,7 @@ function buildResumeFixture(label: string): ResumeFixture {
   const authorizationId = required(
     parseWalletSessionAuthorizationId(`wallet-session:resume:${label}`),
   );
+  const walletSessionId = required(parseWalletSessionId(`wallet-session:resume:${label}`));
   const quotaId = required(parseMpcWalletSigningQuotaId(`quota:resume:${label}`));
   const walletSession: ActiveWalletSessionV1 = {
     kind: 'active_wallet_session_v1',
@@ -245,11 +248,17 @@ function buildResumeFixture(label: string): ResumeFixture {
     issuedAtMs: 400,
     expiresAtMs: 3_600_400,
   };
+  const operationCredential = parseWalletSessionOperationCredentialV1({
+    kind: 'opaque_wallet_session_operation_credential_v1',
+    token: `wst_${'R'.repeat(43)}`,
+    walletSessionId,
+  });
   const active: Extract<ActivateInstalledAuthorityResultV1, { readonly kind: 'active' }> = {
     kind: 'active',
     authority: activeAuthority,
     authMethod: activeAuthMethod,
     walletSession,
+    operationCredential,
   };
   const keyMaterial: DeviceLinkingKeyMaterialHandleV1 = {
     kind: 'device_linking_key_material_handle_v1',
@@ -420,6 +429,7 @@ test.describe('linked-device committed delivery continuation', () => {
     await expect(activateLinkedAuthorityV1(input)).resolves.toEqual({
       kind: 'active',
       session: fixture.active.walletSession,
+      operationCredential: fixture.active.operationCredential,
     });
     expect(installAttempts).toBe(2);
     expect(activationAttempts).toBe(2);
