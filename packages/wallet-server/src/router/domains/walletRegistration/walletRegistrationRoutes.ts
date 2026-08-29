@@ -880,15 +880,6 @@ async function resolveRouteNearFundingWalletSession(
       nearAccountId,
     };
   }
-  if (v2.kind === 'rejected') return null;
-  const owner = await resolveRouteOpaqueOwnerWalletSession(input, 'ed25519');
-  if (owner?.curve === 'ed25519') {
-    return {
-      kind: 'owner',
-      walletId: String(owner.binding.walletId),
-      nearAccountId: owner.binding.nearAccountId,
-    };
-  }
   return null;
 }
 
