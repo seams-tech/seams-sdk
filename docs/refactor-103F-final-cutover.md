@@ -1038,6 +1038,11 @@ Primary files:
 - [x] Make the existing V3 and V5 writer boundaries preserve unknown future
       record versions; exact replacement also contains valid late legacy rows
       while continuing to reject malformed known rows.
+- [x] Make the existing V5 operation-credential reader and its current browser
+      signing, login, and ECDSA-runtime consumers surface a matching unknown
+      future row as `upgrade_required`; a matching future row dominates V5,
+      while an unrelated sibling method remains readable and malformed known
+      V5 remains fail closed.
 - [ ] Define one branch-specific V6 builder and one strict parser requiring
       exact identities, subjects, lifecycle, and primary credential.
 - [ ] Reject session/credential mismatch at parsing and before IndexedDB write.
