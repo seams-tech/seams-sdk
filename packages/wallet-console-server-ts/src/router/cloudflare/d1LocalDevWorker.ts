@@ -1117,7 +1117,10 @@ async function createLocalRouterApiHandler(
       return {
         authorizationSessions: routerApiService.authorizationSessions,
         preparedRecoveryAdmission: routerApiService.passkeyCustody,
-        session,
+        resolveEd25519MaterialActivation:
+          routerApiService.walletRegistration.resolveEd25519MaterialActivation.bind(
+            routerApiService.walletRegistration,
+          ),
       };
     },
   );

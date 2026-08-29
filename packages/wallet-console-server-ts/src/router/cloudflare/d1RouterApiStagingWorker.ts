@@ -1115,7 +1115,6 @@ export function createStagingRecoveryRequestScopedDependencies(env: CloudflareD1
 } {
   const scope = stagingTenantScope(env);
   const store = createStagingYaoPartitionedStateStore(env);
-  const session = stagingSessionAdapter(env);
   return {
     store,
     backend: createStagingEd25519YaoBackend(env),
@@ -1125,7 +1124,10 @@ export function createStagingRecoveryRequestScopedDependencies(env: CloudflareD1
       return {
         authorizationSessions: service.authorizationSessions,
         preparedRecoveryAdmission: service.passkeyCustody,
-        session,
+        resolveEd25519MaterialActivation:
+          service.walletRegistration.resolveEd25519MaterialActivation.bind(
+            service.walletRegistration,
+          ),
       };
     }),
     capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({
