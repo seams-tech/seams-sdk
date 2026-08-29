@@ -7,12 +7,14 @@ import type {
   AuthorizedOperationReplayResponse,
   CompletedCapabilityOperationResult,
   HostedWalletSeamsSessionExchangeCode,
-  HostedWalletSeamsSessionExchangeDelivery,
+  HostedWalletSeamsSessionExchangeDeliveryV2,
   HostedWalletSeamsSessionExchangeNonce,
-  IssuedHostedWalletSeamsSessionExchange,
-  PersistedHostedWalletSeamsSessionExchangeResult,
-  RedeemHostedWalletSeamsSessionExchangeInput,
-  RedeemHostedWalletSeamsSessionExchangeResult,
+  IssuedHostedWalletSeamsSessionExchangeV2,
+  PersistedHostedWalletSeamsSessionExchangeV2Result,
+  RedeemHostedWalletSeamsSessionExchangeV2Input,
+  RedeemHostedWalletSeamsSessionExchangeV2Result,
+  HostedWalletSessionOperationCredentialV1,
+  ResolvedHostedWalletSessionOperationCredentialV2,
   ReusableWalletSessionStatus,
   SessionOrigin,
   VerifiedAuthorizationEvidenceSet,
@@ -36,6 +38,8 @@ import {
   buildPersistedActiveWalletSessionAuthorizationV2,
   parseHostedWalletSeamsSessionExchangeCode,
   parseHostedWalletSeamsSessionExchangeNonce,
+  parseHostedWalletSessionCredentialId,
+  parseHostedWalletSessionOperationCredentialV1,
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
 } from './domain';
@@ -110,11 +114,17 @@ export interface AuthorizationSessionPort {
     readonly nowMs: number;
   }): Promise<ReusableWalletSessionStatus>;
   putIssuedHostedWalletSeamsSessionExchange(
-    exchange: IssuedHostedWalletSeamsSessionExchange,
+    exchange: IssuedHostedWalletSeamsSessionExchangeV2,
   ): Promise<void>;
   redeemHostedWalletSeamsSessionExchange(
-    input: RedeemHostedWalletSeamsSessionExchangeInput,
-  ): Promise<PersistedHostedWalletSeamsSessionExchangeResult>;
+    input: RedeemHostedWalletSeamsSessionExchangeV2Input,
+  ): Promise<PersistedHostedWalletSeamsSessionExchangeV2Result>;
+  readHostedWalletSessionOperationCredentialV2(input: {
+    readonly tenantId: TenantId;
+    readonly tokenHash: DigestB64u;
+    readonly requestOrigin: SessionOrigin;
+    readonly nowMs: number;
+  }): Promise<ResolvedHostedWalletSessionOperationCredentialV2 | null>;
 }
 
 export interface AuthorizationEvidencePort {
@@ -660,21 +670,21 @@ export class AuthorizationService {
   }
 
   async mintHostedWalletSeamsSessionExchange(input: {
-    readonly tenantId: TenantId;
-    readonly walletSessionId: WalletSessionId;
+    readonly authorization: IssuedWalletSessionAuthorizationV2;
     readonly appOrigin: SessionOrigin;
     readonly walletOrigin: SessionOrigin;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly binding: Readonly<Record<string, unknown>>;
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
-  }): Promise<HostedWalletSeamsSessionExchangeDelivery> {
-    if (!Number.isSafeInteger(input.issuedAtMs) || input.expiresAtMs <= input.issuedAtMs) {
+  }): Promise<HostedWalletSeamsSessionExchangeDeliveryV2> {
+    if (
+      !Number.isSafeInteger(input.issuedAtMs) ||
+      input.issuedAtMs <= 0 ||
+      !Number.isSafeInteger(input.expiresAtMs) ||
+      input.expiresAtMs <= input.issuedAtMs ||
+      input.expiresAtMs > input.authorization.session.expiresAtMs ||
+      input.expiresAtMs > input.authorization.quota.expiresAtMs
+    ) {
       throw new Error('hosted-wallet Seams session exchange expiry must follow issuance');
-    }
-    const bindingJson = JSON.stringify(input.binding);
-    if (!bindingJson || bindingJson === '{}') {
-      throw new Error('hosted-wallet exchange binding is required');
     }
     const exchangeCode = parseHostedWalletSeamsSessionExchangeCode(
       secureRandomBase64Url(32, 'hosted-wallet Seams session exchange codes'),
@@ -687,21 +697,25 @@ export class AuthorizationService {
       parseHostedWalletSessionExchangeCodeId,
     );
     await this.ports.sessions.putIssuedHostedWalletSeamsSessionExchange({
-      kind: 'issued_hosted_wallet_session_exchange',
-      tenantId: input.tenantId,
+      kind: 'issued_hosted_wallet_session_exchange_v2',
+      tenantId: input.authorization.session.tenantId,
       exchangeCodeId,
-      walletSessionId: input.walletSessionId,
+      authorizationId: input.authorization.session.authorizationId,
+      walletSessionId: input.authorization.session.walletSessionId,
+      quotaId: input.authorization.session.quotaId,
+      principalId: input.authorization.session.principalId,
+      walletId: input.authorization.session.walletId,
+      authorityId: input.authorization.session.authorityId,
+      walletAuthMethodId: input.authorization.session.walletAuthMethodId,
       codeHash: await digestOpaqueValue(exchangeCode),
       nonceDigest: await digestOpaqueValue(nonce),
       appOrigin: input.appOrigin,
       walletOrigin: input.walletOrigin,
-      curve: input.curve,
-      bindingJson,
       issuedAtMs: input.issuedAtMs,
       expiresAtMs: input.expiresAtMs,
     });
     return {
-      kind: 'hosted_wallet_session_exchange_delivery',
+      kind: 'hosted_wallet_session_exchange_delivery_v2',
       exchangeCode,
       nonce,
       appOrigin: input.appOrigin,
@@ -715,28 +729,34 @@ export class AuthorizationService {
     readonly nonce: HostedWalletSeamsSessionExchangeNonce;
     readonly appOrigin: SessionOrigin;
     readonly walletOrigin: SessionOrigin;
-    readonly curve: OpaqueWalletSessionCurve;
     readonly redeemedAtMs: number;
-  }): Promise<RedeemHostedWalletSeamsSessionExchangeResult> {
-    const walletSessionToken = `wst_${secureRandomBase64Url(
+  }): Promise<RedeemHostedWalletSeamsSessionExchangeV2Result> {
+    const hostedCredentialToken = `wsh_${secureRandomBase64Url(
       32,
-      'hosted-wallet exchanged Wallet Session tokens',
+      'hosted-wallet exchanged child credentials',
     )}`;
+    const hostedCredentialId = parseHostedWalletSessionCredentialId(
+      `hcr_${secureRandomBase64Url(18, 'hosted-wallet child credential identifiers')}`,
+    );
     const persisted = await this.ports.sessions.redeemHostedWalletSeamsSessionExchange({
       codeHash: await digestOpaqueValue(input.exchangeCode),
       nonceDigest: await digestOpaqueValue(input.nonce),
       appOrigin: input.appOrigin,
       walletOrigin: input.walletOrigin,
-      tokenHash: await digestOpaqueValue(walletSessionToken),
-      curve: input.curve,
+      tokenHash: await digestOpaqueValue(hostedCredentialToken),
+      hostedCredentialId,
       redeemedAtMs: input.redeemedAtMs,
     });
     if (persisted.kind !== 'redeemed') return persisted;
+    const operationCredential = parseHostedWalletSessionOperationCredentialV1({
+      kind: 'opaque_hosted_wallet_session_operation_credential_v1',
+      token: hostedCredentialToken,
+      walletSessionId: persisted.walletSessionId,
+    });
     return {
       kind: 'redeemed',
       walletSessionId: persisted.walletSessionId,
-      walletSessionToken,
-      curve: persisted.curve,
+      operationCredential,
       expiresAtMs: persisted.expiresAtMs,
     };
   }
@@ -1093,6 +1113,21 @@ export class AuthorizationService {
     return await this.ports.grants.readWalletSessionAuthorizationV2ByOperationCredential({
       tenantId: input.tenantId,
       tokenHash: await digestOpaqueValue(input.token),
+      nowMs: input.nowMs,
+    });
+  }
+
+  async readHostedWalletSessionOperationCredentialV2(input: {
+    readonly tenantId: TenantId;
+    readonly token: string;
+    readonly requestOrigin: SessionOrigin;
+    readonly nowMs: number;
+  }): Promise<ResolvedHostedWalletSessionOperationCredentialV2 | null> {
+    if (!/^wsh_[A-Za-z0-9_-]{43}$/.test(input.token)) return null;
+    return await this.ports.sessions.readHostedWalletSessionOperationCredentialV2({
+      tenantId: input.tenantId,
+      tokenHash: await digestOpaqueValue(input.token),
+      requestOrigin: input.requestOrigin,
       nowMs: input.nowMs,
     });
   }
