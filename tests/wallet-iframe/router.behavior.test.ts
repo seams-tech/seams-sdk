@@ -212,11 +212,14 @@ const EMAIL_OTP_REGISTRATION_SESSION_SCRIPT = String.raw`
           authMethod: 'email_otp',
         },
         reusableWalletSession: {
-          kind: 'missing',
+          kind: 'active',
           walletId: 'alice.testnet',
-          authorizationId: 'wallet-session-authorization-router-fixture',
-          walletSessionId: 'wallet-session-router-fixture',
+          authorizationId: 'returned-session-authorization-router-fixture',
+          walletSessionId: 'returned-session-router-fixture',
           authMethod: 'email_otp',
+          walletAuthMethodId: 'wallet-auth-method:router-fixture',
+          remainingUses: 3,
+          expiresAtMs: Date.now() + 60_000,
         },
         capabilityProjection: { kind: 'not_requested' },
         nonceDiagnostics: null,
@@ -270,6 +273,15 @@ const EMAIL_OTP_REGISTRATION_SESSION_SCRIPT = String.raw`
           }
           if (data.type === 'PM_GET_EXACT_WALLET_SESSION_STATE') {
             captureEmailOtpRequest(data.type);
+            postResult(requestId, {
+              kind: 'wallet_unlocked_without_signing_session',
+              walletId: 'alice.testnet',
+              authorizationId: 'wallet-session-authorization-router-fixture',
+              walletSessionId: 'wallet-session-router-fixture',
+              authMethod: 'email_otp',
+              reason: 'not_found',
+            });
+            return;
           }
           originalHandler?.(event);
         };
@@ -791,9 +803,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     expect(result.statuses).toEqual([]);
   });
 
-  test('Email OTP registration mirrors its returned session without another iframe request', async ({
-    page,
-  }) => {
+  test('Email OTP registration refreshes its exact session state', async ({ page }) => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
     await registerWalletServiceRoute(
       page,
@@ -839,6 +849,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
             throw new Error('Expected Google Email OTP registration flow');
           }
           const completed = await started.value.completeRegistration();
+          await new Promise((resolve) => setTimeout(resolve, 0));
 
           return {
             success: true as const,
@@ -870,6 +881,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
       'PM_GET_EXACT_WALLET_SESSION_STATE',
       'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH',
       'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION',
+      'PM_GET_EXACT_WALLET_SESSION_STATE',
     ]);
     expect(result.statuses).toEqual([{ isLoggedIn: true, walletId: 'alice.testnet' }]);
     expect(result.mirroredSession).toEqual({

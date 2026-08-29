@@ -1166,9 +1166,9 @@ cannot accept wallet identity alone.
 Remove exact-first/V1 fallback from:
 
 - [x] `login.ts`;
-- [ ] `walletIframe/shared/exactSessionState.ts`;
-- [ ] wallet iframe host auth handlers;
-- [ ] wallet iframe client router handlers; and
+- [x] `walletIframe/shared/exactSessionState.ts`;
+- [x] wallet iframe host auth handlers;
+- [x] wallet iframe client router handlers; and
 - [x] `BrowserSigningSurface.ts` lock/retirement cleanup.
 
 Primary persistence files:

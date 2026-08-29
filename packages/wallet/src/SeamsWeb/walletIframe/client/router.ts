@@ -279,7 +279,6 @@ import type { LoginUnlockRequest } from '@/core/types/login.types';
 import { buildPMUnlockPayload } from '../shared/unlockOptions';
 import type { WalletId } from '@shared/utils/domainIds';
 import {
-  exactSessionStateFromWalletSession,
   parseWalletIframeExactSessionLockResult,
   parseWalletIframeExactSessionState,
   parseWalletSessionFromBoundary,
@@ -2879,9 +2878,10 @@ export class WalletIframeRouter {
             },
           );
           if (res.result.ok) {
-            this.mirrorExactSessionAndEmitLoginStatus(
-              exactSessionStateFromWalletSession(res.result.value.session),
-            );
+            await this.refreshExactSessionAndEmitLoginStatus('current', {
+              kind: 'exact',
+              walletId: String(res.result.value.walletId),
+            });
           }
           return res.result;
         },

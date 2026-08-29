@@ -1,22 +1,17 @@
 import { expect, test } from '@playwright/test';
 import type { WalletSession, WalletSessionCapabilityLaneReadiness } from '@/core/types/seams';
 import {
-  exactSessionStateFromWalletSession,
   parseWalletIframeExactSessionState,
   parseWalletSessionFromBoundary,
 } from '@/SeamsWeb/walletIframe/shared/exactSessionState';
 import {
   activeWalletSessionFixture,
-  activeLinkedDeviceWalletSessionFixture,
   activeWalletSessionWithNonceDiagnosticsFixture,
   authorizationRequiredEcdsaWalletSessionFixture,
   failedEcdsaWalletSessionFixture,
-  invalidWalletSessionFixture,
-  missingWalletSessionFixture,
   readyEcdsaWalletSessionFixture,
   restorableEcdsaWalletSessionFixture,
   supersededEcdsaWalletSessionFixture,
-  unavailableWalletSessionFixture,
 } from './helpers/walletSessionReadProjection.fixtures';
 
 function ecdsaCapabilityOutcomeFromBoundary(
@@ -56,21 +51,6 @@ test.describe('wallet iframe Wallet Session boundary', () => {
         'iframe-wallet',
       ),
     ).toEqual(input);
-  });
-
-  test('preserves a distinct linked-device Wallet Session across the iframe boundary', () => {
-    const input = activeLinkedDeviceWalletSessionFixture({
-      walletId: 'linked-iframe-wallet',
-      walletSessionId: 'linked-iframe-session',
-    });
-
-    expect(parseWalletSessionFromBoundary(input, 'linked-iframe-wallet')).toEqual(input);
-    expect(exactSessionStateFromWalletSession(input)).toMatchObject({
-      kind: 'active_session',
-      status: 'active',
-      walletId: 'linked-iframe-wallet',
-      authMethod: 'linked_device',
-    });
   });
 
   test('rejects a response for a different wallet', () => {
@@ -165,57 +145,6 @@ test.describe('wallet iframe Wallet Session boundary', () => {
       'superseded',
       'failed',
     ]);
-  });
-
-  test('preserves unavailable and invalid as distinct fail-closed exact states', () => {
-    expect(exactSessionStateFromWalletSession(unavailableWalletSessionFixture())).toMatchObject({
-      kind: 'wallet_unlocked_without_signing_session',
-      reason: 'unavailable',
-    });
-    expect(exactSessionStateFromWalletSession(invalidWalletSessionFixture())).toMatchObject({
-      kind: 'wallet_unlocked_without_signing_session',
-      reason: 'invalid',
-    });
-    expect(exactSessionStateFromWalletSession(missingWalletSessionFixture())).toMatchObject({
-      kind: 'wallet_unlocked_without_signing_session',
-      walletId: 'wallet-session-fixture',
-      authorizationId: 'wallet-session-authorization-fixture',
-      walletSessionId: 'wallet-session-fixture',
-      authMethod: 'passkey',
-      reason: 'not_found',
-    });
-  });
-
-  test('separates authenticated identity resolution failure from missing authorization', () => {
-    const authenticated = activeWalletSessionFixture({ walletId: 'identity-wallet' });
-    if (authenticated.authentication.kind !== 'authenticated') {
-      throw new Error('Active Wallet Session fixture must be authenticated');
-    }
-    const unresolvedIdentity: WalletSession = {
-      ...authenticated,
-      appIdentity: {
-        kind: 'unresolvable',
-        walletId: authenticated.authentication.walletId,
-        reason: 'missing_wallet_profile',
-      },
-      capabilityProjection: {
-        kind: 'unresolvable',
-        reason: 'missing_wallet_profile',
-      },
-    };
-
-    expect(exactSessionStateFromWalletSession(unresolvedIdentity)).toEqual({
-      kind: 'wallet_authenticated_identity_unresolvable',
-      walletId: authenticated.authentication.walletId,
-      reason: 'missing_wallet_profile',
-    });
-    expect(exactSessionStateFromWalletSession(missingWalletSessionFixture())).toMatchObject({
-      kind: 'wallet_unlocked_without_signing_session',
-      authorizationId: 'wallet-session-authorization-fixture',
-      walletSessionId: 'wallet-session-fixture',
-      authMethod: 'passkey',
-      reason: 'not_found',
-    });
   });
 
   test('requires exact missing authorization identity at the iframe boundary', () => {
