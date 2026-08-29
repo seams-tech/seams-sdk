@@ -1520,7 +1520,7 @@ Remaining causal baseline work:
 #### Required targeted additions and updates
 
 - [x] Direct-V2 atomic issuance failure and replay tests.
-- [ ] Registration receipt tests proving activation and deferred provisioning
+- [x] Registration receipt tests proving activation and deferred provisioning
       persist no bearer, child credential, or credential-bearing response.
 - [ ] Registration remediation tests for both prefixes: known-shape rewrite or
       deletion, unrelated-row preservation, mapped-bearer retirement,

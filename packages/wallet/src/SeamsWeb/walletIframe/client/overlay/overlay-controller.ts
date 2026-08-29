@@ -44,17 +44,16 @@ type OverlayControllerOptions = {
   onDismiss?: (event: OverlayDismissEvent) => void | Promise<void>;
 };
 
-type SurfaceMorphRect = {
+type SurfaceRect = {
   top: number;
   left: number;
   width: number;
   height: number;
 };
 
-const SURFACE_MORPH_DURATION_MS = 220;
-const SURFACE_REDUCED_MOTION_DURATION_MS = 120;
+const SURFACE_RESIZE_DURATION_MS = 220;
 
-function finiteSurfaceMorphRect(rect: DOMRect): SurfaceMorphRect | null {
+function finiteSurfaceRect(rect: DOMRect): SurfaceRect | null {
   if (
     !Number.isFinite(rect.top) ||
     !Number.isFinite(rect.left) ||
@@ -68,27 +67,9 @@ function finiteSurfaceMorphRect(rect: DOMRect): SurfaceMorphRect | null {
   return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
 }
 
-function surfaceMorphKeyframes(
-  origin: SurfaceMorphRect,
-  destination: SurfaceMorphRect,
-  reducedMotion: boolean,
-): Keyframe[] {
-  if (reducedMotion) return [{ opacity: 0 }, { opacity: 1 }];
-  const translateX = origin.left - destination.left;
-  const translateY = origin.top - destination.top;
-  const scaleX = origin.width / destination.width;
-  const scaleY = origin.height / destination.height;
-  return [
-    {
-      transform: `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`,
-    },
-    { transform: 'none' },
-  ];
-}
-
 function surfaceResizeKeyframes(
-  origin: SurfaceMorphRect,
-  destination: SurfaceMorphRect,
+  origin: SurfaceRect,
+  destination: SurfaceRect,
 ): Keyframe[] {
   return [
     {
@@ -206,9 +187,8 @@ export class OverlayController {
   private authMenuVisualScale = 1;
   private lastAppliedAuthMenuVisualScale = 1;
   private dialogDisplayMode: 'modal' | 'nonmodal' | null = null;
-  private transitionOrigin: SurfaceMorphRect | null = null;
   private pendingRevealFrame: number | null = null;
-  private surfaceMorphAnimation: Animation | null = null;
+  private surfaceResizeAnimation: Animation | null = null;
 
   constructor(opts: OverlayControllerOptions) {
     this.ensureIframe = opts.ensureIframe;
@@ -295,24 +275,19 @@ export class OverlayController {
       this.lastAppliedGeometry !== null &&
       geometryKind(this.lastAppliedGeometry) !== 'provisional' &&
       geometryKind(mode.geometry) !== 'provisional';
-    const requestTransitionOrigin =
-      mode.kind === 'compact_request_modal' && this.mode.kind === 'compact_auth_menu'
-        ? finiteSurfaceMorphRect(dialog.getBoundingClientRect())
-        : null;
     const requestResizeOrigin =
       mode.kind === 'compact_request_modal' &&
       !identityChanged &&
       geometryChanged &&
       previousGeometryKind === 'measured' &&
       nextGeometryKind === 'measured'
-        ? finiteSurfaceMorphRect(dialog.getBoundingClientRect())
+        ? finiteSurfaceRect(dialog.getBoundingClientRect())
         : null;
     if (identityChanged) {
       this.cancelPendingReveal();
-      this.cancelSurfaceMorph();
+      this.cancelSurfaceResize();
       this.generation += 1;
       this.pointerCapture = null;
-      this.transitionOrigin = requestTransitionOrigin;
       this.captureFocusForDialog();
     }
     this.mode = mode;
@@ -321,21 +296,17 @@ export class OverlayController {
     if (revealMeasuredRequestModal) {
       dialog.classList.add(OverlayStyleClasses.REVEAL_PENDING);
     }
-    dialog.classList.toggle(
-      OverlayStyleClasses.HAS_TRANSITION_ORIGIN,
-      this.transitionOrigin !== null,
-    );
     setVisible(iframe);
     setDialogPresentation(dialog, presentationKind(mode), geometryKind(mode.geometry));
     setDialogAuthMenu(dialog, authMenu, animateAuthMenuResize);
     dialog.setAttribute('aria-modal', authMenu ? 'false' : 'true');
     if (geometryChanged || authMenuScaleChanged) {
-      if (geometryChanged) this.cancelSurfaceMorph();
+      if (geometryChanged) this.cancelSurfaceResize();
       setDialogGeometry(dialog, mode.geometry, authMenu ? this.authMenuVisualScale : 1);
       this.lastAppliedGeometry = mode.geometry;
       this.lastAppliedAuthMenuVisualScale = authMenu ? this.authMenuVisualScale : 1;
       const requestResizeDestination = requestResizeOrigin
-        ? finiteSurfaceMorphRect(dialog.getBoundingClientRect())
+        ? finiteSurfaceRect(dialog.getBoundingClientRect())
         : null;
       if (requestResizeOrigin && requestResizeDestination) {
         this.startSurfaceResize(requestResizeOrigin, requestResizeDestination);
@@ -376,43 +347,25 @@ export class OverlayController {
     ) {
       return;
     }
-    const destination = finiteSurfaceMorphRect(dialog.getBoundingClientRect());
-    const origin = this.transitionOrigin;
-    if (origin && destination) {
-      this.startSurfaceMorph(origin, destination);
-    }
     dialog.classList.remove(OverlayStyleClasses.REVEAL_PENDING);
   };
 
-  private startSurfaceMorph(origin: SurfaceMorphRect, destination: SurfaceMorphRect): void {
-    const dialog = this.dialog;
-    if (!dialog) return;
-    this.cancelSurfaceMorph();
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const animation = dialog.animate(surfaceMorphKeyframes(origin, destination, reducedMotion), {
-      duration: reducedMotion ? SURFACE_REDUCED_MOTION_DURATION_MS : SURFACE_MORPH_DURATION_MS,
-      easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)',
-    });
-    this.surfaceMorphAnimation = animation;
-    animation.addEventListener('finish', this.handleSurfaceMorphFinished, { once: true });
-  }
-
-  private startSurfaceResize(origin: SurfaceMorphRect, destination: SurfaceMorphRect): void {
+  private startSurfaceResize(origin: SurfaceRect, destination: SurfaceRect): void {
     const dialog = this.dialog;
     if (!dialog || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    this.cancelSurfaceMorph();
+    this.cancelSurfaceResize();
     const animation = dialog.animate(surfaceResizeKeyframes(origin, destination), {
-      duration: SURFACE_MORPH_DURATION_MS,
+      duration: SURFACE_RESIZE_DURATION_MS,
       easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)',
     });
-    this.surfaceMorphAnimation = animation;
-    animation.addEventListener('finish', this.handleSurfaceMorphFinished, { once: true });
+    this.surfaceResizeAnimation = animation;
+    animation.addEventListener('finish', this.handleSurfaceResizeFinished, { once: true });
   }
 
-  private readonly handleSurfaceMorphFinished = (event: Event): void => {
-    if (event.currentTarget !== this.surfaceMorphAnimation) return;
-    this.surfaceMorphAnimation?.cancel();
-    this.surfaceMorphAnimation = null;
+  private readonly handleSurfaceResizeFinished = (event: Event): void => {
+    if (event.currentTarget !== this.surfaceResizeAnimation) return;
+    this.surfaceResizeAnimation?.cancel();
+    this.surfaceResizeAnimation = null;
   };
 
   private cancelPendingReveal(): void {
@@ -421,9 +374,9 @@ export class OverlayController {
     this.pendingRevealFrame = null;
   }
 
-  private cancelSurfaceMorph(): void {
-    this.surfaceMorphAnimation?.cancel();
-    this.surfaceMorphAnimation = null;
+  private cancelSurfaceResize(): void {
+    this.surfaceResizeAnimation?.cancel();
+    this.surfaceResizeAnimation = null;
   }
 
   private showDialog(dialog: HTMLDialogElement, displayMode: 'modal' | 'nonmodal'): void {
@@ -450,7 +403,7 @@ export class OverlayController {
   private hideOverlay(): void {
     const wasVisible = this.visible;
     this.cancelPendingReveal();
-    this.cancelSurfaceMorph();
+    this.cancelSurfaceResize();
     this.generation += 1;
     this.pointerCapture = null;
     this.mode = { kind: 'hidden' };
@@ -458,7 +411,6 @@ export class OverlayController {
     this.lastAppliedGeometry = null;
     this.authMenuVisualScale = 1;
     this.lastAppliedAuthMenuVisualScale = 1;
-    this.transitionOrigin = null;
     if (!this.dialog) {
       return;
     }
@@ -471,10 +423,7 @@ export class OverlayController {
     }
     this.dialog.removeAttribute('aria-label');
     this.dialog.classList.add(OverlayStyleClasses.HIDDEN);
-    this.dialog.classList.remove(
-      OverlayStyleClasses.REVEAL_PENDING,
-      OverlayStyleClasses.HAS_TRANSITION_ORIGIN,
-    );
+    this.dialog.classList.remove(OverlayStyleClasses.REVEAL_PENDING);
     clearDialogGeometry(this.dialog);
     if (this.dialog.open) {
       this.closeDialogProgrammatically(this.dialog);
@@ -579,13 +528,12 @@ export class OverlayController {
 
   dispose(): void {
     this.cancelPendingReveal();
-    this.cancelSurfaceMorph();
+    this.cancelSurfaceResize();
     this.generation += 1;
     this.pointerCapture = null;
     this.mode = { kind: 'hidden' };
     this.visible = false;
     this.lastAppliedGeometry = null;
-    this.transitionOrigin = null;
     this.dialogDisplayMode = null;
     this.restoreFocus = null;
     const dialog = this.dialog;
