@@ -1458,7 +1458,7 @@ Remaining causal baseline work:
 - [x] `tests/unit/registrationEstablishedWalletSessionProjection.unit.test.ts`
 - [x] `tests/unit/walletRegistrationActivateRoute.unit.test.ts`, covering direct
       issuance, credential-free same-mint replay, and strict response parsing
-- [ ] `tests/unit/routerAbEcdsaExactActivationWire.unit.test.ts`, covering the
+- [x] `tests/unit/routerAbEcdsaExactActivationWire.unit.test.ts`, covering the
       exact session/credential response, retired-bearer rejection, ECDSA
       material binding, and removal of client-capability fields
 - [x] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`
@@ -1524,18 +1524,18 @@ Remaining causal baseline work:
       source and owner authorization across claim, approval, target credential,
       cancellation, and source-contribution routes
 - [x] `tests/unit/linkDeviceAuthorityResume.unit.test.ts`
-- [ ] `tests/unit/authMenuPasskeyContinuation.unit.test.ts`, preserving the
+- [x] `tests/unit/authMenuPasskeyContinuation.unit.test.ts`, preserving the
       terminal retry state when the other device cancels
 - [ ] `tests/unit/emailOtpEcdsaSigningRefreshRuntimeScope.unit.test.ts`
-- [ ] `tests/unit/passkeyEd25519YaoWarmRecovery.unit.test.ts`
-- [ ] `tests/unit/walletRecoverySourceSelection.unit.test.ts`, preserving
+- [x] `tests/unit/passkeyEd25519YaoWarmRecovery.unit.test.ts`
+- [x] `tests/unit/walletRecoverySourceSelection.unit.test.ts`, preserving
       eligibility, registration-authority preference, target-family preference,
       and deterministic creation-time/method-ID tie-breaking
-- [ ] `tests/unit/walletRecoveryFinalization.unit.test.ts`, preserving additive
+- [x] `tests/unit/walletRecoveryFinalization.unit.test.ts`, preserving additive
       replay and existing continuity authority, method, envelope, and session
-- [ ] `tests/unit/walletRecoveryFinalizeWire.unit.test.ts`, preserving strict
+- [x] `tests/unit/walletRecoveryFinalizeWire.unit.test.ts`, preserving strict
       active-authority/active-method projections and cross-wallet rejection
-- [ ] `tests/unit/walletRecoveryGoogleEmailOtpFinalizeRoute.unit.test.ts`,
+- [x] `tests/unit/walletRecoveryGoogleEmailOtpFinalizeRoute.unit.test.ts`,
       preserving strict Email recovery projection and server-owned enrollment
 - [ ] `tests/unit/walletRecoveryLocalProjection.unit.test.ts`, covering
       interruption and reload across local publication boundaries
