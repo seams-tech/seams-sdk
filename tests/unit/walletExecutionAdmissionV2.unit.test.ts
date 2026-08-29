@@ -319,10 +319,6 @@ class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessi
     return this.expectedToken === null || input.token === this.expectedToken ? this.context : null;
   };
 
-  async issueReusableWalletSession(): Promise<never> {
-    return await unsupportedAuthorizationSessionOperation();
-  }
-
   async issueOpaqueWalletSessionToken(): Promise<never> {
     return await unsupportedAuthorizationSessionOperation();
   }

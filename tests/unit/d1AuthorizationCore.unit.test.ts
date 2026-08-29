@@ -6,7 +6,6 @@ import {
   D1WalletStore,
   type D1WalletStoreScope,
 } from '../../packages/wallet-server/src/core/d1WalletStore';
-import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
 import {
   applyD1MigrationFiles,
@@ -15,7 +14,6 @@ import {
   listD1MigrationFiles,
 } from '../helpers/sqliteD1';
 import {
-  buildPasskeyWalletSessionIssuanceFixture,
   buildReusableAuthorizationCoreFixture,
   buildWalletOperationPasskeyVerifiedFactorFixture,
 } from './helpers/authorizationCore.fixtures';
@@ -23,208 +21,10 @@ import type { AuthorizedOperationInput } from '../../packages/wallet-server/src/
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
-import { parseReusableWalletSessionMintId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 
 const signerMigrations = listD1MigrationFiles('d1-signer');
 
 test.describe('D1 authorization core', () => {
-  test('issues one exact Wallet Session authorization and quota atomically', async () => {
-    const temporary = createTemporaryD1Database();
-    try {
-      await applyD1MigrationFiles(temporary.database, signerMigrations);
-      const service = createService(temporary.database, 'wallet-session-issuance');
-      const fixture = await buildPasskeyWalletSessionIssuanceFixture({
-        tenantId: 'tenant-wallet-session',
-        principalId: 'principal-wallet-session',
-        walletId: 'wallet-session-wallet',
-        walletAuthMethodId: 'wallet-auth-method:wallet-session',
-        credentialIdB64u: 'credential-wallet-session',
-        rpId: 'example.test',
-        origin: 'https://app.example.test',
-        expiresAtMs: 1_900_000_100_000,
-      });
-      await seedActiveWalletAuthMethod(temporary.database, 'wallet-session-issuance', fixture);
-      const mintId = requiredMintId('registration:wallet-session');
-      const issued = await service.issueReusableWalletSession({
-        tenantId: fixture.session.tenantId,
-        principalId: fixture.session.principalId,
-        walletId: fixture.authority.walletId,
-        authority: fixture.authorityRef,
-        mintId,
-        remainingUses: 3,
-        issuedAtMs: fixture.session.createdAtMs + 1,
-        expiresAtMs: fixture.session.expiresAtMs,
-      });
-      expect(issued.session.authorizationId).not.toBe(issued.quota.quotaId);
-      await expect(
-        service.issueReusableWalletSession({
-          tenantId: fixture.session.tenantId,
-          principalId: fixture.session.principalId,
-          walletId: fixture.authority.walletId,
-          authority: fixture.authorityRef,
-          mintId,
-          remainingUses: 3,
-          issuedAtMs: fixture.session.createdAtMs + 1,
-          expiresAtMs: fixture.session.expiresAtMs,
-        }),
-      ).resolves.toEqual(issued);
-      await expect(rowCount(temporary.database, 'reusable_wallet_sessions')).resolves.toBe(1);
-      await expect(
-        rowCount(temporary.database, 'authorization_wallet_session_quotas'),
-      ).resolves.toBe(1);
-    } finally {
-      cleanupTemporaryD1Database(temporary.tempDir);
-    }
-  });
-
-  test('replays one Wallet Session mint when only server-issued timestamps differ', async () => {
-    const temporary = createTemporaryD1Database();
-    try {
-      await applyD1MigrationFiles(temporary.database, signerMigrations);
-      const service = createService(temporary.database, 'wallet-session-timestamp-replay');
-      const fixture = await buildPasskeyWalletSessionIssuanceFixture({
-        tenantId: 'tenant-wallet-session-timestamp-replay',
-        principalId: 'principal-wallet-session-timestamp-replay',
-        walletId: 'wallet-session-timestamp-replay-wallet',
-        walletAuthMethodId: 'wallet-auth-method:wallet-session-timestamp-replay',
-        credentialIdB64u: 'credential-wallet-session-timestamp-replay',
-        rpId: 'example.test',
-        origin: 'https://app.example.test',
-        expiresAtMs: 1_900_000_100_000,
-      });
-      await seedActiveWalletAuthMethod(
-        temporary.database,
-        'wallet-session-timestamp-replay',
-        fixture,
-      );
-      const mintId = requiredMintId('unlock:wallet-session-timestamp-replay');
-      const issued = await service.issueReusableWalletSession({
-        tenantId: fixture.session.tenantId,
-        principalId: fixture.session.principalId,
-        walletId: fixture.authority.walletId,
-        authority: fixture.authorityRef,
-        mintId,
-        remainingUses: 3,
-        issuedAtMs: fixture.session.createdAtMs + 1,
-        expiresAtMs: fixture.session.expiresAtMs,
-      });
-      await expect(
-        service.issueReusableWalletSession({
-          tenantId: fixture.session.tenantId,
-          principalId: fixture.session.principalId,
-          walletId: fixture.authority.walletId,
-          authority: fixture.authorityRef,
-          mintId,
-          remainingUses: 3,
-          issuedAtMs: fixture.session.createdAtMs + 2,
-          expiresAtMs: fixture.session.expiresAtMs + 1_000,
-        }),
-      ).resolves.toEqual(issued);
-    } finally {
-      cleanupTemporaryD1Database(temporary.tempDir);
-    }
-  });
-
-  test('supersedes the prior Wallet Session authorization generation atomically', async () => {
-    const temporary = createTemporaryD1Database();
-    try {
-      await applyD1MigrationFiles(temporary.database, signerMigrations);
-      const service = createService(temporary.database, 'wallet-session-rollback');
-      const fixture = await buildPasskeyWalletSessionIssuanceFixture({
-        tenantId: 'tenant-wallet-session',
-        principalId: 'principal-wallet-session',
-        walletId: 'wallet-session-wallet',
-        walletAuthMethodId: 'wallet-auth-method:wallet-session-second',
-        credentialIdB64u: 'credential-wallet-session',
-        rpId: 'example.test',
-        origin: 'https://app.example.test',
-        expiresAtMs: 1_900_000_100_000,
-      });
-      await seedActiveWalletAuthMethod(temporary.database, 'wallet-session-rollback', fixture);
-      const issued = await service.issueReusableWalletSession({
-        tenantId: fixture.session.tenantId,
-        principalId: fixture.session.principalId,
-        walletId: fixture.authority.walletId,
-        authority: fixture.authorityRef,
-        mintId: requiredMintId('unlock:wallet-session'),
-        remainingUses: 3,
-        issuedAtMs: fixture.session.createdAtMs + 1,
-        expiresAtMs: fixture.session.expiresAtMs,
-      });
-      const replacement = await service.issueReusableWalletSession({
-        tenantId: fixture.session.tenantId,
-        principalId: fixture.session.principalId,
-        walletId: fixture.authority.walletId,
-        authority: fixture.authorityRef,
-        mintId: requiredMintId('unlock:replacement-wallet-session'),
-        remainingUses: 3,
-        issuedAtMs: fixture.session.createdAtMs + 2,
-        expiresAtMs: fixture.session.expiresAtMs,
-      });
-      expect(replacement.session.authorizationId).not.toBe(issued.session.authorizationId);
-      await expect(
-        rowCountWhere(temporary.database, 'reusable_wallet_sessions', "lifecycle_kind = 'active'"),
-      ).resolves.toBe(1);
-      await expect(
-        rowCountWhere(
-          temporary.database,
-          'authorization_wallet_session_quotas',
-          "lifecycle_kind = 'active'",
-        ),
-      ).resolves.toBe(1);
-    } finally {
-      cleanupTemporaryD1Database(temporary.tempDir);
-    }
-  });
-
-  test('rejects a conflicting Wallet Session authorization replay', async () => {
-    const temporary = createTemporaryD1Database();
-    try {
-      await applyD1MigrationFiles(temporary.database, signerMigrations);
-      const service = createService(temporary.database, 'wallet-session-conflicting-replay');
-      const fixture = await buildPasskeyWalletSessionIssuanceFixture({
-        tenantId: 'tenant-wallet-session-conflict',
-        principalId: 'principal-wallet-session-conflict',
-        walletId: 'wallet-session-conflict-wallet',
-        walletAuthMethodId: 'wallet-auth-method:wallet-session-conflict',
-        credentialIdB64u: 'credential-wallet-session-conflict',
-        rpId: 'example.test',
-        origin: 'https://app.example.test',
-        expiresAtMs: 1_900_000_100_000,
-      });
-      await seedActiveWalletAuthMethod(
-        temporary.database,
-        'wallet-session-conflicting-replay',
-        fixture,
-      );
-      const mintId = requiredMintId('unlock:wallet-session-conflict');
-      await service.issueReusableWalletSession({
-        tenantId: fixture.session.tenantId,
-        principalId: fixture.session.principalId,
-        walletId: fixture.authority.walletId,
-        authority: fixture.authorityRef,
-        mintId,
-        remainingUses: 3,
-        issuedAtMs: fixture.session.createdAtMs + 1,
-        expiresAtMs: fixture.session.expiresAtMs,
-      });
-      await expect(
-        service.issueReusableWalletSession({
-          tenantId: fixture.session.tenantId,
-          principalId: fixture.session.principalId,
-          walletId: fixture.authority.walletId,
-          authority: fixture.authorityRef,
-          mintId,
-          remainingUses: 2,
-          issuedAtMs: fixture.session.createdAtMs + 1,
-          expiresAtMs: fixture.session.expiresAtMs,
-        }),
-      ).rejects.toThrow('issuance replay does not match');
-    } finally {
-      cleanupTemporaryD1Database(temporary.tempDir);
-    }
-  });
-
   test('admits wallet step-up evidence without an app session and rejects substitution', async () => {
     const temporary = createTemporaryD1Database();
     const namespace = 'authorized-operation-step-up-binding';
@@ -301,46 +101,6 @@ test.describe('D1 authorization core', () => {
   });
 });
 
-function createService(
-  database: Parameters<typeof rowCount>[0],
-  namespace: string,
-): AuthorizationService {
-  const store = new CloudflareD1AuthorizationStore({
-    database,
-    namespace,
-    walletSignerScope: {
-      namespace,
-      orgId: 'test-org',
-      projectId: 'test-project',
-      envId: 'test-env',
-    },
-  });
-  return new AuthorizationService({
-    policy: capabilityPolicyPort,
-    sessions: store,
-    evidence: store,
-    grants: store,
-    authorizedOperations: store,
-    audit: store,
-  });
-}
-
-async function seedActiveWalletAuthMethod(
-  database: Parameters<typeof rowCount>[0],
-  namespace: string,
-  fixture: Awaited<ReturnType<typeof buildPasskeyWalletSessionIssuanceFixture>>,
-): Promise<void> {
-  const store = new D1WalletAuthMethodStore({
-    database,
-    namespace,
-    orgId: 'test-org',
-    projectId: 'test-project',
-    envId: 'test-env',
-    ensureSchema: false,
-  });
-  await store.putV2(fixture.authMethod);
-}
-
 function signerPersistenceScope(
   namespace: string,
   orgId: string,
@@ -384,34 +144,12 @@ async function seedEcdsaMaterial(
   };
 }
 
-function requiredMintId(value: string) {
-  const parsed = parseReusableWalletSessionMintId(value);
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
-}
-
 async function rowCount(
   database: Parameters<typeof applyD1MigrationFiles>[0],
-  table:
-    | 'authorization_wallet_session_quotas'
-    | 'reusable_wallet_sessions'
-    | 'opaque_wallet_session_tokens'
-    | 'verified_wallet_operation_evidence_sets'
-    | 'authorized_operations',
+  table: 'verified_wallet_operation_evidence_sets' | 'authorized_operations',
 ): Promise<number> {
   const row = await database
     .prepare(`SELECT COUNT(*) AS count FROM ${table}`)
-    .first<{ readonly count?: unknown }>();
-  return Number(row?.count);
-}
-
-async function rowCountWhere(
-  database: Parameters<typeof applyD1MigrationFiles>[0],
-  table: 'reusable_wallet_sessions' | 'authorization_wallet_session_quotas',
-  predicate: string,
-): Promise<number> {
-  const row = await database
-    .prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE ${predicate}`)
     .first<{ readonly count?: unknown }>();
   return Number(row?.count);
 }
