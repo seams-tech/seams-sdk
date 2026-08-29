@@ -5,19 +5,14 @@
     --w3a-z-underlay-backdrop,
     calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-backdrop-offset, 2))
   );
-  background: oklch(0.2 0.01 240 / 0.8);
-  backdrop-filter: blur(8px);
+  background: rgb(0 0 0 / 0.26);
   display: flex;
   justify-content: center;
   align-items: center;
   padding: var(--w3a-spacing-sm, 12px);
   box-sizing: border-box;
   overflow: auto;
-  animation: w3a-linked-devices-backdrop-opacity 160ms ease-out;
-}
-
-.w3a-linked-devices-modal-backdrop.theme-light {
-  background: oklch(0.2 0.01 240 / 0.6);
+  animation: w3a-linked-devices-backdrop-opacity 120ms ease-out;
 }
 
 .w3a-linked-devices-modal-content {
@@ -43,8 +38,7 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .w3a-linked-devices-modal-content {
-    transform-origin: center;
-    animation: w3a-linked-devices-modal-content-enter 180ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation: w3a-linked-devices-modal-content-enter 120ms ease-out both;
   }
 }
 
@@ -385,11 +379,9 @@
 @keyframes w3a-linked-devices-modal-content-enter {
   from {
     opacity: 0;
-    transform: scale(0.98);
   }
   to {
     opacity: 1;
-    transform: none;
   }
 }
 
