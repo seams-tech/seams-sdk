@@ -10,6 +10,10 @@ name = "threshold_prf"
 path = "src/lib.rs"
 crate-type = ["rlib"]
 
+[features]
+default = []
+r120-benchmark-role-target-purposes = []
+
 [[bench]]
 name = "threshold_prf_baseline"
 harness = false

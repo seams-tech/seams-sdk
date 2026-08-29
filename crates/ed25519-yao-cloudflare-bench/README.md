@@ -12,6 +12,9 @@ The preceding 0.8.4 run remains as explicitly historical evidence in
 Local compile-time fault results are recorded in
 [`docs/phase9b-worker-fault-report.md`](docs/phase9b-worker-fault-report.md) and
 [`docs/phase9b-worker-fault-remaining-report.md`](docs/phase9b-worker-fault-remaining-report.md).
+The R120 role-targeted threshold-PRF preface, its compact local measurements,
+and the remaining production-selection gates are recorded in
+[`docs/r120-phase0-local-smoke.md`](docs/r120-phase0-local-smoke.md).
 
 The canonical `deriver-a` and `deriver-b` artifacts carry fixed
 `same-account-service-binding-websocket` metrics. Deriver A opens one binary
@@ -100,6 +103,88 @@ warm samples:
 ```sh
 npm run bench:same-account -- 51
 ```
+
+For the R120 architecture comparison, collect the current and threshold-PRF
+profiles for activation, export, and lane materialization. The default is one
+first observation plus 100 warm observations per profile and ceremony. A
+loopback diagnostic accepts positional arguments:
+
+```sh
+npm run bench:r120 -- 101 http://127.0.0.1:8787/benchmark/activation \
+  same-account-service-binding-websocket
+```
+
+Deployed evidence accepts no positional endpoint or topology. It derives both
+from the complete deployment receipt and rejects every response whose
+deployment ID does not match:
+
+```sh
+export YAOS_AB_SAMPLE_COUNT=101
+export YAOS_AB_R120_CAMPAIGN=paired-latency
+npm run bench:r120 > r120-same-latency.json
+```
+
+The runner completes the fixed attempt set. Any timeout, transport error, or
+invalid response produces a sanitized failed-campaign artifact with explicit
+success, failure, and retry counts and rejects selection; it never silently
+retries into a passing cohort.
+
+Latency uses interleaved current/candidate observations. Workers analytics do
+not expose the request header that selects an R120 profile, so CPU and memory
+use two exclusive, non-overlapping windows against the same deployed build:
+
+```sh
+export YAOS_AB_R120_CAMPAIGN=resource-current
+npm run bench:r120 > r120-same-resource-current-campaign.json
+export YAOS_AB_R120_RESOURCE_CAMPAIGN_PATH="$PWD/r120-same-resource-current-campaign.json"
+npm run analytics:r120 > r120-same-resource-current.json
+
+export YAOS_AB_R120_CAMPAIGN=resource-candidate
+npm run bench:r120 > r120-same-resource-candidate-campaign.json
+export YAOS_AB_R120_RESOURCE_CAMPAIGN_PATH="$PWD/r120-same-resource-candidate-campaign.json"
+npm run analytics:r120 > r120-same-resource-candidate.json
+```
+
+Run the same three campaigns for the independently administered cross-account
+deployment. The offline `phase0:r120:evaluate` command recomputes latency from
+raw samples, compares per-role CPU p95 and sampled memory P999, verifies request
+counts and non-overlapping resource windows, checks 25% CPU/memory/WebSocket
+headroom, then emits the exact approval-payload digest. A passing result is
+`ready-for-release-signature`; it remains ineligible for selection until the
+release authority signs that digest.
+
+```sh
+export YAOS_AB_R120_SAME_ACCOUNT_LATENCY_REPORT=/absolute/r120-same-latency.json
+export YAOS_AB_R120_SAME_ACCOUNT_CURRENT_RESOURCE_REPORT=/absolute/r120-same-resource-current.json
+export YAOS_AB_R120_SAME_ACCOUNT_CANDIDATE_RESOURCE_REPORT=/absolute/r120-same-resource-candidate.json
+export YAOS_AB_R120_CROSS_ACCOUNT_LATENCY_REPORT=/absolute/r120-cross-latency.json
+export YAOS_AB_R120_CROSS_ACCOUNT_CURRENT_RESOURCE_REPORT=/absolute/r120-cross-resource-current.json
+export YAOS_AB_R120_CROSS_ACCOUNT_CANDIDATE_RESOURCE_REPORT=/absolute/r120-cross-resource-candidate.json
+npm run phase0:r120:check-inputs
+npm run phase0:r120:evaluate > r120-selection-candidate.json
+```
+
+The preflight is read-only. It requires six distinct JSON paths, hashes each
+artifact, and checks the expected topology/profile identities without applying
+the performance gates. Start deployed R120 runs from
+`deployment-env/r120-one-account.env.example` and
+`deployment-env/r120-two-account.env.example`.
+
+The release authority signs outside this benchmark harness using the frozen
+byte layout in `../../docs/refactor-120-rotate-tenant-secrets.md`. Verify the returned
+record against the externally pinned policy:
+
+```sh
+export YAOS_AB_R120_SELECTION_CANDIDATE=/absolute/r120-selection-candidate.json
+export YAOS_AB_R120_RELEASE_AUTHORITY_POLICY=/absolute/r120-release-authority-policy.json
+export YAOS_AB_R120_SIGNED_SELECTION=/absolute/r120-signed-selection.json
+npm run phase0:r120:verify > r120-architecture-selection.json
+```
+
+Only `phase0:r120:verify` can emit `selection_ready = true`. It recomputes the
+approval-payload digest, applies the authority sequence floor and key epoch,
+verifies the exact Ed25519 signature, and commits the raw SHA-256 hash of all
+three input artifacts in the final record.
 
 Validate the complete local compile/build matrix with one command:
 

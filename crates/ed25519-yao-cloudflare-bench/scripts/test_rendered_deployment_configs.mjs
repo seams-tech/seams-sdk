@@ -11,9 +11,9 @@ import {
 } from "./plan_cloudflare_benchmark.mjs";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("../", import.meta.url));
-const WRANGLER = fileURLToPath(
-  new URL("../../../node_modules/.bin/wrangler", import.meta.url),
-);
+const WRANGLER =
+  process.env.YAOS_AB_WRANGLER_BIN ??
+  fileURLToPath(new URL("../../../node_modules/.bin/wrangler", import.meta.url));
 const DEPLOYMENT_ID = "0123456789abcdef0123456789abcdef";
 
 function fixtureEnvironment() {
@@ -31,6 +31,20 @@ function fixtureEnvironment() {
     YAOS_AB_SAMPLE_COUNT: "2",
     YAOS_AB_REGION_LABEL: "rendered-config-fixture",
   };
+}
+
+function workersDevFixtureEnvironment() {
+  const environment = fixtureEnvironment();
+  environment.YAOS_AB_TOPOLOGY = "one-account";
+  environment.YAOS_AB_B_ACCOUNT_ID = environment.YAOS_AB_A_ACCOUNT_ID;
+  environment.YAOS_AB_B_PROFILE = environment.YAOS_AB_A_PROFILE;
+  environment.YAOS_AB_A_SCRIPT_NAME = "ed25519-yao-ab-benchmark-a";
+  environment.YAOS_AB_B_SCRIPT_NAME = "ed25519-yao-ab-benchmark-b";
+  environment.YAOS_AB_A_PUBLIC_ENDPOINT =
+    "https://ed25519-yao-ab-benchmark-a.fixture-account.workers.dev/benchmark/activation";
+  delete environment.YAOS_AB_B_HOSTNAME;
+  delete environment.YAOS_AB_B_WEBSOCKET_ENDPOINT;
+  return environment;
 }
 
 function childEnvironment(directory) {
@@ -98,6 +112,12 @@ function main() {
       "b-prebuilt",
       bindPrebuiltArtifact(configs.b, dirname(configs.b.main)),
     );
+    const workersDevConfigs = renderDeploymentConfigs(
+      parseDeploymentEnvironment(workersDevFixtureEnvironment()),
+      DEPLOYMENT_ID,
+    );
+    dryRun(directory, "workers-dev-a", workersDevConfigs.a);
+    dryRun(directory, "workers-dev-b", workersDevConfigs.b);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

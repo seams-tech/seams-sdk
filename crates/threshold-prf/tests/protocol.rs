@@ -154,6 +154,47 @@ fn verified_dleq_bundles_combine_to_direct_reference() {
     );
 }
 
+#[cfg(feature = "r120-benchmark-role-target-purposes")]
+#[test]
+fn ed25519_role_target_outputs_are_distinct_raw_and_verified() {
+    let policy = ThresholdPolicy::from_u16s(2, 2).expect("valid 2-of-2 policy");
+    let mut root_rng = seeded_rng(23);
+    let root = generate_signing_root(&mut root_rng);
+    let shares = split_signing_root(&root, policy, &mut root_rng).expect("split succeeds");
+    let mut proof_rng = seeded_rng(24);
+    let mut outputs = Vec::new();
+
+    for purpose in [
+        PrfPurpose::Ed25519DeriverAContributionRoot,
+        PrfPurpose::Ed25519DeriverBContributionRoot,
+    ] {
+        assert_eq!(purpose.output_encoding(), PrfOutputEncoding::Raw32);
+        let context = PrfContext::new(
+            SuiteId::Ristretto255Sha512,
+            purpose,
+            b"ed25519-yao-stable-context".to_vec(),
+        );
+        let bundles = ValidatedThresholdSet::from_proof_bundles(
+            policy,
+            vec![
+                evaluate_partial_with_dleq_proof(&shares[0], &context, &mut proof_rng)
+                    .expect("proof A"),
+                evaluate_partial_with_dleq_proof(&shares[1], &context, &mut proof_rng)
+                    .expect("proof B"),
+            ],
+        )
+        .expect("valid proof bundle set");
+        let output = combine_verified_partials(&bundles, &context).expect("verified combine");
+        assert_eq!(
+            output,
+            evaluate_direct_reference(&root, &context).expect("direct reference")
+        );
+        outputs.push(output.into_bytes());
+    }
+
+    assert_ne!(outputs[0], outputs[1]);
+}
+
 #[test]
 fn verified_dleq_rejects_tampered_proof_wrong_context_and_duplicate() {
     let policy = policy_3_of_5();

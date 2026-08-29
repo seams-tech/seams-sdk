@@ -1933,6 +1933,12 @@ pub mod benchmark {
         LaneDeriverAStart, LaneDeriverBInputs as PrivateLaneDeriverBInputs,
         LaneDeriverBOffsetShare, LaneDeriverBStart, LaneSessionBinding, SessionId,
     };
+    #[cfg(feature = "phase9-role-benchmark")]
+    use crate::passive::roles::{
+        ACTIVATION_CIRCUIT_DIGEST, ACTIVATION_SCHEDULE_DIGEST, EXPORT_CIRCUIT_DIGEST,
+        EXPORT_SCHEDULE_DIGEST, LANE_MATERIALIZATION_CIRCUIT_DIGEST,
+        LANE_MATERIALIZATION_SCHEDULE_DIGEST,
+    };
     use crate::passive::stream::Chunk128KiB;
     #[cfg(feature = "phase9-role-benchmark")]
     use crate::passive::stream::{Chunk256KiB, Chunk64KiB};
@@ -1941,6 +1947,48 @@ pub mod benchmark {
     const WIRE_ENVELOPE_MAGIC: &[u8; 8] = b"EYAORL01";
     const WIRE_ENVELOPE_VERSION: u8 = 1;
     pub const WIRE_ENVELOPE_HEADER_BYTES: usize = 16;
+
+    #[cfg(feature = "phase9-role-benchmark")]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct YaoArtifactIdentity {
+        circuit_digest: [u8; 32],
+        schedule_digest: [u8; 32],
+    }
+
+    #[cfg(feature = "phase9-role-benchmark")]
+    impl YaoArtifactIdentity {
+        pub const fn circuit_digest(self) -> [u8; 32] {
+            self.circuit_digest
+        }
+
+        pub const fn schedule_digest(self) -> [u8; 32] {
+            self.schedule_digest
+        }
+    }
+
+    #[cfg(feature = "phase9-role-benchmark")]
+    pub const fn activation_artifact_identity() -> YaoArtifactIdentity {
+        YaoArtifactIdentity {
+            circuit_digest: ACTIVATION_CIRCUIT_DIGEST,
+            schedule_digest: ACTIVATION_SCHEDULE_DIGEST,
+        }
+    }
+
+    #[cfg(feature = "phase9-role-benchmark")]
+    pub const fn export_artifact_identity() -> YaoArtifactIdentity {
+        YaoArtifactIdentity {
+            circuit_digest: EXPORT_CIRCUIT_DIGEST,
+            schedule_digest: EXPORT_SCHEDULE_DIGEST,
+        }
+    }
+
+    #[cfg(feature = "phase9-role-benchmark")]
+    pub const fn lane_materialization_artifact_identity() -> YaoArtifactIdentity {
+        YaoArtifactIdentity {
+            circuit_digest: LANE_MATERIALIZATION_CIRCUIT_DIGEST,
+            schedule_digest: LANE_MATERIALIZATION_SCHEDULE_DIGEST,
+        }
+    }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum WireMessageKind {

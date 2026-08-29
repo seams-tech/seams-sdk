@@ -5,6 +5,7 @@ use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::traits::Identity;
 use rand_core::{CryptoRng, RngCore};
+#[cfg(not(feature = "r120-benchmark-role-target-purposes"))]
 use router_ab_ecdsa_client_protocol::{
     verify_ecdsa_prf_public_dleq_proof_v1, EcdsaClientProtocolError, EcdsaPrfPublicContextV1,
     EcdsaPrfPublicProofBundleV1, EcdsaPrfPurposeV1,
@@ -442,23 +443,66 @@ pub fn verify_partial_dleq_proof(
     context: &PrfContext,
     proof: &PrfDleqProof,
 ) -> ThresholdPrfResult<()> {
-    let public_context = ecdsa_public_context_from_threshold_context(context);
-    let public_bundle = EcdsaPrfPublicProofBundleV1 {
-        partial_wire: PrfPartialWire::from_partial(partial).to_bytes(),
-        commitment_wire: commitment.to_bytes(),
-        proof_wire: proof.to_bytes(),
-    };
-    match verify_ecdsa_prf_public_dleq_proof_v1(&public_context, &public_bundle) {
-        Ok(()) => Ok(()),
-        Err(EcdsaClientProtocolError::ContextMismatch) => Err(ThresholdPrfError::ContextMismatch),
-        Err(
-            EcdsaClientProtocolError::InvalidShape
-            | EcdsaClientProtocolError::HpkeFailed
-            | EcdsaClientProtocolError::InvalidDleqProof,
-        ) => Err(ThresholdPrfError::InvalidDleqProof),
+    #[cfg(not(feature = "r120-benchmark-role-target-purposes"))]
+    {
+        let public_context = ecdsa_public_context_from_threshold_context(context);
+        let public_bundle = EcdsaPrfPublicProofBundleV1 {
+            partial_wire: PrfPartialWire::from_partial(partial).to_bytes(),
+            commitment_wire: commitment.to_bytes(),
+            proof_wire: proof.to_bytes(),
+        };
+        return match verify_ecdsa_prf_public_dleq_proof_v1(&public_context, &public_bundle) {
+            Ok(()) => Ok(()),
+            Err(EcdsaClientProtocolError::ContextMismatch) => {
+                Err(ThresholdPrfError::ContextMismatch)
+            }
+            Err(
+                EcdsaClientProtocolError::InvalidShape
+                | EcdsaClientProtocolError::HpkeFailed
+                | EcdsaClientProtocolError::InvalidDleqProof,
+            ) => Err(ThresholdPrfError::InvalidDleqProof),
+        };
+    }
+    #[cfg(feature = "r120-benchmark-role-target-purposes")]
+    {
+        verify_generic_partial_dleq_proof(commitment, partial, context, proof)
     }
 }
 
+#[cfg(feature = "r120-benchmark-role-target-purposes")]
+fn verify_generic_partial_dleq_proof(
+    commitment: &SigningRootShareCommitment,
+    partial: &PrfPartial,
+    context: &PrfContext,
+    proof: &PrfDleqProof,
+) -> ThresholdPrfResult<()> {
+    if commitment.id != partial.id {
+        return Err(ThresholdPrfError::InvalidDleqProof);
+    }
+    let expected_context_tag = partial_context_tag(context)?;
+    reject_context_mismatch(partial, &expected_context_tag)?;
+    let input_point = hash_to_group(context)?;
+    let nonce_g =
+        (proof.response * RISTRETTO_BASEPOINT_POINT) - (proof.challenge * commitment.point);
+    let nonce_p = (proof.response * input_point) - (proof.challenge * partial.point);
+    let expected_challenge = dleq_challenge(
+        context,
+        &expected_context_tag,
+        partial.id,
+        &input_point,
+        &commitment.point,
+        &partial.point,
+        &nonce_g,
+        &nonce_p,
+    )?;
+    if bool::from(proof.challenge.ct_eq(&expected_challenge)) {
+        Ok(())
+    } else {
+        Err(ThresholdPrfError::InvalidDleqProof)
+    }
+}
+
+#[cfg(not(feature = "r120-benchmark-role-target-purposes"))]
 fn ecdsa_public_context_from_threshold_context(context: &PrfContext) -> EcdsaPrfPublicContextV1 {
     EcdsaPrfPublicContextV1 {
         purpose: ecdsa_public_purpose_from_threshold_purpose(&context.purpose),
@@ -466,6 +510,7 @@ fn ecdsa_public_context_from_threshold_context(context: &PrfContext) -> EcdsaPrf
     }
 }
 
+#[cfg(not(feature = "r120-benchmark-role-target-purposes"))]
 fn ecdsa_public_purpose_from_threshold_purpose(
     purpose: &crate::context::PrfPurpose,
 ) -> EcdsaPrfPurposeV1 {
