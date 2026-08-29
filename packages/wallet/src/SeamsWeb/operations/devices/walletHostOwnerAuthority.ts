@@ -2,9 +2,6 @@ import type { HttpTransport } from '@/core/platform/http';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import type { UnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import {
-  walletSessionAuthorizationIdForCurve,
-  walletSessionTokenForCurve,
-  type ActiveWalletSessionAuthorizationProjection,
   type ActiveWalletSessionV1,
   type WalletSessionOperationCredentialV1,
   type WalletSessionAuthorizationRepository,
@@ -48,7 +45,7 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
   readonly relayerUrl: string;
   readonly walletSessions: Pick<
     WalletSessionAuthorizationRepository,
-    'read' | 'readExactWithOperationCredential'
+    'readExactWithOperationCredential'
   >;
   readonly resolveSelectedWalletAuthority: (
     walletId: WalletId,
@@ -83,7 +80,7 @@ type WalletHostOwnerAuthorityContextV1 = {
   readonly baseUrl: string;
   readonly walletSessions: Pick<
     WalletSessionAuthorizationRepository,
-    'read' | 'readExactWithOperationCredential'
+    'readExactWithOperationCredential'
   >;
   readonly resolveSelectedWalletAuthority: (
     walletId: WalletId,
@@ -99,7 +96,7 @@ function normalizeContext(input: {
   readonly relayerUrl: string;
   readonly walletSessions: Pick<
     WalletSessionAuthorizationRepository,
-    'read' | 'readExactWithOperationCredential'
+    'readExactWithOperationCredential'
   >;
   readonly resolveSelectedWalletAuthority: (
     walletId: WalletId,
@@ -199,18 +196,16 @@ async function requestAsAuthorizedOwnerV1(
   if (input.authentication.source.kind !== 'wallet_session') {
     throw new Error('Wallet-host device linking requires a reusable owner Wallet Session');
   }
-  const read = await context.walletSessions.read(input.authentication.source.walletSessionId);
-  if (read.kind !== 'found' || read.projection.status !== 'active') {
-    throw new Error('Owner Wallet Session is unavailable');
-  }
-  const projection = read.projection;
+  const state = context.readWalletAuthenticationState();
+  if (state.kind !== 'authenticated') throw walletUnlockRequiredV1();
+  const session = await requireActiveWalletSessionForSelectedMethodV1(context, state.walletId);
   if (
-    !projectionContainsAuthorizationId(projection, input.authentication.source.authorizationId) ||
-    projection.expiresAtMs <= Date.now()
+    input.authentication.source.walletSessionId !== session.operationCredential.walletSessionId ||
+    input.authentication.source.authorizationId !== session.record.authorizationId
   ) {
-    throw new Error('Owner Wallet Session identity is invalid or expired');
+    throw new Error('Owner Wallet Session identity changed after authorization');
   }
-  return await requestWithProjectionV1(context, projection, input);
+  return await requestWithExactSessionV1(context, session, input);
 }
 
 async function requestManagementAsOwnerV1(
@@ -287,19 +282,6 @@ async function requestWithExactSessionV1(
   return await requestWithCredentialV1(context, session.operationCredential.token, input);
 }
 
-async function requestWithProjectionV1(
-  context: WalletHostOwnerAuthorityContextV1,
-  projection: ActiveWalletSessionAuthorizationProjection,
-  input: {
-    readonly method: 'GET' | 'POST';
-    readonly canonicalPath: string;
-    readonly body?: unknown;
-  },
-): Promise<{ readonly status: number; readonly body: unknown }> {
-  const walletSessionToken = preferredOwnerWalletSessionToken(projection);
-  return await requestWithCredentialV1(context, walletSessionToken, input);
-}
-
 async function requestWithCredentialV1(
   context: WalletHostOwnerAuthorityContextV1,
   walletSessionToken: string,
@@ -317,26 +299,6 @@ async function requestWithCredentialV1(
   });
   if (!response.ok) throw new Error(`Owner Router request failed: ${response.message}`);
   return response.value;
-}
-
-function preferredOwnerWalletSessionToken(
-  projection: ActiveWalletSessionAuthorizationProjection,
-): string {
-  const ed25519 = walletSessionTokenForCurve(projection, 'ed25519');
-  if (ed25519) return ed25519;
-  const ecdsa = walletSessionTokenForCurve(projection, 'ecdsa');
-  if (ecdsa) return ecdsa;
-  throw new Error('Owner Wallet Session has no supported signing token');
-}
-
-function projectionContainsAuthorizationId(
-  projection: ActiveWalletSessionAuthorizationProjection,
-  authorizationId: string,
-): boolean {
-  return (
-    walletSessionAuthorizationIdForCurve(projection, 'ed25519') === authorizationId ||
-    walletSessionAuthorizationIdForCurve(projection, 'ecdsa') === authorizationId
-  );
 }
 
 function parseOwnerAuthorizationResponseV1(

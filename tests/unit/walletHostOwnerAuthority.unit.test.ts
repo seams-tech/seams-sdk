@@ -79,7 +79,6 @@ function stopBeforeHttp(fixture: ExactOwnerFixture, overrides: AuthorityOverride
     },
     relayerUrl: 'https://relay.example.test',
     walletSessions: {
-      read: async () => ({ kind: 'missing' as const }),
       readExactWithOperationCredential: async () => ({ kind: 'missing' as const }),
     },
     resolveSelectedWalletAuthority: async () => resolvedOwnerSelection(fixture),
@@ -155,9 +154,6 @@ test('a locked wallet fails with wallet_unlock_required before any lookup', asyn
       },
       readWalletAuthenticationState: () => ({ kind: 'signed_out' }),
       walletSessions: {
-        read: async () => {
-          throw new Error('device linking must stop before session lookup');
-        },
         readExactWithOperationCredential: async () => {
           throw new Error('device linking must stop before session lookup');
         },
@@ -182,7 +178,6 @@ test('an expired owner Wallet Session fails with wallet_unlock_required', async 
   await expectWalletUnlockRequired(
     stopBeforeHttp(fixture, {
       walletSessions: {
-        read: async () => ({ kind: 'missing' as const }),
         readExactWithOperationCredential: async () => ({
           kind: 'found' as const,
           record: fixture.activeWalletSession,
@@ -222,7 +217,6 @@ test('an export_keys owner request requires a matching unexpired export-root cap
       stopBeforeHttp(owner, {
         http: authorizedOwnerHttp(owner, fixture),
         walletSessions: {
-          read: async () => ({ kind: 'missing' as const }),
           readExactWithOperationCredential: async () => ({
             kind: 'found' as const,
             record: owner.activeWalletSession,
@@ -241,4 +235,74 @@ test('an export_keys owner request requires a matching unexpired export-root cap
       throw new Error(`${label}: ${String(error)}`);
     });
   }
+});
+
+test('owner continuation re-resolves and uses the selected exact method credential', async () => {
+  const owner = await exactOwnerFixture('exact-owner-continuation', Date.now() + 60_000);
+  const fixture = buildR103DeviceLinkFixture();
+  let authorizationHeader: string | undefined;
+  const authorities = stopBeforeHttp(owner, {
+    http: {
+      kind: 'http_transport',
+      request: async (request) => {
+        authorizationHeader = request.headers?.authorization;
+        return { ok: true, value: { status: 204, body: null } };
+      },
+    },
+    walletSessions: {
+      readExactWithOperationCredential: async () => ({
+        kind: 'found' as const,
+        record: owner.activeWalletSession,
+        operationCredential: owner.operationCredential,
+      }),
+    },
+  });
+
+  await expect(
+    authorities.ownerRequest.requestOwnerV1({
+      method: 'GET',
+      canonicalPath: '/wallet/device-linking/v1/session/source-contribution-preparation',
+      authentication: {
+        kind: 'link_session_authenticated_request_v1',
+        source: {
+          kind: 'wallet_session',
+          walletSessionId: owner.operationCredential.walletSessionId,
+          authorizationId: owner.activeWalletSession.authorizationId,
+        },
+        proofDigestB64u: fixture.packageSetDigestB64u,
+      },
+    }),
+  ).resolves.toEqual({ status: 204, body: null });
+  expect(authorizationHeader).toBe(`Bearer ${owner.operationCredential.token}`);
+});
+
+test('owner continuation rejects a stale exact session identity before HTTP', async () => {
+  const owner = await exactOwnerFixture('exact-owner-current', Date.now() + 60_000);
+  const stale = await exactOwnerFixture('exact-owner-stale', Date.now() + 60_000);
+  const fixture = buildR103DeviceLinkFixture();
+  const authorities = stopBeforeHttp(owner, {
+    walletSessions: {
+      readExactWithOperationCredential: async () => ({
+        kind: 'found' as const,
+        record: owner.activeWalletSession,
+        operationCredential: owner.operationCredential,
+      }),
+    },
+  });
+
+  await expect(
+    authorities.ownerRequest.requestOwnerV1({
+      method: 'GET',
+      canonicalPath: '/wallet/device-linking/v1/session/source-contribution-preparation',
+      authentication: {
+        kind: 'link_session_authenticated_request_v1',
+        source: {
+          kind: 'wallet_session',
+          walletSessionId: stale.operationCredential.walletSessionId,
+          authorizationId: stale.activeWalletSession.authorizationId,
+        },
+        proofDigestB64u: fixture.packageSetDigestB64u,
+      },
+    }),
+  ).rejects.toThrow('Owner Wallet Session identity changed after authorization');
 });
