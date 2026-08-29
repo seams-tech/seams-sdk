@@ -168,7 +168,7 @@ function exportAuthorizationWalletSessionId(
   lane: Awaited<ReturnType<typeof resolveEcdsaSessionForExport>> | undefined,
 ): string | undefined {
   if (!lane || lane.source !== 'canonical_capability' || !lane.authorization) return undefined;
-  return lane.authorization.projection.walletSessionId;
+  return lane.authorization.operationCredential.walletSessionId;
 }
 
 function emitEcdsaExportFailureDiagnostics(args: {

@@ -1,6 +1,9 @@
 import type { ActiveEcdsaCapabilityManifest } from './ecdsaCapabilityManifest';
 import type { PersistedEcdsaRoleLocalMaterial } from './ecdsaRoleLocalMaterialResolver';
-import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 import type {
   ActiveWalletSessionV1,
   WalletSessionOperationCredentialV1,
@@ -58,6 +61,16 @@ type ExactEmailOtpEvmFamilyWalletSessionAuthorization =
 export type ExactEvmFamilyWalletSessionAuthorization =
   | ExactPasskeyEvmFamilyWalletSessionAuthorization
   | ExactEmailOtpEvmFamilyWalletSessionAuthorization;
+
+export type ExactEcdsaWalletSessionAuthorizationLookup = {
+  readonly walletId: WalletId;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly materialActivation: MpcMaterialActivationRef;
+};
+
+export type ExactEcdsaWalletSessionAuthorizationResolver = (
+  input: ExactEcdsaWalletSessionAuthorizationLookup,
+) => Promise<ExactEvmFamilyWalletSessionAuthorization | null>;
 
 export type CanonicalEvmFamilyEcdsaSigningCapability = {
   readonly kind: 'canonical_evm_family_ecdsa_signing_capability';

@@ -41,7 +41,7 @@ import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
 import type { ThresholdEd25519SessionId } from '../session/operationState/types';
 import type {
-  ExactEvmFamilyWalletSessionAuthorization,
+  ExactEcdsaWalletSessionAuthorizationResolver,
   AuthorizedEvmFamilyEcdsaSigningCapability,
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../session/material/ecdsaSigningCapability';
@@ -144,11 +144,7 @@ export type EvmFamilySigningDeps = DurableEmailOtpEcdsaSigningSessionAuthorityRe
     chainTarget: ThresholdEcdsaChainTarget;
     materialActivation: MpcMaterialActivationRef;
   }) => Promise<AuthorizedEvmFamilyEcdsaSigningCapability>;
-  // Wallet-level view of the reusable Wallet Session authorization. Null
-  // means no active authorization; inactive session states never throw.
-  resolveActiveEcdsaWalletSessionAuthorization: (
-    walletId: WalletId,
-  ) => Promise<ExactEvmFamilyWalletSessionAuthorization | null>;
+  resolveActiveEcdsaWalletSessionAuthorization: ExactEcdsaWalletSessionAuthorizationResolver;
   walletSignerStore: EvmFamilyWalletSignerStorePort;
   passkeyAuthenticatorStore: EvmFamilyPasskeyAuthenticatorStorePort;
   seamsWebConfigs: SeamsConfigsReadonly;
