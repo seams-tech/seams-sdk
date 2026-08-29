@@ -933,7 +933,9 @@ Primary files:
 - [ ] Delete the opaque-token fallback from
       `d1LinkedDeviceVerifiedLinkSourceReader.ts`.
 - [ ] Require the exact V2 source session for owner approval.
-- [ ] Require the exact operation credential in execution-lane preflight.
+- [x] Require the exact operation credential in execution-lane preflight;
+      Ed25519 and ECDSA preflight supply their concrete signing operation and
+      resolve the exact session's auth-method identity before lane projection.
 - [ ] Add the P-256 ECDH delivery recipient to target preparation and bind it to
       the verified link.
 - [ ] Persist Device 2 profile, authenticator, method/factor, authority,
@@ -1520,7 +1522,9 @@ Remaining causal baseline work:
 - [x] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`
 - [ ] `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts`
 - [x] `tests/unit/walletExecutionAdmissionV2.unit.test.ts`
-- [ ] `tests/unit/walletExecutionLanePreflight.unit.test.ts`
+- [x] `tests/unit/walletExecutionLanePreflight.unit.test.ts`, proving exact
+      credential admission reaches the owning method without reading the V1
+      opaque-token store
 - [ ] `tests/unit/ecdsaV2PoolFillAdmission.unit.test.ts`
 - [x] `tests/unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts`
 - [ ] `tests/unit/nearPublicApi.walletSessionAuthorization.unit.test.ts`
