@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { alphabetizeStringify } from '../../packages/shared-ts/src/utils/digests';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/wallet-server/src/core/ThresholdService/evmCryptoWasm';
+import type { WalletRegistrationActivateResponseV2 } from '../../packages/wallet-server/src/core/threeRouteRegistrationContracts';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { projectRegistrationEstablishedSessionV2 } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/walletRegistrationSessionCommitReceipt';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { implicitNearAccountProvisioning } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
@@ -29,10 +32,11 @@ import {
  * Previously three records guarded this one commit: the activation branch CAS,
  * finalize's side-effect journal, and finalize's separate replay cache. The
  * operation row is now the only one — its claim is the activation claim and
- * its completion record holds the exact terminal bytes. These tests pin the
- * properties that made the other two records seem necessary: identical retry
- * returns stored bytes without repeating custody, and a conflicting retry
- * fails before any custody effect.
+ * its completion record holds the committed credential-free projection and
+ * request fingerprint. These tests pin the properties that made the other
+ * two records seem necessary: identical retries return that stable projection
+ * with fresh bounded bearers without repeating custody, and a conflicting
+ * retry fails before any custody effect.
  */
 
 const SCOPE = {
@@ -72,6 +76,28 @@ function fakeGatewaySigner() {
       return payload ? ({ valid: true, payload } as const) : ({ valid: false } as const);
     },
   };
+}
+
+type EcdsaActivateSuccess = Extract<
+  WalletRegistrationActivateResponseV2,
+  { readonly ok: true; readonly kind: 'evm_family_ecdsa' }
+>;
+
+function requireEcdsaActivateSuccess(
+  response: WalletRegistrationActivateResponseV2,
+): EcdsaActivateSuccess {
+  if (!response.ok || response.kind !== 'evm_family_ecdsa') {
+    throw new Error('expected an ECDSA activation success');
+  }
+  return response;
+}
+
+function stableRegistrationCommitIdentity(response: EcdsaActivateSuccess): string {
+  const { registrationEstablishedSession, ...committed } = response;
+  const projection = projectRegistrationEstablishedSessionV2(registrationEstablishedSession);
+  const { expiresAtMs: ignoredSessionExpiry, ...stableProjection } = projection;
+  void ignoredSessionExpiry;
+  return alphabetizeStringify({ committed, session: stableProjection });
 }
 
 /** Counts custody-affecting Router calls so a replay that skips them is visible. */
@@ -167,6 +193,7 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
       activationRequestDigestB64u: base64UrlEncode(new Uint8Array(32)),
       clientActivation: fixtureRouterAbEcdsaActivationFacts(),
     },
+    walletCustodyCommit: buildWalletCustodyCommitPayloadFixture({ walletId: setup.walletId }),
     verifier: signer,
     minter: signer,
   };
@@ -178,7 +205,10 @@ test('a conflicting activate retry is refused before any custody effect', async 
   try {
     await applySignerMigrations(database);
     const strictRegistration = new CountingStrictRegistrationPort();
-    const { service, activateRequest } = await respondedCeremony(database, strictRegistration);
+    const { service, setup, activateRequest } = await respondedCeremony(
+      database,
+      strictRegistration,
+    );
 
     const first = await service.walletRegistration.activateWalletRegistration(
       activateRequest as never,
@@ -203,17 +233,28 @@ test('a conflicting activate retry is refused before any custody effect', async 
 
     expect(conflicting).toMatchObject({ ok: false, code: 'idempotency_conflict' });
     expect(strictRegistration.activateCalls).toBe(activateCallsAfterFirst);
+    const replayTokenRows = await database
+      .prepare(
+        `SELECT COUNT(*) AS count
+           FROM registration_replay_opaque_wallet_session_tokens_v1
+          WHERE namespace = ?1
+            AND tenant_id = ?2
+            AND registration_ceremony_id = ?3`,
+      )
+      .bind(SCOPE.namespace, service.authorizationSessions.tenantId, setup.registrationCeremonyId)
+      .first<{ readonly count?: unknown }>();
+    expect(Number(replayTokenRows?.count ?? 0)).toBe(0);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
 });
 
-test('an identical activate retry returns the stored terminal bytes without repeating custody', async () => {
+test('identical activate retries return the committed projection with fresh bounded bearers', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
     const strictRegistration = new CountingStrictRegistrationPort();
-    const { service, activateRequest, thresholdStore } = await respondedCeremony(
+    const { service, setup, activateRequest, thresholdStore } = await respondedCeremony(
       database,
       strictRegistration,
     );
@@ -221,32 +262,157 @@ test('an identical activate retry returns the stored terminal bytes without repe
     const first = await service.walletRegistration.activateWalletRegistration(
       activateRequest as never,
     );
-    if (!first.ok) throw new Error(`first activate: ${first.code}: ${first.message}`);
-    expect(first.appSessionJwt).toEqual(expect.any(String));
+    const firstSuccess = requireEcdsaActivateSuccess(first);
     const custodyCallsAfterFirst = strictRegistration.activateCalls;
+
+    const operationRow = await database
+      .prepare(
+        `SELECT record_json
+           FROM router_ab_yao_versioned_json_records
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND record_key = ?5`,
+      )
+      .bind(
+        SCOPE.namespace,
+        SCOPE.orgId,
+        SCOPE.projectId,
+        SCOPE.envId,
+        `wallet-registration-activate:registration-activate:${setup.registrationCeremonyId}:${activateRequest.idempotencyKey}`,
+      )
+      .first<{ readonly record_json?: unknown }>();
+    if (!operationRow?.record_json) throw new Error('activation completion row is missing');
+    const completion = JSON.parse(String(operationRow.record_json)) as {
+      readonly requestFingerprint: string;
+      readonly receipt: {
+        readonly operationFingerprint: string;
+        readonly committed: {
+          readonly session: { readonly expiresAtMs: number };
+        };
+      };
+    };
+    expect(completion.receipt.operationFingerprint).toBe(completion.requestFingerprint);
+    expect(completion.receipt.committed.session.expiresAtMs).toBe(
+      firstSuccess.registrationEstablishedSession.expiresAtMs,
+    );
 
     const replayed = await service.walletRegistration.activateWalletRegistration(
       activateRequest as never,
     );
+    const replayedSuccess = requireEcdsaActivateSuccess(replayed);
+    const replayedAgain = await service.walletRegistration.activateWalletRegistration(
+      activateRequest as never,
+    );
+    const replayedAgainSuccess = requireEcdsaActivateSuccess(replayedAgain);
 
-    /* The replay is the stored completion record itself, not a
-       reconstruction: same wallet, same keys, same authority. Compared by
-       value rather than by serialized string — the record round-trips through
-       the store's JSON encoding, so property order is the encoder's business
-       and pinning it here would assert an implementation detail. */
-    expect(replayed).toEqual(first);
-    expect(replayed.ok && replayed.appSessionJwt).toBe(first.appSessionJwt);
-    /* And no repeated custody effect. */
+    /* The receipt owns the committed identity. Each replay carries a new
+       adapter bearer and its own shorter credential expiry. */
+    expect(stableRegistrationCommitIdentity(replayedSuccess)).toBe(
+      stableRegistrationCommitIdentity(firstSuccess),
+    );
+    expect(stableRegistrationCommitIdentity(replayedAgainSuccess)).toBe(
+      stableRegistrationCommitIdentity(firstSuccess),
+    );
+    const firstReplayToken =
+      replayedSuccess.registrationEstablishedSession.tokens.ecdsa.walletSessionToken;
+    const secondReplayToken =
+      replayedAgainSuccess.registrationEstablishedSession.tokens.ecdsa.walletSessionToken;
+    expect(firstReplayToken).not.toBe(secondReplayToken);
+    expect(replayedSuccess.registrationEstablishedSession.expiresAtMs).toBeLessThan(
+      firstSuccess.registrationEstablishedSession.expiresAtMs,
+    );
+    expect(replayedAgainSuccess.registrationEstablishedSession.expiresAtMs).toBeLessThan(
+      firstSuccess.registrationEstablishedSession.expiresAtMs,
+    );
+
+    const replayTokenRows = await database
+      .prepare(
+        `SELECT token_expires_at_ms
+           FROM registration_replay_opaque_wallet_session_tokens_v1
+          WHERE namespace = ?1
+            AND tenant_id = ?2
+            AND registration_ceremony_id = ?3
+            AND operation_fingerprint = ?4
+          ORDER BY token_expires_at_ms`,
+      )
+      .bind(
+        SCOPE.namespace,
+        service.authorizationSessions.tenantId,
+        setup.registrationCeremonyId,
+        completion.requestFingerprint,
+      )
+      .all<{ readonly token_expires_at_ms?: unknown }>();
+    expect(replayTokenRows.results?.map((row) => Number(row.token_expires_at_ms))).toEqual(
+      [
+        replayedSuccess.registrationEstablishedSession.expiresAtMs,
+        replayedAgainSuccess.registrationEstablishedSession.expiresAtMs,
+      ].sort((left, right) => left - right),
+    );
+
+    /* Response order does not determine validity: both retained adapter rows
+       resolve when consumed in reverse order. */
+    for (const response of [replayedAgainSuccess, replayedSuccess]) {
+      await expect(
+        service.authorizationSessions.resolveOpaqueWalletSessionToken({
+          tenantId: service.authorizationSessions.tenantId,
+          token: response.registrationEstablishedSession.tokens.ecdsa.walletSessionToken,
+          curve: 'ecdsa',
+          nowMs: response.registrationEstablishedSession.expiresAtMs - 1,
+        }),
+      ).resolves.toMatchObject({ kind: 'resolved_opaque_wallet_session_token' });
+    }
+    await expect(
+      service.authorizationSessions.resolveOpaqueWalletSessionToken({
+        tenantId: service.authorizationSessions.tenantId,
+        token: firstReplayToken,
+        curve: 'ecdsa',
+        nowMs: replayedSuccess.registrationEstablishedSession.expiresAtMs,
+      }),
+    ).resolves.toBeNull();
+
+    const parentRows = await database
+      .prepare(
+        `SELECT session.lifecycle_kind AS session_lifecycle_kind,
+                quota.lifecycle_kind AS quota_lifecycle_kind,
+                quota.remaining_uses AS quota_remaining_uses
+           FROM reusable_wallet_sessions AS session
+           JOIN authorization_wallet_session_quotas AS quota
+             ON quota.namespace = session.namespace
+            AND quota.tenant_id = session.tenant_id
+            AND quota.quota_id = session.quota_id
+          WHERE session.namespace = ?1
+            AND session.tenant_id = ?2
+            AND session.wallet_session_id = ?3`,
+      )
+      .bind(
+        SCOPE.namespace,
+        service.authorizationSessions.tenantId,
+        firstSuccess.registrationEstablishedSession.walletSessionId,
+      )
+      .first<{
+        readonly session_lifecycle_kind?: unknown;
+        readonly quota_lifecycle_kind?: unknown;
+        readonly quota_remaining_uses?: unknown;
+      }>();
+    expect(parentRows).toMatchObject({
+      session_lifecycle_kind: 'active',
+      quota_lifecycle_kind: 'active',
+    });
+    expect(Number(parentRows?.quota_remaining_uses)).toBe(3);
+
+    /* No repeated custody effect. */
     expect(strictRegistration.activateCalls).toBe(custodyCallsAfterFirst);
     /* Both legs merged: the commit half's wallet keys plus the activation
        half's receipt and bootstrap. Returning only the commit half would
        leave the client unable to bring the wallet online. */
-    expect(first.ecdsa.walletKeys.length).toBeGreaterThan(0);
-    expect(first.ecdsa.activation).toBeTruthy();
-    expect(first.ecdsa.bootstrap).toBeTruthy();
-    expect(replayed.ok && replayed.ecdsa.activation).toBeTruthy();
+    expect(firstSuccess.ecdsa.walletKeys.length).toBeGreaterThan(0);
+    expect(firstSuccess.ecdsa.activation).toBeTruthy();
+    expect(firstSuccess.ecdsa.bootstrap).toBeTruthy();
+    expect(replayedSuccess.ecdsa.activation).toBeTruthy();
     expect(thresholdStore.objectNames).toEqual([]);
-    expect(replayed.ok && replayed.ecdsa.bootstrap).toBeTruthy();
+    expect(replayedSuccess.ecdsa.bootstrap).toBeTruthy();
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
