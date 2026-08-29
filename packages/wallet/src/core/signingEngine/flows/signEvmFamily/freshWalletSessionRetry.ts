@@ -8,7 +8,7 @@ import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 import {
   requireAuthoritativeExpiredWalletSessionAuthorizationBoundary,
   type ExpiredWalletSessionAuthorizationState,
@@ -30,8 +30,8 @@ export type EvmFamilyWalletSessionExpiryCandidate =
   | {
       readonly kind: 'exact_ecdsa_lane';
       readonly identity: ExactEcdsaSigningLaneIdentity;
-      readonly authorization: ActiveEvmFamilyWalletSessionAuthorization;
-      readonly expiresAtMs: unknown;
+      readonly authorization: ExactEvmFamilyWalletSessionAuthorization;
+      readonly expiresAtMs: number;
     }
   | {
       readonly kind: 'unavailable';

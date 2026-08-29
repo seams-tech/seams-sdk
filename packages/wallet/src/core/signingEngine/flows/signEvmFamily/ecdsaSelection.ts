@@ -1,4 +1,4 @@
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
@@ -148,10 +148,10 @@ function laneCandidateDiagnosticsBase(
     chain: candidate.chain,
     chainTarget: candidate.chainTarget,
     state: candidate.state,
-    walletSessionId: candidate.authorization.projection.walletSessionId,
+    walletSessionId: candidate.authorization.operationCredential.walletSessionId,
     materialActivationId: candidate.materialActivation.activationId,
-    remainingUses: candidate.authorization.status.remainingUses,
-    expiresAtMs: candidate.authorization.status.expiresAtMs,
+    remainingUses: candidate.authorization.runtime.remainingUses,
+    expiresAtMs: candidate.authorization.runtime.expiresAtMs,
   };
 }
 
@@ -190,7 +190,7 @@ export type EcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAuthori
     ? {
         lane: ResolvedEvmFamilyEcdsaSigningLane;
         authority: A;
-        authorization: ActiveEvmFamilyWalletSessionAuthorization;
+        authorization: ExactEvmFamilyWalletSessionAuthorization;
       } & EcdsaCommittedLaneAuthFacts<A>
     : never;
 

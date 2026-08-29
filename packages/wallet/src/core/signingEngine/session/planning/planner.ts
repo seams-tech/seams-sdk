@@ -29,26 +29,26 @@ type TerminalNotReadyReason = Extract<
 >;
 
 type SigningSessionReadinessState<TIdentity extends object> =
-  | {
+  | ({
       status: 'ready';
       remainingUses: number;
       expiresAtMs: number;
-    } & TIdentity
-  | {
+    } & TIdentity)
+  | ({
       status: 'exhausted';
       remainingUses: number;
       expiresAtMs: number;
-    } & TIdentity
-  | {
+    } & TIdentity)
+  | ({
       status: 'expired';
       expiresAtMs: number;
       remainingUses?: never;
-    } & TIdentity
-  | {
+    } & TIdentity)
+  | ({
       status: Exclude<ReauthableNotReadyReason, 'expired' | 'exhausted'> | TerminalNotReadyReason;
       remainingUses?: never;
       expiresAtMs?: never;
-    } & TIdentity;
+    } & TIdentity);
 
 export type Ed25519SigningSessionReadiness = SigningSessionReadinessState<{
   curve: 'ed25519';
@@ -64,9 +64,7 @@ export type EcdsaSigningSessionReadiness = SigningSessionReadinessState<{
   authorization: SelectedEcdsaSigningSessionPlanningLane['authorization'];
 }>;
 
-export type SigningSessionReadiness =
-  | Ed25519SigningSessionReadiness
-  | EcdsaSigningSessionReadiness;
+export type SigningSessionReadiness = Ed25519SigningSessionReadiness | EcdsaSigningSessionReadiness;
 
 type SigningSessionPlannerOptions = {
   forceFreshAuth?: boolean;
@@ -100,13 +98,29 @@ export function planSigningSession(input: SigningSessionPlannerInput): SigningSe
     throw new Error('[SigningSession] planner lane and readiness curves do not match');
   }
   if (lane.curve === 'ecdsa' && readiness.curve === 'ecdsa') {
-    const laneProjection = lane.authorization.projection;
-    const readinessProjection = readiness.authorization.projection;
+    const laneAuthorization = lane.authorization;
+    const readinessAuthorization = readiness.authorization;
+    const laneSession = laneAuthorization.session;
+    const readinessSession = readinessAuthorization.session;
     if (
       !mpcMaterialActivationRefsEqual(lane.materialActivation, readiness.materialActivation) ||
-      laneProjection.walletSessionId !== readinessProjection.walletSessionId ||
-      laneProjection.quotaId !== readinessProjection.quotaId ||
-      laneProjection.authority.authorityDigest !== readinessProjection.authority.authorityDigest
+      laneAuthorization.selectedAuthority.authorityId !==
+        readinessAuthorization.selectedAuthority.authorityId ||
+      laneAuthorization.selectedAuthMethod.kind !==
+        readinessAuthorization.selectedAuthMethod.kind ||
+      laneAuthorization.selectedAuthMethod.walletAuthMethodId !==
+        readinessAuthorization.selectedAuthMethod.walletAuthMethodId ||
+      laneSession.walletId !== readinessSession.walletId ||
+      laneSession.authorityId !== readinessSession.authorityId ||
+      laneSession.authMethodId !== readinessSession.authMethodId ||
+      laneSession.authorizationId !== readinessSession.authorizationId ||
+      laneSession.quotaId !== readinessSession.quotaId ||
+      laneSession.authorityDigestB64u !== readinessSession.authorityDigestB64u ||
+      laneSession.authorityRevocationEpoch !== readinessSession.authorityRevocationEpoch ||
+      laneAuthorization.operationCredential.walletSessionId !==
+        readinessAuthorization.operationCredential.walletSessionId ||
+      laneAuthorization.operationCredential.token !==
+        readinessAuthorization.operationCredential.token
     ) {
       throw new Error('[SigningSession] planner ECDSA readiness authority does not match its lane');
     }
