@@ -45,7 +45,6 @@ import {
   type ThresholdEd25519SessionId,
   type WalletId,
 } from '@shared/utils/domainIds';
-import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import { readPasskeyCustodySessionEnvelope } from './passkeyCustodySessionCache';
 
 export type PasskeyEd25519RecordRuntimePorts = {
@@ -445,10 +444,8 @@ async function fetchWarmRecoveryBootstrap(args: {
       return { kind: 'unavailable', reason: 'wallet_session_expired' };
     }
     const message = parsedBody ? String(parsedBody.message || '').trim() : '';
-    const tokenClaims = decodeJwtPayloadRecord(walletSessionToken);
-    const tokenKind = String(tokenClaims?.kind || 'opaque');
     throw new Error(
-      `[SigningEngine][near] Ed25519 warm recovery bootstrap failed (HTTP ${response.status}${code ? `, ${code}` : ''}, token ${tokenKind}): ${message || 'invalid response'}`,
+      `[SigningEngine][near] Ed25519 warm recovery bootstrap failed (HTTP ${response.status}${code ? `, ${code}` : ''}): ${message || 'invalid response'}`,
     );
   }
   if (!parsedBody) throw new Error('Ed25519 warm recovery bootstrap returned invalid JSON');

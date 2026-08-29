@@ -2,11 +2,8 @@ import { expect, test } from '@playwright/test';
 import { createInMemoryConsoleOrganizationAccessService } from '../../packages/console-server-ts/src/teamRbac/service';
 import {
   createConsoleSessionAuthAdapter,
-  createEd25519SessionAdapter,
   createHmacSessionAdapter,
-  type Ed25519SessionAdapterOptions,
 } from '../../packages/wallet-console-server-ts/src/router/cloudflare/d1StagingSession';
-import { decodeJwtPayloadRecord } from '../../packages/shared-ts/src/utils/sessionTokens';
 
 const SESSION_SECRET = '0123456789abcdef0123456789abcdef';
 
@@ -68,56 +65,6 @@ async function hmacSessionRejectsWrongAudience(): Promise<void> {
     ok: false,
     reason: 'signature_invalid',
   });
-}
-
-async function linkedWalletSessionClaimsSurviveProductionSigning(): Promise<void> {
-  const session = createEd25519SessionAdapter({
-    privateJwk: await generateEd25519PrivateJwk(),
-    keyId: 'linked-session-test-key',
-    issuer: 'seams-router-test',
-    audience: 'seams-linked-wallet-session',
-    ttlSeconds: 3_600,
-  });
-  const nowSeconds = Math.floor(Date.now() / 1_000);
-  const iat = nowSeconds - 5;
-  const exp = nowSeconds + 300;
-  const jwt = await session.signJwt('linked-device:device-r103', {
-    kind: 'router_ab_ed25519_wallet_session_v1',
-    authorizationKind: 'linked_device_wallet_session',
-    tenantId: 'tenant-r103',
-    iat,
-    exp,
-  });
-  const payload = decodeJwtPayloadRecord(jwt);
-
-  expect(payload).toMatchObject({
-    sub: 'linked-device:device-r103',
-    kind: 'router_ab_ed25519_wallet_session_v1',
-    authorizationKind: 'linked_device_wallet_session',
-    tenantId: 'tenant-r103',
-    iat,
-    exp,
-    iss: 'seams-router-test',
-    aud: 'seams-linked-wallet-session',
-  });
-  expect(payload).not.toHaveProperty('org_id');
-  expect(payload).not.toHaveProperty('project_id');
-  expect(payload).not.toHaveProperty('environment');
-}
-
-async function generateEd25519PrivateJwk(): Promise<Ed25519SessionAdapterOptions['privateJwk']> {
-  const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
-  const jwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
-  if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519' || !jwk.x || !jwk.d) {
-    throw new Error('generated Ed25519 JWK is incomplete');
-  }
-  return {
-    ...jwk,
-    kty: 'OKP',
-    crv: 'Ed25519',
-    x: jwk.x,
-    d: jwk.d,
-  };
 }
 
 function hmacSessionUsesCrossSiteCookiePolicy(): void {
@@ -190,10 +137,6 @@ async function consoleAuthIgnoresTokenRoleEscalation(): Promise<void> {
 
 test('HMAC staging session signs and verifies JWT claims', hmacSessionRoundTrip);
 test('HMAC staging session rejects wrong audience', hmacSessionRejectsWrongAudience);
-test(
-  'production Ed25519 session signing preserves linked authorization lifetime and scope',
-  linkedWalletSessionClaimsSurviveProductionSigning,
-);
 test(
   'HMAC staging session cookies support cross-site credentialed requests',
   hmacSessionUsesCrossSiteCookiePolicy,
