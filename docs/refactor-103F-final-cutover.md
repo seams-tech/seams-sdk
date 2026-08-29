@@ -1098,7 +1098,7 @@ Convert every reader or legacy writer:
       mismatched status identity. The isolated Email OTP-to-Passkey intended
       contract proves the registration result remains immediately usable;
 - [x] `login.ts`;
-- [ ] registration legacy persistence in `registration.ts`;
+- [x] registration legacy persistence in `registration.ts`;
 - [ ] recovery/sync legacy persistence in `syncAccount.ts`;
 - [x] `SigningSessionCoordinator.ts`;
 - [x] `PasskeyMpcSessionManager.ts`;
@@ -1463,7 +1463,10 @@ Remaining causal baseline work:
       credential/status reads
 - [x] `tests/unit/walletSessionExpiry.boundaryAndServer.unit.test.ts`, including
       selected-authority binding and sibling-quota substitution rejection
-- [x] `tests/unit/registrationEstablishedWalletSessionProjection.unit.test.ts`
+- [x] Delete obsolete
+      `tests/unit/registrationEstablishedWalletSessionProjection.unit.test.ts`,
+      which asserted V1 registration curve-token merge and wallet-wide reads;
+      direct registration persistence is covered by the V2 replay/parser tests.
 - [x] `tests/unit/walletRegistrationActivateRoute.unit.test.ts`, covering direct
       issuance, credential-free same-mint replay, and strict response parsing
 - [x] `tests/unit/routerAbEcdsaExactActivationWire.unit.test.ts`, covering the
