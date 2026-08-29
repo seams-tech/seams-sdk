@@ -699,6 +699,13 @@ test('hosted V2 exchange issues one origin-bound child and retires it with its p
       }),
     ).resolves.toEqual({ kind: 'already_consumed' });
 
+    await service.mintHostedWalletSeamsSessionExchange({
+      authorization: { session: first.session, quota: first.quota },
+      appOrigin,
+      walletOrigin,
+      issuedAtMs: 360,
+      expiresAtMs: 600,
+    });
     const replacement = await service.issueDirectWalletSessionAuthorizationV2({
       ...firstInput,
       mintId: requiredMintId('unlock:hosted-exchange:replacement'),
@@ -716,6 +723,16 @@ test('hosted V2 exchange issues one origin-bound child and retires it with its p
         .bind(namespace, tenantId)
         .first(),
     ).resolves.toMatchObject({ lifecycle_kind: 'retired' });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT COUNT(*) AS count
+             FROM wallet_session_hosted_exchange_codes_v2
+            WHERE namespace = ? AND tenant_id = ? AND lifecycle_kind = 'issued'`,
+        )
+        .bind(namespace, tenantId)
+        .first<{ readonly count?: unknown }>(),
+    ).resolves.toEqual({ count: 0 });
     await expect(
       service.readHostedWalletSessionOperationCredentialV2({
         tenantId,
@@ -1355,6 +1372,26 @@ test('refreshes an established V2 Wallet Session against an upgraded active auth
     const operationCredential = await service.issueWalletSessionAuthorizationV2OperationCredential({
       session: established.session,
     });
+    const hostedAppOrigin = parseSessionOrigin('https://app.authority-refresh.example.test');
+    const hostedWalletOrigin = parseSessionOrigin('https://wallet.authority-refresh.example.test');
+    const hostedDelivery = await service.mintHostedWalletSeamsSessionExchange({
+      authorization: established,
+      appOrigin: hostedAppOrigin,
+      walletOrigin: hostedWalletOrigin,
+      issuedAtMs: 320,
+      expiresAtMs: 390,
+    });
+    const hostedRedeemed = await service.redeemHostedWalletSeamsSessionExchange({
+      exchangeCode: hostedDelivery.exchangeCode,
+      nonce: hostedDelivery.nonce,
+      appOrigin: hostedAppOrigin,
+      walletOrigin: hostedWalletOrigin,
+      redeemedAtMs: 321,
+    });
+    expect(hostedRedeemed.kind).toBe('redeemed');
+    if (hostedRedeemed.kind !== 'redeemed') {
+      throw new Error('authority refresh hosted exchange did not redeem');
+    }
 
     const upgradedAuthority = authorityWithProvenance(
       fixture.authority,
@@ -1423,6 +1460,14 @@ test('refreshes an established V2 Wallet Session against an upgraded active auth
     expect(refreshed.session.authorityDigestB64u).toBe(upgradedAuthority.authorityDigestB64u);
     expect(refreshed.session.authorityRevocationEpoch).toBe(upgradedAuthority.revocationEpoch);
     expect(refreshed.quota).toEqual(established.quota);
+    await expect(
+      service.readHostedWalletSessionOperationCredentialV2({
+        tenantId: refreshed.session.tenantId,
+        token: hostedRedeemed.operationCredential.token,
+        requestOrigin: hostedWalletOrigin,
+        nowMs: 401,
+      }),
+    ).resolves.toBeNull();
     await expect(
       service.readWalletSessionAuthorizationV2ByOperationCredential({
         tenantId: refreshed.session.tenantId,

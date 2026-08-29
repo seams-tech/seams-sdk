@@ -73,6 +73,10 @@ export type HostedWalletSeamsSessionExchangeCode = DomainId<'HostedWalletSeamsSe
 export type HostedWalletSeamsSessionExchangeNonce =
   DomainId<'HostedWalletSeamsSessionExchangeNonce'>;
 export type HostedWalletSessionCredentialId = DomainId<'HostedWalletSessionCredentialId'>;
+export type PrimaryWalletSessionOperationCredentialToken =
+  DomainId<'PrimaryWalletSessionOperationCredentialToken'>;
+export type HostedWalletSessionOperationCredentialToken =
+  DomainId<'HostedWalletSessionOperationCredentialToken'>;
 export type SessionOrigin = DomainId<'SessionOrigin'>;
 export type {
   CapabilityOperationEnvelope,
@@ -196,7 +200,7 @@ export type RedeemHostedWalletSeamsSessionExchangeV2Input = {
 
 export type HostedWalletSessionOperationCredentialV1 = {
   readonly kind: 'opaque_hosted_wallet_session_operation_credential_v1';
-  readonly token: string;
+  readonly token: HostedWalletSessionOperationCredentialToken;
   readonly walletSessionId: WalletSessionId;
 };
 
@@ -1088,18 +1092,34 @@ export function parseHostedWalletSessionOperationCredentialV1(
   if (raw.kind !== 'opaque_hosted_wallet_session_operation_credential_v1') {
     throw new Error('HostedWalletSessionOperationCredentialV1.kind is invalid');
   }
-  if (typeof raw.token !== 'string' || !/^wsh_[A-Za-z0-9_-]{43}$/.test(raw.token)) {
-    throw new Error('HostedWalletSessionOperationCredentialV1.token is invalid');
-  }
+  const token = parseHostedWalletSessionOperationCredentialToken(raw.token);
   const walletSessionId = parseWalletSessionId(raw.walletSessionId);
   if (!walletSessionId.ok) {
     throw new Error(`walletSessionId is invalid: ${walletSessionId.error.message}`);
   }
   return {
     kind: raw.kind,
-    token: raw.token,
+    token,
     walletSessionId: walletSessionId.value,
   };
+}
+
+export function parsePrimaryWalletSessionOperationCredentialToken(
+  value: unknown,
+): PrimaryWalletSessionOperationCredentialToken {
+  if (typeof value !== 'string' || !/^wst_[A-Za-z0-9_-]{43}$/.test(value)) {
+    throw new Error('primary Wallet Session credential is invalid');
+  }
+  return parseAuthorizationDomainId(value, 'primaryWalletSessionOperationCredentialToken');
+}
+
+export function parseHostedWalletSessionOperationCredentialToken(
+  value: unknown,
+): HostedWalletSessionOperationCredentialToken {
+  if (typeof value !== 'string' || !/^wsh_[A-Za-z0-9_-]{43}$/.test(value)) {
+    throw new Error('HostedWalletSessionOperationCredentialV1.token is invalid');
+  }
+  return parseAuthorizationDomainId(value, 'hostedWalletSessionOperationCredentialToken');
 }
 
 export function parseSessionOrigin(value: unknown): SessionOrigin {

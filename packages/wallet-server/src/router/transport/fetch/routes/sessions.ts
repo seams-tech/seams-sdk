@@ -72,6 +72,7 @@ import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   parseHostedWalletSeamsSessionExchangeCode,
   parseHostedWalletSeamsSessionExchangeNonce,
+  parsePrimaryWalletSessionOperationCredentialToken,
   parseSessionOrigin,
   type SessionOrigin,
 } from '../../../../authorization/domain';
@@ -105,13 +106,6 @@ function requiredExchangeOrigin(record: Record<string, unknown>, field: string):
 
 function requestOrigin(request: Request): SessionOrigin {
   return parseSessionOrigin(request.headers.get('origin'));
-}
-
-function parsePrimaryWalletSessionToken(value: string): string {
-  if (!/^wst_[A-Za-z0-9_-]{43}$/.test(value)) {
-    throw new Error('primary Wallet Session credential is invalid');
-  }
-  return value;
 }
 
 function hostedWalletOriginIsAllowed(ctx: FetchRouterApiContext, origin: SessionOrigin): boolean {
@@ -467,7 +461,7 @@ export async function handleHostedWalletSessionExchangeIssue(
     );
   let primaryToken: string;
   try {
-    primaryToken = parsePrimaryWalletSessionToken(token);
+    primaryToken = parsePrimaryWalletSessionOperationCredentialToken(token);
   } catch {
     return json(
       { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
