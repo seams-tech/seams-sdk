@@ -110,9 +110,8 @@ import {
 } from '../pendingWalletRegistrationCommit';
 import type { SeamsWalletDBManager, SeamsWalletTransactionContext } from './manager';
 import {
-  parseStoredExactWalletSessionAuthorizationWithOperationCredential,
-  parseStoredExactWalletSessionAuthorizationRow,
-  toStoredExactWalletSessionAuthorizationRowV5,
+  parseStoredExactWalletSessionAuthorizationRowV6,
+  toStoredExactWalletSessionAuthorizationRowV6,
   type ActiveWalletSessionV1,
 } from './walletSessionAuthorizationStore';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
@@ -301,6 +300,7 @@ export type LocalAuthorityInstallationInputV1 = {
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { status: 'pending_local_install' }>;
   readonly profile: UpsertProfileInput;
   readonly authenticator: ProfileAuthenticatorRecord | null;
+  readonly localAuthMethod: Extract<LocalWalletAuthMethodRecord, { kind: 'email_otp' }> | null;
   readonly signerMaterials: readonly WalletAuthoritySignerMaterialRecordV1[];
   readonly exportRoot: WalletAuthorityExportRootRecordV1 | null;
   readonly receipt: LocalAuthorityInstallationReceiptV1;
@@ -392,6 +392,7 @@ type ValidatedLocalAuthorityInstallationInput = {
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { status: 'pending_local_install' }>;
   readonly profile: UpsertProfileInput;
   readonly authenticator: ProfileAuthenticatorRecord | null;
+  readonly localAuthMethod: Extract<LocalWalletAuthMethodRecord, { kind: 'email_otp' }> | null;
   readonly signerMaterials: readonly WalletAuthoritySignerMaterialRecordV1[];
   readonly exportRoot: WalletAuthorityExportRootRecordV1 | null;
   readonly receipt: LocalAuthorityInstallationReceiptV1;
@@ -2043,7 +2044,29 @@ function parseLocalAuthorityInstallationInput(
     };
     const authenticator =
       input.authenticator === null ? null : normalizeAuthenticatorRecord(input.authenticator);
+    const localAuthMethod =
+      input.localAuthMethod === null
+        ? null
+        : (() => {
+            const row = emailOtpAuthMethodRow(input.localAuthMethod);
+            if (row.status !== 'active' || row.record.localStatus !== 'synced') {
+              throw new Error('local Email OTP auth method must be active and synced');
+            }
+            if (
+              row.record.walletId !== authority.walletId ||
+              row.record.emailHashHex !== authMethod.emailHashHex ||
+              row.record.registrationAuthorityId !== authMethod.registrationAuthorityId ||
+              row.record.authority.walletId !== authority.walletId ||
+              row.record.authority.bindingId !== authMethod.walletAuthMethodId
+            ) {
+              throw new Error('local Email OTP auth method does not match authMethod');
+            }
+            return row.record;
+          })();
     if (authMethod.kind === 'passkey') {
+      if (localAuthMethod !== null) {
+        throw new Error('Passkey installation cannot include a local Email OTP auth method');
+      }
       const passkeyCredential = profile.passkeyCredential;
       if (
         !passkeyCredential ||
@@ -2061,8 +2084,13 @@ function parseLocalAuthorityInstallationInput(
       ) {
         throw new Error('profile authenticator does not match authMethod');
       }
-    } else if (authenticator !== null || profile.passkeyCredential !== undefined) {
-      throw new Error('Email OTP installation cannot include passkey profile records');
+    } else {
+      if (authenticator !== null || profile.passkeyCredential !== undefined) {
+        throw new Error('Email OTP installation cannot include passkey profile records');
+      }
+      if (localAuthMethod === null) {
+        throw new Error('Email OTP installation requires a local auth method');
+      }
     }
     if (!Array.isArray(input.signerMaterials)) {
       throw new Error('signerMaterials must be an array');
@@ -2149,6 +2177,7 @@ function parseLocalAuthorityInstallationInput(
         authMethod,
         profile,
         authenticator,
+        localAuthMethod,
         signerMaterials,
         exportRoot,
         receipt,
@@ -2900,13 +2929,9 @@ export class SeamsWalletRepositories {
     if (!authMethod || authMethod.status !== 'active') {
       throw new Error('active WalletAuthMethodRecordV2 is invalid');
     }
-    const walletSessionWithCredential =
-      parseStoredExactWalletSessionAuthorizationWithOperationCredential(
-        toStoredExactWalletSessionAuthorizationRowV5(
-          input.walletSession,
-          input.operationCredential,
-        ),
-      );
+    const walletSessionWithCredential = parseStoredExactWalletSessionAuthorizationRowV6(
+      toStoredExactWalletSessionAuthorizationRowV6(input.walletSession, input.operationCredential),
+    );
     const walletSession = walletSessionWithCredential?.record ?? null;
     if (!walletSession) {
       throw new Error('active Wallet Session is invalid');
@@ -3039,13 +3064,7 @@ export class SeamsWalletRepositories {
     const authorityRaw = await authorityStore.get(input.authority.authorityId);
     const authMethodRaw = await authMethodStore.get(input.authMethod.walletAuthMethodId);
     const receiptRaw = await receiptStore.get(input.authority.authorityId);
-    const sessionAtWalletSessionKey = await sessionStore.get(
-      input.operationCredential.walletSessionId,
-    );
-    const sessionRaw =
-      sessionAtWalletSessionKey === undefined
-        ? await sessionStore.get(input.walletSession.authorizationId)
-        : sessionAtWalletSessionKey;
+    const sessionRaw = await sessionStore.get(input.operationCredential.walletSessionId);
     const existingAuthority =
       authorityRaw === undefined ? null : parseWalletAuthorityStorageRow(authorityRaw);
     const existingAuthMethod =
@@ -3055,12 +3074,8 @@ export class SeamsWalletRepositories {
         ? null
         : parseLocalAuthorityInstallationReceiptStorageRow(receiptRaw);
     const existingSessionWithCredential =
-      sessionRaw === undefined
-        ? null
-        : parseStoredExactWalletSessionAuthorizationWithOperationCredential(sessionRaw);
-    const existingSession =
-      existingSessionWithCredential?.record ??
-      (sessionRaw === undefined ? null : parseStoredExactWalletSessionAuthorizationRow(sessionRaw));
+      sessionRaw === undefined ? null : parseStoredExactWalletSessionAuthorizationRowV6(sessionRaw);
+    const existingSession = existingSessionWithCredential?.record ?? null;
     if (!receipt) throw new Error('local authority installation receipt is missing or corrupt');
     if (
       receipt.record.authorityId !== input.authority.authorityId ||
@@ -3083,12 +3098,13 @@ export class SeamsWalletRepositories {
         !walletAuthMethodRecordsMatch(existingAuthMethod.record, input.authMethod) ||
         !existingSession ||
         existingSession.kind !== 'active_wallet_session_v1' ||
-        !walletSessionRecordsMatch(existingSession, input.walletSession)
+        !walletSessionRecordsMatch(existingSession, input.walletSession) ||
+        existingSessionWithCredential?.operationCredential.token !== input.operationCredential.token
       ) {
         throw new Error('active local authority replay conflicts with supplied records');
       }
       await sessionStore.put(
-        toStoredExactWalletSessionAuthorizationRowV5(
+        toStoredExactWalletSessionAuthorizationRowV6(
           input.walletSession,
           input.operationCredential,
         ),
@@ -3108,7 +3124,9 @@ export class SeamsWalletRepositories {
     }
     if (
       existingSession?.kind === 'active_wallet_session_v1' &&
-      !walletSessionRecordsMatch(existingSession, input.walletSession)
+      (!walletSessionRecordsMatch(existingSession, input.walletSession) ||
+        existingSessionWithCredential?.operationCredential.token !==
+          input.operationCredential.token)
     ) {
       throw new Error('Wallet Session authorization conflicts with finalization');
     }
@@ -3131,7 +3149,7 @@ export class SeamsWalletRepositories {
     await authorityStore.put(walletAuthorityStorageRow(input.authority));
     await authMethodStore.put(walletAuthMethodV2StorageRow(input.authMethod));
     await sessionStore.put(
-      toStoredExactWalletSessionAuthorizationRowV5(input.walletSession, input.operationCredential),
+      toStoredExactWalletSessionAuthorizationRowV6(input.walletSession, input.operationCredential),
     );
     await selectionStore.put(
       walletSelectionStorageRow({
@@ -3294,6 +3312,9 @@ export class SeamsWalletRepositories {
     const authenticatorRow = input.authenticator
       ? walletAuthMethodRowFromAuthenticator(input.authenticator)
       : null;
+    const localAuthMethodRow = input.localAuthMethod
+      ? walletAuthMethodRowFromBinding(input.localAuthMethod, input.profile.defaultSignerSlot ?? 1)
+      : null;
     const authenticatorRaw = authenticatorRow
       ? await authenticatorStore.get(authenticatorRow.wallet_auth_method_id)
       : undefined;
@@ -3302,6 +3323,16 @@ export class SeamsWalletRepositories {
     const existingAuthenticator =
       existingAuthenticatorRow?.kind === 'passkey' && existingAuthenticatorRow.status === 'active'
         ? existingAuthenticatorRow.authenticator
+        : null;
+    const localAuthMethodRaw = localAuthMethodRow
+      ? await authenticatorStore.get(localAuthMethodRow.wallet_auth_method_id)
+      : undefined;
+    const existingLocalAuthMethodRow =
+      localAuthMethodRaw === undefined ? null : parseWalletAuthMethodStorageRow(localAuthMethodRaw);
+    const existingLocalAuthMethod =
+      existingLocalAuthMethodRow?.kind === 'email_otp' &&
+      existingLocalAuthMethodRow.status === 'active'
+        ? existingLocalAuthMethodRow.record
         : null;
     const selectionStore = ctx.store(SEAMS_WALLET_STORES.walletSelections);
     const selectionRaw = await selectionStore.get(input.authority.walletId);
@@ -3378,6 +3409,7 @@ export class SeamsWalletRepositories {
       authMethodRaw !== undefined ||
       profileRaw !== undefined ||
       authenticatorRaw !== undefined ||
+      localAuthMethodRaw !== undefined ||
       signerMaterialRaws.some(rawValueIsPresent) ||
       exportRootRaw !== undefined ||
       receiptRaw !== undefined;
@@ -3388,6 +3420,9 @@ export class SeamsWalletRepositories {
       (input.authenticator === null
         ? authenticatorRaw === undefined
         : authenticatorRaw !== undefined) &&
+      (input.localAuthMethod === null
+        ? localAuthMethodRaw === undefined
+        : localAuthMethodRaw !== undefined) &&
       signerMaterialRaws.every(rawValueIsPresent) &&
       (input.exportRoot === null ? exportRootRaw === undefined : exportRootRaw !== undefined) &&
       receiptRaw !== undefined;
@@ -3398,7 +3433,8 @@ export class SeamsWalletRepositories {
         !existingAuthority ||
         !existingAuthMethod ||
         !existingProfile ||
-        !existingReceipt
+        !existingReceipt ||
+        (input.localAuthMethod !== null && !existingLocalAuthMethod)
       ) {
         return {
           kind: 'integrity_error',
@@ -3430,6 +3466,16 @@ export class SeamsWalletRepositories {
           reason: 'stored profile authenticator conflicts with replay',
         };
       }
+      if (
+        input.localAuthMethod &&
+        (!existingLocalAuthMethod ||
+          !rollbackRecordsEqual(existingLocalAuthMethod, input.localAuthMethod))
+      ) {
+        return {
+          kind: 'integrity_error',
+          reason: 'stored local Email OTP auth method conflicts with replay',
+        };
+      }
       for (let index = 0; index < input.signerMaterials.length; index += 1) {
         const existingMaterial = existingSignerMaterials[index];
         if (
@@ -3459,6 +3505,9 @@ export class SeamsWalletRepositories {
     await profileStore.put(profileRow(input.profile, existingProfile || undefined));
     if (authenticatorRow) {
       await authenticatorStore.put(authenticatorRow);
+    }
+    if (localAuthMethodRow) {
+      await authenticatorStore.put(localAuthMethodRow);
     }
     await authorityStore.put(walletAuthorityStorageRow(input.authority));
     await authMethodStore.put(walletAuthMethodV2StorageRow(input.authMethod));

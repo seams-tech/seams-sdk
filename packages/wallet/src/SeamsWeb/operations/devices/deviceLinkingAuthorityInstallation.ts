@@ -13,6 +13,7 @@ import type { LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { encodeWalletSignerActivationSetV1 } from '@shared/authorization/walletAuthority';
 import type {
   LocalAuthorityActivationFinalizationInputV1,
+  LocalWalletAuthMethodRecord,
   ProfileAuthenticatorRecord,
   UpsertProfileInput,
   WalletAuthorityExportRootRecordV1,
@@ -20,6 +21,7 @@ import type {
 } from '@/core/indexedDB';
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { base64UrlDecode } from '@shared/utils/base64';
+import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   DeviceLinkingAuthorityActivationTransportPortV1,
   DeviceLinkingKeyMaterialHandleV1,
@@ -107,10 +109,12 @@ export type DeviceLinkingAuthorityActivationFlowInputV1 = {
 type LocalAuthorityProfileProjectionV1 = {
   readonly profile: UpsertProfileInput;
   readonly authenticator: ProfileAuthenticatorRecord | null;
+  readonly localAuthMethod: Extract<LocalWalletAuthMethodRecord, { kind: 'email_otp' }> | null;
 };
 
 function localAuthorityProfileProjectionV1(
   authMethod: CommittedAuthorityPackagesV1['authMethod'],
+  targetFactor: VerifiedTargetFactorV1,
 ): LocalAuthorityProfileProjectionV1 {
   const profileId = String(authMethod.walletId);
   switch (authMethod.kind) {
@@ -130,13 +134,47 @@ function localAuthorityProfileProjectionV1(
           registered: new Date(authMethod.createdAtMs).toISOString(),
           syncedAt: new Date(authMethod.updatedAtMs).toISOString(),
         },
+        localAuthMethod: null,
       };
     }
-    case 'email_otp':
+    case 'email_otp': {
+      if (
+        targetFactor.kind !== 'verified_email_otp_target_v1' ||
+        targetFactor.authMethod.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+        targetFactor.authMethod.walletId !== authMethod.walletId ||
+        targetFactor.authMethod.emailHashHex !== authMethod.emailHashHex ||
+        targetFactor.authMethod.registrationAuthorityId !== authMethod.registrationAuthorityId
+      ) {
+        throw new Error('linked Email OTP target factor does not match the committed auth method');
+      }
+      const baseAuthority = buildEmailOtpWalletAuthAuthority({
+        walletId: authMethod.walletId,
+        provider: targetFactor.enrollment.kind === 'existing_enrollment' ? 'google' : 'email',
+        providerUserId: targetFactor.providerUserId,
+        emailHashHex: authMethod.emailHashHex,
+      });
       return {
         profile: { profileId, defaultSignerSlot: 1 },
         authenticator: null,
+        localAuthMethod: {
+          version: 'wallet_auth_method_v1',
+          kind: 'email_otp',
+          status: 'active',
+          localStatus: 'synced',
+          walletId: authMethod.walletId,
+          emailHashHex: authMethod.emailHashHex,
+          registrationAuthorityId: authMethod.registrationAuthorityId,
+          authority: {
+            walletId: baseAuthority.walletId,
+            factor: baseAuthority.factor,
+            verifier: baseAuthority.verifier,
+            bindingId: authMethod.walletAuthMethodId,
+          },
+          createdAtMs: authMethod.createdAtMs,
+          updatedAtMs: authMethod.updatedAtMs,
+        },
       };
+    }
     default: {
       const _exhaustive: never = authMethod;
       throw new Error(`Unsupported linked-device auth method: ${String(_exhaustive)}`);
@@ -197,7 +235,10 @@ export async function installLocalAuthorityV1(input: {
     resealedExportRoot: input.resealedExportRoot,
   });
   assertSealedAuthorityRecordsMatchCommitted({ committed: input.committed, sealed });
-  const localProfileProjection = localAuthorityProfileProjectionV1(input.committed.authMethod);
+  const localProfileProjection = localAuthorityProfileProjectionV1(
+    input.committed.authMethod,
+    input.targetFactor,
+  );
   const installedAtMs = input.nowMs();
   if (!Number.isSafeInteger(installedAtMs) || installedAtMs <= 0) {
     throw new Error('local authority installation clock is invalid');
@@ -219,6 +260,7 @@ export async function installLocalAuthorityV1(input: {
     authMethod: input.committed.authMethod,
     profile: localProfileProjection.profile,
     authenticator: localProfileProjection.authenticator,
+    localAuthMethod: localProfileProjection.localAuthMethod,
     signerMaterials: sealed.signerMaterials,
     exportRoot: sealed.exportRoot,
     receipt,

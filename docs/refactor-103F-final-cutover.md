@@ -1068,15 +1068,15 @@ Primary files:
 
 ### I8 — Exact browser persistence and consumers (B8)
 
-- [ ] Delete the V3 `WALLET_SESSION_AUTHORIZATION_RECORD_VERSION`.
-- [ ] Delete `ActiveWalletSessionAuthorizationProjection` and its retired V3
+- [x] Delete the V3 `WALLET_SESSION_AUTHORIZATION_RECORD_VERSION`.
+- [x] Delete `ActiveWalletSessionAuthorizationProjection` and its retired V3
       sibling.
-- [ ] Delete `WalletSessionAuthorizationTokenBundle`.
-- [ ] Delete curve token/ID extractors and V3 builders, parsers, serializers,
+- [x] Delete `WalletSessionAuthorizationTokenBundle`.
+- [x] Delete curve token/ID extractors and V3 builders, parsers, serializers,
       merges, and retirement helpers.
-- [ ] Delete V3 `replaceActive`, `createOrMergeExactActive`, and
+- [x] Delete V3 `replaceActive`, `createOrMergeExactActive`, and
       `upsertActiveWithCurveMerge` behavior.
-- [ ] Delete `readActiveForWallet`.
+- [x] Delete `readActiveForWallet`.
 - [x] Delete `persistActiveWalletSessionAuthorizationCurve` and
       `persistActiveWalletSessionAuthorizationFromRegistration`.
 - [x] Delete the V3 ECDSA bootstrap projection.
@@ -1096,20 +1096,20 @@ Primary files:
 - [x] Reject session/credential mismatch at parsing and before IndexedDB write.
 - [x] Preserve `wallet_session_id` as the Wallet Session keyPath, store
       `authorization_id` separately, and cross-check both.
-- [ ] Make exact `replaceExactActive` the only active install API with
+- [x] Make exact `replaceExactActive` the only active install API with
       same-method retirement and sibling preservation in one transaction.
-- [ ] Quarantine known V3/V4/V5 rows, reject malformed V6, preserve unknown
+- [x] Quarantine known V3/V4/V5 rows, reject malformed V6, preserve unknown
       future rows, and contain late legacy writes in every reader/install.
 - [ ] Remove only obsolete Wallet Session rows; preserve every unrelated wallet,
       authority, method, signer-material, export-root, and recovery-code store.
 - [x] Delete `walletSessionClientCapability`, its response-family tags,
       request parsers, persistence columns, fixtures, and migration-era code.
-- [ ] Retain the existing DB version and keyPath while the general upgrade
+- [x] Retain the existing DB version and keyPath while the general upgrade
       function remains destructive.
 
 Convert every reader or legacy writer:
 
-- [ ] `BrowserSigningSurface.ts`;
+- [x] `BrowserSigningSurface.ts`;
 - [x] Make `BrowserSigningSurface.readReusableWalletSessionState` and
       `getWalletSession` project the selected exact V6 authority/method session,
       authenticate status with its operation credential, and reject legacy or
@@ -1194,13 +1194,13 @@ Primary persistence files:
 - [x] Return `WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH` for either skew direction.
 - [x] Change the host SDK and iframe protocol together and prove both mismatch
       directions without retaining a message adapter.
-- [ ] Replace `ActiveWalletSessionV1` plus separately transported credentials
+- [x] Replace `ActiveWalletSessionV1` plus separately transported credentials
       with the identity-coupled exact browser boundary type.
 - [ ] Delete `registration_established_wallet_session_v1`,
       `RegistrationEstablishedSessionTokens`, and `walletSessionTokenForCurve`.
 - [ ] Delete `ActiveWalletSession` aliases that do not denote the exact
       projection.
-- [ ] Delete wallet-specific JWT marker/decoder code after its last diagnostic
+- [x] Delete wallet-specific JWT marker/decoder code after its last diagnostic
       caller; preserve console-session JWT types.
 - [ ] Preserve the frozen Router A/B `reusable_wallet_session` discriminator,
       ECDSA export-share authorization kind, and
@@ -1387,14 +1387,14 @@ exact admission contexts. No V1 request or persistence resolver remains.
 
 - [x] Delete the temporary client capability and response-family tags from every
       issuance boundary.
-- [ ] Define the V6 builder/parser and make `replaceExactActive` the only active
+- [x] Define the V6 builder/parser and make `replaceExactActive` the only active
       install API.
-- [ ] Delete V3 writers and curve-token selection; normalize every exact
+- [x] Delete V3 writers and curve-token selection; normalize every exact
       response directly to V6.
-- [ ] Replace wallet-wide active-session reads with an exact selected tuple,
+- [x] Replace wallet-wide active-session reads with an exact selected tuple,
       credential-bound identity, or intentional multi-record result. Let type
       errors and the closure search enumerate remaining callers.
-- [ ] Quarantine V3/V4/V5 rows during bootstrap and install while preserving
+- [x] Quarantine V3/V4/V5 rows during bootstrap and install while preserving
       future versions and unrelated stores.
 - [ ] Complete the recipient-bound linked delivery and acknowledgement state
       machine, including local pending prerequisites and recipient-loss recovery.
@@ -1657,7 +1657,7 @@ Remaining causal baseline work:
       preservation, and late V3/V4/V5 writes.
 - [ ] Exact-reader tests with two active sibling methods across signing, export,
       funding, refresh, management, readiness, and source claims.
-- [ ] Bootstrap quarantine test for observed V3/V4/V5 rows.
+- [x] Bootstrap quarantine test for observed V3/V4/V5 rows.
 - [x] Shared-IndexedDB tests for future-row preservation, terminal
       `upgrade_required`, legacy-row quarantine, and final-reader containment;
       `tests/unit/walletSessionOperationCredential.unit.test.ts` covers direct

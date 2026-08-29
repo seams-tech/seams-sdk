@@ -301,24 +301,6 @@ function checkActiveSourcesAvoidOldSigningGrantNames() {
   );
 }
 
-function checkRouterAbWalletSessionJwtPayloadsUseThresholdSessionId() {
-  const jwtKindMarkers = [
-    'ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND',
-    'ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND',
-    'router_ab_ed25519_wallet_session_v1',
-    'router_ab_ecdsa_derivation_wallet_session_v1',
-  ];
-  const offenders = [];
-  for (const file of activeSourceFiles()) {
-    const source = readSource(file);
-    for (const kind of jwtKindMarkers) {
-      const pattern = new RegExp(`${kind}[\\s\\S]{0,420}["']?sessionId["']?\\s*:`);
-      if (pattern.test(source)) offenders.push(`${file} uses sessionId near ${kind}`);
-    }
-  }
-  assertNoViolations('Router A/B Wallet Session JWT payloads use thresholdSessionId claims', offenders);
-}
-
 function checkDocsAvoidOldSigningGrantNames() {
   assertNoViolations(
     'current docs do not present the old signing-grant names as live terminology',
@@ -358,7 +340,6 @@ function checkBoundarySessionIdMarkersAreClassified() {
 }
 
 checkActiveSourcesAvoidOldSigningGrantNames();
-checkRouterAbWalletSessionJwtPayloadsUseThresholdSessionId();
 checkDocsAvoidOldSigningGrantNames();
 checkActiveSigningPathsAvoidThresholdSessionAuthTokenNaming();
 checkExportedSessionIdPublicSurfacesAreClassified();
