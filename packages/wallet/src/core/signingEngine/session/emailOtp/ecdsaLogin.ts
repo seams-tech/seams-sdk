@@ -125,7 +125,7 @@ import {
 } from '@shared/utils/sessionTokens';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
-import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
+import { parseWalletSessionMintId } from '@shared/authorization/capabilityKinds';
 import {
   mpcMaterialActivationRefsEqual,
   parseProviderSubject,
@@ -814,7 +814,7 @@ function requireEmailOtpUnlockThresholdSessionId(value: string) {
 }
 
 function requireEmailOtpUnlockWalletSessionMintId(value: string) {
-  const parsed = parseReusableWalletSessionMintId(value);
+  const parsed = parseWalletSessionMintId(value);
   if (!parsed.ok) throw new Error('Failed to create Email OTP Wallet Session mint identity');
   return parsed.value;
 }

@@ -23,7 +23,7 @@ import {
 import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 import {
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseTenantId,
 } from '@shared/authorization/capabilityKinds';
 import {
@@ -102,7 +102,7 @@ function createAuthorizationStore(
 }
 
 function requiredMintId(value: string) {
-  const parsed = parseReusableWalletSessionMintId(value);
+  const parsed = parseWalletSessionMintId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
 }

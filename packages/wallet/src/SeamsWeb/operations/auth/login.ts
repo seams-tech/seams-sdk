@@ -67,7 +67,7 @@ import {
 } from '@shared/utils/domainIds';
 import {
   parseMpcWalletSigningQuotaId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
@@ -6645,8 +6645,8 @@ function requireThresholdLoginEcdsaSessionId(value: string) {
 }
 
 function requireThresholdLoginWalletSessionMintId(value: string) {
-  const parsed = parseReusableWalletSessionMintId(value);
-  if (!parsed.ok) throw new Error('[login] failed to create reusable Wallet Session mint identity');
+  const parsed = parseWalletSessionMintId(value);
+  if (!parsed.ok) throw new Error('[login] failed to create Wallet Session mint identity');
   return parsed.value;
 }
 

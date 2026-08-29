@@ -84,7 +84,7 @@ import {
 import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
 import {
   EVM_ECDSA_MPC_OPERATION_KINDS,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseEcdsaAuthorizationSessionId,
   WALLET_SESSION_CLIENT_CAPABILITY_V1,
   type PrincipalId,
@@ -3069,7 +3069,7 @@ export async function handleStrictEcdsaSessionActivation(
     );
   }
   if (authorized.kind === 'issue_direct_wallet_session_v2') {
-    const mintId = parseReusableWalletSessionMintId(request.session_policy.wallet_session_mint_id);
+    const mintId = parseWalletSessionMintId(request.session_policy.wallet_session_mint_id);
     if (!mintId.ok) {
       return json(
         {

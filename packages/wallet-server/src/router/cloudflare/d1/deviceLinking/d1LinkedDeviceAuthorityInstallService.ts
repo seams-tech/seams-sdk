@@ -26,7 +26,7 @@ import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { parseDeviceId, type DeviceId } from '@shared/authorization/capabilityKinds';
 import {
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseTenantId,
   type TenantId,
 } from '@shared/authorization/capabilityKinds';
@@ -1073,7 +1073,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       'principalId',
     );
     const mintId = requireParsed(
-      parseReusableWalletSessionMintId(`linked-device-authority:${String(authority.authorityId)}`),
+      parseWalletSessionMintId(`linked-device-authority:${String(authority.authorityId)}`),
       'mintId',
     );
     const ttlMs = this.options.walletSessionTtlMs ?? 15 * 60 * 1000;

@@ -4,7 +4,7 @@ import {
   NEAR_ED25519_MPC_OPERATION_KINDS,
   parseMpcWalletSigningQuotaId,
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseTenantId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -20,7 +20,7 @@ import type {
   HostedWalletSessionExchangeCodeId,
   MpcWalletSigningQuotaId,
   PrincipalId,
-  ReusableWalletSessionMintId,
+  WalletSessionMintId,
   TenantId,
   WalletSessionId,
   WalletSessionClientCapabilityV1,
@@ -237,7 +237,7 @@ export type WalletSessionAuthorization = {
   readonly principalId: PrincipalId;
   readonly walletId: WalletId;
   readonly authority: WalletAuthAuthorityRef;
-  readonly mintId: ReusableWalletSessionMintId;
+  readonly mintId: WalletSessionMintId;
   readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
@@ -289,7 +289,7 @@ export type WalletSessionAuthorizationV2 = {
   readonly walletAuthMethodId: WalletAuthMethodId;
   readonly authorityDigestB64u: DigestB64u;
   readonly authorityRevocationEpoch: number;
-  readonly mintId: ReusableWalletSessionMintId;
+  readonly mintId: WalletSessionMintId;
   readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
@@ -488,7 +488,7 @@ export type WalletSessionAuthorizationV2MintLookup = {
   readonly walletId: WalletId;
   readonly authorityId: WalletAuthorityId;
   readonly walletAuthMethodId: WalletAuthMethodId;
-  readonly mintId: ReusableWalletSessionMintId;
+  readonly mintId: WalletSessionMintId;
 };
 
 /**
@@ -523,7 +523,7 @@ export type DirectV2IssueResult =
       readonly walletId: WalletId;
       readonly authorityId: WalletAuthorityId;
       readonly walletAuthMethodId: WalletAuthMethodId;
-      readonly mintId: ReusableWalletSessionMintId;
+      readonly mintId: WalletSessionMintId;
       readonly authorizationId: WalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly quotaId: MpcWalletSigningQuotaId;
@@ -848,7 +848,7 @@ export function parseWalletSessionAuthorizationV2(value: unknown): WalletSession
   const authorityId = parseWalletAuthorityIdRequired(value.authorityId);
   const walletAuthMethodId = parseWalletAuthMethodIdRequired(value.walletAuthMethodId);
   const authorityDigestB64u = parseDigestB64u(value.authorityDigestB64u);
-  const mintIdResult = parseReusableWalletSessionMintId(value.mintId);
+  const mintIdResult = parseWalletSessionMintId(value.mintId);
   if (!mintIdResult.ok) throw new Error(mintIdResult.error.message);
   const authorizationIdResult = parseWalletSessionAuthorizationId(value.authorizationId);
   if (!authorizationIdResult.ok) throw new Error(authorizationIdResult.error.message);

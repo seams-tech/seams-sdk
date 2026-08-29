@@ -11,7 +11,7 @@ import {
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseAuthFactorId,
 } from '@shared/authorization/capabilityKinds';
 import { DEFAULT_WALLET_SESSION_TTL_MS } from '@shared/threshold/sessionPolicy';
@@ -160,7 +160,7 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
       }
       const authorityRef = await walletAuthAuthorityRef({ authority });
       const principalId = parsePrincipalId(walletId);
-      const mintId = parseReusableWalletSessionMintId(parsed.request.challengeId);
+      const mintId = parseWalletSessionMintId(parsed.request.challengeId);
       if (!principalId.ok || !mintId.ok) {
         return json(
           {

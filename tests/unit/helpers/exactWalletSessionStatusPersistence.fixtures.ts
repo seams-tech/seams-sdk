@@ -17,7 +17,7 @@ import {
   type ActiveWalletAuthorityV1,
 } from '@shared/authorization/walletAuthority';
 import {
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parsePrincipalId,
   parseTenantId,
   WALLET_SESSION_CLIENT_CAPABILITY_V1,
@@ -220,7 +220,7 @@ export async function seedExactWalletSessionStatusFixture(input: {
       walletId: records.authority.walletId,
       authority: records.authority,
       walletAuthMethodId: records.authMethod.walletAuthMethodId,
-      mintId: required(parseReusableWalletSessionMintId(`mint:${input.label}`)),
+      mintId: required(parseWalletSessionMintId(`mint:${input.label}`)),
       remainingUses: 3,
       issuedAtMs,
       expiresAtMs,

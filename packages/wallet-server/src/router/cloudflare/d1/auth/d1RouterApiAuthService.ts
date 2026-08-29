@@ -6,7 +6,7 @@ import {
 import {
   parseDeviceId,
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   type WalletSessionClientCapabilityV1,
 } from '@shared/authorization/capabilityKinds';
 import { parseWalletAuthMethodId, parseWalletAuthorityId } from '@shared/utils/domainIds';
@@ -2119,7 +2119,7 @@ async function issueWalletSessionForActiveAuthority(input: {
       ? input.resolved.walletAuthAuthority.factor.providerUserId
       : String(input.resolved.authority.walletId),
   );
-  const mintId = parseReusableWalletSessionMintId(input.verifiedChallengeId);
+  const mintId = parseWalletSessionMintId(input.verifiedChallengeId);
   if (!tenantId.ok || !principalId.ok || !mintId.ok) {
     return {
       kind: 'rejected',

@@ -11,7 +11,7 @@ import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../../../c
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../recovery/routerAbEd25519YaoRecovery';
 import type {
   MpcWalletSigningQuotaId,
-  ReusableWalletSessionMintId,
+  WalletSessionMintId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -148,7 +148,7 @@ export type RouterAbEd25519YaoCommittedWalletSessionV1 = {
   readonly walletId: WalletId;
   readonly authorityId: WalletAuthorityId;
   readonly walletAuthMethodId: WalletAuthMethodId;
-  readonly mintId: ReusableWalletSessionMintId;
+  readonly mintId: WalletSessionMintId;
   readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;

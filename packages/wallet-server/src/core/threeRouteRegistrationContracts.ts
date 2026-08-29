@@ -25,7 +25,7 @@ import type {
 } from '@shared/utils/registrationEstablishedSession';
 import type { WalletSessionClientCapabilityV1 } from '@shared/authorization/capabilityKinds';
 import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
-import type { ReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
+import type { WalletSessionMintId } from '@shared/authorization/capabilityKinds';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import type {
   RegistrationNearAccountProvisioning,
@@ -128,7 +128,7 @@ type WalletRegistrationSessionCommitReadyBaseV2 =
   WalletRegistrationSessionCommitReceiptMetadataV2 & {
     readonly foundingAuthority: ActiveWalletAuthorityV1;
     readonly foundingAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
-    readonly mintId: ReusableWalletSessionMintId;
+    readonly mintId: WalletSessionMintId;
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
     readonly custodyKeyManifestDigestB64u: DigestB64u;

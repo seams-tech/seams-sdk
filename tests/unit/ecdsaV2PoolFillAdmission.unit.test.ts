@@ -13,7 +13,7 @@ import { authorizeEcdsaPoolFill } from '../../packages/wallet-server/src/router/
 import {
   parseMpcWalletSigningQuotaId,
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseTenantId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -57,7 +57,7 @@ test('V2 operation credential authorizes linked ECDSA pool fill without legacy f
     walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
     authorityDigestB64u: fixture.authority.authorityDigestB64u,
     authorityRevocationEpoch: fixture.authority.revocationEpoch,
-    mintId: required(parseReusableWalletSessionMintId('mint:v2-pool-fill')),
+    mintId: required(parseWalletSessionMintId('mint:v2-pool-fill')),
     authorizationId,
     walletSessionId: exactWalletSessionId,
     quotaId,

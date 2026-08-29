@@ -30,7 +30,7 @@ import type {
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
+import { parseWalletSessionMintId } from '@shared/authorization/capabilityKinds';
 import type {
   ActiveWalletSessionV1,
   WalletSessionOperationCredentialV1,
@@ -144,7 +144,7 @@ async function bootstrapStrictExistingEcdsaSession(
       })
     : await activateStrictEcdsaPostRegistrationSession({
         ...strictInput,
-        walletSessionMintId: requireFreshReusableWalletSessionMintId(),
+        walletSessionMintId: requireFreshWalletSessionMintId(),
         relayerUrl: args.relayerUrl,
         routeAuth: args.bootstrapAuth,
       });
@@ -195,11 +195,11 @@ async function bootstrapStrictExistingEcdsaSession(
   };
 }
 
-function requireFreshReusableWalletSessionMintId() {
-  const parsed = parseReusableWalletSessionMintId(
-    secureRandomId('wallet-session-mint', 32, 'reusable Wallet Session mint IDs'),
+function requireFreshWalletSessionMintId() {
+  const parsed = parseWalletSessionMintId(
+    secureRandomId('wallet-session-mint', 32, 'Wallet Session mint IDs'),
   );
-  if (!parsed.ok) throw new Error('Failed to create reusable Wallet Session mint identity');
+  if (!parsed.ok) throw new Error('Failed to create Wallet Session mint identity');
   return parsed.value;
 }
 

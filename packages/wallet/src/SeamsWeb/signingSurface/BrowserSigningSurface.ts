@@ -256,7 +256,7 @@ import {
 import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntimeScope';
 import {
   parseReusableWalletSessionAuthorizationId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
 } from '@shared/authorization/capabilityKinds';
 import {
   NEAR_ED25519_YAO_KEY_VERSION_V1,
@@ -545,7 +545,7 @@ function buildEmailOtpEcdsaRehydrationPolicy(args: {
   readonly manifest: ActiveEcdsaCapabilityManifest;
   readonly remainingUses: number;
 }): RouterAbEcdsaPostRegistrationSessionActivationPolicyV1 {
-  const walletSessionMintId = parseReusableWalletSessionMintId(
+  const walletSessionMintId = parseWalletSessionMintId(
     generateSessionId('wallet-session-mint'),
   );
   if (!walletSessionMintId.ok) {

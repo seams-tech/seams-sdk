@@ -4,10 +4,10 @@ import type {
 } from '../../../../core/registrationContracts';
 import {
   parseDeviceId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   type DeviceId,
   type MpcWalletSigningQuotaId,
-  type ReusableWalletSessionMintId,
+  type WalletSessionMintId,
   type TenantId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
@@ -1221,10 +1221,10 @@ function recordValue(value: unknown): Record<string, unknown> | null {
 const D1_WALLET_REGISTRATION_OPERATION_RESUME_AFTER_MS = 30_000;
 const WALLET_REGISTRATION_ROUTER_POLICY_VERSION = 'wallet-registration-v1';
 
-function requireReusableWalletSessionMintId(value: string): ReusableWalletSessionMintId {
-  const parsed = parseReusableWalletSessionMintId(value);
+function requireWalletSessionMintId(value: string): WalletSessionMintId {
+  const parsed = parseWalletSessionMintId(value);
   if (!parsed.ok)
-    throw new Error(`Reusable Wallet Session mint identity is invalid: ${parsed.error.message}`);
+    throw new Error(`Wallet Session mint identity is invalid: ${parsed.error.message}`);
   return parsed.value;
 }
 
@@ -2586,7 +2586,7 @@ export class CloudflareD1WalletRegistrationService {
               walletId: activeAuthority.authority.walletId,
               authority: activeAuthority.authority,
               walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
-              mintId: requireReusableWalletSessionMintId(authorization.verifiedChallengeId),
+              mintId: requireWalletSessionMintId(authorization.verifiedChallengeId),
               remainingUses,
               issuedAtMs,
               expiresAtMs,
@@ -2918,7 +2918,7 @@ export class CloudflareD1WalletRegistrationService {
               walletId: activeAuthority.authority.walletId,
               authority: activeAuthority.authority,
               walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
-              mintId: requireReusableWalletSessionMintId(verifiedChallengeId),
+              mintId: requireWalletSessionMintId(verifiedChallengeId),
               remainingUses: issuedRemainingUses,
               issuedAtMs,
               expiresAtMs,

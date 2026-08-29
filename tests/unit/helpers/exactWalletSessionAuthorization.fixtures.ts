@@ -1,7 +1,7 @@
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import {
   parseMpcWalletSigningQuotaId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type PrincipalId,
@@ -52,7 +52,7 @@ export function buildExactWalletSessionAuthorizationFixture(input: {
     walletAuthMethodId: input.walletAuthMethodId,
     authorityDigestB64u: input.authority.authorityDigestB64u,
     authorityRevocationEpoch: input.authority.revocationEpoch,
-    mintId: required(parseReusableWalletSessionMintId(`mint:${input.mintLabel ?? input.label}`)),
+    mintId: required(parseWalletSessionMintId(`mint:${input.mintLabel ?? input.label}`)),
     authorizationId: required(
       parseWalletSessionAuthorizationId(`authorization:${input.authorizationLabel ?? input.label}`),
     ),

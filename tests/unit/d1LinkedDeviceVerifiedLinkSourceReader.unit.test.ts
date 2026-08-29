@@ -14,7 +14,7 @@ import { buildFullOwnerPermissionsV1 } from '../../packages/shared-ts/src/author
 import {
   parseMpcWalletSigningQuotaId,
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseTenantId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -290,7 +290,7 @@ test('accepts duplicate ECDSA signer rows for one wallet-wide source identity', 
     parseWalletSessionAuthorizationId('wallet-session-authorization:source-reader'),
   );
   const quotaId = required(parseMpcWalletSigningQuotaId('mpc-wallet-signing-quota:source-reader'));
-  const mintId = required(parseReusableWalletSessionMintId('wallet-session-mint:source-reader'));
+  const mintId = required(parseWalletSessionMintId('wallet-session-mint:source-reader'));
   const session = buildWalletSessionAuthorizationV2({
     tenantId,
     principalId,
@@ -387,7 +387,7 @@ test('exposes both exact key families from a combined deferred source authority'
     parseMpcWalletSigningQuotaId('mpc-wallet-signing-quota:source-reader-combined'),
   );
   const mintId = required(
-    parseReusableWalletSessionMintId('wallet-session-mint:source-reader-combined'),
+    parseWalletSessionMintId('wallet-session-mint:source-reader-combined'),
   );
   const session = buildWalletSessionAuthorizationV2({
     tenantId,

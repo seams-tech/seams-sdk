@@ -23,7 +23,7 @@ import {
   parseDeviceId,
   parseMpcWalletSigningQuotaId,
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseTenantId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -345,7 +345,7 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   );
   const quotaId = required(parseMpcWalletSigningQuotaId(`wallet-quota:management-${input.label}`));
   const mintId = required(
-    parseReusableWalletSessionMintId(`wallet-mint:management-${input.label}`),
+    parseWalletSessionMintId(`wallet-mint:management-${input.label}`),
   );
   const expiresAtMs = input.expiresAtMs ?? 10_000;
   const session = buildWalletSessionAuthorizationV2({
