@@ -1448,8 +1448,8 @@ Remaining causal baseline work:
 - [x] `tests/unit/d1OwnerProofWalletSessionIssuance.unit.test.ts`
 - [x] `tests/unit/d1WalletAuthMethodStore.unit.test.ts`
 - [x] `tests/unit/d1WalletSessionAuthMethodProvenance.unit.test.ts`
-- [ ] `tests/unit/linkedDeviceManagement.unit.test.ts`
-- [ ] `tests/unit/walletSessionAuthorizationStatus.unit.test.ts`
+- [x] `tests/unit/linkedDeviceManagement.unit.test.ts`
+- [x] `tests/unit/walletSessionAuthorizationStatus.unit.test.ts`
 - [x] `tests/unit/walletSessionStatusExactAdmission.unit.test.ts`, proving the
       exact quota projection, tuple mismatch, fail-closed absence, and zero V1
       credential/status reads
@@ -1539,10 +1539,10 @@ Remaining causal baseline work:
       preserving strict Email recovery projection and server-owned enrollment
 - [ ] `tests/unit/walletRecoveryLocalProjection.unit.test.ts`, covering
       interruption and reload across local publication boundaries
-- [ ] `tests/unit/authMenuRecoveryContinuation.unit.test.ts`, preserving
+- [x] `tests/unit/authMenuRecoveryContinuation.unit.test.ts`, preserving
       automatic continuation, target-ready retry, and non-cancellable
       finalization
-- [ ] `tests/unit/passkeyCustodyRouteService.unit.test.ts`, proving promotion
+- [x] `tests/unit/passkeyCustodyRouteService.unit.test.ts`, proving promotion
       replay returns the same server-read committed authority/method projection
 - [ ] `tests/unit/scanDevice.firstEmail.unit.test.ts` when linking orchestration
       changes, preserving first-Email routing and release of the iframe
