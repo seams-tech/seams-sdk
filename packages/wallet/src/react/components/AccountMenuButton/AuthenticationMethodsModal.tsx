@@ -7,6 +7,8 @@ import type {
 import type { WalletAuthMethodBinding } from '@shared/utils/walletCapabilityBindings';
 import { Theme, useTheme } from '../theme';
 import { useSeams } from '../../context';
+import { KeyIcon } from './icons/KeyIcon';
+import { MailIcon } from './icons/MailIcon';
 import './LinkedDevicesModal.css';
 
 export interface AuthenticationMethodsModalProps {
@@ -162,7 +164,6 @@ export const AuthenticationMethodsModal: React.FC<AuthenticationMethodsModalProp
   const loginStateRef = React.useRef(loginState);
   const refreshLoginStateRef = React.useRef(refreshLoginState);
   const dialogRef = React.useRef<HTMLDivElement>(null);
-  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const previousFocusRef = React.useRef<HTMLElement | null>(null);
   const emailInputId = React.useId();
   const { theme, tokens } = useTheme();
@@ -253,7 +254,7 @@ export const AuthenticationMethodsModal: React.FC<AuthenticationMethodsModalProp
     if (!isOpen || !initialContentReady) return;
     previousFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closeButtonRef.current?.focus();
+    dialogRef.current?.focus({ preventScroll: true });
     window.addEventListener('keydown', handleDialogKeyDown);
     return () => {
       window.removeEventListener('keydown', handleDialogKeyDown);
@@ -358,7 +359,6 @@ export const AuthenticationMethodsModal: React.FC<AuthenticationMethodsModalProp
           tabIndex={-1}
         >
           <button
-            ref={closeButtonRef}
             type="button"
             className="w3a-linked-devices-modal-close"
             onClick={onClose}
@@ -392,7 +392,7 @@ export const AuthenticationMethodsModal: React.FC<AuthenticationMethodsModalProp
             ) : null}
 
             {inventory ? (
-              <ul className="w3a-linked-devices-modal-list">
+              <ul className="w3a-linked-devices-modal-list w3a-linked-devices-modal-list--grouped">
                 {methods.map((method) => {
                   const confirming =
                     actionState.kind === 'confirming_revoke' &&
@@ -401,55 +401,69 @@ export const AuthenticationMethodsModal: React.FC<AuthenticationMethodsModalProp
                     actionState.kind === 'revoking' &&
                     actionState.method.walletAuthMethodId === method.walletAuthMethodId;
                   return (
-                    <li key={method.walletAuthMethodId} className="w3a-linked-devices-modal-item">
-                      <div className="w3a-linked-devices-modal-item-main">
-                        <span className="w3a-linked-devices-modal-item-name">
-                          {methodTitle(method)}
-                        </span>
-                        <span className="w3a-linked-devices-modal-standing tone-active">
-                          Active
-                        </span>
-                      </div>
-                      <div className="w3a-linked-devices-modal-item-detail">
-                        {methodDescription(method)}
-                      </div>
-                      {confirming ? (
-                        <div className="w3a-linked-devices-modal-confirm">
-                          <span>
-                            Remove {methodTitle(method)} from this device? You will need the other
-                            active method to unlock it.
+                    <li
+                      key={method.walletAuthMethodId}
+                      className="w3a-linked-devices-modal-item w3a-linked-devices-modal-item--row"
+                    >
+                      <span className="w3a-linked-devices-modal-item-icon" aria-hidden="true">
+                        {method.kind === 'passkey' ? (
+                          <KeyIcon size={20} strokeWidth={1.75} />
+                        ) : (
+                          <MailIcon size={20} strokeWidth={1.75} />
+                        )}
+                      </span>
+                      <div className="w3a-linked-devices-modal-item-content">
+                        <div className="w3a-linked-devices-modal-item-main">
+                          <span className="w3a-linked-devices-modal-item-name">
+                            {methodTitle(method)}
                           </span>
-                          <div className="w3a-linked-devices-modal-confirm-actions">
-                            <button
-                              type="button"
-                              className="w3a-linked-devices-modal-secondary"
-                              onClick={() => setActionState({ kind: 'idle' })}
-                            >
-                              Keep it
-                            </button>
-                            <button
-                              type="button"
-                              className="w3a-linked-devices-modal-danger"
-                              onClick={() => void revokeMethod()}
-                            >
-                              Remove method
-                            </button>
-                          </div>
+                          <span className="w3a-linked-devices-modal-standing tone-active">
+                            Active
+                          </span>
                         </div>
-                      ) : methods.length > 1 ? (
+                        <div className="w3a-linked-devices-modal-item-detail">
+                          {methodDescription(method)}
+                        </div>
+                        {confirming ? (
+                          <div className="w3a-linked-devices-modal-confirm">
+                            <span>
+                              Remove {methodTitle(method)} from this device? You will need the other
+                              active method to unlock it.
+                            </span>
+                            <div className="w3a-linked-devices-modal-confirm-actions">
+                              <button
+                                type="button"
+                                className="w3a-linked-devices-modal-secondary"
+                                onClick={() => setActionState({ kind: 'idle' })}
+                              >
+                                Keep it
+                              </button>
+                              <button
+                                type="button"
+                                className="w3a-linked-devices-modal-danger"
+                                onClick={() => void revokeMethod()}
+                              >
+                                Remove method
+                              </button>
+                            </div>
+                          </div>
+                        ) : methods.length > 1 ? null : (
+                          <span className="w3a-linked-devices-modal-item-detail">
+                            Add another method before removing this one.
+                          </span>
+                        )}
+                      </div>
+                      {!confirming && methods.length > 1 ? (
                         <button
                           type="button"
-                          className="w3a-linked-devices-modal-secondary"
+                          className="w3a-linked-devices-modal-secondary w3a-linked-devices-modal-remove"
                           disabled={actionInProgress}
+                          aria-label={`Remove ${methodTitle(method)}`}
                           onClick={() => setActionState({ kind: 'confirming_revoke', method })}
                         >
                           {revoking ? 'Removing…' : 'Remove'}
                         </button>
-                      ) : (
-                        <span className="w3a-linked-devices-modal-item-detail">
-                          Add another method before removing this one.
-                        </span>
-                      )}
+                      ) : null}
                     </li>
                   );
                 })}

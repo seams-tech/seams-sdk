@@ -1,9 +1,6 @@
 import type {
   ChallengeSubjectId,
-  AgentPrincipalId,
   CapabilityInstanceRef,
-  DelegatedIdempotencyKey,
-  DelegatedIntentDigest,
   DomainIdParseResult,
   EcdsaActiveStateId,
   EmailOtpChallengeId,
@@ -13,7 +10,6 @@ import type {
   LinkedDeviceId,
   LinkedDeviceEnrollmentId,
   LinkDeviceSessionId,
-  MandatePolicyId,
   MpcCapabilityRuntimeRef,
   MpcKeyBindingRef,
   MpcLifecycleBindingRef,
@@ -77,12 +73,8 @@ declare const rootShareEpoch: RootShareEpoch;
 declare const walletKeyId: WalletKeyId;
 declare const signingLaneId: SigningLaneId;
 declare const laneShareEpoch: LaneShareEpoch;
-declare const agentPrincipalId: AgentPrincipalId;
 declare const linkedDeviceId: LinkedDeviceId;
 declare const linkedDeviceEnrollmentId: LinkedDeviceEnrollmentId;
-declare const mandatePolicyId: MandatePolicyId;
-declare const delegatedIntentDigest: DelegatedIntentDigest;
-declare const delegatedIdempotencyKey: DelegatedIdempotencyKey;
 declare const linkDeviceSessionId: LinkDeviceSessionId;
 declare const capabilityInstanceRef: CapabilityInstanceRef;
 declare const mpcMaterialOwnerRef: MpcMaterialOwnerRef;
@@ -176,23 +168,7 @@ function acceptsLaneShareEpoch(value: LaneShareEpoch): void {
   void value;
 }
 
-function acceptsAgentPrincipalId(value: AgentPrincipalId): void {
-  void value;
-}
-
 function acceptsLinkedDeviceId(value: LinkedDeviceId): void {
-  void value;
-}
-
-function acceptsMandatePolicyId(value: MandatePolicyId): void {
-  void value;
-}
-
-function acceptsDelegatedIntentDigest(value: DelegatedIntentDigest): void {
-  void value;
-}
-
-function acceptsDelegatedIdempotencyKey(value: DelegatedIdempotencyKey): void {
   void value;
 }
 
@@ -259,11 +235,7 @@ acceptsRootShareEpoch(rootShareEpoch);
 acceptsWalletKeyId(walletKeyId);
 acceptsSigningLaneId(signingLaneId);
 acceptsLaneShareEpoch(laneShareEpoch);
-acceptsAgentPrincipalId(agentPrincipalId);
 acceptsLinkedDeviceId(linkedDeviceId);
-acceptsMandatePolicyId(mandatePolicyId);
-acceptsDelegatedIntentDigest(delegatedIntentDigest);
-acceptsDelegatedIdempotencyKey(delegatedIdempotencyKey);
 acceptsLinkDeviceSessionId(linkDeviceSessionId);
 acceptsCapabilityInstanceRef(capabilityInstanceRef);
 acceptsMpcMaterialOwnerRef(mpcMaterialOwnerRef);
@@ -387,15 +359,6 @@ acceptsWalletKeyId(walletId);
 
 // @ts-expect-error Lane share epochs are not signing lanes.
 acceptsSigningLaneId(laneShareEpoch);
-
-// @ts-expect-error Agent principals are not linked devices.
-acceptsLinkedDeviceId(agentPrincipalId);
-
-// @ts-expect-error Linked devices are not agent principals.
-acceptsAgentPrincipalId(linkedDeviceId);
-
-// @ts-expect-error Delegated intent digests are not idempotency keys.
-acceptsDelegatedIdempotencyKey(delegatedIntentDigest);
 
 // @ts-expect-error Link-device sessions are not signing lanes.
 acceptsSigningLaneId(linkDeviceSessionId);

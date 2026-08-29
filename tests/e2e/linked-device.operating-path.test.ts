@@ -1299,7 +1299,13 @@ async function lockWallet(page: Page): Promise<void> {
   const switchToLogin = wallet.locator('button[data-auth-menu-mode="login"]');
   const profile = page.locator('.w3a-profile-button-morphable');
   const lockDeadline = Date.now() + 60_000;
-  while (!(await lockedAuthSurface.or(switchToLogin).first().isVisible().catch(() => false))) {
+  while (
+    !(await lockedAuthSurface
+      .or(switchToLogin)
+      .first()
+      .isVisible()
+      .catch(() => false))
+  ) {
     if (Date.now() >= lockDeadline) throw new Error('Wallet did not reach its locked auth surface');
     if (await profile.isVisible().catch(() => false)) await lockActiveWallet(page);
     await page.waitForTimeout(250);
@@ -3128,9 +3134,19 @@ async function assertLinkedDeviceInventoryLoaded(page: Page): Promise<void> {
   const dialog = await openLinkedDevicesDialog(page);
   const cards = dialog.locator('.w3a-linked-devices-modal-item');
   await expect(cards).toHaveCount(2, { timeout: 60_000 });
-  await expect(cards.filter({ hasText: 'Email OTP' })).toHaveCount(2);
-  await expect(cards.filter({ hasText: 'Original device' })).toHaveCount(1);
-  await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(1);
+  await expect(
+    cards.filter({
+      has: page.locator('.w3a-linked-devices-modal-item-name', { hasText: 'Email code' }),
+    }),
+  ).toHaveCount(2);
+  await expect(
+    dialog.locator('.w3a-linked-devices-modal-item[data-device-kind="owner"]'),
+  ).toHaveCount(1);
+  await expect(
+    dialog.locator(
+      '.w3a-linked-devices-modal-item[data-device-kind="linked"][data-device-state="active"]',
+    ),
+  ).toHaveCount(1);
   await dialog.locator('.w3a-linked-devices-modal-close').click();
   await expect(dialog).toBeHidden({ timeout: 10_000 });
   await closeProfileMenu(page);
@@ -3140,10 +3156,14 @@ async function assertPasskeyInventoryLoaded(page: Page, expectedCardCount: numbe
   const dialog = await openLinkedDevicesDialog(page);
   const cards = dialog.locator('.w3a-linked-devices-modal-item');
   await expect(cards).toHaveCount(expectedCardCount, { timeout: 60_000 });
-  await expect(dialog.getByText('Original device', { exact: true })).toHaveCount(1);
-  await expect(dialog.getByText('Can use this wallet', { exact: true })).toHaveCount(
-    expectedCardCount - 1,
-  );
+  await expect(
+    dialog.locator('.w3a-linked-devices-modal-item[data-device-kind="owner"]'),
+  ).toHaveCount(1);
+  await expect(
+    dialog.locator(
+      '.w3a-linked-devices-modal-item[data-device-kind="linked"][data-device-state="active"]',
+    ),
+  ).toHaveCount(expectedCardCount - 1);
   await dialog.locator('.w3a-linked-devices-modal-close').click();
   await expect(dialog).toBeHidden({ timeout: 10_000 });
   await closeProfileMenu(page);
@@ -3159,11 +3179,19 @@ async function revokeLinkedEmailDeviceFromUi(
   const dialog = await openLinkedDevicesDialog(page);
   const cards = dialog.locator('.w3a-linked-devices-modal-item');
   await expect(cards).toHaveCount(2, { timeout: 60_000 });
-  await expect(cards.filter({ hasText: 'Email OTP' })).toHaveCount(
-    input.targetFactor === 'email_otp' ? 2 : 1,
-  );
-  await expect(cards.filter({ hasText: 'Original device' })).toHaveCount(1);
-  await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(1);
+  await expect(
+    cards.filter({
+      has: page.locator('.w3a-linked-devices-modal-item-name', { hasText: 'Email code' }),
+    }),
+  ).toHaveCount(input.targetFactor === 'email_otp' ? 2 : 1);
+  await expect(
+    dialog.locator('.w3a-linked-devices-modal-item[data-device-kind="owner"]'),
+  ).toHaveCount(1);
+  await expect(
+    dialog.locator(
+      '.w3a-linked-devices-modal-item[data-device-kind="linked"][data-device-state="active"]',
+    ),
+  ).toHaveCount(1);
   const remove = cards.getByRole('button', { name: /^Remove Device 2\b/ });
   await expect(remove).toHaveCount(1, { timeout: 30_000 });
   await remove.click();
@@ -3215,9 +3243,19 @@ async function revokeLinkedEmailDeviceFromUi(
     timeout: 60_000,
   });
   await expect(cards).toHaveCount(1, { timeout: 60_000 });
-  await expect(cards.filter({ hasText: 'Email OTP' })).toHaveCount(1);
-  await expect(cards.filter({ hasText: 'Original device' })).toHaveCount(1);
-  await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(0);
+  await expect(
+    cards.filter({
+      has: page.locator('.w3a-linked-devices-modal-item-name', { hasText: 'Email code' }),
+    }),
+  ).toHaveCount(1);
+  await expect(
+    dialog.locator('.w3a-linked-devices-modal-item[data-device-kind="owner"]'),
+  ).toHaveCount(1);
+  await expect(
+    dialog.locator(
+      '.w3a-linked-devices-modal-item[data-device-kind="linked"][data-device-state="active"]',
+    ),
+  ).toHaveCount(0);
   await dialog.locator('.w3a-linked-devices-modal-close').click();
   await expect(dialog).toBeHidden({ timeout: 10_000 });
 }
@@ -3535,14 +3573,12 @@ async function setupEmailLinkedOwnerPair(
     await linkedDeviceFailureMonitor.race(openOwnerScanner(ownerPage, qrDataUrl));
     await linkedDeviceFailureMonitor.race(assertOwnerScannerClosedAfterScan(ownerPage));
     emailLinkedDeviceStage('owner scanned Device 2 QR');
-    const claimResponse = await linkedDeviceFailureMonitor
-      .race(claimed)
-      .catch((error: unknown) => {
-        throw new Error(
-          `Owner did not claim the email-factor link session.\n${ownerDiagnostics.join('\n')}\n${device2Diagnostics.join('\n')}`,
-          { cause: error },
-        );
-      });
+    const claimResponse = await linkedDeviceFailureMonitor.race(claimed).catch((error: unknown) => {
+      throw new Error(
+        `Owner did not claim the email-factor link session.\n${ownerDiagnostics.join('\n')}\n${device2Diagnostics.join('\n')}`,
+        { cause: error },
+      );
+    });
     if (!claimResponse.ok()) {
       throw new Error(
         `Email linked-device claim failed (${claimResponse.status()}): ${await claimResponse.text()}`,

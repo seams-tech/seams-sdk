@@ -267,7 +267,7 @@ test.describe('OverlayController', () => {
     expect(result.measuredBackdrop).toBe('rgba(0, 0, 0, 0.26)');
   });
 
-  test('reveals a measured request modal from the existing wallet card geometry', async ({
+  test('reveals a measured request modal directly at its destination geometry', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -324,6 +324,7 @@ test.describe('OverlayController', () => {
         const provisional = {
           open: dialog.open,
           visibility: getComputedStyle(dialog).visibility,
+          iframeRect: iframe.getBoundingClientRect().toJSON(),
         };
 
         overlay.apply({
@@ -346,48 +347,51 @@ test.describe('OverlayController', () => {
         };
 
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        const animation = dialog
+        const surfaceAnimation = dialog
           .getAnimations()
           .find(
             (candidate) =>
-              candidate.effect instanceof KeyframeEffect && candidate.effect.target === dialog,
+              candidate.effect instanceof KeyframeEffect &&
+              candidate.effect.target === dialog &&
+              candidate.effect.getKeyframes().some((keyframe) => keyframe.transform),
           );
-        if (!animation || !(animation.effect instanceof KeyframeEffect)) {
-          throw new Error('surface morph animation missing');
-        }
-        animation.pause();
-        animation.currentTime = 0;
         const firstVisibleRect = dialog.getBoundingClientRect().toJSON();
-        const firstKeyframe = animation.effect.getKeyframes()[0];
         const revealed = {
           visibility: getComputedStyle(dialog).visibility,
           pending: dialog.classList.contains('is-reveal-pending'),
           transitionOrigin: dialog.classList.contains('has-transition-origin'),
-          backdrop: getComputedStyle(dialog, '::backdrop').backgroundColor,
+          surfaceAnimation: surfaceAnimation !== undefined,
         };
 
-        animation.finish();
-        await Promise.resolve();
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 220));
+        const backdrop = getComputedStyle(dialog, '::backdrop').backgroundColor;
         const finalRect = dialog.getBoundingClientRect().toJSON();
         overlay.dispose();
-        return { provisional, beforeReveal, revealed, firstVisibleRect, finalRect, firstKeyframe };
+        return { provisional, beforeReveal, revealed, firstVisibleRect, finalRect, backdrop };
       },
       { path: IMPORT_PATHS.overlay },
     );
 
-    expect(result.provisional).toEqual({ open: false, visibility: 'hidden' });
+    expect(result.provisional).toMatchObject({
+      open: true,
+      visibility: 'hidden',
+      iframeRect: {
+        width: 560,
+        height: 320,
+      },
+    });
     expect(result.beforeReveal).toEqual({ open: true, visibility: 'hidden', pending: true });
     expect(result.revealed).toEqual({
       visibility: 'visible',
       pending: false,
-      transitionOrigin: true,
-      backdrop: 'rgba(0, 0, 0, 0)',
+      transitionOrigin: false,
+      surfaceAnimation: false,
     });
     expect(result.firstVisibleRect).toMatchObject({
-      top: 164,
-      left: 282,
-      width: 460,
-      height: 360,
+      top: 94,
+      left: 232,
+      width: 560,
+      height: 580,
     });
     expect(result.finalRect).toMatchObject({
       top: 94,
@@ -395,8 +399,7 @@ test.describe('OverlayController', () => {
       width: 560,
       height: 580,
     });
-    expect(result.firstKeyframe.transform).toContain('translate(50px, 70px)');
-    expect(result.firstKeyframe.opacity).toBeUndefined();
+    expect(result.backdrop).toBe('rgba(0, 0, 0, 0.26)');
   });
 
   test('resizes one measured request modal when its content size changes', async ({ page }) => {
