@@ -2004,6 +2004,30 @@ function localAuthorityInstallationError(error: unknown): string {
   return error instanceof Error ? error.message : 'local authority installation input is invalid';
 }
 
+function parseLocalEmailOtpAuthMethodForInstallation(input: {
+  readonly localAuthMethod: Extract<LocalWalletAuthMethodRecord, { kind: 'email_otp' }>;
+  readonly authority: PendingWalletAuthorityV1;
+  readonly authMethod: Extract<
+    WalletAuthMethodRecordV2,
+    { kind: 'email_otp'; status: 'pending_local_install' }
+  >;
+}): Extract<LocalWalletAuthMethodRecord, { kind: 'email_otp' }> {
+  const row = emailOtpAuthMethodRow(input.localAuthMethod);
+  if (row.status !== 'active' || row.record.localStatus !== 'synced') {
+    throw new Error('local Email OTP auth method must be active and synced');
+  }
+  if (
+    row.record.walletId !== input.authority.walletId ||
+    row.record.emailHashHex !== input.authMethod.emailHashHex ||
+    row.record.registrationAuthorityId !== input.authMethod.registrationAuthorityId ||
+    row.record.authority.walletId !== input.authority.walletId ||
+    row.record.authority.bindingId !== input.authMethod.walletAuthMethodId
+  ) {
+    throw new Error('local Email OTP auth method does not match authMethod');
+  }
+  return row.record;
+}
+
 function parseLocalAuthorityInstallationInput(
   input: LocalAuthorityInstallationInputV1,
 ): BoundaryParseResult<ValidatedLocalAuthorityInstallationInput> {
@@ -2044,27 +2068,9 @@ function parseLocalAuthorityInstallationInput(
     };
     const authenticator =
       input.authenticator === null ? null : normalizeAuthenticatorRecord(input.authenticator);
-    const localAuthMethod =
-      input.localAuthMethod === null
-        ? null
-        : (() => {
-            const row = emailOtpAuthMethodRow(input.localAuthMethod);
-            if (row.status !== 'active' || row.record.localStatus !== 'synced') {
-              throw new Error('local Email OTP auth method must be active and synced');
-            }
-            if (
-              row.record.walletId !== authority.walletId ||
-              row.record.emailHashHex !== authMethod.emailHashHex ||
-              row.record.registrationAuthorityId !== authMethod.registrationAuthorityId ||
-              row.record.authority.walletId !== authority.walletId ||
-              row.record.authority.bindingId !== authMethod.walletAuthMethodId
-            ) {
-              throw new Error('local Email OTP auth method does not match authMethod');
-            }
-            return row.record;
-          })();
+    let localAuthMethod: Extract<LocalWalletAuthMethodRecord, { kind: 'email_otp' }> | null = null;
     if (authMethod.kind === 'passkey') {
-      if (localAuthMethod !== null) {
+      if (input.localAuthMethod !== null) {
         throw new Error('Passkey installation cannot include a local Email OTP auth method');
       }
       const passkeyCredential = profile.passkeyCredential;
@@ -2088,9 +2094,14 @@ function parseLocalAuthorityInstallationInput(
       if (authenticator !== null || profile.passkeyCredential !== undefined) {
         throw new Error('Email OTP installation cannot include passkey profile records');
       }
-      if (localAuthMethod === null) {
+      if (input.localAuthMethod === null) {
         throw new Error('Email OTP installation requires a local auth method');
       }
+      localAuthMethod = parseLocalEmailOtpAuthMethodForInstallation({
+        localAuthMethod: input.localAuthMethod,
+        authority,
+        authMethod,
+      });
     }
     if (!Array.isArray(input.signerMaterials)) {
       throw new Error('signerMaterials must be an array');
