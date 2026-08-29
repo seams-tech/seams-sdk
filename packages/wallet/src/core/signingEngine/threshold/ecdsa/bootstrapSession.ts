@@ -31,6 +31,10 @@ import type {
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '@shared/device-linking/contracts';
 
 type BootstrapEcdsaSessionBaseArgs = {
   touchIdPrompt: Pick<ThresholdWebAuthnPromptPort, 'getRpId'>;
@@ -96,6 +100,8 @@ type BootstrapEcdsaSessionSuccessCommon = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   signingRootId: string;
   signingRootVersion: string;
+  walletSession: ActiveWalletSessionV1;
+  operationCredential: WalletSessionOperationCredentialV1;
   walletSessionToken: string;
   roleLocalActivation: ExistingEcdsaRoleLocalActivation;
   routerAbEcdsaDerivationNormalSigning: Awaited<
@@ -177,7 +183,9 @@ async function bootstrapStrictExistingEcdsaSession(
     runtimePolicyScope,
     signingRootId: String(args.key.signingRootId),
     signingRootVersion: String(args.key.signingRootVersion),
-    walletSessionToken: strict.sessionActivation.session.wallet_session_token,
+    walletSession: strict.sessionActivation.session.wallet_session,
+    operationCredential: strict.sessionActivation.session.operation_credential,
+    walletSessionToken: strict.sessionActivation.session.operation_credential.token,
     roleLocalActivation: strict.roleLocalActivation,
     routerAbEcdsaDerivationNormalSigning: strict.sessionActivation.normal_signing,
   };

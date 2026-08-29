@@ -19,6 +19,6 @@ const activatedUnlock = verifyPasskeyWalletUnlock('https://relay.example', activ
 
 void activatedUnlock.then((result) => {
   if (result.success) {
-    result.ecdsaSession.session.wallet_session_token satisfies string;
+    result.ecdsaSession.session.operation_credential.token satisfies string;
   }
 });
