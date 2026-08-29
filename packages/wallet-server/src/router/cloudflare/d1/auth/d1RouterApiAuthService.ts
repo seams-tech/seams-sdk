@@ -2489,6 +2489,35 @@ function createD1AuthorizationSessionRouteService(
       assembly.authorizationService.redeemHostedWalletSeamsSessionExchange.bind(
         assembly.authorizationService,
       ),
+    readHostedWalletSessionOperationCredentialV2: async (input) => {
+      const resolved =
+        await assembly.authorizationService.readHostedWalletSessionOperationCredentialV2(input);
+      if (!resolved) return null;
+      const authority = await assembly.walletAuthorityStore.readById(
+        resolved.authorization.session.authorityId,
+      );
+      const authMethod = await assembly.walletAuthMethodStore.readByIdV2({
+        walletAuthMethodId: resolved.authorization.session.walletAuthMethodId,
+      });
+      if (
+        !authority ||
+        authority.state !== 'active' ||
+        !authMethod ||
+        authMethod.status !== 'active'
+      ) {
+        return null;
+      }
+      return {
+        authorization: resolved.authorization,
+        authority,
+        authMethod,
+        retiredAtMs: null,
+        hostedCredentialId: resolved.hostedCredentialId,
+        appOrigin: resolved.appOrigin,
+        walletOrigin: resolved.walletOrigin,
+        expiresAtMs: resolved.expiresAtMs,
+      };
+    },
   };
 }
 

@@ -37,9 +37,10 @@ import type {
   WalletSessionAuthorizationV2MintRead,
   AuthorizedOperationReplayResponse,
   CompletedCapabilityOperationResult,
-  IssuedHostedWalletSeamsSessionExchange,
-  RedeemHostedWalletSeamsSessionExchangeInput,
-  PersistedHostedWalletSeamsSessionExchangeResult,
+  IssuedHostedWalletSeamsSessionExchangeV2,
+  RedeemHostedWalletSeamsSessionExchangeV2Input,
+  PersistedHostedWalletSeamsSessionExchangeV2Result,
+  ResolvedHostedWalletSessionOperationCredentialV2,
   ReusableWalletSessionStatus,
   VerifiedAuthorizationEvidenceSet,
   VerifiedOwnerProof,
@@ -52,6 +53,8 @@ import {
   walletSessionAuthorizationV2RecordsEqual,
   computeAuthorizedOperationResultDigest,
   parseAuthorizedOperationReplayResponse,
+  parseSessionOrigin,
+  parseHostedWalletSessionCredentialId,
 } from '../../../../authorization/domain';
 import { buildAuthorizedOperation } from '../../../../authorization/domain';
 import {
@@ -135,16 +138,39 @@ function ecdsaSignerMatchBindings(
   ];
 }
 
-type HostedWalletExchangeRow = {
+type HostedWalletExchangeV2Row = {
+  readonly namespace?: unknown;
+  readonly org_id?: unknown;
+  readonly project_id?: unknown;
+  readonly env_id?: unknown;
   readonly tenant_id?: unknown;
+  readonly exchange_code_id?: unknown;
+  readonly authorization_id?: unknown;
   readonly wallet_session_id?: unknown;
+  readonly quota_id?: unknown;
+  readonly principal_id?: unknown;
+  readonly wallet_id?: unknown;
+  readonly authority_id?: unknown;
+  readonly wallet_auth_method_id?: unknown;
+  readonly code_hash?: unknown;
   readonly nonce_digest?: unknown;
   readonly app_origin?: unknown;
   readonly wallet_origin?: unknown;
-  readonly curve?: unknown;
-  readonly binding_json?: unknown;
+  readonly issued_at_ms?: unknown;
   readonly lifecycle_kind?: unknown;
   readonly expires_at_ms?: unknown;
+  readonly hosted_credential_id?: unknown;
+  readonly consumed_at_ms?: unknown;
+  readonly credential_digest_b64u?: unknown;
+  readonly session_record_json?: unknown;
+  readonly credential_lifecycle_kind?: unknown;
+  readonly credential_retired_at_ms?: unknown;
+  readonly session_operation_credential_hash?: unknown;
+  readonly session_retired_at_ms?: unknown;
+  readonly session_expires_at_ms?: unknown;
+  readonly quota_remaining_uses?: unknown;
+  readonly quota_lifecycle_kind?: unknown;
+  readonly quota_expires_at_ms?: unknown;
 };
 
 /**
@@ -223,6 +249,30 @@ const ACTIVE_V2_AUTHORITY_METHOD_EXISTS_SQL = `
        AND authority.lifecycle_state = 'active'
        AND authority.authority_digest_b64u = ?
        AND authority.revocation_epoch = ?
+  )`;
+
+const ACTIVE_V2_HOSTED_PARENT_PROVENANCE_SQL = `
+  EXISTS (
+    SELECT 1
+      FROM wallet_authorities AS authority
+      JOIN wallet_auth_methods AS auth_method
+        ON auth_method.namespace = authority.namespace
+       AND auth_method.org_id = authority.org_id
+       AND auth_method.project_id = authority.project_id
+       AND auth_method.env_id = authority.env_id
+       AND auth_method.wallet_authority_id = authority.authority_id
+       AND auth_method.wallet_id = authority.wallet_id
+       AND auth_method.wallet_auth_method_id = session.wallet_auth_method_id
+       AND auth_method.status = 'active'
+     WHERE authority.namespace = session.namespace
+       AND authority.org_id = session.org_id
+       AND authority.project_id = session.project_id
+       AND authority.env_id = session.env_id
+       AND authority.authority_id = session.authority_id
+       AND authority.wallet_id = session.wallet_id
+       AND authority.lifecycle_state = 'active'
+       AND authority.authority_digest_b64u = session.authority_digest_b64u
+       AND authority.revocation_epoch = session.authority_revocation_epoch
   )`;
 
 function activeV2AuthorityMethodBindings(
@@ -497,8 +547,20 @@ export class CloudflareD1AuthorizationStore
             AND lifecycle_kind = 'active'`,
       )
       .bind(this.namespace, input.tenantId, input.walletId, input.walletAuthMethodId);
+    const [deleteHostedExchanges, retireHostedCredentials] =
+      this.prepareRetireHostedChildrenForParentSelection({
+        tenantId: input.tenantId,
+        nowMs: input.nowMs,
+        parentSelectionSql: `
+          predecessor.wallet_id = ?
+          AND predecessor.wallet_auth_method_id = ?
+          AND predecessor.retired_at_ms IS NULL`,
+        parentSelectionBindings: [input.walletId, input.walletAuthMethodId],
+      });
     return [
       exhaustExactQuotas,
+      deleteHostedExchanges,
+      retireHostedCredentials,
       retireExactSessions,
       deleteTokens,
       deleteRegistrationReplayTokens,
@@ -591,55 +653,179 @@ export class CloudflareD1AuthorizationStore
         input.authorityId,
         ...remainingMethodBindings,
       );
-    return [exhaustExactQuotas, retireExactSessions];
+    const [deleteHostedExchanges, retireHostedCredentials] =
+      this.prepareRetireHostedChildrenForParentSelection({
+        tenantId: input.tenantId,
+        nowMs: input.nowMs,
+        parentSelectionSql: `
+          predecessor.wallet_id = ?
+          AND predecessor.authority_id = ?
+          AND predecessor.retired_at_ms IS NULL
+          AND NOT EXISTS (${remainingMethodFilter})`,
+        parentSelectionBindings: [input.walletId, input.authorityId, ...remainingMethodBindings],
+      });
+    return [exhaustExactQuotas, deleteHostedExchanges, retireHostedCredentials, retireExactSessions];
+  }
+
+  private prepareRetireHostedChildrenForParentSelection(input: {
+    readonly tenantId: TenantId;
+    readonly nowMs: number;
+    readonly parentSelectionSql: string;
+    readonly parentSelectionBindings: readonly unknown[];
+  }): readonly [D1PreparedStatementLike, D1PreparedStatementLike] {
+    const parentIdentityJoin = `
+      predecessor.namespace = hosted.namespace
+      AND predecessor.org_id = hosted.org_id
+      AND predecessor.project_id = hosted.project_id
+      AND predecessor.env_id = hosted.env_id
+      AND predecessor.tenant_id = hosted.tenant_id
+      AND predecessor.authorization_id = hosted.authorization_id
+      AND predecessor.wallet_session_id = hosted.wallet_session_id
+      AND predecessor.quota_id = hosted.quota_id
+      AND predecessor.principal_id = hosted.principal_id
+      AND predecessor.wallet_id = hosted.wallet_id
+      AND predecessor.authority_id = hosted.authority_id
+      AND predecessor.wallet_auth_method_id = hosted.wallet_auth_method_id`;
+    const scopeBindings = [
+      this.namespace,
+      this.walletSignerScope.orgId,
+      this.walletSignerScope.projectId,
+      this.walletSignerScope.envId,
+      input.tenantId,
+    ] as const;
+    const deleteHostedExchanges = this.database
+      .prepare(
+        `DELETE FROM wallet_session_hosted_exchange_codes_v2 AS hosted
+          WHERE hosted.namespace = ?
+            AND hosted.org_id = ?
+            AND hosted.project_id = ?
+            AND hosted.env_id = ?
+            AND hosted.tenant_id = ?
+            AND hosted.lifecycle_kind = 'issued'
+            AND EXISTS (
+              SELECT 1
+                FROM wallet_session_authorizations_v2 AS predecessor
+               WHERE ${parentIdentityJoin}
+                 AND ${input.parentSelectionSql}
+            )`,
+      )
+      .bind(...scopeBindings, ...input.parentSelectionBindings);
+    const retireHostedCredentials = this.database
+      .prepare(
+        `UPDATE wallet_session_hosted_credentials_v2 AS hosted
+            SET lifecycle_kind = 'retired',
+                retired_at_ms = MAX(hosted.issued_at_ms, ?)
+          WHERE hosted.namespace = ?
+            AND hosted.org_id = ?
+            AND hosted.project_id = ?
+            AND hosted.env_id = ?
+            AND hosted.tenant_id = ?
+            AND hosted.lifecycle_kind = 'active'
+            AND hosted.retired_at_ms IS NULL
+            AND EXISTS (
+              SELECT 1
+                FROM wallet_session_authorizations_v2 AS predecessor
+               WHERE ${parentIdentityJoin}
+                 AND ${input.parentSelectionSql}
+            )`,
+      )
+      .bind(input.nowMs, ...scopeBindings, ...input.parentSelectionBindings);
+    return [deleteHostedExchanges, retireHostedCredentials];
   }
 
   async putIssuedHostedWalletSeamsSessionExchange(
-    exchange: IssuedHostedWalletSeamsSessionExchange,
+    exchange: IssuedHostedWalletSeamsSessionExchangeV2,
   ): Promise<void> {
+    if (exchange.kind !== 'issued_hosted_wallet_session_exchange_v2') {
+      throw new Error('hosted-wallet exchange kind is invalid');
+    }
     const result = await this.database
       .prepare(
-        `INSERT INTO hosted_wallet_session_exchange_codes (
+        `INSERT INTO wallet_session_hosted_exchange_codes_v2 (
           namespace,
+          org_id,
+          project_id,
+          env_id,
           tenant_id,
           exchange_code_id,
+          authorization_id,
           wallet_session_id,
+          quota_id,
+          principal_id,
+          wallet_id,
+          authority_id,
+          wallet_auth_method_id,
           code_hash,
           nonce_digest,
           app_origin,
           wallet_origin,
-          curve,
-          binding_json,
-          lifecycle_kind,
           issued_at_ms,
           expires_at_ms,
-          token_hash,
+          lifecycle_kind,
+          hosted_credential_id,
           consumed_at_ms
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued', ?, ?, NULL, NULL
-          FROM reusable_wallet_sessions AS wallet_session
-         WHERE wallet_session.namespace = ?
-           AND wallet_session.tenant_id = ?
-           AND wallet_session.wallet_session_id = ?
-           AND wallet_session.lifecycle_kind = 'active'
-           AND wallet_session.expires_at_ms >= ?`,
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued', NULL, NULL
+          FROM wallet_session_authorizations_v2 AS session
+          JOIN authorization_wallet_session_quotas AS quota
+            ON quota.namespace = session.namespace
+           AND quota.tenant_id = session.tenant_id
+           AND quota.quota_id = session.quota_id
+           AND quota.wallet_session_id = session.wallet_session_id
+           AND quota.principal_id = session.principal_id
+         WHERE session.namespace = ?
+           AND session.org_id = ?
+           AND session.project_id = ?
+           AND session.env_id = ?
+           AND session.tenant_id = ?
+           AND session.authorization_id = ?
+           AND session.wallet_session_id = ?
+           AND session.quota_id = ?
+           AND session.principal_id = ?
+           AND session.wallet_id = ?
+           AND session.authority_id = ?
+           AND session.wallet_auth_method_id = ?
+           AND session.operation_credential_hash IS NOT NULL
+           AND session.retired_at_ms IS NULL
+           AND session.expires_at_ms >= ?
+           AND quota.lifecycle_kind = 'active'
+           AND quota.remaining_uses > 0
+           AND quota.expires_at_ms >= ?
+           AND ${ACTIVE_V2_HOSTED_PARENT_PROVENANCE_SQL}`,
       )
       .bind(
         this.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
         exchange.tenantId,
         exchange.exchangeCodeId,
+        exchange.authorizationId,
         exchange.walletSessionId,
+        exchange.quotaId,
+        exchange.principalId,
+        exchange.walletId,
+        exchange.authorityId,
+        exchange.walletAuthMethodId,
         exchange.codeHash,
         exchange.nonceDigest,
         exchange.appOrigin,
         exchange.walletOrigin,
-        exchange.curve,
-        exchange.bindingJson,
         requirePositiveInteger(exchange.issuedAtMs, 'exchange.issuedAtMs'),
         requirePositiveInteger(exchange.expiresAtMs, 'exchange.expiresAtMs'),
         this.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
         exchange.tenantId,
+        exchange.authorizationId,
         exchange.walletSessionId,
+        exchange.quotaId,
+        exchange.principalId,
+        exchange.walletId,
+        exchange.authorityId,
+        exchange.walletAuthMethodId,
+        exchange.expiresAtMs,
         exchange.expiresAtMs,
       )
       .run();
@@ -647,104 +833,210 @@ export class CloudflareD1AuthorizationStore
   }
 
   async redeemHostedWalletSeamsSessionExchange(
-    input: RedeemHostedWalletSeamsSessionExchangeInput,
-  ): Promise<PersistedHostedWalletSeamsSessionExchangeResult> {
-    const current = await this.readHostedWalletExchange(input.codeHash);
-    const rejected = classifyHostedWalletExchange(current, input);
+    input: RedeemHostedWalletSeamsSessionExchangeV2Input,
+  ): Promise<PersistedHostedWalletSeamsSessionExchangeV2Result> {
+    const current = await this.readHostedWalletExchangeV2(input.codeHash);
+    const rejected = classifyHostedWalletExchangeV2(current, input);
     if (rejected) return rejected;
+    if (!current) throw new Error('hosted-wallet exchange disappeared');
     try {
-      const revokeExistingToken = this.database
+      const insertCredential = this.database
         .prepare(
-          `DELETE FROM opaque_wallet_session_tokens
-            WHERE namespace = ?
-              AND tenant_id = (
-                SELECT tenant_id
-                  FROM hosted_wallet_session_exchange_codes
-                 WHERE namespace = ? AND code_hash = ?
-              )
-              AND wallet_session_id = (
-                SELECT wallet_session_id
-                  FROM hosted_wallet_session_exchange_codes
-                 WHERE namespace = ? AND code_hash = ?
-              )
-              AND curve = ?`,
-        )
-        .bind(
-          this.namespace,
-          this.namespace,
-          input.codeHash,
-          this.namespace,
-          input.codeHash,
-          input.curve,
-        );
-      const revokeExistingRegistrationReplayToken = this.database
-        .prepare(
-          `DELETE FROM registration_replay_opaque_wallet_session_tokens_v1
-            WHERE namespace = ?
-              AND tenant_id = (
-                SELECT tenant_id
-                  FROM hosted_wallet_session_exchange_codes
-                 WHERE namespace = ? AND code_hash = ?
-              )
-              AND wallet_session_id = (
-                SELECT wallet_session_id
-                  FROM hosted_wallet_session_exchange_codes
-                 WHERE namespace = ? AND code_hash = ?
-              )
-              AND curve = ?`,
-        )
-        .bind(
-          this.namespace,
-          this.namespace,
-          input.codeHash,
-          this.namespace,
-          input.codeHash,
-          input.curve,
-        );
+          `INSERT INTO wallet_session_hosted_credentials_v2 (
+            namespace,
+            org_id,
+            project_id,
+            env_id,
+            tenant_id,
+            hosted_credential_id,
+            authorization_id,
+            wallet_session_id,
+            quota_id,
+            principal_id,
+            wallet_id,
+            authority_id,
+            wallet_auth_method_id,
+            credential_digest_b64u,
+            app_origin,
+            wallet_origin,
+            issued_at_ms,
+            expires_at_ms,
+            lifecycle_kind,
+            retired_at_ms
+          )
+          SELECT exchange.namespace,
+                 exchange.org_id,
+                 exchange.project_id,
+                 exchange.env_id,
+                 exchange.tenant_id,
+                 ?,
+                 exchange.authorization_id,
+                 exchange.wallet_session_id,
+                 exchange.quota_id,
+                 exchange.principal_id,
+                 exchange.wallet_id,
+                 exchange.authority_id,
+                 exchange.wallet_auth_method_id,
+                 ?,
+                 exchange.app_origin,
+                 exchange.wallet_origin,
+                 exchange.issued_at_ms,
+                 exchange.expires_at_ms,
+                 'active',
+                 NULL
+            FROM wallet_session_hosted_exchange_codes_v2 AS exchange
+            JOIN wallet_session_authorizations_v2 AS session
+              ON session.namespace = exchange.namespace
+             AND session.org_id = exchange.org_id
+             AND session.project_id = exchange.project_id
+             AND session.env_id = exchange.env_id
+             AND session.tenant_id = exchange.tenant_id
+             AND session.authorization_id = exchange.authorization_id
+             AND session.wallet_session_id = exchange.wallet_session_id
+             AND session.quota_id = exchange.quota_id
+             AND session.principal_id = exchange.principal_id
+             AND session.wallet_id = exchange.wallet_id
+             AND session.authority_id = exchange.authority_id
+             AND session.wallet_auth_method_id = exchange.wallet_auth_method_id
+            JOIN authorization_wallet_session_quotas AS quota
+              ON quota.namespace = exchange.namespace
+             AND quota.tenant_id = exchange.tenant_id
+             AND quota.quota_id = exchange.quota_id
+             AND quota.wallet_session_id = exchange.wallet_session_id
+             AND quota.principal_id = exchange.principal_id
+           WHERE exchange.namespace = ?
+             AND exchange.org_id = ?
+             AND exchange.project_id = ?
+             AND exchange.env_id = ?
+             AND exchange.tenant_id = ?
+             AND exchange.code_hash = ?
+             AND exchange.nonce_digest = ?
+             AND exchange.app_origin = ?
+             AND exchange.wallet_origin = ?
+             AND exchange.lifecycle_kind = 'issued'
+             AND exchange.hosted_credential_id IS NULL
+             AND exchange.consumed_at_ms IS NULL
+             AND exchange.expires_at_ms > ?
+             AND session.operation_credential_hash IS NOT NULL
+             AND session.retired_at_ms IS NULL
+             AND session.expires_at_ms >= exchange.expires_at_ms
+             AND quota.lifecycle_kind = 'active'
+             AND quota.remaining_uses > 0
+             AND quota.expires_at_ms >= exchange.expires_at_ms
+             AND ${ACTIVE_V2_HOSTED_PARENT_PROVENANCE_SQL}`,
+      )
+      .bind(
+        input.hostedCredentialId,
+        input.tokenHash,
+        this.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        current.tenant_id,
+        input.codeHash,
+        input.nonceDigest,
+        input.appOrigin,
+        input.walletOrigin,
+        requirePositiveInteger(input.redeemedAtMs, 'exchange.redeemedAtMs'),
+      );
       const updateStatement = this.database
         .prepare(
-          `UPDATE hosted_wallet_session_exchange_codes
+          `UPDATE wallet_session_hosted_exchange_codes_v2 AS exchange
               SET lifecycle_kind = 'consumed',
-                  token_hash = ?,
+                  hosted_credential_id = ?,
                   consumed_at_ms = ?
-            WHERE namespace = ?
-              AND code_hash = ?
-              AND nonce_digest = ?
-              AND app_origin = ?
-              AND wallet_origin = ?
-              AND lifecycle_kind = 'issued'
-              AND expires_at_ms > ?
+            WHERE exchange.namespace = ?
+              AND exchange.org_id = ?
+              AND exchange.project_id = ?
+              AND exchange.env_id = ?
+              AND exchange.tenant_id = ?
+              AND exchange.code_hash = ?
+              AND exchange.nonce_digest = ?
+              AND exchange.app_origin = ?
+              AND exchange.wallet_origin = ?
+              AND exchange.lifecycle_kind = 'issued'
+              AND exchange.hosted_credential_id IS NULL
+              AND exchange.consumed_at_ms IS NULL
+              AND exchange.expires_at_ms > ?
               AND EXISTS (
                 SELECT 1
-                  FROM reusable_wallet_sessions AS wallet_session
-                 WHERE wallet_session.namespace = hosted_wallet_session_exchange_codes.namespace
-                   AND wallet_session.tenant_id = hosted_wallet_session_exchange_codes.tenant_id
-                   AND wallet_session.wallet_session_id = hosted_wallet_session_exchange_codes.wallet_session_id
-                   AND wallet_session.lifecycle_kind = 'active'
-                   AND wallet_session.expires_at_ms > ?
+                  FROM wallet_session_authorizations_v2 AS session
+                 WHERE session.namespace = exchange.namespace
+                   AND session.org_id = exchange.org_id
+                   AND session.project_id = exchange.project_id
+                   AND session.env_id = exchange.env_id
+                   AND session.tenant_id = exchange.tenant_id
+                   AND session.authorization_id = exchange.authorization_id
+                   AND session.wallet_session_id = exchange.wallet_session_id
+                   AND session.quota_id = exchange.quota_id
+                   AND session.principal_id = exchange.principal_id
+                   AND session.wallet_id = exchange.wallet_id
+                   AND session.authority_id = exchange.authority_id
+                   AND session.wallet_auth_method_id = exchange.wallet_auth_method_id
+                   AND session.operation_credential_hash IS NOT NULL
+                   AND session.retired_at_ms IS NULL
+                   AND session.expires_at_ms >= exchange.expires_at_ms
+                   AND session.expires_at_ms > ?
+                   AND ${ACTIVE_V2_HOSTED_PARENT_PROVENANCE_SQL}
+              )
+              AND EXISTS (
+                SELECT 1
+                  FROM authorization_wallet_session_quotas AS quota
+                 WHERE quota.namespace = exchange.namespace
+                   AND quota.tenant_id = exchange.tenant_id
+                   AND quota.quota_id = exchange.quota_id
+                   AND quota.wallet_session_id = exchange.wallet_session_id
+                   AND quota.principal_id = exchange.principal_id
+                   AND quota.lifecycle_kind = 'active'
+                   AND quota.remaining_uses > 0
+                   AND quota.expires_at_ms >= exchange.expires_at_ms
+              )
+              AND EXISTS (
+                SELECT 1
+                  FROM wallet_session_hosted_credentials_v2 AS credential
+                 WHERE credential.namespace = exchange.namespace
+                   AND credential.org_id = exchange.org_id
+                   AND credential.project_id = exchange.project_id
+                   AND credential.env_id = exchange.env_id
+                   AND credential.tenant_id = exchange.tenant_id
+                   AND credential.hosted_credential_id = ?
+                   AND credential.authorization_id = exchange.authorization_id
+                   AND credential.wallet_session_id = exchange.wallet_session_id
+                   AND credential.quota_id = exchange.quota_id
+                   AND credential.principal_id = exchange.principal_id
+                   AND credential.wallet_id = exchange.wallet_id
+                   AND credential.authority_id = exchange.authority_id
+                   AND credential.wallet_auth_method_id = exchange.wallet_auth_method_id
+                   AND credential.credential_digest_b64u = ?
+                   AND credential.lifecycle_kind = 'active'
+                   AND credential.retired_at_ms IS NULL
+                   AND credential.expires_at_ms >= exchange.expires_at_ms
               )`,
         )
         .bind(
-          input.tokenHash,
+          input.hostedCredentialId,
           requirePositiveInteger(input.redeemedAtMs, 'exchange.redeemedAtMs'),
           this.namespace,
+          this.walletSignerScope.orgId,
+          this.walletSignerScope.projectId,
+          this.walletSignerScope.envId,
+          current.tenant_id,
           input.codeHash,
           input.nonceDigest,
           input.appOrigin,
           input.walletOrigin,
           input.redeemedAtMs,
           input.redeemedAtMs,
+          input.hostedCredentialId,
+          input.tokenHash,
         );
-      const results = await this.database.batch([
-        revokeExistingToken,
-        revokeExistingRegistrationReplayToken,
-        updateStatement,
-      ]);
-      const update = results[2] as D1ResultLike;
-      if (d1ChangedRows(update) !== 1) {
+      const results = await this.database.batch([insertCredential, updateStatement]);
+      const inserted = results[0] as D1ResultLike;
+      const updated = results[1] as D1ResultLike;
+      if (d1ChangedRows(inserted) !== 1 || d1ChangedRows(updated) !== 1) {
         return (
-          classifyHostedWalletExchange(
-            await this.readHostedWalletExchange(input.codeHash),
+          classifyHostedWalletExchangeV2(
+            await this.readHostedWalletExchangeV2(input.codeHash),
             input,
           ) ?? { kind: 'wallet_session_unavailable' }
         );
@@ -756,13 +1048,128 @@ export class CloudflareD1AuthorizationStore
     return {
       kind: 'redeemed',
       tenantId: requireParsed(current.tenant_id, parseTenantId, 'exchange.tenantId'),
+      authorizationId: requireParsed(
+        current.authorization_id,
+        parseWalletSessionAuthorizationId,
+        'exchange.authorizationId',
+      ),
       walletSessionId: requireParsed(
         current.wallet_session_id,
         parseWalletSessionId,
         'exchange.walletSessionId',
       ),
-      curve: input.curve,
+      hostedCredentialId: parseHostedWalletSessionCredentialId(input.hostedCredentialId),
       expiresAtMs: integerColumn(current.expires_at_ms, 'exchange.expiresAtMs'),
+    };
+  }
+
+  async readHostedWalletSessionOperationCredentialV2(input: {
+    readonly tenantId: TenantId;
+    readonly tokenHash: import('@shared/utils/canonicalPrimitives').DigestB64u;
+    readonly requestOrigin: import('../../../../authorization/domain').SessionOrigin;
+    readonly nowMs: number;
+  }): Promise<ResolvedHostedWalletSessionOperationCredentialV2 | null> {
+    const row = await this.database
+      .prepare(
+        `SELECT credential.hosted_credential_id,
+                credential.authorization_id,
+                credential.wallet_session_id,
+                credential.quota_id,
+                credential.principal_id,
+                credential.wallet_id,
+                credential.authority_id,
+                credential.wallet_auth_method_id,
+                credential.app_origin,
+                credential.wallet_origin,
+                credential.expires_at_ms,
+                credential.retired_at_ms,
+                session.record_json AS session_record_json,
+                session.retired_at_ms AS session_retired_at_ms,
+                session.expires_at_ms AS session_expires_at_ms,
+                session.operation_credential_hash AS session_operation_credential_hash,
+                quota.lifecycle_kind AS quota_lifecycle_kind,
+                quota.remaining_uses AS quota_remaining_uses,
+                quota.expires_at_ms AS quota_expires_at_ms
+           FROM wallet_session_hosted_credentials_v2 AS credential
+           LEFT JOIN wallet_session_authorizations_v2 AS session
+             ON session.namespace = credential.namespace
+            AND session.org_id = credential.org_id
+            AND session.project_id = credential.project_id
+            AND session.env_id = credential.env_id
+            AND session.tenant_id = credential.tenant_id
+            AND session.authorization_id = credential.authorization_id
+            AND session.wallet_session_id = credential.wallet_session_id
+            AND session.quota_id = credential.quota_id
+            AND session.principal_id = credential.principal_id
+            AND session.wallet_id = credential.wallet_id
+            AND session.authority_id = credential.authority_id
+            AND session.wallet_auth_method_id = credential.wallet_auth_method_id
+           LEFT JOIN authorization_wallet_session_quotas AS quota
+             ON quota.namespace = credential.namespace
+            AND quota.tenant_id = credential.tenant_id
+            AND quota.quota_id = credential.quota_id
+            AND quota.wallet_session_id = credential.wallet_session_id
+            AND quota.principal_id = credential.principal_id
+          WHERE credential.namespace = ?
+            AND credential.org_id = ?
+            AND credential.project_id = ?
+            AND credential.env_id = ?
+            AND credential.tenant_id = ?
+            AND credential.credential_digest_b64u = ?
+            AND credential.lifecycle_kind = 'active'
+            AND credential.retired_at_ms IS NULL
+          LIMIT 1`,
+      )
+      .bind(
+        this.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        input.tenantId,
+        input.tokenHash,
+      )
+      .first<HostedWalletExchangeV2Row>();
+    if (!row) return null;
+    const appOrigin = parseSessionOrigin(row.app_origin);
+    const walletOrigin = parseSessionOrigin(row.wallet_origin);
+    if (walletOrigin !== input.requestOrigin) return null;
+    if (
+      row.session_record_json === null ||
+      row.session_record_json === undefined ||
+      row.session_operation_credential_hash === null ||
+      row.session_operation_credential_hash === undefined ||
+      row.session_retired_at_ms !== null && row.session_retired_at_ms !== undefined ||
+      row.credential_retired_at_ms !== null && row.credential_retired_at_ms !== undefined ||
+      row.quota_lifecycle_kind !== 'active' ||
+      integerColumn(row.quota_remaining_uses, 'hosted credential quota remaining uses') <= 0 ||
+      integerColumn(row.expires_at_ms, 'hosted credential expiry') <= input.nowMs ||
+      integerColumn(row.session_expires_at_ms, 'hosted parent expiry') <= input.nowMs ||
+      integerColumn(row.session_expires_at_ms, 'hosted parent expiry') <
+        integerColumn(row.expires_at_ms, 'hosted credential expiry') ||
+      integerColumn(row.quota_expires_at_ms, 'hosted quota expiry') <= input.nowMs ||
+      integerColumn(row.quota_expires_at_ms, 'hosted quota expiry') <
+        integerColumn(row.expires_at_ms, 'hosted credential expiry')
+    ) {
+      return null;
+    }
+    const expected = parseWalletSessionAuthorizationV2(parseD1JsonColumn(row.session_record_json));
+    let authorization: IssuedWalletSessionAuthorizationV2 | null;
+    try {
+      authorization = await this.readWalletSessionAuthorizationV2ByAuthorizationId({
+        expected,
+        nowMs: input.nowMs,
+      });
+    } catch {
+      return null;
+    }
+    if (!authorization) return null;
+    return {
+      kind: 'resolved_hosted_wallet_session_operation_credential_v2',
+      authorization,
+      hostedCredentialId: parseHostedWalletSessionCredentialId(row.hosted_credential_id),
+      appOrigin,
+      walletOrigin,
+      expiresAtMs: integerColumn(row.expires_at_ms, 'hosted credential expiry'),
     };
   }
 
@@ -1257,11 +1664,11 @@ export class CloudflareD1AuthorizationStore
     requireExactPersistedActiveWalletSessionAuthorizationV2(persisted);
     const statements = this.prepareDirectWalletSessionAuthorizationV2Statements(persisted);
     const results = await this.database.batch<D1ResultLike>(statements);
-    if (results.length !== 4) {
+    if (results.length !== 6) {
       throw new Error('Direct V2 Wallet Session transaction returned incomplete results');
     }
-    const quotaResult = results[2];
-    const sessionResult = results[3];
+    const quotaResult = results[4];
+    const sessionResult = results[5];
     if (!quotaResult || !sessionResult) {
       throw new Error('Direct V2 Wallet Session transaction returned incomplete results');
     }
@@ -1308,6 +1715,8 @@ export class CloudflareD1AuthorizationStore
   prepareDirectWalletSessionAuthorizationV2Statements(
     persisted: PersistedActiveWalletSessionAuthorizationV2,
   ): readonly [
+    D1PreparedStatementLike,
+    D1PreparedStatementLike,
     D1PreparedStatementLike,
     D1PreparedStatementLike,
     D1PreparedStatementLike,
@@ -1507,7 +1916,31 @@ export class CloudflareD1AuthorizationStore
         requirePositiveInteger(quota.remainingUses, 'Direct V2 quota.remainingUses'),
         requirePositiveInteger(quota.expiresAtMs, 'Direct V2 quota.expiresAtMs'),
       );
-    return [exhaustPredecessorQuotas, retirePredecessorSessions, quotaStatement, sessionStatement];
+    const [deleteHostedExchanges, retireHostedCredentials] =
+      this.prepareRetireHostedChildrenForParentSelection({
+        tenantId: session.tenantId,
+        nowMs: session.createdAtMs,
+        parentSelectionSql: `
+          predecessor.wallet_id = ?
+          AND predecessor.authority_id = ?
+          AND predecessor.wallet_auth_method_id = ?
+          AND predecessor.mint_id != ?
+          AND predecessor.retired_at_ms IS NULL`,
+        parentSelectionBindings: [
+          session.walletId,
+          session.authorityId,
+          session.walletAuthMethodId,
+          session.mintId,
+        ],
+      });
+    return [
+      exhaustPredecessorQuotas,
+      deleteHostedExchanges,
+      retireHostedCredentials,
+      retirePredecessorSessions,
+      quotaStatement,
+      sessionStatement,
+    ];
   }
 
   async replaceWalletSessionAuthorizationV2AuthorityProjection(input: {
@@ -3026,19 +3459,53 @@ export class CloudflareD1AuthorizationStore
     }
   }
 
-  private async readHostedWalletExchange(
-    codeHash: RedeemHostedWalletSeamsSessionExchangeInput['codeHash'],
-  ): Promise<HostedWalletExchangeRow | null> {
+  private async readHostedWalletExchangeV2(
+    codeHash: RedeemHostedWalletSeamsSessionExchangeV2Input['codeHash'],
+  ): Promise<HostedWalletExchangeV2Row | null> {
     return await this.database
       .prepare(
-        `SELECT *
-           FROM hosted_wallet_session_exchange_codes
-          WHERE namespace = ?
-            AND code_hash = ?
+        `SELECT exchange.*,
+                session.operation_credential_hash AS session_operation_credential_hash,
+                session.retired_at_ms AS session_retired_at_ms,
+                session.expires_at_ms AS session_expires_at_ms,
+                quota.remaining_uses AS quota_remaining_uses,
+                quota.lifecycle_kind AS quota_lifecycle_kind,
+                quota.expires_at_ms AS quota_expires_at_ms
+           FROM wallet_session_hosted_exchange_codes_v2 AS exchange
+           LEFT JOIN wallet_session_authorizations_v2 AS session
+             ON session.namespace = exchange.namespace
+            AND session.org_id = exchange.org_id
+            AND session.project_id = exchange.project_id
+            AND session.env_id = exchange.env_id
+            AND session.tenant_id = exchange.tenant_id
+            AND session.authorization_id = exchange.authorization_id
+            AND session.wallet_session_id = exchange.wallet_session_id
+            AND session.quota_id = exchange.quota_id
+            AND session.principal_id = exchange.principal_id
+            AND session.wallet_id = exchange.wallet_id
+            AND session.authority_id = exchange.authority_id
+            AND session.wallet_auth_method_id = exchange.wallet_auth_method_id
+           LEFT JOIN authorization_wallet_session_quotas AS quota
+             ON quota.namespace = exchange.namespace
+            AND quota.tenant_id = exchange.tenant_id
+            AND quota.quota_id = exchange.quota_id
+            AND quota.wallet_session_id = exchange.wallet_session_id
+            AND quota.principal_id = exchange.principal_id
+          WHERE exchange.namespace = ?
+            AND exchange.org_id = ?
+            AND exchange.project_id = ?
+            AND exchange.env_id = ?
+            AND exchange.code_hash = ?
           LIMIT 1`,
       )
-      .bind(this.namespace, codeHash)
-      .first<HostedWalletExchangeRow>();
+      .bind(
+        this.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        codeHash,
+      )
+      .first<HostedWalletExchangeV2Row>();
   }
 }
 
@@ -3131,10 +3598,10 @@ function authorizationSourceRejected(
     : { kind: 'authorization_grant_rejected' };
 }
 
-function classifyHostedWalletExchange(
-  row: HostedWalletExchangeRow | null,
-  input: RedeemHostedWalletSeamsSessionExchangeInput,
-): PersistedHostedWalletSeamsSessionExchangeResult | null {
+function classifyHostedWalletExchangeV2(
+  row: HostedWalletExchangeV2Row | null,
+  input: RedeemHostedWalletSeamsSessionExchangeV2Input,
+): PersistedHostedWalletSeamsSessionExchangeV2Result | null {
   if (!row) return { kind: 'invalid_code' };
   if (row.lifecycle_kind === 'consumed') return { kind: 'already_consumed' };
   if (row.lifecycle_kind !== 'issued') return { kind: 'invalid_code' };
@@ -3143,8 +3610,22 @@ function classifyHostedWalletExchange(
   }
   if (row.nonce_digest !== input.nonceDigest) return { kind: 'nonce_mismatch' };
   if (row.app_origin !== input.appOrigin) return { kind: 'app_origin_mismatch' };
-  if (row.wallet_origin !== input.walletOrigin) return { kind: 'app_origin_mismatch' };
-  if (row.curve !== input.curve) return { kind: 'app_origin_mismatch' };
+  if (row.wallet_origin !== input.walletOrigin) return { kind: 'wallet_origin_mismatch' };
+  if (
+    row.session_operation_credential_hash === null ||
+    row.session_operation_credential_hash === undefined ||
+    row.session_retired_at_ms !== null && row.session_retired_at_ms !== undefined ||
+    row.quota_lifecycle_kind !== 'active' ||
+    integerColumn(row.quota_remaining_uses, 'exchange.quotaRemainingUses') <= 0 ||
+    integerColumn(row.session_expires_at_ms, 'exchange.sessionExpiresAtMs') <= input.redeemedAtMs ||
+    integerColumn(row.session_expires_at_ms, 'exchange.sessionExpiresAtMs') <
+      integerColumn(row.expires_at_ms, 'exchange.expiresAtMs') ||
+    integerColumn(row.quota_expires_at_ms, 'exchange.quotaExpiresAtMs') <= input.redeemedAtMs ||
+    integerColumn(row.quota_expires_at_ms, 'exchange.quotaExpiresAtMs') <
+      integerColumn(row.expires_at_ms, 'exchange.expiresAtMs')
+  ) {
+    return { kind: 'wallet_session_unavailable' };
+  }
   return null;
 }
 
