@@ -13,6 +13,7 @@ import type {
   ActiveWalletSessionAuthorizationProjection,
   WalletSessionAuthorizationExactOperationCredentialReadResult,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type {
   acquireSigningSessionRestoreLease,
   deleteDurableSealedSessionRecord,
@@ -35,6 +36,9 @@ export type EmailOtpCoordinatorRuntimePorts = {
   signerWorkerManager: SignerWorkerManager;
   getRpId: () => string | null;
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
+  resolveSelectedWalletAuthority: (
+    walletId: string,
+  ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
   readExactWalletSessionAuthorization: (input: {
     walletId: WalletId;
     authorityId: WalletAuthorityId;

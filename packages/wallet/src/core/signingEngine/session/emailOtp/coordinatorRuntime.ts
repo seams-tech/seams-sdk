@@ -91,6 +91,7 @@ export class EmailOtpWalletSessionRuntime {
         configs: deps.configs,
         withThresholdEcdsaSigningQueue: deps.withThresholdEcdsaSigningQueue,
         getSignerWorkerContext: deps.getSignerWorkerContext,
+        resolveSelectedWalletAuthority: deps.resolveSelectedWalletAuthority,
         readExactWalletSessionAuthorization: deps.readExactWalletSessionAuthorization,
         provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
         commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,

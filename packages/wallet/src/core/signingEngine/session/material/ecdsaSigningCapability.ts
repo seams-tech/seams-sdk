@@ -7,7 +7,6 @@ import type {
 } from '@shared/device-linking/contracts';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { ExactEcdsaSealedRuntime } from './ecdsaSealedRuntime';
-import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
 import type { ActiveWalletAuthMethodV2 } from '../identity/ownerLaneScope';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import {
@@ -104,7 +103,6 @@ export type BuildExactEvmFamilyWalletSessionAuthorizationInput = {
   readonly session: ActiveWalletSessionV1;
   readonly operationCredential: WalletSessionOperationCredentialV1;
   readonly runtime: ExactEcdsaSealedRuntime;
-  readonly walletSessionId: WalletSessionId;
   readonly nowMs: number;
 };
 
@@ -332,7 +330,6 @@ export function buildExactEvmFamilyWalletSessionAuthorization(
     throw new Error('Exact EVM-family Wallet Session authorization requires a valid timestamp');
   }
   if (
-    input.operationCredential.walletSessionId !== input.walletSessionId ||
     !selectedAuthorityComponentsAreExact({
       selectedAuthority: input.selected.authority,
       selectedAuthMethod: input.selected.authMethod,
@@ -360,12 +357,13 @@ export function buildExactEvmFamilyWalletSessionAuthorization(
 export function authorizeEvmFamilyEcdsaSigningCapability(input: {
   readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
   readonly authorization: ExactEvmFamilyWalletSessionAuthorization;
+  readonly nowMs: number;
 }): AuthorizedEvmFamilyEcdsaSigningCapability {
   if (
     !exactAuthorizationMatchesCapability({
       capability: input.capability,
       authorization: input.authorization,
-      nowMs: Date.now(),
+      nowMs: input.nowMs,
     })
   ) {
     throw new Error(
