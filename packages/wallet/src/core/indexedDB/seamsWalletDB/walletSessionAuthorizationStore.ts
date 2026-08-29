@@ -663,6 +663,17 @@ const EXACT_STORED_ROW_FIELDS = [
 ] as const;
 const EXACT_STORED_ROW_V5_FIELDS = [...EXACT_STORED_ROW_FIELDS, 'operation_credential'] as const;
 
+const FUTURE_WALLET_SESSION_AUTHORIZATION_RECORD_VERSION =
+  /^wallet_session_authorization_v([0-9]+)$/;
+
+function isFutureWalletSessionAuthorizationRow(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.record_version !== 'string') return false;
+  const match = FUTURE_WALLET_SESSION_AUTHORIZATION_RECORD_VERSION.exec(value.record_version);
+  if (!match) return false;
+  const version = Number(match[1]);
+  return Number.isSafeInteger(version) && version > 5;
+}
+
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
@@ -1047,6 +1058,7 @@ export class WalletSessionAuthorizationRepository {
     try {
       const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(parsed.walletId);
       for (const raw of rows) {
+        if (isFutureWalletSessionAuthorizationRow(raw)) continue;
         if (isStoredExactWalletSessionAuthorizationRow(raw)) continue;
         const current = parseStoredRow(raw);
         if (!current) {
@@ -1091,6 +1103,7 @@ export class WalletSessionAuthorizationRepository {
     try {
       const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(incoming.walletId);
       const projections = rows
+        .filter((row) => !isFutureWalletSessionAuthorizationRow(row))
         .filter((row) => !isStoredExactWalletSessionAuthorizationRow(row))
         .map(parseStoredRow);
       if (projections.some((projection) => projection === null)) {
@@ -1155,6 +1168,7 @@ export class WalletSessionAuthorizationRepository {
     try {
       const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(incoming.walletId);
       const projections = rows
+        .filter((row) => !isFutureWalletSessionAuthorizationRow(row))
         .filter((row) => !isStoredExactWalletSessionAuthorizationRow(row))
         .map(parseStoredRow);
       if (projections.some((projection) => projection === null)) {
@@ -1276,6 +1290,7 @@ export class WalletSessionAuthorizationRepository {
     try {
       const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(parsed.walletId);
       for (const raw of rows) {
+        if (isFutureWalletSessionAuthorizationRow(raw)) continue;
         if (
           !isStoredExactWalletSessionAuthorizationRow(raw) ||
           !isRecord(raw) ||
@@ -1460,6 +1475,14 @@ export class WalletSessionAuthorizationRepository {
     try {
       const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(incoming.walletId);
       for (const raw of rows) {
+        if (isFutureWalletSessionAuthorizationRow(raw)) continue;
+        if (!isStoredExactWalletSessionAuthorizationRow(raw)) {
+          if (!parseStoredRow(raw)) {
+            tx.abort();
+            throw new Error('Stored Wallet Session authorization projection is corrupt');
+          }
+          continue;
+        }
         const parsedCurrent = parseStoredExactWalletSessionAuthorizationRowWithVersion(raw);
         if (!parsedCurrent) {
           tx.abort();
