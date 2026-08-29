@@ -38,7 +38,10 @@ import type {
   MpcWalletSigningQuotaId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { NearEd25519YaoSigningPreparation } from '../session/material/nearEd25519YaoSigningPreparation';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import type { Ed25519OperationStepUpProof } from '../threshold/ed25519/walletSession';
@@ -90,7 +93,8 @@ export type NearResolvedEd25519SigningSessionState = {
 };
 
 export type NearAuthorizedEd25519SigningSessionState = NearResolvedEd25519SigningSessionState & {
-  walletSessionAuthorization: ActiveWalletSessionAuthorizationProjection;
+  walletSessionAuthorization: ActiveWalletSessionV1;
+  walletSessionOperationCredential: WalletSessionOperationCredentialV1;
 };
 
 export type NearEd25519YaoOperationMaterialFacts = {

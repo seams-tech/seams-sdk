@@ -53,6 +53,7 @@ import type {
   ActiveWalletSessionV1,
   WalletSessionOperationCredentialV1,
 } from '../../../packages/shared-ts/src/device-linking/contracts';
+import type { WalletSelectionRecordV1 } from '../../../packages/wallet/src/core/indexedDB/passkeyClientDB.types';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
 
 const MANAGEMENT_DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(33)));
@@ -97,6 +98,7 @@ export type LinkedDeviceManagementAuthorityIdentityV1 = {
 export type LinkedDeviceManagementAuthorityFixture = {
   readonly authority: ActiveWalletAuthorityV1;
   readonly authMethod: ActivePasskeyWalletAuthMethodRecordV2;
+  readonly selection: WalletSelectionRecordV1;
   readonly issuedSession: IssuedWalletSessionAuthorizationV2;
   readonly activeWalletSession: ActiveWalletSessionV1;
   readonly operationCredential: WalletSessionOperationCredentialV1;
@@ -298,6 +300,14 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   return {
     authority,
     authMethod,
+    selection: {
+      kind: 'wallet_selection_v1',
+      walletId,
+      walletAuthMethodId: authMethodId,
+      lockGeneration: 0,
+      lockState: 'unlocked',
+      updatedAtMs: 200,
+    },
     issuedSession,
     activeWalletSession: projectActiveWalletSession(issuedSession),
     operationCredential: parseWalletSessionOperationCredentialV1({
