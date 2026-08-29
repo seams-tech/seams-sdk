@@ -50,12 +50,23 @@ import { handleSigningSessionSealRoutes } from '../../../threshold/session/signi
 import type {
   SigningSessionSealAuthorizeInput,
   SigningSessionSealAuthorizeResult,
-  SigningSessionSealCurve,
   SigningSessionSealThresholdSessionRecord,
 } from '../../../threshold/session/signingSessionSeal/signingSessionSeal.types';
-import { parseEcdsaKeyHandle } from '../../../core/keyMaterialBrands';
 import { extractBearerCredential } from '../../auth/routerApiKeyAuth';
-import { resolveOpaqueOwnerWalletSessionAdmission } from '../../auth/commonRouterUtils';
+import {
+  resolveWalletSessionOperationCredentialAdmissionFromContext,
+  type WalletSessionOperationCredentialAdmission,
+} from '../../auth/commonRouterUtils';
+import {
+  EVM_ECDSA_MPC_OPERATION_KINDS,
+  NEAR_ED25519_MPC_OPERATION_KINDS,
+} from '@shared/authorization/capabilityKinds';
+import { base64UrlEncode } from '@shared/utils/base64';
+import {
+  routerAbMpcMaterialActivationRefToWire,
+  sameRouterAbMpcMaterialActivationRef,
+} from '@shared/utils/routerAbNormalSigningIdentity';
+import { routerAbEcdsaDerivationActiveStateId } from '@shared/utils/routerAbEcdsaDerivation';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../../framework/routerApi';
 import {
   attachRouterApiRouteSurface,
@@ -70,6 +81,7 @@ import { resolveRouterApiModuleRouteExtensions } from '../../framework/modules';
 import type {
   RouterApiAuthorizationSessionService,
   RouterApiServiceBag,
+  RouterApiWalletRegistrationService,
 } from '../../framework/authServicePort';
 import type { RouterApiOptions } from '../../framework/routerApi';
 import type {
@@ -78,10 +90,16 @@ import type {
   FetchRouterRuntime,
 } from './fetchRouter.types';
 
-const SIGNING_SESSION_SEAL_OWNER_CURVES = {
-  ecdsa: 'ecdsa',
-  ed25519: 'ed25519',
-} as const satisfies Record<SigningSessionSealCurve, SigningSessionSealCurve>;
+const SIGNING_SESSION_SEAL_OPERATIONS = [
+  {
+    keyFamily: 'ed25519',
+    operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
+  },
+  {
+    keyFamily: 'ecdsa_secp256k1',
+    operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
+  },
+] as const;
 
 export type {
   FetchRouterApiContext,
@@ -89,45 +107,100 @@ export type {
   FetchRouterRuntime,
 } from './fetchRouter.types';
 
-function signingSessionSealRecordFromAdmission(
-  admission: NonNullable<Awaited<ReturnType<typeof resolveOpaqueOwnerWalletSessionAdmission>>>,
-): SigningSessionSealThresholdSessionRecord {
+type SigningSessionSealRecordResolution =
+  | { readonly kind: 'resolved'; readonly record: SigningSessionSealThresholdSessionRecord }
+  | { readonly kind: 'inactive' }
+  | { readonly kind: 'unavailable' };
+
+async function signingSessionSealRecordFromExactAdmission(input: {
+  readonly admission: WalletSessionOperationCredentialAdmission;
+  readonly walletRegistration: RouterApiWalletRegistrationService;
+}): Promise<SigningSessionSealRecordResolution> {
+  const admission = input.admission;
+  const walletId = String(admission.context.authorization.session.walletId);
+  const expiresAtMs = admission.context.authorization.session.expiresAtMs;
+  const materialActivation = routerAbMpcMaterialActivationRefToWire(
+    admission.admission.materialActivation,
+  );
   switch (admission.curve) {
-    case 'ecdsa':
+    case 'ecdsa': {
+      const active = await input.walletRegistration.resolveEcdsaMaterialActivation({
+        walletId,
+        materialActivation,
+      });
+      if (!active.ok) {
+        return { kind: active.code === 'internal' ? 'unavailable' : 'inactive' };
+      }
+      const normalSigning = active.routerAbEcdsaDerivationNormalSigning;
+      if (
+        normalSigning.scope.wallet_id !== walletId ||
+        normalSigning.scope.public_identity.threshold_public_key33_b64u !==
+          admission.admission.signer.thresholdPublicKey33B64u ||
+        !sameRouterAbMpcMaterialActivationRef(active.materialActivation, materialActivation) ||
+        !sameRouterAbMpcMaterialActivationRef(
+          normalSigning.scope.material_activation,
+          materialActivation,
+        )
+      ) {
+        return { kind: 'inactive' };
+      }
       return {
-        kind: 'owner_threshold_session',
-        curve: 'ecdsa',
-        thresholdSessionId: admission.binding.thresholdSessionId,
-        userId: admission.binding.walletId,
-        expiresAtMs: admission.binding.thresholdExpiresAtMs,
-        relayerKeyId: admission.binding.relayerKeyId,
-        participantIds: admission.binding.participantIds,
-        keyHandle: parseEcdsaKeyHandle(admission.binding.keyHandle),
+        kind: 'resolved',
+        record: {
+          kind: 'exact_wallet_session_operation_credential',
+          curve: 'ecdsa',
+          thresholdSessionId: routerAbEcdsaDerivationActiveStateId(normalSigning),
+          userId: walletId,
+          expiresAtMs,
+        },
       };
-    case 'ed25519':
+    }
+    case 'ed25519': {
+      const active = await input.walletRegistration.resolveEd25519MaterialActivation({
+        walletId,
+        materialActivation,
+      });
+      if (!active.ok) {
+        return { kind: active.code === 'internal' ? 'unavailable' : 'inactive' };
+      }
+      const identity = active.exportIdentity;
+      if (
+        identity.scope.account_id !== walletId ||
+        identity.application_binding.wallet_id !== walletId ||
+        base64UrlEncode(Uint8Array.from(identity.registered_public_key)) !==
+          admission.admission.signer.registeredPublicKeyB64u ||
+        !sameRouterAbMpcMaterialActivationRef(active.materialActivation, materialActivation) ||
+        !sameRouterAbMpcMaterialActivationRef(
+          identity.scope.material_activation,
+          materialActivation,
+        )
+      ) {
+        return { kind: 'inactive' };
+      }
       return {
-        kind: 'owner_threshold_session',
-        curve: 'ed25519',
-        thresholdSessionId: admission.binding.thresholdSessionId,
-        userId: admission.binding.walletId,
-        expiresAtMs: admission.binding.thresholdExpiresAtMs,
-        relayerKeyId: admission.binding.relayerKeyId,
-        participantIds: admission.binding.participantIds,
-        authorityScope: admission.binding.authorityScope,
+        kind: 'resolved',
+        record: {
+          kind: 'exact_wallet_session_operation_credential',
+          curve: 'ed25519',
+          thresholdSessionId: identity.scope.threshold_session_id,
+          userId: walletId,
+          expiresAtMs,
+        },
       };
+    }
   }
 }
 
-async function authorizeSigningSessionSealWithOpaqueWalletSession(
+export async function authorizeSigningSessionSealWithExactWalletSession(
   authorizationSessions: RouterApiAuthorizationSessionService | null | undefined,
-  session: RouterApiOptions['session'],
+  walletRegistration: RouterApiWalletRegistrationService,
   input: SigningSessionSealAuthorizeInput,
 ): Promise<SigningSessionSealAuthorizeResult> {
   if (!authorizationSessions) {
     return {
       ok: false,
       code: 'sessions_disabled',
-      message: 'Opaque Wallet Sessions are not configured',
+      message: 'Wallet Sessions are not configured',
       status: 501,
     };
   }
@@ -140,34 +213,93 @@ async function authorizeSigningSessionSealWithOpaqueWalletSession(
       status: 401,
     };
   }
-  for (const curve of Object.values(SIGNING_SESSION_SEAL_OWNER_CURVES)) {
-    const admission = await resolveOpaqueOwnerWalletSessionAdmission({
-      authorizationSessions,
+  const nowMs = Date.now();
+  let context: Awaited<
+    ReturnType<
+      RouterApiAuthorizationSessionService['readWalletSessionAuthorizationV2ByOperationCredential']
+    >
+  >;
+  try {
+    context = await authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+      tenantId: authorizationSessions.tenantId,
       token,
-      curve,
-      nowMs: Date.now(),
+      nowMs,
     });
-    if (!admission) continue;
-    const thresholdSession = signingSessionSealRecordFromAdmission(admission);
-    if (thresholdSession.thresholdSessionId !== input.thresholdSessionId) {
-      return {
-        ok: false,
-        code: 'wallet_session_scope_mismatch',
-        message: 'Wallet Session does not match the requested threshold session',
-        status: 403,
-      };
+  } catch {
+    return {
+      ok: false,
+      code: 'wallet_session_unavailable',
+      message: 'Wallet Session is unavailable',
+      status: 503,
+    };
+  }
+  if (!context) {
+    return {
+      ok: false,
+      code: 'wallet_session_invalid',
+      message: 'Wallet Session is invalid',
+      status: 401,
+    };
+  }
+  const matchingRecords: SigningSessionSealThresholdSessionRecord[] = [];
+  let admitted = false;
+  try {
+    for (const operation of SIGNING_SESSION_SEAL_OPERATIONS) {
+      const resolution = resolveWalletSessionOperationCredentialAdmissionFromContext({
+        context,
+        nowMs,
+        operation,
+      });
+      if (resolution.kind !== 'admitted') continue;
+      admitted = true;
+      const record = await signingSessionSealRecordFromExactAdmission({
+        admission: resolution.admission,
+        walletRegistration,
+      });
+      if (record.kind === 'unavailable') {
+        return {
+          ok: false,
+          code: 'wallet_session_unavailable',
+          message: 'Wallet Session is unavailable',
+          status: 503,
+        };
+      }
+      if (
+        record.kind === 'resolved' &&
+        record.record.thresholdSessionId === input.thresholdSessionId
+      ) {
+        matchingRecords.push(record.record);
+      }
     }
+  } catch {
+    return {
+      ok: false,
+      code: 'wallet_session_unavailable',
+      message: 'Wallet Session is unavailable',
+      status: 503,
+    };
+  }
+  if (matchingRecords.length === 1) {
+    const thresholdSession = matchingRecords[0];
     return { ok: true, auth: { userId: thresholdSession.userId, session: thresholdSession } };
+  }
+  if (admitted) {
+    return {
+      ok: false,
+      code: 'wallet_session_scope_mismatch',
+      message: 'Wallet Session does not match the requested threshold session',
+      status: 403,
+    };
   }
   return {
     ok: false,
-    code: 'wallet_session_unavailable',
-    message: 'Wallet Session is unavailable',
+    code: 'wallet_session_invalid',
+    message: 'Wallet Session is invalid',
     status: 401,
   };
 }
 
-async function handleOpaqueWalletSigningSessionSeal(
+async function handleExactWalletSigningSessionSeal(
   context: FetchRouterApiContext,
 ): Promise<Response | null> {
   return await handleSigningSessionSealRoutes({
@@ -175,10 +307,10 @@ async function handleOpaqueWalletSigningSessionSeal(
     pathname: context.pathname,
     method: context.method,
     logger: context.logger,
-    authorize: authorizeSigningSessionSealWithOpaqueWalletSession.bind(
+    authorize: authorizeSigningSessionSealWithExactWalletSession.bind(
       undefined,
       context.service.authorizationSessions,
-      context.opts.session,
+      context.service.walletRegistration,
     ),
     options: context.opts.signingSessionSeal,
   });
@@ -253,7 +385,7 @@ export function createFetchRouter(
     handleOwnerWalletExecutionLanePreflight,
     handleThresholdEd25519,
     handleThresholdEcdsa,
-    handleOpaqueWalletSigningSessionSeal,
+    handleExactWalletSigningSessionSeal,
     handleWebAuthnAuthenticators,
     handleNearPublicKeys,
     handleReusableWalletSessionStatus,
