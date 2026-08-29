@@ -509,6 +509,7 @@ export async function buildLinkedDeviceUnlockRuntimeFixture(): Promise<LinkedDev
     authorityId,
     authMethodId: walletAuthMethodId,
     authorizationId,
+    quotaId,
     authorityDigestB64u: authority.authorityDigestB64u,
     authorityRevocationEpoch: 0,
     capabilitySubjects: issuedSession.capabilitySubjects,

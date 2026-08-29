@@ -15,6 +15,7 @@ import {
 } from '@shared/device-linking';
 import {
   parseDeviceId,
+  parseMpcWalletSigningQuotaId,
   parseWalletSessionAuthorizationId,
 } from '@shared/authorization/capabilityKinds';
 import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
@@ -230,12 +231,14 @@ function buildResumeFixture(label: string): ResumeFixture {
   const authorizationId = required(
     parseWalletSessionAuthorizationId(`wallet-session:resume:${label}`),
   );
+  const quotaId = required(parseMpcWalletSigningQuotaId(`quota:resume:${label}`));
   const walletSession: ActiveWalletSessionV1 = {
     kind: 'active_wallet_session_v1',
     walletId,
     authorityId,
     authMethodId,
     authorizationId,
+    quotaId,
     authorityDigestB64u: digest,
     authorityRevocationEpoch: 0,
     capabilitySubjects: [{ kind: 'sign', keyFamily: 'ed25519', materialActivation }],

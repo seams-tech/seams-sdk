@@ -540,6 +540,7 @@ async function syncVerifyResponse(scenario: FetchScenario): Promise<Record<strin
     authorityId: founding.authority.authorityId,
     authMethodId: founding.authMethod.walletAuthMethodId,
     authorizationId: authorizationId.value,
+    quotaId: WALLET_SESSION_QUOTA_ID,
     authorityDigestB64u: founding.authority.authorityDigestB64u,
     authorityRevocationEpoch: founding.authority.revocationEpoch,
     capabilitySubjects: [

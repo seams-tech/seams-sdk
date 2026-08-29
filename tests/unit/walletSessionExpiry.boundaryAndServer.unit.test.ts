@@ -321,6 +321,37 @@ test('Ed25519 export preflight reads only the selected exact Wallet Session', as
   }
 });
 
+test('Ed25519 persistence rejects a sibling quota substituted into the exact session', async () => {
+  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  const lane = linkedRuntimeEd25519Lane(fixture);
+  const harness = new ClientWalletSessionAuthorizationPersistenceHarness(
+    {
+      kind: 'resolved',
+      selection: fixture.selection,
+      authMethod: fixture.authMethod,
+      authority: fixture.authority,
+      signerMaterials: fixture.signerMaterials,
+      exportRoot: null,
+    },
+    {
+      kind: 'found',
+      record: {
+        ...fixture.activeWalletSession,
+        quotaId: SigningSessionIds.walletSessionQuota('linked-runtime-sibling'),
+      },
+      operationCredential: fixture.operationCredential,
+    },
+  );
+
+  await expect(
+    readClientWalletSessionAuthorization(harness.deps, {
+      kind: 'ed25519',
+      laneIdentity: lane.identity,
+      nowMs: Date.now(),
+    }),
+  ).resolves.toEqual(expect.objectContaining({ kind: 'invalid', reason: 'scope_mismatch' }));
+});
+
 test('Refactor 92 server parser gives temporal claims exact precedence', async () => {
   const atBoundary = new FixedNowSessionService({
     jwt: {

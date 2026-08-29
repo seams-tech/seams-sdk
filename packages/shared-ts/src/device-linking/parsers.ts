@@ -6,6 +6,7 @@ import {
 } from '../authorization/delegatedAuthority';
 import {
   parseDeviceId as parseAuthorizationDeviceId,
+  parseMpcWalletSigningQuotaId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type WalletSessionAuthorizationId,
@@ -2893,6 +2894,7 @@ const ACTIVE_WALLET_SESSION_FIELDS = [
   'authorityId',
   'authMethodId',
   'authorizationId',
+  'quotaId',
   'authorityDigestB64u',
   'authorityRevocationEpoch',
   'capabilitySubjects',
@@ -2958,6 +2960,7 @@ export function parseActiveWalletSessionV1(raw: unknown): ActiveWalletSessionV1 
       record.authorizationId,
       'authorizationId',
     ),
+    quotaId: parseId(parseMpcWalletSigningQuotaId, record.quotaId, 'quotaId'),
     authorityDigestB64u: parseDigest(record.authorityDigestB64u, 'authorityDigestB64u'),
     authorityRevocationEpoch: parseNonNegativeInteger(
       record.authorityRevocationEpoch,

@@ -129,6 +129,7 @@ export type RetiredWalletSessionV1 = {
   readonly authorityId: WalletAuthorityId;
   readonly authMethodId: WalletAuthMethodId;
   readonly authorizationId: WalletSessionAuthorizationId;
+  readonly quotaId: MpcWalletSigningQuotaId;
   readonly authorityDigestB64u: DigestB64u;
   readonly authorityRevocationEpoch: number;
   readonly capabilitySubjects: readonly [WalletCapabilitySubjectV1, ...WalletCapabilitySubjectV1[]];
@@ -684,6 +685,7 @@ const EXACT_ACTIVE_FIELDS = [
   'authorityId',
   'authMethodId',
   'authorizationId',
+  'quotaId',
   'authorityDigestB64u',
   'authorityRevocationEpoch',
   'capabilitySubjects',
@@ -816,7 +818,10 @@ function parseExactWalletSessionRecord(value: unknown): WalletSessionAuthorizati
   const authorityId = parseWalletAuthorityId(value.authorityId);
   const authMethodId = parseWalletAuthMethodId(value.authMethodId);
   const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
-  if (!walletId.ok || !authorityId.ok || !authMethodId.ok || !authorizationId.ok) return null;
+  const quotaId = parseMpcWalletSigningQuotaId(value.quotaId);
+  if (!walletId.ok || !authorityId.ok || !authMethodId.ok || !authorizationId.ok || !quotaId.ok) {
+    return null;
+  }
   let authorityDigestB64u: DigestB64u;
   try {
     authorityDigestB64u = parseDigestB64u(value.authorityDigestB64u);
@@ -838,6 +843,7 @@ function parseExactWalletSessionRecord(value: unknown): WalletSessionAuthorizati
     authorityId: authorityId.value,
     authMethodId: authMethodId.value,
     authorizationId: authorizationId.value,
+    quotaId: quotaId.value,
     authorityDigestB64u,
     authorityRevocationEpoch: value.authorityRevocationEpoch,
     capabilitySubjects,
@@ -852,6 +858,7 @@ function parseExactWalletSessionRecord(value: unknown): WalletSessionAuthorizati
       authorityId: identity.authorityId,
       authMethodId: identity.authMethodId,
       authorizationId: identity.authorizationId,
+      quotaId: identity.quotaId,
       authorityDigestB64u: identity.authorityDigestB64u,
       authorityRevocationEpoch: identity.authorityRevocationEpoch,
       capabilitySubjects: identity.capabilitySubjects,
@@ -875,6 +882,7 @@ function parseExactWalletSessionRecord(value: unknown): WalletSessionAuthorizati
       authorityId: identity.authorityId,
       authMethodId: identity.authMethodId,
       authorizationId: identity.authorizationId,
+      quotaId: identity.quotaId,
       authorityDigestB64u: identity.authorityDigestB64u,
       authorityRevocationEpoch: identity.authorityRevocationEpoch,
       capabilitySubjects: identity.capabilitySubjects,
@@ -902,6 +910,7 @@ export function buildActiveWalletSessionV1(
     authorityId: input.authorityId,
     authMethodId: input.authMethodId,
     authorizationId: input.authorizationId,
+    quotaId: input.quotaId,
     authorityDigestB64u: input.authorityDigestB64u,
     authorityRevocationEpoch: input.authorityRevocationEpoch,
     capabilitySubjects: input.capabilitySubjects,
@@ -928,6 +937,7 @@ export function retireWalletSessionV1(args: {
     authorityId: args.active.authorityId,
     authMethodId: args.active.authMethodId,
     authorizationId: args.active.authorizationId,
+    quotaId: args.active.quotaId,
     authorityDigestB64u: args.active.authorityDigestB64u,
     authorityRevocationEpoch: args.active.authorityRevocationEpoch,
     capabilitySubjects: args.active.capabilitySubjects,
