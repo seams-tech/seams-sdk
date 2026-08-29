@@ -46,6 +46,7 @@ import {
   type MpcMaterialActivationRef,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { parseExactAdministeredSignerManifestV1 } from '../../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
+import type { ExactAdministeredEcdsaSignerV1 } from '../../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
 
 const MANAGEMENT_DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(33)));
@@ -102,6 +103,12 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   readonly sourceAuthorityId?: ActiveWalletAuthorityV1['authorityId'];
   readonly identity?: LinkedDeviceManagementAuthorityIdentityV1;
   readonly expiresAtMs?: number;
+  readonly tenantId?: string;
+  readonly principalId?: string;
+  readonly ecdsaSigner?: Pick<
+    ExactAdministeredEcdsaSignerV1,
+    'walletKeyId' | 'thresholdPublicKey33B64u' | 'evmAddress'
+  >;
 }): Promise<LinkedDeviceManagementAuthorityFixture> {
   const walletId = required(parseWalletId(input.identity?.walletId ?? 'wallet:management'));
   const authorityId = required(
@@ -132,11 +139,11 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
               kind: 'exact_administered_ecdsa_signer_v1',
               keyFamily: 'ecdsa_secp256k1',
               walletId: String(walletId),
-              walletKeyId: `wallet-key:management-${input.label}`,
-              thresholdPublicKey33B64u: base64UrlEncode(
-                new Uint8Array([2, ...new Uint8Array(32).fill(38)]),
-              ),
-              evmAddress: `0x${'1'.repeat(40)}`,
+              walletKeyId: input.ecdsaSigner?.walletKeyId ?? `wallet-key:management-${input.label}`,
+              thresholdPublicKey33B64u:
+                input.ecdsaSigner?.thresholdPublicKey33B64u ??
+                base64UrlEncode(new Uint8Array([2, ...new Uint8Array(32).fill(38)])),
+              evmAddress: input.ecdsaSigner?.evmAddress ?? `0x${'1'.repeat(40)}`,
             },
           ],
         });
@@ -238,8 +245,10 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
     updatedAtMs: 200,
     activatedAtMs: 200,
   });
-  const tenantId = required(parseTenantId('tenant:management'));
-  const principalId = required(parsePrincipalId(`principal:management-${input.label}`));
+  const tenantId = required(parseTenantId(input.tenantId ?? 'tenant:management'));
+  const principalId = required(
+    parsePrincipalId(input.principalId ?? `principal:management-${input.label}`),
+  );
   const walletSessionId = required(
     parseWalletSessionId(`wallet-session:management-${input.label}`),
   );

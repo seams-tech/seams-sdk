@@ -626,11 +626,7 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
   }
   const laneAuthorization =
     authorization.kind === 'operation_step_up'
-      ? {
-          kind: 'authority_ref' as const,
-          authorityRef: authorization.session.walletAuthAuthorityRef,
-          authSource: authorization.session.authSource,
-        }
+      ? authorization.session.laneAuthorization
       : authorization.kind === 'wallet_session_operation_credential_v1'
         ? {
             kind: 'wallet_auth_method' as const,
@@ -996,8 +992,11 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
             sessionId: String(v2Resolution.admission.context.authorization.session.authorizationId),
             walletId: String(v2Resolution.admission.context.authorization.session.walletId),
             runtimePolicyScope: activeMaterial.runtimePolicyScope,
-            walletAuthAuthorityRef: v2AuthorityRef,
-            authSource: proofAuthenticated.session.authSource,
+            laneAuthorization: {
+              kind: 'authority_ref' as const,
+              authorityRef: v2AuthorityRef,
+              authSource: proofAuthenticated.session.laneAuthorization.authSource,
+            },
           },
           authorityRef: v2AuthorityRef,
           requestOrigin: proofAuthenticated.requestOrigin,
@@ -1119,9 +1118,9 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
   switch (proof.kind) {
     case 'passkey': {
       if (
-        authenticated.session.authSource.kind !== 'passkey' ||
+        authenticated.session.laneAuthorization.authSource.kind !== 'passkey' ||
         proof.authority.factor.credentialIdB64u !==
-          authenticated.session.authSource.credentialIdB64u
+          authenticated.session.laneAuthorization.authSource.credentialIdB64u
       ) {
         return json(
           { ok: false, code: 'scope_mismatch', message: 'Passkey authority changed' },
@@ -1130,7 +1129,7 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
       }
       const credential = proof.webauthn_authentication;
       const credentialId = String(credential.rawId || credential.id).trim();
-      if (credentialId !== authenticated.session.authSource.credentialIdB64u) {
+      if (credentialId !== authenticated.session.laneAuthorization.authSource.credentialIdB64u) {
         return json(
           { ok: false, code: 'unauthorized', message: 'Passkey credential changed' },
           { status: 401 },
@@ -1160,7 +1159,9 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
         requestOrigin,
         audience: requestOrigin,
         factorId: requireAuthorizationValue(
-          parseAuthFactorId(`passkey:${authenticated.session.authSource.credentialIdB64u}`),
+          parseAuthFactorId(
+            `passkey:${authenticated.session.laneAuthorization.authSource.credentialIdB64u}`,
+          ),
         ),
         authorityRef: authenticated.authorityRef,
         operation: envelope,
@@ -1463,24 +1464,22 @@ async function authorizeEcdsaPoolFillOperationStepUp(input: {
       },
     };
   }
-  const ownerAdmissionInput = {
-    kind: 'opaque_wallet_session' as const,
+  const authenticated = await authenticateRouterAbWalletOperationStepUpIdentity({
+    kind: 'wallet_session_operation_credential_v1',
     headers: Object.fromEntries(input.ctx.request.headers.entries()),
+    keyFamily: 'ecdsa_secp256k1',
+    operationKind: input.operation.operation_kind,
     walletId: input.operation.wallet_id,
     materialOwner: input.operation.material_activation.material_owner,
+    materialActivation: input.operation.material_activation,
+    requestExpiresAtMs: input.operation.expires_at_ms,
     authorizedOperations: input.ctx.service.authorizedOperations,
     authorizationSessions: input.ctx.service.authorizationSessions,
-  };
-  const ecdsaOwner = await authenticateRouterAbWalletOperationStepUpIdentity({
-    ...ownerAdmissionInput,
-    curve: 'ecdsa',
+    resolveEcdsaMaterialActivation:
+      input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation.bind(
+        input.ctx.service.walletRegistration,
+      ),
   });
-  const authenticated = ecdsaOwner.ok
-    ? ecdsaOwner
-    : await authenticateRouterAbWalletOperationStepUpIdentity({
-        ...ownerAdmissionInput,
-        curve: 'ed25519',
-      });
   if (!authenticated.ok) return authenticated;
   const activeMaterial = await input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation({
     walletId: authenticated.session.walletId,

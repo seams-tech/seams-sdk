@@ -1906,11 +1906,7 @@ async function proxyEd25519OwnerLaneExecution(input: {
   }
   const laneAuthorization =
     input.authorization.kind === 'operation_step_up'
-      ? {
-          kind: 'authority_ref' as const,
-          authorityRef: input.authorization.session.walletAuthAuthorityRef,
-          authSource: input.authorization.session.authSource,
-        }
+      ? input.authorization.session.laneAuthorization
       : {
           kind: 'wallet_auth_method' as const,
           walletAuthMethodId: input.authorization.validated.walletSessionAuth.walletAuthMethodId,
