@@ -171,7 +171,6 @@ import {
   type ConcreteAvailableEd25519SigningLane,
   type ConcreteAvailableEcdsaSigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 import { resolvePasskeyEd25519YaoExportContextV1 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import type {
   PasskeyEd25519YaoExportContextResolutionV1,
