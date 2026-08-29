@@ -125,6 +125,19 @@ export type WalletSessionOperationCredentialResolution =
   | { readonly kind: 'rejected' }
   | { readonly kind: 'admitted'; readonly admission: WalletSessionOperationCredentialAdmission };
 
+type WalletSessionOperationCredentialRequest =
+  | Pick<
+      Extract<WalletSessionAuthorizationV2RequestedOperation, { readonly keyFamily: 'ed25519' }>,
+      'keyFamily' | 'operationKind'
+    >
+  | Pick<
+      Extract<
+        WalletSessionAuthorizationV2RequestedOperation,
+        { readonly keyFamily: 'ecdsa_secp256k1' }
+      >,
+      'keyFamily' | 'operationKind'
+    >;
+
 /** Builds the route admission from the binding validated by the persistence boundary. */
 export function buildOpaqueOwnerWalletSessionAdmission(
   resolved: ResolvedOpaqueWalletSessionToken,
@@ -157,30 +170,12 @@ export function buildOpaqueOwnerWalletSessionAdmission(
   }
 }
 
-export async function resolveWalletSessionOperationCredentialAdmission(input: {
-  readonly authorizationSessions: RouterApiAuthorizationSessionService;
-  readonly token: string;
+export function resolveWalletSessionOperationCredentialAdmissionFromContext(input: {
+  readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
   readonly nowMs: number;
-  readonly operation:
-    | Pick<
-        Extract<WalletSessionAuthorizationV2RequestedOperation, { readonly keyFamily: 'ed25519' }>,
-        'keyFamily' | 'operationKind'
-      >
-    | Pick<
-        Extract<
-          WalletSessionAuthorizationV2RequestedOperation,
-          { readonly keyFamily: 'ecdsa_secp256k1' }
-        >,
-        'keyFamily' | 'operationKind'
-      >;
-}): Promise<WalletSessionOperationCredentialResolution> {
-  const context =
-    await input.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
-    tenantId: input.authorizationSessions.tenantId,
-    token: input.token,
-    nowMs: input.nowMs,
-  });
-  if (!context) return { kind: 'not_found' };
+  readonly operation: WalletSessionOperationCredentialRequest;
+}): Exclude<WalletSessionOperationCredentialResolution, { readonly kind: 'not_found' }> {
+  const context = input.context;
   const identity = {
     tenantId: context.authorization.session.tenantId,
     principalId: context.authorization.session.principalId,
@@ -225,6 +220,26 @@ export async function resolveWalletSessionOperationCredentialAdmission(input: {
       admission,
     },
   };
+}
+
+export async function resolveWalletSessionOperationCredentialAdmission(input: {
+  readonly authorizationSessions: RouterApiAuthorizationSessionService;
+  readonly token: string;
+  readonly nowMs: number;
+  readonly operation: WalletSessionOperationCredentialRequest;
+}): Promise<WalletSessionOperationCredentialResolution> {
+  const context =
+    await input.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+      tenantId: input.authorizationSessions.tenantId,
+      token: input.token,
+      nowMs: input.nowMs,
+    });
+  if (!context) return { kind: 'not_found' };
+  return resolveWalletSessionOperationCredentialAdmissionFromContext({
+    context,
+    nowMs: input.nowMs,
+    operation: input.operation,
+  });
 }
 
 export async function resolveOpaqueOwnerWalletSessionAdmission(input: {
