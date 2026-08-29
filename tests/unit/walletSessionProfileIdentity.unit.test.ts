@@ -51,6 +51,8 @@ async function exerciseCanonicalEcdsaRefreshReconciliation(input: {
         signing: { mode: { mode: 'threshold-signer' } },
       },
       signingEngine: {
+        readWalletAuthenticationState: () => ({ kind: 'signed_out' as const }),
+        setWalletAuthenticated: () => undefined,
         getSignerWorkerContext: () => ({
           requestWorkerOperation: async (args: unknown) => {
             reconciliationRequests.push(args);
@@ -147,6 +149,8 @@ test.describe('wallet session profile identity restore', () => {
               signing: { mode: { mode: 'threshold-signer' } },
             },
             signingEngine: {
+              readWalletAuthenticationState: () => ({ kind: 'signed_out' as const }),
+              setWalletAuthenticated: () => undefined,
               assertSealedRefreshStartupParity: async () => undefined,
               getLastUser: async () => null,
               getUserBySignerSlot: async () => null,
@@ -190,7 +194,7 @@ test.describe('wallet session profile identity restore', () => {
       walletId: 'refresh-wallet-profile-identity',
       nearAccountId: 'refresh-profile.testnet',
       publicKey: 'ed25519:refresh-profile-public-key',
-      walletSessionKind: 'missing',
+      walletSessionKind: 'absent',
     });
   });
 
@@ -248,6 +252,8 @@ test.describe('wallet session profile identity restore', () => {
             signing: { mode: { mode: 'threshold-signer' } },
           },
           signingEngine: {
+            readWalletAuthenticationState: () => ({ kind: 'signed_out' as const }),
+            setWalletAuthenticated: () => undefined,
             assertSealedRefreshStartupParity: async () => undefined,
             getLastUser: async () => null,
             getUserBySignerSlot: async () => null,
@@ -298,7 +304,7 @@ test.describe('wallet session profile identity restore', () => {
       walletId: 'refresh-last-profile-wallet',
       nearAccountId: 'refresh-last-profile.testnet',
       publicKey: 'ed25519:refresh-last-profile-public-key',
-      walletSessionKind: 'missing',
+      walletSessionKind: 'absent',
     });
   });
 
@@ -374,6 +380,8 @@ test.describe('wallet session profile identity restore', () => {
             signing: { mode: { mode: 'threshold-signer' } },
           },
           signingEngine: {
+            readWalletAuthenticationState: () => ({ kind: 'signed_out' as const }),
+            setWalletAuthenticated: () => undefined,
             assertSealedRefreshStartupParity: async () => undefined,
             getLastUser: async () => null,
             getUserBySignerSlot: async () => null,
@@ -424,7 +432,7 @@ test.describe('wallet session profile identity restore', () => {
       walletId: 'refresh-near-profile-wallet',
       nearAccountId: 'refresh-near-profile.testnet',
       publicKey: 'ed25519:refresh-near-profile-public-key',
-      walletSessionKind: 'missing',
+      walletSessionKind: 'absent',
     });
   });
 
@@ -460,17 +468,16 @@ test.describe('wallet session profile identity restore', () => {
   test('projects the canonical ECDSA public key from an available lane', async ({ page }) => {
     const fixture = ecdsaCapabilityActivationFixture();
     const chainTarget = fixture.prepareInput.activationBinding.signer.scope.targetMemberships[0]!;
+    const canonicalLane = canonicalEcdsaAvailableLane({
+      walletId: String(fixture.prepareInput.activationBinding.signer.authority.walletId),
+      chainTarget,
+      thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
+      authMethod: 'email_otp',
+    });
     const availableLanes = await readAvailableLanesFixture({
       walletId: fixture.prepareInput.activationBinding.signer.authority.walletId,
       ecdsaChainTargets: [chainTarget],
-      canonicalEcdsaLanes: [
-        canonicalEcdsaAvailableLane({
-          walletId: String(fixture.prepareInput.activationBinding.signer.authority.walletId),
-          chainTarget,
-          thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
-          authMethod: 'email_otp',
-        }),
-      ],
+      canonicalEcdsaLanes: [canonicalLane],
     });
     const result = await page.evaluate(exerciseCanonicalEcdsaRefreshReconciliation, {
       paths: IMPORT_PATHS,
@@ -480,7 +487,7 @@ test.describe('wallet session profile identity restore', () => {
 
     expect(result).toMatchObject({
       thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
-      thresholdEcdsaPublicKeyB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      thresholdEcdsaPublicKeyB64u: canonicalLane.publicFacts.publicKeyB64u,
     });
   });
 
@@ -505,6 +512,8 @@ test.describe('wallet session profile identity restore', () => {
               signing: { mode: { mode: 'threshold-signer' } },
             },
             signingEngine: {
+              readWalletAuthenticationState: () => ({ kind: 'signed_out' as const }),
+              setWalletAuthenticated: () => undefined,
               assertSealedRefreshStartupParity: async () => undefined,
               getLastUser: async () => null,
               getUserBySignerSlot: async () => null,
@@ -541,7 +550,7 @@ test.describe('wallet session profile identity restore', () => {
       resolutionReason: 'missing_requested_capability_subject',
       appIdentityKind: 'resolved',
       walletId: 'refresh-empty-wallet-selection',
-      walletSessionKind: 'missing',
+      walletSessionKind: 'absent',
       warningCount: 0,
     });
   });
