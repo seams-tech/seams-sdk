@@ -725,11 +725,11 @@ Primary files:
 - `packages/wallet-server/src/core/threeRouteRegistrationContracts.ts`
 - `packages/shared-ts/src/utils/registrationEstablishedSession.ts`
 
-Live issuer symbols include `RegistrationEstablishedSessionIssuerAuthorizationService`,
-`issueRegistrationEstablishedGrant`, both registration replay functions,
+Remaining issuer symbols include `RegistrationEstablishedSessionIssuerAuthorizationService`,
 `issueSyncAccountBootstrapV1`, `handleStrictEcdsaSessionActivation`, the
 budget-refresh and linked-activation `issue_wallet_session_v1` branches, and
-`mintRouterAbEd25519YaoWalletSessionV1`.
+`mintRouterAbEd25519YaoWalletSessionV1`. The legacy registration grant issuer
+and both credential-bearing registration replay functions are deleted.
 
 ### I3 — Exact operation admission and runtime binding (B4, B5)
 
