@@ -131,15 +131,9 @@ export type SigningLaneId = DomainId<'SigningLaneId'>;
 // custody epochs.
 export type LaneShareEpoch = DomainId<'LaneShareEpoch'>;
 
-// Delegated agent principal that can hold a lane-scoped MPC share.
-export type AgentPrincipalId = DomainId<'AgentPrincipalId'>;
-
 // Linked physical or browser device principal that can hold a lane-scoped MPC
 // share.
 export type LinkedDeviceId = DomainId<'LinkedDeviceId'>;
-
-// Delegated mandate policy identity.
-export type MandatePolicyId = DomainId<'MandatePolicyId'>;
 
 // Immutable identities for one rotatable signing-lane protocol operation and
 // its aggregate enrollment.
@@ -152,12 +146,6 @@ export type WalletRecoveryOperationId = DomainId<'WalletRecoveryOperationId'>;
 export type Ed25519YaoSuiteId = DomainId<'Ed25519YaoSuiteId'>;
 export type EcdsaRelayerKeyId = DomainId<'EcdsaRelayerKeyId'>;
 export type LaneHolderRecipientHandleV1 = DomainId<'LaneHolderRecipientHandleV1'>;
-
-// Canonical delegated intent digest.
-export type DelegatedIntentDigest = DomainId<'DelegatedIntentDigest'>;
-
-// Idempotency key scoped to a delegated signer request.
-export type DelegatedIdempotencyKey = DomainId<'DelegatedIdempotencyKey'>;
 
 // QR/device-link relay session identity.
 export type LinkDeviceSessionId = DomainId<'LinkDeviceSessionId'>;
@@ -560,16 +548,8 @@ export function parseLaneShareEpoch(raw: unknown): DomainIdParseResult<LaneShare
   return parseDomainId(raw, 'laneShareEpoch');
 }
 
-export function parseAgentPrincipalId(raw: unknown): DomainIdParseResult<AgentPrincipalId> {
-  return parseDomainId(raw, 'agentPrincipalId');
-}
-
 export function parseLinkedDeviceId(raw: unknown): DomainIdParseResult<LinkedDeviceId> {
   return parseDomainId(raw, 'linkedDeviceId');
-}
-
-export function parseMandatePolicyId(raw: unknown): DomainIdParseResult<MandatePolicyId> {
-  return parseDomainId(raw, 'mandatePolicyId');
 }
 
 export function parseLaneOperationId(raw: unknown): DomainIdParseResult<LaneOperationId> {
@@ -610,18 +590,6 @@ export function parseLaneHolderRecipientHandleV1(
   raw: unknown,
 ): DomainIdParseResult<LaneHolderRecipientHandleV1> {
   return parseDomainId(raw, 'laneHolderRecipientHandle');
-}
-
-export function parseDelegatedIntentDigest(
-  raw: unknown,
-): DomainIdParseResult<DelegatedIntentDigest> {
-  return parseDomainId(raw, 'delegatedIntentDigest');
-}
-
-export function parseDelegatedIdempotencyKey(
-  raw: unknown,
-): DomainIdParseResult<DelegatedIdempotencyKey> {
-  return parseDomainId(raw, 'delegatedIdempotencyKey');
 }
 
 export function parseLinkDeviceSessionId(raw: unknown): DomainIdParseResult<LinkDeviceSessionId> {
