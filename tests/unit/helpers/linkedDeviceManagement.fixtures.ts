@@ -60,6 +60,11 @@ type RevokedPasskeyWalletAuthMethodRecordV2 = Extract<
   { readonly kind: 'passkey'; readonly status: 'revoked' }
 >;
 
+type ActiveEmailOtpWalletAuthMethodRecordV2 = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'email_otp'; readonly status: 'active' }
+>;
+
 function required<T>(
   result:
     | { readonly ok: true; readonly value: T }
@@ -285,7 +290,10 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
 export async function extendFixtureAuthorityWithEcdsaSigner(
   authority: ActiveWalletAuthorityV1,
 ): Promise<ActiveWalletAuthorityV1> {
-  if (authority.signerActivations.keyFamilies.length !== 1 || !authority.signerActivations.ed25519) {
+  if (
+    authority.signerActivations.keyFamilies.length !== 1 ||
+    !authority.signerActivations.ed25519
+  ) {
     throw new Error('fixture authority must begin with one Ed25519 signer');
   }
   const ecdsaSigner = {
@@ -293,9 +301,7 @@ export async function extendFixtureAuthorityWithEcdsaSigner(
     keyFamily: 'ecdsa_secp256k1' as const,
     walletId: authority.walletId,
     walletKeyId: `wallet-key:management-deferred-ecdsa:${authority.walletId}`,
-    thresholdPublicKey33B64u: base64UrlEncode(
-      new Uint8Array([2, ...new Uint8Array(32).fill(48)]),
-    ),
+    thresholdPublicKey33B64u: base64UrlEncode(new Uint8Array([2, ...new Uint8Array(32).fill(48)])),
     evmAddress: `0x${'2'.repeat(40)}`,
   };
   const manifest = parseExactAdministeredSignerManifestV1({
@@ -392,6 +398,30 @@ export function buildRevokedLinkedDeviceAuthMethodV1(
     activatedAtMs: authMethod.activatedAtMs,
     revokedAtMs,
   });
+}
+
+/** An active Email OTP sibling method on an existing fixture authority. */
+export function buildEmailOtpAuthMethodForManagementFixture(
+  authority: ActiveWalletAuthorityV1,
+  label: string,
+): ActiveEmailOtpWalletAuthMethodRecordV2 {
+  const record = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: required(parseWalletAuthMethodId(`auth-method:management-${label}-email`)),
+    walletId: authority.walletId,
+    walletAuthorityId: authority.authorityId,
+    kind: 'email_otp',
+    status: 'active',
+    emailHashHex: '4'.repeat(64),
+    registrationAuthorityId: String(authority.authorityId),
+    createdAtMs: 100,
+    updatedAtMs: 200,
+    activatedAtMs: 200,
+  });
+  if (record.kind !== 'email_otp' || record.status !== 'active') {
+    throw new Error('active Email OTP fixture unexpectedly changed branch');
+  }
+  return record;
 }
 
 function buildActivePasskeyWalletAuthMethodRecord(

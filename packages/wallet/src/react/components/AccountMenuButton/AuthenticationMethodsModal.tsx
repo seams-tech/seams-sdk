@@ -141,7 +141,7 @@ function methodTitle(method: AuthenticationMethodView): string {
 }
 
 function methodDescription(method: AuthenticationMethodView): string {
-  if (method.credential.kind === 'email_otp') return 'Email verification code';
+  if (method.credential.kind === 'email_otp') return String(method.credential.email);
   const provider = method.credential.device.providerLabel ?? method.credential.device.provider;
   return provider ? `${provider} passkey` : method.credential.device.label;
 }

@@ -431,6 +431,9 @@ function createD1LinkedDeviceComposition(input: {
     authorizationService: input.authorizationService,
     walletSessionAuthorizations: input.authorizationStore,
     webAuthnStore: input.webAuthnStore,
+    ...(input.emailOtpLinkedDevice === undefined
+      ? {}
+      : { emailOtpEnrollments: input.emailOtpLinkedDevice.enrollments }),
     materialDeactivation: createCloudflareOrdinaryInactiveSignerMaterialDeactivationPortV1({
       endpoint: deactivationEndpoint,
     }),
@@ -2635,8 +2638,7 @@ export function createCloudflareD1RouterApiAuthService(
       walletAuthorityStore: assembly.walletAuthorityStore,
       webAuthnStore: assembly.webAuthnStore,
       googleRecovery: assembly.walletRecoveryGoogleEmailOtp,
-      emailOtpRegistrationEnrollmentFinalizer:
-        assembly.emailOtpRegistrationEnrollmentFinalizer,
+      emailOtpRegistrationEnrollmentFinalizer: assembly.emailOtpRegistrationEnrollmentFinalizer,
       logger: normalizeLogger(),
     }),
     executeSignedDelegate: assembly.signedDelegateExecutor.execute.bind(
