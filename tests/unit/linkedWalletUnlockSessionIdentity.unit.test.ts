@@ -14,7 +14,10 @@ import {
   walletUnlockAlreadyCommittedRouteResponse,
   type WalletUnlockCapabilityContext,
 } from '../../packages/wallet-server/src/router/domains/walletUnlock/walletUnlockRouteHandlers';
-import type { RouterApiWalletUnlockService } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import {
+  parseWalletUnlockIssuanceRejectionCode,
+  type RouterApiWalletUnlockService,
+} from '../../packages/wallet-server/src/router/framework/authServicePort';
 import {
   parsePrincipalId,
   parseReusableWalletSessionMintId,
@@ -336,6 +339,34 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
   });
   expect(replay.body.operationCredential).toBeUndefined();
   expect(provisioningRequests).toHaveLength(1);
+
+  sessionResolution = {
+    kind: 'rejected',
+    code: 'invalid_body',
+    message: 'verified Email OTP authority identity is required',
+  };
+  const invalidBodyRejection = await handleWalletUnlockVerifyRoute({
+    ...routeDependencies,
+    body: {
+      unlockBackend: 'passkey',
+      challengeId: 'challenge:linked-runtime',
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
+      webauthn_authentication: {},
+      ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
+    },
+  });
+  expect(invalidBodyRejection).toEqual({
+    status: 403,
+    body: {
+      ok: false,
+      code: 'invalid_body',
+      message: 'verified Email OTP authority identity is required',
+    },
+  });
+});
+
+test('wallet unlock issuance preserves invalid_body rejection codes', () => {
+  expect(parseWalletUnlockIssuanceRejectionCode('invalid_body')).toBe('invalid_body');
 });
 
 test('Email OTP already-committed unlock response is credential-free and retryable', async () => {

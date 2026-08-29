@@ -100,6 +100,7 @@ export type WalletAuthMethodManagementSubject = Readonly<{
 
 export type WalletUnlockIssuanceRejectionCode =
   | 'unauthorized'
+  | 'invalid_body'
   | 'invalid_state'
   | 'not_found'
   | 'tenant_scope_mismatch'
@@ -112,6 +113,7 @@ export function parseWalletUnlockIssuanceRejectionCode(
 ): WalletUnlockIssuanceRejectionCode {
   switch (value) {
     case 'unauthorized':
+    case 'invalid_body':
     case 'invalid_state':
     case 'not_found':
     case 'tenant_scope_mismatch':

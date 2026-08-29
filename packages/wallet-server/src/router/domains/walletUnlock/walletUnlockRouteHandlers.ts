@@ -1623,6 +1623,7 @@ function walletUnlockIssuanceRejectionStatus(
     case 'protocol_mismatch':
       return 409;
     case 'unauthorized':
+    case 'invalid_body':
     case 'invalid_state':
     case 'not_found':
     case 'tenant_scope_mismatch':
