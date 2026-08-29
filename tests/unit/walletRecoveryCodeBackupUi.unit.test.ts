@@ -23,6 +23,7 @@ function request(
 async function openDialog(
   page: Page,
   continuation: 'registration_may_defer' | 'pending_backup_must_finish' = 'registration_may_defer',
+  options: { suspendAnimationFrame?: boolean } = {},
 ): Promise<void> {
   await page.goto('/');
   // injectImportMap re-serves the *current* document with the map injected, so
@@ -35,6 +36,11 @@ async function openDialog(
   await page.evaluate((base) => {
     (window as unknown as { __W3A_WALLET_SDK_BASE__?: string }).__W3A_WALLET_SDK_BASE__ = base;
   }, `${SDK_ESM_BASE_PATH}/sdk/`);
+  if (options.suspendAnimationFrame) {
+    await page.evaluate(() => {
+      window.requestAnimationFrame = () => 1;
+    });
+  }
   await page.evaluate(
     async ({ moduleUrl, backupRequest }) => {
       const module = await import(moduleUrl);
@@ -46,6 +52,11 @@ async function openDialog(
     { moduleUrl: MODULE_URL, backupRequest: request(continuation) },
   );
 }
+
+test('wallet recovery backup opens without waiting for an animation frame', async ({ page }) => {
+  await openDialog(page, 'registration_may_defer', { suspendAnimationFrame: true });
+  await expect(page.getByRole('dialog')).toBeVisible({ timeout: 2_000 });
+});
 
 async function readResult(page: Page): Promise<unknown> {
   return await page.evaluate(async () => {
