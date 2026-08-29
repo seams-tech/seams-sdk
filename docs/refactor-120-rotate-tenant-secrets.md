@@ -1684,8 +1684,10 @@ Phase 0 execution status on 2026-08-29:
 - [x] Add native/WASM frozen-vector and executable algebra evidence for purpose
       separation, fixed direction, exact 2-of-2 combine, refresh invariance, and
       unchanged Yao artifacts.
-- [ ] Replace the abstract reconstruction axioms with a scalar-field proof and
-      run the complete Verus proof under the pinned toolchain.
+- [x] Prove the minimal refresh-continuity theorem modulo the exact Ristretto
+      scalar order and bind its A=`1`, B=`2` formulas to production Rust with an
+      anti-drift test. Generic t-of-N reconstruction remains a separate abstract
+      proof surface.
 - [ ] Enforce arbitrary-context denial at the server-resolved outer protocol
       boundary after the R103F integration gate; the generic threshold primitive
       intentionally accepts already-validated context bytes.
@@ -1742,12 +1744,12 @@ Cryptographic Rust/WASM execution status on 2026-08-30:
   microseconds for DLEQ verification, and 676.053 microseconds for verified
   3-of-5 combine. These figures cover local cryptography rather than Worker
   transport.
-- The Verus model and its production anti-drift tests freeze A/B share IDs, wire
-  widths, the exact `2*(A+rho)-(B+2*rho)=2*A-B` continuity equation, and
-  no-op/zero-next rejection. This is executable algebra and anti-drift evidence;
-  reconstruction remains an abstract trusted seam rather than a scalar-field
-  proof. Full Verus verification also remains blocked locally because the pinned
-  Rust 1.94.0 toolchain is unavailable.
+- The Verus model proves the minimal R120 continuity theorem modulo the exact
+  Ristretto scalar order. Production anti-drift tests freeze the scalar modulus,
+  A=`1` and B=`2` role weights, both-source contribution inclusion, refreshed
+  share bytes, wire widths, and no-op/zero-next rejection. Generic t-of-N
+  reconstruction remains a separate abstract trusted seam. The pinned Verus
+  run passes all 29 proof obligations with zero errors.
 - Full `threshold-prf`, `router-ab-core`, and Cloudflare benchmark tests pass.
   `cargo yao-fv anti-drift` passes all six production/generator comparisons.
   The broader `cargo yao-fv all` run passed its reference, vector,

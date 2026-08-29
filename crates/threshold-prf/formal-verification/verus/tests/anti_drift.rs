@@ -1,3 +1,4 @@
+use curve25519_dalek::scalar::Scalar;
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use serde::Deserialize;
@@ -72,6 +73,15 @@ fn fixed_refresh_share(role: TwoPartyDeriverRole, scalar: u8) -> SigningRootShar
         .expect("fixed refresh share is canonical")
 }
 
+fn refresh_contribution_scalar_bytes(
+    coefficient: &RootShareRefreshCoefficient,
+    recipient: TwoPartyDeriverRole,
+) -> [u8; 32] {
+    coefficient.contribution_for(recipient).to_bytes()[4..]
+        .try_into()
+        .expect("fixed refresh contribution scalar width")
+}
+
 fn fixed_refresh_coefficient(role: TwoPartyDeriverRole, scalar: u8) -> RootShareRefreshCoefficient {
     RootShareRefreshCoefficient::from_canonical_bytes(role, scalar_bytes(scalar))
         .expect("fixed refresh coefficient is canonical and non-zero")
@@ -102,6 +112,17 @@ fn apply_refresh_for_role(
 
 #[test]
 fn refresh_model_constants_match_production_roles_and_wires() {
+    let mut order_minus_one = mirror::RISTRETTO_SCALAR_ORDER_LE_BYTES;
+    order_minus_one[0] = order_minus_one[0]
+        .checked_sub(1)
+        .expect("Ristretto scalar order is non-zero");
+    assert_eq!((Scalar::ZERO - Scalar::ONE).to_bytes(), order_minus_one);
+    assert!(bool::from(
+        Scalar::from_canonical_bytes(order_minus_one).is_some()
+    ));
+    assert!(!bool::from(
+        Scalar::from_canonical_bytes(mirror::RISTRETTO_SCALAR_ORDER_LE_BYTES).is_some()
+    ));
     assert_eq!(
         mirror::TWO_PARTY_DERIVER_A_SHARE_ID,
         TwoPartyDeriverRole::DeriverA.share_id().get().get()
@@ -130,6 +151,22 @@ fn refresh_formula_matches_production_share_updates_and_continuity() {
     let current_b = fixed_refresh_share(TwoPartyDeriverRole::DeriverB, 13);
     let coefficient_a = fixed_refresh_coefficient(TwoPartyDeriverRole::DeriverA, 5);
     let coefficient_b = fixed_refresh_coefficient(TwoPartyDeriverRole::DeriverB, 7);
+    assert_eq!(
+        refresh_contribution_scalar_bytes(&coefficient_a, TwoPartyDeriverRole::DeriverA),
+        Scalar::from(5_u64).to_bytes(),
+    );
+    assert_eq!(
+        refresh_contribution_scalar_bytes(&coefficient_a, TwoPartyDeriverRole::DeriverB),
+        Scalar::from(10_u64).to_bytes(),
+    );
+    assert_eq!(
+        refresh_contribution_scalar_bytes(&coefficient_b, TwoPartyDeriverRole::DeriverA),
+        Scalar::from(7_u64).to_bytes(),
+    );
+    assert_eq!(
+        refresh_contribution_scalar_bytes(&coefficient_b, TwoPartyDeriverRole::DeriverB),
+        Scalar::from(14_u64).to_bytes(),
+    );
     let next_a = apply_refresh_for_role(
         &current_a,
         TwoPartyDeriverRole::DeriverA,
