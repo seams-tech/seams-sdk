@@ -22,8 +22,8 @@ import type {
   WalletSessionIdentityResolveFailure,
   WalletAuthenticationState,
 } from '@/core/types/seams';
-import type { WalletSessionId } from '@/core/types/sdkSentEvents';
 import {
+  mpcMaterialActivationRefsEqual,
   parseCapabilityInstanceRef,
   parseWalletAuthMethodId,
   parseWalletId,
@@ -33,8 +33,16 @@ import {
 import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
+  type MpcWalletSigningQuotaId,
   type WalletSessionAuthorizationId,
+  type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '@shared/device-linking/contracts';
+import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
+import type { WalletSessionAuthorizationExactActiveReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
@@ -68,7 +76,7 @@ export type WalletIframeSessionUnavailableReason =
   | 'absent'
   | 'not_found'
   | 'unavailable'
-  | 'status_unknown'
+  | 'upgrade_required'
   // Replaced rather than broken: the host discards what it holds and reads
   // current state again. Collapsing this into `invalid` sent a routine
   // replacement down an error path.
@@ -133,70 +141,148 @@ export class WalletIframeSessionExpiredRequestError extends Error {
   }
 }
 
-export function exactSessionStateFromWalletSession(
-  session: WalletSession,
-): WalletIframeExactSessionState {
-  if (session.authentication.kind === 'signed_out') return { kind: 'wallet_locked' };
-  const authenticatedWalletId = session.authentication.walletId;
-  if (session.appIdentity.kind === 'anonymous') {
-    return {
-      kind: 'wallet_authenticated_identity_unresolvable',
-      walletId: authenticatedWalletId,
-      reason: 'invalid',
+type WalletIframeObservedSessionStatus = {
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly authorization: ActiveWalletSessionV1;
+  readonly expiresAtMs: number;
+};
+
+export type WalletIframeExactSessionStatus =
+  | (WalletIframeObservedSessionStatus & {
+      readonly status: 'active';
+      readonly remainingUses: number;
+    })
+  | (WalletIframeObservedSessionStatus & {
+      readonly status: 'exhausted';
+      readonly remainingUses: 0;
+    })
+  | (WalletIframeObservedSessionStatus & {
+      readonly status:
+        | 'expired'
+        | 'superseded'
+        | 'authority_unavailable'
+        | 'method_unavailable'
+        | 'capability_unavailable';
+    })
+  | {
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
+      readonly status: 'missing' | 'invalid';
     };
+
+export type WalletIframeExactSessionReadDependencies = {
+  readonly resolveSelectedWalletAuthority: (
+    walletId: string,
+  ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
+  readonly readExactActiveForWallet: (input: {
+    readonly walletId: WalletId;
+    readonly authorityId: Extract<
+      ResolveSelectedWalletAuthorityResultV1,
+      { readonly kind: 'resolved' }
+    >['authority']['authorityId'];
+    readonly authMethodId: WalletAuthMethodId;
+  }) => Promise<WalletSessionAuthorizationExactActiveReadResult>;
+  readonly readStatus: (input: {
+    readonly authorization: ActiveWalletSessionV1;
+    readonly operationCredential: WalletSessionOperationCredentialV1;
+  }) => Promise<WalletIframeExactSessionStatus>;
+  readonly nowMs: () => number;
+};
+
+export async function readSelectedWalletIframeExactSessionState(
+  input: {
+    readonly walletId: WalletId;
+  },
+  dependencies: WalletIframeExactSessionReadDependencies,
+): Promise<WalletIframeExactSessionState> {
+  let selected: ResolveSelectedWalletAuthorityResultV1;
+  try {
+    selected = await dependencies.resolveSelectedWalletAuthority(String(input.walletId));
+  } catch {
+    return unavailableSession(input.walletId, 'unavailable');
   }
-  if (session.appIdentity.kind === 'unresolvable') {
-    return {
-      kind: 'wallet_authenticated_identity_unresolvable',
-      walletId: authenticatedWalletId,
-      reason:
-        session.appIdentity.walletId === authenticatedWalletId
-          ? session.appIdentity.reason
-          : 'invalid',
-    };
+  switch (selected.kind) {
+    case 'missing_selection':
+      return { kind: 'wallet_locked' };
+    case 'missing_auth_method':
+    case 'missing_authority':
+    case 'integrity_error':
+      return unavailableSession(input.walletId, 'invalid');
+    case 'resolved':
+      break;
   }
-  const walletId = session.appIdentity.walletId;
-  if (!walletSessionWalletIdsAgree(session, walletId)) {
-    return {
-      kind: 'wallet_authenticated_identity_unresolvable',
-      walletId: authenticatedWalletId,
-      reason: 'invalid',
-    };
+
+  const { selection, authMethod, authority } = selected;
+  if (
+    selection.walletId !== input.walletId ||
+    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    selection.lockState !== 'unlocked' ||
+    authMethod.walletId !== input.walletId ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    authMethod.status !== 'active' ||
+    authority.walletId !== input.walletId ||
+    authority.state !== 'active'
+  ) {
+    return unavailableSession(input.walletId, 'invalid');
   }
-  const reusableWalletSession = session.reusableWalletSession;
-  switch (reusableWalletSession.kind) {
-    case 'active': {
-      const identity = exactIdentity(walletId, reusableWalletSession);
-      if (identity === null) return unavailableSession(walletId, 'invalid');
-      return { kind: 'active_session', status: 'active', ...identity };
-    }
-    case 'expired': {
-      const identity = exactIdentity(walletId, reusableWalletSession);
-      if (identity === null) return unavailableSession(walletId, 'invalid');
-      return { kind: 'expired_session', ...identity };
-    }
-    case 'exhausted':
-      return unavailableSession(walletId, 'exhausted');
-    case 'superseded':
-      return unavailableSession(walletId, 'superseded');
+
+  const authorizationRead = await readExactActiveForWalletOrUnavailable(dependencies, {
+    walletId: input.walletId,
+    authorityId: authority.authorityId,
+    authMethodId: authMethod.walletAuthMethodId,
+  });
+  switch (authorizationRead.kind) {
     case 'missing':
-      return {
-        kind: 'wallet_unlocked_without_signing_session',
-        walletId,
-        reason: 'not_found',
-        authorizationId: reusableWalletSession.authorizationId,
-        walletSessionId: reusableWalletSession.walletSessionId,
-        authMethod: reusableWalletSession.authMethod,
-      };
-    case 'unavailable':
-      return unavailableSession(walletId, 'unavailable');
-    case 'invalid':
-      return unavailableSession(walletId, 'invalid');
-    case 'absent':
-      return unavailableSession(walletId, 'absent');
+      return unavailableSession(input.walletId, 'absent');
+    case 'corrupt':
+      return unavailableSession(input.walletId, 'invalid');
+    case 'persistence_unavailable':
+      return unavailableSession(input.walletId, 'unavailable');
+    case 'upgrade_required':
+      return unavailableSession(input.walletId, 'upgrade_required');
+    case 'found':
+      break;
   }
-  reusableWalletSession satisfies never;
-  return { kind: 'wallet_locked' };
+
+  const { record: authorization, operationCredential } = authorizationRead;
+  if (
+    !selectedExactSessionIdentityMatches({
+      walletId: input.walletId,
+      authorization,
+      operationCredential,
+      selected,
+    })
+  ) {
+    return unavailableSession(input.walletId, 'invalid');
+  }
+
+  const nowMs = dependencies.nowMs();
+  if (authorization.expiresAtMs <= nowMs) {
+    return expiredExactSessionState(
+      input.walletId,
+      authMethod.kind,
+      authorization,
+      operationCredential,
+    );
+  }
+
+  let status: WalletIframeExactSessionStatus;
+  try {
+    status = await dependencies.readStatus({ authorization, operationCredential });
+  } catch {
+    return unavailableSession(input.walletId, 'unavailable');
+  }
+  if (!walletIframeStatusMatchesAuthorization(status, authorization, operationCredential)) {
+    return unavailableSession(input.walletId, 'invalid');
+  }
+  return exactSessionStateFromStatus({
+    walletId: input.walletId,
+    authMethod: authMethod.kind,
+    authorization,
+    operationCredential,
+    status,
+  });
 }
 
 export function parseWalletIframeExactSessionState(value: unknown): WalletIframeExactSessionState {
@@ -1296,23 +1382,189 @@ function requireNonNegativeSafeInteger(value: unknown, label: string): number {
   return value;
 }
 
-function exactIdentity(
-  walletId: WalletId,
-  session: Extract<WalletSession['reusableWalletSession'], { kind: 'active' | 'expired' }>,
-): WalletIframeExactSessionIdentity | null {
-  const walletSessionId = parseWalletSessionId(session.walletSessionId);
-  if (!walletSessionId.ok || !isWalletAuthMethod(session.authMethod)) {
-    return null;
+function selectedExactSessionIdentityMatches(input: {
+  readonly walletId: WalletId;
+  readonly authorization: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
+  readonly selected: Extract<ResolveSelectedWalletAuthorityResultV1, { readonly kind: 'resolved' }>;
+}): boolean {
+  const { authorization, operationCredential, selected } = input;
+  return (
+    authorization.walletId === input.walletId &&
+    authorization.authorityId === selected.authority.authorityId &&
+    authorization.authMethodId === selected.authMethod.walletAuthMethodId &&
+    authorization.authorityDigestB64u === selected.authority.authorityDigestB64u &&
+    authorization.authorityRevocationEpoch === selected.authority.revocationEpoch &&
+    operationCredential.kind === 'opaque_wallet_session_operation_credential_v1' &&
+    operationCredential.token.trim().length > 0 &&
+    String(authorization.authorizationId) !== String(operationCredential.walletSessionId)
+  );
+}
+
+async function readExactActiveForWalletOrUnavailable(
+  dependencies: WalletIframeExactSessionReadDependencies,
+  input: Parameters<WalletIframeExactSessionReadDependencies['readExactActiveForWallet']>[0],
+): Promise<WalletSessionAuthorizationExactActiveReadResult> {
+  try {
+    return await dependencies.readExactActiveForWallet(input);
+  } catch {
+    return { kind: 'persistence_unavailable' };
   }
-  if (!isPositiveSafeInteger(session.expiresAtMs)) return null;
-  if (String(session.authorizationId) === String(walletSessionId.value)) return null;
+}
+
+function exactIdentityFromV6(
+  walletId: WalletId,
+  authMethod: WalletAuthMethod,
+  authorization: ActiveWalletSessionV1,
+  operationCredential: WalletSessionOperationCredentialV1,
+): WalletIframeExactSessionIdentity {
   return {
     walletId,
-    authorizationId: session.authorizationId,
-    walletSessionId: walletSessionId.value,
-    authMethod: session.authMethod,
-    expiresAtMs: session.expiresAtMs,
+    authorizationId: authorization.authorizationId,
+    walletSessionId: operationCredential.walletSessionId,
+    authMethod,
+    expiresAtMs: authorization.expiresAtMs,
   };
+}
+
+function expiredExactSessionState(
+  walletId: WalletId,
+  authMethod: WalletAuthMethod,
+  authorization: ActiveWalletSessionV1,
+  operationCredential: WalletSessionOperationCredentialV1,
+): WalletIframeExactSessionState {
+  return {
+    kind: 'expired_session',
+    ...exactIdentityFromV6(walletId, authMethod, authorization, operationCredential),
+  };
+}
+
+function walletIframeStatusMatchesAuthorization(
+  status: WalletIframeExactSessionStatus,
+  authorization: ActiveWalletSessionV1,
+  operationCredential: WalletSessionOperationCredentialV1,
+): boolean {
+  if (
+    status.walletSessionId !== operationCredential.walletSessionId ||
+    status.quotaId !== authorization.quotaId
+  ) {
+    return false;
+  }
+  switch (status.status) {
+    case 'missing':
+    case 'invalid':
+      return true;
+    case 'active':
+    case 'exhausted':
+    case 'expired':
+    case 'superseded':
+    case 'authority_unavailable':
+    case 'method_unavailable':
+    case 'capability_unavailable':
+      return (
+        status.expiresAtMs === authorization.expiresAtMs &&
+        activeWalletSessionRecordsMatch(status.authorization, authorization)
+      );
+  }
+}
+
+function activeWalletSessionRecordsMatch(
+  left: ActiveWalletSessionV1,
+  right: ActiveWalletSessionV1,
+): boolean {
+  if (
+    left.kind !== right.kind ||
+    left.walletId !== right.walletId ||
+    left.authorityId !== right.authorityId ||
+    left.authMethodId !== right.authMethodId ||
+    left.authorizationId !== right.authorizationId ||
+    left.quotaId !== right.quotaId ||
+    left.authorityDigestB64u !== right.authorityDigestB64u ||
+    left.authorityRevocationEpoch !== right.authorityRevocationEpoch ||
+    left.issuedAtMs !== right.issuedAtMs ||
+    left.expiresAtMs !== right.expiresAtMs ||
+    left.capabilitySubjects.length !== right.capabilitySubjects.length
+  ) {
+    return false;
+  }
+  for (let index = 0; index < left.capabilitySubjects.length; index += 1) {
+    const leftSubject = left.capabilitySubjects[index];
+    const rightSubject = right.capabilitySubjects[index];
+    if (!leftSubject || !rightSubject || leftSubject.kind !== rightSubject.kind) return false;
+    switch (leftSubject.kind) {
+      case 'sign':
+      case 'export_keys':
+        if (
+          rightSubject.kind !== leftSubject.kind ||
+          rightSubject.keyFamily !== leftSubject.keyFamily ||
+          !mpcMaterialActivationRefsEqual(
+            leftSubject.materialActivation,
+            rightSubject.materialActivation,
+          )
+        ) {
+          return false;
+        }
+        break;
+      case 'link_devices':
+      case 'revoke_devices':
+        if (rightSubject.kind !== leftSubject.kind) return false;
+        break;
+      default:
+        leftSubject satisfies never;
+        return false;
+    }
+  }
+  return true;
+}
+
+function exactSessionStateFromStatus(input: {
+  readonly walletId: WalletId;
+  readonly authMethod: WalletAuthMethod;
+  readonly authorization: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
+  readonly status: WalletIframeExactSessionStatus;
+}): WalletIframeExactSessionState {
+  switch (input.status.status) {
+    case 'active':
+      if (input.status.remainingUses <= 0) {
+        return unavailableSession(input.walletId, 'invalid');
+      }
+      return {
+        kind: 'active_session',
+        status: 'active',
+        ...exactIdentityFromV6(
+          input.walletId,
+          input.authMethod,
+          input.authorization,
+          input.operationCredential,
+        ),
+      };
+    case 'exhausted':
+      return unavailableSession(input.walletId, 'exhausted');
+    case 'expired':
+      return expiredExactSessionState(
+        input.walletId,
+        input.authMethod,
+        input.authorization,
+        input.operationCredential,
+      );
+    case 'missing':
+      return {
+        kind: 'wallet_unlocked_without_signing_session',
+        walletId: input.walletId,
+        reason: 'not_found',
+        authorizationId: input.authorization.authorizationId,
+        walletSessionId: input.operationCredential.walletSessionId,
+        authMethod: input.authMethod,
+      };
+    case 'superseded':
+    case 'authority_unavailable':
+    case 'method_unavailable':
+    case 'capability_unavailable':
+      return unavailableSession(input.walletId, 'superseded');
+    case 'invalid':
+      return unavailableSession(input.walletId, 'invalid');
+  }
 }
 
 export function exactSessionIdentitiesMatch(
@@ -1373,7 +1625,7 @@ function requireUnavailableReason(value: unknown): WalletIframeSessionUnavailabl
     case 'absent':
     case 'not_found':
     case 'unavailable':
-    case 'status_unknown':
+    case 'upgrade_required':
     case 'superseded':
     case 'invalid':
       return value;
