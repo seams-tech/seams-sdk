@@ -42,7 +42,10 @@ import type {
 import { d1ChangedRows } from '../../../../storage/d1Sql';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import { linkedDeviceEmailOtpDescriptorCredentialIdV1 } from '../../../../core/deviceLinking/linkedDeviceEmailOtpGrant';
-import type { DeviceLinkingTargetCredentialProviderV1 } from '../../../../router/transport/fetch/routes/deviceLinking';
+import type {
+  DeviceLinkingTargetCredentialProviderV1,
+  LinkedDeviceTargetPreparationResultV1,
+} from '../../../../router/transport/fetch/routes/deviceLinking';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import {
   buildVerifiedTargetFactorV1,
@@ -418,7 +421,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
           readonly deliveryRecipientPublicKey65B64u?: never;
         }
     ),
-  ): Promise<LinkedDeviceTargetPreparationV1> {
+  ): Promise<LinkedDeviceTargetPreparationResultV1> {
     const persisted = await this.readV1(input.session.linkSessionId);
     if (persisted) {
       assertPreparationMatchesSession(persisted.preparation, input.session, input.approval);
@@ -427,9 +430,10 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         input.deliveryRecipientPublicKey65B64u !==
           persisted.preparation.deliveryRecipientPublicKey65B64u
       ) {
-        throw new Error(
-          'linked-device target preparation recipient conflicts with its durable replay',
-        );
+        return {
+          kind: 'conflict',
+          message: 'linked-device target preparation recipient conflicts with its durable replay',
+        };
       }
       return persisted.preparation;
     }

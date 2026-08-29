@@ -32,7 +32,7 @@ const RP_ID = required(parseWebAuthnRpId('wallet.example.test'));
 const TARGET_EMAIL = required(parseVerifiedEmailAddress('owner@example.test'));
 const PASSKEY_CONFIGURATION_DIGEST = parseDigestB64u('-_FGSvFbB5YyBu0DYdUOH-clwdy5pelU3m_l9jzbsZ0');
 const DELIVERY_RECIPIENT_PUBLIC_KEY_65_B64U =
-  'BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+  'BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU';
 
 function recipientRequirement(): {
   readonly kind: 'ordinary_signer_material_recipient_requirement_v1';

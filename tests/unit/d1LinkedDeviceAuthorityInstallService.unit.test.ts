@@ -555,7 +555,7 @@ async function buildHarness(
     enrollmentId: fixture.approval.enrollmentId,
     targetDeviceId: parseDeviceId(String(fixture.approval.deviceId)).value,
     deliveryRecipientPublicKey65B64u:
-      'BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      'BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU',
     sourceAuthority: {
       authority: source.authority,
       authMethodId: source.authMethod.walletAuthMethodId,
