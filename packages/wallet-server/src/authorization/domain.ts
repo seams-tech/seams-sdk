@@ -316,10 +316,13 @@ export function projectActiveWalletSession(
 /** Exact response families are persisted so replay cannot cross route contracts. */
 export const WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1 = 'wallet_unlock_exact_response_v1' as const;
 export const WALLET_SYNC_EXACT_RESPONSE_FAMILY_V1 = 'wallet_sync_exact_response_v1' as const;
+export const WALLET_REGISTRATION_EXACT_RESPONSE_FAMILY_V1 =
+  'wallet_registration_exact_response_v1' as const;
 
 export type WalletSessionIssuanceResponseFamilyV1 =
   | typeof WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1
-  | typeof WALLET_SYNC_EXACT_RESPONSE_FAMILY_V1;
+  | typeof WALLET_SYNC_EXACT_RESPONSE_FAMILY_V1
+  | typeof WALLET_REGISTRATION_EXACT_RESPONSE_FAMILY_V1;
 
 /**
  * The server-side aggregate that is safe to expose to persistence code after

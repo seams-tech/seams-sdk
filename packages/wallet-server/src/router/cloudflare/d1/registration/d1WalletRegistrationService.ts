@@ -92,7 +92,7 @@ import {
   type WalletAuthorityId,
   type WalletKeyId,
 } from '@shared/utils/domainIds';
-import type { RegistrationEstablishedSession } from '@shared/utils/registrationEstablishedSession';
+import type { RegistrationEstablishedSessionResultV2 } from '@shared/utils/registrationEstablishedSession';
 import {
   deriveSigningRootId,
   signingRootScopeFromRuntimePolicyScope,
@@ -288,11 +288,14 @@ import {
 } from './walletRegistrationSessionCommitReceipt';
 import {
   buildRegistrationOwnerProof,
-  issueOrReuseRegistrationEstablishedEd25519Session,
-  issueRegistrationEstablishedEcdsaSession,
-  replayRegistrationEstablishedEd25519Session,
-  replayRegistrationEstablishedEcdsaSession,
+  issueDirectRegistrationEstablishedEd25519Session,
+  issueDirectRegistrationEstablishedEcdsaSession,
+  replayDirectRegistrationEstablishedEd25519Session,
+  replayDirectRegistrationEstablishedEcdsaSession,
   reusableWalletSessionPrincipalId,
+} from './walletRegistrationEstablishedSessionIssuer';
+import type {
+  RegistrationEstablishedSessionIssuanceResultV2,
 } from './walletRegistrationEstablishedSessionIssuer';
 
 type RespondWalletRegistrationDerivationInput = WalletRegistrationEcdsaDerivationRespondRequest;
@@ -990,7 +993,7 @@ function isEmailOtpWalletRegistrationFinalizeSuccess(
 function isWalletRegistrationNearProvisioningSuccess(
   value: WalletRegistrationNearProvisioningFinalizeResponse,
 ): value is Extract<WalletRegistrationFinalizeSuccess, { kind: 'near_ed25519' }> & {
-  registrationEstablishedSession: RegistrationEstablishedSession;
+  registrationEstablishedSession: RegistrationEstablishedSessionResultV2;
 } {
   return value.ok && value.kind === 'near_ed25519' && 'registrationEstablishedSession' in value;
 }
@@ -1002,6 +1005,25 @@ function isPasskeyWalletRegistrationFinalizeSuccess(
   { kind: 'near_ed25519'; authMethod: { kind: 'passkey' } }
 > {
   return value.ok && value.kind === 'near_ed25519' && value.authMethod.kind === 'passkey';
+}
+
+function assertNeverD1RegistrationSessionIssuance(
+  value: never,
+): never {
+  throw new Error(`Unsupported registration Wallet Session issuance: ${String(value)}`);
+}
+
+function registrationEstablishedSessionResultFromIssuance(
+  result: Exclude<RegistrationEstablishedSessionIssuanceResultV2, { readonly kind: 'protocol_mismatch' }>,
+): RegistrationEstablishedSessionResultV2 {
+  switch (result.kind) {
+    case 'issued':
+      return { kind: 'issued', session: result.session };
+    case 'already_committed':
+      return { kind: 'already_committed', session: result.session, next: result.next };
+    default:
+      return assertNeverD1RegistrationSessionIssuance(result);
+  }
 }
 
 export type D1WalletRegistrationNearProvisioningSideEffectStore =
@@ -3324,13 +3346,12 @@ export class CloudflareD1WalletRegistrationService {
       expectedOrigin: ownerProofContext.expectedOrigin,
       expiresAtMs: ownerProofContext.expiresAtMs,
     });
-    const issuedRegistrationSession = await issueOrReuseRegistrationEstablishedEd25519Session({
+    const issuedRegistrationSession = await issueDirectRegistrationEstablishedEd25519Session({
       authorizationService: this.authorizationService,
       authorizationTenantId: this.authorizationTenantId,
       walletAuthMethods: this.walletAuthMethods,
       registrationCeremonyId: args.input.registrationCeremonyId,
       authority: finalized.authority,
-      activeAuthority: finalized.foundingAuthority,
       registrationAuthority,
       walletAuthMethodId: effectivePrepared.walletAuthMethodId,
       expiresAtMs: Date.now() + DEFAULT_WALLET_SESSION_TTL_MS,
@@ -3338,13 +3359,45 @@ export class CloudflareD1WalletRegistrationService {
       publicResult: finalized.ed25519,
       keyManifestDigestB64u: finalized.custodyKeyManifestDigestB64u,
       proof,
+      walletSessionClientCapability: args.input.walletSessionClientCapability,
     });
-    return {
-      kind: 'session_issued',
-      response: { ...finalized, registrationEstablishedSession: issuedRegistrationSession.session },
-      issuedAtMs: issuedRegistrationSession.issuedAtMs,
-      expectedOrigin: ownerProofContext.expectedOrigin,
-    };
+    switch (issuedRegistrationSession.kind) {
+      case 'protocol_mismatch':
+        return unissuedRegistrationCommit({
+          ok: false,
+          code: issuedRegistrationSession.code,
+          message: issuedRegistrationSession.message,
+        });
+      case 'issued':
+        return {
+          kind: 'session_issued',
+          response: {
+            ...finalized,
+            registrationEstablishedSession: {
+              kind: 'issued',
+              session: issuedRegistrationSession.session,
+            },
+          },
+          issuedAtMs: issuedRegistrationSession.issuedAtMs,
+          expectedOrigin: ownerProofContext.expectedOrigin,
+        };
+      case 'already_committed':
+        return {
+          kind: 'session_issued',
+          response: {
+            ...finalized,
+            registrationEstablishedSession: {
+              kind: 'already_committed',
+              session: issuedRegistrationSession.session,
+              next: issuedRegistrationSession.next,
+            },
+          },
+          issuedAtMs: issuedRegistrationSession.issuedAtMs,
+          expectedOrigin: ownerProofContext.expectedOrigin,
+        };
+      default:
+        return assertNeverD1RegistrationSessionIssuance(issuedRegistrationSession);
+    }
   }
 
   private async replayWalletRegistrationActivateCommit(
@@ -3391,11 +3444,9 @@ export class CloudflareD1WalletRegistrationService {
         if (!isRegistrationEcdsaReadyReceipt(receipt)) {
           throw new Error('Registration activation receipt branch is invalid');
         }
-        const registrationEstablishedSession = await replayRegistrationEstablishedEcdsaSession({
-          authorizationService: this.authorizationService,
-          authorizationTenantId: this.authorizationTenantId,
+        const registrationEstablishedSession = replayDirectRegistrationEstablishedEcdsaSession(
           receipt,
-        });
+        );
         const authMethod = registrationReplayAuthMethodFields(receipt);
         const committedFields = {
           ok: true as const,
@@ -3453,11 +3504,9 @@ export class CloudflareD1WalletRegistrationService {
       throw new Error('Registration NEAR provisioning receipt branch is invalid');
     }
     const authMethod = registrationReplayAuthMethodFields(receipt);
-    const registrationEstablishedSession = await replayRegistrationEstablishedEd25519Session({
-      authorizationService: this.authorizationService,
-      authorizationTenantId: this.authorizationTenantId,
+    const registrationEstablishedSession = replayDirectRegistrationEstablishedEd25519Session(
       receipt,
-    });
+    );
     const committedFields = {
       ok: true as const,
       kind: 'near_ed25519' as const,
@@ -3937,11 +3986,10 @@ export class CloudflareD1WalletRegistrationService {
    *
    * Here the operation row is the only one. Its claim is the activation claim,
    * and its completion record holds one credential-free session receipt plus
-   * the request fingerprint. The first response receives its bearer after the
-   * receipt CAS; each exact retry reconstructs the committed projection and
-   * signs a fresh bounded V1 bearer without repeating any custody effect. The
-   * replay response carries the adapter bearer expiry; the receipt projection
-   * keeps the parent session expiry. A conflicting fingerprint is refused
+   * the request fingerprint. The direct-capability first response carries one
+   * ephemeral primary credential after the receipt CAS; exact retry returns
+   * the committed projection without fabricating a credential or repeating a
+   * custody effect. A conflicting fingerprint is refused
    * before execution; an ambiguous outcome after the custody call stays
    * `uncertain` rather than being guessed either way.
    */
@@ -4214,7 +4262,7 @@ export class CloudflareD1WalletRegistrationService {
     if (!runtimePolicyScope) {
       throw new Error('ECDSA registration is missing runtime policy scope');
     }
-    const registrationEstablishedSession = await issueRegistrationEstablishedEcdsaSession({
+    const registrationEstablishedSession = await issueDirectRegistrationEstablishedEcdsaSession({
       authorizationService: this.authorizationService,
       authorizationTenantId: this.authorizationTenantId,
       walletAuthMethods: this.walletAuthMethods,
@@ -4232,7 +4280,17 @@ export class CloudflareD1WalletRegistrationService {
         authMethod: commit.authMethod,
         authority: commit.authority,
       }),
+      walletSessionClientCapability: context.input.walletSessionClientCapability,
     });
+    if (registrationEstablishedSession.kind === 'protocol_mismatch') {
+      return unissuedRegistrationCommit({
+        ok: false,
+        code: registrationEstablishedSession.code,
+        message: registrationEstablishedSession.message,
+      });
+    }
+    const registrationEstablishedSessionResult =
+      registrationEstablishedSessionResultFromIssuance(registrationEstablishedSession);
     const responseBase = {
       ok: true as const,
       kind: 'evm_family_ecdsa' as const,
@@ -4252,7 +4310,7 @@ export class CloudflareD1WalletRegistrationService {
         activation: activated.ecdsa.activation,
         bootstrap: activated.ecdsa.bootstrap,
       },
-      registrationEstablishedSession: registrationEstablishedSession.session,
+      registrationEstablishedSession: registrationEstablishedSessionResult,
     };
     if (commit.authMethod.kind === 'passkey') {
       if (!commit.rpId) throw new Error('Passkey registration activation is missing its RP ID');

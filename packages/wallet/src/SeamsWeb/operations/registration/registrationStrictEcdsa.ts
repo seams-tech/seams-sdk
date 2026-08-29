@@ -66,8 +66,10 @@ import type {
 import { type WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
-  RegistrationEstablishedEcdsaSession,
-  RegistrationEstablishedSession,
+  RegistrationEstablishedEcdsaSessionProjectionV2,
+  RegistrationEstablishedSessionProjectionV2,
+  RegistrationEstablishedSessionResultV2,
+  RegistrationEstablishedSessionV2,
 } from '@shared/utils/registrationEstablishedSession';
 import {
   ROUTER_AB_TRACE_ID_HEADER_V1,
@@ -108,8 +110,33 @@ export type RegistrationEcdsaSession = {
   materialActivation: FinalizeRouterAbEcdsaRegistrationActivationResultV1['materialActivation'];
   clientPublicFacts: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicFacts'];
   publicCapability: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicCapability'];
-  registrationEstablishedSession: RegistrationEstablishedSession;
+  registrationEstablishedSession: RegistrationEstablishedSessionV2;
 };
+
+export class RegistrationExactMethodUnlockRequiredError extends Error {
+  readonly code = 'wallet_unlock_required' as const;
+  readonly next = 'unlock_exact_method' as const;
+  readonly projection: RegistrationEstablishedSessionProjectionV2;
+
+  constructor(projection: RegistrationEstablishedSessionProjectionV2) {
+    super('Registration response was already committed; exact-method unlock is required');
+    this.name = 'RegistrationExactMethodUnlockRequiredError';
+    this.projection = projection;
+  }
+}
+
+export function requireIssuedRegistrationEstablishedSession(
+  result: RegistrationEstablishedSessionResultV2,
+): RegistrationEstablishedSessionV2 {
+  switch (result.kind) {
+    case 'issued':
+      return result.session;
+    case 'already_committed':
+      throw new RegistrationExactMethodUnlockRequiredError(result.session);
+    default:
+      return assertNever(result);
+  }
+}
 
 type PendingRegistrationEcdsaLocalFinalization = {
   chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
@@ -524,8 +551,8 @@ export async function finalizeStrictEcdsaFamilyLocalActivation(args: {
 }
 
 function registrationEstablishedEcdsaSession(
-  session: RegistrationEstablishedSession,
-): RegistrationEstablishedEcdsaSession {
+  session: RegistrationEstablishedSessionV2,
+): RegistrationEstablishedEcdsaSessionProjectionV2 {
   switch (session.tokens.kind) {
     case 'evm_family_ecdsa':
     case 'near_ed25519_and_evm_family_ecdsa':

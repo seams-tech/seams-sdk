@@ -12,9 +12,15 @@ import {
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
   parseWalletId as parseWalletIdResult,
+  parseMpcMaterialActivationRef,
+  mpcMaterialActivationRefsEqual,
   type WalletId,
 } from './domainIds';
-import type { ThresholdEcdsaSessionId, ThresholdEd25519SessionId } from './domainIds';
+import type {
+  MpcMaterialActivationRef,
+  ThresholdEcdsaSessionId,
+  ThresholdEd25519SessionId,
+} from './domainIds';
 import {
   parseThresholdEcdsaKeyHandle,
   type ThresholdEcdsaKeyHandle,
@@ -33,6 +39,15 @@ import {
   parseRouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from './routerAbEcdsaDerivation';
+import { routerAbMpcMaterialActivationRefFromWire } from './routerAbNormalSigningIdentity';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '../device-linking/contracts';
+import {
+  parseActiveWalletSessionV1,
+  parseWalletSessionOperationCredentialV1,
+} from '../device-linking/parsers';
 
 /**
  * Registration establishes one reusable authorization identity. Each curve
@@ -95,6 +110,7 @@ export type RegistrationEstablishedEcdsaSessionProjectionV2 = {
   readonly thresholdSessionId: ThresholdEcdsaSessionId;
   readonly keyHandle: ThresholdEcdsaKeyHandle;
   readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly materialActivation: MpcMaterialActivationRef;
   readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
 
@@ -104,6 +120,7 @@ export type RegistrationEstablishedEd25519SessionProjectionV2 = {
   readonly nearAccountId: NearAccountId;
   readonly nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly materialActivation: MpcMaterialActivationRef;
   readonly routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
@@ -134,6 +151,177 @@ export type RegistrationEstablishedSessionProjectionV2 = {
   readonly remainingUses: number;
   readonly tokens: RegistrationEstablishedSessionProjectionTokensV2;
 };
+
+/**
+ * The direct registration response keeps the primary credential beside the
+ * exact browser record. Its runtime projection is shared with the receipt so
+ * replay can return the same identity without recreating plaintext.
+ */
+export type RegistrationEstablishedSessionV2 = {
+  readonly kind: 'registration_established_wallet_session_v2';
+  readonly walletId: WalletId;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly expiresAtMs: number;
+  readonly remainingUses: number;
+  readonly walletSession: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
+  readonly tokens: RegistrationEstablishedSessionProjectionTokensV2;
+};
+
+export type RegistrationEstablishedSessionResultV2 =
+  | {
+      readonly kind: 'issued';
+      readonly session: RegistrationEstablishedSessionV2;
+    }
+  | {
+      readonly kind: 'already_committed';
+      readonly session: RegistrationEstablishedSessionProjectionV2;
+      readonly next: 'unlock_exact_method';
+    };
+
+export function parseRegistrationEstablishedSessionResultV2(
+  raw: unknown,
+): RegistrationEstablishedSessionResultV2 | null {
+  if (!isRecord(raw) || typeof raw.kind !== 'string') return null;
+  switch (raw.kind) {
+    case 'issued': {
+      if (!hasExactKeys(raw, ['kind', 'session'])) return null;
+      const session = parseRegistrationEstablishedSessionV2(raw.session);
+      return session === null ? null : { kind: 'issued', session };
+    }
+    case 'already_committed': {
+      if (!hasExactKeys(raw, ['kind', 'session', 'next'])) return null;
+      if (raw.next !== 'unlock_exact_method') return null;
+      const session = parseRegistrationEstablishedSessionProjectionV2(raw.session);
+      return session === null ? null : { kind: 'already_committed', session, next: raw.next };
+    }
+    default:
+      return null;
+  }
+}
+
+export function parseRegistrationEstablishedSessionV2(
+  raw: unknown,
+): RegistrationEstablishedSessionV2 | null {
+  try {
+    if (
+      !isRecord(raw) ||
+      !hasExactKeys(raw, [
+        'kind',
+        'walletId',
+        'authorizationId',
+        'walletSessionId',
+        'quotaId',
+        'expiresAtMs',
+        'remainingUses',
+        'walletSession',
+        'operationCredential',
+        'tokens',
+      ]) ||
+      raw.kind !== 'registration_established_wallet_session_v2'
+    ) {
+      return null;
+    }
+    const walletId = parseWalletIdResult(raw.walletId);
+    const walletSessionId = parseWalletSessionId(raw.walletSessionId);
+    const authorizationId = parseWalletSessionAuthorizationId(raw.authorizationId);
+    const quotaId = parseMpcWalletSigningQuotaId(raw.quotaId);
+    if (!walletId.ok || !authorizationId.ok || !walletSessionId.ok || !quotaId.ok) return null;
+    const expiresAtMs = parseNonNegativeSafeInteger(raw.expiresAtMs);
+    const remainingUses = parseNonNegativeSafeInteger(raw.remainingUses);
+    if (expiresAtMs === null || expiresAtMs <= 0 || remainingUses === null || remainingUses <= 0) {
+      return null;
+    }
+    const walletSession = parseActiveWalletSessionV1(raw.walletSession);
+    const operationCredential = parseWalletSessionOperationCredentialV1(raw.operationCredential);
+    if (
+      walletSession.walletId !== walletId.value ||
+      walletSession.authorizationId !== authorizationId.value ||
+      walletSession.expiresAtMs !== expiresAtMs ||
+      operationCredential.walletSessionId !== walletSessionId.value
+    ) {
+      return null;
+    }
+    const tokens = parseRegistrationEstablishedSessionProjectionTokensV2(raw.tokens);
+    if (tokens === null) return null;
+    if (!registrationSessionTokensMatchCapabilities(walletSession, tokens)) return null;
+    return {
+      kind: 'registration_established_wallet_session_v2',
+      walletId: walletId.value,
+      authorizationId: authorizationId.value,
+      walletSessionId: walletSessionId.value,
+      quotaId: quotaId.value,
+      expiresAtMs,
+      remainingUses,
+      walletSession,
+      operationCredential,
+      tokens,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function registrationSessionTokensMatchCapabilities(
+  walletSession: ActiveWalletSessionV1,
+  tokens: RegistrationEstablishedSessionProjectionTokensV2,
+): boolean {
+  switch (tokens.kind) {
+    case 'evm_family_ecdsa':
+      return hasRegistrationSigningCapability(
+        walletSession,
+        'ecdsa_secp256k1',
+        tokens.ecdsa.materialActivation,
+      ) && !hasUnexpectedRegistrationSigningFamily(walletSession, 'ecdsa_secp256k1');
+    case 'near_ed25519':
+      return hasRegistrationSigningCapability(
+        walletSession,
+        'ed25519',
+        tokens.ed25519.materialActivation,
+      ) && !hasUnexpectedRegistrationSigningFamily(walletSession, 'ed25519');
+    case 'near_ed25519_and_evm_family_ecdsa':
+      return (
+        hasRegistrationSigningCapability(
+          walletSession,
+          'ecdsa_secp256k1',
+          tokens.ecdsa.materialActivation,
+        ) &&
+        hasRegistrationSigningCapability(
+          walletSession,
+          'ed25519',
+          tokens.ed25519.materialActivation,
+        ) &&
+        !hasUnexpectedRegistrationSigningFamily(walletSession, 'ed25519', 'ecdsa_secp256k1')
+      );
+    default:
+      return false;
+  }
+}
+
+function hasRegistrationSigningCapability(
+  walletSession: ActiveWalletSessionV1,
+  keyFamily: 'ed25519' | 'ecdsa_secp256k1',
+  materialActivation: MpcMaterialActivationRef,
+): boolean {
+  return walletSession.capabilitySubjects.some(
+    (subject) =>
+      subject.kind === 'sign' &&
+      subject.keyFamily === keyFamily &&
+      mpcMaterialActivationRefsEqual(subject.materialActivation, materialActivation),
+  );
+}
+
+function hasUnexpectedRegistrationSigningFamily(
+  walletSession: ActiveWalletSessionV1,
+  ...allowedFamilies: readonly ('ed25519' | 'ecdsa_secp256k1')[]
+): boolean {
+  return walletSession.capabilitySubjects.some(
+    (subject) =>
+      subject.kind === 'sign' && !allowedFamilies.includes(subject.keyFamily),
+  );
+}
 
 export function parseRegistrationEstablishedSessionProjectionV2(
   raw: unknown,
@@ -228,6 +416,7 @@ function parseRegistrationEstablishedEcdsaSessionProjectionV2(
       'thresholdSessionId',
       'keyHandle',
       'runtimePolicyScope',
+      'materialActivation',
       'routerAbEcdsaDerivationNormalSigning',
     ]) ||
     raw.sessionKind !== 'credential_free_projection_v2'
@@ -236,26 +425,32 @@ function parseRegistrationEstablishedEcdsaSessionProjectionV2(
   }
   const thresholdSessionId = parseThresholdEcdsaSessionId(raw.thresholdSessionId);
   if (!thresholdSessionId.ok) return null;
-  let keyHandle: ThresholdEcdsaKeyHandle;
-  let runtimePolicyScope: RuntimePolicyScope;
-  let routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1 | null;
   try {
-    keyHandle = parseThresholdEcdsaKeyHandle(raw.keyHandle);
-    runtimePolicyScope = parseRuntimePolicyScopeProjection(raw.runtimePolicyScope);
-    routerAbEcdsaDerivationNormalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
+    const keyHandle = parseThresholdEcdsaKeyHandle(raw.keyHandle);
+    const runtimePolicyScope = parseRuntimePolicyScopeProjection(raw.runtimePolicyScope);
+    const materialActivation = parseMpcMaterialActivationRef(raw.materialActivation);
+    if (!materialActivation.ok) return null;
+    const routerAbEcdsaDerivationNormalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
       raw.routerAbEcdsaDerivationNormalSigning,
     );
+    if (!routerAbEcdsaDerivationNormalSigning) return null;
+    const scopeMaterialActivation = routerAbMpcMaterialActivationRefFromWire(
+      routerAbEcdsaDerivationNormalSigning.scope.material_activation,
+    );
+    if (!mpcMaterialActivationRefsEqual(materialActivation.value, scopeMaterialActivation)) {
+      return null;
+    }
+    return {
+      sessionKind: 'credential_free_projection_v2',
+      thresholdSessionId: thresholdSessionId.value,
+      keyHandle,
+      runtimePolicyScope,
+      materialActivation: materialActivation.value,
+      routerAbEcdsaDerivationNormalSigning,
+    };
   } catch {
     return null;
   }
-  if (routerAbEcdsaDerivationNormalSigning === null) return null;
-  return {
-    sessionKind: 'credential_free_projection_v2',
-    thresholdSessionId: thresholdSessionId.value,
-    keyHandle,
-    runtimePolicyScope,
-    routerAbEcdsaDerivationNormalSigning,
-  };
 }
 
 function parseRegistrationEstablishedEd25519SessionProjectionV2(
@@ -269,6 +464,7 @@ function parseRegistrationEstablishedEd25519SessionProjectionV2(
       'nearAccountId',
       'nearEd25519SigningKeyId',
       'runtimePolicyScope',
+      'materialActivation',
       'routerAbNormalSigning',
     ]) ||
     raw.sessionKind !== 'credential_free_projection_v2'
@@ -278,25 +474,25 @@ function parseRegistrationEstablishedEd25519SessionProjectionV2(
   const thresholdSessionId = parseThresholdEd25519SessionId(raw.thresholdSessionId);
   const nearAccountId = parseNearAccountId(raw.nearAccountId);
   if (!thresholdSessionId.ok || !nearAccountId.ok) return null;
-  let nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-  let runtimePolicyScope: RuntimePolicyScope;
-  let routerAbNormalSigning: RouterAbEd25519NormalSigningState | null;
   try {
-    nearEd25519SigningKeyId = parseNearEd25519SigningKeyId(raw.nearEd25519SigningKeyId);
-    runtimePolicyScope = parseRuntimePolicyScopeProjection(raw.runtimePolicyScope);
-    routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
+    const nearEd25519SigningKeyId = parseNearEd25519SigningKeyId(raw.nearEd25519SigningKeyId);
+    const runtimePolicyScope = parseRuntimePolicyScopeProjection(raw.runtimePolicyScope);
+    const materialActivation = parseMpcMaterialActivationRef(raw.materialActivation);
+    if (!materialActivation.ok) return null;
+    const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
+    if (!routerAbNormalSigning) return null;
+    return {
+      sessionKind: 'credential_free_projection_v2',
+      thresholdSessionId: thresholdSessionId.value,
+      nearAccountId: nearAccountId.value,
+      nearEd25519SigningKeyId,
+      runtimePolicyScope,
+      materialActivation: materialActivation.value,
+      routerAbNormalSigning,
+    };
   } catch {
     return null;
   }
-  if (routerAbNormalSigning === null) return null;
-  return {
-    sessionKind: 'credential_free_projection_v2',
-    thresholdSessionId: thresholdSessionId.value,
-    nearAccountId: nearAccountId.value,
-    nearEd25519SigningKeyId,
-    runtimePolicyScope,
-    routerAbNormalSigning,
-  };
 }
 
 function parseRuntimePolicyScopeProjection(raw: unknown): RuntimePolicyScope {
