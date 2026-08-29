@@ -181,9 +181,7 @@ import { persistPasskeyEd25519YaoSignerMaterialV1 } from '@/core/signingEngine/s
 import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
 import { toAccountId } from '@/core/types/accountIds';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import {
-  persistActiveWalletSessionAuthorizationFromDirectRegistration,
-} from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
+import { persistActiveWalletSessionAuthorizationFromDirectRegistration } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import type {
   ActiveWalletSessionV1,
   WalletCapabilitySubjectV1,
@@ -489,8 +487,6 @@ function buildRegistrationEmailOtpEd25519RecoveryBootstrap(args: {
   return {
     kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
     session: {
-      sessionKind: 'opaque',
-      walletSessionToken: args.sessionState.signingWalletSession.auth.walletSessionToken,
       walletId: args.walletId,
       nearAccountId: args.nearAccountId,
       nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
@@ -1703,9 +1699,7 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
         await args.persistPendingCommit({
           localMaterial: {
             keyFamilies: ['ecdsa_secp256k1'],
-            custodyCommit: walletCustodyCommitPayloadForWire(
-              bootstrap.preActivationCommitPayload,
-            ),
+            custodyCommit: walletCustodyCommitPayloadForWire(bootstrap.preActivationCommitPayload),
             ecdsa: {
               activationJournalId: persisted.journalId,
             },
@@ -2078,11 +2072,7 @@ function appendRegistrationEd25519SigningCapability(
   }
   const [first, ...remaining] = subjects;
   if (!first) throw new Error('Mixed registration Wallet Session has no capabilities');
-  return [
-    first,
-    ...remaining,
-    { kind: 'sign', keyFamily: 'ed25519', materialActivation },
-  ];
+  return [first, ...remaining, { kind: 'sign', keyFamily: 'ed25519', materialActivation }];
 }
 
 function mixedRegistrationSessionFromDeferredResult(
@@ -2290,9 +2280,7 @@ async function commitDeferredEd25519Registration(args: {
     const metadata = joined.metadata;
     const materialActivation = nearEd25519YaoMaterialActivationFromMetadata(metadata);
     if (args.authMaterial.kind === 'passkey') {
-      const registrationEd25519Session = registrationEstablishedEd25519Session(
-        registrationSession,
-      );
+      const registrationEd25519Session = registrationEstablishedEd25519Session(registrationSession);
       await args.context.signingEngine.hydrateSigningSession({
         thresholdSessionId: String(registrationEd25519Session.thresholdSessionId),
         prfFirstB64u: args.authMaterial.prfFirstB64u,
@@ -2342,11 +2330,7 @@ async function commitDeferredEd25519Registration(args: {
       thresholdSessionId: materialFacts.identity.thresholdSessionId,
       runtimePolicyScope: materialFacts.stableServerScope.runtimePolicyScope,
       materialActivation,
-      ...registrationEd25519LaneAuthorization(
-        auth,
-        passkeyCredentialIdB64u,
-        registrationSession,
-      ),
+      ...registrationEd25519LaneAuthorization(auth, passkeyCredentialIdB64u, registrationSession),
       nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
         finalized.ed25519.nearEd25519SigningKeyId,
       ),

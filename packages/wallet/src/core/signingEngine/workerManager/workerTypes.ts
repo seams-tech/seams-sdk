@@ -120,7 +120,7 @@ import type {
   Ed25519YaoLaneJobV1,
 } from '@shared/signing-lanes/rotation';
 import type { NearResolvedEd25519SigningSessionState } from '../interfaces/near';
-import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
+import type { WalletRegistrationEd25519YaoSignerRuntimeBootstrap } from '@/core/rpcClients/relayer/walletRegistration';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type { WalletRecoverySetRotationWorkerResultV1 } from '@shared/wallet-recovery/walletRecoveryRotation';
 import type {
@@ -207,7 +207,7 @@ export type EmailOtpWalletCustodyEd25519MaterialRequest =
 
 export type EmailOtpEd25519YaoRecoveryBootstrapV1 = {
   readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1;
-  readonly session: WalletRegistrationEd25519YaoBootstrapSession;
+  readonly session: WalletRegistrationEd25519YaoSignerRuntimeBootstrap;
   readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
 };
 

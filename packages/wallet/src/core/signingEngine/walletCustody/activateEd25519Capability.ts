@@ -20,6 +20,7 @@ import {
   registrationNearEd25519BranchKey,
 } from '@shared/utils/registrationIntent';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import { base58Encode } from '@shared/utils/base58';
 import { WalletCustodyEd25519ActiveClientV1 } from './ed25519ActiveClient';
 
@@ -60,18 +61,22 @@ function requireThresholdSessionId(value: unknown): ThresholdEd25519SessionId {
 function assertBootstrapIdentity(args: {
   bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   identity: ActivationIdentity;
+  operationCredential: WalletSessionOperationCredentialV1;
 }): void {
   const session = args.bootstrap.session;
   const capability = args.bootstrap.capability;
   if (
-    session.sessionKind !== 'opaque' ||
-    !session.walletSessionToken ||
     !session.walletId ||
     !session.walletSessionId ||
     !session.quotaId ||
     !session.thresholdSessionId
   ) {
     throw new Error('Wallet custody Ed25519 bootstrap Wallet Session binding is invalid');
+  }
+  if (args.operationCredential.walletSessionId !== session.walletSessionId) {
+    throw new Error(
+      'Wallet custody Ed25519 operation credential does not identify the bootstrap session',
+    );
   }
   const expectedWalletId = String(args.identity.walletId);
   if (
@@ -95,6 +100,7 @@ function assertBootstrapIdentity(args: {
 async function buildWalletSessionState(args: {
   bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   identity: ActivationIdentity;
+  operationCredential: WalletSessionOperationCredentialV1;
   providerSubject: string;
   relayerUrl: string;
   authority: WalletAuthAuthorityRef;
@@ -125,7 +131,7 @@ async function buildWalletSessionState(args: {
     signingRootId: session.signingRootId,
     signingRootVersion: session.signingRootVersion,
     routerAbNormalSigning: session.routerAbNormalSigning,
-    walletSessionToken: session.walletSessionToken,
+    walletSessionToken: args.operationCredential.token,
     nowMs: Date.now(),
   });
   if (!signingWalletSession.ok) {
@@ -176,6 +182,7 @@ export async function activateWalletCustodyEd25519CapabilityV1(args: {
   expectedOperationalPublicKey: string;
   expectedThresholdSessionId: string;
   bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+  operationCredential: WalletSessionOperationCredentialV1;
   activeClientHandle: string;
   metadata: RouterAbEd25519YaoActiveClientMetadataV1;
   workerContext: WorkerOperationContext;
@@ -196,7 +203,11 @@ export async function activateWalletCustodyEd25519CapabilityV1(args: {
       'expectedThresholdSessionId',
     ),
   };
-  assertBootstrapIdentity({ bootstrap: args.bootstrap, identity });
+  assertBootstrapIdentity({
+    bootstrap: args.bootstrap,
+    identity,
+    operationCredential: args.operationCredential,
+  });
   if (
     args.metadata.applicationBinding.wallet_id !== String(args.walletSession.walletId) ||
     args.metadata.applicationBinding.key_creation_signer_slot !== identity.signerSlot ||
@@ -211,6 +222,7 @@ export async function activateWalletCustodyEd25519CapabilityV1(args: {
   const walletSessionState = await buildWalletSessionState({
     bootstrap: args.bootstrap,
     identity,
+    operationCredential: args.operationCredential,
     providerSubject: args.providerSubject,
     relayerUrl: args.relayerUrl,
     authority: args.authority,

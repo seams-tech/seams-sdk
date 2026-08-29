@@ -577,6 +577,110 @@ test('Ed25519 session connection rejects success without a runtime policy scope'
   }
 });
 
+async function connectRefreshEd25519Session(
+  input: {
+    existingWalletSessionToken?: string;
+  } = {},
+) {
+  const authority = buildPasskeyWalletAuthAuthority({
+    walletId: 'refresh-wallet',
+    rpId: 'localhost',
+    credentialIdB64u: 'credential-id-b64u',
+  });
+  return await connectEd25519Session({
+    credentialStore: unusedCredentialStore,
+    touchIdPrompt: unusedTouchIdPrompt,
+    relayerUrl: 'https://relay.example.test',
+    relayerKeyId: 'ed25519:relayer-key',
+    walletId: 'refresh-wallet',
+    nearAccountId: 'refresh.testnet',
+    nearEd25519SigningKeyId: 'refresh.testnet',
+    authority: {
+      kind: 'wallet_auth_authority',
+      authority,
+    },
+    participantIds: [1, 2],
+    routerAbNormalSigning: {
+      kind: 'router_ab_ed25519_normal_signing_v1',
+      signingWorkerId: 'local-signing-worker',
+    },
+    auth: {
+      kind: 'threshold_session_policy_webauthn',
+      policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+        credential: refreshCredentialFixture(),
+        rpId: 'localhost',
+      }),
+    },
+    ...(input.existingWalletSessionToken
+      ? { existingWalletSessionToken: input.existingWalletSessionToken }
+      : {}),
+  });
+}
+
+test('Ed25519 session connection returns the issued operation credential exactly', async () => {
+  const originalFetch = globalThis.fetch;
+  activeRefreshFetchCapture = {
+    authorization: '',
+    body: '',
+    credentials: undefined,
+  };
+  globalThis.fetch = refreshWalletSessionFetch;
+
+  try {
+    const result = await connectRefreshEd25519Session();
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected an issued Ed25519 session');
+    expect(result.sessionKind).toBe('issued_wallet_session_v1');
+    expect(result.operationCredential.walletSessionId).toBe(result.walletSessionId);
+    expect(result).not.toHaveProperty('walletSessionToken');
+  } finally {
+    activeRefreshFetchCapture = null;
+    activeRefreshResponseBody = null;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Ed25519 session connection keeps reused sessions credential-free', async () => {
+  const originalFetch = globalThis.fetch;
+  activeRefreshFetchCapture = {
+    authorization: '',
+    body: '',
+    credentials: undefined,
+  };
+  activeRefreshResponseBody = {
+    ok: true,
+    sessionKind: 'reused_wallet_session_v2',
+    thresholdSessionId: 'threshold-session-1',
+    walletSessionId: 'wallet-session-1',
+    authorizationId: 'authorization-1',
+    quotaId: 'quota-1',
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    remainingUses: 3,
+    runtimePolicyScope: {
+      orgId: 'org-refresh',
+      projectId: 'project-refresh',
+      envId: 'env-refresh',
+      signingRootVersion: 'root-version-refresh',
+    },
+  };
+  globalThis.fetch = refreshWalletSessionFetch;
+
+  try {
+    const result = await connectRefreshEd25519Session({
+      existingWalletSessionToken: `wst_${'E'.repeat(43)}`,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected a reused Ed25519 session');
+    expect(result.sessionKind).toBe('reused_wallet_session_v2');
+    expect(result).not.toHaveProperty('operationCredential');
+    expect(result).not.toHaveProperty('walletSessionToken');
+  } finally {
+    activeRefreshFetchCapture = null;
+    activeRefreshResponseBody = null;
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('Email OTP Ed25519 step-up sends exact operation proof without material recovery or a reusable session', async () => {
   const originalFetch = globalThis.fetch;
   const capture: RefreshFetchCapture = {

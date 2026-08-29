@@ -16,6 +16,8 @@ import type {
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type { WalletSessionCommittedIdentityV1 } from '@shared/authorization';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import {
   buildThresholdEd25519WebAuthnPrfSecretSource,
   localPrfFirstForEd25519WalletSessionMintAuthorization,
@@ -23,36 +25,65 @@ import {
   type Ed25519WalletSessionMintAuthorization,
 } from '../ed25519/walletSession';
 
+type ConnectEd25519SessionSuccessBase = {
+  readonly ok: true;
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly expiresAtMs: number;
+  readonly remainingUses: number;
+  readonly routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  readonly passkeyPrfFirstB64u: string;
+  readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
+  readonly code?: never;
+  readonly message?: never;
+};
+
 export type ConnectEd25519SessionResult =
+  | (ConnectEd25519SessionSuccessBase & {
+      readonly sessionKind: 'issued_wallet_session_v1';
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+    })
+  | (ConnectEd25519SessionSuccessBase & {
+      readonly sessionKind: 'reused_wallet_session_v2';
+      readonly operationCredential?: never;
+    })
   | {
-      ok: true;
-      thresholdSessionId: ThresholdEd25519SessionId;
-      authorizationId: WalletSessionAuthorizationId;
-      walletSessionId: WalletSessionId;
-      quotaId: MpcWalletSigningQuotaId;
-      expiresAtMs: number;
-      remainingUses: number;
-      routerAbNormalSigning: RouterAbEd25519NormalSigningState;
-      walletSessionToken: string;
-      passkeyPrfFirstB64u: string;
-      runtimePolicyScope: ThresholdRuntimePolicyScope;
-      code?: never;
-      message?: never;
+      readonly ok: false;
+      readonly code: 'already_committed';
+      readonly message: string;
+      readonly next: 'unlock_exact_method';
+      readonly committed: WalletSessionCommittedIdentityV1;
+      readonly thresholdSessionId?: never;
+      readonly authorizationId?: never;
+      readonly walletSessionId?: never;
+      readonly quotaId?: never;
+      readonly expiresAtMs?: never;
+      readonly remainingUses?: never;
+      readonly runtimePolicyScope?: never;
+      readonly routerAbNormalSigning?: never;
+      readonly passkeyPrfFirstB64u?: never;
+      readonly sessionKind?: never;
+      readonly operationCredential?: never;
     }
   | {
-      ok: false;
-      code?: string;
-      message?: string;
-      thresholdSessionId?: never;
-      authorizationId?: never;
-      walletSessionId?: never;
-      quotaId?: never;
-      expiresAtMs?: never;
-      remainingUses?: never;
-      runtimePolicyScope?: never;
-      routerAbNormalSigning?: never;
-      walletSessionToken?: never;
-      passkeyPrfFirstB64u?: never;
+      readonly ok: false;
+      readonly code: string;
+      readonly message: string;
+      readonly next?: never;
+      readonly committed?: never;
+      readonly thresholdSessionId?: never;
+      readonly authorizationId?: never;
+      readonly walletSessionId?: never;
+      readonly quotaId?: never;
+      readonly expiresAtMs?: never;
+      readonly remainingUses?: never;
+      readonly runtimePolicyScope?: never;
+      readonly routerAbNormalSigning?: never;
+      readonly passkeyPrfFirstB64u?: never;
+      readonly sessionKind?: never;
+      readonly operationCredential?: never;
     };
 
 function assertNeverWalletAuthFactorKind(kind: never): never {
@@ -74,7 +105,7 @@ function passkeyAuthorityFromEd25519SessionPolicyAuthority(
  * Wallet-origin helper:
  * - build a threshold session policy (and digest)
  * - collect a WebAuthn assertion with challenge = `sessionPolicyDigest32`
- * - mint an opaque Wallet Session token
+ * - mint an exact Wallet Session operation credential or reuse an existing one
  *
  * Notes:
  * - This function is intentionally standard-WebAuthn (no contract verifier).
@@ -96,7 +127,6 @@ export async function connectEd25519Session(args: {
     projectEnvironmentId: string;
     publishableKey: string;
   };
-  sessionKind?: 'opaque';
   thresholdSessionId?: ThresholdEd25519SessionId;
   ttlMs?: number;
   remainingUses?: number;
@@ -104,7 +134,6 @@ export async function connectEd25519Session(args: {
   workerCtx?: WorkerOperationContext;
   existingWalletSessionToken?: string;
 }): Promise<ConnectEd25519SessionResult> {
-  const sessionKind = 'opaque';
   const passkeyAuthority = passkeyAuthorityFromEd25519SessionPolicyAuthority(args.authority);
   const passkeyRpId = passkeyAuthority ? String(passkeyAuthority.verifier.rpId || '').trim() : '';
   if (passkeyAuthority && !passkeyRpId) {
@@ -162,7 +191,7 @@ export async function connectEd25519Session(args: {
   // 3) Mint the opaque Wallet Session after proving the exact session policy.
   const minted = await mintEd25519WalletSession({
     relayerUrl: args.relayerUrl,
-    sessionKind,
+    sessionKind: 'opaque',
     relayerKeyId: args.relayerKeyId,
     sessionPolicy: policy,
     auth,
@@ -173,25 +202,26 @@ export async function connectEd25519Session(args: {
       : {}),
   });
   if (!minted.ok) {
+    if (minted.code === 'already_committed') {
+      return minted;
+    }
     return {
       ok: false,
-      ...(minted.code ? { code: minted.code } : {}),
-      ...(minted.message ? { message: minted.message } : {}),
+      code: minted.code,
+      message: minted.message,
     };
   }
   const requestedThresholdSessionId = policy.thresholdSessionId;
   const resolvedThresholdSessionId = minted.thresholdSessionId || requestedThresholdSessionId;
 
-  const expiresAtMs = minted.expiresAtMs ?? Date.now() + policy.ttlMs;
-  const remainingUses = minted.remainingUses ?? policy.remainingUses;
+  const expiresAtMs = minted.expiresAtMs;
+  const remainingUses = minted.remainingUses;
   const mintedRuntimePolicyScope = minted.runtimePolicyScope;
-  const walletSessionToken = String(minted.walletSessionToken || '').trim();
   if (
     !resolvedThresholdSessionId ||
     !minted.authorizationId ||
     !minted.walletSessionId ||
     !minted.quotaId ||
-    !walletSessionToken ||
     !mintedRuntimePolicyScope
   ) {
     return {
@@ -201,8 +231,8 @@ export async function connectEd25519Session(args: {
     };
   }
 
-  return {
-    ok: true,
+  const successBase = {
+    ok: true as const,
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(resolvedThresholdSessionId),
     authorizationId: minted.authorizationId,
     walletSessionId: minted.walletSessionId,
@@ -211,7 +241,29 @@ export async function connectEd25519Session(args: {
     remainingUses,
     runtimePolicyScope: mintedRuntimePolicyScope,
     routerAbNormalSigning: args.routerAbNormalSigning,
-    walletSessionToken,
     passkeyPrfFirstB64u: prfFirstB64u,
   };
+  switch (minted.sessionKind) {
+    case 'issued_wallet_session_v1':
+      if (minted.operationCredential.walletSessionId !== minted.walletSessionId) {
+        return {
+          ok: false,
+          code: 'invalid_response',
+          message: 'Threshold Ed25519 session mint credential does not identify its session',
+        };
+      }
+      return {
+        ...successBase,
+        sessionKind: minted.sessionKind,
+        operationCredential: minted.operationCredential,
+      };
+    case 'reused_wallet_session_v2':
+      return { ...successBase, sessionKind: minted.sessionKind };
+    default:
+      return assertNeverEd25519WalletSessionMintKind(minted);
+  }
+}
+
+function assertNeverEd25519WalletSessionMintKind(kind: never): never {
+  throw new Error(`[threshold-ed25519] unsupported Wallet Session mint kind: ${String(kind)}`);
 }
