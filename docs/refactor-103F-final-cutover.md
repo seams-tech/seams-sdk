@@ -1402,8 +1402,8 @@ Remaining causal baseline work:
 #### Existing focused test inventory
 
 - [ ] `tests/unit/d1AuthorizationCore.unit.test.ts`
-- [ ] `tests/unit/d1OwnerProofWalletSessionIssuance.unit.test.ts`
-- [ ] `tests/unit/d1WalletAuthMethodStore.unit.test.ts`
+- [x] `tests/unit/d1OwnerProofWalletSessionIssuance.unit.test.ts`
+- [x] `tests/unit/d1WalletAuthMethodStore.unit.test.ts`
 - [ ] `tests/unit/d1WalletSessionAuthMethodProvenance.unit.test.ts`
 - [ ] `tests/unit/linkedDeviceManagement.unit.test.ts`
 - [ ] `tests/unit/walletSessionAuthorizationStatus.unit.test.ts`
