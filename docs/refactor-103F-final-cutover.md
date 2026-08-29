@@ -411,8 +411,11 @@ the token after its own earlier expiry. Session retirement, auth-method cleanup,
 identity lookup, and expiry cleanup cover both token tables. Plaintext is never
 persisted. Concurrent identical replay returns usable responses; conflicting
 replay fails closed. Bearer bytes may differ while the fingerprint and committed
-projection remain stable. The adapter table, its resolver, and its tests are
-deleted together when the pending-commit client owns terminal replay.
+projection remain stable. The legacy response's top-level `expiresAtMs` reports
+the adapter bearer expiry so an old client never persists the underlying session
+lifetime as the bearer's usable lifetime. The adapter table, its resolver, and
+its tests are deleted together when the pending-commit client owns terminal
+replay.
 
 Existing successful registration completion rows under both activation and
 deferred-provisioning prefixes may contain plaintext V1 bearers. These are
@@ -701,11 +704,10 @@ Primary files:
       final pending-commit recovery.
 - [ ] Keep one bounded old-client adapter that attaches a V1 bearer only in
       memory; delete it when `already_committed` becomes authoritative.
-- [ ] Add a dedicated adapter-only digest table with a maximum five-minute token
+- [x] Add a dedicated adapter-only digest table with a maximum five-minute token
       lifetime and exact receipt/session/quota/method/runtime binding. Extend
       resolution and cleanup without weakening the ordinary opaque-token
-      table's unique wallet-session/curve constraint; delete the table and
-      resolver with the adapter.
+      table's unique wallet-session/curve constraint.
 - [ ] Update Route 3 comments and tests from byte-identical bearer output to
       stable fingerprint and committed-projection identity.
 - [x] Make the receipt parser reject bearer fields, credential-bearing
