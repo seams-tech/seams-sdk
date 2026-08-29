@@ -695,8 +695,12 @@ Primary files:
       committed exact identity without reconstructing the expected record.
 - [x] Implement `issued` and `already_committed` without credential rotation or
       fabrication.
-- [x] Persist `PendingWalletRegistrationCommitV1` before the terminal request;
-      keep it sufficient for reload and invisible to normal discovery.
+- [x] Persist `PendingWalletRegistrationCommitV1` before the terminal request
+      and keep it invisible to normal discovery.
+- [ ] Make the pending record sufficient for reload by retaining the exact
+      Passkey publication facts and recoverable ECDSA local-finalization state;
+      validate both against the credential-free committed projection before
+      publication.
 - [x] Change final registration replay to credential-free committed projection
       plus `unlock_exact_method`.
 - [ ] Validate replay against the pending record and atomically publish profile,
