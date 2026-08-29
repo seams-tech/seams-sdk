@@ -834,9 +834,9 @@ and `authorizeSigningSessionSealWithExactWalletSession`.
       disagreeing columns, and broken foreign-key identity.
 - [x] Convert fully scoped `isAuthorizedOperationSourceActive` rows to V2 exact
       lookup.
-- [ ] Delete the all-null-scope V1 source-activity branch and reject partial or
+- [x] Delete the all-null-scope V1 source-activity branch and reject partial or
       unscoped pending rows.
-- [ ] Replace quota lookup through `reusable_wallet_sessions` with the V2
+- [x] Replace quota lookup through `reusable_wallet_sessions` with the V2
       authorization's `quota_id`.
 - [x] Populate `linked_scope_org_id`, `linked_scope_project_id`, and
       `linked_scope_env_id` on every new grant and reject partial scope.
