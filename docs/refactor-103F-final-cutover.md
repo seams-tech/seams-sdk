@@ -286,7 +286,7 @@ phase is active.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | B1 | D1 authorization persistence | Direct issuer and authority-activation CAS | Admission, status, quota, replay, revocation, hosted children | Full-scope mint replay returns committed identity | V2 authorization, quota, and primary digest commit atomically | Bridge workers may read V1 tables; delete after zero active V1 state and exact-only workers | Failure injection plus migration checks |
 | B2 | Session issuance | Registration, unlock, refresh, sync, linked activation, post-recovery login | Browser installers, signing runtimes, status | `issued` / `already_committed`; unlock replaces unreachable committed session | Direct V2 response and credential digest | Registration old-response adapter only; delete when pending-commit clients own replay | Issuance matrix and same-mint tests |
-| B3 | Registration completion | Registration activation and deferred provisioning | Registration client, replay route, local discovery/install transaction | Pending local commit plus credential-free committed projection | `WalletRegistrationSessionCommitReceiptV2` | Adapter attaches ephemeral V1 bearer; delete when `already_committed` is authoritative | Lost response through immediate signing |
+| B3 | Registration completion | Registration activation and deferred provisioning | Registration client, replay route, local discovery/install transaction | Pending local commit plus credential-free committed projection | `WalletRegistrationSessionCommitReceiptV2`; bounded adapter digests live only in the temporary replay table | Adapter attaches ephemeral V1 bearer; delete its table and resolver when `already_committed` is authoritative | Lost response through immediate signing |
 | B4 | Operation admission | Primary and hosted credential resolvers | Both curve validators, pool fill, seal, preflight, warm recovery, step-up | Authorized-operation replay resolves the same exact context | Required V2 credential reader and typed admission union | Bridge request resolver accepts issued V1 bearers; delete after credential and pending-operation drain | Both curves reject fallback |
 | B5 | Runtime material resolution | Capability-subject material repository | Router A/B requests, signing, export, pool fill | Re-resolution uses the same activation identity | Exact `MpcMaterialActivationRef` projection | No compatibility; delete or replace every opaque-binding consumer | No synthesized runtime IDs |
 | B6 | Status, quota, and source activity | Exact status and authorization stores | Browser reconciliation, quota, operation replay, lifecycle UI | Full digest-free projection repairs lost promotion response | Exact V2 scope and typed lifecycle | All-null-scope old-worker rows remain readable; delete after pending V1 operation count reaches zero | Full-scope replay and lifecycle tests |
@@ -349,6 +349,7 @@ explicit because compilation cannot prove their closure.
 | --- | --- |
 | `reusable_wallet_sessions` | Drain active rows, then drop table, indexes, and triggers |
 | `opaque_wallet_session_tokens` | Retire exposed usable bearers, drain remaining rows, then drop |
+| `registration_replay_opaque_wallet_session_tokens_v1` | Keep adapter digests for at most five minutes, require active parent session/quota, then require zero rows and drop with the adapter |
 | V2 rows with null credential digest | Treat as unusable; retire before enforcement |
 | All-null-scope pending operations | Read through the bridge boundary until their count reaches zero |
 | V1 hosted exchanges | Permit bounded redemption, then require zero unconsumed rows |
@@ -1127,8 +1128,10 @@ Applied migrations remain immutable. Relevant historical files include:
 - `0023_r109d_first_email_linked_device.sql`;
 - `0024_r103f_v2_authorized_operation_claim.sql`;
 - `0025_r109d_email_enrollment_wallet_cardinality.sql`;
-- `0026_r115_wallet_recovery_authority_provenance.sql`; and
-- `0027_r115_email_otp_recovery_bootstrap.sql`.
+- `0026_r115_wallet_recovery_authority_provenance.sql`;
+- `0027_r115_email_otp_recovery_bootstrap.sql`;
+- `0028_r103f_phase1_additive_schema_bridge.sql`; and
+- `0029_r103f_phase0_registration_replay_tokens.sql`.
 
 `linked_device_wallet_session_authorizations` and
 `linked_device_wallet_session_quotas` were already dropped by immutable `0015`;
@@ -1141,13 +1144,27 @@ applied `0024` and record any old-worker all-null-scope claim exposure window.
 The replacement must work both where `0024`/`0026` already ran and where they
 appear earlier in the same clean-database migration batch.
 
-At the current checkpoint the next landed number is `0028`. The actual file
-number is allocated only after reconciling landed and pending migrations from
-concurrent workstreams and is rechecked after each rebase. Applied files are
-never renamed to resolve an allocation race.
+At the current checkpoint `0028` and `0029` are landed. The next file number is
+allocated only after reconciling landed and pending migrations from concurrent
+workstreams and is rechecked after each rebase. Applied files are never renamed
+to resolve an allocation race.
 
-R103F adds two logical migration stages. They may receive non-contiguous file
-numbers.
+R103F adds two logical migration stages plus the bounded Phase 0 adapter schema.
+Migration `0029` follows `0028` in immutable history, so R0 applies both additive
+files before deploying the adapter-aware worker. Applying `0028` does not enable
+the bridge worker or direct V2 response family by itself. The later enforcement
+and deletion stage may receive a non-contiguous file number.
+
+### Temporary registration replay adapter migration
+
+Migration `0029` adds the digest-only
+`registration_replay_opaque_wallet_session_tokens_v1` boundary. It requires an
+active exact V1 parent session and quota, binds authority and auth method, caps
+token expiry at five minutes and the parent expiry, and contains no bearer
+plaintext. New-worker readiness manifests require it. Auth-method cleanup,
+hosted redemption cleanup, identity resolution, and logical parent retirement
+cover its rows. The enforcement/deletion migration drops it only after the old-
+client adapter is absent from every serving worker and its row count is zero.
 
 ### Additive bridge migration
 
@@ -1167,17 +1184,19 @@ The bridge migration:
 - leaves V1 tables present for the bridge deployment.
 
 The migration and deployment preflight report counts for active V1 sessions,
-usable V2 sessions, null-digest V2 rows, opaque tokens, pending V1-authorized
-operations, unconsumed V1 hosted exchanges, V1-only quotas, tagged rollout
-receipts, and credential-bearing completion records.
+usable V2 sessions, null-digest V2 rows, ordinary opaque tokens, registration-
+replay adapter tokens, pending V1-authorized operations, unconsumed V1 hosted
+exchanges, V1-only quotas, tagged rollout receipts, and credential-bearing
+completion records.
 
 ### Enforcement and deletion migration
 
 This migration runs only after every serving worker is exact-only and the V1
 drain gates pass. It:
 
-- aborts when active V1 sessions, pending V1-authorized operations, unconsumed
-  V1 hosted exchanges, or tagged rollout receipts remain;
+- aborts when active V1 sessions, registration-replay adapter tokens, pending
+  V1-authorized operations, unconsumed V1 hosted exchanges, or tagged rollout
+  receipts remain;
 - retires null-digest and logically expired duplicate V2 rows;
 - aborts when multiple usable credential-bearing rows remain for an exact tuple;
 - rebuilds `wallet_session_authorizations_v2` with a required active credential
@@ -1187,8 +1206,9 @@ drain gates pass. It:
 - retains completed historical operations needed for replay while requiring
   complete V2 scope for pending and new grants;
 - removes V1 trigger branches, drops or rebuilds V1 child tables before their
-  parent foreign keys, then removes hosted exchange storage, opaque tokens,
-  V1-only unreferenced quotas, and `reusable_wallet_sessions`; and
+  parent foreign keys, then removes hosted exchange storage, the adapter token
+  table, ordinary opaque tokens, V1-only unreferenced quotas, and
+  `reusable_wallet_sessions`; and
 - leaves no V1 view or compatibility alias.
 
 There is no V1-bearer-to-V2 backfill because plaintext credentials cannot be
@@ -1313,10 +1333,11 @@ resume without creating a second authority or ceremony.
 
 ### Phase 4 — Deploy, drain, and delete V1
 
-- [ ] Record the maximum lifetime of V1 sessions, hosted exchanges, pending
-      operation claims, response replay, capability-tagged receipts, and
-      acknowledgement cleanup receipts. Any unbounded lifetime requires an
-      explicit normalization or invalidation gate.
+- [ ] Record the maximum lifetime of V1 sessions, ordinary and registration-
+      replay adapter tokens, hosted exchanges, pending operation claims,
+      response replay, capability-tagged receipts, and acknowledgement cleanup
+      receipts. Any unbounded lifetime requires an explicit normalization or
+      invalidation gate.
 - [ ] Execute rollout stages R1 through R4 and record each zero-state gate.
 - [ ] Delete the registration adapter when `already_committed` owns terminal
       replay.
@@ -1619,7 +1640,8 @@ vocabulary. Console-session JWT types also remain.
 
 Database closure requires:
 
-- zero active V1 sessions and opaque tokens;
+- zero active V1 sessions, ordinary opaque tokens, and registration-replay
+  adapter tokens;
 - zero pending V1-authorized operations;
 - zero unconsumed V1 hosted exchanges;
 - zero active null-digest V2 sessions;
