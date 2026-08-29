@@ -15,6 +15,7 @@ import {
   parseReusableWalletSessionMintId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
+  type WalletSessionClientCapabilityV1,
 } from '@shared/authorization/capabilityKinds';
 import {
   parseThresholdEcdsaSessionId,
@@ -73,16 +74,18 @@ import type {
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
 } from '../../../../core/types';
-import type {
-  RouterApiServiceBag,
-  WalletUnlockEmailOtpAuthorityResolution,
-  WalletUnlockPasskeyAuthorityResolution,
-  WalletUnlockPasskeySessionResolution,
+import {
+  parseWalletUnlockIssuanceRejectionCode,
+  type WalletUnlockEmailOtpAuthorityResolution,
+  type WalletUnlockPasskeyAuthorityResolution,
+  type WalletUnlockPasskeySessionResolution,
+  type RouterApiServiceBag,
 } from '../../../framework/authServicePort';
 import type {
   DirectV2IssueResult,
   IssuedWalletSessionAuthorizationV2,
 } from '../../../../authorization/domain';
+import { WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1 } from '../../../../authorization/domain';
 import { AuthorizationService } from '../../../../authorization/service';
 import { capabilityPolicyPort } from '../../../../authorization/capabilityPolicy';
 import { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
@@ -2274,7 +2277,7 @@ async function resolveEmailOtpAuthorityForUnlock(input: {
     if (!enrollment.ok) {
       return {
         kind: 'rejected',
-        code: enrollment.code,
+        code: parseWalletUnlockIssuanceRejectionCode(enrollment.code),
         message: enrollment.message,
       };
     }
@@ -2306,6 +2309,7 @@ async function issueWalletSessionForActiveAuthority(input: {
   readonly authorizationService: AuthorizationService;
   readonly orgId: string;
   readonly verifiedChallengeId: string;
+  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
 }): Promise<WalletUnlockPasskeySessionResolution> {
   const tenantId = parseTenantId(input.orgId);
   const principalId = parsePrincipalId(
@@ -2339,6 +2343,8 @@ async function issueWalletSessionForActiveAuthority(input: {
       expiresAtMs:
         issuedAtMs +
         (deviceLinked ? LINKED_DEVICE_WALLET_SESSION_TTL_MS : DEFAULT_WALLET_SESSION_TTL_MS),
+      walletSessionClientCapability: input.walletSessionClientCapability,
+      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
     });
     const authorityProvenanceKind = input.resolved.authority.provenance.kind;
     if (authorityProvenanceKind === 'wallet_registration') {
@@ -2353,6 +2359,13 @@ async function issueWalletSessionForActiveAuthority(input: {
         kind: 'already_committed',
         authorityProvenanceKind,
         committed: directIssue,
+      };
+    }
+    if (directIssue.kind === 'protocol_mismatch') {
+      return {
+        kind: 'rejected',
+        code: directIssue.code,
+        message: directIssue.message,
       };
     }
     return {
@@ -2408,6 +2421,7 @@ async function issueWalletSessionForPasskeyUnlock(input: {
     authorizationService: input.authorizationService,
     orgId: input.orgId,
     verifiedChallengeId: input.request.verifiedChallengeId,
+    walletSessionClientCapability: input.request.walletSessionClientCapability,
   });
 }
 
@@ -2445,6 +2459,7 @@ async function issueWalletSessionForEmailOtpUnlock(input: {
     authorizationService: input.authorizationService,
     orgId: input.request.orgId,
     verifiedChallengeId: input.request.verifiedChallengeId,
+    walletSessionClientCapability: input.request.walletSessionClientCapability,
   });
 }
 

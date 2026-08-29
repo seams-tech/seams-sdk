@@ -11,6 +11,7 @@ import {
   parsePrincipalId,
   parseReusableWalletSessionMintId,
   parseTenantId,
+  parseWalletSessionClientCapabilityV1,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type AuthorizationParseResult,
@@ -1159,7 +1160,13 @@ export class CloudflareD1AuthorizationStore
     D1PreparedStatementLike,
   ] {
     requireExactPersistedActiveWalletSessionAuthorizationV2(persisted);
-    const { session, quota, primaryOperationCredentialDigestB64u } = persisted;
+    const {
+      session,
+      quota,
+      primaryOperationCredentialDigestB64u,
+      walletSessionClientCapability,
+      responseFamily,
+    } = persisted;
     const capabilitySubjectsJson = JSON.stringify(session.capabilitySubjects);
     const recordJson = JSON.stringify(session);
     if (!capabilitySubjectsJson || !recordJson) {
@@ -1293,9 +1300,11 @@ export class CloudflareD1AuthorizationStore
           expires_at_ms,
           retired_at_ms,
           record_json,
-          operation_credential_hash
+          operation_credential_hash,
+          wallet_session_client_capability,
+          response_family
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?
          WHERE ${sessionIdentityAvailabilitySql}
            AND ${ACTIVE_V2_AUTHORITY_METHOD_EXISTS_SQL}
            AND EXISTS (
@@ -1332,6 +1341,8 @@ export class CloudflareD1AuthorizationStore
         requirePositiveInteger(session.expiresAtMs, 'Direct V2 session.expiresAtMs'),
         recordJson,
         String(primaryOperationCredentialDigestB64u),
+        String(walletSessionClientCapability),
+        responseFamily,
         ...sessionIdentityAvailabilityBindings,
         ...activeV2AuthorityMethodBindings(this.walletSignerScope, session),
         this.namespace,
@@ -1686,7 +1697,9 @@ export class CloudflareD1AuthorizationStore
            issued_at_ms,
            expires_at_ms,
            retired_at_ms,
-           operation_credential_hash
+           operation_credential_hash,
+           wallet_session_client_capability,
+           response_family
          FROM wallet_session_authorizations_v2
         WHERE namespace = ?
           AND org_id = ?
@@ -1769,6 +1782,14 @@ export class CloudflareD1AuthorizationStore
       throw new Error('Stored V2 Wallet Session mint identity does not match the request');
     }
     const primaryOperationCredentialDigestB64u = parseDigestB64u(row.operation_credential_hash);
+    const parsedWalletSessionClientCapability = parseWalletSessionClientCapabilityV1(
+      row.wallet_session_client_capability,
+    );
+    const walletSessionClientCapability = parsedWalletSessionClientCapability.ok
+      ? parsedWalletSessionClientCapability.value
+      : null;
+    const responseFamily =
+      typeof row.response_family === 'string' ? row.response_family : null;
     const retiredAtMs =
       row.retired_at_ms === null || row.retired_at_ms === undefined
         ? null
@@ -1777,6 +1798,8 @@ export class CloudflareD1AuthorizationStore
       kind: 'committed',
       session,
       primaryOperationCredentialDigestB64u,
+      walletSessionClientCapability,
+      responseFamily,
       retiredAtMs,
     };
   }
@@ -3259,6 +3282,17 @@ function requireExactPersistedActiveWalletSessionAuthorizationV2(
   }
   requireExactWalletSessionAuthorizationV2Quota(input);
   parseDigestB64u(input.primaryOperationCredentialDigestB64u);
+  const parsedWalletSessionClientCapability = parseWalletSessionClientCapabilityV1(
+    input.walletSessionClientCapability,
+  );
+  if (!parsedWalletSessionClientCapability.ok) {
+    throw new Error(
+      `Direct V2 Wallet Session client capability is invalid: ${parsedWalletSessionClientCapability.error.message}`,
+    );
+  }
+  if (input.responseFamily.length === 0) {
+    throw new Error('Direct V2 Wallet Session response family is required');
+  }
   if (input.retiredAtMs !== undefined) {
     throw new Error('Direct V2 Wallet Session aggregate cannot be retired');
   }
