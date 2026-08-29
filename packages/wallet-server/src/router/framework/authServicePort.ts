@@ -98,6 +98,32 @@ export type WalletAuthMethodManagementSubject = Readonly<{
   walletId: WalletId;
 }>;
 
+export type WalletUnlockIssuanceRejectionCode =
+  | 'unauthorized'
+  | 'invalid_state'
+  | 'not_found'
+  | 'tenant_scope_mismatch'
+  | 'provider_identity_mismatch'
+  | 'internal'
+  | 'protocol_mismatch';
+
+export function parseWalletUnlockIssuanceRejectionCode(
+  value: unknown,
+): WalletUnlockIssuanceRejectionCode {
+  switch (value) {
+    case 'unauthorized':
+    case 'invalid_state':
+    case 'not_found':
+    case 'tenant_scope_mismatch':
+    case 'provider_identity_mismatch':
+    case 'internal':
+    case 'protocol_mismatch':
+      return value;
+    default:
+      return 'internal';
+  }
+}
+
 export type WalletUnlockPasskeyAuthorityResolution =
   | {
       readonly kind: 'active_authority';
@@ -107,7 +133,11 @@ export type WalletUnlockPasskeyAuthorityResolution =
         { readonly kind: 'passkey'; readonly status: 'active' }
       >;
     }
-  | { readonly kind: 'rejected'; readonly code: string; readonly message: string };
+  | {
+      readonly kind: 'rejected';
+      readonly code: WalletUnlockIssuanceRejectionCode;
+      readonly message: string;
+    };
 
 export type WalletUnlockEmailOtpAuthorityResolution =
   | {
@@ -119,7 +149,11 @@ export type WalletUnlockEmailOtpAuthorityResolution =
         { readonly kind: 'email_otp'; readonly status: 'active' }
       >;
     }
-  | { readonly kind: 'rejected'; readonly code: string; readonly message: string };
+  | {
+      readonly kind: 'rejected';
+      readonly code: WalletUnlockIssuanceRejectionCode;
+      readonly message: string;
+    };
 
 export type WalletUnlockPasskeySessionResolution =
   | {
@@ -139,7 +173,11 @@ export type WalletUnlockPasskeySessionResolution =
       readonly walletSession?: never;
       readonly operationCredential?: never;
     }
-  | { readonly kind: 'rejected'; readonly code: string; readonly message: string };
+  | {
+      readonly kind: 'rejected';
+      readonly code: WalletUnlockIssuanceRejectionCode;
+      readonly message: string;
+    };
 
 export type RouterApiWalletSessionAuthorizationV2AdmissionContext = {
   readonly authorization: IssuedWalletSessionAuthorizationV2;
@@ -279,7 +317,11 @@ import type {
   ResolvedOpaqueWalletSessionToken,
   EcdsaMaterialActivationScope,
 } from '../../authorization/service';
-import type { PrincipalId, TenantId } from '@shared/authorization/capabilityKinds';
+import type {
+  PrincipalId,
+  TenantId,
+  WalletSessionClientCapabilityV1,
+} from '@shared/authorization/capabilityKinds';
 
 export type EmailOtpChallengeDelivery =
   | {
@@ -1337,6 +1379,7 @@ export interface RouterApiWalletUnlockService {
     readonly rpId: WebAuthnRpId;
     readonly credentialIdB64u: WebAuthnCredentialIdB64u;
     readonly verifiedChallengeId: string;
+    readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
   }): Promise<WalletUnlockPasskeySessionResolution>;
   issueWalletSessionForEmailOtpUnlock(input: {
     readonly walletId: WalletId;
@@ -1344,6 +1387,7 @@ export interface RouterApiWalletUnlockService {
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly providerUserId: string;
     readonly verifiedChallengeId: string;
+    readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
   }): Promise<WalletUnlockPasskeySessionResolution>;
 }
 
