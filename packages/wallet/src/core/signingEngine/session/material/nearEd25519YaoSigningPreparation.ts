@@ -170,13 +170,17 @@ export function nearEd25519SessionMatchesMaterialActivation(args: {
   readonly session: ActiveWalletSessionV1;
   readonly materialActivation: MpcMaterialActivationRef;
 }): boolean {
-  const matches = args.session.capabilitySubjects.filter(
-    (subject) =>
+  let matchCount = 0;
+  for (const subject of args.session.capabilitySubjects) {
+    if (
       subject.kind === 'sign' &&
       subject.keyFamily === 'ed25519' &&
-      mpcMaterialActivationRefsEqual(subject.materialActivation, args.materialActivation),
-  );
-  return matches.length === 1;
+      mpcMaterialActivationRefsEqual(subject.materialActivation, args.materialActivation)
+    ) {
+      matchCount += 1;
+    }
+  }
+  return matchCount === 1;
 }
 
 function assertAuthorizationMatchesHydration(args: {
