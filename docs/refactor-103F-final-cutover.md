@@ -971,9 +971,10 @@ Primary files:
       one terminal `cancelled`, and the hosted menu reaches an explicit retry
       state with opener focus restored. Postcommit local installation and
       active sessions remain outside that route.
-- [ ] Delete `INSTALLATION_SCHEMA_SQL` and other runtime `CREATE TABLE` strings from
-      `d1LinkedDeviceAuthorityInstallService.ts` after migration ownership.
-- [ ] Move `linked_device_authority_allocations` to the additive migration while
+- [x] Delete `INSTALLATION_SCHEMA_SQL` and other runtime `CREATE TABLE` strings from
+      `d1LinkedDeviceAuthorityInstallService.ts`; the service now contains only
+      operational DML for migration-owned tables.
+- [x] Move `linked_device_authority_allocations` to the additive migration while
       preserving immutable `0018` ownership of
       `linked_device_authority_installations` and its
       `target_factor_verified_at_ms >= 0` constraint.
