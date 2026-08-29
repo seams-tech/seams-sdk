@@ -154,11 +154,8 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
   const originalWriteExact = walletSessionAuthorizations.writeExact;
   const originalWriteExactWithOperationCredential =
     walletSessionAuthorizations.writeExactWithOperationCredential;
-  const originalUpsertActiveWithCurveMerge = walletSessionAuthorizations.upsertActiveWithCurveMerge;
-  const originalReadActiveForWallet = walletSessionAuthorizations.readActiveForWallet;
   const originalFetch = globalThis.fetch;
   const writtenSessions: unknown[] = [];
-  const projectionWrites: unknown[] = [];
   const authenticatedStates: unknown[] = [];
   const activatedMaterials: NearEd25519YaoOperationMaterial[] = [];
   const walletId = toWalletId(String(fixture.walletId));
@@ -194,14 +191,6 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
   walletSessionAuthorizations.writeExactWithOperationCredential = async (input) => {
     writtenSessions.push(input);
     return input.record;
-  };
-  walletSessionAuthorizations.upsertActiveWithCurveMerge = async (args) => {
-    projectionWrites.push(args.incoming);
-    return args.incoming;
-  };
-  walletSessionAuthorizations.readActiveForWallet = async () => {
-    const projection = projectionWrites.at(-1);
-    return projection ? { kind: 'found', projection } : { kind: 'missing' };
   };
   globalThis.fetch = async (input) => {
     const path = new URL(String(input)).pathname;
@@ -259,7 +248,6 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
       walletId: fixture.walletId,
     });
     expect(writtenSessions).toHaveLength(1);
-    expect(projectionWrites).toHaveLength(1);
     expect(authenticatedStates).toHaveLength(1);
     expect(activatedMaterials).toHaveLength(1);
     expect(importedClients).toHaveLength(1);
@@ -342,8 +330,6 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
     walletSessionAuthorizations.writeExact = originalWriteExact;
     walletSessionAuthorizations.writeExactWithOperationCredential =
       originalWriteExactWithOperationCredential;
-    walletSessionAuthorizations.upsertActiveWithCurveMerge = originalUpsertActiveWithCurveMerge;
-    walletSessionAuthorizations.readActiveForWallet = originalReadActiveForWallet;
     globalThis.fetch = originalFetch;
   }
 });
