@@ -1322,9 +1322,9 @@ remaining consumers are converted.
 
 - [ ] Convert remaining registration, unlock, refresh, sync, ECDSA activation,
       linked activation, and post-recovery login issuers.
-- [ ] Make the V2 credential reader required and delete `not_v2` from exact core
+- [x] Make the V2 credential reader required and delete `not_v2` from exact core
       admission.
-- [ ] Convert signing, pool fill, signing-session seal, execution-lane
+- [x] Convert signing, pool fill, signing-session seal, execution-lane
       preflight, recovery warm bootstrap, and operation step-up.
 - [ ] Convert status, quota, source activity, authorized-operation replay, and
       typed lifecycle handling.
