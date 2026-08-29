@@ -4,11 +4,15 @@ import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
+import { buildEmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
+import { authorizeEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
 import {
-  resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability,
-  type EmailOtpEcdsaSigningSessionAuthority,
-} from '../../session/emailOtp/ecdsaSigningSessionAuthority';
-import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+  isEmailOtpWalletAuthAuthority,
+  walletAuthAuthoritiesMatch,
+} from '@shared/utils/walletAuthAuthority';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 
 async function resolveDurableEmailOtpEcdsaAuthority(args: {
   lane: ExactEcdsaSigningLaneIdentity;
@@ -31,12 +35,36 @@ async function resolveDurableEmailOtpEcdsaAuthority(args: {
       args.lane.signer.walletId,
     );
     if (!authorization) return null;
-    const resolution = resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability({
+    const authorized = authorizeEvmFamilyEcdsaSigningCapability({
       capability,
-      authorization: authorization.projection,
-      chainTarget: args.lane.signer.chainTarget,
+      authorization,
+      nowMs: Date.now(),
     });
-    return resolution.kind === 'ready' ? resolution.authority : null;
+    const runtime = authorized.authorization.runtime;
+    if (
+      authorized.authorization.selectedAuthMethod.kind !== 'email_otp' ||
+      runtime.authBinding.kind !== 'email_otp' ||
+      !walletAuthAuthoritiesMatch(capability.authority, runtime.authBinding.emailOtpAuthority) ||
+      capability.authority.factor.providerUserId !== args.lane.auth.providerSubjectId ||
+      runtime.walletId !== args.lane.signer.walletId ||
+      !thresholdEcdsaChainTargetsEqual(runtime.chainTarget, args.lane.signer.chainTarget) ||
+      !mpcMaterialActivationRefsEqual(
+        runtime.materialActivation,
+        args.lane.signer.materialActivation,
+      )
+    ) {
+      return null;
+    }
+    return buildEmailOtpEcdsaSigningSessionAuthority({
+      authority: capability.authority,
+      authLane: {
+        kind: 'signing_session',
+        walletSessionToken: authorized.authorization.operationCredential.token,
+        thresholdSessionId: runtime.sealedRecord.thresholdSessionId,
+        curve: 'ecdsa',
+        chainTarget: args.lane.signer.chainTarget,
+      },
+    });
   } catch {
     return null;
   }

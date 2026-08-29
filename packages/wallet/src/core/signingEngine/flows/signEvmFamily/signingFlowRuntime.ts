@@ -21,23 +21,12 @@ import {
   type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
-import {
-  walletSessionAuthorizations,
-  walletSessionAuthorizationIdForCurve,
-  WalletSessionAuthorizationUpgradeRequiredError,
-  type WalletSessionOperationCredentialV1,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { IndexedDBManager } from '@/core/indexedDB';
-import {
-  resolveExactWalletAuthAuthority,
-  type OwnerLaneScopeStores,
-} from '../../session/identity/ownerLaneScope';
-import { readEmailOtpProviderSubjectForWalletV1 } from '../../threshold/ed25519/yaoPublicCapabilityReferences';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
@@ -57,9 +46,10 @@ import {
 import { emitEvmFamilySigningOperationTrace } from './events';
 import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
 import type {
-  ActiveEvmFamilyWalletSessionAuthorization,
+  ExactEvmFamilyWalletSessionAuthorization,
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../../session/material/ecdsaSigningCapability';
+import { authorizeEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
 import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
 import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
 import {
@@ -140,6 +130,7 @@ async function resolveCurrentActiveWalletAuthorityRuntime(args: {
     chainTarget: args.signer.chainTarget,
     requiredCapability: 'sign',
     materialActivation: args.signer.materialActivation,
+    nowMs: Date.now(),
   });
   if (current.kind !== 'resolved') {
     throw new Error(`[SigningEngine] active Wallet Authority ECDSA runtime is ${current.reason}`);
@@ -156,177 +147,6 @@ async function resolveCurrentActiveWalletAuthorityRuntime(args: {
     throw new Error('[SigningEngine] active Wallet Authority ECDSA runtime was replaced');
   }
   return runtime;
-}
-
-async function getEcdsaOperationWalletAuthMethod(walletAuthMethodId: string) {
-  return await IndexedDBManager.getWalletAuthMethodV2(walletAuthMethodId);
-}
-
-async function listEcdsaOperationWalletAuthMethods(walletId: string) {
-  return await IndexedDBManager.listWalletAuthMethodsForWallet(walletId);
-}
-
-async function getEcdsaOperationPasskeyAuthenticator(args: {
-  readonly walletId: string;
-  readonly credentialId: string;
-}) {
-  return await IndexedDBManager.getWalletPasskeyAuthenticator(args);
-}
-
-async function readEcdsaOperationProviderSubject(walletId: string) {
-  return await readEmailOtpProviderSubjectForWalletV1(IndexedDBManager, walletId);
-}
-
-const ecdsaOperationFactorStores: OwnerLaneScopeStores = {
-  getWalletAuthMethodV2: getEcdsaOperationWalletAuthMethod,
-  listWalletAuthMethodsForWallet: listEcdsaOperationWalletAuthMethods,
-  getWalletPasskeyAuthenticator: getEcdsaOperationPasskeyAuthenticator,
-  readEmailOtpProviderSubjectForWallet: readEcdsaOperationProviderSubject,
-};
-
-export type ExactEcdsaOperationCredentialResolution =
-  | {
-      readonly kind: 'resolved';
-      readonly operationCredential: WalletSessionOperationCredentialV1;
-      readonly reason?: never;
-    }
-  | {
-      readonly kind: 'upgrade_required';
-      readonly operationCredential?: never;
-      readonly reason?: never;
-    }
-  | {
-      readonly kind: 'unavailable';
-      readonly reason:
-        | 'selected_authority_unavailable'
-        | 'selected_authority_mismatch'
-        | 'missing_wallet_session'
-        | 'wallet_session_expired'
-        | 'wallet_session_identity_mismatch'
-        | 'wallet_session_capability_mismatch'
-        | 'persistence_unavailable';
-      readonly operationCredential?: never;
-    };
-
-export async function resolveExactEcdsaOperationCredential(args: {
-  readonly walletId: WalletId;
-  readonly authority: WalletAuthAuthority;
-  readonly materialActivation: EvmFamilyEcdsaMaterialActivation;
-  readonly nowMs: number;
-}): Promise<ExactEcdsaOperationCredentialResolution> {
-  let selected: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
-  try {
-    selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
-  } catch {
-    return { kind: 'unavailable', reason: 'persistence_unavailable' };
-  }
-  if (selected.kind !== 'resolved') {
-    return { kind: 'unavailable', reason: 'selected_authority_unavailable' };
-  }
-  const { selection, authMethod, authority } = selected;
-  if (
-    selection.lockState !== 'unlocked' ||
-    authMethod.status !== 'active' ||
-    authority.state !== 'active' ||
-    selection.walletId !== args.walletId ||
-    authMethod.walletId !== args.walletId ||
-    authority.walletId !== args.walletId ||
-    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
-    authMethod.walletAuthorityId !== authority.authorityId ||
-    args.authority.walletId !== args.walletId ||
-    args.authority.bindingId !== authMethod.walletAuthMethodId
-  ) {
-    return { kind: 'unavailable', reason: 'selected_authority_mismatch' };
-  }
-  let selectedFactorAuthority: WalletAuthAuthority;
-  try {
-    selectedFactorAuthority = await resolveExactWalletAuthAuthority({
-      authMethod,
-      stores: ecdsaOperationFactorStores,
-    });
-  } catch {
-    return { kind: 'unavailable', reason: 'selected_authority_mismatch' };
-  }
-  if (!walletAuthAuthoritiesMatch(selectedFactorAuthority, args.authority)) {
-    return { kind: 'unavailable', reason: 'selected_authority_mismatch' };
-  }
-  const ecdsaActivation = authority.signerActivations.ecdsa;
-  if (
-    !ecdsaActivation ||
-    ecdsaActivation.signer.walletId !== args.walletId ||
-    !mpcMaterialActivationRefsEqual(ecdsaActivation.materialActivation, args.materialActivation)
-  ) {
-    return { kind: 'unavailable', reason: 'selected_authority_mismatch' };
-  }
-
-  let read: Awaited<
-    ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
-  >;
-  try {
-    read = await walletSessionAuthorizations.readExactWithOperationCredential({
-      walletId: args.walletId,
-      authorityId: authority.authorityId,
-      authMethodId: authMethod.walletAuthMethodId,
-    });
-  } catch {
-    return { kind: 'unavailable', reason: 'persistence_unavailable' };
-  }
-  switch (read.kind) {
-    case 'missing':
-      return { kind: 'unavailable', reason: 'missing_wallet_session' };
-    case 'upgrade_required':
-      return { kind: 'upgrade_required' };
-    case 'found':
-      break;
-  }
-
-  const session = read.record;
-  const operationCredential = read.operationCredential;
-  if (session.expiresAtMs <= args.nowMs) {
-    return { kind: 'unavailable', reason: 'wallet_session_expired' };
-  }
-  if (
-    session.walletId !== args.walletId ||
-    session.authorityId !== authority.authorityId ||
-    session.authMethodId !== authMethod.walletAuthMethodId ||
-    session.authorityDigestB64u !== authority.authorityDigestB64u ||
-    session.authorityRevocationEpoch !== authority.revocationEpoch ||
-    operationCredential.walletSessionId.trim().length === 0 ||
-    operationCredential.token.trim().length === 0
-  ) {
-    return { kind: 'unavailable', reason: 'wallet_session_identity_mismatch' };
-  }
-  let matchingCapabilityCount = 0;
-  for (const subject of session.capabilitySubjects) {
-    if (
-      subject.kind === 'sign' &&
-      subject.keyFamily === 'ecdsa_secp256k1' &&
-      mpcMaterialActivationRefsEqual(subject.materialActivation, args.materialActivation)
-    ) {
-      matchingCapabilityCount += 1;
-    }
-  }
-  if (matchingCapabilityCount !== 1) {
-    return { kind: 'unavailable', reason: 'wallet_session_capability_mismatch' };
-  }
-  return { kind: 'resolved', operationCredential };
-}
-
-function requireExactEcdsaOperationCredentialToken(
-  resolution: ExactEcdsaOperationCredentialResolution,
-): string {
-  switch (resolution.kind) {
-    case 'resolved':
-      return resolution.operationCredential.token;
-    case 'upgrade_required':
-      throw new WalletSessionAuthorizationUpgradeRequiredError(
-        '[SigningEngine] exact ECDSA Wallet Session requires a newer client',
-      );
-    case 'unavailable':
-      throw new Error(
-        `[SigningEngine] exact ECDSA Wallet Session is unavailable: ${resolution.reason}`,
-      );
-  }
 }
 
 /** R90-INV-010. The wallet's active manifest names the material that may be
@@ -386,30 +206,49 @@ export function ecdsaSigningCapabilitySupersession(args: {
 }
 
 export function ecdsaSigningAuthorizationSupersession(args: {
-  preparedAuthorization: ActiveEvmFamilyWalletSessionAuthorization;
-  currentAuthorization: ActiveEvmFamilyWalletSessionAuthorization | null;
+  preparedAuthorization: ExactEvmFamilyWalletSessionAuthorization;
+  currentAuthorization: ExactEvmFamilyWalletSessionAuthorization | null;
   materialActivation: EvmFamilyEcdsaMaterialActivation;
 }): SupersededEcdsaSigningMaterial | null {
-  const prepared = args.preparedAuthorization.projection;
-  const currentAuthorization = args.currentAuthorization;
-  const current = currentAuthorization?.projection;
-  const preparedAuthorizationId = walletSessionAuthorizationIdForCurve(prepared, 'ecdsa');
-  const currentAuthorizationId = current
-    ? walletSessionAuthorizationIdForCurve(current, 'ecdsa')
-    : null;
+  const prepared = args.preparedAuthorization;
+  const current = args.currentAuthorization;
   if (
-    currentAuthorization &&
     current &&
-    String(current.walletId) === String(prepared.walletId) &&
-    String(current.walletSessionId) === String(prepared.walletSessionId) &&
-    currentAuthorizationId !== null &&
-    currentAuthorizationId === preparedAuthorizationId &&
-    String(current.quotaId) === String(prepared.quotaId) &&
-    String(currentAuthorization.status.walletSessionId) ===
-      String(args.preparedAuthorization.status.walletSessionId) &&
-    String(currentAuthorization.status.quotaId) ===
-      String(args.preparedAuthorization.status.quotaId) &&
-    String(current.authority.authorityDigest) === String(prepared.authority.authorityDigest)
+    prepared.selectedAuthority.authorityId === current.selectedAuthority.authorityId &&
+    prepared.selectedAuthMethod.kind === current.selectedAuthMethod.kind &&
+    prepared.selectedAuthMethod.walletAuthMethodId ===
+      current.selectedAuthMethod.walletAuthMethodId &&
+    prepared.session.walletId === current.session.walletId &&
+    prepared.session.authorityId === current.session.authorityId &&
+    prepared.session.authMethodId === current.session.authMethodId &&
+    prepared.session.authorizationId === current.session.authorizationId &&
+    prepared.session.quotaId === current.session.quotaId &&
+    prepared.session.authorityDigestB64u === current.session.authorityDigestB64u &&
+    prepared.session.authorityRevocationEpoch === current.session.authorityRevocationEpoch &&
+    prepared.operationCredential.walletSessionId === current.operationCredential.walletSessionId &&
+    prepared.operationCredential.token === current.operationCredential.token &&
+    thresholdEcdsaChainTargetsEqual(prepared.runtime.chainTarget, current.runtime.chainTarget) &&
+    mpcMaterialActivationRefsEqual(
+      prepared.runtime.materialActivation,
+      current.runtime.materialActivation,
+    ) &&
+    prepared.runtime.sealedRecord.authMethod === current.runtime.sealedRecord.authMethod &&
+    prepared.runtime.sealedRecord.storeKey === current.runtime.sealedRecord.storeKey &&
+    prepared.runtime.sealedRecord.thresholdSessionId ===
+      current.runtime.sealedRecord.thresholdSessionId &&
+    prepared.runtime.authBinding.kind === current.runtime.authBinding.kind &&
+    ((prepared.runtime.authBinding.kind === 'email_otp' &&
+      current.runtime.authBinding.kind === 'email_otp' &&
+      walletAuthAuthoritiesMatch(
+        prepared.runtime.authBinding.emailOtpAuthority,
+        current.runtime.authBinding.emailOtpAuthority,
+      )) ||
+      (prepared.runtime.authBinding.kind === 'passkey' &&
+        current.runtime.authBinding.kind === 'passkey' &&
+        prepared.runtime.authBinding.rpId === current.runtime.authBinding.rpId &&
+        prepared.runtime.authBinding.credentialIdB64u ===
+          current.runtime.authBinding.credentialIdB64u)) &&
+    mpcMaterialActivationRefsEqual(current.runtime.materialActivation, args.materialActivation)
   ) {
     return null;
   }
@@ -423,8 +262,8 @@ export function ecdsaSigningAuthorizationSupersession(args: {
 
 async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   capability: CanonicalEvmFamilyEcdsaSigningCapability;
-  preparedAuthorization: ActiveEvmFamilyWalletSessionAuthorization | null;
-  currentAuthorization: ActiveEvmFamilyWalletSessionAuthorization | null;
+  preparedAuthorization: ExactEvmFamilyWalletSessionAuthorization | null;
+  currentAuthorization: ExactEvmFamilyWalletSessionAuthorization | null;
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   materialActivation: EvmFamilyEcdsaMaterialActivation;
@@ -498,6 +337,7 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
         material: resolution.material,
         capability: args.capability,
         authorization: args.currentAuthorization,
+        nowMs: Date.now(),
       }),
     },
   };
@@ -560,12 +400,11 @@ export async function createEvmFamilySigningFlowRuntime(args: {
     resolvedSigner && capability && !args.activeWalletAuthority
       ? {
           walletId: resolvedSigner.walletId,
-          authority: capability.authority,
           materialActivation: resolvedSigner.materialActivation,
         }
       : undefined;
   const thresholdEcdsaStepUpRuntime: EvmFamilyThresholdEcdsaStepUpRuntime | undefined =
-    capability && exactOperationCredentialScope
+    !args.activeWalletAuthority && capability && exactOperationCredentialScope
       ? {
           ...(args.emailOtpSigningForFlow ? { emailOtpSigning: args.emailOtpSigningForFlow } : {}),
           // Without an active reusable Wallet Session the candidate is
@@ -588,21 +427,34 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               args.onAuthSideEffectStarted?.(
                 authorization.kind === 'passkey' ? 'passkey_reauth' : 'email_otp_challenge',
               );
-              const walletSessionToken = requireExactEcdsaOperationCredentialToken(
-                await resolveExactEcdsaOperationCredential({
-                  walletId: exactOperationCredentialScope.walletId,
-                  authority: exactOperationCredentialScope.authority,
-                  materialActivation: exactOperationCredentialScope.materialActivation,
-                  nowMs: Date.now(),
-                }),
-              );
+              const nowMs = Date.now();
+              const currentAuthorization =
+                await args.deps.resolveActiveEcdsaWalletSessionAuthorization(
+                  exactOperationCredentialScope.walletId,
+                );
+              if (!currentAuthorization) {
+                throw new Error('[SigningEngine] exact ECDSA Wallet Session is unavailable');
+              }
+              if (
+                !mpcMaterialActivationRefsEqual(
+                  currentAuthorization.runtime.materialActivation,
+                  exactOperationCredentialScope.materialActivation,
+                )
+              ) {
+                throw new Error('[SigningEngine] exact ECDSA Wallet Session material changed');
+              }
+              const authorized = authorizeEvmFamilyEcdsaSigningCapability({
+                capability,
+                authorization: currentAuthorization,
+                nowMs,
+              });
               return await authorizeEvmFamilyEcdsaOperationStepUp({
                 relayerUrl,
                 authority: capability.authority,
                 authorization,
                 prepared,
                 material,
-                walletSessionToken,
+                walletSessionToken: authorized.authorization.operationCredential.token,
               });
             },
           },

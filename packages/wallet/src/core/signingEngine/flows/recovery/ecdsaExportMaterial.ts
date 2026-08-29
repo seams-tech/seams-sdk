@@ -32,7 +32,7 @@ import {
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 import type {
   RouterAbEcdsaDerivationNormalSigningStateV1,
   RouterAbEcdsaDerivationPublicCapabilityV1,
@@ -64,7 +64,7 @@ export type ExactEcdsaExportLane =
       capability: CanonicalEvmFamilyEcdsaSigningCapability;
       runtime?: never;
       authorizationState: 'authorized';
-      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+      authorization: ExactEvmFamilyWalletSessionAuthorization;
     })
   | (ExactEcdsaExportLaneBase & {
       source: 'canonical_capability';

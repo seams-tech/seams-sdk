@@ -8,7 +8,6 @@ import {
 } from '../../session/identity/laneIdentity';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import { type EcdsaTransactionSigningLane } from '../../session/operationState/lanes';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
@@ -41,7 +40,7 @@ export function summarizeEvmFamilyEcdsaLane(
     sessionOrigin: 'sessionOrigin' in lane ? lane.sessionOrigin : undefined,
     storageSource: 'storageSource' in lane ? lane.storageSource : undefined,
     retention: 'retention' in lane ? lane.retention : undefined,
-    walletSessionId: lane.authorization.projection.walletSessionId,
+    walletSessionId: lane.authorization.operationCredential.walletSessionId,
     materialActivationId: lane.materialActivation.activationId,
     chainTarget: signer.chainTarget,
     evmFamilyKeyPresent: Boolean(signer.key),

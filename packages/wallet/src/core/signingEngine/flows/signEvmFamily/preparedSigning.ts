@@ -47,6 +47,7 @@ import {
   type WalletId,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { type PreparedThresholdSigningOperation } from '../../session/operationState/preparedOperation';
 import {
   createSigningBoundaryTraceEvent,
@@ -69,6 +70,7 @@ import {
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { EvmFamilySigningTarget } from './types';
 import type { OwnerLaneScope } from '../../session/identity/signingLaneAuthBinding';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 
 export function buildEvmFamilyTransactionSigningIntent(args: {
   walletId: WalletId;
@@ -207,12 +209,42 @@ function summarizeEcdsaLaneCandidate(
     authorizationState: candidate.authorizationState,
     ...(candidate.authorizationState === 'authorized'
       ? {
-          walletSessionId: candidate.authorization.projection.walletSessionId,
-          remainingUses: candidate.authorization.status.remainingUses,
-          expiresAtMs: candidate.authorization.status.expiresAtMs,
+          walletSessionId: candidate.authorization.operationCredential.walletSessionId,
+          remainingUses: candidate.authorization.runtime.remainingUses,
+          expiresAtMs: candidate.authorization.runtime.expiresAtMs,
         }
       : {}),
   };
+}
+
+function exactEcdsaAuthorizationIdentityMatches(
+  left: ExactEvmFamilyWalletSessionAuthorization,
+  right: ExactEvmFamilyWalletSessionAuthorization,
+): boolean {
+  const leftSession = left.session;
+  const rightSession = right.session;
+  return (
+    left.selectedAuthority.authorityId === right.selectedAuthority.authorityId &&
+    left.selectedAuthMethod.kind === right.selectedAuthMethod.kind &&
+    left.selectedAuthMethod.walletAuthMethodId === right.selectedAuthMethod.walletAuthMethodId &&
+    leftSession.walletId === rightSession.walletId &&
+    leftSession.authorityId === rightSession.authorityId &&
+    leftSession.authMethodId === rightSession.authMethodId &&
+    leftSession.authorizationId === rightSession.authorizationId &&
+    leftSession.quotaId === rightSession.quotaId &&
+    leftSession.authorityDigestB64u === rightSession.authorityDigestB64u &&
+    leftSession.authorityRevocationEpoch === rightSession.authorityRevocationEpoch &&
+    left.operationCredential.walletSessionId === right.operationCredential.walletSessionId &&
+    left.operationCredential.token === right.operationCredential.token &&
+    thresholdEcdsaChainTargetsEqual(left.runtime.chainTarget, right.runtime.chainTarget) &&
+    mpcMaterialActivationRefsEqual(
+      left.runtime.materialActivation,
+      right.runtime.materialActivation,
+    ) &&
+    left.runtime.sealedRecord.authMethod === right.runtime.sealedRecord.authMethod &&
+    left.runtime.sealedRecord.storeKey === right.runtime.sealedRecord.storeKey &&
+    left.runtime.sealedRecord.thresholdSessionId === right.runtime.sealedRecord.thresholdSessionId
+  );
 }
 
 function assertSelectionMatchesLaneCandidate(args: {
@@ -234,8 +266,10 @@ function assertSelectionMatchesLaneCandidate(args: {
     );
   }
   if (
-    candidate.authorization.projection.walletSessionId !==
-    args.selection.lane.authorization.projection.walletSessionId
+    !exactEcdsaAuthorizationIdentityMatches(
+      candidate.authorization,
+      args.selection.lane.authorization,
+    )
   ) {
     throw new Error('[SigningEngine][ecdsa] prepared authorization did not match lane');
   }
@@ -260,6 +294,7 @@ function readinessFromSelection(
   selection: ReadyEvmFamilyEcdsaSigningSelection,
 ): EvmFamilyPlannerReadiness {
   const candidateState = selection.diagnostics.selectedLaneCandidate.state;
+  const { expiresAtMs, remainingUses } = selection.lane.authorization.runtime;
   if (candidateState === 'expired') {
     return {
       readiness: {
@@ -267,10 +302,10 @@ function readinessFromSelection(
         curve: 'ecdsa',
         materialActivation: selection.lane.materialActivation,
         authorization: selection.lane.authorization,
-        expiresAtMs: 0,
+        expiresAtMs,
       },
-      expiresAtMs: 0,
-      remainingUses: 0,
+      expiresAtMs,
+      remainingUses,
     };
   }
   if (candidateState === 'exhausted') {
@@ -280,18 +315,13 @@ function readinessFromSelection(
         curve: 'ecdsa',
         materialActivation: selection.lane.materialActivation,
         authorization: selection.lane.authorization,
-        expiresAtMs: 0,
-        remainingUses: 0,
+        expiresAtMs,
+        remainingUses,
       },
-      expiresAtMs: 0,
-      remainingUses: 0,
+      expiresAtMs,
+      remainingUses,
     };
   }
-  const expiresAtMs = Math.floor(Number(selection.lane.authorization.status.expiresAtMs) || 0);
-  const remainingUses = Math.max(
-    0,
-    Math.floor(Number(selection.lane.authorization.status.remainingUses) || 0),
-  );
   return {
     readiness: {
       status: 'ready',
