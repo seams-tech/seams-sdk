@@ -248,8 +248,7 @@ type EmailOtpRegistrationCoreSummary = (
       nearAccountId: string;
       operationalPublicKey: string;
       nearProvisioning?: never;
-      signingSessionStatus: string;
-      remainingUses: number | null;
+      authenticationKind: 'authenticated';
     }
   | {
       kind: 'email_otp_registration_success';
@@ -259,8 +258,7 @@ type EmailOtpRegistrationCoreSummary = (
       nearProvisioning: IntendedNearProvisioningSummary;
       nearAccountId?: never;
       operationalPublicKey?: never;
-      signingSessionStatus: string;
-      remainingUses: number | null;
+      authenticationKind: 'authenticated';
     }
   | {
       kind: 'email_otp_registration_success';
@@ -270,8 +268,7 @@ type EmailOtpRegistrationCoreSummary = (
       nearAccountId?: never;
       operationalPublicKey?: never;
       nearProvisioning?: never;
-      signingSessionStatus: string;
-      remainingUses: number | null;
+      authenticationKind: 'authenticated';
     }
 ) &
   IntendedEcdsaSessionSummary;
@@ -293,10 +290,9 @@ type PasskeyUnlockResultSummary =
       nearIdentity: 'ready';
       nearAccountId: string;
       operationalPublicKey: string;
-      /** The exact credential the issued Wallet Session names. */
-      sessionWalletAuthMethodId: string | null;
-      signingSessionStatus: string;
-      remainingUses: number | null;
+      /** The exact credential selected by the resolved capability projection. */
+      sessionWalletAuthMethodId: string;
+      authenticationKind: 'authenticated';
     }
   | {
       kind: 'passkey_unlock_success';
@@ -304,10 +300,9 @@ type PasskeyUnlockResultSummary =
       nearIdentity: 'absent';
       nearAccountId?: never;
       operationalPublicKey?: never;
-      /** The exact credential the issued Wallet Session names. */
-      sessionWalletAuthMethodId: string | null;
-      signingSessionStatus: string;
-      remainingUses: number | null;
+      /** The exact credential selected by the resolved capability projection. */
+      sessionWalletAuthMethodId: string;
+      authenticationKind: 'authenticated';
     };
 
 type PasskeySyncResultSummary = {
@@ -322,8 +317,8 @@ type EmailOtpUnlockCoreSummary = {
   walletId: string;
   nearAccountId: string;
   operationalPublicKey: string;
-  signingSessionStatus: string;
-  remainingUses: number | null;
+  sessionWalletAuthMethodId: string;
+  authenticationKind: 'authenticated';
 } & IntendedEcdsaSessionSummary;
 
 type EmailOtpUnlockResultSummary = EmailOtpUnlockCoreSummary & IntendedEcdsaSummary;
@@ -344,10 +339,9 @@ type RevokeAuthMethodResultSummary = {
 type AddedEmailOtpUnlockResultSummary = {
   kind: 'added_email_otp_unlock_success';
   walletId: string;
-  /** The exact credential the issued Wallet Session names. */
-  sessionWalletAuthMethodId: string | null;
-  signingSessionStatus: string;
-  remainingUses: number | null;
+  /** The exact credential selected by the resolved capability projection. */
+  sessionWalletAuthMethodId: string;
+  authenticationKind: 'authenticated';
 };
 
 type TempoSigningResultSummary = {
@@ -519,7 +513,7 @@ declare global {
     __seamsIntendedE2EReadEmailOtpCode?: (input: IntendedEmailOtpCodeRequest) => Promise<string>;
     __seamsIntendedE2ELockWallet?: () => Promise<void>;
     __seamsIntendedE2EReadWalletLockState?: () => Promise<{
-      reusableWalletSessionKind: WalletSession['reusableWalletSession']['kind'];
+      authenticationKind: WalletSession['authentication']['kind'];
     }>;
   }
 }
@@ -976,10 +970,10 @@ class IntendedPageController {
   };
 
   readWalletLockStateForIntendedTest = async (): Promise<{
-    reusableWalletSessionKind: WalletSession['reusableWalletSession']['kind'];
+    authenticationKind: WalletSession['authentication']['kind'];
   }> => {
     const session = await this.seams.auth.getWalletSession(this.walletId);
-    return { reusableWalletSessionKind: session.reusableWalletSession.kind };
+    return { authenticationKind: session.authentication.kind };
   };
 
   private async registerPasskeyWallet(): Promise<void> {
@@ -1253,11 +1247,7 @@ class IntendedPageController {
       /* Whoever holds the open session is the method to keep. Deriving the
          target this way needs no memory of the addition, which matters because
          the page reloads between actions. */
-      const active = session.reusableWalletSession;
-      if (active.kind !== 'active') {
-        throw new Error(`revoke requires an active Wallet Session, found ${active.kind}`);
-      }
-      const keep = String(active.walletAuthMethodId);
+      const keep = exactWalletAuthMethodIdFromSession(session);
       const siblings = methods.filter((binding) => String(binding.walletAuthMethodId) !== keep);
       const [target, ...remaining] = siblings;
       if (!target || remaining.length > 0) {
@@ -1317,17 +1307,14 @@ class IntendedPageController {
       await this.unlockEmailOtpWalletWithHostedMenu('intended-unlock-added-email-otp');
       await this.refreshLoginState(walletId);
       const unlockedSession = await this.seams.auth.getWalletSession(walletId);
-      const reusable = unlockedSession.reusableWalletSession;
       this.dispatch({
         kind: 'action_succeeded',
         action,
         result: {
           kind: 'added_email_otp_unlock_success',
           walletId,
-          sessionWalletAuthMethodId:
-            reusable.kind === 'active' ? String(reusable.walletAuthMethodId) : null,
-          signingSessionStatus: reusable.kind,
-          remainingUses: null,
+          sessionWalletAuthMethodId: exactWalletAuthMethodIdFromSession(unlockedSession),
+          authenticationKind: requireAuthenticatedWalletSession(unlockedSession, walletId),
         },
       });
     } catch (error) {
@@ -1446,8 +1433,7 @@ class IntendedPageController {
         kind: registration.kind,
         initialWalletId: registration.initialWalletId,
         walletId: registration.walletId,
-        signingSessionStatus: registration.signingSessionStatus,
-        remainingUses: registration.remainingUses,
+        authenticationKind: registration.authenticationKind,
       };
       const summary: EmailOtpRegistrationResultSummary =
         registration.nearReadiness === 'pending'
@@ -1553,12 +1539,7 @@ class IntendedPageController {
       /* R109C: which credential the session names is the point of an added
          method - the family alone cannot tell it from the method that added it. */
       const unlockedSession = await this.seams.auth.getWalletSession(this.walletId);
-      const reusable = unlockedSession.reusableWalletSession;
-      const summary = assertPasskeyUnlockSucceeded(
-        unlockedSession,
-        this.walletId,
-        reusable.kind === 'active' ? String(reusable.walletAuthMethodId) : null,
-      );
+      const summary = assertPasskeyUnlockSucceeded(unlockedSession, this.walletId);
       await this.refreshLoginState(summary.walletId);
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
@@ -1756,8 +1737,8 @@ class IntendedPageController {
         walletId: unlock.walletId,
         nearAccountId: unlock.nearAccountId,
         operationalPublicKey: unlock.operationalPublicKey,
-        signingSessionStatus: unlock.signingSessionStatus,
-        remainingUses: unlock.remainingUses,
+        sessionWalletAuthMethodId: unlock.sessionWalletAuthMethodId,
+        authenticationKind: unlock.authenticationKind,
         ...ecdsa,
       };
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
@@ -1968,9 +1949,7 @@ class IntendedPageController {
     if (!authMenuSessionId) {
       throw new Error('Google Email OTP unlock auth-menu identity is invalid');
     }
-    const anchorElement = document.querySelector<HTMLElement>(
-      `[data-testid="${anchorTestId}"]`,
-    );
+    const anchorElement = document.querySelector<HTMLElement>(`[data-testid="${anchorTestId}"]`);
     if (!anchorElement) throw new Error('Google Email OTP unlock anchor is unavailable');
     const idToken = requireGoogleIdToken(this.googleIdToken);
     const unsubscribeExternalAuth = this.seams.onHostedAuthMenuExternalAuthRequest(
@@ -2853,18 +2832,12 @@ function assertEmailOtpRegistrationCompleted(args: {
     source: registrationEcdsaCapability(completed.registration),
     label: 'Email OTP registration',
   });
-  const reusableWalletSession = completed.session.reusableWalletSession;
-  if (reusableWalletSession.kind !== 'active') {
-    throw new Error(
-      `Email OTP registration did not return an active signing session: ${reusableWalletSession.kind}`,
-    );
-  }
+  const authenticationKind = requireAuthenticatedWalletSession(completed.session, walletId);
   const common = {
     kind: 'email_otp_registration_success' as const,
     initialWalletId: args.initialWalletId,
     walletId,
-    signingSessionStatus: reusableWalletSession.kind,
-    remainingUses: reusableWalletSession.remainingUses,
+    authenticationKind,
   };
   if (nearAccountId && operationalPublicKey) {
     return {
@@ -2972,6 +2945,76 @@ function settleNearProvisioningState(
   }
 }
 
+function requireAuthenticatedWalletSession(
+  session: WalletSession,
+  expectedWalletId: string,
+): 'authenticated' {
+  if (
+    session.authentication.kind !== 'authenticated' ||
+    String(session.authentication.walletId) !== expectedWalletId
+  ) {
+    throw new Error('Wallet session is not authenticated for the expected wallet');
+  }
+  return session.authentication.kind;
+}
+
+function exactWalletAuthMethodIdFromSession(session: WalletSession): string {
+  if (session.appIdentity.kind !== 'resolved') {
+    throw new Error(`Wallet session identity is ${session.appIdentity.kind}`);
+  }
+  const authentication = session.authentication;
+  if (authentication.kind !== 'authenticated') {
+    throw new Error('Wallet session is not authenticated');
+  }
+  if (authentication.walletId !== session.appIdentity.walletId) {
+    throw new Error('Wallet session authentication identity differs from app identity');
+  }
+
+  let projectedWalletAuthMethodId: string | null = null;
+  const projection = session.capabilityProjection;
+  if (projection.kind === 'resolved') {
+    for (const capability of projection.capabilities) {
+      switch (capability.kind) {
+        case 'near_ed25519':
+          break;
+        case 'evm_family_ecdsa': {
+          const walletAuthMethodId = String(capability.subject.authority.walletAuthMethodId).trim();
+          if (!walletAuthMethodId) {
+            throw new Error('ECDSA capability projection has no auth method identity');
+          }
+          if (
+            projectedWalletAuthMethodId !== null &&
+            projectedWalletAuthMethodId !== walletAuthMethodId
+          ) {
+            throw new Error('Wallet session capability projections disagree on auth method');
+          }
+          projectedWalletAuthMethodId = walletAuthMethodId;
+          break;
+        }
+        default:
+          return assertNever(capability);
+      }
+    }
+  }
+
+  const matchingBindings = [];
+  for (const binding of session.appIdentity.authMethods) {
+    const matchesProjectedIdentity =
+      projectedWalletAuthMethodId === null
+        ? binding.kind === authentication.authMethod
+        : String(binding.walletAuthMethodId) === projectedWalletAuthMethodId;
+    if (matchesProjectedIdentity) matchingBindings.push(binding);
+  }
+  if (matchingBindings.length !== 1) {
+    throw new Error('Wallet session does not identify one exact authenticated auth method');
+  }
+  const binding = matchingBindings[0];
+  if (!binding || binding.kind !== authentication.authMethod) {
+    throw new Error('Wallet session capability auth method differs from authentication method');
+  }
+  return String(binding.walletAuthMethodId);
+}
+
 function assertEmailOtpUnlockSucceeded(args: {
   result: {
     walletId: string;
@@ -3006,19 +3049,14 @@ function assertEmailOtpUnlockSucceeded(args: {
     source: appIdentity,
     label: 'Email OTP unlock',
   });
-  const reusableWalletSession = result.session.reusableWalletSession;
-  if (reusableWalletSession.kind !== 'active') {
-    throw new Error(
-      `Email OTP unlock did not return an active signing session: ${reusableWalletSession.kind}`,
-    );
-  }
+  const authenticationKind = requireAuthenticatedWalletSession(result.session, walletId);
   return {
     kind: 'email_otp_unlock_success',
     walletId,
     nearAccountId,
     operationalPublicKey,
-    signingSessionStatus: reusableWalletSession.kind,
-    remainingUses: reusableWalletSession.remainingUses,
+    sessionWalletAuthMethodId: exactWalletAuthMethodIdFromSession(result.session),
+    authenticationKind,
     ...ecdsa,
   };
 }
@@ -3026,7 +3064,6 @@ function assertEmailOtpUnlockSucceeded(args: {
 function assertPasskeyUnlockSucceeded(
   session: WalletSession,
   expectedWalletId: string,
-  sessionWalletAuthMethodId: string | null,
 ): PasskeyUnlockResultSummary {
   if (session.appIdentity.kind !== 'resolved') {
     throw new Error(`Passkey unlock did not resolve app identity: ${session.appIdentity.kind}`);
@@ -3034,20 +3071,14 @@ function assertPasskeyUnlockSucceeded(
   if (String(session.appIdentity.walletId) !== expectedWalletId) {
     throw new Error('Passkey unlock session wallet mismatch');
   }
-  const reusable = session.reusableWalletSession;
-  if (reusable.kind !== 'active') {
-    throw new Error(
-      `Passkey unlock did not return an active signing session: ${reusable.kind}`,
-    );
-  }
+  const authenticationKind = requireAuthenticatedWalletSession(session, expectedWalletId);
   const nearAccountId = String(session.appIdentity.nearAccountId || '').trim();
   const operationalPublicKey = String(session.appIdentity.nearOperationalPublicKey || '').trim();
   const common = {
     kind: 'passkey_unlock_success' as const,
     walletId: expectedWalletId,
-    sessionWalletAuthMethodId,
-    signingSessionStatus: reusable.kind,
-    remainingUses: normalizeOptionalNumber(reusable.remainingUses),
+    sessionWalletAuthMethodId: exactWalletAuthMethodIdFromSession(session),
+    authenticationKind,
   };
   if (nearAccountId && operationalPublicKey) {
     return {
@@ -3217,12 +3248,6 @@ function requireHex(value: unknown, label: string): `0x${string}` {
     throw new Error(`${label} must be 0x-prefixed hex`);
   }
   return hex as `0x${string}`;
-}
-
-function normalizeOptionalNumber(value: unknown): number | null {
-  if (value == null) return null;
-  const normalized = Number(value);
-  return Number.isFinite(normalized) ? normalized : null;
 }
 
 function normalizeSignedTransactionByteLength(signedTransaction: {
