@@ -33,7 +33,6 @@ import {
 import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
-  type MpcWalletSigningQuotaId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -43,6 +42,7 @@ import type {
 } from '@shared/device-linking/contracts';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { WalletSessionAuthorizationExactActiveReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ReusableWalletSessionStatus } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
@@ -141,35 +141,7 @@ export class WalletIframeSessionExpiredRequestError extends Error {
   }
 }
 
-type WalletIframeObservedSessionStatus = {
-  readonly walletSessionId: WalletSessionId;
-  readonly quotaId: MpcWalletSigningQuotaId;
-  readonly authorization: ActiveWalletSessionV1;
-  readonly expiresAtMs: number;
-};
-
-export type WalletIframeExactSessionStatus =
-  | (WalletIframeObservedSessionStatus & {
-      readonly status: 'active';
-      readonly remainingUses: number;
-    })
-  | (WalletIframeObservedSessionStatus & {
-      readonly status: 'exhausted';
-      readonly remainingUses: 0;
-    })
-  | (WalletIframeObservedSessionStatus & {
-      readonly status:
-        | 'expired'
-        | 'superseded'
-        | 'authority_unavailable'
-        | 'method_unavailable'
-        | 'capability_unavailable';
-    })
-  | {
-      readonly walletSessionId: WalletSessionId;
-      readonly quotaId: MpcWalletSigningQuotaId;
-      readonly status: 'missing' | 'invalid';
-    };
+export type WalletIframeExactSessionStatus = ReusableWalletSessionStatus;
 
 export type WalletIframeExactSessionReadDependencies = {
   readonly resolveSelectedWalletAuthority: (
