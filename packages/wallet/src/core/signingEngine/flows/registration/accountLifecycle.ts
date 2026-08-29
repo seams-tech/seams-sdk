@@ -135,6 +135,17 @@ export type StoreWalletEmailOtpEd25519RegistrationInput = Omit<
   authority: EmailOtpWalletAuthAuthority;
 };
 
+export type PrepareWalletEmailOtpEd25519RegistrationPublicationInput = Omit<
+  StoreWalletEmailOtpEd25519RegistrationInput,
+  'participantIds' | 'clientParticipantId' | 'relayerParticipantId'
+> & {
+  readonly participantIds: readonly [number, number];
+  readonly custodyMaterial: {
+    readonly binding: WalletCustodyEd25519MaterialBindingV1;
+    readonly sealed: WalletCustodySealedEd25519MaterialV1;
+  };
+};
+
 /**
  * Which auth method owns a deferred Ed25519 signer commit. Registration can
  * reach this path from either branch, so the signer's auth method and source
@@ -1237,6 +1248,29 @@ export function prepareWalletEd25519RegistrationPublication(
     { kind: 'fresh_registration' },
     { kind: 'near_ed25519_only' },
   );
+  return buildWalletEd25519RegistrationPublication({
+    prepared,
+    walletId: args.walletId,
+    nearAccountId: args.nearAccountId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+    signerSlot: args.signerSlot,
+    participantIds: args.participantIds,
+    custodyMaterial: args.custodyMaterial,
+  });
+}
+
+function buildWalletEd25519RegistrationPublication(args: {
+  readonly prepared: StoreWalletRegistrationFinalizeBatchInput;
+  readonly walletId: WalletId;
+  readonly nearAccountId: AccountId;
+  readonly nearEd25519SigningKeyId: string;
+  readonly signerSlot: number;
+  readonly participantIds: readonly [number, number];
+  readonly custodyMaterial: {
+    readonly binding: WalletCustodyEd25519MaterialBindingV1;
+    readonly sealed: WalletCustodySealedEd25519MaterialV1;
+  };
+}): StoreWalletRegistrationPublicationInputV1 {
   const nearAccountId = toAccountId(args.nearAccountId);
   const binding = args.custodyMaterial.binding;
   if (
@@ -1258,16 +1292,16 @@ export function prepareWalletEd25519RegistrationPublication(
     binding,
     sealed: args.custodyMaterial.sealed,
   });
-  const lastProfileState = prepared.lastProfileState;
+  const lastProfileState = args.prepared.lastProfileState;
   if (!lastProfileState) {
     throw new Error('Wallet Ed25519 registration publication requires last profile state');
   }
   return {
-    profiles: prepared.profiles,
-    initialAuthMethod: prepared.initialAuthMethod,
-    authenticators: prepared.authenticators,
-    signerActivations: prepared.signerActivations,
-    keyMaterials: [...prepared.keyMaterials, custodyMaterial],
+    profiles: args.prepared.profiles,
+    initialAuthMethod: args.prepared.initialAuthMethod,
+    authenticators: args.prepared.authenticators,
+    signerActivations: args.prepared.signerActivations,
+    keyMaterials: [...args.prepared.keyMaterials, custodyMaterial],
     lastProfileState: {
       profileId: lastProfileState.profileId,
       activeSignerSlot: lastProfileState.activeSignerSlot,
@@ -1335,11 +1369,10 @@ export async function storeWalletEd25519RecoveryRegistrationData(
   return { signerSlot: stored.signerSlot };
 }
 
-async function storeWalletEmailOtpEd25519RegistrationDataWithComposition(
-  deps: RegistrationAccountLifecycleDeps,
+async function prepareWalletEmailOtpEd25519RegistrationBatch(
   args: StoreWalletEmailOtpEd25519RegistrationInput,
   composition: StoreWalletRegistrationComposition,
-): Promise<StoreWalletEmailOtpMixedRegistrationResult> {
+): Promise<StoreWalletRegistrationFinalizeBatchInput> {
   const signerSlot = Number(args.signerSlot);
   if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
     throw new Error('SeamsWalletDB: wallet signerSlot must be an integer >= 1');
@@ -1456,7 +1489,7 @@ async function storeWalletEmailOtpEd25519RegistrationDataWithComposition(
       );
     }
   }
-  const result = await deps.accountStore.persistWalletRegistrationFinalize({
+  return {
     profiles: [
       {
         profileId: walletId,
@@ -1477,7 +1510,29 @@ async function storeWalletEmailOtpEd25519RegistrationDataWithComposition(
     signerActivations,
     keyMaterials,
     lastProfileState: { profileId: walletId, activeSignerSlot: signerSlot },
-  });
+  };
+}
+
+async function storeWalletEmailOtpEd25519RegistrationDataWithComposition(
+  deps: RegistrationAccountLifecycleDeps,
+  args: StoreWalletEmailOtpEd25519RegistrationInput,
+  composition: StoreWalletRegistrationComposition,
+): Promise<StoreWalletEmailOtpMixedRegistrationResult> {
+  const prepared = await prepareWalletEmailOtpEd25519RegistrationBatch(args, composition);
+  const result = await deps.accountStore.persistWalletRegistrationFinalize(prepared);
+  const preparedEcdsa =
+    composition.kind === 'near_ed25519_and_evm_family_ecdsa'
+      ? prepareWalletEcdsaSignerActivations(
+          {
+            walletId: args.walletId,
+            walletKeys: composition.walletKeys,
+          },
+          {
+            signerAuthMethod: SIGNER_AUTH_METHODS.emailOtp,
+            signerSource: SIGNER_SOURCES.emailOtpRegistration,
+          },
+        )
+      : null;
   const storedNearActivation = result.signerActivations[1];
   if (!storedNearActivation) {
     throw new Error('SeamsWalletDB: wallet Email OTP Ed25519 registration batch did not complete');
@@ -1501,6 +1556,23 @@ async function storeWalletEmailOtpEd25519RegistrationDataWithComposition(
     }
   }
   return { signerSlot: storedNearActivation.signerSlot, storedSigners };
+}
+
+export async function prepareWalletEmailOtpEd25519RegistrationPublication(
+  args: PrepareWalletEmailOtpEd25519RegistrationPublicationInput,
+): Promise<StoreWalletRegistrationPublicationInputV1> {
+  const prepared = await prepareWalletEmailOtpEd25519RegistrationBatch(args, {
+    kind: 'near_ed25519_only',
+  });
+  return buildWalletEd25519RegistrationPublication({
+    prepared,
+    walletId: args.walletId,
+    nearAccountId: args.nearAccountId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+    signerSlot: args.signerSlot,
+    participantIds: args.participantIds,
+    custodyMaterial: args.custodyMaterial,
+  });
 }
 
 export async function storeWalletEmailOtpEd25519RegistrationData(
