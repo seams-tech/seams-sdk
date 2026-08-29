@@ -859,7 +859,10 @@ export function parseHostedAuthMenuOutcome(value: unknown): HostedAuthMenuOutcom
   }
 }
 
-export const WALLET_PROTOCOL_VERSION = '1.0.0' as const;
+export const WALLET_PROTOCOL_VERSION = '2.0.0' as const;
+
+export const WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH =
+  'WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH' as const;
 
 export type WalletProtocolVersion = typeof WALLET_PROTOCOL_VERSION;
 
@@ -954,10 +957,21 @@ export interface RpcEnvelope<T extends string = string, P = unknown> {
   };
 }
 
+export type WalletIframeConnectMessage = RpcEnvelope<'CONNECT', ConnectPayload>;
+
 // ===== Payloads =====
 
 export interface ReadyPayload {
   protocolVersion: WalletProtocolVersion;
+}
+
+export interface ConnectPayload {
+  protocolVersion: WalletProtocolVersion;
+}
+
+export interface WalletIframeProtocolVersionMismatchDetails {
+  expectedProtocolVersion: string;
+  receivedProtocolVersion: string | null;
 }
 
 export interface PreferencesChangedPayload {
