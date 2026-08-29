@@ -332,10 +332,8 @@ import {
   type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
   type PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
-import type {
-  ActiveWalletSessionAuthorizationProjection,
-  WalletSessionAuthorizationExactOperationCredentialReadResult,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { WalletSessionAuthorizationExactOperationCredentialReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import * as emailOtpPublic from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import { createManagerAssembly } from '@/core/signingEngine/assembly/createManagers';
 import { verifySealedRefreshStartupParity } from '@/core/rpcClients/relayer/sealedRefreshCapabilities';
@@ -6529,10 +6527,10 @@ export class BrowserSigningSurface {
   }): Promise<{
     recovery: EmailOtpBootstrapRecovery;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    authorization: ActiveWalletSessionAuthorizationProjection;
+    authorization: ExactWalletSessionAuthorization;
     authorizations: readonly [
-      ActiveWalletSessionAuthorizationProjection,
-      ...ActiveWalletSessionAuthorizationProjection[],
+      ExactWalletSessionAuthorization,
+      ...ExactWalletSessionAuthorization[],
     ];
   }> {
     return await emailOtpPublic.refreshEmailOtpSigningSession(this.emailOtpPublicDeps, args);

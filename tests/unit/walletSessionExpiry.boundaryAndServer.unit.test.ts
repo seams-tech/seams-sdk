@@ -16,21 +16,14 @@ import {
   type ClientWalletSessionAuthorizationPersistenceDeps,
 } from '@/core/signingEngine/session/persistence/clientSessionPersistence';
 import {
-  buildActiveWalletSessionAuthorizationProjection,
-  parseWalletSessionAuthorizationProjection,
+  parseStoredExactWalletSessionAuthorizationRowV6,
+  toStoredExactWalletSessionAuthorizationRowV6,
   type WalletSessionAuthorizationExactActiveReadResult,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
-  parseMpcWalletSigningQuotaId,
-  parseWalletSessionAuthorizationId,
-  parseWalletSessionId,
-} from '@shared/authorization/capabilityKinds';
-import {
-  parseThresholdEd25519SessionId,
   parseWebAuthnCredentialIdB64u,
   type WebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
-import { buildWalletAuthAuthorityRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { buildEd25519PasskeySigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { toAccountId } from '@/core/types/accountIds';
@@ -132,40 +125,6 @@ function validTokenVerifier(): { valid: true; payload: { sub: string; exp: numbe
   return { valid: true, payload: { sub: 'wallet', exp: NOW_SECONDS + 1 } };
 }
 
-function walletSessionTokenFixture(): string {
-  return 'opaque-wallet-session-token:refactor-92-boundary';
-}
-
-function activeAuthorizationFixture(expiresAtMs: number, authMethod: 'passkey' | 'email_otp') {
-  const walletId = LANE.identity.signer.account.wallet.walletId;
-  const walletSessionId = parseWalletSessionId('refactor-92-wallet-session');
-  const authorizationId = parseWalletSessionAuthorizationId('refactor-92-authorization');
-  const quotaId = parseMpcWalletSigningQuotaId('refactor-92-quota');
-  const thresholdSessionId = parseThresholdEd25519SessionId('refactor-92-session');
-  if (!authorizationId.ok || !walletSessionId.ok || !quotaId.ok || !thresholdSessionId.ok) {
-    throw new Error('Failed to build Refactor 92 authorization fixture');
-  }
-  return buildActiveWalletSessionAuthorizationProjection({
-    walletId,
-    walletSessionId: walletSessionId.value,
-    quotaId: quotaId.value,
-    walletSessionTokens: {
-      kind: 'near_ed25519',
-      ed25519: {
-        authorizationId: authorizationId.value,
-        walletSessionToken: walletSessionTokenFixture(),
-        thresholdSessionId: thresholdSessionId.value,
-      },
-    },
-    authMethod,
-    authority: buildWalletAuthAuthorityRefFixture({
-      walletId: String(walletId),
-      label: 'refactor-92-boundary',
-    }),
-    expiresAtMs,
-  });
-}
-
 test('Refactor 92 boundary parser classifies equality and elapsed time as expired', () => {
   for (const expiresAtMs of [NOW_MS - 1, NOW_MS]) {
     expect(
@@ -235,19 +194,26 @@ test('Refactor 92 boundary parser keeps missing, unavailable, and invalid distin
   ).toEqual(expect.objectContaining({ kind: 'invalid', reason: 'malformed' }));
 });
 
-test('persistence boundary rejects pairwise aliased authorization identities', () => {
-  const active = activeAuthorizationFixture(NOW_MS + 1, 'passkey');
+test('exact persistence parser rejects aliased row and record identities', async () => {
+  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  const row = toStoredExactWalletSessionAuthorizationRowV6(
+    fixture.activeWalletSession,
+    fixture.operationCredential,
+  );
 
   expect(
-    parseWalletSessionAuthorizationProjection({
-      ...active,
-      authorizationId: active.walletSessionId,
+    parseStoredExactWalletSessionAuthorizationRowV6({
+      ...row,
+      authorization_id: row.wallet_session_id,
     }),
   ).toBeNull();
   expect(
-    parseWalletSessionAuthorizationProjection({
-      ...active,
-      quotaId: active.walletSessionId,
+    parseStoredExactWalletSessionAuthorizationRowV6({
+      ...row,
+      record: {
+        ...row.record,
+        authorizationId: row.wallet_session_id,
+      },
     }),
   ).toBeNull();
 });

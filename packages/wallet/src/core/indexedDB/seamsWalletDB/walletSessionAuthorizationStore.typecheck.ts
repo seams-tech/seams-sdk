@@ -1,77 +1,59 @@
 import type {
-  MpcWalletSigningQuotaId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { ThresholdEcdsaSessionId, WalletId } from '@shared/utils/domainIds';
-import type { WalletAuthMethod } from '@shared/utils/signerDomain';
-import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { WalletAuthMethodId, WalletAuthorityId, WalletId } from '@shared/utils/domainIds';
 import type {
-  ActiveWalletSessionAuthorizationProjection,
-  RetiredWalletSessionAuthorizationProjection,
-  WalletSessionAuthorizationToken,
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+  WalletSessionAuthorizationExactActiveReadResult,
+  WalletSessionAuthorizationExactOperationCredentialReadResult,
 } from './walletSessionAuthorizationStore';
 
 declare const walletId: WalletId;
+declare const authorityId: WalletAuthorityId;
+declare const authMethodId: WalletAuthMethodId;
 declare const authorizationId: WalletSessionAuthorizationId;
 declare const walletSessionId: WalletSessionId;
-declare const quotaId: MpcWalletSigningQuotaId;
-declare const walletSessionToken: WalletSessionAuthorizationToken;
-declare const thresholdSessionId: ThresholdEcdsaSessionId;
-declare const authMethod: WalletAuthMethod;
-declare const authority: WalletAuthAuthorityRef;
+declare const record: ActiveWalletSessionV1;
+declare const operationCredential: WalletSessionOperationCredentialV1;
 
-const active: ActiveWalletSessionAuthorizationProjection = {
-  recordVersion: 'wallet_session_authorization_v3',
-  status: 'active',
-  walletId,
-  walletSessionId,
-  quotaId,
-  walletSessionTokens: {
-    kind: 'evm_family_ecdsa',
-    ecdsa: { authorizationId, walletSessionToken, thresholdSessionId },
-  },
-  authMethod,
-  authority,
-  expiresAtMs: 1_900_000_000_000,
+const exactAuthorization = {
+  record,
+  operationCredential,
+} satisfies {
+  readonly record: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
 };
 
-const retired: RetiredWalletSessionAuthorizationProjection = {
-  recordVersion: 'wallet_session_authorization_v3',
-  status: 'retired',
-  walletId,
-  walletSessionId,
-  quotaId,
-  authMethod,
-  authority,
-  expiresAtMs: 1_900_000_000_000,
-  retirementReason: 'expired',
-  retiredAtMs: 1_900_000_000_001,
+const found: WalletSessionAuthorizationExactOperationCredentialReadResult = {
+  kind: 'found',
+  ...exactAuthorization,
+};
+const missing: WalletSessionAuthorizationExactActiveReadResult = { kind: 'missing' };
+const upgradeRequired: WalletSessionAuthorizationExactActiveReadResult = {
+  kind: 'upgrade_required',
+};
+const corrupt: WalletSessionAuthorizationExactActiveReadResult = { kind: 'corrupt' };
+const unavailable: WalletSessionAuthorizationExactActiveReadResult = {
+  kind: 'persistence_unavailable',
 };
 
-// @ts-expect-error Exact active authorization requires its curve token bundle.
-const activeWithoutQuota: ActiveWalletSessionAuthorizationProjection = {
-  recordVersion: 'wallet_session_authorization_v3',
-  status: 'active',
-  walletId,
-  walletSessionId,
-  authMethod,
-  authority,
-  expiresAtMs: 1_900_000_000_000,
+// A credential-free result cannot cross the exact authorization boundary.
+// @ts-expect-error Exact authorization requires the paired operation credential.
+const missingCredential = { record } satisfies {
+  readonly record: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
 };
 
-const retiredWithToken: RetiredWalletSessionAuthorizationProjection = {
-  ...retired,
-  // @ts-expect-error Retired authorization cannot retain bearer authority.
-  walletSessionToken,
-};
-
-const activeWithLegacySessionField: ActiveWalletSessionAuthorizationProjection = {
-  ...active,
-  // @ts-expect-error Legacy session identity fields are rejected by local projections.
-  authorizationSessionId,
-};
-
-void active;
-void retiredWithToken;
-void activeWithLegacySessionField;
+void walletId;
+void authorityId;
+void authMethodId;
+void authorizationId;
+void walletSessionId;
+void found;
+void missing;
+void upgradeRequired;
+void corrupt;
+void unavailable;
+void missingCredential;

@@ -29,7 +29,7 @@ import type {
   DemoEmailOtpCodeResponse,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { ProvisionWarmEd25519CapabilityResult } from '@/core/signingEngine/session/warmCapabilities/types';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type { NearClient, SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type {
@@ -584,11 +584,8 @@ export type EmailOtpEcdsaCapabilityArgs = {
 export type EmailOtpEcdsaCapabilityResult = {
   recovery: EmailOtpBootstrapRecovery;
   bootstrap: PublicThresholdEcdsaSessionBootstrapResult;
-  authorization: ActiveWalletSessionAuthorizationProjection;
-  authorizations: readonly [
-    ActiveWalletSessionAuthorizationProjection,
-    ...ActiveWalletSessionAuthorizationProjection[],
-  ];
+  authorization: ExactWalletSessionAuthorization;
+  authorizations: readonly [ExactWalletSessionAuthorization, ...ExactWalletSessionAuthorization[]];
 };
 
 export type GoogleEmailOtpWalletAuthRequestedMode = 'register' | 'login';
