@@ -726,7 +726,7 @@ Convert every current issuer:
 - [ ] registration session replay/reuse in `d1WalletRegistrationService.ts`;
 - [ ] Wallet Session budget refresh in `d1WalletRegistrationService.ts`;
 - [ ] linked Ed25519 activation in `d1WalletRegistrationService.ts`;
-- [ ] active unlock in `d1RouterApiAuthService.ts`;
+- [x] active unlock in `d1RouterApiAuthService.ts`;
 - [ ] sync bootstrap in `syncAccountBootstrap.ts`;
 - [ ] ECDSA post-registration activation in `thresholdEcdsa.ts`;
 - [ ] `mintRouterAbEd25519YaoWalletSessionV1` and its sync/registration callers;
@@ -741,8 +741,17 @@ Primary files:
 - `packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence.ts`
 - `packages/wallet-server/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary.ts`
 - `packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService.ts`
+- `packages/wallet-server/src/router/domains/walletRegistration/walletRegistrationEstablishedSessionIssuer.ts`
+- `packages/wallet-server/src/router/transport/fetch/routes/syncAccountBootstrap.ts`
+- `packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa.ts`
 - `packages/wallet-server/src/core/threeRouteRegistrationContracts.ts`
 - `packages/shared-ts/src/utils/registrationEstablishedSession.ts`
+
+Live issuer symbols include `RegistrationEstablishedSessionIssuerAuthorizationService`,
+`issueRegistrationEstablishedGrant`, both registration replay functions,
+`issueSyncAccountBootstrapV1`, `handleStrictEcdsaSessionActivation`, the
+budget-refresh and linked-activation `issue_wallet_session_v1` branches, and
+`mintRouterAbEd25519YaoWalletSessionV1`.
 
 ### I3 — Exact operation admission and runtime binding (B4, B5)
 
@@ -779,7 +788,16 @@ Primary files:
 - `packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa.ts`
 - `packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts`
 - `packages/wallet-server/src/router/transport/fetch/createFetchRouter.ts`
+- `packages/wallet-server/src/router/transport/fetch/routes/deviceLinkingOwnerAuthorization.ts`
+- `packages/wallet-server/src/router/domains/walletRegistration/walletRegistrationRoutes.ts`
 - `packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization.ts`
+
+Live admission symbols include `WalletSessionOperationCredentialResolution`,
+`resolveWalletSessionOperationCredentialAdmission`,
+`resolveOpaqueOwnerWalletSessionAdmission`, `validateOwnerWalletSessionV1`,
+`resolveRouteOpaqueOwnerWalletSession`,
+`authorizeSigningSessionSealWithOpaqueWalletSession`, and
+`authorizeOpaqueOwnerRecovery`.
 
 ### I4 — Status, replay, quota, and source activity (B6)
 
@@ -812,8 +830,15 @@ Primary files:
 
 - `packages/wallet-server/src/router/transport/fetch/routes/sessions.ts`
 - `packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore.ts`
+- `packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService.ts`
+- `packages/wallet-server/src/router/transport/fetch/routes/thresholdEd25519.ts`
+- `packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa.ts`
 - a new forward signer-D1 migration; applied `0001_signer_d1_initial.sql`
   remains unchanged.
+
+Live status/source symbols include `readAndValidateWalletSessionStatusAuthorization`,
+`handleReusableWalletSessionStatus`, `readReusableWalletSessionStatus`, and
+`isAuthorizedOperationSourceActive`.
 
 ### I5 — Revocation, recovery, and custody (B7, B13)
 
@@ -1565,7 +1590,7 @@ Remaining causal baseline work:
       preservation of existing access paths, and one normal exact login.
 - [ ] Rolling-deploy migration tests for old-worker all-null scope, fully scoped
       V2, partial-scope rejection, and pending V1 replay.
-- [ ] Clean-database and deployed-history migration tests covering abort on
+- [x] Clean-database and deployed-history migration tests covering abort on
       usable duplicates, deterministic retirement of unusable/expired rows, and
       zero foreign-key-check results.
 - [ ] Update Router A/B Wallet Session claim fixture helpers.
