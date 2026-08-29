@@ -801,8 +801,12 @@ budget-refresh and linked-activation `issue_wallet_session_v1` branches, and
       production caller supplies a family-specific operation kind and the
       optional overload was deleted.
 - [ ] Delete the `operationKind === null` ECDSA branch.
-- [ ] Convert operation step-up identity resolution in
-      `routerAbPrivateSigningWorker.ts`.
+- [x] Convert operation step-up identity resolution in
+      `routerAbPrivateSigningWorker.ts`. Step-up now admits only the exact V2
+      credential for the requested key family and operation kind, binds the
+      request to authoritative active material, and sends the owning exact auth
+      method to the execution lane. Cross-family and opaque-token fallback were
+      deleted; verified owner proof retains its explicit authority-ref branch.
 - [x] Convert signing-session seal authorization in `createFetchRouter.ts`.
       Seal removal now accepts only an exact signing operation credential,
       resolves the admitted family's active material, derives the authoritative
@@ -1581,6 +1585,9 @@ Remaining causal baseline work:
       opaque-token store
 - [x] `tests/unit/ecdsaV2PoolFillAdmission.unit.test.ts`, proving linked ECDSA
       pool fill admits the exact operation credential without V1 fallback
+- [x] `tests/unit/ecdsaMaterialActivationWalletStore.unit.test.ts`, proving
+      exact ECDSA step-up admission, canonical material binding, replacement
+      rejection before proof/evidence/admission, and zero opaque-store reads
 - [x] `tests/unit/signingSessionSealExactAdmission.unit.test.ts`, proving both
       signer families bind seal authorization to active material and the exact
       threshold-session identity, with mismatch and missing-credential paths
