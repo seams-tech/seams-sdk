@@ -619,9 +619,9 @@ Required shaping work:
 - [ ] Move pending registration construction, committed-projection parsing,
       local promotion, and exact session persistence behind one client terminal-
       commit seam; keep public orchestration entrypoints in `registration.ts`.
-- [ ] Isolate the direct server issuer and credential-free receipt from
+- [x] Isolate the direct server issuer and credential-free receipt from
       `d1WalletRegistrationService.ts`.
-- [ ] Isolate the terminal registration response parser from
+- [x] Isolate the terminal registration response parser from
       `walletRegistration.ts`.
 - [ ] Extract linked local-install and acknowledgement state-machine code when
       I6 changes those paths.
@@ -675,7 +675,7 @@ Primary files:
 - [ ] Delete `putWalletSessionAuthorizationV2OperationCredential` and
       `issueWalletSessionAuthorizationV2OperationCredential`; no production API
       may update `operation_credential_hash` after session insertion.
-- [ ] Persist the session, quota, and primary digest in one batch or owning
+- [x] Persist the session, quota, and primary digest in one batch or owning
       authority-activation CAS before returning success.
 - [ ] Rebuild V2 in the enforcement migration so an active row requires a
       non-null primary digest.
@@ -683,19 +683,19 @@ Primary files:
       quota, and retire hosted children in the successor transaction.
 - [ ] Add the full-scope exact-tuple partial unique index after deterministic
       duplicate preflight.
-- [ ] Preserve historical `mint_id` uniqueness; every replacement receives a
+- [x] Preserve historical `mint_id` uniqueness; every replacement receives a
       fresh mint and policy-derived mint helpers are deleted.
-- [ ] Make the V2-by-mint reader accept the narrow replay key and return the
+- [x] Make the V2-by-mint reader accept the narrow replay key and return the
       committed exact identity without reconstructing the expected record.
-- [ ] Implement `issued` and `already_committed` without credential rotation or
+- [x] Implement `issued` and `already_committed` without credential rotation or
       fabrication.
-- [ ] Persist `PendingWalletRegistrationCommitV1` before the terminal request;
+- [x] Persist `PendingWalletRegistrationCommitV1` before the terminal request;
       keep it sufficient for reload and invisible to normal discovery.
 - [ ] Change final registration replay to credential-free committed projection
       plus `unlock_exact_method`.
 - [ ] Validate replay against the pending record and atomically publish profile,
       authenticator, authority, method, signer/account state, and selection.
-- [ ] Replace activation and deferred-provisioning completion rows with
+- [x] Replace activation and deferred-provisioning completion rows with
       `WalletRegistrationSessionCommitReceiptV2`.
 - [ ] Use one committed installation projection for compatibility replay and
       final pending-commit recovery.
@@ -708,7 +708,7 @@ Primary files:
       resolver with the adapter.
 - [ ] Update Route 3 comments and tests from byte-identical bearer output to
       stable fingerprint and committed-projection identity.
-- [ ] Make the receipt parser reject bearer fields, credential-bearing
+- [x] Make the receipt parser reject bearer fields, credential-bearing
       bootstraps, local secrets, and generic persisted response payloads.
 - [ ] Remediate historical completion rows under both registration prefixes
       and retire any mapped usable bearer before rewriting or deletion.
@@ -1231,9 +1231,9 @@ R4. The bridge never projects a V1 bearer into a V2 credential.
 
 ### Phase 0 — Secure registration persistence
 
-- [ ] Introduce `PendingWalletRegistrationCommitV1` and the credential-free
+- [x] Introduce `PendingWalletRegistrationCommitV1` and the credential-free
       committed installation projection.
-- [ ] Replace both registration completion journals with
+- [x] Replace both registration completion journals with
       `WalletRegistrationSessionCommitReceiptV2`.
 - [ ] Deploy the writer, parser, and bounded old-client adapter together.
 - [ ] Update registration replay from byte-identical bearer output to stable
@@ -1248,11 +1248,11 @@ signing.
 
 ### Phase 1 — Land the exact issuer and one vertical path
 
-- [ ] Apply the additive bridge migration to clean and deployed-history
+- [x] Apply the additive bridge migration to clean and deployed-history
       databases.
-- [ ] Implement one direct issuer that atomically commits the V2 authorization,
+- [x] Implement one direct issuer that atomically commits the V2 authorization,
       quota, and primary credential digest.
-- [ ] Narrow V2 mint replay and implement `issued` / `already_committed`.
+- [x] Narrow V2 mint replay and implement `issued` / `already_committed`.
 - [ ] Convert one registration path through direct issuance, exact browser
       installation, exact admission, and immediate NEAR/EVM-family signing.
 - [ ] Add failure injection proving a failed batch exposes no usable session or
@@ -1485,7 +1485,7 @@ Remaining causal baseline work:
       successor exact unlock retirement.
 - [ ] Lost founding-registration response contracts for Passkey and Email OTP
       across page or worker termination.
-- [ ] Mint tests proving same-mint identity replay and fresh-mint replacement.
+- [x] Mint tests proving same-mint identity replay and fresh-mint replacement.
 - [ ] Exact material-resolution tests covering every legacy opaque runtime
       field and rejecting synthesized identities.
 - [ ] Linked activation tests proving digest, credential, recipient, ciphertext,
