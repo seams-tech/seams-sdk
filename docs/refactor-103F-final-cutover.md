@@ -666,8 +666,10 @@ Primary files:
       same rollback-and-retry behavior through the production batch builder.
 - [x] Replace activation and deferred-provisioning completion rows with
       `WalletRegistrationSessionCommitReceiptV2`.
-- [ ] Use one committed installation projection for terminal replay and final
-      pending-commit recovery.
+- [x] Use one credential-free committed installation projection for terminal
+      replay and final pending-commit recovery. Deferred NEAR recovery validates
+      the receipt, prepared fingerprint, authority set, provisioning plan, and
+      already-finalized ECDSA state before reconstructing the narrow ceremony.
 - [x] Delete the old-client replay adapter, its V1 bearer reconstruction, and
       every adapter-only resolver and test.
 - [ ] Drop `registration_replay_opaque_wallet_session_tokens_v1` in the
