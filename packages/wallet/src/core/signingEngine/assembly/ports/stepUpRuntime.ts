@@ -18,6 +18,7 @@ import {
 } from '../../session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
+import { IndexedDBManager } from '@/core/indexedDB';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 import {
@@ -59,9 +60,12 @@ export function createStepUpRuntime(args: {
     getSignerWorkerContext: args.getSignerWorkerContext,
     loadWalletCustodyEd25519Material: args.loadWalletCustodyEd25519Material,
     restoreWalletCustodyEcdsaContinuity: args.restoreWalletCustodyEcdsaContinuity,
-    readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
-      walletSessionAuthorizations,
-    ),
+    resolveSelectedWalletAuthority:
+      IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
+    readExactWalletSessionAuthorization:
+      walletSessionAuthorizations.readExactWithOperationCredential.bind(
+        walletSessionAuthorizations,
+      ),
     provisionThresholdEcdsaSession: args.provisionThresholdEcdsaSession,
     withThresholdEcdsaSigningQueue: (queueArgs) =>
       withThresholdEcdsaSigningQueue({

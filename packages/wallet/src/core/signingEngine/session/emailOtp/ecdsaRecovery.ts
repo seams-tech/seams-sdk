@@ -14,7 +14,7 @@ import {
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WalletSessionAuthorizationExactOperationCredentialReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { IndexedDBManager } from '@/core/indexedDB';
+import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { WalletAuthorityId, WalletAuthMethodId } from '@shared/utils/domainIds';
 import type { EmailOtpEcdsaSealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
@@ -86,6 +86,9 @@ export type EmailOtpEcdsaSealedRecoveryPorts = {
     task: () => Promise<T>;
   }) => Promise<T>;
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
+  resolveSelectedWalletAuthority: (
+    walletId: string,
+  ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
   readExactWalletSessionAuthorization: (input: {
     walletId: WalletId;
     authorityId: WalletAuthorityId;
@@ -246,9 +249,10 @@ function buildSealedRecordEmailOtpEcdsaRestoreSource(args: {
 }
 
 async function requireSelectedEmailOtpWalletAuthority(
+  resolveSelectedWalletAuthority: EmailOtpEcdsaSealedRecoveryPorts['resolveSelectedWalletAuthority'],
   walletId: WalletId,
 ): Promise<BuildExactEvmFamilyWalletSessionAuthorizationInput['selected']> {
-  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+  const selected = await resolveSelectedWalletAuthority(String(walletId));
   if (
     selected.kind !== 'resolved' ||
     selected.selection.lockState !== 'unlocked' ||
@@ -326,7 +330,6 @@ export function requireEmailOtpSealedRestoreAuthorization(args: {
     session: record,
     operationCredential,
     runtime: args.runtime,
-    walletSessionId: operationCredential.walletSessionId,
     nowMs: args.nowMs,
   });
 }
@@ -379,7 +382,10 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
   ) {
     throw new EmailOtpEcdsaSealedRestoreSupersededError('before_rehydrate');
   }
-  const selected = await requireSelectedEmailOtpWalletAuthority(walletId);
+  const selected = await requireSelectedEmailOtpWalletAuthority(
+    args.resolveSelectedWalletAuthority,
+    walletId,
+  );
   const authorizationRead = await args.readExactWalletSessionAuthorization({
     walletId,
     authorityId: selected.authority.authorityId,
@@ -496,7 +502,6 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
     session: committed.bootstrap.session.walletSession,
     operationCredential: committed.bootstrap.session.operationCredential,
     runtime: currentBeforeCommit.runtime,
-    walletSessionId: committed.bootstrap.session.operationCredential.walletSessionId,
     nowMs: Date.now(),
   });
   return {
