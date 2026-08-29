@@ -883,7 +883,7 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
 - [x] Delete the unused `hasActiveWalletSessionsForAuthMethod`; its only
       implementation queried `reusable_wallet_sessions`, and no production or
       test caller required a V2 replacement.
-- [ ] Delete duplicate V1 revocation statement builders in
+- [x] Delete duplicate V1 revocation statement builders in
       `d1WalletAuthMethodStore.ts`.
 - [ ] Convert additive recovery finalization and replay session checks to the
       exact model while preserving every pre-existing access path.
