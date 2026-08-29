@@ -10,10 +10,7 @@ import type {
   RouterApiWalletRegistrationService,
 } from '../../../framework/authServicePort';
 import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
-import {
-  resolveOpaqueOwnerWalletSessionAdmission,
-  resolveWalletSessionOperationCredentialAdmission,
-} from '../../../auth/commonRouterUtils';
+import { resolveWalletSessionOperationCredentialAdmission } from '../../../auth/commonRouterUtils';
 import { walletSessionFailureMessage } from '../../../auth/walletSessionFailure';
 import { NEAR_ED25519_MPC_OPERATION_KINDS } from '@shared/authorization/capabilityKinds';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
@@ -129,80 +126,6 @@ async function authorizePreparedRecovery(input: {
     ok: true,
     authorization: { kind: 'wallet_recovery', walletId: String(prepared.walletId) },
   };
-}
-
-async function authorizeOpaqueOwnerRecovery(input: {
-  readonly request: RouterAbEd25519YaoRecoveryAuthorizationInput;
-  readonly services: RouterAbEd25519YaoRecoveryAuthorizationServicesV1;
-}): Promise<RouterAbEd25519YaoRecoveryAuthorizationResult | null> {
-  const token = extractBearerCredential(input.request.request.headers);
-  if (!token?.startsWith('wst_')) return null;
-  let admission: Awaited<ReturnType<typeof resolveOpaqueOwnerWalletSessionAdmission>>;
-  try {
-    admission = await resolveOpaqueOwnerWalletSessionAdmission({
-      authorizationSessions: input.services.authorizationSessions,
-      token,
-      curve: 'ed25519',
-      nowMs: Date.now(),
-    });
-  } catch {
-    return authorizationFailure({
-      status: 503,
-      code: 'wallet_session_unavailable',
-      message: walletSessionFailureMessage('wallet_session_unavailable'),
-    });
-  }
-  if (!admission || admission.curve !== 'ed25519') {
-    return authorizationFailure({
-      status: 401,
-      code: 'wallet_session_invalid',
-      message: walletSessionFailureMessage('wallet_session_invalid'),
-    });
-  }
-  const binding = admission.binding;
-  let matches: boolean;
-  switch (input.request.kind) {
-    case 'bootstrap':
-      matches =
-        binding.walletId === input.request.body.walletId &&
-        binding.nearAccountId === input.request.body.nearAccountId &&
-        binding.nearEd25519SigningKeyId === input.request.body.nearEd25519SigningKeyId &&
-        binding.thresholdSessionId === input.request.body.thresholdSessionId &&
-        binding.routerAbNormalSigning.signingWorkerId === input.request.body.signingWorkerId &&
-        binding.participantIds[0] === input.request.body.participantIds[0] &&
-        binding.participantIds[1] === input.request.body.participantIds[1];
-      break;
-    case 'admit':
-      matches =
-        binding.walletId === input.request.body.scope.account_id &&
-        binding.walletId === input.request.body.application_binding.wallet_id &&
-        binding.nearEd25519SigningKeyId ===
-          input.request.body.application_binding.near_ed25519_signing_key_id &&
-        binding.runtimePolicyScope.signingRootVersion ===
-          input.request.body.scope.root_share_epoch &&
-        binding.routerAbNormalSigning.signingWorkerId ===
-          input.request.body.scope.signing_worker_id &&
-        binding.participantIds[0] === input.request.body.participant_ids[0] &&
-        binding.participantIds[1] === input.request.body.participant_ids[1];
-      break;
-    case 'execute':
-    case 'activate':
-      matches =
-        binding.walletId === input.request.body.binding.lifecycle.account_id &&
-        binding.runtimePolicyScope.signingRootVersion ===
-          input.request.body.binding.lifecycle.root_share_epoch &&
-        binding.routerAbNormalSigning.signingWorkerId ===
-          input.request.body.binding.lifecycle.selected_server_id;
-      break;
-  }
-  if (!matches) {
-    return authorizationFailure({
-      status: 403,
-      code: 'wallet_session_scope_mismatch',
-      message: walletSessionFailureMessage('wallet_session_scope_mismatch'),
-    });
-  }
-  return { ok: true, authorization: { kind: 'wallet_session', binding } };
 }
 
 async function authorizeV2WarmBootstrap(input: {
@@ -345,14 +268,10 @@ export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter impleme
         return await authorizeV2WarmBootstrap({ request: input, services });
       }
       case 'admit': {
-        const opaque = await authorizeOpaqueOwnerRecovery({ request: input, services });
-        if (opaque) return opaque;
         return await authorizePreparedRecovery({ request: input, services });
       }
       case 'execute':
       case 'activate': {
-        const opaque = await authorizeOpaqueOwnerRecovery({ request: input, services });
-        if (opaque) return opaque;
         return {
           ok: true,
           authorization: {
