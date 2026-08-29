@@ -9,6 +9,7 @@ import {
   type RouterAbMpcMaterialActivationRefWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RouterAbEd25519YaoExportAuthorizationIdentityV1 } from '@shared/utils/routerAbEd25519Yao';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   RouterApiWalletRegistrationService,
   RouterApiWalletSessionAuthorizationV2AdmissionContext,
@@ -150,6 +151,12 @@ function buildEcdsaNormalSigning(input: {
 
 export async function buildEcdsaSigningSessionSealAdmissionFixture(): Promise<SigningSessionSealAdmissionFixture> {
   const walletId = 'wallet:signing-seal-ecdsa';
+  const rpId = 'wallet.example.test';
+  const passkeyAuthority = buildPasskeyWalletAuthAuthority({
+    walletId,
+    rpId,
+    credentialIdB64u: base64UrlEncode(bytes(32, 36)),
+  });
   const activation = buildMpcMaterialActivationRefFixture(
     'signing-seal-ecdsa',
     walletId,
@@ -166,8 +173,8 @@ export async function buildEcdsaSigningSessionSealAdmissionFixture(): Promise<Si
     identity: {
       walletId,
       authorityId: 'authority:signing-seal-ecdsa',
-      walletAuthMethodId: 'auth-method:signing-seal-ecdsa',
-      rpId: 'wallet.example.test',
+      walletAuthMethodId: String(passkeyAuthority.bindingId),
+      rpId,
     },
   });
   const signer = fixture.authority.signerActivations.ecdsa?.signer;
