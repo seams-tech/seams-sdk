@@ -1638,109 +1638,34 @@ export async function authorizeEcdsaPoolFill(input: {
           },
         };
       }
-      if (validated.kind === 'wallet_session_operation_credential_v1') {
-        if (validated.admission.curve !== 'ecdsa') {
-          return {
-            ok: false,
-            error: {
-              status: 403,
-              body: {
-                ok: false,
-                code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
-                message: 'Pool-fill Wallet Session signer family is invalid',
-              },
-            },
-          };
-        }
-        const session = validated.context.authorization.session;
-        if (input.request.authorization.wallet_session_id !== session.walletSessionId) {
-          return {
-            ok: false,
-            error: {
-              status: 403,
-              body: {
-                ok: false,
-                code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
-                message: 'Pool-fill authorization does not match the Wallet Session',
-              },
-            },
-          };
-        }
-        const admitted = validated.admission.admission;
-        const activeMaterial =
-          await input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation({
-            walletId: String(session.walletId),
-            materialActivation: routerAbMpcMaterialActivationRefToWire(admitted.materialActivation),
-          });
-        if (!activeMaterial.ok) {
-          return {
-            ok: false,
-            error: {
-              status: activeMaterial.code === 'internal' ? 500 : 403,
-              body: {
-                ok: false,
-                code:
-                  activeMaterial.code === 'internal'
-                    ? 'internal'
-                    : WALLET_SESSION_FAILURE_CODES.scopeMismatch,
-                message:
-                  activeMaterial.code === 'internal'
-                    ? activeMaterial.message
-                    : 'Pool-fill Wallet Session material is no longer active',
-              },
-            },
-          };
-        }
-        const normalSigning = activeMaterial.routerAbEcdsaDerivationNormalSigning;
-        const requestedPoolFillMaterial = poolFillMaterialActivation(input.request);
-        const requestedKeyHandle =
-          'keyHandle' in input.request ? input.request.keyHandle : undefined;
-        if (
-          !sameRouterAbMpcMaterialActivationRef(
-            activeMaterial.materialActivation,
-            routerAbMpcMaterialActivationRefToWire(admitted.materialActivation),
-          ) ||
-          normalSigning.scope.wallet_id !== String(session.walletId) ||
-          normalSigning.scope.public_identity.threshold_public_key33_b64u !==
-            admitted.signer.thresholdPublicKey33B64u ||
-          normalSigning.scope.public_identity.ethereum_address20_b64u !==
-            evmAddress20B64u(admitted.signer.evmAddress) ||
-          (requestedKeyHandle !== undefined && requestedKeyHandle !== activeMaterial.keyHandle) ||
-          (requestedPoolFillMaterial !== null &&
-            (!sameRouterAbMpcMaterialActivationRef(
-              activeMaterial.materialActivation,
-              requestedPoolFillMaterial,
-            ) ||
-              !('poolFill' in input.request) ||
-              alphabetizeStringify(input.request.poolFill.scope) !==
-                alphabetizeStringify(normalSigning.scope)))
-        ) {
-          return {
-            ok: false,
-            error: {
-              status: 403,
-              body: {
-                ok: false,
-                code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
-                message: 'Pool-fill scopes do not match the active Wallet Authority material',
-              },
-            },
-          };
-        }
+      if (validated.kind !== 'wallet_session_operation_credential_v1') {
         return {
-          ok: true,
-          binding: {
-            walletId: session.walletId,
-            relayerKeyId: activeMaterial.relayerKeyId,
-            keyHandle: activeMaterial.keyHandle,
-            runtimePolicyScope: activeMaterial.runtimePolicyScope,
-            participantIds: [...activeMaterial.participantIds],
-            thresholdExpiresAtMs: session.expiresAtMs,
-            routerAbEcdsaDerivationNormalSigning: normalSigning,
+          ok: false,
+          error: {
+            status: 401,
+            body: {
+              ok: false,
+              code: WALLET_SESSION_FAILURE_CODES.invalid,
+              message: 'Pool-fill requires an exact Wallet Session operation credential',
+            },
           },
         };
       }
-      if (input.request.authorization.wallet_session_id !== validated.binding.walletSessionId) {
+      if (validated.admission.curve !== 'ecdsa') {
+        return {
+          ok: false,
+          error: {
+            status: 403,
+            body: {
+              ok: false,
+              code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
+              message: 'Pool-fill Wallet Session signer family is invalid',
+            },
+          },
+        };
+      }
+      const session = validated.context.authorization.session;
+      if (input.request.authorization.wallet_session_id !== session.walletSessionId) {
         return {
           ok: false,
           error: {
@@ -1753,25 +1678,11 @@ export async function authorizeEcdsaPoolFill(input: {
           },
         };
       }
-      if (!validated.binding.runtimePolicyScope) {
-        return {
-          ok: false,
-          error: {
-            status: 403,
-            body: {
-              ok: false,
-              code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
-              message: 'Pool-fill Wallet Session runtime policy scope is missing',
-            },
-          },
-        };
-      }
-      const normalSigning = validated.binding.routerAbEcdsaDerivationNormalSigning;
-      const requestedPoolFillMaterial = poolFillMaterialActivation(input.request);
+      const admitted = validated.admission.admission;
       const activeMaterial =
         await input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation({
-          walletId: validated.binding.walletId,
-          materialActivation: normalSigning.scope.material_activation,
+          walletId: String(session.walletId),
+          materialActivation: routerAbMpcMaterialActivationRefToWire(admitted.materialActivation),
         });
       if (!activeMaterial.ok) {
         return {
@@ -1792,16 +1703,28 @@ export async function authorizeEcdsaPoolFill(input: {
           },
         };
       }
+      const normalSigning = activeMaterial.routerAbEcdsaDerivationNormalSigning;
+      const requestedPoolFillMaterial = poolFillMaterialActivation(input.request);
+      const requestedKeyHandle = 'keyHandle' in input.request ? input.request.keyHandle : undefined;
       if (
         !sameRouterAbMpcMaterialActivationRef(
           activeMaterial.materialActivation,
-          normalSigning.scope.material_activation,
+          routerAbMpcMaterialActivationRefToWire(admitted.materialActivation),
         ) ||
+        normalSigning.scope.wallet_id !== String(session.walletId) ||
+        normalSigning.scope.public_identity.threshold_public_key33_b64u !==
+          admitted.signer.thresholdPublicKey33B64u ||
+        normalSigning.scope.public_identity.ethereum_address20_b64u !==
+          evmAddress20B64u(admitted.signer.evmAddress) ||
+        (requestedKeyHandle !== undefined && requestedKeyHandle !== activeMaterial.keyHandle) ||
         (requestedPoolFillMaterial !== null &&
-          !sameRouterAbMpcMaterialActivationRef(
+          (!sameRouterAbMpcMaterialActivationRef(
             activeMaterial.materialActivation,
             requestedPoolFillMaterial,
-          ))
+          ) ||
+            !('poolFill' in input.request) ||
+            alphabetizeStringify(input.request.poolFill.scope) !==
+              alphabetizeStringify(normalSigning.scope)))
       ) {
         return {
           ok: false,
@@ -1810,7 +1733,7 @@ export async function authorizeEcdsaPoolFill(input: {
             body: {
               ok: false,
               code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
-              message: 'Pool-fill scopes do not match the active material',
+              message: 'Pool-fill scopes do not match the active Wallet Authority material',
             },
           },
         };
@@ -1818,14 +1741,13 @@ export async function authorizeEcdsaPoolFill(input: {
       return {
         ok: true,
         binding: {
-          walletId: validated.binding.walletId,
-          relayerKeyId: validated.binding.relayerKeyId,
-          keyHandle: validated.binding.keyHandle,
-          runtimePolicyScope: validated.binding.runtimePolicyScope,
-          participantIds: [...validated.binding.participantIds],
-          thresholdExpiresAtMs: validated.binding.thresholdExpiresAtMs,
-          routerAbEcdsaDerivationNormalSigning:
-            validated.binding.routerAbEcdsaDerivationNormalSigning,
+          walletId: session.walletId,
+          relayerKeyId: activeMaterial.relayerKeyId,
+          keyHandle: activeMaterial.keyHandle,
+          runtimePolicyScope: activeMaterial.runtimePolicyScope,
+          participantIds: [...activeMaterial.participantIds],
+          thresholdExpiresAtMs: session.expiresAtMs,
+          routerAbEcdsaDerivationNormalSigning: normalSigning,
         },
       };
     }
