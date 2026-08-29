@@ -1529,7 +1529,8 @@ Remaining causal baseline work:
 - [x] `tests/unit/walletExecutionLanePreflight.unit.test.ts`, proving exact
       credential admission reaches the owning method without reading the V1
       opaque-token store
-- [ ] `tests/unit/ecdsaV2PoolFillAdmission.unit.test.ts`
+- [x] `tests/unit/ecdsaV2PoolFillAdmission.unit.test.ts`, proving linked ECDSA
+      pool fill admits the exact operation credential without V1 fallback
 - [x] `tests/unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts`
 - [ ] `tests/unit/nearPublicApi.walletSessionAuthorization.unit.test.ts`
 - [ ] `tests/unit/walletHostOwnerAuthority.unit.test.ts`
@@ -1541,7 +1542,9 @@ Remaining causal baseline work:
 - [x] `tests/unit/d1LinkedDeviceVerifiedLinkSourceReader.unit.test.ts`, proving
       exact-source absence fails closed and combined authorities preserve both
       signer families
-- [ ] `tests/unit/deviceLinkingRoutes.unit.test.ts`
+- [x] `tests/unit/deviceLinkingRoutes.unit.test.ts`, rerun after exact-only
+      source and owner authorization across claim, approval, target credential,
+      cancellation, and source-contribution routes
 - [ ] `tests/unit/linkDeviceAuthorityResume.unit.test.ts`
 - [ ] `tests/unit/authMenuPasskeyContinuation.unit.test.ts`, preserving the
       terminal retry state when the other device cancels
