@@ -394,12 +394,17 @@ export async function createEvmFamilySigningFlowRuntime(args: {
       : undefined;
   const activeAuthorization =
     resolvedSigner && !args.activeWalletAuthority
-      ? await args.deps.resolveActiveEcdsaWalletSessionAuthorization(resolvedSigner.walletId)
+      ? await args.deps.resolveActiveEcdsaWalletSessionAuthorization({
+          walletId: resolvedSigner.walletId,
+          chainTarget: resolvedSigner.chainTarget,
+          materialActivation: resolvedSigner.materialActivation,
+        })
       : null;
   const exactOperationCredentialScope =
     resolvedSigner && capability && !args.activeWalletAuthority
       ? {
           walletId: resolvedSigner.walletId,
+          chainTarget: resolvedSigner.chainTarget,
           materialActivation: resolvedSigner.materialActivation,
         }
       : undefined;
@@ -430,7 +435,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               const nowMs = Date.now();
               const currentAuthorization =
                 await args.deps.resolveActiveEcdsaWalletSessionAuthorization(
-                  exactOperationCredentialScope.walletId,
+                  exactOperationCredentialScope,
                 );
               if (!currentAuthorization) {
                 throw new Error('[SigningEngine] exact ECDSA Wallet Session is unavailable');
@@ -545,9 +550,11 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               capability,
               preparedAuthorization: activeAuthorization,
               currentAuthorization: activeAuthorization
-                ? await args.deps.resolveActiveEcdsaWalletSessionAuthorization(
-                    resolvedSigner.walletId,
-                  )
+                ? await args.deps.resolveActiveEcdsaWalletSessionAuthorization({
+                    walletId: resolvedSigner.walletId,
+                    chainTarget: resolvedSigner.chainTarget,
+                    materialActivation: resolvedSigner.materialActivation,
+                  })
                 : null,
               walletId: resolvedSigner.walletId,
               chainTarget: resolvedSigner.chainTarget,

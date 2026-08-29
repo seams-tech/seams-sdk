@@ -31,9 +31,11 @@ async function resolveDurableEmailOtpEcdsaAuthority(args: {
     ) {
       return null;
     }
-    const authorization = await args.createArgs.resolveActiveEcdsaWalletSessionAuthorization(
-      args.lane.signer.walletId,
-    );
+    const authorization = await args.createArgs.resolveActiveEcdsaWalletSessionAuthorization({
+      walletId: args.lane.signer.walletId,
+      chainTarget: args.lane.signer.chainTarget,
+      materialActivation: args.lane.signer.materialActivation,
+    });
     if (!authorization) return null;
     const authorized = authorizeEvmFamilyEcdsaSigningCapability({
       capability,
