@@ -74,8 +74,8 @@ export type PendingWalletRegistrationLocalMaterialV1 =
       readonly keyFamilies: readonly ['ecdsa_secp256k1'];
       readonly custodyCommit: WalletCustodyCeremonyCommitPayload;
       readonly ecdsa: {
+        /** Final ECDSA facts arrive from Route 3; the journal is the recovery source. */
         readonly activationJournalId: CorrelationId;
-        readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
       };
       readonly ed25519?: never;
       readonly activationReference?: never;
@@ -92,8 +92,8 @@ export type PendingWalletRegistrationLocalMaterialV1 =
       readonly custodyCommit: WalletCustodyCeremonyCommitPayload;
       readonly ed25519: PendingWalletRegistrationEd25519LocalMaterialV1;
       readonly ecdsa: {
+        /** Final ECDSA facts arrive from Route 3; the journal is the recovery source. */
         readonly activationJournalId: CorrelationId;
-        readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
       };
       readonly activationReference?: never;
     };
@@ -502,13 +502,11 @@ function parseEd25519LocalMaterial(
 
 function parseEcdsaLocalMaterial(raw: unknown): {
   readonly activationJournalId: CorrelationId;
-  readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
 } | null {
   if (!isRecord(raw) || hasForbiddenCredentialField(raw)) return null;
-  if (!hasExactKeys(raw, ['activationJournalId', 'publicFacts'])) return null;
+  if (!hasExactKeys(raw, ['activationJournalId'])) return null;
   const activationJournalId = parseCorrelationIdSafely(raw.activationJournalId);
-  const publicFacts = parseEcdsaPublicFacts(raw.publicFacts);
-  return activationJournalId && publicFacts ? { activationJournalId, publicFacts } : null;
+  return activationJournalId ? { activationJournalId } : null;
 }
 
 function parseEcdsaPublicFacts(raw: unknown): WalletCustodyEvmFamilyPublicFacts | null {

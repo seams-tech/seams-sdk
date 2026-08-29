@@ -1682,7 +1682,6 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
             custodyCommit: bootstrap.preActivationCommitPayload,
             ecdsa: {
               activationJournalId: persisted.journalId,
-              publicFacts: established.localMaterial.publicFacts,
             },
           },
           emailOtpEnrollment: activateEmailOtp.enrollment,
@@ -1775,7 +1774,7 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
       deferredNearCustodyWork,
     };
   } catch (error: unknown) {
-    await discardDeferredNearCustodyWork(deferredNearCustodyWork);
+    void discardDeferredNearCustodyWork(deferredNearCustodyWork);
     await closeStrictEcdsaRegistrationCeremony({ context: args.context, ceremonyId });
     throw error;
   }
