@@ -469,7 +469,7 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
 
   test('rejects admission without the durable challenge header', async () => {
     const admission = await admissionRequestFixture();
-    const { services, reader } = authorizationServicesFixture(
+    const { services, reader, authorizationSessions } = authorizationServicesFixture(
       await preparedAdmissionFixture(admission),
     );
     const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
@@ -477,7 +477,13 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
     );
 
     await expect(
-      authorization.authorize(authorizationInput('admit', recoveryRequest(), admission)),
+      authorization.authorize(
+        authorizationInput(
+          'admit',
+          recoveryRequest({ authorization: 'Bearer wst_retired-recovery-session' }),
+          admission,
+        ),
+      ),
     ).resolves.toEqual({
       ok: false,
       status: 401,
@@ -485,6 +491,7 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
       message: 'wallet recovery admission is unavailable',
     });
     expect(reader.calls).toHaveLength(0);
+    expect(authorizationSessions.opaqueReads).toBe(0);
   });
 
   test('rejects an unknown or spent durable challenge', async () => {
@@ -592,22 +599,29 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
     }
   });
 
-  test('keeps execute and activate on the protocol receipt path without outer auth', async () => {
+  test('keeps execute and activate on the protocol receipt path despite a retired opaque bearer', async () => {
     const admission = await admissionRequestFixture();
-    const { services, reader } = authorizationServicesFixture(null);
+    const { services, reader, authorizationSessions } = authorizationServicesFixture(null);
     const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
       async () => services,
     );
 
     for (const phase of ['execute', 'activate'] as const) {
       await expect(
-        authorization.authorize(authorizationInput(phase, recoveryRequest(), admission)),
+        authorization.authorize(
+          authorizationInput(
+            phase,
+            recoveryRequest({ authorization: 'Bearer wst_retired-recovery-session' }),
+            admission,
+          ),
+        ),
       ).resolves.toEqual({
         ok: true,
         authorization: { kind: 'wallet_recovery', walletId: WALLET_ID },
       });
     }
     expect(reader.calls).toHaveLength(0);
+    expect(authorizationSessions.opaqueReads).toBe(0);
   });
 
   test('authorizes warm recovery from the exact Ed25519 operation credential and active material', async () => {
