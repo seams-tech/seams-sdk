@@ -9,9 +9,15 @@ const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 
 const HOST_HTML = buildWalletServiceHtml('/_test-sdk/esm/sdk');
 
-test('reveals the recovery summary from the real wallet host without the measurement fallback', async ({
+test('reveals the recovery summary while the full wallet runtime is still loading', async ({
   page,
 }) => {
+  let fullWalletRuntimeRequested = false;
+  await page.route('**/_test-sdk/esm/sdk/runtimeContext-*.js', async (route) => {
+    fullWalletRuntimeRequested = true;
+    await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+    await route.fallback();
+  });
   await setupBasicPasskeyTest(page, {
     skipSeamsWebInit: true,
     injectWalletServiceImportMap: true,
@@ -34,7 +40,10 @@ test('reveals the recovery summary from the real wallet host without the measure
         },
         testOptions: { ownerTag: 'recovery-code-host-test' },
       });
-      await router.init();
+      const initialization = router.init();
+      while (!router.isReady()) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      }
       const testWindow = window as typeof window & {
         __recoveryCodeHostTest?: {
           readonly startedAt: number;
@@ -45,13 +54,16 @@ test('reveals the recovery summary from the real wallet host without the measure
       void router
         .acknowledgeWalletRecoveryCodeBackup({ walletId: 'recovery-delay-test-wallet' })
         .catch(() => undefined);
+      void initialization.catch(() => undefined);
     },
     { walletOrigin: WALLET_ORIGIN },
   );
 
   const parentDialog = page.locator('dialog.w3a-wallet-overlay-dialog');
   await expect(parentDialog).toBeVisible({ timeout: 2_000 });
+  await expect(parentDialog).not.toHaveClass(/is-provisional/);
   await expect(parentDialog).not.toHaveClass(/is-viewport-fallback/);
+  await expect(parentDialog).toHaveCSS('opacity', '1');
   const elapsedMs = await page.evaluate(() => {
     const testWindow = window as typeof window & {
       __recoveryCodeHostTest?: { readonly startedAt: number };
@@ -59,6 +71,7 @@ test('reveals the recovery summary from the real wallet host without the measure
     return performance.now() - (testWindow.__recoveryCodeHostTest?.startedAt ?? 0);
   });
   expect(elapsedMs).toBeLessThan(2_000);
+  expect(fullWalletRuntimeRequested).toBe(true);
 
   const childDialog = page
     .frameLocator('iframe[data-w3a-owner="recovery-code-host-test"]')
