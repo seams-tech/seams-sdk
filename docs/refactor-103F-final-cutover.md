@@ -1931,13 +1931,16 @@ Documentation:
 - [ ] Delete only proved dead or obsolete code. Preserve every temporary rollout
       boundary until its named drain gate. Classify affected tests and remove
       fixtures or guards that protect only retired behavior.
-- [ ] Perform the bounded registration extractions in the order defined above,
+- [x] Perform the bounded registration extractions in the order defined above,
       one file and one cohesive seam at a time. Keep deletion, movement, and
       behavior changes reviewable as separate commits and run the narrowest
       existing verification after each movement.
   - [x] Extract the behavior-neutral client terminal-commit seam from
         `registration.ts` into `registrationTerminalCommit.ts`.
-  - [ ] Extract the server registration issuer.
+  - [x] Extract the server registration issuer into
+        `walletRegistrationEstablishedSessionIssuer.ts`. Commit `899f71905`
+        keeps the move behavior-neutral; wallet-server type-check and the 26
+        registration side-effect bridge tests pass after integration.
   - [x] Extract the credential-free registration receipt boundary into
         `walletRegistrationSessionCommitReceipt.ts`. Commits `681af5e62` and
         `c21f843e7` add the strict projection/parser, V1 read-only drain,
