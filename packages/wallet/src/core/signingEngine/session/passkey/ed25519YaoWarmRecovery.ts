@@ -2,7 +2,6 @@ import type { CurrentEd25519SealedSessionRecord } from '@/core/signingEngine/ses
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { readExactEd25519SealedSession } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { ed25519DurableMaterialLocator } from '../sealedRecovery/materialActivationKey';
-import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
   assertEd25519YaoWarmRecoveryDescriptorStableMaterialContinuity,
   parseEd25519YaoRecoveryCapabilityV1,
@@ -29,7 +28,6 @@ import {
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { isPlainObject } from '@shared/utils/validation';
 import { IndexedDBManager } from '@/core/indexedDB';
-import { walletSessionFailureErrorFromPayload } from '../lifecycle/walletSessionFailure';
 import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
@@ -280,22 +278,6 @@ async function resolveExactPasskeyWalletAuthAuthorityRefFromV2(args: {
       bindingId: record.walletAuthMethodId,
     },
   });
-}
-
-function unavailableReasonForWarmMaterialCode(
-  code: string,
-): Exclude<PasskeyEd25519YaoWarmRecoveryUnavailableReason, 'wallet_session_expired'> | null {
-  switch (code) {
-    case 'not_found':
-    case 'missing':
-      return 'sealed_session_missing';
-    case 'expired':
-      return 'sealed_session_expired';
-    case 'exhausted':
-      return 'sealed_session_exhausted';
-    default:
-      return null;
-  }
 }
 
 export async function requirePasskeyEd25519RestoreAuthorization(args: {
