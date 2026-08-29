@@ -1031,6 +1031,9 @@ Primary files:
 - [x] Correct the V5 precursor so its physical `wallet_session_id` is the
       operation credential's Wallet Session ID, reject key/credential drift,
       and preserve same-wallet sibling methods during exact replacement.
+- [x] Make the existing V3 and V5 writer boundaries preserve unknown future
+      record versions; exact replacement also contains valid late legacy rows
+      while continuing to reject malformed known rows.
 - [ ] Define one branch-specific V6 builder and one strict parser requiring
       exact identities, subjects, lifecycle, and primary credential.
 - [ ] Reject session/credential mismatch at parsing and before IndexedDB write.
