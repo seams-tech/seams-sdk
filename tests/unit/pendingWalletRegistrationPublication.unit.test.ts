@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import {
   buildEcdsaActivationPublicationFixture,
+  buildEmailOtpNearProvisioningProductionPublicationFixture,
   buildEmailNearProvisioningPublicationFixture,
   buildMixedActivationPublicationFixture,
   buildPasskeyNearProvisioningProductionPublicationFixture,
@@ -25,6 +26,27 @@ type PublicationState = {
   readonly accountCount: number;
   readonly keyMaterialCount: number;
 };
+
+type ProductionPublicationState = {
+  readonly pending: boolean;
+  readonly walletProfile: boolean;
+  readonly nearProfile: boolean;
+  readonly authMethod: boolean;
+  readonly authority: boolean;
+  readonly selection: boolean;
+  readonly nearAccounts: number;
+  readonly walletSigners: number;
+  readonly nearSigners: number;
+  readonly keyMaterials: number;
+};
+
+type ProductionPublicationRetryResult = {
+  readonly firstError: string | null;
+  readonly afterFailure: ProductionPublicationState;
+  readonly afterRetry: ProductionPublicationState;
+};
+
+const PRODUCTION_NEAR_PROFILE_ID = 'near-profile:publication.testnet';
 
 async function publishAndReadState(
   page: Parameters<typeof setupBasicPasskeyTest>[0],
@@ -82,6 +104,108 @@ async function publishAndReadState(
     },
     { paths: IMPORT_PATHS, input, ids },
   );
+}
+
+async function exerciseProductionPublicationRollbackAndRetry(
+  page: Parameters<typeof setupBasicPasskeyTest>[0],
+  fixture: PendingWalletRegistrationPublicationFixture,
+): Promise<ProductionPublicationRetryResult> {
+  return page.evaluate(
+    async ({ paths, input: publicationInput, nearProfileId }) => {
+      const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+        await import(paths.indexedDB);
+      const seamsWalletDB = new SeamsWalletDBManager();
+      seamsWalletDB.setDbName(
+        createSeamsTestWalletDbName(`pending-production-publication-${crypto.randomUUID()}`),
+      );
+      const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+      await db.putPendingWalletRegistrationCommit(publicationInput.pending);
+
+      async function readState() {
+        return {
+          pending:
+            (await db.getPendingWalletRegistrationCommit({
+              registrationCeremonyId: publicationInput.request.registrationCeremonyId,
+              operation: publicationInput.request.operation,
+            })) !== null,
+          walletProfile: (await db.getProfile(publicationInput.request.walletId)) !== null,
+          nearProfile: (await db.getProfile(nearProfileId)) !== null,
+          authMethod:
+            (await db.getWalletAuthMethodV2(publicationInput.request.walletAuthMethodId)) !== null,
+          authority:
+            (await db.getWalletAuthority(
+              publicationInput.foundingAuthority.authority.authorityId,
+            )) !== null,
+          selection: (await db.listWalletSelections()).some(
+            (selection: { readonly walletId?: string }) =>
+              selection.walletId === publicationInput.request.walletId,
+          ),
+          nearAccounts: (await db.listChainAccountsByProfile(nearProfileId)).length,
+          walletSigners: (
+            await db.listAccountSignersByProfile({ profileId: publicationInput.request.walletId })
+          ).length,
+          nearSigners: (await db.listAccountSignersByProfile({ profileId: nearProfileId })).length,
+          keyMaterials: (await db.listKeyMaterialByProfile(nearProfileId)).length,
+        } satisfies ProductionPublicationState;
+      }
+
+      let firstError: string | null = null;
+      try {
+        await db.publishPendingWalletRegistrationCommit({
+          ...publicationInput,
+          registration: {
+            ...publicationInput.registration,
+            keyMaterials: publicationInput.registration.keyMaterials.filter(
+              (keyMaterial: { readonly keyKind?: string }) =>
+                keyMaterial.keyKind !== 'threshold_share_v1',
+            ),
+          },
+        });
+      } catch (caught) {
+        firstError = caught instanceof Error ? caught.message : String(caught);
+      }
+      const afterFailure = await readState();
+      await db.publishPendingWalletRegistrationCommit(publicationInput);
+      const afterRetry = await readState();
+      seamsWalletDB.close();
+      return { firstError, afterFailure, afterRetry };
+    },
+    {
+      paths: IMPORT_PATHS,
+      input: fixture.input,
+      nearProfileId: PRODUCTION_NEAR_PROFILE_ID,
+    },
+  );
+}
+
+function expectProductionPublicationRollbackAndRetry(
+  result: ProductionPublicationRetryResult,
+): void {
+  expect(result.firstError).toContain('key material');
+  expect(result.afterFailure).toEqual({
+    pending: true,
+    walletProfile: false,
+    nearProfile: false,
+    authMethod: false,
+    authority: false,
+    selection: false,
+    nearAccounts: 0,
+    walletSigners: 0,
+    nearSigners: 0,
+    keyMaterials: 0,
+  });
+  expect(result.afterRetry).toEqual({
+    pending: false,
+    walletProfile: true,
+    nearProfile: true,
+    authMethod: true,
+    authority: true,
+    selection: true,
+    nearAccounts: 1,
+    walletSigners: 1,
+    nearSigners: 1,
+    keyMaterials: 2,
+  });
 }
 
 test.describe('pending registration publication', () => {
@@ -217,117 +341,16 @@ test.describe('pending registration publication', () => {
     page,
   }) => {
     const fixture = await buildPasskeyNearProvisioningProductionPublicationFixture();
-    const result = await page.evaluate(
-      async ({ paths, input: publicationInput, nearProfileId }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.indexedDB);
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`pending-production-publication-${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        await db.putPendingWalletRegistrationCommit(publicationInput.pending);
-        let firstError: string | null = null;
-        try {
-          await db.publishPendingWalletRegistrationCommit({
-            ...publicationInput,
-            registration: {
-              ...publicationInput.registration,
-              keyMaterials: publicationInput.registration.keyMaterials.filter(
-                (keyMaterial: { readonly keyKind?: string }) =>
-                  keyMaterial.keyKind !== 'threshold_share_v1',
-              ),
-            },
-          });
-        } catch (caught) {
-          firstError = caught instanceof Error ? caught.message : String(caught);
-        }
-        const afterFailure = {
-          pending:
-            (await db.getPendingWalletRegistrationCommit({
-              registrationCeremonyId: publicationInput.request.registrationCeremonyId,
-              operation: publicationInput.request.operation,
-            })) !== null,
-          walletProfile: (await db.getProfile(publicationInput.request.walletId)) !== null,
-          nearProfile: (await db.getProfile(nearProfileId)) !== null,
-          authMethod:
-            (await db.getWalletAuthMethodV2(publicationInput.request.walletAuthMethodId)) !== null,
-          authority:
-            (await db.getWalletAuthority(
-              publicationInput.foundingAuthority.authority.authorityId,
-            )) !== null,
-          selection: (await db.listWalletSelections()).some(
-            (selection: { readonly walletId?: string }) =>
-              selection.walletId === publicationInput.request.walletId,
-          ),
-          nearAccounts: (await db.listChainAccountsByProfile(nearProfileId)).length,
-          walletSigners: (
-            await db.listAccountSignersByProfile({ profileId: publicationInput.request.walletId })
-          ).length,
-          nearSigners: (await db.listAccountSignersByProfile({ profileId: nearProfileId })).length,
-          keyMaterials: (await db.listKeyMaterialByProfile(nearProfileId)).length,
-        };
-        await db.publishPendingWalletRegistrationCommit(publicationInput);
-        const afterRetry = {
-          pending:
-            (await db.getPendingWalletRegistrationCommit({
-              registrationCeremonyId: publicationInput.request.registrationCeremonyId,
-              operation: publicationInput.request.operation,
-            })) !== null,
-          walletProfile: (await db.getProfile(publicationInput.request.walletId)) !== null,
-          nearProfile: (await db.getProfile(nearProfileId)) !== null,
-          authMethod:
-            (await db.getWalletAuthMethodV2(publicationInput.request.walletAuthMethodId)) !== null,
-          authority:
-            (await db.getWalletAuthority(
-              publicationInput.foundingAuthority.authority.authorityId,
-            )) !== null,
-          selection: (await db.listWalletSelections()).some(
-            (selection: { readonly walletId?: string }) =>
-              selection.walletId === publicationInput.request.walletId,
-          ),
-          nearAccounts: (await db.listChainAccountsByProfile(nearProfileId)).length,
-          walletSigners: (
-            await db.listAccountSignersByProfile({ profileId: publicationInput.request.walletId })
-          ).length,
-          nearSigners: (await db.listAccountSignersByProfile({ profileId: nearProfileId })).length,
-          keyMaterials: (await db.listKeyMaterialByProfile(nearProfileId)).length,
-        };
-        seamsWalletDB.close();
-        return { firstError, afterFailure, afterRetry };
-      },
-      {
-        paths: IMPORT_PATHS,
-        input: fixture.input,
-        nearProfileId: 'near-profile:publication.testnet',
-      },
-    );
+    const result = await exerciseProductionPublicationRollbackAndRetry(page, fixture);
+    expectProductionPublicationRollbackAndRetry(result);
+  });
 
-    expect(result.firstError).toContain('key material');
-    expect(result.afterFailure).toEqual({
-      pending: true,
-      walletProfile: false,
-      nearProfile: false,
-      authMethod: false,
-      authority: false,
-      selection: false,
-      nearAccounts: 0,
-      walletSigners: 0,
-      nearSigners: 0,
-      keyMaterials: 0,
-    });
-    expect(result.afterRetry).toEqual({
-      pending: false,
-      walletProfile: true,
-      nearProfile: true,
-      authMethod: true,
-      authority: true,
-      selection: true,
-      nearAccounts: 1,
-      walletSigners: 1,
-      nearSigners: 1,
-      keyMaterials: 2,
-    });
+  test('retries the production Email OTP batch without exposing a partial wallet', async ({
+    page,
+  }) => {
+    const fixture = await buildEmailOtpNearProvisioningProductionPublicationFixture();
+    const result = await exerciseProductionPublicationRollbackAndRetry(page, fixture);
+    expectProductionPublicationRollbackAndRetry(result);
   });
 
   test('publishes Email OTP provider and registration-authority identity atomically', async ({
