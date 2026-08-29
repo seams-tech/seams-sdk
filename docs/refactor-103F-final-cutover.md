@@ -850,7 +850,7 @@ and `authorizeSigningSessionSealWithExactWalletSession`.
       authorization's `quota_id`.
 - [x] Populate `linked_scope_org_id`, `linked_scope_project_id`, and
       `linked_scope_env_id` on every new grant and reject partial scope.
-- [ ] Replace the additive bridge trigger with an exact-only enforcement
+- [x] Replace the additive bridge trigger with an exact-only enforcement
       trigger requiring complete V2 scope.
 - [x] Require authorized-operation replay to resolve the exact authorization
       that admitted first execution and reject scope, method, authority, quota,
@@ -1108,7 +1108,7 @@ Primary files:
       same-method retirement and sibling preservation in one transaction.
 - [x] Quarantine known V3/V4/V5 rows, reject malformed V6, preserve unknown
       future rows, and contain late legacy writes in every reader/install.
-- [ ] Remove only obsolete Wallet Session rows; preserve every unrelated wallet,
+- [x] Remove only obsolete Wallet Session rows; preserve every unrelated wallet,
       authority, method, signer-material, export-root, and recovery-code store.
 - [x] Delete `walletSessionClientCapability`, its response-family tags,
       request parsers, persistence columns, fixtures, and migration-era code.
@@ -1208,11 +1208,11 @@ Primary persistence files:
       with the identity-coupled exact browser boundary type.
 - [ ] Delete `registration_established_wallet_session_v1`,
       `RegistrationEstablishedSessionTokens`, and `walletSessionTokenForCurve`.
-- [ ] Delete `ActiveWalletSession` aliases that do not denote the exact
+- [x] Delete `ActiveWalletSession` aliases that do not denote the exact
       projection.
 - [x] Delete wallet-specific JWT marker/decoder code after its last diagnostic
       caller; preserve console-session JWT types.
-- [ ] Preserve the frozen Router A/B `reusable_wallet_session` discriminator,
+- [x] Preserve the frozen Router A/B `reusable_wallet_session` discriminator,
       ECDSA export-share authorization kind, and
       `consume_reusable_wallet_session` quota discriminator.
 
