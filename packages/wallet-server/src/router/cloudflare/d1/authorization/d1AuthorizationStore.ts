@@ -1030,7 +1030,61 @@ export class CloudflareD1AuthorizationStore
           input.hostedCredentialId,
           input.tokenHash,
         );
-      const results = await this.database.batch([insertCredential, updateStatement]);
+      // A zero-row CAS result is not a D1 statement error, so remove a child
+      // inserted by this batch if the exchange CAS no longer accepts it.
+      const deleteOrphanedCredential = this.database
+        .prepare(
+          `DELETE FROM wallet_session_hosted_credentials_v2 AS credential
+            WHERE credential.namespace = ?
+              AND credential.org_id = ?
+              AND credential.project_id = ?
+              AND credential.env_id = ?
+              AND credential.tenant_id = ?
+              AND credential.hosted_credential_id = ?
+              AND credential.authorization_id = ?
+              AND credential.wallet_session_id = ?
+              AND credential.quota_id = ?
+              AND credential.principal_id = ?
+              AND credential.wallet_id = ?
+              AND credential.authority_id = ?
+              AND credential.wallet_auth_method_id = ?
+              AND credential.credential_digest_b64u = ?
+              AND EXISTS (
+                SELECT 1
+                  FROM wallet_session_hosted_exchange_codes_v2 AS exchange
+                 WHERE exchange.namespace = credential.namespace
+                   AND exchange.org_id = credential.org_id
+                   AND exchange.project_id = credential.project_id
+                   AND exchange.env_id = credential.env_id
+                   AND exchange.tenant_id = credential.tenant_id
+                   AND exchange.code_hash = ?
+                   AND exchange.lifecycle_kind = 'issued'
+                   AND exchange.hosted_credential_id IS NULL
+                   AND exchange.consumed_at_ms IS NULL
+              )`,
+        )
+        .bind(
+          this.namespace,
+          this.walletSignerScope.orgId,
+          this.walletSignerScope.projectId,
+          this.walletSignerScope.envId,
+          current.tenant_id,
+          input.hostedCredentialId,
+          current.authorization_id,
+          current.wallet_session_id,
+          current.quota_id,
+          current.principal_id,
+          current.wallet_id,
+          current.authority_id,
+          current.wallet_auth_method_id,
+          input.tokenHash,
+          input.codeHash,
+        );
+      const results = await this.database.batch([
+        insertCredential,
+        updateStatement,
+        deleteOrphanedCredential,
+      ]);
       const inserted = results[0] as D1ResultLike;
       const updated = results[1] as D1ResultLike;
       if (d1ChangedRows(inserted) !== 1 || d1ChangedRows(updated) !== 1) {
@@ -1950,7 +2004,7 @@ export class CloudflareD1AuthorizationStore
     requireExactWalletSessionAuthorizationV2Quota(input);
     const capabilitySubjectsJson = JSON.stringify(input.session.capabilitySubjects);
     const recordJson = JSON.stringify(input.session);
-    const result = await this.database
+    const updateStatement = this.database
       .prepare(
         `UPDATE wallet_session_authorizations_v2
             SET authority_digest_b64u = ?,
@@ -2015,10 +2069,86 @@ export class CloudflareD1AuthorizationStore
         String(input.quota.principalId),
         requirePositiveInteger(input.quota.remainingUses, 'V2 quota.remainingUses'),
         requirePositiveInteger(input.quota.expiresAtMs, 'V2 quota.expiresAtMs'),
-      )
-      .run();
-    if (d1ChangedRows(result) > 1) {
-      throw new Error('V2 Wallet Session authority projection changed more than one row');
+      );
+    const [deleteHostedExchanges, retireHostedCredentials] =
+      this.prepareRetireHostedChildrenForParentSelection({
+        tenantId: input.session.tenantId,
+        nowMs: input.session.createdAtMs,
+        parentSelectionSql: `
+          predecessor.authorization_id = ?
+          AND predecessor.wallet_session_id = ?
+          AND predecessor.quota_id = ?
+          AND predecessor.principal_id = ?
+          AND predecessor.wallet_id = ?
+          AND predecessor.authority_id = ?
+          AND predecessor.wallet_auth_method_id = ?
+          AND predecessor.authority_revocation_epoch = ?
+          AND predecessor.issued_at_ms = ?
+          AND predecessor.expires_at_ms = ?
+          AND predecessor.retired_at_ms IS NULL
+          AND EXISTS (
+            SELECT 1
+              FROM wallet_authorities AS authority
+              JOIN wallet_auth_methods AS auth_method
+                ON auth_method.namespace = predecessor.namespace
+               AND auth_method.org_id = predecessor.org_id
+               AND auth_method.project_id = predecessor.project_id
+               AND auth_method.env_id = predecessor.env_id
+               AND auth_method.wallet_authority_id = predecessor.authority_id
+               AND auth_method.wallet_id = predecessor.wallet_id
+               AND auth_method.wallet_auth_method_id = ?
+               AND auth_method.status = 'active'
+             WHERE authority.namespace = predecessor.namespace
+               AND authority.org_id = predecessor.org_id
+               AND authority.project_id = predecessor.project_id
+               AND authority.env_id = predecessor.env_id
+               AND authority.authority_id = predecessor.authority_id
+               AND authority.wallet_id = predecessor.wallet_id
+               AND authority.lifecycle_state = 'active'
+               AND authority.authority_digest_b64u = ?
+               AND authority.revocation_epoch = ?
+          )
+          AND EXISTS (
+            SELECT 1
+              FROM authorization_wallet_session_quotas AS quota
+             WHERE quota.namespace = predecessor.namespace
+               AND quota.tenant_id = predecessor.tenant_id
+               AND quota.quota_id = predecessor.quota_id
+               AND quota.wallet_session_id = predecessor.wallet_session_id
+               AND quota.principal_id = predecessor.principal_id
+               AND quota.lifecycle_kind = 'active'
+               AND quota.remaining_uses = ?
+               AND quota.expires_at_ms = ?
+          )`,
+        parentSelectionBindings: [
+          String(input.session.authorizationId),
+          String(input.session.walletSessionId),
+          String(input.session.quotaId),
+          String(input.session.principalId),
+          String(input.session.walletId),
+          String(input.session.authorityId),
+          String(input.session.walletAuthMethodId),
+          input.session.authorityRevocationEpoch,
+          requirePositiveInteger(input.session.createdAtMs, 'V2 session.createdAtMs'),
+          requirePositiveInteger(input.session.expiresAtMs, 'V2 session.expiresAtMs'),
+          String(input.session.walletAuthMethodId),
+          String(input.session.authorityDigestB64u),
+          input.session.authorityRevocationEpoch,
+          requirePositiveInteger(input.quota.remainingUses, 'V2 quota.remainingUses'),
+          requirePositiveInteger(input.quota.expiresAtMs, 'V2 quota.expiresAtMs'),
+        ],
+      });
+    const results = await this.database.batch([
+      deleteHostedExchanges,
+      retireHostedCredentials,
+      updateStatement,
+    ]);
+    if (results.length !== 3) {
+      throw new Error('V2 Wallet Session authority projection transaction returned incomplete results');
+    }
+    const result = results[2] as D1ResultLike;
+    if (d1ChangedRows(result) !== 1) {
+      throw new Error('V2 Wallet Session authority projection was not replaced');
     }
     const persisted = await this.readWalletSessionAuthorizationV2ByAuthorizationId({
       expected: input.session,
