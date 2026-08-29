@@ -177,7 +177,10 @@ import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/
 import { toAccountId } from '@/core/types/accountIds';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { persistActiveWalletSessionAuthorizationFromRegistration } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
-import { prepareWalletEd25519RegistrationPublication } from '@/core/signingEngine/flows/registration/accountLifecycle';
+import {
+  prepareWalletEd25519RegistrationPublication,
+  prepareWalletEmailOtpEd25519RegistrationPublication,
+} from '@/core/signingEngine/flows/registration/accountLifecycle';
 import {
   establishUnlockedWalletEd25519ExportRootCapabilityV1,
   walletCustodyCeremonyTransportFromWorkerContextV1,
@@ -3177,7 +3180,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       registrationCeremonyId: setup.registrationCeremonyId,
       activationReference: established.activationReference,
     });
-    await persistPendingRegistrationCommit({
+    const nearProvisioningPending = await persistPendingRegistrationCommit({
       operation: 'near_provisioning',
       registrationCeremonyId: setup.registrationCeremonyId,
       idempotencyKey: nearProvisioningIdempotencyKey,
@@ -3269,9 +3272,24 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED,
       status: 'running',
     });
-    const stored = await context.signingEngine.storeWalletEmailOtpEd25519RegistrationData({
+    const materialFacts = registrationEd25519MaterialFacts({
+      deferredNear: responded.ed25519,
+      finalized: finalized.ed25519,
+      walletId,
+      expectedRuntimePolicyScope: normalizeRuntimePolicyScope(setup.intent.runtimePolicyScope),
+    });
+    const metadata = established.metadata;
+    const nearAccountId = toAccountId(finalized.ed25519.nearAccountId);
+    const custodyMaterial = walletCustodyRegistrationMaterial({
+      established,
+      walletId: String(finalized.walletId),
+      nearAccountId: String(nearAccountId),
+      nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+      signerSlot: finalized.ed25519.signerSlot,
+    });
+    const registration = await prepareWalletEmailOtpEd25519RegistrationPublication({
       walletId: finalized.walletId,
-      nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
+      nearAccountId,
       nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
       email: persistenceAuth.email,
       registrationAuthorityId: persistenceAuth.registrationAuthorityId,
@@ -3281,41 +3299,37 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       relayerKeyId: finalized.ed25519.relayerKeyId,
       keyVersion: finalized.ed25519.keyVersion,
       participantIds: [...finalized.ed25519.participantIds],
+      custodyMaterial,
     });
-    if (stored.signerSlot !== finalized.ed25519.signerSlot) {
+    const stored = await IndexedDBManager.publishPendingWalletRegistrationCommit({
+      pending: nearProvisioningPending,
+      authority: finalized.authority,
+      foundingAuthority: {
+        authority: finalized.foundingAuthority,
+        authMethod: finalized.foundingAuthMethod,
+      },
+      request: {
+        operation: 'near_provisioning',
+        registrationCeremonyId: setup.registrationCeremonyId,
+        idempotencyKey: nearProvisioningIdempotencyKey,
+        walletId: finalized.walletId,
+        walletAuthMethodId: finalized.foundingAuthMethod.walletAuthMethodId,
+      },
+      registration,
+    });
+    const storedNearActivation = stored.signerActivations[1];
+    if (!storedNearActivation || storedNearActivation.signerSlot !== finalized.ed25519.signerSlot) {
       throw new Error('Ed25519 Yao registration persisted a different signer slot');
     }
-    await IndexedDBManager.persistFoundingWalletAuthority({
-      authority: finalized.foundingAuthority,
-      authMethod: finalized.foundingAuthMethod,
-    });
-    const materialFacts = registrationEd25519MaterialFacts({
-      deferredNear: responded.ed25519,
-      finalized: finalized.ed25519,
-      walletId,
-      expectedRuntimePolicyScope: normalizeRuntimePolicyScope(setup.intent.runtimePolicyScope),
-    });
     await context.signingEngine.activateAuthenticatedWalletState({
       walletId: finalized.walletId,
-      nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
+      nearAccountId,
       signerSlot: finalized.ed25519.signerSlot,
       nearClient: context.nearClient,
     });
-    const metadata = established.metadata;
-    const custodyMaterial = walletCustodyRegistrationMaterial({
-      established,
-      walletId: String(finalized.walletId),
-      nearAccountId: String(finalized.ed25519.nearAccountId),
-      nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
-      signerSlot: finalized.ed25519.signerSlot,
-    });
-    await context.signingEngine.persistWalletCustodyEd25519Material({
-      binding: custodyMaterial.binding,
-      sealed: custodyMaterial.sealed,
-    });
     await context.signingEngine.upsertEd25519YaoPublicCapabilityLaneReference({
       walletId: finalized.walletId,
-      nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
+      nearAccountId,
       thresholdSessionId: materialFacts.identity.thresholdSessionId,
       runtimePolicyScope: materialFacts.stableServerScope.runtimePolicyScope,
       materialActivation: nearEd25519YaoMaterialActivationFromMetadata(metadata),
@@ -3348,10 +3362,6 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       walletId: String(finalized.walletId),
       walletSessionId: String(finalized.registrationEstablishedSession.walletSessionId),
       expiresAtMs: finalized.registrationEstablishedSession.expiresAtMs,
-    });
-    await IndexedDBManager.deletePendingWalletRegistrationCommit({
-      registrationCeremonyId: setup.registrationCeremonyId,
-      operation: 'near_provisioning',
     });
     emitRegistrationEvent(options.onEvent, eventAccountId, {
       authMethod: 'email_otp',
