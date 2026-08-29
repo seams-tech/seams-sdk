@@ -740,7 +740,14 @@ Convert every current issuer:
 - [x] active unlock in `d1RouterApiAuthService.ts`, including exact request
       capability parsing, durable response-family replay binding, and typed
       protocol-mismatch rejection without credential rotation;
-- [ ] sync bootstrap in `syncAccountBootstrap.ts`;
+- [ ] sync bootstrap in `syncAccountBootstrap.ts`, including mixed-wallet
+      ECDSA activation through the same primary V2 credential; this item cannot
+      close while `thresholdEcdsa.ts` resolves that credential only through the
+      V1 opaque-token store or `syncAccount.ts` installs a late curve-specific
+      browser row;
+- [ ] Bind sync recovery from `already_committed` to the same committed wallet,
+      auth method, and selected credential, allow exactly one fresh challenge,
+      and fail closed if the replacement terminal repeats or changes identity;
 - [ ] ECDSA post-registration activation in `thresholdEcdsa.ts`;
 - [ ] `mintRouterAbEd25519YaoWalletSessionV1` and its sync/registration callers;
 - [ ] `issueRouterAbEd25519OpaqueWalletSessionToken` and every direct caller;
