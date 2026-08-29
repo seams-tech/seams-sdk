@@ -1544,9 +1544,9 @@ Remaining causal baseline work:
       proving exact `/near/public-keys` admission and missing-session rejection
       never read the legacy opaque-token resolver while preserving the existing
       client projection checks
-- [x] `tests/unit/webauthnAuthenticators.walletSessionAuthorization.unit.test.ts`,
-      proving exact authenticator inventory admission, RP forwarding, and
-      fail-closed absence without legacy opaque-token reads
+- [x] `tests/unit/webauthnAuthenticatorListing.unit.test.ts`, proving exact
+      authenticator inventory admission, RP forwarding, metadata projection,
+      and fail-closed absence without legacy opaque-token reads
 - [x] `tests/unit/authIdentity.walletSessionAuthorization.unit.test.ts`, proving
       exact identity inventory and mutation, same-method fresh step-up, sibling
       same-wallet rejection before side effects, and no legacy resolver reads
