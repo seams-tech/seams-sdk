@@ -27,7 +27,10 @@ import {
   buildWalletAuthMethodRecordV2,
   type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
-import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  isEmailOtpWalletAuthAuthority,
+  type WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type {
   ActiveWalletAuthorityV1,
@@ -39,7 +42,10 @@ import type {
 } from '@/core/indexedDB/passkeyClientDB.types';
 import type { KeyMaterialRecord } from '@/core/indexedDB/keyMaterial.types';
 import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerLifecycle';
-import { prepareWalletEd25519RegistrationPublication } from '@/core/signingEngine/flows/registration/accountLifecycle';
+import {
+  prepareWalletEd25519RegistrationPublication,
+  prepareWalletEmailOtpEd25519RegistrationPublication,
+} from '@/core/signingEngine/flows/registration/accountLifecycle';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import { toAccountId } from '@/core/types/accountIds';
 import { WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
@@ -520,6 +526,60 @@ export async function buildPasskeyNearProvisioningProductionPublicationFixture()
       credentialIdB64u: pendingAuth.credentialIdB64u,
     }),
     credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(23)),
+    signerSlot: 1,
+    operationalPublicKey: 'ed25519:publication-public-key',
+    relayerKeyId: 'relayer-publication-key',
+    keyVersion: 'v1',
+    participantIds: [1, 2],
+    custodyMaterial: {
+      binding: {
+        kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+        applicationBindingDigestB64u: 'binding-ed25519-publication',
+        registeredPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(17)),
+        participantIds: [1, 2],
+        stateEpoch: '1',
+        walletId: String(fixture.input.request.walletId),
+        nearAccountId: 'publication.testnet',
+        nearEd25519SigningKeyId: 'near-publication-key',
+        signerSlot: 1,
+        signingWorkerId: 'signing-worker-publication',
+        signingWorkerVerifyingShareB64u: base64UrlEncode(new Uint8Array(32).fill(19)),
+      },
+      sealed: {
+        ciphertextB64u: 'sealed-ed25519-publication',
+        nonceB64u: 'nonce-ed25519-publication',
+      },
+    },
+  });
+  return {
+    walletId: fixture.walletId,
+    authorityId: fixture.authorityId,
+    walletAuthMethodId: fixture.walletAuthMethodId,
+    profileId: fixture.profileId,
+    input: {
+      pending: fixture.input.pending,
+      authority: fixture.input.authority,
+      foundingAuthority: fixture.input.foundingAuthority,
+      request: fixture.input.request,
+      registration,
+    },
+  };
+}
+
+export async function buildEmailOtpNearProvisioningProductionPublicationFixture(): Promise<PendingWalletRegistrationPublicationFixture> {
+  const fixture = await buildEmailNearProvisioningPublicationFixture();
+  const pendingAuth = fixture.input.pending.auth;
+  const authority = fixture.input.authority;
+  if (pendingAuth.kind !== 'email_otp' || !isEmailOtpWalletAuthAuthority(authority)) {
+    throw new Error('Email OTP publication fixture has a mismatched authority');
+  }
+  const registration = await prepareWalletEmailOtpEd25519RegistrationPublication({
+    walletId: fixture.input.request.walletId,
+    nearAccountId: toAccountId('publication.testnet'),
+    nearEd25519SigningKeyId: 'near-publication-key',
+    email: pendingAuth.email,
+    registrationAuthorityId: pendingAuth.registrationAuthorityId,
+    authority,
     signerSlot: 1,
     operationalPublicKey: 'ed25519:publication-public-key',
     relayerKeyId: 'relayer-publication-key',
