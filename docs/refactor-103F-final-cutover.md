@@ -841,8 +841,9 @@ Live admission symbols include `WalletSessionOperationCredentialResolution`,
 
 ### I4 — Status, replay, quota, and source activity (B6)
 
-- [ ] Make `/wallet/session/status` resolve only exact operation credentials in
-      the final worker.
+- [x] Make `/wallet/session/status` resolve only exact operation credentials in
+      the final worker. Exact absence returns `invalid`, tuple mismatch fails
+      closed, and neither curve-token probing nor V1 status lookup remains.
 - [ ] Return the complete digest-free authorization and quota lifecycle from
       the active status branch.
 - [ ] Validate immutable authorization, Wallet Session, quota, authority, and
@@ -1541,6 +1542,9 @@ Remaining causal baseline work:
 - [ ] `tests/unit/d1WalletSessionAuthMethodProvenance.unit.test.ts`
 - [ ] `tests/unit/linkedDeviceManagement.unit.test.ts`
 - [ ] `tests/unit/walletSessionAuthorizationStatus.unit.test.ts`
+- [x] `tests/unit/walletSessionStatusExactAdmission.unit.test.ts`, proving the
+      exact quota projection, tuple mismatch, fail-closed absence, and zero V1
+      credential/status reads
 - [ ] `tests/unit/walletSessionExpiry.boundaryAndServer.unit.test.ts`
 - [x] `tests/unit/registrationEstablishedWalletSessionProjection.unit.test.ts`
 - [x] `tests/unit/walletRegistrationActivateRoute.unit.test.ts`, covering direct
