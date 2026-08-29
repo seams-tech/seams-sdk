@@ -398,9 +398,14 @@ The final exact model never signs a fresh bearer during replay. Phase 0 has one
 explicitly bounded request-boundary exception for clients deployed before the
 new pending-commit parser: it reconstructs the current credential-free public
 projection from the receipt and signs a fresh short-lived V1 bearer in memory.
-It never persists that bearer. The adapter is deleted before direct exact
-issuance and `already_committed` become the public registration replay
-contract.
+Bearer plaintext exists only in the response assembly. Persist its digest in a
+dedicated short-lived registration-replay adapter table keyed to the exact V1
+session, curve, binding, and receipt operation. Keep the existing opaque-token
+table's one-token-per-session/curve invariant unchanged. Resolution,
+identity lookup, expiry, session revocation, and auth-method cleanup must cover
+the adapter table explicitly. Delete the table and its resolver with the
+adapter before direct exact issuance and `already_committed` become the public
+registration replay contract.
 
 The adapter intentionally ends the old byte-identical terminal-response rule:
 the idempotency key, fingerprint, committed identities, and credential-free
@@ -980,10 +985,13 @@ Primary files:
       replay and final pending-commit recovery. The adapter may attach only its
       fresh in-memory V1 bearer; add no second receipt/projection shape or
       intermediate receipt migration.
-- [x] Keep one Phase 0 request-boundary adapter for clients without the pending
+- [ ] Keep one Phase 0 request-boundary adapter for clients without the pending
       commit parser. It reconstructs the current credential-free public
-      projection and signs a short-lived V1 bearer only in memory. Delete the
-      adapter before enabling the final replay contract and direct exact
+      projection and signs a short-lived V1 bearer whose plaintext exists only
+      in response assembly. Persist only its digest in a dedicated bounded-TTL
+      replay-adapter table; preserve the existing opaque-token uniqueness
+      invariant and include the adapter rows in resolution and cleanup. Delete
+      the adapter before enabling the final replay contract and direct exact
       issuance.
 - [ ] In the same adapter change, revise the Route 3 contract and service comments
       plus every byte-identical terminal replay assertion. Require a stable
