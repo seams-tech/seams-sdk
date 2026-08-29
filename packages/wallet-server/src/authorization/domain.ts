@@ -23,6 +23,7 @@ import type {
   ReusableWalletSessionMintId,
   TenantId,
   WalletSessionId,
+  WalletSessionClientCapabilityV1,
 } from '@shared/authorization/capabilityKinds';
 export {
   parseMpcWalletSigningQuotaId,
@@ -273,6 +274,12 @@ export type IssuedWalletSessionAuthorizationV2 = {
   readonly quota: ActiveWalletSessionQuota;
 };
 
+/** The one direct response family currently issued by active unlock routes. */
+export const WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1 = 'wallet_unlock_exact_response_v1' as const;
+
+export type WalletSessionIssuanceResponseFamilyV1 =
+  | typeof WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1;
+
 /**
  * The server-side aggregate that is safe to expose to persistence code after
  * an exact Wallet Session commit. The credential digest never crosses the
@@ -283,6 +290,8 @@ export type PersistedActiveWalletSessionAuthorizationV2 = {
   readonly session: WalletSessionAuthorizationV2;
   readonly quota: ActiveWalletSessionQuota;
   readonly primaryOperationCredentialDigestB64u: DigestB64u;
+  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
+  readonly responseFamily: WalletSessionIssuanceResponseFamilyV1;
   readonly retiredAtMs?: never;
 };
 
@@ -303,6 +312,8 @@ export type WalletSessionAuthorizationV2MintRead = {
   readonly kind: 'committed';
   readonly session: WalletSessionAuthorizationV2;
   readonly primaryOperationCredentialDigestB64u: DigestB64u;
+  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1 | null;
+  readonly responseFamily: string | null;
   readonly retiredAtMs: number | null;
 };
 
@@ -330,12 +341,19 @@ export type DirectV2IssueResult =
       readonly walletSessionId: WalletSessionId;
       readonly quotaId: MpcWalletSigningQuotaId;
       readonly next: 'unlock_exact_method';
+    }
+  | {
+      readonly kind: 'protocol_mismatch';
+      readonly code: 'protocol_mismatch';
+      readonly message: string;
     };
 
 export function buildPersistedActiveWalletSessionAuthorizationV2(fields: {
   readonly session: WalletSessionAuthorizationV2;
   readonly quota: ActiveWalletSessionQuota;
   readonly primaryOperationCredentialDigestB64u: DigestB64u;
+  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
+  readonly responseFamily: WalletSessionIssuanceResponseFamilyV1;
 }): PersistedActiveWalletSessionAuthorizationV2 {
   if (
     fields.session.tenantId !== fields.quota.tenantId ||
@@ -352,6 +370,8 @@ export function buildPersistedActiveWalletSessionAuthorizationV2(fields: {
     session: fields.session,
     quota: fields.quota,
     primaryOperationCredentialDigestB64u: fields.primaryOperationCredentialDigestB64u,
+    walletSessionClientCapability: fields.walletSessionClientCapability,
+    responseFamily: fields.responseFamily,
   };
 }
 

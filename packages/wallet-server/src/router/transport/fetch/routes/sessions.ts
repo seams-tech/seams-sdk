@@ -27,6 +27,7 @@ import {
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
+  parseWalletUnlockIssuanceRejectionCode,
   routerApiEmailOtpRouteService,
   type WalletUnlockEmailOtpAuthorityResolution,
 } from '../../../framework/authServicePort';
@@ -225,7 +226,11 @@ async function resolveWalletEmailOtpChallengeAuthority(args: {
       providerUserId: args.providerUserId,
     });
   if (!selected.ok) {
-    return { kind: 'rejected', code: selected.code, message: selected.message };
+    return {
+      kind: 'rejected',
+      code: parseWalletUnlockIssuanceRejectionCode(selected.code),
+      message: selected.message,
+    };
   }
   return await args.ctx.service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
     walletId: args.walletId,
@@ -1476,8 +1481,18 @@ export async function handleWalletUnlockVerify(
     ecdsaSession,
     tenantId: ctx.service.authorizationSessions.tenantId,
     buildVerifiedOwnerProof: ctx.service.authorizedOperations.buildVerifiedOwnerProof,
-    resolveEmailOtpAuthority:
-      ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject,
+    resolveEmailOtpAuthority: async (request) => {
+      const resolved =
+        await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject(
+          request,
+        );
+      if (resolved.ok) return resolved;
+      return {
+        ok: false,
+        code: parseWalletUnlockIssuanceRejectionCode(resolved.code),
+        message: resolved.message,
+      };
+    },
     emitRouterApiWebhook: async (event) => {
       await emitRouterApiWebhookEvent({
         logger: ctx.logger,
