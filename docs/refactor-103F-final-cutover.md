@@ -1039,7 +1039,9 @@ Primary files:
       operation credential through the exact V2 authorization, derives the
       wallet from that projection, and fails closed without probing either
       legacy curve-token store.
-- [ ] Convert `/webauthn/authenticators` admission.
+- [x] Convert `/webauthn/authenticators` admission. The inventory route uses
+      the exact credential's wallet identity, preserves its existing RP filter,
+      and rejects missing exact state without legacy curve-token probes.
 - [ ] Convert custody-envelope ownership upgrade admission.
 - [ ] Convert registration funding/session admission.
 
@@ -1539,6 +1541,9 @@ Remaining causal baseline work:
       proving exact `/near/public-keys` admission and missing-session rejection
       never read the legacy opaque-token resolver while preserving the existing
       client projection checks
+- [x] `tests/unit/webauthnAuthenticators.walletSessionAuthorization.unit.test.ts`,
+      proving exact authenticator inventory admission, RP forwarding, and
+      fail-closed absence without legacy opaque-token reads
 - [ ] `tests/unit/walletHostOwnerAuthority.unit.test.ts`
 - [ ] `tests/unit/walletSessionOperationCredential.unit.test.ts`
 - [ ] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
