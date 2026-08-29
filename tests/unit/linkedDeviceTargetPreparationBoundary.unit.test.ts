@@ -47,9 +47,8 @@ test('target preparation authenticates and digests the worker delivery recipient
   );
 
   const originalDigest = await computeLinkedDeviceTargetPreparationDigestV1(preparation);
-  const changedRecipient = base64UrlEncode(
-    Uint8Array.from({ length: 65 }, (_, index) => (index === 0 ? 4 : 5)),
-  );
+  const changedRecipient =
+    'BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWsBy9HAHlgGVxGBS1g_Bh6dQxzKmUzqExNEm_l8hArgo';
   const changedPreparation = parseLinkedDeviceTargetPreparationV1({
     ...preparation,
     deliveryRecipientPublicKey65B64u: changedRecipient,
@@ -68,6 +67,20 @@ test('target preparation rejects malformed delivery recipients at the boundary',
       deliveryRecipientPublicKey65B64u: base64UrlEncode(new Uint8Array(65)),
     }),
   ).toThrow(/uncompressed SEC1 P-256 point/);
+});
+
+test('target preparation rejects off-curve delivery recipients at the boundary', () => {
+  const preparation = buildPasskeyTargetPreparationFixtureV1();
+  const offCurveRecipient = base64UrlEncode(
+    Uint8Array.from({ length: 65 }, (_, index) => (index === 0 ? 4 : 0)),
+  );
+  expect(() =>
+    parseLinkedDeviceTargetPreparationRequestV1({
+      kind: 'linked_device_target_preparation_request_v1',
+      linkSessionId: preparation.linkSessionId,
+      deliveryRecipientPublicKey65B64u: offCurveRecipient,
+    }),
+  ).toThrow(/on-curve P-256 point/);
 });
 
 test('passkey target configuration digest binds both managed RP and origin', async () => {

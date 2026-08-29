@@ -148,7 +148,7 @@ export type DeviceLinkingTargetCredentialProviderV1 = {
           readonly deliveryRecipientPublicKey65B64u?: never;
         }
     ),
-  ): Promise<LinkedDeviceTargetPreparationV1>;
+  ): Promise<LinkedDeviceTargetPreparationResultV1>;
   registerTargetCredentialV1(input: {
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
     readonly preparation: LinkedDeviceTargetPreparationV1;
@@ -170,6 +170,10 @@ export type DeviceLinkingTargetCredentialProviderV1 = {
     readonly requestedAtMs: number;
   }): Promise<VerifiedLinkInputV1>;
 };
+
+export type LinkedDeviceTargetPreparationResultV1 =
+  | LinkedDeviceTargetPreparationV1
+  | { readonly kind: 'conflict'; readonly message: string };
 
 export type DeviceLinkingEmailOtpTargetFactorProviderV1 = {
   resolveBaseFactorSelectionV1(input: {
@@ -561,6 +565,12 @@ async function handleTargetPreparation(
     },
     nowMs,
   );
+  if (rawPreparation.kind === 'conflict') {
+    return json(
+      { ok: false, code: 'conflict', message: rawPreparation.message },
+      { status: 409 },
+    );
+  }
   const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
   return json(preparation, { status: 200 });
 }
@@ -1397,7 +1407,7 @@ function readTargetPreparation(
       }
     | { readonly access: 'replay_only' },
   nowMs: number,
-): Promise<LinkedDeviceTargetPreparationV1> {
+): Promise<LinkedDeviceTargetPreparationResultV1> {
   return service.targetCredential.getTargetPreparationV1({
     session,
     approval,

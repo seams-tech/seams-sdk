@@ -268,6 +268,46 @@ test('authenticates the worker delivery recipient while creating target preparat
   expect(receivedRecipient).toBe(preparation.deliveryRecipientPublicKey65B64u);
 });
 
+test('maps a target preparation recipient replay conflict to HTTP 409', async () => {
+  temporary = await openDatabase();
+  const fixture = buildR103DeviceLinkFixture({
+    linkSessionId: 'link-session:route-preparation-recipient-conflict',
+  });
+  const session = await buildR103AwaitingTargetPasskeySessionRecordV1(fixture);
+  const sessionService = buildSessionService(fixture);
+  const baseRouteService = routeServiceFor(sessionService, fixture, 3_000);
+  const message = 'linked-device target preparation recipient conflicts with its durable replay';
+  const routeService: DeviceLinkingRouteServiceV1 = {
+    ...baseRouteService,
+    sessionService: {
+      ...baseRouteService.sessionService,
+      getSessionV1: async () => session,
+    },
+    targetCredential: {
+      ...baseRouteService.targetCredential,
+      getTargetPreparationV1: async (input) => {
+        if (input.access !== 'create_or_replay') throw new Error('wrong preparation access');
+        return { kind: 'conflict', message };
+      },
+    },
+  };
+
+  const response = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/target-preparation`,
+    origin: 'https://wallet.example.test',
+    body: {
+      kind: 'linked_device_target_preparation_request_v1',
+      linkSessionId: fixture.payload.linkSessionId,
+      deliveryRecipientPublicKey65B64u: buildPasskeyTargetPreparationFixtureV1()
+        .deliveryRecipientPublicKey65B64u,
+    },
+  });
+
+  expect(response.status).toBe(409);
+  expect(await response.json()).toEqual({ ok: false, code: 'conflict', message });
+});
+
 test('keeps the claimed session when no Email OTP base method is eligible', async () => {
   temporary = await openDatabase();
   const fixture = buildR103DeviceLinkFixture({

@@ -13,7 +13,8 @@ import type { HttpTransport } from '../../packages/wallet/src/core/platform/http
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildPasskeyTargetPreparationFixtureV1 } from './helpers/linkedDeviceTargetPreparation.fixtures';
 
-const DELIVERY_RECIPIENT_PUBLIC_KEY_B64U = base64UrlEncode(new Uint8Array(65).fill(4));
+const DELIVERY_RECIPIENT_PUBLIC_KEY_B64U =
+  'BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU';
 
 function responseBody(fixture: ReturnType<typeof buildR103DeviceLinkFixture>): {
   readonly ok: true;
