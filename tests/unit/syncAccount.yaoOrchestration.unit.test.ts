@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../packages/wallet/src/core/config/defaultConfigs';
 import type { ClientUserData } from '../../packages/wallet/src/core/accountData/near/nearAccountData.types';
 import {
+  buildActiveWalletSessionV1,
   IndexedDBManager,
   walletSessionAuthorizations,
 } from '../../packages/wallet/src/core/indexedDB';
@@ -46,6 +47,7 @@ import {
 } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import type { WalletCustodyEvmFamilyPublicFacts } from '../../packages/shared-ts/src/passkey-custody/ceremonyCommitPayload';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { parseWalletSessionAuthorizationId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import {
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
@@ -65,6 +67,7 @@ const RELAYER_URL = 'https://router.example.test';
 const RP_ID = 'wallet.example.test';
 const DISCOVERED_WALLET_ID = 'discovered-wallet';
 const REQUESTED_WALLET_ID = 'requested-wallet';
+const OTHER_CREDENTIAL_ID = base64UrlEncode(new Uint8Array(32).fill(37));
 const NEAR_ACCOUNT_ID = 'discovered-wallet.testnet';
 const NEAR_SIGNING_KEY_ID = 'ed25519ks_discovered_wallet';
 const CREDENTIAL_ID = base64UrlEncode(new Uint8Array(32).fill(36));
@@ -105,6 +108,11 @@ type FetchScenario = {
   readonly optionsWalletId: string | null;
   readonly verifiedWalletId: string;
   readonly ecdsaSigners: readonly Record<string, unknown>[];
+  readonly ecdsaSessionAuthorizationId?: string;
+  readonly ecdsaSessionMaterialActivation?: Record<string, unknown>;
+  readonly alreadyCommittedWalletId?: string;
+  readonly alreadyCommittedWalletAuthMethodId?: string;
+  readonly replacementCredentialIds?: readonly string[];
   verifyRequest: Record<string, unknown> | null;
   readonly alreadyCommittedBeforeSuccess: number;
   optionsCalls: number;
@@ -172,6 +180,9 @@ class SyncAccountPersistenceFixture {
   readonly keyMaterial = new Map<string, KeyMaterialRecord>();
   readonly profileSeeds: Array<Parameters<typeof IndexedDBManager.upsertProfile>[0]> = [];
   readonly exactWalletSessionWrites: ExactWalletSessionWriteInput[] = [];
+  readonly legacyWalletSessionCurveWrites: Array<
+    Parameters<typeof walletSessionAuthorizations.upsertActiveWithCurveMerge>[0]
+  > = [];
 
   async getKeyMaterial(
     profileId: string,
@@ -411,14 +422,23 @@ function walletBinding(walletId: string): Record<string, unknown> {
   };
 }
 
-function syncOptionsResponse(scenario: FetchScenario): Record<string, unknown> {
+function syncOptionsResponse(
+  scenario: FetchScenario,
+  requestedWalletId: string | null,
+): Record<string, unknown> {
   const replacement = scenario.optionsCalls > 1;
+  const optionsWalletId = scenario.optionsWalletId ?? requestedWalletId;
+  const credentialIds = replacement && scenario.replacementCredentialIds
+    ? scenario.replacementCredentialIds
+    : optionsWalletId
+      ? [CREDENTIAL_ID]
+      : [];
   return {
     ok: true,
     challengeId: replacement ? 'sync-challenge-id-replacement' : 'sync-challenge-id',
     challengeB64u: replacement ? 'sync-challenge-b64u-replacement' : 'sync-challenge-b64u',
-    credentialIds: scenario.optionsWalletId ? [CREDENTIAL_ID] : [],
-    ...(scenario.optionsWalletId ? { walletBinding: walletBinding(scenario.optionsWalletId) } : {}),
+    credentialIds,
+    ...(optionsWalletId ? { walletBinding: walletBinding(optionsWalletId) } : {}),
   };
 }
 
@@ -452,7 +472,7 @@ function ecdsaSessionResponseForSync(
   const activation = firstSigner.activationReceipt.ecdsa_activation;
   return {
     ecdsaSession: {
-      kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
+      kind: 'router_ab_ecdsa_credential_free_session_activated_v1',
       public_capability: publicCapability,
       session: {
         authorization_session_id: 'ecdsa-authorization-session-sync-1',
@@ -462,7 +482,6 @@ function ecdsaSessionResponseForSync(
         quota_id: WALLET_SESSION_QUOTA_ID,
         expires_at_ms: expiresAtMs,
         remaining_uses: 4,
-        wallet_session_token: 'ecdsa-wallet-session-token-sync-1',
       },
       normal_signing: {
         kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
@@ -483,10 +502,9 @@ function ecdsaSessionResponseForSync(
   };
 }
 
-async function syncVerifyResponse(
-  walletId: string,
-  ecdsaSigners: readonly Record<string, unknown>[],
-): Promise<Record<string, unknown>> {
+async function syncVerifyResponse(scenario: FetchScenario): Promise<Record<string, unknown>> {
+  const walletId = scenario.verifiedWalletId;
+  const ecdsaSigners = scenario.ecdsaSigners;
   const founding = await buildLinkedDeviceManagementAuthorityFixture({
     label: 'sync-account-orchestration',
     permissions: fullOwnerPermissionsForManagementFixture(),
@@ -501,6 +519,7 @@ async function syncVerifyResponse(
   });
   const expiresAtMs = Date.now() + 60_000;
   const ecdsaResponse = ecdsaSessionResponseForSync(ecdsaSigners, expiresAtMs);
+  const ecdsaMaterialActivation = ecdsaSessionMaterialActivationForSync(ecdsaSigners);
   const authorityRef = buildWalletAuthAuthorityRefForAuthorityFixture({
     walletId: founding.authority.walletId,
     factor: {
@@ -512,7 +531,43 @@ async function syncVerifyResponse(
   });
   const admissionRequest = registrationAdmissionRequest(walletId);
   const admissionReceipt = registrationAdmissionReceipt(walletId);
-  const response: Record<string, unknown> = {
+  const authorizationId = parseWalletSessionAuthorizationId(
+    'authorization:sync-account-orchestration',
+  );
+  if (!authorizationId.ok) throw new Error(authorizationId.error.message);
+  const walletSession = buildActiveWalletSessionV1({
+    walletId: walletIdFromString(walletId),
+    authorityId: founding.authority.authorityId,
+    authMethodId: founding.authMethod.walletAuthMethodId,
+    authorizationId: authorizationId.value,
+    authorityDigestB64u: founding.authority.authorityDigestB64u,
+    authorityRevocationEpoch: founding.authority.revocationEpoch,
+    capabilitySubjects: [
+      { kind: 'sign', keyFamily: 'ed25519', materialActivation: MATERIAL_ACTIVATION },
+      { kind: 'export_keys', keyFamily: 'ed25519', materialActivation: MATERIAL_ACTIVATION },
+      ...(ecdsaMaterialActivation
+        ? [
+            {
+              kind: 'sign' as const,
+              keyFamily: 'ecdsa_secp256k1' as const,
+              materialActivation:
+                scenario.ecdsaSessionMaterialActivation ?? ecdsaMaterialActivation,
+            },
+            {
+              kind: 'export_keys' as const,
+              keyFamily: 'ecdsa_secp256k1' as const,
+              materialActivation:
+                scenario.ecdsaSessionMaterialActivation ?? ecdsaMaterialActivation,
+            },
+          ]
+        : []),
+      { kind: 'link_devices' },
+      { kind: 'revoke_devices' },
+    ],
+    issuedAtMs: Date.now() - 1_000,
+    expiresAtMs,
+  });
+  const response = {
     ok: true,
     verified: true,
     walletId,
@@ -552,23 +607,7 @@ async function syncVerifyResponse(
         },
       },
     },
-    walletSession: {
-      kind: 'active_wallet_session_v1',
-      walletId,
-      authorityId: String(founding.authority.authorityId),
-      authMethodId: String(founding.authMethod.walletAuthMethodId),
-      authorizationId: 'authorization:sync-account-orchestration',
-      authorityDigestB64u: founding.authority.authorityDigestB64u,
-      authorityRevocationEpoch: founding.authority.revocationEpoch,
-      capabilitySubjects: [
-        { kind: 'sign', keyFamily: 'ed25519', materialActivation: MATERIAL_ACTIVATION },
-        { kind: 'export_keys', keyFamily: 'ed25519', materialActivation: MATERIAL_ACTIVATION },
-        { kind: 'link_devices' },
-        { kind: 'revoke_devices' },
-      ],
-      issuedAtMs: Date.now() - 1_000,
-      expiresAtMs,
-    },
+    walletSession,
     operationCredential: {
       kind: 'opaque_wallet_session_operation_credential_v1',
       token: OPERATION_CREDENTIAL_TOKEN,
@@ -632,10 +671,28 @@ async function syncVerifyResponse(
     },
   };
   if (ecdsaResponse) {
+    if (scenario.ecdsaSessionAuthorizationId) {
+      if (!isPlainObject(ecdsaResponse.ecdsaSession.session)) {
+        throw new Error('ECDSA sync fixture session is incomplete');
+      }
+      ecdsaResponse.ecdsaSession.session.authorization_id = scenario.ecdsaSessionAuthorizationId;
+    }
     response.ecdsaSession = ecdsaResponse.ecdsaSession;
     response.ecdsaActivationReceipt = ecdsaResponse.ecdsaActivationReceipt;
   }
   return response;
+}
+
+function ecdsaSessionMaterialActivationForSync(
+  ecdsaSigners: readonly Record<string, unknown>[],
+): Record<string, unknown> | null {
+  const firstSigner = ecdsaSigners[0];
+  if (!firstSigner || !isPlainObject(firstSigner.walletKey)) return null;
+  if (!isPlainObject(firstSigner.walletKey.publicCapability)) return null;
+  const materialActivation = firstSigner.walletKey.publicCapability.material_activation;
+  return isPlainObject(materialActivation)
+    ? routerAbMpcMaterialActivationRefFromWire(materialActivation)
+    : null;
 }
 
 function registrationAdmissionRequest(walletId: string) {
@@ -705,7 +762,12 @@ async function syncAccountFetch(input: RequestInfo | URL, init?: RequestInit): P
   const url = input instanceof Request ? input.url : String(input);
   if (url === `${RELAYER_URL}/sync-account/options`) {
     scenario.optionsCalls += 1;
-    return jsonResponse(syncOptionsResponse(scenario));
+    const request = requireRequestJson(init);
+    const requestedWalletId =
+      typeof request.account_id === 'string' && request.account_id.trim()
+        ? request.account_id
+        : null;
+    return jsonResponse(syncOptionsResponse(scenario, requestedWalletId));
   }
   if (url === `${RELAYER_URL}/sync-account/verify`) {
     const request = requireRequestJson(init);
@@ -719,9 +781,11 @@ async function syncAccountFetch(input: RequestInfo | URL, init?: RequestInit): P
           code: 'already_committed',
           kind: 'already_committed',
           next: 'unlock_exact_method',
-          walletId: scenario.verifiedWalletId,
+          walletId: scenario.alreadyCommittedWalletId ?? scenario.verifiedWalletId,
           authorityId: 'wallet-authority:sync-account-orchestration',
-          walletAuthMethodId: 'wallet-auth-method:sync-account-orchestration',
+          walletAuthMethodId:
+            scenario.alreadyCommittedWalletAuthMethodId ??
+            'wallet-auth-method:sync-account-orchestration',
           mintId: 'wallet-mint:sync-account-orchestration',
           authorizationId: 'authorization:sync-account-orchestration',
           walletSessionId: WALLET_SESSION_ID,
@@ -730,9 +794,7 @@ async function syncAccountFetch(input: RequestInfo | URL, init?: RequestInit): P
         409,
       );
     }
-    return jsonResponse(
-      await syncVerifyResponse(scenario.verifiedWalletId, scenario.ecdsaSigners),
-    );
+    return jsonResponse(await syncVerifyResponse(scenario));
   }
   throw new Error(`unexpected syncAccount fetch: ${url}`);
 }
@@ -916,13 +978,11 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
     };
   }
 
-  async withExactEd25519MaterialOwner<T>(
-    args: {
-      readonly materialActivation: typeof MATERIAL_ACTIVATION;
-      readonly nearAccountId: ReturnType<typeof toAccountId>;
-      readonly task: () => Promise<T>;
-    },
-  ): Promise<T> {
+  async withExactEd25519MaterialOwner<T>(args: {
+    readonly materialActivation: typeof MATERIAL_ACTIVATION;
+    readonly nearAccountId: ReturnType<typeof toAccountId>;
+    readonly task: () => Promise<T>;
+  }): Promise<T> {
     this.queuedActivationIds.push(String(args.materialActivation.activationId));
     if (this.insideMaterialOwnerQueue) {
       throw new Error('syncAccount fixture entered the material owner recursively');
@@ -943,15 +1003,13 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
     material?.activeClient.dispose();
   }
 
-  async hydrateSigningSession(
-    input: { readonly thresholdSessionId: string },
-  ): Promise<void> {
+  async hydrateSigningSession(input: { readonly thresholdSessionId: string }): Promise<void> {
     this.hydratedSessionIds.push(input.thresholdSessionId);
   }
 
-  async persistSigningSessionSealForThresholdSession(
-    input: { readonly thresholdSessionId: string },
-  ): Promise<{
+  async persistSigningSessionSealForThresholdSession(input: {
+    readonly thresholdSessionId: string;
+  }): Promise<{
     readonly ok: true;
     readonly sealedSecretB64u: string;
     readonly remainingUses: number;
@@ -1148,6 +1206,11 @@ function configureTestScenario(input: {
   readonly verifiedWalletId: string;
   readonly failRecovery?: boolean;
   readonly ecdsaSigners?: readonly Record<string, unknown>[];
+  readonly ecdsaSessionAuthorizationId?: string;
+  readonly ecdsaSessionMaterialActivation?: Record<string, unknown>;
+  readonly alreadyCommittedWalletId?: string;
+  readonly alreadyCommittedWalletAuthMethodId?: string;
+  readonly replacementCredentialIds?: readonly string[];
   readonly alreadyCommittedBeforeSuccess?: number;
 }): YaoScenario {
   const yaoScenario = createYaoScenario();
@@ -1157,6 +1220,11 @@ function configureTestScenario(input: {
     optionsWalletId: input.optionsWalletId,
     verifiedWalletId: input.verifiedWalletId,
     ecdsaSigners: input.ecdsaSigners ?? [],
+    ecdsaSessionAuthorizationId: input.ecdsaSessionAuthorizationId,
+    ecdsaSessionMaterialActivation: input.ecdsaSessionMaterialActivation,
+    alreadyCommittedWalletId: input.alreadyCommittedWalletId,
+    alreadyCommittedWalletAuthMethodId: input.alreadyCommittedWalletAuthMethodId,
+    replacementCredentialIds: input.replacementCredentialIds,
     verifyRequest: null,
     alreadyCommittedBeforeSuccess: input.alreadyCommittedBeforeSuccess ?? 0,
     optionsCalls: 0,
@@ -1173,7 +1241,10 @@ function setupSyncAccountTest(): void {
   walletSessionAuthorizations.writeExactWithOperationCredential = async (input) => {
     activePersistenceFixture?.exactWalletSessionWrites.push(input);
   };
-  walletSessionAuthorizations.upsertActiveWithCurveMerge = async (input) => input.incoming;
+  walletSessionAuthorizations.upsertActiveWithCurveMerge = async (input) => {
+    activePersistenceFixture?.legacyWalletSessionCurveWrites.push(input);
+    return input.incoming;
+  };
   globalThis.fetch = syncAccountFetch;
   installPersistenceFixture(activePersistenceFixture);
   installYaoClientMock();
@@ -1313,6 +1384,69 @@ test.describe('public syncAccount Yao orchestration', () => {
     expect(surface.activatedMaterials).toEqual([]);
   });
 
+  test('rejects a noncanonical already-committed terminal identity before replacement', async () => {
+    configureTestScenario({
+      optionsWalletId: null,
+      verifiedWalletId: DISCOVERED_WALLET_ID,
+      alreadyCommittedBeforeSuccess: 1,
+      alreadyCommittedWalletId: ` ${DISCOVERED_WALLET_ID}`,
+    });
+    const surface = new SyncAccountSigningSurfaceFixture();
+
+    const result = await syncAccount(createContext(surface), null);
+
+    expect(result).toEqual({ success: false, error: 'already_committed' });
+    const fetchScenario = requireActiveFetchScenario();
+    expect(fetchScenario.optionsCalls).toBe(1);
+    expect(fetchScenario.verifyCalls).toBe(1);
+    expect(surface.authenticationCredentialCalls).toBe(1);
+    expect(surface.activatedMaterials).toEqual([]);
+  });
+
+  test('keeps one replacement bound to the committed auth method', async () => {
+    configureTestScenario({
+      optionsWalletId: null,
+      verifiedWalletId: DISCOVERED_WALLET_ID,
+      alreadyCommittedBeforeSuccess: 1,
+      alreadyCommittedWalletAuthMethodId: 'wallet-auth-method:other',
+    });
+    const surface = new SyncAccountSigningSurfaceFixture();
+
+    const result = await syncAccount(createContext(surface), null);
+
+    expect(result).toEqual({
+      success: false,
+      error: 'recovered Yao capability does not match the verified wallet binding',
+    });
+    const fetchScenario = requireActiveFetchScenario();
+    expect(fetchScenario.optionsCalls).toBe(2);
+    expect(fetchScenario.verifyCalls).toBe(2);
+    expect(surface.authenticationCredentialCalls).toBe(2);
+    expect(surface.activatedMaterials).toEqual([]);
+  });
+
+  test('keeps one replacement bound to the committed passkey when discovery changes', async () => {
+    configureTestScenario({
+      optionsWalletId: null,
+      verifiedWalletId: DISCOVERED_WALLET_ID,
+      alreadyCommittedBeforeSuccess: 1,
+      replacementCredentialIds: [OTHER_CREDENTIAL_ID],
+    });
+    const surface = new SyncAccountSigningSurfaceFixture();
+
+    const result = await syncAccount(createContext(surface), null);
+
+    expect(result).toEqual({
+      success: false,
+      error: 'replacement account-sync challenge changed the selected passkey',
+    });
+    const fetchScenario = requireActiveFetchScenario();
+    expect(fetchScenario.optionsCalls).toBe(2);
+    expect(fetchScenario.verifyCalls).toBe(1);
+    expect(surface.authenticationCredentialCalls).toBe(1);
+    expect(surface.activatedMaterials).toEqual([]);
+  });
+
   test('mixed-wallet sync rejoins one ECDSA key and preserves its Router activation across targets', async () => {
     const ecdsa = mixedWalletEcdsaSyncFixture(DISCOVERED_WALLET_ID);
     configureTestScenario({
@@ -1347,6 +1481,54 @@ test.describe('public syncAccount Yao orchestration', () => {
     expect(surface.ecdsaRestoreInputs[0]!.readyStateBlobB64u).toBe(
       base64UrlEncode(new Uint8Array(64).fill(31)),
     );
+    const persistence = requireActivePersistenceFixture();
+    expect(persistence.exactWalletSessionWrites).toHaveLength(1);
+    expect(persistence.exactWalletSessionWrites[0]?.operationCredential.token).toBe(
+      OPERATION_CREDENTIAL_TOKEN,
+    );
+    expect(persistence.legacyWalletSessionCurveWrites).toEqual([]);
+  });
+
+  test('rejects a mixed-wallet ECDSA session whose authorization identity drifts', async () => {
+    const ecdsa = mixedWalletEcdsaSyncFixture(DISCOVERED_WALLET_ID);
+    configureTestScenario({
+      optionsWalletId: null,
+      verifiedWalletId: DISCOVERED_WALLET_ID,
+      ecdsaSigners: ecdsa.signers,
+      ecdsaSessionAuthorizationId: 'authorization:sync-account-drifted',
+    });
+    const surface = new SyncAccountSigningSurfaceFixture();
+    surface.ecdsaRejoinPublicFacts = ecdsa.publicFacts;
+
+    const result = await syncAccount(createContext(surface), null);
+
+    expect(result).toEqual({
+      success: false,
+      error: 'sync-account ECDSA session changed the Wallet Session or custody identity',
+    });
+    expect(surface.ecdsaRejoinInputs).toEqual([]);
+    expect(requireActivePersistenceFixture().exactWalletSessionWrites).toEqual([]);
+  });
+
+  test('rejects a mixed-wallet ECDSA session whose sign subject drifts from the exact session', async () => {
+    const ecdsa = mixedWalletEcdsaSyncFixture(DISCOVERED_WALLET_ID);
+    configureTestScenario({
+      optionsWalletId: null,
+      verifiedWalletId: DISCOVERED_WALLET_ID,
+      ecdsaSigners: ecdsa.signers,
+      ecdsaSessionMaterialActivation: MATERIAL_ACTIVATION,
+    });
+    const surface = new SyncAccountSigningSurfaceFixture();
+    surface.ecdsaRejoinPublicFacts = ecdsa.publicFacts;
+
+    const result = await syncAccount(createContext(surface), null);
+
+    expect(result).toEqual({
+      success: false,
+      error: 'sync-account ECDSA session changed the Wallet Session or custody identity',
+    });
+    expect(surface.ecdsaRejoinInputs).toEqual([]);
+    expect(requireActivePersistenceFixture().exactWalletSessionWrites).toEqual([]);
   });
 
   test('rejects requested-wallet substitution and clears the recovered wallet capability', async () => {

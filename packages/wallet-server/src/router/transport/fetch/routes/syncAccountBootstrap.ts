@@ -7,6 +7,7 @@ import {
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
   mpcMaterialActivationRefsEqual,
+  type MpcMaterialActivationRef,
   type WalletAuthMethodId,
   type WalletAuthorityId,
 } from '@shared/utils/domainIds';
@@ -15,7 +16,10 @@ import type {
   WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
-import { walletIdFromString, type WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
+import {
+  walletIdFromString,
+  type WalletAuthMethodRecordV2,
+} from '@shared/utils/registrationIntent';
 import type {
   WalletSessionClientCapabilityV1,
   MpcWalletSigningQuotaId,
@@ -32,8 +36,8 @@ import {
 } from '@shared/threshold/sessionPolicy';
 import {
   parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
-  parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
-  type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  parseRouterAbEcdsaCredentialFreeSessionActivationResponseV1,
+  type RouterAbEcdsaCredentialFreeSessionActivationResponseV1,
   type RouterAbEcdsaRegistrationActivationReceiptV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { isPlainObject } from '@shared/utils/validation';
@@ -128,7 +132,7 @@ export type SyncAccountExactBootstrapBodyV1 = SyncAccountExactBootstrapBodyBaseV
         readonly ecdsaActivationReceipt?: never;
       }
     | {
-        readonly ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        readonly ecdsaSession: RouterAbEcdsaCredentialFreeSessionActivationResponseV1;
         readonly ecdsaActivationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
       }
   );
@@ -164,7 +168,33 @@ export type SyncAccountBootstrapResultV1 =
       readonly kind: 'already_committed';
       readonly committed: Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }>;
     }
-  | { readonly kind: 'error'; readonly code: string; readonly message: string; readonly status: number };
+  | {
+      readonly kind: 'error';
+      readonly code: string;
+      readonly message: string;
+      readonly status: number;
+    };
+
+type EcdsaSignWalletSessionSubjectV1 = {
+  readonly kind: 'sign';
+  readonly keyFamily: 'ecdsa_secp256k1';
+  readonly materialActivation: MpcMaterialActivationRef;
+};
+
+function isEcdsaSignWalletSessionSubject(
+  subject: ActiveWalletSessionV1['capabilitySubjects'][number],
+): subject is EcdsaSignWalletSessionSubjectV1 {
+  return subject.kind === 'sign' && subject.keyFamily === 'ecdsa_secp256k1';
+}
+
+function findEcdsaSignWalletSessionSubject(
+  subjects: ActiveWalletSessionV1['capabilitySubjects'],
+): EcdsaSignWalletSessionSubjectV1 | null {
+  for (const subject of subjects) {
+    if (isEcdsaSignWalletSessionSubject(subject)) return subject;
+  }
+  return null;
+}
 
 export async function issueSyncAccountBootstrapV1(
   input: SyncAccountBootstrapInputV1,
@@ -183,14 +213,14 @@ export async function issueSyncAccountBootstrapV1(
   const firstParticipantId = thresholdEd25519?.participantIds?.[0];
   const secondParticipantId = thresholdEd25519?.participantIds?.[1];
   if (!custodyKeyManifestDigestB64u) {
-    return bootstrapError('internal', 'Sync verification did not resolve the wallet key manifest', 500);
-  }
-  if (!yaoRuntime) {
     return bootstrapError(
       'internal',
-      'Ed25519 Yao product registration is not configured',
+      'Sync verification did not resolve the wallet key manifest',
       500,
     );
+  }
+  if (!yaoRuntime) {
+    return bootstrapError('internal', 'Ed25519 Yao product registration is not configured', 500);
   }
   if (
     thresholdEd25519?.participantIds?.length !== 2 ||
@@ -260,7 +290,9 @@ export async function issueSyncAccountBootstrapV1(
   if (custodyEnvelope.kind !== 'active') {
     const manifestUnavailable = custodyEnvelope.kind === 'manifest_unavailable';
     return bootstrapError(
-      manifestUnavailable ? 'custody_manifest_unavailable' : `custody_envelope_${custodyEnvelope.kind}`,
+      manifestUnavailable
+        ? 'custody_manifest_unavailable'
+        : `custody_envelope_${custodyEnvelope.kind}`,
       manifestUnavailable
         ? 'Wallet custody key manifest is unavailable'
         : 'Verified passkey has no unique active wallet custody envelope',
@@ -272,19 +304,20 @@ export async function issueSyncAccountBootstrapV1(
   if (!principalId.ok) {
     return bootstrapError('internal', 'Verified passkey Wallet Session identity is invalid', 500);
   }
-  const directIssue = await ctx.service.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
-    tenantId: ctx.service.authorizationSessions.tenantId,
-    principalId: principalId.value,
-    walletId: walletIdFromString(walletId),
-    authority: input.activeAuthority,
-    walletAuthMethodId: input.walletAuthMethodId,
-    mintId: input.mintId,
-    remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
-    issuedAtMs: input.issuedAtMs,
-    expiresAtMs: input.issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS,
-    walletSessionClientCapability: input.walletSessionClientCapability,
-    responseFamily: WALLET_SYNC_EXACT_RESPONSE_FAMILY_V1,
-  });
+  const directIssue =
+    await ctx.service.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
+      tenantId: ctx.service.authorizationSessions.tenantId,
+      principalId: principalId.value,
+      walletId: walletIdFromString(walletId),
+      authority: input.activeAuthority,
+      walletAuthMethodId: input.walletAuthMethodId,
+      mintId: input.mintId,
+      remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+      issuedAtMs: input.issuedAtMs,
+      expiresAtMs: input.issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS,
+      walletSessionClientCapability: input.walletSessionClientCapability,
+      responseFamily: WALLET_SYNC_EXACT_RESPONSE_FAMILY_V1,
+    });
   if (directIssue.kind === 'already_committed') {
     return { kind: 'already_committed', committed: directIssue };
   }
@@ -295,8 +328,7 @@ export async function issueSyncAccountBootstrapV1(
   const ecdsaSigners = await ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({
     walletId,
   });
-  let ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | null =
-    null;
+  let ecdsaSessionActivation: RouterAbEcdsaCredentialFreeSessionActivationResponseV1 | null = null;
   let ecdsaActivationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1 | null = null;
   const firstEcdsaSigner = ecdsaSigners[0];
   if (firstEcdsaSigner) {
@@ -316,8 +348,8 @@ export async function issueSyncAccountBootstrapV1(
     const activatedResponse = await handleStrictEcdsaSessionActivation({
       ctx,
       body: authored.value.request,
-      source: 'verified_ed25519_wallet_session',
-      walletSessionToken: directIssue.operationCredential.token,
+      source: 'wallet_session_operation_credential_v1',
+      operationCredential: directIssue.operationCredential,
       proof: input.proof,
     });
     const activatedBody: unknown = await activatedResponse.json();
@@ -329,10 +361,28 @@ export async function issueSyncAccountBootstrapV1(
         activatedResponse.status,
       );
     }
-    ecdsaSessionActivation = parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
-      activatedBody,
-    );
+    ecdsaSessionActivation =
+      parseRouterAbEcdsaCredentialFreeSessionActivationResponseV1(activatedBody);
     ecdsaActivationReceipt = authored.value.activationReceipt;
+    const ecdsaSignSubject = findEcdsaSignWalletSessionSubject(
+      directIssue.session.capabilitySubjects,
+    );
+    if (
+      !ecdsaSignSubject ||
+      ecdsaSessionActivation.session.authorization_id !== directIssue.session.authorizationId ||
+      !mpcMaterialActivationRefsEqual(
+        ecdsaSignSubject.materialActivation,
+        routerAbMpcMaterialActivationRefFromWire(
+          ecdsaSessionActivation.public_capability.material_activation,
+        ),
+      )
+    ) {
+      return bootstrapError(
+        'capability_conflict',
+        'ECDSA activation does not match the exact Wallet Session capability',
+        409,
+      );
+    }
   }
 
   const bodyBase: SyncAccountExactBootstrapBodyBaseV1 = {

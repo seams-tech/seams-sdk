@@ -4,6 +4,7 @@ import {
   buildNearEd25519MpcOperationRef,
   EVM_ECDSA_MPC_OPERATION_KINDS,
   NEAR_ED25519_MPC_OPERATION_KINDS,
+  parseAuthFactorId,
   parseAuthorizationAuditEventId,
   parseAuthorizedOperationId,
   parseCapabilityId,
@@ -45,8 +46,14 @@ import {
   buildActiveWalletSessionQuota,
   buildWalletSessionCapabilitySubjectsV1,
   buildAuthorizedOperation,
+  parseSessionOrigin,
+  parseVerifiedOwnerProofId,
   type WalletSessionAuthorizationV2,
 } from '../../packages/wallet-server/src/authorization/domain';
+import {
+  buildVerifiedOwnerProof,
+  buildVerifiedWalletSessionPasskeyFactorResult,
+} from '../../packages/wallet-server/src/authorization/factorEvidence';
 import {
   buildCapabilityOperationEnvelope,
   type CapabilityOperationEnvelope,
@@ -62,9 +69,11 @@ import {
   type WalletSessionAuthorizationV2RequestedOperation,
 } from '../../packages/wallet-server/src/router/domains/signingOperations/walletExecutionAdmission';
 import {
+  resolveWalletSessionOperationCredentialAdmission,
   validateRouterAbEd25519WalletSessionTokenInputs,
   validateRouterAbEcdsaDerivationWalletSessionInputs,
 } from '../../packages/wallet-server/src/router/auth/commonRouterUtils';
+import { authorizeStrictEcdsaSessionActivationFromOperationCredential } from '../../packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa';
 import type {
   RouterApiAuthorizedOperationService,
   RouterApiAuthorizationSessionService,
@@ -81,7 +90,10 @@ import {
   buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  buildMpcMaterialActivationRefFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
+import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 type SignerFamily = 'ed25519' | 'ecdsa_secp256k1' | 'both';
 
@@ -294,12 +306,17 @@ async function unsupportedAuthorizedOperationOperation(): Promise<never> {
 class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessionService {
   readonly tenantId: WalletSessionAuthorizationV2['tenantId'];
 
-  constructor(private readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext) {
+  constructor(
+    private readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext,
+    private readonly expectedToken: string | null = null,
+  ) {
     this.tenantId = context.authorization.session.tenantId;
   }
 
-  readonly readWalletSessionAuthorizationV2ByOperationCredential = async () => {
-    return this.context;
+  readonly readWalletSessionAuthorizationV2ByOperationCredential = async (input: {
+    readonly token: string;
+  }) => {
+    return this.expectedToken === null || input.token === this.expectedToken ? this.context : null;
   };
 
   async issueReusableWalletSession(): Promise<never> {
@@ -714,6 +731,106 @@ test('admits exact Ed25519 and ECDSA Wallet Session V2 provenance', async () => 
   expect(ecdsaAdmission.operationKind).toBe(EVM_ECDSA_MPC_OPERATION_KINDS.exportKey);
   expect(edAdmission.walletKeyId).toBe(authority.signerActivations.ed25519.signer.walletKeyId);
   expect(ecdsaAdmission.walletKeyId).toBe(authority.signerActivations.ecdsa.signer.walletKeyId);
+
+  const operationCredentialService = new WalletSessionAuthorizationV2Fixture(
+    buildAdmissionContext({ authority, authMethod, session }),
+    'wst_shared-primary-credential',
+  );
+  const [edOperationAdmission, ecdsaOperationAdmission] = await Promise.all([
+    resolveWalletSessionOperationCredentialAdmission({
+      authorizationSessions: operationCredentialService,
+      token: 'wst_shared-primary-credential',
+      nowMs: 500,
+      operation: {
+        keyFamily: 'ed25519',
+        operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
+      },
+    }),
+    resolveWalletSessionOperationCredentialAdmission({
+      authorizationSessions: operationCredentialService,
+      token: 'wst_shared-primary-credential',
+      nowMs: 500,
+      operation: {
+        keyFamily: 'ecdsa_secp256k1',
+        operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
+      },
+    }),
+  ]);
+  if (edOperationAdmission.kind !== 'admitted' || ecdsaOperationAdmission.kind !== 'admitted') {
+    throw new Error('shared primary Wallet Session credential was not admitted for both signers');
+  }
+  expect(edOperationAdmission.admission.curve).toBe('ed25519');
+  expect(ecdsaOperationAdmission.admission.curve).toBe('ecdsa');
+  expect(edOperationAdmission.admission.context.authorization.session.authorizationId).toBe(
+    ecdsaOperationAdmission.admission.context.authorization.session.authorizationId,
+  );
+  expect(edOperationAdmission.admission.context.authorization.session.walletSessionId).toBe(
+    ecdsaOperationAdmission.admission.context.authorization.session.walletSessionId,
+  );
+});
+
+test('authorizes ECDSA activation from the shared exact operation credential', async () => {
+  const authority = await buildAuthority('both', 'activation');
+  const authMethod = buildAuthMethod(authority, 'activation', 'active');
+  const session = buildSession({
+    authority,
+    authMethodId: authMethod.walletAuthMethodId,
+    label: 'activation',
+    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
+    authorityDigestB64u: authority.authorityDigestB64u,
+    authorityRevocationEpoch: authority.revocationEpoch,
+    expiresAtMs: Date.now() + 60_000,
+  });
+  const operationCredentialService = new WalletSessionAuthorizationV2Fixture(
+    buildAdmissionContext({ authority, authMethod, session }),
+    'wst_shared-activation-credential',
+  );
+  const authorityRef = parseWalletAuthAuthorityRef({
+    kind: 'wallet_auth_authority_ref',
+    walletId: authority.walletId,
+    authorityDigest: session.authorityDigestB64u,
+    walletAuthMethodId: authMethod.walletAuthMethodId,
+  });
+  if (!authorityRef) throw new Error('exact activation authority reference is invalid');
+  const proof = await buildVerifiedOwnerProof({
+    purpose: 'wallet_session',
+    proofId: parseVerifiedOwnerProofId('proof:ecdsa-activation'),
+    factor: buildVerifiedWalletSessionPasskeyFactorResult({
+      tenantId: session.tenantId,
+      principalId: session.principalId,
+      walletId: session.walletId,
+      authorityRef,
+      requestOrigin: parseSessionOrigin('https://wallet.example.test'),
+      audience: parseSessionOrigin('https://wallet.example.test'),
+      factorId: required(parseAuthFactorId('factor:ecdsa-activation')),
+      verifiedAtMs: 400,
+      expiresAtMs: 900,
+      credentialIdB64u: authMethod.credentialIdB64u,
+      assertionDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(28))),
+    }),
+  });
+  const operationCredential = {
+    kind: 'opaque_wallet_session_operation_credential_v1' as const,
+    token: 'wst_shared-activation-credential',
+    walletSessionId: session.walletSessionId,
+  };
+
+  const admission = await authorizeStrictEcdsaSessionActivationFromOperationCredential({
+    authorizationSessions: operationCredentialService,
+    walletId: String(session.walletId),
+    operationCredential,
+    proof,
+  });
+
+  if (!admission.ok) throw new Error('shared exact operation credential was refused');
+  expect(admission.kind).toBe('reuse_wallet_session_operation_credential_v1');
+  expect(admission.admission.curve).toBe('ecdsa');
+  expect(admission.admission.context.authorization.session.authorizationId).toBe(
+    session.authorizationId,
+  );
+  expect(admission.admission.context.authorization.session.walletSessionId).toBe(
+    operationCredential.walletSessionId,
+  );
 });
 
 test('rejects provenance drift, retirement, expiry, subject drift, and missing signer family', async () => {
@@ -970,10 +1087,7 @@ test('ordinary ECDSA V2 admission rejects exact normal-signing scope drift befor
     authority.walletId,
     'normal-scope',
   );
-  const materialResolver = new EcdsaMaterialActivationFixture(
-    materialActivation,
-    normalSigning,
-  );
+  const materialResolver = new EcdsaMaterialActivationFixture(materialActivation, normalSigning);
   const authorizationSessions = new WalletSessionAuthorizationV2Fixture(
     buildAdmissionContext({ authority, authMethod, session }),
   );
