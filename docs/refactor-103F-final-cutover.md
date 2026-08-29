@@ -740,12 +740,12 @@ Convert every current issuer:
 - [x] active unlock in `d1RouterApiAuthService.ts`, including exact request
       capability parsing, durable response-family replay binding, and typed
       protocol-mismatch rejection without credential rotation;
-- [ ] sync bootstrap in `syncAccountBootstrap.ts`, including mixed-wallet
+- [x] sync bootstrap in `syncAccountBootstrap.ts`, including mixed-wallet
       ECDSA activation through the same primary V2 credential; this item cannot
       close while `thresholdEcdsa.ts` resolves that credential only through the
       V1 opaque-token store or `syncAccount.ts` installs a late curve-specific
       browser row;
-- [ ] Bind sync recovery from `already_committed` to the same committed wallet,
+- [x] Bind sync recovery from `already_committed` to the same committed wallet,
       auth method, and selected credential, allow exactly one fresh challenge,
       and fail closed if the replacement terminal repeats or changes identity;
 - [ ] ECDSA post-registration activation in `thresholdEcdsa.ts`;
@@ -1493,12 +1493,12 @@ Remaining causal baseline work:
 - [ ] `tests/unit/walletSessionAuthorizationStatus.unit.test.ts`
 - [ ] `tests/unit/walletSessionExpiry.boundaryAndServer.unit.test.ts`
 - [ ] `tests/unit/registrationEstablishedWalletSessionProjection.unit.test.ts`
-- [ ] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`
+- [x] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`
 - [ ] `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts`
-- [ ] `tests/unit/walletExecutionAdmissionV2.unit.test.ts`
+- [x] `tests/unit/walletExecutionAdmissionV2.unit.test.ts`
 - [ ] `tests/unit/walletExecutionLanePreflight.unit.test.ts`
 - [ ] `tests/unit/ecdsaV2PoolFillAdmission.unit.test.ts`
-- [ ] `tests/unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts`
+- [x] `tests/unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts`
 - [ ] `tests/unit/nearPublicApi.walletSessionAuthorization.unit.test.ts`
 - [ ] `tests/unit/walletHostOwnerAuthority.unit.test.ts`
 - [ ] `tests/unit/walletSessionOperationCredential.unit.test.ts`
