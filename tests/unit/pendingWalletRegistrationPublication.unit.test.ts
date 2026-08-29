@@ -260,8 +260,6 @@ test.describe('pending registration publication', () => {
             (selection: { readonly walletId?: string }) =>
               selection.walletId === publicationInput.request.walletId,
           ),
-          walletAccounts: (await db.listChainAccountsByProfile(publicationInput.request.walletId))
-            .length,
           nearAccounts: (await db.listChainAccountsByProfile(nearProfileId)).length,
           walletSigners: (
             await db.listAccountSignersByProfile({ profileId: publicationInput.request.walletId })
@@ -288,8 +286,6 @@ test.describe('pending registration publication', () => {
             (selection: { readonly walletId?: string }) =>
               selection.walletId === publicationInput.request.walletId,
           ),
-          walletAccounts: (await db.listChainAccountsByProfile(publicationInput.request.walletId))
-            .length,
           nearAccounts: (await db.listChainAccountsByProfile(nearProfileId)).length,
           walletSigners: (
             await db.listAccountSignersByProfile({ profileId: publicationInput.request.walletId })
@@ -315,7 +311,6 @@ test.describe('pending registration publication', () => {
       authMethod: false,
       authority: false,
       selection: false,
-      walletAccounts: 0,
       nearAccounts: 0,
       walletSigners: 0,
       nearSigners: 0,
@@ -328,7 +323,6 @@ test.describe('pending registration publication', () => {
       authMethod: true,
       authority: true,
       selection: true,
-      walletAccounts: 1,
       nearAccounts: 1,
       walletSigners: 1,
       nearSigners: 1,
