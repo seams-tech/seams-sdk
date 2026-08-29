@@ -997,6 +997,9 @@ Primary files:
 - [ ] Delete `persistActiveWalletSessionAuthorizationCurve` and
       `persistActiveWalletSessionAuthorizationFromRegistration`.
 - [ ] Delete the V3 ECDSA bootstrap projection.
+- [x] Correct the V5 precursor so its physical `wallet_session_id` is the
+      operation credential's Wallet Session ID, reject key/credential drift,
+      and preserve same-wallet sibling methods during exact replacement.
 - [ ] Define one branch-specific V6 builder and one strict parser requiring
       exact identities, subjects, lifecycle, and primary credential.
 - [ ] Reject session/credential mismatch at parsing and before IndexedDB write.
