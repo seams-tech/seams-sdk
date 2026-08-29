@@ -9,6 +9,7 @@ import { parseSessionOrigin } from '../../../../authorization/domain';
 import type {
   WalletRegistrationActivateResponseV2,
   WalletRegistrationRouteErrorV2,
+  WalletRegistrationCommittedInstallationProjectionV1,
   WalletRegistrationSessionCommitReceiptV2,
 } from '../../../../core/threeRouteRegistrationContracts';
 import type {
@@ -49,6 +50,14 @@ export type RegistrationCommitExecution<T> =
       readonly response: T;
       readonly issuedAtMs: number;
       readonly expectedOrigin: string;
+      readonly installationProjection?: never;
+    }
+  | {
+      readonly kind: 'session_issued_with_installation_projection';
+      readonly response: T;
+      readonly issuedAtMs: number;
+      readonly expectedOrigin: string;
+      readonly installationProjection: WalletRegistrationCommittedInstallationProjectionV1;
     };
 
 export function unissuedRegistrationCommit<T>(response: T): RegistrationCommitExecution<T> {
@@ -146,20 +155,33 @@ export function projectWalletRegistrationSessionCommitReceiptV2(input: {
     if (!('registrationEstablishedSession' in response)) {
       throw new Error('ECDSA registration commit receipt is missing its session');
     }
-    if (input.execution.kind !== 'session_issued') {
+    if (
+      input.execution.kind !== 'session_issued' &&
+      input.execution.kind !== 'session_issued_with_installation_projection'
+    ) {
       throw new Error('ECDSA registration commit receipt is missing its issue identity');
     }
     if (response.foundingAuthMethod.walletAuthMethodId !== response.authority.bindingId) {
       throw new Error('ECDSA registration commit receipt has mismatched auth-method identity');
     }
+    const installation =
+      input.execution.kind === 'session_issued_with_installation_projection'
+        ? input.execution.installationProjection
+        : undefined;
+    if (
+      installation &&
+      (installation.registrationCeremonyId !== input.registrationCeremonyId ||
+        installation.walletId !== response.walletId ||
+        installation.registrationAuthority.walletId !== response.walletId ||
+        response.nearProvisioning?.status !== 'near_pending')
+    ) {
+      throw new Error('ECDSA registration commit receipt has an invalid installation projection');
+    }
     const establishedSessionProjection = projectRegistrationEstablishedSessionResultV2(
       response.registrationEstablishedSession,
     );
-    assertRegistrationCommitSessionTiming(
-      establishedSessionProjection,
-      input.execution.issuedAtMs,
-    );
-    return {
+    assertRegistrationCommitSessionTiming(establishedSessionProjection, input.execution.issuedAtMs);
+    const readyMetadata = {
       ...metadata,
       walletAuthMethodId: response.foundingAuthMethod.walletAuthMethodId,
       foundingAuthority: response.foundingAuthority,
@@ -169,13 +191,30 @@ export function projectWalletRegistrationSessionCommitReceiptV2(input: {
       expiresAtMs: establishedSessionProjection.expiresAtMs,
       custodyKeyManifestDigestB64u: response.custodyKeyManifestDigestB64u,
       ...(response.walletCustody ? { walletCustody: response.walletCustody } : {}),
-      committed: {
-        kind: 'ecdsa_ready',
-        ecdsa: response.ecdsa,
-        session: establishedSessionProjection,
-        ...(response.nearProvisioning ? { nearProvisioning: response.nearProvisioning } : {}),
-      },
     };
+    if (response.nearProvisioning && installation) {
+      return {
+        ...readyMetadata,
+        committed: {
+          kind: 'ecdsa_ready',
+          ecdsa: response.ecdsa,
+          session: establishedSessionProjection,
+          nearProvisioning: response.nearProvisioning,
+          installation,
+        },
+      };
+    }
+    if (response.nearProvisioning === undefined && installation === undefined) {
+      return {
+        ...readyMetadata,
+        committed: {
+          kind: 'ecdsa_ready',
+          ecdsa: response.ecdsa,
+          session: establishedSessionProjection,
+        },
+      };
+    }
+    throw new Error('ECDSA registration commit receipt has an incomplete installation projection');
   }
   if (response.kind !== 'near_ed25519' || !('registrationEstablishedSession' in response)) {
     throw new Error('Registration commit receipt has an unsupported success branch');
@@ -189,10 +228,7 @@ export function projectWalletRegistrationSessionCommitReceiptV2(input: {
   const establishedSessionProjection = projectRegistrationEstablishedSessionResultV2(
     response.registrationEstablishedSession,
   );
-  assertRegistrationCommitSessionTiming(
-    establishedSessionProjection,
-    input.execution.issuedAtMs,
-  );
+  assertRegistrationCommitSessionTiming(establishedSessionProjection, input.execution.issuedAtMs);
   return {
     ...metadata,
     walletAuthMethodId: response.foundingAuthMethod.walletAuthMethodId,

@@ -9,13 +9,8 @@ import {
   parseReusableWalletSessionMintId,
   type WalletSessionClientCapabilityV1,
 } from '@shared/authorization/capabilityKinds';
-import {
-  parseWalletAuthMethodId,
-  parseWalletAuthorityId,
-} from '@shared/utils/domainIds';
-import {
-  computeWalletAuthMethodRevokeOperationFingerprintV1,
-} from '@shared/utils/registrationIntent';
+import { parseWalletAuthMethodId, parseWalletAuthorityId } from '@shared/utils/domainIds';
+import { computeWalletAuthMethodRevokeOperationFingerprintV1 } from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -110,6 +105,7 @@ import {
 } from '../registration/d1WalletRegistrationService';
 import {
   parseD1EcdsaDerivationServerBootstrapResponse,
+  parseD1WalletRegistrationCommittedInstallationProjection,
   parseD1WalletRegistrationFinalizeReplayResponse,
   parseD1WalletRegistrationFinalizeTerminalResponse,
 } from '../registration/d1RegistrationCeremonyRecords';
@@ -999,7 +995,8 @@ function parseWalletRegistrationSessionCommitReceiptCommitted(
   if (record.kind === 'ecdsa_ready') {
     if (
       !hasExactKeys(record, ['kind', 'ecdsa', 'session']) &&
-      !hasExactKeys(record, ['kind', 'ecdsa', 'session', 'nearProvisioning'])
+      !hasExactKeys(record, ['kind', 'ecdsa', 'session', 'nearProvisioning']) &&
+      !hasExactKeys(record, ['kind', 'ecdsa', 'session', 'nearProvisioning', 'installation'])
     ) {
       return null;
     }
@@ -1008,12 +1005,23 @@ function parseWalletRegistrationSessionCommitReceiptCommitted(
     if (!ecdsa || !session || session.tokens.kind !== 'evm_family_ecdsa') return null;
     const nearProvisioning = parseNearPendingProjection(record.nearProvisioning);
     if (record.nearProvisioning !== undefined && !nearProvisioning) return null;
-    return {
-      kind: 'ecdsa_ready',
-      ecdsa,
-      session,
-      ...(nearProvisioning ? { nearProvisioning } : {}),
-    };
+    const installation =
+      record.installation === undefined
+        ? undefined
+        : parseD1WalletRegistrationCommittedInstallationProjection(record.installation);
+    if (
+      (record.installation !== undefined && !installation) ||
+      (nearProvisioning !== undefined) !== (installation !== undefined)
+    ) {
+      return null;
+    }
+    if (nearProvisioning && installation) {
+      return { kind: 'ecdsa_ready', ecdsa, session, nearProvisioning, installation };
+    }
+    if (nearProvisioning === undefined && installation === undefined) {
+      return { kind: 'ecdsa_ready', ecdsa, session };
+    }
+    return null;
   }
   if (record.kind !== 'near_ready') return null;
   if (

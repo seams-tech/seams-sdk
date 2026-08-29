@@ -30,6 +30,8 @@ import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthor
 import type {
   RegistrationNearAccountProvisioning,
   ResolvedRegistrationNearAccount,
+  RegistrationAuthority,
+  RegistrationSignerPlan,
   WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
@@ -39,6 +41,10 @@ import type {
   ThresholdEd25519AuthorityScope,
   EcdsaDerivationServerBootstrapResponse,
 } from './types';
+import type {
+  StoredWalletRegistrationNearEd25519YaoAuthorizedBranch,
+  StoredWalletRegistrationPreparedContext,
+} from './RegistrationCeremonyStore';
 
 /**
  * Refactor 94C: the three-route registration wire contract, frozen at the
@@ -88,6 +94,23 @@ type EcdsaFinalizeSuccess = Extract<
 >;
 type EcdsaActivationSuccess = Extract<WalletRegistrationEcdsaActivationResponse, { ok: true }>;
 
+/**
+ * Credential-free installation facts retained with a mixed registration's
+ * ECDSA commit. Deferred NEAR finalization can use this after the ceremony is
+ * consumed, without rebuilding a Wallet Session credential or re-reading the
+ * original intent.
+ */
+export type WalletRegistrationCommittedInstallationProjectionV1 = {
+  readonly kind: 'wallet_registration_committed_installation_projection_v1';
+  readonly registrationCeremonyId: string;
+  readonly walletId: WalletId;
+  readonly orgId: string;
+  readonly registrationAuthority: RegistrationAuthority;
+  readonly signerPlan: RegistrationSignerPlan;
+  readonly preparedContext: StoredWalletRegistrationPreparedContext;
+  readonly nearEd25519: StoredWalletRegistrationNearEd25519YaoAuthorizedBranch;
+};
+
 type WalletRegistrationSessionCommitReceiptMetadataV2 = {
   readonly kind: 'wallet_registration_session_commit_receipt_v2';
   readonly operation: 'registration_activate' | 'near_provisioning';
@@ -130,16 +153,7 @@ export type WalletRegistrationSessionCommitReceiptV2 =
       };
     })
   | (WalletRegistrationSessionCommitReadyBaseV2 & {
-      readonly committed: {
-        readonly kind: 'ecdsa_ready';
-        readonly ecdsa: {
-          readonly walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
-          readonly activation: EcdsaActivationSuccess['ecdsa']['activation'];
-          readonly bootstrap: EcdsaDerivationServerBootstrapResponse;
-        };
-        readonly session: RegistrationEstablishedSessionProjectionV2;
-        readonly nearProvisioning?: { readonly status: 'near_pending' };
-      };
+      readonly committed: WalletRegistrationEcdsaReadyCommitV2;
     })
   | (WalletRegistrationSessionCommitReadyBaseV2 & {
       readonly committed: {
@@ -151,6 +165,26 @@ export type WalletRegistrationSessionCommitReceiptV2 =
         readonly session: RegistrationEstablishedSessionProjectionV2;
         readonly nearProvisioning: { readonly status: 'near_ready' };
       };
+    });
+
+type WalletRegistrationEcdsaReadyCommitBaseV2 = {
+  readonly kind: 'ecdsa_ready';
+  readonly ecdsa: {
+    readonly walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
+    readonly activation: EcdsaActivationSuccess['ecdsa']['activation'];
+    readonly bootstrap: EcdsaDerivationServerBootstrapResponse;
+  };
+  readonly session: RegistrationEstablishedSessionProjectionV2;
+};
+
+export type WalletRegistrationEcdsaReadyCommitV2 =
+  | (WalletRegistrationEcdsaReadyCommitBaseV2 & {
+      readonly nearProvisioning?: never;
+      readonly installation?: never;
+    })
+  | (WalletRegistrationEcdsaReadyCommitBaseV2 & {
+      readonly nearProvisioning: { readonly status: 'near_pending' };
+      readonly installation: WalletRegistrationCommittedInstallationProjectionV1;
     });
 
 export type WalletRegistrationRouteErrorV2 = {
