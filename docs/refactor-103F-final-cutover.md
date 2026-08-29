@@ -400,15 +400,19 @@ then runs exact-method unlock.
 
 One bounded compatibility release deploys the receipt writer, strict parser,
 and old-client response adapter together. The adapter reconstructs the stable
-committed projection and signs a short-lived V1 bearer in memory. To keep that
-bearer resolvable under the existing one-token-per-wallet-session/curve
-constraint, the compatibility persistence boundary atomically retires or
-replaces the predecessor opaque-token digest with the new digest. Plaintext is
-never persisted. Concurrent identical replay returns a usable response;
-conflicting replay fails without leaving two usable bearers. Bearer bytes may
-differ on replay while the fingerprint and committed projection remain stable.
-The rotation operation and adapter are deleted together when the pending-commit
-client owns terminal replay.
+committed projection and signs a V1 bearer in memory with a maximum five-minute
+lifetime. Its digest is stored in a dedicated registration-replay adapter table
+bound to the receipt operation, exact V1 session, quota, authority, auth method,
+curve, and runtime binding. The ordinary opaque-token table keeps its existing
+one-token-per-wallet-session/curve invariant, and a late original response or
+another old tab is not invalidated by replay response ordering. Adapter-token
+resolution requires the parent session and quota to remain active and rejects
+the token after its own earlier expiry. Session retirement, auth-method cleanup,
+identity lookup, and expiry cleanup cover both token tables. Plaintext is never
+persisted. Concurrent identical replay returns usable responses; conflicting
+replay fails closed. Bearer bytes may differ while the fingerprint and committed
+projection remain stable. The adapter table, its resolver, and its tests are
+deleted together when the pending-commit client owns terminal replay.
 
 Existing successful registration completion rows under both activation and
 deferred-provisioning prefixes may contain plaintext V1 bearers. These are
@@ -697,9 +701,11 @@ Primary files:
       final pending-commit recovery.
 - [ ] Keep one bounded old-client adapter that attaches a V1 bearer only in
       memory; delete it when `already_committed` becomes authoritative.
-- [ ] Add an adapter-only atomic opaque-token digest rotation at the persistence
-      boundary so fresh replay bearer issuance satisfies the existing unique
-      wallet-session/curve constraint and invalidates the predecessor.
+- [ ] Add a dedicated adapter-only digest table with a maximum five-minute token
+      lifetime and exact receipt/session/quota/method/runtime binding. Extend
+      resolution and cleanup without weakening the ordinary opaque-token
+      table's unique wallet-session/curve constraint; delete the table and
+      resolver with the adapter.
 - [ ] Update Route 3 comments and tests from byte-identical bearer output to
       stable fingerprint and committed-projection identity.
 - [ ] Make the receipt parser reject bearer fields, credential-bearing
@@ -1197,7 +1203,7 @@ After deletion, update the required-table manifests in:
 
 | Stage | Enter action | Supported state | Exit gate |
 | --- | --- | --- | --- |
-| R0 — Credential-safe registration | Deploy credential-free receipt writer, parser, and old-client adapter | Existing clients receive a legacy-shaped ephemeral response; completion rows contain no plaintext bearer and the adapter may atomically rotate only its opaque digest row | Old writer revisions quiesced; historical rows remediated; repeated zero-credential query passes |
+| R0 — Credential-safe registration | Deploy credential-free receipt writer, parser, and old-client adapter | Existing clients receive a legacy-shaped ephemeral response; completion rows contain no plaintext bearer and adapter digests live only in the bounded dedicated table | Old writer revisions quiesced; historical rows remediated; repeated zero-credential query passes |
 | R1 — Storage-tolerant precursor | Publish precursor SDK; deploy and enforce client capability | Direct V2 response persists as V5; future rows are preserved | Final unmarked issuance time recorded; maximum unmarked session lifetime drained or invalidated |
 | R2 — Bridge | Apply additive migration and deploy bridge worker | New issuance and operations use V2; boundary compatibility accepts existing V1 state | Representative exact operating path passes; matching host SDK/iframe ready |
 | R3 — Final browser and protocol | Publish final SDK, upgrade known embeds, deploy matching iframe, enable V6 | Precursor and final tabs coexist under shared-store rules | No unsupported embed is expected to continue; V6 bootstrap and skew tests pass |
@@ -1469,9 +1475,10 @@ Remaining causal baseline work:
 - [ ] Compatibility-adapter test proving stable fingerprint/projection with an
       in-memory V1 bearer whose bytes may differ; delete the test with the
       adapter.
-- [ ] Adapter rotation tests proving identical retry remains usable, conflicting
-      replay fails closed, the predecessor bearer becomes unusable, and no
-      plaintext enters durable storage.
+- [ ] Adapter-table tests proving identical retries remain usable despite
+      response reordering, conflicting replay fails closed, adapter expiry does
+      not retire the parent session, parent retirement and method cleanup reject
+      adapter tokens, and no plaintext enters durable storage.
 - [ ] Contract update proving Route 3, service comments, and staging assertions
       no longer promise byte-identical credential-bearing replay.
 - [ ] `already_committed` replay test proving no credential fabrication and
