@@ -64,6 +64,13 @@ function migrationPrefix(): readonly string[] {
   return files.slice(0, bridgeIndex);
 }
 
+function migrationFilesThroughBridge(): readonly string[] {
+  const files = listD1MigrationFiles('d1-signer');
+  const bridgeIndex = files.findIndex((file) => basename(file).startsWith('0028_'));
+  if (bridgeIndex < 0) throw new Error('R103F Phase 1 bridge migration is missing');
+  return files.slice(0, bridgeIndex + 1);
+}
+
 async function insertAuthorityAndAuthMethod(database: Database): Promise<void> {
   await database
     .prepare(
@@ -527,7 +534,7 @@ test('R103F Phase 1 applies cleanly and after every immutable signer migration',
 test('R103F bridge trigger admits V1/V2 claims and rejects partial scope', async () => {
   const temporary = createTemporaryD1Database();
   try {
-    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    await applyD1MigrationFiles(temporary.database, migrationFilesThroughBridge());
     await insertAuthorityAndAuthMethod(temporary.database);
     await insertV1Session(temporary.database);
     await insertClaim(temporary.database, {
@@ -590,6 +597,101 @@ test('R103F bridge trigger admits V1/V2 claims and rejects partial scope', async
         )
         .first<{ readonly row_count?: unknown }>(),
     ).resolves.toMatchObject({ row_count: 0 });
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
+test('R103F exact trigger admits only fully scoped V2 claims', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    await insertAuthorityAndAuthMethod(temporary.database);
+    await insertQuota(temporary.database, 'quota:exact', 'session:exact', 100);
+    await insertAuthorization(temporary.database, {
+      authorizationId: 'authorization:exact',
+      walletSessionId: 'session:exact',
+      quotaId: 'quota:exact',
+      issuedAtMs: 1,
+      expiresAtMs: 100,
+      operationCredentialHash: 'credential:exact',
+    });
+
+    await insertClaim(temporary.database, {
+      operationId: 'operation:exact',
+      authorizationId: 'authorization:exact',
+      quotaId: 'quota:exact',
+      quotaKind: 'consume_reusable_wallet_session',
+      linkedScope: [SCOPE.orgId, SCOPE.projectId, SCOPE.envId],
+      claimedAtMs: 10,
+    });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT remaining_uses FROM authorization_wallet_session_quotas
+             WHERE quota_id = 'quota:exact'`,
+        )
+        .first<{ readonly remaining_uses?: unknown }>(),
+    ).resolves.toMatchObject({ remaining_uses: 2 });
+
+    await insertV1Session(temporary.database);
+    await expect(
+      insertClaim(temporary.database, {
+        operationId: 'operation:v1-fallback',
+        authorizationId: 'authorization:v1',
+        quotaId: 'quota:v1',
+        quotaKind: 'consume_reusable_wallet_session',
+        linkedScope: [null, null, null],
+        claimedAtMs: 10,
+      }),
+    ).rejects.toThrow(/authorization_grant_kind_rejected/u);
+
+    await expect(
+      insertClaim(temporary.database, {
+        operationId: 'operation:partial',
+        authorizationId: 'authorization:exact',
+        quotaId: 'quota:exact',
+        quotaKind: 'consume_reusable_wallet_session',
+        linkedScope: [SCOPE.orgId, null, SCOPE.envId],
+        claimedAtMs: 10,
+      }),
+    ).rejects.toThrow(/authorization_grant_kind_rejected/u);
+
+    await expect(
+      insertClaim(temporary.database, {
+        operationId: 'operation:scope-mismatch',
+        authorizationId: 'authorization:exact',
+        quotaId: 'quota:exact',
+        quotaKind: 'consume_reusable_wallet_session',
+        linkedScope: ['org:other', SCOPE.projectId, SCOPE.envId],
+        claimedAtMs: 10,
+      }),
+    ).rejects.toThrow(/authorization_wallet_session_rejected/u);
+
+    await expect(
+      insertClaim(temporary.database, {
+        operationId: 'operation:quota-mismatch',
+        authorizationId: 'authorization:exact',
+        quotaId: 'quota:other',
+        quotaKind: 'consume_reusable_wallet_session',
+        linkedScope: [SCOPE.orgId, SCOPE.projectId, SCOPE.envId],
+        claimedAtMs: 10,
+      }),
+    ).rejects.toThrow(/authorization_wallet_session_rejected/u);
+
+    await expect(
+      temporary.database
+        .prepare(`SELECT COUNT(*) AS row_count FROM authorized_operations`)
+        .first<{ readonly row_count?: unknown }>(),
+    ).resolves.toMatchObject({ row_count: 1 });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT remaining_uses FROM authorization_wallet_session_quotas
+             WHERE quota_id = 'quota:v1'`,
+        )
+        .first<{ readonly remaining_uses?: unknown }>(),
+    ).resolves.toMatchObject({ remaining_uses: 3 });
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
@@ -1120,13 +1222,16 @@ test('R103F bridge inventory counters and applied migration fingerprint stay sta
   const temporary = createTemporaryD1Database();
   try {
     const migrations = readMigrationFiles(SIGNER_MIGRATION_DIRECTORY);
-    expect(migrations.at(-3)?.name).toBe('0029_r103f_phase0_registration_replay_tokens.sql');
-    expect(migrations.at(-2)?.name).toBe('0030_r103f_wallet_session_client_capability.sql');
-    expect(migrations.at(-1)?.name).toBe('0031_r103f_delete_registration_replay_tokens.sql');
-    expect(digestMigrations(migrations.slice(0, -3))).toBe(
+    expect(migrations.at(-4)?.name).toBe('0029_r103f_phase0_registration_replay_tokens.sql');
+    expect(migrations.at(-3)?.name).toBe('0030_r103f_wallet_session_client_capability.sql');
+    expect(migrations.at(-2)?.name).toBe('0031_r103f_delete_registration_replay_tokens.sql');
+    expect(migrations.at(-1)?.name).toBe(
+      '0032_r103f_exact_authorized_operation_enforcement.sql',
+    );
+    expect(digestMigrations(migrations.slice(0, -4))).toBe(
       'b4d1f650437642c4a6c16c3b2fd56253eff4dde308fd44e5fdd90aa2393b2f2a',
     );
-    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    await applyD1MigrationFiles(temporary.database, migrationFilesThroughBridge());
     await expect(readBridgeCounters(temporary.database, 50)).resolves.toEqual({
       activeV1: 0,
       activeUsableV2: 0,

@@ -5,7 +5,6 @@ import {
   emailOtpWalletAuthAuthorityProviderUserId,
   walletAuthAuthorityRef,
   walletAuthorityBindingDigest,
-  type ActiveWalletSession,
   type AuthBoundaryProof,
   type AuthFactorIdentity,
   type AuthMethodProof,
@@ -247,20 +246,6 @@ void ({
   // @ts-expect-error authority refs carry stable digest and binding identity, not raw authority data.
   authority: emailOtpAuthority,
 } satisfies WalletAuthAuthorityRef);
-
-void ({
-  kind: 'active_wallet_session',
-  authority: emailOtpAuthority,
-  walletSessionToken: 'wallet-session-token',
-} satisfies ActiveWalletSession);
-
-void ({
-  kind: 'active_wallet_session',
-  authority: emailOtpAuthority,
-  walletSessionToken: 'wallet-session-token',
-  // @ts-expect-error active wallet sessions derive wallet identity from the bound authority.
-  walletId,
-} satisfies ActiveWalletSession);
 
 const passkeyRegistrationProof = {
   kind: 'passkey_registration_credential',

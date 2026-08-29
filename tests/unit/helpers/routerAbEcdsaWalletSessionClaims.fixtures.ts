@@ -1,25 +1,33 @@
-import type { OpaqueOwnerWalletSessionBinding } from '../../../packages/wallet-server/src/authorization/service';
 import {
+  parseEcdsaAuthorizationSessionId,
   parseMpcWalletSigningQuotaId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
+  type EcdsaAuthorizationSessionId,
+  type MpcWalletSigningQuotaId,
+  type WalletSessionAuthorizationId,
+  type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
-  parseWalletAuthMethodId,
-  parseWalletAuthorityBindingDigest,
   parseWalletId,
-  parseWebAuthnCredentialIdB64u,
+  type ProviderSubject,
   type WalletId,
+  type WebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import type { RouterAbEcdsaDerivationNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+  type RouterAbEcdsaDerivationNormalSigningScopeV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
-type EcdsaWalletSessionBinding = Extract<
-  OpaqueOwnerWalletSessionBinding,
-  { readonly curve: 'ecdsa' }
->;
+type EcdsaWalletSessionAuthSource =
+  | { readonly kind: 'passkey'; readonly credentialIdB64u: WebAuthnCredentialIdB64u }
+  | {
+      readonly kind: 'oidc_provider';
+      readonly providerId: 'google_oidc' | 'oidc';
+      readonly providerSubject: ProviderSubject;
+    };
 
 export type RouterAbEcdsaWalletSessionClaimsFixtureInput = {
   readonly walletId: string;
@@ -29,20 +37,35 @@ export type RouterAbEcdsaWalletSessionClaimsFixtureInput = {
   readonly thresholdExpiresAtMs: number;
   readonly runtimePolicyScope: RuntimePolicyScope;
   readonly normalSigningScope: RouterAbEcdsaDerivationNormalSigningScopeV1;
-  readonly authorizationId?: string;
-  readonly walletSessionId?: string;
-  readonly authorizationSessionId?: string;
-  readonly quotaId?: string;
-  readonly thresholdSessionId?: string;
-  readonly authSource?: EcdsaWalletSessionBinding['authSource'];
-  readonly walletAuthAuthorityRef?: WalletAuthAuthorityRef;
+  readonly authorizationId: string;
+  readonly walletSessionId: string;
+  readonly authorizationSessionId: string;
+  readonly quotaId: string;
+  readonly thresholdSessionId: string;
+  readonly authSource: EcdsaWalletSessionAuthSource;
+  readonly walletAuthAuthorityRef: WalletAuthAuthorityRef;
 };
 
-export type RouterAbEcdsaWalletSessionClaimsFixture = EcdsaWalletSessionBinding & {
+export type RouterAbEcdsaWalletSessionClaimsFixture = {
   readonly sub: string;
+  readonly walletId: WalletId;
+  readonly keyHandle: string;
+  readonly relayerKeyId: string;
+  readonly participantIds: readonly number[];
+  readonly thresholdExpiresAtMs: number;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly authorizationSessionId: EcdsaAuthorizationSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly thresholdSessionId: string;
+  readonly authSource: EcdsaWalletSessionAuthSource;
+  readonly walletAuthAuthorityRef: WalletAuthAuthorityRef;
+  readonly routerAbEcdsaDerivationNormalSigning: {
+    readonly kind: typeof ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1;
+    readonly scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
+  };
 };
-
-const FIXTURE_DIGEST: DigestB64u = parseDigestB64u('Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE');
 
 function required<T>(
   result:
@@ -53,56 +76,34 @@ function required<T>(
   throw new Error(result.error.message);
 }
 
-function defaultAuthorityRef(walletId: WalletId): WalletAuthAuthorityRef {
-  return {
-    kind: 'wallet_auth_authority_ref',
-    walletId,
-    authorityDigest: required(parseWalletAuthorityBindingDigest('authority-digest-fixture')),
-    walletAuthMethodId: required(parseWalletAuthMethodId(`passkey:${String(walletId)}:fixture`)),
-  };
-}
-
 export function buildRouterAbEcdsaWalletSessionClaimsFixture(
   input: RouterAbEcdsaWalletSessionClaimsFixtureInput,
 ): RouterAbEcdsaWalletSessionClaimsFixture {
   const walletId = required(parseWalletId(input.walletId));
-  const authorizationId = required(
-    parseWalletSessionAuthorizationId(input.authorizationId ?? 'authorization-grant-ecdsa-fixture'),
+  const authorizationId = required(parseWalletSessionAuthorizationId(input.authorizationId));
+  const walletSessionId = required(parseWalletSessionId(input.walletSessionId));
+  const authorizationSessionId = required(
+    parseEcdsaAuthorizationSessionId(input.authorizationSessionId),
   );
-  const walletSessionId = required(
-    parseWalletSessionId(input.walletSessionId ?? 'wallet-session-fixture'),
-  );
-  const quotaId = required(parseMpcWalletSigningQuotaId(input.quotaId ?? 'wallet-quota-fixture'));
-  const authorizationSessionId = input.authorizationSessionId ?? 'authorization-session-fixture';
-  const authorityRef = input.walletAuthAuthorityRef ?? defaultAuthorityRef(walletId);
-  const authSource = input.authSource ?? {
-    kind: 'passkey' as const,
-    credentialIdB64u: required(parseWebAuthnCredentialIdB64u('credential-fixture')),
-  };
-  const subjectId =
-    authSource.kind === 'oidc_provider' ? String(authSource.providerSubject) : String(walletId);
+  const quotaId = required(parseMpcWalletSigningQuotaId(input.quotaId));
   return {
-    kind: 'opaque_owner_wallet_session_binding_v1',
-    curve: 'ecdsa',
+    sub: String(walletId),
     walletId,
-    thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-fixture',
-    authorizationId,
-    authorizationSessionId,
-    walletSessionId,
-    quotaId,
+    keyHandle: input.keyHandle,
     relayerKeyId: input.relayerKeyId,
     participantIds: Array.from(input.participantIds),
     thresholdExpiresAtMs: input.thresholdExpiresAtMs,
-    subjectId,
-    keyManifestDigestB64u: FIXTURE_DIGEST,
-    keyHandle: input.keyHandle,
-    walletAuthAuthorityRef: authorityRef,
-    authSource,
     runtimePolicyScope: input.runtimePolicyScope,
+    thresholdSessionId: input.thresholdSessionId,
+    authorizationId,
+    walletSessionId,
+    authorizationSessionId,
+    quotaId,
+    authSource: input.authSource,
+    walletAuthAuthorityRef: input.walletAuthAuthorityRef,
     routerAbEcdsaDerivationNormalSigning: {
-      kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
+      kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
       scope: input.normalSigningScope,
     },
-    sub: subjectId,
   };
 }

@@ -74,7 +74,6 @@ import {
   walletAuthAuthoritiesMatch,
   parseWalletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
-  type ActiveWalletSession,
 } from '@shared/utils/walletAuthAuthority';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
