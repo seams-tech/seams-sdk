@@ -121,7 +121,7 @@ export type WalletSessionOperationCredentialAdmission =
     };
 
 export type WalletSessionOperationCredentialResolution =
-  | { readonly kind: 'not_v2' }
+  | { readonly kind: 'not_found' }
   | { readonly kind: 'rejected' }
   | { readonly kind: 'admitted'; readonly admission: WalletSessionOperationCredentialAdmission };
 
@@ -174,14 +174,13 @@ export async function resolveWalletSessionOperationCredentialAdmission(input: {
         'keyFamily' | 'operationKind'
       >;
 }): Promise<WalletSessionOperationCredentialResolution> {
-  const readV2 = input.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential;
-  if (!readV2) return { kind: 'not_v2' };
-  const context = await readV2({
+  const context =
+    await input.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
     tenantId: input.authorizationSessions.tenantId,
     token: input.token,
     nowMs: input.nowMs,
   });
-  if (!context) return { kind: 'not_v2' };
+  if (!context) return { kind: 'not_found' };
   const identity = {
     tenantId: context.authorization.session.tenantId,
     principalId: context.authorization.session.principalId,
@@ -308,7 +307,7 @@ export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
   const token = extractBearerCredential(input.headers);
   if (!token) return walletSessionFailure('wallet_session_missing');
   const nowMs = input.nowMs || Date.now;
-  let v2Resolution: WalletSessionOperationCredentialResolution = { kind: 'not_v2' };
+  let v2Resolution: WalletSessionOperationCredentialResolution = { kind: 'not_found' };
   let admission: Awaited<ReturnType<typeof resolveOpaqueOwnerWalletSessionAdmission>>;
   try {
     if (input.operationKind !== undefined) {
@@ -454,7 +453,7 @@ export async function validateRouterAbEcdsaDerivationWalletSessionInputs(input: 
   const token = extractBearerCredential(input.headers);
   if (!token) return walletSessionFailure('wallet_session_missing');
   const nowMs = input.nowMs || Date.now;
-  let v2Resolution: WalletSessionOperationCredentialResolution = { kind: 'not_v2' };
+  let v2Resolution: WalletSessionOperationCredentialResolution = { kind: 'not_found' };
   let admission: Awaited<ReturnType<typeof resolveOpaqueOwnerWalletSessionAdmission>>;
   try {
     if (input.operationKind !== undefined) {

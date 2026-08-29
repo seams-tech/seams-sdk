@@ -852,13 +852,11 @@ async function readAndValidateWalletSessionStatusAuthorization(
 
   const nowMs = Date.now();
   const exactV2 =
-    await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential?.(
-      {
-        tenantId: ctx.service.authorizationSessions.tenantId,
-        token: bearerToken,
-        nowMs,
-      },
-    );
+    await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+      tenantId: ctx.service.authorizationSessions.tenantId,
+      token: bearerToken,
+      nowMs,
+    });
   if (exactV2) {
     return {
       ok: true,

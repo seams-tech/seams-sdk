@@ -276,16 +276,16 @@ async function validateOwnerWalletSessionV1(input: {
   readonly nowV1: () => number;
 }): Promise<OwnerValidationResultV1> {
   const bearerToken = extractBearerCredential(input.headers);
-  const readV2 = input.authorizationSessions?.readWalletSessionAuthorizationV2ByOperationCredential;
-  if (!bearerToken || !readV2 || !input.authorizationSessions) {
+  const authorizationSessions = input.authorizationSessions;
+  if (!bearerToken || !authorizationSessions) {
     return denied('unauthorized', 'An active owner Wallet Session is required');
   }
 
   const nowMs = input.nowV1();
   let context: RouterApiWalletSessionAuthorizationV2AdmissionContext | null;
   try {
-    context = await readV2({
-      tenantId: input.authorizationSessions.tenantId,
+    context = await authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+      tenantId: authorizationSessions.tenantId,
       token: bearerToken,
       nowMs,
     });
