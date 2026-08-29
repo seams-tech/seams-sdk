@@ -1266,7 +1266,10 @@ Applied migrations remain immutable. Relevant historical files include:
 - `0027_r115_email_otp_recovery_bootstrap.sql`;
 - `0028_r103f_phase1_additive_schema_bridge.sql`;
 - `0029_r103f_phase0_registration_replay_tokens.sql`; and
-- `0030_r103f_wallet_session_client_capability.sql`.
+- `0030_r103f_wallet_session_client_capability.sql`;
+- `0031_r103f_delete_registration_replay_tokens.sql`;
+- `0032_r103f_exact_authorized_operation_enforcement.sql`; and
+- `0033_r103f_linked_delivery_recipient.sql`.
 
 `linked_device_wallet_session_authorizations` and
 `linked_device_wallet_session_quotas` were already dropped by immutable `0015`;
@@ -1274,10 +1277,10 @@ R103F adds no second deletion task for them. Migration `0026` rebuilds
 `wallet_authorities` and recreates the `0024` trigger, so the additive bridge
 migration replaces the post-`0026` definition.
 
-At the current checkpoint `0028`, `0029`, `0030`, and `0031` are landed. The next file
-number is allocated only after reconciling landed and pending migrations from
-concurrent workstreams and is rechecked after each rebase. Applied files are
-never renamed to resolve an allocation race.
+At the current checkpoint migrations through `0033` are landed. The next file
+number, currently `0034` if still free, is allocated only after reconciling
+landed and pending migrations from concurrent workstreams and is rechecked after
+each rebase. Applied files are never renamed to resolve an allocation race.
 
 Migrations `0029` and `0030` record temporary implementation paths that the
 final cutover removes: replay-adapter storage and client-capability metadata.
@@ -1775,15 +1778,20 @@ The singular Router A/B `reusable_wallet_session` discriminator and the applied
 `consume_reusable_wallet_session` quota discriminator remain frozen protocol
 vocabulary. Console-session JWT types also remain.
 
-Database closure is proved on clean and current-history migration fixtures:
+Database closure is proved on clean and current-history migration fixtures. The
+final exact-session boundary retains
+`linked_device_wallet_session_credential_deliveries_v1`; its suffix names the
+delivery record version and does not identify a legacy Wallet Session surface.
 
-- no V1 session, opaque-token, replay-adapter, or hosted-exchange table remains;
+- no V1 Wallet Session, opaque-token, replay-adapter, or hosted-exchange table
+  remains;
 - no unscoped pending operation remains;
 - no active null-digest V2 session remains;
 - no credential-bearing completion row remains;
 - no usable exact-tuple duplicate remains;
 - `PRAGMA foreign_key_check` returns zero rows; and
-- no V1 trigger, view, or alias remains after enforcement.
+- no V1 session/token/hosted-exchange compatibility trigger, view, or alias
+  remains after enforcement.
 
 R103F is complete when every boundary-matrix row is in its final state, every
 temporary compatibility path has been deleted, the acceptance matrix passes,
