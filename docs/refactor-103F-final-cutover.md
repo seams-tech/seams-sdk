@@ -876,7 +876,9 @@ Live admission symbols include `WalletSessionOperationCredentialResolution`,
 - [ ] Require authorized-operation replay to resolve the exact authorization
       that admitted first execution and reject scope, method, authority, quota,
       capability, or material disagreement.
-- [ ] Remove V1 status calls from Ed25519 reuse and ECDSA activation.
+- [x] Remove the V1 status call from Ed25519 reuse; the exact credential read's
+      active quota projection supplies expiry and remaining uses.
+- [ ] Remove the V1 status call from ECDSA activation.
 
 Primary files:
 
@@ -1582,7 +1584,7 @@ Remaining causal baseline work:
       failing without legacy-store reads
 - [x] `tests/unit/thresholdEd25519EcdsaSessionReuseExactAdmission.unit.test.ts`,
       proving exact ECDSA-to-Ed25519 reuse, runtime-policy and sibling-method
-      isolation, and fail-closed absence without opaque-token reads
+      isolation, and fail-closed absence without opaque-token or V1 status reads
 - [x] `tests/unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts`
 - [x] `tests/unit/nearPublicApi.walletSessionAuthorization.unit.test.ts`,
       proving exact `/near/public-keys` admission and missing-session rejection
