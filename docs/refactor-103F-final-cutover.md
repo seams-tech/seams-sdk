@@ -793,9 +793,13 @@ budget-refresh and linked-activation `issue_wallet_session_v1` branches, and
       request resolvers continue to the bounded V1 persistence lookup.
 - [ ] Keep `resolveOpaqueOwnerWalletSessionAdmission` reachable only from the
       bridge request resolver, then delete it at R4.
-- [ ] Delete the Ed25519 validator's V1-token fallback.
-- [ ] Delete the ECDSA validator's V1-token fallback.
-- [ ] Make operation kind required for reusable-operation admission.
+- [x] Delete the Ed25519 validator's V1-token fallback. Exact absence returns
+      `wallet_session_invalid` without probing the V1 resolver.
+- [x] Delete the ECDSA validator's V1-token fallback. Exact absence returns
+      `wallet_session_invalid` without probing the V1 resolver.
+- [x] Make operation kind required for reusable-operation admission. Every
+      production caller supplies a family-specific operation kind and the
+      optional overload was deleted.
 - [ ] Delete the `operationKind === null` ECDSA branch.
 - [ ] Convert operation step-up identity resolution in
       `routerAbPrivateSigningWorker.ts`.
@@ -1543,7 +1547,8 @@ Remaining causal baseline work:
 - [x] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`
 - [ ] `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts`
 - [x] `tests/unit/walletExecutionAdmissionV2.unit.test.ts`, including exact-only
-      device-link owner approval and fail-closed missing-credential behavior
+      device-link owner approval, fail-closed missing-credential behavior, and
+      zero legacy reads from both ordinary signing validators
 - [x] `tests/unit/walletExecutionLanePreflight.unit.test.ts`, proving exact
       credential admission reaches the owning method without reading the V1
       opaque-token store
