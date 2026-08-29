@@ -13,7 +13,7 @@ import {
   type WarmSessionReadPortsInput,
 } from './readModel';
 import type { WarmSessionCapabilityReader } from './types';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
@@ -58,7 +58,7 @@ export type WarmSessionCapabilityReaderFactoryDeps = Omit<
   ) | null;
   resolveActiveEcdsaWalletSessionAuthorization?: (
     walletId: WalletId,
-  ) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
+  ) => Promise<ExactEvmFamilyWalletSessionAuthorization | null>;
   resolveActiveEd25519WalletSessionAuthorization?: (
     walletId: WalletId,
   ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;

@@ -37,10 +37,7 @@ import {
   type RouterAbEd25519YaoVerifiedActivationIntentV1,
   type RouterAbEd25519YaoRegistrationIntentBindingResult,
 } from '../registration/routerAbEd25519YaoRegistrationIntentAuthorization';
-import type { RouterApiAuthorizationSessionService } from '../../../framework/authServicePort';
-import type { VerifiedOwnerProof } from '../../../../authorization/domain';
 import { createRouterApiModule, type RouterApiModule } from '../../../framework/modules';
-import { issueRouterAbEd25519OpaqueWalletSessionToken } from '../../../auth/commonRouterUtils';
 import type {
   MpcWalletSigningQuotaId,
   WalletSessionAuthorizationId,
@@ -51,6 +48,7 @@ import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { deriveSigningRootId, type RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../../../core/registrationContracts';
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../../../core/ThresholdService/validation';
 import {
@@ -82,12 +80,20 @@ import {
 } from '@shared/threshold/sessionPolicy';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 
-export type RouterAbEd25519YaoWalletSessionMintResultV1 =
-  | { readonly ok: true; readonly session: WalletRegistrationEd25519YaoBootstrapSession }
-  | { readonly ok: false; readonly code: string; readonly message: string };
+/**
+ * How the Ed25519 Yao session response reaches its primary credential. A
+ * freshly issued exact session hands its plaintext credential over exactly
+ * once; a reused session has none to hand over.
+ */
+export type RouterAbEd25519YaoWalletSessionCredentialV1 =
+  | {
+      readonly kind: 'issued_wallet_session_v1';
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+    }
+  | { readonly kind: 'reused_wallet_session_v2'; readonly operationCredential?: never };
 
 type RouterAbEd25519YaoWalletSessionMintIdentityV1 = {
-  readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
+  readonly walletSessionCredential: RouterAbEd25519YaoWalletSessionCredentialV1;
   readonly walletId: WalletId;
   readonly nearAccountId: string;
   readonly nearEd25519SigningKeyId: string;
@@ -489,77 +495,54 @@ class RouterAbEd25519YaoProductRegistrationRuntime implements RouterAbEd25519Yao
   }
 }
 
+/**
+ * Projects the Ed25519 Yao view of one exact Wallet Session. Issuance itself
+ * belongs to the direct V2 issuer, which commits the authorization, quota, and
+ * primary credential digest together; this only carries the credential that
+ * issuer already returned, so a replay reaches this code with none to carry.
+ */
 export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
-  readonly opaqueWalletSessions: Pick<
-    RouterApiAuthorizationSessionService,
-    'issueOpaqueWalletSessionToken'
-  >;
-  readonly tenantId: RouterApiAuthorizationSessionService['tenantId'];
   readonly signingWorkerId: string;
   readonly sessionInput: RouterAbEd25519YaoWalletSessionMintInputV1;
-}): Promise<RouterAbEd25519YaoWalletSessionMintResultV1> {
+}): Promise<WalletRegistrationEd25519YaoBootstrapSession> {
   const signingWorkerId = input.signingWorkerId.trim();
   if (!signingWorkerId) throw new Error('Ed25519 Yao SigningWorker ID is required');
   const sessionInput = input.sessionInput;
-  const terms = await resolveRouterAbEd25519YaoWalletSessionTermsV1(sessionInput);
-  const signingRootId = deriveSigningRootId(sessionInput.runtimePolicyScope);
-  const signingRootVersion = sessionInput.runtimePolicyScope.signingRootVersion;
-  const routerAbNormalSigning = {
-    kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-    signingWorkerId,
-  } as const;
-  const signed = await issueRouterAbEd25519OpaqueWalletSessionToken({
-    opaqueWalletSessions: input.opaqueWalletSessions,
-    tenantId: input.tenantId,
-    proof: sessionInput.proof,
-    userId: sessionInput.walletId,
-    relayerKeyId: signingWorkerId,
-    authority: sessionInput.authority,
-    sessionInfo: {
-      sessionKind: 'opaque',
-      authorizationKind: 'owner_wallet_session',
-      walletId: sessionInput.walletId,
-      nearAccountId: sessionInput.nearAccountId,
-      nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
-      thresholdSessionId: sessionInput.thresholdSessionId,
-      authorizationId: sessionInput.authorizationId,
-      walletSessionId: sessionInput.walletSessionId,
-      quotaId: sessionInput.quotaId,
-      expiresAtMs: terms.expiresAtMs,
-      participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
-      runtimePolicyScope: sessionInput.runtimePolicyScope,
-      routerAbNormalSigning,
-      keyManifestDigestB64u: sessionInput.keyManifestDigestB64u,
-    },
-    fallbackParticipantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
-    invalidPayloadErrorMessage: 'invalid Ed25519 Yao Wallet Session payload',
-  });
-  if (!signed.ok) return { ok: false, code: signed.code, message: signed.message };
-  if (signed.authorizationKind !== 'owner_wallet_session') {
-    return { ok: false, code: 'internal', message: 'Owner Wallet Session issuance failed' };
+  const credential = sessionInput.walletSessionCredential;
+  if (
+    credential.kind === 'issued_wallet_session_v1' &&
+    credential.operationCredential.walletSessionId !== sessionInput.walletSessionId
+  ) {
+    throw new Error('Ed25519 Yao Wallet Session credential does not identify its session');
   }
-  return {
-    ok: true,
-    session: {
-      sessionKind: 'opaque',
-      walletSessionToken: signed.token,
-      walletId: sessionInput.walletId,
-      nearAccountId: sessionInput.nearAccountId,
-      nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
-      authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(sessionInput.authority),
-      thresholdSessionId: sessionInput.thresholdSessionId,
-      authorizationId: sessionInput.authorizationId,
-      walletSessionId: sessionInput.walletSessionId,
-      quotaId: sessionInput.quotaId,
-      expiresAtMs: terms.expiresAtMs,
-      participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
-      remainingUses: terms.remainingUses,
-      signingRootId,
-      signingRootVersion,
-      runtimePolicyScope: sessionInput.runtimePolicyScope,
-      routerAbNormalSigning,
-    },
+  const terms = await resolveRouterAbEd25519YaoWalletSessionTermsV1(sessionInput);
+  const identity = {
+    walletId: sessionInput.walletId,
+    nearAccountId: sessionInput.nearAccountId,
+    nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
+    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(sessionInput.authority),
+    thresholdSessionId: sessionInput.thresholdSessionId,
+    authorizationId: sessionInput.authorizationId,
+    walletSessionId: sessionInput.walletSessionId,
+    quotaId: sessionInput.quotaId,
+    expiresAtMs: terms.expiresAtMs,
+    participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]] as const,
+    remainingUses: terms.remainingUses,
+    signingRootId: deriveSigningRootId(sessionInput.runtimePolicyScope),
+    signingRootVersion: sessionInput.runtimePolicyScope.signingRootVersion,
+    runtimePolicyScope: sessionInput.runtimePolicyScope,
+    routerAbNormalSigning: {
+      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+      signingWorkerId,
+    } as const,
   };
+  return credential.kind === 'issued_wallet_session_v1'
+    ? {
+        ...identity,
+        sessionKind: 'issued_wallet_session_v1',
+        operationCredential: credential.operationCredential,
+      }
+    : { ...identity, sessionKind: 'reused_wallet_session_v2' };
 }
 
 export function createRouterAbEd25519YaoProductRegistrationRuntimeV1(input: {

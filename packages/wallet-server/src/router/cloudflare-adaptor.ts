@@ -115,7 +115,7 @@ export type {
   RouterAbEd25519YaoProductRegistrationRuntimeV1,
   RouterAbEd25519YaoProductRegistrationCompositionV1,
   RouterAbEd25519YaoProductRegistrationStateV1,
-  RouterAbEd25519YaoWalletSessionMintResultV1,
+  RouterAbEd25519YaoWalletSessionCredentialV1,
 } from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 export type { RouteDefinition } from './framework/routeDefinitions';
 export { defineRoute } from './framework/routeDefinitions';

@@ -6,7 +6,7 @@ import {
   type ExactEcdsaSigningLaneIdentity,
   type ExactEd25519SigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import { exactSigningLaneWalletId } from '../identity/exactSigningLaneIdentity';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { WalletSessionAuthorizationExactActiveReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -39,7 +39,7 @@ export type ReadClientWalletSessionAuthorizationRequest =
   | {
       readonly kind: 'ecdsa';
       readonly laneIdentity: ExactEcdsaSigningLaneIdentity;
-      readonly authorization: ActiveEvmFamilyWalletSessionAuthorization;
+      readonly authorization: ExactEvmFamilyWalletSessionAuthorization;
       readonly nowMs: number;
     };
 
@@ -178,7 +178,7 @@ function readEcdsaClientWalletSessionAuthorization(
         laneIdentity: request.laneIdentity,
         authorization: request.authorization,
       },
-      expiresAtMs: request.authorization.status.expiresAtMs,
+      expiresAtMs: request.authorization.session.expiresAtMs,
     },
     nowMs: request.nowMs,
   });

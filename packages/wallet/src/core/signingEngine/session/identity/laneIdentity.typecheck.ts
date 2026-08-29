@@ -5,13 +5,13 @@ import type {
 import type { SelectedEcdsaLaneInput } from './laneIdentity';
 import { toRpId, type EvmFamilyEcdsaKeyIdentity } from './evmFamilyEcdsaIdentity';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 
 declare const walletId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const key: EvmFamilyEcdsaKeyIdentity;
 declare const materialActivation: MpcMaterialActivationRef;
-declare const authorization: ActiveEvmFamilyWalletSessionAuthorization;
+declare const authorization: ExactEvmFamilyWalletSessionAuthorization;
 
 const validSelectedLane = {
   key,

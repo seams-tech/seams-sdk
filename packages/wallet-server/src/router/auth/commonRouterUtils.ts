@@ -2,7 +2,6 @@ import type {
   EcdsaDerivationServerBootstrapResponse,
   ThresholdRuntimePolicyScope,
 } from '../../core/types';
-import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../core/ThresholdService/validation';
 import type { RouterApiAuthorizationSessionService } from '../framework/authServicePort';
 import type { RouterApiWalletSessionAuthorizationV2AdmissionContext } from '../framework/authServicePort';
 import {
@@ -16,10 +15,6 @@ import type {
 } from '../framework/routerApi';
 import { extractBearerCredential } from './routerApiKeyAuth';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import {
-  parseRouterAbEd25519NormalSigningState,
-  type RouterAbEd25519NormalSigningState,
-} from '@shared/utils/signingSessionSeal';
 import {
   buildVerifiedEcdsaWalletSessionAuth,
   buildVerifiedEd25519WalletSessionAuth,
@@ -44,7 +39,6 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   walletAuthAuthorityRef,
-  type WalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import {
@@ -445,10 +439,7 @@ type RouterAbOpaqueWalletSessionSigningInputCommon = {
 };
 
 type RouterAbOpaqueWalletSessionSigningInput = RouterAbOpaqueWalletSessionSigningInputCommon & {
-  opaqueWalletSessions: Pick<
-    RouterApiAuthorizationSessionService,
-    'issueOpaqueWalletSessionToken'
-  >;
+  opaqueWalletSessions: Pick<RouterApiAuthorizationSessionService, 'issueOpaqueWalletSessionToken'>;
 };
 
 type OpaqueWalletSessionTokenIssueInput = {
@@ -462,22 +453,6 @@ type OpaqueWalletSessionTokenIssueInput = {
     'issueOpaqueWalletSessionToken'
   >;
 };
-
-export type RouterAbEd25519OpaqueWalletSessionSigningInput =
-  RouterAbOpaqueWalletSessionSigningInput & {
-    proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
-    authority: WalletAuthAuthority;
-    sessionInfo: RouterAbOpaqueWalletSessionSigningInput['sessionInfo'] & {
-      sessionKind: 'opaque';
-      authorizationKind: 'owner_wallet_session';
-      walletId: unknown;
-      authorizationId: unknown;
-      nearAccountId: unknown;
-      nearEd25519SigningKeyId: unknown;
-      runtimePolicyScope: unknown;
-      routerAbNormalSigning: unknown;
-    };
-  };
 
 export type RouterAbEcdsaDerivationOpaqueWalletSessionSigningInput =
   RouterAbOpaqueWalletSessionSigningInput & {
@@ -572,49 +547,6 @@ function normalizeRouterAbOpaqueWalletSessionSigningBase(
       keyManifestDigestB64u,
     },
   };
-}
-
-function rejectInvalidRouterAbEd25519Binding(args: RouterAbEd25519OpaqueWalletSessionSigningInput):
-  | {
-      ok: true;
-      walletId: string;
-      nearAccountId: string;
-      nearEd25519SigningKeyId: string;
-      runtimePolicyScope: RuntimePolicyScope;
-      routerAbNormalSigning: RouterAbEd25519NormalSigningState;
-    }
-  | WalletSessionIssuanceFailure {
-  try {
-    const walletId = String(args.sessionInfo.walletId || '').trim();
-    const nearAccountId = String(args.sessionInfo.nearAccountId || '').trim();
-    const nearEd25519SigningKeyId = String(args.sessionInfo.nearEd25519SigningKeyId || '').trim();
-    const subjectWalletId = String(args.userId || '').trim();
-    if (!walletId || !nearAccountId || !nearEd25519SigningKeyId || walletId !== subjectWalletId) {
-      throw new Error('invalid Ed25519 wallet session identity');
-    }
-    const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
-      args.sessionInfo.routerAbNormalSigning,
-    );
-    if (!routerAbNormalSigning) throw new Error('missing routerAbNormalSigning');
-    const runtimePolicyScope = normalizeRuntimePolicyScope(
-      args.sessionInfo.runtimePolicyScope as Record<string, unknown>,
-    );
-    return {
-      ok: true,
-      walletId,
-      nearAccountId,
-      nearEd25519SigningKeyId,
-      runtimePolicyScope,
-      routerAbNormalSigning,
-    };
-  } catch {
-    return {
-      ok: false,
-      status: 500,
-      code: 'internal',
-      message: args.invalidPayloadErrorMessage,
-    };
-  }
 }
 
 function decodeEthereumAddress20Hex(address: string): Uint8Array {
@@ -812,17 +744,6 @@ function doesEcdsaDerivationBindingMatchSessionInfo(
   );
 }
 
-type RouterAbEd25519WalletSessionBindingBuildInput = {
-  base: NormalizedRouterAbWalletSessionSigningBase;
-  authority: WalletAuthAuthority;
-  binding: {
-    nearAccountId: string;
-    nearEd25519SigningKeyId: string;
-    runtimePolicyScope: RuntimePolicyScope;
-    routerAbNormalSigning: RouterAbEd25519NormalSigningState;
-  };
-};
-
 type RouterAbEcdsaDerivationWalletSessionBindingBuildInput = {
   base: NormalizedRouterAbWalletSessionSigningBase;
   walletAuthAuthorityRef: WalletAuthAuthorityRef;
@@ -834,34 +755,6 @@ type RouterAbEcdsaDerivationWalletSessionBindingBuildInput = {
     normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
   };
 };
-
-function buildRouterAbEd25519WalletSessionBinding(
-  input: RouterAbEd25519WalletSessionBindingBuildInput,
-): Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ed25519' }> {
-  const walletId = parseWalletId(input.base.userId);
-  if (!walletId.ok) throw new Error('invalid wallet id for owner Wallet Session binding');
-  const binding: Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ed25519' }> = {
-    kind: 'opaque_owner_wallet_session_binding_v1',
-    curve: 'ed25519',
-    subjectId: input.base.userId,
-    walletId: walletId.value,
-    nearAccountId: input.binding.nearAccountId,
-    nearEd25519SigningKeyId: input.binding.nearEd25519SigningKeyId,
-    thresholdSessionId: input.base.thresholdSessionId,
-    authorizationId: input.base.authorizationId,
-    walletSessionId: input.base.walletSessionId,
-    quotaId: input.base.quotaId,
-    relayerKeyId: input.base.relayerKeyId,
-    authority: input.authority,
-    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(input.authority),
-    runtimePolicyScope: input.binding.runtimePolicyScope,
-    routerAbNormalSigning: input.binding.routerAbNormalSigning,
-    participantIds: input.base.participantIds,
-    thresholdExpiresAtMs: input.base.thresholdExpiresAtMs,
-    keyManifestDigestB64u: input.base.keyManifestDigestB64u,
-  };
-  return binding;
-}
 
 function buildRouterAbEcdsaDerivationWalletSessionBinding(
   input: RouterAbEcdsaDerivationWalletSessionBindingBuildInput,
@@ -973,36 +866,6 @@ async function ownerWalletSessionProofMatchesBinding(input: {
         : input.binding.walletId;
   const principalId = parsePrincipalId(principalSubject);
   return principalId.ok && principalId.value === input.proof.principalId;
-}
-
-export async function issueRouterAbEd25519OpaqueWalletSessionToken(
-  args: RouterAbEd25519OpaqueWalletSessionSigningInput,
-): Promise<WalletSessionIssuanceResult> {
-  const base = normalizeRouterAbOpaqueWalletSessionSigningBase(args);
-  if (!base.ok) return base;
-  if (String(args.authority.walletId || '').trim() !== base.value.userId) {
-    return {
-      ok: false,
-      status: 500,
-      code: 'internal',
-      message: args.invalidPayloadErrorMessage,
-    };
-  }
-  const rawBinding = rejectInvalidRouterAbEd25519Binding(args);
-  if (!rawBinding.ok) return rawBinding;
-  const binding = buildRouterAbEd25519WalletSessionBinding({
-    base: base.value,
-    authority: args.authority,
-    binding: rawBinding,
-  });
-  return await issueOpaqueWalletSessionToken({
-    opaqueWalletSessions: args.opaqueWalletSessions,
-    tenantId: args.tenantId,
-    curve: 'ed25519',
-    proof: args.proof,
-    binding,
-    invalidPayloadErrorMessage: args.invalidPayloadErrorMessage,
-  });
 }
 
 export async function issueRouterAbEcdsaDerivationOpaqueWalletSessionToken(

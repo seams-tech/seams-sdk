@@ -519,8 +519,40 @@ function parsePasskeySessionEcdsaCustodyContinuity(
   return { kind: 'wallet_custody_ecdsa_sync_continuity_v1', signers };
 }
 
+/**
+ * Resolves the Ed25519 session's admitting credential. The response issues one
+ * only when it also issued the session; a reused session shares the credential
+ * the same response already delivered for that exact Wallet Session.
+ */
+function requireEd25519SessionOperationCredential(input: {
+  readonly raw: Record<string, unknown>;
+  readonly walletSessionId: WalletSessionId;
+  readonly unlockCredential: unknown;
+}): WalletSessionOperationCredentialV1 {
+  const sessionKind = input.raw.sessionKind;
+  if (sessionKind === 'issued_wallet_session_v1') {
+    const issued = parseWalletSessionOperationCredentialV1(input.raw.operationCredential);
+    if (issued.walletSessionId !== input.walletSessionId) {
+      throw new Error('Wallet unlock Ed25519 credential does not identify its session');
+    }
+    return issued;
+  }
+  if (sessionKind !== 'reused_wallet_session_v2') {
+    throw new Error('Wallet unlock returned an unsupported Ed25519 session kind');
+  }
+  if (input.raw.operationCredential !== undefined) {
+    throw new Error('Reused Ed25519 Wallet Session must not carry its own credential');
+  }
+  const reused = parseWalletSessionOperationCredentialV1(input.unlockCredential);
+  if (reused.walletSessionId !== input.walletSessionId) {
+    throw new Error('Wallet unlock Ed25519 session reuses another Wallet Session');
+  }
+  return reused;
+}
+
 function parsePasskeyWalletUnlockEd25519Session(
   raw: unknown,
+  unlockCredential: unknown,
 ): PasskeyWalletUnlockEd25519Session | null {
   if (raw === null) return null;
   if (!isObject(raw)) throw new Error('Wallet unlock returned invalid Ed25519 session data');
@@ -533,10 +565,6 @@ function parsePasskeyWalletUnlockEd25519Session(
   const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
   const routerAbNormalSigning = requireRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
   const participantIds = raw.participantIds;
-  const walletSessionToken = requireTrimmedString(
-    raw.walletSessionToken,
-    'ed25519Session.walletSessionToken',
-  );
   if (
     !thresholdSessionId.ok ||
     !authorizationId.ok ||
@@ -555,6 +583,11 @@ function parsePasskeyWalletUnlockEd25519Session(
   ) {
     throw new Error('Wallet unlock returned invalid Ed25519 session lifecycle');
   }
+  const operationCredential = requireEd25519SessionOperationCredential({
+    raw,
+    walletSessionId: walletSessionId.value,
+    unlockCredential,
+  });
   return {
     walletId: requireTrimmedString(raw.walletId, 'ed25519Session.walletId'),
     nearAccountId: requireTrimmedString(raw.nearAccountId, 'ed25519Session.nearAccountId'),
@@ -572,7 +605,7 @@ function parsePasskeyWalletUnlockEd25519Session(
     remainingUses,
     runtimePolicyScope,
     routerAbNormalSigning,
-    walletSessionToken,
+    walletSessionToken: operationCredential.token,
   };
 }
 
@@ -631,7 +664,10 @@ export async function verifyPasskeyWalletUnlock(
     }
     const requestedEcdsaActivation =
       input.type === 'passkey_assertion' && input.ecdsaSessionPolicy !== undefined;
-    const ed25519Session = parsePasskeyWalletUnlockEd25519Session(data.ed25519Session);
+    const ed25519Session = parsePasskeyWalletUnlockEd25519Session(
+      data.ed25519Session,
+      data.operationCredential,
+    );
     if (input.ed25519SessionRequest.kind === 'requested' && !ed25519Session) {
       throw new Error('Wallet unlock omitted the requested Ed25519 Wallet Session');
     }
@@ -752,7 +788,10 @@ export async function verifyLinkedDevicePasskeyWalletSession(
     if (data.ecdsaSession !== undefined && data.ecdsaSession !== null) {
       throw new Error('Linked passkey unlock returned an ECDSA activation');
     }
-    const ed25519Session = parsePasskeyWalletUnlockEd25519Session(data.ed25519Session);
+    const ed25519Session = parsePasskeyWalletUnlockEd25519Session(
+      data.ed25519Session,
+      data.operationCredential,
+    );
     if (input.ed25519SessionRequest.kind === 'requested' && !ed25519Session) {
       throw new Error('Linked passkey unlock omitted the requested Ed25519 Wallet Session');
     }

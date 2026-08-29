@@ -10,7 +10,7 @@ import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signer
 import type { EcdsaSessionProvisionPlan } from './ecdsaProvisionPlan';
 import type { ActiveEcdsaCapabilityManifest } from '../material/ecdsaCapabilityManifest';
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type { EcdsaSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
@@ -294,14 +294,14 @@ type WarmSessionEcdsaAuthorizationRequiredState = {
 };
 
 type WarmSessionEcdsaPrfReadyState = WarmSessionEcdsaCapabilityFields & {
-  auth: ActiveEvmFamilyWalletSessionAuthorization;
+  auth: ExactEvmFamilyWalletSessionAuthorization;
   prfClaim: WarmSessionWarmPrfClaim;
   invalidReason?: never;
   state: 'ready' | 'material_pending';
 };
 
 type WarmSessionEcdsaPrfBlockedState = WarmSessionEcdsaCapabilityFields & {
-  auth: ActiveEvmFamilyWalletSessionAuthorization;
+  auth: ExactEvmFamilyWalletSessionAuthorization;
   invalidReason?: never;
   state: Exclude<
     WarmSessionEcdsaPresentCapabilityStateValue,
@@ -729,14 +729,14 @@ export type WarmSessionCapabilityReader = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
   getEcdsaCapabilityForLane: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
-    authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    authorization: ExactEvmFamilyWalletSessionAuthorization;
   }) => Promise<WarmSessionEcdsaCapabilityState | null>;
   // Lane-qualified, and async because canonical resolution reads persistence.
   // There is deliberately no threshold-session-id entry point: that id indexes
   // runtime state and must never select material.
   resolveEcdsaSealTransportForLane: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
-    authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    authorization: ExactEvmFamilyWalletSessionAuthorization;
   }) => Promise<EcdsaSealTransportAuthMaterial | null>;
 };
 

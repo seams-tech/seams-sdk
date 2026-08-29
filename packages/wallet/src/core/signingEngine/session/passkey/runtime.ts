@@ -3,7 +3,7 @@ import {
   thresholdEcdsaChainTargetKey,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import type {
   WarmSessionSealPersister,
@@ -42,7 +42,7 @@ function walletIdForEcdsaSealTransport(args: {
 export async function ensureEcdsaPrfSealPersisted(args: {
   sealPersistence: WarmSessionSealPersistPorts;
   lane: ExactEcdsaSigningLaneIdentity;
-  authorization: ActiveEvmFamilyWalletSessionAuthorization;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
   thresholdSessionId: string;
   restoreMetadata: Exclude<
     SealedSigningSessionEcdsaRestoreMetadata,
@@ -53,7 +53,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
   sealPersistInFlightByMaterialActivation: Map<string, Promise<void>>;
   resolveSealTransport: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
-    authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    authorization: ExactEvmFamilyWalletSessionAuthorization;
   }) => Promise<EcdsaSealTransportAuthMaterial | null>;
 }): Promise<void> {
   const materialActivationId = String(

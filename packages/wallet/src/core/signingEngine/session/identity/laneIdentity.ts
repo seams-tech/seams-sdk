@@ -41,7 +41,7 @@ import {
 } from './exactSigningLaneIdentity';
 import type { EcdsaThresholdKeyId } from '../keyMaterialBrands';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type { ActiveWalletAuthorityEcdsaRuntimeV1 } from '../material/activeWalletAuthorityEcdsaRuntime';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
@@ -432,7 +432,7 @@ export type SelectedEcdsaLane = CommonSelectedLane & {
   curve: 'ecdsa';
   chain: 'evm' | 'tempo';
   materialActivation: MpcMaterialActivationRef;
-  authorization: ActiveEvmFamilyWalletSessionAuthorization;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
 };
 
 export type SelectedLane = SelectedEd25519Lane | SelectedEcdsaLane;
@@ -454,7 +454,7 @@ export type SelectedEcdsaLaneInput = {
   keyHandle: unknown;
   walletId: WalletId;
   auth: SigningLaneAuthBinding;
-  authorization: ActiveEvmFamilyWalletSessionAuthorization;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
   chainTarget: ThresholdEcdsaChainTarget;
 };
 
@@ -599,7 +599,7 @@ type BaseEcdsaLaneCandidate = CommonLaneCandidate & {
       } & (
         | {
             authorizationState: 'authorized';
-            authorization: ActiveEvmFamilyWalletSessionAuthorization;
+            authorization: ExactEvmFamilyWalletSessionAuthorization;
           }
         | {
             authorizationState: 'authorization_required';

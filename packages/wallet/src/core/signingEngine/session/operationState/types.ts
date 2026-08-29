@@ -55,7 +55,7 @@ import {
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
 
 export type Brand<TValue, TBrand extends string> = TValue & { readonly __brand: TBrand };
@@ -134,7 +134,7 @@ export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane & {
     keyKind: 'threshold_ecdsa_secp256k1';
     chainFamily: ThresholdEcdsaChainTarget['kind'];
     materialActivation: MpcMaterialActivationRef;
-    authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    authorization: ExactEvmFamilyWalletSessionAuthorization;
     thresholdSessionId?: never;
   };
 
@@ -166,7 +166,7 @@ export type SelectedEcdsaSigningLaneIdentity =
   curve: 'ecdsa';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
   materialActivation: MpcMaterialActivationRef;
-  authorization: ActiveEvmFamilyWalletSessionAuthorization;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
   thresholdSessionId?: never;
 };
 
@@ -209,7 +209,7 @@ export type ResolvedEcdsaSigningSessionIdentity =
   keyKind: 'threshold_ecdsa_secp256k1';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
   materialActivation: MpcMaterialActivationRef;
-  authorization: ActiveEvmFamilyWalletSessionAuthorization;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
   thresholdSessionId?: never;
 };
 
@@ -253,7 +253,7 @@ export type EcdsaSigningKeyRefIntent =
       kind: typeof SigningKeyRefIntentKind.Cached;
       curve: 'ecdsa';
       materialActivation: MpcMaterialActivationRef;
-      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+      authorization: ExactEvmFamilyWalletSessionAuthorization;
       thresholdSessionId?: never;
     }
   | {
@@ -285,7 +285,7 @@ export type PasskeyReconnectPlan =
       lane: SelectedEcdsaSigningSessionPlanningLane;
       curve: 'ecdsa';
       materialActivation: MpcMaterialActivationRef;
-      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+      authorization: ExactEvmFamilyWalletSessionAuthorization;
       thresholdSessionId?: never;
     };
 

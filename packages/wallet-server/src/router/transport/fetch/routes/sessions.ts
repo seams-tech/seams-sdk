@@ -703,12 +703,12 @@ function walletUnlockEcdsaSessionContext(
       if (!authored.ok) return authored;
       const { request, activationReceipt, continuity } = authored.value;
       let response: Response;
-      if (authorization.kind === 'reuse_ed25519_wallet_session') {
+      if (authorization.kind === 'reuse_wallet_session_operation_credential_v1') {
         response = await handleStrictEcdsaSessionActivation({
           ctx,
           body: request,
-          source: 'verified_ed25519_wallet_session',
-          walletSessionToken: authorization.walletSessionToken,
+          source: 'wallet_session_operation_credential_v1',
+          operationCredential: authorization.operationCredential,
           proof: authorization.proof,
         });
       } else {

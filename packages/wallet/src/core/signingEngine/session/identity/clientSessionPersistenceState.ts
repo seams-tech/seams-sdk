@@ -11,7 +11,7 @@ import type {
   MpcWalletSigningQuotaId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 
 export type WalletSessionAuthorizationUnavailableReason =
   | 'network'
@@ -44,7 +44,7 @@ export type WalletSessionAuthorizationIdentitySource =
   | {
       readonly kind: 'ecdsa';
       readonly laneIdentity: ExactEcdsaSigningLaneIdentity;
-      readonly authorization: ActiveEvmFamilyWalletSessionAuthorization;
+      readonly authorization: ExactEvmFamilyWalletSessionAuthorization;
     };
 
 type WalletSessionAuthorizationObservationKind =
@@ -114,8 +114,8 @@ function authorizationIdentity(
   if (source.kind === 'ecdsa') {
     return {
       ...common,
-      walletSessionId: source.authorization.projection.walletSessionId,
-      quotaId: source.authorization.projection.quotaId,
+      walletSessionId: source.authorization.operationCredential.walletSessionId,
+      quotaId: source.authorization.session.quotaId,
     };
   }
   return {
