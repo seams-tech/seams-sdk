@@ -43,7 +43,7 @@ import type { EcdsaThresholdKeyId } from '../keyMaterialBrands';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { ExactEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type { ActiveWalletAuthorityEcdsaRuntimeV1 } from '../material/activeWalletAuthorityEcdsaRuntime';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactNearEd25519WalletSessionAuthorization } from '../material/nearEd25519YaoSigningPreparation';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 
@@ -227,7 +227,7 @@ type BuildEmailOtpAuthContextForWalletAuthMethodArgs = {
       retention: 'single_use';
       reason?: never;
       consumedAtMs?: number;
-  }
+    }
 );
 
 type BuildEmailOtpAuthContextFromExactAuthorityArgs = {
@@ -574,7 +574,7 @@ export type Ed25519LaneCandidate = BaseEd25519LaneCandidate &
   (
     | {
         authorizationState: 'authorized';
-        authorization: ActiveWalletSessionAuthorizationProjection;
+        authorization: ExactNearEd25519WalletSessionAuthorization;
       }
     | {
         authorizationState: 'authorization_required';

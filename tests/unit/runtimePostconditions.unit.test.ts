@@ -358,7 +358,7 @@ test.describe('wallet runtime postconditions', () => {
         availableLanes('page-refresh-expired', 'email_otp', {
           state: 'expired',
           source: 'durable_sealed_record',
-          expiresAtMs: 1,
+          expiresAtMs: 2,
         }),
       nowMs: 1_800_000_000_000,
     });

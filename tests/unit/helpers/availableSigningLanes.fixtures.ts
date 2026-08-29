@@ -11,17 +11,28 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 import {
-  parseMpcWalletSigningQuotaId,
-  parseWalletSessionAuthorizationId,
-  parseWalletSessionId,
+  buildExactEvmFamilyWalletSessionAuthorization,
+  type CanonicalEvmFamilyEcdsaSigningCapability,
+  type ExactEvmFamilyWalletSessionAuthorization,
+} from '@/core/signingEngine/session/material/ecdsaSigningCapability';
+import {
+  parseDeviceId,
+  parsePrincipalId,
+  parseTenantId,
 } from '@shared/authorization/capabilityKinds';
 import {
-  WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
-  type ActiveWalletSessionAuthorizationProjection,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { buildWalletAuthAuthorityRefFixture } from './ecdsaMaterialRef.fixtures';
+  buildActiveWalletAuthorityV1,
+  buildWalletSignerActivationSetV1,
+} from '@shared/authorization/walletAuthority';
+import { buildSigningOnlyPermissionsV1 } from '@shared/authorization/delegatedAuthority';
+import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
+import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
+import { base64UrlEncode } from '@shared/utils/base64';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseWalletAuthorityId } from '@shared/utils/domainIds';
+import { parseEcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
+import { buildWalletAuthAuthorityRefForAuthorityFixture } from './ecdsaMaterialRef.fixtures';
 import {
   parseRootShareEpoch,
   parseThresholdEcdsaSessionId,
@@ -38,6 +49,8 @@ import {
   deriveEvmFamilySigningKeySlotId,
   toRpId,
   type EvmFamilyEcdsaKeyHandle,
+  type EvmFamilyEcdsaKeyIdentity,
+  type VerifiedEcdsaPublicFacts,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { SigningSessionSealedStoreRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
@@ -55,7 +68,19 @@ import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/sessi
 import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+  type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
+import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
+import {
+  buildActiveNearEd25519WalletSessionAuthorization,
+  type ActiveNearEd25519WalletSessionStatus,
+  type ExactNearEd25519WalletSessionAuthorization,
+} from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
+import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
+import { projectActiveWalletSession } from '../../../packages/wallet-server/src/authorization/domain';
+import { buildExactWalletSessionAuthorizationFixture } from './exactWalletSessionAuthorization.fixtures';
 
 export const AVAILABLE_LANES_WALLET_ID = 'alice.testnet';
 export const AVAILABLE_LANES_ED25519_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
@@ -155,49 +180,187 @@ function requireAvailableLaneId<T>(result: { ok: true; value: T } | { ok: false 
   return result.value;
 }
 
+function requireTwoParticipantIds(value: readonly number[]): readonly [number, number] {
+  const [first, second] = value;
+  if (
+    value.length !== 2 ||
+    first === undefined ||
+    second === undefined ||
+    !Number.isSafeInteger(first) ||
+    !Number.isSafeInteger(second) ||
+    first < 1 ||
+    second < 1 ||
+    first === second
+  ) {
+    throw new Error('available-lane ECDSA fixture requires two distinct participants');
+  }
+  return [first, second];
+}
+
+function buildAvailableLaneEcdsaRuntime(args: {
+  common: Omit<ExactEcdsaSealedRuntime, 'authBinding'>;
+  authBinding: ExactEcdsaSealedRuntime['authBinding'];
+}): ExactEcdsaSealedRuntime {
+  switch (args.authBinding.kind) {
+    case 'passkey':
+      return { ...args.common, authBinding: args.authBinding };
+    case 'email_otp':
+      return { ...args.common, authBinding: args.authBinding };
+  }
+  args.authBinding satisfies never;
+  throw new Error('available-lane ECDSA fixture has an unsupported auth binding');
+}
+
 export function availableLaneEd25519Authorization(args: {
   walletId: string;
   identitySeed: string;
   authMethod: 'email_otp' | 'passkey';
   expiresAtMs?: number;
-}): ActiveWalletSessionAuthorizationProjection {
-  return {
-    recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
-    walletId: toWalletId(args.walletId),
-    walletSessionId: requireAvailableLaneId(
-      parseWalletSessionId(`available-lane-wallet-session:${args.identitySeed}`),
-    ),
-    quotaId: requireAvailableLaneId(
-      parseMpcWalletSigningQuotaId(`available-lane-quota:${args.identitySeed}`),
-    ),
-    authMethod: args.authMethod,
-    authority: buildWalletAuthAuthorityRefFixture({ walletId: args.walletId }),
-    expiresAtMs: args.expiresAtMs ?? AVAILABLE_LANES_EXPIRES_AT_MS,
-    status: 'active',
-    walletSessionTokens: {
-      kind: 'near_ed25519',
-      ed25519: {
-        authorizationId: requireAvailableLaneId(
-          parseWalletSessionAuthorizationId(`available-lane-authorization:${args.identitySeed}`),
-        ),
-        walletSessionToken: `fixture-wallet-session-jwt:${args.identitySeed}` as never,
-        thresholdSessionId: requireAvailableLaneId(
-          parseThresholdEd25519SessionId(`available-lane-threshold-ed25519:${args.identitySeed}`),
-        ),
+  materialActivation?: MpcMaterialActivationRef;
+}): ExactNearEd25519WalletSessionAuthorization {
+  const walletId = toWalletId(args.walletId);
+  const materialActivation =
+    args.materialActivation ??
+    buildMpcMaterialActivationRefFixture(
+      `available-lane-ed25519:${args.identitySeed}`,
+      args.walletId,
+    );
+  let factorAuthority: WalletAuthAuthority;
+  const authorityId = requireAvailableLaneId(
+    parseWalletAuthorityId(`available-lane-authority:${args.identitySeed}`),
+  );
+  const signerManifest = parseExactAdministeredSignerManifestV1({
+    kind: 'exact_administered_signer_manifest_v1',
+    keyFamilies: ['ed25519'],
+    signers: [
+      {
+        kind: 'exact_administered_ed25519_signer_v1',
+        keyFamily: 'ed25519',
+        walletId,
+        walletKeyId: `wallet-key:available-lane-${args.identitySeed}`,
+        registeredPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(7)),
       },
+    ],
+  });
+  const signerActivations = buildWalletSignerActivationSetV1({
+    manifest: signerManifest,
+    materialActivations: {
+      keyFamilies: ['ed25519'],
+      ed25519: materialActivation,
     },
+  });
+  const authorityDigest = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(8)));
+  const authority = buildActiveWalletAuthorityV1({
+    kind: 'wallet_authority_v1',
+    authorityId,
+    walletId,
+    principal: {
+      kind: 'owner_device',
+      deviceId: requireAvailableLaneId(parseDeviceId(`device:available-lane-${args.identitySeed}`)),
+    },
+    provenance: { kind: 'wallet_registration' },
+    permissions: buildSigningOnlyPermissionsV1(),
+    signerActivations,
+    signerActivationSetDigestB64u: authorityDigest,
+    authorityDigestB64u: authorityDigest,
+    revocationEpoch: 0,
+    createdAtMs: 0,
+    updatedAtMs: 1,
+    state: 'active',
+    activatedAtMs: 1,
+  });
+  let authMethod: ReturnType<typeof buildWalletAuthMethodRecordV2>;
+  if (args.authMethod === 'passkey') {
+    const passkeyAuthority = buildPasskeyWalletAuthAuthority({
+      walletId,
+      rpId: AVAILABLE_LANES_ECDSA_RP_ID,
+      credentialIdB64u: AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID,
+    });
+    factorAuthority = passkeyAuthority;
+    authMethod = buildWalletAuthMethodRecordV2({
+      version: 'wallet_auth_method_v2',
+      walletAuthMethodId: passkeyAuthority.bindingId,
+      walletId,
+      walletAuthorityId: authorityId,
+      kind: 'passkey',
+      status: 'active',
+      rpId: passkeyAuthority.verifier.rpId,
+      credentialIdB64u: passkeyAuthority.factor.credentialIdB64u,
+      credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(65).fill(9)),
+      counter: 0,
+      createdAtMs: 0,
+      updatedAtMs: 1,
+      activatedAtMs: 1,
+    });
+  } else {
+    const emailOtpAuthority = buildEmailOtpWalletAuthAuthority({
+      walletId,
+      provider: 'google',
+      providerUserId: 'google:available-lanes',
+      emailHashHex: 'available-lanes-email-hash',
+    });
+    factorAuthority = emailOtpAuthority;
+    authMethod = buildWalletAuthMethodRecordV2({
+      version: 'wallet_auth_method_v2',
+      walletAuthMethodId: emailOtpAuthority.bindingId,
+      walletId,
+      walletAuthorityId: authorityId,
+      kind: 'email_otp',
+      status: 'active',
+      emailHashHex: emailOtpAuthority.verifier.emailHashHex,
+      registrationAuthorityId: `registration:available-lane-${args.identitySeed}`,
+      createdAtMs: 0,
+      updatedAtMs: 1,
+      activatedAtMs: 1,
+    });
+  }
+  if (authMethod.status !== 'active') {
+    throw new Error('available-lane exact auth method fixture is not active');
+  }
+  const expiresAtMs = args.expiresAtMs ?? AVAILABLE_LANES_EXPIRES_AT_MS;
+  const issuedAtMs = Math.max(0, Math.min(100, expiresAtMs - 1));
+  const issued = buildExactWalletSessionAuthorizationFixture({
+    label: `available-lane-${args.identitySeed}`,
+    tenantId: requireAvailableLaneId(parseTenantId('tenant:available-lanes')),
+    principalId: requireAvailableLaneId(parsePrincipalId('principal:available-lanes')),
+    authority,
+    walletAuthMethodId: authMethod.walletAuthMethodId,
+    issuedAtMs,
+    expiresAtMs,
+    remainingUses: 3,
+  });
+  const session = projectActiveWalletSession(issued);
+  const walletSessionId = issued.session.walletSessionId;
+  const operationCredential = parseWalletSessionOperationCredentialV1({
+    kind: 'opaque_wallet_session_operation_credential_v1',
+    token: `wst_${'A'.repeat(43)}`,
+    walletSessionId,
+  });
+  const status: ActiveNearEd25519WalletSessionStatus = {
+    status: 'active',
+    walletSessionId,
+    quotaId: session.quotaId,
+    remainingUses: 3,
+    expiresAtMs,
+    quotaLifecycle: 'active',
+    authorization: session,
   };
+  return buildActiveNearEd25519WalletSessionAuthorization({
+    selectedAuthority: authority,
+    selectedAuthMethod: authMethod,
+    selectedFactorAuthority: factorAuthority,
+    session,
+    operationCredential,
+    status,
+    nowMs: Math.min(Date.now(), Math.max(0, expiresAtMs - 1)),
+  });
 }
 
 export function authorizedPasskeyEd25519AvailableLane(args: {
-  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorization: ExactNearEd25519WalletSessionAuthorization;
   materialActivation: MpcMaterialActivationRef;
   signerSlot?: number;
 }): Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }> {
-  const token = args.authorization.walletSessionTokens;
-  if (token.kind === 'evm_family_ecdsa') {
-    throw new Error('Ed25519 lane fixture requires an Ed25519 Wallet Session token');
-  }
   return {
     auth: {
       kind: 'passkey',
@@ -207,11 +370,13 @@ export function authorizedPasskeyEd25519AvailableLane(args: {
     curve: 'ed25519',
     chain: 'near',
     materialActivation: args.materialActivation,
-    walletId: args.authorization.walletId,
+    walletId: args.authorization.session.walletId,
     nearAccountId: AVAILABLE_LANES_ED25519_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: AVAILABLE_LANES_ED25519_KEY_SCOPE_ID,
     signerSlot: args.signerSlot ?? 1,
-    thresholdSessionId: token.ed25519.thresholdSessionId,
+    thresholdSessionId: requireAvailableLaneId(
+      parseThresholdEd25519SessionId('available-lane-threshold-ed25519:fixture'),
+    ),
     state: 'ready',
     source: 'durable_sealed_record',
     authorizationState: 'authorized',
@@ -236,53 +401,194 @@ export function availableEd25519Inventory(args: {
   };
 }
 
-// Active reusable Wallet Session authorization for a runtime ECDSA lane.
-// Runtime state a durable record never carries, so the fixture supplies it.
+// Active ECDSA lanes carry the exact V2 session, operation credential, and
+// sealed-runtime facts that production admission reconciles.
 function availableLaneEcdsaAuthorization(args: {
-  walletId: string;
+  capability: CanonicalEvmFamilyEcdsaSigningCapability;
+  key: EvmFamilyEcdsaKeyIdentity;
+  publicFacts: VerifiedEcdsaPublicFacts;
+  chainTarget: ThresholdEcdsaChainTarget;
   identitySeed: string;
   authMethod: 'email_otp' | 'passkey';
   remainingUses: number;
   expiresAtMs: number;
-}): ActiveEvmFamilyWalletSessionAuthorization {
-  const walletSessionId = requireAvailableLaneId(
-    parseWalletSessionId(`available-lane-wallet-session:${args.identitySeed}`),
+}): ExactEvmFamilyWalletSessionAuthorization {
+  const walletId = args.capability.manifest.signer.walletId;
+  const authorityId = requireAvailableLaneId(
+    parseWalletAuthorityId(`available-lane-ecdsa-authority:${args.identitySeed}`),
   );
-  const quotaId = requireAvailableLaneId(
-    parseMpcWalletSigningQuotaId(`available-lane-quota:${args.identitySeed}`),
-  );
-  return {
-    kind: 'active_reusable_wallet_session_authorization',
-    projection: {
-      recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
-      walletId: toWalletId(args.walletId),
-      walletSessionId,
-      quotaId,
-      authMethod: args.authMethod,
-      authority: buildWalletAuthAuthorityRefFixture({ walletId: args.walletId }),
-      expiresAtMs: args.expiresAtMs,
+  const signerManifest = parseExactAdministeredSignerManifestV1({
+    kind: 'exact_administered_signer_manifest_v1',
+    keyFamilies: ['ecdsa_secp256k1'],
+    signers: [
+      {
+        kind: 'exact_administered_ecdsa_signer_v1',
+        keyFamily: 'ecdsa_secp256k1',
+        walletId,
+        walletKeyId: `wallet-key:available-lane-ecdsa-${args.identitySeed}`,
+        thresholdPublicKey33B64u: args.publicFacts.publicKeyB64u,
+        evmAddress: args.publicFacts.thresholdOwnerAddress,
+      },
+    ],
+  });
+  const signerActivations = buildWalletSignerActivationSetV1({
+    manifest: signerManifest,
+    materialActivations: {
+      keyFamilies: ['ecdsa_secp256k1'],
+      ecdsa: args.capability.manifest.activation.materialActivation,
+    },
+  });
+  const authority = buildActiveWalletAuthorityV1({
+    kind: 'wallet_authority_v1',
+    authorityId,
+    walletId,
+    principal: {
+      kind: 'owner_device',
+      deviceId: requireAvailableLaneId(
+        parseDeviceId(`device:available-lane-ecdsa-${args.identitySeed}`),
+      ),
+    },
+    provenance: { kind: 'wallet_registration' },
+    permissions: buildSigningOnlyPermissionsV1(),
+    signerActivations,
+    signerActivationSetDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(14))),
+    authorityDigestB64u: parseDigestB64u(
+      String(args.capability.manifest.signer.authority.authorityDigest),
+    ),
+    revocationEpoch: 0,
+    createdAtMs: 0,
+    updatedAtMs: 1,
+    state: 'active',
+    activatedAtMs: 1,
+  });
+  const factorAuthority = args.capability.authority;
+  let selectedAuthMethod: ReturnType<typeof buildWalletAuthMethodRecordV2>;
+  let authBinding: ExactEvmFamilyWalletSessionAuthorization['runtime']['authBinding'];
+  if (isPasskeyWalletAuthAuthority(factorAuthority)) {
+    const passkeyAuthority = factorAuthority;
+    selectedAuthMethod = buildWalletAuthMethodRecordV2({
+      version: 'wallet_auth_method_v2',
+      walletAuthMethodId: passkeyAuthority.bindingId,
+      walletId,
+      walletAuthorityId: authorityId,
+      kind: 'passkey',
       status: 'active',
-      walletSessionTokens: {
-        kind: 'evm_family_ecdsa',
-        ecdsa: {
-          authorizationId: requireAvailableLaneId(
-            parseWalletSessionAuthorizationId(`available-lane-authorization:${args.identitySeed}`),
-          ),
-          walletSessionToken: `fixture-wallet-session-jwt:${args.identitySeed}` as never,
-          thresholdSessionId: requireAvailableLaneId(
-            parseThresholdEcdsaSessionId(`available-lane-threshold-ecdsa:${args.identitySeed}`),
-          ),
-        },
+      rpId: passkeyAuthority.verifier.rpId,
+      credentialIdB64u: passkeyAuthority.factor.credentialIdB64u,
+      credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(65).fill(15)),
+      counter: 0,
+      createdAtMs: 0,
+      updatedAtMs: 1,
+      activatedAtMs: 1,
+    });
+    authBinding = {
+      kind: 'passkey',
+      rpId: String(passkeyAuthority.verifier.rpId),
+      credentialIdB64u: passkeyAuthority.factor.credentialIdB64u,
+    };
+  } else {
+    if (!isEmailOtpWalletAuthAuthority(factorAuthority)) {
+      throw new Error('available-lane ECDSA authority fixture has an unsupported factor');
+    }
+    const emailOtpAuthority = factorAuthority;
+    selectedAuthMethod = buildWalletAuthMethodRecordV2({
+      version: 'wallet_auth_method_v2',
+      walletAuthMethodId: emailOtpAuthority.bindingId,
+      walletId,
+      walletAuthorityId: authorityId,
+      kind: 'email_otp',
+      status: 'active',
+      emailHashHex: emailOtpAuthority.verifier.emailHashHex,
+      registrationAuthorityId: `registration:available-lane-ecdsa-${args.identitySeed}`,
+      createdAtMs: 0,
+      updatedAtMs: 1,
+      activatedAtMs: 1,
+    });
+    authBinding = {
+      kind: 'email_otp',
+      providerSubjectId: String(emailOtpAuthority.factor.providerUserId),
+      emailHashHex: emailOtpAuthority.verifier.emailHashHex,
+      emailOtpAuthority,
+    };
+  }
+  if (selectedAuthMethod.status !== 'active') {
+    throw new Error('available-lane exact ECDSA auth method fixture is not active');
+  }
+  const issued = buildExactWalletSessionAuthorizationFixture({
+    label: `available-lane-ecdsa-${args.identitySeed}`,
+    tenantId: requireAvailableLaneId(parseTenantId('tenant:available-lanes')),
+    principalId: requireAvailableLaneId(parsePrincipalId('principal:available-lanes')),
+    authority,
+    walletAuthMethodId: selectedAuthMethod.walletAuthMethodId,
+    issuedAtMs: Math.max(0, Math.min(100, args.expiresAtMs - 1)),
+    expiresAtMs: args.expiresAtMs,
+    remainingUses: args.remainingUses,
+  });
+  const session = projectActiveWalletSession(issued);
+  const operationCredential = parseWalletSessionOperationCredentialV1({
+    kind: 'opaque_wallet_session_operation_credential_v1',
+    token: `wst_${'B'.repeat(43)}`,
+    walletSessionId: issued.session.walletSessionId,
+  });
+  const thresholdSessionId = requireAvailableLaneId(
+    parseThresholdEcdsaSessionId(`available-lane-threshold-ecdsa:${args.identitySeed}`),
+  );
+  const durable = args.capability.manifest.durableMaterial;
+  const participantIds = requireTwoParticipantIds(args.publicFacts.participantIds);
+  const roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef({
+    kind: 'ecdsa_role_local_persisted_material_ref_v1',
+    durableMaterialRef: durable.durableMaterialRef,
+    bindingDigest: durable.bindingDigest,
+    materialActivation: durable.materialActivation,
+  });
+  const runtime = buildAvailableLaneEcdsaRuntime({
+    common: {
+      kind: 'exact_ecdsa_sealed_runtime_v1' as const,
+      walletId,
+      chainTarget: args.chainTarget,
+      materialActivation: durable.materialActivation,
+      normalSigning: durable.routerAbEcdsaDerivationNormalSigning,
+      relayerUrl: 'https://relay.example.test',
+      relayerKeyId: String(durable.roleLocalBinding.relayerKeyId),
+      clientVerifyingPublicKey33B64u: durable.roleLocalBinding.clientVerifyingPublicKey33B64u,
+      participantIds,
+      ecdsaThresholdKeyId: String(args.key.ecdsaThresholdKeyId),
+      thresholdEcdsaPublicKeyB64u: String(args.publicFacts.publicKeyB64u),
+      keyHandle: String(args.publicFacts.keyHandle),
+      runtimePolicyScope: durable.runtimePolicyScope,
+      roleLocalMaterialRef,
+      expiresAtMs: args.expiresAtMs,
+      remainingUses: args.remainingUses,
+      sealedRecord: {
+        storeKey: `available-lane-ecdsa:${args.identitySeed}`,
+        thresholdSessionId,
+        authMethod: args.authMethod,
       },
     },
-    status: {
-      walletSessionId,
-      quotaId,
-      status: 'active',
-      remainingUses: args.remainingUses,
-      expiresAtMs: args.expiresAtMs,
+    authBinding,
+  });
+  return buildExactEvmFamilyWalletSessionAuthorization({
+    capability: args.capability,
+    selected: {
+      kind: 'resolved',
+      selection: {
+        kind: 'wallet_selection_v1',
+        walletId,
+        walletAuthMethodId: selectedAuthMethod.walletAuthMethodId,
+        lockGeneration: 0,
+        lockState: 'unlocked',
+        updatedAtMs: 1,
+      },
+      authMethod: selectedAuthMethod,
+      authority,
+      signerMaterials: [],
+      exportRoot: null,
     },
-  };
+    session,
+    operationCredential,
+    runtime,
+    nowMs: Math.min(Date.now(), Math.max(0, args.expiresAtMs - 1)),
+  });
 }
 
 export function canonicalEcdsaAvailableLane(args: {
@@ -310,8 +616,22 @@ export function canonicalEcdsaAvailableLane(args: {
     thresholdOwnerAddress,
   });
   const keyHandle = args.keyHandle || (`ederivation-key-${keyId}` as EvmFamilyEcdsaKeyHandle);
+  const factor =
+    authMethod === 'email_otp'
+      ? buildEmailOtpWalletAuthAuthority({
+          walletId,
+          provider: 'google',
+          providerUserId: 'google:available-lanes',
+          emailHashHex: 'available-lanes-email-hash',
+        })
+      : buildPasskeyWalletAuthAuthority({
+          walletId,
+          rpId: AVAILABLE_LANES_ECDSA_RP_ID,
+          credentialIdB64u: AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID,
+        });
+  const factorRef = buildWalletAuthAuthorityRefForAuthorityFixture(factor);
   const manifest = ecdsaCapabilityActivationLookupFixture({
-    authority: buildWalletAuthAuthorityRefFixture({ walletId }),
+    authority: factorRef,
     walletId: toWalletId(walletId),
     chainTarget: args.chainTarget,
     keyHandle,
@@ -322,19 +642,7 @@ export function canonicalEcdsaAvailableLane(args: {
   }).manifest;
   const capability = {
     kind: 'canonical_evm_family_ecdsa_signing_capability' as const,
-    authority:
-      authMethod === 'email_otp'
-        ? buildEmailOtpWalletAuthAuthority({
-            walletId,
-            provider: 'google',
-            providerUserId: 'google:available-lanes',
-            emailHashHex: 'available-lanes-email-hash',
-          })
-        : buildPasskeyWalletAuthAuthority({
-            walletId,
-            rpId: AVAILABLE_LANES_ECDSA_RP_ID,
-            credentialIdB64u: AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID,
-          }),
+    authority: factor,
     manifest,
     material: buildPersistedEcdsaRoleLocalMaterial({
       authority: manifest.signer.authority,
@@ -345,7 +653,10 @@ export function canonicalEcdsaAvailableLane(args: {
   const materialActivation = manifest.activation.materialActivation;
   const publicFacts = manifest.signer.registeredPublicFacts;
   const authorization = availableLaneEcdsaAuthorization({
-    walletId,
+    capability,
+    key,
+    publicFacts,
+    chainTarget: args.chainTarget,
     identitySeed: `${keyId}:${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
     authMethod,
     remainingUses: args.remainingUses ?? 3,

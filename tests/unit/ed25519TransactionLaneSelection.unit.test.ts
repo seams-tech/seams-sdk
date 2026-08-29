@@ -121,8 +121,8 @@ test('NEAR Ed25519 transaction ready lane carries exact lane authority', () => {
       kind: 'selected_lane',
       curve: 'ed25519',
       chain: 'near',
-      walletSessionId: laneAuthorization.walletSessionId,
-      quotaId: laneAuthorization.quotaId,
+      walletSessionId: laneAuthorization.operationCredential.walletSessionId,
+      quotaId: laneAuthorization.session.quotaId,
       thresholdSessionId: 'tsess_ed25519_transaction_selection',
     },
   });
@@ -145,8 +145,12 @@ test('NEAR Ed25519 transaction ready lanes admit restorable lanes and reject def
   expect(readyLanes[0]?.availableLane).toMatchObject({
     state: 'restorable',
     authorization: {
-      walletSessionId: laneAuthorization.walletSessionId,
-      quotaId: laneAuthorization.quotaId,
+      operationCredential: {
+        walletSessionId: laneAuthorization.operationCredential.walletSessionId,
+      },
+      session: {
+        quotaId: laneAuthorization.session.quotaId,
+      },
     },
     thresholdSessionId: 'tsess_ed25519_transaction_selection',
   });
@@ -236,8 +240,12 @@ test('NEAR Ed25519 transaction selection carries expired durable lanes as reauth
     availableLane: {
       state: 'expired',
       authorization: {
-        walletSessionId: laneAuthorization.walletSessionId,
-        quotaId: laneAuthorization.quotaId,
+        operationCredential: {
+          walletSessionId: laneAuthorization.operationCredential.walletSessionId,
+        },
+        session: {
+          quotaId: laneAuthorization.session.quotaId,
+        },
       },
       thresholdSessionId: 'tsess_ed25519_transaction_selection',
     },
@@ -247,8 +255,12 @@ test('NEAR Ed25519 transaction selection carries expired durable lanes as reauth
     availableLane: {
       state: 'expired',
       authorization: {
-        walletSessionId: laneAuthorization.walletSessionId,
-        quotaId: laneAuthorization.quotaId,
+        operationCredential: {
+          walletSessionId: laneAuthorization.operationCredential.walletSessionId,
+        },
+        session: {
+          quotaId: laneAuthorization.session.quotaId,
+        },
       },
       thresholdSessionId: 'tsess_ed25519_transaction_selection',
     },
@@ -281,15 +293,19 @@ test('NEAR Ed25519 transaction selection accepts restorable runtime lanes', () =
     lane: {
       curve: 'ed25519',
       chain: 'near',
-      walletSessionId: laneAuthorization.walletSessionId,
-      quotaId: laneAuthorization.quotaId,
+      walletSessionId: laneAuthorization.operationCredential.walletSessionId,
+      quotaId: laneAuthorization.session.quotaId,
       thresholdSessionId: 'tsess_ed25519_transaction_selection',
     },
     availableLane: {
       state: 'restorable',
       authorization: {
-        walletSessionId: laneAuthorization.walletSessionId,
-        quotaId: laneAuthorization.quotaId,
+        operationCredential: {
+          walletSessionId: laneAuthorization.operationCredential.walletSessionId,
+        },
+        session: {
+          quotaId: laneAuthorization.session.quotaId,
+        },
       },
       thresholdSessionId: 'tsess_ed25519_transaction_selection',
     },

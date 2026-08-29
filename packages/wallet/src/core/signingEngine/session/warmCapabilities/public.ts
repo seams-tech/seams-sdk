@@ -22,7 +22,7 @@ import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '../material/ecdsaCapabilityManifest';
 import type { ThresholdWarmSessionStatusReader } from './types';
 import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactNearEd25519WalletSessionAuthorization } from '../material/nearEd25519YaoSigningPreparation';
 
 export type PersistThresholdEcdsaBootstrapForWalletTargetInput = {
   walletId: WalletId;
@@ -76,7 +76,7 @@ export async function getWarmThresholdEd25519SessionStatus(
   deps: WarmCapabilitiesPublicDeps,
   args: {
     runtime: ExactEd25519SealedSessionRuntime;
-    authorization: ActiveWalletSessionAuthorizationProjection | null;
+    authorization: ExactNearEd25519WalletSessionAuthorization | null;
     nowMs: number;
   },
 ): Promise<SigningSessionStatus> {
@@ -84,7 +84,10 @@ export async function getWarmThresholdEd25519SessionStatus(
   const sessionStatusCheck = args.authorization
     ? buildWalletSessionStatusCheckForSession({
         owner: ed25519WalletSessionStatusOwner(args.runtime.walletId),
-        authorization: args.authorization,
+        authorization: {
+          walletSessionId: args.authorization.operationCredential.walletSessionId,
+          quotaId: args.authorization.session.quotaId,
+        },
       })
     : null;
   const walletSessionStatus = sessionStatusCheck

@@ -39,7 +39,7 @@ import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touch
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import type { DurableRecordStore } from '@/core/platform';
 import type { ExactEcdsaWalletSessionAuthorizationResolver } from '../../session/material/ecdsaSigningCapability';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactNearEd25519WalletSessionAuthorization } from '../../session/material/nearEd25519YaoSigningPreparation';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -112,7 +112,7 @@ const activeWalletAuthorityFactorStores: OwnerLaneScopeStores = {
 
 type WarmSigningEd25519AuthorizationResolver = (
   walletId: import('../../interfaces/ecdsaChainTarget').WalletId,
-) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
+) => Promise<ExactNearEd25519WalletSessionAuthorization | null>;
 
 type WarmSigningPortsArgs = {
   touchConfirm: UiConfirmRuntimeBridgePort;
