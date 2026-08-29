@@ -4,7 +4,7 @@ import { SDK_ESM_BASE_PATH } from '../setup/sdkEsmPaths';
 
 const WALLET_HOST_ENTRY = '/_test-sdk/esm/sdk/wallet-iframe-host-runtime.js';
 
-test('full wallet host starts the recovery runtime and Lit surface preload at boot', async ({
+test('full wallet host preloads the lightweight recovery runtime and Lit surface at boot', async ({
   page,
 }) => {
   const requestedPaths = new Set<string>();
@@ -28,9 +28,9 @@ test('full wallet host starts the recovery runtime and Lit surface preload at bo
           Boolean(customElements.get('w3a-recovery-code-backup-host')),
         ),
         recoveryRuntimeStarted: Array.from(requestedPaths).some((name) =>
-          name.includes('/runtime-email-otp-'),
+          name.includes('/runtime-recovery-codes-'),
         ),
-        walletRuntimeStarted: Array.from(requestedPaths).some((name) =>
+        fullWalletRuntimeStarted: Array.from(requestedPaths).some((name) =>
           name.includes('/runtimeContext-'),
         ),
       };
@@ -38,6 +38,6 @@ test('full wallet host starts the recovery runtime and Lit surface preload at bo
     .toEqual({
       recoveryElementDefined: true,
       recoveryRuntimeStarted: true,
-      walletRuntimeStarted: true,
+      fullWalletRuntimeStarted: false,
     });
 });
