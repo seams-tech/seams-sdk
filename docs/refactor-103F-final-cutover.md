@@ -895,8 +895,10 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
       test caller required a V2 replacement.
 - [x] Delete duplicate V1 revocation statement builders in
       `d1WalletAuthMethodStore.ts`.
-- [ ] Convert additive recovery finalization and replay session checks to the
-      exact model while preserving every pre-existing access path.
+- [x] Keep recovery finalization and committed replay credential-free, then
+      issue the normal-login Wallet Session through direct exact V2 unlock for
+      recovered Passkey and Email OTP authorities while preserving every
+      pre-existing access path.
 - [x] Preserve strict server-read recovery projections for active recovery
       authority and target method on both target branches.
 - [x] Validate wallet, authority, method, target, digest, enrollment, and
