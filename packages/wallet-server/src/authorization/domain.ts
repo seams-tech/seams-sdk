@@ -60,7 +60,11 @@ import type {
   ActiveWalletAuthorityV1,
   WalletSignerActivationSetV1,
 } from '@shared/authorization/walletAuthority';
-import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
+import {
+  parseActiveWalletSessionV1,
+  type ActiveWalletSessionV1,
+  type WalletSessionOperationCredentialV1,
+} from '@shared/device-linking';
 
 /** A server-only identity for one consumed owner authentication result. */
 export type VerifiedOwnerProofId = DomainId<'VerifiedOwnerProofId'>;
@@ -274,11 +278,48 @@ export type IssuedWalletSessionAuthorizationV2 = {
   readonly quota: ActiveWalletSessionQuota;
 };
 
-/** The one direct response family currently issued by active unlock routes. */
+export function projectActiveWalletSession(
+  issued: IssuedWalletSessionAuthorizationV2,
+): ActiveWalletSessionV1 {
+  const capabilitySubjects = issued.session.capabilitySubjects.map((subject) => {
+    switch (subject.kind) {
+      case 'sign':
+      case 'export_keys':
+        return {
+          kind: subject.kind,
+          keyFamily: subject.keyFamily,
+          materialActivation: subject.materialActivation,
+        };
+      case 'link_devices':
+      case 'revoke_devices':
+        return { kind: subject.kind };
+      default:
+        throw new Error('Issued linked-device Wallet Session subject is invalid');
+    }
+  });
+  const first = capabilitySubjects[0];
+  if (!first) throw new Error('Issued linked-device Wallet Session has no subjects');
+  return parseActiveWalletSessionV1({
+    kind: 'active_wallet_session_v1',
+    walletId: issued.session.walletId,
+    authorityId: issued.session.authorityId,
+    authMethodId: issued.session.walletAuthMethodId,
+    authorizationId: issued.session.authorizationId,
+    authorityDigestB64u: issued.session.authorityDigestB64u,
+    authorityRevocationEpoch: issued.session.authorityRevocationEpoch,
+    capabilitySubjects: [first, ...capabilitySubjects.slice(1)],
+    issuedAtMs: issued.session.createdAtMs,
+    expiresAtMs: issued.session.expiresAtMs,
+  });
+}
+
+/** Exact response families are persisted so replay cannot cross route contracts. */
 export const WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1 = 'wallet_unlock_exact_response_v1' as const;
+export const WALLET_SYNC_EXACT_RESPONSE_FAMILY_V1 = 'wallet_sync_exact_response_v1' as const;
 
 export type WalletSessionIssuanceResponseFamilyV1 =
-  | typeof WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1;
+  | typeof WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1
+  | typeof WALLET_SYNC_EXACT_RESPONSE_FAMILY_V1;
 
 /**
  * The server-side aggregate that is safe to expose to persistence code after

@@ -18,15 +18,17 @@ import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
-  type ReusableWalletSessionAuthorizationId,
+  type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '@shared/device-linking/contracts';
 
-export type ParsedYaoRecoverySessionV1 = {
-  readonly walletSessionToken: string;
-  readonly sessionKind: 'opaque';
+export type ParsedYaoRecoverySessionBaseV1 = {
   readonly thresholdSessionId: string;
-  readonly authorizationId: ReusableWalletSessionAuthorizationId;
+  readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly expiresAtMs: number;
@@ -36,6 +38,16 @@ export type ParsedYaoRecoverySessionV1 = {
   readonly routerAbNormalSigning: NonNullable<
     ReturnType<typeof parseRouterAbEd25519NormalSigningState>
   >;
+};
+
+export type ParsedYaoRecoverySessionV1 = ParsedYaoRecoverySessionBaseV1 & {
+  readonly sessionKind: 'opaque';
+  readonly walletSessionToken: string;
+};
+
+export type ParsedExactYaoRecoverySessionV1 = ParsedYaoRecoverySessionBaseV1 & {
+  readonly walletSession: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
 };
 
 export type ParsedYaoRecoveryCapabilityV1 = {

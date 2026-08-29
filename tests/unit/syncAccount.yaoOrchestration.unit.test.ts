@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../packages/wallet/src/core/config/defaultConfigs';
 import type { ClientUserData } from '../../packages/wallet/src/core/accountData/near/nearAccountData.types';
-import { IndexedDBManager } from '../../packages/wallet/src/core/indexedDB';
+import {
+  IndexedDBManager,
+  walletSessionAuthorizations,
+} from '../../packages/wallet/src/core/indexedDB';
 import type {
   KeyMaterialKind,
   KeyMaterialRecord,
@@ -35,7 +38,6 @@ import { toAccountId } from '../../packages/wallet/src/core/types/accountIds';
 import { base58Encode } from '../../packages/shared-ts/src/utils/base58';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
-import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { isPlainObject } from '../../packages/shared-ts/src/utils/validation';
 import { mpcMaterialActivationRefsEqual } from '../../packages/shared-ts/src/utils/domainIds';
 import {
@@ -44,9 +46,19 @@ import {
 } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import type { WalletCustodyEvmFamilyPublicFacts } from '../../packages/shared-ts/src/passkey-custody/ceremonyCommitPayload';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { parseRouterAbEcdsaRegistrationActivationReceiptV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
-import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
+  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+} from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
+import {
+  buildMpcMaterialActivationRefFixture,
+  buildWalletAuthAuthorityRefForAuthorityFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
 import { ecdsaCapabilityActivationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
+import {
+  buildLinkedDeviceManagementAuthorityFixture,
+  fullOwnerPermissionsForManagementFixture,
+} from './helpers/linkedDeviceManagement.fixtures';
 import { rawPasskeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 const RELAYER_URL = 'https://router.example.test';
@@ -55,11 +67,12 @@ const DISCOVERED_WALLET_ID = 'discovered-wallet';
 const REQUESTED_WALLET_ID = 'requested-wallet';
 const NEAR_ACCOUNT_ID = 'discovered-wallet.testnet';
 const NEAR_SIGNING_KEY_ID = 'ed25519ks_discovered_wallet';
-const CREDENTIAL_ID = 'credential-id-b64u';
+const CREDENTIAL_ID = base64UrlEncode(new Uint8Array(32).fill(36));
 const SIGNER_SLOT = 3;
 const THRESHOLD_SESSION_ID = 'threshold-session-sync-1';
 const WALLET_SESSION_ID = 'wallet-session-sync-1';
 const WALLET_SESSION_QUOTA_ID = 'wallet-session-quota-sync-1';
+const OPERATION_CREDENTIAL_TOKEN = `wst_${base64UrlEncode(new Uint8Array(32).fill(88))}`;
 const SIGNING_WORKER_ID = 'signing-worker-sync-1';
 const ROOT_SHARE_EPOCH = 'root-share-epoch-sync-1';
 const REGISTERED_PUBLIC_KEY = new Uint8Array(32).fill(21);
@@ -93,6 +106,10 @@ type FetchScenario = {
   readonly verifiedWalletId: string;
   readonly ecdsaSigners: readonly Record<string, unknown>[];
   verifyRequest: Record<string, unknown> | null;
+  readonly alreadyCommittedBeforeSuccess: number;
+  optionsCalls: number;
+  verifyCalls: number;
+  verifyRequests: Record<string, unknown>[];
 };
 
 let activeYaoScenario: YaoScenario | null = null;
@@ -118,6 +135,29 @@ const indexedDbPersistenceMethods = [
 
 const originalIndexedDbPersistenceMethods = new Map<IndexedDbPersistenceMethod, unknown>();
 
+type IndexedDbDirectMethod =
+  | 'listWalletPasskeyAuthenticators'
+  | 'persistFoundingWalletAuthority'
+  | 'resolveProfileAccountContext'
+  | 'isDisabled'
+  | 'upsertProfile';
+
+const indexedDbDirectMethods = [
+  'listWalletPasskeyAuthenticators',
+  'persistFoundingWalletAuthority',
+  'resolveProfileAccountContext',
+  'isDisabled',
+  'upsertProfile',
+] as const satisfies readonly IndexedDbDirectMethod[];
+
+const originalIndexedDbDirectMethods = new Map<IndexedDbDirectMethod, unknown>();
+const originalWriteExactWithOperationCredential =
+  walletSessionAuthorizations.writeExactWithOperationCredential;
+const originalUpsertActiveWithCurveMerge = walletSessionAuthorizations.upsertActiveWithCurveMerge;
+type ExactWalletSessionWriteInput = Parameters<
+  typeof walletSessionAuthorizations.writeExactWithOperationCredential
+>[0];
+
 function keyMaterialMapKey(input: {
   profileId: string;
   signerSlot: number;
@@ -130,6 +170,8 @@ function keyMaterialMapKey(input: {
 class SyncAccountPersistenceFixture {
   readonly appState = new Map<string, unknown>();
   readonly keyMaterial = new Map<string, KeyMaterialRecord>();
+  readonly profileSeeds: Array<Parameters<typeof IndexedDBManager.upsertProfile>[0]> = [];
+  readonly exactWalletSessionWrites: ExactWalletSessionWriteInput[] = [];
 
   async getKeyMaterial(
     profileId: string,
@@ -186,12 +228,48 @@ class SyncAccountPersistenceFixture {
     await this.storeKeyMaterial(input.replacement);
     this.appState.delete(input.journalKey);
   }
+
+  async listWalletPasskeyAuthenticators(): Promise<[]> {
+    return [];
+  }
+
+  async persistFoundingWalletAuthority(): Promise<void> {}
+
+  isDisabled(): boolean {
+    return true;
+  }
+
+  async resolveProfileAccountContext(
+    accountRef: Parameters<typeof IndexedDBManager.resolveProfileAccountContext>[0],
+  ): ReturnType<typeof IndexedDBManager.resolveProfileAccountContext> {
+    if (this.profileSeeds.length === 0) return null;
+    return { profileId: 'sync-profile', accountRef };
+  }
+
+  async upsertProfile(
+    input: Parameters<typeof IndexedDBManager.upsertProfile>[0],
+  ): ReturnType<typeof IndexedDBManager.upsertProfile> {
+    this.profileSeeds.push(input);
+    return {
+      profileId: input.profileId,
+      defaultSignerSlot: input.defaultSignerSlot ?? 1,
+      createdAt: 0,
+      updatedAt: 0,
+    };
+  }
 }
 
 function installPersistenceFixture(fixture: SyncAccountPersistenceFixture): void {
   const manager = IndexedDBManager as unknown as Record<string, unknown>;
   for (const method of indexedDbPersistenceMethods) {
     originalIndexedDbPersistenceMethods.set(method, manager[method]);
+    const replacement = fixture[method].bind(fixture);
+    if (!Reflect.set(manager, method, replacement)) {
+      throw new Error(`failed to install IndexedDB ${method} fixture`);
+    }
+  }
+  for (const method of indexedDbDirectMethods) {
+    originalIndexedDbDirectMethods.set(method, manager[method]);
     const replacement = fixture[method].bind(fixture);
     if (!Reflect.set(manager, method, replacement)) {
       throw new Error(`failed to install IndexedDB ${method} fixture`);
@@ -208,6 +286,16 @@ function restorePersistenceFixture(): void {
     }
   }
   originalIndexedDbPersistenceMethods.clear();
+  for (const method of indexedDbDirectMethods) {
+    const original = originalIndexedDbDirectMethods.get(method);
+    if (!Reflect.set(manager, method, original)) {
+      throw new Error(`failed to restore IndexedDB ${method}`);
+    }
+  }
+  originalIndexedDbDirectMethods.clear();
+  walletSessionAuthorizations.writeExactWithOperationCredential =
+    originalWriteExactWithOperationCredential;
+  walletSessionAuthorizations.upsertActiveWithCurveMerge = originalUpsertActiveWithCurveMerge;
 }
 
 function requireActiveYaoScenario(): YaoScenario {
@@ -323,44 +411,108 @@ function walletBinding(walletId: string): Record<string, unknown> {
   };
 }
 
-function unsignedWalletSessionJwt(walletId: string): string {
-  const header = base64UrlEncode(
-    new TextEncoder().encode(JSON.stringify({ alg: 'none', typ: 'JWT' })),
-  );
-  const payload = base64UrlEncode(
-    new TextEncoder().encode(
-      JSON.stringify({
-        kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-        authorizationKind: 'owner_wallet_session',
-        walletId,
-        nearAccountId: NEAR_ACCOUNT_ID,
-        nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-        thresholdSessionId: THRESHOLD_SESSION_ID,
-        walletSessionId: WALLET_SESSION_ID,
-        quotaId: WALLET_SESSION_QUOTA_ID,
-      }),
-    ),
-  );
-  return `${header}.${payload}.test-signature`;
-}
-
 function syncOptionsResponse(scenario: FetchScenario): Record<string, unknown> {
+  const replacement = scenario.optionsCalls > 1;
   return {
     ok: true,
-    challengeId: 'sync-challenge-id',
-    challengeB64u: 'sync-challenge-b64u',
+    challengeId: replacement ? 'sync-challenge-id-replacement' : 'sync-challenge-id',
+    challengeB64u: replacement ? 'sync-challenge-b64u-replacement' : 'sync-challenge-b64u',
     credentialIds: scenario.optionsWalletId ? [CREDENTIAL_ID] : [],
     ...(scenario.optionsWalletId ? { walletBinding: walletBinding(scenario.optionsWalletId) } : {}),
   };
 }
 
-function syncVerifyResponse(
+function ecdsaSessionResponseForSync(
+  ecdsaSigners: readonly Record<string, unknown>[],
+  expiresAtMs: number,
+): {
+  readonly ecdsaSession: Record<string, unknown>;
+  readonly ecdsaActivationReceipt: Record<string, unknown>;
+} | null {
+  const firstSigner = ecdsaSigners[0];
+  if (!firstSigner) return null;
+  if (!isPlainObject(firstSigner.walletKey) || !isPlainObject(firstSigner.activationReceipt)) {
+    throw new Error('ECDSA sync fixture signer is incomplete');
+  }
+  const walletKey = firstSigner.walletKey;
+  if (!isPlainObject(walletKey.publicCapability)) {
+    throw new Error('ECDSA sync fixture public capability is incomplete');
+  }
+  const publicCapability = walletKey.publicCapability;
+  if (!isPlainObject(publicCapability.signer_set)) {
+    throw new Error('ECDSA sync fixture signer set is incomplete');
+  }
+  const signerSet = publicCapability.signer_set;
+  if (!isPlainObject(signerSet.selected_server)) {
+    throw new Error('ECDSA sync fixture selected server is incomplete');
+  }
+  if (!isPlainObject(firstSigner.activationReceipt.ecdsa_activation)) {
+    throw new Error('ECDSA sync fixture activation is incomplete');
+  }
+  const activation = firstSigner.activationReceipt.ecdsa_activation;
+  return {
+    ecdsaSession: {
+      kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
+      public_capability: publicCapability,
+      session: {
+        authorization_session_id: 'ecdsa-authorization-session-sync-1',
+        authorization_id: 'authorization:sync-account-orchestration',
+        threshold_session_id: 'threshold-ecdsa-session-sync-1',
+        wallet_session_id: WALLET_SESSION_ID,
+        quota_id: WALLET_SESSION_QUOTA_ID,
+        expires_at_ms: expiresAtMs,
+        remaining_uses: 4,
+        wallet_session_token: 'ecdsa-wallet-session-token-sync-1',
+      },
+      normal_signing: {
+        kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+        scope: {
+          wallet_id: String(walletKey.walletId),
+          ecdsa_threshold_key_id: String(walletKey.ecdsaThresholdKeyId),
+          signing_root_id: String(walletKey.signingRootId),
+          signing_root_version: String(walletKey.signingRootVersion),
+          context: activation.context,
+          public_identity: publicCapability.public_identity,
+          material_activation: publicCapability.material_activation,
+          signing_worker: signerSet.selected_server,
+          activation_epoch: publicCapability.activation_epoch,
+        },
+      },
+    },
+    ecdsaActivationReceipt: firstSigner.activationReceipt,
+  };
+}
+
+async function syncVerifyResponse(
   walletId: string,
   ecdsaSigners: readonly Record<string, unknown>[],
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
+  const founding = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'sync-account-orchestration',
+    permissions: fullOwnerPermissionsForManagementFixture(),
+    provenance: 'wallet_registration',
+    materialActivation: MATERIAL_ACTIVATION,
+    identity: {
+      walletId,
+      authorityId: 'wallet-authority:sync-account-orchestration',
+      walletAuthMethodId: 'wallet-auth-method:sync-account-orchestration',
+      rpId: RP_ID,
+    },
+  });
+  const expiresAtMs = Date.now() + 60_000;
+  const ecdsaResponse = ecdsaSessionResponseForSync(ecdsaSigners, expiresAtMs);
+  const authorityRef = buildWalletAuthAuthorityRefForAuthorityFixture({
+    walletId: founding.authority.walletId,
+    factor: {
+      kind: 'passkey',
+      credentialIdB64u: founding.authMethod.credentialIdB64u,
+    },
+    verifier: { kind: 'webauthn', rpId: founding.authMethod.rpId },
+    bindingId: founding.authMethod.walletAuthMethodId,
+  });
   const admissionRequest = registrationAdmissionRequest(walletId);
   const admissionReceipt = registrationAdmissionReceipt(walletId);
-  return {
+  const response: Record<string, unknown> = {
     ok: true,
     verified: true,
     walletId,
@@ -369,21 +521,24 @@ function syncVerifyResponse(
     signerSlot: SIGNER_SLOT,
     publicKey: OPERATIONAL_PUBLIC_KEY,
     credentialIdB64u: CREDENTIAL_ID,
-    credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(65).fill(9)),
+    credentialPublicKeyB64u: founding.authMethod.credentialPublicKeyB64u,
     walletBinding: walletBinding(walletId),
+    walletAuthMethodId: String(founding.authMethod.walletAuthMethodId),
+    walletAuthorityId: String(founding.authority.authorityId),
+    foundingAuthority: founding.authority,
+    foundingAuthMethod: founding.authMethod,
     thresholdEd25519: {
       relayerKeyId: SIGNING_WORKER_ID,
+      keyVersion: 'key-version-sync-1',
       participantIds: [1, 2],
       session: {
-        sessionKind: 'jwt',
-        walletSessionJwt: unsignedWalletSessionJwt(walletId),
         walletId,
         nearAccountId: NEAR_ACCOUNT_ID,
         nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
         thresholdSessionId: THRESHOLD_SESSION_ID,
         walletSessionId: WALLET_SESSION_ID,
         quotaId: WALLET_SESSION_QUOTA_ID,
-        expiresAtMs: Date.now() + 60_000,
+        expiresAtMs,
         remainingUses: 4,
         runtimePolicyScope: {
           orgId: 'org-sync',
@@ -397,13 +552,31 @@ function syncVerifyResponse(
         },
       },
     },
+    walletSession: {
+      kind: 'active_wallet_session_v1',
+      walletId,
+      authorityId: String(founding.authority.authorityId),
+      authMethodId: String(founding.authMethod.walletAuthMethodId),
+      authorizationId: 'authorization:sync-account-orchestration',
+      authorityDigestB64u: founding.authority.authorityDigestB64u,
+      authorityRevocationEpoch: founding.authority.revocationEpoch,
+      capabilitySubjects: [
+        { kind: 'sign', keyFamily: 'ed25519', materialActivation: MATERIAL_ACTIVATION },
+        { kind: 'export_keys', keyFamily: 'ed25519', materialActivation: MATERIAL_ACTIVATION },
+        { kind: 'link_devices' },
+        { kind: 'revoke_devices' },
+      ],
+      issuedAtMs: Date.now() - 1_000,
+      expiresAtMs,
+    },
+    operationCredential: {
+      kind: 'opaque_wallet_session_operation_credential_v1',
+      token: OPERATION_CREDENTIAL_TOKEN,
+      walletSessionId: WALLET_SESSION_ID,
+    },
     ed25519YaoRecovery: {
       kind: 'router_ab_ed25519_yao_sync_recovery_v1',
-      authorityRef: {
-        kind: 'wallet_auth_authority_ref',
-        walletId,
-        authorityDigest: 'sync-account-authority-digest',
-      },
+      authorityRef,
       capability: {
         kind: 'router_ab_ed25519_yao_active_capability_v1',
         materialActivation: routerAbMpcMaterialActivationRefToWire(MATERIAL_ACTIVATION),
@@ -458,6 +631,11 @@ function syncVerifyResponse(
       signers: ecdsaSigners,
     },
   };
+  if (ecdsaResponse) {
+    response.ecdsaSession = ecdsaResponse.ecdsaSession;
+    response.ecdsaActivationReceipt = ecdsaResponse.ecdsaActivationReceipt;
+  }
+  return response;
 }
 
 function registrationAdmissionRequest(walletId: string) {
@@ -515,9 +693,9 @@ function requireRequestJson(init: RequestInit | undefined): Record<string, unkno
   return parsed;
 }
 
-function jsonResponse(value: Record<string, unknown>): Response {
+function jsonResponse(value: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(value), {
-    status: 200,
+    status,
     headers: { 'content-type': 'application/json' },
   });
 }
@@ -526,11 +704,35 @@ async function syncAccountFetch(input: RequestInfo | URL, init?: RequestInit): P
   const scenario = requireActiveFetchScenario();
   const url = input instanceof Request ? input.url : String(input);
   if (url === `${RELAYER_URL}/sync-account/options`) {
+    scenario.optionsCalls += 1;
     return jsonResponse(syncOptionsResponse(scenario));
   }
   if (url === `${RELAYER_URL}/sync-account/verify`) {
-    scenario.verifyRequest = requireRequestJson(init);
-    return jsonResponse(syncVerifyResponse(scenario.verifiedWalletId, scenario.ecdsaSigners));
+    const request = requireRequestJson(init);
+    scenario.verifyCalls += 1;
+    scenario.verifyRequests.push(request);
+    scenario.verifyRequest = request;
+    if (scenario.verifyCalls <= scenario.alreadyCommittedBeforeSuccess) {
+      return jsonResponse(
+        {
+          ok: false,
+          code: 'already_committed',
+          kind: 'already_committed',
+          next: 'unlock_exact_method',
+          walletId: scenario.verifiedWalletId,
+          authorityId: 'wallet-authority:sync-account-orchestration',
+          walletAuthMethodId: 'wallet-auth-method:sync-account-orchestration',
+          mintId: 'wallet-mint:sync-account-orchestration',
+          authorizationId: 'authorization:sync-account-orchestration',
+          walletSessionId: WALLET_SESSION_ID,
+          quotaId: WALLET_SESSION_QUOTA_ID,
+        },
+        409,
+      );
+    }
+    return jsonResponse(
+      await syncVerifyResponse(scenario.verifiedWalletId, scenario.ecdsaSigners),
+    );
   }
   throw new Error(`unexpected syncAccount fetch: ${url}`);
 }
@@ -564,6 +766,8 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   readonly sealedQueueStates: boolean[] = [];
   readonly queuedActivationIds: string[] = [];
   readonly laneReferences: Ed25519YaoPublicCapabilityLaneReferenceV1[] = [];
+  authenticationCredentialCalls = 0;
+  readonly authenticationChallengeB64us: string[] = [];
   readonly ecdsaRejoinInputs: Array<
     Parameters<AccountSyncSigningSurface['rejoinWalletCustodyEvmFamilyKeySet']>[0]
   > = [];
@@ -654,6 +858,10 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   async getLastUser(): Promise<ClientUserData | null> {
     return this.storedUser;
   }
+
+  async setWalletNearProvisioningState(
+    _input: Parameters<AccountSyncSigningSurface['setWalletNearProvisioningState']>[0],
+  ): Promise<void> {}
 
   async nearAuthenticatorsByAccount(): Promise<[]> {
     return [];
@@ -767,7 +975,11 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
     this.laneReferences.push(reference);
   }
 
-  async getAuthenticationCredentialsSerialized(): Promise<WebAuthnAuthenticationCredential> {
+  async getAuthenticationCredentialsSerialized(
+    input: Parameters<AccountSyncSigningSurface['getAuthenticationCredentialsSerialized']>[0],
+  ): Promise<WebAuthnAuthenticationCredential> {
+    this.authenticationCredentialCalls += 1;
+    this.authenticationChallengeB64us.push(input.challengeB64u);
     return this.credential;
   }
 
@@ -784,6 +996,10 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
       version: input.version,
       lastUpdated: input.lastUpdated,
     };
+    await IndexedDBManager.upsertProfile({
+      profileId: input.walletId,
+      defaultSignerSlot: input.signerSlot,
+    });
   }
 
   async storeNearThresholdKeyMaterial(
@@ -932,6 +1148,7 @@ function configureTestScenario(input: {
   readonly verifiedWalletId: string;
   readonly failRecovery?: boolean;
   readonly ecdsaSigners?: readonly Record<string, unknown>[];
+  readonly alreadyCommittedBeforeSuccess?: number;
 }): YaoScenario {
   const yaoScenario = createYaoScenario();
   yaoScenario.failRecovery = input.failRecovery === true;
@@ -941,6 +1158,10 @@ function configureTestScenario(input: {
     verifiedWalletId: input.verifiedWalletId,
     ecdsaSigners: input.ecdsaSigners ?? [],
     verifyRequest: null,
+    alreadyCommittedBeforeSuccess: input.alreadyCommittedBeforeSuccess ?? 0,
+    optionsCalls: 0,
+    verifyCalls: 0,
+    verifyRequests: [],
   };
   return yaoScenario;
 }
@@ -949,6 +1170,10 @@ function setupSyncAccountTest(): void {
   activeYaoScenario = null;
   activeFetchScenario = null;
   activePersistenceFixture = new SyncAccountPersistenceFixture();
+  walletSessionAuthorizations.writeExactWithOperationCredential = async (input) => {
+    activePersistenceFixture?.exactWalletSessionWrites.push(input);
+  };
+  walletSessionAuthorizations.upsertActiveWithCurveMerge = async (input) => input.incoming;
   globalThis.fetch = syncAccountFetch;
   installPersistenceFixture(activePersistenceFixture);
   installYaoClientMock();
@@ -994,7 +1219,7 @@ test.describe('public syncAccount Yao orchestration', () => {
     expect(surface.activatedMaterials).toHaveLength(1);
     expect(surface.queuedActivationIds).toEqual([String(MATERIAL_ACTIVATION.activationId)]);
     expect(surface.activationQueueStates).toEqual([true]);
-    expect(surface.hydratedSessionIds).toEqual([]);
+    expect(surface.hydratedSessionIds).toEqual([THRESHOLD_SESSION_ID]);
     expect(surface.sealedSessionIds).toEqual([]);
     expect(surface.sealedQueueStates).toEqual([]);
     expect(surface.laneReferences).toHaveLength(1);
@@ -1019,12 +1244,73 @@ test.describe('public syncAccount Yao orchestration', () => {
     expect(freshMaterialActivation.keyBinding).toBe(MATERIAL_ACTIVATION.keyBinding);
     expect(freshMaterialActivation.signingWorker).toBe(MATERIAL_ACTIVATION.signingWorker);
     expect(freshMaterialActivation.activationId).toBe(MATERIAL_ACTIVATION.activationId);
-    expect(surface.authenticatedWalletIds).toEqual([DISCOVERED_WALLET_ID, DISCOVERED_WALLET_ID]);
-    expect(surface.lastUserWalletIds).toEqual([DISCOVERED_WALLET_ID]);
+    expect(surface.authenticatedWalletIds).toEqual([DISCOVERED_WALLET_ID]);
+    expect(surface.lastUserWalletIds).toEqual([]);
     expect(surface.clearWalletIds).toEqual([]);
     const persistence = requireActivePersistenceFixture();
     expect(persistence.appState.size).toBe(0);
-    expect([...persistence.keyMaterial.values()].map((record) => record.keyKind)).toEqual([]);
+    expect([...persistence.keyMaterial.values()].map((record) => record.keyKind)).toEqual([
+      'router_ab_ed25519_yao_active_client_v1',
+    ]);
+    expect(persistence.exactWalletSessionWrites).toHaveLength(1);
+    expect(persistence.exactWalletSessionWrites[0]).toMatchObject({
+      record: {
+        kind: 'active_wallet_session_v1',
+        walletId: DISCOVERED_WALLET_ID,
+        authorityRevocationEpoch: 0,
+      },
+      operationCredential: {
+        kind: 'opaque_wallet_session_operation_credential_v1',
+        walletSessionId: WALLET_SESSION_ID,
+      },
+    });
+  });
+
+  test('replaces one already-committed sync challenge with one fresh credential attempt', async () => {
+    configureTestScenario({
+      optionsWalletId: null,
+      verifiedWalletId: DISCOVERED_WALLET_ID,
+      alreadyCommittedBeforeSuccess: 1,
+    });
+    const surface = new SyncAccountSigningSurfaceFixture();
+
+    const result = await syncAccount(createContext(surface), null);
+
+    expect(result, JSON.stringify(result)).toMatchObject({ success: true });
+    const fetchScenario = requireActiveFetchScenario();
+    expect(fetchScenario.optionsCalls).toBe(2);
+    expect(fetchScenario.verifyCalls).toBe(2);
+    expect(fetchScenario.verifyRequests.map((request) => request.challengeId)).toEqual([
+      'sync-challenge-id',
+      'sync-challenge-id-replacement',
+    ]);
+    expect(surface.authenticationCredentialCalls).toBe(2);
+    expect(surface.authenticationChallengeB64us).toEqual([
+      'sync-challenge-b64u',
+      'sync-challenge-b64u-replacement',
+    ]);
+    expect(surface.activatedMaterials).toHaveLength(1);
+  });
+
+  test('stops after a second already-committed sync response', async () => {
+    configureTestScenario({
+      optionsWalletId: null,
+      verifiedWalletId: DISCOVERED_WALLET_ID,
+      alreadyCommittedBeforeSuccess: 2,
+    });
+    const surface = new SyncAccountSigningSurfaceFixture();
+
+    const result = await syncAccount(createContext(surface), null);
+
+    expect(result).toEqual({
+      success: false,
+      error: 'sync-account/verify remained already committed after one replacement attempt',
+    });
+    const fetchScenario = requireActiveFetchScenario();
+    expect(fetchScenario.optionsCalls).toBe(2);
+    expect(fetchScenario.verifyCalls).toBe(2);
+    expect(surface.authenticationCredentialCalls).toBe(2);
+    expect(surface.activatedMaterials).toEqual([]);
   });
 
   test('mixed-wallet sync rejoins one ECDSA key and preserves its Router activation across targets', async () => {
@@ -1039,7 +1325,7 @@ test.describe('public syncAccount Yao orchestration', () => {
 
     const result = await syncAccount(createContext(surface), null);
 
-    expect(result.success).toBe(true);
+    expect(result, JSON.stringify(result)).toMatchObject({ success: true });
     expect(surface.ecdsaRejoinInputs).toHaveLength(1);
     expect(surface.ecdsaRestoreInputs).toHaveLength(1);
     expect(surface.ecdsaRejoinInputs[0]).toMatchObject({
@@ -1078,7 +1364,11 @@ test.describe('public syncAccount Yao orchestration', () => {
     });
     expect(surface.activatedMaterials).toEqual([]);
     expect(surface.clearWalletIds).toEqual([]);
-    expect(yaoScenario.disposeCalls).toBe(1);
+    expect(yaoScenario.disposeCalls).toBe(0);
+    const persistence = requireActivePersistenceFixture();
+    expect(persistence.profileSeeds).toEqual([]);
+    expect(persistence.keyMaterial).toEqual(new Map());
+    expect(persistence.exactWalletSessionWrites).toEqual([]);
   });
 
   test('zeroizes PRF.first when the Yao recovery helper fails', async () => {

@@ -91,6 +91,7 @@ import type {
   DirectV2IssueResult,
   IssuedWalletSessionAuthorizationV2,
 } from '../../authorization/domain';
+import type { IssueDirectWalletSessionAuthorizationV2Input } from '../../authorization/service';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 
 export type WalletAuthMethodManagementSubject = Readonly<{
@@ -1572,6 +1573,9 @@ export interface RouterApiAuthorizedOperationService {
 
 export interface RouterApiAuthorizationSessionService {
   readonly tenantId: TenantId;
+  issueDirectWalletSessionAuthorizationV2(
+    input: IssueDirectWalletSessionAuthorizationV2Input,
+  ): Promise<DirectV2IssueResult>;
   issueReusableWalletSession(
     input: IssueReusableWalletSessionInput,
   ): Promise<IssuedReusableWalletSession>;
