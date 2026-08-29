@@ -103,6 +103,7 @@ import {
 import {
   walletSessionAuthorizations,
   type ActiveWalletSessionAuthorizationProjection,
+  WalletSessionAuthorizationUpgradeRequiredError,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { persistActiveWalletSessionAuthorizationCurve } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import { resolveActiveEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
@@ -6242,12 +6243,21 @@ export async function getWalletSession(
     (currentAuthentication.kind !== 'signed_out' ? currentAuthentication.walletId : undefined);
   if (currentAuthentication.kind === 'signed_out' && requestedWalletId !== undefined) {
     const parsedRequestedWalletId = parseWalletId(String(requestedWalletId));
-    const restoredAuthentication = parsedRequestedWalletId.ok
-      ? await authenticatedWalletStateFromExactAuthority(parsedRequestedWalletId.value)
-      : null;
-    if (restoredAuthentication) {
-      context.signingEngine.setWalletAuthenticated(restoredAuthentication);
-      currentAuthentication = restoredAuthentication;
+    const restoredAuthenticationRead: ExactAuthorityAuthenticationReadResult =
+      parsedRequestedWalletId.ok
+        ? await authenticatedWalletStateFromExactAuthority(parsedRequestedWalletId.value)
+        : { kind: 'missing' };
+    switch (restoredAuthenticationRead.kind) {
+      case 'authenticated':
+        context.signingEngine.setWalletAuthenticated(restoredAuthenticationRead.state);
+        currentAuthentication = restoredAuthenticationRead.state;
+        break;
+      case 'missing':
+        break;
+      case 'upgrade_required':
+        throw new WalletSessionAuthorizationUpgradeRequiredError(
+          '[WalletSession] Wallet Session authorization requires a newer client',
+        );
     }
   }
   let readResolution = await resolveWalletCapabilitySubjectResolution(requestedWalletId);
@@ -6355,11 +6365,24 @@ export async function getWalletSession(
     currentAuthentication,
     readResolution.walletId,
   );
-  const restoredWalletAuthentication =
+  const restoredAuthenticationRead: ExactAuthorityAuthenticationReadResult =
     currentWalletAuthentication.kind === 'signed_out'
-      ? ((await authenticatedWalletStateFromExactAuthority(readResolution.walletId)) ??
-        authenticatedWalletStateFromReusableSession(reusableWalletSession))
-      : null;
+      ? await authenticatedWalletStateFromExactAuthority(readResolution.walletId)
+      : { kind: 'missing' };
+  let restoredWalletAuthentication: AuthenticatedWalletState | null = null;
+  switch (restoredAuthenticationRead.kind) {
+    case 'authenticated':
+      restoredWalletAuthentication = restoredAuthenticationRead.state;
+      break;
+    case 'missing':
+      restoredWalletAuthentication =
+        authenticatedWalletStateFromReusableSession(reusableWalletSession);
+      break;
+    case 'upgrade_required':
+      throw new WalletSessionAuthorizationUpgradeRequiredError(
+        '[WalletSession] Wallet Session authorization requires a newer client',
+      );
+  }
   if (restoredWalletAuthentication) {
     context.signingEngine.setWalletAuthenticated(restoredWalletAuthentication);
   }
@@ -6410,9 +6433,25 @@ function walletAuthenticationForWallet(
   return { kind: 'signed_out' };
 }
 
+type AuthenticatedWalletState = Extract<WalletAuthenticationState, { kind: 'authenticated' }>;
+
+type ExactAuthorityAuthenticationReadResult =
+  | {
+      readonly kind: 'authenticated';
+      readonly state: AuthenticatedWalletState;
+    }
+  | {
+      readonly kind: 'missing';
+      readonly state?: never;
+    }
+  | {
+      readonly kind: 'upgrade_required';
+      readonly state?: never;
+    };
+
 function authenticatedWalletStateFromReusableSession(
   session: ReusableWalletSessionState,
-): Extract<WalletAuthenticationState, { kind: 'authenticated' }> | null {
+): AuthenticatedWalletState | null {
   switch (session.kind) {
     case 'active':
     case 'exhausted':
@@ -6435,11 +6474,9 @@ function authenticatedWalletStateFromReusableSession(
 
 async function authenticatedWalletStateFromExactAuthority(
   walletId: WalletId,
-): Promise<Extract<WalletAuthenticationState, { kind: 'authenticated' }> | null> {
-  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId)).catch(
-    () => null,
-  );
-  if (!selected || selected.kind !== 'resolved') return null;
+): Promise<ExactAuthorityAuthenticationReadResult> {
+  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+  if (selected.kind !== 'resolved') return { kind: 'missing' };
   const { selection, authMethod, authority } = selected;
   if (
     selection.walletId !== walletId ||
@@ -6451,28 +6488,36 @@ async function authenticatedWalletStateFromExactAuthority(
     authority.walletId !== walletId ||
     authority.state !== 'active'
   ) {
-    return null;
+    return { kind: 'missing' };
   }
-  const exact = await walletSessionAuthorizations
-    .readExactWithOperationCredential({
-      walletId,
-      authorityId: authority.authorityId,
-      authMethodId: authMethod.walletAuthMethodId,
-    })
-    .catch(() => null);
+  const exact = await walletSessionAuthorizations.readExactWithOperationCredential({
+    walletId,
+    authorityId: authority.authorityId,
+    authMethodId: authMethod.walletAuthMethodId,
+  });
+  switch (exact.kind) {
+    case 'found':
+      break;
+    case 'missing':
+      return { kind: 'missing' };
+    case 'upgrade_required':
+      return { kind: 'upgrade_required' };
+  }
   if (
-    !exact ||
     exact.record.authorityDigestB64u !== authority.authorityDigestB64u ||
     exact.record.authorityRevocationEpoch !== authority.revocationEpoch ||
     exact.record.expiresAtMs <= Date.now() ||
     exact.operationCredential.token.trim().length === 0
   ) {
-    return null;
+    return { kind: 'missing' };
   }
   return {
     kind: 'authenticated',
-    walletId,
-    authMethod: authMethod.kind,
+    state: {
+      kind: 'authenticated',
+      walletId,
+      authMethod: authMethod.kind,
+    },
   };
 }
 
