@@ -2,9 +2,11 @@ import { expect, test } from '@playwright/test';
 import {
   CAPABILITY_KINDS,
   AUTHORIZATION_EVIDENCE_KINDS,
+  WALLET_SESSION_CLIENT_CAPABILITY_V1,
   buildAuthorizationEvidenceRequirement,
   isAuthorizationEvidenceKind,
   parseCapabilityOperationRef,
+  parseWalletSessionClientCapabilityV1,
 } from '@shared/authorization/capabilityKinds';
 
 test('capability operation parsing enforces exact capability ownership', () => {
@@ -50,4 +52,46 @@ test('authorization evidence requirements are flat, canonical, and current-scope
     evidenceKinds: ['email_otp', 'passkey_assertion'],
   });
   expect(isAuthorizationEvidenceKind('mpc_signer_proof')).toBe(false);
+});
+
+test('wallet session client capability parsing requires the exact rollout literal', () => {
+  expect(parseWalletSessionClientCapabilityV1(WALLET_SESSION_CLIENT_CAPABILITY_V1)).toEqual({
+    ok: true,
+    value: WALLET_SESSION_CLIENT_CAPABILITY_V1,
+  });
+  expect(parseWalletSessionClientCapabilityV1(undefined)).toEqual({
+    ok: false,
+    error: {
+      code: 'missing',
+      message: 'walletSessionClientCapability is required',
+    },
+  });
+  expect(parseWalletSessionClientCapabilityV1(null)).toEqual({
+    ok: false,
+    error: {
+      code: 'invalid',
+      message:
+        'walletSessionClientCapability must be direct_exact_response_future_record_tolerant',
+    },
+  });
+  expect(
+    parseWalletSessionClientCapabilityV1(' direct_exact_response_future_record_tolerant '),
+  ).toEqual({
+    ok: false,
+    error: {
+      code: 'invalid',
+      message:
+        'walletSessionClientCapability must be direct_exact_response_future_record_tolerant',
+    },
+  });
+  expect(
+    parseWalletSessionClientCapabilityV1('direct_exact_response_future_record_tolerant_v2'),
+  ).toEqual({
+    ok: false,
+    error: {
+      code: 'invalid',
+      message:
+        'walletSessionClientCapability must be direct_exact_response_future_record_tolerant',
+    },
+  });
 });
