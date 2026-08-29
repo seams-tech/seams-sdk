@@ -40,6 +40,7 @@ import {
   type PasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
 import {
+  WALLET_SESSION_CLIENT_CAPABILITY_V1,
   parseMpcWalletSigningQuotaId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -594,6 +595,7 @@ export async function verifyPasskeyWalletUnlock(
     const body: Record<string, unknown> = {
       unlockBackend: 'passkey',
       challengeId,
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       ...('walletId' in input && input.walletId ? { walletId: input.walletId } : {}),
       webauthn_authentication: redactCredentialExtensionOutputs(webauthnAuthentication),
       ed25519SessionRequest: input.ed25519SessionRequest,
@@ -725,6 +727,7 @@ export async function verifyLinkedDevicePasskeyWalletSession(
     const body: Record<string, unknown> = {
       unlockBackend: 'passkey',
       challengeId,
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       webauthn_authentication: redactCredentialExtensionOutputs(input.webauthn_authentication),
       ed25519SessionRequest: input.ed25519SessionRequest,
       ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),

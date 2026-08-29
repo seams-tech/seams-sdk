@@ -240,6 +240,8 @@ test('D1 signer migrations install and constrain Wallet Session authorization V2
       'retired_at_ms',
       'record_json',
       'operation_credential_hash',
+      'wallet_session_client_capability',
+      'response_family',
     ]);
 
     const indexes = await temporary.database
