@@ -12,6 +12,7 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import {
   parseSessionOrigin,
   parseVerifiedOwnerProofId,
+  projectActiveWalletSession,
   type VerifiedOwnerProof,
 } from '../../../authorization/domain';
 import {
@@ -38,7 +39,9 @@ import type {
   DirectV2IssueResult,
   IssuedWalletSessionAuthorizationV2,
 } from '../../../authorization/domain';
-import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
+import type {
+  WalletSessionOperationCredentialV1,
+} from '@shared/device-linking/contracts';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../../core/registrationContracts';
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
 import type {
@@ -684,41 +687,6 @@ function projectPasskeyEd25519WalletSession(
     runtimePolicyScope: session.runtimePolicyScope,
     routerAbNormalSigning: session.routerAbNormalSigning,
     walletSessionToken: session.walletSessionToken,
-  };
-}
-
-function projectActiveWalletSession(
-  issued: IssuedWalletSessionAuthorizationV2,
-): Record<string, unknown> {
-  const capabilitySubjects = issued.session.capabilitySubjects.map((subject) => {
-    switch (subject.kind) {
-      case 'sign':
-      case 'export_keys':
-        return {
-          kind: subject.kind,
-          keyFamily: subject.keyFamily,
-          materialActivation: subject.materialActivation,
-        };
-      case 'link_devices':
-      case 'revoke_devices':
-        return { kind: subject.kind };
-      default:
-        throw new Error('Issued linked-device Wallet Session subject is invalid');
-    }
-  });
-  const first = capabilitySubjects[0];
-  if (!first) throw new Error('Issued linked-device Wallet Session has no subjects');
-  return {
-    kind: 'active_wallet_session_v1',
-    walletId: issued.session.walletId,
-    authorityId: issued.session.authorityId,
-    authMethodId: issued.session.walletAuthMethodId,
-    authorizationId: issued.session.authorizationId,
-    authorityDigestB64u: issued.session.authorityDigestB64u,
-    authorityRevocationEpoch: issued.session.authorityRevocationEpoch,
-    capabilitySubjects: [first, ...capabilitySubjects.slice(1)],
-    issuedAtMs: issued.session.createdAtMs,
-    expiresAtMs: issued.session.expiresAtMs,
   };
 }
 

@@ -79,8 +79,17 @@ import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { replaceActiveWalletAuthorityEd25519MaterialActivationV1 } from '@shared/authorization/walletAuthority';
+import { WALLET_SESSION_CLIENT_CAPABILITY_V1 } from '@shared/authorization/capabilityKinds';
 
 export type { SyncAccountResult };
+
+type SyncAccountAttemptV1 =
+  | { readonly kind: 'initial' }
+  | { readonly kind: 'replacement_after_committed' };
+
+type SyncAccountVerificationResultV1 =
+  | { readonly kind: 'verified'; readonly response: Record<string, unknown> }
+  | { readonly kind: 'already_committed' };
 
 type SyncOptionsV1 = {
   readonly challengeId: string;
@@ -96,12 +105,15 @@ export type PreparedSyncAccountChallenge = Readonly<{
   readonly syncOptions: SyncOptionsV1;
 }>;
 
-export type PasskeyEd25519YaoUnlockRecoveryV1 = {
-  readonly recovery: PasskeyEd25519YaoRecoveryResultV1;
-  readonly credential: WebAuthnAuthenticationCredential;
-  readonly verifiedBinding: RecoveryResolvedWalletBinding;
-  readonly ecdsaContinuity: ParsedWalletCustodyEcdsaContinuityV1;
-};
+export type PasskeyEd25519YaoUnlockRecoveryV1 =
+  | {
+      readonly kind: 'recovered';
+      readonly recovery: PasskeyEd25519YaoRecoveryResultV1;
+      readonly credential: WebAuthnAuthenticationCredential;
+      readonly verifiedBinding: RecoveryResolvedWalletBinding;
+      readonly ecdsaContinuity: ParsedWalletCustodyEcdsaContinuityV1;
+    }
+  | { readonly kind: 'already_committed' };
 
 type ParsedWalletCustodyEcdsaSignerV1 = {
   readonly chainTarget: ThresholdEcdsaChainTarget;
@@ -407,17 +419,63 @@ function requireSelectedCredentialId(credential: WebAuthnAuthenticationCredentia
   return rawId;
 }
 
+function isExactSyncAccountAlreadyCommittedResponse(input: {
+  readonly response: Response;
+  readonly raw: unknown;
+  readonly expectedWalletId: string | null;
+}): boolean {
+  if (input.response.status !== 409 || !isPlainObject(input.raw)) return false;
+  const raw = input.raw;
+  if (
+    raw.ok !== false ||
+    raw.code !== 'already_committed' ||
+    raw.kind !== 'already_committed' ||
+    raw.next !== 'unlock_exact_method'
+  ) {
+    return false;
+  }
+  const identityFields = [
+    'walletId',
+    'authorityId',
+    'walletAuthMethodId',
+    'mintId',
+    'authorizationId',
+    'walletSessionId',
+    'quotaId',
+  ] as const;
+  if (
+    identityFields.some((field) => {
+      const value = raw[field];
+      return typeof value !== 'string' || !value.trim();
+    })
+  ) {
+    return false;
+  }
+  const walletId = raw.walletId;
+  if (input.expectedWalletId !== null && walletId !== input.expectedWalletId) return false;
+  return !(
+    'walletSessionToken' in raw ||
+    'walletSessionJwt' in raw ||
+    'sessionKind' in raw ||
+    'walletSession' in raw ||
+    'operationCredential' in raw ||
+    'credential' in raw
+  );
+}
+
 async function verifySyncCredential(input: {
   readonly relayerUrl: string;
   readonly challengeId: string;
+  readonly expectedWalletId: string | null;
   readonly credential: WebAuthnAuthenticationCredential;
   readonly fetch: typeof fetch;
-}): Promise<Record<string, unknown>> {
+}): Promise<SyncAccountVerificationResultV1> {
   const response = await input.fetch(`${input.relayerUrl}/sync-account/verify`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       challengeId: input.challengeId,
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       webauthn_authentication: redactCredentialExtensionOutputs<WebAuthnAuthenticationCredential>(
         input.credential,
       ),
@@ -425,10 +483,19 @@ async function verifySyncCredential(input: {
   });
   const raw = await readJsonOrNull(response);
   if (!response.ok || !isPlainObject(raw) || raw.ok !== true || raw.verified !== true) {
+    if (
+      isExactSyncAccountAlreadyCommittedResponse({
+        response,
+        raw,
+        expectedWalletId: input.expectedWalletId,
+      })
+    ) {
+      return { kind: 'already_committed' };
+    }
     const message = isPlainObject(raw) ? String(raw.message || raw.code || '') : '';
     throw new Error(message || `sync-account/verify failed (HTTP ${response.status})`);
   }
-  return raw;
+  return { kind: 'verified', response: raw };
 }
 
 function assertNeverRecoveredCapabilityOwnership(value: never): never {
@@ -465,7 +532,7 @@ function assertRecoveredCapabilityBinding(input: {
   readonly rpId: string;
   readonly optionsBinding: RecoveryResolvedWalletBinding | null;
   readonly verifiedBinding: RecoveryResolvedWalletBinding;
-  readonly recovery: PasskeyEd25519YaoRecoveryResultV1;
+  readonly parsed: ParsedPasskeyEd25519YaoSyncResponseV1;
   readonly selectedCredentialId: string;
 }): void {
   if (input.optionsBinding) {
@@ -475,7 +542,7 @@ function assertRecoveredCapabilityBinding(input: {
       'sync-account/verify',
     );
   }
-  const recovered = input.recovery.parsed;
+  const recovered = input.parsed;
   if (
     input.verifiedBinding.rpId !== input.rpId ||
     (input.requestedWalletId !== null &&
@@ -496,10 +563,6 @@ type RecoverAndCommitPasskeyEd25519UnlockInput = {
   ownedFactorSecret: Uint8Array;
   relayerUrl: string;
   rpId: string;
-  requestedWalletId: string | null;
-  optionsBinding: RecoveryResolvedWalletBinding | null;
-  verifiedBinding: RecoveryResolvedWalletBinding;
-  selectedCredentialId: string;
   sessionPersistence: RecoverPasskeyEd25519YaoForUnlockInputV1['sessionPersistence'];
   activateCapability: RecoverPasskeyEd25519YaoForUnlockInputV1['activateCapability'];
   rejoinWalletCustodyNearEd25519KeySet: RecoverPasskeyEd25519YaoForUnlockInputV1['rejoinWalletCustodyNearEd25519KeySet'];
@@ -601,7 +664,7 @@ async function recoverAndCommitPasskeyEd25519Unlock(
         nearEd25519SigningKeyId: input.parsed.nearEd25519SigningKeyId,
         recoveryBasis: input.parsed.capability,
         routerOrigin: new URL(input.relayerUrl).origin,
-        walletSessionToken: input.parsed.session.walletSessionToken,
+        walletSessionToken: input.parsed.operationCredential.token,
       });
       const materialBinding = walletCustodyMaterialBinding({
         parsed: input.parsed,
@@ -678,14 +741,6 @@ async function recoverAndCommitPasskeyEd25519Unlock(
       walletSessionState,
       parsed: input.parsed,
     };
-    assertRecoveredCapabilityBinding({
-      requestedWalletId: input.requestedWalletId,
-      rpId: input.rpId,
-      optionsBinding: input.optionsBinding,
-      verifiedBinding: input.verifiedBinding,
-      recovery,
-      selectedCredentialId: input.selectedCredentialId,
-    });
     const recoveredActivation = nearEd25519YaoMaterialActivationFromMetadata(
       recovery.activeClient.metadata(),
     );
@@ -878,12 +933,15 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
   const prfFirstB64u = getPrfFirstB64uFromCredential(credential);
   if (!prfFirstB64u) throw new Error('selected passkey did not return PRF.first');
   input.onRelayVerifyStarted?.();
-  const verified = await verifySyncCredential({
+  const verification = await verifySyncCredential({
     relayerUrl: input.relayerUrl,
     challengeId: syncOptions.challengeId,
+    expectedWalletId: requestedWalletId || null,
     credential,
     fetch: input.fetch,
   });
+  if (verification.kind === 'already_committed') return verification;
+  const verified = verification.response;
   const verifiedBinding = parseRecoveryResolvedWalletBindingFromResponse(
     verified,
     'sync-account/verify',
@@ -893,6 +951,14 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
   try {
     const parsed = parsePasskeyEd25519YaoSyncResponseV1(verified);
     const ecdsaContinuity = parseWalletCustodyEcdsaContinuity(verified, parsed);
+    assertRecoveredCapabilityBinding({
+      requestedWalletId: requestedWalletId || null,
+      rpId: input.rpId,
+      optionsBinding: syncOptions.walletBinding,
+      verifiedBinding,
+      parsed,
+      selectedCredentialId,
+    });
     await input.prepareLocalProfile(parsed, credential);
     const recovery = await input.withExactEd25519MaterialOwner({
       materialActivation: parsed.capability.materialActivation,
@@ -902,10 +968,6 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
         ownedFactorSecret,
         relayerUrl: input.relayerUrl,
         rpId: input.rpId,
-        requestedWalletId: requestedWalletId || null,
-        optionsBinding: syncOptions.walletBinding,
-        verifiedBinding,
-        selectedCredentialId,
         sessionPersistence: input.sessionPersistence,
         activateCapability: input.activateCapability,
         rejoinWalletCustodyNearEd25519KeySet: input.rejoinWalletCustodyNearEd25519KeySet,
@@ -927,7 +989,7 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
       continuity: ecdsaContinuity,
       ownedFactorSecret,
     });
-    return { recovery, credential, verifiedBinding, ecdsaContinuity };
+    return { kind: 'recovered', recovery, credential, verifiedBinding, ecdsaContinuity };
   } finally {
     ownedFactorSecret.fill(0);
   }
@@ -1022,17 +1084,9 @@ async function persistRecoveredWalletSessionAuthorization(
   if (!thresholdSessionId.ok) {
     throw new Error('Recovered Wallet Session has an invalid threshold session identity');
   }
-  await persistActiveWalletSessionAuthorizationCurve(walletSessionAuthorizations, {
-    walletId: parsed.walletId,
-    authorizationId: parsed.session.authorizationId,
-    walletSessionId: parsed.session.walletSessionId,
-    quotaId: parsed.session.quotaId,
-    expiresAtMs: parsed.session.expiresAtMs,
-    authority: parsed.authority,
-    authMethod: 'passkey',
-    walletSessionToken: parsed.session.walletSessionToken,
-    thresholdSessionId: thresholdSessionId.value,
-    curve: 'ed25519',
+  await walletSessionAuthorizations.writeExactWithOperationCredential({
+    record: parsed.walletSession,
+    operationCredential: parsed.operationCredential,
   });
 }
 
@@ -1147,6 +1201,7 @@ function emitSyncAccountRelayVerifySucceeded(
 async function syncAccountInternal(
   context: AccountSyncWebContext,
   walletId: string | null,
+  attempt: SyncAccountAttemptV1,
   options?: SyncAccountHooksOptions,
   preparedChallenge?: PreparedSyncAccountChallenge,
   preparedCredential?: WebAuthnAuthenticationCredential,
@@ -1219,6 +1274,17 @@ async function syncAccountInternal(
         recoveryCallbacks,
       ),
     });
+    if (recovered.kind === 'already_committed') {
+      if (attempt.kind === 'initial') {
+        return await syncAccountInternal(
+          context,
+          walletId,
+          { kind: 'replacement_after_committed' },
+          options,
+        );
+      }
+      throw new Error('sync-account/verify remained already committed after one replacement attempt');
+    }
     const { recovery, verifiedBinding } = recovered;
     recoveryOwnership = { kind: 'registry_owned', recovery };
     await persistRecoveredWalletSessionAuthorization(recovery.parsed);
@@ -1298,7 +1364,7 @@ export async function syncAccount(
   walletId: string | null,
   options?: SyncAccountHooksOptions,
 ): Promise<SyncAccountResult> {
-  return await syncAccountInternal(context, walletId, options);
+  return await syncAccountInternal(context, walletId, { kind: 'initial' }, options);
 }
 
 export async function syncAccountWithPreparedCredential(
@@ -1310,6 +1376,7 @@ export async function syncAccountWithPreparedCredential(
   return await syncAccountInternal(
     context,
     preparedChallenge.walletId,
+    { kind: 'initial' },
     options,
     preparedChallenge,
     credential,
