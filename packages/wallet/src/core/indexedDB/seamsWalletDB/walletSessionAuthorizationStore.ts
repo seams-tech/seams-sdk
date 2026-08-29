@@ -294,6 +294,33 @@ export type WalletSessionAuthorizationReadResult<
       readonly projection?: never;
     };
 
+export type WalletSessionAuthorizationExactOperationCredentialReadResult =
+  | {
+      readonly kind: 'found';
+      readonly record: ActiveWalletSessionV1;
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+    }
+  | {
+      readonly kind: 'missing';
+      readonly record?: never;
+      readonly operationCredential?: never;
+    }
+  | {
+      readonly kind: 'upgrade_required';
+      readonly record?: never;
+      readonly operationCredential?: never;
+    };
+
+export class WalletSessionAuthorizationUpgradeRequiredError extends Error {
+  readonly kind = 'upgrade_required';
+  readonly code = 'upgrade_required';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'WalletSessionAuthorizationUpgradeRequiredError';
+  }
+}
+
 export type BuildActiveWalletSessionAuthorizationProjectionInput = Omit<
   ActiveWalletSessionAuthorizationProjection,
   'recordVersion' | 'status' | 'walletSessionTokens'
@@ -672,6 +699,28 @@ function isFutureWalletSessionAuthorizationRow(value: unknown): boolean {
   if (!match) return false;
   const version = Number(match[1]);
   return Number.isSafeInteger(version) && version > 5;
+}
+
+function futureWalletSessionAuthorizationRowMatchesExactScope(
+  value: unknown,
+  scope: {
+    readonly walletId: WalletId;
+    readonly authorityId: WalletAuthorityId;
+    readonly authMethodId: WalletAuthMethodId;
+  },
+): boolean {
+  if (!isFutureWalletSessionAuthorizationRow(value) || !isRecord(value)) return false;
+  if (value.wallet_id !== scope.walletId) return false;
+  if (
+    typeof value.wallet_authority_id !== 'string' ||
+    typeof value.wallet_auth_method_id !== 'string'
+  ) {
+    return true;
+  }
+  return (
+    value.wallet_authority_id === scope.authorityId &&
+    value.wallet_auth_method_id === scope.authMethodId
+  );
 }
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
@@ -1351,17 +1400,19 @@ export class WalletSessionAuthorizationRepository {
     readonly walletId: WalletId;
     readonly authorityId: WalletAuthorityId;
     readonly authMethodId: WalletAuthMethodId;
-  }): Promise<{
-    readonly record: ActiveWalletSessionV1;
-    readonly operationCredential: WalletSessionOperationCredentialV1;
-  } | null> {
+  }): Promise<WalletSessionAuthorizationExactOperationCredentialReadResult> {
     const db = await this.manager.getDB();
     const rows = await db.getAllFromIndex(STORE, SEAMS_WALLET_INDEXES.walletId, input.walletId);
     let match: {
       readonly record: ActiveWalletSessionV1;
       readonly operationCredential: WalletSessionOperationCredentialV1;
     } | null = null;
+    let upgradeRequired = false;
     for (const raw of rows) {
+      if (futureWalletSessionAuthorizationRowMatchesExactScope(raw, input)) {
+        upgradeRequired = true;
+        continue;
+      }
       if (
         !isRecord(raw) ||
         raw.record_version !== WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5 ||
@@ -1384,7 +1435,17 @@ export class WalletSessionAuthorizationRepository {
       if (match) throw new Error('Multiple exact Wallet Sessions with operation credentials found');
       match = parsed;
     }
-    return match;
+    if (upgradeRequired) {
+      return { kind: 'upgrade_required' };
+    }
+    if (match) {
+      return {
+        kind: 'found',
+        record: match.record,
+        operationCredential: match.operationCredential,
+      };
+    }
+    return { kind: 'missing' };
   }
 
   async readExactActiveForWallet(input: {
