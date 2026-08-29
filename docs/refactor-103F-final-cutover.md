@@ -753,7 +753,12 @@ Convert every current issuer:
 - [x] Bind sync recovery from `already_committed` to the same committed wallet,
       auth method, and selected credential, allow exactly one fresh challenge,
       and fail closed if the replacement terminal repeats or changes identity;
-- [ ] ECDSA post-registration activation in `thresholdEcdsa.ts`;
+- [x] ECDSA post-registration activation in `thresholdEcdsa.ts`: direct-capable
+      requests now issue the exact V2 session and primary operation credential
+      atomically, bind replay to a dedicated response family, validate the
+      resolved ECDSA material before persistence, and persist only the exact
+      browser record. `tests/unit/routerAbEcdsaExactActivationWire.unit.test.ts`
+      rejects the retired bearer response and material drift;
 - [ ] `mintRouterAbEd25519YaoWalletSessionV1` and its sync/registration callers;
 - [ ] `issueRouterAbEd25519OpaqueWalletSessionToken` and every direct caller;
       and
@@ -875,10 +880,11 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
       exhausts every owned quota, retires every owned exact session, and
       preserves unrelated authorities. `tests/unit/d1WalletAuthorityStore.unit.test.ts`
       proves the fence and isolation.
-- [ ] Append exact session retirement, quota closure, and hosted-child
-      retirement to the owning revocation CAS.
-- [ ] Convert explicit session retirement to close the exact V2 session and
-      quota and retire hosted children in one transaction.
+- [ ] Convert explicit exact-session retirement to close its V2 parent and
+      quota in one transaction.
+- [ ] Retire hosted children in the same owning auth-method, authority, or
+      explicit-session CAS after I7 introduces production hosted-child rows;
+      migration `0028` currently has no production child writer or reader.
 - [ ] Transition a consumed quota to exhausted through V2 while retaining exact
       identity for typed status and step-up.
 - [ ] Replace `hasActiveWalletSessionsForAuthMethod` with a V2 query.
@@ -1505,6 +1511,9 @@ Remaining causal baseline work:
 - [x] `tests/unit/registrationEstablishedWalletSessionProjection.unit.test.ts`
 - [x] `tests/unit/walletRegistrationActivateRoute.unit.test.ts`, covering direct
       issuance, credential-free same-mint replay, and strict response parsing
+- [x] `tests/unit/routerAbEcdsaExactActivationWire.unit.test.ts`, covering the
+      required direct-client capability, exact session/credential response,
+      retired-bearer rejection, and ECDSA material binding
 - [x] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`
 - [ ] `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts`
 - [x] `tests/unit/walletExecutionAdmissionV2.unit.test.ts`
