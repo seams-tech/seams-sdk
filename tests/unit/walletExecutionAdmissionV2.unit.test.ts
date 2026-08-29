@@ -306,6 +306,7 @@ async function unsupportedAuthorizedOperationOperation(): Promise<never> {
 
 class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessionService {
   readonly tenantId: WalletSessionAuthorizationV2['tenantId'];
+  legacyReads = 0;
 
   constructor(
     private readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext,
@@ -333,6 +334,7 @@ class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessi
   }
 
   async resolveOpaqueWalletSessionToken(): Promise<null> {
+    this.legacyReads += 1;
     return null;
   }
 
@@ -1315,6 +1317,53 @@ test('ordinary Ed25519 admission consumes exact V2 credentials and rejects activ
     code: 'wallet_session_scope_mismatch',
     message: expect.any(String),
   });
+});
+
+test('ordinary signing validators reject missing exact state without V1 token fallback', async () => {
+  const authority = await buildAuthority('both', 'exact-only-validator');
+  const authMethod = buildAuthMethod(authority, 'exact-only-validator', 'active');
+  const session = buildSession({
+    authority,
+    authMethodId: authMethod.walletAuthMethodId,
+    label: 'exact-only-validator',
+    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
+    authorityDigestB64u: authority.authorityDigestB64u,
+    authorityRevocationEpoch: authority.revocationEpoch,
+    expiresAtMs: 1_000,
+  });
+  const service = new WalletSessionAuthorizationV2Fixture(
+    buildAdmissionContext({ authority, authMethod, session }),
+    'different-exact-credential',
+  );
+
+  const [ed25519, ecdsa] = await Promise.all([
+    validateRouterAbEd25519WalletSessionTokenInputs({
+      body: {},
+      headers: { authorization: 'Bearer retired-v1-token' },
+      authorizationSessions: service,
+      nowMs: () => 500,
+      operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
+    }),
+    validateRouterAbEcdsaDerivationWalletSessionInputs({
+      body: {},
+      headers: { authorization: 'Bearer retired-v1-token' },
+      authorizationSessions: service,
+      nowMs: () => 500,
+      operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
+    }),
+  ]);
+
+  expect(ed25519).toEqual({
+    ok: false,
+    code: 'wallet_session_invalid',
+    message: expect.any(String),
+  });
+  expect(ecdsa).toEqual({
+    ok: false,
+    code: 'wallet_session_invalid',
+    message: expect.any(String),
+  });
+  expect(service.legacyReads).toBe(0);
 });
 
 test('strict Ed25519 V2 finalize admits the exact receipt operation and rejects drift', async () => {
