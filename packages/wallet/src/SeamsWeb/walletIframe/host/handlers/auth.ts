@@ -24,7 +24,7 @@ import { createHostedAuthMenuHandlers } from './authMenu';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import { createRelayerExactWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 
 async function readWalletIframeExactSessionStatus(
   relayUrl: string,
@@ -32,7 +32,7 @@ async function readWalletIframeExactSessionStatus(
 ): Promise<WalletIframeExactSessionStatus> {
   const normalizedRelayUrl = String(relayUrl || '').trim();
   if (!normalizedRelayUrl) throw new Error('Wallet iframe relayer URL is required');
-  return await createRelayerReusableWalletSessionStatusPort({
+  return await createRelayerExactWalletSessionStatusPort({
     relayerUrl: normalizedRelayUrl,
     operationCredential: input.operationCredential,
   }).read({

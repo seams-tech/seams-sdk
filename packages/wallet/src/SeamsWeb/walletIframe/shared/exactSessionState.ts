@@ -40,7 +40,7 @@ import type {
 import { activeWalletSessionV1RecordsEqual } from '@shared/device-linking/activeWalletSession';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { WalletSessionAuthorizationExactActiveReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import type { ReusableWalletSessionStatus } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import type { ExactWalletSessionStatus } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
@@ -139,7 +139,7 @@ export class WalletIframeSessionExpiredRequestError extends Error {
   }
 }
 
-export type WalletIframeExactSessionStatus = ReusableWalletSessionStatus;
+export type WalletIframeExactSessionStatus = ExactWalletSessionStatus;
 
 export type WalletIframeExactSessionReadDependencies = {
   readonly resolveSelectedWalletAuthority: (

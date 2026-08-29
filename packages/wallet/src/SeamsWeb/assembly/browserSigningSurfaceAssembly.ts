@@ -9,8 +9,8 @@ import { IndexedDbEcdsaCapabilityManifestStore } from '@/core/indexedDB/seamsWal
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import {
-  createRelayerReusableWalletSessionStatusPort,
-  type ReusableWalletSessionStatus,
+  createRelayerExactWalletSessionStatusPort,
+  type ExactWalletSessionStatus,
 } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningOperation } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
 import { createCanonicalWalletSessionStatusReader } from '@/core/signingEngine/session/lifecycle/canonicalWalletSessionStatus';
@@ -262,7 +262,7 @@ type NearEd25519NonAuthorizedReadResult = Exclude<
 >;
 
 function nearEd25519ReadResultFromRemoteStatus(
-  status: ReusableWalletSessionStatus,
+  status: ExactWalletSessionStatus,
 ): NearEd25519NonAuthorizedReadResult {
   switch (status.status) {
     case 'missing':
@@ -342,9 +342,9 @@ export async function readBrowserExactNearEd25519WalletSessionAuthorization(
   const nowMs = Date.now();
   if (exactRead.record.expiresAtMs <= nowMs) return { kind: 'expired' };
 
-  let status: ReusableWalletSessionStatus;
+  let status: ExactWalletSessionStatus;
   try {
-    status = await createRelayerReusableWalletSessionStatusPort({
+    status = await createRelayerExactWalletSessionStatusPort({
       relayerUrl,
       operationCredential: exactRead.operationCredential,
     }).read({
@@ -497,7 +497,7 @@ export async function resolveBrowserActiveEcdsaWalletSessionAuthorization(
   if (exactAuthorization.record.expiresAtMs <= nowMs) {
     return { kind: 'inactive', reason: 'Exact Wallet Session authorization is expired' };
   }
-  const status = await createRelayerReusableWalletSessionStatusPort({
+  const status = await createRelayerExactWalletSessionStatusPort({
     relayerUrl,
     operationCredential: exactAuthorization.operationCredential,
   }).read({

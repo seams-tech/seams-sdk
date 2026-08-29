@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 import {
-  createRelayerReusableWalletSessionStatusPort,
-  parseReusableWalletSessionStatusResponse,
+  createRelayerExactWalletSessionStatusPort,
+  parseExactWalletSessionStatusResponse,
 } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
 import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
@@ -52,7 +52,7 @@ test.describe('Wallet Session authorization status client', () => {
     const walletSessionToken = `wst_${'a'.repeat(43)}`;
     const { body, identity } = await activeStatusResponseBody();
     let requestInit: RequestInit | undefined;
-    const statusPort = createRelayerReusableWalletSessionStatusPort({
+    const statusPort = createRelayerExactWalletSessionStatusPort({
       relayerUrl: 'https://relayer.example.test',
       operationCredential: operationCredential(walletSessionToken, identity.walletSessionId),
       fetchImpl: async (_input, init) => {
@@ -93,12 +93,12 @@ test.describe('Wallet Session authorization status client', () => {
         headers: { 'content-type': 'application/json' },
       });
     };
-    const firstPort = createRelayerReusableWalletSessionStatusPort({
+    const firstPort = createRelayerExactWalletSessionStatusPort({
       relayerUrl: 'https://relayer.example.test',
       operationCredential: operationCredential(walletSessionToken, identity.walletSessionId),
       fetchImpl,
     });
-    const secondPort = createRelayerReusableWalletSessionStatusPort({
+    const secondPort = createRelayerExactWalletSessionStatusPort({
       relayerUrl: 'https://relayer.example.test',
       operationCredential: operationCredential(walletSessionToken, identity.walletSessionId),
       fetchImpl,
@@ -122,7 +122,7 @@ test.describe('Wallet Session authorization status client', () => {
     }
 
     expect(
-      parseReusableWalletSessionStatusResponse(
+      parseExactWalletSessionStatusResponse(
         {
           ...body,
           authorization: {

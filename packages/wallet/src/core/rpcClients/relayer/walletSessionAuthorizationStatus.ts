@@ -18,9 +18,9 @@ import {
   normalizeRelayerBaseUrl,
 } from './relayerHttp';
 
-export const REUSABLE_WALLET_SESSION_STATUS_PATH = '/wallet/session/status' as const;
+export const EXACT_WALLET_SESSION_STATUS_PATH = '/wallet/session/status' as const;
 
-type ReusableWalletSessionStatusIdentity = {
+type ExactWalletSessionStatusIdentity = {
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
 };
@@ -46,7 +46,7 @@ type ObservedWalletSessionStatusFacts = ObservedWalletSessionQuotaFacts & {
  * authorization, without a status read. This is deliberately narrower than a
  * status response: it makes no claim about the server's current projection.
  */
-export type ActiveWalletSessionQuotaStatusV1 = ReusableWalletSessionStatusIdentity & {
+export type ActiveWalletSessionQuotaStatusV1 = ExactWalletSessionStatusIdentity & {
   readonly status: 'active';
   readonly remainingUses: number;
   readonly expiresAtMs: number;
@@ -57,14 +57,14 @@ export type ActiveWalletSessionQuotaStatusV1 = ReusableWalletSessionStatusIdenti
  * terminal branches name no authorization the caller can reconcile against and
  * cannot carry one.
  */
-export type ReusableWalletSessionStatus =
+export type ExactWalletSessionStatus =
   | (ActiveWalletSessionQuotaStatusV1 & ObservedWalletSessionStatusFacts)
-  | (ReusableWalletSessionStatusIdentity &
+  | (ExactWalletSessionStatusIdentity &
       ObservedWalletSessionStatusFacts & {
         readonly status: 'exhausted';
         readonly remainingUses: 0;
       })
-  | (ReusableWalletSessionStatusIdentity &
+  | (ExactWalletSessionStatusIdentity &
       ObservedWalletSessionStatusFacts & {
         readonly status:
           | 'expired'
@@ -73,7 +73,7 @@ export type ReusableWalletSessionStatus =
           | 'method_unavailable'
           | 'capability_unavailable';
       })
-  | (ReusableWalletSessionStatusIdentity & {
+  | (ExactWalletSessionStatusIdentity & {
       readonly status: 'missing' | 'invalid';
       readonly remainingUses?: never;
       readonly expiresAtMs?: never;
@@ -81,11 +81,11 @@ export type ReusableWalletSessionStatus =
       readonly authorization?: never;
     });
 
-export interface ReusableWalletSessionStatusPort {
-  read(input: ReusableWalletSessionStatusIdentity): Promise<ReusableWalletSessionStatus>;
+export interface ExactWalletSessionStatusPort {
+  read(input: ExactWalletSessionStatusIdentity): Promise<ExactWalletSessionStatus>;
 }
 
-export type RelayerReusableWalletSessionStatusPortOptions = {
+export type RelayerExactWalletSessionStatusPortOptions = {
   readonly relayerUrl: string;
   readonly operationCredential: WalletSessionOperationCredentialV1;
   readonly fetchImpl?: typeof fetch;
@@ -94,7 +94,7 @@ export type RelayerReusableWalletSessionStatusPortOptions = {
 const defaultStatusFetch: typeof fetch = (input, init) => globalThis.fetch(input, init);
 const statusReadsByFetch = new WeakMap<
   typeof fetch,
-  Map<string, Promise<ReusableWalletSessionStatus>>
+  Map<string, Promise<ExactWalletSessionStatus>>
 >();
 
 const OBSERVED_FIELDS = [
@@ -124,8 +124,8 @@ function isPositiveSafeInteger(value: unknown): value is number {
 
 function parseIdentity(
   record: Record<string, unknown>,
-  expected: ReusableWalletSessionStatusIdentity,
-): ReusableWalletSessionStatusIdentity | null {
+  expected: ExactWalletSessionStatusIdentity,
+): ExactWalletSessionStatusIdentity | null {
   const walletSessionId = parseWalletSessionId(record.walletSessionId);
   const quotaId = parseMpcWalletSigningQuotaId(record.quotaId);
   if (
@@ -153,7 +153,7 @@ function isNonnegativeSafeInteger(value: unknown): value is number {
  */
 function parseObservedStatusFacts(
   value: Record<string, unknown>,
-  identity: ReusableWalletSessionStatusIdentity,
+  identity: ExactWalletSessionStatusIdentity,
 ): ObservedWalletSessionStatusFacts | null {
   if (!hasExactFields(value, OBSERVED_FIELDS)) return null;
   if (value.quotaLifecycle !== 'active' && value.quotaLifecycle !== 'exhausted') return null;
@@ -180,10 +180,10 @@ function parseObservedStatusFacts(
   };
 }
 
-export function parseReusableWalletSessionStatusResponse(
+export function parseExactWalletSessionStatusResponse(
   value: unknown,
-  expected: ReusableWalletSessionStatusIdentity,
-): ReusableWalletSessionStatus | null {
+  expected: ExactWalletSessionStatusIdentity,
+): ExactWalletSessionStatus | null {
   if (!isRecord(value) || value.ok !== true) return null;
   const identity = parseIdentity(value, expected);
   if (!identity) return null;
@@ -214,19 +214,19 @@ export function parseReusableWalletSessionStatusResponse(
   }
 }
 
-export class RelayerReusableWalletSessionStatusPort implements ReusableWalletSessionStatusPort {
+export class RelayerExactWalletSessionStatusPort implements ExactWalletSessionStatusPort {
   private readonly relayerUrl: string;
   private readonly operationCredential: WalletSessionOperationCredentialV1;
   private readonly fetchImpl: typeof fetch;
 
-  constructor(options: RelayerReusableWalletSessionStatusPortOptions) {
+  constructor(options: RelayerExactWalletSessionStatusPortOptions) {
     this.relayerUrl = normalizeRelayerBaseUrl(options.relayerUrl);
     if (!this.relayerUrl) throw new Error('Relayer URL is required');
     this.operationCredential = parseWalletSessionOperationCredentialV1(options.operationCredential);
     this.fetchImpl = options.fetchImpl ?? defaultStatusFetch;
   }
 
-  async read(input: ReusableWalletSessionStatusIdentity): Promise<ReusableWalletSessionStatus> {
+  async read(input: ExactWalletSessionStatusIdentity): Promise<ExactWalletSessionStatus> {
     let reads = statusReadsByFetch.get(this.fetchImpl);
     if (!reads) {
       reads = new Map();
@@ -251,24 +251,21 @@ export class RelayerReusableWalletSessionStatusPort implements ReusableWalletSes
   }
 
   private async readRemote(
-    input: ReusableWalletSessionStatusIdentity,
-  ): Promise<ReusableWalletSessionStatus> {
-    const response = await this.fetchImpl(
-      `${this.relayerUrl}${REUSABLE_WALLET_SESSION_STATUS_PATH}`,
-      {
-        ...buildRelayerJsonPostRequestInit({
-          body: {
-            walletSessionId: input.walletSessionId,
-            quotaId: input.quotaId,
-          },
-          headers: buildBearerAuthorizationHeader({
-            token: this.operationCredential.token,
-            missingMessage: 'Wallet Session token is required for Wallet Session status',
-          }),
+    input: ExactWalletSessionStatusIdentity,
+  ): Promise<ExactWalletSessionStatus> {
+    const response = await this.fetchImpl(`${this.relayerUrl}${EXACT_WALLET_SESSION_STATUS_PATH}`, {
+      ...buildRelayerJsonPostRequestInit({
+        body: {
+          walletSessionId: input.walletSessionId,
+          quotaId: input.quotaId,
+        },
+        headers: buildBearerAuthorizationHeader({
+          token: this.operationCredential.token,
+          missingMessage: 'Wallet Session token is required for Wallet Session status',
         }),
-        credentials: 'omit',
-      },
-    );
+      }),
+      credentials: 'omit',
+    });
     const payload = (await response.json().catch(() => null)) as unknown;
     if (!response.ok) {
       const message =
@@ -277,14 +274,14 @@ export class RelayerReusableWalletSessionStatusPort implements ReusableWalletSes
           : `Wallet Session status request failed with HTTP ${response.status}`;
       throw new Error(message);
     }
-    const parsed = parseReusableWalletSessionStatusResponse(payload, input);
+    const parsed = parseExactWalletSessionStatusResponse(payload, input);
     if (!parsed) throw new Error('Wallet Session status response is invalid');
     return parsed;
   }
 }
 
-export function createRelayerReusableWalletSessionStatusPort(
-  options: RelayerReusableWalletSessionStatusPortOptions,
-): ReusableWalletSessionStatusPort {
-  return new RelayerReusableWalletSessionStatusPort(options);
+export function createRelayerExactWalletSessionStatusPort(
+  options: RelayerExactWalletSessionStatusPortOptions,
+): ExactWalletSessionStatusPort {
+  return new RelayerExactWalletSessionStatusPort(options);
 }

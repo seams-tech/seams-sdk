@@ -9,7 +9,7 @@ import type {
 } from '@shared/device-linking/contracts';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import type { ActiveWalletAuthMethodV2 } from '../identity/ownerLaneScope';
-import type { ReusableWalletSessionStatus } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import type { ExactWalletSessionStatus } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import type { MpcCapabilityHydrationPlan } from './mpcCapabilityHydration';
 import type {
@@ -18,7 +18,7 @@ import type {
 } from '@shared/utils/walletAuthAuthority';
 
 export type ActiveNearEd25519WalletSessionStatus = Extract<
-  ReusableWalletSessionStatus,
+  ExactWalletSessionStatus,
   { readonly status: 'active' }
 >;
 

@@ -5,9 +5,9 @@ import {
   buildExactWalletSessionQuotaProjectionV1,
   projectExactWalletSessionAuthorizationV1,
 } from '@server/authorization/domain';
-import { parseReusableWalletSessionStatusResponse } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import { parseExactWalletSessionStatusResponse } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import type { FetchRouterApiContext } from '@server/router/transport/fetch/fetchRouter.types';
-import { handleReusableWalletSessionStatus } from '@server/router/transport/fetch/routes/sessions';
+import { handleExactWalletSessionStatus } from '@server/router/transport/fetch/routes/sessions';
 import type { IssuedWalletSessionAuthorizationV2 } from '@server/authorization/domain';
 import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 
@@ -76,7 +76,7 @@ async function invokeStatus(input: {
       quotaId: input.quotaId,
     }),
   });
-  const response = await handleReusableWalletSessionStatus({
+  const response = await handleExactWalletSessionStatus({
     request,
     url,
     pathname: url.pathname,
@@ -139,7 +139,7 @@ test('Wallet Session status returns the exact authorization quota projection', a
   // The shared client parser is the only consumer of this shape; it must accept
   // the published projection.
   expect(
-    parseReusableWalletSessionStatusResponse(body, {
+    parseExactWalletSessionStatusResponse(body, {
       walletSessionId: authorization.session.walletSessionId,
       quotaId: authorization.session.quotaId,
     }),
@@ -195,7 +195,7 @@ for (const testCase of OBSERVED_WIRE_CASES) {
     });
     expect(body).toEqual(expected);
     expect(
-      parseReusableWalletSessionStatusResponse(body, {
+      parseExactWalletSessionStatusResponse(body, {
         walletSessionId: authorization.session.walletSessionId,
         quotaId: authorization.session.quotaId,
       }),
@@ -291,7 +291,7 @@ test('Wallet Session status requires a presented operation credential', async ()
     quota: quotaProjection(authorization),
   });
   const url = new URL('https://router.example.test/wallet/session/status');
-  const response = await handleReusableWalletSessionStatus({
+  const response = await handleExactWalletSessionStatus({
     request: new Request(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
