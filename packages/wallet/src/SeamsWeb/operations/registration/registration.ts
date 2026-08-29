@@ -177,6 +177,7 @@ import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/
 import { toAccountId } from '@/core/types/accountIds';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { persistActiveWalletSessionAuthorizationFromRegistration } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
+import { prepareWalletEd25519RegistrationPublication } from '@/core/signingEngine/flows/registration/accountLifecycle';
 import {
   establishUnlockedWalletEd25519ExportRootCapabilityV1,
   walletCustodyCeremonyTransportFromWorkerContextV1,
@@ -238,7 +239,10 @@ import {
   type RegistrationPersistenceAuth,
   type RegistrationPersistencePlan,
 } from './registrationTerminalCommit';
-import type { PendingWalletRegistrationLocalMaterialV1 } from '@/core/indexedDB';
+import type {
+  PendingWalletRegistrationCommitV1,
+  PendingWalletRegistrationLocalMaterialV1,
+} from '@/core/indexedDB';
 import { ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 } from '@shared/utils/routerAbEd25519Yao';
 // Re-exported so this module's public surface is unchanged by the move.
 export {
@@ -1918,15 +1922,15 @@ type PendingRegistrationCommitInput = WithoutPendingCommitTimestamps<
 
 async function persistPendingRegistrationCommit(
   input: PendingRegistrationCommitInput,
-): Promise<void> {
+): Promise<PendingWalletRegistrationCommitV1> {
   const nowMs = Date.now();
-  await IndexedDBManager.putPendingWalletRegistrationCommit(
-    buildPendingRegistrationCommit({
-      ...input,
-      createdAtMs: nowMs,
-      updatedAtMs: nowMs,
-    }),
-  );
+  const pending = buildPendingRegistrationCommit({
+    ...input,
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+  });
+  await IndexedDBManager.putPendingWalletRegistrationCommit(pending);
+  return pending;
 }
 
 async function discardDeferredNearCustodyWork(
@@ -3597,7 +3601,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       registrationCeremonyId: setup.registrationCeremonyId,
       activationReference: established.activationReference,
     });
-    await persistPendingRegistrationCommit({
+    const nearProvisioningPending = await persistPendingRegistrationCommit({
       operation: 'near_provisioning',
       registrationCeremonyId: setup.registrationCeremonyId,
       idempotencyKey: nearProvisioningIdempotencyKey,
@@ -3661,34 +3665,10 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       expectedRpId: args.authMethod.rpId,
       expectedWalletId: intent.walletId,
     });
-    const stored = await context.signingEngine.storeWalletEd25519RegistrationData({
-      walletId: finalized.walletId,
-      nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
-      nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
-      rpId: requireWebAuthnRpId(finalizedPasskey.rpId),
+    const nearAccountId = toAccountId(finalized.ed25519.nearAccountId);
+    const credentialPublicKeyB64u = requireFinalizedPasskeyCredentialPublicKeyB64u({
+      finalized,
       credential: passkeyAuthority.credential,
-      credentialPublicKeyB64u: requireFinalizedPasskeyCredentialPublicKeyB64u({
-        finalized,
-        credential: passkeyAuthority.credential,
-      }),
-      signerSlot: finalized.ed25519.signerSlot,
-      operationalPublicKey: clientPublicKey,
-      relayerKeyId: finalized.ed25519.relayerKeyId,
-      keyVersion: finalized.ed25519.keyVersion,
-      participantIds: [...finalized.ed25519.participantIds],
-    });
-    if (stored.signerSlot !== finalized.ed25519.signerSlot) {
-      throw new Error('Ed25519 Yao registration persisted a different signer slot');
-    }
-    await IndexedDBManager.persistFoundingWalletAuthority({
-      authority: finalized.foundingAuthority,
-      authMethod: finalized.foundingAuthMethod,
-    });
-    await context.signingEngine.activateAuthenticatedWalletState({
-      walletId: finalized.walletId,
-      nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
-      signerSlot: finalized.ed25519.signerSlot,
-      nearClient: context.nearClient,
     });
     const materialFacts = registrationEd25519MaterialFacts({
       deferredNear: responded.ed25519,
@@ -3696,30 +3676,13 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       walletId: intent.walletId,
       expectedRuntimePolicyScope: normalizeRuntimePolicyScope(intent.runtimePolicyScope),
     });
-    /* The wallet-scoped continuity cache, sealed by the ceremony under a key
-         derived from the custody seed. One record per wallet rather than one
-         per factor: a factor enrolled later opens the same envelope and so
-         reaches the same cache. Persisted here rather than at establish time
-         because the wallet profile it hangs off is created in between. */
     const metadata = established.metadata;
-    await context.signingEngine.persistWalletCustodyEd25519Material({
-      binding: {
-        kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
-        applicationBindingDigestB64u: established.localMaterial.applicationBindingDigestB64u,
-        registeredPublicKeyB64u: base64UrlEncode(metadata.registeredPublicKey),
-        participantIds: metadata.participantIds,
-        stateEpoch: String(metadata.stateEpoch),
-        walletId: String(finalized.walletId),
-        nearAccountId: String(finalized.ed25519.nearAccountId),
-        nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
-        signerSlot: finalized.ed25519.signerSlot,
-        signingWorkerId: metadata.scope.signing_worker_id,
-        signingWorkerVerifyingShareB64u: base64UrlEncode(metadata.signingWorkerVerifyingShare),
-      },
-      sealed: {
-        ciphertextB64u: established.localMaterial.b64u,
-        nonceB64u: established.localMaterial.nonceB64u,
-      },
+    const custodyMaterial = walletCustodyRegistrationMaterial({
+      established,
+      walletId: String(finalized.walletId),
+      nearAccountId: String(nearAccountId),
+      nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+      signerSlot: finalized.ed25519.signerSlot,
     });
     await rememberPasskeyRegistrationCustodyEnvelope({
       commit: established.commitPayload,
@@ -3765,9 +3728,45 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       walletSessionId: String(registrationAuthorization.walletSessionId),
       expiresAtMs: registrationAuthorization.expiresAtMs,
     });
-    await IndexedDBManager.deletePendingWalletRegistrationCommit({
-      registrationCeremonyId: setup.registrationCeremonyId,
-      operation: 'near_provisioning',
+    const registration = prepareWalletEd25519RegistrationPublication({
+      walletId: finalized.walletId,
+      nearAccountId,
+      nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+      rpId: requireWebAuthnRpId(finalizedPasskey.rpId),
+      credential: passkeyAuthority.credential,
+      credentialPublicKeyB64u,
+      signerSlot: finalized.ed25519.signerSlot,
+      operationalPublicKey: clientPublicKey,
+      relayerKeyId: finalized.ed25519.relayerKeyId,
+      keyVersion: finalized.ed25519.keyVersion,
+      participantIds: [...finalized.ed25519.participantIds],
+      custodyMaterial,
+    });
+    const stored = await IndexedDBManager.publishPendingWalletRegistrationCommit({
+      pending: nearProvisioningPending,
+      authority: finalized.authority,
+      foundingAuthority: {
+        authority: finalized.foundingAuthority,
+        authMethod: finalized.foundingAuthMethod,
+      },
+      request: {
+        operation: 'near_provisioning',
+        registrationCeremonyId: setup.registrationCeremonyId,
+        idempotencyKey: nearProvisioningIdempotencyKey,
+        walletId: finalized.walletId,
+        walletAuthMethodId: finalized.foundingAuthMethod.walletAuthMethodId,
+      },
+      registration,
+    });
+    const storedNearActivation = stored.signerActivations[1];
+    if (!storedNearActivation || storedNearActivation.signerSlot !== finalized.ed25519.signerSlot) {
+      throw new Error('Ed25519 Yao registration persisted a different signer slot');
+    }
+    await context.signingEngine.activateAuthenticatedWalletState({
+      walletId: finalized.walletId,
+      nearAccountId,
+      signerSlot: finalized.ed25519.signerSlot,
+      nearClient: context.nearClient,
     });
     emitRegistrationEvent(options.onEvent, eventAccountId, {
       authMethod: 'passkey',
