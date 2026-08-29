@@ -2,255 +2,100 @@
 
 Date created: August 26, 2026
 
-Status: implementation plan. This plan closes the incomplete Wallet Session
-cutover left by R103E. No phase is complete until its production paths and
-deletion ledger are reconciled against the landed tree.
+Status: implementation plan
 
-Design safety audit incorporated: August 26, 2026.
+## Purpose
 
-Claude critique and repeated tree reconciliation incorporated through commit
-`be8fcbaf7` on August 29, 2026. This includes landed R115 additive multi-auth
-recovery in `7310b703f`, hosted recovery continuation in `d3c242eac`, ordinary
-recovery-authority unlock in `b5507d7ae`, and the isolated intended-contract
-runner plus fail-closed recovered Email OTP local-state validation in
-`a8bc2606f`.
-
-## Goal
-
-Make one exact Wallet Session model the only wallet-operation session model
-across the server, SDK, iframe, IndexedDB, device linking, signing, export,
-administration, recovery, and hosted-wallet handoff.
-
-The final model is:
+R103F completes the Wallet Session cutover started by R103E. The finished
+system has one wallet-operation session model:
 
 ```text
 owner proof
   -> exact active wallet authority
   -> exact active auth method
-  -> exact server authorization (`WalletSessionAuthorizationV2`)
+  -> WalletSessionAuthorizationV2
   -> one primary opaque operation credential
-  -> identity-coupled exact browser record (`record_version: 6`)
-  -> operation admission against the exact server authorization
+  -> identity-coupled browser record (record_version: 6)
+  -> exact operation admission
 ```
 
 Hosted-wallet handoff may mint a short-lived, origin-bound child credential.
-That credential resolves to the same V2 authorization and never replaces or
-rotates the primary credential.
+The child resolves to the same exact server authorization, shares its quota,
+and leaves the primary credential unchanged.
 
-Delete the parallel V1 implementation:
+R103F retires:
 
 - `reusable_wallet_sessions`;
 - `opaque_wallet_session_tokens`;
-- credential-bearing registration completion responses in the shared D1
-  side-effect journal;
-- reusable-session-to-V2 projection;
-- curve-specific client V3 Wallet Session records;
-- `not_v2` admission and every runtime fallback to an opaque V1 token;
-- V1-only status, revocation, quota, replay, and source-activity checks; and
-- fixtures, guards, types, comments, and docs whose only purpose is the retired
-  behavior.
+- V1-to-V2 session projection;
+- credential-bearing registration completion records;
+- curve-specific V3 and split V4/V5 browser records;
+- `not_v2` and every V1 admission fallback;
+- V1-only status, quota, replay, revocation, and source-activity checks; and
+- types, fixtures, guards, comments, and documentation that exist only for the
+  retired implementation.
 
-The operation credential remains opaque to the browser. Its persisted digest
-identifies one exact server authorization. Opaque transport is a security
-property, not a compatibility path.
+This document is authoritative at system boundaries. It does not freeze
+call-site counts, line counts, commit structure, or historical test results.
+The compiler and the closure searches enumerate concrete consumers while the
+implementation is in progress. Every temporary compatibility path named here
+has a removal gate. Document and production line counts are diagnostic only;
+neither is a completion criterion.
 
-### Boundary-local version labels
+The invariants, boundary matrix, implementation phases, rollout state machine,
+and closure ledger are coordinated views in this one plan. The detailed
+inventory supplies task-level status beneath those views.
 
-R103F has no combined “V2/V6 protocol.” Version labels belong to their own
-persistence or wire histories:
+### Boundary-local versions
 
-- `WalletSessionAuthorizationV2` is the concrete server authorization type and
-  D1 record family introduced by R103E;
-- `record_version: 6` is the next browser IndexedDB record after the existing
-  V3, V4, and V5 client shapes;
-- `WalletSessionOperationCredentialV1` is the first version of the opaque
-  credential encoding;
-- `PendingWalletRegistrationCommitV1` and
-  `WalletRegistrationSessionCommitReceiptV2` independently version the local
-  pending-registration and server completion-journal schemas; and
-- `WALLET_PROTOCOL_VERSION` independently versions the host-SDK/iframe message
-  boundary.
+Version labels retain their independent persistence and wire histories:
 
-Normal prose in this plan uses **exact server authorization**, **exact browser
-record**, and **exact Wallet Session model**. The versioned names appear only
-when a concrete type, stored record, parser, migration, or compatibility check
-requires them. Renaming one boundary to match another would erase its real
-history and make migration claims ambiguous.
+- `WalletSessionAuthorizationV2` is the server authorization record family;
+- `record_version: 6` is the browser IndexedDB record;
+- `WalletSessionOperationCredentialV1` is the primary opaque credential;
+- `HostedWalletSessionOperationCredentialV1` is the hosted child credential;
+- `PendingWalletRegistrationCommitV1` is the local registration recovery
+  record;
+- `WalletRegistrationSessionCommitReceiptV2` is the credential-free server
+  completion record; and
+- `WALLET_PROTOCOL_VERSION` versions the host-SDK/iframe message boundary.
 
-## Why R103F Exists
+## Scope
 
-R103E introduced `wallet_session_authorizations_v2` while deliberately retaining
-`reusable_wallet_sessions` as the V1 boundary during consumer migration. The
-opening comment in `0016_r103e_wallet_session_authorizations_v2.sql` records that
-staging decision.
+R103F depends on R107's opaque server-resolved session model, R103E's exact
+authority and capability records, R109C/R109D's exact auth-method and linked
+authority work, and R115's additive recovery authority.
 
-The migration was never finished. Current flows commonly:
+R103F preserves:
 
-1. issue a V1 reusable Wallet Session;
-2. project it into V2;
-3. issue a V2 operation credential after committing the session;
-4. persist both a curve-specific V3 client record and an exact V4/V5 record;
-5. try exact V2 admission; and
-6. fall back to a V1 opaque token when V2 resolution is unavailable.
+- Passkey, Email OTP, WebAuthn, custody, and MPC cryptography;
+- Wallet Session lifetime and budget policy;
+- public signer identity, lane, material activation, and export policy;
+- console/dashboard authentication as a separate JWT system;
+- pre-V3 custody-envelope decoding at its existing persistence boundary;
+- R115 additive recovery, including every pre-existing authority, method,
+  envelope, linked device, and Wallet Session; and
+- immutable applied D1 migrations and frozen Router A/B protocol vocabulary.
 
-This produces two authorities for one decision. It has already caused runtime
-failures where an exact V2 session reached a V1-only quota or trigger check.
-Authority digests and exact method identities are sound only when every reader
-consults the same record family.
+Recovery finalization creates a fresh recovery authority and target method. It
+does not create a Wallet Session. Normal target login uses the direct exact
+issuer after local recovery continuity is durable.
 
-R103F completes the cutover. It creates no third session abstraction.
+## Final domain model
 
-## Dependencies and Non-Goals
+### Exact server authorization
 
-R103F depends on:
-
-- R107's opaque, server-resolved Wallet Session model;
-- R103E's exact authority, auth-method, capability-subject, quota, and operation
-  credential records;
-- R109C's multiple auth methods and method-bound custody;
-- R109D's exact ordinary Wallet Session for linked authorities; and
-- R115's additive recovery authority, exact continuity-anchor selection, and
-  Passkey/Google-Email target installation.
-
-R103F does not:
-
-- change Passkey, Email OTP, WebAuthn, custody, or MPC cryptography;
-- change Wallet Session product lifetime or budget policy;
-- merge Wallet Sessions with application or console authentication;
-- change the public signer identity, lane, material activation, or key export
-  policy;
-- rewrite an applied D1 migration; or
-- preserve V1 behavior in core functions after replacement.
-
-R115 additive multi-auth recovery is landed. Recovery selects one exact active
-Passkey or Email OTP continuity anchor, creates a fresh `wallet_recovery`
-authority and selected Passkey or Google/Email method, and preserves every
-existing method, envelope, authority, linked device, and Wallet Session. R103F
-preserves that additive policy while moving recovery-related session reads to
-the exact model. Recovery finalization creates no Wallet Session; normal target
-login must use the direct exact issuer established here.
-
-The landed recovery responses return strict committed projections containing
-the active recovery authority and target method. Client boundary parsers
-validate wallet, authority, method, target, and lifecycle relationships before
-local installation. The Google/Email finalizer validates its enrollment inside
-the atomic server commit and does not expose it as client-authoritative
-readback. R103F must never regress to loose IDs plus a credential fragment or
-synthesize authority state from prepared client inputs.
-
-R115 migrations `0026_r115_wallet_recovery_authority_provenance.sql` and
-`0027_r115_email_otp_recovery_bootstrap.sql` are landed and immutable. The
-authority migration rebuilds `wallet_authorities` and recreates the exact-only
-authorized-operation trigger from `0024`. R103F's corrective/additive and later
-enforcement/deletion migrations therefore target the post-R115 schema and
-allocate after `0027`.
-
-Console/dashboard JWTs are a separate authentication system and remain.
-Pre-V3 custody-envelope decoding remains isolated at its existing persistence
-boundary. Neither belongs to this cutover.
-
-## Preparatory code shaping
-
-The current R103F surface includes several large production files. At the
-committed `be8fcbaf7` checkpoint on August 29, the most relevant are:
-
-| File | Lines | R103F seam |
-| --- | ---: | --- |
-| `packages/wallet/src/SeamsWeb/operations/auth/login.ts` | 7,973 | exact-method unlock and local discovery |
-| `packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts` | 6,699 | exact browser-record readers and replacement |
-| `packages/wallet/src/core/indexedDB/seamsWalletDB/repositories.ts` | 5,750 | linked and recovery local-install transactions |
-| `packages/wallet-server/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts` | 5,557 | direct issuance and registration replay |
-| `packages/wallet/src/SeamsWeb/operations/registration/registration.ts` | 4,667 | pending registration commit and terminal persistence |
-| `packages/wallet/src/core/rpcClients/relayer/walletRegistration.ts` | 4,010 | terminal registration response boundary |
-| `packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts` | 4,633 | exact operation admission |
-| `packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa.ts` | 3,608 | exact ECDSA session issuance/admission |
-| `packages/wallet/src/SeamsWeb/operations/recovery/walletRecovery.ts` | 1,442 | additive recovery finalization, local continuity, and resume gap |
-
-R103F begins with a bounded liveness and code-shaping pass at the seams it will
-change. It does not run a repository-wide “split every large file” campaign.
-File size alone does not establish a module boundary, and broad movement would
-create review noise and collide with concurrent R109D work. The pass deletes
-proved dead or obsolete code before moving any surviving code; it never creates
-new modules for paths the final exact model removes.
-
-Use these rules:
-
-1. Record the baseline before deleting or moving code. Build a liveness ledger
-   for each target file that classifies top-level exports and major internal
-   paths as `live_r103f`, `live_unrelated`, `rollout_boundary`, or
-   `obsolete_or_unreachable`.
-2. Prove `obsolete_or_unreachable` with at least two agreeing evidence sources:
-   TypeScript/compiler or lint reachability, import/export search, route or
-   assembly registration, production call graph, and the authoritative behavior
-   inventory. Dynamic lookup, worker messages, route manifests, generated
-   bindings, and test-only imports count as explicit roots and must be checked.
-   Text search alone never authorizes deletion.
-3. Delete proved dead exports, unreachable branches, duplicate legacy helpers,
-   stale feature-mode forks, and fixtures or guards that exist only for retired
-   behavior. Keep a rollout compatibility path classified as
-   `rollout_boundary` until its named drain gate; delete it in the same change
-   that closes that gate.
-4. Make dead-code deletion, behavior-neutral extraction, and intended behavior
-   changes separate commits where practical. Classify any failing test before
-   editing it and never keep production code alive solely for an obsolete
-   fixture or source guard.
-5. Move one cohesive live domain section at a time, update imports directly, and
-   add no deprecated re-export, duplicate helper, optional lifecycle bag, or
-   compatibility alias.
-6. Preserve behavior with the narrowest existing test or type check. A split
-   that changes a fixture, response, persistence shape, or control flow is no
-   longer preparatory work and belongs in its owning implementation phase.
-   Client movement also runs the existing runtime-entry bundle check so a split
-   cannot silently move server-only code or change a worker entrypoint.
-7. Start with the client registration terminal-commit seam: pending local
-   commit construction, credential-free committed projection parsing, local
-   promotion, and session persistence move out of `registration.ts`; the public
-   registration orchestration entrypoints remain there.
-8. Next isolate the server registration session issuer and credential-free commit
-   receipt from `d1WalletRegistrationService.ts`, then isolate the corresponding
-   terminal response parser from `walletRegistration.ts`. Keep the side-effect
-   boundary generic only where it no longer accepts a public response type.
-9. Extract linked local-install and acknowledgement state-machine code when
-   Phases 1 and 5 first change those paths. Extract exact-session reader logic
-   from `login.ts` and `BrowserSigningSurface.ts` as their callers are converted,
-   rather than moving unrelated login or signing behavior first.
-10. Stop an extraction if it requires touching more than five existing files,
-   inventing a new architecture layer, or widening a domain input. Implement
-   the owning behavior directly in the existing module and revisit the split
-   after the operating path works.
-
-For each file, the ledger also records its public entrypoints, independently live
-responsibilities, import fan-in/fan-out, duplicated validators or builders,
-legacy lifecycle branches, and the narrow verification that reaches each retained
-responsibility. Mark large cohesive code as live; size alone never becomes a
-deletion claim. Mark a live section as extraction-worthy only when it has its own
-domain input/output boundary and can move without a forwarding compatibility
-wrapper.
-
-The liveness ledger reports lines deleted, lines moved, and net live production
-lines separately. The goal is smaller review and context units around R103F
-transactions. Line count reduction is evidence of simplification only when the
-operating paths and exact invariants remain intact.
-
-## Canonical Domain Model
-
-### Server record
-
-`WalletSessionAuthorizationV2` is the only reusable operation authorization.
-It is the digest-free authorization snapshot shared by server domain code and
-the client response. Every active snapshot requires:
+`WalletSessionAuthorizationV2` is the only reusable wallet-operation
+authorization. Every active authorization requires:
 
 - tenant and principal identity;
-- wallet ID;
-- exact authority ID;
-- exact auth-method ID;
+- wallet, authority, and auth-method identity;
 - authority digest and revocation epoch;
 - one or more exact capability subjects;
-- authorization, mint, Wallet Session, and quota IDs;
+- authorization, mint, Wallet Session, and quota identity; and
 - issue and expiry time.
 
-No field above is optional in an active snapshot. The credential digest belongs
-only to the server persistence aggregate:
+The credential digest exists only in the server persistence aggregate:
 
 ```ts
 type PersistedActiveWalletSessionAuthorizationV2 = {
@@ -262,45 +107,22 @@ type PersistedActiveWalletSessionAuthorizationV2 = {
 };
 ```
 
-This aggregate is an internal writer/reader shape; it does not imply that quota
-and authorization occupy one SQL row. Browser and wire types cannot contain the
-digest. Lifecycle readers use separate exhausted, retired, expired,
-authority-unavailable, and method-unavailable branches instead of widening the
-active aggregate with optional fields.
+The direct issuer prepares the authorization, quota, plaintext credential, and
+credential digest before writing. One D1 batch or owning authority-activation
+CAS commits the authorization, quota, and digest. An active row with a null
+credential digest is invalid and cannot be returned as usable.
 
-The direct issuer prepares the session, quota, and primary credential digest
-before any write. All three persist in one D1 batch or in the authority
-activation CAS that owns the transition. An active V2 row can never be visible
-with a null credential digest.
+At most one non-retired authorization may exist for a fully scoped exact
+`(walletId, authorityId, walletAuthMethodId)` tuple. Same-method replacement
+retires the predecessor, closes its quota, retires hosted children, and inserts
+the successor atomically. Sibling methods may each have an active session.
 
-### Threshold-runtime binding ownership
+`WalletSessionMintId` identifies one issuance attempt. A fully scoped replay of
+the same mint returns the committed authorization identity. Replacement uses a
+fresh mint. Persisted `mint_id` and frozen `wallet_session_mint_id` wire fields
+retain their current spelling.
 
-`WalletSessionAuthorizationV2` does not duplicate threshold-runtime state. A
-`sign` or `export_keys` capability subject names one exact
-`MpcMaterialActivationRef`. Admission resolves that reference through the
-authoritative active signer/material repository before constructing any
-Router A/B request:
-
-- Ed25519 resolution supplies the exact threshold session, participant set,
-  SigningWorker, runtime-policy scope, export identity, and active capability;
-- ECDSA resolution supplies the exact key handle, relayer key, participant set,
-  runtime-policy scope, normal-signing state, and material activation; and
-- authority, method, capability-subject, and resolved material identities must
-  all agree before operation admission succeeds.
-
-Before deleting `opaque_wallet_session_tokens`, inventory every field of
-`OpaqueOwnerWalletSessionBinding`, including `thresholdSessionId`,
-`participantIds`, `keyManifestDigestB64u`, `relayerKeyId`,
-`runtimePolicyScope`, `keyHandle`, and `authorizationSessionId`. Each field must
-either come from the exact material resolver or be proved obsolete and deleted
-from its consumer. If a required field is absent from the authoritative
-material projection, extend that projection before deleting the opaque-token
-copy. Never synthesize a threshold-runtime identity from `walletSessionId`,
-`authorizationId`, or another unrelated identifier.
-
-### Browser credential
-
-The browser receives:
+### Credentials and replay
 
 ```ts
 type WalletSessionOperationCredentialV1 = {
@@ -316,20 +138,12 @@ type HostedWalletSessionOperationCredentialV1 = {
 };
 ```
 
-The two credential types are nominally distinct and use disjoint boundary
-encodings: `wst_` for the primary and `wsh_` for the hosted child. Their parsers
-reject the other prefix. Neither credential contains client-authoritative
-claims. The server applies the established operation-credential digest function
-and uses the parsed prefix to select one exact record family, then re-resolves
-the active authority, auth method, capability subjects, expiry, revocation
-epoch, and quota.
+Primary credentials use `wst_`; hosted children use `wsh_`. Their nominal types,
+parsers, encodings, and record families are disjoint. The browser receives no
+credential digest or client-authoritative admission claims.
 
-For founding registration, unlock, refresh, sync, and recovery, the issuer
-generates the plaintext credential before committing its digest and returns it
-only after the transaction succeeds.
-
-A replay of a server-issued transition cannot reproduce plaintext from a hash.
-Its boundary result is therefore explicit:
+A server replay cannot recover plaintext from a committed digest. Direct
+issuance therefore returns one of these outcomes:
 
 ```ts
 type DirectV2IssueResult =
@@ -352,362 +166,14 @@ type DirectV2IssueResult =
     };
 ```
 
-The replay branch never returns a guessed credential and never rotates the
-committed hash. The next fresh exact-method unlock atomically replaces that
-session and retires its quota.
+`already_committed` never fabricates or rotates a credential. Exact-method
+unlock creates a successor with a fresh mint and atomically retires the
+unreachable committed session.
 
-A lost founding-registration response follows this same rule, including after a
-page reload or worker termination. Before the terminal request, the client
-persists one `PendingWalletRegistrationCommitV1` containing the ceremony and
-idempotency identities, exact founding method, locally created
-credential/factor binding, and sealed local signer/custody material needed to
-finish installation. It contains no plaintext Wallet Session credential. The
-pending record is invisible to normal wallet discovery until server commitment
-is proved.
+### Exact operation admission
 
-Replaying the terminal request returns `already_committed` plus a
-credential-free committed registration projection. The client validates that
-projection against its pending record, atomically promotes the wallet profile,
-profile authenticator, founding authority/method, signer material, account
-projection, and wallet selection, then runs `unlock_exact_method`. That unlock
-installs the successor exact browser record and continues to signing. A missing,
-conflicting, or incomplete pending record fails closed into an explicit
-registration-recovery state; it never fabricates local discovery state.
-
-The durable registration side-effect journal stores a credential-free
-`WalletRegistrationSessionCommitReceiptV2`, never the public response. The
-receipt contains the operation fingerprint; committed wallet, authority,
-method, mint, authorization, Wallet Session, quota, issue, and expiry
-identities; and the exact public signer, account, capability, custody-manifest,
-and founding-authority projection required to validate and complete the pending
-local installation. It contains no primary or child credential, signer
-bootstrap that contains a credential, local secret or sealed local material, or
-generic `response: T` field. On first execution, the route assembles the public
-`issued` response from the ephemeral issuer result only after the receipt CAS
-succeeds. On replay after the final client cutover, it reads the receipt and
-returns `already_committed`.
-
-This committed installation projection is one shared artifact. During the
-adapter window it rebuilds every non-credential field of the legacy V1 replay
-response before the route attaches a fresh in-memory bearer. After the client
-cutover, the same projection is the `already_committed` recovery payload that a
-pending local commit validates and publishes. Do not introduce a second receipt
-shape, projection builder, or follow-up receipt migration for those two uses.
-
-The final exact model never signs a fresh bearer during replay. Phase 0 has one
-explicitly bounded request-boundary exception for clients deployed before the
-new pending-commit parser: it reconstructs the current credential-free public
-projection from the receipt and signs a fresh short-lived V1 bearer in memory.
-Bearer plaintext exists only in the response assembly. Persist its digest in a
-dedicated short-lived registration-replay adapter table keyed to the exact V1
-session, curve, binding, and receipt operation. Keep the existing opaque-token
-table's one-token-per-session/curve invariant unchanged. Resolution,
-identity lookup, expiry, session revocation, and auth-method cleanup must cover
-the adapter table explicitly. Delete the table and its resolver with the
-adapter before direct exact issuance and `already_committed` become the public
-registration replay contract.
-
-The adapter intentionally ends the old byte-identical terminal-response rule:
-the idempotency key, fingerprint, committed identities, and credential-free
-projection remain stable, while freshly signed V1 bearer bytes may differ on
-replay. Update the Route 3 contract comment in
-`threeRouteRegistrationContracts.ts`, the corresponding registration service
-comment, and every byte-identity test in the same compatibility change. Replace
-those assertions with stable committed-projection identity plus a valid parsed
-legacy response. After the adapter is deleted, replay follows the typed
-`already_committed` contract; it never returns cached credential-bearing bytes.
-
-This is also immediate security remediation. Current successful
-`wallet-registration-activate:` and `wallet-registration-near-provisioning:`
-completion rows in `router_ab_yao_versioned_json_records` contain plaintext V1
-bearers and have no expiry. Phase 0 counts both prefixes, deploys the
-credential-free receipt writer, parser, and old-client adapter together before
-the wider cutover, and redacts or deletes historical credential-bearing
-responses after preserving only the minimum operation fingerprint and committed
-projection needed for safe replay.
-The remediation starts only after deployment proves that no worker revision
-capable of writing the old completion shape is serving traffic. It repeats the
-zero-count query after the maximum in-flight request window.
-
-Before redaction, the remediation hashes each discovered bearer through the
-production digest function and retires the matching opaque session/token record
-when it remains usable. A row whose credential cannot be mapped safely aborts
-the remediation for operator review. Main-database cleanup does not establish
-historical backup deletion: Phase 0 records D1 backup/time-travel retention and
-either purges recoverable copies through an approved platform procedure or
-keeps the exposure open until every affected bearer lifetime has expired. No
-cutover drain may leave those plaintext fields in the active D1 database, and
-the security-remediation exit may not claim the bearers are unusable without
-the retirement-or-expiry proof.
-
-`mintId` is the idempotency key for one issuance attempt. It is never a policy
-identity or a renewable session identity. Replaying the same fully scoped mint
-returns the same committed authorization identity, including after that session
-retires. Same-method replacement always receives a fresh mint ID. Keep the
-historical full-scope `mint_id` uniqueness constraint and reshape the existing
-V2-by-mint reader into the direct issuer's replay lookup.
-
-Rename the TypeScript brand and parser to `WalletSessionMintId` and
-`parseWalletSessionMintId`; delete `ReusableWalletSessionMintId` and
-`parseReusableWalletSessionMintId` without aliases. The persisted `mint_id` and
-frozen `wallet_session_mint_id` wire field names remain unchanged.
-
-For linked-device activation, Device 2 creates a dedicated,
-signer-family-neutral P-256 ECDH credential-delivery recipient during target
-preparation. Its public key is authenticated by the verified link state; its
-private handle remains in the target worker through final acknowledgement. Before
-Device 2 sends the activation request, it durably persists the wallet profile,
-profile authenticator, exact auth-method identity and authenticated factor
-material, authority identity, and resumable local signer-material installation
-state required by the fail-closed exact-method unlock path in one IndexedDB
-`readwrite` transaction. Every published record is branch-typed as
-`pending_local_install`; normal wallet discovery and signing ignore it. A local
-method that must remain pending until server confirmation has a durable
-transition that resume can finalize as active before credential decrypt. A
-terminal server rejection atomically removes the pending profile,
-authenticator, method, authority, signer material, receipt, and selection only
-when none predated this link. A crash or retry resumes the exact pending
-transaction by receipt identity. Acknowledgement creates none of these
-prerequisites. The landed server install service already distinguishes
-`server_worker_activation_pending` from `wallet_session_issuance_pending` under
-its `pending_local_install` result. Both remain retryable resume states through
-this cutover; neither may trigger terminal local cleanup or a second authority.
-The server generates the primary credential with the same secure randomness as
-every other issuance path and seals it with a versioned P-256 ECDH/AES-256-GCM
-envelope using the production WebCrypto construction already exercised by
-`sealEmailOtpFactorSecretForWorker`. The delivery type fixes
-`alg: 'p256-ecdh-aes256gcm-v1'`. Canonical AAD binds full tenant scope, link
-session, wallet, authority, auth method, authorization, Wallet Session, quota,
-credential digest, recipient, issue time, and expiry.
-
-The additive schema creates
-`linked_device_wallet_session_credential_deliveries_v1`. The activation CAS
-inserts one complete row containing those identities, the recipient binding,
-sealed envelope and digest, and expected
-`WalletSessionInstallationReceiptDigestV1`. That digest covers one shared,
-canonical logical receipt containing `record_version: 6`, exact identities,
-and primary credential digest. It never covers raw IndexedDB serialization or
-plaintext credential bytes and is only an authenticated consistency assertion;
-it is not proof that a browser disk write occurred. No nullable
-pre-activation delivery row exists. The server stores no plaintext credential.
-Replay returns the same row and exact session identity. Final acknowledgement
-names all bound identities, the credential digest, and installation-receipt
-digest.
-
-Acknowledgement uses an idempotent cleanup state machine. Its first CAS validates
-the exact pending delivery, records the acknowledgement receipt, and removes the
-sealed ciphertext. Retryable cleanup then removes the authority allocation,
-deletes the active link session, and marks the acknowledgement complete. A crash
-after any transition leaves enough receipt state for exact replay to resume
-cleanup without restoring or resealing the envelope. The small completion
-receipt may be deleted only after the acknowledgement replay window.
-Device 2 durably records its pending acknowledgement before sending it and
-replays that intent during bootstrap until the server returns cleanup complete.
-Delivery tombstoning/ciphertext deletion, allocation removal, live-session
-removal, and completion are transitions of this one lifecycle. No separate
-sealed-delivery cleanup routine may race or bypass acknowledgement replay.
-
-Deleting the active link session cannot delete the authentication needed to
-replay acknowledgement. The route parses the acknowledgement identity and reads
-the cleanup receipt before requiring a live link session. While the live session
-exists, authentication uses its current Device 2 binding. After deletion, a
-bounded tombstoned authentication binding in the cleanup receipt validates the
-same Device 2 credential, link session, authority, package-set digest,
-authorization, Wallet Session, credential digest, and installation-receipt
-digest. It authorizes only acknowledgement cleanup/replay and expires with the
-receipt. A missing or conflicting tombstone fails closed. The route never
-returns `not_found` before checking an authenticated cleanup receipt.
-
-A target that loses its recipient private handle never asks the server to reseal
-the committed credential and does not start a second link. It resumes the
-durable local authority installation, discovers the committed active method,
-and runs `unlock_exact_method`. That unlock atomically retires the unreachable
-    linked-activation session, installs a fresh exact browser record, and continues
-    to signing.
-The same recovery applies when the sealed delivery expires before
-acknowledgement.
-
-Hosted exchange uses a separate `wallet_session_hosted_credentials_v2` child
-record containing the parent V2 identity, credential digest, audience origins,
-expiry, and lifecycle. The exchange code is single-use. The resulting child
-credential remains origin-bound and expires no later than its parent; parent
-replacement, retirement, or revocation retires every child. Resolving it
-returns the parent's exact admission context. It does not mutate the primary
-credential digest or create another quota.
-
-The request-boundary resolver parses the nominal credential type first. Hosted
-issue requires the request's actual `Origin` to equal `appOrigin`; redemption
-and later child-authorized HTTP calls require actual `Origin` to equal the
-stored `walletOrigin`. The server derives the permitted wallet origin from
-authenticated tenant deployment metadata or an explicit server-side allowlist;
-the request-supplied `walletOrigin` must equal that authoritative value before
-the exchange row is created. Comparing a request value only with a row populated
-from that same value is insufficient. The request origins must equal the stored
-exchange row, and the wallet iframe caches the child only when its adopted parent
-`MessageEvent.origin` equals the stored `appOrigin`. After audience and parent
-lifecycle validation, the resolver returns one `ExactV2AdmissionContext`. Core
-signing and management code never branches on the credential source.
-
-### Material-promotion continuity
-
-Signer or capability promotion keeps the existing session-lifetime policy. The
-authority-promotion CAS atomically updates the authority and every non-retired
-V2 session snapshot owned by that authority, including authority digest and
-capability subjects. It preserves method, authorization, Wallet Session, quota,
-mint, credential digest, issue time, and expiry identities. This is a lifecycle
-transition on an existing authorization, never fresh issuance.
-
-The client reconciles each affected exact browser projection from the successful
-promotion response before publishing the promoted runtime. This includes every
-sibling method under the same authority in the same browser. Linked devices have
-different authorities and are outside that update set.
-
-The active V2 branch of `/wallet/session/status` becomes the named authenticated
-exact-projection read boundary. In addition to lifecycle and quota fields, it
-returns the complete digest-free `WalletSessionAuthorizationV2` needed to rebuild
-the exact browser record. If a promotion response is lost, or a supported client
-bootstraps with an exact browser record whose material snapshot may be stale, the
-client reads this exact projection and replaces the browser record only after all
-immutable identities and its primary credential still agree. A promotion that
-cannot prove this continuity retires the affected server sessions in the same
-CAS and requires exact-method unlock.
-Stale authority digests or capability subjects must never remain silently
-usable.
-
-Primary file:
-
-- `packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence.ts`
-
-### IndexedDB record
-
-The only active browser record is a new exact composite with `record_version: 6`.
-Its boundary parser requires:
-
-- wallet, authority, and auth-method identity;
-- authorization, Wallet Session, and quota IDs;
-- capability subjects;
-- authority digest and revocation epoch;
-- issue and expiry time; and
-- the primary operation credential.
-
-The parser proves that `operationCredential.walletSessionId` equals the record's
-`walletSessionId`. The existing object store retains its `wallet_session_id`
-keyPath and the exact record stores the actual Wallet Session ID there.
-`authorization_id` separately stores the authorization ID. The parser proves
-both physical fields agree with the exact browser record. A credential from a
-sibling method or a different session makes the entire record invalid at the
-persistence boundary.
-
-Changing the object-store keyPath requires a `versionchange`. The current
-upgrade function deletes every object store, so an authorization-ID keyPath is
-outside this cutover unless a store-scoped upgrade mechanism lands first.
-
-This replaces active V3, V4, and V5 rows. Retired `record_version: 6` records may
-remain as exact tombstones when the UI or cleanup path needs them. Curve choice
-follows the exact record's capability subjects; no curve-specific bearer bundle
-remains.
-
-Installing the exact browser record uses the existing exact replacement behavior,
-reshaped around the final record type. In one `readwrite` transaction,
-`replaceExactActive` retires every active predecessor for the exact
-`(walletId, authorityId, authMethodId)` tuple, then inserts the successor. It
-leaves sibling methods and authorities intact.
-That same transaction classifies every row it scans: known V3/V4/V5 rows are
-quarantined, valid final-version rows participate in exact replacement, malformed
-final-version rows are corruption, and a future record version is preserved and
-reported as `upgrade_required`. A late legacy write cannot abort the successor
-install. Every current-SDK bootstrap also quarantines observed V3/V4/V5 rows,
-and every exact-record reader ignores them.
-
-### Shared-IndexedDB release boundary
-
-The host/iframe handshake does not govern tabs that share the same IndexedDB.
-R103F therefore ships a storage-tolerant precursor SDK before any production
-`record_version: 6` write. That precursor still writes V5, but all store
-scans distinguish known legacy rows, current rows, malformed rows, and unknown
-future versions. It ignores and preserves future rows, never classifies them as
-legacy corruption, never overwrites them, and reaches a terminal
-`upgrade_required` UI when its own session is no longer usable.
-
-During the precursor stage, every session-creating, replacing, or refreshing
-request carries the temporary request-boundary capability
-`walletSessionClientCapability` set to
-`'direct_exact_response_future_record_tolerant'`. The value proves two things:
-the client parses the direct exact issuer response
-`{ session, quota, operationCredential }`, and every Wallet Session store scan
-preserves unknown future record versions. The precursor normalizes that response
-into the existing V5 pair; the final SDK normalizes the same response into the
-exact browser record with `record_version: 6`. The bridge therefore never sends
-a browser persistence shape over the wire and never downgrades a direct server
-authorization into a V1 bearer.
-
-Normalize this capability once at each request boundary. It is deployment
-metadata rather than business-operation identity and stays outside ceremony,
-mint, and idempotency fingerprints. The operation receipt records the capability
-used for first execution. Exact replay requires the same recorded response
-family; a different or missing capability returns a typed protocol mismatch and
-never changes the committed response family.
-
-That receipt field is temporary persisted rollout metadata. Before deleting its
-request parser, wait the maximum response-replay window, or end support for the
-old response family through the approved cutover, then rewrite every durable
-capability-tagged receipt to the final credential-free `already_committed`
-projection. The rewrite never creates a credential. It aborts on an unknown
-capability or response family, records before/after counts, and must reach zero
-tagged receipts before the exact-only worker deploys. An unbounded receipt
-lifetime therefore requires this explicit terminal normalization; elapsed
-session lifetime alone is insufficient.
-
-Enforce the capability on founding registration activation and deferred
-provisioning, Passkey unlock, Email OTP unlock, sync bootstrap, budget refresh,
-ECDSA post-registration activation, post-recovery normal target login, and linked
-activation. Recovery finalization is absent because it creates no session. A
-route that can conditionally issue includes the capability in its boundary input
-even when that request ultimately reuses a session. Keep a route matrix mapping
-each public request to its internal direct-issuer call.
-
-Once the capability is enforced, clients without it may use already-issued V1
-sessions during the bounded drain but cannot mint, refresh, replace, or replay an
-issuance response in a different family. Record the last unmarked issuance time
-and wait the maximum V1 session lifetime, or perform the approved invalidation,
-before enabling the first `record_version: 6` write. Delete this field and its
-parser after the exact-only rollout.
-
-The final SDK handles the other direction: it ignores or quarantines late
-V3/V4/V5 writes in every reader and inside `replaceExactActive`. This release
-boundary retains the current `wallet_session_id` keyPath and does not bump
-`SEAMS_WALLET_DB_VERSION`; the destructive all-store upgrade function remains
-out of the cutover path.
-
-Registration, unlock, sync, recovery, and device-link responses may still carry
-family-specific signer-runtime bootstrap metadata. Those bootstraps contain no
-Wallet Session bearer. One exact browser record authenticates every family owned
-by the exact authority, while each bootstrap remains bound to its own material
-activation and threshold runtime identity.
-
-### Host SDK and iframe release boundary
-
-The npm-installed host SDK and the deployed wallet iframe are a versioned
-request boundary. R103F bumps the existing `WALLET_PROTOCOL_VERSION` and extends
-the CONNECT/READY handshake in both directions. CONNECT carries the host SDK
-version; the iframe validates it before adopting the transferred port. READY
-carries the iframe version as today; the host validates it before marking the
-connection complete. A missing or mismatched version receives the stable
-`WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH` failure. On a bad CONNECT version, the
-iframe reports its version through the transferred port, closes that port, and
-never adopts it. This lets the current old SDK's existing READY validator fail
-with the same mismatch code. Older clients that lack validation still cannot
-send a message to an adopted port. The iframe never interprets removed
-reusable-session fields as the exact Wallet Session message.
-
-This is a coordinated breaking release. Publish the matching host SDK, upgrade every
-known embedding application, and deploy the matching iframe/worker release as
-one cutover. Embedding applications that retain an older npm SDK must upgrade;
-the worker drain window does not make their postMessage protocol compatible.
-
-### Admission result
-
-Operation admission returns a precise result:
+The request boundary parses the credential family, resolves its digest, and
+returns one exact context:
 
 ```ts
 type ExactWalletSessionAdmission =
@@ -721,203 +187,463 @@ type ExactWalletSessionAdmission =
   | { readonly kind: 'capability_unavailable' };
 ```
 
-There is no `not_v2` branch. Core callers never retry a credential against a
-different record family.
+Lifecycle outcomes are data. Exceptions are reserved for corrupt rows,
+inconsistent columns or JSON, broken foreign-key identity, and impossible state
+combinations.
 
-The D1 reader returns these lifecycle branches as data. Only malformed rows,
-column/JSON disagreement, broken foreign-key identity, and impossible state
-combinations throw as corruption. Expiry, exhaustion, retirement, and revoked
-authority or method state never become HTTP 500/503 errors.
+A `sign` or `export_keys` capability subject names an exact
+`MpcMaterialActivationRef`. Admission resolves that reference through the
+authoritative signer/material repository before constructing a Router A/B
+request. Legacy `OpaqueOwnerWalletSessionBinding` fields must come from that
+resolver or lose their consumer. Wallet Session and authorization IDs cannot
+stand in for threshold runtime identities.
 
-## Required Invariants
+For Ed25519, resolution supplies the exact threshold session, participant set,
+`SigningWorker`, runtime-policy scope, export identity, and active capability.
+For ECDSA, it supplies the key handle, relayer key, participant set,
+runtime-policy scope, normal-signing state, and material activation. Every
+resolved identity must agree with the exact authority, method, and capability
+subject before admission succeeds.
 
-1. Every founding, unlocked, refreshed, linked-device, and post-recovery normal
-   login Wallet Session is issued directly as an exact server authorization.
-   R115 finalization itself creates no session.
-2. Every active exact server authorization has one primary operation-credential
-   digest before the response or device-link activation is committed.
-3. The plaintext primary credential appears only in issuer memory and at its
-   receiving browser boundary. Registration journals store credential-free
-   commit receipts, and linked activation transports only a credential sealed
-   to Device 2.
-4. Operation admission identifies the wallet, authority, auth method, and
-   capability subjects exclusively from the resolved exact server record.
-5. A sibling method or authority can never satisfy admission for another
-   session.
-6. Status, budget, revocation, replay, source activity, hosted exchange, and
-   management routes resolve the same fully scoped authorization identity.
-7. At most one active client and server session exists for each exact
-   `(walletId, authorityId, walletAuthMethodId)` tuple. Sibling methods may each
-   have an active session. Curve choice follows capability subjects.
-8. Same-method replacement, auth-method revocation, and authority revocation
-   retire the exact server authorization and its quota in the same D1 transaction
-   that changes the owning state. Budget consumption atomically transitions the
-   quota to exhausted while retaining enough exact identity for a typed
-   `exhausted` result. Expiry is a typed logical state; persisted cleanup may
-   follow asynchronously.
-9. Fresh step-up remains an operation-bound authorization. It never recreates
-   a V1 reusable session.
-10. Local wallet lock deletes or retires the exact browser record and disposes its
-    runtimes. It does not claim atomic server retirement. Server retirement is
-    driven by replacement, exhaustion, revocation, explicit session retirement,
-    or expiry.
-11. R103F does not change additive recovery policy. Recovery selects one exact
-    active continuity anchor, creates a fresh recovery authority and target
-    method, and leaves every pre-existing method, envelope, authority, linked
-    device, and Wallet Session unchanged. A promoted response/replay returns a
-    strict server-read committed projection for the fresh authority and target
-    method. The server commit owns the target envelope and activation
-    relationships. Local recovery publishes the returned authority/method,
-    locked selection, profile/authenticator, account state, and recovered signer
-    continuity before normal login. Finalization creates no session; normal
-    post-recovery sign-in uses the direct exact issuer. Ordinary unlock accepts
-    only the exact active recovery authority and method already installed
-    locally; it never repairs missing recovery state. Only `device_link`
-    provenance may enter linked unlock.
-12. No runtime compatibility branch reads `reusable_wallet_sessions` or
-    `opaque_wallet_session_tokens` after the cutover deployment.
-13. A hosted child credential is audience-bound, resolves only its exact parent
-    authorization, shares that parent's quota, and never rotates the primary
-    credential. Parent replacement, retirement, expiry, or revocation makes the
-    child unavailable.
-14. Applied migration files remain byte-for-byte unchanged.
-15. The completed refactor removes more production code than it adds, excluding
-    forward SQL, tests, generated artifacts, and documentation.
-16. Every supported current or storage-tolerant precursor SDK bootstrap reaches
-    a terminal UI state. An empty browser shows registration/sign-in, a valid exact
-    record restores its exact wallet, an obsolete or malformed Wallet Session
-    row is quarantined without hiding wallets stored in the canonical IndexedDB
-    repositories, and a precursor that observes a future row reaches
-    `upgrade_required` instead of classifying the database as corrupt.
-17. Authority or material promotion updates every affected exact server snapshot
-    atomically. Every sibling-method exact browser projection under that authority in
-    the browser reconciles before promoted runtimes become active; session,
-    quota, mint, and credential identities remain unchanged.
-18. Linked credential delivery is replayable only through its original
-    recipient binding. The final acknowledgement can consume only the exact
-    delivery that produced the installed browser record, and every cleanup transition
-    is idempotently resumable.
-19. Host SDK and iframe protocol versions match exactly before postMessage
-    Wallet Session data crosses the boundary.
-20. Durable registration completion records contain no plaintext primary or
-    child credential. Historical credential-bearing completion rows are counted
-    and redacted or deleted during Phase 0.
-21. No production `record_version: 6` row is written until the named precursor
-    capability is enforced and every unmarked session-issuance lifetime has
-    drained or been explicitly invalidated.
-22. Linked recipient loss or delivery expiry recovers through the already
-    durable local profile, authenticator, auth method, authority, and signer
-    installation state plus exact-method unlock. It never creates a second link
-    or reseals the committed credential.
-23. Hosted issuance accepts `walletOrigin` only when it equals an authoritative
-    server-side tenant deployment origin or allowlisted value.
-24. A founding-registration response lost across page or worker termination can
-    resume only from a durable pending local commit plus the server's
-    credential-free committed projection. Publishing local discovery state is
-    one transaction and precedes exact-method unlock.
-25. The storage-tolerant precursor parses the direct exact issuer response and
-    persists V5. The final SDK consumes the same wire response and persists
-    `record_version: 6`; the browser persistence version never becomes a server
-    response format.
-26. Linked acknowledgement cleanup remains authenticated after active
-    link-session deletion through a bounded receipt-owned Device 2 binding that
-    authorizes no other operation.
-27. Every client operation that requires one active session names or derives an
-    exact authority/method selection. Multiple sibling-method sessions are a
-    valid state and never become wallet-level corruption.
-28. The four linked-device factor combinations use genuine source inventories.
-    Passkey-to-Email starts with no Email method or enrollment and exercises the
-    first-Email target-enrollment branch; Email-to-Passkey starts with no Passkey
-    method. Acceptance never pre-adds the target family to Device 1.
+### Exact browser record
 
-## Transaction Boundaries and Hard Stops
+The only active browser representation is `record_version: 6`. Its strict
+boundary parser requires:
 
-| Transition | One required transaction / CAS |
+- wallet, authority, and auth-method identity;
+- authorization, Wallet Session, and quota IDs;
+- capability subjects, authority digest, and revocation epoch;
+- issue and expiry time; and
+- the primary operation credential.
+
+The parser proves that the credential's Wallet Session ID equals the record's
+Wallet Session ID. The existing `wallet_session_id` IndexedDB keyPath stores the
+actual Wallet Session ID. `authorization_id` stores the authorization ID. Both
+physical fields are checked against the parsed record.
+
+`replaceExactActive` is the only active install operation. One IndexedDB
+`readwrite` transaction retires predecessors for the exact wallet, authority,
+and method tuple and inserts the successor. It preserves sibling methods and
+authorities. The same scan quarantines V3/V4/V5 rows, rejects malformed V6
+rows, preserves unknown future versions, and prevents a late legacy write from
+aborting the exact install.
+
+## Required invariants
+
+1. Every registration, unlock, refresh, sync, linked-device activation, and
+   post-recovery login issues directly through the exact V2 issuer.
+2. Every active exact authorization commits its quota and primary credential
+   digest atomically before success is visible.
+3. Plaintext primary credentials exist only in issuer memory and at the
+   receiving browser boundary. Durable registration records are credential-free;
+   linked delivery stores only ciphertext and a digest.
+4. Admission derives wallet, authority, method, capability, quota, and material
+   identity from one exact authorization. Sibling credentials cannot satisfy
+   another session.
+5. At most one active session exists per fully scoped exact wallet/authority/
+   method tuple. Multiple sibling-method sessions are valid.
+6. Status, replay, source activity, quota, revocation, management, hosted
+   exchange, signing, and export resolve the same exact identity.
+7. Replacement and revocation retire the exact authorization, quota, and hosted
+   children in the transaction that changes the owning state.
+8. Expiry, exhaustion, retirement, and unavailable authority, method, or
+   capability return typed outcomes rather than HTTP 500/503 failures.
+   Fresh step-up remains an operation-bound authorization and never recreates a
+   V1 reusable session.
+9. A lost founding-registration response resumes from a durable pending local
+   commit and the server's credential-free committed projection. Local
+   discovery state publishes atomically before exact-method unlock.
+10. Linked activation replay returns the original recipient-bound ciphertext
+    and exact session. Acknowledgement cleanup remains authenticated and
+    resumable after the live link session is deleted.
+11. Hosted children are origin-bound, resolve one exact parent, share its quota,
+    and become unavailable with the parent lifecycle.
+12. Recovery remains additive. A crash after server promotion can resume local
+    continuity publication without another recovery code or plaintext durable
+    recovery secret.
+13. Material promotion updates every affected exact server projection and
+    same-authority browser record without rotating session, quota, mint, or
+    credential identity.
+14. Current browser readers quarantine known legacy rows and preserve unknown
+    future rows. The precursor and final SDKs both reach explicit terminal UI
+    states under version skew.
+15. The host SDK and iframe agree on `WALLET_PROTOCOL_VERSION` before adopting
+    the port or exchanging Wallet Session data.
+16. Compatibility remains confined to the named request, IndexedDB, and D1
+    persistence boundaries. Each compatibility branch is deleted at its gate.
+17. Applied migrations remain byte-for-byte unchanged. The final schema has no
+    V1 table, trigger, view, or alias.
+
+## Boundary matrix
+
+Each row is a completeness obligation and one view of this authoritative plan.
+Implementation phases refer to these IDs instead of restating their designs.
+Typed call sites are enumerated by narrowing or deleting the old types and APIs.
+The temporary implementation appendix owns exact file/call-site lists while a
+phase is active.
+
+| ID | Boundary | Producer(s) | Consumers | Replay / recovery | Persistence and final shape | Compatibility and deletion gate | Primary proof |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| B1 | D1 authorization persistence | Direct issuer and authority-activation CAS | Admission, status, quota, replay, revocation, hosted children | Full-scope mint replay returns committed identity | V2 authorization, quota, and primary digest commit atomically | Bridge workers may read V1 tables; delete after zero active V1 state and exact-only workers | Failure injection plus migration checks |
+| B2 | Session issuance | Registration, unlock, refresh, sync, linked activation, post-recovery login | Browser installers, signing runtimes, status | `issued` / `already_committed`; unlock replaces unreachable committed session | Direct V2 response and credential digest | Registration old-response adapter only; delete when pending-commit clients own replay | Issuance matrix and same-mint tests |
+| B3 | Registration completion | Registration activation and deferred provisioning | Registration client, replay route, local discovery/install transaction | Pending local commit plus credential-free committed projection | `WalletRegistrationSessionCommitReceiptV2` | Adapter attaches ephemeral V1 bearer; delete when `already_committed` is authoritative | Lost response through immediate signing |
+| B4 | Operation admission | Primary and hosted credential resolvers | Both curve validators, pool fill, seal, preflight, warm recovery, step-up | Authorized-operation replay resolves the same exact context | Required V2 credential reader and typed admission union | Bridge request resolver accepts issued V1 bearers; delete after credential and pending-operation drain | Both curves reject fallback |
+| B5 | Runtime material resolution | Capability-subject material repository | Router A/B requests, signing, export, pool fill | Re-resolution uses the same activation identity | Exact `MpcMaterialActivationRef` projection | No compatibility; delete or replace every opaque-binding consumer | No synthesized runtime IDs |
+| B6 | Status, quota, and source activity | Exact status and authorization stores | Browser reconciliation, quota, operation replay, lifecycle UI | Full digest-free projection repairs lost promotion response | Exact V2 scope and typed lifecycle | All-null-scope old-worker rows remain readable; delete after pending V1 operation count reaches zero | Full-scope replay and lifecycle tests |
+| B7 | Revocation and replacement | Method, authority, replacement, and budget CAS operations | Admission, status, hosted children, sibling sessions | Exhausted identity remains readable for typed step-up | Exact session, quota, and child lifecycle update together | V1 cleanup remains at bridge persistence boundary; delete after zero active V1 | Transaction tests |
+| B8 | Browser persistence | Registration, unlock, refresh, sync, recovery, device-link installers | Signing surface, login, readiness, step-up, management, public API | Bootstrap and exact status reconcile stale projections | One V6 record selected by exact tuple | Precursor writes V5 and readers contain late legacy writes; enable V6 after unmarked-client drain | Mixed-version IndexedDB tests |
+| B9 | Host SDK and iframe | Host CONNECT and iframe READY handshakes | Host applications, iframe router, hosted child cache | Version mismatch is terminal and retryable after upgrade | Matching protocol version and exact message shapes | No message adapter; known embeds upgrade before final iframe | Both skew directions fail closed |
+| B10 | Hosted handoff | Hosted issue and redemption routes | Iframe child cache and child-authorized HTTP routes | Single-use exchange; child resolves exact parent | Origin-bound `wsh_` digest record with parent FK | Existing V1 exchanges drain; delete after unconsumed count reaches zero | Origin, parent lifecycle, and primary-preservation tests |
+| B11 | Device-link activation | Device 2 preparation and server activation CAS | Local installer, runtime activation, acknowledgement | Activation replay returns original recipient-bound ciphertext and session | Exact session plus sealed delivery row | Existing pending link/session states remain retryable; delete V1 support after drain | Four factor paths plus loss/replay tests |
+| B12 | Device-link acknowledgement | Device 2 durable intent and acknowledgement route | Delivery cleanup, allocation cleanup, link cleanup, bootstrap replay | Cleanup receipt authenticates replay after live-session deletion and completion | One idempotent acknowledgement lifecycle | Live link authenticates until deletion; retain the receipt through the bounded post-completion replay window | Crash after every transition |
+| B13 | Recovery | R115 finalization and replay | Local continuity publisher, ordinary exact login | Reload resumes committed target projection without another code | Additive server projection plus non-discoverable local commit | Existing response projection remains authoritative; local pending state publishes or fails closed | Interruption after promotion for both targets |
+| B14 | Material promotion | Authority-promotion CAS and exact status | Every affected server snapshot, browser sibling record, promoted runtime | Status read repairs a lost promotion response | Updated digest/subjects with stable session identities | No compatibility; runtime waits for complete reconciliation | Lost-response and sibling-method tests |
+| B15 | Management and read routes | Request credential resolver | Route policy matrix consumers | Each replay retains the original exact scope and assurance | Exact admission context only in core services | Request boundary accepts issued V1 during drain; delete with V1 credential resolver | Route policy tests |
+| B16 | Public/shared types | Server responses, IndexedDB parsers, iframe protocol | SDK, browser, generated bindings, tests | Boundary parsers reject removed and cross-family shapes | Exact server, credential, browser, and iframe unions | Rollout-stage parsers only; delete after final SDK and exact-only worker | Type fixtures and closure searches |
+
+### Route policy matrix
+
+Core route services receive only an `ExactV2AdmissionContext`. Compatibility is
+normalized once at the request boundary.
+
+| Route family | Exact identity | Capability / assurance | Quota |
+| --- | --- | --- | --- |
+| Session status | Credential's method and authority | Active exact session | Neutral |
+| Signing and pool fill | Method, authority, and material activation | Matching `sign` subject | Consuming |
+| Key export | Method, authority, and material activation | `export_keys` plus fresh step-up | Neutral |
+| Device-link approval/preflight | Source method and authority | `link_devices` plus existing owner assurance | Neutral |
+| Device revocation | Owner method and target authority | `revoke_devices` plus required fresh proof | Neutral |
+| Email factor release | Email method and enrollment | Matching Ed25519 subject plus one-time proof | Neutral |
+| NEAR funding | Method and Ed25519 activation | Matching `sign` subject | Neutral |
+| Public-key/authenticator inventory | Method and authority | Existing read policy | Neutral |
+| Auth identity link/unlink | Method and authority | Existing fresh-step-up policy | Neutral |
+| Custody ownership upgrade | Method equals envelope owner | Existing custody proof | Neutral |
+| Hosted exchange | Parent method and authority | App, wallet, and iframe origins; audience-bound child | Parent policy |
+
+No route may infer an auth method from wallet-wide uniqueness. Device-link
+approval takes its source method from the authenticated exact credential.
+Scanning a QR code does not add a Device 1 method chooser.
+
+### Untyped and deployment-visible inventories
+
+The type system enumerates typed TypeScript consumers. These inventories remain
+explicit because compilation cannot prove their closure.
+
+#### Issuance boundaries
+
+| Issuer boundary | Required final result |
 | --- | --- |
-| Registration server completion | credential-free operation receipt; first-response credential remains ephemeral |
-| Registration client completion | validate pending registration + atomically publish profile, authenticator, authority, method, signer/account projections, and selection |
-| Server-issued session | quota + V2 authorization + primary credential digest |
-| Linked activation | authority + auth method + link state + quota + V2 authorization + credential digest + sealed Device 2 delivery |
-| Linked local prerequisites | atomically persist pending profile, authenticator, method/factor, authority, signer material, receipt, and selection before server activation |
-| Linked acknowledgement | validate and tombstone exact delivery + remove ciphertext, then idempotently resume allocation/session cleanup to a completion receipt |
-| Same-method replacement | retire predecessor + close predecessor quota + retire its hosted children + insert successor quota/session/digest |
-| Explicit session retirement | retire V2 session + close quota + retire hosted children |
-| Auth-method revocation | revoke method + retire its V2 sessions + close their quotas + retire hosted children |
-| Authority revocation | revoke authority and owned methods + retire their V2 sessions + close their quotas + retire hosted children |
-| Material promotion | replace authority material projection + update every affected non-retired V2 snapshot; preserve session, quota, mint, and credential identities |
-| Budget use | authorized-operation claim + exact quota decrement/exhaustion under full V2 scope |
-| Exact browser-record install | retire exact same-method predecessor rows + insert final record; preserve siblings |
+| Founding registration activation | Direct V2 `issued` or credential-free `already_committed` |
+| Deferred NEAR provisioning | Same registration receipt and response family as activation |
+| Passkey unlock | Direct V2 issuance for the selected exact method |
+| Email OTP unlock | Direct V2 issuance for the selected exact method |
+| Wallet Session budget refresh | Same-method exact replacement with a fresh mint |
+| Account sync/bootstrap | Direct V2 response normalized by the active client generation |
+| ECDSA post-registration activation | Direct V2 issuance bound to exact ECDSA material |
+| Linked-device activation | Direct V2 issuance plus recipient-bound sealed delivery |
+| Post-recovery normal login | Direct V2 issuance after durable local continuity |
 
-Stop the phase and correct the design if any implementation would:
+#### Persistent state and counters
 
-- expose an active V2 session before its primary credential digest commits;
-- persist a public registration response or any plaintext operation credential in
-  a durable side-effect record;
-- rotate a direct exact primary credential during replay; the named Phase 0
-  in-memory V1 adapter is the only bounded legacy-response exception;
-- return `already_committed` for founding registration without a validated
-  pending local commit and a credential-free projection sufficient to publish
-  every exact-method unlock prerequisite;
-- deploy the credential-free registration receipt writer to old clients without
-  the V1 replay adapter that preserves their currently parsed terminal shape;
-- retain a byte-identical terminal-response claim while the adapter signs a fresh
-  V1 bearer for replay;
-- change the response family of an already committed issuance because a replay
-  supplied a different client capability;
-- write a primary credential digest through a separate post-issuance updater;
-- accept a credential whose Wallet Session ID does not match the client record;
-- construct a hosted child as a primary credential or resolve one through the
-  primary table;
-- infer an auth method from wallet-wide uniqueness;
-- backfill or reinterpret a V1 bearer as a V2 credential;
-- synthesize a threshold-runtime identity from a Wallet Session or
-  authorization identifier;
-- promote signer material while leaving an affected exact server or browser
-  projection stale;
-- reseal a linked credential to a different recipient after activation;
-- restart linking after recipient loss when durable exact-method unlock state is
-  available;
-- delete the live link session before retaining the bounded authentication state
-  required to replay acknowledgement cleanup;
-- delete the temporary client-capability parser while any durable receipt still
-  carries its rollout tag;
-- expose a partially installed Device 2 profile, authenticator, method,
-  authority, or signer record to normal discovery;
-- enable a `record_version: 6` write before the storage-tolerant precursor
-  issuance gate drains;
-- use an IndexedDB version upgrade that deletes unrelated stores;
-- install an exact browser record without retiring its same-method predecessor;
-- let an obsolete or future IndexedDB row abort exact-record replacement or be overwritten
-  by a reader that does not own its version;
-- accept a hosted `walletOrigin` solely because it matches a row populated from
-  the same request value;
-- accept Wallet Session postMessage data before the exact iframe protocol
-  version handshake succeeds;
-- convert an expected expired, exhausted, retired, or revoked state into an
-  exception or HTTP 500/503;
-- land the deletion migration before the rolling-deploy drain conditions pass;
-- choose an arbitrary survivor when multiple usable exact-tuple V2 rows exist;
-- treat execution of `PRAGMA foreign_key_check` as success without asserting
-  that it returned zero rows; or
-- convert a request-boundary route without an explicit row in the policy matrix;
-- move an `obsolete_or_unreachable` path into a new module instead of deleting
-  it with its liveness evidence; or
-- delete a large-file path using text search as its only reachability proof.
+| State | Cutover treatment |
+| --- | --- |
+| `reusable_wallet_sessions` | Drain active rows, then drop table, indexes, and triggers |
+| `opaque_wallet_session_tokens` | Retire exposed usable bearers, drain remaining rows, then drop |
+| V2 rows with null credential digest | Treat as unusable; retire before enforcement |
+| All-null-scope pending operations | Read through the bridge boundary until their count reaches zero |
+| V1 hosted exchanges | Permit bounded redemption, then require zero unconsumed rows |
+| V1-only quotas | Retain while referenced; delete unreferenced rows during enforcement |
+| Registration completion rows | Rewrite to credential-free receipts or delete when replay state is unnecessary |
+| Capability-tagged receipts | Normalize to final `already_committed`, then require zero tags |
+| Linked sealed deliveries | Retain until exact acknowledgement tombstones ciphertext |
+| Acknowledgement cleanup receipts | Retain through bounded replay completion/expiry |
 
-## Full Production Inventory
+#### Wire, dynamic dispatch, and version skew
 
-The checkboxes below are the deletion ledger. A checked item means the named
-production path has been replaced and deleted, not merely bypassed.
+| Surface | Inventory requirement |
+| --- | --- |
+| Primary and hosted credential prefixes | Separate parsers and record families; cross-prefix input rejected |
+| Host CONNECT / iframe READY | Both directions carry and validate `WALLET_PROTOCOL_VERSION` |
+| Iframe Wallet Session messages | Removed reusable-session fields have no runtime handler |
+| Router A/B and worker messages | Dynamic discriminators and handlers are searched separately from imports |
+| Route registration and assembly | Every issuing and admitting route maps to B2, B4, or B15 |
+| Generated bindings | Regenerate or update exact shapes; search generated entrypoints for legacy fields |
+| Shared IndexedDB tabs | Precursor, final, malformed, legacy, and unknown-future records are exercised |
+| Deployed clients and workers | Rollout gates cover old clients, old tabs, old workers, and host/iframe skew independently |
 
-### A. Server V1 persistence and service surface
+Exact file and symbol lists for these rows may live in the temporary
+implementation appendix. They are regenerated from the current tree and removed
+when their boundary reaches its final state.
+
+## Critical boundary designs
+
+### Registration receipt and persisted-credential remediation
+
+Before the terminal registration request, the client persists one invisible
+`PendingWalletRegistrationCommitV1` with ceremony and idempotency identity,
+founding method, local factor binding, and sealed local signer/custody material.
+It contains no Wallet Session credential and does not make the wallet
+discoverable.
+
+The server journal stores `WalletRegistrationSessionCommitReceiptV2`. The
+receipt contains the operation fingerprint, committed session identities, and
+the public signer, account, capability, custody-manifest, and founding-authority
+projection required for local validation. It rejects generic response payloads,
+primary or child credentials, credential-bearing bootstraps, and local secrets.
+
+First execution builds the public `issued` response from ephemeral issuer
+memory after the receipt CAS succeeds. Final replay returns
+`already_committed` with the same credential-free projection. The client
+validates that projection against its pending record, atomically publishes the
+profile, authenticator, authority, method, signer/account state, and selection,
+then runs exact-method unlock.
+
+One bounded compatibility release deploys the receipt writer, strict parser,
+and old-client response adapter together. The adapter reconstructs the stable
+committed projection and signs a short-lived V1 bearer in memory. To keep that
+bearer resolvable under the existing one-token-per-wallet-session/curve
+constraint, the compatibility persistence boundary atomically retires or
+replaces the predecessor opaque-token digest with the new digest. Plaintext is
+never persisted. Concurrent identical replay returns a usable response;
+conflicting replay fails without leaving two usable bearers. Bearer bytes may
+differ on replay while the fingerprint and committed projection remain stable.
+The rotation operation and adapter are deleted together when the pending-commit
+client owns terminal replay.
+
+Existing successful registration completion rows under both activation and
+deferred-provisioning prefixes may contain plaintext V1 bearers. These are
+`wallet-registration-activate:` and
+`wallet-registration-near-provisioning:` records in
+`router_ab_yao_versioned_json_records`. A bounded D1 remediation command must:
+
+1. run only after no old completion writer serves traffic and the maximum
+   in-flight request window has elapsed;
+2. select only the two known registration prefixes;
+3. parse known completion shapes without logging row bodies;
+4. hash each bearer through the production digest function and retire a matching
+   usable V1 session/token;
+5. rewrite the row to the credential-free receipt or delete it when replay state
+   is unnecessary;
+6. preserve unrelated records and abort on unknown or unmappable shapes; and
+7. record before/after counts and repeat the zero-credential query after the
+   in-flight window.
+
+D1 backup/time-travel retention is recorded separately. The exposure remains
+open until affected credentials are retired or expired across retained copies,
+or an approved platform purge completes.
+
+### Device-link credential delivery and cleanup
+
+Device 2 creates a signer-family-neutral P-256 ECDH delivery recipient during
+target preparation. The verified link authenticates its public key; the private
+handle remains in the target worker.
+
+Before server activation, Device 2 writes the pending profile, authenticator,
+method/factor, authority, signer-material installation state, receipt, and
+selection in one IndexedDB transaction. New records use
+`pending_local_install`, remain invisible to normal discovery, and replay by
+receipt identity. Terminal rejection removes only records created by this link.
+The existing `server_worker_activation_pending` and
+`wallet_session_issuance_pending` reasons remain retryable.
+
+The activation CAS commits the exact authorization, quota, primary credential
+digest, authority/method activation, and one complete
+`linked_device_wallet_session_credential_deliveries_v1` row. The delivery uses
+`p256-ecdh-aes256gcm-v1`, reusing the production WebCrypto construction already
+exercised by `sealEmailOtpFactorSecretForWorker` for P-256 ECDH/AES-256-GCM. It
+uses the same secure
+credential randomness as every direct issuer and binds canonical AAD to full tenant scope, link
+session, wallet, authority, method, authorization, Wallet Session, quota,
+credential digest, recipient, issue time, and expiry. The row stores ciphertext,
+the binding digest, and the expected
+`WalletSessionInstallationReceiptDigestV1`. That digest covers one shared
+canonical logical receipt rather than IndexedDB serialization or credential
+bytes. The row stores no plaintext credential.
+
+Activation replay returns the same row and exact session. Device 2 decrypts,
+validates all identities, persists the exact browser record, activates runtimes,
+durably records acknowledgement intent, and then acknowledges.
+
+Acknowledgement is one resumable lifecycle:
+
+```text
+validate exact delivery
+  -> record acknowledgement and remove ciphertext
+  -> remove authority allocation
+  -> remove active link session
+  -> mark cleanup complete
+```
+
+After active link-session deletion, a bounded cleanup receipt retains the
+Device 2 binding needed to authenticate only the exact acknowledgement replay.
+The route resolves that receipt before requiring a live link session. Replay
+continues the first incomplete transition and never restores ciphertext. The
+binding covers the Device 2 credential, link session, authority, package-set
+digest, authorization, Wallet Session, credential digest, and installation-
+receipt digest. A missing or conflicting receipt fails closed. The completed
+receipt remains until the acknowledgement replay window elapses.
+
+Loss of the recipient handle or delivery expiry resumes the durable local
+authority installation and runs exact-method unlock. It does not reseal the
+committed credential or start a second link.
+
+### Shared IndexedDB and SDK/iframe release boundaries
+
+The precursor SDK consumes the direct exact issuer response, persists the
+existing V5 representation, and preserves unknown future Wallet Session rows.
+It reaches `upgrade_required` when its own usable session cannot continue.
+
+Every session-issuing boundary temporarily requires:
+
+```ts
+walletSessionClientCapability:
+  'direct_exact_response_future_record_tolerant'
+```
+
+The capability proves that the client parses the direct response and preserves
+future IndexedDB versions. It is normalized at request boundaries, remains
+outside ceremony and mint fingerprints, and is recorded in durable operation
+receipts only to preserve replay response family. Missing or changed replay
+capability returns a typed protocol mismatch without rotating credentials.
+
+After capability enforcement, unmarked clients may use existing sessions during
+the bounded drain and cannot mint, refresh, or replace them. The first V6 write
+waits for the last unmarked session lifetime to drain or an approved
+invalidation. Before deleting the capability parser, every tagged durable
+receipt is normalized to the final credential-free `already_committed`
+projection and the tagged count reaches zero.
+
+Final readers quarantine V3/V4/V5 rows observed during bootstrap or install,
+including late writes by an already-open precursor tab. R103F retains the
+current IndexedDB keyPath and does not bump `SEAMS_WALLET_DB_VERSION` while its
+upgrade function deletes every object store. A keyPath change requires
+`versionchange` and remains outside this cutover. A precursor that sees an
+unknown future row reaches `upgrade_required`; it never reports that row as
+`corrupt`.
+
+Registration, unlock, sync, recovery, and link responses may retain family-
+specific signer-runtime bootstrap metadata. Those bootstraps contain no Wallet
+Session bearer. One exact browser record authenticates the capability subjects;
+each bootstrap remains bound to its own material activation and threshold
+runtime identity.
+
+The npm host SDK and deployed iframe also form a release boundary. CONNECT
+carries the host protocol version. The iframe validates it before adopting the
+port. READY carries the iframe version, which the host validates before marking
+the connection ready. Either skew direction returns
+`WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH` before Wallet Session data crosses the
+`postMessage` boundary. On a bad CONNECT version, the iframe reports its own
+version through the transferred port, closes the port, and never adopts it.
+This lets SDKs with the current READY validator fail with the stable mismatch;
+older SDKs without that validation still receive no adopted channel. Known
+embedding applications must upgrade with the final iframe.
+
+### Hosted child credentials
+
+`wallet_session_hosted_credentials_v2` stores the exact parent identity, child
+credential digest, application and wallet origins, expiry, and lifecycle. The
+exchange code is single-use. Child expiry never exceeds parent expiry.
+
+Issue requires the actual request `Origin` to equal `appOrigin`. The requested
+`walletOrigin` must equal authenticated tenant deployment metadata or an
+explicit server-side allowlist entry. Redemption and child-authorized HTTP calls
+require the actual request `Origin` to equal the stored `walletOrigin`. The
+iframe accepts the child only when its adopted parent `MessageEvent.origin`
+equals the stored `appOrigin`.
+
+Parent replacement, explicit retirement, method revocation, and authority
+revocation retire children in the owning transaction. Parent expiry makes them
+logically unavailable. Resolution returns the parent's
+`ExactV2AdmissionContext` and creates no second quota.
+
+### Recovery and material promotion continuity
+
+R115 recovery remains additive. Both finalization response branches return a
+strict server-read projection containing the active recovery authority and
+target method. Boundary parsers validate wallet, authority, method, target,
+digest, and lifecycle relationships. Google/Email enrollment validation remains
+inside the atomic server commit.
+
+After server promotion, a resumable non-discoverable local commit must survive
+reload while authority, method, selection, profile, authenticator, account, and
+signer continuity become durable. It stores no recovery code, factor secret,
+custody seed, or signer root in plaintext. `ready_for_sign_in` is returned only
+after every fail-closed login prerequisite is durable. Ordinary unlock accepts
+the exact installed recovery authority and method; only `device_link`
+provenance enters linked unlock.
+
+Material promotion updates the authority and every affected non-retired V2
+snapshot in one CAS. Authority digest and capability subjects change;
+authorization, Wallet Session, quota, mint, credential, issue time, and expiry
+remain stable. The response or authenticated exact status read returns every
+same-authority projection needed to reconcile browser records before the
+promoted runtime becomes active. Unprovable continuity retires the affected
+sessions and requires exact-method unlock.
+
+## Detailed implementation inventory
+
+This checklist records concrete remaining work. Items stay unchecked until the
+named production path is replaced and any obsolete implementation is deleted.
+When compilation cannot enumerate a consumer, the item also names the search or
+runtime surface that proves closure. Detailed tasks reference the boundary IDs
+above and remain part of this authoritative plan.
+
+When implementation discovers another edge, add it once: update the boundary
+row if producer/consumer, persistence, replay, compatibility, or deletion
+ownership changes; otherwise add one task under the owning inventory section.
+Phase summaries and completion criteria reference that source instead of
+copying it.
+
+### Active implementation seams
+
+The largest affected files remain explicit because they define review and
+extraction seams:
+
+- `packages/wallet/src/SeamsWeb/operations/auth/login.ts`;
+- `packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts`;
+- `packages/wallet/src/core/indexedDB/seamsWalletDB/repositories.ts`;
+- `packages/wallet-server/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts`;
+- `packages/wallet/src/SeamsWeb/operations/registration/registration.ts`;
+- `packages/wallet/src/core/rpcClients/relayer/walletRegistration.ts`;
+- `packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts`;
+- `packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa.ts`;
+  and
+- `packages/wallet/src/SeamsWeb/operations/recovery/walletRecovery.ts`.
+
+Required shaping work:
+
+- [ ] Move pending registration construction, committed-projection parsing,
+      local promotion, and exact session persistence behind one client terminal-
+      commit seam; keep public orchestration entrypoints in `registration.ts`.
+- [ ] Isolate the direct server issuer and credential-free receipt from
+      `d1WalletRegistrationService.ts`.
+- [ ] Isolate the terminal registration response parser from
+      `walletRegistration.ts`.
+- [ ] Extract linked local-install and acknowledgement state-machine code when
+      I6 changes those paths.
+- [ ] Extract exact-session reader logic from `login.ts` and
+      `BrowserSigningSurface.ts` as I8 converts their callers.
+- [ ] Regenerate the exact `readActiveForWallet` consumer inventory before I8.
+      The previous checkpoint found 44 call sites across 18 production consumer
+      files; the generated current list controls the conversion work.
+- [ ] Record the final V2 issue, persistence, read, admission, retirement, and
+      replay APIs that remain after deletion so the closure search distinguishes
+      the intended exact surface from a missed legacy replacement.
+
+Behavior-neutral extraction, legacy deletion, and behavior changes should use
+coherent commits where practical. An extraction that touches more than five
+existing files, creates a forwarding compatibility wrapper, widens a domain
+input, or invents a new layer is deferred until its operating path works.
+
+### I1 — Server V1 persistence and service surface (B1, B6, B7)
 
 - [ ] Delete `readReusableWalletSessionStatus` from
       `d1AuthorizationStore.ts`, `authorization/service.ts`, and
       `authServicePort.ts`.
 - [ ] Delete `putWalletSessionAuthorization` and its V1 readback helpers.
 - [ ] Delete `issueReusableWalletSession` and its preparation/domain inputs.
-- [ ] Delete the V1 `readWalletSessionAuthorizationByMint`. Preserve and narrow
-      the V2-by-mint replay reader around full scope, exact method, and mint ID.
+- [ ] Delete the V1 `readWalletSessionAuthorizationByMint`; narrow the V2
+      reader around full scope, exact method, and `WalletSessionMintId`.
 - [ ] Delete `revokeReusableWalletSessionsForAuthMethod` and its prepared SQL
       statement builder.
 - [ ] Delete `putOpaqueWalletSessionToken`.
@@ -926,7 +652,7 @@ production path has been replaced and deleted, not merely bypassed.
 - [ ] Delete `issueOpaqueWalletSessionToken` and
       `resolveOpaqueWalletSessionToken` from the service and route port.
 - [ ] Delete `ResolvedOpaqueWalletSessionToken`, legacy curve-binding types,
-      and pre-provenance runtime branches with those APIs.
+      and pre-provenance runtime branches that depend on those APIs.
 
 Primary files:
 
@@ -935,132 +661,91 @@ Primary files:
 - `packages/wallet-server/src/router/framework/authServicePort.ts`
 - `packages/wallet-server/src/authorization/domain.ts`
 
-### B. V1-to-V2 issuance bridge
+### I2 — Direct V2 issuance, registration replay, and promotion (B1, B2, B3, B14)
 
 - [ ] Delete `issueWalletSessionAuthorizationV2FromReusableSession`.
 - [ ] Delete `refreshWalletSessionAuthorizationV2FromReusableSession`.
 - [ ] Delete `projectReusableWalletSessionV2` and its projection types.
-- [x] Replace separate session and credential writers with one direct issuer
-      that prepares `{ session, quota, primaryCredential, credentialDigest }`.
+- [ ] Replace separate session and credential writers with one issuer that
+      prepares `{ session, quota, primaryCredential, credentialDigest }`.
 - [ ] Delete `putWalletSessionAuthorizationV2OperationCredential` and
-      `issueWalletSessionAuthorizationV2OperationCredential`. No production API
+      `issueWalletSessionAuthorizationV2OperationCredential`; no production API
       may update `operation_credential_hash` after session insertion.
-- [x] Persist session, quota, and primary credential digest in one batch or the
-      owning authority-activation CAS before returning success.
-- [ ] Rebuild the V2 table in a forward migration so every active row requires
-      a non-null primary credential digest.
-- [x] Make same-method replacement retire the previous exact V2 session and
-      exhaust its quota in the same transaction that installs the new session.
-- [ ] Add a partial unique index enforcing at most one non-retired V2 session
-      per full scope and exact `(wallet, authority, authMethod)` tuple. The
-      issuer retires an expired/exhausted predecessor before inserting its
-      replacement.
-- [x] Keep `mint_id` unique across historical V2 rows. Give every replacement a
-      fresh mint ID and delete policy-derived mint helpers that cannot identify
-      one issuance attempt.
-- [x] Make the V2-by-mint persistence reader accept the narrow replay key and
-      return the committed exact identity without requiring the caller to
-      reconstruct the entire expected session record.
-- [x] Make server-issued replay return the already committed result without
-      rotating its credential. A flow that cannot reproduce the plaintext
-      returns an explicit retry/unlock result.
-- [ ] Complete the `PendingWalletRegistrationCommitV1` recovery lifecycle.
-  - [x] Persist the strict credential-free record before the terminal request,
-        keep it invisible to normal wallet discovery, and persist only the
-        custody commit plus activation-journal identity for pre-terminal ECDSA
-        work. Commit `1d0e2aa2f` removes the pre-activation temporal-dead-zone
-        read; the 10 focused pending/three-route tests and wallet type-check pass.
-  - [ ] Resume it after page reload or worker termination, validate it against
-        the committed server projection, and atomically publish every local
-        prerequisite before exact-method unlock.
-- [ ] Change the final founding-registration replay contract from fresh V1
-      bearer issuance to `already_committed -> unlock_exact_method`. Validate a
-      credential-free committed projection against the pending record,
-      atomically publish every local discovery and signer prerequisite, and then
-      unlock so a lost response reaches a fresh exact browser record and
-      signing.
-- [x] Replace registration activation and deferred NEAR provisioning completion
-      writes with `WalletRegistrationSessionCommitReceiptV2`. The generic
-      side-effect store persists only the credential-free receipt and public
-      committed installation projection; the first public response is returned
-      only after the receipt CAS. Replay validation runs before the compatibility
-      credential is minted.
-- [ ] Map final-cutover registration replay from that receipt to
-      `already_committed` after the pending local commit path is authoritative.
-- [ ] Use that one committed installation projection for both compatibility
-      replay and final pending-commit recovery. The adapter may attach only its
-      fresh in-memory V1 bearer; add no second receipt/projection shape or
-      intermediate receipt migration.
-- [ ] Keep one Phase 0 request-boundary adapter for clients without the pending
-      commit parser. It reconstructs the current credential-free public
-      projection and signs a short-lived V1 bearer whose plaintext exists only
-      in response assembly. Persist only its digest in a dedicated bounded-TTL
-      replay-adapter table; preserve the existing opaque-token uniqueness
-      invariant and include the adapter rows in resolution and cleanup. Delete
-      the adapter before enabling the final replay contract and direct exact
-      issuance.
-- [ ] In the same adapter change, revise the Route 3 contract and service comments
-      plus every byte-identical terminal replay assertion. Require a stable
-      fingerprint and committed projection with a valid parsed legacy response;
-      bearer bytes are deliberately fresh during the adapter window.
-- [x] Make the receipt parser reject `walletSessionToken`, primary or child
-      operation credentials, credential-bearing signer bootstraps, and generic
-      persisted response payloads.
-- [ ] Count, redact, or delete historical credential-bearing rows under both
-      registration side-effect prefixes during Phase 0. Preserve only the
-      fingerprint and credential-free committed installation projection
-      required for replay.
-- [ ] Make linked activation generate one primary credential, seal it through
-      the dedicated Device 2 credential-delivery recipient, and commit its
-      digest and sealed delivery atomically with activation.
-- [ ] Preserve material-promotion continuity in
-      `d1Ed25519YaoCapabilityPersistence.ts`: update every affected non-retired
-      V2 authority digest and capability-subject projection in the authority
-      promotion CAS while preserving authorization, session, quota, mint, and
-      primary credential identity.
-- [ ] Return every same-authority promoted session projection for sibling-method
-      exact browser-record reconciliation. Extend the active exact
-      `/wallet/session/status` response
-      into the authenticated digest-free exact-projection boundary used after a
-      lost response and during bootstrap. An unprovable transition atomically
-      retires the affected sessions and requires exact-method unlock.
+- [ ] Persist the session, quota, and primary digest in one batch or owning
+      authority-activation CAS before returning success.
+- [ ] Rebuild V2 in the enforcement migration so an active row requires a
+      non-null primary digest.
+- [ ] Make same-method replacement retire its predecessor session, close its
+      quota, and retire hosted children in the successor transaction.
+- [ ] Add the full-scope exact-tuple partial unique index after deterministic
+      duplicate preflight.
+- [ ] Preserve historical `mint_id` uniqueness; every replacement receives a
+      fresh mint and policy-derived mint helpers are deleted.
+- [ ] Make the V2-by-mint reader accept the narrow replay key and return the
+      committed exact identity without reconstructing the expected record.
+- [ ] Implement `issued` and `already_committed` without credential rotation or
+      fabrication.
+- [ ] Persist `PendingWalletRegistrationCommitV1` before the terminal request;
+      keep it sufficient for reload and invisible to normal discovery.
+- [ ] Change final registration replay to credential-free committed projection
+      plus `unlock_exact_method`.
+- [ ] Validate replay against the pending record and atomically publish profile,
+      authenticator, authority, method, signer/account state, and selection.
+- [ ] Replace activation and deferred-provisioning completion rows with
+      `WalletRegistrationSessionCommitReceiptV2`.
+- [ ] Use one committed installation projection for compatibility replay and
+      final pending-commit recovery.
+- [ ] Keep one bounded old-client adapter that attaches a V1 bearer only in
+      memory; delete it when `already_committed` becomes authoritative.
+- [ ] Add an adapter-only atomic opaque-token digest rotation at the persistence
+      boundary so fresh replay bearer issuance satisfies the existing unique
+      wallet-session/curve constraint and invalidates the predecessor.
+- [ ] Update Route 3 comments and tests from byte-identical bearer output to
+      stable fingerprint and committed-projection identity.
+- [ ] Make the receipt parser reject bearer fields, credential-bearing
+      bootstraps, local secrets, and generic persisted response payloads.
+- [ ] Remediate historical completion rows under both registration prefixes
+      and retire any mapped usable bearer before rewriting or deletion.
+- [ ] Update material promotion so the authority CAS refreshes every affected
+      non-retired V2 snapshot while preserving session identity.
+- [ ] Extend authenticated exact status to return the complete digest-free
+      projection used for promotion-response loss and bootstrap reconciliation.
 
-Convert every current bridge caller:
+Convert every current issuer:
 
 - [ ] founding registration in `d1WalletRegistrationService.ts`;
-- [ ] registration session reuse in `d1WalletRegistrationService.ts`;
+- [ ] registration session replay/reuse in `d1WalletRegistrationService.ts`;
 - [ ] Wallet Session budget refresh in `d1WalletRegistrationService.ts`;
 - [ ] linked Ed25519 activation in `d1WalletRegistrationService.ts`;
 - [ ] active unlock in `d1RouterApiAuthService.ts`;
 - [ ] sync bootstrap in `syncAccountBootstrap.ts`;
 - [ ] ECDSA post-registration activation in `thresholdEcdsa.ts`;
-- [ ] `mintRouterAbEd25519YaoWalletSessionV1` in
-      `routerAbEd25519YaoProductRegistration.ts` and its sync/registration
-      callers;
-- [ ] `issueRouterAbEd25519OpaqueWalletSessionToken` and every direct caller; and
-- [ ] any recovery or device-link installation path found by the final
-      zero-reference search.
+- [ ] `mintRouterAbEd25519YaoWalletSessionV1` and its sync/registration callers;
+- [ ] `issueRouterAbEd25519OpaqueWalletSessionToken` and every direct caller;
+      and
+- [ ] recovery or device-link issuers found by the final searches.
 
-Additional primary file:
+Primary files:
 
+- `packages/wallet-server/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts`
 - `packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration.ts`
 - `packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence.ts`
 - `packages/wallet-server/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary.ts`
 - `packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService.ts`
+- `packages/wallet-server/src/core/threeRouteRegistrationContracts.ts`
 - `packages/shared-ts/src/utils/registrationEstablishedSession.ts`
 
-### C. Operation admission fallbacks
+### I3 — Exact operation admission and runtime binding (B4, B5)
 
 - [ ] Make `readWalletSessionAuthorizationV2ByOperationCredential` required in
       `authServicePort.ts`.
 - [ ] Delete `WalletSessionOperationCredentialResolution.kind === 'not_v2'`.
-- [ ] Remove `resolveOpaqueOwnerWalletSessionAdmission` from core validators.
-      Keep it reachable only through the explicitly named bridge
-      request-boundary resolver until Phase 6, then delete it.
-- [ ] Delete Ed25519 validator fallback to a V1 token.
-- [ ] Delete ECDSA validator fallback to a V1 token.
-- [ ] Make operation kind required for every reusable-session admission.
-- [ ] Delete the `operationKind === null` ECDSA path.
+- [ ] Keep `resolveOpaqueOwnerWalletSessionAdmission` reachable only from the
+      bridge request resolver, then delete it at R4.
+- [ ] Delete the Ed25519 validator's V1-token fallback.
+- [ ] Delete the ECDSA validator's V1-token fallback.
+- [ ] Make operation kind required for reusable-operation admission.
+- [ ] Delete the `operationKind === null` ECDSA branch.
 - [ ] Convert operation step-up identity resolution in
       `routerAbPrivateSigningWorker.ts`.
 - [ ] Convert signing-session seal authorization in `createFetchRouter.ts`.
@@ -1068,11 +753,15 @@ Additional primary file:
 - [ ] Convert ECDSA pool-fill admission in `thresholdEcdsa.ts`.
 - [ ] Convert recovery warm-session authorization in
       `routerAbEd25519YaoRecoveryWalletSessionAuthorization.ts`.
-- [ ] Resolve the capability subject's exact material activation before building
-      either curve's Router A/B request. Replace every opaque-binding field read
-      with that resolver output or delete the field's consumer.
+- [ ] Resolve the capability subject's exact material activation before either
+      curve constructs a Router A/B request.
+- [ ] Assign every `OpaqueOwnerWalletSessionBinding` field to the authoritative
+      material resolver or delete its consumer, including
+      `thresholdSessionId`, `participantIds`, `keyManifestDigestB64u`,
+      `relayerKeyId`, `runtimePolicyScope`, `keyHandle`, and
+      `authorizationSessionId`.
 - [ ] Reject any path that substitutes a Wallet Session or authorization ID for
-      `thresholdSessionId`, `authorizationSessionId`, or another runtime identity.
+      a threshold runtime identity.
 
 Primary files:
 
@@ -1083,99 +772,76 @@ Primary files:
 - `packages/wallet-server/src/router/transport/fetch/createFetchRouter.ts`
 - `packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization.ts`
 
-### D. Status, replay, quota, and source-activity checks
+### I4 — Status, replay, quota, and source activity (B6)
 
-- [ ] Make `/wallet/session/status` resolve only the V2 operation credential.
-- [ ] Make its active V2 branch return the full digest-free
-      `WalletSessionAuthorizationV2` plus exact quota lifecycle data. Validate
-      immutable authorization, Wallet Session, quota, authority, and method
-      identities against the credential-bound request before returning it.
-- [ ] Use that projection read to reconcile a possibly stale exact browser record
-      during bootstrap and after promotion-response loss. A promotion response
-      updates every local sibling-method record owned by the same authority before
-      any promoted runtime becomes visible.
-- [ ] Change the V2 persistence reader to return typed missing, expired,
-      exhausted, retired, authority-unavailable, and method-unavailable states.
-      Reserve exceptions for corrupt persistence.
-- [ ] Make fully scoped `isAuthorizedOperationSourceActive` rows use the V2
-      authorization lookup and exact authority/method checks. Retain one
-      temporary all-null-scope V1 persistence branch for pending rows written
-      by pre-bridge workers, then delete it in Phase 6.
-- [ ] Replace every quota lookup through `reusable_wallet_sessions` with the
-      V2 authorization's `quota_id`.
-- [ ] Bind the existing `linked_scope_org_id`, `linked_scope_project_id`, and
-      `linked_scope_env_id` columns on every new authorization-grant operation.
-      Reject partially populated scope at the persistence boundary.
-- [ ] Replace the V1-only authorized-operation claim trigger with a lookup by
-      the complete `(namespace, org, project, env, tenant, authorizationId)`
-      V2 key.
-- [ ] Ensure replay resolves the same V2 authorization that admitted the first
-      execution and rejects scope, method, authority, quota, or capability
-      disagreement.
+- [ ] Make `/wallet/session/status` resolve only exact operation credentials in
+      the final worker.
+- [ ] Return the complete digest-free authorization and quota lifecycle from
+      the active status branch.
+- [ ] Validate immutable authorization, Wallet Session, quota, authority, and
+      method identities against the credential-bound request.
+- [ ] Reconcile stale browser records during bootstrap and after lost promotion
+      responses before publishing the promoted runtime.
+- [ ] Return typed missing, expired, exhausted, retired, authority-unavailable,
+      method-unavailable, and capability-unavailable results from persistence.
+- [ ] Convert fully scoped `isAuthorizedOperationSourceActive` rows to V2 exact
+      lookup.
+- [ ] Retain the all-null-scope V1 branch only for pending rows written by old
+      workers and delete it at R4.
+- [ ] Replace quota lookup through `reusable_wallet_sessions` with the V2
+      authorization's `quota_id`.
+- [ ] Populate `linked_scope_org_id`, `linked_scope_project_id`, and
+      `linked_scope_env_id` on every new grant and reject partial scope.
+- [ ] Supersede the applied exact-only `0024` trigger with the additive bridge
+      trigger, then remove the V1 branch during enforcement.
+- [ ] Require authorized-operation replay to resolve the exact authorization
+      that admitted first execution and reject scope, method, authority, quota,
+      capability, or material disagreement.
 - [ ] Remove V1 status calls from Ed25519 reuse and ECDSA activation.
 
 Primary files:
 
 - `packages/wallet-server/src/router/transport/fetch/routes/sessions.ts`
 - `packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore.ts`
-- `packages/wallet-server/migrations/d1-signer/0001_signer_d1_initial.sql`
+- a new forward signer-D1 migration; applied `0001_signer_d1_initial.sql`
+  remains unchanged.
 
-The applied `0001` file stays unchanged. A new forward migration replaces its
-trigger.
+### I5 — Revocation, recovery, and custody (B7, B13)
 
-The landed tree contains scope bindings, a V2-only source reader, and the
-exact-only `0024_r103f_v2_authorized_operation_claim.sql` trigger. That trigger
-landed before the rolling-deploy boundary. Treat it as immutable and supersede it
-with the additive bridge migration below; do not cite its presence as proof that
-the operating cutover is complete.
-
-### E. Revocation, recovery, and custody checks
-
-- [ ] Retire V2 authorizations by exact auth-method ID during auth-method
-      revocation.
+- [ ] Retire V2 authorizations by exact auth-method ID during method revocation.
 - [ ] Retire V2 authorizations by exact authority during linked-device
       revocation.
-- [ ] Append exact V2 retirement and quota exhaustion statements to the same
-      auth-method or authority revocation CAS.
-- [ ] Transition a consumed quota to exhausted without traversing the V1 table;
-      keep its exact V2 identity readable for typed status and step-up.
+- [ ] Append exact session retirement, quota closure, and hosted-child
+      retirement to the owning revocation CAS.
+- [ ] Convert explicit session retirement to close the exact V2 session and
+      quota and retire hosted children in one transaction.
+- [ ] Transition a consumed quota to exhausted through V2 while retaining exact
+      identity for typed status and step-up.
 - [ ] Replace `hasActiveWalletSessionsForAuthMethod` with a V2 query.
-- [ ] Remove duplicate V1 revocation statement builders in
+- [ ] Delete duplicate V1 revocation statement builders in
       `d1WalletAuthMethodStore.ts`.
-- [ ] Convert the landed additive recovery finalization and replay session
-      checks to the exact model. Preserve exact continuity-anchor selection,
-      fresh recovery-authority installation, and every pre-existing method,
-      envelope, authority, linked device, and Wallet Session.
-- [ ] Preserve both landed recovery response branches as strict committed
-      projections containing the server-read active recovery authority and
-      target method. Validate wallet, authority, method, target, digest, and
-      lifecycle relationships at the response boundary; keep Google/Email
-      enrollment validation inside the atomic server commit and reject loose or
-      cross-wallet identity fragments.
-- [ ] Preserve the landed recovery provenance dispatch. `wallet_registration`
-      and `wallet_recovery` use ordinary exact unlock; only `device_link` uses
-      linked unlock. Recovered Email OTP unlock must validate the exact active
-      authority ID/digest and method identity already installed locally and
-      fail closed on absence or mismatch. It must not call recovery persistence
-      as an unlock-time repair path.
-- [ ] Close the post-promotion recovery crash window before converting its
-      session consumers. Today `promoted_pending_continuity` exists only in the
-      coordinator's in-memory map, while authority/method/selection, profile,
-      authenticator, legacy local method projection, and recovered signer
-      material publish through separate writes after the server has consumed
-      the code. Define and test a bounded resumable local commit receipt or
-      non-discoverable pending installation that survives reload without
-      persisting a recovery code, factor secret, custody seed, or signer root in
-      plaintext. Publish the recovered wallet atomically only after every
-      fail-closed login prerequisite is durable.
-- [ ] Return `ready_for_sign_in` only after the committed target projection and
-      every local continuity prerequisite are durable. A retry or reload after
-      server promotion must read back the same additive commit and resume local
-      installation without consuming another recovery code.
-- [ ] Keep wallet lock local: retire/delete exact browser records and dispose
-      runtimes. Do not claim atomic remote retirement.
-- [ ] Return expiry and exhaustion as typed states even when row cleanup is
-      deferred.
+- [ ] Convert additive recovery finalization and replay session checks to the
+      exact model while preserving every pre-existing access path.
+- [ ] Preserve strict server-read recovery projections for active recovery
+      authority and target method on both target branches.
+- [ ] Validate wallet, authority, method, target, digest, enrollment, and
+      lifecycle relationships at the response boundary.
+- [ ] Preserve provenance dispatch: `wallet_registration` and
+      `wallet_recovery` use ordinary exact unlock; only `device_link` uses
+      linked unlock.
+- [ ] Make recovered Email OTP unlock require the exact locally installed active
+      authority and method; fail closed on absence or mismatch.
+- [ ] Add a resumable local recovery commit that survives interruption after
+      server promotion without persisting recovery code, factor secret, custody
+      seed, or signer root in plaintext.
+- [ ] Replace the in-memory-only `promoted_pending_continuity` gap with that
+      durable commit before converting recovery consumers.
+- [ ] Publish recovery authority, method, selection, profile, authenticator,
+      account, and signer continuity atomically before `ready_for_sign_in`.
+- [ ] Make replay read the same additive server commit and resume local
+      installation without another recovery code.
+- [ ] Keep wallet lock local to browser record/runtime disposal; remote
+      retirement follows explicit server lifecycle transitions.
 
 Primary files:
 
@@ -1189,92 +855,69 @@ Primary files:
 - `packages/wallet/src/SeamsWeb/operations/authMethods/passkey/localPasskeyProjection.ts`
 - `packages/wallet/src/core/rpcClients/relayer/walletRecoveryFinalize.ts`
 
-### F. Device-link source and owner authorization
+### I6 — Device-link source, activation, and acknowledgement (B11, B12)
 
-- [ ] Delete `readOpaqueWalletSessionTokenByIdentity` fallback from
+- [ ] Delete the opaque-token fallback from
       `d1LinkedDeviceVerifiedLinkSourceReader.ts`.
 - [ ] Require the exact V2 source session for owner approval.
 - [ ] Require the exact operation credential in execution-lane preflight.
-- [ ] Confirm post-link installation persists the exact V2 record and operation
-      credential before publishing authenticated UI state.
-- [ ] Add a dedicated signer-family-neutral P-256 ECDH credential-delivery
-      recipient to target preparation and authenticate it through the verified
-      link record.
-- [ ] Before sending server activation, durably persist the Device 2 wallet
-      profile, profile authenticator, exact auth-method/factor state, authority
-      identity, and resumable local signer-material installation state required
-      by fail-closed `unlock_exact_method` in one IndexedDB `readwrite`
-      transaction. Store every new lifecycle record as `pending_local_install`,
-      hide it from normal discovery, make replay idempotent by receipt identity,
-      and define terminal rejection cleanup that preserves any pre-existing
-      local record. Resume finalizes the method as active before credential
+- [ ] Add the P-256 ECDH delivery recipient to target preparation and bind it to
+      the verified link.
+- [ ] Persist Device 2 profile, authenticator, method/factor, authority,
+      signer-material state, receipt, and selection as one invisible
+      `pending_local_install` transaction before activation.
+- [ ] Make local pending replay idempotent by receipt identity and terminal
+      cleanup preserve any pre-existing record.
+- [ ] Preserve `server_worker_activation_pending` and
+      `wallet_session_issuance_pending` as retryable states that allocate no
+      second authority.
+- [ ] Make resume finalize a locally pending method as active before credential
       decrypt.
-- [ ] Preserve the landed `pending_local_install` reasons
-      `server_worker_activation_pending` and `wallet_session_issuance_pending` as
-      retryable exact-resume branches. Neither reason may delete pending local
-      prerequisites, allocate a second authority, or restart linking.
-- [ ] Persist the server-generated primary credential digest and sealed Device
-      2 delivery in one complete
-      `linked_device_wallet_session_credential_deliveries_v1` row inside the
-      authority activation CAS.
-- [ ] Give the delivery row exact composite foreign keys to its linked
-      installation and V2 authorization, and unique full-scope link-session and
-      credential-digest identities.
-- [ ] Bind the delivery envelope AAD to full tenant scope, link session, wallet,
-      authority, method, authorization, Wallet Session, quota, credential
-      digest, recipient, issue time, and expiry. Store the envelope, binding
-      digest, and expected `WalletSessionInstallationReceiptDigestV1`; store no
-      plaintext. Define the receipt digest over one shared canonical logical
-      shape, never raw IndexedDB bytes or plaintext credential bytes.
-- [ ] Make activation replay return that same sealed delivery and exact session
-      identity. Never mint or overwrite a credential during replay.
-- [ ] Retain the sealed delivery across a lost activation response. Consume it
-      only after the final local-installation acknowledgement validates, by
-      tombstoning the row and removing ciphertext while preserving the bounded
-      replay receipt.
-- [ ] Order Device 2 as decrypt → validate exact identities → persist the exact
-      browser record → activate runtimes → acknowledge. A failure before
-      persistence sends no acknowledgement and remains replayable.
-- [ ] Extend the final acknowledgement with authorization ID, Wallet Session
-      ID, credential digest, and installation-receipt digest. Reject
-      cross-session or stale acknowledgement before consuming the delivery.
-- [ ] Implement acknowledgement as an idempotent state machine: validate and
-      tombstone the exact delivery while removing ciphertext, delete the
-      authority allocation, delete the active link session, and record cleanup
-      completion. Replay resumes the first incomplete transition and never
-      restores the envelope. Keep all four transitions in this one lifecycle;
-      delete or fold any parallel sealed-delivery cleanup path that can race it.
-- [ ] Retain a bounded Device 2 acknowledgement-authentication tombstone in the
-      cleanup receipt. Make the route parse the acknowledgement identity and
-      resolve that receipt before requiring a live link session, so replay after
-      link-session deletion can authenticate, resume, and report completion.
-      The tombstone authorizes only the exact acknowledgement cleanup and
-      expires with the receipt.
-- [ ] Persist the pending acknowledgement intent locally before sending it.
-      Bootstrap replays that exact intent until the server reports cleanup
-      complete, then clears it with the local delivery-resume record.
-- [ ] On recipient-handle loss or delivery expiry, resume the durable local
-      authority installation and run exact-method unlock. Retire the unreachable
-      activation session; do not reseal or create another link.
-- [ ] Confirm linked-device signing, export availability, account menus, and
-      inventory work immediately after linking without a lock/unlock cycle.
-- [ ] Preserve the landed cancellation contract across client orchestration:
-      local cancellation remains interactive and returns focus to the opener;
-      Device 1 retains its owner-authenticated cancellation identity after
-      approval; owner cancellation targets the authenticated current revision
-      throughout `claimed`, `awaiting_target_factor`,
-      `awaiting_source_contribution`, and `provisioning`; Device 2 emits one
-      terminal `cancelled` event, releases local resources, and leaves the
-      hosted auth menu in an explicit retry state. Postcommit local installation
-      and active sessions remain non-cancellable through this route.
-- [ ] Delete `INSTALLATION_SCHEMA_SQL` and the other runtime `CREATE TABLE`
-      copies from `d1LinkedDeviceAuthorityInstallService.ts`. Forward migrations
-      own these schemas so production and local execution cannot drift.
-- [ ] Move `linked_device_authority_allocations` into the additive migration.
-      Keep `linked_device_authority_installations` governed by immutable `0018`
-      and retain its `target_factor_verified_at_ms >= 0` check; the current
-      runtime SQL copy already omits that check and demonstrates the drift this
-      deletion closes.
+- [ ] Commit authorization, quota, credential digest, authority/method
+      activation, and one complete sealed-delivery row in the activation CAS.
+- [ ] Add exact composite foreign keys to the linked installation and V2
+      authorization plus unique full-scope link and digest identities.
+- [ ] Bind canonical AAD to tenant scope, link, wallet, authority, method,
+      authorization, Wallet Session, quota, credential digest, recipient, issue
+      time, and expiry.
+- [ ] Define the installation-receipt digest over one canonical logical shape,
+      excluding IndexedDB bytes and plaintext credential bytes.
+- [ ] Make activation replay return the original sealed delivery, recipient,
+      digest, and exact session without minting or overwriting.
+- [ ] Order Device 2 as decrypt, validate exact identities, persist V6, activate
+      runtimes, record acknowledgement intent, and acknowledge.
+- [ ] Extend acknowledgement with authorization ID, Wallet Session ID,
+      credential digest, and installation-receipt digest.
+- [ ] Reject cross-session or stale acknowledgement before consuming delivery.
+- [ ] Implement one idempotent acknowledgement lifecycle covering delivery
+      tombstone, ciphertext removal, allocation deletion, link-session deletion,
+      and completion.
+- [ ] Delete or fold any parallel sealed-delivery cleanup that could race the
+      acknowledgement lifecycle.
+- [ ] Retain a bounded Device 2 authentication binding in the cleanup receipt;
+      bind Device 2 credential, link session, authority, package set,
+      authorization, Wallet Session, credential digest, and receipt digest, and
+      resolve it before requiring a live link session.
+- [ ] Persist pending acknowledgement intent locally and replay it during
+      bootstrap until cleanup completes; then clear the intent together with
+      the local delivery-resume record.
+- [ ] Recover recipient-handle loss or delivery expiry through durable local
+      install plus exact-method unlock, without resealing or relinking.
+- [ ] Preserve interactive cancellation across `claimed`,
+      `awaiting_target_factor`, `awaiting_source_contribution`, and
+      `provisioning`. Device 1 retains its owner-authenticated cancellation
+      identity and targets the authenticated current revision, Device 2 emits
+      one terminal `cancelled`, and the hosted menu reaches an explicit retry
+      state with opener focus restored. Postcommit local installation and
+      active sessions remain outside that route.
+- [ ] Delete `INSTALLATION_SCHEMA_SQL` and other runtime `CREATE TABLE` strings from
+      `d1LinkedDeviceAuthorityInstallService.ts` after migration ownership.
+- [ ] Move `linked_device_authority_allocations` to the additive migration while
+      preserving immutable `0018` ownership of
+      `linked_device_authority_installations` and its
+      `target_factor_verified_at_ms >= 0` constraint.
+- [ ] Verify signing, export, account menus, and inventory immediately after
+      linking without a lock/unlock cycle.
 
 Primary files:
 
@@ -1289,42 +932,31 @@ Primary files:
 - `packages/wallet/src/SeamsWeb/operations/devices/linkDevice.ts`
 - `packages/wallet/src/SeamsWeb/walletIframe/host/auth-menu/session.ts`
 
-### G. Request-boundary routes still backed by V1
+### I7 — Hosted and management request boundaries (B10, B15)
 
-These public behaviors remain. Their storage and authorization source changes
-to V2.
-
-- [ ] Reback hosted Wallet Session exchange issue and redemption with an
-      origin-bound V2 child credential. It resolves the parent V2 session,
-      shares its quota, and never rotates the primary credential.
-- [ ] Define `HostedWalletSessionOperationCredentialV1` as a nominal type with
-      the `wsh_` boundary encoding. Give primary and child credentials separate
-      parsers, encodings, tables, and lookup branches.
-- [ ] Make hosted exchange curve-free on the wire. Issue accepts
-      `{ appOrigin, walletOrigin }`; redemption accepts
-      `{ exchangeCode, nonce, appOrigin, walletOrigin }`; success returns the
-      parent Wallet Session ID, one
-      `HostedWalletSessionOperationCredentialV1`, and its expiry. Delete `curve`
-      and `walletSessionToken` from these exact boundary shapes.
-- [ ] Preserve the two-leg transport checks: issue requires actual `Origin` to
-      equal `appOrigin`; redemption and later child use require actual `Origin`
-      to equal `walletOrigin`; every supplied origin must equal the stored
-      exchange row.
-- [ ] Resolve the permitted `walletOrigin` from authenticated tenant deployment
-      metadata or a server-side allowlist during issue. Reject a request value
-      that is syntactically valid and self-consistent but is not authoritative
-      for that tenant.
-- [ ] Cache or use a hosted child in the iframe only when the adopted parent
-      `MessageEvent.origin` equals its stored `appOrigin`.
-- [ ] Give each hosted row an exact composite foreign key to its V2 parent and a
-      unique credential digest. Same-method replacement, explicit retirement,
-      method revocation, and authority revocation retire children in their
-      owning transaction. Parent expiry makes children logically unavailable;
-      cleanup may follow asynchronously.
-- [ ] Convert the wallet-iframe hosted-session cache and consumers from a
-      per-curve token map to one audience-bound child operation credential.
+- [ ] Back hosted issue and redemption with an origin-bound V2 child credential
+      that resolves one parent, shares its quota, and preserves the primary.
+- [ ] Give primary and child credentials separate nominal types, `wst_`/`wsh_`
+      encodings, parsers, tables, and lookup branches.
+- [ ] Make hosted issue accept `{ appOrigin, walletOrigin }`, redemption accept
+      `{ exchangeCode, nonce, appOrigin, walletOrigin }`, and success return the
+      parent Wallet Session ID, one hosted child credential, and its expiry.
+- [ ] Remove `curve` and `walletSessionToken` from exact hosted wire shapes.
+- [ ] Require issue request Origin to equal `appOrigin`.
+- [ ] Require requested `walletOrigin` to equal authenticated tenant deployment
+      metadata or a server allowlist entry.
+- [ ] Require redemption and child-authorized HTTP Origin to equal stored
+      `walletOrigin`, and all supplied origins to equal the exchange row.
+- [ ] Cache a hosted child in the iframe only when adopted parent origin equals
+      stored `appOrigin`.
+- [ ] Add the parent composite foreign key and unique child digest.
+- [ ] Retire hosted children during parent replacement, explicit retirement,
+      method revocation, and authority revocation; enforce parent expiry during
+      resolution.
+- [ ] Convert the iframe hosted-session cache from per-curve token maps to one
+      audience-bound child credential.
 - [ ] Convert Email factor-release `wallet_session` admission.
-- [ ] Convert `/auth/identities` and auth link/unlink admission.
+- [ ] Convert `/auth/identities` link/unlink admission.
 - [ ] Convert `/near/public-keys` admission.
 - [ ] Convert `/webauthn/authenticators` admission.
 - [ ] Convert custody-envelope ownership upgrade admission.
@@ -1342,100 +974,44 @@ Primary files:
 - `packages/wallet/src/SeamsWeb/walletIframe/client/router.ts`
 - `packages/wallet/src/SeamsWeb/walletIframe/shared/messages.ts`
 
-Request compatibility is normalized once at these route boundaries. Core
-services receive only an exact V2 admission context.
+### I8 — Exact browser persistence and consumers (B8)
 
-Every converted route declares and tests this policy before its V1 resolver is
-deleted:
-
-| Route family | Exact identity | Capability / assurance | Quota |
-| --- | --- | --- | --- |
-| Session status | credential's exact method and authority | active V2 session | neutral |
-| Signing and pool fill | exact method, authority, and material activation | matching `sign` subject | consuming |
-| Key export | exact method, authority, and material activation | matching `export_keys` subject plus fresh step-up | neutral |
-| Device-link approval/preflight | exact source method and authority | `link_devices`; existing owner assurance | neutral |
-| Device revocation | exact owner method and target authority | `revoke_devices`; required fresh proof | neutral |
-| Email factor release | exact Email method and enrollment | matching Ed25519 subject and one-time proof | neutral |
-| NEAR funding | exact method and Ed25519 activation | matching `sign` subject | neutral |
-| Public-key/authenticator inventory | exact method and authority | retain current read policy | neutral |
-| Auth identity link/unlink | exact method and authority | retain current fresh-step-up policy | neutral |
-| Custody ownership upgrade | exact method equals envelope owner | current custody proof | neutral |
-| Hosted exchange | parent exact method and authority | issue app Origin + redeem/use wallet Origin + iframe parent Origin; audience-bound child credential | parent quota policy |
-
-No route may infer an auth method from wallet-wide uniqueness or accept a
-sibling credential because it belongs to the same wallet.
-
-Device-link approval obtains the exact source method from the currently
-authenticated V2 credential. Scanning a QR code does not add a Device 1 method
-chooser.
-
-### H. Retire legacy client persistence and install the exact browser record
-
-- [ ] Delete `WALLET_SESSION_AUTHORIZATION_RECORD_VERSION` for V3.
+- [ ] Delete the V3 `WALLET_SESSION_AUTHORIZATION_RECORD_VERSION`.
 - [ ] Delete `ActiveWalletSessionAuthorizationProjection` and its retired V3
       sibling.
 - [ ] Delete `WalletSessionAuthorizationTokenBundle`.
-- [ ] Delete curve token extractors and curve ID extractors.
-- [ ] Delete V3 builders, parsers, row serializers, merges, and retirement
-      helpers.
-- [ ] Delete `replaceActive`, `createOrMergeExactActive`, and
-      `upsertActiveWithCurveMerge` where they operate on V3 projections.
-- [ ] Delete `readActiveForWallet`, which deliberately excludes V4/V5 rows.
-- [ ] Delete `persistActiveWalletSessionAuthorizationCurve`.
-- [ ] Delete `persistActiveWalletSessionAuthorizationFromRegistration`.
+- [ ] Delete curve token/ID extractors and V3 builders, parsers, serializers,
+      merges, and retirement helpers.
+- [ ] Delete V3 `replaceActive`, `createOrMergeExactActive`, and
+      `upsertActiveWithCurveMerge` behavior.
+- [ ] Delete `readActiveForWallet`.
+- [ ] Delete `persistActiveWalletSessionAuthorizationCurve` and
+      `persistActiveWalletSessionAuthorizationFromRegistration`.
 - [ ] Delete the V3 ECDSA bootstrap projection.
-- [ ] Define one branch-specific builder and one strict parser for the exact
-      `record_version: 6` composite. Require `authorizationId`, `walletSessionId`,
-      `quotaId`, exact method/authority identity, subjects, and the primary
-      credential.
-- [ ] Reject the exact browser record unless the credential's Wallet Session ID
-      equals the record's Wallet Session ID.
-- [ ] Retain the existing `wallet_session_id` keyPath and store the exact record's
-      `walletSessionId` there. Store `authorizationId` separately under
-      `authorization_id` and cross-check both fields in the boundary parser.
-- [ ] Reshape `replaceExactActive` around the exact browser record and make it the
-      only active install API. Its single `readwrite` transaction retires active predecessors for
-      the exact wallet/authority/method tuple before inserting the successor;
-      sibling methods and authorities remain unchanged. The same scan
-      quarantines known V3/V4/V5 rows, rejects a malformed final record, preserves unknown
-      future versions, and never lets a late legacy row abort installation.
-- [ ] Rename remaining repository APIs around exact-record behavior only after the
-      duplicate APIs are removed.
-- [ ] Remove active V3, V4, and V5 rows with a targeted transaction against the
-      existing Wallet Session store. Preserve every unrelated IndexedDB store.
-- [ ] Run that targeted quarantine during every current-SDK bootstrap and make
-      all exact-record readers ignore obsolete rows. This contains writes from old tabs
-      that were already open during the cutover.
-- [ ] Before any `record_version: 6` production write, publish a storage-tolerant precursor SDK.
-      Its readers preserve and ignore unknown future record versions, never
-      classify them as legacy corruption, and surface `upgrade_required` when
-      their own usable session is unavailable.
-- [ ] Add the temporary request-boundary capability
-      `walletSessionClientCapability` set to
-      `'direct_exact_response_future_record_tolerant'` on every route in the
-      issuance matrix. Prove the precursor parses the direct exact issuer
-      response into V5 and preserves future rows. Record the capability in the
-      operation receipt, reject response-family changes on replay, drain or
-      invalidate the final unmarked session lifetime before enabling
-      `record_version: 6`, and delete the capability after the exact-only
-      deployment.
-- [ ] Do not bump `SEAMS_WALLET_DB_VERSION` while the current upgrade function
-      deletes all object stores. A general in-place migration framework is
-      outside this cutover.
+- [ ] Define one branch-specific V6 builder and one strict parser requiring
+      exact identities, subjects, lifecycle, and primary credential.
+- [ ] Reject session/credential mismatch at parsing and before IndexedDB write.
+- [ ] Preserve `wallet_session_id` as the Wallet Session keyPath, store
+      `authorization_id` separately, and cross-check both.
+- [ ] Make exact `replaceExactActive` the only active install API with
+      same-method retirement and sibling preservation in one transaction.
+- [ ] Quarantine known V3/V4/V5 rows, reject malformed V6, preserve unknown
+      future rows, and contain late legacy writes in every reader/install.
+- [ ] Remove only obsolete Wallet Session rows; preserve every unrelated wallet,
+      authority, method, signer-material, export-root, and recovery-code store.
+- [ ] Publish the future-row-tolerant precursor before any V6 production write.
+- [ ] Add the temporary client capability to every issuance boundary, record
+      replay family, drain unmarked issuance, normalize tagged receipts, and
+      delete the capability.
+- [ ] Retain the existing DB version and keyPath while the general upgrade
+      function remains destructive.
 
-Primary files:
-
-- `packages/wallet/src/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore.ts`
-- `packages/wallet/src/core/signingEngine/session/persistence/walletSessionAuthorizationProjection.ts`
-
-### I. Client V3 readers and fallback consumers
-
-Convert every reader and legacy writer to the exact browser record:
+Convert every reader or legacy writer:
 
 - [ ] `BrowserSigningSurface.ts`;
 - [ ] `login.ts`;
-- [ ] `registration.ts` legacy registration writer;
-- [ ] `syncAccount.ts` legacy recovery/sync writer;
+- [ ] registration legacy persistence in `registration.ts`;
+- [ ] recovery/sync legacy persistence in `syncAccount.ts`;
 - [ ] `SigningSessionCoordinator.ts`;
 - [ ] `PasskeyMpcSessionManager.ts`;
 - [ ] `session/availability/readiness.ts`;
@@ -1453,29 +1029,12 @@ Convert every reader and legacy writer to the exact browser record:
 - [ ] `walletHostOwnerAuthority.ts`; and
 - [ ] `publicApi/near.ts`.
 
-The committed `be8fcbaf7` August 29 checkpoint contains 44
-`readActiveForWallet` call sites across 18 production consumer files.
-`registration.ts` and recovery `syncAccount.ts` remain in the inventory as
-legacy writers and are outside that reader count. Before replacing the
-repository API, give every reader call site one explicit selection source:
+Each consumer must use an authenticated exact tuple, the current validated
+method selection, a credential-bound session identity, or an intentional
+multi-record result. Signing, export, funding, refresh, and management functions
+cannot accept wallet identity alone.
 
-- an already authenticated `(walletId, authorityId, authMethodId)` tuple;
-- the current wallet selection's exact active method, revalidated against its
-  authority;
-- a credential-bound exact session identity; or
-- a list/readiness operation that intentionally returns every active exact
-  record and handles zero, one, or many without treating sibling methods as
-  corruption.
-
-- [ ] Record that selection source beside every call site in the conversion
-      ledger. A function that performs signing, export, funding, refresh, or
-      management may not accept only `walletId` when multiple methods can be
-      active.
-- [ ] Add a zero-reference check for `readActiveForWallet` and a sibling-method
-      test proving each converted caller uses the selected exact method, never
-      insertion order or wallet-wide uniqueness.
-
-Remove exact-first-then-reusable fallback logic from:
+Remove exact-first/V1 fallback from:
 
 - [ ] `login.ts`;
 - [ ] `walletIframe/shared/exactSessionState.ts`;
@@ -1483,41 +1042,38 @@ Remove exact-first-then-reusable fallback logic from:
 - [ ] wallet iframe client router handlers; and
 - [ ] `BrowserSigningSurface.ts` lock/retirement cleanup.
 
-### J. Public and shared legacy types
+Primary persistence files:
+
+- `packages/wallet/src/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/walletSessionAuthorizationProjection.ts`
+
+### I9 — Public types, iframe protocol, and vocabulary (B9, B16)
 
 - [ ] Delete `ReusableWalletSessionState` from the SDK domain model.
-- [ ] Rename `ReusableWalletSessionMintId` and its parser to
-      `WalletSessionMintId` and `parseWalletSessionMintId` across production,
-      generated bindings, fixtures, and type checks. Add no compatibility
-      alias; preserve the stored and wire field names.
+- [ ] Rename `ReusableWalletSessionMintId` and parser to
+      `WalletSessionMintId` and `parseWalletSessionMintId` without an alias.
+- [ ] Preserve stored `mint_id` and frozen wire `wallet_session_mint_id` names.
 - [ ] Delete reusable-session fields from the public `WalletSession` shape.
 - [ ] Delete curve-specific reusable-session signing-surface ports.
 - [ ] Delete legacy reusable-session iframe message fields.
-- [ ] Bump `WALLET_PROTOCOL_VERSION` for the exact Wallet Session message contract. Put that
-      version in CONNECT, reject it in the iframe before port adoption when it
-      is missing or mismatched, report the iframe version through the rejected
-      port, and keep the host's READY validation. Preserve
-      `WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH` as the stable failure for SDKs
-      that implement the current validator.
+- [ ] Bump `WALLET_PROTOCOL_VERSION`, add the host version to CONNECT, validate
+      before iframe port adoption, and retain host READY validation.
+- [ ] Return `WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH` for either skew direction.
 - [ ] Publish the matching host SDK and upgrade every known embedding
-      application as part of the breaking cutover. Do not add an old-message
-      compatibility branch to the iframe.
-- [ ] Replace `ActiveWalletSessionV1` plus separately transported credential
-      pairs with the identity-coupled exact browser boundary type.
+      application with the final iframe release.
+- [ ] Inventory every known host-SDK embed and record its coordinated upgrade
+      owner before the final iframe deployment.
+- [ ] Replace `ActiveWalletSessionV1` plus separately transported credentials
+      with the identity-coupled exact browser boundary type.
 - [ ] Delete `registration_established_wallet_session_v1`,
-      `RegistrationEstablishedSessionTokens`, and
-      `walletSessionTokenForCurve` after registration and unlock responses emit
-      the exact browser record directly.
-- [ ] Delete unused `ActiveWalletSession` aliases that do not denote the exact
-      V2 projection.
-- [ ] Delete wallet-specific JWT marker constants and the generic wallet JWT
-      decoder after their final diagnostic caller is removed.
-- [ ] Preserve console-session JWT types in the console packages.
-- [ ] Preserve the frozen `reusable_wallet_session` Router A/B wire and
-      transcript discriminator, the ECDSA export-share authorization kind, and
-      the applied `consume_reusable_wallet_session` quota kind. These strings
-      describe the reusable operation protocol and do not denote the retired V1
-      bearer tables.
+      `RegistrationEstablishedSessionTokens`, and `walletSessionTokenForCurve`.
+- [ ] Delete `ActiveWalletSession` aliases that do not denote the exact
+      projection.
+- [ ] Delete wallet-specific JWT marker/decoder code after its last diagnostic
+      caller; preserve console-session JWT types.
+- [ ] Preserve the frozen Router A/B `reusable_wallet_session` discriminator,
+      ECDSA export-share authorization kind, and
+      `consume_reusable_wallet_session` quota discriminator.
 
 Primary files:
 
@@ -1531,916 +1087,489 @@ Primary files:
 - `packages/shared-ts/src/utils/walletAuthAuthority.ts`
 - `packages/shared-ts/src/utils/sessionTokens.ts`
 
-### K. D1 schema and deployment manifests
+### I10 — Documentation and source guards (B16)
 
-Historical migrations remain immutable, including:
+- [ ] Retire or replace
+      `tests/scripts/check-router-ab-server-wallet-session-claim-boundaries.mjs`.
+- [ ] Update `tests/scripts/check-wallet-session-vocabulary-boundaries.mjs` to
+      forbid V1 tables, `not_v2`, V3 client records, and opaque fallback while
+      allowing frozen reusable-operation discriminators.
+- [ ] Prefer the type fixtures, behavior tests, and closure searches in this
+      plan over new source-text guards.
+- [ ] Update `docs/threshold-ecdsa/ecdsa-threshold-signing.md`.
+- [ ] Update `docs/auth-gating-routes.md`.
+- [ ] Update `docs/intended-behaviours.md` and registration contracts for
+      credential-free lost-response replay.
+- [ ] Update R115 recovery contracts only where R103F changes Wallet Session
+      representation.
+- [ ] Update `packages/wallet/README.md`.
+- [ ] Correct R103E, R107, and R109D completion records that imply the final
+      cutover already landed.
 
-- `0001_signer_d1_initial.sql`;
+## Schema migrations
+
+Applied migrations remain immutable. Relevant historical files include:
+
+- `packages/wallet-server/migrations/d1-signer/0001_signer_d1_initial.sql`;
 - `0002_signer_post_103_canonical_upgrade.sql`;
 - `0003_r107_wallet_authorization.sql`;
-- `0007_r103p8_wallet_session_auth_method_provenance.sql`; and
-- `0016_r103e_wallet_session_authorizations_v2.sql`.
+- `0007_r103p8_wallet_session_auth_method_provenance.sql`;
+- `0015_r103e_authority_baseline.sql`;
+- `0016_r103e_wallet_session_authorizations_v2.sql`;
+- `0023_r109d_first_email_linked_device.sql`;
+- `0024_r103f_v2_authorized_operation_claim.sql`;
+- `0025_r109d_email_enrollment_wallet_cardinality.sql`;
+- `0026_r115_wallet_recovery_authority_provenance.sql`; and
+- `0027_r115_email_otp_recovery_bootstrap.sql`.
 
 `linked_device_wallet_session_authorizations` and
-`linked_device_wallet_session_quotas` were already dropped by immutable
-`0015_r103e_authority_baseline.sql`. R103F adds no deletion work for those
-historical tables.
+`linked_device_wallet_session_quotas` were already dropped by immutable `0015`;
+R103F adds no second deletion task for them. Migration `0026` rebuilds
+`wallet_authorities` and recreates the `0024` trigger, so the additive bridge
+migration replaces the post-`0026` definition.
 
-R103F requires two remaining logical migration stages, each represented by a new
-forward file. The first is a corrective/additive bridge migration that replaces
-the landed exact-only `0024` trigger and adds the bridge schema. The second is the
-later enforcement/deletion migration. Allocate their numbers only after
-synchronizing the landed migration directory with every known pending migration
-from concurrent workstreams and serializing the migration-owning branches.
-Reserve the next unused numbers in that combined manifest, then recheck
-immediately before commit and after every rebase. Resolve a race by renaming only
-unapplied drafts with their owners; applied and landed shared-history files remain
-immutable. Allocation from the landed tree alone is insufficient, and the two
-new R103F numbers need not be contiguous.
+Before creating that bridge migration, determine which persistent environments
+applied `0024` and record any old-worker all-null-scope claim exposure window.
+The replacement must work both where `0024`/`0026` already ran and where they
+appear earlier in the same clean-database migration batch.
 
-There is no V1-bearer-to-V2 backfill: plaintext V1 credentials cannot be
-recovered from their hashes, and a curve-scoped V1 token is not an exact V2
-primary credential.
+At the current checkpoint the next landed number is `0028`. The actual file
+number is allocated only after reconciling landed and pending migrations from
+concurrent workstreams and is rechecked after each rebase. Applied files are
+never renamed to resolve an allocation race.
 
-Registration side-effect cleanup is separate from V1 bearer backfill and runs
-as Phase 0 security remediation. Build one bounded D1 remediation command that
-selects only the two registration record-key prefixes, parses each known
-completion shape, retires any still-usable bearer resolved from that row, and
-rewrites it to the credential-free V2 receipt or deletes it when no replay state
-must remain. It records before/after counts and aborts on an unknown shape or an
-unmappable usable credential. It never scans or rewrites unrelated versioned
-JSON records or logs credential-bearing row bodies.
+R103F adds two logical migration stages. They may receive non-contiguous file
+numbers.
 
-Commit `03b39d34f` landed these three migrations on `dev`:
-`0023_r109d_first_email_linked_device.sql`,
-`0024_r103f_v2_authorized_operation_claim.sql`, and
-`0025_r109d_email_enrollment_wallet_cardinality.sql`. Their numbers are consumed.
-Do not rewrite, rename, or discard `0024`. First determine which persistent
-environments, if any, applied it and record the exposure window for old-worker
-all-null-scope claims. The corrective/additive migration must safely replace its
-trigger on both clean databases and databases where `0024` already ran. Allocate
-that new file and the later deletion file from the combined landed-and-pending
-manifest. R115 subsequently landed
-`0026_r115_wallet_recovery_authority_provenance.sql` and
-`0027_r115_email_otp_recovery_bootstrap.sql`; both are consumed and immutable.
-At the current checkpoint the next landed number is `0028`, subject to another
-concurrent-allocation check immediately before creation. The R103F migrations
-must preserve R115's recovery-authority columns and Email OTP challenge purpose.
-Because `0026` rebuilds `wallet_authorities` and recreates the `0024` trigger,
-the corrective migration replaces the post-`0026` trigger definition.
+### Additive bridge migration
 
-1. **Additive cutover migration**
-   - use the existing `linked_scope_org_id`, `linked_scope_project_id`, and
-     `linked_scope_env_id` columns on ordinary authorized-operation rows;
-   - add the V2 hosted child-credential and exchange tables;
-   - add `linked_device_wallet_session_credential_deliveries_v1` with complete
-     link, session, recipient, sealed-envelope, acknowledgement lifecycle, and
-     crash-resumable cleanup-receipt bindings;
-   - reference the exact linked installation and V2 authorization from each
-     delivery row with composite foreign keys and unique full-scope link and
-     credential-digest constraints;
-   - adopt `linked_device_authority_allocations` into migration-owned schema:
-     create it for clean databases, accept an existing runtime-created table
-     only after schema-parity validation, then delete its runtime initializer;
-   - make hosted child credentials reference their exact V2 parent through a
-     composite foreign key and make each child digest unique;
-   - admit fully scoped rows through the V2 trigger branch, admit all-null scope
-     from old workers through the V1 branch during the bounded rollout, and
-     reject partially populated scope;
-   - preserve valid existing V2 rows with non-null credential digests;
-   - classify V2 rows with null credential digests as unusable and report them;
-   - leave V1 tables intact so an old worker can finish during rolling deploy;
-   - emit counts for active V1, active usable V2, active V2 without a
-     credential, pending V1-authorized operations, unconsumed hosted exchange
-     codes, V1-only quotas, and credential-bearing completion rows under each
-     registration side-effect prefix.
-2. **Enforcement and deletion migration**
-   - run only after every worker uses the exact Wallet Session model and the
-     maximum old session, hosted exchange, and pending-operation lifetime has
-     drained;
-   - abort when active V1 sessions, pending V1-authorized operations, or
-     unconsumed V1 hosted exchanges remain; deployment preflight separately
-     proves that no old worker revision is serving traffic;
-   - retire V2 rows whose primary credential digest is null;
-   - rebuild `wallet_session_authorizations_v2` with a check requiring every
-     active row to have a primary credential digest;
-   - rebuild parent and child tables in an explicit deferred-foreign-key order,
-     preserve and recreate hosted-child and linked-delivery composite foreign
-     keys, then have the deployment preflight execute `PRAGMA
-     foreign_key_check` or the equivalent D1 query and abort unless its result
-     set is empty;
-   - automatically retire only null-credential or logically expired duplicate
-     V2 rows. Abort when more than one usable credential-bearing non-retired row
-     remains for an exact tuple; require operator-visible remediation instead of
-     selecting an arbitrary survivor;
-   - install the exact-tuple partial unique index only after that deterministic
-     preflight returns zero duplicate usable tuples;
-   - retain completed historical authorized-operation rows for replay, while
-     requiring complete V2 scope on every pending/new authorization-grant row;
-   - remove the V1 trigger branches;
-   - drop or rebuild V1 child tables before dropping their parent foreign key;
-   - drop `opaque_wallet_session_tokens` and the V1 hosted exchange table;
-   - delete V1-only quota rows that are referenced by neither V2 nor a retained
-     completed operation;
-   - drop `reusable_wallet_sessions`, its indexes, and its triggers; and
-   - leave no view or alias reproducing V1.
+The bridge migration:
 
-### Rolling-deploy contract
+- replaces the post-R115 exact-only authorized-operation trigger with a rolling
+  boundary that accepts fully scoped V2 rows, temporarily accepts all-null-scope
+  V1 rows from old workers, and rejects partial scope;
+- adds V2 hosted child-credential and exchange tables;
+- adds `linked_device_wallet_session_credential_deliveries_v1` with exact
+  composite foreign keys, unique digest/link identities, recipient binding,
+  ciphertext, acknowledgement, and cleanup receipt state;
+- moves `linked_device_authority_allocations` to migration-owned schema after
+  validating any existing runtime-created table;
+- preserves valid V2 rows with non-null credential digests;
+- classifies null-digest V2 rows as unusable; and
+- leaves V1 tables present for the bridge deployment.
 
-The cutover uses three application stages followed by a separate deletion
-migration:
+The migration and deployment preflight report counts for active V1 sessions,
+usable V2 sessions, null-digest V2 rows, opaque tokens, pending V1-authorized
+operations, unconsumed V1 hosted exchanges, V1-only quotas, tagged rollout
+receipts, and credential-bearing completion records.
 
-1. **Direct-response, storage-tolerant precursor.** Publish an SDK that parses
-   the direct exact issuer response, still writes the V5 pair, and treats
-   unknown future Wallet Session rows as preserved `upgrade_required` state.
-   Deploy `walletSessionClientCapability` on every route in the issuance matrix
-   and then enforce it. Record the final unmarked issuance time. Existing
-   unmarked sessions may operate during the bounded drain, but cannot extend
-   their lifetime.
-2. **Bridge worker and final browser record.** After the maximum unmarked session
-   lifetime drains or the approved invalidation completes, apply the additive migration and
-   deploy the bridge worker. It issues new sessions and operations directly as
-   fully scoped V2 while temporary compatibility at request and D1 persistence
-   boundaries accepts already-issued V1 bearers and all-null-scope pending V1
-   operations. Both precursor and final SDK receive the same direct issuer wire
-   response; the precursor persists V5 and the final SDK persists
-   `record_version: 6`. Publish the final SDK and matching iframe only after this
-   storage gate passes. Final readers and installers contain late precursor
-   writes. The bridge never projects a V1 bearer into V2, and core V2 functions
-   never accept a compatibility shape.
-3. **Exact-only worker.** Confirm no bridge-predecessor worker revision is
-   serving traffic. Start the V1/pending-operation/hosted-exchange drain clock,
-   wait the recorded maximum lifetimes or perform the explicitly approved
-   invalidation, and prove zero active V1 sessions, pending V1-authorized
-   operations, and unconsumed V1 hosted exchanges. Delete the temporary
-   TypeScript boundary branches only after the rollout-receipt normalization
-   reaches zero capability-tagged receipts. Then delete the client-capability
-   field, deploy the exact-only worker, and confirm every serving revision is
-   exact-only.
-4. Apply the enforcement/deletion migration in a separate deployment.
+### Enforcement and deletion migration
 
-Completed historical operations remain replayable without a source-activity
-lookup. Pending old-worker rows with all-null scope use the temporary V1
-persistence reader until the pre-exact drain gate passes. Storage-tolerant
-precursor tabs may coexist with `record_version: 6` through the documented
-shared-store rules.
-Pre-precursor tabs become unsupported when their unmarked session expires or the
-approved invalidation occurs; the first `record_version: 6` write cannot occur
-before that gate.
+This migration runs only after every serving worker is exact-only and the V1
+drain gates pass. It:
 
-The worker drain covers HTTP request and D1 persistence compatibility. It does
-not cover an npm host SDK talking to a deployed iframe. Before the final iframe is
-deployed, publish the matching SDK, upgrade every known embedding application,
-and record the intentional break for remaining old embeds. The exact READY
-version check fails closed across either skew direction.
+- aborts when active V1 sessions, pending V1-authorized operations, unconsumed
+  V1 hosted exchanges, or tagged rollout receipts remain;
+- retires null-digest and logically expired duplicate V2 rows;
+- aborts when multiple usable credential-bearing rows remain for an exact tuple;
+- rebuilds `wallet_session_authorizations_v2` with a required active credential
+  digest and installs the exact-tuple partial unique index;
+- rebuilds parent and child tables in deferred-foreign-key order and aborts on
+  any `PRAGMA foreign_key_check` result;
+- retains completed historical operations needed for replay while requiring
+  complete V2 scope for pending and new grants;
+- removes V1 trigger branches, drops or rebuilds V1 child tables before their
+  parent foreign keys, then removes hosted exchange storage, opaque tokens,
+  V1-only unreferenced quotas, and `reusable_wallet_sessions`; and
+- leaves no V1 view or compatibility alias.
 
-Do not place the enforcement/deletion migration on a branch consumed by the
-deployment workflow until the drain and exact-only-worker checks pass; the
-migration runner applies every pending file before worker deployment.
+There is no V1-bearer-to-V2 backfill because plaintext credentials cannot be
+recovered from their hashes and curve-scoped V1 tokens are not exact primary
+credentials.
 
-Update required-table manifests after the deletion migration:
+After deletion, update the required-table manifests in:
 
-- [ ] `packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts`;
-- [ ] `packages/wallet-console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts`.
+- `packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts`;
+  and
+- `packages/wallet-console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts`.
 
-### L. Tests, fixtures, guards, and docs
+## Rollout state machine
 
-Classify each failure before editing it. Delete assertions that protect V1
-persistence or fallback. Preserve exact admission and user-visible behavior.
+| Stage | Enter action | Supported state | Exit gate |
+| --- | --- | --- | --- |
+| R0 — Credential-safe registration | Deploy credential-free receipt writer, parser, and old-client adapter | Existing clients receive a legacy-shaped ephemeral response; completion rows contain no plaintext bearer and the adapter may atomically rotate only its opaque digest row | Old writer revisions quiesced; historical rows remediated; repeated zero-credential query passes |
+| R1 — Storage-tolerant precursor | Publish precursor SDK; deploy and enforce client capability | Direct V2 response persists as V5; future rows are preserved | Final unmarked issuance time recorded; maximum unmarked session lifetime drained or invalidated |
+| R2 — Bridge | Apply additive migration and deploy bridge worker | New issuance and operations use V2; boundary compatibility accepts existing V1 state | Representative exact operating path passes; matching host SDK/iframe ready |
+| R3 — Final browser and protocol | Publish final SDK, upgrade known embeds, deploy matching iframe, enable V6 | Precursor and final tabs coexist under shared-store rules | No unsupported embed is expected to continue; V6 bootstrap and skew tests pass |
+| R4 — Exact-only worker | Quiesce predecessor workers; drain V1 sessions, pending operations, and hosted exchanges; normalize tagged receipts | Only exact TypeScript paths serve traffic | All legacy counters are zero; every serving revision is exact-only |
+| R5 — Schema deletion | Apply enforcement/deletion migration | Exact code and schema only | Foreign-key check, duplicate preflight, clean database, and deployed-history database pass |
 
-High-priority test inventory:
+Hard stops:
 
-- [ ] `tests/unit/d1AuthorizationCore.unit.test.ts`;
-- [ ] `tests/unit/d1OwnerProofWalletSessionIssuance.unit.test.ts`;
-- [ ] `tests/unit/d1WalletAuthMethodStore.unit.test.ts`;
-- [ ] `tests/unit/d1WalletSessionAuthMethodProvenance.unit.test.ts`;
-- [ ] `tests/unit/linkedDeviceManagement.unit.test.ts`;
-- [ ] `tests/unit/walletSessionAuthorizationStatus.unit.test.ts`;
-- [ ] `tests/unit/walletSessionExpiry.boundaryAndServer.unit.test.ts`;
-- [ ] `tests/unit/registrationEstablishedWalletSessionProjection.unit.test.ts`;
-- [ ] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`;
-- [ ] `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts`;
-- [ ] `tests/unit/walletExecutionAdmissionV2.unit.test.ts`;
-- [ ] `tests/unit/walletExecutionLanePreflight.unit.test.ts`;
-- [ ] `tests/unit/ecdsaV2PoolFillAdmission.unit.test.ts`;
-- [ ] `tests/unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts`;
-- [ ] `tests/unit/nearPublicApi.walletSessionAuthorization.unit.test.ts`;
-- [ ] `tests/unit/walletHostOwnerAuthority.unit.test.ts`;
-- [ ] `tests/unit/walletSessionOperationCredential.unit.test.ts`;
-- [ ] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`;
-- [ ] `tests/unit/relayWalletRegistration.boundary.unit.test.ts`;
-- [ ] `tests/unit/ed25519YaoSealedRefreshPersistence.unit.test.ts`;
-- [ ] `tests/unit/d1LinkedDeviceAuthorityInstallService.unit.test.ts`;
-- [ ] `tests/unit/deviceLinkingRoutes.unit.test.ts`;
-- [ ] `tests/unit/linkDeviceAuthorityResume.unit.test.ts`;
-- [ ] `tests/unit/authMenuPasskeyContinuation.unit.test.ts` when client linking
-      orchestration changes, preserving the explicit terminal retry state when
-      the other device cancels;
-- [ ] `tests/unit/emailOtpEcdsaSigningRefreshRuntimeScope.unit.test.ts`;
-- [ ] `tests/unit/passkeyEd25519YaoWarmRecovery.unit.test.ts`;
-- [ ] `tests/unit/walletRecoverySourceSelection.unit.test.ts`, preserving exact
-      continuity-anchor eligibility, registration-authority preference,
-      target-family preference, and deterministic creation-time/method-ID
-      tie-breaking;
+- R0 remediation waits until every credential-bearing completion writer is
+  quiesced.
+- The first V6 production write waits for the R1 storage gate.
+- The final iframe waits for the matching SDK and known embed upgrades.
+- The exact-only worker waits for tagged receipt normalization and V1 drain.
+- The deletion migration waits for the exact-only worker deployment.
+- The enforcement/deletion file stays outside any branch consumed by the
+  apply-all-pending migration workflow until its drain gate passes.
+- Migration preflight aborts on an unmappable credential, unknown remediation
+  shape, usable exact-tuple duplicate, or foreign-key-check result.
+
+Completed historical operations may replay without a source-activity lookup.
+Pending old-worker rows use the temporary all-null-scope persistence branch until
+R4. The bridge never projects a V1 bearer into a V2 credential.
+
+## Implementation phases
+
+### Phase 0 — Secure registration persistence
+
+- [ ] Introduce `PendingWalletRegistrationCommitV1` and the credential-free
+      committed installation projection.
+- [ ] Replace both registration completion journals with
+      `WalletRegistrationSessionCommitReceiptV2`.
+- [ ] Deploy the writer, parser, and bounded old-client adapter together.
+- [ ] Update registration replay from byte-identical bearer output to stable
+      fingerprint and committed-projection identity.
+- [ ] Quiesce old writers and run the bounded historical remediation.
+- [ ] Prove repeated zero-credential counts and record backup/time-travel
+      disposition.
+
+Exit: no active writer persists Wallet Session credentials, historical active
+rows are remediated, and a current registration path still reaches immediate
+signing.
+
+### Phase 1 — Land the exact issuer and one vertical path
+
+- [ ] Apply the additive bridge migration to clean and deployed-history
+      databases.
+- [ ] Implement one direct issuer that atomically commits the V2 authorization,
+      quota, and primary credential digest.
+- [ ] Narrow V2 mint replay and implement `issued` / `already_committed`.
+- [ ] Convert one registration path through direct issuance, exact browser
+      installation, exact admission, and immediate NEAR/EVM-family signing.
+- [ ] Add failure injection proving a failed batch exposes no usable session or
+      quota and replay cannot rotate the credential.
+- [ ] Assign every live opaque runtime-binding field to the exact material
+      resolver or delete its consumer.
+
+Exit: one complete user operating path proves the final architecture before the
+remaining consumers are converted.
+
+### Phase 2 — Convert server consumers
+
+- [ ] Convert remaining registration, unlock, refresh, sync, ECDSA activation,
+      linked activation, and post-recovery login issuers.
+- [ ] Make the V2 credential reader required and delete `not_v2` from exact core
+      admission.
+- [ ] Convert signing, pool fill, signing-session seal, execution-lane
+      preflight, recovery warm bootstrap, and operation step-up.
+- [ ] Convert status, quota, source activity, authorized-operation replay, and
+      typed lifecycle handling.
+- [ ] Convert method and authority revocation plus same-method replacement to
+      atomic exact retirement.
+- [ ] Convert every route in the route policy matrix.
+- [ ] Implement hosted child credentials and exact parent lifecycle handling.
+- [ ] Update material promotion and exact status readback.
+
+Exit: every new server session is direct V2, and core server services receive
+only exact admission contexts. Temporary V1 support exists solely at the bridge
+request and persistence boundaries.
+
+### Phase 3 — Convert browser, SDK, recovery, and device linking
+
+- [ ] Implement the storage-tolerant precursor and client capability on every
+      issuance boundary.
+- [ ] Define the V6 builder/parser and make `replaceExactActive` the only active
+      install API.
+- [ ] Delete V3 writers and curve-token selection; convert V4/V5 response
+      normalization to V6 after the storage gate.
+- [ ] Replace wallet-wide active-session reads with an exact selected tuple,
+      credential-bound identity, or intentional multi-record result. Let type
+      errors and the closure search enumerate remaining callers.
+- [ ] Quarantine V3/V4/V5 rows during bootstrap and install while preserving
+      future versions and unrelated stores.
+- [ ] Complete the recipient-bound linked delivery and acknowledgement state
+      machine, including local pending prerequisites and recipient-loss recovery.
+- [ ] Close the post-promotion recovery crash window with resumable local
+      continuity and normal exact login.
+- [ ] Reconcile all affected browser records after material promotion.
+- [ ] Bump the host/iframe protocol and remove reusable-session message fields.
+- [ ] Rename `ReusableWalletSessionMintId` to `WalletSessionMintId` without an
+      alias; preserve stored and frozen wire field names.
+
+Exit: the final client reads and writes only V6 active records, supported mixed
+versions reach terminal UI states, and device-link/recovery interruption paths
+resume without creating a second authority or ceremony.
+
+### Phase 4 — Deploy, drain, and delete V1
+
+- [ ] Record the maximum lifetime of V1 sessions, hosted exchanges, pending
+      operation claims, response replay, capability-tagged receipts, and
+      acknowledgement cleanup receipts. Any unbounded lifetime requires an
+      explicit normalization or invalidation gate.
+- [ ] Execute rollout stages R1 through R4 and record each zero-state gate.
+- [ ] Delete the registration adapter when `already_committed` owns terminal
+      replay.
+- [ ] Normalize every tagged durable receipt, then delete the temporary client
+      capability and parser.
+- [ ] Delete the bridge V1 request and persistence resolvers after session,
+      operation, and hosted-exchange drains reach zero.
+- [ ] Deploy the exact-only worker and confirm every serving revision.
+- [ ] Apply the enforcement/deletion migration and update table manifests.
+- [ ] Delete remaining V1 stores, ports, services, parsers, types, browser
+      records, fixtures, guards, and obsolete documentation.
+- [ ] Review extracted modules for forwarding-only wrappers, cycles, duplicate
+      validators, compatibility re-exports, and single-caller helpers; inline or
+      delete them unless they preserve a clear domain boundary.
+- [ ] Run the closure ledger and focused acceptance matrix.
+
+Exit: production code and schema contain only the exact Wallet Session model.
+
+## Verification
+
+Tests are selected by invariant and changed boundary. Existing focused tests and
+shared branch-specific factories should be extended where they express the
+current domain model. Failures are classified under the repository testing
+policy before production behavior or fixtures change. Historical V1 assertions
+and adapter-only tests are deleted with their retired paths.
+
+### Temporary implementation appendix
+
+This appendix records evidence and exact test/file inventories that influence
+implementation decisions. It is updated as work lands and may be removed when
+every linked boundary is final. Completed-task marking and coherent commit
+boundaries remain execution discipline; they are not architectural acceptance
+criteria.
+
+#### Causal baselines
+
+Completed prerequisite evidence:
+
+- [x] `tests/unit/authMenuRecoveryContinuation.unit.test.ts` passed six of six
+      at `67bac04e9`, covering automatic Passkey/Google continuation, retry,
+      cancellation, and irreversible finalization.
+- [x] The intended recovery harness was reconciled with `d3c242eac`:
+      `driveHostedPasskeyRecovery` waits for automatic continuation and uses
+      **Retry finalization** only after an injected retryable failure.
+- [x] Combined Passkey+Email inventory variants exist in both R115 recovery
+      intended contracts alongside Passkey-only and Email-only origins.
+
+Remaining causal baseline work:
+
+- [ ] Run `tests/e2e/linked-device.operating-path.test.ts` before changing the
+      linked production path. No green composed-run baseline is assumed. Record
+      prerequisites, command, current result, and failure classification so a
+      pre-existing environment or fixture failure is not attributed to R103F.
+      Confirm each cross-factor case begins with the genuine single-method
+      source inventory, especially Passkey-only to first-Email enrollment. Use
+      `pnpm test:linked-device` for managed state; use
+      `pnpm test:linked-device:external` only for an intentionally composed
+      external stack and label that evidence separately.
+- [ ] Rerun `tests/unit/authMenuPasskeyContinuation.unit.test.ts` before using it
+      as evidence. Earlier evidence was 13 of 17. Classify the account-sync
+      wallet-ID expectation, the Email target callback-publication fixture, and
+      the two invalid Google OTP flow-ID fixtures. Update or delete stale
+      fixtures; do not add a production compatibility branch for them.
+- [ ] Repair the three stale flat-`provenanceKind` fixtures in
+      `tests/unit/walletRecoverySourceSelection.unit.test.ts` through the shared
+      active-authority builder. Production reads `authority.provenance.kind`;
+      the comparator remains strict.
+- [ ] Repair the inline envelope-store stub in
+      `tests/unit/passkeyCustodyRouteService.unit.test.ts` so it implements the
+      current `listWalletCredentialActivity` boundary before using its
+      challenge-replay result as R103F evidence.
+- [ ] Run both current R115 recovery contracts with the isolated intended
+      runner before changing recovery consumers. Use `pnpm test:intended` for
+      a fresh managed D1 root and Vite cache per case, and
+      `pnpm test:intended:external` only for a labeled composed-stack run. Add
+      the post-promotion, pre-local-publication interruption only as part of the
+      R103F change.
+- [ ] Exercise real-browser Passkey and configured Google recovery activation
+      in every supported browser before removing any target-ready user action.
+      In-process tests cannot prove transient browser activation survives the
+      async prepare and iframe-to-host boundary.
+
+#### Existing focused test inventory
+
+- [ ] `tests/unit/d1AuthorizationCore.unit.test.ts`
+- [ ] `tests/unit/d1OwnerProofWalletSessionIssuance.unit.test.ts`
+- [ ] `tests/unit/d1WalletAuthMethodStore.unit.test.ts`
+- [ ] `tests/unit/d1WalletSessionAuthMethodProvenance.unit.test.ts`
+- [ ] `tests/unit/linkedDeviceManagement.unit.test.ts`
+- [ ] `tests/unit/walletSessionAuthorizationStatus.unit.test.ts`
+- [ ] `tests/unit/walletSessionExpiry.boundaryAndServer.unit.test.ts`
+- [ ] `tests/unit/registrationEstablishedWalletSessionProjection.unit.test.ts`
+- [ ] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`
+- [ ] `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts`
+- [ ] `tests/unit/walletExecutionAdmissionV2.unit.test.ts`
+- [ ] `tests/unit/walletExecutionLanePreflight.unit.test.ts`
+- [ ] `tests/unit/ecdsaV2PoolFillAdmission.unit.test.ts`
+- [ ] `tests/unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts`
+- [ ] `tests/unit/nearPublicApi.walletSessionAuthorization.unit.test.ts`
+- [ ] `tests/unit/walletHostOwnerAuthority.unit.test.ts`
+- [ ] `tests/unit/walletSessionOperationCredential.unit.test.ts`
+- [ ] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
+- [ ] `tests/unit/relayWalletRegistration.boundary.unit.test.ts`
+- [ ] `tests/unit/ed25519YaoSealedRefreshPersistence.unit.test.ts`
+- [ ] `tests/unit/d1LinkedDeviceAuthorityInstallService.unit.test.ts`
+- [ ] `tests/unit/deviceLinkingRoutes.unit.test.ts`
+- [ ] `tests/unit/linkDeviceAuthorityResume.unit.test.ts`
+- [ ] `tests/unit/authMenuPasskeyContinuation.unit.test.ts`, preserving the
+      terminal retry state when the other device cancels
+- [ ] `tests/unit/emailOtpEcdsaSigningRefreshRuntimeScope.unit.test.ts`
+- [ ] `tests/unit/passkeyEd25519YaoWarmRecovery.unit.test.ts`
+- [ ] `tests/unit/walletRecoverySourceSelection.unit.test.ts`, preserving
+      eligibility, registration-authority preference, target-family preference,
+      and deterministic creation-time/method-ID tie-breaking
 - [ ] `tests/unit/walletRecoveryFinalization.unit.test.ts`, preserving additive
-      replay while the continuity authority, method, envelope, and Wallet
-      Session remain unchanged;
-- [ ] `tests/unit/walletRecoveryFinalizeWire.unit.test.ts`, preserving the strict
-      Passkey active-authority/active-method committed projection and rejecting
-      loose or cross-wallet identities;
+      replay and existing continuity authority, method, envelope, and session
+- [ ] `tests/unit/walletRecoveryFinalizeWire.unit.test.ts`, preserving strict
+      active-authority/active-method projections and cross-wallet rejection
 - [ ] `tests/unit/walletRecoveryGoogleEmailOtpFinalizeRoute.unit.test.ts`,
-      preserving the strict Email recovery authority/method projection and
-      server-side enrollment commit validation;
-- [ ] `tests/unit/walletRecoveryLocalProjection.unit.test.ts`, extending the
-      landed additive authority/method/locked-selection assertions with
-      interruption and reload at every local publication boundary;
+      preserving strict Email recovery projection and server-owned enrollment
+- [ ] `tests/unit/walletRecoveryLocalProjection.unit.test.ts`, covering
+      interruption and reload across local publication boundaries
 - [ ] `tests/unit/authMenuRecoveryContinuation.unit.test.ts`, preserving
-      automatic target continuation, target-ready retry states, and
-      non-cancellable finalization;
+      automatic continuation, target-ready retry, and non-cancellable
+      finalization
 - [ ] `tests/unit/passkeyCustodyRouteService.unit.test.ts`, proving promotion
-      replay returns the same server-read committed authority/method projection;
-- [ ] `tests/unit/scanDevice.firstEmail.unit.test.ts` when client linking
-      orchestration changes, preserving first-Email routing and release of the
-      wallet iframe foreground surface while Device 1 waits;
-- [ ] `tests/unit/qrCodeScanner.progress.unit.test.ts` when scanner/progress UI is
-      touched, preserving interactive cancellation and opener focus;
-- [ ] atomic direct-V2 issuance failure/replay tests;
-- [ ] registration side-effect receipt tests proving activation and deferred NEAR
-      provisioning persist no plaintext primary/child credential or
-      credential-bearing response field, while replay returns the exact
-      credential-free committed installation projection;
-- [ ] bounded registration-journal remediation test covering both prefixes,
-      known-shape rewrite/deletion, unrelated-record preservation, unknown-shape
-      and unmappable-credential abort, matched usable-bearer retirement, old-writer
-      quiescence, repeated zero count, and zero credential-bearing rows afterward;
-- [ ] Phase 0 registration compatibility test proving the old-client adapter
-      reconstructs the current projection and signs a V1 bearer only in memory,
-      keeps fingerprint and committed projection identity stable while bearer
-      bytes may differ, and still satisfies the deployed exact-key response
-      parser; plus a deletion test proving the adapter is unreachable when
-      `already_committed` becomes authoritative;
-- [ ] contract-drift update proving
-      `packages/wallet-server/src/core/threeRouteRegistrationContracts.ts`, the
-      registration-service replay comment, and the staging-cohort assertion no
-      longer promise byte-identical credential-bearing terminal bytes;
-- [ ] server-issued `already_committed` replay test proving no plaintext is
-      fabricated and the next exact-method unlock replaces the orphaned session;
-- [ ] lost founding-registration response contracts for Passkey and Email OTP:
-      terminate the page/worker after server commit and before the response,
-      reload from `PendingWalletRegistrationCommitV1`, replay to
-      `already_committed`, atomically publish local discovery state, exact-method
-      unlock installs the exact browser record, and immediate signing succeeds;
-- [ ] classify any assertion that the final direct-exact registration replay
-      returns a fresh V1 bearer as `obsolete_test_or_fixture`; replace it with the
-      pending-commit + credential-free projection → exact-method unlock contract.
-      Keep one dedicated Phase 0 adapter test only until the adapter's deletion
-      gate, then delete that test with the adapter;
-- [ ] mint replay/replacement tests proving the same mint returns the same
-      identity and a successor requires a fresh mint;
-- [ ] exact material-resolution tests assigning or deleting every legacy opaque
-      runtime-binding field without synthesized identifiers;
-- [ ] linked activation credential-digest replay tests;
-- [ ] linked sealed-delivery loss tests: lost response, failed exact-record write, worker
-      termination and recipient-handle loss, delivery expiry, lost
-      acknowledgement, and acknowledged cleanup. Recipient loss must resume the
-      durable local install and exact-method unlock rather than start a new link;
-- [ ] linked credential-delivery recipient/AAD binding and cross-session stale
-      acknowledgement tests;
-- [ ] linked acknowledgement crash-injection tests after delivery tombstone,
-      ciphertext removal, allocation deletion, link-session deletion, and
-      cleanup completion; every local bootstrap replay resumes and completes
-      exactly once;
-- [ ] route-level acknowledgement replay test proving a request after active
-      link-session deletion authenticates through the bounded cleanup receipt,
-      resumes the remaining transition, and never returns an early `not_found`;
-- [ ] linked local-prerequisite transaction tests proving crash atomicity,
-      pending-record invisibility, idempotent receipt replay, and terminal
-      rejection cleanup that preserves pre-existing local records; both landed
-      server-worker-activation-pending and session-issuance-pending reasons
-      remain retryable without a second authority;
-- [ ] migration-owned linked-install schema parity test after deleting runtime
-      `CREATE TABLE` copies;
-- [ ] exact-record session/credential identity-coupling type and parser fixtures;
-- [ ] exact-record `replaceExactActive` test proving same-method predecessor retirement
-      and sibling-method preservation in one transaction, including a late V3,
-      V4, or V5 write that cannot abort installation;
-- [ ] exact-reader conversion tests with two active sibling methods proving
-      signing, export, funding, refresh, management, readiness, and source-claim
-      callers use their declared tuple/selection source and never wallet-wide
-      uniqueness or insertion order;
-- [ ] exact-record startup quarantine test covering a legacy row written by an already
-      open old tab after initial cleanup;
-- [ ] shared-IndexedDB skew tests proving the storage-tolerant precursor preserves
-      and ignores a future browser row instead of returning `corrupt`, current
-      exact-record readers contain a
-      late precursor write, and both supported versions reach a terminal UI;
-- [ ] precursor issuance-gate test proving an unmarked client cannot mint,
-      refresh, or replace after the drain clock starts;
-- [ ] direct-response precursor matrix proving every issuance boundary accepts
-      the named client capability, returns the direct exact issuer response,
-      persists V5 in the precursor, records the response family for replay, and
-      rejects missing or changed replay capability without rotating a
-      credential;
-- [ ] rollout-receipt normalization test proving unknown tags abort, known tags
-      become the credential-free final `already_committed` projection, no
-      credential is created, and the tagged-receipt count reaches zero before the
-      parser is deleted;
-- [ ] typed expired/exhausted/retired/revoked V2 reader tests;
-- [ ] authorized-operation full-scope claim and replay tests;
-- [ ] hosted child-credential nominal-type, disjoint-prefix, issue/redeem/use
-      transport-Origin, iframe-parent-Origin, quota, parent-lifecycle, and
-      primary-preservation tests, including issue rejection for an unauthorized
-      but self-consistent `walletOrigin`;
-- [ ] authority/material-promotion tests proving all affected sibling-method V2
-      snapshots update without rotating session, quota, mint, or credentials;
-- [ ] promotion response-loss test proving exact readback reconciles the browser record before
-      the promoted runtime becomes active;
-- [ ] same-authority sibling-method promotion test proving one promotion response
-      or exact readback reconciles every affected local browser record. Do not model a
-      different linked-device authority as affected;
-- [ ] host SDK/iframe protocol-skew tests in both directions, with removed
-      reusable-session message fields rejected;
-- [ ] targeted IndexedDB cleanup preservation test;
-- [ ] wallet-bootstrap contract covering empty storage, valid exact-record restore, and
-      obsolete or malformed session rows without a blank application shell;
-- [ ] exact auth-method and authority revocation transaction tests;
-- [ ] additive recovery exact-model finalization/replay tests for both targets,
-      proving the continuity anchor and every pre-existing exact session remain
-      active, the strict committed target projection restores fresh local
-      storage, interruption after server promotion resumes without a second
-      code, and normal target login issues one exact session;
-- [ ] rolling-deploy migration tests covering an old-worker all-null-scope V1
-      claim, a fully scoped V2 claim, partial-scope rejection, and pending V1
-      replay through the temporary persistence boundary;
-- [ ] clean-database and deployed-history migration tests, including deletion
-      abort conditions, multiple usable exact-tuple rejection, deterministic
-      retirement of only unusable/expired duplicates, and a programmatic
-      assertion that foreign-key check returns zero rows;
-- [ ] Router A/B Wallet Session claim fixture helpers; and
-- [ ] stale inline JWT-shaped session fixtures found by the zero-reference
-      search.
+      replay returns the same server-read committed authority/method projection
+- [ ] `tests/unit/scanDevice.firstEmail.unit.test.ts` when linking orchestration
+      changes, preserving first-Email routing and release of the iframe
+      foreground surface while Device 1 waits
+- [ ] `tests/unit/qrCodeScanner.progress.unit.test.ts` when scanner/progress UI
+      changes, preserving interactive cancellation and opener focus
 
-Intended-behaviour and operating-path inventory:
+#### Intended-behaviour and operating-path inventory
 
-- [ ] `tests/e2e/intended-behaviours/passkey.registration.contract.test.ts`;
-- [ ] `tests/e2e/intended-behaviours/email-otp.registration.benchmark.test.ts`;
-- [ ] `tests/e2e/intended-behaviours/passkey.unlock.contract.test.ts`;
-- [ ] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts`;
-- [ ] `tests/e2e/intended-behaviours/passkey.recovery.contract.test.ts`;
-- [ ] `tests/e2e/intended-behaviours/google-email-otp.recovery.contract.test.ts`;
-- [x] Audit
-      `tests/e2e/intended-behaviours/refactor93-staging-cohort.staging.test.ts`:
-      its captured route is the low-level Ed25519 Yao execution protocol, which
-      carries no Wallet Session credential. Preserve its byte-identical replay
-      invariant; it does not own the registration terminal adapter contract.
-- [ ] Add the staging registration-adapter assertion at the actual
-      `/wallets/register/activate` boundary: require a stable committed
-      projection plus a valid parsed legacy response while allowing fresh V1
-      bearer bytes;
-- [ ] `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts`;
-- [ ] `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`;
-- [ ] `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts`; and
-- [ ] `tests/e2e/linked-device.operating-path.test.ts` for all four source and
-      target factor combinations.
+- [ ] `tests/e2e/intended-behaviours/passkey.registration.contract.test.ts`
+- [ ] `tests/e2e/intended-behaviours/email-otp.registration.benchmark.test.ts`
+- [ ] `tests/e2e/intended-behaviours/passkey.unlock.contract.test.ts`
+- [ ] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts`
+- [ ] `tests/e2e/intended-behaviours/passkey.recovery.contract.test.ts`
+- [ ] `tests/e2e/intended-behaviours/google-email-otp.recovery.contract.test.ts`
+- [ ] `tests/e2e/intended-behaviours/refactor93-staging-cohort.staging.test.ts`
+      registration replay assertion
+- [ ] `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts`
+- [ ] `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`
+- [ ] `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts`
+- [ ] `tests/e2e/linked-device.operating-path.test.ts` for all four genuine
+      source/target factor combinations
 
-Source guards:
+#### Required targeted additions and updates
 
-- [ ] retire or replace
-      `tests/scripts/check-router-ab-server-wallet-session-claim-boundaries.mjs`;
-- [ ] update `tests/scripts/check-wallet-session-vocabulary-boundaries.mjs` to
-      forbid V1 tables, `not_v2`, V3 client records, and opaque-token fallback
-      in production code while preserving the frozen Router A/B
-      `reusable_wallet_session` and quota discriminators;
-- [ ] prefer exact behavioral and type fixtures over adding more source-text
-      matching.
+- [ ] Direct-V2 atomic issuance failure and replay tests.
+- [ ] Registration receipt tests proving activation and deferred provisioning
+      persist no bearer, child credential, or credential-bearing response.
+- [ ] Registration remediation tests for both prefixes: known-shape rewrite or
+      deletion, unrelated-row preservation, mapped-bearer retirement,
+      unknown/unmappable abort, old-writer quiescence, and repeated zero count.
+- [ ] Compatibility-adapter test proving stable fingerprint/projection with an
+      in-memory V1 bearer whose bytes may differ; delete the test with the
+      adapter.
+- [ ] Adapter rotation tests proving identical retry remains usable, conflicting
+      replay fails closed, the predecessor bearer becomes unusable, and no
+      plaintext enters durable storage.
+- [ ] Contract update proving Route 3, service comments, and staging assertions
+      no longer promise byte-identical credential-bearing replay.
+- [ ] `already_committed` replay test proving no credential fabrication and
+      successor exact unlock retirement.
+- [ ] Lost founding-registration response contracts for Passkey and Email OTP
+      across page or worker termination.
+- [ ] Mint tests proving same-mint identity replay and fresh-mint replacement.
+- [ ] Exact material-resolution tests covering every legacy opaque runtime
+      field and rejecting synthesized identities.
+- [ ] Linked activation tests proving digest, credential, recipient, ciphertext,
+      and session stability on replay.
+- [ ] Linked loss tests for response loss, failed exact-record write, recipient
+      loss, delivery expiry, acknowledgement loss, and acknowledged cleanup.
+- [ ] Linked recipient/AAD binding and cross-session stale acknowledgement
+      tests.
+- [ ] Crash injection after delivery tombstone, ciphertext removal, allocation
+      deletion, link-session deletion, and cleanup completion.
+- [ ] Route test proving acknowledgement after live-session deletion
+      authenticates through the cleanup receipt and avoids early `not_found`.
+- [ ] Local prerequisite transaction tests covering crash atomicity,
+      invisibility, receipt replay, both retryable pending reasons, and terminal
+      cleanup that preserves pre-existing records.
+- [ ] Migration-owned linked-install schema parity test after runtime DDL
+      deletion.
+- [ ] Exact-record type/parser fixtures for required fields and
+      session/credential coupling.
+- [ ] `replaceExactActive` test covering same-method retirement, sibling
+      preservation, and late V3/V4/V5 writes.
+- [ ] Exact-reader tests with two active sibling methods across signing, export,
+      funding, refresh, management, readiness, and source claims.
+- [ ] Bootstrap quarantine test for a legacy row written after initial cleanup
+      by an already-open old tab.
+- [ ] Shared-IndexedDB skew tests for future-row preservation, terminal
+      `upgrade_required`, late precursor writes, and final-reader containment.
+- [ ] Issuance-gate test proving an unmarked client cannot mint, refresh, or
+      replace after the drain clock begins.
+- [ ] Direct-response precursor matrix covering every issuance boundary,
+      response-family replay, V5 normalization, and missing/changed capability.
+- [ ] Rollout-receipt normalization test covering known tags, unknown-tag abort,
+      credential-free output, and zero final count.
+- [ ] Typed lifecycle tests for missing, expired, exhausted, retired,
+      method-revoked, authority-revoked, and capability-unavailable results.
+- [ ] Authorized-operation full-scope claim and exact replay tests.
+- [ ] Hosted nominal-type, disjoint-prefix, issue/redeem/use Origin,
+      iframe-parent Origin, authoritative wallet-origin, quota, parent lifecycle,
+      and primary-preservation tests.
+- [ ] Authority/material-promotion tests covering stable identities, all
+      affected server snapshots, all same-authority browser records, and lost
+      response readback.
+- [ ] Host/iframe protocol-skew tests in both directions with removed fields
+      rejected.
+- [ ] Targeted IndexedDB cleanup test proving unrelated stores survive.
+- [ ] Wallet-bootstrap test covering empty, exact, legacy, malformed, and future
+      storage without a blank shell.
+- [ ] Exact method- and authority-revocation transaction tests.
+- [ ] Additive recovery tests for both targets and source inventories, strict
+      committed projections, interruption after promotion, local publication,
+      preservation of existing access paths, and one normal exact login.
+- [ ] Rolling-deploy migration tests for old-worker all-null scope, fully scoped
+      V2, partial-scope rejection, and pending V1 replay.
+- [ ] Clean-database and deployed-history migration tests covering abort on
+      usable duplicates, deterministic retirement of unusable/expired rows, and
+      zero foreign-key-check results.
+- [ ] Update Router A/B Wallet Session claim fixture helpers.
+- [ ] Delete stale inline JWT-shaped Wallet Session fixtures found by closure
+      searches.
 
-Documentation:
+### Acceptance matrix
 
-- [ ] update `docs/threshold-ecdsa/ecdsa-threshold-signing.md`;
-- [ ] update `docs/auth-gating-routes.md`;
-- [ ] update `docs/intended-behaviours.md` and the registration contracts for
-      the lost-response replay transition. Update the landed R115 recovery
-      contracts only where R103F changes their Wallet Session representation;
-- [ ] update `packages/wallet/README.md`;
-- [ ] correct R103E, R107, and R109D completion ledgers where they currently
-      imply the cutover already finished; and
-- [ ] mark this document complete only after the zero-reference ledger passes.
+| Risk | Required proof |
+| --- | --- |
+| Direct issuance | Passkey and Email OTP registration each reach immediate NEAR and EVM-family signing |
+| Lost registration response | Page/worker termination after server commit resumes from pending local commit, receives `already_committed`, publishes local state atomically, unlocks, and signs |
+| Credential persistence | Both completion prefixes contain no credential; exposed usable bearers are retired or expired; unrelated rows remain unchanged |
+| Unlock and step-up | Lock/reload reaches exact-method unlock and immediate signing; key export requires fresh exact-method step-up |
+| Exact replacement | Same-method predecessor and quota retire while a sibling method remains active |
+| Exact admission | Both curves reject V1 fallback; missing, expired, exhausted, retired, and revoked states are typed |
+| Revocation | Exact method revocation preserves sibling methods; authority revocation affects only the owned sessions, quotas, and children |
+| Material identity | Signing and export use the capability subject's exact material activation with no synthesized runtime IDs |
+| Device linking | All four genuine source/target factor combinations sign and expose export on Device 2 without a second unlock |
+| Linked replay and loss | Lost response, failed local write, recipient loss/expiry, lost acknowledgement, and crash after each cleanup transition resume exactly |
+| Recovery | Both targets preserve all prior access paths; interruption after promotion resumes local continuity without another code; normal login issues one exact session |
+| Hosted handoff | Child works only for authoritative stored origins, shares parent quota, preserves primary credential, and fails with parent lifecycle |
+| Promotion | Every affected same-authority server and browser projection updates before runtime activation; lost response reconciles through exact status |
+| Shared IndexedDB | Precursor preserves future rows; final reader contains late V3/V4/V5 writes; empty, exact, legacy, malformed, and future states reach explicit UI |
+| SDK/iframe protocol | Old/new skew fails in both directions before port adoption or readiness |
+| Migration | Clean and deployed-history databases pass; usable duplicates and foreign-key results abort deletion |
+| Closure | Every boundary matrix row is final, every temporary path has crossed its removal gate, and all legacy searches are clean |
 
-## Implementation Phases
+Run the narrowest focused units, type fixtures, and intended-behaviour contracts
+that cover the changed rows. Broader repository gates follow only when the user
+authorizes them.
 
-### Phase 0 — Baseline, simplify the change surface, and remove persisted plaintext
-
-- Phase 0 baseline evidence: [`refactor-103F-phase0-evidence.md`](./refactor-103F-phase0-evidence.md)
-  and [`refactor-103F-phase0-production-files.txt`](./refactor-103F-phase0-production-files.txt).
-
-- [x] Record the baseline commit SHA and `git status --short`. Identify which
-      pre-existing working-tree changes belong to R103F before counting or
-      editing them.
-- [x] Save the exact tracked production-file list and its total line count,
-      excluding SQL, tests, generated artifacts, and documentation. Reuse that
-      same file list for the completion delta.
-- [x] Build the preparatory liveness ledger for each large R103F target. Record
-      proof for `obsolete_or_unreachable` paths and separately report deleted,
-      moved, and net live production lines.
-- [ ] Delete only proved dead or obsolete code. Preserve every temporary rollout
-      boundary until its named drain gate. Classify affected tests and remove
-      fixtures or guards that protect only retired behavior.
-- [x] Perform the bounded registration extractions in the order defined above,
-      one file and one cohesive seam at a time. Keep deletion, movement, and
-      behavior changes reviewable as separate commits and run the narrowest
-      existing verification after each movement.
-  - [x] Extract the behavior-neutral client terminal-commit seam from
-        `registration.ts` into `registrationTerminalCommit.ts`.
-  - [x] Extract the server registration issuer into
-        `walletRegistrationEstablishedSessionIssuer.ts`. Commit `899f71905`
-        keeps the move behavior-neutral; wallet-server type-check and the 26
-        registration side-effect bridge tests pass after integration.
-  - [x] Extract the credential-free registration receipt boundary into
-        `walletRegistrationSessionCommitReceipt.ts`. Commits `681af5e62` and
-        `c21f843e7` add the strict projection/parser, V1 read-only drain,
-        receipt-first replay validation, and post-receipt ceremony cleanup.
-  - [x] Extract the terminal response parser from `walletRegistration.ts`.
-- [ ] Record the landed migration directory plus every pending migration from
-      concurrent workstreams. Treat landed `0023`, `0024`, and `0025` as consumed
-      and immutable. Treat landed R115 migrations `0026` and `0027` the same way.
-      Determine which persistent environments applied exact-only `0024`, record
-      any old-worker claim exposure, and make the next R103F file a forward
-      corrective/additive migration against the post-`0027` schema. It must be
-      safe whether `0024` and the `0026` trigger recreation already ran or
-      appear earlier in the same clean-database migration batch.
-- [ ] Record the exact V2 issue, persistence, read, admission, retirement, and
-      replay functions that remain after the cutover.
-- [x] Freeze mint semantics and the narrow full-scope V2 replay lookup. Prove a
-      same-mint retry returns one committed identity and replacement requires a
-      fresh mint.
-- [ ] Freeze `PendingWalletRegistrationCommitV1` and the credential-free
-      committed registration projection. Prove that their combination can
-      complete local discovery and exact-method unlock after a page reload,
-      while neither record contains a Wallet Session credential or exposes a
-      pending wallet as active. Freeze that same projection as the sole source
-      for the adapter's non-credential response fields.
-- [ ] Freeze both landed R115 recovery committed projections: exact active
-      recovery authority plus exact active target method, read from server state
-      after promotion and replay. Keep Email enrollment validation server-side.
-      Record every local continuity store they feed and close the page-reload
-      window between server promotion and complete local publication before
-      changing recovery Wallet Session consumers.
-- [ ] Assign every legacy opaque runtime-binding field to an authoritative exact
-      material resolver or to a deletion. Stop if a live consumer would require
-      a synthesized threshold identity.
-- [ ] Freeze the exact `record_version: 6` composite and add type fixtures so it
-      cannot omit authority, method, authorization ID, Wallet Session ID, quota
-      ID, capability subjects, or the primary credential.
-- [ ] Prove statically that a hosted child credential cannot be constructed as
-      a primary credential, the two raw encodings resolve to disjoint tables,
-      and linked replay cannot accept a new digest or recipient.
-- [ ] Freeze material-promotion continuity: list every exact server field that
-      changes and every identity that remains stable, plus the response-loss
-      browser-record reconciliation path.
-- [ ] Freeze and vector-test the linked credential-delivery envelope and exact
-      AAD using the existing server-supported P-256 ECDH/AES-256-GCM WebCrypto
-      construction. Prove the same contract works for all four factor pairs.
-- [ ] Inventory every known npm host-SDK embed, freeze the bidirectional
-      CONNECT/READY version contract, and record the coordinated upgrade owner
-      for each embed.
-- [ ] Run one current intended path for Passkey and one for Email OTP, including
-      signing immediately after unlock or linking, and save the command/result.
-      Use `pnpm test:intended`, whose `a8bc2606f` runner enumerates cases and
-      gives each one a fresh managed D1 root and Vite cache. Use
-      `pnpm test:intended:external` only when deliberately validating an
-      already-running composed service stack, and label that evidence
-      separately.
-- [x] Establish a green focused baseline for
-      `tests/unit/authMenuPasskeyContinuation.unit.test.ts`. The last recorded
-      baseline at `67bac04e9` was 13 of 17. Commit `8856e0c98` added selected
-      account-display coverage, so rerun the current committed test inventory
-      before recording R103F evidence. Triage the four previously known
-      mismatches: the local-wallet account-sync case expects a wallet ID while
-      the discoverable sync branch deliberately uses `walletId: null`; the
-      Email OTP device-link fixture does not reach callback publication under
-      the current target requirements; and two Google OTP fixtures use flow IDs
-      rejected by the exact login-flow identity parser. Classify each against
-      intended behavior, then update or delete stale assertions and fixtures
-      instead of adding a compatibility branch to production.
-- [x] Record a green focused baseline for
-      `tests/unit/authMenuRecoveryContinuation.unit.test.ts`: six of six cases
-      pass at `67bac04e9`, covering automatic Passkey/Google continuation,
-      retry, cancellation, and irreversible finalization.
-- [x] Repair the valid stale authority fixture in
-      `tests/unit/walletRecoverySourceSelection.unit.test.ts` before using it as
-      an R115 baseline. Ten of thirteen focused source-selection/finalization/
-      wire cases pass; the three source-selection failures still build the
-      retired flat `provenanceKind` shape while production now requires a full
-      active authority and reads `authority.provenance.kind`. Classification:
-      `valid_test_needs_update`; use the current shared authority builder and do
-      not weaken the production comparator.
-- [x] Reconcile the intended recovery harness with `d3c242eac`.
-      `driveHostedPasskeyRecovery` now waits for automatic continuation and
-      uses **Retry finalization** only after an injected retryable finalization
-      failure. Real-browser activation remains a separate acceptance item.
-- [ ] Prove `d3c242eac` with real browser activation boundaries. Its Google path
-      crosses an async prepare result and iframe-to-host message before invoking
-      the app broker, so the focused in-process unit cannot establish that a
-      popup-based broker still has transient user activation. Test real
-      WebAuthn and the configured Google broker in every supported browser; if a
-      target requires fresh activation, retain its target-ready CTA as the
-      required post-prepare action.
-- [x] Add combined Passkey+Email inventory variants to both current R115
-      recovery intended contracts alongside their Passkey-only and Email-only
-      origins.
-- [ ] Run and record both current R115 recovery contracts with the isolated
-      intended runner. Add an interruption checkpoint immediately after server
-      promotion and before complete local continuity publication; reload must
-      resume the same additive commit, finish the exact local authority/method
-      installation, and reach normal exact-method login with no second recovery
-      code. Missing local recovery state must fail closed during ordinary
-      unlock rather than being repaired there.
-- [x] Repair the valid stale fixture in
-      `tests/unit/passkeyCustodyRouteService.unit.test.ts` before using it as a
-      recovery baseline. Its inline envelope-store stub predates
-      `listWalletCredentialActivity`, so the challenge-replay case currently
-      fails before reaching its owned single-use invariant. Update the fixture
-      through a narrow current store factory; do not weaken the production
-      retrieval boundary.
-- [ ] Run `tests/e2e/linked-device.operating-path.test.ts` before production
-      changes. Record prerequisites, exact command, current result, and failure
-      classification so Phase 7 can distinguish baseline failure from cutover
-      regression; no green composed-run baseline is assumed. Record whether each
-      cross-factor case starts from the genuine single-method inventory required
-      by R109D, especially Passkey-only to first-Email enrollment. Use
-      `pnpm test:linked-device` for fresh managed D1 state; use
-      `pnpm test:linked-device:external` only for an explicitly composed-stack
-      baseline.
-- [ ] Capture D1 counts for active V1 rows, usable V2 rows, V2 rows with null
-      credential digests, opaque tokens, pending V1-authorized operations,
-      hosted exchanges, V1-only quotas, and credential-bearing completion rows
-      under each registration side-effect prefix.
-- [x] Replace registration activation and deferred NEAR provisioning journal
-      writes with the credential-free receipt shape. Assemble the issued
-      response only after the receipt CAS and keep plaintext bearer bytes out of
-      the receipt. The strict reader accepts historical V1 completions only at
-      the persistence boundary, validates receipt/journal identity before
-      replay, and leaves the ceremony resumable until the receipt commits.
-- [ ] Deploy the receipt writer, strict receipt parser, and bounded V1 replay
-      adapter as one compatibility release; never expose an `already_committed`
-      body to a client that still parses only the legacy terminal shape. Keep
-      the adapter until the pending-commit client and direct exact issuer are
-      deployed; final replay then maps the same projection to
-      `already_committed`.
-- [ ] In that same compatibility release, update the Route 3 contract and service
-      comments and add the staging assertion at `/wallets/register/activate`.
-      Preserve idempotency/fingerprint and committed-projection identity while
-      explicitly allowing fresh adapter bearer bytes. Keep the unrelated
-      low-level Yao execution replay assertion byte-identical.
-- [ ] Deploy that compatibility release independently of the wider exact Wallet
-      Session cutover. Prove that no old completion writer revision is serving,
-      wait the maximum in-flight request window, and only then run the bounded D1
-      remediation over both prefixes. Preserve unrelated records, retire each
-      mapped usable bearer, abort on unknown or unmappable shapes, record
-      before/after counts, and never emit row bodies to command output or logs.
-- [ ] Repeat the zero-credential query after the maximum in-flight request
-      window. Record D1 backup/time-travel retention and either complete an
-      approved purge or retain the security exposure until every affected
-      bearer is proved retired or expired.
-- [ ] Verify zero registration completion rows retain `walletSessionToken`, a
-      primary or child operation credential, or a credential-bearing public
-      response.
-- [ ] Record the maximum lifetime of every V1 session, hosted exchange, and
-      pending-operation claim that determines the deletion drain window. Record
-      the response-replay lifetime and count every durable receipt carrying the
-      temporary client capability; treat an unbounded lifetime as requiring
-      terminal receipt normalization rather than a time-only drain.
-
-Exit: dead and obsolete R103F paths are deleted with evidence, the registration
-extractions preserve behavior, the target contract and real data shapes are
-known, new registration journals are credential-free,
-historical credential-bearing registration rows are removed or redacted, their
-usable bearers are retired or expired, and the current intended paths still
-pass.
-
-### Phase 1 — Land additive schema support
-
-- [x] Bind and validate the existing authorized-operation scope columns, then
-      add the dual V1/V2 trigger boundary in a new forward migration.
-- [x] Add V2 hosted child-credential and exchange storage.
-- [x] Add the linked credential-delivery table with its recipient, sealed
-      envelope, exact-session, acknowledgement, and digest constraints.
-- [x] Move `linked_device_authority_allocations` to migration-owned schema and
-      preserve immutable `0018` as the only definition of
-      `linked_device_authority_installations`.
-- [x] Add the hosted-child composite V2 foreign key and unique credential
-      digest, including rebuild-safe foreign-key verification.
-- [x] Add migration counters and abort conditions.
-- [x] Make duplicate cleanup deterministic: retire only null-credential or
-      logically expired rows and abort if multiple usable credential-bearing
-      rows remain for an exact tuple.
-- [x] Assert in the migration harness that the foreign-key check result set is
-      empty after the ordered parent/child rebuild.
-- [x] Apply the migration to a clean database and a database produced by every
-      immutable historical migration in order.
-- [x] Prove the migration leaves the current worker operational during rolling
-      deploy and does not mutate applied migration fingerprints.
-- [x] Delete runtime linked-installation `CREATE TABLE` strings once the forward
-      migration is authoritative, then prove clean and historical databases use
-      the same schema.
-
-Exit: the schema supports the bridge worker while old workers can finish their
-bounded rollout through request- and persistence-boundary compatibility.
-
-### Phase 2 — Issue exact server authorizations atomically
-
-- [x] Create one direct server issuer returning the persisted V2 record, quota,
-      and primary credential after their atomic commit.
-- [ ] Add a prepared linked-activation path that generates the credential,
-      seals it to the authenticated dedicated Device 2 credential recipient,
-      and commits the digest plus sealed delivery in the activation CAS.
-- [ ] Convert founding registration, unlock, refresh, sync, recovery, and linked
-      activation one call site at a time.
-- [ ] Make a lost founding-registration response replay return
-      `already_committed`, validate and atomically promote the durable pending
-      local registration, transition through exact-method unlock, install the
-      exact browser record, and sign without a fresh registration ceremony.
-- [ ] Keep the durable registration journal on its Phase 0 credential-free
-      receipt shape while converting its public first-execution response to the
-      exact browser-record boundary. Delete the temporary V1 replay adapter in
-      the same release that makes `already_committed` authoritative.
-- [ ] Convert material promotion so its authority CAS updates every affected V2
-      projection while preserving session, quota, mint, and credential identity.
-- [ ] Extend the authenticated active V2 status response to return the complete
-      digest-free exact projection used for lost-response and bootstrap
-      reconciliation.
-- [ ] Normalize every converted response into the exact browser record and persist
-      it before publishing authenticated UI state.
-- [ ] Add failure injection proving a failed batch exposes neither an active
-      session nor a quota, and a replay cannot rotate a credential.
-- [ ] Delete each corresponding projection call immediately after conversion.
-
-Exit: every issuance path is atomic and direct. No production caller issues V1
-before V2, and linked activation replay preserves its original credential.
-
-### Phase 3 — Make operation admission exact-only
-
-- [ ] Require the V2 operation-credential reader.
-- [ ] Return the exact typed lifecycle union from persistence and map it to
-      stable non-500 route responses.
-- [ ] Delete `not_v2` and opaque-token fallback from both curve validators.
-- [ ] Convert signing, pool fill, signing-session seal, execution-lane preflight,
-      recovery warm bootstrap, and operation step-up.
-- [ ] Bind authorized-operation claims and replays to full V2 scope, exact
-      method/authority, quota, capability, and material activation.
-- [ ] Preserve same-method step-up for exhausted sessions and fresh step-up for
-      exports.
-
-Exit: exact V2 is the only normal signing, export, and execution path. The
-temporary rollout resolver remains isolated at the request and persistence
-boundaries until Phase 6 drains existing V1 credentials and pending claims.
-
-### Phase 4 — Cut the client to the exact browser record
-
-- [ ] First implement the storage-tolerant precursor reader and its terminal
-      `upgrade_required` state without enabling `record_version: 6` writes. Make
-      it parse the direct exact issuer response into V5 and add the temporary
-      client capability at every boundary in the issuance matrix.
-- [ ] Convert every `readActiveForWallet` caller from the frozen 44-call-site
-      ledger. Require its declared tuple, current selection, credential-bound
-      identity, or intentional multi-record result and delete the wallet-wide
-      singleton reader after the zero-reference check.
-- [ ] Remove V3 writes, merges, parsers, and curve token selection.
-- [ ] Delete V4/V5 active pair shapes and normalize all response boundaries
-      directly into the identity-coupled exact browser record.
-- [ ] Make exact-record `replaceExactActive` the only install path and prove it retires
-      exact same-method predecessors while preserving siblings. It quarantines
-      known legacy rows inside the same transaction, preserves unknown future
-      rows, and does not abort on a late precursor write.
-- [ ] Reject a deliberately mismatched session/credential pair at parsing and
-      before IndexedDB persistence.
-- [ ] Remove iframe and public API fallback shapes.
-- [ ] Run targeted row cleanup in the existing Wallet Session store. Delete
-      active V3/V4/V5 rows, preserve valid `record_version: 6` rows and intentional
-      exact tombstones, and
-      leave every wallet, authority, method, signer-material, export-root, and
-      recovery-code store unchanged.
-- [ ] Run targeted quarantine on every current bootstrap and ignore obsolete
-      rows in all readers, including rows written later by an old open tab.
-- [ ] Reconcile material-promotion responses or exact readback into every
-      affected same-authority sibling-method browser record before activating the promoted
-      runtime.
-- [ ] Prove clearing or upgrading Wallet Session rows cannot erase wallet
-      discovery or signer state.
-
-Exit: the precursor release is future-row tolerant, and the final release reads
-and writes only current exact active records and intentional exact tombstones.
-Each final-version bootstrap and install contains any obsolete row it observes,
-including a late write from a precursor tab. No `record_version: 6` production
-write is enabled before the Phase 6 precursor gate.
-
-### Phase 5 — Convert administration and boundary routes
-
-- [ ] Convert session status, hosted exchange, identity management, public-key
-      reads, authenticator inventory, custody ownership upgrade, funding, and
-      factor release.
-- [ ] Apply the route policy matrix above and preserve each route's current
-      capability, assurance, and quota policy.
-- [ ] Convert auth-method and authority revocation to atomic V2 retirement.
-- [ ] Convert additive recovery finalization, replay, and post-recovery session
-      behavior to the exact model. Preserve exact continuity-anchor selection,
-      the fresh recovery authority and target method, every pre-existing access
-      path, both strict committed response branches, and crash-resumable local
-      continuity publication before normal login.
-- [ ] Implement hosted child credentials and prove redeeming one leaves the
-      primary credential valid.
-- [ ] Require hosted issue `walletOrigin` to equal authenticated tenant
-      deployment metadata or a server-side allowlist entry.
-- [ ] Prove parent replacement, explicit retirement, method revocation, and
-      authority revocation retire hosted children in the owning transaction;
-      parent expiry fails logically at resolution.
-- [ ] Convert device-link source resolution and post-install authenticated
-      state to V2.
-- [ ] Make Device 2 prerequisites durable before credential decrypt, implement
-      recipient-loss recovery through resume plus exact-method unlock, and make
-      final acknowledgement cleanup idempotently resumable across every delete.
-- [ ] Extend the existing local-install transaction to include the pending
-      wallet profile and authenticator, and prove terminal rejection cannot
-      leave a partially discoverable wallet or delete pre-existing state.
-- [ ] Move acknowledgement replay authentication to the live-session-or-cleanup-
-      receipt boundary so deletion of the active link session cannot make the
-      remaining cleanup transitions unreachable.
-
-Exit: all current-session wallet routes normalize one exact V2 context. Only the
-explicit bridge resolver may invoke the V1 boundary until Phase 6 removes it.
-
-### Phase 6 — Coordinated deployment, drain, and V1 deletion
-
-- [ ] Stage 1: publish the direct-response, storage-tolerant precursor SDK with
-      `record_version: 6` writes disabled. Confirm it parses the direct exact
-      issuer response into V5, preserves unknown future rows, never reports them
-      as legacy corruption, and cannot overwrite them.
-- [ ] Deploy and enforce `walletSessionClientCapability` on every route in the
-      issuance matrix. Record the final unmarked issuance time, then wait its
-      maximum V1 lifetime or perform the explicitly approved invalidation. Do
-      not enable `record_version: 6` before this gate.
-- [ ] Stage 2: apply the additive migration and deploy the bridge worker. New
-      issuance and operation claims are V2; existing V1 bearer and pending-row
-      support remains isolated at request and D1 persistence boundaries.
-- [ ] Publish the final host SDK, upgrade every known embedding application, bump
-      `WALLET_PROTOCOL_VERSION`, add it to CONNECT, and verify both postMessage
-      version-skew directions fail with
-      `WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH` before the iframe adopts the port
-      or the host marks the connection complete.
-- [ ] Deploy the matching iframe and enable `record_version: 6` writes only after
-      both the shared-IndexedDB precursor gate and host/iframe handshake gate pass.
-- [ ] Run the narrow intended operating paths against the deployed schema.
-- [ ] Confirm no pre-bridge worker revision is serving traffic, then start the
-      separate V1 bearer, pending-operation, and hosted-exchange drain clock.
-- [ ] Wait the recorded maximum V1 drain window or explicitly invalidate the
-      environment after user approval.
-- [ ] Confirm zero active V1 sessions, pending V1-authorized operations,
-      and unconsumed V1 hosted exchanges.
-- [ ] Stage 3: delete the temporary request/persistence compatibility branches
-      after normalizing every durable capability-tagged receipt to the final
-      credential-free `already_committed` projection. Assert zero tagged
-      receipts, delete the client-capability field and parser, deploy the
-      exact-only worker, and confirm every serving revision is exact-only.
-- [ ] Apply the enforcement/deletion migration without editing applied SQL.
-- [ ] Abort the enforcement deployment if multiple usable credential-bearing V2
-      rows remain for an exact tuple or if the programmatic foreign-key check
-      returns any row.
-- [ ] Verify the final schema and counters on a clean database and a
-      representative deployed-history database.
-- [ ] Remove V1 tables from readiness manifests.
-
-The short-lived compatibility needed during rollout lives only at the request,
-IndexedDB persistence, and D1 persistence boundaries plus the additive
-migration's trigger. It never promotes a V1 bearer into V2. All TypeScript
-compatibility branches and the client-capability field are deleted before the
-exact-only worker is declared deployed.
-
-Exit: all deployed code uses only the exact Wallet Session model and the V1
-schema is absent.
-
-### Phase 7 — Delete V1 production code and close acceptance
-
-- [ ] Delete all remaining unused V1 store, service, port, parser, type, and
-      route code in the inventory.
-- [ ] Close every preparatory liveness-ledger entry: delete each proved
-      `obsolete_or_unreachable` path, verify every retained `live_unrelated` root,
-      and delete each `rollout_boundary` path whose named drain gate closed.
-- [ ] Review the final extracted modules for forwarding-only wrappers, cyclic
-      dependencies, duplicate validators, compatibility re-exports, and helpers
-      used by only one caller. Inline or delete them unless they make a domain
-      boundary materially clearer.
-- [ ] Remove stale tests, fixtures, source guards, and docs.
-- [ ] Report deleted lines, moved lines, and the net live production-line delta
-      separately from SQL, tests, generated artifacts, and documentation.
-
-Run only the verification needed to prove the operating contract first:
-
-1. Passkey registration → immediate NEAR and EVM-family signing.
-2. Email OTP registration → immediate NEAR and EVM-family signing.
-3. Page or worker termination loses a Passkey or Email OTP founding-registration
-   response → reload reads the invisible `PendingWalletRegistrationCommitV1` →
-   ceremony replay returns `already_committed` with the credential-free committed
-   projection → one local transaction publishes discovery/auth/signer state →
-   exact-method unlock installs the exact browser record → immediate signing.
-4. Registration activation and deferred NEAR provisioning → durable side-effect
-   rows contain only credential-free commit receipts → replay returns the
-   committed projection → the temporary Phase 0 old-client adapter signs a V1
-   bearer only in memory and passes the old exact-key parser, with stable
-   committed identity rather than byte-identical bearer output → after adapter
-   deletion both historical prefixes contain zero plaintext credentials and
-   every exposed bearer is retired or proven expired across active and retained
-   backup copies.
-5. Lock/reload → exact-method unlock → immediate signing.
-6. An exact-record same-method replacement retires its local predecessor while a
-   sibling method's record remains active.
-7. Device link for all four source/target factor combinations from genuine
-   single-method source inventories → Passkey-only-to-Email exercises first-Email
-   enrollment and Email-only-to-Passkey adds no source Passkey → immediate
-   signing and export availability on Device 2 without a second unlock.
-8. Replay linked activation after lost response or acknowledgement → same
-   sealed delivery, exact session, credential, and recipient binding remain
-   usable; after active link-session deletion, the matching acknowledgement
-   authenticates through only its bounded cleanup receipt, removes ciphertext
-   once, and resumes cleanup without an early `not_found`.
-9. Terminate Device 2 after server activation and lose the recipient handle, or
-   let the delivery expire → the atomically persisted, non-discoverable local
-   prerequisite transaction survives intact → resume publishes its durable local
-   authority state → exact-method unlock retires the unreachable session and signs
-   without a second link. A terminal rejection deletes only newly pending records
-   and preserves pre-existing wallet state.
-10. Crash acknowledgement cleanup after each state transition → exact replay
-    resumes delivery tombstone, ciphertext removal, allocation cleanup,
-    link-session cleanup, and completion exactly once.
-11. Wallet Session exhaustion → typed exhausted result → same-method step-up.
-12. Expired, retired, revoked-method, and revoked-authority sessions return typed
-   failures and never HTTP 500/503.
-13. Exact auth-method revocation → revoked session and hosted children rejected,
-    sibling method remains.
-14. Authority revocation → only that authority's sessions, quotas, and hosted
-    children retire.
-15. Authority/material promotion → every affected exact server authorization and
-    same-authority sibling-method browser projection updates before the runtime
-    activates, while session, quota, mint, and primary credentials remain
-    unchanged. Lost response reconciles through the full exact projection read.
-16. Additive recovery with combined Passkey and Email inventory → the server
-    selects the exact continuity anchor by the landed R115 ranking → a fresh
-    recovery authority and chosen target method commit while every pre-existing
-    method, envelope, authority, linked device, and exact session remains active
-    → terminate the page before complete local continuity publication → reload
-    resumes the same committed target projection without another recovery code
-    → authority, method, locked selection, profile/authenticator, account state,
-    and signer continuity publish → ordinary unlock validates that exact local
-    recovery projection without consulting linked-device state or repairing a
-    missing installation → normal target login issues one exact session and
-    signs. Run both Passkey and Google/Email targets from Passkey-only and
-    Email-only origins as well.
-17. Key export → fresh exact-method step-up.
-18. Hosted exchange redemption → nominal child credential works only across its
-    stored app-issue, wallet-redeem/use, and iframe-parent origins while the
-    primary credential remains valid.
-19. Hosted exchange issue with an unauthorized but self-consistent
-    `walletOrigin` → rejected before any exchange row or child credential exists.
-20. Targeted IndexedDB cleanup → old session rows disappear while wallet
-    discovery, methods, signer materials, export roots, and recovery codes remain.
-21. Every route in the issuance matrix receives
-    `direct_exact_response_future_record_tolerant` → returns the direct exact issuer
-    response → the precursor normalizes it to V5 while the final SDK normalizes
-    the same wire response to `record_version: 6`; replay preserves the recorded
-    response family during the bridge period and a changed capability returns a
-    typed failure without rotating a credential. Before parser deletion, durable
-    tagged receipts normalize to credential-free `already_committed` and the
-    tagged count reaches zero.
-22. A storage-tolerant precursor sees a future browser row → preserves and ignores
-    it without returning `corrupt` or blanking the shell → reaches terminal
-    `upgrade_required` when its own session cannot continue. If a precursor later
-    writes V5 during exact-record replacement, the current SDK quarantines it, the
-    install still commits, and no current reader returns it.
-23. A mismatched exact browser record/credential pair is rejected before
-    persistence.
-24. Old host SDK/new iframe and new host SDK/old iframe combinations fail at the
-    exact protocol handshake before Wallet Session data is exchanged.
-25. The first production `record_version: 6` write remains disabled until the
-    named client capability is enforced on every issuance route and every
-    unmarked issuance lifetime has drained or been invalidated.
-26. Management and request-boundary routes satisfy the policy matrix.
-27. Empty storage, a valid exact browser record, and an obsolete or malformed
-    session row each render the correct wallet/authentication UI without a blank
-    shell or loss of IndexedDB wallet discovery.
-28. Enforcement migration with multiple usable exact-tuple rows or any
-    foreign-key-check result row → deployment aborts; unusable/expired duplicates
-    follow the deterministic retirement policy.
-
-Then run the narrow type checks and focused server/client units affected by the
-cutover. Run broader repository gates only after the user authorizes them.
-
-Exit: the intended operating paths pass, manual testing is unblocked, the
-deletion ledger and zero-reference searches pass, and R103F contains no
-provisional language.
-
-## Zero-Reference Closure Ledger
+## Closure ledger
 
 The following searches must have no production matches except immutable
-historical migrations or explicitly named historical documentation:
+historical migrations, frozen protocol vocabulary, and historical refactor
+documentation:
 
 ```bash
 rg -n "reusable_wallet_sessions|opaque_wallet_session_tokens" \
@@ -2452,8 +1581,7 @@ readOpaqueWalletSessionTokenByIdentity" packages
 
 rg -n "not_v2|readActiveForWallet|wallet_session_authorization_v3|\
 WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V4|\
-WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5" \
-  packages apps
+WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5" packages apps
 
 rg -n "issueWalletSessionAuthorizationV2FromReusableSession|\
 refreshWalletSessionAuthorizationV2FromReusableSession|\
@@ -2461,8 +1589,7 @@ projectReusableWalletSessionV2" packages
 
 rg -n "mintRouterAbEd25519YaoWalletSessionV1|\
 issueRouterAbEd25519OpaqueWalletSessionToken|walletSessionPolicyMintId|\
-ReusableWalletSessionMintId|parseReusableWalletSessionMintId" \
-  packages
+ReusableWalletSessionMintId|parseReusableWalletSessionMintId" packages
 
 rg -n "registration_established_wallet_session_v1|\
 RegistrationEstablishedSessionTokens|walletSessionTokenForCurve" \
@@ -2473,119 +1600,26 @@ putWalletSessionAuthorizationV2OperationCredential|\
 issueWalletSessionAuthorizationV2OperationCredential" \
   packages/wallet-server/src
 
-rg -n "walletSessionClientCapability|direct_exact_response_future_record_tolerant" \
-  packages apps
+rg -n "walletSessionClientCapability|\
+direct_exact_response_future_record_tolerant" packages apps
 ```
 
-Allowed matches after completion:
+The singular Router A/B `reusable_wallet_session` discriminator and the applied
+`consume_reusable_wallet_session` quota discriminator remain frozen protocol
+vocabulary. Console-session JWT types also remain.
 
-- immutable applied migration sources;
-- this deletion ledger and historical refactor records; and
-- migration fingerprint tests that prove those historical files did not
-  change.
+Database closure requires:
 
-The singular `reusable_wallet_session` Router A/B discriminator and
-`consume_reusable_wallet_session` quota discriminator are intentionally absent
-from this zero-reference ledger. They remain frozen protocol vocabulary.
+- zero active V1 sessions and opaque tokens;
+- zero pending V1-authorized operations;
+- zero unconsumed V1 hosted exchanges;
+- zero active null-digest V2 sessions;
+- zero tagged rollout receipts;
+- zero credential-bearing completion records;
+- zero usable exact-tuple duplicates;
+- zero foreign-key-check results; and
+- absence of V1 tables, triggers, views, and aliases after enforcement.
 
-No allowlist may conceal a live production reference.
-
-## Completion Criteria
-
-R103F is complete only when all of the following are true:
-
-- every ordinary Wallet Session is issued directly as an exact server
-  authorization;
-- every active exact server-authorization row has its primary credential digest
-  from the same atomic issuance or activation transaction;
-- registration activation and deferred provisioning journals persist only
-  credential-free commit receipts, and both historical prefixes contain zero
-  plaintext operation credentials after the Phase 0 remediation;
-- one credential-free committed installation projection supplies both the
-  adapter's non-credential legacy response fields and final
-  `already_committed` recovery; no parallel receipt shape exists;
-- the compatibility release deploys the receipt writer, parser, and V1 replay
-  adapter together, and its Route 3 contract, service comment, and tests describe
-  stable committed identity rather than byte-identical bearer bytes;
-- every operation credential exposed by a historical completion row is retired
-  or proven expired, no old writer can recreate one, and the disposition of
-  retained D1 backup/time-travel copies is recorded;
-- a lost founding-registration response resumes only from a validated pending
-  local commit plus the credential-free server projection, publishes all local
-  discovery/auth/signer state in one transaction, and then unlocks the exact
-  method;
-- browser and wire session types contain no persisted credential digest;
-- linked activation replay cannot rotate its primary credential;
-- linked credential replay remains bound to its original Device 2 recipient and
-  exact acknowledgement identity;
-- linked-device acceptance covers all four source/target factors from genuine
-  single-method source inventories, including Passkey-only to first-Email
-  enrollment;
-- Device 2 persists every local profile, authenticator, method/factor, authority,
-  and signer-installation prerequisite in one non-discoverable pending
-  transaction before the activation request, and resume can finalize any pending
-  local method before credential decrypt; terminal rejection removes only newly
-  pending state, while recipient loss or delivery expiry recovers through resume
-  plus exact-method unlock;
-- linked acknowledgement removes ciphertext and completes allocation/session
-  cleanup through an exact, crash-resumable state machine, and remains
-  authenticated through the bounded cleanup receipt after active link-session
-  deletion;
-- client persistence has one identity-coupled exact active representation with
-  `record_version: 6`;
-- the exact-record parser proves its credential and session IDs match;
-- the exact browser record stores its actual Wallet Session ID under the existing
-  `wallet_session_id` keyPath and its authorization ID under
-  `authorization_id`;
-- exact-record installation retires same-method predecessors in one local
-  transaction while preserving siblings;
-- current-SDK bootstrap quarantines observed V3/V4/V5 rows and no current reader
-  returns a row later written by an old tab;
-- a deployed precursor SDK parses the direct exact issuer response into V5 and
-  preserves unknown future rows; the final SDK parses the same wire response into
-  `record_version: 6`; unmarked issuance is fenced and drained before the first
-  final-record write; every tagged rollout receipt is normalized to the
-  credential-free final projection; and the temporary client capability is
-  absent from both durable data and the exact-only release;
-- sibling auth methods may each retain one exact active session;
-- every former `readActiveForWallet` caller names or derives its exact
-  authority/method selection, credential identity, or intentional multi-record
-  result;
-- no signing, export, link, recovery, management, or hosted-exchange route
-  falls back to V1;
-- all status, replay, quota, source, and revocation checks resolve the fully
-  scoped exact identity and return typed lifecycle failures;
-- hosted child credentials resolve their exact parent identity, share its quota,
-  leave its primary credential unchanged, and use a nominal type and encoding
-  that cannot resolve as primary;
-- hosted issue accepts only the authoritative server-side tenant wallet origin;
-- every parent-retirement transaction also retires hosted children;
-- authority/material promotion updates all affected exact projections atomically,
-  returns or reads the complete digest-free exact projection, and reconciles
-  every same-authority sibling-method browser record before the promoted runtime
-  becomes active;
-- the exact iframe protocol handshake rejects host SDK version skew before any
-  Wallet Session message is accepted;
-- additive recovery preserves its exact continuity anchor and every
-  pre-existing access path while installing a fresh recovery authority and
-  selected target method;
-- both recovery promotion/replay branches return strict server-read committed
-  target projections, and a reload after server commit resumes non-discoverable
-  local continuity publication without another code or any plaintext durable
-  recovery secret;
-- IndexedDB cleanup removes only obsolete Wallet Session rows;
-- no V1 bearer is promoted or reinterpreted as an exact operation credential;
-- V1 tables and triggers are removed by forward migration;
-- enforcement aborts on multiple usable exact-tuple survivors and on any
-  foreign-key-check result row;
-- V1 session-storage and bearer APIs, types, parsers, tests, and fixtures are
-  deleted while frozen reusable-operation protocol discriminators remain;
-- no `ReusableWalletSessionMintId` symbol or compatibility alias remains, while
-  persisted and frozen wire mint field names retain their current spelling;
-- every preparatory liveness-ledger item is closed, all proved dead or obsolete
-  code is deleted, all drained rollout boundaries are deleted, and extracted
-  modules contain no compatibility re-exports or duplicate live implementation;
-- the twenty-eight operating acceptance paths above work;
-- the zero-reference ledger passes; and
-- the final production source line count over the saved baseline file list is
-  lower than the recorded baseline.
+R103F is complete when every boundary-matrix row is in its final state, every
+temporary compatibility path has been deleted at its named gate, the acceptance
+matrix passes, and the code and database closure ledgers are clean.
