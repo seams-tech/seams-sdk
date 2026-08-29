@@ -78,7 +78,7 @@ async function refreshWalletSessionFetch(
     JSON.stringify(
       activeRefreshResponseBody || {
         ok: true,
-        sessionKind: 'issued_wallet_session_v1',
+        sessionKind: 'issued_exact_wallet_session',
         thresholdSessionId: 'threshold-session-1',
         walletSessionId: 'wallet-session-1',
         authorizationId: 'authorization-1',
@@ -262,7 +262,7 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
       walletSessionId: 'wallet-session-1',
       quotaId: 'quota-1',
       remainingUses: 3,
-      sessionKind: 'issued_wallet_session_v1',
+      sessionKind: 'issued_exact_wallet_session',
       operationCredential: {
         kind: 'opaque_wallet_session_operation_credential_v1',
         token: `wst_${'R'.repeat(43)}`,
@@ -399,7 +399,7 @@ test('Wallet Session mint preserves a reused identity without a second credentia
   activeRefreshFetchCapture = capture;
   activeRefreshResponseBody = {
     ok: true,
-    sessionKind: 'reused_wallet_session_v2',
+    sessionKind: 'already_committed_exact_wallet_session',
     thresholdSessionId: 'threshold-session-1',
     walletSessionId: 'wallet-session-1',
     authorizationId: 'authorization-1',
@@ -435,7 +435,7 @@ test('Wallet Session mint preserves a reused identity without a second credentia
 
     expect(result).toEqual({
       ok: true,
-      sessionKind: 'reused_wallet_session_v2',
+      sessionKind: 'already_committed_exact_wallet_session',
       thresholdSessionId: 'threshold-session-1',
       walletSessionId: 'wallet-session-1',
       authorizationId: 'authorization-1',
@@ -471,7 +471,7 @@ test('Wallet Session mint rejects an issued credential bound to another session'
   activeRefreshFetchCapture = capture;
   activeRefreshResponseBody = {
     ok: true,
-    sessionKind: 'issued_wallet_session_v1',
+    sessionKind: 'issued_exact_wallet_session',
     thresholdSessionId: 'threshold-session-1',
     walletSessionId: 'wallet-session-1',
     authorizationId: 'authorization-1',
@@ -630,7 +630,7 @@ test('Ed25519 session connection returns the issued operation credential exactly
     const result = await connectRefreshEd25519Session();
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected an issued Ed25519 session');
-    expect(result.sessionKind).toBe('issued_wallet_session_v1');
+    expect(result.sessionKind).toBe('issued_exact_wallet_session');
     expect(result.operationCredential.walletSessionId).toBe(result.walletSessionId);
     expect(result).not.toHaveProperty('walletSessionToken');
   } finally {
@@ -649,7 +649,7 @@ test('Ed25519 session connection keeps reused sessions credential-free', async (
   };
   activeRefreshResponseBody = {
     ok: true,
-    sessionKind: 'reused_wallet_session_v2',
+    sessionKind: 'already_committed_exact_wallet_session',
     thresholdSessionId: 'threshold-session-1',
     walletSessionId: 'wallet-session-1',
     authorizationId: 'authorization-1',
@@ -671,7 +671,7 @@ test('Ed25519 session connection keeps reused sessions credential-free', async (
     });
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected a reused Ed25519 session');
-    expect(result.sessionKind).toBe('reused_wallet_session_v2');
+    expect(result.sessionKind).toBe('already_committed_exact_wallet_session');
     expect(result).not.toHaveProperty('operationCredential');
     expect(result).not.toHaveProperty('walletSessionToken');
   } finally {

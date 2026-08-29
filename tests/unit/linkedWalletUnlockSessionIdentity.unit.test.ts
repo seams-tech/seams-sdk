@@ -130,7 +130,7 @@ function buildEd25519Session(
 ): WalletRegistrationEd25519YaoBootstrapSession {
   const runtimePolicyScope = fixture.ed25519Session.runtimePolicyScope;
   return {
-    sessionKind: 'reused_wallet_session_v2',
+    sessionKind: 'already_committed_exact_wallet_session',
     walletId: fixture.walletId,
     nearAccountId: fixture.ed25519Session.nearAccountId,
     nearEd25519SigningKeyId: fixture.ed25519Session.nearEd25519SigningKeyId,
@@ -301,7 +301,7 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     remainingUses: linkedWalletSession.quota.remainingUses,
   });
   expect(response.body.ed25519Session).toMatchObject({
-    sessionKind: 'reused_wallet_session_v2',
+    sessionKind: 'already_committed_exact_wallet_session',
     authorizationId: linkedWalletSession.session.authorizationId,
     walletSessionId: linkedWalletSession.session.walletSessionId,
     quotaId: linkedWalletSession.session.quotaId,

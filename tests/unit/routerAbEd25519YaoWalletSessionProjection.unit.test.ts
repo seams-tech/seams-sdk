@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mintRouterAbEd25519YaoWalletSessionV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+import { projectRouterAbEd25519YaoExactWalletSession } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import {
   buildIssuedRouterAbEd25519YaoWalletSessionCredentialFixture,
   buildRouterAbEd25519YaoWalletSessionMintInputFixture,
@@ -9,15 +9,15 @@ import {
 const SIGNING_WORKER_ID = 'signing-worker:ed25519-yao-projection';
 
 test('an issued Ed25519 Yao Wallet Session carries the credential that admits it', async () => {
-  const session = await mintRouterAbEd25519YaoWalletSessionV1({
+  const session = await projectRouterAbEd25519YaoExactWalletSession({
     signingWorkerId: SIGNING_WORKER_ID,
     sessionInput: buildRouterAbEd25519YaoWalletSessionMintInputFixture({
       walletSessionCredential: buildIssuedRouterAbEd25519YaoWalletSessionCredentialFixture(),
     }),
   });
 
-  expect(session.sessionKind).toBe('issued_wallet_session_v1');
-  if (session.sessionKind !== 'issued_wallet_session_v1') {
+  expect(session.sessionKind).toBe('issued_exact_wallet_session');
+  if (session.sessionKind !== 'issued_exact_wallet_session') {
     throw new Error('issued mint input must project an issued session');
   }
   expect(session.operationCredential.walletSessionId).toBe(session.walletSessionId);
@@ -26,14 +26,14 @@ test('an issued Ed25519 Yao Wallet Session carries the credential that admits it
 });
 
 test('a reused Ed25519 Yao Wallet Session projects no credential of its own', async () => {
-  const session = await mintRouterAbEd25519YaoWalletSessionV1({
+  const session = await projectRouterAbEd25519YaoExactWalletSession({
     signingWorkerId: SIGNING_WORKER_ID,
     sessionInput: buildRouterAbEd25519YaoWalletSessionMintInputFixture({
-      walletSessionCredential: { kind: 'reused_wallet_session_v2' },
+      walletSessionCredential: { kind: 'already_committed_exact_wallet_session' },
     }),
   });
 
-  expect(session.sessionKind).toBe('reused_wallet_session_v2');
+  expect(session.sessionKind).toBe('already_committed_exact_wallet_session');
   /* The credential for a reused session was delivered once by the response
      that issued it; a committed digest cannot reproduce plaintext, so this
      projection must not invent a replacement. */
@@ -43,7 +43,7 @@ test('a reused Ed25519 Yao Wallet Session projects no credential of its own', as
 
 test('an Ed25519 Yao Wallet Session refuses a credential for another session', async () => {
   await expect(
-    mintRouterAbEd25519YaoWalletSessionV1({
+    projectRouterAbEd25519YaoExactWalletSession({
       signingWorkerId: SIGNING_WORKER_ID,
       sessionInput: buildRouterAbEd25519YaoWalletSessionMintInputFixture({
         walletSessionCredential:
