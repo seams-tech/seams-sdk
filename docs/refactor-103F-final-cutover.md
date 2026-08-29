@@ -668,7 +668,7 @@ Primary files:
       `WalletRegistrationSessionCommitReceiptV2`.
 - [ ] Use one committed installation projection for terminal replay and final
       pending-commit recovery.
-- [ ] Delete the old-client replay adapter, its V1 bearer reconstruction, and
+- [x] Delete the old-client replay adapter, its V1 bearer reconstruction, and
       every adapter-only resolver and test.
 - [ ] Drop `registration_replay_opaque_wallet_session_tokens_v1` in the
       enforcement migration and delete its service/store surface.
