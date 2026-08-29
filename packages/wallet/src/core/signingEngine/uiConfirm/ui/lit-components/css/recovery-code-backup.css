@@ -235,6 +235,10 @@ w3a-recovery-code-backup-viewer[data-w3a-recovery-stage='opening'] .recovery-bac
   letter-spacing: -0.01em;
 }
 
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-title:focus {
+  outline: none;
+}
+
 [data-w3a-wallet-recovery-backup-dialog] .recovery-backup-description {
   margin: 0 0 1rem;
   color: var(--w3a-colors-textSecondary, oklch(0.53 0.02 240));
