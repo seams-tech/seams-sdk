@@ -33,8 +33,8 @@ const LANE = buildEd25519PasskeySigningLane({
     rpId: toRpId('wallet.example.test'),
     credentialIdB64u: 'ed25519-sealed-runtime-credential',
   },
-  walletSessionId: AUTHORIZATION.walletSessionId,
-  quotaId: AUTHORIZATION.quotaId,
+  walletSessionId: AUTHORIZATION.operationCredential.walletSessionId,
+  quotaId: AUTHORIZATION.session.quotaId,
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session(RECORD.thresholdSessionIds.ed25519),
   storageSource: 'login',
 });
@@ -85,8 +85,8 @@ test('builds passkey hydration state from the exact sealed runtime and active Wa
   });
 
   expect(state.thresholdSessionId).toBe(RECORD.thresholdSessionIds.ed25519);
-  expect(state.walletSessionId).toBe(AUTHORIZATION.walletSessionId);
-  expect(state.quotaId).toBe(AUTHORIZATION.quotaId);
+  expect(state.walletSessionId).toBe(AUTHORIZATION.operationCredential.walletSessionId);
+  expect(state.quotaId).toBe(AUTHORIZATION.session.quotaId);
   expect(state.signingLane.identity.signer.nearEd25519SigningKeyId).toBe(
     RECORD.ed25519Restore.nearEd25519SigningKeyId,
   );

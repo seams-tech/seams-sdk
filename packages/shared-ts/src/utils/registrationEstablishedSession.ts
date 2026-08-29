@@ -50,59 +50,8 @@ import {
 } from '../device-linking/parsers';
 
 /**
- * Registration establishes one reusable authorization identity. Each curve
- * receives its own opaque bearer token and server-validated material binding.
- */
-export type RegistrationEstablishedEcdsaSession = {
-  readonly sessionKind: 'opaque';
-  readonly walletSessionToken: string;
-  readonly thresholdSessionId: ThresholdEcdsaSessionId;
-  readonly keyHandle: ThresholdEcdsaKeyHandle;
-  readonly runtimePolicyScope: RuntimePolicyScope;
-  readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
-};
-
-export type RegistrationEstablishedEd25519Session = {
-  readonly sessionKind: 'opaque';
-  readonly walletSessionToken: string;
-  readonly thresholdSessionId: ThresholdEd25519SessionId;
-  readonly nearAccountId: NearAccountId;
-  readonly nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-  readonly runtimePolicyScope: RuntimePolicyScope;
-  readonly routerAbNormalSigning: RouterAbEd25519NormalSigningState;
-};
-
-export type RegistrationEstablishedSessionTokens =
-  | {
-      readonly kind: 'evm_family_ecdsa';
-      readonly ecdsa: RegistrationEstablishedEcdsaSession;
-      readonly ed25519?: never;
-    }
-  | {
-      readonly kind: 'near_ed25519';
-      readonly ed25519: RegistrationEstablishedEd25519Session;
-      readonly ecdsa?: never;
-    }
-  | {
-      readonly kind: 'near_ed25519_and_evm_family_ecdsa';
-      readonly ecdsa: RegistrationEstablishedEcdsaSession;
-      readonly ed25519: RegistrationEstablishedEd25519Session;
-    };
-
-export type RegistrationEstablishedSession = {
-  readonly kind: 'registration_established_wallet_session_v1';
-  readonly walletId: WalletId;
-  readonly authorizationId: WalletSessionAuthorizationId;
-  readonly walletSessionId: WalletSessionId;
-  readonly quotaId: MpcWalletSigningQuotaId;
-  readonly expiresAtMs: number;
-  readonly remainingUses: number;
-  readonly tokens: RegistrationEstablishedSessionTokens;
-};
-
-/**
  * The registration journal's durable session projection. It keeps the
- * identities and signing context needed to rebuild a legacy response while
+ * identities and signing context needed to replay a committed response while
  * excluding every bearer credential.
  */
 export type RegistrationEstablishedEcdsaSessionProjectionV2 = {
@@ -270,17 +219,21 @@ function registrationSessionTokensMatchCapabilities(
 ): boolean {
   switch (tokens.kind) {
     case 'evm_family_ecdsa':
-      return hasRegistrationSigningCapability(
-        walletSession,
-        'ecdsa_secp256k1',
-        tokens.ecdsa.materialActivation,
-      ) && !hasUnexpectedRegistrationSigningFamily(walletSession, 'ecdsa_secp256k1');
+      return (
+        hasRegistrationSigningCapability(
+          walletSession,
+          'ecdsa_secp256k1',
+          tokens.ecdsa.materialActivation,
+        ) && !hasUnexpectedRegistrationSigningFamily(walletSession, 'ecdsa_secp256k1')
+      );
     case 'near_ed25519':
-      return hasRegistrationSigningCapability(
-        walletSession,
-        'ed25519',
-        tokens.ed25519.materialActivation,
-      ) && !hasUnexpectedRegistrationSigningFamily(walletSession, 'ed25519');
+      return (
+        hasRegistrationSigningCapability(
+          walletSession,
+          'ed25519',
+          tokens.ed25519.materialActivation,
+        ) && !hasUnexpectedRegistrationSigningFamily(walletSession, 'ed25519')
+      );
     case 'near_ed25519_and_evm_family_ecdsa':
       return (
         hasRegistrationSigningCapability(
@@ -318,8 +271,7 @@ function hasUnexpectedRegistrationSigningFamily(
   ...allowedFamilies: readonly ('ed25519' | 'ecdsa_secp256k1')[]
 ): boolean {
   return walletSession.capabilitySubjects.some(
-    (subject) =>
-      subject.kind === 'sign' && !allowedFamilies.includes(subject.keyFamily),
+    (subject) => subject.kind === 'sign' && !allowedFamilies.includes(subject.keyFamily),
   );
 }
 

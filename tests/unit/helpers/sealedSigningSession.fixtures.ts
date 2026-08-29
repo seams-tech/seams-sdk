@@ -23,6 +23,16 @@ import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
+import {
+  buildActiveWalletAuthorityV1,
+  buildWalletSignerActivationSetV1,
+} from '@shared/authorization/walletAuthority';
+import { buildSigningOnlyPermissionsV1 } from '@shared/authorization/delegatedAuthority';
+import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
+import {
+  parseActiveWalletSessionV1,
+  parseWalletSessionOperationCredentialV1,
+} from '@shared/device-linking/parsers';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import {
   buildEcdsaInactiveMaterialPublicRestore,
@@ -39,11 +49,17 @@ import { ecdsaSealedRecordStoreKey } from '@/core/signingEngine/session/persiste
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
 import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
+  parseDeviceId,
   parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import { parseWalletAuthorityId, type MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
+import { base64UrlEncode } from '@shared/utils/base64';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
+import { buildActiveNearEd25519WalletSessionAuthorization } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
 
 function requireFixtureDomainId<T>(
   result: { ok: true; value: T } | { ok: false; error: unknown },
@@ -53,7 +69,8 @@ function requireFixtureDomainId<T>(
 }
 
 function fixtureWalletSessionToken(label: string): string {
-  return `opaque-wallet-session-token:${label}`;
+  const encoded = base64UrlEncode(new TextEncoder().encode(label));
+  return `wst_${encoded.padEnd(43, 'A').slice(0, 43)}`;
 }
 
 export function buildPasskeyEd25519SealedSessionRecordFixture(
@@ -136,27 +153,123 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
     rpId: record.ed25519Restore.rpId,
     credentialIdB64u: record.ed25519Restore.credentialIdB64u,
   });
-  const authorizationId =
-    args.authorizationId ?? `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`;
-  const walletSessionId =
-    args.walletSessionId ?? `wallet-session:${record.thresholdSessionIds.ed25519}`;
-  const quotaId = args.quotaId ?? `quota:${record.thresholdSessionIds.ed25519}`;
   const authorizationExpiresAtMs = args.authorizationExpiresAtMs ?? record.expiresAtMs;
-  return buildActiveWalletSessionAuthorizationProjection({
-    walletId: authority.walletId,
-    walletSessionId: requireFixtureDomainId(parseWalletSessionId(walletSessionId)),
-    quotaId: requireFixtureDomainId(parseMpcWalletSigningQuotaId(quotaId)),
-    walletSessionTokens: {
-      kind: 'near_ed25519',
-      ed25519: {
-        authorizationId,
-        walletSessionToken: fixtureWalletSessionToken(record.thresholdSessionIds.ed25519),
-        thresholdSessionId: record.thresholdSessionIds.ed25519,
+  const authorityRef = buildWalletAuthAuthorityRefForAuthorityFixture(authority);
+  const walletAuthorityId = requireFixtureDomainId(
+    parseWalletAuthorityId(`authority:sealed-ed25519:${record.thresholdSessionIds.ed25519}`),
+  );
+  const signerManifest = parseExactAdministeredSignerManifestV1({
+    kind: 'exact_administered_signer_manifest_v1',
+    keyFamilies: ['ed25519'],
+    signers: [
+      {
+        kind: 'exact_administered_ed25519_signer_v1',
+        keyFamily: 'ed25519',
+        walletId: authority.walletId,
+        walletKeyId: `wallet-key:sealed-ed25519:${record.thresholdSessionIds.ed25519}`,
+        registeredPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(7)),
       },
+    ],
+  });
+  const signerActivations = buildWalletSignerActivationSetV1({
+    manifest: signerManifest,
+    materialActivations: {
+      keyFamilies: ['ed25519'],
+      ed25519: record.ed25519Restore.materialActivation,
     },
-    authMethod: 'passkey',
-    authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),
+  });
+  const selectedAuthority = buildActiveWalletAuthorityV1({
+    kind: 'wallet_authority_v1',
+    authorityId: walletAuthorityId,
+    walletId: authority.walletId,
+    principal: {
+      kind: 'owner_device',
+      deviceId: requireFixtureDomainId(
+        parseDeviceId(`device:sealed-ed25519:${record.thresholdSessionIds.ed25519}`),
+      ),
+    },
+    provenance: { kind: 'wallet_registration' },
+    permissions: buildSigningOnlyPermissionsV1(),
+    signerActivations,
+    signerActivationSetDigestB64u: parseDigestB64u(String(authorityRef.authorityDigest)),
+    authorityDigestB64u: parseDigestB64u(String(authorityRef.authorityDigest)),
+    revocationEpoch: 0,
+    createdAtMs: 1,
+    updatedAtMs: 2,
+    state: 'active',
+    activatedAtMs: 2,
+  });
+  const selectedAuthMethod = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: authority.bindingId,
+    walletId: authority.walletId,
+    walletAuthorityId,
+    kind: 'passkey',
+    status: 'active',
+    rpId: authority.verifier.rpId,
+    credentialIdB64u: authority.factor.credentialIdB64u,
+    credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(65).fill(8)),
+    counter: 0,
+    createdAtMs: 1,
+    updatedAtMs: 2,
+    activatedAtMs: 2,
+  });
+  if (selectedAuthMethod.status !== 'active') {
+    throw new Error('sealed Ed25519 authorization fixture requires an active method');
+  }
+  const walletSessionId = requireFixtureDomainId(
+    parseWalletSessionId(
+      args.walletSessionId ?? `wallet-session:${record.thresholdSessionIds.ed25519}`,
+    ),
+  );
+  const quotaId = requireFixtureDomainId(
+    parseMpcWalletSigningQuotaId(args.quotaId ?? `quota:${record.thresholdSessionIds.ed25519}`),
+  );
+  const session = parseActiveWalletSessionV1({
+    kind: 'active_wallet_session_v1',
+    walletId: authority.walletId,
+    authorityId: walletAuthorityId,
+    authMethodId: selectedAuthMethod.walletAuthMethodId,
+    authorizationId: requireFixtureDomainId(
+      parseWalletSessionAuthorizationId(
+        args.authorizationId ??
+          `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`,
+      ),
+    ),
+    quotaId,
+    authorityDigestB64u: selectedAuthority.authorityDigestB64u,
+    authorityRevocationEpoch: selectedAuthority.revocationEpoch,
+    capabilitySubjects: [
+      {
+        kind: 'sign',
+        keyFamily: 'ed25519',
+        materialActivation: record.ed25519Restore.materialActivation,
+      },
+    ],
+    issuedAtMs: 1,
     expiresAtMs: authorizationExpiresAtMs,
+  });
+  const operationCredential = parseWalletSessionOperationCredentialV1({
+    kind: 'opaque_wallet_session_operation_credential_v1',
+    token: fixtureWalletSessionToken(record.thresholdSessionIds.ed25519),
+    walletSessionId,
+  });
+  return buildActiveNearEd25519WalletSessionAuthorization({
+    selectedAuthority,
+    selectedAuthMethod,
+    selectedFactorAuthority: authority,
+    session,
+    operationCredential,
+    status: {
+      status: 'active',
+      walletSessionId,
+      quotaId,
+      remainingUses: record.remainingUses,
+      expiresAtMs: authorizationExpiresAtMs,
+      quotaLifecycle: 'active',
+      authorization: session,
+    },
+    nowMs: Math.max(0, Math.min(authorizationExpiresAtMs - 1, Date.now())),
   });
 }
 

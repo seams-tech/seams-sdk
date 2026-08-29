@@ -842,7 +842,7 @@ and `authorizeSigningSessionSealWithExactWalletSession`.
       `linked_scope_env_id` on every new grant and reject partial scope.
 - [ ] Replace the additive bridge trigger with an exact-only enforcement
       trigger requiring complete V2 scope.
-- [ ] Require authorized-operation replay to resolve the exact authorization
+- [x] Require authorized-operation replay to resolve the exact authorization
       that admitted first execution and reject scope, method, authority, quota,
       capability, or material disagreement.
 - [x] Remove the V1 status call from Ed25519 reuse; the exact credential read's
