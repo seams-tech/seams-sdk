@@ -35,6 +35,8 @@ import {
 
 type MaterialActivationField = keyof RouterAbMpcMaterialActivationRefWire;
 
+const EXACT_OPERATION_CREDENTIAL = `wst_${'a'.repeat(43)}`;
+
 const MATERIAL_ACTIVATION_FIELDS: readonly MaterialActivationField[] = [
   'kind',
   'activation_id',
@@ -216,7 +218,7 @@ async function stepUpRouteFixture(input: {
     {
       method: 'POST',
       headers: {
-        authorization: 'Bearer opaque-wallet-session',
+        authorization: `Bearer ${EXACT_OPERATION_CREDENTIAL}`,
         'content-type': 'application/json',
         origin: 'https://app.example.test',
       },
@@ -299,7 +301,12 @@ async function stepUpRouteFixture(input: {
       },
       authorizationSessions: {
         tenantId: sessionFixture.session.tenantId,
-        async readWalletSessionAuthorizationV2ByOperationCredential() {
+        async readWalletSessionAuthorizationV2ByOperationCredential(credentialInput: {
+          readonly token: string;
+        }) {
+          if (credentialInput.token !== EXACT_OPERATION_CREDENTIAL) {
+            throw new Error('operation step-up must present the exact operation credential');
+          }
           const queuedMaterialActivation = credentialMaterialResolutionQueue.shift();
           const resolvedSession = queuedMaterialActivation
             ? await buildExactOperationStepUpSessionFixture({
@@ -456,7 +463,7 @@ test('operation step-up rejects a key handle outside the canonical signer', asyn
   ctx.request = new Request(ctx.request.url, {
     method: 'POST',
     headers: {
-      authorization: 'Bearer opaque-wallet-session',
+        authorization: `Bearer ${EXACT_OPERATION_CREDENTIAL}`,
       'content-type': 'application/json',
       origin: 'https://app.example.test',
     },
@@ -491,7 +498,7 @@ test('operation step-up rejects hostile signer runtime facts before side effects
     ctx.request = new Request(ctx.request.url, {
       method: 'POST',
       headers: {
-        authorization: 'Bearer opaque-wallet-session',
+        authorization: `Bearer ${EXACT_OPERATION_CREDENTIAL}`,
         'content-type': 'application/json',
         origin: 'https://app.example.test',
       },
@@ -620,7 +627,7 @@ test('operation step-up prepare and finalize reject superseded material before c
     ctx.request = new Request(`https://app.example.test${pathname}`, {
       method: 'POST',
       headers: {
-        authorization: 'Bearer opaque-wallet-session',
+        authorization: `Bearer ${EXACT_OPERATION_CREDENTIAL}`,
         'content-type': 'application/json',
         origin: 'https://app.example.test',
       },
@@ -691,7 +698,7 @@ test('operation step-up rejects material replaced during policy evaluation', asy
     {
       method: 'POST',
       headers: {
-        authorization: 'Bearer opaque-wallet-session',
+        authorization: `Bearer ${EXACT_OPERATION_CREDENTIAL}`,
         'content-type': 'application/json',
         origin: 'https://app.example.test',
       },
@@ -825,7 +832,7 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
     ctx.request = new Request(`https://app.example.test${testCase.pathname}`, {
       method: 'POST',
       headers: {
-        authorization: 'Bearer opaque-wallet-session',
+        authorization: `Bearer ${EXACT_OPERATION_CREDENTIAL}`,
         'content-type': 'application/json',
         origin: 'https://app.example.test',
       },
@@ -876,7 +883,7 @@ test('operation step-up pool fill rejects a material replacement before claim or
     {
       method: 'POST',
       headers: {
-        authorization: 'Bearer opaque-wallet-session',
+        authorization: `Bearer ${EXACT_OPERATION_CREDENTIAL}`,
         'content-type': 'application/json',
         origin: 'https://app.example.test',
       },
