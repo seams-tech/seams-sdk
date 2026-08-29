@@ -933,7 +933,9 @@ Primary files:
 - [x] Delete the opaque-token fallback from
       `d1LinkedDeviceVerifiedLinkSourceReader.ts`; a missing exact identity now
       fails before method, authority, or signer material is exposed.
-- [ ] Require the exact V2 source session for owner approval.
+- [x] Require the exact V2 source session for owner approval; claim, approval,
+      and metadata authentication now reject a missing exact operation digest
+      without reconstructing a founding V1 curve session.
 - [x] Require the exact operation credential in execution-lane preflight;
       Ed25519 and ECDSA preflight supply their concrete signing operation and
       resolve the exact session's auth-method identity before lane projection.
@@ -1522,7 +1524,8 @@ Remaining causal baseline work:
       retired-bearer rejection, and ECDSA material binding
 - [x] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`
 - [ ] `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts`
-- [x] `tests/unit/walletExecutionAdmissionV2.unit.test.ts`
+- [x] `tests/unit/walletExecutionAdmissionV2.unit.test.ts`, including exact-only
+      device-link owner approval and fail-closed missing-credential behavior
 - [x] `tests/unit/walletExecutionLanePreflight.unit.test.ts`, proving exact
       credential admission reaches the owning method without reading the V1
       opaque-token store
