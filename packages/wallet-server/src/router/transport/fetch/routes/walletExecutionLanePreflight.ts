@@ -231,24 +231,17 @@ export async function handleOwnerWalletExecutionLanePreflight(
       operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
     });
     if (!validated.ok) return validationFailure(validated);
-    switch (validated.kind) {
-      case 'wallet_session_operation_credential_v1':
-        walletIdRaw = String(validated.context.authorization.session.walletId);
-        authorization = {
-          kind: 'wallet_auth_method',
-          walletAuthMethodId: validated.context.authorization.session.walletAuthMethodId,
-        };
-        break;
-      case 'owner_wallet_session':
-        walletIdRaw = validated.binding.walletId;
-        authorization = {
-          kind: 'wallet_auth_method',
-          walletAuthMethodId: validated.walletSessionAuth.walletAuthMethodId,
-        };
-        break;
-      default:
-        return assertNever(validated);
+    if (validated.kind !== 'wallet_session_operation_credential_v1') {
+      return validationFailure({
+        code: WALLET_SESSION_FAILURE_CODES.invalid,
+        message: 'Execution-lane preflight requires an exact Wallet Session credential',
+      });
     }
+    walletIdRaw = String(validated.context.authorization.session.walletId);
+    authorization = {
+      kind: 'wallet_auth_method',
+      walletAuthMethodId: validated.context.authorization.session.walletAuthMethodId,
+    };
   } else {
     const validated = await validateRouterAbEcdsaDerivationWalletSessionInputs({
       body: request,
@@ -257,25 +250,17 @@ export async function handleOwnerWalletExecutionLanePreflight(
       operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
     });
     if (!validated.ok) return validationFailure(validated);
-    switch (validated.kind) {
-      case 'wallet_session_operation_credential_v1':
-        walletIdRaw = String(validated.context.authorization.session.walletId);
-        authorization = {
-          kind: 'wallet_auth_method',
-          walletAuthMethodId: validated.context.authorization.session.walletAuthMethodId,
-        };
-        break;
-      case 'owner_wallet_session':
-        walletIdRaw = validated.binding.walletId;
-        authorization = {
-          kind: 'authority_ref',
-          authorityRef: validated.walletSessionAuth.walletAuthAuthorityRef,
-          authSource: validated.walletSessionAuth.authSource,
-        };
-        break;
-      default:
-        return assertNever(validated);
+    if (validated.kind !== 'wallet_session_operation_credential_v1') {
+      return validationFailure({
+        code: WALLET_SESSION_FAILURE_CODES.invalid,
+        message: 'Execution-lane preflight requires an exact Wallet Session credential',
+      });
     }
+    walletIdRaw = String(validated.context.authorization.session.walletId);
+    authorization = {
+      kind: 'wallet_auth_method',
+      walletAuthMethodId: validated.context.authorization.session.walletAuthMethodId,
+    };
   }
 
   const walletId = parseWalletId(walletIdRaw);
