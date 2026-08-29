@@ -16,6 +16,7 @@ import {
   buildActiveWalletSessionQuota,
   buildWalletSessionAuthorizationV2,
   buildWalletSessionCapabilitySubjectsV1,
+  projectActiveWalletSession,
   type IssuedWalletSessionAuthorizationV2,
 } from '../../../packages/wallet-server/src/authorization/domain';
 import {
@@ -47,6 +48,11 @@ import {
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { parseExactAdministeredSignerManifestV1 } from '../../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
 import type { ExactAdministeredEcdsaSignerV1 } from '../../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
+import { parseWalletSessionOperationCredentialV1 } from '../../../packages/shared-ts/src/device-linking/parsers';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '../../../packages/shared-ts/src/device-linking/contracts';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
 
 const MANAGEMENT_DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(33)));
@@ -92,6 +98,8 @@ export type LinkedDeviceManagementAuthorityFixture = {
   readonly authority: ActiveWalletAuthorityV1;
   readonly authMethod: ActivePasskeyWalletAuthMethodRecordV2;
   readonly issuedSession: IssuedWalletSessionAuthorizationV2;
+  readonly activeWalletSession: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
 };
 
 export async function buildLinkedDeviceManagementAuthorityFixture(input: {
@@ -276,20 +284,27 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
     createdAtMs: 300,
     expiresAtMs,
   });
+  const issuedSession = {
+    session,
+    quota: buildActiveWalletSessionQuota({
+      tenantId,
+      principalId,
+      walletSessionId,
+      quotaId,
+      remainingUses: 10,
+      expiresAtMs,
+    }),
+  };
   return {
     authority,
     authMethod,
-    issuedSession: {
-      session,
-      quota: buildActiveWalletSessionQuota({
-        tenantId,
-        principalId,
-        walletSessionId,
-        quotaId,
-        remainingUses: 10,
-        expiresAtMs,
-      }),
-    },
+    issuedSession,
+    activeWalletSession: projectActiveWalletSession(issuedSession),
+    operationCredential: parseWalletSessionOperationCredentialV1({
+      kind: 'opaque_wallet_session_operation_credential_v1',
+      token: `wst_${base64UrlEncode(new Uint8Array(32).fill((input.label.length % 254) + 1))}`,
+      walletSessionId,
+    }),
   };
 }
 
