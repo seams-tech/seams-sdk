@@ -897,9 +897,9 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
       `d1WalletAuthMethodStore.ts`.
 - [ ] Convert additive recovery finalization and replay session checks to the
       exact model while preserving every pre-existing access path.
-- [ ] Preserve strict server-read recovery projections for active recovery
+- [x] Preserve strict server-read recovery projections for active recovery
       authority and target method on both target branches.
-- [ ] Validate wallet, authority, method, target, digest, enrollment, and
+- [x] Validate wallet, authority, method, target, digest, enrollment, and
       lifecycle relationships at the response boundary.
 - [ ] Preserve provenance dispatch: `wallet_registration` and
       `wallet_recovery` use ordinary exact unlock; only `device_link` uses
