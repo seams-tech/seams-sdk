@@ -1515,7 +1515,7 @@ Remaining causal baseline work:
 - [x] `tests/unit/walletSessionOperationCredential.unit.test.ts`
 - [x] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
 - [ ] `tests/unit/relayWalletRegistration.boundary.unit.test.ts`
-- [ ] `tests/unit/ed25519YaoSealedRefreshPersistence.unit.test.ts`
+- [x] `tests/unit/ed25519YaoSealedRefreshPersistence.unit.test.ts`
 - [ ] `tests/unit/d1LinkedDeviceAuthorityInstallService.unit.test.ts`
 - [x] `tests/unit/d1LinkedDeviceVerifiedLinkSourceReader.unit.test.ts`, proving
       exact-source absence fails closed and combined authorities preserve both
@@ -1523,7 +1523,7 @@ Remaining causal baseline work:
 - [x] `tests/unit/deviceLinkingRoutes.unit.test.ts`, rerun after exact-only
       source and owner authorization across claim, approval, target credential,
       cancellation, and source-contribution routes
-- [ ] `tests/unit/linkDeviceAuthorityResume.unit.test.ts`
+- [x] `tests/unit/linkDeviceAuthorityResume.unit.test.ts`
 - [ ] `tests/unit/authMenuPasskeyContinuation.unit.test.ts`, preserving the
       terminal retry state when the other device cancels
 - [ ] `tests/unit/emailOtpEcdsaSigningRefreshRuntimeScope.unit.test.ts`
