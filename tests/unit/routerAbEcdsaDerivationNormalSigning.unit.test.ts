@@ -26,6 +26,7 @@ import {
   signRouterAbEcdsaDerivationDigestWithPoolHit,
   type RouterAbEcdsaDerivationClientSigningMaterialSource,
 } from '@/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool';
+import { buildRouterAbEcdsaDerivationPrivateSigningWorkerBody } from '../../packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
 
 function b64u(byte: number, length: number): string {
   return Buffer.from(new Uint8Array(length).fill(byte)).toString('base64url');
@@ -278,6 +279,34 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
       client_signature_share32_b64u: b64u(17, 32),
       client_rerandomization_contribution32_b64u: b64u(13, 32),
     });
+  });
+
+  test('private reusable admission keeps Wallet Session identity in its own branch', async () => {
+    const privateBody = await buildRouterAbEcdsaDerivationPrivateSigningWorkerBody({
+      phase: 'prepare',
+      body: prepareRequest(),
+      authorization: {
+        kind: 'wallet_session_operation_credential_v1',
+        walletSessionId: 'wallet-session-1',
+        principalId: 'principal-1',
+        runtimePolicyScope: {
+          orgId: 'org-1',
+          projectId: 'project-1',
+          envId: 'dev',
+          signingRootVersion: 'v1',
+        },
+      },
+      headers: {},
+    });
+
+    expect(privateBody.trusted_admission.metadata.auth).toEqual({
+      auth: 'owner_wallet_session',
+      subject_id: 'principal-1',
+      wallet_session_id: 'wallet-session-1',
+    });
+    expect(privateBody.trusted_admission.metadata.auth).not.toHaveProperty(
+      'authorization_session_id',
+    );
   });
 
   test('matches the Rust client rerandomization commitment vector', async () => {

@@ -721,8 +721,6 @@ pub struct CloudflareRouterVerifiedWalletSessionV1 {
     pub subject_id: String,
     /// Account, wallet, or root resource id authorized by the session.
     pub account_id: String,
-    /// Exact Seams authorization-session id carried by the verified credential.
-    pub authorization_session_id: String,
     /// Exact durable Wallet Session authorization id.
     pub authorization_id: String,
     /// Exact reusable Wallet Session id.
@@ -753,7 +751,6 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
     pub fn new(
         subject_id: impl Into<String>,
         account_id: impl Into<String>,
-        authorization_session_id: impl Into<String>,
         authorization_id: impl Into<String>,
         wallet_session_id: impl Into<String>,
         quota_id: impl Into<String>,
@@ -769,7 +766,6 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
         let session = Self {
             subject_id: subject_id.into(),
             account_id: account_id.into(),
-            authorization_session_id: authorization_session_id.into(),
             authorization_id: authorization_id.into(),
             wallet_session_id: wallet_session_id.into(),
             quota_id: quota_id.into(),
@@ -790,10 +786,6 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty("wallet session subject_id", &self.subject_id)?;
         require_non_empty("wallet session account_id", &self.account_id)?;
-        require_non_empty(
-            "wallet session authorization_session_id",
-            &self.authorization_session_id,
-        )?;
         require_non_empty("wallet session authorization_id", &self.authorization_id)?;
         require_non_empty("wallet session wallet_session_id", &self.wallet_session_id)?;
         require_non_empty("wallet session quota_id", &self.quota_id)?;

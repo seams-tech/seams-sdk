@@ -18,8 +18,8 @@ import {
 import { parseWalletAuthorityId } from '@shared/utils/domainIds';
 import {
   buildActiveWalletSessionV1,
-  parseStoredExactWalletSessionAuthorizationWithOperationCredential,
-  toStoredExactWalletSessionAuthorizationRowV5,
+  parseStoredExactWalletSessionAuthorizationRowV6,
+  toStoredExactWalletSessionAuthorizationRowV6,
 } from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseLinkedDeviceApprovalResultV1,
@@ -70,7 +70,7 @@ test.describe('R103E link-session contracts', () => {
     ).toThrow();
   });
 
-  test('round-trips the opaque operation credential in the exact persisted session row', () => {
+  test('round-trips the opaque operation credential in the exact V6 session row', () => {
     const fixture = buildR103DeviceLinkFixture();
     const walletSessionId = parseWalletSessionId('wallet-session:persisted-credential');
     const authorizationId = parseWalletSessionAuthorizationId('authorization:persisted-credential');
@@ -102,18 +102,18 @@ test.describe('R103E link-session contracts', () => {
       token: `wst_${'b'.repeat(43)}`,
       walletSessionId: walletSessionId.value,
     });
-    const stored = toStoredExactWalletSessionAuthorizationRowV5(record, operationCredential);
+    const stored = toStoredExactWalletSessionAuthorizationRowV6(record, operationCredential);
 
     expect(stored.wallet_session_id).toBe(walletSessionId.value);
     expect(stored.wallet_session_id).not.toBe(record.authorizationId);
     expect(stored.record.quotaId).toBe(quotaId.value);
     expect(
-      parseStoredExactWalletSessionAuthorizationWithOperationCredential(
+      parseStoredExactWalletSessionAuthorizationRowV6(
         JSON.parse(JSON.stringify(stored)),
       ),
-    ).toEqual({ record, operationCredential });
+    ).toEqual({ record, operationCredential, physicalKey: walletSessionId.value });
     expect(
-      parseStoredExactWalletSessionAuthorizationWithOperationCredential({
+      parseStoredExactWalletSessionAuthorizationRowV6({
         ...stored,
         wallet_session_id: record.authorizationId,
       }),

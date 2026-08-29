@@ -405,12 +405,17 @@ test('retiring an exact V6 session removes its Wallet Session key', async ({ pag
         record: activeWalletSession,
         operationCredential,
       });
+      const db = await manager.getDB();
+      await db.put(schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations, {
+        record_version: 'wallet_session_authorization_v5',
+        wallet_session_id: 'wallet-session:legacy-retirement-row',
+        wallet_id: activeWalletSession.walletId,
+      });
       const retired = await repository.retireExactActiveForWallet({
         walletId: activeWalletSession.walletId,
         reason: 'wallet_locked',
         retiredAtMs: activeWalletSession.expiresAtMs,
       });
-      const db = await manager.getDB();
       const rows = await db.getAllFromIndex(
         schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations,
         schemaNames.SEAMS_WALLET_INDEXES.walletId,
@@ -432,12 +437,7 @@ test('retiring an exact V6 session removes its Wallet Session key', async ({ pag
       retirementReason: 'wallet_locked',
     }),
   ]);
-  expect(result.rows).toHaveLength(1);
-  expect(result.rows[0]).toMatchObject({
-    record_version: 'wallet_session_authorization_v4',
-    wallet_session_id: fixture.activeWalletSession.authorizationId,
-    status: 'retired',
-  });
+  expect(result.rows).toEqual([]);
 });
 
 test('rejects a corrupt matching exact V6 Wallet Session row', async ({ page }) => {
@@ -548,7 +548,6 @@ test('rejects a malformed V6 row during exact replacement', async ({ page }) => 
         await repository.replaceExactActive({
           active: activeWalletSession,
           operationCredential,
-          replacedAtMs: activeWalletSession.issuedAtMs,
         });
       } catch (error) {
         errorMessage = error instanceof Error ? error.message : String(error);
@@ -595,14 +594,12 @@ test('readExact quarantines V3, V4, and V5 rows at the persistence boundary', as
       };
       await db.put(storeName, legacyV3);
       await db.put(storeName, legacyV4);
-      await db.put(
-        storeName,
-        repositoryModule.toStoredExactWalletSessionAuthorizationRowV5(activeWalletSession, {
-          kind: 'opaque_wallet_session_operation_credential_v1',
-          token: `wst_${'Q'.repeat(43)}`,
-          walletSessionId: 'wallet-session:quarantine-v5',
-        }),
-      );
+      const legacyV5 = {
+        record_version: 'wallet_session_authorization_v5',
+        wallet_session_id: 'wallet-session:quarantine-v5',
+        wallet_id: activeWalletSession.walletId,
+      };
+      await db.put(storeName, legacyV5);
       const v3Read = await repository.readExact(legacyV3.wallet_session_id);
       const v4Read = await repository.readExact(legacyV4.wallet_session_id);
       const v5Read = await repository.readExact('wallet-session:quarantine-v5');
@@ -614,7 +611,6 @@ test('readExact quarantines V3, V4, and V5 rows at the persistence boundary', as
       await repository.replaceExactActive({
         active: activeWalletSession,
         operationCredential,
-        replacedAtMs: activeWalletSession.issuedAtMs,
       });
       const rows = await db.getAllFromIndex(
         storeName,
@@ -676,14 +672,12 @@ test('readExactActiveForWallet quarantines legacy rows and preserves a matching 
       };
       await db.put(storeName, legacyV3);
       await db.put(storeName, legacyV4);
-      await db.put(
-        storeName,
-        repositoryModule.toStoredExactWalletSessionAuthorizationRowV5(activeWalletSession, {
-          kind: 'opaque_wallet_session_operation_credential_v1',
-          token: `wst_${'A'.repeat(43)}`,
-          walletSessionId: 'wallet-session:active-quarantine-v5',
-        }),
-      );
+      const legacyV5 = {
+        record_version: 'wallet_session_authorization_v5',
+        wallet_session_id: 'wallet-session:active-quarantine-v5',
+        wallet_id: activeWalletSession.walletId,
+      };
+      await db.put(storeName, legacyV5);
       const future = {
         record_version: 'wallet_session_authorization_v7',
         wallet_session_id: 'wallet-session:active-quarantine-future',
@@ -1014,7 +1008,6 @@ test('replaceExactActive deletes late legacy rows while preserving sibling and f
       await repository.replaceExactActive({
         active: latest,
         operationCredential: latestCredential,
-        replacedAtMs: activeWalletSession.issuedAtMs + 2,
       });
       const rows = await db.getAllFromIndex(
         storeName,
@@ -1051,7 +1044,7 @@ test('replaceExactActive deletes late legacy rows while preserving sibling and f
     authorization_id: result.sibling.authorizationId,
     wallet_auth_method_id: result.sibling.authMethodId,
   });
-  expect(result.rows).toHaveLength(4);
+  expect(result.rows).toHaveLength(3);
   expect(
     result.rows.filter((row) => row.record_version === 'wallet_session_authorization_v6'),
   ).toHaveLength(2);
@@ -1062,11 +1055,7 @@ test('replaceExactActive deletes late legacy rows while preserving sibling and f
       wallet_session_id: 'wallet-session:late-v4-replacement',
     }),
   );
-  expect(result.rows).toContainEqual(
-    expect.objectContaining({
-      record_version: 'wallet_session_authorization_v4',
-      status: 'retired',
-      wallet_session_id: 'authorization:late-v5-replacement',
-    }),
-  );
+  expect(
+    result.rows.some((row) => row.record_version === 'wallet_session_authorization_v4'),
+  ).toBe(false);
 });

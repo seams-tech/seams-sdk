@@ -261,7 +261,7 @@ import {
 } from '@/SeamsWeb/operations/authMethods/emailOtp/walletActivation';
 import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntimeScope';
 import {
-  parseReusableWalletSessionAuthorizationId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionMintId,
 } from '@shared/authorization/capabilityKinds';
 import {
@@ -1539,7 +1539,7 @@ async function passkeyWalletSessionStateFromPublicLane(args: {
     reference: args.reference,
     authorization: args.authorization,
   });
-  const authorizationId = parseReusableWalletSessionAuthorizationId(
+  const authorizationId = parseWalletSessionAuthorizationId(
     args.authorization.session.authorizationId,
   );
   if (!authorizationId.ok || args.authorization.operationCredential.token.trim().length === 0) {
@@ -1957,7 +1957,7 @@ async function emailOtpWalletSessionStateFromPublicLane(args: {
   ) {
     throw new Error('[SigningEngine][near] Email OTP Wallet Session material changed');
   }
-  const authorizationId = parseReusableWalletSessionAuthorizationId(
+  const authorizationId = parseWalletSessionAuthorizationId(
     args.authorization.session.authorizationId,
   );
   if (!authorizationId.ok || args.authorization.operationCredential.token.trim().length === 0) {
