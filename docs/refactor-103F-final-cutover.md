@@ -805,7 +805,10 @@ budget-refresh and linked-activation `issue_wallet_session_v1` branches, and
       `routerAbPrivateSigningWorker.ts`.
 - [ ] Convert signing-session seal authorization in `createFetchRouter.ts`.
 - [ ] Convert Ed25519 reuse of an ECDSA V1 session in `thresholdEd25519.ts`.
-- [ ] Convert ECDSA pool-fill admission in `thresholdEcdsa.ts`.
+- [x] Convert ECDSA pool-fill admission in `thresholdEcdsa.ts`. Pool fill now
+      requires the exact ECDSA operation credential and resolves every runtime
+      binding from the credential's active authority material; the parallel
+      opaque-binding branch was deleted.
 - [ ] Convert recovery warm-session authorization in
       `routerAbEd25519YaoRecoveryWalletSessionAuthorization.ts`.
 - [ ] Resolve the capability subject's exact material activation before either
