@@ -101,6 +101,38 @@ test('exact status returns expired instead of throwing once the authorization la
   });
 });
 
+test('exact status gives expiry precedence over retirement, exhaustion, and unavailable authority', async () => {
+  await withFixture('lifecycle-expired-precedence', async (fixture) => {
+    await applySeededStatusTransition(fixture, 'retire_authorization');
+    await applySeededStatusTransition(fixture, 'exhaust_quota');
+    await applySeededStatusTransition(fixture, 'revoke_authority');
+
+    const status = await readStatus(fixture, fixture.expiresAtMs);
+    if (status.kind !== 'expired') throw new Error(`expected expired, observed ${status.kind}`);
+  });
+});
+
+test('exact status throws when authority signer-activation columns disagree with the record', async () => {
+  await withFixture('lifecycle-authority-column-disagreement', async (fixture) => {
+    await applySeededStatusTransition(fixture, 'corrupt_authority_signer_column');
+
+    await expect(readStatus(fixture, SEEDED_TRANSITION_AT_MS + 1)).rejects.toThrow(
+      'stored wallet authority columns disagree with record_json',
+    );
+  });
+});
+
+test('exact status returns capability_unavailable when signer material is absent', async () => {
+  await withFixture('lifecycle-missing-signer-material', async (fixture) => {
+    await applySeededStatusTransition(fixture, 'remove_signer_material');
+
+    const status = await readStatus(fixture, SEEDED_TRANSITION_AT_MS + 1);
+    if (status.kind !== 'capability_unavailable') {
+      throw new Error(`expected capability_unavailable, observed ${status.kind}`);
+    }
+  });
+});
+
 const UNAVAILABLE_CASES: readonly {
   readonly label: string;
   readonly transition: SeededStatusTransition;
