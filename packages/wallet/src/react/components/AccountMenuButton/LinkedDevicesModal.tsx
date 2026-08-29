@@ -304,13 +304,20 @@ function credentialDescription(credential: LinkedOwnerCredentialMetadataV1): str
 }
 
 /**
- * One quiet metadata sentence per row. Titles can repeat — two platform
- * passkeys share a label — so when this row's title collides with another
- * visible row, the created-at day is appended as the human disambiguator.
+ * One quiet metadata sentence per row, led by the device number — the same
+ * number the remove announcements speak, so a person can tell twins apart.
+ * Titles can repeat — two platform passkeys share a label — so when this
+ * row's title collides with another visible row, the created-at day is
+ * appended as a second human disambiguator.
  */
-function deviceMetaLine(view: WalletDeviceView, titleCollides: boolean, now: number): string {
+function deviceMetaLine(
+  view: WalletDeviceView,
+  deviceNumber: number,
+  titleCollides: boolean,
+  now: number,
+): string {
   const credential = viewCredential(view);
-  const parts: string[] = [];
+  const parts: string[] = [`Device ${deviceNumber}`];
   if (credential.kind === 'passkey') {
     parts.push(credential.device.synced ? 'Synced passkey' : 'Passkey');
     const provider = credential.device.providerLabel ?? credential.device.provider;
@@ -737,7 +744,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                           ) : null}
                         </div>
                         <div className="w3a-linked-devices-modal-item-detail">
-                          {deviceMetaLine(view, titleCollides, Date.now())}
+                          {deviceMetaLine(view, deviceNumber, titleCollides, Date.now())}
                         </div>
                         {isSelectedMethod && hasRemovableSibling ? (
                           <div className="w3a-linked-devices-modal-hint">
