@@ -243,7 +243,7 @@ export class WalletIframeCoordinator {
     request: HostedAuthMenuOpenRequest,
     anchorElement?: HTMLElement,
   ): Promise<HostedAuthMenuOutcome> {
-    const router = await this.requireAuthMenuRouter();
+    const router = await this.requireTransportRouter();
     return await router.openHostedAuthMenu(request, anchorElement);
   }
 
@@ -295,7 +295,7 @@ export class WalletIframeCoordinator {
     return this.iframeRouter;
   }
 
-  private async requireAuthMenuRouter(): Promise<WalletIframeRouter> {
+  async requireTransportRouter(): Promise<WalletIframeRouter> {
     if (!this.shouldUseWalletIframe()) {
       throw new Error('[SeamsWeb] Wallet iframe is not configured.');
     }
