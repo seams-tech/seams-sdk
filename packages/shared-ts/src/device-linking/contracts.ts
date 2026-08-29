@@ -959,6 +959,9 @@ export type LocalAuthorityActivationFinalAckV1 = {
   readonly authorityId: WalletAuthorityId;
   readonly packageSetDigestB64u: DigestB64u;
   readonly authorizationId: WalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly credentialDigestB64u: DigestB64u;
+  readonly installationReceiptDigestB64u: DigestB64u;
   readonly acknowledgedAtMs: number;
 };
 

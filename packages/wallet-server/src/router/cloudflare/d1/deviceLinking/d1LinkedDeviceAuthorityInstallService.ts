@@ -76,6 +76,8 @@ import {
   parseLinkedDeviceOrdinaryMaterialSourceContributionV1,
 } from '@shared/device-linking/sourceContribution';
 import type { LinkedDeviceEcdsaSourcePreservingActivationReceiptV1 } from '@shared/device-linking/sourceContribution';
+import { parseLocalAuthorityActivationFinalAckV1 } from '@shared/device-linking/parsers';
+import { computeWalletSessionInstallationReceiptDigestB64u } from '@shared/device-linking/digests';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import {
   parseRouterAbEd25519YaoApplicationBindingFactsV1,
@@ -174,6 +176,7 @@ export type D1LinkedDeviceAuthorityInstallServiceOptionsV1 = {
     | 'issueWalletSessionAuthorizationV2'
     | 'prepareWalletSessionAuthorizationV2'
     | 'issueWalletSessionAuthorizationV2OperationCredential'
+    | 'readWalletSessionAuthorizationV2ByMint'
   >;
   readonly authorizationStore: {
     prepareWalletSessionAuthorizationV2Statements(
@@ -770,8 +773,15 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     readonly requestedAtMs: number;
   }): Promise<void> {
     const nowMs = requireTime(input.requestedAtMs, 'requestedAtMs');
-    const acknowledgement = input.acknowledgement;
-    const session = input.session;
+    const acknowledgement = parseLocalAuthorityActivationFinalAckV1(input.acknowledgement);
+    const providedSession = input.session;
+    const session = await this.options.sessionService.getSessionV1({
+      linkSessionId: providedSession.linkSessionId,
+      nowMs,
+    });
+    if (!session || session.revision !== providedSession.revision) {
+      throw new Error('active authority acknowledgement session is stale or missing');
+    }
     if (session.state.state !== 'active') {
       throw new Error('active authority acknowledgement requires an active link session');
     }
@@ -809,13 +819,58 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     ) {
       throw new Error('active authority acknowledgement has no active authority records');
     }
-    const walletSession = await this.issueWalletSession(
-      authority,
-      authMethod,
-      stored.activatedAtMs,
-    );
-    if (walletSession.session.authorizationId !== acknowledgement.authorizationId) {
-      throw new Error('active authority acknowledgement authorization does not match the session');
+    const preparedWalletSession =
+      await this.options.authorizationService.prepareWalletSessionAuthorizationV2(
+        this.buildWalletSessionAuthorizationInput(authority, authMethod, stored.activatedAtMs),
+      );
+    const committedWalletSession =
+      await this.options.authorizationService.readWalletSessionAuthorizationV2ByMint({
+        tenantId: preparedWalletSession.session.tenantId,
+        principalId: preparedWalletSession.session.principalId,
+        walletId: preparedWalletSession.session.walletId,
+        authorityId: preparedWalletSession.session.authorityId,
+        walletAuthMethodId: preparedWalletSession.session.walletAuthMethodId,
+        mintId: preparedWalletSession.session.mintId,
+      });
+    if (!committedWalletSession || committedWalletSession.retiredAtMs !== null) {
+      throw new Error('active authority acknowledgement has no active committed Wallet Session');
+    }
+    if (
+      alphabetizeStringify(committedWalletSession.session) !==
+      alphabetizeStringify(preparedWalletSession.session)
+    ) {
+      throw new Error('active authority acknowledgement Wallet Session does not match its commit');
+    }
+    if (
+      acknowledgement.authorizationId !== committedWalletSession.session.authorizationId ||
+      acknowledgement.walletSessionId !== committedWalletSession.session.walletSessionId
+    ) {
+      throw new Error('active authority acknowledgement Wallet Session identity does not match');
+    }
+    if (
+      acknowledgement.credentialDigestB64u !==
+      committedWalletSession.primaryOperationCredentialDigestB64u
+    ) {
+      throw new Error('active authority acknowledgement credential digest does not match the commit');
+    }
+    const committedReceipt: LocalAuthorityInstallationReceiptV1 = {
+      kind: 'local_authority_installation_receipt_v1',
+      authorityId: stored.authorityId,
+      walletId: stored.walletId,
+      authMethodId: stored.authMethodId,
+      deviceId: stored.deviceId,
+      packageSetDigestB64u: stored.packageSetDigestB64u,
+      installedActivationRefs: stored.packages.authority.signerActivations,
+      installedRecordSetDigestB64u: stored.installedRecordSetDigestB64u,
+      targetFactorVerificationDigestB64u: stored.targetFactorVerificationDigestB64u,
+      installedAtMs: stored.activatedAtMs,
+    };
+    const committedReceiptDigest =
+      await computeWalletSessionInstallationReceiptDigestB64u(committedReceipt);
+    if (acknowledgement.installationReceiptDigestB64u !== committedReceiptDigest) {
+      throw new Error(
+        'active authority acknowledgement installation receipt digest does not match the commit',
+      );
     }
     /* The allocation goes first: a crash after this delete leaves the session
        active and the acknowledgement retryable, whereas the old order - session

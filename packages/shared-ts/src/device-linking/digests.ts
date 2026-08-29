@@ -1,6 +1,6 @@
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
 import { parseDigestB64u, type DigestB64u } from '../utils/canonicalPrimitives';
-import { alphabetizeStringify, sha256Bytes } from '../utils/digests';
+import { alphabetizeStringify, sha256Bytes, sha256BytesUtf8 } from '../utils/digests';
 import {
   delegatedWalletPermissionNamesV1,
   type DelegatedWalletAuthorityV1,
@@ -18,6 +18,8 @@ import type {
   LinkedDeviceTargetFactorV1,
   LinkedDeviceApprovedTargetFactorV1,
   OrdinarySignerMaterialRecipientRequirementV1,
+  LocalAuthorityInstallationReceiptV1,
+  WalletSessionOperationCredentialV1,
 } from './contracts';
 
 export {
@@ -29,7 +31,36 @@ const CLAIM_DOMAIN = 'seams/linked-device/session-claim/v1';
 const APPROVAL_DOMAIN = 'seams/linked-device/owner-approval/v1';
 const TARGET_PREPARATION_DOMAIN = 'seams/linked-device/target-preparation/v1';
 const TARGET_PASSKEY_CONFIGURATION_DOMAIN = 'seams/linked-device/passkey-target-configuration/v1';
+const LOCAL_AUTHORITY_INSTALLATION_RECEIPT_DOMAIN =
+  'seams/linked-device/local-authority-installation-receipt/v1';
 const TEXT_ENCODER = new TextEncoder();
+
+/**
+ * The server stores this digest alongside the authorization. Hashing the
+ * opaque token directly keeps the browser binding identical to that row.
+ */
+export async function computeWalletSessionOperationCredentialDigestB64u(
+  credential: WalletSessionOperationCredentialV1,
+): Promise<DigestB64u> {
+  return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(credential.token)));
+}
+
+export function encodeWalletSessionInstallationReceiptV1(
+  receipt: LocalAuthorityInstallationReceiptV1,
+): string {
+  return alphabetizeStringify({
+    domain: LOCAL_AUTHORITY_INSTALLATION_RECEIPT_DOMAIN,
+    receipt,
+  });
+}
+
+export async function computeWalletSessionInstallationReceiptDigestB64u(
+  receipt: LocalAuthorityInstallationReceiptV1,
+): Promise<DigestB64u> {
+  return parseDigestB64u(
+    base64UrlEncode(await sha256BytesUtf8(encodeWalletSessionInstallationReceiptV1(receipt))),
+  );
+}
 
 function concat(parts: readonly Uint8Array[]): Uint8Array {
   let length = 0;
