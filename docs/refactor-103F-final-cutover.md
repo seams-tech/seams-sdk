@@ -866,8 +866,11 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
 - [x] Retire V2 authorizations by exact auth-method ID during method revocation;
       `tests/unit/r109cSiblingRevocation.unit.test.ts` proves quota exhaustion,
       same-authority sibling preservation, and repeat safety.
-- [ ] Retire V2 authorizations by exact authority during linked-device
-      revocation.
+- [x] Retire V2 authorizations by exact authority during linked-device
+      revocation; the authority CAS now waits for the final active sibling,
+      exhausts every owned quota, retires every owned exact session, and
+      preserves unrelated authorities. `tests/unit/d1WalletAuthorityStore.unit.test.ts`
+      proves the fence and isolation.
 - [ ] Append exact session retirement, quota closure, and hosted-child
       retirement to the owning revocation CAS.
 - [ ] Convert explicit session retirement to close the exact V2 session and
