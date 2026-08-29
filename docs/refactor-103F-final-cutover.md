@@ -730,7 +730,9 @@ Convert every current issuer:
 - [ ] registration session replay/reuse in `d1WalletRegistrationService.ts`;
 - [ ] Wallet Session budget refresh in `d1WalletRegistrationService.ts`;
 - [ ] linked Ed25519 activation in `d1WalletRegistrationService.ts`;
-- [x] active unlock in `d1RouterApiAuthService.ts`;
+- [x] active unlock in `d1RouterApiAuthService.ts`, including exact request
+      capability parsing, durable response-family replay binding, and typed
+      protocol-mismatch rejection without credential rotation;
 - [ ] sync bootstrap in `syncAccountBootstrap.ts`;
 - [ ] ECDSA post-registration activation in `thresholdEcdsa.ts`;
 - [ ] `mintRouterAbEd25519YaoWalletSessionV1` and its sync/registration callers;
@@ -1164,8 +1166,9 @@ Applied migrations remain immutable. Relevant historical files include:
 - `0025_r109d_email_enrollment_wallet_cardinality.sql`;
 - `0026_r115_wallet_recovery_authority_provenance.sql`;
 - `0027_r115_email_otp_recovery_bootstrap.sql`;
-- `0028_r103f_phase1_additive_schema_bridge.sql`; and
-- `0029_r103f_phase0_registration_replay_tokens.sql`.
+- `0028_r103f_phase1_additive_schema_bridge.sql`;
+- `0029_r103f_phase0_registration_replay_tokens.sql`; and
+- `0030_r103f_wallet_session_client_capability.sql`.
 
 `linked_device_wallet_session_authorizations` and
 `linked_device_wallet_session_quotas` were already dropped by immutable `0015`;
@@ -1178,16 +1181,20 @@ applied `0024` and record any old-worker all-null-scope claim exposure window.
 The replacement must work both where `0024`/`0026` already ran and where they
 appear earlier in the same clean-database migration batch.
 
-At the current checkpoint `0028` and `0029` are landed. The next file number is
-allocated only after reconciling landed and pending migrations from concurrent
-workstreams and is rechecked after each rebase. Applied files are never renamed
-to resolve an allocation race.
+At the current checkpoint `0028`, `0029`, and `0030` are landed. The next file
+number is allocated only after reconciling landed and pending migrations from
+concurrent workstreams and is rechecked after each rebase. Applied files are
+never renamed to resolve an allocation race.
 
-R103F adds two logical migration stages plus the bounded Phase 0 adapter schema.
-Migration `0029` follows `0028` in immutable history, so R0 applies both additive
-files before deploying the adapter-aware worker. Applying `0028` does not enable
-the bridge worker or direct V2 response family by itself. The later enforcement
-and deletion stage may receive a non-contiguous file number.
+R103F adds two logical migration stages plus the bounded Phase 0 adapter and R1
+rollout-metadata schemas. Migration `0029` follows `0028` in immutable history,
+so R0 applies both additive files before deploying the adapter-aware worker.
+Migration `0030` adds nullable client-capability and response-family columns for
+bridge reads while requiring new direct issuers to populate both through their
+typed persistence boundary. It lands before the R1 capability-gated worker.
+Applying `0028` alone does not enable the bridge worker or direct exact response
+family. The later enforcement and deletion stage may receive a non-contiguous
+file number.
 
 ### Temporary registration replay adapter migration
 
