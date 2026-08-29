@@ -1033,7 +1033,11 @@ Primary files:
       resolution.
 - [ ] Convert the iframe hosted-session cache from per-curve token maps to one
       audience-bound child credential.
-- [ ] Convert Email factor-release `wallet_session` admission.
+- [x] Convert Email factor-release `wallet_session` admission. The route admits
+      one exact active Email OTP method whose normalized email hash matches the
+      active enrollment and whose authorization carries an Ed25519 signing
+      subject; enrollment mismatch, the wrong key family, or missing exact
+      state fails before unsealing without consulting the V1 token resolver.
 - [x] Convert `/auth/identities` link/unlink admission. Inventory and mutations
       derive the wallet, method, and authority from one exact credential;
       mutation step-up must prove that same method and authority, so a sibling
@@ -1557,6 +1561,10 @@ Remaining causal baseline work:
       proving exact wallet/method forwarding and fail-closed absence without
       legacy opaque-token reads; the sibling production-service assertion is
       in `tests/unit/passkeyCustodyRouteService.unit.test.ts`
+- [x] `tests/unit/emailOtpFactorReleaseRoute.unit.test.ts`, proving exact Email
+      OTP enrollment and Ed25519-subject admission, fail-closed mismatch and
+      absence, zero legacy resolver reads, and the live worker-sealing helper;
+      stale tests for removed route-handler exports were deleted
 - [ ] `tests/unit/walletHostOwnerAuthority.unit.test.ts`
 - [ ] `tests/unit/walletSessionOperationCredential.unit.test.ts`
 - [ ] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
