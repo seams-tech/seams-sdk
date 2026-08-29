@@ -1284,6 +1284,7 @@ test.describe('public syncAccount Yao orchestration', () => {
     const fetchScenario = requireActiveFetchScenario();
     expect(fetchScenario.verifyRequest).not.toBeNull();
     expect(fetchScenario.verifyRequest).not.toHaveProperty('threshold_ed25519');
+    expect(fetchScenario.verifyRequest).not.toHaveProperty('walletSessionClientCapability');
     expect(fetchScenario.verifyRequest).toMatchObject({
       challengeId: 'sync-challenge-id',
       webauthn_authentication: { clientExtensionResults: null },
@@ -1329,6 +1330,9 @@ test.describe('public syncAccount Yao orchestration', () => {
       record: {
         kind: 'active_wallet_session_v1',
         walletId: DISCOVERED_WALLET_ID,
+        authorityId: 'wallet-authority:sync-account-orchestration',
+        authMethodId: 'wallet-auth-method:sync-account-orchestration',
+        authorizationId: 'authorization:sync-account-orchestration',
         authorityRevocationEpoch: 0,
       },
       operationCredential: {

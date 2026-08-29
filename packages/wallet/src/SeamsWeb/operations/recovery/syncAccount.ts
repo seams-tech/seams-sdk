@@ -25,10 +25,7 @@ import {
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { errorMessage } from '@shared/utils/errors';
 import type { WalletCapabilitySubjectV1 } from '@shared/device-linking/contracts';
-import {
-  nearEd25519SigningKeyIdFromString,
-  walletIdFromString,
-} from '@shared/utils/registrationIntent';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
@@ -70,7 +67,6 @@ import {
   WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
   type WalletCustodyEd25519MaterialBindingV1,
 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
-import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { rememberPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import {
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
@@ -91,7 +87,6 @@ import {
   parseReusableWalletSessionMintId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
-  WALLET_SESSION_CLIENT_CAPABILITY_V1,
 } from '@shared/authorization/capabilityKinds';
 
 export type { SyncAccountResult };
@@ -590,7 +585,6 @@ async function verifySyncCredential(input: {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       challengeId: input.challengeId,
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       webauthn_authentication: redactCredentialExtensionOutputs<WebAuthnAuthenticationCredential>(
         input.credential,
       ),
@@ -1216,10 +1210,6 @@ async function persistRecoveredNearThresholdKeyMaterial(
 async function persistRecoveredWalletSessionAuthorization(
   parsed: ParsedPasskeyEd25519YaoSyncResponseV1,
 ): Promise<void> {
-  const thresholdSessionId = parseThresholdEd25519SessionId(parsed.session.thresholdSessionId);
-  if (!thresholdSessionId.ok) {
-    throw new Error('Recovered Wallet Session has an invalid threshold session identity');
-  }
   await walletSessionAuthorizations.writeExactWithOperationCredential({
     record: parsed.walletSession,
     operationCredential: parsed.operationCredential,

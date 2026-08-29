@@ -16,7 +16,6 @@ import {
   parseWalletAuthMethodId,
 } from '@shared/utils/domainIds';
 import {
-  WALLET_SESSION_CLIENT_CAPABILITY_V1,
   parseMpcWalletSigningQuotaId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -2370,7 +2369,6 @@ async function unlockEmailOtpAuthorityWallet(
       route: '/wallet/unlock/verify',
       body: {
         unlockBackend: 'email_otp',
-        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
         walletId,
         walletAuthMethodId,
         challengeId: unlockChallengeId,
@@ -3353,7 +3351,6 @@ async function completeEmailOtpUnlockFromSecret32(args: {
       ...(args.sessionAuth ? { sessionAuth: args.sessionAuth } : {}),
       body: {
         unlockBackend: 'email_otp',
-        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
         walletId,
         ...emailOtpAuthoritySelectorBody(args.authoritySelector),
         ...(readOptionalString(args.orgId) ? { orgId: readOptionalString(args.orgId) } : {}),
