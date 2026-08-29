@@ -7,7 +7,6 @@ import {
 import { rebindRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import type { WarmSessionSealAndPersistResult } from '@/core/types/secure-confirm-worker';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   buildPasskeyEd25519AuthorizationProjectionFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
@@ -52,11 +51,10 @@ const RUNTIME_POLICY_SCOPE = normalizeRuntimePolicyScope(
 
 type SessionPersistenceCall = { kind: 'hydrate'; input: unknown };
 
-function ed25519AuthorizationToken(authorization: ActiveWalletSessionAuthorizationProjection) {
-  if (authorization.walletSessionTokens.kind === 'evm_family_ecdsa') {
-    throw new Error('Ed25519 authorization fixture has no Ed25519 token');
-  }
-  return authorization.walletSessionTokens.ed25519;
+function ed25519AuthorizationToken(
+  authorization: ReturnType<typeof buildPasskeyEd25519AuthorizationProjectionFixture>,
+) {
+  return authorization.operationCredential;
 }
 
 class SessionPersistenceFixture implements PasskeyEd25519YaoSessionPersistencePort {
@@ -104,7 +102,7 @@ async function buildPasskeyYaoWalletSession() {
       materialActivation: SEALED_RECORD.ed25519Restore.materialActivation,
     }),
     expiresAtMs: runtime.expiresAtMs,
-    walletSessionToken: authorizationToken.walletSessionToken,
+    walletSessionToken: authorizationToken.token,
     session,
   };
 }
@@ -167,7 +165,11 @@ test('keeps durable Ed25519 material identity when authorization is renewed', as
   );
   expect(rebound.remainingUses).toBe(durableRecord.remainingUses);
   expect(rebound.signingWalletSession.expiresAtMs).toBe(durableRecord.expiresAtMs);
-  expect(rebound.authority).toEqual(authorization.authority);
+  expect(rebound.authority).toMatchObject({
+    walletId: authorization.session.walletId,
+    walletAuthMethodId: authorization.selectedAuthMethod.walletAuthMethodId,
+    authorityDigest: authorization.selectedAuthority.authorityDigestB64u,
+  });
 });
 
 test('persists the exact durable Ed25519 material identity after authorization renewal', async () => {
@@ -218,9 +220,9 @@ test('persists the exact durable Ed25519 material identity after authorization r
   expect(persistence.calls[0].input).toMatchObject({
     thresholdSessionId: durableRecord.thresholdSessionIds.ed25519,
     expiresAtMs: durableRecord.expiresAtMs,
-    remainingUses: durableRecord.remainingUses,
+    remainingUses: Math.min(durableRecord.remainingUses, authorization.status.remainingUses),
     transport: {
-      walletSessionToken: ed25519AuthorizationToken(authorization).walletSessionToken,
+      walletSessionToken: ed25519AuthorizationToken(authorization).token,
       ed25519Restore: restore,
     },
   });
