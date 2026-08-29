@@ -50,6 +50,54 @@ async function readBrowserClientWalletSessionAuthorization(
   );
 }
 
+type ResolvedSelectedWalletAuthority = Extract<
+  Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>,
+  { readonly kind: 'resolved' }
+>;
+
+type ExactWalletSessionAuthorizationRead = Awaited<
+  ReturnType<typeof walletSessionAuthorizations.readExactActiveForWallet>
+>;
+
+function selectedWalletAuthorityMatchesWallet(
+  selected: ResolvedSelectedWalletAuthority,
+  walletId: ReturnType<typeof toWalletId>,
+): boolean {
+  return (
+    selected.selection.lockState === 'unlocked' &&
+    selected.selection.walletId === walletId &&
+    selected.selection.walletAuthMethodId === selected.authMethod.walletAuthMethodId &&
+    selected.authMethod.status === 'active' &&
+    selected.authMethod.walletId === walletId &&
+    selected.authMethod.walletAuthorityId === selected.authority.authorityId &&
+    selected.authority.state === 'active' &&
+    selected.authority.walletId === walletId
+  );
+}
+
+export async function readExactWalletSessionAuthorization(
+  walletId: ReturnType<typeof toWalletId>,
+): Promise<ExactWalletSessionAuthorizationRead> {
+  let selected: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
+  try {
+    selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+  } catch {
+    return { kind: 'persistence_unavailable' };
+  }
+  if (selected.kind !== 'resolved' || !selectedWalletAuthorityMatchesWallet(selected, walletId)) {
+    return { kind: 'missing' };
+  }
+  try {
+    return await walletSessionAuthorizations.readExactActiveForWallet({
+      walletId,
+      authorityId: selected.authority.authorityId,
+      authMethodId: selected.authMethod.walletAuthMethodId,
+    });
+  } catch {
+    return { kind: 'persistence_unavailable' };
+  }
+}
+
 export function createBrowserRecoveryPublicDeps(args: {
   seamsWebConfigs: SeamsConfigsReadonly;
   runtimePorts: RuntimePorts;
@@ -75,10 +123,7 @@ export function createBrowserRecoveryPublicDeps(args: {
 }): RecoveryPublicDeps {
   const readCanonicalWalletSessionStatus = createCanonicalWalletSessionStatusReader({
     relayerUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
-    readAuthorization: async (walletId) => {
-      const read = await walletSessionAuthorizations.readActiveForWallet(toWalletId(walletId));
-      return read.kind === 'found' ? read.projection : null;
-    },
+    readAuthorization: readExactWalletSessionAuthorization,
   });
   return createRecoveryPublicDeps({
     seamsWebConfigs: args.seamsWebConfigs,

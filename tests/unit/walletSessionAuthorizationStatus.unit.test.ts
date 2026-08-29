@@ -1,20 +1,22 @@
 import { expect, test } from '@playwright/test';
 import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
-import { opaqueWalletSessionAuth } from '@shared/utils/sessionTokens';
+import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
 
-function jwtWithPayload(payload: Record<string, unknown>): string {
-  const encode = (value: unknown): string =>
-    Buffer.from(JSON.stringify(value)).toString('base64url');
-  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.sig`;
+function operationCredential(token: string, walletSessionId = 'wallet-session-1') {
+  return parseWalletSessionOperationCredentialV1({
+    kind: 'opaque_wallet_session_operation_credential_v1',
+    token,
+    walletSessionId,
+  });
 }
 
 test.describe('Wallet Session authorization status client', () => {
-  test('uses the exact Wallet Session JWT as Bearer authorization', async () => {
-    const walletSessionJwt = jwtWithPayload({ kind: 'router_ab_ed25519_wallet_session_v1' });
+  test('uses the exact Wallet Session operation credential as Bearer authorization', async () => {
+    const walletSessionToken = `wst_${'a'.repeat(43)}`;
     let requestInit: RequestInit | undefined;
     const statusPort = createRelayerReusableWalletSessionStatusPort({
       relayerUrl: 'https://relayer.example.test',
-      auth: opaqueWalletSessionAuth(walletSessionJwt),
+      operationCredential: operationCredential(walletSessionToken),
       fetchImpl: async (_input, init) => {
         requestInit = init;
         return new Response(
@@ -37,13 +39,13 @@ test.describe('Wallet Session authorization status client', () => {
 
     expect(requestInit?.credentials).toBe('omit');
     expect(new Headers(requestInit?.headers).get('authorization')).toBe(
-      `Bearer ${walletSessionJwt}`,
+      `Bearer ${walletSessionToken}`,
     );
     expect(new Headers(requestInit?.headers).get('cookie')).toBeNull();
   });
 
   test('shares only concurrent reads for the exact authorization and status identity', async () => {
-    const walletSessionJwt = jwtWithPayload({ kind: 'router_ab_ed25519_wallet_session_v1' });
+    const walletSessionToken = `wst_${'b'.repeat(43)}`;
     let requestCount = 0;
     let releaseResponse!: () => void;
     const responseGate = new Promise<void>((resolve) => {
@@ -66,12 +68,12 @@ test.describe('Wallet Session authorization status client', () => {
     };
     const firstPort = createRelayerReusableWalletSessionStatusPort({
       relayerUrl: 'https://relayer.example.test',
-      auth: opaqueWalletSessionAuth(walletSessionJwt),
+      operationCredential: operationCredential(walletSessionToken),
       fetchImpl,
     });
     const secondPort = createRelayerReusableWalletSessionStatusPort({
       relayerUrl: 'https://relayer.example.test',
-      auth: opaqueWalletSessionAuth(walletSessionJwt),
+      operationCredential: operationCredential(walletSessionToken),
       fetchImpl,
     });
     const identity = {
