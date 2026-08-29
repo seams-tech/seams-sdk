@@ -1514,7 +1514,7 @@ Remaining causal baseline work:
       capability for delegated key export
 - [x] `tests/unit/walletSessionOperationCredential.unit.test.ts`
 - [x] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
-- [ ] `tests/unit/relayWalletRegistration.boundary.unit.test.ts`
+- [x] `tests/unit/relayWalletRegistration.boundary.unit.test.ts`
 - [x] `tests/unit/ed25519YaoSealedRefreshPersistence.unit.test.ts`
 - [x] `tests/unit/d1LinkedDeviceAuthorityInstallService.unit.test.ts`
 - [x] `tests/unit/d1LinkedDeviceVerifiedLinkSourceReader.unit.test.ts`, proving
