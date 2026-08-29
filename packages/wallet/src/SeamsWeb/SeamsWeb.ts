@@ -2308,7 +2308,7 @@ export class SeamsWeb {
   private async acknowledgeWalletRecoveryCodeBackupDomain(args: { walletId: string }) {
     const relayUrl = String(this.configs.network.relayer.url || '').trim();
     if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args.walletId);
+      const router = await this.walletIframe.requireTransportRouter();
       return await router.acknowledgeWalletRecoveryCodeBackup({
         walletId: args.walletId,
       });

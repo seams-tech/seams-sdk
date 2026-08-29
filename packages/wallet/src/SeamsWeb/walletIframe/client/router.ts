@@ -3087,6 +3087,7 @@ export class WalletIframeRouter {
   async acknowledgeWalletRecoveryCodeBackup(payload: {
     walletId: string;
   }): Promise<WalletRecoveryBackupAcknowledgementResult> {
+    await this.ensureConfigured();
     const res = await this.post<WalletRecoveryBackupAcknowledgementResult>(
       {
         type: 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP',

@@ -41,9 +41,6 @@ test('reveals the recovery summary while the full wallet runtime is still loadin
         testOptions: { ownerTag: 'recovery-code-host-test' },
       });
       const initialization = router.init();
-      while (!router.isReady()) {
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-      }
       const testWindow = window as typeof window & {
         __recoveryCodeHostTest?: {
           readonly startedAt: number;
