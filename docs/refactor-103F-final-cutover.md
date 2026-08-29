@@ -917,7 +917,9 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
       migration `0028` currently has no production child writer or reader.
 - [ ] Transition a consumed quota to exhausted through V2 while retaining exact
       identity for typed status and step-up.
-- [ ] Replace `hasActiveWalletSessionsForAuthMethod` with a V2 query.
+- [x] Delete the unused `hasActiveWalletSessionsForAuthMethod`; its only
+      implementation queried `reusable_wallet_sessions`, and no production or
+      test caller required a V2 replacement.
 - [ ] Delete duplicate V1 revocation statement builders in
       `d1WalletAuthMethodStore.ts`.
 - [ ] Convert additive recovery finalization and replay session checks to the
