@@ -210,7 +210,9 @@ function viewDisplayId(view: WalletDeviceView): string {
 }
 
 /**
- * Founding owners and linked enrollments in one numbered list, oldest first.
+ * Founding owners and linked enrollments in one numbered list, newest first.
+ * Device numbers still follow enrollment order (oldest = Device 1) so a
+ * device keeps its spoken number as newer ones are added.
  * Revoked devices are historical records, not devices the owner can manage.
  */
 function visibleWalletDevices(
@@ -227,7 +229,8 @@ function visibleWalletDevices(
         viewCreatedAtMs(left) - viewCreatedAtMs(right) || viewId(left).localeCompare(viewId(right)),
     )
     .map((view, index) => ({ view, deviceNumber: index + 1 }))
-    .filter(({ view }) => view.kind === 'owner' || view.device.state !== 'revoked');
+    .filter(({ view }) => view.kind === 'owner' || view.device.state !== 'revoked')
+    .reverse();
 }
 
 function isActiveWalletMethod(view: WalletDeviceView): boolean {
