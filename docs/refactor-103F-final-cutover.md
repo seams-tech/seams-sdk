@@ -690,8 +690,8 @@ Convert every current issuer:
 
 - [x] founding registration in `d1WalletRegistrationService.ts`;
 - [x] registration session replay/reuse in `d1WalletRegistrationService.ts`;
-- [ ] Wallet Session budget refresh in `d1WalletRegistrationService.ts`;
-- [ ] linked Ed25519 activation in `d1WalletRegistrationService.ts`;
+- [x] Wallet Session budget refresh in `d1WalletRegistrationService.ts`;
+- [x] linked Ed25519 activation in `d1WalletRegistrationService.ts`;
 - [x] active unlock in `d1RouterApiAuthService.ts`, including exact request
       capability parsing, durable response-family replay binding, and typed
       protocol-mismatch rejection without credential rotation;
@@ -1143,8 +1143,8 @@ Convert every reader or legacy writer:
       session authority from the selected exact tuple and rejects wallet-wide
       or mismatched authorization state;
 - [ ] `browserSigningSurfaceAssembly.ts`;
-- [ ] `createBrowserRecoveryPublicDeps.ts`;
-- [ ] `stepUpRuntime.ts`;
+- [x] `createBrowserRecoveryPublicDeps.ts`;
+- [x] `stepUpRuntime.ts`;
 - [x] `ed25519YaoWarmRecovery.ts`: Passkey warm recovery requires the unlocked
       selected method, exact V6 operation credential, matching Ed25519 subject,
       authority digest and epoch, material activation, and sealed threshold
