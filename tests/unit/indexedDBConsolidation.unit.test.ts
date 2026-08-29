@@ -9,7 +9,10 @@ import {
   assertCanonicalIndexedDBName,
   createSeamsTestWalletDbName,
 } from '../../packages/wallet/src/core/indexedDB/schemaNames';
-import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
+import {
+  buildFullOwnerPermissionsV1,
+  buildSigningOnlyPermissionsV1,
+} from '@shared/authorization/delegatedAuthority';
 import {
   buildActiveWalletAuthorityV1,
   buildPendingWalletAuthorityV1,
@@ -39,6 +42,7 @@ import {
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
+import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { buildLinkedDevicePasskeyEd25519ExportRootEnvelopeFixture } from './helpers/passkeyCustodyEnvelope.fixtures';
 import { parseEcdsaThresholdKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
@@ -232,6 +236,7 @@ async function buildLocalAuthorityInstallationFixture(
         registered: new Date(10).toISOString(),
         syncedAt: new Date(10).toISOString(),
       },
+      localAuthMethod: null,
       signerMaterials,
       exportRoot,
       receipt,
@@ -259,6 +264,101 @@ type LocalAuthorityInstallationFixture = Awaited<
   ReturnType<typeof buildLocalAuthorityInstallationFixture>
 >;
 
+async function buildLocalEmailAuthorityInstallationFixture() {
+  const base = await buildLocalAuthorityInstallationFixture();
+  const emailHashHex = 'a'.repeat(64);
+  const registrationAuthorityId = 'challenge:r103e-email-install';
+  const authorityDraft = buildPendingWalletAuthorityV1({
+    kind: base.input.authority.kind,
+    authorityId: base.input.authority.authorityId,
+    walletId: base.input.authority.walletId,
+    principal: base.input.authority.principal,
+    provenance: base.input.authority.provenance,
+    permissions: buildSigningOnlyPermissionsV1(),
+    signerActivations: base.input.authority.signerActivations,
+    signerActivationSetDigestB64u: base.input.authority.signerActivationSetDigestB64u,
+    authorityDigestB64u: fixtureDigest(30),
+    revocationEpoch: base.input.authority.revocationEpoch,
+    createdAtMs: base.input.authority.createdAtMs,
+    updatedAtMs: base.input.authority.updatedAtMs,
+    state: 'pending_local_install',
+    localInstallPackageSetDigestB64u: base.input.authority.localInstallPackageSetDigestB64u,
+  });
+  const authority = buildPendingWalletAuthorityV1({
+    kind: authorityDraft.kind,
+    authorityId: authorityDraft.authorityId,
+    walletId: authorityDraft.walletId,
+    principal: authorityDraft.principal,
+    provenance: authorityDraft.provenance,
+    permissions: authorityDraft.permissions,
+    signerActivations: authorityDraft.signerActivations,
+    signerActivationSetDigestB64u: authorityDraft.signerActivationSetDigestB64u,
+    authorityDigestB64u: await computeWalletAuthorityDigestB64u(authorityDraft),
+    revocationEpoch: authorityDraft.revocationEpoch,
+    createdAtMs: authorityDraft.createdAtMs,
+    updatedAtMs: authorityDraft.updatedAtMs,
+    state: authorityDraft.state,
+    localInstallPackageSetDigestB64u: authorityDraft.localInstallPackageSetDigestB64u,
+  });
+  const authMethod = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: base.input.authMethod.walletAuthMethodId,
+    walletId: base.input.authMethod.walletId,
+    walletAuthorityId: base.input.authMethod.walletAuthorityId,
+    kind: 'email_otp',
+    status: 'pending_local_install',
+    emailHashHex,
+    registrationAuthorityId,
+    createdAtMs: base.input.authMethod.createdAtMs,
+    updatedAtMs: base.input.authMethod.updatedAtMs,
+  });
+  const baseAuthority = buildEmailOtpWalletAuthAuthority({
+    walletId: authMethod.walletId,
+    provider: 'email',
+    providerUserId: 'email-user:r103e-install',
+    emailHashHex,
+  });
+  const localAuthMethod = {
+    version: 'wallet_auth_method_v1' as const,
+    kind: 'email_otp' as const,
+    status: 'active' as const,
+    localStatus: 'synced' as const,
+    walletId: authMethod.walletId,
+    emailHashHex,
+    registrationAuthorityId,
+    authority: {
+      walletId: baseAuthority.walletId,
+      factor: baseAuthority.factor,
+      verifier: baseAuthority.verifier,
+      bindingId: authMethod.walletAuthMethodId,
+    },
+    createdAtMs: authMethod.createdAtMs,
+    updatedAtMs: authMethod.updatedAtMs,
+  };
+  return {
+    walletId: base.walletId,
+    input: {
+      authority,
+      authMethod,
+      profile: { profileId: String(base.walletId), defaultSignerSlot: 1 },
+      authenticator: null,
+      localAuthMethod,
+      signerMaterials: base.input.signerMaterials,
+      exportRoot: null,
+      receipt: base.input.receipt,
+      expectedLockGeneration: base.input.expectedLockGeneration,
+    },
+    selection: {
+      ...base.selection,
+      wallet_auth_method_id: authMethod.walletAuthMethodId,
+      record: {
+        ...base.selection.record,
+        walletAuthMethodId: authMethod.walletAuthMethodId,
+      },
+    },
+  };
+}
+
 function replayInput(
   fixture: LocalAuthorityInstallationFixture,
   signerMaterials = fixture.input.signerMaterials,
@@ -266,12 +366,14 @@ function replayInput(
   receipt = fixture.input.receipt,
   profile = fixture.input.profile,
   authenticator = fixture.input.authenticator,
+  localAuthMethod = fixture.input.localAuthMethod,
 ) {
   return {
     authority: fixture.input.authority,
     authMethod: fixture.input.authMethod,
     profile,
     authenticator,
+    localAuthMethod,
     signerMaterials,
     exportRoot,
     receipt,
@@ -1562,6 +1664,79 @@ test.describe('IndexedDB consolidation', () => {
         exportRootCount: 1,
         selectionCount: 1,
       },
+    });
+  });
+
+  test('installs the Email OTP factor authority with the pending authority atomically', async ({
+    page,
+  }) => {
+    const fixture = await buildLocalEmailAuthorityInstallationFixture();
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    const result = await page.evaluate(
+      async ({ fixture }) => {
+        const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+        const managerModule =
+          await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+        const repositoryModule =
+          await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+        const dbName = schemaNames.createSeamsTestWalletDbName(
+          `email_authority_install_${crypto.randomUUID()}`,
+        );
+        const manager = new managerModule.SeamsWalletDBManager();
+        manager.setDbName(dbName);
+        const repositories = new repositoryModule.SeamsWalletRepositories(manager);
+        const db = await manager.getDB();
+        await db.put(schemaNames.SEAMS_WALLET_STORES.walletSelections, fixture.selection);
+
+        const installed = await repositories.installLocalAuthority(fixture.input);
+        const replayed = await repositories.installLocalAuthority(fixture.input);
+        const localMethods = await repositories.listWalletAuthMethodsForWallet(fixture.walletId);
+        const localEmail = localMethods.find((record) => record.kind === 'email_otp');
+        const selected = await repositories.resolveSelectedWalletAuthority(fixture.walletId);
+        const authMethodCount = await db.count(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods);
+        manager.close();
+        await new Promise<void>((resolve) => {
+          const request = indexedDB.deleteDatabase(dbName);
+          request.onsuccess = () => resolve();
+          request.onerror = () => resolve();
+          request.onblocked = () => resolve();
+        });
+        return {
+          installed: installed.kind,
+          replayed: replayed.kind,
+          localMethodCount: localMethods.length,
+          localEmailAuthority:
+            localEmail?.kind === 'email_otp'
+              ? {
+                  walletId: localEmail.walletId,
+                  bindingId: localEmail.authority.bindingId,
+                  provider: localEmail.authority.factor.provider,
+                  providerUserId: localEmail.authority.factor.providerUserId,
+                  emailHashHex: localEmail.authority.verifier.emailHashHex,
+                }
+              : null,
+          selected: selected.kind,
+          selectedAuthMethodKind: selected.kind === 'resolved' ? selected.authMethod.kind : null,
+          authMethodCount,
+        };
+      },
+      { fixture },
+    );
+
+    expect(result).toEqual({
+      installed: 'installed',
+      replayed: 'idempotent_replay',
+      localMethodCount: 1,
+      localEmailAuthority: {
+        walletId: fixture.walletId,
+        bindingId: fixture.input.authMethod.walletAuthMethodId,
+        provider: 'email',
+        providerUserId: 'email-user:r103e-install',
+        emailHashHex: 'a'.repeat(64),
+      },
+      selected: 'resolved',
+      selectedAuthMethodKind: 'email_otp',
+      authMethodCount: 2,
     });
   });
 
