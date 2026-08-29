@@ -138,6 +138,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
     readonly expectedOrigin: string;
+    readonly deliveryRecipientPublicKey65B64u: string;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceTargetPreparationV1> {
     assertPreparationInput(input.session, input.approval, input.requestedAtMs);
@@ -216,6 +217,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
         walletId: input.approval.walletId,
         enrollmentId: input.approval.enrollmentId,
         deviceId: input.approval.deviceId,
+        deliveryRecipientPublicKey65B64u: input.deliveryRecipientPublicKey65B64u,
         walletAuthMethodId: walletAuthMethodId.value,
         ed25519ExportRoot,
         targetFactor: input.approval.targetFactor,
@@ -240,6 +242,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       walletId: input.approval.walletId,
       enrollmentId: input.approval.enrollmentId,
       deviceId: input.approval.deviceId,
+      deliveryRecipientPublicKey65B64u: input.deliveryRecipientPublicKey65B64u,
       walletAuthMethodId: walletAuthMethodId.value,
       ed25519ExportRoot,
       targetFactor: { kind: 'email_otp' } as const,

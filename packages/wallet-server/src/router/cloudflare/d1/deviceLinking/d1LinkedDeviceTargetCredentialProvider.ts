@@ -229,6 +229,7 @@ export type LinkedDeviceTargetPlannerV1 = {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
     readonly expectedOrigin: string;
+    readonly deliveryRecipientPublicKey65B64u: string;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceTargetPreparationV1>;
 };
@@ -406,13 +407,30 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       readonly approval: LinkedDeviceApprovalV1;
       readonly requestedAtMs: number;
     } & (
-      | { readonly access: 'create_or_replay'; readonly expectedOrigin: string }
-      | { readonly access: 'replay_only'; readonly expectedOrigin?: never }
+      | {
+          readonly access: 'create_or_replay';
+          readonly expectedOrigin: string;
+          readonly deliveryRecipientPublicKey65B64u: string;
+        }
+      | {
+          readonly access: 'replay_only';
+          readonly expectedOrigin?: never;
+          readonly deliveryRecipientPublicKey65B64u?: never;
+        }
     ),
   ): Promise<LinkedDeviceTargetPreparationV1> {
     const persisted = await this.readV1(input.session.linkSessionId);
     if (persisted) {
       assertPreparationMatchesSession(persisted.preparation, input.session, input.approval);
+      if (
+        input.access === 'create_or_replay' &&
+        input.deliveryRecipientPublicKey65B64u !==
+          persisted.preparation.deliveryRecipientPublicKey65B64u
+      ) {
+        throw new Error(
+          'linked-device target preparation recipient conflicts with its durable replay',
+        );
+      }
       return persisted.preparation;
     }
     if (input.session.state.state !== 'awaiting_target_factor') {

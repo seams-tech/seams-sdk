@@ -75,8 +75,8 @@ type DeviceLinkingKeySlotV1 = {
   readonly linkPrivateKey: CryptoKey;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
-  readonly emailOtpReleasePrivateKey: CryptoKey;
-  readonly emailOtpReleasePublicKey65B64u: string;
+  readonly deliveryRecipientPrivateKey: CryptoKey;
+  readonly deliveryRecipientPublicKey65B64u: string;
   emailOtpFactorReleaseChallengeId: string | null;
   emailOtpExportRootRecipient: WasmEd25519YaoClientRootTransferRecipientV1 | null;
   ordinaryMaterialRecipientPreparation: DeviceLinkingOrdinarySignerMaterialRecipientPreparationStateV1 | null;
@@ -173,7 +173,7 @@ type DeviceLinkingKeyWorkerResponseV1 =
       readonly handleId: string;
       readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
       readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
-      readonly emailOtpReleasePublicKey65B64u: string;
+      readonly deliveryRecipientPublicKey65B64u: string;
     }
   | { readonly recipientPublicKeyB64u: string }
   | { readonly signatureB64u: string };
@@ -971,11 +971,11 @@ async function generateKeySlot(): Promise<{
     await globalThis.crypto.subtle.generateKey({ name: 'X25519' }, false, ['deriveBits']),
     'X25519 link',
   );
-  const emailOtpReleasePair = requireCryptoKeyPair(
+  const deliveryRecipientPair = requireCryptoKeyPair(
     await globalThis.crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, [
       'deriveBits',
     ]),
-    'Email OTP factor release',
+    'P-256 credential delivery recipient',
   );
   const identityPublicBytes = new Uint8Array(
     await globalThis.crypto.subtle.exportKey('raw', identityPair.publicKey),
@@ -983,29 +983,29 @@ async function generateKeySlot(): Promise<{
   const linkPublicBytes = new Uint8Array(
     await globalThis.crypto.subtle.exportKey('raw', linkPair.publicKey),
   );
-  const emailOtpReleasePublicBytes = new Uint8Array(
-    await globalThis.crypto.subtle.exportKey('raw', emailOtpReleasePair.publicKey),
+  const deliveryRecipientPublicBytes = new Uint8Array(
+    await globalThis.crypto.subtle.exportKey('raw', deliveryRecipientPair.publicKey),
   );
   try {
     if (
       identityPublicBytes.length !== 32 ||
       linkPublicBytes.length !== 32 ||
-      emailOtpReleasePublicBytes.length !== 65 ||
-      emailOtpReleasePublicBytes[0] !== 4
+      deliveryRecipientPublicBytes.length !== 65 ||
+      deliveryRecipientPublicBytes[0] !== 4
     ) {
       throw new Error('device-linking worker returned an invalid public key length');
     }
     const devicePublicKeyB64u = parseLinkDevicePublicKeyB64u(base64UrlEncode(identityPublicBytes));
     const linkPublicKeyB64u = parseLinkDevicePublicKeyB64u(base64UrlEncode(linkPublicBytes));
-    const emailOtpReleasePublicKey65B64u = base64UrlEncode(emailOtpReleasePublicBytes);
+    const deliveryRecipientPublicKey65B64u = base64UrlEncode(deliveryRecipientPublicBytes);
     const handleId = createHandleId();
     const slot: DeviceLinkingKeySlotV1 = {
       identityPrivateKey: identityPair.privateKey,
       linkPrivateKey: linkPair.privateKey,
       devicePublicKeyB64u,
       linkPublicKeyB64u,
-      emailOtpReleasePrivateKey: emailOtpReleasePair.privateKey,
-      emailOtpReleasePublicKey65B64u,
+      deliveryRecipientPrivateKey: deliveryRecipientPair.privateKey,
+      deliveryRecipientPublicKey65B64u,
       emailOtpFactorReleaseChallengeId: null,
       emailOtpExportRootRecipient: null,
       ordinaryMaterialRecipientPreparation: null,
@@ -1018,13 +1018,13 @@ async function generateKeySlot(): Promise<{
         handleId,
         linkPublicKeyB64u,
         devicePublicKeyB64u,
-        emailOtpReleasePublicKey65B64u,
+        deliveryRecipientPublicKey65B64u,
       },
     };
   } finally {
     identityPublicBytes.fill(0);
     linkPublicBytes.fill(0);
-    emailOtpReleasePublicBytes.fill(0);
+    deliveryRecipientPublicBytes.fill(0);
   }
 }
 
@@ -1620,7 +1620,7 @@ async function decryptEmailOtpFactorReleaseEnvelope(input: {
     sharedSecret = new Uint8Array(
       await globalThis.crypto.subtle.deriveBits(
         { name: 'ECDH', public: importedServerKey },
-        input.slot.emailOtpReleasePrivateKey,
+        input.slot.deliveryRecipientPrivateKey,
         256,
       ),
     );

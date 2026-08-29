@@ -709,7 +709,7 @@ test.describe('device-linking key worker', () => {
     expect(created).toMatchObject({ ok: true });
     const createdResult = created.result as Record<string, unknown>;
     const handleId = String(createdResult.handleId);
-    const workerPublicKeyB64u = String(createdResult.emailOtpReleasePublicKey65B64u);
+    const workerPublicKeyB64u = String(createdResult.deliveryRecipientPublicKey65B64u);
     const workerPublicKey = base64UrlDecode(workerPublicKeyB64u);
     const serverKeyPair = await globalThis.crypto.subtle.generateKey(
       { name: 'ECDH', namedCurve: 'P-256' },

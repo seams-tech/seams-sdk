@@ -81,6 +81,7 @@ import {
   type LinkedDeviceTargetCredentialRegistrationResultV1,
   type OrdinarySignerMaterialRecipientRequestV1,
   type OrdinarySignerMaterialRecipientRequirementV1,
+  type LinkedDeviceTargetPreparationRequestV1,
   type OrdinarySignerMaterialReservationPreparationV1,
   type VerifiedTargetFactorV1,
   type LinkedDeviceEd25519ExportRootPreparationV1,
@@ -200,12 +201,18 @@ const TARGET_PREPARATION_BASE_FIELDS = [
   'walletId',
   'enrollmentId',
   'deviceId',
+  'deliveryRecipientPublicKey65B64u',
   'walletAuthMethodId',
   'ed25519ExportRoot',
   'targetFactor',
   'ordinarySignerMaterialRecipientRequirements',
   'issuedAtMs',
   'expiresAtMs',
+] as const;
+const TARGET_PREPARATION_REQUEST_FIELDS = [
+  'kind',
+  'linkSessionId',
+  'deliveryRecipientPublicKey65B64u',
 ] as const;
 const TARGET_PREPARATION_PASSKEY_FIELDS = [
   ...TARGET_PREPARATION_BASE_FIELDS,
@@ -1386,6 +1393,10 @@ export function parseLinkedDeviceTargetPreparationV1(
       'LinkedDeviceTargetPreparationV1.enrollmentId',
     ),
     deviceId: parseDeviceId(record.deviceId, 'LinkedDeviceTargetPreparationV1.deviceId'),
+    deliveryRecipientPublicKey65B64u: parseUncompressedP256PointB64u(
+      record.deliveryRecipientPublicKey65B64u,
+      'LinkedDeviceTargetPreparationV1.deliveryRecipientPublicKey65B64u',
+    ),
     walletAuthMethodId,
     ed25519ExportRoot,
     ordinarySignerMaterialRecipientRequirements,
@@ -1429,6 +1440,30 @@ export function parseLinkedDeviceTargetPreparationV1(
       parseWalletAuthMethodId,
       record.baseWalletAuthMethodId,
       'LinkedDeviceTargetPreparationV1.baseWalletAuthMethodId',
+    ),
+  };
+}
+
+export function parseLinkedDeviceTargetPreparationRequestV1(
+  raw: unknown,
+): LinkedDeviceTargetPreparationRequestV1 {
+  const record = exactRecord(
+    raw,
+    TARGET_PREPARATION_REQUEST_FIELDS,
+    'LinkedDeviceTargetPreparationRequestV1',
+  );
+  if (record.kind !== 'linked_device_target_preparation_request_v1') {
+    throw new Error('LinkedDeviceTargetPreparationRequestV1.kind is invalid');
+  }
+  return {
+    kind: 'linked_device_target_preparation_request_v1',
+    linkSessionId: parseSessionId(
+      record.linkSessionId,
+      'LinkedDeviceTargetPreparationRequestV1.linkSessionId',
+    ),
+    deliveryRecipientPublicKey65B64u: parseUncompressedP256PointB64u(
+      record.deliveryRecipientPublicKey65B64u,
+      'LinkedDeviceTargetPreparationRequestV1.deliveryRecipientPublicKey65B64u',
     ),
   };
 }

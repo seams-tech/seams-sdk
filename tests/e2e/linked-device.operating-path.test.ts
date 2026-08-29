@@ -3253,7 +3253,7 @@ function isLinkedDeviceOwnerApprovalResponse(response: Response): boolean {
 }
 
 function isLinkedDeviceTargetPreparationResponse(response: Response): boolean {
-  return isLinkedDeviceActionResponse(response, 'target-preparation', 'GET');
+  return isLinkedDeviceActionResponse(response, 'target-preparation', 'POST');
 }
 
 function isLinkedDeviceEmailOtpVerificationResponse(response: Response): boolean {

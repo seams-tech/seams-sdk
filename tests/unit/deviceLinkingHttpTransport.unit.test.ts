@@ -11,8 +11,9 @@ import { createDeviceLinkingAuthenticatedSessionTransportV1 } from '../../packag
 import type { DeviceLinkingKeyMaterialPortV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingPorts';
 import type { HttpTransport } from '../../packages/wallet/src/core/platform/http';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import { buildPasskeyTargetPreparationFixtureV1 } from './helpers/linkedDeviceTargetPreparation.fixtures';
 
-const EMAIL_OTP_RELEASE_PUBLIC_KEY_B64U = base64UrlEncode(new Uint8Array(65).fill(4));
+const DELIVERY_RECIPIENT_PUBLIC_KEY_B64U = base64UrlEncode(new Uint8Array(65).fill(4));
 
 function responseBody(fixture: ReturnType<typeof buildR103DeviceLinkFixture>): {
   readonly ok: true;
@@ -35,6 +36,62 @@ function responseBody(fixture: ReturnType<typeof buildR103DeviceLinkFixture>): {
 }
 
 test.describe('R103 authenticated linked-device browser transport', () => {
+  test('publishes the worker delivery recipient in the signed target-preparation request', async () => {
+    const fixture = buildR103DeviceLinkFixture();
+    const preparation = buildPasskeyTargetPreparationFixtureV1();
+    let requestBody: unknown;
+    let requestMethod: string | undefined;
+    const http: HttpTransport = {
+      kind: 'http_transport',
+      async request(input) {
+        requestBody = input.body;
+        requestMethod = input.method;
+        return { ok: true, value: { status: 200, body: preparation } };
+      },
+    };
+    const keyMaterial: DeviceLinkingKeyMaterialPortV1 = {
+      async createBootstrapKeyMaterialV1() {
+        return {
+          handle: { kind: 'device_linking_key_material_handle_v1', handleId: 'worker-slot-r103' },
+          linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
+          devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+          deliveryRecipientPublicKey65B64u: preparation.deliveryRecipientPublicKey65B64u,
+        };
+      },
+      async discardKeyMaterialV1() {},
+      async signDeviceSessionRequestV1() {
+        return { signatureB64u: base64UrlEncode(new Uint8Array(64).fill(9)) };
+      },
+    };
+    const transport = createDeviceLinkingAuthenticatedSessionTransportV1({
+      http,
+      relayerUrl: 'https://relay.example.test',
+      publishableKey: 'pk_test_registration_origin',
+      projectEnvironmentId: 'project:dev',
+      keyMaterial,
+      keyMaterialHandle: {
+        kind: 'device_linking_key_material_handle_v1',
+        handleId: 'worker-slot-r103',
+      },
+      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+      nowMs: () => 2_000,
+      pollIntervalMs: 10_000,
+    });
+
+    await expect(
+      transport.getTargetPreparationV1({
+        linkSessionId: fixture.payload.linkSessionId,
+        deliveryRecipientPublicKey65B64u: preparation.deliveryRecipientPublicKey65B64u,
+      }),
+    ).resolves.toEqual(preparation);
+    expect(requestMethod).toBe('POST');
+    expect(requestBody).toEqual({
+      kind: 'linked_device_target_preparation_request_v1',
+      linkSessionId: fixture.payload.linkSessionId,
+      deliveryRecipientPublicKey65B64u: preparation.deliveryRecipientPublicKey65B64u,
+    });
+  });
+
   test('binds each request to exact canonical proof fields and a fresh nonce', async () => {
     const fixture = buildR103DeviceLinkFixture();
     const calls: Array<{
@@ -72,7 +129,7 @@ test.describe('R103 authenticated linked-device browser transport', () => {
           handle: { kind: 'device_linking_key_material_handle_v1', handleId: 'worker-slot-r103' },
           linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
           devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-          emailOtpReleasePublicKey65B64u: EMAIL_OTP_RELEASE_PUBLIC_KEY_B64U,
+          deliveryRecipientPublicKey65B64u: DELIVERY_RECIPIENT_PUBLIC_KEY_B64U,
         };
       },
       async discardKeyMaterialV1() {

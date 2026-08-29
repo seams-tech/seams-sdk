@@ -58,7 +58,7 @@ class RespondingWorkerEndpoint extends IdleWorkerEndpoint {
             handleId: 'handle-1',
             linkPublicKeyB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
             devicePublicKeyB64u: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE',
-            emailOtpReleasePublicKey65B64u:
+            deliveryRecipientPublicKey65B64u:
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
           },
         },
