@@ -123,7 +123,7 @@ export interface AuthorizationEvidencePort {
 }
 
 export interface AuthorizationGrantPort {
-  revokeReusableWalletSessionsForAuthMethod(input: {
+  retireWalletSessionAuthorizationsForAuthMethod(input: {
     readonly tenantId: TenantId;
     readonly walletId: WalletId;
     readonly walletAuthMethodId: WalletAuthMethodId;
@@ -537,13 +537,13 @@ export type ResolvedOpaqueWalletSessionToken = {
 export class AuthorizationService {
   constructor(private readonly ports: AuthorizationServicePorts) {}
 
-  async revokeReusableWalletSessionsForAuthMethod(input: {
+  async retireWalletSessionAuthorizationsForAuthMethod(input: {
     readonly tenantId: TenantId;
     readonly walletId: WalletId;
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly nowMs: number;
   }): Promise<void> {
-    await this.ports.grants.revokeReusableWalletSessionsForAuthMethod(input);
+    await this.ports.grants.retireWalletSessionAuthorizationsForAuthMethod(input);
   }
 
   async mintHostedWalletSeamsSessionExchange(input: {

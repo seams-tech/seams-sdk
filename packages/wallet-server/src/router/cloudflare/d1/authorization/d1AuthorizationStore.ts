@@ -287,22 +287,22 @@ export class CloudflareD1AuthorizationStore
     });
   }
 
-  async revokeReusableWalletSessionsForAuthMethod(input: {
+  async retireWalletSessionAuthorizationsForAuthMethod(input: {
     readonly tenantId: TenantId;
-    readonly walletId: import('@shared/utils/domainIds').WalletId;
+    readonly walletId: WalletId;
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly nowMs: number;
   }): Promise<void> {
-    await this.database.batch(this.prepareRevokeReusableWalletSessionsForAuthMethod(input));
+    await this.database.batch(this.prepareRetireWalletSessionAuthorizationsForAuthMethod(input));
   }
 
-  prepareRevokeReusableWalletSessionsForAuthMethod(input: {
+  prepareRetireWalletSessionAuthorizationsForAuthMethod(input: {
     readonly tenantId: TenantId;
-    readonly walletId: import('@shared/utils/domainIds').WalletId;
+    readonly walletId: WalletId;
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly nowMs: number;
   }): readonly D1PreparedStatementLike[] {
-    requirePositiveInteger(input.nowMs, 'auth-method session revocation time');
+    requirePositiveInteger(input.nowMs, 'auth-method session retirement time');
     const exhaustExactQuotas = this.database
       .prepare(
         `UPDATE authorization_wallet_session_quotas
@@ -358,56 +358,6 @@ export class CloudflareD1AuthorizationStore
         input.walletId,
         input.walletAuthMethodId,
       );
-    const sessionFilter = `
-      FROM reusable_wallet_sessions AS session
-      WHERE session.namespace = ?
-        AND session.tenant_id = ?
-        AND session.wallet_id = ?
-        AND session.wallet_auth_method_id = ?`;
-    const deleteTokens = this.database
-      .prepare(
-        `DELETE FROM opaque_wallet_session_tokens
-          WHERE namespace = ?
-            AND tenant_id = ?
-            AND wallet_session_id IN (SELECT session.wallet_session_id ${sessionFilter})`,
-      )
-      .bind(
-        this.namespace,
-        input.tenantId,
-        this.namespace,
-        input.tenantId,
-        input.walletId,
-        input.walletAuthMethodId,
-      );
-    const exhaustQuotas = this.database
-      .prepare(
-        `UPDATE authorization_wallet_session_quotas
-            SET remaining_uses = 0,
-                lifecycle_kind = 'exhausted'
-          WHERE namespace = ?
-            AND tenant_id = ?
-            AND wallet_session_id IN (SELECT session.wallet_session_id ${sessionFilter})
-            AND lifecycle_kind = 'active'`,
-      )
-      .bind(
-        this.namespace,
-        input.tenantId,
-        this.namespace,
-        input.tenantId,
-        input.walletId,
-        input.walletAuthMethodId,
-      );
-    const supersedeSessions = this.database
-      .prepare(
-        `UPDATE reusable_wallet_sessions
-            SET lifecycle_kind = 'superseded'
-          WHERE namespace = ?
-            AND tenant_id = ?
-            AND wallet_id = ?
-            AND wallet_auth_method_id = ?
-            AND lifecycle_kind = 'active'`,
-      )
-      .bind(this.namespace, input.tenantId, input.walletId, input.walletAuthMethodId);
     const [deleteHostedExchanges, retireHostedCredentials] =
       this.prepareRetireHostedChildrenForParentSelection({
         tenantId: input.tenantId,
@@ -423,9 +373,6 @@ export class CloudflareD1AuthorizationStore
       deleteHostedExchanges,
       retireHostedCredentials,
       retireExactSessions,
-      deleteTokens,
-      exhaustQuotas,
-      supersedeSessions,
     ];
   }
 

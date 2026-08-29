@@ -602,8 +602,9 @@ input, or invents a new layer is deferred until its operating path works.
 - [x] Delete `issueReusableWalletSession` and its preparation/domain inputs.
 - [x] Delete the V1 `readWalletSessionAuthorizationByMint`; narrow the V2
       reader around full scope, exact method, and `WalletSessionMintId`.
-- [ ] Delete `revokeReusableWalletSessionsForAuthMethod` and its prepared SQL
-      statement builder.
+- [x] Delete `revokeReusableWalletSessionsForAuthMethod` and its prepared SQL
+      statement builder; exact auth-method retirement now targets V2
+      authorizations directly.
 - [ ] Delete `putOpaqueWalletSessionToken`.
 - [ ] Delete `readOpaqueWalletSessionToken`.
 - [ ] Delete `readOpaqueWalletSessionTokenByIdentity`.
