@@ -1492,7 +1492,7 @@ Remaining causal baseline work:
 - [ ] `tests/unit/linkedDeviceManagement.unit.test.ts`
 - [ ] `tests/unit/walletSessionAuthorizationStatus.unit.test.ts`
 - [ ] `tests/unit/walletSessionExpiry.boundaryAndServer.unit.test.ts`
-- [ ] `tests/unit/registrationEstablishedWalletSessionProjection.unit.test.ts`
+- [x] `tests/unit/registrationEstablishedWalletSessionProjection.unit.test.ts`
 - [x] `tests/unit/walletRegistrationActivateRoute.unit.test.ts`, covering direct
       issuance, credential-free same-mint replay, and strict response parsing
 - [x] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`
