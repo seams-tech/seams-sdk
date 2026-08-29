@@ -88,6 +88,32 @@ async function readState(
 }
 
 test.describe('wallet iframe exact V6 session state', () => {
+  test('preserves a resolved local selection whose wallet is locked', async () => {
+    const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+    const dependencies = readDependencies(fixture, activeStatus(fixture), 0);
+    let exactSessionRead = false;
+    const lockedDependencies: WalletIframeExactSessionReadDependencies = {
+      ...dependencies,
+      resolveSelectedWalletAuthority: async () => ({
+        kind: 'resolved',
+        selection: { ...fixture.selection, lockState: 'locked' },
+        authMethod: fixture.authMethod,
+        authority: fixture.authority,
+        signerMaterials: fixture.signerMaterials,
+        exportRoot: null,
+      }),
+      readExactActiveForWallet: async (input) => {
+        exactSessionRead = true;
+        return await dependencies.readExactActiveForWallet(input);
+      },
+    };
+
+    await expect(
+      readSelectedWalletIframeExactSessionState({ walletId: fixture.walletId }, lockedDependencies),
+    ).resolves.toEqual({ kind: 'wallet_locked' });
+    expect(exactSessionRead).toBe(false);
+  });
+
   test('projects an active V6 record using its operation credential identity', async () => {
     const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
 

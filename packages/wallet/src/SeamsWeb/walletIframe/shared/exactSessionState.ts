@@ -217,13 +217,14 @@ export async function readSelectedWalletIframeExactSessionState(
   if (
     selection.walletId !== input.walletId ||
     selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
-    selection.lockState !== 'unlocked' ||
     authMethod.walletId !== input.walletId ||
     authMethod.walletAuthorityId !== authority.authorityId ||
-    authMethod.status !== 'active' ||
-    authority.walletId !== input.walletId ||
-    authority.state !== 'active'
+    authority.walletId !== input.walletId
   ) {
+    return unavailableSession(input.walletId, 'invalid');
+  }
+  if (selection.lockState === 'locked') return { kind: 'wallet_locked' };
+  if (authMethod.status !== 'active' || authority.state !== 'active') {
     return unavailableSession(input.walletId, 'invalid');
   }
 
