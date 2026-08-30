@@ -1232,6 +1232,9 @@ Remove exact-first/V1 fallback from:
 - [x] Server operation admission: use only
       `wallet_session_operation_credential_v1` and delete the stale
       `reuse_wallet_session_operation_credential_v1` dispatch branch.
+- [x] Email OTP ECDSA unlock: delete `reuse_ed25519_wallet_session`, its worker
+      request/type branch, exact-session reuse lookup, and reuse-only test;
+      issue through the fresh verified proof and exact binding path only.
 
 Primary persistence files:
 
