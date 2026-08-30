@@ -1,28 +1,36 @@
 import { expect, test } from '@playwright/test';
 import {
   BrowserSigningSurface,
+  resolveBrowserNearEd25519EmailOtpAuthorityForMaterial,
   resolveExactNearEd25519WalletSessionOperationCredentialForStepUp,
 } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
-import {
-  resolveBrowserNearEd25519PasskeyAuthorityForMaterial,
-} from '@/SeamsWeb/assembly/browserSigningSurfaceAssembly';
+import { resolveBrowserNearEd25519PasskeyAuthorityForMaterial } from '@/SeamsWeb/assembly/browserSigningSurfaceAssembly';
 import { IndexedDBManager } from '@/core/indexedDB';
+import { toAccountId } from '@/core/types/accountIds';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import {
   walletSessionAuthorizations,
   type WalletSessionAuthorizationExactActiveReadResult,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
+import { nearEd25519SignerBindingFromBoundaryFields } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   buildLinkedDeviceManagementAuthorityFixture,
+  extendFixtureAuthorityWithEcdsaSigner,
   linkedDevicePermissionsForManagementFixture,
 } from './helpers/linkedDeviceManagement.fixtures';
 import { buildLinkedDeviceUnlockRuntimeFixture } from './helpers/linkedDeviceUnlockRuntime.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import {
   buildPasskeyEd25519SealedSessionRecordFixture,
   buildPasskeyExactEd25519AuthorizationFixture,
+  buildEmailOtpEd25519SealedSessionRecordFixture,
+  buildEmailOtpExactEd25519AuthorizationFixture,
 } from './helpers/sealedSigningSession.fixtures';
+import { walletUnlockEmailOtpAuthMethodFixture } from './helpers/walletUnlockProfile.fixtures';
 
 type ResolvedOwnerAuthority = Extract<
   ResolveSelectedWalletAuthorityResultV1,
@@ -291,5 +299,113 @@ test('resolves the selected Passkey factor for an exhausted sealed runtime witho
     ).rejects.toThrow('exact Passkey authority changed');
   } finally {
     IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelected;
+  }
+});
+
+test('resolves the selected Email OTP factor for exhausted Ed25519 step-up without a session credential', async () => {
+  const record = buildEmailOtpEd25519SealedSessionRecordFixture();
+  if (!('provider' in record.ed25519Restore)) {
+    throw new Error('Email OTP sealed runtime fixture is invalid');
+  }
+  const authorization = buildEmailOtpExactEd25519AuthorizationFixture(record);
+  const promotedAuthority = await extendFixtureAuthorityWithEcdsaSigner(
+    authorization.selectedAuthority,
+  );
+  const restore = record.ed25519Restore;
+  const identity = {
+    kind: 'near_ed25519_material_identity' as const,
+    signer: nearEd25519SignerBindingFromBoundaryFields({
+      walletId: authorization.selectedAuthority.walletId,
+      nearAccountId: restore.nearAccountId,
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(restore.nearEd25519SigningKeyId),
+      signerSlot: restore.signerSlot,
+    }),
+    auth: {
+      kind: 'email_otp' as const,
+      providerSubjectId: restore.providerSubjectId,
+    },
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+      record.thresholdSessionIds.ed25519,
+    ),
+  };
+  const localFactor = walletUnlockEmailOtpAuthMethodFixture({
+    walletId: String(record.walletId),
+    providerSubjectId: restore.providerSubjectId,
+    emailHashHex: restore.emailHashHex,
+  });
+  const selected = {
+    kind: 'resolved' as const,
+    selection: {
+      kind: 'wallet_selection_v1' as const,
+      walletId: promotedAuthority.walletId,
+      walletAuthMethodId: authorization.selectedAuthMethod.walletAuthMethodId,
+      lockGeneration: 0,
+      lockState: 'unlocked' as const,
+      updatedAtMs: 2,
+    },
+    authMethod: authorization.selectedAuthMethod,
+    authority: promotedAuthority,
+    signerMaterials: [],
+    exportRoot: null,
+  };
+  const originalResolveSelected = IndexedDBManager.resolveSelectedWalletAuthority;
+  const originalListAuthMethods = IndexedDBManager.listWalletAuthMethodsForWallet;
+  try {
+    IndexedDBManager.resolveSelectedWalletAuthority = async () => selected;
+    IndexedDBManager.listWalletAuthMethodsForWallet = async () => [localFactor];
+
+    const resolved = await resolveBrowserNearEd25519EmailOtpAuthorityForMaterial({
+      walletId: authorization.selectedAuthority.walletId,
+      nearAccountId: toAccountId(restore.nearAccountId),
+      identity,
+      signerSlot: restore.signerSlot,
+      materialActivation: restore.materialActivation,
+      authorizationRead: { kind: 'exhausted' },
+    });
+    expect(resolved).not.toBeNull();
+    if (!resolved) throw new Error('Email OTP factor authority was not resolved');
+    expect(resolved).toEqual(
+      await walletAuthAuthorityRef({ authority: authorization.selectedFactorAuthority }),
+    );
+    expect(promotedAuthority.authorityDigestB64u).not.toBe(resolved.authorityDigest);
+    expect(resolved).not.toHaveProperty('operationCredential');
+
+    const mismatchedMaterial = buildMpcMaterialActivationRefFixture(
+      'email-otp-ed25519-mismatched-material',
+      String(record.walletId),
+    );
+    await expect(
+      resolveBrowserNearEd25519EmailOtpAuthorityForMaterial({
+        walletId: authorization.selectedAuthority.walletId,
+        nearAccountId: toAccountId(restore.nearAccountId),
+        identity,
+        signerSlot: restore.signerSlot,
+        materialActivation: mismatchedMaterial,
+        authorizationRead: { kind: 'exhausted' },
+      }),
+    ).resolves.toBeNull();
+
+    const mismatchedIdentity = {
+      kind: 'near_ed25519_material_identity' as const,
+      signer: identity.signer,
+      auth: {
+        kind: 'email_otp' as const,
+        providerSubjectId: 'google:email-otp-ed25519-mismatched',
+      },
+      thresholdSessionId: identity.thresholdSessionId,
+    };
+    await expect(
+      resolveBrowserNearEd25519EmailOtpAuthorityForMaterial({
+        walletId: authorization.selectedAuthority.walletId,
+        nearAccountId: toAccountId(restore.nearAccountId),
+        identity: mismatchedIdentity,
+        signerSlot: restore.signerSlot,
+        materialActivation: restore.materialActivation,
+        authorizationRead: { kind: 'exhausted' },
+      }),
+    ).resolves.toBeNull();
+  } finally {
+    IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelected;
+    IndexedDBManager.listWalletAuthMethodsForWallet = originalListAuthMethods;
   }
 });
