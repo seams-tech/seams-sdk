@@ -1687,8 +1687,13 @@ Remaining causal baseline work:
       session/credential coupling.
 - [x] `replaceExactActive` test covering same-method retirement, sibling
       preservation, and late V3/V4/V5 writes.
-- [ ] Exact-reader tests with two active sibling methods across signing, export,
-      funding, refresh, management, readiness, and source claims.
+- [x] Exact-reader tests with two active sibling methods across signing, export,
+      funding, refresh, management, readiness, and source claims. Focused
+      funding, readiness, and source-claim isolation lives in
+      `walletRegistrationNearFundingAdmission.unit.test.ts`,
+      `signingSessionReadiness.exactSession.unit.test.ts`, and
+      `addAuthMethodSourceClaim.unit.test.ts`; committed signing, export,
+      refresh, and management proofs complete the matrix.
 - [x] Bootstrap quarantine test for observed V3/V4/V5 rows.
 - [x] Shared-IndexedDB tests for future-row preservation, terminal
       `upgrade_required`, legacy-row quarantine, and final-reader containment;
