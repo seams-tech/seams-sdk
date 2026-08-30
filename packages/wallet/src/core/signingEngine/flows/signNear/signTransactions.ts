@@ -234,14 +234,25 @@ export function emitNearSigningConfirmationProgress(
   },
   progress: UserConfirmProgressEvent,
 ): void {
-  if (
-    progress.phase !== 'auth.passkey.prompt.started' &&
-    progress.phase !== 'auth.passkey.prompt.succeeded'
-  ) {
-    return;
-  }
   const authMethod = resolveSigningConfirmationAuthMethod(args.signingAuthPlan);
-  if (authMethod !== 'passkey') return;
+  switch (authMethod) {
+    case 'passkey':
+      if (
+        progress.phase !== 'auth.passkey.prompt.started' &&
+        progress.phase !== 'auth.passkey.prompt.succeeded'
+      ) {
+        return;
+      }
+      break;
+    case 'email_otp':
+      if (progress.phase !== 'confirmation.complete') return;
+      break;
+    case 'warm_session':
+      return;
+    default:
+      authMethod satisfies never;
+      return;
+  }
   const event = mapSigningConfirmationProgress(progress, authMethod);
   if (!event) return;
   emitNearSigningEvent(args.onEvent, args.nearAccountId, { ...event, authMethod });
