@@ -1477,7 +1477,10 @@ resume without creating a second authority or ceremony.
 ### Phase 4 — Delete V1 and verify the cutover
 
 - [x] Delete the registration adapter and temporary client capability.
-- [ ] Delete every V1 request and persistence resolver.
+- [x] Delete every V1 request and persistence resolver. The closure-ledger
+      searches for reusable issuers/status readers, opaque-token resolvers,
+      bridge issuers, legacy mint helpers, and registration token projections
+      return no production matches; only immutable migration history remains.
 - [x] Apply the enforcement/deletion migration and update table manifests.
 - [ ] Delete remaining V1 stores, ports, services, parsers, types, browser
       records, fixtures, guards, and obsolete documentation.
