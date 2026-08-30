@@ -1069,8 +1069,12 @@ Primary files:
       NEAR plus EVM-family signing-ready state immediately after linking.
 - [x] Verify exact export-lane readiness immediately after linking without a
       lock/unlock cycle.
-- [ ] Verify the remaining factor combinations immediately after linking
-      without a lock/unlock cycle.
+- [x] Verify the remaining factor combinations immediately after linking
+      without a lock/unlock cycle. Runtime installation has two distinct target
+      outcomes: Passkey and Email OTP. `tests/unit/linkedDeviceUnlockRuntime.unit.test.ts`
+      now proves exact account/menu inventory, NEAR and EVM-family signing
+      readiness, and export-lane readiness for both; source-factor identity does
+      not enter the installed runtime branch.
 
 Primary files:
 
@@ -1538,11 +1542,16 @@ HEAD reconciliation on 2026-08-30:
 - `c0f8d2d46` proves credential-free registration replay creates an exact
   successor and retires its same-method predecessor.
 - `112514e78` proves the linked Passkey install, inventory, and signing-ready
-  path. Recipient loss, expiry, and the remaining factor combinations stay
+  path. `7d7834854` adds the corresponding Email OTP target proof and establishes
+  that the four source/target combinations reduce to those two installed target
+  outcomes. Recipient loss, expiry, and the composed operating-path run stay
   open.
 - `d21cc81c5` makes the current recovery auth-method branches exhaustive. The
   coordinator still does not consume `PendingWalletRecoveryCommitV1`, so
   durable recovery continuity stays open.
+- `d22c27746` proves the Email OTP pending-recovery record reaches the same
+  exact, atomic local publication boundary as Passkey. Post-promotion startup
+  replay and coordinator consumption remain open.
 - `e97083adb` durably retains the ECDSA activation journal, verified client
   activation, request digest, and exact auth-method identity for registration
   replay. Exact unlock, committed-projection validation, and atomic local
@@ -1662,8 +1671,10 @@ change.
       encrypted boundary and atomic local publication primitive for both
       recovery targets; coordinator integration remains open in I5
 - [x] `tests/unit/linkedDeviceUnlockRuntime.unit.test.ts`, proving the linked
-      Passkey exact inventory, NEAR and EVM-family signing readiness, exact V6
-      install identity, and export-lane readiness before another unlock
+      Passkey and Email OTP target exact inventory, NEAR and EVM-family signing
+      readiness, exact V6 install identity, and export-lane readiness before
+      another unlock. Those two installed target outcomes cover all four source
+      and target factor combinations at the runtime boundary
 - [x] `tests/unit/walletSessionStatusExactAdmission.unit.test.ts`, proving the
       exact quota projection, tuple mismatch, fail-closed absence, and zero V1
       credential/status reads
@@ -1783,7 +1794,8 @@ change.
 - [x] `tests/e2e/intended-behaviours/passkey.registration.contract.test.ts`,
       covering registration, immediate Tempo signing, deferred NEAR readiness,
       and NEAR signing after exact-session authority promotion (`d3d399aab`)
-- [ ] `tests/e2e/intended-behaviours/email-otp.registration.benchmark.test.ts`
+- [x] `tests/e2e/intended-behaviours/email-otp.registration.benchmark.test.ts`
+      passed its isolated benchmark runner (1/1 in 4.1 minutes).
 - [ ] `tests/e2e/intended-behaviours/passkey.unlock.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/passkey.recovery.contract.test.ts`
@@ -1794,6 +1806,13 @@ change.
 - [ ] `tests/e2e/linked-device.operating-path.test.ts` for all four genuine
       source/target factor combinations, including the remaining immediate
       post-link factor combinations from I6.
+
+Acceptance checkpoint on 2026-08-30: `passkey.unlock`, `email-otp.unlock`, and
+the first `passkey.recovery` case reached the same production regression during
+deferred NEAR readiness: direct-V2 same-mint replay rejected the committed
+session after its authority projection had legitimately gained the Ed25519
+capability. These items remain unchecked until the replay boundary is corrected
+and the isolated cases pass.
 
 #### Required targeted additions and updates
 

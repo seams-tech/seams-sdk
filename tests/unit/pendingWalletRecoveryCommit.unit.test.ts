@@ -14,6 +14,10 @@ import { buildFullOwnerDelegatedWalletAuthorityV1 } from '../../packages/shared-
 import { buildWalletAuthMethodRecordV2 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseEmailOtpProviderUserId } from '../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlDecode } from '../../packages/shared-ts/src/utils/base64';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  type EmailOtpWalletAuthAuthority,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 
 const IMPORT_PATHS = {
@@ -83,6 +87,7 @@ async function emailProjectionFixture(): Promise<{
   readonly authority: Awaited<
     ReturnType<typeof buildLinkedDeviceManagementAuthorityFixture>
   >['authority'];
+  readonly authAuthority: EmailOtpWalletAuthAuthority;
   readonly projection: Extract<
     WalletRecoveryCommittedProjectionV1,
     { readonly kind: 'google_email_otp' }
@@ -102,14 +107,22 @@ async function emailProjectionFixture(): Promise<{
   if (fixture.authority.provenance.kind !== 'wallet_recovery') {
     throw new Error('Email OTP recovery fixture lost recovery provenance');
   }
+  const emailHashHex = 'c'.repeat(64);
+  const providerSubject = required(parseEmailOtpProviderUserId('google:pending-recovery-email'));
+  const authAuthority = buildEmailOtpWalletAuthAuthority({
+    walletId: fixture.authority.walletId,
+    provider: 'google',
+    providerUserId: providerSubject,
+    emailHashHex,
+  });
   const authMethod = buildWalletAuthMethodRecordV2({
     version: 'wallet_auth_method_v2',
-    walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+    walletAuthMethodId: authAuthority.bindingId,
     walletId: fixture.authority.walletId,
     walletAuthorityId: fixture.authority.authorityId,
     kind: 'email_otp',
     status: 'active',
-    emailHashHex: 'c'.repeat(64),
+    emailHashHex,
     registrationAuthorityId: 'challenge:pending-recovery-email',
     createdAtMs: fixture.authMethod.createdAtMs,
     updatedAtMs: fixture.authMethod.updatedAtMs,
@@ -125,7 +138,7 @@ async function emailProjectionFixture(): Promise<{
     targetWalletAuthMethodId: authMethod.walletAuthMethodId,
     authority: fixture.authority,
     authMethod,
-    providerSubject: required(parseEmailOtpProviderUserId('google:pending-recovery-email')),
+    providerSubject,
     emailHashHex: authMethod.emailHashHex,
     registrationAuthorityId: authMethod.registrationAuthorityId,
     enrollment: {
@@ -134,7 +147,7 @@ async function emailProjectionFixture(): Promise<{
       enrollmentSealKeyVersion: 'email-otp-seal-v1',
     },
   });
-  return { authority: fixture.authority, projection };
+  return { authority: fixture.authority, authAuthority, projection };
 }
 
 async function buildPendingRecord(projection: WalletRecoveryCommittedProjectionV1, fill: number) {
@@ -346,6 +359,140 @@ test.describe('atomic pending recovery publication', () => {
       profileId: fixture.projection.walletId,
       authMethodId: fixture.projection.targetWalletAuthMethodId,
       authorityId: fixture.projection.targetAuthorityId,
+      selection: {
+        walletId: fixture.projection.walletId,
+        walletAuthMethodId: fixture.projection.targetWalletAuthMethodId,
+        lockState: 'locked',
+      },
+    });
+  });
+
+  test('consumes the exact Google Email OTP pending row while publishing local projections atomically', async ({
+    page,
+  }) => {
+    const fixture = await emailProjectionFixture();
+    const result = await page.evaluate(
+      async ({ paths, authority, authAuthority, projection }) => {
+        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+          await import(paths.indexedDB);
+        const dbManager = new SeamsWalletDBManager();
+        dbManager.setDbName(createSeamsTestWalletDbName(`pending-recovery-${crypto.randomUUID()}`));
+        const db = new UnifiedIndexedDBManager({ seamsWalletDB: dbManager });
+        const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
+          'encrypt',
+          'decrypt',
+        ]);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const ciphertext = new Uint8Array(
+          await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new Uint8Array([9])),
+        );
+        const { buildPendingWalletRecoveryCommitV1 } = await import(paths.pending);
+        const record = await buildPendingWalletRecoveryCommitV1({
+          kind: 'pending_wallet_recovery_commit_v1',
+          version: 1,
+          stage: 'server_promoted',
+          recoveryOperationId: projection.recoveryOperationId,
+          walletId: projection.walletId,
+          reservationId: 'reservation:pending-recovery-email-atomic',
+          targetDeviceId: projection.targetDeviceId,
+          targetAuthorityId: projection.targetAuthorityId,
+          targetWalletAuthMethodId: projection.targetWalletAuthMethodId,
+          target: {
+            kind: 'google_email_otp',
+            providerSubject: projection.target.providerSubject,
+            emailHashHex: projection.target.emailHashHex,
+            registrationAuthorityId: projection.target.registrationAuthorityId,
+            enrollment: projection.target.enrollment,
+          },
+          localMaterial: {
+            kind: 'wallet_recovery_encrypted_material_v1',
+            key,
+            iv,
+            ciphertext,
+          },
+          createdAtMs: 1,
+          updatedAtMs: 2,
+          projection,
+        });
+        await db.putPendingWalletRecoveryCommit(record);
+        const initialAuthMethod = {
+          version: 'wallet_auth_method_v1',
+          kind: 'email_otp',
+          status: 'active',
+          localStatus: 'synced',
+          walletId: projection.walletId,
+          emailHashHex: projection.target.emailHashHex,
+          registrationAuthorityId: projection.target.registrationAuthorityId,
+          authority: authAuthority,
+          createdAtMs: projection.authMethod.createdAtMs,
+          updatedAtMs: projection.authMethod.updatedAtMs,
+        };
+        const published = await db.publishPendingWalletRecoveryCommit({
+          pending: record,
+          authority,
+          authMethod: projection.authMethod,
+          registration: {
+            profiles: [
+              {
+                profileId: projection.walletId,
+                defaultSignerSlot: 1,
+              },
+            ],
+            initialAuthMethod,
+            authenticators: [],
+            signerActivations: [],
+            keyMaterials: [],
+            lastProfileState: {
+              profileId: projection.walletId,
+              activeSignerSlot: 1,
+              scope: null,
+            },
+          },
+        });
+        const profile = await db.getProfile(projection.walletId);
+        const storedAuthMethod = await db.getWalletAuthMethodV2(
+          projection.targetWalletAuthMethodId,
+        );
+        const storedAuthority = await db.getWalletAuthority(projection.targetAuthorityId);
+        const localMethods = await db.listWalletAuthMethodsForWallet(projection.walletId);
+        const selections = await db.listWalletSelections();
+        const localEmailMethod = localMethods.find((method) => method.kind === 'email_otp');
+        return {
+          signerActivationCount: published.signerActivations.length,
+          pendingRemaining:
+            (await db.getPendingWalletRecoveryCommit(projection.recoveryOperationId)) !== null,
+          profileId: profile?.profileId ?? null,
+          authMethodId: storedAuthMethod?.walletAuthMethodId ?? null,
+          authorityId: storedAuthority?.authorityId ?? null,
+          localEmailMethod: localEmailMethod
+            ? {
+                status: localEmailMethod.status,
+                emailHashHex: localEmailMethod.emailHashHex,
+                registrationAuthorityId: localEmailMethod.registrationAuthorityId,
+              }
+            : null,
+          selection: selections.find((item) => item.walletId === projection.walletId) ?? null,
+        };
+      },
+      {
+        paths: IMPORT_PATHS,
+        authority: fixture.authority,
+        authAuthority: fixture.authAuthority,
+        projection: fixture.projection,
+      },
+    );
+
+    expect(result).toMatchObject({
+      signerActivationCount: 0,
+      pendingRemaining: false,
+      profileId: fixture.projection.walletId,
+      authMethodId: fixture.projection.targetWalletAuthMethodId,
+      authorityId: fixture.projection.targetAuthorityId,
+      localEmailMethod: {
+        status: 'active',
+        emailHashHex: fixture.projection.target.emailHashHex,
+        registrationAuthorityId: fixture.projection.target.registrationAuthorityId,
+      },
       selection: {
         walletId: fixture.projection.walletId,
         walletAuthMethodId: fixture.projection.targetWalletAuthMethodId,
