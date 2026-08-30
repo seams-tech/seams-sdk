@@ -16,7 +16,7 @@ const validOpaqueUnlockOptions = {
   unlockSelection: { kind: 'value', value: { mode: 'ecdsa_only', ecdsa: true } },
   ecdsaKeyFactsInventory: {
     kind: 'value',
-    value: { mode: 'opaque_wallet_session', curve: 'ecdsa_secp256k1' },
+    value: { mode: 'wallet_session_operation_credential_v1' },
   },
 } satisfies PMUnlockOptions;
 void validOpaqueUnlockOptions;

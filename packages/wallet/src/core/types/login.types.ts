@@ -7,12 +7,11 @@ export type LoginUnlockPayloadOption<T> =
   | {
       kind: 'value';
       value: T;
-  };
+    };
 
 export type PMUnlockEcdsaKeyFactsInventory =
   | {
-      mode: 'opaque_wallet_session';
-      curve: 'ecdsa_secp256k1';
+      mode: 'wallet_session_operation_credential_v1';
     }
   | {
       mode: 'webauthn';

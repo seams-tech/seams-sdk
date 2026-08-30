@@ -86,8 +86,12 @@ function assertUnlockPayloadHasNoParentBearer(payload: unknown): void {
     !Array.isArray(inventoryOption.value)
       ? (inventoryOption.value as Record<string, unknown>)
       : null;
-  if (inventory && Object.prototype.hasOwnProperty.call(inventory, 'walletSessionToken')) {
-    throw new Error('wallet iframe unlock requests must not carry walletSessionToken');
+  if (
+    inventory &&
+    (Object.prototype.hasOwnProperty.call(inventory, 'walletSessionToken') ||
+      Object.prototype.hasOwnProperty.call(inventory, 'operationCredential'))
+  ) {
+    throw new Error('wallet iframe unlock requests must not carry a Wallet Session bearer');
   }
 }
 
@@ -108,8 +112,8 @@ function walletOriginUnlockOptions(
   return {
     ...optionsWithoutInventory,
     ecdsaKeyFactsInventory: {
-      ...inventory,
-      walletSessionToken: operationCredential.token,
+      mode: 'wallet_session_operation_credential_v1',
+      operationCredential,
     },
   };
 }

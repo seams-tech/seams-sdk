@@ -1030,10 +1030,16 @@ function hostedWalletSeamsSessionSourceFromUnlock(
 ): HostedWalletSeamsSessionSource | null {
   if (request.kind !== 'custom_options') return null;
   const inventory = request.options.ecdsaKeyFactsInventory;
-  if (!inventory || inventory.mode !== 'opaque_wallet_session') return null;
+  if (
+    !inventory ||
+    inventory.mode !== 'wallet_session_operation_credential_v1' ||
+    inventory.operationCredential.kind !== 'opaque_wallet_session_operation_credential_v1'
+  ) {
+    return null;
+  }
   return hostedWalletSeamsSessionSource({
     relayUrl: defaultRelayUrl,
-    walletSessionToken: inventory.walletSessionToken,
+    walletSessionToken: inventory.operationCredential.token,
   });
 }
 
