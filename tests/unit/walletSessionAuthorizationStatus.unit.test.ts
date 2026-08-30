@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test';
 import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
-import { opaqueWalletSessionAuth } from '@shared/utils/sessionTokens';
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
   const encode = (value: unknown): string =>
@@ -14,7 +13,7 @@ test.describe('Wallet Session authorization status client', () => {
     let requestInit: RequestInit | undefined;
     const statusPort = createRelayerReusableWalletSessionStatusPort({
       relayerUrl: 'https://relayer.example.test',
-      auth: opaqueWalletSessionAuth(walletSessionJwt),
+      auth: { walletSessionToken: walletSessionJwt },
       fetchImpl: async (_input, init) => {
         requestInit = init;
         return new Response(
@@ -66,12 +65,12 @@ test.describe('Wallet Session authorization status client', () => {
     };
     const firstPort = createRelayerReusableWalletSessionStatusPort({
       relayerUrl: 'https://relayer.example.test',
-      auth: opaqueWalletSessionAuth(walletSessionJwt),
+      auth: { walletSessionToken: walletSessionJwt },
       fetchImpl,
     });
     const secondPort = createRelayerReusableWalletSessionStatusPort({
       relayerUrl: 'https://relayer.example.test',
-      auth: opaqueWalletSessionAuth(walletSessionJwt),
+      auth: { walletSessionToken: walletSessionJwt },
       fetchImpl,
     });
     const identity = {
