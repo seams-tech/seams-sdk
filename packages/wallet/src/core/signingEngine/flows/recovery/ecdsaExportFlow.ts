@@ -891,6 +891,50 @@ async function prepareActiveWalletAuthorityEmailOtpEcdsaExport(args: {
   return { runtime, authorization: explicitExportAuthorization };
 }
 
+async function prepareActiveWalletAuthorityEcdsaExport(args: {
+  readonly deps: EcdsaExportFlowDeps;
+  readonly walletId: string;
+  readonly exportLane: ActiveWalletAuthorityEcdsaExportLane;
+  readonly material: ActiveWalletAuthorityEcdsaExportMaterial;
+  readonly exportPublicKey: string;
+  readonly flowId: string;
+  readonly onEvent?: KeyExportEventCallback;
+}): Promise<{
+  readonly runtime: ActiveWalletAuthorityEcdsaRuntimeV1;
+  readonly authorization: ActiveWalletAuthorityEcdsaExportAuthorization;
+}> {
+  switch (args.material.kind) {
+    case 'active_wallet_authority_passkey_needs_authorization':
+      return await prepareActiveWalletAuthorityPasskeyEcdsaExport({
+        deps: args.deps,
+        walletId: args.walletId,
+        exportLane: args.exportLane,
+        material: args.material,
+        exportPublicKey: args.exportPublicKey,
+        flowId: args.flowId,
+        onEvent: args.onEvent,
+      });
+    case 'active_wallet_authority_email_otp_needs_authorization':
+      return await prepareActiveWalletAuthorityEmailOtpEcdsaExport({
+        deps: args.deps,
+        walletId: args.walletId,
+        exportLane: args.exportLane,
+        material: args.material,
+        exportPublicKey: args.exportPublicKey,
+        flowId: args.flowId,
+        onEvent: args.onEvent,
+      });
+    default:
+      return assertNeverActiveWalletAuthorityEcdsaExportMaterial(args.material);
+  }
+}
+
+function assertNeverActiveWalletAuthorityEcdsaExportMaterial(value: never): never {
+  throw new Error(
+    `[SigningEngine][ecdsa-export] unsupported active wallet authority material: ${String(value)}`,
+  );
+}
+
 export async function exportThresholdEcdsaKeyWithActiveWalletAuthority(
   deps: EcdsaExportFlowDeps,
   args: {
@@ -903,26 +947,15 @@ export async function exportThresholdEcdsaKeyWithActiveWalletAuthority(
   },
 ): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
   const exportPublicKey = String(args.material.publicFacts.publicKeyB64u);
-  const prepared =
-    args.material.kind === 'active_wallet_authority_passkey_needs_authorization'
-      ? await prepareActiveWalletAuthorityPasskeyEcdsaExport({
-          deps,
-          walletId: args.walletId,
-          exportLane: args.exportLane,
-          material: args.material,
-          exportPublicKey,
-          flowId: args.flowId,
-          onEvent: args.onEvent,
-        })
-      : await prepareActiveWalletAuthorityEmailOtpEcdsaExport({
-          deps,
-          walletId: args.walletId,
-          exportLane: args.exportLane,
-          material: args.material,
-          exportPublicKey,
-          flowId: args.flowId,
-          onEvent: args.onEvent,
-        });
+  const prepared = await prepareActiveWalletAuthorityEcdsaExport({
+    deps,
+    walletId: args.walletId,
+    exportLane: args.exportLane,
+    material: args.material,
+    exportPublicKey,
+    flowId: args.flowId,
+    onEvent: args.onEvent,
+  });
   return await prepareAndShowEcdsaExportArtifact(deps, {
     walletId: args.walletId,
     exportLane: args.exportLane,

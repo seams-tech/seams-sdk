@@ -278,36 +278,43 @@ function buildActiveAddedWalletAuthMethodV2(input: {
   readonly walletAuthorityId: WalletAuthMethodRecordV2['walletAuthorityId'];
   readonly now: number;
 }): ActiveWalletAuthMethodRecordV2 {
-  const record =
-    input.authority.kind === 'passkey'
-      ? buildWalletAuthMethodRecordV2({
-          version: 'wallet_auth_method_v2',
-          walletAuthMethodId: input.walletAuthMethodId,
-          walletId: input.authority.walletId,
-          walletAuthorityId: input.walletAuthorityId,
-          kind: 'passkey',
-          status: 'active',
-          rpId: input.authority.rpId,
-          credentialIdB64u: requireStoredCredentialId(input.authority.credentialIdB64u),
-          credentialPublicKeyB64u: input.authority.credentialPublicKeyB64u,
-          counter: input.authority.counter,
-          createdAtMs: input.now,
-          updatedAtMs: input.now,
-          activatedAtMs: input.now,
-        })
-      : buildWalletAuthMethodRecordV2({
-          version: 'wallet_auth_method_v2',
-          walletAuthMethodId: input.walletAuthMethodId,
-          walletId: input.authority.walletId,
-          walletAuthorityId: input.walletAuthorityId,
-          kind: 'email_otp',
-          status: 'active',
-          emailHashHex: input.authority.emailHashHex,
-          registrationAuthorityId: input.authority.registrationAuthorityId,
-          createdAtMs: input.now,
-          updatedAtMs: input.now,
-          activatedAtMs: input.now,
-        });
+  let record: WalletAuthMethodRecordV2;
+  switch (input.authority.kind) {
+    case 'passkey':
+      record = buildWalletAuthMethodRecordV2({
+        version: 'wallet_auth_method_v2',
+        walletAuthMethodId: input.walletAuthMethodId,
+        walletId: input.authority.walletId,
+        walletAuthorityId: input.walletAuthorityId,
+        kind: 'passkey',
+        status: 'active',
+        rpId: input.authority.rpId,
+        credentialIdB64u: requireStoredCredentialId(input.authority.credentialIdB64u),
+        credentialPublicKeyB64u: input.authority.credentialPublicKeyB64u,
+        counter: input.authority.counter,
+        createdAtMs: input.now,
+        updatedAtMs: input.now,
+        activatedAtMs: input.now,
+      });
+      break;
+    case 'email_otp':
+      record = buildWalletAuthMethodRecordV2({
+        version: 'wallet_auth_method_v2',
+        walletAuthMethodId: input.walletAuthMethodId,
+        walletId: input.authority.walletId,
+        walletAuthorityId: input.walletAuthorityId,
+        kind: 'email_otp',
+        status: 'active',
+        emailHashHex: input.authority.emailHashHex,
+        registrationAuthorityId: input.authority.registrationAuthorityId,
+        createdAtMs: input.now,
+        updatedAtMs: input.now,
+        activatedAtMs: input.now,
+      });
+      break;
+    default:
+      return unreachableRegistrationStartAuthority(input.authority);
+  }
   if (record.status !== 'active') throw new Error('Added wallet auth method must be active');
   return record;
 }
@@ -335,18 +342,23 @@ function walletAuthMethodRevokedResponse(
   walletId: WalletId,
   record: Extract<WalletAuthMethodRecordV2, { readonly status: 'revoked' }>,
 ): WalletRevokeAuthMethodResponse {
-  return record.kind === 'passkey'
-    ? {
+  switch (record.kind) {
+    case 'passkey':
+      return {
         ok: true,
         walletId,
         authMethod: { kind: 'passkey', status: 'revoked' },
         rpId: record.rpId,
-      }
-    : {
+      };
+    case 'email_otp':
+      return {
         ok: true,
         walletId,
         authMethod: { kind: 'email_otp', status: 'revoked' },
       };
+    default:
+      return unreachableRevokedMethodKind(record);
+  }
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -589,8 +601,7 @@ export class CloudflareD1WalletAuthMethodService {
     const active = (
       await this.getWalletAuthMethodStore().listForWalletV2({ walletId: input.walletId })
     ).filter(isActiveWalletAuthMethodRecordV2);
-    const source =
-      input.intent.caller === 'same_device_addition' ? input.intent.source : null;
+    const source = input.intent.caller === 'same_device_addition' ? input.intent.source : null;
     if (!source) return active;
     return active.filter((method) => method.walletAuthorityId === source.walletAuthorityId);
   }
@@ -1001,12 +1012,13 @@ export class CloudflareD1WalletAuthMethodService {
           }
         }
         const custodyFactor = custodyFactorFromAddAuthMethodAuth(storedAuth.auth);
-        const envelopeLookup =
-          await this.passkeyCustodyEnvelopes.lookupEnvelopeForWalletAuthMethod({
+        const envelopeLookup = await this.passkeyCustodyEnvelopes.lookupEnvelopeForWalletAuthMethod(
+          {
             walletId,
             factor: custodyFactor,
             walletAuthMethodId: sourceMethod.walletAuthMethodId,
-          });
+          },
+        );
         if (envelopeLookup.kind !== 'active') {
           return {
             ok: false,
@@ -2320,16 +2332,23 @@ export class CloudflareD1WalletAuthMethodService {
     readonly authority: ActiveWalletAuthorityV1;
     readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   } | null> {
-    const record =
-      authority.kind === 'passkey'
-        ? await this.getWalletAuthMethodStore().getPasskeyV2({
-            rpId: authority.rpId,
-            credentialIdB64u: authority.credentialIdB64u,
-          })
-        : await this.getWalletAuthMethodStore().getEmailOtpV2({
-            walletId: String(authority.walletId),
-            emailHashHex: authority.emailHashHex,
-          });
+    let record: WalletAuthMethodRecordV2 | null;
+    switch (authority.kind) {
+      case 'passkey':
+        record = await this.getWalletAuthMethodStore().getPasskeyV2({
+          rpId: authority.rpId,
+          credentialIdB64u: authority.credentialIdB64u,
+        });
+        break;
+      case 'email_otp':
+        record = await this.getWalletAuthMethodStore().getEmailOtpV2({
+          walletId: String(authority.walletId),
+          emailHashHex: authority.emailHashHex,
+        });
+        break;
+      default:
+        return unreachableRegistrationStartAuthority(authority);
+    }
     if (!record || record.status !== 'active' || record.walletId !== authority.walletId) {
       return null;
     }

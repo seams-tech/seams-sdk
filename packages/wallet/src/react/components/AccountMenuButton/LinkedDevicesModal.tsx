@@ -80,6 +80,10 @@ type RevokeSourceMethod =
     }
   | { readonly kind: 'email_otp'; readonly binding: EmailOtpWalletAuthMethodBinding };
 
+function assertNeverWalletAuthMethodBinding(value: never): never {
+  throw new Error(`Unsupported wallet auth-method binding kind: ${String(value)}`);
+}
+
 function requireWalletId(value: string) {
   const parsed = parseWalletId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
@@ -163,17 +167,25 @@ function resolveRevokeSourceMethod(
   walletId: string,
   targetWalletAuthMethodId: string,
 ): RevokeSourceMethod {
-  const sourceWalletId =
-    binding.kind === 'passkey' ? binding.scope.wallet.walletId : binding.wallet.walletId;
-  if (String(sourceWalletId) !== walletId) {
-    throw new Error('Unlock this wallet with a sibling authentication method first.');
+  switch (binding.kind) {
+    case 'passkey':
+      if (String(binding.scope.wallet.walletId) !== walletId) {
+        throw new Error('Unlock this wallet with a sibling authentication method first.');
+      }
+      if (String(binding.walletAuthMethodId) === targetWalletAuthMethodId) {
+        throw new Error('Unlock with the sibling authentication method before removing this one.');
+      }
+      return { kind: 'passkey', bindings: [binding] };
+    case 'email_otp':
+      if (String(binding.wallet.walletId) !== walletId) {
+        throw new Error('Unlock this wallet with a sibling authentication method first.');
+      }
+      if (String(binding.walletAuthMethodId) === targetWalletAuthMethodId) {
+        throw new Error('Unlock with the sibling authentication method before removing this one.');
+      }
+      return { kind: 'email_otp', binding };
   }
-  if (String(binding.walletAuthMethodId) === targetWalletAuthMethodId) {
-    throw new Error('Unlock with the sibling authentication method before removing this one.');
-  }
-  return binding.kind === 'passkey'
-    ? { kind: 'passkey', bindings: [binding] }
-    : { kind: 'email_otp', binding };
+  return assertNeverWalletAuthMethodBinding(binding);
 }
 
 function viewCreatedAtMs(view: WalletDeviceView): number {

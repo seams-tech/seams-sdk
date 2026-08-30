@@ -484,6 +484,20 @@ export function selectWalletRecoveryContinuityAnchor(input: {
   return candidates[0];
 }
 
+function walletRecoveryTargetFamily(target: WalletRecoveryTargetV1): 'passkey' | 'email_otp' {
+  switch (target.kind) {
+    case 'passkey':
+      return 'passkey';
+    case 'google_email_otp':
+      return 'email_otp';
+  }
+  return assertNeverWalletRecoveryTarget(target);
+}
+
+function assertNeverWalletRecoveryTarget(value: never): never {
+  throw new Error(`Unsupported wallet recovery target kind: ${String(value)}`);
+}
+
 function compareContinuityAnchors(
   left: WalletRecoveryContinuityAnchor,
   right: WalletRecoveryContinuityAnchor,
@@ -1150,7 +1164,7 @@ async function prepareRecoveryForRoute(
   });
   const continuityAnchor = selectWalletRecoveryContinuityAnchor({
     walletId,
-    targetFamily: request.target.kind === 'passkey' ? 'passkey' : 'email_otp',
+    targetFamily: walletRecoveryTargetFamily(request.target),
     methods,
     envelopes,
     authorities,
