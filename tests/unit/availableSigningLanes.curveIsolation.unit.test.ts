@@ -307,8 +307,9 @@ test.describe('available signing lane curve isolation', () => {
   test('prefers a fresh Email OTP unlock capability under a promoted full authority', async ({
     page,
   }) => {
+    const nowMs = Date.now();
     const record = buildEmailOtpEd25519SealedSessionRecordFixture({
-      expiresAtMs: Date.now() + 60_000,
+      expiresAtMs: nowMs + 60_000,
       remainingUses: 0,
     });
     const sourceAuthorization = buildEmailOtpExactEd25519AuthorizationFixture(record, {
@@ -336,7 +337,7 @@ test.describe('available signing lane curve isolation', () => {
         quotaLifecycle: 'active',
         authorization: promotedSession,
       },
-      nowMs: 1_800_000_000_000,
+      nowMs,
     });
     const factorAuthorityRef = buildWalletAuthAuthorityRefForAuthorityFixture(
       sourceAuthorization.selectedFactorAuthority,
