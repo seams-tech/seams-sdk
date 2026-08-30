@@ -93,6 +93,7 @@ import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent'
 import type {
   DirectV2IssueResult,
   IssuedWalletSessionAuthorizationV2,
+  WalletSessionAuthorizationV2,
 } from '../../authorization/domain';
 import type { IssueWalletSessionAuthorizationV2Input } from '../../authorization/service';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
@@ -192,6 +193,17 @@ export type RouterApiWalletSessionAuthorizationV2AdmissionContext = {
   readonly authority: ActiveWalletAuthorityV1;
   readonly authMethod: WalletAuthMethodRecordV2;
   readonly retiredAtMs: number | null;
+};
+
+/**
+ * Exact session identity retained after its reusable quota transitions to
+ * exhausted. The quota is deliberately not represented as an active quota;
+ * the operation admission fingerprint decides whether this is a replay.
+ */
+export type RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext = {
+  readonly session: WalletSessionAuthorizationV2;
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly authMethod: WalletAuthMethodRecordV2;
 };
 
 export type RouterApiHostedWalletSessionAuthorizationV2AdmissionContext =
@@ -325,10 +337,7 @@ import type {
   VerifiedOwnerProofInput,
 } from '../../authorization/factorEvidence';
 import type { EcdsaMaterialActivationScope } from '../../authorization/service';
-import type {
-  PrincipalId,
-  TenantId,
-} from '@shared/authorization/capabilityKinds';
+import type { PrincipalId, TenantId } from '@shared/authorization/capabilityKinds';
 
 export type EmailOtpChallengeDelivery =
   | {
@@ -1592,6 +1601,12 @@ export interface RouterApiAuthorizationSessionService {
     readonly token: string;
     readonly nowMs: number;
   }) => Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null>;
+  /** Reads the exact active authority for an already-admitted exhausted operation. */
+  readonly readExhaustedWalletSessionAuthorizationV2CandidateByOperationCredential: (input: {
+    readonly tenantId: TenantId;
+    readonly token: string;
+    readonly nowMs: number;
+  }) => Promise<RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext | null>;
   /** Reads the exact digest-free authorization and quota status lifecycle. */
   readonly readExactWalletSessionStatusByOperationCredential: (input: {
     readonly tenantId: TenantId;

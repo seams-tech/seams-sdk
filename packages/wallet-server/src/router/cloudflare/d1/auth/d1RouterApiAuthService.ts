@@ -2379,6 +2379,36 @@ function createD1AuthorizationSessionRouteService(
         retiredAtMs: null,
       };
     },
+    readExhaustedWalletSessionAuthorizationV2CandidateByOperationCredential: async (input) => {
+      const status =
+        await assembly.authorizationService.readExactWalletSessionStatusByOperationCredential(
+          input,
+        );
+      if (status.kind !== 'exhausted') return null;
+      const authority = await assembly.walletAuthorityStore.readById(status.session.authorityId);
+      const authMethod = await assembly.walletAuthMethodStore.readByIdV2({
+        walletAuthMethodId: status.session.walletAuthMethodId,
+      });
+      if (
+        !authority ||
+        authority.state !== 'active' ||
+        !authMethod ||
+        authMethod.status !== 'active' ||
+        authority.walletId !== status.session.walletId ||
+        authority.authorityDigestB64u !== status.session.authorityDigestB64u ||
+        authority.revocationEpoch !== status.session.authorityRevocationEpoch ||
+        authMethod.walletId !== status.session.walletId ||
+        authMethod.walletAuthorityId !== status.session.authorityId ||
+        authMethod.walletAuthMethodId !== status.session.walletAuthMethodId
+      ) {
+        return null;
+      }
+      return {
+        session: status.session,
+        authority,
+        authMethod,
+      };
+    },
     readExactWalletSessionStatusByOperationCredential:
       assembly.authorizationService.readExactWalletSessionStatusByOperationCredential.bind(
         assembly.authorizationService,

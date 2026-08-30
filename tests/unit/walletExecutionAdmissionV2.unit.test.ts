@@ -82,6 +82,7 @@ import type {
   RouterApiAuthorizedOperationService,
   RouterApiAuthorizationSessionService,
   RouterApiWalletSessionAuthorizationV2AdmissionContext,
+  RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext,
   RouterApiWalletRegistrationService,
 } from '../../packages/wallet-server/src/router/framework/authServicePort';
 import {
@@ -91,6 +92,7 @@ import {
 import type { RouterAbEd25519YaoExportAuthorizationIdentityV1 } from '@shared/utils/routerAbEd25519Yao';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
+  buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
   buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
@@ -328,6 +330,7 @@ class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessi
   constructor(
     private readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext,
     private readonly expectedToken: string | null = null,
+    private readonly exhaustedCandidate: RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext | null = null,
   ) {
     this.tenantId = context.authorization.session.tenantId;
   }
@@ -336,6 +339,14 @@ class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessi
     readonly token: string;
   }) => {
     return this.expectedToken === null || input.token === this.expectedToken ? this.context : null;
+  };
+
+  readonly readExhaustedWalletSessionAuthorizationV2CandidateByOperationCredential = async (input: {
+    readonly token: string;
+  }) => {
+    return this.expectedToken === null || input.token === this.expectedToken
+      ? this.exhaustedCandidate
+      : null;
   };
 
   async readExactWalletSessionStatusByOperationCredential(): Promise<never> {
