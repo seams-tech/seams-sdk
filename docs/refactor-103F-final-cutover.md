@@ -1783,7 +1783,8 @@ change.
 - [x] `tests/e2e/intended-behaviours/passkey.registration.contract.test.ts`,
       covering registration, immediate Tempo signing, deferred NEAR readiness,
       and NEAR signing after exact-session authority promotion (`d3d399aab`)
-- [ ] `tests/e2e/intended-behaviours/email-otp.registration.benchmark.test.ts`
+- [x] `tests/e2e/intended-behaviours/email-otp.registration.benchmark.test.ts`
+      passed its isolated benchmark runner (1/1 in 4.1 minutes).
 - [ ] `tests/e2e/intended-behaviours/passkey.unlock.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/passkey.recovery.contract.test.ts`
@@ -1794,6 +1795,13 @@ change.
 - [ ] `tests/e2e/linked-device.operating-path.test.ts` for all four genuine
       source/target factor combinations, including the remaining immediate
       post-link factor combinations from I6.
+
+Acceptance checkpoint on 2026-08-30: `passkey.unlock`, `email-otp.unlock`, and
+the first `passkey.recovery` case reached the same production regression during
+deferred NEAR readiness: direct-V2 same-mint replay rejected the committed
+session after its authority projection had legitimately gained the Ed25519
+capability. These items remain unchecked until the replay boundary is corrected
+and the isolated cases pass.
 
 #### Required targeted additions and updates
 
