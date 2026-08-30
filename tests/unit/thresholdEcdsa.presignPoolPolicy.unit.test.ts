@@ -18,8 +18,8 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
   const BACKEND_CLIENT_VERIFYING_SHARE_B64U =
     parseEcdsaClientVerifyingShareB64u('backend-client-share');
   const WALLET_SESSION_CREDENTIAL = {
-    kind: 'wallet_session_jwt' as const,
-    walletSessionJwt: 'wallet-session-jwt',
+    kind: 'wallet_session_opaque' as const,
+    walletSessionToken: 'wallet-session-token',
   };
   const WALLET_SESSION_AUTHORIZATION = {
     kind: 'reusable_wallet_session' as const,
@@ -51,6 +51,7 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
           client_share_retry_counter: 0,
           server_share_retry_counter: 1,
         },
+        material_activation: MATERIAL_ACTIVATION,
         signing_worker: {
           server_id: 'signing-worker-1',
           key_epoch: 'worker-epoch-1',

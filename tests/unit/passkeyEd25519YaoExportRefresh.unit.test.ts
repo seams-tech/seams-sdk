@@ -240,8 +240,8 @@ test('page-refresh passkey export prompts from durable context without activatin
     exportedSchemes: ['ed25519'],
   });
   expect(harness.workerPayload?.exactLane.materialActivation).toEqual(MATERIAL_ACTIVATION);
-  expect(harness.workerPayload?.authorization.walletSessionJwt).toBe(
-    DURABLE_EXPORT_AUTHORIZATION.walletSessionJwt,
+  expect(harness.workerPayload?.authorization.walletSessionToken).toBe(
+    DURABLE_EXPORT_AUTHORIZATION.operationCredential.token,
   );
 });
 
@@ -266,8 +266,8 @@ test('page-refresh passkey export uses the exact durable context returned after 
     credentialIdB64u: CREDENTIAL_ID,
     materialActivation: MATERIAL_ACTIVATION,
   });
-  expect(harness.workerPayload?.authorization.walletSessionJwt).toBe(
-    DURABLE_EXPORT_AUTHORIZATION.walletSessionJwt,
+  expect(harness.workerPayload?.authorization.walletSessionToken).toBe(
+    DURABLE_EXPORT_AUTHORIZATION.operationCredential.token,
   );
 });
 

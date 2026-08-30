@@ -443,7 +443,10 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
       await expect(
         prepareRouterAbEcdsaDerivationEvmDigestSigningV1({
           relayServerUrl: 'https://router.example/base/',
-          credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
+          credential: {
+            kind: 'wallet_session_opaque',
+            walletSessionToken: 'wallet-session-token',
+          },
           request,
         }),
       ).resolves.toEqual(preparedResponse);
@@ -451,7 +454,10 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
       await expect(
         finalizeRouterAbEcdsaDerivationEvmDigestSigningV1({
           relayServerUrl: 'https://router.example/base/',
-          credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
+          credential: {
+            kind: 'wallet_session_opaque',
+            walletSessionToken: 'wallet-session-token',
+          },
           request: finalizeRequest,
         }),
       ).resolves.toEqual(signedResponse);
@@ -466,7 +472,7 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
     expect(calls[0].init.credentials).toBe('omit');
     expect(calls[0].init.headers).toEqual({
       'Content-Type': 'application/json',
-      Authorization: 'Bearer wallet-session-jwt',
+      Authorization: 'Bearer wallet-session-token',
     });
     expect(JSON.parse(String(calls[0].init.body))).toEqual(request);
     expect(JSON.parse(String(calls[1].init.body))).toEqual(finalizeRequest);
@@ -530,7 +536,10 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
         operationId,
         operationDigests,
         materialActivation,
-        credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
+        credential: {
+          kind: 'wallet_session_opaque',
+          walletSessionToken: 'wallet-session-token',
+        },
         signingDigest32: new Uint8Array(32).fill(11),
         clientSigningMaterial,
         expiresAtMs: Date.now() + 30_000,
@@ -569,7 +578,10 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
         operationId,
         operationDigests,
         materialActivation,
-        credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
+        credential: {
+          kind: 'wallet_session_opaque',
+          walletSessionToken: 'wallet-session-token',
+        },
         signingDigest32: new Uint8Array(32).fill(11),
         clientSigningMaterial,
         expiresAtMs: Date.now() + 30_000,
@@ -612,7 +624,10 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
         operationId,
         operationDigests,
         materialActivation,
-        credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
+        credential: {
+          kind: 'wallet_session_opaque',
+          walletSessionToken: 'wallet-session-token',
+        },
         signingDigest32: new Uint8Array(32).fill(11),
         clientSigningMaterial,
         expiresAtMs: Date.now() + 30_000,
@@ -690,7 +705,10 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
         operationId,
         operationDigests,
         materialActivation,
-        credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
+        credential: {
+          kind: 'wallet_session_opaque',
+          walletSessionToken: 'wallet-session-token',
+        },
         signingDigest32: new Uint8Array(32).fill(11),
         clientSigningMaterial,
         expiresAtMs: Date.now() + 30_000,

@@ -1778,8 +1778,11 @@ Remaining causal baseline work:
       usable duplicates, deterministic retirement of unusable/expired rows, and
       zero foreign-key-check results.
 - [x] Update Router A/B Wallet Session claim fixture helpers.
-- [ ] Delete stale inline JWT-shaped Wallet Session fixtures found by closure
-      searches.
+- [x] Delete stale inline JWT-shaped Wallet Session fixtures found by closure
+      searches. The remaining signing, funding, export, and presignature tests use
+      the final opaque operation-credential bearer shape; the obsolete mock
+      `mintWalletSession` producer was deleted. Negative persistence fixtures that
+      deliberately prove `walletSessionJwt` rejection remain as hostile inputs.
 
 ### Acceptance matrix
 
