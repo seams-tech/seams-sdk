@@ -201,8 +201,6 @@ export async function rebindRouterAbEd25519WalletSessionStateFromExactRuntime(ar
     exactAuthority.walletId !== args.runtime.walletId ||
     exactAuthority.walletAuthMethodId !==
       args.authorization.selectedAuthMethod.walletAuthMethodId ||
-    String(exactAuthority.authorityDigest) !==
-      String(args.authorization.selectedAuthority.authorityDigestB64u) ||
     exactAuthority.walletId !== selectedFactorAuthorityRef.walletId ||
     exactAuthority.walletAuthMethodId !== selectedFactorAuthorityRef.walletAuthMethodId ||
     String(exactAuthority.authorityDigest) !== String(selectedFactorAuthorityRef.authorityDigest) ||

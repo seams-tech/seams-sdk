@@ -87,7 +87,6 @@ import {
 } from '@shared/utils/signerDomain';
 import {
   walletAuthAuthorityRef,
-  parseWalletAuthAuthorityRef,
   type WalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
@@ -278,14 +277,13 @@ function exactSelectedWalletAuthority(
 async function resolveBrowserSelectedFactorAuthority(
   selected: BrowserSelectedWalletAuthority,
 ): Promise<WalletAuthAuthority> {
-  const authorityRef = parseWalletAuthAuthorityRef({
-    kind: 'wallet_auth_authority_ref',
-    walletId: selected.authority.walletId,
-    authorityDigest: selected.authority.authorityDigestB64u,
-    walletAuthMethodId: selected.authMethod.walletAuthMethodId,
+  return await resolveExactWalletAuthAuthorityFromMethod({
+    authMethod: selected.authMethod,
+    stores: {
+      ...browserExactWalletAuthMethodStore,
+      getWalletPasskeyAuthenticator: noWalletPasskeyAuthenticator,
+    },
   });
-  if (!authorityRef) throw new Error('Selected wallet authority digest is invalid');
-  return await resolveExactWalletAuthAuthority(authorityRef, browserExactWalletAuthMethodStore);
 }
 
 type NearEd25519NonAuthorizedReadResult = Exclude<
@@ -339,12 +337,6 @@ export async function readBrowserExactNearEd25519WalletSessionAuthorization(
   }
   const selected = exactSelectedWalletAuthority(selectedResult, walletId);
   if (!selected) return { kind: 'missing' };
-  let selectedFactorAuthority: WalletAuthAuthority;
-  try {
-    selectedFactorAuthority = await resolveBrowserSelectedFactorAuthority(selected);
-  } catch {
-    return { kind: 'unavailable' };
-  }
 
   let exactRead: Awaited<ReturnType<typeof walletSessionAuthorizations.readExactActiveForWallet>>;
   try {
@@ -388,15 +380,49 @@ export async function readBrowserExactNearEd25519WalletSessionAuthorization(
   }
   if (status.status !== 'active') return nearEd25519ReadResultFromRemoteStatus(status);
 
+  let currentSelectedResult: BrowserSelectedWalletAuthorityResolution;
+  try {
+    currentSelectedResult = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+  } catch {
+    return { kind: 'persistence_unavailable' };
+  }
+  const currentSelected = exactSelectedWalletAuthority(currentSelectedResult, walletId);
+  if (!currentSelected) return { kind: 'missing' };
+  const authorizationNowMs = Date.now();
+  if (status.authorization.expiresAtMs <= authorizationNowMs) return { kind: 'expired' };
+  if (
+    status.walletSessionId !== exactRead.operationCredential.walletSessionId ||
+    status.quotaId !== exactRead.record.quotaId ||
+    status.expiresAtMs !== status.authorization.expiresAtMs ||
+    !walletSessionImmutableIdentityMatches(status.authorization, exactRead.record) ||
+    !walletSessionMatchesSelectedAuthority(status.authorization, currentSelected)
+  ) {
+    return { kind: 'corrupt' };
+  }
+  try {
+    await walletSessionAuthorizations.replaceExactActive({
+      active: status.authorization,
+      operationCredential: exactRead.operationCredential,
+    });
+  } catch {
+    return { kind: 'persistence_unavailable' };
+  }
+  let selectedFactorAuthority: WalletAuthAuthority;
+  try {
+    selectedFactorAuthority = await resolveBrowserSelectedFactorAuthority(currentSelected);
+  } catch {
+    return { kind: 'unavailable' };
+  }
+
   try {
     const authorization = buildActiveNearEd25519WalletSessionAuthorization({
-      selectedAuthority: selected.authority,
-      selectedAuthMethod: selected.authMethod,
+      selectedAuthority: currentSelected.authority,
+      selectedAuthMethod: currentSelected.authMethod,
       selectedFactorAuthority,
-      session: exactRead.record,
+      session: status.authorization,
       operationCredential: exactRead.operationCredential,
       status,
-      nowMs: Date.now(),
+      nowMs: authorizationNowMs,
     });
     return { kind: 'found', authorization };
   } catch {
@@ -923,11 +949,7 @@ export async function listBrowserEcdsaSigningCapabilitiesForWallet(
         materialActivation: manifest.activation.materialActivation,
       },
     );
-    if (
-      authorizationResolution.kind === 'active' &&
-      String(authorizationResolution.authorization.selectedAuthority.authorityDigestB64u) ===
-        String(capability.manifest.signer.authority.authorityDigest)
-    ) {
+    if (authorizationResolution.kind === 'active') {
       try {
         capabilities.push(
           authorizeEvmFamilyEcdsaSigningCapability({

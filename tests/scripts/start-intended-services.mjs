@@ -30,6 +30,7 @@ const projectEnvironmentId = process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID |
 const projectEnvironmentKey = process.env.SEAMS_INTENDED_ENVIRONMENT_KEY || 'dev';
 const publishableKey = process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local';
 const docsOrigin = process.env.SEAMS_INTENDED_DOCS_ORIGIN || 'https://docs.localhost:4003';
+const siteViteUrl = 'http://127.0.0.1:4004';
 const routerAbLocalRoot =
   process.env.SEAMS_INTENDED_ROUTER_AB_ROOT ||
   path.join(tmpdir(), `${path.basename(repoRoot)}-intended-router-ab`);
@@ -123,6 +124,8 @@ async function main() {
   prepareD1LocalWranglerRuntimeConfig();
   applyD1LocalMigrations();
 
+  const site = startSite();
+  await waitForHttpOk(siteViteUrl, 'site Vite', 120_000);
   startCaddy();
   const router = startRouter();
   await waitForHttpOk(`${routerUrl}/healthz`, 'router healthz', 180_000);
@@ -130,7 +133,6 @@ async function main() {
   await waitForHttpOk(`${routerUrl}/console/readyz`, 'console readyz', 180_000);
   seedLocalConsole();
 
-  const site = startSite();
   const consoleApp = startConsole();
   await waitForHttpOk(appUrl, 'site', 120_000);
   await waitForHttpOk(consoleStaticUrl, 'console frontend', 120_000);
@@ -285,11 +287,19 @@ function assertNoConflictingLocalProcesses() {
 }
 
 function startSite() {
-  return spawnManaged('site', ['-C', 'apps/seams-site', 'run', 'vite'], siteEnv());
+  return spawnManaged(
+    'site',
+    ['-C', 'apps/seams-site', 'exec', 'vite', '--host', '127.0.0.1', '--port', '4004'],
+    siteEnv(),
+  );
 }
 
 function startConsole() {
-  return spawnManaged('console', ['-C', 'apps/seams-console', 'run', 'vite'], consoleEnv());
+  return spawnManaged(
+    'console',
+    ['-C', 'apps/seams-console', 'exec', 'vite', '--host', '127.0.0.1', '--port', '4005'],
+    consoleEnv(),
+  );
 }
 
 function startCaddy() {

@@ -38,11 +38,12 @@ const authorization = buildActiveNearEd25519WalletSessionAuthorization({
   nowMs,
 });
 
-const authorized = buildAuthorizedNearEd25519YaoSigningPreparation({
-  hydration,
-  requirement,
-  authorization,
-});
+const authorized: Promise<NearEd25519YaoSigningPreparation> =
+  buildAuthorizedNearEd25519YaoSigningPreparation({
+    hydration,
+    requirement,
+    authorization,
+  });
 
 const authorizationRequired = buildAuthorizationRequiredNearEd25519YaoSigningPreparation({
   hydration,

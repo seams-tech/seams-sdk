@@ -23,19 +23,19 @@
 	@console_platform path /platform/*
 	handle @console_platform {
 		rewrite * /dashboard-static/
-		reverse_proxy localhost:4005
+		reverse_proxy 127.0.0.1:4005
 	}
 	@console_routes path /dashboard/*
 	handle @console_routes {
 		rewrite * /dashboard-static/
-		reverse_proxy localhost:4005
+		reverse_proxy 127.0.0.1:4005
 	}
 	@console_assets path /dashboard-static/*
 	handle @console_assets {
-		reverse_proxy localhost:4005
+		reverse_proxy 127.0.0.1:4005
 	}
 	handle {
-		reverse_proxy localhost:4004
+		reverse_proxy 127.0.0.1:4004
 	}
 }
 

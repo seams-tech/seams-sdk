@@ -2108,9 +2108,13 @@ async function hydrateOwnerNearEd25519ExecutionLane(args: {
     runtime: args.sealedRuntime,
     walletAuthMethodId: args.authorization.selectedAuthMethod.walletAuthMethodId,
   });
+  const selectedFactorAuthority = await walletAuthAuthorityRef({
+    authority: args.authorization.selectedFactorAuthority,
+  });
   if (
-    String(authority.authorityDigest) !==
-    String(args.authorization.selectedAuthority.authorityDigestB64u)
+    authority.walletId !== selectedFactorAuthority.walletId ||
+    authority.walletAuthMethodId !== selectedFactorAuthority.walletAuthMethodId ||
+    authority.authorityDigest !== selectedFactorAuthority.authorityDigest
   ) {
     throw new Error('Owner Ed25519 execution-lane authority does not match sealed material');
   }
@@ -3510,7 +3514,7 @@ export class BrowserSigningSurface {
           const authority = await walletAuthAuthorityRef({
             authority: authorization.selectedFactorAuthority,
           });
-          return buildAuthorizedNearEd25519YaoSigningPreparation({
+          return await buildAuthorizedNearEd25519YaoSigningPreparation({
             hydration: buildUseLiveRuntimeHydrationPlan({
               authority,
               runtime: liveRuntime.runtime,
@@ -3579,9 +3583,13 @@ export class BrowserSigningSurface {
           runtime: sealedRuntime,
           walletAuthMethodId: activeAuthorization.selectedAuthMethod.walletAuthMethodId,
         });
+        const selectedFactorAuthority = await walletAuthAuthorityRef({
+          authority: activeAuthorization.selectedFactorAuthority,
+        });
         if (
-          String(authority.authorityDigest) !==
-          String(activeAuthorization.selectedAuthority.authorityDigestB64u)
+          authority.walletId !== selectedFactorAuthority.walletId ||
+          authority.walletAuthMethodId !== selectedFactorAuthority.walletAuthMethodId ||
+          authority.authorityDigest !== selectedFactorAuthority.authorityDigest
         ) {
           throw new Error('[SigningEngine][near] exact Passkey authority changed');
         }
@@ -3864,7 +3872,7 @@ export class BrowserSigningSurface {
       ) {
         return preparation;
       }
-      return buildAuthorizedNearEd25519YaoSigningPreparation({
+      return await buildAuthorizedNearEd25519YaoSigningPreparation({
         hydration: preparation.hydration,
         requirement: args.auth,
         authorization: currentAuthorizationRead.authorization,
@@ -3921,7 +3929,7 @@ export class BrowserSigningSurface {
           if (runtime.kind !== 'live') {
             throw new Error('[SigningEngine][near] active Passkey Ed25519 material is unavailable');
           }
-          return buildAuthorizedNearEd25519YaoSigningPreparation({
+          return await buildAuthorizedNearEd25519YaoSigningPreparation({
             hydration: buildUseLiveRuntimeHydrationPlan({
               authority: walletSessionState.authority,
               runtime: runtime.runtime,
@@ -3988,7 +3996,7 @@ export class BrowserSigningSurface {
             material: activeMaterial,
           });
         }
-        return buildAuthorizedNearEd25519YaoSigningPreparation({
+        return await buildAuthorizedNearEd25519YaoSigningPreparation({
           hydration,
           requirement: args.auth,
           authorization,

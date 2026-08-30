@@ -73,7 +73,10 @@ import {
   validateRouterAbEd25519WalletSessionInputs,
   validateRouterAbEcdsaDerivationWalletSessionInputs,
 } from '../../packages/wallet-server/src/router/auth/commonRouterUtils';
-import { authorizeStrictEcdsaSessionActivationFromOperationCredential } from '../../packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa';
+import {
+  authorizeStrictEcdsaSessionActivationFromOperationCredential,
+  handleStrictEcdsaSessionActivation,
+} from '../../packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa';
 import { authenticateDeviceLinkingOwnerWalletSessionRequestV1 } from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceLinkingOwnerAuthorization';
 import type {
   RouterApiAuthorizedOperationService,
@@ -89,10 +92,13 @@ import type { RouterAbEd25519YaoExportAuthorizationIdentityV1 } from '@shared/ut
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
-import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/createFetchRouter';
+import { createEcdsaSessionActivationFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 type SignerFamily = 'ed25519' | 'ecdsa_secp256k1' | 'both';
 
@@ -262,6 +268,19 @@ function buildAuthMethod(
     status: 'revoked',
     activatedAtMs: 200,
     revokedAtMs: 300,
+  });
+}
+
+async function passkeyAuthorityRefForAuthMethod(
+  authMethod: Extract<WalletAuthMethodRecordV2, { readonly kind: 'passkey' }>,
+) {
+  return await walletAuthAuthorityRef({
+    authority: {
+      walletId: authMethod.walletId,
+      factor: { kind: 'passkey', credentialIdB64u: authMethod.credentialIdB64u },
+      verifier: { kind: 'webauthn', rpId: authMethod.rpId },
+      bindingId: authMethod.walletAuthMethodId,
+    },
   });
 }
 
@@ -837,13 +856,8 @@ test('authorizes ECDSA activation from the shared exact operation credential', a
     buildAdmissionContext({ authority, authMethod, session }),
     'wst_shared-activation-credential',
   );
-  const authorityRef = parseWalletAuthAuthorityRef({
-    kind: 'wallet_auth_authority_ref',
-    walletId: authority.walletId,
-    authorityDigest: session.authorityDigestB64u,
-    walletAuthMethodId: authMethod.walletAuthMethodId,
-  });
-  if (!authorityRef) throw new Error('exact activation authority reference is invalid');
+  if (authMethod.kind !== 'passkey') throw new Error('Passkey auth method fixture is required');
+  const authorityRef = await passkeyAuthorityRefForAuthMethod(authMethod);
   const proof = await buildVerifiedOwnerProof({
     purpose: 'wallet_session',
     proofId: parseVerifiedOwnerProofId('proof:ecdsa-activation'),
@@ -884,6 +898,125 @@ test('authorizes ECDSA activation from the shared exact operation credential', a
     operationCredential.walletSessionId,
   );
   expect(operationCredentialService.statusReads).toBe(0);
+
+  const foreignAuthMethod = buildAuthMethod(authority, 'activation-foreign-method', 'active');
+  if (foreignAuthMethod.kind !== 'passkey') {
+    throw new Error('Foreign Passkey auth method fixture is required');
+  }
+  const foreignAuthorityRef = await passkeyAuthorityRefForAuthMethod(foreignAuthMethod);
+  const foreignMethodProof = await buildVerifiedOwnerProof({
+    purpose: 'wallet_session',
+    proofId: parseVerifiedOwnerProofId('proof:ecdsa-activation-foreign-method'),
+    factor: buildVerifiedWalletSessionPasskeyFactorResult({
+      tenantId: session.tenantId,
+      principalId: session.principalId,
+      walletId: session.walletId,
+      authorityRef: foreignAuthorityRef,
+      requestOrigin: parseSessionOrigin('https://wallet.example.test'),
+      audience: parseSessionOrigin('https://wallet.example.test'),
+      factorId: required(parseAuthFactorId('factor:ecdsa-activation-foreign-method')),
+      verifiedAtMs: 400,
+      expiresAtMs: 900,
+      credentialIdB64u: foreignAuthMethod.credentialIdB64u,
+      assertionDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(29))),
+    }),
+  });
+  const foreignMethodAdmission = await authorizeStrictEcdsaSessionActivationFromOperationCredential(
+    {
+      authorizationSessions: operationCredentialService,
+      walletId: String(session.walletId),
+      operationCredential,
+      proof: foreignMethodProof,
+    },
+  );
+  expect(foreignMethodAdmission).toMatchObject({
+    ok: false,
+    code: 'wallet_session_scope_mismatch',
+  });
+});
+
+test('rejects an ECDSA activation whose mint differs from the exact Wallet Session', async () => {
+  const authority = await buildAuthority('both', 'activation-mint');
+  const authMethod = buildAuthMethod(authority, 'activation-mint', 'active');
+  if (authMethod.kind !== 'passkey') throw new Error('Passkey auth method fixture is required');
+  const session = buildSession({
+    authority,
+    authMethodId: authMethod.walletAuthMethodId,
+    label: 'activation-mint',
+    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
+    authorityDigestB64u: authority.authorityDigestB64u,
+    authorityRevocationEpoch: authority.revocationEpoch,
+    expiresAtMs: Date.now() + 60_000,
+  });
+  const operationCredentialService = new WalletSessionAuthorizationV2Fixture(
+    buildAdmissionContext({ authority, authMethod, session }),
+    'wst_shared-activation-mint-credential',
+  );
+  const authorityRef = await passkeyAuthorityRefForAuthMethod(authMethod);
+  const proof = await buildVerifiedOwnerProof({
+    purpose: 'wallet_session',
+    proofId: parseVerifiedOwnerProofId('proof:ecdsa-activation-mint'),
+    factor: buildVerifiedWalletSessionPasskeyFactorResult({
+      tenantId: session.tenantId,
+      principalId: session.principalId,
+      walletId: session.walletId,
+      authorityRef,
+      requestOrigin: parseSessionOrigin('https://wallet.example.test'),
+      audience: parseSessionOrigin('https://wallet.example.test'),
+      factorId: required(parseAuthFactorId('factor:ecdsa-activation-mint')),
+      verifiedAtMs: 400,
+      expiresAtMs: 900,
+      credentialIdB64u: authMethod.credentialIdB64u,
+      assertionDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(30))),
+    }),
+  });
+  const activationFixture = createEcdsaSessionActivationFixture({
+    walletId: String(session.walletId),
+    chain: 'ethereum',
+  });
+  const ecdsaActivation = authority.signerActivations.ecdsa;
+  if (!ecdsaActivation) throw new Error('Combined authority fixture requires ECDSA activation');
+  const request = parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1({
+    ...activationFixture.request,
+    public_capability: {
+      ...activationFixture.request.public_capability,
+      material_activation: routerAbMpcMaterialActivationRefToWire(
+        ecdsaActivation.materialActivation,
+      ),
+    },
+    session_policy: {
+      ...activationFixture.request.session_policy,
+      wallet_session_mint_id: 'mint:wrong-activation',
+      remaining_uses: 3,
+    },
+  });
+  const ctx = {
+    service: {
+      authorizationSessions: operationCredentialService,
+      walletRegistration: {
+        activateEcdsaPostRegistrationSession: async () => {
+          throw new Error('wrong mint must fail before ECDSA activation');
+        },
+      },
+    },
+  } as unknown as FetchRouterApiContext;
+  const response = await handleStrictEcdsaSessionActivation({
+    ctx,
+    body: request,
+    source: 'wallet_session_operation_credential_v1',
+    operationCredential: {
+      kind: 'opaque_wallet_session_operation_credential_v1',
+      token: 'wst_shared-activation-mint-credential',
+      walletSessionId: session.walletSessionId,
+    },
+    proof,
+  });
+
+  expect(response.status).toBe(403);
+  expect(await response.json()).toMatchObject({
+    ok: false,
+    code: 'wallet_session_scope_mismatch',
+  });
 });
 
 test('rejects provenance drift, retirement, expiry, subject drift, and missing signer family', async () => {
