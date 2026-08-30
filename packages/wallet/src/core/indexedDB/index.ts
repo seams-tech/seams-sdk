@@ -37,6 +37,7 @@ export {
   parsePendingWalletRecoveryCommitV1,
   pendingWalletRecoveryCommitAppStateKey,
   pendingWalletRecoveryCommitAppStateRowsMatch,
+  pendingWalletRecoveryCommitIdentityMatches,
   pendingWalletRecoveryProjectionExpectation,
   toPendingWalletRecoveryCommitAppStateRow,
 } from './pendingWalletRecoveryCommit';
@@ -45,6 +46,7 @@ export type {
   PendingWalletRecoveryCommitStorageRow,
   PendingWalletRecoveryCommitV1,
   PendingWalletRecoveryEncryptedMaterialV1,
+  PendingWalletRecoveryPromotionAdvanceInputV1,
   PendingWalletRecoveryTargetIdentityV1,
 } from './pendingWalletRecoveryCommit';
 export {

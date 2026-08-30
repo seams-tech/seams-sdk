@@ -215,6 +215,71 @@ export async function finalizeWalletRecoveryGoogleEmailOtp(
   }
 }
 
+/** Replays an already-committed Email OTP recovery without an OTP or factor. */
+export async function replayWalletRecoveryGoogleEmailOtp(args: {
+  readonly relayUrl: string;
+  readonly recoveryOperationId: WalletRecoveryOperationId;
+  readonly reservationId: RecoveryCodeReservationId;
+  readonly walletId: WalletId;
+  readonly targetDeviceId: DeviceId;
+  readonly targetAuthorityId: WalletAuthorityId;
+  readonly targetWalletAuthMethodId: WalletAuthMethodId;
+  readonly expectedProviderSubject: string;
+  readonly expectedEmailHashHex: string;
+  readonly expectedRegistrationAuthorityId: string;
+  readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+  readonly fetchImpl?: typeof fetch;
+}): Promise<WalletRecoveryGoogleEmailOtpFinalizeResult> {
+  let replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+  try {
+    replacementEnvelope = parsePasskeyCustodyEnvelopeRecord(
+      args.replacementEnvelope,
+      'walletRecoveryGoogleEmailOtpReplay.replacementEnvelope',
+    );
+    if (
+      replacementEnvelope.factor.kind !== 'email_otp' ||
+      String(replacementEnvelope.walletId) !== String(args.walletId)
+    ) {
+      throw new Error('recovery replay envelope identity is invalid');
+    }
+  } catch {
+    return { kind: 'refused' };
+  }
+  const response = await postRecoveryJson(
+    args,
+    GOOGLE_EMAIL_OTP_FINALIZE_PATH,
+    {
+      kind: 'replay',
+      recoveryOperationId: args.recoveryOperationId,
+      reservationId: args.reservationId,
+      replacementEnvelope,
+    },
+  );
+  if (!response.ok) return response.failure;
+  try {
+    rejectUnknownFields(
+      response.body,
+      ['ok', 'projection'],
+      'walletRecoveryGoogleEmailOtpReplay',
+    );
+    const projection = await parseWalletRecoveryCommittedProjectionV1(
+      response.body.projection,
+      buildGoogleEmailOtpProjectionExpectation(args, replacementEnvelope),
+    );
+    if (projection.kind !== 'google_email_otp') {
+      throw new Error('recovery projection branch changed');
+    }
+    return {
+      kind: 'promoted',
+      storeVersion: projection.storeVersion,
+      authority: projection.authority,
+      authMethod: projection.authMethod,
+    };
+  } catch {
+    return { kind: 'transport_uncertain' };
+  }
+}
+
 type RecoveryJsonResponse =
   | { readonly ok: true; readonly body: Record<string, unknown> }
   | { readonly ok: false; readonly failure: WalletRecoveryAttemptFailure };

@@ -23,13 +23,11 @@ import {
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseCanonicalEcdsaServerActivationRequest,
-  parseEcdsaActivationDigest,
   parseEcdsaCapabilityManifestId,
   parseEcdsaCapabilityManifestRevision,
   parseEcdsaCiphertextB64u,
   parseEcdsaCiphertextDigest,
   parseEcdsaIv12B64u,
-  parseEcdsaLifecycleId,
   parseEcdsaMaterialSealingKeyId,
   parseEcdsaPendingCiphertextDigest,
   parseEcdsaServerGeneration,
@@ -293,6 +291,15 @@ export type ImportCommittedWalletCustodyEcdsaActivationInput = {
   readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
   readonly runtimePolicyScope: ReturnType<typeof normalizeRuntimePolicyScope>;
   readonly committedAt: IsoTimestamp;
+};
+
+export type PreparedImportedWalletCustodyEcdsaContinuity = {
+  readonly activationBinding: EcdsaActivationBinding;
+  readonly serverActivation: EcdsaServerActivationCommit;
+  readonly sealingKey: CryptoKey;
+  readonly readyMaterial: ValidatedEncryptedEcdsaReadyMaterial;
+  readonly activeManifest: ActiveEcdsaCapabilityManifest;
+  readonly roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
 };
 
 function activeManifestMatchesWalletCustodyImport(input: {
@@ -1653,6 +1660,95 @@ function parseSealingKeyRow(value: unknown): ParsedSealingKeyRow {
   };
 }
 
+export async function prepareImportedWalletCustodyEcdsaContinuity(
+  input: ImportCommittedWalletCustodyEcdsaActivationInput,
+): Promise<PreparedImportedWalletCustodyEcdsaContinuity> {
+  const serverActivation = buildEcdsaServerActivationCommit({
+    activationBinding: input.activationBinding,
+    serverCommit: input.serverCommit,
+  });
+  const sealingKeyId = parseEcdsaMaterialSealingKeyId(
+    secureRandomId('ecdsa-material-sealing-key', 32, 'ECDSA material sealing key identities'),
+  );
+  const sealingKey = await generateMaterialSealingKey();
+  const encrypted = await encryptStateBlob({
+    key: sealingKey,
+    stateBlobB64u: input.readyStateBlobB64u,
+    aadProjection: importedReadyAadProjection({
+      activationBinding: input.activationBinding,
+      serverActivation,
+    }),
+  });
+  const durableMaterial = buildDurableEcdsaMaterialBinding({
+    activationBinding: input.activationBinding,
+    serverActivation,
+    routerAbEcdsaDerivationNormalSigning: input.routerAbEcdsaDerivationNormalSigning,
+    roleLocalPublicFacts: input.roleLocalPublicFacts,
+    ciphertextDigest: parseEcdsaCiphertextDigest(encrypted.digestB64u),
+    runtimePolicyScope: input.runtimePolicyScope,
+  });
+  const readyMaterial = buildValidatedEncryptedEcdsaReadyMaterial({
+    binding: durableMaterial,
+    sealingKeyId,
+    iv12B64u: encrypted.iv12B64u,
+    ciphertextB64u: encrypted.ciphertextB64u,
+  });
+  const activeManifest = buildActiveEcdsaCapabilityManifest({
+    activationBinding: input.activationBinding,
+    serverActivation,
+    registeredPublicFacts: input.registeredPublicFacts,
+    durableMaterial,
+    committedAt: input.committedAt,
+  });
+  return {
+    activationBinding: input.activationBinding,
+    serverActivation,
+    sealingKey,
+    readyMaterial,
+    activeManifest,
+    roleLocalMaterialRef: {
+      kind: 'ecdsa_role_local_persisted_material_ref_v1',
+      durableMaterialRef: readyMaterial.binding.durableMaterialRef,
+      bindingDigest: readyMaterial.binding.bindingDigest,
+      materialActivation: readyMaterial.binding.materialActivation,
+    },
+  };
+}
+
+export async function persistPreparedImportedWalletCustodyEcdsaContinuityInTransaction(
+  context: SeamsWalletTransactionContext,
+  prepared: PreparedImportedWalletCustodyEcdsaContinuity,
+): Promise<void> {
+  const selector = selectorFromManifest(prepared.activeManifest);
+  const pointerStore = context.store(POINTER_STORE);
+  const existingPointer = await pointerStore.get(selectorKey(selector));
+  const activeRows = await context
+    .store(MANIFEST_STORE)
+    .index(SEAMS_WALLET_INDEXES.capabilityWalletAuthorityState)
+    .getAll([...selectorKey(selector), 'active']);
+  if (existingPointer !== undefined || activeRows.length !== 0) {
+    throw new FinalizationControlError(
+      'exact_record_conflict',
+      'ECDSA custody import found an existing active manifest',
+    );
+  }
+  const activeProof: ParsedActiveManifestProof = {
+    activationBinding: prepared.activationBinding,
+    serverActivation: prepared.serverActivation,
+    durableMaterial: prepared.readyMaterial.binding,
+    activeManifest: prepared.activeManifest,
+    committedAt: prepared.activeManifest.committedAt,
+  };
+  await context
+    .store(SEALING_KEY_STORE)
+    .add(storedSealingKeyRow(prepared.readyMaterial.sealingKeyId, prepared.sealingKey));
+  await context
+    .store(MATERIAL_STORE)
+    .add(storedMaterialRow(prepared.readyMaterial, prepared.activeManifest));
+  await context.store(MANIFEST_STORE).add(storedActiveManifestRow(activeProof));
+  await pointerStore.put(storedPointerRow(prepared.activeManifest));
+}
+
 function assertActiveProofInput(
   input: FinalizeEcdsaCapabilityActivationInput,
 ): ParsedActiveManifestProof {
@@ -1763,7 +1859,7 @@ async function cancelPreparedActivationInTransaction(
   return assertNever(persisted.journal);
 }
 
-async function readCurrentPointerRowsForWallet(
+async function readPointerRowsForWallet(
   context: SeamsWalletTransactionContext,
   walletId: WalletId,
 ): Promise<readonly unknown[]> {
@@ -1790,10 +1886,8 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     if (!parsedWalletId.ok) return { kind: 'invalid_current_state' };
     let rows: readonly unknown[];
     try {
-      rows = await this.manager.runTransaction(
-        [POINTER_STORE],
-        'readonly',
-        async (context) => await readCurrentPointerRowsForWallet(context, parsedWalletId.value),
+      rows = await this.manager.runTransaction([POINTER_STORE], 'readonly', (context) =>
+        readPointerRowsForWallet(context, parsedWalletId.value),
       );
     } catch {
       return { kind: 'persistence_unavailable' };
@@ -2252,7 +2346,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       rows = await this.manager.runTransaction(
         [POINTER_STORE],
         'readonly',
-        async (context) => await readCurrentPointerRowsForWallet(context, walletId),
+        async (context) => await readPointerRowsForWallet(context, walletId),
       );
     } catch {
       return { kind: 'persistence_unavailable', capability };
@@ -2619,70 +2713,19 @@ export class IndexedDbEcdsaCapabilityManifestStore {
         ),
       };
     }
-    const sealingKeyId = parseEcdsaMaterialSealingKeyId(
-      secureRandomId('ecdsa-material-sealing-key', 32, 'ECDSA material sealing key identities'),
-    );
     try {
-      const sealingKey = await generateMaterialSealingKey();
-      const encrypted = await encryptStateBlob({
-        key: sealingKey,
-        stateBlobB64u: input.readyStateBlobB64u,
-        aadProjection: importedReadyAadProjection({
-          activationBinding: input.activationBinding,
-          serverActivation,
-        }),
-      });
-      const durableMaterial = buildDurableEcdsaMaterialBinding({
-        activationBinding: input.activationBinding,
-        serverActivation,
-        routerAbEcdsaDerivationNormalSigning: input.routerAbEcdsaDerivationNormalSigning,
-        roleLocalPublicFacts: input.roleLocalPublicFacts,
-        ciphertextDigest: parseEcdsaCiphertextDigest(encrypted.digestB64u),
-        runtimePolicyScope: input.runtimePolicyScope,
-      });
-      const readyMaterial = buildValidatedEncryptedEcdsaReadyMaterial({
-        binding: durableMaterial,
-        sealingKeyId,
-        iv12B64u: encrypted.iv12B64u,
-        ciphertextB64u: encrypted.ciphertextB64u,
-      });
-      const activeManifest = buildActiveEcdsaCapabilityManifest({
-        activationBinding: input.activationBinding,
-        serverActivation,
-        registeredPublicFacts: input.registeredPublicFacts,
-        durableMaterial,
-        committedAt: input.committedAt,
-      });
-      const activeProof: ParsedActiveManifestProof = {
-        activationBinding: input.activationBinding,
-        serverActivation,
-        durableMaterial,
-        activeManifest,
-        committedAt: input.committedAt,
-      };
+      const prepared = await prepareImportedWalletCustodyEcdsaContinuity(input);
       await this.manager.runTransaction(
         [MANIFEST_STORE, POINTER_STORE, MATERIAL_STORE, SEALING_KEY_STORE],
         'readwrite',
-        async (context) => {
-          const pointerStore = context.store(POINTER_STORE);
-          const existingPointer = await pointerStore.get(selectorKey(selector));
-          const activeRows = await context
-            .store(MANIFEST_STORE)
-            .index(SEAMS_WALLET_INDEXES.capabilityWalletAuthorityState)
-            .getAll([...selectorKey(selector), 'active']);
-          if (existingPointer !== undefined || activeRows.length !== 0) {
-            throw new FinalizationControlError(
-              'exact_record_conflict',
-              'ECDSA custody import found an existing active manifest',
-            );
-          }
-          await context.store(SEALING_KEY_STORE).add(storedSealingKeyRow(sealingKeyId, sealingKey));
-          await context.store(MATERIAL_STORE).add(storedMaterialRow(readyMaterial, activeManifest));
-          await context.store(MANIFEST_STORE).add(storedActiveManifestRow(activeProof));
-          await pointerStore.put(storedPointerRow(activeManifest));
-        },
+        (context) =>
+          persistPreparedImportedWalletCustodyEcdsaContinuityInTransaction(context, prepared),
       );
-      return { kind: 'committed', manifest: activeManifest, material: readyMaterial };
+      return {
+        kind: 'committed',
+        manifest: prepared.activeManifest,
+        material: prepared.readyMaterial,
+      };
     } catch (error: unknown) {
       if (error instanceof FinalizationControlError || isConstraintError(error)) {
         const replay = await this.lookup(selector);
@@ -2720,6 +2763,17 @@ export class IndexedDbEcdsaCapabilityManifestStore {
         ),
       };
     }
+  }
+
+  async persistPreparedWalletCustodyEcdsaContinuity(
+    prepared: PreparedImportedWalletCustodyEcdsaContinuity,
+  ): Promise<void> {
+    await this.manager.runTransaction(
+      [MANIFEST_STORE, POINTER_STORE, MATERIAL_STORE, SEALING_KEY_STORE],
+      'readwrite',
+      (context) =>
+        persistPreparedImportedWalletCustodyEcdsaContinuityInTransaction(context, prepared),
+    );
   }
 
   private async readMaterialSealingKey(
@@ -2850,9 +2904,11 @@ export type ImportWalletCustodyEcdsaContinuityInput = {
   readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
 };
 
-export async function importWalletCustodyEcdsaContinuity(
-  input: ImportWalletCustodyEcdsaContinuityInput,
-): Promise<EcdsaCapabilityActivationFinalizationResult> {
+type WalletCustodyEcdsaContinuityInput = Omit<ImportWalletCustodyEcdsaContinuityInput, 'store'>;
+
+function buildWalletCustodyEcdsaContinuityImportInput(
+  input: WalletCustodyEcdsaContinuityInput,
+): ImportCommittedWalletCustodyEcdsaActivationInput {
   const authority = parseWalletAuthAuthorityRef(input.authority);
   if (!authority || String(authority.walletId) !== String(input.walletId)) {
     throw new Error('ECDSA custody import authority is invalid');
@@ -2947,7 +3003,7 @@ export async function importWalletCustodyEcdsaContinuity(
       activation_epoch: receipt.ecdsa_activation.activation_epoch,
     },
   };
-  return await input.store.importCommittedWalletCustodyActivation({
+  return {
     activationBinding,
     serverCommit: {
       correlationId: receipt.activation_correlation_id,
@@ -2965,7 +3021,99 @@ export async function importWalletCustodyEcdsaContinuity(
     committedAt: parseIsoTimestamp(
       new Date(receipt.ecdsa_activation.activated_at_ms).toISOString(),
     ),
+  };
+}
+
+export async function prepareWalletCustodyEcdsaContinuity(
+  input: WalletCustodyEcdsaContinuityInput,
+): Promise<PreparedImportedWalletCustodyEcdsaContinuity> {
+  return prepareImportedWalletCustodyEcdsaContinuity(
+    buildWalletCustodyEcdsaContinuityImportInput(input),
+  );
+}
+
+export async function importWalletCustodyEcdsaContinuity(
+  input: ImportWalletCustodyEcdsaContinuityInput,
+): Promise<EcdsaCapabilityActivationFinalizationResult> {
+  const preparedInput = buildWalletCustodyEcdsaContinuityImportInput(input);
+  const serverActivation = buildEcdsaServerActivationCommit({
+    activationBinding: preparedInput.activationBinding,
+    serverCommit: preparedInput.serverCommit,
   });
+  const selector = {
+    capability: preparedInput.activationBinding.signer.capability,
+    authority: preparedInput.activationBinding.signer.authority,
+  };
+  const existing = await input.store.lookup(selector);
+  if (existing.kind === 'active') {
+    if (
+      activeManifestMatchesWalletCustodyImport({
+        manifest: existing.manifest,
+        activationBinding: preparedInput.activationBinding,
+        serverActivation,
+        registeredPublicFacts: preparedInput.registeredPublicFacts,
+        roleLocalPublicFacts: preparedInput.roleLocalPublicFacts,
+        routerAbEcdsaDerivationNormalSigning: preparedInput.routerAbEcdsaDerivationNormalSigning,
+        runtimePolicyScope: preparedInput.runtimePolicyScope,
+      })
+    ) {
+      return { kind: 'committed', manifest: existing.manifest, material: existing.material };
+    }
+    return {
+      kind: 'exact_record_conflict',
+      selector,
+      conflictDigest: await persistenceDigest(
+        'custody_import_conflict',
+        selector,
+        'ECDSA custody import conflicts with the active manifest',
+      ),
+    };
+  }
+  try {
+    const prepared = await prepareImportedWalletCustodyEcdsaContinuity(preparedInput);
+    await input.store.persistPreparedWalletCustodyEcdsaContinuity(prepared);
+    return {
+      kind: 'committed',
+      manifest: prepared.activeManifest,
+      material: prepared.readyMaterial,
+    };
+  } catch (error: unknown) {
+    if (error instanceof FinalizationControlError || isConstraintError(error)) {
+      const replay = await input.store.lookup(selector);
+      if (
+        replay.kind === 'active' &&
+        activeManifestMatchesWalletCustodyImport({
+          manifest: replay.manifest,
+          activationBinding: preparedInput.activationBinding,
+          serverActivation,
+          registeredPublicFacts: preparedInput.registeredPublicFacts,
+          roleLocalPublicFacts: preparedInput.roleLocalPublicFacts,
+          routerAbEcdsaDerivationNormalSigning: preparedInput.routerAbEcdsaDerivationNormalSigning,
+          runtimePolicyScope: preparedInput.runtimePolicyScope,
+        })
+      ) {
+        return { kind: 'committed', manifest: replay.manifest, material: replay.material };
+      }
+      return {
+        kind: 'exact_record_conflict',
+        selector,
+        conflictDigest: await persistenceDigest(
+          'custody_import_conflict',
+          selector,
+          errorMessage(error),
+        ),
+      };
+    }
+    return {
+      kind: 'corrupt',
+      selector,
+      corruptionDigest: await persistenceDigest(
+        'custody_import_corrupt',
+        selector,
+        errorMessage(error),
+      ),
+    };
+  }
 }
 
 async function assertSharedWalletAuthorityMembership(input: {

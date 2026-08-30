@@ -18,7 +18,7 @@ export const ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_KIND_V1 =
 export const ED25519_YAO_PUBLIC_CAPABILITY_LANES_KIND_V1 =
   'ed25519_yao_public_capability_lanes_v1' as const;
 
-const ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_APP_STATE_KEY =
+export const ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_APP_STATE_KEY =
   'ed25519YaoPublicCapabilityReferencesV1';
 const ED25519_YAO_PUBLIC_CAPABILITY_LANES_APP_STATE_KEY =
   'ed25519YaoPublicCapabilityLanesV1';
@@ -53,6 +53,11 @@ export type Ed25519YaoPublicCapabilityLaneReferenceV1 =
 export type Ed25519YaoPublicCapabilityReferencesV1 = {
   kind: typeof ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_KIND_V1;
   identities: readonly Ed25519YaoPublicCapabilityReferenceV1[];
+};
+
+export type Ed25519YaoPublicCapabilityReferenceTransactionStore = {
+  get(key: string): Promise<{ readonly key: string; readonly value: unknown } | undefined>;
+  put(row: { readonly key: string; readonly value: unknown }): Promise<unknown>;
 };
 
 export type Ed25519YaoPublicCapabilityLanesV1 = {
@@ -348,6 +353,39 @@ function clonePublicCapabilityLane(
   lane: Ed25519YaoPublicCapabilityLaneReferenceV1,
 ): Ed25519YaoPublicCapabilityLaneReferenceV1 {
   return parsePublicCapabilityLane(lane, 'Ed25519 Yao public capability lane');
+}
+
+export async function upsertEd25519YaoPublicCapabilityReferenceInTransaction(
+  store: Ed25519YaoPublicCapabilityReferenceTransactionStore,
+  identity: Ed25519YaoPublicCapabilityReferenceV1,
+): Promise<void> {
+  const currentRow = await store.get(ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_APP_STATE_KEY);
+  if (
+    currentRow !== undefined &&
+    currentRow.key !== ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_APP_STATE_KEY
+  ) {
+    throw new Error('Ed25519 Yao public capability reference app-state key is inconsistent');
+  }
+  const current =
+    currentRow === undefined
+      ? emptyPublicCapabilityReferences()
+      : parseEd25519YaoPublicCapabilityReferencesV1(currentRow.value);
+  const normalized = clonePublicCapabilityIdentity(identity);
+  const identities = current.identities.filter(
+    (candidate) =>
+      String(candidate.walletId) !== String(normalized.walletId) ||
+      String(candidate.nearAccountId) !== String(normalized.nearAccountId),
+  );
+  if (identities.length >= MAX_PUBLIC_CAPABILITY_REFERENCES) {
+    throw new Error('Ed25519 Yao public capability reference capacity is exhausted');
+  }
+  await store.put({
+    key: ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_APP_STATE_KEY,
+    value: parseEd25519YaoPublicCapabilityReferencesV1({
+      kind: ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_KIND_V1,
+      identities: [...identities, normalized],
+    }),
+  });
 }
 
 export class IndexedDbEd25519YaoPublicCapabilityReferenceStore implements Ed25519YaoPublicCapabilityReferenceStorePort {

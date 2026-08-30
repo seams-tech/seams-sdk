@@ -175,6 +175,86 @@ export async function finalizeWalletRecovery(args: {
   return { kind: 'transport_uncertain' };
 }
 
+/**
+ * Replays a promotion whose server transaction already committed. The replay
+ * body is credential-free and carries only the exact sealed replacement
+ * envelope and immutable operation identity retained by the local journal.
+ */
+export async function replayWalletRecovery(args: {
+  readonly relayUrl: string;
+  readonly walletId: string;
+  readonly reservationId: string;
+  readonly recoveryOperationId: string;
+  readonly targetDeviceId: string;
+  readonly targetAuthorityId: string;
+  readonly targetWalletAuthMethodId: string;
+  readonly replacementId: string;
+  readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+  readonly fetchImpl?: typeof fetch;
+}): Promise<WalletRecoveryFinalizeResult> {
+  let replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+  try {
+    replacementEnvelope = parsePasskeyCustodyEnvelopeRecord(
+      args.replacementEnvelope,
+      'walletRecoveryReplay.replacementEnvelope',
+    );
+    if (
+      String(replacementEnvelope.walletId) !== String(args.walletId) ||
+      String(replacementEnvelope.envelopeId) !== String(args.replacementId) ||
+      replacementEnvelope.factor.kind !== 'passkey'
+    ) {
+      throw new Error('recovery replay envelope identity is invalid');
+    }
+  } catch {
+    return { kind: 'refused' };
+  }
+
+  let response: Response;
+  try {
+    response = await (args.fetchImpl ?? fetch)(
+      `${normalizeRelayerBaseUrl(args.relayUrl)}${WALLET_RECOVERY_FINALIZE_PATH}`,
+      buildRelayerJsonPostRequestInit({
+        body: {
+          kind: 'replay',
+          walletId: args.walletId,
+          reservationId: args.reservationId,
+          recoveryOperationId: args.recoveryOperationId,
+          targetDeviceId: args.targetDeviceId,
+          targetAuthorityId: args.targetAuthorityId,
+          targetWalletAuthMethodId: args.targetWalletAuthMethodId,
+          replacementId: args.replacementId,
+          replacementEnvelope,
+        },
+      }),
+    );
+  } catch {
+    return { kind: 'transport_uncertain' };
+  }
+  const bodyUnknown: unknown = await response.json().catch(() => ({}));
+  const body = isRecord(bodyUnknown) ? bodyUnknown : {};
+  if (response.status === 200 && body.ok === true) {
+    try {
+      rejectUnknownFields(body, ['ok', 'projection'], 'walletRecoveryReplay');
+      const projection = await parseWalletRecoveryCommittedProjectionV1(
+        body.projection,
+        buildPasskeyProjectionExpectation(args, replacementEnvelope),
+      );
+      if (projection.kind !== 'passkey') throw new Error('recovery projection branch changed');
+      return {
+        kind: 'promoted',
+        storeVersion: projection.storeVersion,
+        authority: projection.authority,
+        authMethod: projection.authMethod,
+      };
+    } catch {
+      return { kind: 'transport_uncertain' };
+    }
+  }
+  if (response.status === 409) return { kind: 'retryable_conflict' };
+  if (response.status === 400 || response.status === 401) return { kind: 'refused' };
+  return { kind: 'transport_uncertain' };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
