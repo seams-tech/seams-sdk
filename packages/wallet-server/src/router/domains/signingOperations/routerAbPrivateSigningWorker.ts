@@ -8,8 +8,8 @@ import { postRouterAbInternalServiceJson } from '../../../core/ThresholdService/
 import {
   resolveWalletSessionOperationCredentialAdmission,
   validateRouterAbEcdsaDerivationWalletSessionInputs,
-  validateRouterAbEd25519WalletSessionTokenInputs,
-  type ThresholdEd25519SessionTokenInputs,
+  validateRouterAbEd25519WalletSessionInputs,
+  type ThresholdEd25519SessionInputs,
   type ThresholdEcdsaSessionInputs,
   type WalletSessionOperationCredentialAdmission,
 } from '../../auth/commonRouterUtils';
@@ -779,7 +779,7 @@ export type RouterAbNormalSigningRouteAdmission =
   | RejectedRouteAdmission;
 
 type RouterAbEd25519WalletSessionValidationSuccess = Extract<
-  ThresholdEd25519SessionTokenInputs,
+  ThresholdEd25519SessionInputs,
   { readonly ok: true }
 >;
 
@@ -3050,7 +3050,7 @@ export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
       : { ok: true, kind: 'operation_step_up', ...result };
   }
 
-  const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
+  const validated = await validateRouterAbEd25519WalletSessionInputs({
     body: input.rawBody,
     headers: input.headers,
     authorizationSessions: input.authorizationSessions,

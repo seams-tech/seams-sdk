@@ -70,7 +70,7 @@ import {
 } from '../../packages/wallet-server/src/router/domains/signingOperations/walletExecutionAdmission';
 import {
   resolveWalletSessionOperationCredentialAdmission,
-  validateRouterAbEd25519WalletSessionTokenInputs,
+  validateRouterAbEd25519WalletSessionInputs,
   validateRouterAbEcdsaDerivationWalletSessionInputs,
 } from '../../packages/wallet-server/src/router/auth/commonRouterUtils';
 import { authorizeStrictEcdsaSessionActivationFromOperationCredential } from '../../packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa';
@@ -1218,7 +1218,7 @@ test('ordinary Ed25519 admission consumes exact V2 credentials and rejects activ
   const service = new WalletSessionAuthorizationV2Fixture(
     buildAdmissionContext({ authority, authMethod, session }),
   );
-  const admitted = await validateRouterAbEd25519WalletSessionTokenInputs({
+  const admitted = await validateRouterAbEd25519WalletSessionInputs({
     body: {},
     headers: { authorization: 'Bearer exact-v2-token' },
     authorizationSessions: service,
@@ -1243,7 +1243,7 @@ test('ordinary Ed25519 admission consumes exact V2 credentials and rejects activ
     authorityRevocationEpoch: authority.revocationEpoch,
     expiresAtMs: 1_000,
   });
-  const rejectedDigest = await validateRouterAbEd25519WalletSessionTokenInputs({
+  const rejectedDigest = await validateRouterAbEd25519WalletSessionInputs({
     body: {},
     headers: { authorization: 'Bearer exact-v2-token' },
     authorizationSessions: new WalletSessionAuthorizationV2Fixture(
@@ -1258,7 +1258,7 @@ test('ordinary Ed25519 admission consumes exact V2 credentials and rejects activ
     message: expect.any(String),
   });
 
-  const rejectedAuthMethod = await validateRouterAbEd25519WalletSessionTokenInputs({
+  const rejectedAuthMethod = await validateRouterAbEd25519WalletSessionInputs({
     body: {},
     headers: { authorization: 'Bearer exact-v2-token' },
     authorizationSessions: new WalletSessionAuthorizationV2Fixture(
@@ -1286,7 +1286,7 @@ test('ordinary Ed25519 admission consumes exact V2 credentials and rejects activ
     authorityRevocationEpoch: authority.revocationEpoch,
     expiresAtMs: 500,
   });
-  const rejectedExpiry = await validateRouterAbEd25519WalletSessionTokenInputs({
+  const rejectedExpiry = await validateRouterAbEd25519WalletSessionInputs({
     body: {},
     headers: { authorization: 'Bearer exact-v2-token' },
     authorizationSessions: new WalletSessionAuthorizationV2Fixture(
@@ -1320,7 +1320,7 @@ test('ordinary signing validators reject missing exact state without V1 token fa
   );
 
   const [ed25519, ecdsa] = await Promise.all([
-    validateRouterAbEd25519WalletSessionTokenInputs({
+    validateRouterAbEd25519WalletSessionInputs({
       body: {},
       headers: { authorization: 'Bearer retired-v1-token' },
       authorizationSessions: service,

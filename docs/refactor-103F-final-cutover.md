@@ -740,7 +740,11 @@ Convert every current issuer:
       callers use the exact Ed25519 session projector;
 - [x] Delete `issueRouterAbEd25519OpaqueWalletSessionToken` and every direct
       caller; and
-- [ ] recovery or device-link issuers found by the final searches.
+- [x] Recovery finalization remains credential-free and recovered authorities
+      receive sessions only through normal exact-method direct-V2 unlock;
+      device-link activation persists its exact primary credential digest in
+      the owning authority-activation CAS. Final issuer searches find no V1
+      recovery or device-link issuer.
 
 Primary files:
 
@@ -1403,8 +1407,10 @@ remaining consumers are converted.
 
 ### Phase 2 — Convert server consumers
 
-- [ ] Convert remaining registration, unlock, refresh, sync, ECDSA activation,
-      linked activation, and post-recovery login issuers.
+- [x] Convert remaining registration, unlock, refresh, sync, ECDSA activation,
+      linked activation, and post-recovery login issuers. Each final producer
+      either commits direct V2 atomically or remains credential-free until
+      normal exact-method unlock; issuer closure searches have no V1 match.
 - [x] Make the V2 credential reader required and delete `not_v2` from exact core
       admission.
 - [x] Convert signing, pool fill, signing-session seal, execution-lane
