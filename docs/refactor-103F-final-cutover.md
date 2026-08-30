@@ -1238,7 +1238,7 @@ Primary files:
       plan over new source-text guards.
 - [x] Update `docs/threshold-ecdsa/ecdsa-threshold-signing.md`.
 - [x] Update `docs/auth-gating-routes.md`.
-- [ ] Update `docs/intended-behaviours.md` and registration contracts for
+- [x] Update `docs/intended-behaviours.md` and registration contracts for
       credential-free lost-response replay.
 - [ ] Update R115 recovery contracts only where R103F changes Wallet Session
       representation.
