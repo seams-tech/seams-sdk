@@ -415,6 +415,10 @@ test('R103F Phase 1 applies cleanly and after every immutable signer migration',
     const bridge = files.find((file) => basename(file).startsWith('0028_'));
     if (!bridge) throw new Error('R103F Phase 1 bridge migration is missing');
     const prefix = migrationPrefix();
+    const deliveryRecipientMigration = files.find((file) =>
+      basename(file).startsWith('0033_'),
+    );
+    if (!deliveryRecipientMigration) throw new Error('R103F delivery recipient migration is missing');
 
     await applyD1MigrationFiles(clean.database, files);
 
@@ -437,6 +441,7 @@ test('R103F Phase 1 applies cleanly and after every immutable signer migration',
     });
     await installAllocationFixture(historical.database);
     await applyD1MigrationFiles(historical.database, [bridge]);
+    await applyD1MigrationFiles(historical.database, [deliveryRecipientMigration]);
 
     for (const tableName of [
       'wallet_session_hosted_credentials_v2',
@@ -1222,13 +1227,14 @@ test('R103F bridge inventory counters and applied migration fingerprint stay sta
   const temporary = createTemporaryD1Database();
   try {
     const migrations = readMigrationFiles(SIGNER_MIGRATION_DIRECTORY);
-    expect(migrations.at(-4)?.name).toBe('0029_r103f_phase0_registration_replay_tokens.sql');
-    expect(migrations.at(-3)?.name).toBe('0030_r103f_wallet_session_client_capability.sql');
-    expect(migrations.at(-2)?.name).toBe('0031_r103f_delete_registration_replay_tokens.sql');
-    expect(migrations.at(-1)?.name).toBe(
+    expect(migrations.at(-5)?.name).toBe('0029_r103f_phase0_registration_replay_tokens.sql');
+    expect(migrations.at(-4)?.name).toBe('0030_r103f_wallet_session_client_capability.sql');
+    expect(migrations.at(-3)?.name).toBe('0031_r103f_delete_registration_replay_tokens.sql');
+    expect(migrations.at(-2)?.name).toBe(
       '0032_r103f_exact_authorized_operation_enforcement.sql',
     );
-    expect(digestMigrations(migrations.slice(0, -4))).toBe(
+    expect(migrations.at(-1)?.name).toBe('0033_r103f_linked_delivery_recipient.sql');
+    expect(digestMigrations(migrations.slice(0, -5))).toBe(
       'b4d1f650437642c4a6c16c3b2fd56253eff4dde308fd44e5fdd90aa2393b2f2a',
     );
     await applyD1MigrationFiles(temporary.database, migrationFilesThroughBridge());

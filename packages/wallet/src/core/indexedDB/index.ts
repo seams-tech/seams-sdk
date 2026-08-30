@@ -122,6 +122,8 @@ export type {
 export type {
   LocalAuthorityActivationFinalizationInputV1,
   LocalAuthorityActivationFinalizationResultV1,
+  LocalAuthorityActivationPublicationInputV1,
+  LocalAuthorityActivationPublicationResultV1,
   WalletLockGenerationAdvanceInputV1,
 } from './seamsWalletDB/repositories';
 

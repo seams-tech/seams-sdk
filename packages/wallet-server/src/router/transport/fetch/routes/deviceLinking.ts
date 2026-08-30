@@ -22,6 +22,7 @@ import type {
   VerifiedLinkInputV1,
 } from '@shared/device-linking/contracts';
 import { assertNeverLinkSessionStateV1 } from '@shared/device-linking/contracts';
+import type { LinkedDeviceActivationCleanupReceiptV1 } from '@shared/device-linking/walletSessionCredentialDelivery';
 import type { CommittedAuthorityPackagesV1 } from '@shared/device-linking/committedSignerPackages';
 import {
   parseLinkedDeviceApprovalDeliveryV1,
@@ -60,6 +61,7 @@ import { alphabetizeStringify } from '@shared/utils/digests';
 import type {
   ActivateInstalledAuthorityResultV1 as D1ActivateInstalledAuthorityResultV1,
   CommitPendingAuthorityResultV1,
+  LocalAuthorityActivationAcknowledgementAuthenticationV1,
 } from '../../../../router/cloudflare/d1/deviceLinking/d1LinkedDeviceAuthorityInstallService';
 import {
   computeLinkedDevicePublicKeyDigestV1,
@@ -79,6 +81,7 @@ import { json, readJson } from '../../../framework/http';
 import { normalizeCorsOrigin } from '../../../../core/SessionService';
 import { resolvePublishableKeyApiCredentialAuth } from '../../../auth/routerApiCredentialAuth';
 import { extractRouterApiEnvironmentId } from '../../../auth/routerApiKeyAuth';
+import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
 import { findRouteDefinitionById } from '../../../framework/routeDefinitions';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -240,9 +243,13 @@ export type DeviceLinkingInstallationReceiptPortV1 = {
   }): Promise<D1ActivateInstalledAuthorityResultV1>;
   acknowledgeLocalAuthorityActivationV1(input: {
     readonly acknowledgement: LocalAuthorityActivationFinalAckV1;
-    readonly session: LinkedDeviceSessionRecordV1;
+    readonly authentication: LocalAuthorityActivationAcknowledgementAuthenticationV1;
     readonly requestedAtMs: number;
   }): Promise<void>;
+  readActivationCleanupReceiptV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly requestedAtMs: number;
+  }): Promise<LinkedDeviceActivationCleanupReceiptV1 | null>;
 };
 
 /** Owner-authenticated bridge to the Router's private source-preserving lane. */
@@ -1033,24 +1040,81 @@ async function handleReceipt(
 ): Promise<Response> {
   if (!service.installationReceipt)
     return notSupportedResponse('Installation receipt is not configured');
-  const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
-  if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
-  if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  if (isFinalActivationAcknowledgement(authenticated.body)) {
+  const linkSessionId = parseSessionId(rawLinkSessionId);
+  const rawBody = await readJsonBody(ctx.request.clone());
+  if (isFinalActivationAcknowledgement(rawBody)) {
     const acknowledgement = parseBoundary(() =>
+      parseLocalAuthorityActivationFinalAckV1(rawBody),
+    );
+    if (acknowledgement.linkSessionId !== linkSessionId) {
+      return invalidInputResponse('activation acknowledgement session does not match the route');
+    }
+    const bearerToken = extractBearerCredential(ctx.request.headers);
+    const hasDeviceProof = ctx.request.headers.has(LINKED_DEVICE_REQUEST_PROOF_HEADER_V1);
+    if (bearerToken && !hasDeviceProof) {
+      const exact = await authenticateExactWalletSessionForAcknowledgement(
+        ctx,
+        bearerToken,
+        nowMs,
+      );
+      if (exact.kind === 'denied') return authDeniedResponse(exact);
+      await service.installationReceipt.acknowledgeLocalAuthorityActivationV1({
+        acknowledgement,
+        authentication: exact.authentication,
+        requestedAtMs: nowMs,
+      });
+      return new Response(null, { status: 204 });
+    }
+    const liveSession = await service.sessionService.getSessionV1({
+      linkSessionId,
+      nowMs,
+    });
+    if (liveSession) {
+      const authenticated = await authenticateDeviceWithKnownSession(
+        ctx,
+        service,
+        linkSessionId,
+        liveSession,
+        nowMs,
+      );
+      if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+      const authenticatedAcknowledgement = parseBoundary(() =>
+        parseLocalAuthorityActivationFinalAckV1(authenticated.body),
+      );
+      await service.installationReceipt.acknowledgeLocalAuthorityActivationV1({
+        acknowledgement: authenticatedAcknowledgement,
+        authentication: { kind: 'live', session: liveSession },
+        requestedAtMs: nowMs,
+      });
+      return new Response(null, { status: 204 });
+    }
+    const cleanupReceipt = await service.installationReceipt.readActivationCleanupReceiptV1({
+      linkSessionId,
+      requestedAtMs: nowMs,
+    });
+    if (!cleanupReceipt) return notFoundResponse();
+    const authenticated = await authenticateDeviceWithExpectedKey(
+      ctx,
+      service,
+      linkSessionId,
+      cleanupReceipt.devicePublicKeyB64u,
+      nowMs,
+    );
+    if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+    const authenticatedAcknowledgement = parseBoundary(() =>
       parseLocalAuthorityActivationFinalAckV1(authenticated.body),
     );
-    if (acknowledgement.linkSessionId !== authenticated.session.linkSessionId) {
-      return invalidInputResponse('activation acknowledgement session does not match this session');
-    }
     await service.installationReceipt.acknowledgeLocalAuthorityActivationV1({
-      acknowledgement,
-      session: authenticated.session,
+      acknowledgement: authenticatedAcknowledgement,
+      authentication: { kind: 'cleanup_receipt', receipt: cleanupReceipt },
       requestedAtMs: nowMs,
     });
     return new Response(null, { status: 204 });
   }
+  const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+  if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+  if (authenticated.kind === 'not_found') return notFoundResponse();
   const receipt = parseBoundary(() => parseLocalAuthorityInstallationReceiptV1(authenticated.body));
   if (receipt.deviceId !== authenticated.session.state.deviceId)
     return invalidInputResponse('installation receipt device does not match this session');
@@ -1060,6 +1124,74 @@ async function handleReceipt(
     requestedAtMs: nowMs,
   });
   return installationResultResponse(result);
+}
+
+async function authenticateExactWalletSessionForAcknowledgement(
+  ctx: FetchRouterApiContext,
+  token: string,
+  nowMs: number,
+): Promise<
+  | {
+      readonly kind: 'authorized';
+      readonly authentication: Extract<
+        LocalAuthorityActivationAcknowledgementAuthenticationV1,
+        { readonly kind: 'exact_wallet_session' }
+      >;
+    }
+  | DeviceLinkingAuthDeniedV1
+> {
+  let context: Awaited<
+    ReturnType<
+      FetchRouterApiContext['service']['authorizationSessions']['readWalletSessionAuthorizationV2ByOperationCredential']
+    >
+  >;
+  try {
+    context = await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+      tenantId: ctx.service.authorizationSessions.tenantId,
+      token,
+      nowMs,
+    });
+  } catch {
+    return {
+      kind: 'denied',
+      code: 'unauthorized',
+      message: 'Exact Wallet Session is unavailable',
+    };
+  }
+  if (!context) {
+    return {
+      kind: 'denied',
+      code: 'unauthorized',
+      message: 'Exact Wallet Session is invalid',
+    };
+  }
+  const session = context.authorization.session;
+  if (
+    context.retiredAtMs !== null ||
+    context.authority.state !== 'active' ||
+    context.authMethod.status !== 'active' ||
+    session.expiresAtMs <= nowMs
+  ) {
+    return {
+      kind: 'denied',
+      code: 'expired',
+      message: 'Exact Wallet Session is expired or inactive',
+    };
+  }
+  return {
+    kind: 'authorized',
+    authentication: {
+      kind: 'exact_wallet_session',
+      tenantId: session.tenantId,
+      principalId: session.principalId,
+      walletId: session.walletId,
+      authorityId: session.authorityId,
+      walletAuthMethodId: session.walletAuthMethodId,
+      authorizationId: session.authorizationId,
+      walletSessionId: session.walletSessionId,
+      expiresAtMs: session.expiresAtMs,
+    },
+  };
 }
 
 function isFinalActivationAcknowledgement(raw: unknown): boolean {
@@ -1081,7 +1213,8 @@ function installationResultResponse(result: D1ActivateInstalledAuthorityResultV1
           authority: result.authority,
           authMethod: result.authMethod,
           walletSession: activeWalletSessionWireV1(result.walletSession),
-          operationCredential: result.operationCredential,
+          deliveryBinding: result.deliveryBinding,
+          sealedDelivery: result.sealedDelivery,
         } satisfies WireActivateInstalledAuthorityResultV1,
         { status: 200 },
       );
@@ -1275,6 +1408,56 @@ async function authenticateDeviceForSession(
     linkSessionId,
     session,
   };
+}
+
+async function authenticateDeviceWithKnownSession(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  linkSessionId: LinkDeviceSessionId,
+  session: LinkedDeviceSessionRecordV1,
+  nowMs: number,
+): Promise<DeviceLinkingDeviceAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1> {
+  return await authenticateDeviceWithExpectedKey(
+    ctx,
+    service,
+    linkSessionId,
+    session.qrPayload.devicePublicKeyB64u,
+    nowMs,
+  );
+}
+
+async function authenticateDeviceWithExpectedKey(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  linkSessionId: LinkDeviceSessionId,
+  expectedDevicePublicKeyB64u: string,
+  nowMs: number,
+): Promise<DeviceLinkingDeviceAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1> {
+  const bodyDigestB64u = await requestBodyDigest(ctx.request);
+  const expectedDevicePublicKeyDigestB64u = await computeDevicePublicKeyDigestB64u(
+    expectedDevicePublicKeyB64u,
+  );
+  const proof = parseBoundary(() => parseRequestProofHeader(ctx.request));
+  validateRequestProof(
+    proof,
+    ctx.method,
+    ctx.pathname,
+    linkSessionId,
+    bodyDigestB64u,
+    expectedDevicePublicKeyDigestB64u,
+    nowMs,
+  );
+  return await service.authenticateDeviceRequestV1({
+    request: ctx.request,
+    method: ctx.method,
+    pathname: ctx.pathname,
+    linkSessionId: String(linkSessionId),
+    bodyDigestB64u,
+    expectedDevicePublicKeyB64u,
+    expectedDevicePublicKeyDigestB64u,
+    proof,
+    requestedAtMs: nowMs,
+  });
 }
 
 function parseRoutePath(pathname: string): RouteAction | null {

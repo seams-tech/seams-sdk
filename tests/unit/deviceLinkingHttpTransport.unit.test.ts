@@ -5,12 +5,20 @@ import {
   parseLinkedDeviceSessionClaimV1,
   parseLinkSessionProjectionV1,
 } from '../../packages/shared-ts/src/device-linking';
-import type { LinkSessionProjectionV1 } from '../../packages/shared-ts/src/device-linking';
+import type {
+  LinkSessionProjectionV1,
+  LocalAuthorityActivationFinalAckV1,
+} from '../../packages/shared-ts/src/device-linking';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
+import {
+  computeWalletSessionInstallationReceiptDigestB64u,
+  computeWalletSessionOperationCredentialDigestB64u,
+} from '../../packages/shared-ts/src/device-linking/digests';
 import { createDeviceLinkingAuthenticatedSessionTransportV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingHttpTransport';
 import type { DeviceLinkingKeyMaterialPortV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingPorts';
 import type { HttpTransport } from '../../packages/wallet/src/core/platform/http';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import { buildResumeFixture } from './helpers/linkDeviceAuthorityResume.fixtures';
 import { buildPasskeyTargetPreparationFixtureV1 } from './helpers/linkedDeviceTargetPreparation.fixtures';
 
 const DELIVERY_RECIPIENT_PUBLIC_KEY_B64U =
@@ -216,6 +224,78 @@ test.describe('R103 authenticated linked-device browser transport', () => {
     );
     expect(claim.deviceId).toBe(fixture.approval.deviceId);
     expect(JSON.stringify(projection)).not.toContain('private');
+  });
+
+  test('replays activation acknowledgement with the exact Wallet Session bearer only', async () => {
+    const fixture = await buildResumeFixture('http-ack-replay');
+    const deviceLinkFixture = buildR103DeviceLinkFixture();
+    let request: Parameters<HttpTransport['request']>[0] | undefined;
+    const http: HttpTransport = {
+      kind: 'http_transport',
+      async request(input) {
+        request = input;
+        return { ok: true, value: { status: 204, body: null } };
+      },
+    };
+    const keyMaterial: DeviceLinkingKeyMaterialPortV1 = {
+      async createBootstrapKeyMaterialV1() {
+        return {
+          handle: { kind: 'device_linking_key_material_handle_v1', handleId: 'worker-slot-r103' },
+          linkPublicKeyB64u: deviceLinkFixture.payload.linkPublicKeyB64u,
+          devicePublicKeyB64u: deviceLinkFixture.payload.devicePublicKeyB64u,
+          deliveryRecipientPublicKey65B64u: fixture.active.sealedDelivery.aad.recipientPublicKey65B64u,
+        };
+      },
+      async discardKeyMaterialV1() {},
+      async signDeviceSessionRequestV1() {
+        throw new Error('exact Wallet Session replay must not sign a device proof');
+      },
+      async openWalletSessionCredentialDeliveryV1() {
+        throw new Error('delivery opening is outside this transport test');
+      },
+    };
+    const transport = createDeviceLinkingAuthenticatedSessionTransportV1({
+      http,
+      relayerUrl: 'https://relay.example.test/',
+      publishableKey: 'pk_test_registration_origin',
+      projectEnvironmentId: 'project:dev',
+      keyMaterial,
+      keyMaterialHandle: fixture.inputBase.keyMaterial,
+      devicePublicKeyB64u: deviceLinkFixture.payload.devicePublicKeyB64u,
+      nowMs: () => 2_000,
+      pollIntervalMs: 10_000,
+    });
+    const acknowledgement: LocalAuthorityActivationFinalAckV1 = {
+      kind: 'local_authority_activation_final_ack_v1',
+      linkSessionId: fixture.inputBase.linkSessionId,
+      authorityId: fixture.active.authority.authorityId,
+      packageSetDigestB64u: fixture.committed.packageSetDigestB64u,
+      authorizationId: fixture.active.walletSession.authorizationId,
+      walletSessionId: fixture.operationCredential.walletSessionId,
+      credentialDigestB64u: await computeWalletSessionOperationCredentialDigestB64u(
+        fixture.operationCredential,
+      ),
+      installationReceiptDigestB64u:
+        await computeWalletSessionInstallationReceiptDigestB64u(fixture.receipt),
+      acknowledgedAtMs: 2_000,
+    };
+
+    await transport.acknowledgeLocalAuthorityActivationWithWalletSessionV1({
+      acknowledgement,
+      operationCredential: fixture.operationCredential,
+    });
+
+    expect(request?.method).toBe('POST');
+    expect(request?.url).toBe(
+      `https://relay.example.test/wallet/device-linking/v1/sessions/${fixture.inputBase.linkSessionId}/receipt`,
+    );
+    expect(request?.headers).toEqual({
+      Accept: 'application/json',
+      Authorization: `Bearer ${fixture.operationCredential.token}`,
+      'Content-Type': 'application/json',
+      'X-Seams-Environment-Id': 'project:dev',
+    });
+    expect(request?.body).toEqual(acknowledgement);
   });
 
   test('does not schedule an orphan poll after bootstrap failure', async () => {

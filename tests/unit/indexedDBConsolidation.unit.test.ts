@@ -335,8 +335,36 @@ async function buildLocalEmailAuthorityInstallationFixture() {
     createdAtMs: authMethod.createdAtMs,
     updatedAtMs: authMethod.updatedAtMs,
   };
+  const activeAuthorityDraft = buildActiveWalletAuthorityV1({
+    kind: authority.kind,
+    authorityId: authority.authorityId,
+    walletId: authority.walletId,
+    principal: authority.principal,
+    provenance: authority.provenance,
+    permissions: authority.permissions,
+    signerActivations: authority.signerActivations,
+    signerActivationSetDigestB64u: authority.signerActivationSetDigestB64u,
+    authorityDigestB64u: authority.authorityDigestB64u,
+    revocationEpoch: authority.revocationEpoch,
+    createdAtMs: authority.createdAtMs,
+    updatedAtMs: 30,
+    state: 'active',
+    activatedAtMs: 30,
+  });
+  const activeAuthority = buildActiveWalletAuthorityV1({
+    ...activeAuthorityDraft,
+    authorityDigestB64u: await computeWalletAuthorityDigestB64u(activeAuthorityDraft),
+  });
+  const activeAuthMethod = buildWalletAuthMethodRecordV2({
+    ...authMethod,
+    status: 'active',
+    updatedAtMs: 30,
+    activatedAtMs: 30,
+  });
   return {
     walletId: base.walletId,
+    activeAuthority,
+    activeAuthMethod,
     input: {
       authority,
       authMethod,
@@ -351,9 +379,11 @@ async function buildLocalEmailAuthorityInstallationFixture() {
     selection: {
       ...base.selection,
       wallet_auth_method_id: authMethod.walletAuthMethodId,
+      lock_state: 'unlocked' as const,
       record: {
         ...base.selection.record,
         walletAuthMethodId: authMethod.walletAuthMethodId,
+        lockState: 'unlocked' as const,
       },
     },
   };
@@ -1609,11 +1639,11 @@ test.describe('IndexedDB consolidation', () => {
           storedMaterial: storedMaterial.record.sealedMaterialB64u,
           storedExportRoot: storedExportRoot.record.envelope.sealedCustodySecretB64u,
           storedReceipt: storedReceipt.record.installedRecordSetDigestB64u,
-          storedProfileId: storedProfile.record.profileId,
-          storedProfileCredential: storedProfile.record.passkeyCredential,
+          storedProfileId: storedProfile?.record?.profileId ?? null,
+          storedProfileCredential: storedProfile?.record?.passkeyCredential ?? null,
           storedAuthenticatorCount: storedAuthenticators.length,
-          storedAuthenticatorCredentialId: storedAuthenticators[0]?.credentialId,
-          storedAuthenticatorSignerSlot: storedAuthenticators[0]?.signerSlot,
+          storedAuthenticatorCredentialId: storedAuthenticators[0]?.credentialId ?? null,
+          storedAuthenticatorSignerSlot: storedAuthenticators[0]?.signerSlot ?? null,
           storedAuthenticatorPublicKey: storedAuthenticators[0]
             ? Array.from(storedAuthenticators[0].credentialPublicKey)
             : null,
@@ -1645,20 +1675,17 @@ test.describe('IndexedDB consolidation', () => {
       storedMaterial: 'sealed-material-r103e',
       storedExportRoot: fixture.input.exportRoot?.envelope.sealedCustodySecretB64u,
       storedReceipt: fixture.input.receipt.installedRecordSetDigestB64u,
-      storedProfileId: fixture.walletId,
-      storedProfileCredential: {
-        id: fixture.input.authMethod.credentialIdB64u,
-        rawId: fixture.input.authMethod.credentialIdB64u,
-      },
-      storedAuthenticatorCount: 1,
-      storedAuthenticatorCredentialId: fixture.input.authMethod.credentialIdB64u,
-      storedAuthenticatorSignerSlot: 1,
-      storedAuthenticatorPublicKey: Array.from(new Uint8Array(32).fill(4)),
+      storedProfileId: null,
+      storedProfileCredential: null,
+      storedAuthenticatorCount: 0,
+      storedAuthenticatorCredentialId: null,
+      storedAuthenticatorSignerSlot: null,
+      storedAuthenticatorPublicKey: null,
       stale: 'stale_lock_generation',
       actualLockGeneration: 8,
       counts: {
         authorityCount: 1,
-        authMethodCount: 2,
+        authMethodCount: 1,
         materialCount: 2,
         receiptCount: 1,
         exportRootCount: 1,
@@ -1690,8 +1717,36 @@ test.describe('IndexedDB consolidation', () => {
 
         const installed = await repositories.installLocalAuthority(fixture.input);
         const replayed = await repositories.installLocalAuthority(fixture.input);
+        const localMethodsBeforePublication = await repositories.listWalletAuthMethodsForWallet(
+          fixture.walletId,
+        );
+        const profileBeforePublication = await db.get(
+          schemaNames.SEAMS_WALLET_STORES.wallets,
+          fixture.walletId,
+        );
+        const published = await repositories.publishLocalAuthorityActivation({
+          authority: fixture.activeAuthority,
+          authMethod: fixture.activeAuthMethod,
+          expectedLockGeneration: fixture.input.expectedLockGeneration,
+        });
         const localMethods = await repositories.listWalletAuthMethodsForWallet(fixture.walletId);
         const localEmail = localMethods.find((record) => record.kind === 'email_otp');
+        const profileAfterPublication = await db.get(
+          schemaNames.SEAMS_WALLET_STORES.wallets,
+          fixture.walletId,
+        );
+        const localEmailStorageKey = [fixture.walletId, 'email_otp', 'a'.repeat(64)].join('\0');
+        const localEmailRow = await db.get(
+          schemaNames.SEAMS_WALLET_STORES.walletAuthMethods,
+          localEmailStorageKey,
+        );
+        const v2AuthMethodRow = await db.get(
+          schemaNames.SEAMS_WALLET_STORES.walletAuthMethods,
+          fixture.input.authMethod.walletAuthMethodId,
+        );
+        const publishedV2 = await repositories.getWalletAuthMethodV2(
+          fixture.input.authMethod.walletAuthMethodId,
+        );
         const selected = await repositories.resolveSelectedWalletAuthority(fixture.walletId);
         const authMethodCount = await db.count(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods);
         manager.close();
@@ -1704,6 +1759,9 @@ test.describe('IndexedDB consolidation', () => {
         return {
           installed: installed.kind,
           replayed: replayed.kind,
+          published: published.kind,
+          localMethodCountBeforePublication: localMethodsBeforePublication.length,
+          profilePresentBeforePublication: profileBeforePublication !== undefined,
           localMethodCount: localMethods.length,
           localEmailAuthority:
             localEmail?.kind === 'email_otp'
@@ -1717,6 +1775,10 @@ test.describe('IndexedDB consolidation', () => {
               : null,
           selected: selected.kind,
           selectedAuthMethodKind: selected.kind === 'resolved' ? selected.authMethod.kind : null,
+          publishedV2Status: publishedV2?.status ?? null,
+          localEmailStorageKey: localEmailRow?.wallet_auth_method_id ?? null,
+          v2AuthMethodStorageKey: v2AuthMethodRow?.wallet_auth_method_id ?? null,
+          profilePresentAfterPublication: profileAfterPublication !== undefined,
           authMethodCount,
         };
       },
@@ -1726,6 +1788,9 @@ test.describe('IndexedDB consolidation', () => {
     expect(result).toEqual({
       installed: 'installed',
       replayed: 'idempotent_replay',
+      published: 'published',
+      localMethodCountBeforePublication: 0,
+      profilePresentBeforePublication: false,
       localMethodCount: 1,
       localEmailAuthority: {
         walletId: fixture.walletId,
@@ -1736,6 +1801,10 @@ test.describe('IndexedDB consolidation', () => {
       },
       selected: 'resolved',
       selectedAuthMethodKind: 'email_otp',
+      publishedV2Status: 'active',
+      localEmailStorageKey: [fixture.walletId, 'email_otp', 'a'.repeat(64)].join('\0'),
+      v2AuthMethodStorageKey: fixture.input.authMethod.walletAuthMethodId,
+      profilePresentAfterPublication: true,
       authMethodCount: 2,
     });
   });

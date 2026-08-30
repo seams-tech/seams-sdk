@@ -52,6 +52,8 @@ import {
   type LocalAuthorityInstallationResultV1,
   type LocalAuthorityActivationFinalizationInputV1,
   type LocalAuthorityActivationFinalizationResultV1,
+  type LocalAuthorityActivationPublicationInputV1,
+  type LocalAuthorityActivationPublicationResultV1,
   type WalletLockGenerationAdvanceInputV1,
   type RecoveredWalletAuthorityProjectionInputV1,
   type ResolveSelectedWalletAuthorityResultV1,
@@ -162,6 +164,10 @@ export class UnifiedIndexedDBManager {
 
   async getAppState<T = unknown>(key: string): Promise<T | undefined> {
     return this.seamsWalletRepositories.getAppState<T>(key);
+  }
+
+  async listAppStateEntriesByPrefix(prefix: string): Promise<ReadonlyArray<{ key: string; value: unknown }>> {
+    return this.seamsWalletRepositories.listAppStateEntriesByPrefix(prefix);
   }
 
   async setAppState<T = unknown>(key: string, value: T): Promise<void> {
@@ -464,6 +470,12 @@ export class UnifiedIndexedDBManager {
     input: LocalAuthorityActivationFinalizationInputV1,
   ): Promise<LocalAuthorityActivationFinalizationResultV1> {
     return this.seamsWalletRepositories.finalizeLocalAuthorityActivation(input);
+  }
+
+  async publishLocalAuthorityActivation(
+    input: LocalAuthorityActivationPublicationInputV1,
+  ): Promise<LocalAuthorityActivationPublicationResultV1> {
+    return this.seamsWalletRepositories.publishLocalAuthorityActivation(input);
   }
 
   async advanceWalletLockGeneration(input: WalletLockGenerationAdvanceInputV1): Promise<number> {

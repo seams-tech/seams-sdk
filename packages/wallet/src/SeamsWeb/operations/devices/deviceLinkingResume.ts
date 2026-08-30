@@ -6,7 +6,9 @@ import {
 import type {
   CommittedAuthorityPackagesV1,
   LinkIntegrityFailureV1,
+  LocalAuthorityActivationFinalAckV1,
   VerifiedTargetFactorV1,
+  WalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
@@ -24,8 +26,20 @@ import {
   type WalletId,
 } from '@shared/utils/domainIds';
 import { parseDeviceId, type DeviceId } from '@shared/authorization/capabilityKinds';
+import { parseLocalAuthorityActivationFinalAckV1 } from '@shared/device-linking/parsers';
+import type { DeviceLinkingWalletSessionAcknowledgementReplayPortV1 } from './deviceLinkingPorts';
+import type { DeviceLinkingDeliveryResumePortV1 } from './deviceLinkingAuthorityInstallation';
 
 export const LINKED_DEVICE_COMMITTED_RESUME_KIND_V1 = 'linked_device_committed_resume_v1' as const;
+export const LINKED_DEVICE_PENDING_ACK_KIND_V1 = 'linked_device_pending_ack_v1' as const;
+export const LINKED_DEVICE_COMMITTED_RESUME_APP_STATE_PREFIX_V1 =
+  'device-linking/committed-resume/v1/';
+export const LINKED_DEVICE_PENDING_ACK_APP_STATE_PREFIX_V1 = 'device-linking/pending-ack/v1/';
+
+export type DeviceLinkingPendingAcknowledgementV1 = {
+  readonly kind: typeof LINKED_DEVICE_PENDING_ACK_KIND_V1;
+  readonly acknowledgement: LocalAuthorityActivationFinalAckV1;
+};
 
 /**
  * Durable identity for a committed delivery. It contains no key bytes,
@@ -49,7 +63,35 @@ export type DeviceLinkingCommittedResumeV1 = {
 };
 
 export function committedResumeAppStateKeyV1(authorityId: WalletAuthorityId): string {
-  return `device-linking/committed-resume/v1/${String(authorityId)}`;
+  return `${LINKED_DEVICE_COMMITTED_RESUME_APP_STATE_PREFIX_V1}${String(authorityId)}`;
+}
+
+export function pendingAcknowledgementAppStateKeyV1(authorityId: WalletAuthorityId): string {
+  return `${LINKED_DEVICE_PENDING_ACK_APP_STATE_PREFIX_V1}${String(authorityId)}`;
+}
+
+export function buildDeviceLinkingPendingAcknowledgementV1(
+  acknowledgement: LocalAuthorityActivationFinalAckV1,
+): DeviceLinkingPendingAcknowledgementV1 {
+  return {
+    kind: LINKED_DEVICE_PENDING_ACK_KIND_V1,
+    acknowledgement: parseLocalAuthorityActivationFinalAckV1(acknowledgement),
+  };
+}
+
+export function parseDeviceLinkingPendingAcknowledgementV1(
+  raw: unknown,
+): DeviceLinkingPendingAcknowledgementV1 | null {
+  if (!isRecord(raw) || !hasExactKeys(raw, ['kind', 'acknowledgement'])) return null;
+  if (raw.kind !== LINKED_DEVICE_PENDING_ACK_KIND_V1) return null;
+  try {
+    return {
+      kind: LINKED_DEVICE_PENDING_ACK_KIND_V1,
+      acknowledgement: parseLocalAuthorityActivationFinalAckV1(raw.acknowledgement),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function buildDeviceLinkingCommittedResumeV1(input: {
@@ -232,6 +274,60 @@ export function parseDeviceLinkingCommittedResumeV1(
   } catch {
     return null;
   }
+}
+
+export type DeviceLinkingDurableAcknowledgementReplayResultV1 =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'replayed'; readonly count: number };
+
+/**
+ * Bootstrap recovery for a page reload or a lost recipient worker handle.
+ * The exact-method Wallet Session authenticates the already-persisted ack;
+ * the sealed credential is never reconstructed here.
+ */
+export async function replayPendingDeviceLinkingAcknowledgementsV1(input: {
+  readonly installation: DeviceLinkingDeliveryResumePortV1;
+  readonly transport: DeviceLinkingWalletSessionAcknowledgementReplayPortV1;
+  readonly walletId: WalletId;
+  readonly authorityId: WalletAuthorityId;
+  readonly authMethodId: WalletAuthMethodId;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
+}): Promise<DeviceLinkingDurableAcknowledgementReplayResultV1> {
+  const [resumes, acknowledgements] = await Promise.all([
+    input.installation.listCommittedDeliveryResumesV1(),
+    input.installation.listPendingActivationAcknowledgementsV1(),
+  ]);
+  const authorityResumes = resumes.filter(
+    (resume) => resume.authorityId === input.authorityId,
+  );
+  const matchingAcknowledgements = acknowledgements.filter(
+    (acknowledgement) => acknowledgement.authorityId === input.authorityId,
+  );
+  if (matchingAcknowledgements.length === 0) return { kind: 'none' };
+  for (const acknowledgement of matchingAcknowledgements) {
+    const resume = authorityResumes.find(
+      (candidate) =>
+        candidate.linkSessionId === acknowledgement.linkSessionId &&
+        candidate.packageSetDigestB64u === acknowledgement.packageSetDigestB64u,
+    );
+    if (!resume) {
+      throw new Error('durable linked-device acknowledgement has no matching resume');
+    }
+    if (resume.walletId !== input.walletId || resume.authMethodId !== input.authMethodId) {
+      throw new Error('durable linked-device acknowledgement identity changed');
+    }
+    await input.transport.acknowledgeLocalAuthorityActivationWithWalletSessionV1({
+      acknowledgement,
+      operationCredential: input.operationCredential,
+    });
+    await input.installation.clearPendingActivationAcknowledgementV1({
+      authorityId: acknowledgement.authorityId,
+    });
+    await input.installation.clearCommittedDeliveryResumeV1({
+      authorityId: acknowledgement.authorityId,
+    });
+  }
+  return { kind: 'replayed', count: matchingAcknowledgements.length };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

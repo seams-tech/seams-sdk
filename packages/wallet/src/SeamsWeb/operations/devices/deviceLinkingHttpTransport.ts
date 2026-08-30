@@ -4,6 +4,7 @@ import type {
   LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV5,
+  LocalAuthorityActivationFinalAckV1,
   LinkedDeviceTargetPreparationRequestV1,
 } from '@shared/device-linking';
 import {
@@ -22,6 +23,7 @@ import {
   parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceTargetPreparationRequestV1,
+  parseWalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
 import {
   computeLinkedDevicePublicKeyDigestV1,
@@ -147,6 +149,23 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
     },
     getSessionV1: async ({ linkSessionId }) =>
       await requestSessionV1({ options, baseUrl, linkSessionId }),
+    acknowledgeLocalAuthorityActivationWithWalletSessionV1: async ({
+      acknowledgement,
+      operationCredential,
+    }) => {
+      const parsedAcknowledgement = parseLocalAuthorityActivationFinalAckV1(acknowledgement);
+      const parsedCredential = parseWalletSessionOperationCredentialV1(operationCredential);
+      if (parsedCredential.walletSessionId !== parsedAcknowledgement.walletSessionId) {
+        throw new Error('linked-device acknowledgement credential does not match Wallet Session');
+      }
+      await requestWalletSessionAcknowledgementV1({
+        options,
+        baseUrl,
+        linkSessionId: parsedAcknowledgement.linkSessionId,
+        token: parsedCredential.token,
+        body: parsedAcknowledgement,
+      });
+    },
     getApprovalV1: async ({ linkSessionId }) => {
       const response = await requestDeviceV1({
         options,
@@ -434,6 +453,35 @@ async function requestDeviceV1(input: {
     throw new Error(parseHttpFailureMessageV1(response.value));
   }
   return response.value;
+}
+
+async function requestWalletSessionAcknowledgementV1(input: {
+  readonly options: DeviceLinkingAuthenticatedSessionTransportOptionsV1;
+  readonly baseUrl: string;
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly token: string;
+  readonly body: LocalAuthorityActivationFinalAckV1;
+}): Promise<void> {
+  const token = input.token.trim();
+  const projectEnvironmentId = input.options.projectEnvironmentId.trim();
+  if (!token || !projectEnvironmentId) {
+    throw new Error('linked-device Wallet Session acknowledgement requires session credentials');
+  }
+  const response = await input.options.http.request({
+    method: 'POST',
+    url: `${input.baseUrl}${sessionActionPath(input.linkSessionId, 'receipt')}`,
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'X-Seams-Environment-Id': projectEnvironmentId,
+    },
+    body: input.body,
+  });
+  if (!response.ok) throw new Error(`linked-device request failed: ${response.message}`);
+  if (response.value.status < 200 || response.value.status >= 300) {
+    throw new Error(parseHttpFailureMessageV1(response.value));
+  }
 }
 
 async function createPollingSubscriptionV1(input: {

@@ -6,9 +6,17 @@ import {
   parseLinkDevicePublicKeyB64u,
   parseLinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
   parseLinkedDeviceEmailOtpVerificationGrantV1,
+  parseLinkedDeviceWalletSessionCredentialDeliveryV1,
+  parseLinkedDeviceWalletSessionCredentialDeliveryBindingV1,
+  parseWalletSessionOperationCredentialV1,
+  assertLinkedDeviceWalletSessionCredentialDeliveryIntegrityV1,
+  encodeLinkedDeviceWalletSessionCredentialDeliveryAadV1,
   type LinkedDeviceRequestProofV1,
   type LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
   type LinkedDeviceEmailOtpVerificationGrantV1,
+  type LinkedDeviceWalletSessionCredentialDeliveryV1,
+  type LinkedDeviceWalletSessionCredentialDeliveryBindingV1,
+  type WalletSessionOperationCredentialV1,
   type LinkDevicePublicKeyB64u,
   type CommittedAuthorityPackagesV1,
   type CommittedEd25519SignerPackageV1,
@@ -16,14 +24,25 @@ import {
   type OrdinarySignerMaterialRecipientRequirementV1,
   type OrdinarySignerMaterialRecipientRequestV1,
 } from '@shared/device-linking';
+import { computeWalletSessionOperationCredentialDigestB64u } from '@shared/device-linking/digests';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+  type MpcWalletSigningQuotaId,
+  type WalletSessionAuthorizationId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
   mpcMaterialActivationRefsEqual,
   parseWalletAuthMethodId,
+  parseWalletAuthorityId,
   parseWalletId,
   type WalletAuthMethodId,
+  type WalletAuthorityId,
   type WalletId,
 } from '@shared/utils/domainIds';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
@@ -147,6 +166,26 @@ type DeviceLinkingKeyWorkerRequestV1 =
       readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
     }
   | {
+      readonly kind: 'device_linking_wallet_session_credential_delivery_open_v1';
+      readonly handleId: string;
+      readonly delivery: LinkedDeviceWalletSessionCredentialDeliveryV1;
+      readonly expected: {
+        readonly linkSessionId: LinkDeviceSessionId;
+        readonly walletId: WalletId;
+        readonly authorityId: WalletAuthorityId;
+        readonly walletAuthMethodId: WalletAuthMethodId;
+        readonly authorizationId: WalletSessionAuthorizationId;
+        readonly walletSessionId: WalletSessionId;
+        readonly quotaId: MpcWalletSigningQuotaId;
+        readonly deliveryBinding: LinkedDeviceWalletSessionCredentialDeliveryBindingV1;
+        readonly credentialDigestB64u: DigestB64u;
+        readonly installationReceiptDigestB64u: DigestB64u;
+        readonly recipientPublicKey65B64u: string;
+        readonly issuedAtMs: number;
+        readonly expiresAtMs: number;
+      };
+    }
+  | {
       readonly kind: 'device_linking_key_material_discard_v1';
       readonly handleId: string;
     };
@@ -169,6 +208,7 @@ type DeviceLinkingKeyWorkerResponseV1 =
       readonly verificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
       readonly factorSecret: ArrayBuffer;
     }
+  | WalletSessionOperationCredentialV1
   | {
       readonly handleId: string;
       readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
@@ -942,6 +982,83 @@ function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
       factorRelease: parseLinkedDeviceEmailOtpFactorReleaseEnvelopeV1(parsed.factorRelease),
     };
   }
+  if (record.kind === 'device_linking_wallet_session_credential_delivery_open_v1') {
+    const parsed = exactRecord(
+      record,
+      ['kind', 'handleId', 'delivery', 'expected'],
+      'device-linking Wallet Session credential delivery open request',
+    );
+    const expected = exactRecord(
+      parsed.expected,
+      [
+        'linkSessionId',
+        'walletId',
+        'authorityId',
+        'walletAuthMethodId',
+        'authorizationId',
+        'walletSessionId',
+        'quotaId',
+        'deliveryBinding',
+        'credentialDigestB64u',
+        'installationReceiptDigestB64u',
+        'recipientPublicKey65B64u',
+        'issuedAtMs',
+        'expiresAtMs',
+      ],
+      'device-linking Wallet Session credential delivery expected identity',
+    );
+    const walletId = parseWalletId(expected.walletId);
+    if (!walletId.ok) throw new Error(walletId.error.message);
+    const authorityId = parseWalletAuthorityId(expected.authorityId);
+    if (!authorityId.ok) throw new Error(authorityId.error.message);
+    const walletAuthMethodId = parseWalletAuthMethodId(expected.walletAuthMethodId);
+    if (!walletAuthMethodId.ok) throw new Error(walletAuthMethodId.error.message);
+    const authorizationId = parseWalletSessionAuthorizationId(expected.authorizationId);
+    if (!authorizationId.ok) throw new Error(authorizationId.error.message);
+    const walletSessionId = parseWalletSessionId(expected.walletSessionId);
+    if (!walletSessionId.ok) throw new Error(walletSessionId.error.message);
+    const quotaId = parseMpcWalletSigningQuotaId(expected.quotaId);
+    if (!quotaId.ok) throw new Error(quotaId.error.message);
+    const linkSessionId = parseLinkDeviceSessionId(expected.linkSessionId);
+    if (!linkSessionId.ok) throw new Error(linkSessionId.error.message);
+    const credentialDigestB64u = parseDigest(
+      expected.credentialDigestB64u,
+      'credentialDigestB64u',
+    );
+    const installationReceiptDigestB64u = parseDigest(
+      expected.installationReceiptDigestB64u,
+      'installationReceiptDigestB64u',
+    );
+    const issuedAtMs = parseTimestamp(expected.issuedAtMs, 'issuedAtMs');
+    const expiresAtMs = parseTimestamp(expected.expiresAtMs, 'expiresAtMs');
+    if (expiresAtMs <= issuedAtMs) throw new Error('expiresAtMs must be after issuedAtMs');
+    return {
+      kind: 'device_linking_wallet_session_credential_delivery_open_v1',
+      handleId: parseHandleId(parsed.handleId),
+      delivery: parseLinkedDeviceWalletSessionCredentialDeliveryV1(parsed.delivery),
+      expected: {
+        linkSessionId: linkSessionId.value,
+        walletId: walletId.value,
+        authorityId: authorityId.value,
+        walletAuthMethodId: walletAuthMethodId.value,
+        authorizationId: authorizationId.value,
+        walletSessionId: walletSessionId.value,
+        quotaId: quotaId.value,
+        deliveryBinding: parseLinkedDeviceWalletSessionCredentialDeliveryBindingV1(
+          expected.deliveryBinding,
+        ),
+        credentialDigestB64u,
+        installationReceiptDigestB64u,
+        recipientPublicKey65B64u: parseFixedBase64Url(
+          expected.recipientPublicKey65B64u,
+          65,
+          'recipientPublicKey65B64u',
+        ),
+        issuedAtMs,
+        expiresAtMs,
+      },
+    };
+  }
   throw new Error('device-linking worker request kind is unsupported');
 }
 
@@ -1657,6 +1774,129 @@ async function decryptEmailOtpFactorReleaseEnvelope(input: {
   }
 }
 
+async function openWalletSessionCredentialDelivery(
+  request: Extract<
+    DeviceLinkingKeyWorkerRequestV1,
+    { readonly kind: 'device_linking_wallet_session_credential_delivery_open_v1' }
+  >,
+): Promise<WalletSessionOperationCredentialV1> {
+  const slot = keySlots.get(request.handleId);
+  if (!slot) throw new Error('device-linking key handle is unknown or discarded');
+  const delivery = request.delivery;
+  await assertLinkedDeviceWalletSessionCredentialDeliveryIntegrityV1(delivery);
+  assertWalletSessionCredentialDeliveryBinding({
+    delivery,
+    expected: request.expected,
+    recipientPublicKey65B64u: slot.deliveryRecipientPublicKey65B64u,
+  });
+  if (Date.now() >= delivery.aad.expiresAtMs) {
+    throw new Error('linked-device Wallet Session credential delivery is expired');
+  }
+
+  let serverPublicKey: Uint8Array | null = null;
+  let nonce: Uint8Array | null = null;
+  let ciphertext: Uint8Array | null = null;
+  let sharedSecret: Uint8Array | null = null;
+  let aadBytes: Uint8Array | null = null;
+  let plaintext: Uint8Array | null = null;
+  try {
+    serverPublicKey = base64UrlDecode(delivery.envelope.serverEphemeralPublicKey65B64u);
+    nonce = base64UrlDecode(delivery.envelope.nonce12B64u);
+    ciphertext = base64UrlDecode(delivery.envelope.ciphertextB64u);
+    const importedServerKey = await globalThis.crypto.subtle.importKey(
+      'raw',
+      serverPublicKey,
+      { name: 'ECDH', namedCurve: 'P-256' },
+      false,
+      [],
+    );
+    sharedSecret = new Uint8Array(
+      await globalThis.crypto.subtle.deriveBits(
+        { name: 'ECDH', public: importedServerKey },
+        slot.deliveryRecipientPrivateKey,
+        256,
+      ),
+    );
+    const decryptionKey = await globalThis.crypto.subtle.importKey(
+      'raw',
+      sharedSecret,
+      { name: 'AES-GCM' },
+      false,
+      ['decrypt'],
+    );
+    aadBytes = new TextEncoder().encode(
+      encodeLinkedDeviceWalletSessionCredentialDeliveryAadV1(delivery.aad),
+    );
+    plaintext = new Uint8Array(
+      await globalThis.crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: nonce, additionalData: aadBytes, tagLength: 128 },
+        decryptionKey,
+        ciphertext,
+      ),
+    );
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(new TextDecoder().decode(plaintext));
+    } catch {
+      throw new Error('linked-device Wallet Session credential plaintext is not valid JSON');
+    }
+    const operationCredential = parseWalletSessionOperationCredentialV1(decoded);
+    if (operationCredential.walletSessionId !== delivery.aad.walletSessionId) {
+      throw new Error('linked-device Wallet Session credential identity does not match AAD');
+    }
+    const credentialDigestB64u = await computeWalletSessionOperationCredentialDigestB64u(
+      operationCredential,
+    );
+    if (credentialDigestB64u !== delivery.aad.credentialDigestB64u) {
+      throw new Error('linked-device Wallet Session credential digest does not match AAD');
+    }
+    return operationCredential;
+  } finally {
+    serverPublicKey?.fill(0);
+    nonce?.fill(0);
+    ciphertext?.fill(0);
+    sharedSecret?.fill(0);
+    aadBytes?.fill(0);
+    plaintext?.fill(0);
+  }
+}
+
+function assertWalletSessionCredentialDeliveryBinding(input: {
+  readonly delivery: LinkedDeviceWalletSessionCredentialDeliveryV1;
+  readonly expected: Extract<
+    DeviceLinkingKeyWorkerRequestV1,
+    { readonly kind: 'device_linking_wallet_session_credential_delivery_open_v1' }
+  >['expected'];
+  readonly recipientPublicKey65B64u: string;
+}): void {
+  const aad = input.delivery.aad;
+  const expected = input.expected;
+  const binding = expected.deliveryBinding;
+  if (
+    aad.namespace !== binding.namespace ||
+    aad.orgId !== binding.orgId ||
+    aad.projectId !== binding.projectId ||
+    aad.envId !== binding.envId ||
+    aad.tenantId !== binding.tenantId ||
+    aad.principalId !== binding.principalId ||
+    aad.linkSessionId !== expected.linkSessionId ||
+    aad.walletId !== expected.walletId ||
+    aad.authorityId !== expected.authorityId ||
+    aad.walletAuthMethodId !== expected.walletAuthMethodId ||
+    aad.authorizationId !== expected.authorizationId ||
+    aad.walletSessionId !== expected.walletSessionId ||
+    aad.quotaId !== expected.quotaId ||
+    aad.credentialDigestB64u !== expected.credentialDigestB64u ||
+    input.delivery.installationReceiptDigestB64u !== expected.installationReceiptDigestB64u ||
+    aad.recipientPublicKey65B64u !== expected.recipientPublicKey65B64u ||
+    aad.recipientPublicKey65B64u !== input.recipientPublicKey65B64u ||
+    aad.issuedAtMs !== expected.issuedAtMs ||
+    aad.expiresAtMs !== expected.expiresAtMs
+  ) {
+    throw new Error('linked-device Wallet Session credential delivery identity changed');
+  }
+}
+
 async function handleRequest(
   rawRequest: unknown,
   ordinaryMaterialSealer: DeviceLinkingOrdinaryMaterialSealerV1,
@@ -1680,6 +1920,8 @@ async function handleRequest(
       return await signRequest(request);
     case 'device_linking_email_otp_factor_release_open_v1':
       return await openEmailOtpFactorRelease(request);
+    case 'device_linking_wallet_session_credential_delivery_open_v1':
+      return await openWalletSessionCredentialDelivery(request);
     case 'device_linking_key_material_discard_v1':
       discardKeyMaterialSlot(request.handleId);
       return undefined;

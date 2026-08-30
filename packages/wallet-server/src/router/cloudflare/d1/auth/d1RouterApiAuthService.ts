@@ -343,7 +343,7 @@ function createD1LinkedDeviceComposition(input: {
   readonly authorizationService: AuthorizationService;
   readonly authorizationStore: Pick<
     CloudflareD1AuthorizationStore,
-    | 'prepareWalletSessionAuthorizationV2Statements'
+    | 'prepareDirectWalletSessionAuthorizationV2Statements'
     | 'prepareRetireWalletSessionAuthorizationsV2ForAuthority'
     | 'readActiveWalletSessionAuthorizationV2ByIdentity'
   >;
@@ -571,6 +571,8 @@ function createD1LinkedDeviceComposition(input: {
         authorityInstall.readCommittedAuthorityPackagesV1.bind(authorityInstall),
       activateInstalledAuthorityV1: async ({ receipt, requestedAtMs }) =>
         await authorityInstall.activateInstalledAuthorityV1({ receipt, nowMs: requestedAtMs }),
+      readActivationCleanupReceiptV1:
+        authorityInstall.readActivationCleanupReceiptV1.bind(authorityInstall),
       acknowledgeLocalAuthorityActivationV1:
         authorityInstall.acknowledgeLocalAuthorityActivationV1.bind(authorityInstall),
     };
