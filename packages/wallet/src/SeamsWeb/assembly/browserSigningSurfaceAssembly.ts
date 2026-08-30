@@ -106,11 +106,11 @@ import { readEmailOtpProviderSubjectForWalletV1 } from '@/core/signingEngine/thr
 import { readExactWalletSessionAuthorization } from './createBrowserRecoveryPublicDeps';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import { resolveExactEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
-import { activeWalletSessionV1RecordsEqual } from '@shared/device-linking/activeWalletSession';
 import type {
   CurrentEcdsaSealedSessionRecord,
   CurrentSealedSessionRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import type { ActiveWalletSessionV1 } from '@shared/device-linking/contracts';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 
@@ -132,9 +132,38 @@ type BrowserSelectedWalletAuthorityResolution = Awaited<
 type BrowserEcdsaWalletSessionAuthorizationInput = Pick<
   Parameters<
     Parameters<typeof createSigningEnginePorts>[0]['resolveAuthorizedEcdsaSigningCapability']
-  >[0],
+>[0],
   'walletId' | 'chainTarget' | 'materialActivation'
 >;
+
+function walletSessionImmutableIdentityMatches(
+  left: ActiveWalletSessionV1,
+  right: ActiveWalletSessionV1,
+): boolean {
+  return (
+    left.kind === right.kind &&
+    left.walletId === right.walletId &&
+    left.authorityId === right.authorityId &&
+    left.authMethodId === right.authMethodId &&
+    left.authorizationId === right.authorizationId &&
+    left.quotaId === right.quotaId &&
+    left.issuedAtMs === right.issuedAtMs &&
+    left.expiresAtMs === right.expiresAtMs
+  );
+}
+
+function walletSessionMatchesSelectedAuthority(
+  session: ActiveWalletSessionV1,
+  selected: BrowserSelectedWalletAuthority,
+): boolean {
+  return (
+    session.walletId === selected.authority.walletId &&
+    session.authorityId === selected.authority.authorityId &&
+    session.authMethodId === selected.authMethod.walletAuthMethodId &&
+    session.authorityDigestB64u === selected.authority.authorityDigestB64u &&
+    session.authorityRevocationEpoch === selected.authority.revocationEpoch
+  );
+}
 
 function omitPasskeyRestoreAuthMethod(
   input: RestorePersistedSessionForSigningInput,
@@ -556,23 +585,40 @@ export async function resolveBrowserActiveEcdsaWalletSessionAuthorization(
   if (status.status !== 'active') {
     return { kind: 'inactive', reason: `Exact Wallet Session is ${status.status}` };
   }
+  const currentSelectedResult = await IndexedDBManager.resolveSelectedWalletAuthority(
+    String(walletId),
+  );
+  const currentSelected = exactSelectedWalletAuthority(currentSelectedResult, walletId);
   if (
+    !currentSelected ||
     status.walletSessionId !== exactAuthorization.operationCredential.walletSessionId ||
     status.quotaId !== exactAuthorization.record.quotaId ||
     status.expiresAtMs !== status.authorization.expiresAtMs ||
-    !activeWalletSessionV1RecordsEqual(status.authorization, exactAuthorization.record)
+    !walletSessionImmutableIdentityMatches(status.authorization, exactAuthorization.record) ||
+    !walletSessionMatchesSelectedAuthority(status.authorization, currentSelected)
   ) {
     return { kind: 'inactive', reason: 'Exact Wallet Session status identity is inconsistent' };
   }
   const authorizationNowMs = Date.now();
-  if (exactAuthorization.record.expiresAtMs <= authorizationNowMs) {
+  if (status.authorization.expiresAtMs <= authorizationNowMs) {
     return { kind: 'inactive', reason: 'Exact Wallet Session authorization is expired' };
+  }
+  try {
+    await walletSessionAuthorizations.replaceExactActive({
+      active: status.authorization,
+      operationCredential: exactAuthorization.operationCredential,
+    });
+  } catch {
+    return {
+      kind: 'inactive',
+      reason: 'Exact Wallet Session promotion reconciliation could not be persisted',
+    };
   }
   const authorizationResolution = await buildBrowserExactEcdsaWalletSessionAuthorization({
     context: args,
     walletId,
-    selected,
-    session: exactAuthorization.record,
+    selected: currentSelected,
+    session: status.authorization,
     operationCredential: exactAuthorization.operationCredential,
     status,
     chainTarget: input.chainTarget,
