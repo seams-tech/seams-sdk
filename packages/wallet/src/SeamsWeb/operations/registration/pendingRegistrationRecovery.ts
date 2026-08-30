@@ -347,6 +347,7 @@ function publicationInputFromPending(
       walletId: pending.walletId,
       walletAuthMethodId: pending.walletAuthMethodId,
     },
+    ecdsaContinuity: [],
     walletSessionPublication:
       finalized.registrationEstablishedSession.kind === 'issued'
         ? {
