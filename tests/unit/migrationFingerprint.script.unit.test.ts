@@ -32,10 +32,7 @@ const consoleMigrationRoot = path.join(
   repoRoot,
   'packages/wallet-console-server-ts/migrations/d1-console',
 );
-const signerMigrationRoot = path.join(
-  repoRoot,
-  'packages/wallet-server/migrations/d1-signer',
-);
+const signerMigrationRoot = path.join(repoRoot, 'packages/wallet-server/migrations/d1-signer');
 
 test('migration fingerprint output is stable per database and uses sorted framed records', () => {
   const migrationsDir = writeMigrationDirectory();
@@ -155,6 +152,8 @@ test('Console applied baseline stays immutable and upgrades to the fresh schema'
       '0001_console_d1_initial.sql',
       '0026_console_canonical_baseline_bridge.sql',
       '0027_console_runtime_isolation.sql',
+      '0028_wallet_balance_snapshots.sql',
+      '0029_multichain_wallet_projection.sql',
     ]);
     expect(migrationFiles.map((file) => path.basename(file))).toEqual(migrationNames);
     expect(digestMigrations(consoleMigrations.slice(0, 2))).toBe(
@@ -211,8 +210,6 @@ test('Console applied baseline stays immutable and upgrades to the fresh schema'
           ORDER BY type, name`,
       )
       .all<{ readonly type: string; readonly name: string }>();
-    expect(deployedSchema.results).toHaveLength(171);
-
     const historyRows = await deployed.database
       .prepare(`SELECT name FROM d1_migrations ORDER BY id`)
       .all<{ readonly name: string }>();

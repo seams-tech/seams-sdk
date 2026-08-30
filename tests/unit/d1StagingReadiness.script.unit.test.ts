@@ -81,7 +81,7 @@ test('D1 staging readiness check accepts the console-only staging shape', async 
   expect(result).toMatchObject({ errors: [], ok: true });
 });
 
-test('D1 staging readiness check accepts the gateway D1 and Router A/B shape', async () => {
+test('D1 staging readiness check accepts the Gateway SIGNER_DB and Router A/B shape', async () => {
   const result = await checkConfig(validD1GatewayStagingConfig(), 'gateway');
   expect(result).toMatchObject({ errors: [], ok: true });
 });
@@ -125,10 +125,10 @@ test('D1 staging readiness check rejects unexpected D1 bindings', async () => {
 
 test('D1 staging readiness check rejects duplicate D1 bindings', async () => {
   const result = await checkConfig(
-    gatewayConfigWithD1Binding('CONSOLE_DB', 'seams-console-staging-nrt'),
+    gatewayConfigWithD1Binding('SIGNER_DB', 'seams-signer-staging-nrt'),
     'gateway',
   );
-  expectErrorContaining(result, 'duplicate D1 binding CONSOLE_DB');
+  expectErrorContaining(result, 'duplicate D1 binding SIGNER_DB');
 });
 
 test('D1 staging readiness check rejects the checked-in console placeholder template', async () => {
@@ -148,7 +148,6 @@ test('D1 staging readiness check rejects the checked-in gateway placeholder temp
     profile: 'gateway',
   });
 
-  expectErrorContaining(result, 'CONSOLE_DB.database_id still contains a placeholder');
   expectErrorContaining(result, 'SIGNER_DB.database_id still contains a placeholder');
   expectErrorContaining(result, 'RELAYER_PUBLIC_KEY still contains a placeholder');
 });
