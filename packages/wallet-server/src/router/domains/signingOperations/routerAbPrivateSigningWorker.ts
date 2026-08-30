@@ -2199,21 +2199,48 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
       'Router A/B Ed25519 step-up request is expired',
     );
   }
-  const authenticated = await authenticateRouterAbWalletOperationStepUp({
-    headers: input.headers,
-    scope: input.scope,
-    operationKind: input.operationKind,
-    requestExpiresAtMs: expiresAtMs,
-    authorizedOperations: input.authorizedOperations,
-    authorizationSessions: input.authorizationSessions,
-    resolveEd25519MaterialActivation: input.resolveEd25519MaterialActivation,
-  });
+  let authenticated:
+    | RouterAbExactOperationStepUpAuthenticationResult
+    | RouterAbEd25519ExhaustedCandidateOperationStepUpAuthentication =
+    await authenticateRouterAbWalletOperationStepUp({
+      headers: input.headers,
+      scope: input.scope,
+      operationKind: input.operationKind,
+      requestExpiresAtMs: expiresAtMs,
+      authorizedOperations: input.authorizedOperations,
+      authorizationSessions: input.authorizationSessions,
+      resolveEd25519MaterialActivation: input.resolveEd25519MaterialActivation,
+    });
+  if (
+    !authenticated.ok &&
+    input.authorizedOperations &&
+    input.authorizationSessions &&
+    isWalletSessionUnavailableStepUpError(authenticated.error)
+  ) {
+    const exhaustedCandidate =
+      await resolveRouterAbEd25519ExhaustedCandidateOperationStepUpAuthentication({
+        headers: input.headers,
+        scope: input.scope,
+        operationKind: input.operationKind,
+        requestExpiresAtMs: expiresAtMs,
+        authorizedOperations: input.authorizedOperations,
+        authorizationSessions: input.authorizationSessions,
+        resolveEd25519MaterialActivation: input.resolveEd25519MaterialActivation,
+      });
+    if (exhaustedCandidate) {
+      if (!exhaustedCandidate.ok) return exhaustedCandidate.error;
+      authenticated = exhaustedCandidate;
+    }
+  }
   if (!authenticated.ok) return authenticated.error;
 
-  const activeMaterial = await input.resolveEd25519MaterialActivation({
-    walletId: authenticated.session.walletId,
-    materialActivation: input.scope.material_activation,
-  });
+  const activeMaterial =
+    'activeMaterial' in authenticated
+      ? authenticated.activeMaterial
+      : await input.resolveEd25519MaterialActivation({
+          walletId: authenticated.session.walletId,
+          materialActivation: input.scope.material_activation,
+        });
   if (!activeMaterial.ok) {
     return routerAbStepUpError(
       activeMaterial.code === 'internal' ? 500 : 403,
@@ -2357,6 +2384,231 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
     };
   }
   return { phase: 'finalize', session: authenticated.session };
+}
+
+type RouterAbEd25519ExhaustedCandidateOperationStepUpAuthentication =
+  | {
+      readonly ok: true;
+      readonly kind: 'wallet_session_operation_credential_exhausted_candidate_v1';
+      readonly authorizedOperations: RouterApiAuthorizedOperationService;
+      readonly candidate: RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext;
+      readonly activeMaterial: ActiveEd25519MaterialActivation;
+      readonly session: RouterAbExactOperationStepUpWalletSession;
+      readonly requestOrigin: import('../../../authorization/domain').SessionOrigin;
+      readonly expiresAtMs: number;
+    }
+  | {
+      readonly ok: false;
+      readonly error: RouterAbJsonRouteResult;
+    };
+
+type RouterAbEd25519OperationStepUpSessionResolution =
+  | {
+      readonly ok: true;
+      readonly activeMaterial: ActiveEd25519MaterialActivation;
+      readonly session: RouterAbExactOperationStepUpWalletSession;
+    }
+  | {
+      readonly ok: false;
+      readonly error: RouterAbJsonRouteResult;
+    };
+
+async function resolveRouterAbEd25519OperationStepUpSession(input: {
+  readonly walletId: string;
+  readonly materialOwner: string;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  readonly requestExpiresAtMs: number;
+  readonly operationKind: Ed25519OperationKind;
+  readonly authorizedOperations: RouterApiAuthorizedOperationService;
+  readonly session: RouterApiWalletSessionAuthorizationV2AdmissionContext['authorization']['session'];
+  readonly admission: Extract<
+    ReturnType<typeof resolveWalletSessionAuthorizationV2Admission>,
+    { readonly ok: true; readonly keyFamily: 'ed25519' }
+  >;
+  readonly resolveEd25519MaterialActivation: RouterApiWalletRegistrationService['resolveEd25519MaterialActivation'];
+}): Promise<RouterAbEd25519OperationStepUpSessionResolution> {
+  const admittedMaterialActivation = routerAbMpcMaterialActivationRefToWire(
+    input.admission.materialActivation,
+  );
+  if (
+    input.admission.operationKind !== input.operationKind ||
+    String(input.session.walletId) !== input.walletId ||
+    input.materialOwner !== input.walletId ||
+    !Number.isSafeInteger(input.requestExpiresAtMs) ||
+    input.requestExpiresAtMs > input.session.expiresAtMs ||
+    !sameRouterAbMpcMaterialActivationRef(admittedMaterialActivation, input.materialActivation)
+  ) {
+    return {
+      ok: false,
+      error: routerAbStepUpError(403, 'scope_mismatch', 'Wallet Session scope is invalid'),
+    };
+  }
+
+  let activeMaterial: Awaited<
+    ReturnType<RouterApiWalletRegistrationService['resolveEd25519MaterialActivation']>
+  >;
+  try {
+    activeMaterial = await input.resolveEd25519MaterialActivation({
+      walletId: input.walletId,
+      materialActivation: admittedMaterialActivation,
+    });
+  } catch {
+    return {
+      ok: false,
+      error: routerAbStepUpError(
+        503,
+        'wallet_session_unavailable',
+        'Wallet Session is unavailable',
+      ),
+    };
+  }
+  if (
+    !activeMaterial.ok ||
+    !sameRouterAbMpcMaterialActivationRef(
+      activeMaterial.materialActivation,
+      admittedMaterialActivation,
+    ) ||
+    !sameRouterAbMpcMaterialActivationRef(
+      activeMaterial.exportIdentity.scope.material_activation,
+      admittedMaterialActivation,
+    ) ||
+    activeMaterial.exportIdentity.scope.account_id !== input.walletId ||
+    activeMaterial.exportIdentity.application_binding.wallet_id !== input.walletId ||
+    base64UrlEncode(Uint8Array.from(activeMaterial.exportIdentity.registered_public_key)) !==
+      input.admission.signer.registeredPublicKeyB64u
+  ) {
+    return {
+      ok: false,
+      error: routerAbStepUpError(
+        activeMaterial.ok || activeMaterial.code !== 'internal' ? 403 : 503,
+        activeMaterial.ok || activeMaterial.code !== 'internal'
+          ? 'scope_mismatch'
+          : 'wallet_session_unavailable',
+        activeMaterial.ok
+          ? 'Wallet Session material does not match the active Ed25519 material'
+          : activeMaterial.message,
+      ),
+    };
+  }
+  if (
+    input.session.tenantId !== input.authorizedOperations.tenantId ||
+    activeMaterial.runtimePolicyScope.orgId !== input.session.tenantId ||
+    input.session.expiresAtMs <= Date.now()
+  ) {
+    return {
+      ok: false,
+      error: routerAbStepUpError(403, 'scope_mismatch', 'Wallet Session scope is invalid'),
+    };
+  }
+  return {
+    ok: true,
+    activeMaterial,
+    session: {
+      tenantId: input.session.tenantId,
+      principalId: input.session.principalId,
+      sessionId: String(input.session.authorizationId),
+      walletId: String(input.session.walletId),
+      runtimePolicyScope: activeMaterial.runtimePolicyScope,
+      laneAuthorization: {
+        kind: 'wallet_auth_method',
+        walletAuthMethodId: input.session.walletAuthMethodId,
+      },
+    },
+  };
+}
+
+async function resolveRouterAbEd25519ExhaustedCandidateOperationStepUpAuthentication(input: {
+  readonly headers: Record<string, string | string[] | undefined>;
+  readonly scope: RouterAbEd25519NormalSigningScopeV2;
+  readonly operationKind: Ed25519OperationKind;
+  readonly requestExpiresAtMs: number;
+  readonly authorizedOperations: RouterApiAuthorizedOperationService;
+  readonly authorizationSessions: RouterApiAuthorizationSessionService;
+  readonly resolveEd25519MaterialActivation: RouterApiWalletRegistrationService['resolveEd25519MaterialActivation'];
+}): Promise<RouterAbEd25519ExhaustedCandidateOperationStepUpAuthentication | null> {
+  const token = extractBearerCredential(input.headers);
+  if (!token) return null;
+  const requestOriginRaw =
+    (Array.isArray(input.headers.origin) ? input.headers.origin[0] : input.headers.origin) || '';
+  let requestOrigin: import('../../../authorization/domain').SessionOrigin;
+  try {
+    requestOrigin = parseSessionOrigin(String(requestOriginRaw).trim());
+  } catch {
+    return {
+      ok: false,
+      error: routerAbStepUpError(401, 'unauthorized', 'Wallet owner proof origin is invalid'),
+    };
+  }
+
+  let candidate: RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext | null;
+  try {
+    candidate =
+      await input.authorizationSessions.readExhaustedWalletSessionAuthorizationV2CandidateByOperationCredential(
+        {
+          tenantId: input.authorizationSessions.tenantId,
+          token,
+          nowMs: Date.now(),
+        },
+      );
+  } catch {
+    return {
+      ok: false,
+      error: routerAbStepUpError(
+        503,
+        'wallet_session_unavailable',
+        'Wallet Session is unavailable',
+      ),
+    };
+  }
+  if (!candidate) return null;
+
+  const session = candidate.status.session;
+  const admission = resolveWalletSessionAuthorizationV2Admission({
+    authorization: session,
+    authority: candidate.authority,
+    authMethod: candidate.authMethod,
+    operation: {
+      tenantId: session.tenantId,
+      principalId: session.principalId,
+      walletId: session.walletId,
+      keyFamily: 'ed25519',
+      operationKind: input.operationKind,
+    },
+    retiredAtMs: candidate.retiredAtMs,
+    nowMs: Date.now(),
+  });
+  if (!admission.ok || admission.keyFamily !== 'ed25519') {
+    return {
+      ok: false,
+      error: routerAbStepUpError(403, 'scope_mismatch', 'Wallet Session scope is invalid'),
+    };
+  }
+  const resolved = await resolveRouterAbEd25519OperationStepUpSession({
+    walletId: input.scope.account_id,
+    materialOwner: input.scope.material_activation.material_owner,
+    materialActivation: input.scope.material_activation,
+    requestExpiresAtMs: input.requestExpiresAtMs,
+    operationKind: input.operationKind,
+    authorizedOperations: input.authorizedOperations,
+    session,
+    admission,
+    resolveEd25519MaterialActivation: input.resolveEd25519MaterialActivation,
+  });
+  if (!resolved.ok) return resolved;
+  return {
+    ok: true,
+    kind: 'wallet_session_operation_credential_exhausted_candidate_v1',
+    authorizedOperations: input.authorizedOperations,
+    candidate,
+    activeMaterial: resolved.activeMaterial,
+    session: resolved.session,
+    requestOrigin,
+    expiresAtMs: session.expiresAtMs,
+  };
+}
+
+function isWalletSessionUnavailableStepUpError(result: RouterAbJsonRouteResult): boolean {
+  return isPlainObject(result.body) && result.body.code === 'wallet_session_unavailable';
 }
 
 type RouterAbExactOperationStepUpIdentityInput = {
@@ -2566,6 +2818,27 @@ export async function authenticateRouterAbWalletOperationStepUpIdentity(
   const admittedMaterialActivation = routerAbMpcMaterialActivationRefToWire(
     admission.admission.materialActivation,
   );
+  if (admission.curve === 'ed25519' && input.keyFamily === 'ed25519') {
+    const resolved = await resolveRouterAbEd25519OperationStepUpSession({
+      walletId: input.walletId,
+      materialOwner: input.materialOwner,
+      materialActivation: input.materialActivation,
+      requestExpiresAtMs: input.requestExpiresAtMs,
+      operationKind: input.operationKind,
+      authorizedOperations: input.authorizedOperations,
+      session,
+      admission: admission.admission,
+      resolveEd25519MaterialActivation: input.resolveEd25519MaterialActivation,
+    });
+    if (!resolved.ok) return { ok: false, error: resolved.error };
+    return {
+      ok: true,
+      authorizedOperations: input.authorizedOperations,
+      session: resolved.session,
+      requestOrigin,
+      expiresAtMs: session.expiresAtMs,
+    };
+  }
   if (
     admission.admission.keyFamily !== input.keyFamily ||
     admission.admission.operationKind !== input.operationKind ||
@@ -2582,41 +2855,7 @@ export async function authenticateRouterAbWalletOperationStepUpIdentity(
   }
   let runtimePolicyScope: RuntimePolicyScope;
   try {
-    if (admission.curve === 'ed25519' && input.keyFamily === 'ed25519') {
-      const activeMaterial = await input.resolveEd25519MaterialActivation({
-        walletId: input.walletId,
-        materialActivation: admittedMaterialActivation,
-      });
-      if (
-        !activeMaterial.ok ||
-        !sameRouterAbMpcMaterialActivationRef(
-          activeMaterial.materialActivation,
-          admittedMaterialActivation,
-        ) ||
-        !sameRouterAbMpcMaterialActivationRef(
-          activeMaterial.exportIdentity.scope.material_activation,
-          admittedMaterialActivation,
-        ) ||
-        activeMaterial.exportIdentity.scope.account_id !== input.walletId ||
-        activeMaterial.exportIdentity.application_binding.wallet_id !== input.walletId ||
-        base64UrlEncode(Uint8Array.from(activeMaterial.exportIdentity.registered_public_key)) !==
-          admission.admission.signer.registeredPublicKeyB64u
-      ) {
-        return {
-          ok: false,
-          error: routerAbStepUpError(
-            activeMaterial.ok || activeMaterial.code !== 'internal' ? 403 : 503,
-            activeMaterial.ok || activeMaterial.code !== 'internal'
-              ? 'scope_mismatch'
-              : 'wallet_session_unavailable',
-            activeMaterial.ok
-              ? 'Wallet Session material does not match the active Ed25519 material'
-              : activeMaterial.message,
-          ),
-        };
-      }
-      runtimePolicyScope = activeMaterial.runtimePolicyScope;
-    } else if (admission.curve === 'ecdsa' && input.keyFamily === 'ecdsa_secp256k1') {
+    if (admission.curve === 'ecdsa' && input.keyFamily === 'ecdsa_secp256k1') {
       const activeMaterial = await input.resolveEcdsaMaterialActivation({
         walletId: input.walletId,
         materialActivation: admittedMaterialActivation,
