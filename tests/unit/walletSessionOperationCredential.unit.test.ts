@@ -440,6 +440,88 @@ test('retiring an exact V6 session removes its Wallet Session key', async ({ pag
   expect(result.rows).toEqual([]);
 });
 
+test('locking retires both active sibling sessions so exact readers cannot reuse either', async ({
+  page,
+}) => {
+  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+
+  const result = await page.evaluate(
+    async ({ activeWalletSession, operationCredential }) => {
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const repositoryModule =
+        await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore.js');
+      const dbName = schemaNames.createSeamsTestWalletDbName(
+        `operation_credential_lock_siblings_${crypto.randomUUID()}`,
+      );
+      const manager = new managerModule.SeamsWalletDBManager();
+      manager.setDbName(dbName);
+      const repository = new repositoryModule.WalletSessionAuthorizationRepository(manager);
+      await repository.writeExactWithOperationCredential({
+        record: activeWalletSession,
+        operationCredential,
+      });
+      const sibling = repositoryModule.buildActiveWalletSessionV1({
+        walletId: activeWalletSession.walletId,
+        authorityId: activeWalletSession.authorityId,
+        authMethodId: 'wallet-auth-method:lock-sibling',
+        authorizationId: 'authorization:lock-sibling',
+        quotaId: 'wallet-quota:lock-sibling',
+        authorityDigestB64u: activeWalletSession.authorityDigestB64u,
+        authorityRevocationEpoch: activeWalletSession.authorityRevocationEpoch,
+        capabilitySubjects: activeWalletSession.capabilitySubjects,
+        issuedAtMs: activeWalletSession.issuedAtMs,
+        expiresAtMs: activeWalletSession.expiresAtMs,
+      });
+      const siblingCredential = {
+        kind: 'opaque_wallet_session_operation_credential_v1' as const,
+        token: `wst_${'l'.repeat(43)}`,
+        walletSessionId: 'wallet-session:lock-sibling',
+      };
+      await repository.writeExactWithOperationCredential({
+        record: sibling,
+        operationCredential: siblingCredential,
+      });
+
+      const retired = await repository.retireExactActiveForWallet({
+        walletId: activeWalletSession.walletId,
+        reason: 'wallet_locked',
+        retiredAtMs: activeWalletSession.expiresAtMs,
+      });
+      const primaryRead = await repository.readExactWithOperationCredential({
+        walletId: activeWalletSession.walletId,
+        authorityId: activeWalletSession.authorityId,
+        authMethodId: activeWalletSession.authMethodId,
+      });
+      const siblingRead = await repository.readExactWithOperationCredential({
+        walletId: sibling.walletId,
+        authorityId: sibling.authorityId,
+        authMethodId: sibling.authMethodId,
+      });
+      const db = await manager.getDB();
+      const rows = await db.getAllFromIndex(
+        schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations,
+        schemaNames.SEAMS_WALLET_INDEXES.walletId,
+        activeWalletSession.walletId,
+      );
+      return { retired, primaryRead, siblingRead, rows };
+    },
+    {
+      activeWalletSession: fixture.activeWalletSession,
+      operationCredential: fixture.operationCredential,
+    },
+  );
+
+  expect(result.retired.map((record) => record.authMethodId).sort()).toEqual([
+    fixture.activeWalletSession.authMethodId,
+    'wallet-auth-method:lock-sibling',
+  ]);
+  expect(result.primaryRead).toEqual({ kind: 'missing' });
+  expect(result.siblingRead).toEqual({ kind: 'missing' });
+  expect(result.rows).toEqual([]);
+});
+
 test('rejects a corrupt matching exact V6 Wallet Session row', async ({ page }) => {
   const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
   await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
