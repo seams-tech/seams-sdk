@@ -3,6 +3,7 @@ import {
   buildActiveWalletSessionQuota,
   buildWalletSessionAuthorizationV2,
   buildWalletSessionCapabilitySubjectsV1,
+  projectActiveWalletSession,
   type DirectV2IssueResult,
   type IssuedWalletSessionAuthorizationV2,
 } from '../../packages/wallet-server/src/authorization/domain';
@@ -33,7 +34,11 @@ import {
   buildWalletRecoveryAuthorityFixture,
 } from './helpers/linkedDeviceUnlockRuntime.fixtures';
 import { parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import { buildActiveMethodBoundPasskeyCustodyEnvelopeFixture } from './helpers/passkeyCustodyEnvelope.fixtures';
+import {
+  buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture,
+  buildActiveMethodBoundPasskeyCustodyEnvelopeFixture,
+} from './helpers/passkeyCustodyEnvelope.fixtures';
+import { buildEmailOtpEcdsaWalletSessionFixture } from './helpers/linkedDeviceManagement.fixtures';
 
 function required<T>(
   result:
@@ -505,6 +510,132 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
 
 test('wallet unlock issuance preserves invalid_body rejection codes', () => {
   expect(parseWalletUnlockIssuanceRejectionCode('invalid_body')).toBe('invalid_body');
+});
+
+test('founding Email OTP wallet_session unlock returns its sole direct Wallet Session', async () => {
+  const passkeyFixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  const emailFixture = await buildEmailOtpEcdsaWalletSessionFixture({
+    label: 'founding-email-unlock',
+    walletId: String(passkeyFixture.walletId),
+    providerUserId: 'founding-email-unlock@example.test',
+    expiresAtMs: Date.now() + 60_000,
+  });
+  const orgId = 'org:founding-email-unlock';
+  const challengeId = 'challenge:founding-email-unlock';
+  const enrollmentId = 'email-enrollment:founding-email-unlock';
+  const enrollmentSealKeyVersion = 'seal-v1';
+  const foundingCustody = buildFoundingPasskeyCustodyResolution(passkeyFixture).custody;
+  if (foundingCustody.kind !== 'active') {
+    throw new Error('founding Email OTP unlock fixture requires active custody');
+  }
+  const emailOtpEnvelope = buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture({
+    walletId: String(emailFixture.authority.walletId),
+    envelopeId: 'email-unlock-envelope',
+    enrollmentId,
+    enrollmentSealKeyVersion,
+    walletAuthMethodId: String(emailFixture.authMethod.walletAuthMethodId),
+  });
+  const emailOtpCustody = {
+    kind: 'active' as const,
+    envelope: emailOtpEnvelope,
+    storeVersion: foundingCustody.storeVersion,
+    keyManifest: foundingCustody.keyManifest,
+  };
+  let directSessionIssueCount = 0;
+  let ed25519ProvisionCount = 0;
+  const service: RouterApiWalletUnlockService = {
+    createEmailOtpUnlockChallenge: async () => {
+      throw new Error('challenge creation is outside this test');
+    },
+    createWebAuthnLoginOptions: async () => {
+      throw new Error('WebAuthn is outside this Email OTP test');
+    },
+    markEmailOtpStrongAuthSatisfied: async ({ walletId }) => ({
+      ok: true,
+      walletId: String(walletId),
+    }),
+    verifyEmailOtpUnlockProof: async () => ({
+      ok: true,
+      verified: true,
+      userId: String(emailFixture.authority.walletId),
+      walletId: String(emailFixture.authority.walletId),
+      providerUserId: String(emailFixture.exactFactorAuthority.factor.providerUserId),
+      orgId,
+      enrollmentId,
+      enrollmentSealKeyVersion,
+      unlockKeyVersion: 'unlock-key-v1',
+    }),
+    verifyWebAuthnLogin: async () => {
+      throw new Error('WebAuthn is outside this Email OTP test');
+    },
+    resolveActivePasskeyAuthorityForUnlock: async () => {
+      throw new Error('Passkey is outside this Email OTP test');
+    },
+    resolveEmailOtpAuthorityForUnlock: async () => ({
+      kind: 'active_authority' as const,
+      authority: emailFixture.authority,
+      walletAuthAuthority: emailFixture.exactFactorAuthority,
+      authMethod: emailFixture.authMethod,
+    }),
+    issueWalletSessionForPasskeyUnlock: async () => {
+      throw new Error('Passkey is outside this Email OTP test');
+    },
+    issueWalletSessionForEmailOtpUnlock: async ({ requestedCapabilities }) => {
+      expect(requestedCapabilities).toEqual({ kind: 'wallet_session' });
+      directSessionIssueCount += 1;
+      return {
+        kind: 'active_authority' as const,
+        authorityProvenanceKind: 'wallet_registration' as const,
+        walletSession: emailFixture.issuedSession,
+        operationCredential: emailFixture.operationCredential,
+      };
+    },
+  };
+  const capabilityContext: Extract<WalletUnlockCapabilityContext, { readonly kind: 'email_otp' }> =
+    {
+      kind: 'email_otp',
+      request: {
+        walletId: String(emailFixture.authority.walletId),
+        orgId,
+        challengeId,
+        requestedCapabilities: { kind: 'wallet_session' },
+      },
+      provisionWalletSession: async () => {
+        ed25519ProvisionCount += 1;
+        throw new Error('founding wallet_session unlock must not provision Ed25519');
+      },
+    };
+  const response = await handleWalletUnlockVerifyRoute({
+    origin: 'https://wallet.example.test',
+    service,
+    resolveEmailOtpCustody: async () => emailOtpCustody,
+    resolvePasskeyCustody: async () => {
+      throw new Error('Passkey is outside this Email OTP test');
+    },
+    emitRouterApiWebhook: async () => {},
+    emitEmailOtpWebhook: async () => {},
+    capabilityContext,
+    ecdsaSession: { kind: 'no_ecdsa_session' },
+    tenantId: required(parseTenantId('tenant:founding-email-unlock')),
+    buildVerifiedOwnerProof,
+    body: {
+      unlockBackend: 'email_otp',
+      walletId: String(emailFixture.authority.walletId),
+      orgId,
+      walletAuthMethodId: String(emailFixture.authMethod.walletAuthMethodId),
+      challengeId,
+      unlockProof: { publicKey: 'public-key', signature: 'signature' },
+      requestedCapabilities: { kind: 'wallet_session' },
+    },
+  });
+
+  expect(response.status).toBe(200);
+  expect(response.body.walletSession).toEqual(
+    projectActiveWalletSession(emailFixture.issuedSession),
+  );
+  expect(response.body.operationCredential).toEqual(emailFixture.operationCredential);
+  expect(directSessionIssueCount).toBe(1);
+  expect(ed25519ProvisionCount).toBe(0);
 });
 
 test('Email OTP already-committed unlock response is credential-free and retryable', async () => {

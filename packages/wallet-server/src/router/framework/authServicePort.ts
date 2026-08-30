@@ -26,7 +26,10 @@ import type {
   WebAuthnCredentialIdB64u,
   WebAuthnRpId,
 } from '@shared/utils/domainIds';
-import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import type {
+  ActiveWalletAuthorityV1,
+  WalletAuthorityProvenanceV1,
+} from '@shared/authorization/walletAuthority';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbEd25519YaoExportAuthorizationIdentityV1 } from '@shared/utils/routerAbEd25519Yao';
@@ -156,16 +159,20 @@ export type WalletUnlockEmailOtpAuthorityResolution =
       readonly message: string;
     };
 
+export type WalletUnlockEmailOtpSessionRequest =
+  | { readonly kind: 'wallet_session' }
+  | { readonly kind: 'ed25519_yao' };
+
 export type WalletUnlockPasskeySessionResolution =
   | {
       readonly kind: 'active_authority';
-      readonly authorityProvenanceKind: 'device_link' | 'wallet_recovery';
+      readonly authorityProvenanceKind: WalletAuthorityProvenanceV1['kind'];
       readonly walletSession: IssuedWalletSessionAuthorizationV2;
       readonly operationCredential: WalletSessionOperationCredentialV1;
     }
   | {
       readonly kind: 'already_committed';
-      readonly authorityProvenanceKind: 'device_link' | 'wallet_recovery';
+      readonly authorityProvenanceKind: WalletAuthorityProvenanceV1['kind'];
       readonly committed: Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }>;
     }
   | {
@@ -1393,6 +1400,7 @@ export interface RouterApiWalletUnlockService {
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly providerUserId: string;
     readonly verifiedChallengeId: string;
+    readonly requestedCapabilities: WalletUnlockEmailOtpSessionRequest;
   }): Promise<WalletUnlockPasskeySessionResolution>;
 }
 
