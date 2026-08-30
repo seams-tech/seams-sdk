@@ -265,6 +265,32 @@ test.describe('exact ECDSA sealed runtime resolution', () => {
     });
   });
 
+  test('rejects synthesized or mismatched exact worker and auth identities', () => {
+    const manifest = activeManifest();
+    const identityMismatches = [
+      { kind: 'auth_method', authMethod: 'passkey' },
+      {
+        kind: 'normal_signing_worker_id',
+        signingWorkerId: 'wallet-session:synthesized-worker',
+      },
+      {
+        kind: 'public_capability_signer_id',
+        signerId: 'authorization:synthesized-signer',
+      },
+    ] as const;
+
+    for (const corruption of identityMismatches) {
+      const record = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+        manifest,
+        corruption,
+      });
+      expect(resolve(manifest, [record]), corruption.kind).toEqual({
+        kind: 'blocked',
+        reason: 'binding_mismatch',
+      });
+    }
+  });
+
   test('rejects malformed two-party runtime facts', () => {
     const manifest = activeManifest();
     const invalidParticipantSets: readonly number[][] = [[1], [-1, 2], [1, 1], [1, 2, 3]];
