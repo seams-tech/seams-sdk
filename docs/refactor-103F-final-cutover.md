@@ -1546,6 +1546,9 @@ HEAD reconciliation on 2026-08-30:
   that the four source/target combinations reduce to those two installed target
   outcomes. Recipient loss, expiry, and the composed operating-path run stay
   open.
+- `502fd8601` proves acknowledgement cleanup is one atomic D1 batch: a
+  pre-commit failure preserves the active session, allocation, issued delivery,
+  and ciphertext, while post-commit response loss converges through replay.
 - `d21cc81c5` makes the current recovery auth-method branches exhaustive. The
   coordinator still does not consume `PendingWalletRecoveryCommitV1`, so
   durable recovery continuity stays open.
@@ -1851,8 +1854,11 @@ and the isolated cases pass.
       delivery expiry, and the selected post-live-session recovery proof.
 - [x] Linked recipient/AAD binding and cross-session stale acknowledgement
       tests.
-- [ ] Crash injection after delivery tombstone, ciphertext removal, allocation
-      deletion, link-session deletion, and cleanup completion.
+- [x] Crash injection around the single cleanup batch containing the delivery
+      tombstone, ciphertext removal, allocation deletion, link-session deletion,
+      and cleanup completion. The focused test proves pre-commit rollback and
+      post-commit response-loss replay; no intermediate transition is committed
+      independently.
 - [ ] After the acknowledgement-recovery product-security policy is selected,
       add the route proof for the chosen durable authentication path after
       live-session deletion and ensure it avoids early `not_found`.
