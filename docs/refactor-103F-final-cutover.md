@@ -900,10 +900,10 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
       authority and target method on both target branches.
 - [x] Validate wallet, authority, method, target, digest, enrollment, and
       lifecycle relationships at the response boundary.
-- [ ] Preserve provenance dispatch: `wallet_registration` and
+- [x] Preserve provenance dispatch: `wallet_registration` and
       `wallet_recovery` use ordinary exact unlock; only `device_link` uses
       linked unlock.
-- [ ] Make recovered Email OTP unlock require the exact locally installed active
+- [x] Make recovered Email OTP unlock require the exact locally installed active
       authority and method; fail closed on absence or mismatch.
 - [ ] Add a resumable local recovery commit that survives interruption after
       server promotion without persisting recovery code, factor secret, custody
