@@ -193,6 +193,35 @@ const forbiddenWalletSigningSessionMarkers = [
   'Wallet signing-session',
   'wallet-signing session',
 ];
+const retiredWalletSessionMarkers = [
+  'reusable_wallet_sessions',
+  'opaque_wallet_session_tokens',
+  'registration_replay_opaque_wallet_session_tokens_v1',
+  'not_v2',
+  'readActiveForWallet',
+  'wallet_session_authorization_v3',
+  'WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V4',
+  'WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5',
+  'issueReusableWalletSession',
+  'readReusableWalletSessionStatus',
+  'resolveOpaqueWalletSessionToken',
+  'issueOpaqueWalletSessionToken',
+  'readOpaqueWalletSessionTokenByIdentity',
+  'resolveOpaqueOwnerWalletSessionAdmission',
+  'issueWalletSessionAuthorizationV2FromReusableSession',
+  'refreshWalletSessionAuthorizationV2FromReusableSession',
+  'projectReusableWalletSessionV2',
+  'mintRouterAbEd25519YaoWalletSessionV1',
+  'issueRouterAbEd25519OpaqueWalletSessionToken',
+  'walletSessionPolicyMintId',
+  'ReusableWalletSessionMintId',
+  'parseReusableWalletSessionMintId',
+  'registration_established_wallet_session_v1',
+  'RegistrationEstablishedSessionTokens',
+  'walletSessionTokenForCurve',
+  'walletSessionClientCapability',
+  'direct_exact_response_future_record_tolerant',
+];
 
 function joined(parts) {
   return parts.join('');
@@ -233,6 +262,12 @@ function listBoundaryFiles(relativePath) {
 
 function activeSourceFiles() {
   return sourceRoots.flatMap((root) => listSourceFiles(root)).filter((file) => !selfPaths.has(file));
+}
+
+function activeProductionSourceFiles() {
+  return sourceRoots
+    .filter((root) => root !== 'tests')
+    .flatMap((root) => listSourceFiles(root));
 }
 
 function publicSurfaceFiles() {
@@ -301,6 +336,27 @@ function checkActiveSourcesAvoidOldSigningGrantNames() {
   );
 }
 
+function collectRetiredWalletSessionMarkerViolations(files) {
+  const offenders = [];
+  for (const file of files) {
+    const source = readSource(file);
+    for (const marker of retiredWalletSessionMarkers) {
+      const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escapedMarker}\\b`).test(source)) {
+        offenders.push(`${file} contains retired marker ${marker}`);
+      }
+    }
+  }
+  return offenders;
+}
+
+function checkProductionSourcesAvoidRetiredWalletSessionMarkers() {
+  assertNoViolations(
+    'active production sources do not expose retired Wallet Session tables, fallbacks, or record markers',
+    collectRetiredWalletSessionMarkerViolations(activeProductionSourceFiles()),
+  );
+}
+
 function checkDocsAvoidOldSigningGrantNames() {
   assertNoViolations(
     'current docs do not present the old signing-grant names as live terminology',
@@ -340,6 +396,7 @@ function checkBoundarySessionIdMarkersAreClassified() {
 }
 
 checkActiveSourcesAvoidOldSigningGrantNames();
+checkProductionSourcesAvoidRetiredWalletSessionMarkers();
 checkDocsAvoidOldSigningGrantNames();
 checkActiveSigningPathsAvoidThresholdSessionAuthTokenNaming();
 checkExportedSessionIdPublicSurfacesAreClassified();
