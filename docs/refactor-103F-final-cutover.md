@@ -1029,7 +1029,7 @@ Primary files:
       durable intent untouched while the exact session is unavailable.
 - [ ] Recover recipient-handle loss or delivery expiry through durable local
       install plus exact-method unlock, without resealing or relinking.
-- [ ] Preserve interactive cancellation across `claimed`,
+- [x] Preserve interactive cancellation across `claimed`,
       `awaiting_target_factor`, `awaiting_source_contribution`, and
       `provisioning`. Device 1 retains its owner-authenticated cancellation
       identity and targets the authenticated current revision, Device 2 emits

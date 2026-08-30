@@ -16,8 +16,12 @@ import type {
   LinkSessionProjectionV1,
   LinkSessionStateV1,
   LinkSessionTransportEventV1,
+  LinkedDeviceTargetPreparationV1,
 } from '../../packages/shared-ts/src/device-linking';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import {
+  buildPasskeyTargetPreparationFixtureV1,
+} from './helpers/linkedDeviceTargetPreparation.fixtures';
 import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '../../packages/shared-ts/src/device-linking/requestProof';
 
 function unsupportedPort(name: string): never {
@@ -28,6 +32,7 @@ function createPorts(
   calls: string[],
   onTransportBind?: (transport: DeviceLinkingAuthenticatedTransportPortV1) => void,
   onSessionEventHandler?: (handler: (event: LinkSessionTransportEventV1) => void) => void,
+  targetPreparation?: LinkedDeviceTargetPreparationV1,
 ): DeviceLinkingFlowPortsV1 {
   const fixture = buildR103DeviceLinkFixture();
   let currentPayload = fixture.payload;
@@ -57,6 +62,7 @@ function createPorts(
       return unsupportedPort('getWalletSessionDeliveryV1');
     },
     async getTargetPreparationV1() {
+      if (targetPreparation) return targetPreparation;
       return unsupportedPort('getTargetPreparationV1');
     },
     async startTargetEmailOtpChallengeV1() {
@@ -314,6 +320,81 @@ test.describe('linked-device browser orchestration', () => {
       'close',
       'key-discard',
     ]);
+  });
+
+  test('Device 2 cancels while waiting for the source contribution', async () => {
+    const calls: string[] = [];
+    let emitSessionEvent: ((event: LinkSessionTransportEventV1) => void) | undefined;
+    const targetPreparation = buildPasskeyTargetPreparationFixtureV1();
+    const flow = new LinkDeviceFlow(
+      { targetFactor: { kind: 'passkey_prf' } },
+      createPorts(
+        calls,
+        undefined,
+        (handler) => {
+          emitSessionEvent = handler;
+        },
+        targetPreparation,
+      ),
+    );
+
+    const generated = await flow.generateQR();
+    emitSessionEvent?.({
+      kind: 'linked_device_session_event_v1',
+      linkSessionId: generated.qrData.linkSessionId,
+      state: parseLinkSessionStateV1({
+        state: 'awaiting_source_contribution',
+        deviceId: String(targetPreparation.deviceId),
+      }),
+      emittedAtMs: Date.now(),
+    });
+    await expect
+      .poll(() => flow.getState().session?.state.state)
+      .toBe('awaiting_source_contribution');
+
+    await flow.cancel();
+
+    expect(calls).toContain('cancel');
+    expect(flow.getState().session?.state).toEqual(
+      expect.objectContaining({ state: 'cancelled' }),
+    );
+    expect(calls).toContain('close');
+    expect(calls).toContain('key-discard');
+  });
+
+  test('Device 2 cancels a pre-commit provisioning state', async () => {
+    const calls: string[] = [];
+    let emitSessionEvent: ((event: LinkSessionTransportEventV1) => void) | undefined;
+    const targetPreparation = buildPasskeyTargetPreparationFixtureV1();
+    const flow = new LinkDeviceFlow(
+      { targetFactor: { kind: 'passkey_prf' } },
+      createPorts(
+        calls,
+        undefined,
+        (handler) => {
+          emitSessionEvent = handler;
+        },
+        targetPreparation,
+      ),
+    );
+
+    const generated = await flow.generateQR();
+    emitSessionEvent?.({
+      kind: 'linked_device_session_event_v1',
+      linkSessionId: generated.qrData.linkSessionId,
+      state: parseLinkSessionStateV1({
+        state: 'provisioning',
+        deviceId: String(targetPreparation.deviceId),
+      }),
+      emittedAtMs: Date.now(),
+    });
+    await expect.poll(() => flow.getState().session?.state.state).toBe('cancelled');
+
+    await flow.cancel();
+
+    expect(calls.filter((call) => call === 'cancel')).toHaveLength(1);
+    expect(calls).toContain('close');
+    expect(calls).toContain('key-discard');
   });
 
   test('Device 2 closes polling and discards its worker key for every terminal session', async () => {

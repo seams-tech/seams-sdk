@@ -269,14 +269,32 @@ test.describe('exact ECDSA sealed runtime resolution', () => {
     const manifest = activeManifest();
     const identityMismatches = [
       { kind: 'auth_method', authMethod: 'passkey' },
+      { kind: 'binding_digest', bindingDigest: 'synthesized-binding-digest' },
+      { kind: 'key_handle', keyHandle: 'synthesized-key-handle' },
+      { kind: 'ecdsa_threshold_key_id', thresholdKeyId: 'synthesized-threshold-key' },
+      { kind: 'threshold_public_key', publicKeyB64u: 'synthesized-threshold-public-key' },
+      { kind: 'client_verifying_share', shareB64u: 'synthesized-client-verifying-share' },
+      { kind: 'signing_root_id', signingRootId: 'synthesized:signing-root' },
+      { kind: 'signing_root_version', signingRootVersion: 'synthesized-version' },
+      { kind: 'ethereum_address', ethereumAddress: '0x0000000000000000000000000000000000000001' },
       {
         kind: 'normal_signing_worker_id',
         signingWorkerId: 'wallet-session:synthesized-worker',
       },
       {
+        kind: 'normal_signing_context',
+        applicationBindingDigestB64u: 'synthesized-application-binding',
+      },
+      {
+        kind: 'normal_signing_server_public_key',
+        publicKeyB64u: 'synthesized-server-public-key',
+      },
+      {
         kind: 'public_capability_signer_id',
         signerId: 'authorization:synthesized-signer',
       },
+      { kind: 'public_capability_router_id', routerId: 'synthesized-router' },
+      { kind: 'relayer_key_id', relayerKeyId: 'synthesized-relayer-key' },
     ] as const;
 
     for (const corruption of identityMismatches) {
