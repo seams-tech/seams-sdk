@@ -5,16 +5,33 @@ import {
   type WalletSessionReadinessDeps,
 } from '@/core/signingEngine/session/availability/readiness';
 import type { WalletSessionAuthorizationExactOperationCredentialReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
+import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
+import { buildLinkedDeviceActiveWalletSessionFixture } from './helpers/linkedDeviceUnlockRuntime.fixtures';
 import { buildPasskeyEd25519SealedSessionRecordFixture } from './helpers/sealedSigningSession.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 type SelectedAuthorityResult = Awaited<
   ReturnType<SigningSessionReadinessExactAuthorizationResolver['resolveSelectedWalletAuthority']>
 >;
+
+function required<T>(
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+): T {
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
 
 class SealedSessionListFixture {
   constructor(
@@ -102,8 +119,9 @@ async function buildReadinessHarness() {
 async function discoverWithAuthorization(
   harness: Awaited<ReturnType<typeof buildReadinessHarness>>,
   authorization: WalletSessionAuthorizationExactOperationCredentialReadResult | Error,
+  selected: SelectedAuthorityResult = harness.selected,
 ) {
-  const resolver = new ExactAuthorizationResolverFixture(harness.selected, authorization);
+  const resolver = new ExactAuthorizationResolverFixture(selected, authorization);
   const lanes = await discoverLanesForWalletWithResolver(
     harness.deps,
     harness.authorityFixture.authority.walletId,
@@ -223,4 +241,99 @@ test('maps missing, upgrade-required, and corrupt exact persistence to no ready 
     const { lanes } = await discoverWithAuthorization(harness, authorization);
     expect(lanes).toEqual([]);
   }
+});
+
+test('discovers each active same-wallet sibling method from its exact readiness session', async () => {
+  const harness = await buildReadinessHarness();
+  const siblingAuthMethodId = required(
+    parseWalletAuthMethodId('auth-method:readiness-exact-sibling'),
+  );
+  const siblingSealed = buildPasskeyEd25519SealedSessionRecordFixture({
+    walletId: String(harness.authorityFixture.authority.walletId),
+    nearAccountId: harness.sealed.ed25519Restore.nearAccountId,
+    nearEd25519SigningKeyId: harness.sealed.ed25519Restore.nearEd25519SigningKeyId,
+    thresholdSessionId: 'ed25519-readiness-exact-sibling-session',
+    materialActivation: harness.sealed.ed25519Restore.materialActivation,
+    credentialIdB64u: base64UrlEncode(new Uint8Array(32).fill(92)),
+    expiresAtMs: harness.sealed.expiresAtMs,
+  });
+  const siblingAuthMethod = buildWalletAuthMethodRecordV2({
+    ...harness.authorityFixture.authMethod,
+    walletAuthMethodId: siblingAuthMethodId,
+    credentialIdB64u: siblingSealed.ed25519Restore.credentialIdB64u,
+    updatedAtMs: harness.authorityFixture.authMethod.updatedAtMs + 1,
+  });
+  if (siblingAuthMethod.kind !== 'passkey' || siblingAuthMethod.status !== 'active') {
+    throw new Error('readiness sibling fixture changed auth-method branch');
+  }
+  const siblingSession = buildLinkedDeviceActiveWalletSessionFixture({
+    source: harness.authorityFixture.activeWalletSession,
+    authMethodId: siblingAuthMethodId,
+    authorizationId: required(
+      parseWalletSessionAuthorizationId('authorization:readiness-exact-sibling'),
+    ),
+    quotaId: required(parseMpcWalletSigningQuotaId('wallet-quota:readiness-exact-sibling')),
+    authorityDigestB64u: harness.authorityFixture.authority.authorityDigestB64u,
+    authorityRevocationEpoch: harness.authorityFixture.authority.revocationEpoch,
+  });
+  const siblingOperationCredential = {
+    kind: 'opaque_wallet_session_operation_credential_v1' as const,
+    token: `wst_${'R'.repeat(43)}`,
+    walletSessionId: required(parseWalletSessionId('wallet-session:readiness-exact-sibling')),
+  };
+  const siblingSelected: SelectedAuthorityResult = {
+    ...harness.selected,
+    selection: {
+      ...harness.selected.selection,
+      walletAuthMethodId: siblingAuthMethodId,
+    },
+    authMethod: siblingAuthMethod,
+  };
+  harness.deps.listExactSealedSessionsForWallet = async () => [harness.sealed, siblingSealed];
+
+  const primaryAuthorization: WalletSessionAuthorizationExactOperationCredentialReadResult = {
+    kind: 'found',
+    record: harness.authorityFixture.activeWalletSession,
+    operationCredential: harness.authorityFixture.operationCredential,
+  };
+  const siblingAuthorization: WalletSessionAuthorizationExactOperationCredentialReadResult = {
+    kind: 'found',
+    record: siblingSession,
+    operationCredential: siblingOperationCredential,
+  };
+  const primary = await discoverWithAuthorization(harness, primaryAuthorization);
+  const sibling = await discoverWithAuthorization(harness, siblingAuthorization, siblingSelected);
+
+  expect(primary.lanes).toHaveLength(1);
+  expect(primary.lanes[0]).toMatchObject({
+    source: 'passkey',
+    thresholdSessionId: harness.sealed.thresholdSessionIds.ed25519,
+    walletSessionId: harness.authorityFixture.operationCredential.walletSessionId,
+    quotaId: harness.authorityFixture.activeWalletSession.quotaId,
+  });
+  expect(primary.lanes[0]?.walletSessionId).not.toBe(siblingOperationCredential.walletSessionId);
+  expect(sibling.lanes).toHaveLength(1);
+  expect(sibling.lanes[0]).toMatchObject({
+    source: 'passkey',
+    thresholdSessionId: siblingSealed.thresholdSessionIds.ed25519,
+    walletSessionId: siblingOperationCredential.walletSessionId,
+    quotaId: siblingSession.quotaId,
+  });
+  expect(sibling.lanes[0]?.walletSessionId).not.toBe(
+    harness.authorityFixture.operationCredential.walletSessionId,
+  );
+  expect(primary.resolver.exactReads).toEqual([
+    {
+      walletId: harness.authorityFixture.authority.walletId,
+      authorityId: harness.authorityFixture.authority.authorityId,
+      authMethodId: harness.authorityFixture.authMethod.walletAuthMethodId,
+    },
+  ]);
+  expect(sibling.resolver.exactReads).toEqual([
+    {
+      walletId: harness.authorityFixture.authority.walletId,
+      authorityId: harness.authorityFixture.authority.authorityId,
+      authMethodId: siblingAuthMethodId,
+    },
+  ]);
 });
