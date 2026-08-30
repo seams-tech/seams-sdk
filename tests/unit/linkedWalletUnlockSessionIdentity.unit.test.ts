@@ -26,6 +26,7 @@ import {
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { buildLinkedDeviceUnlockRuntimeFixture } from './helpers/linkedDeviceUnlockRuntime.fixtures';
+import { buildActiveMethodBoundPasskeyCustodyEnvelopeFixture } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 function required<T>(
   result:
@@ -126,10 +127,10 @@ function buildCapability(
 function buildEd25519Session(
   fixture: Awaited<ReturnType<typeof buildLinkedDeviceUnlockRuntimeFixture>>,
   authority: Parameters<typeof thresholdEd25519AuthorityScopeFromWalletAuthAuthority>[0],
+  sessionKind: WalletRegistrationEd25519YaoBootstrapSession['sessionKind'],
 ): WalletRegistrationEd25519YaoBootstrapSession {
   const runtimePolicyScope = fixture.ed25519Session.runtimePolicyScope;
-  return {
-    sessionKind: 'already_committed_exact_wallet_session',
+  const identity = {
     walletId: fixture.walletId,
     nearAccountId: fixture.ed25519Session.nearAccountId,
     nearEd25519SigningKeyId: fixture.ed25519Session.nearEd25519SigningKeyId,
@@ -145,6 +146,51 @@ function buildEd25519Session(
     signingRootVersion: runtimePolicyScope.signingRootVersion,
     runtimePolicyScope,
     routerAbNormalSigning: fixture.ed25519Session.routerAbNormalSigning,
+  };
+  if (sessionKind === 'issued_exact_wallet_session') {
+    return { ...identity, sessionKind, operationCredential: fixture.operationCredential };
+  }
+  return { ...identity, sessionKind };
+}
+
+type PasskeyCustodyResolution = Awaited<
+  ReturnType<Parameters<typeof handleWalletUnlockVerifyRoute>[0]['resolvePasskeyCustody']>
+>;
+
+function buildFoundingPasskeyCustodyResolution(
+  fixture: Awaited<ReturnType<typeof buildLinkedDeviceUnlockRuntimeFixture>>,
+): PasskeyCustodyResolution {
+  const capability = buildCapability(fixture);
+  return {
+    custody: {
+      kind: 'active',
+      envelope: buildActiveMethodBoundPasskeyCustodyEnvelopeFixture({
+        walletId: String(fixture.walletId),
+        envelopeId: 'passkey-envelope-1',
+        rpId: String(fixture.authMethod.rpId),
+        credentialIdB64u: String(fixture.authMethod.credentialIdB64u),
+        walletAuthMethodId: String(fixture.authMethod.walletAuthMethodId),
+      }),
+      storeVersion: 'founding-runtime-v1',
+      keyManifest: {
+        version: 'wallet_custody_unlock_key_manifest_v1',
+        walletId: fixture.walletId,
+        entries: [
+          {
+            kind: 'near_ed25519',
+            keySetId: 'near_ed25519:linked-runtime',
+            signerId: 'signer:linked-runtime',
+            nearAccountId: fixture.ed25519Session.nearAccountId,
+            nearEd25519SigningKeyId: fixture.ed25519Session.nearEd25519SigningKeyId,
+            signerSlot: 1,
+            registeredPublicKeyB64u: 'founding-runtime-public-key',
+            recordedKeyManifestDigestB64u: 'founding-runtime-manifest-digest',
+            activeCapabilityBinding: [...capability.activeCapabilityBinding],
+          },
+        ],
+      },
+    },
+    capability,
   };
 }
 
@@ -164,6 +210,7 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
       { readonly kind: 'passkey_unlock' }
     >['provisionWalletSession']
   >[0][] = [];
+  const foundingPasskeyCustody = buildFoundingPasskeyCustodyResolution(fixture);
   const service: RouterApiWalletUnlockService = {
     createEmailOtpUnlockChallenge: async () => {
       throw new Error('Email OTP is outside this Passkey test');
@@ -213,7 +260,13 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
       provisioningRequests.push(request);
       return {
         ok: true,
-        session: buildEd25519Session(fixture, request.authority),
+        session: buildEd25519Session(
+          fixture,
+          request.authority,
+          request.walletSessionIdentity.kind === 'new_wallet_session'
+            ? 'issued_exact_wallet_session'
+            : 'already_committed_exact_wallet_session',
+        ),
         capability: buildCapability(fixture),
       };
     },
@@ -225,18 +278,13 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     resolveEmailOtpCustody: async () => {
       throw new Error('Email OTP is outside this Passkey test');
     },
-    resolvePasskeyCustody: async () => {
-      throw new Error('linked Passkey authority does not load wallet-registration custody');
-    },
+    resolvePasskeyCustody: async () => foundingPasskeyCustody,
     emitRouterApiWebhook: async () => {},
     emitEmailOtpWebhook: async () => {},
     capabilityContext,
     ecdsaSession: { kind: 'no_ecdsa_session' as const },
     tenantId: required(parseTenantId('tenant:linked-runtime')),
     buildVerifiedOwnerProof,
-    resolveEmailOtpAuthority: async () => {
-      throw new Error('Email OTP is outside this Passkey test');
-    },
   } satisfies Omit<Parameters<typeof handleWalletUnlockVerifyRoute>[0], 'body'>;
 
   const response = await handleWalletUnlockVerifyRoute({
@@ -273,6 +321,27 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
   expect(response.body.ed25519Session).not.toHaveProperty('walletSessionToken');
   expect(response.body.operationCredential).toEqual(fixture.operationCredential);
 
+  sessionResolution = { kind: 'wallet_registration' };
+  const foundingRegistration = await handleWalletUnlockVerifyRoute({
+    ...routeDependencies,
+    body: {
+      unlockBackend: 'passkey',
+      challengeId: 'challenge:founding-runtime',
+      webauthn_authentication: {},
+      ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
+    },
+  });
+
+  expect(foundingRegistration.status).toBe(200);
+  expect(foundingRegistration.body.ed25519Session).toMatchObject({
+    sessionKind: 'issued_exact_wallet_session',
+    operationCredential: fixture.operationCredential,
+  });
+  expect(provisioningRequests).toHaveLength(2);
+  const foundingRequest = provisioningRequests[1];
+  if (!foundingRequest) throw new Error('founding Ed25519 provisioning request was not captured');
+  expect(foundingRequest.walletSessionIdentity).toEqual({ kind: 'new_wallet_session' });
+
   sessionResolution = {
     kind: 'already_committed',
     authorityProvenanceKind: 'device_link',
@@ -301,7 +370,7 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     },
   });
   expect(replay.body.operationCredential).toBeUndefined();
-  expect(provisioningRequests).toHaveLength(1);
+  expect(provisioningRequests).toHaveLength(2);
 
   sessionResolution = {
     kind: 'rejected',

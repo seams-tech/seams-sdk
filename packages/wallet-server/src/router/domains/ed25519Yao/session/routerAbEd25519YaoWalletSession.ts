@@ -195,7 +195,7 @@ type RouterAbEd25519YaoVerifiedWalletUnlockRequestBaseV1 = {
 };
 
 export type RouterAbEd25519YaoWalletSessionIdentityV1 =
-  | { readonly kind: 'issue_wallet_session_v1' }
+  | { readonly kind: 'new_wallet_session' }
   | {
       readonly kind: 'reuse_wallet_session_v2';
       readonly authorizationId: WalletSessionAuthorizationId;

@@ -883,12 +883,9 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
       exhausts every owned quota, retires every owned exact session, and
       preserves unrelated authorities. `tests/unit/d1WalletAuthorityStore.unit.test.ts`
       proves the fence and isolation.
-- [ ] Convert explicit exact-session retirement to close its V2 parent and
-      quota in one transaction.
 - [x] Retire hosted children in the same owning auth-method, authority, or
-      explicit-session CAS after I7 introduces production hosted-child rows;
-      migration `0028` currently has no production child writer or reader.
-- [ ] Transition a consumed quota to exhausted through V2 while retaining exact
+      same-method successor CAS.
+- [x] Transition a consumed quota to exhausted through V2 while retaining exact
       identity for typed status and step-up.
 - [x] Delete the unused `hasActiveWalletSessionsForAuthMethod`; its only
       implementation queried `reusable_wallet_sessions`, and no production or
@@ -917,7 +914,7 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
       account, and signer continuity atomically before `ready_for_sign_in`.
 - [ ] Make replay read the same additive server commit and resume local
       installation without another recovery code.
-- [ ] Keep wallet lock local to browser record/runtime disposal; remote
+- [x] Keep wallet lock local to browser record/runtime disposal; remote
       retirement follows explicit server lifecycle transitions.
 
 Primary files:

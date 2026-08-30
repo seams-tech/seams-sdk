@@ -66,7 +66,6 @@ import {
 } from '@shared/utils/domainIds';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { EmailOtpVerifiedAuthorityProjection } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import {
@@ -1834,17 +1833,8 @@ export class SeamsWeb {
         });
         return result;
       }
-      /* Every wallet method can share one email, so an operation-bound
-         challenge without an exact method id gets the locally selected active
-         Email OTP method — the only identity the server accepts once linking
-         has added a second active method. Unlock owns its selector end to end
-         and is left untouched; every other operation (export, signing) needs
-         the exact method named here. */
       let walletAuthMethodId = args.walletAuthMethodId;
-      const operationNeedsExactMethod =
-        Boolean(args.operationFingerprintDigest) ||
-        (Boolean(args.operation) && args.operation !== WALLET_EMAIL_OTP_UNLOCK_OPERATION);
-      if (!walletAuthMethodId && operationNeedsExactMethod) {
+      if (!walletAuthMethodId) {
         const selected = await IndexedDBManager.resolveSelectedWalletAuthority(
           String(args.walletId || '').trim(),
         );
@@ -1857,10 +1847,13 @@ export class SeamsWeb {
           walletAuthMethodId = String(selected.authMethod.walletAuthMethodId);
         }
       }
+      if (!walletAuthMethodId) {
+        throw new Error('Email OTP challenge requires an exact walletAuthMethodId');
+      }
       const result = await requestEmailOtpChallenge({
         relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
         walletId: String(args.walletId || '').trim(),
-        ...(walletAuthMethodId ? { walletAuthMethodId } : {}),
+        walletAuthMethodId,
         ...(args.operation ? { operation: args.operation } : {}),
         ...(args.operationFingerprintDigest
           ? { operationFingerprintDigest: args.operationFingerprintDigest }
