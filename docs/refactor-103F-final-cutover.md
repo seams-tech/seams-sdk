@@ -1720,8 +1720,12 @@ Remaining causal baseline work:
       successor exact unlock retirement. The Ed25519 Route 4 proof in
       `tests/unit/walletRegistrationActivateRoute.unit.test.ts` also verifies
       predecessor quota exhaustion and sibling-method preservation.
-- [ ] Lost founding-registration response contracts for Passkey and Email OTP
-      across page or worker termination.
+- [x] Lost founding-registration response coverage for Passkey and Email OTP
+      across page or worker termination. The startup recovery tests rebuild the
+      exact Route 4 request from the persisted pending row, validate the
+      committed projection, and publish the issued V6 session atomically for
+      both founding methods; credential-free replay remains pending for exact
+      unlock.
 - [x] Mint tests proving same-mint identity replay and fresh-mint replacement.
 - [ ] Exact material-resolution tests covering every legacy opaque runtime
       field and rejecting synthesized identities.
