@@ -1,4 +1,5 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type { WalletSessionRouteAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
@@ -56,7 +57,7 @@ export type PasskeyEcdsaSessionProvision = {
   // Branch-specific fields.
   provisionSecretSource: PasskeyEcdsaProvisionSecretSource;
   activationMaterial: PasskeyEcdsaActivationMaterial;
-  walletSessionRouteAuth: WalletSessionRouteAuth;
+  operationCredential: WalletSessionOperationCredentialV1;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   emailOtpAuthContext?: never;
   passkeyPrfFirstB64u?: never;
@@ -100,7 +101,7 @@ type BuildPasskeyEcdsaSessionProvisionPlanArgs = {
   requestId: string;
   provisionSecretSource: PasskeyEcdsaProvisionSecretSource;
   activationMaterial: PasskeyEcdsaActivationMaterial;
-  walletSessionRouteAuth: WalletSessionRouteAuth;
+  operationCredential: WalletSessionOperationCredentialV1;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   emailOtpAuthContext?: never;
   reconnectMaterial?: never;
@@ -201,7 +202,7 @@ export function buildPasskeyEcdsaSessionProvision(args: {
   requestId: string;
   provisionSecretSource: PasskeyEcdsaProvisionSecretSource;
   activationMaterial: PasskeyEcdsaActivationMaterial;
-  walletSessionRouteAuth: WalletSessionRouteAuth;
+  operationCredential: WalletSessionOperationCredentialV1;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 }): PasskeyEcdsaSessionProvision {
   return {
@@ -217,7 +218,7 @@ export function buildPasskeyEcdsaSessionProvision(args: {
     // Branch-specific fields.
     provisionSecretSource: args.provisionSecretSource,
     activationMaterial: args.activationMaterial,
-    walletSessionRouteAuth: args.walletSessionRouteAuth,
+    operationCredential: args.operationCredential,
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
   } satisfies PasskeyEcdsaSessionProvision;
 }
@@ -276,7 +277,7 @@ export function buildEcdsaSessionProvisionPlan(
         requestId: args.requestId,
         provisionSecretSource: args.provisionSecretSource,
         activationMaterial: args.activationMaterial,
-        walletSessionRouteAuth: args.walletSessionRouteAuth,
+        operationCredential: args.operationCredential,
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       });
   }
