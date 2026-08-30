@@ -1218,6 +1218,244 @@ test('R103F child and delivery rows retain exact parent identity and acknowledge
   }
 });
 
+test('R103F delivery migration permits successor acknowledgement after delivery expiry', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    const files = listD1MigrationFiles('d1-signer');
+    const cutoverIndex = files.findIndex((file) => basename(file).startsWith('0034_'));
+    const acknowledgementWindowMigration = files.find((file) => basename(file).startsWith('0035_'));
+    if (cutoverIndex < 0 || !acknowledgementWindowMigration) {
+      throw new Error('R103F acknowledgement cleanup migration is missing');
+    }
+
+    await applyD1MigrationFiles(temporary.database, files.slice(0, cutoverIndex + 1));
+    await insertAuthorityAndAuthMethod(temporary.database);
+    await insertQuota(
+      temporary.database,
+      'quota:expired-delivery',
+      'session:expired-delivery',
+      100,
+    );
+    await insertAuthorization(temporary.database, {
+      authorizationId: 'authorization:expired-delivery',
+      walletSessionId: 'session:expired-delivery',
+      quotaId: 'quota:expired-delivery',
+      walletAuthMethodId: AUTH_METHOD_ID,
+      issuedAtMs: 10,
+      expiresAtMs: 100,
+      operationCredentialHash: 'credential:expired-delivery',
+    });
+    await temporary.database
+      .prepare(
+        `INSERT INTO linked_device_authority_installations (
+           namespace, org_id, project_id, env_id, link_session_id, authority_id,
+           wallet_id, auth_method_id, device_id, package_set_digest_b64u,
+           target_factor_verification_digest_b64u, target_factor_verified_at_ms,
+           source_manifest_digest_b64u, packages_json, server_reservation_ids_json,
+           installed_record_set_digest_b64u, activated_at_ms, created_at_ms, updated_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        SCOPE.namespace,
+        SCOPE.orgId,
+        SCOPE.projectId,
+        SCOPE.envId,
+        'link:expired-delivery',
+        AUTHORITY_ID,
+        WALLET_ID,
+        AUTH_METHOD_ID,
+        'device:migration',
+        'digest:package-set',
+        'digest:target-factor',
+        5,
+        'digest:source-manifest',
+        '{}',
+        '[]',
+        null,
+        null,
+        1,
+        2,
+      )
+      .run();
+
+    const deliveryValues = [
+      SCOPE.namespace,
+      SCOPE.orgId,
+      SCOPE.projectId,
+      SCOPE.envId,
+      'link:expired-delivery',
+      SCOPE.tenantId,
+      'authorization:expired-delivery',
+      'session:expired-delivery',
+      'quota:expired-delivery',
+      PRINCIPAL_ID,
+      AUTHORITY_ID,
+      WALLET_ID,
+      AUTH_METHOD_ID,
+      'digest:expired-delivery',
+      'p256_ecdh',
+      'public:recipient',
+      'digest:recipient',
+      'p256-ecdh-aes256gcm-v1',
+      'digest:aad',
+      '{"ciphertext":"sealed"}',
+      'digest:sealed',
+      'digest:receipt',
+      10,
+      90,
+      'issued',
+      null,
+      null,
+      'pending',
+      null,
+      null,
+      null,
+      null,
+      null,
+    ];
+    await temporary.database
+      .prepare(
+        `INSERT INTO linked_device_wallet_session_credential_deliveries_v1 (
+           namespace, org_id, project_id, env_id, link_session_id, tenant_id,
+           authorization_id, wallet_session_id, quota_id, principal_id, authority_id,
+           wallet_id, wallet_auth_method_id, credential_digest_b64u, recipient_kind,
+           recipient_public_key_b64u, recipient_binding_digest_b64u, envelope_alg,
+           aad_digest_b64u, sealed_envelope_json, sealed_envelope_digest_b64u,
+           installation_receipt_digest_b64u, issued_at_ms, expires_at_ms, lifecycle_kind,
+           acknowledged_at_ms, acknowledgement_receipt_json, cleanup_state,
+           cleanup_receipt_json, cleanup_completed_at_ms, acknowledgement_auth_binding_digest_b64u,
+           acknowledgement_auth_package_set_digest_b64u, acknowledgement_auth_expires_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(...deliveryValues)
+      .run();
+
+    const successorAcknowledgement = temporary.database
+      .prepare(
+        `UPDATE linked_device_wallet_session_credential_deliveries_v1
+            SET lifecycle_kind = 'acknowledged', sealed_envelope_json = NULL,
+                acknowledged_at_ms = 100, acknowledgement_receipt_json = '{"ack":true}',
+                cleanup_state = 'pending', cleanup_receipt_json = '{"cleanup":true}',
+                acknowledgement_auth_binding_digest_b64u = 'digest:recipient',
+                acknowledgement_auth_package_set_digest_b64u = 'digest:package-set',
+                acknowledgement_auth_expires_at_ms = 400
+          WHERE link_session_id = 'link:expired-delivery'`,
+      )
+      .run();
+    await expect(successorAcknowledgement).rejects.toThrow(/constraint failed/u);
+
+    await applyD1MigrationFiles(temporary.database, [acknowledgementWindowMigration]);
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT COUNT(*) AS row_count
+             FROM linked_device_wallet_session_credential_deliveries_v1
+            WHERE link_session_id = 'link:expired-delivery'`,
+        )
+        .first(),
+    ).resolves.toMatchObject({ row_count: 1 });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT name FROM sqlite_master
+             WHERE type = 'trigger'
+               AND name LIKE 'linked_device_wallet_session_credential_delivery_%'
+             ORDER BY name`,
+        )
+        .all(),
+    ).resolves.toMatchObject({
+      results: expect.arrayContaining([
+        { name: 'linked_device_wallet_session_credential_delivery_acknowledgement_guard' },
+        { name: 'linked_device_wallet_session_credential_delivery_cleanup_completion_guard' },
+        { name: 'linked_device_wallet_session_credential_delivery_cleanup_receipt_guard' },
+        { name: 'linked_device_wallet_session_credential_delivery_envelope_guard' },
+        { name: 'linked_device_wallet_session_credential_delivery_identity_guard' },
+        { name: 'linked_device_wallet_session_credential_delivery_insert_lifecycle_guard' },
+        { name: 'linked_device_wallet_session_credential_delivery_lifecycle_guard' },
+        { name: 'linked_device_wallet_session_credential_delivery_parent_guard' },
+      ]),
+    });
+    await expect(
+      readRequiredIndexes(
+        temporary.database,
+        'linked_device_wallet_session_credential_deliveries_v1',
+      ),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        'linked_device_wallet_session_credential_deliveries_v1_lifecycle_idx',
+        'linked_device_wallet_session_credential_deliveries_v1_parent_idx',
+      ]),
+    );
+
+    await temporary.database
+      .prepare(
+        `UPDATE linked_device_wallet_session_credential_deliveries_v1
+            SET lifecycle_kind = 'acknowledged', sealed_envelope_json = NULL,
+                acknowledged_at_ms = 100, acknowledgement_receipt_json = '{"ack":true}',
+                cleanup_state = 'pending', cleanup_receipt_json = '{"cleanup":true}',
+                acknowledgement_auth_binding_digest_b64u = 'digest:recipient',
+                acknowledgement_auth_package_set_digest_b64u = 'digest:package-set',
+                acknowledgement_auth_expires_at_ms = 400
+          WHERE link_session_id = 'link:expired-delivery'`,
+      )
+      .run();
+    await temporary.database
+      .prepare(
+        `UPDATE linked_device_wallet_session_credential_deliveries_v1
+            SET cleanup_state = 'allocation_removed'
+          WHERE link_session_id = 'link:expired-delivery'`,
+      )
+      .run();
+    await temporary.database
+      .prepare(
+        `UPDATE linked_device_wallet_session_credential_deliveries_v1
+            SET cleanup_state = 'session_removed'
+          WHERE link_session_id = 'link:expired-delivery'`,
+      )
+      .run();
+    await temporary.database
+      .prepare(
+        `UPDATE linked_device_wallet_session_credential_deliveries_v1
+            SET lifecycle_kind = 'cleanup_complete', cleanup_state = 'complete',
+                cleanup_completed_at_ms = 110
+          WHERE link_session_id = 'link:expired-delivery'`,
+      )
+      .run();
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT lifecycle_kind, acknowledged_at_ms, acknowledgement_auth_expires_at_ms,
+                  cleanup_state, cleanup_completed_at_ms
+             FROM linked_device_wallet_session_credential_deliveries_v1
+            WHERE link_session_id = 'link:expired-delivery'`,
+        )
+        .first(),
+    ).resolves.toMatchObject({
+      lifecycle_kind: 'cleanup_complete',
+      acknowledged_at_ms: 100,
+      acknowledgement_auth_expires_at_ms: 400,
+      cleanup_state: 'complete',
+      cleanup_completed_at_ms: 110,
+    });
+    await expect(
+      temporary.database
+        .prepare(
+          `UPDATE linked_device_wallet_session_credential_deliveries_v1
+              SET authority_id = 'authority:rewritten'
+            WHERE link_session_id = 'link:expired-delivery'`,
+        )
+        .run(),
+    ).rejects.toThrow(/delivery_identity_rejected/u);
+    await expect(
+      temporary.database.prepare('PRAGMA foreign_key_check').all(),
+    ).resolves.toMatchObject({
+      results: [],
+    });
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
 test('R103F bridge retires unusable V2 rows and aborts duplicate usable tuples', async () => {
   const cleanup = createTemporaryD1Database();
   const duplicates = createTemporaryD1Database();
