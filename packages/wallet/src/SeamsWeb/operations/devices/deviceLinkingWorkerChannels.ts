@@ -3,9 +3,13 @@ import {
   parseLinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
   parseLinkedDeviceEmailOtpVerificationGrantV1,
   parseLinkDevicePublicKeyB64u,
+  parseLinkedDeviceWalletSessionCredentialDeliveryV1,
+  parseLinkedDeviceWalletSessionCredentialDeliveryBindingV1,
+  parseWalletSessionOperationCredentialV1,
   type LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
   type LinkedDeviceEmailOtpVerificationGrantV1,
   type LinkedDeviceRequestProofV1,
+  type LinkedDeviceWalletSessionCredentialDeliveryV1,
 } from '@shared/device-linking';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -19,6 +23,7 @@ import {
 } from '@shared/signing-lanes/ids';
 import {
   parseWalletAuthMethodId,
+  parseWalletAuthorityId,
   parseWalletId,
   type WalletAuthMethodId,
   type WalletId,
@@ -36,6 +41,7 @@ import type {
   DeviceLinkingKeyMaterialHandleV1,
   DeviceLinkingKeyMaterialPortV1,
   DeviceLinkingKeyMaterialBundleV1,
+  DeviceLinkingWalletSessionCredentialDeliveryOpenInputV1,
 } from './deviceLinkingPorts';
 
 export type DeviceLinkingWorkerEndpointV1 = {
@@ -73,6 +79,12 @@ type DeviceLinkingWorkerRequestV1 =
       readonly expectedChallengeId: string;
       readonly verificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
       readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
+    }
+  | {
+      readonly kind: 'device_linking_wallet_session_credential_delivery_open_v1';
+      readonly handleId: string;
+      readonly delivery: LinkedDeviceWalletSessionCredentialDeliveryV1;
+      readonly expected: DeviceLinkingWalletSessionCredentialDeliveryOpenInputV1['expected'];
     }
   | {
       readonly kind: 'device_linking_request_sign_v1';
@@ -207,6 +219,10 @@ function parseEmailOtpFactorReleaseResult(
     verificationGrant: parseLinkedDeviceEmailOtpVerificationGrantV1(record.verificationGrant),
     factorSecret: record.factorSecret,
   };
+}
+
+function parseWalletSessionCredentialDeliveryResult(value: unknown) {
+  return parseWalletSessionOperationCredentialV1(value);
 }
 
 function parseSignatureResult(value: unknown): { readonly signatureB64u: string } {
@@ -452,12 +468,42 @@ export function createDeviceLinkingKeyMaterialPortV1(
           linkSessionId: linkSessionId.value,
           enrollmentId: enrollmentId.value,
           deviceId: deviceId.value,
-          walletAuthMethodId: walletAuthMethodId.value,
+            walletAuthMethodId: walletAuthMethodId.value,
           baseWalletAuthMethodId: baseWalletAuthMethodId.value,
           targetPreparationDigestB64u,
           expectedChallengeId,
           verificationGrant,
           factorRelease,
+        }),
+      );
+    },
+    async openWalletSessionCredentialDeliveryV1(input) {
+      const handle = parseHandle(input.keyMaterial);
+      const delivery = parseLinkedDeviceWalletSessionCredentialDeliveryV1(input.delivery);
+      const expected = input.expected;
+      const walletId = parseWalletId(expected.walletId);
+      if (!walletId.ok) throw new Error(walletId.error.message);
+      const authorityId = parseWalletAuthorityId(expected.authorityId);
+      if (!authorityId.ok) throw new Error(authorityId.error.message);
+      const linkSessionId = parseLinkDeviceSessionId(expected.linkSessionId);
+      if (!linkSessionId.ok) throw new Error(linkSessionId.error.message);
+      const walletAuthMethodId = parseWalletAuthMethodId(expected.walletAuthMethodId);
+      if (!walletAuthMethodId.ok) throw new Error(walletAuthMethodId.error.message);
+      return parseWalletSessionCredentialDeliveryResult(
+        await request({
+          kind: 'device_linking_wallet_session_credential_delivery_open_v1',
+          handleId: handle.handleId,
+          delivery,
+          expected: {
+            ...expected,
+            linkSessionId: linkSessionId.value,
+            walletId: walletId.value,
+            authorityId: authorityId.value,
+          walletAuthMethodId: walletAuthMethodId.value,
+            deliveryBinding: parseLinkedDeviceWalletSessionCredentialDeliveryBindingV1(
+              expected.deliveryBinding,
+            ),
+          },
         }),
       );
     },

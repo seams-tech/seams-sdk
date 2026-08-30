@@ -39,6 +39,10 @@ import { parseDigestB64u, type DigestB64u } from '../utils/canonicalPrimitives';
 import { parseWalletAddAuthMethodRegistrationOptions } from '../utils/addAuthMethodRegistration';
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
 import {
+  parseLinkedDeviceWalletSessionCredentialDeliveryBindingV1,
+  parseLinkedDeviceWalletSessionCredentialDeliveryV1,
+} from './walletSessionCredentialDelivery';
+import {
   parseEd25519PublicKeyB64u,
   parseUnixMs,
   requireRecord,
@@ -3119,7 +3123,7 @@ export function parseActivateInstalledAuthorityResultV1(
     case 'active': {
       rejectUnknownFields(
         record,
-        ['kind', 'authority', 'authMethod', 'walletSession', 'operationCredential'],
+        ['kind', 'authority', 'authMethod', 'walletSession', 'deliveryBinding', 'sealedDelivery'],
         'ActivateInstalledAuthorityResultV1',
       );
       const authorityResult = parseWalletAuthorityV1(record.authority);
@@ -3131,8 +3135,10 @@ export function parseActivateInstalledAuthorityResultV1(
         throw new Error('ActivateInstalledAuthorityResultV1.authMethod must be active');
       }
       const walletSession = parseActiveWalletSessionV1(record.walletSession);
-      const operationCredential = parseWalletSessionOperationCredentialV1(
-        record.operationCredential,
+      const deliveryBinding =
+        parseLinkedDeviceWalletSessionCredentialDeliveryBindingV1(record.deliveryBinding);
+      const sealedDelivery = parseLinkedDeviceWalletSessionCredentialDeliveryV1(
+        record.sealedDelivery,
       );
       if (
         authorityResult.value.walletId !== authMethod.walletId ||
@@ -3141,7 +3147,20 @@ export function parseActivateInstalledAuthorityResultV1(
         walletSession.authorityId !== authorityResult.value.authorityId ||
         walletSession.authMethodId !== authMethod.walletAuthMethodId ||
         walletSession.authorityDigestB64u !== authorityResult.value.authorityDigestB64u ||
-        walletSession.authorityRevocationEpoch !== authorityResult.value.revocationEpoch
+        walletSession.authorityRevocationEpoch !== authorityResult.value.revocationEpoch ||
+        deliveryBinding.namespace !== sealedDelivery.aad.namespace ||
+        deliveryBinding.orgId !== sealedDelivery.aad.orgId ||
+        deliveryBinding.projectId !== sealedDelivery.aad.projectId ||
+        deliveryBinding.envId !== sealedDelivery.aad.envId ||
+        deliveryBinding.tenantId !== sealedDelivery.aad.tenantId ||
+        deliveryBinding.principalId !== sealedDelivery.aad.principalId ||
+        sealedDelivery.aad.walletId !== walletSession.walletId ||
+        sealedDelivery.aad.authorityId !== walletSession.authorityId ||
+        sealedDelivery.aad.walletAuthMethodId !== walletSession.authMethodId ||
+        sealedDelivery.aad.authorizationId !== walletSession.authorizationId ||
+        sealedDelivery.aad.quotaId !== walletSession.quotaId ||
+        sealedDelivery.aad.issuedAtMs !== walletSession.issuedAtMs ||
+        sealedDelivery.aad.expiresAtMs !== walletSession.expiresAtMs
       ) {
         throw new Error('ActivateInstalledAuthorityResultV1 identities do not match');
       }
@@ -3150,7 +3169,8 @@ export function parseActivateInstalledAuthorityResultV1(
         authority: authorityResult.value,
         authMethod,
         walletSession,
-        operationCredential,
+        deliveryBinding,
+        sealedDelivery,
       };
     }
     case 'pending_local_install':

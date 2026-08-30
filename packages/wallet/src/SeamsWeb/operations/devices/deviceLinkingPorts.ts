@@ -36,6 +36,9 @@ import type {
   CommittedAuthorityPackagesV1,
   LocalAuthorityActivationFinalAckV1,
   LocalAuthorityInstallationReceiptV1,
+  LinkedDeviceWalletSessionCredentialDeliveryBindingV1,
+  LinkedDeviceWalletSessionCredentialDeliveryV1,
+  WalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
 import type {
   LinkedDeviceEd25519ExportRootPackageV1,
@@ -43,6 +46,11 @@ import type {
   LinkedDeviceEd25519ExportRootSubmissionV1,
 } from '@shared/device-linking/ed25519ExportRoot';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { ExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 import type {
   LinkedDeviceId,
@@ -50,6 +58,7 @@ import type {
   LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
 import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
+import type { WalletAuthorityId } from '@shared/utils/domainIds';
 import type { DeviceLinkingOrdinaryMaterialWorkerPortV1 } from './deviceLinkingOrdinaryMaterialWorker';
 import type {
   PasskeyCustodyEnvelopeRecord,
@@ -92,11 +101,20 @@ export type DeviceLinkingAuthorityActivationTransportPortV1 = {
   }): Promise<void>;
 };
 
+/** Replays a durable acknowledgement with an exact Wallet Session bearer. */
+export type DeviceLinkingWalletSessionAcknowledgementReplayPortV1 = {
+  acknowledgeLocalAuthorityActivationWithWalletSessionV1(input: {
+    readonly acknowledgement: LocalAuthorityActivationFinalAckV1;
+    readonly operationCredential: WalletSessionOperationCredentialV1;
+  }): Promise<void>;
+};
+
 /**
  * This adapter owns challenge exchange, canonical request bytes, and worker
  * signing. Domain flows see exact DTOs and an opaque worker handle only.
  */
-export type DeviceLinkingAuthenticatedTransportPortV1 = {
+export type DeviceLinkingAuthenticatedTransportPortV1 =
+  DeviceLinkingWalletSessionAcknowledgementReplayPortV1 & {
   createUnclaimedSessionV1(input: {
     readonly payload: QrLinkedDeviceSessionPayloadV5;
     readonly state: Extract<LinkSessionStateV1, { readonly state: 'displaying_qr' }>;
@@ -166,7 +184,7 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly onEvent: (event: LinkSessionTransportEventV1) => void;
   }): Promise<LinkSessionSubscriptionV1>;
-};
+  };
 
 export type LinkSessionOwnerTransportPortV1 = {
   claimSessionV1(input: {
@@ -269,8 +287,33 @@ export type DeviceLinkingEmailOtpFactorReleasePortV1 = {
   ): Promise<DeviceLinkingEmailOtpFactorReleaseResultV1>;
 };
 
+export type DeviceLinkingWalletSessionCredentialDeliveryOpenInputV1 = {
+  readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
+  readonly delivery: LinkedDeviceWalletSessionCredentialDeliveryV1;
+  readonly expected: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly walletId: WalletId;
+    readonly authorityId: WalletAuthorityId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly authorizationId: WalletSessionAuthorizationId;
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: MpcWalletSigningQuotaId;
+    readonly deliveryBinding: LinkedDeviceWalletSessionCredentialDeliveryBindingV1;
+    readonly credentialDigestB64u: DigestB64u;
+    readonly installationReceiptDigestB64u: DigestB64u;
+    readonly recipientPublicKey65B64u: string;
+    readonly issuedAtMs: number;
+    readonly expiresAtMs: number;
+  };
+};
+
 export type DeviceLinkingKeyMaterialPortV1 = {
   createBootstrapKeyMaterialV1(): Promise<DeviceLinkingKeyMaterialBundleV1>;
+
+  /** Opens the one-shot Wallet Session credential delivery inside the worker. */
+  openWalletSessionCredentialDeliveryV1(
+    input: DeviceLinkingWalletSessionCredentialDeliveryOpenInputV1,
+  ): Promise<WalletSessionOperationCredentialV1>;
 
   /** Discards the worker slot and releases all private key references. */
   discardKeyMaterialV1(input: { readonly handle: DeviceLinkingKeyMaterialHandleV1 }): Promise<void>;

@@ -22,6 +22,10 @@ import {
   serializeQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import { computeLinkedDeviceTargetPreparationDigestV1 } from '@shared/device-linking';
+import {
+  computeWalletSessionInstallationReceiptDigestB64u,
+  computeWalletSessionOperationCredentialDigestB64u,
+} from '@shared/device-linking/digests';
 import type {
   LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkSessionStateV1,
@@ -33,6 +37,8 @@ import type {
   CommittedAuthorityPackagesV1,
   QrLinkedDeviceSessionPayloadV5,
   OrdinarySignerMaterialRecipientRequestV1,
+  LocalAuthorityActivationFinalAckV1,
+  WalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
 import type { WalletEmailOtpEnrollmentMaterialV1 } from '@shared/utils/registrationIntent';
 import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
@@ -1824,7 +1830,9 @@ export class LinkDeviceFlow {
         sessionState: state,
         linkSessionId: this.requireSessionV1().linkSessionId,
         targetFactor: registration.targetFactor,
+        keyMaterialPort: this.ports.keyMaterial,
         keyMaterial,
+        deliveryRecipientPublicKey65B64u: this.requireDeliveryRecipientPublicKey65B64u(),
         resealedExportRoot: this.resealedExportRoot,
         expectedLockGeneration,
         nowMs: () => Date.now(),
@@ -1847,7 +1855,7 @@ export class LinkDeviceFlow {
       { readonly state: 'provisioning' | 'authority_pending_local_install' | 'active' }
     >,
     walletSession: ActiveWalletSessionV1,
-    operationCredential: import('@shared/device-linking').WalletSessionOperationCredentialV1,
+    operationCredential: WalletSessionOperationCredentialV1,
     runEpoch: number,
   ): Promise<void> {
     this.assertCurrentRun(runEpoch);
@@ -1921,6 +1929,44 @@ export class LinkDeviceFlow {
       walletSession,
       operationCredential,
       factorSecret32: postLinkActivation.factorSecret32,
+    });
+    const committed = this.committedAuthorityPackages;
+    if (!committed) {
+      throw new Error(
+        'linked-device committed authority packages are unavailable for acknowledgement',
+      );
+    }
+    const installationReceipt =
+      await this.ports.authorityInstallation.readLocalAuthorityInstallationReceiptV1({
+        authorityId: walletSession.authorityId,
+      });
+    if (!installationReceipt) {
+      throw new Error('linked-device installation receipt is unavailable for acknowledgement');
+    }
+    const acknowledgement: LocalAuthorityActivationFinalAckV1 = {
+      kind: 'local_authority_activation_final_ack_v1',
+      linkSessionId: session.qrData.linkSessionId,
+      authorityId: walletSession.authorityId,
+      packageSetDigestB64u: committed.packageSetDigestB64u,
+      authorizationId: walletSession.authorizationId,
+      walletSessionId: operationCredential.walletSessionId,
+      credentialDigestB64u:
+        await computeWalletSessionOperationCredentialDigestB64u(operationCredential),
+      installationReceiptDigestB64u:
+        await computeWalletSessionInstallationReceiptDigestB64u(installationReceipt),
+      acknowledgedAtMs: Date.now(),
+    };
+    await this.ports.authorityInstallation.persistPendingActivationAcknowledgementV1({
+      acknowledgement,
+    });
+    await this.requireAuthenticatedTransport().acknowledgeLocalAuthorityActivationV1({
+      acknowledgement,
+    });
+    await this.ports.authorityInstallation.clearPendingActivationAcknowledgementV1({
+      authorityId: acknowledgement.authorityId,
+    });
+    await this.ports.authorityInstallation.clearCommittedDeliveryResumeV1({
+      authorityId: acknowledgement.authorityId,
     });
     this.session = activeSession;
     authenticationContext.signingEngine.setWalletAuthenticated(
@@ -2058,6 +2104,7 @@ export class LinkDeviceFlow {
   }
 
   private async retryCommittedDeliveryV1(event: LinkSessionTransportEventV1): Promise<void> {
+    if (await this.replayPendingActivationAcknowledgementV1()) return;
     switch (event.state.state) {
       case 'provisioning':
       case 'authority_pending_local_install':
@@ -2090,6 +2137,33 @@ export class LinkDeviceFlow {
       default:
         throw new Error(`committed link delivery cannot resume from ${event.state.state}`);
     }
+  }
+
+  private async replayPendingActivationAcknowledgementV1(): Promise<boolean> {
+    const committed = this.committedAuthorityPackages;
+    if (!committed) return false;
+    const pending = await this.ports.authorityInstallation.readPendingActivationAcknowledgementV1({
+      authorityId: committed.authority.authorityId,
+    });
+    if (!pending) return false;
+    const session = this.requireSessionV1();
+    if (
+      pending.linkSessionId !== session.qrData.linkSessionId ||
+      pending.authorityId !== committed.authority.authorityId ||
+      pending.packageSetDigestB64u !== committed.packageSetDigestB64u
+    ) {
+      throw new Error('pending linked-device acknowledgement identity is inconsistent');
+    }
+    await this.requireAuthenticatedTransport().acknowledgeLocalAuthorityActivationV1({
+      acknowledgement: pending,
+    });
+    await this.ports.authorityInstallation.clearPendingActivationAcknowledgementV1({
+      authorityId: pending.authorityId,
+    });
+    await this.ports.authorityInstallation.clearCommittedDeliveryResumeV1({
+      authorityId: pending.authorityId,
+    });
+    return true;
   }
 
   private async cancelFailedPrecommitSession(event: LinkSessionTransportEventV1): Promise<void> {

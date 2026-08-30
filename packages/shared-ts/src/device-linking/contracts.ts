@@ -41,6 +41,10 @@ import type {
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
   LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
 } from './sourceContribution';
+import type {
+  LinkedDeviceWalletSessionCredentialDeliveryBindingV1,
+  LinkedDeviceWalletSessionCredentialDeliveryV1,
+} from './walletSessionCredentialDelivery';
 
 export type {
   LinkedDeviceEcdsaSourceContributionBindingV1,
@@ -928,7 +932,8 @@ export type ActivateInstalledAuthorityResultV1 =
       readonly authority: Extract<WalletAuthorityV1, { readonly state: 'active' }>;
       readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
       readonly walletSession: ActiveWalletSessionV1;
-      readonly operationCredential: WalletSessionOperationCredentialV1;
+      readonly deliveryBinding: LinkedDeviceWalletSessionCredentialDeliveryBindingV1;
+      readonly sealedDelivery: LinkedDeviceWalletSessionCredentialDeliveryV1;
     }
   | {
       readonly kind: 'pending_local_install';

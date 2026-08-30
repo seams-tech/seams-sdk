@@ -4,13 +4,13 @@ import type {
   LinkIntegrityFailureV1,
   LinkSessionStateV1,
   LinkedAuthorityActivationResultV1,
+  LocalAuthorityActivationFinalAckV1,
   LocalAuthorityInstallationReceiptV1,
+  WalletSessionOperationCredentialV1,
   VerifiedTargetFactorV1,
 } from '@shared/device-linking';
-import {
-  computeWalletSessionInstallationReceiptDigestB64u,
-  computeWalletSessionOperationCredentialDigestB64u,
-} from '@shared/device-linking/digests';
+import { assertLinkedDeviceWalletSessionCredentialDeliveryIntegrityV1 } from '@shared/device-linking';
+import { computeWalletSessionInstallationReceiptDigestB64u } from '@shared/device-linking/digests';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { LinkDeviceSessionId } from '@shared/signing-lanes/ids';
@@ -24,19 +24,30 @@ import type {
   WalletAuthoritySignerMaterialRecordV1,
 } from '@/core/indexedDB';
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
+import type { LocalAuthorityActivationPublicationResultV1 } from '@/core/indexedDB';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   DeviceLinkingAuthorityActivationTransportPortV1,
   DeviceLinkingKeyMaterialHandleV1,
+  DeviceLinkingKeyMaterialPortV1,
 } from './deviceLinkingPorts';
 import type { DeviceLinkingResealedEd25519ExportRootV1 } from './deviceLinkingEd25519ExportRoot';
 import {
   buildDeviceLinkingCommittedResumeV1,
+  buildDeviceLinkingPendingAcknowledgementV1,
   committedResumeAppStateKeyV1,
   compareDeviceLinkingCommittedResumeV1,
+  parseDeviceLinkingPendingAcknowledgementV1,
+  pendingAcknowledgementAppStateKeyV1,
   parseDeviceLinkingCommittedResumeV1,
+  LINKED_DEVICE_COMMITTED_RESUME_APP_STATE_PREFIX_V1,
+  LINKED_DEVICE_PENDING_ACK_APP_STATE_PREFIX_V1,
   type DeviceLinkingCommittedResumeV1,
+} from './deviceLinkingResume';
+export {
+  replayPendingDeviceLinkingAcknowledgementsV1,
+  type DeviceLinkingDurableAcknowledgementReplayResultV1,
 } from './deviceLinkingResume';
 
 export type DeviceLinkingSealedAuthorityRecordsV1 = {
@@ -72,9 +83,23 @@ export type DeviceLinkingAuthorityInstallationPortV1 = {
   readCommittedDeliveryResumeV1(input: {
     readonly authorityId: CommittedAuthorityPackagesV1['authority']['authorityId'];
   }): Promise<DeviceLinkingCommittedResumeV1 | null>;
+  listCommittedDeliveryResumesV1(): Promise<readonly DeviceLinkingCommittedResumeV1[]>;
   clearCommittedDeliveryResumeV1(input: {
     readonly authorityId: CommittedAuthorityPackagesV1['authority']['authorityId'];
   }): Promise<void>;
+  persistPendingActivationAcknowledgementV1(input: {
+    readonly acknowledgement: LocalAuthorityActivationFinalAckV1;
+  }): Promise<void>;
+  readPendingActivationAcknowledgementV1(input: {
+    readonly authorityId: CommittedAuthorityPackagesV1['authority']['authorityId'];
+  }): Promise<LocalAuthorityActivationFinalAckV1 | null>;
+  listPendingActivationAcknowledgementsV1(): Promise<readonly LocalAuthorityActivationFinalAckV1[]>;
+  clearPendingActivationAcknowledgementV1(input: {
+    readonly authorityId: CommittedAuthorityPackagesV1['authority']['authorityId'];
+  }): Promise<void>;
+  readLocalAuthorityInstallationReceiptV1(input: {
+    readonly authorityId: CommittedAuthorityPackagesV1['authority']['authorityId'];
+  }): Promise<LocalAuthorityInstallationReceiptV1 | null>;
   installLocalAuthorityV1(input: {
     readonly committed: CommittedAuthorityPackagesV1;
     readonly targetFactor: VerifiedTargetFactorV1;
@@ -82,11 +107,24 @@ export type DeviceLinkingAuthorityInstallationPortV1 = {
     readonly resealedExportRoot: DeviceLinkingResealedEd25519ExportRootV1 | null;
     readonly expectedLockGeneration: number;
   }): Promise<LocalAuthorityInstallationReceiptV1>;
-  finalizeLocalAuthorityActivationV1(input: {
+  publishLocalAuthorityActivationV1(input: {
     readonly active: Extract<ActivateInstalledAuthorityResultV1, { readonly kind: 'active' }>;
     readonly expectedLockGeneration: number;
   }): Promise<void>;
+  finalizeLocalAuthorityActivationV1(input: {
+    readonly active: Extract<ActivateInstalledAuthorityResultV1, { readonly kind: 'active' }>;
+    readonly operationCredential: WalletSessionOperationCredentialV1;
+    readonly expectedLockGeneration: number;
+  }): Promise<void>;
 };
+
+export type DeviceLinkingDeliveryResumePortV1 = Pick<
+  DeviceLinkingAuthorityInstallationPortV1,
+  | 'listCommittedDeliveryResumesV1'
+  | 'listPendingActivationAcknowledgementsV1'
+  | 'clearCommittedDeliveryResumeV1'
+  | 'clearPendingActivationAcknowledgementV1'
+>;
 
 export type DeviceLinkingAuthorityInstallationAssemblyOptionsV1 = {
   readonly indexedDB: UnifiedIndexedDBManager;
@@ -104,7 +142,9 @@ export type DeviceLinkingAuthorityActivationFlowInputV1 = {
   >;
   readonly linkSessionId: LinkDeviceSessionId;
   readonly targetFactor: VerifiedTargetFactorV1;
+  readonly keyMaterialPort: DeviceLinkingKeyMaterialPortV1;
   readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
+  readonly deliveryRecipientPublicKey65B64u: string;
   readonly resealedExportRoot: DeviceLinkingResealedEd25519ExportRootV1 | null;
   readonly expectedLockGeneration: number;
   readonly nowMs: () => number;
@@ -190,6 +230,7 @@ export function createDeviceLinkingAuthorityInstallationPortV1(
   options: DeviceLinkingAuthorityInstallationAssemblyOptionsV1,
 ): DeviceLinkingAuthorityInstallationPortV1 {
   return {
+    ...createDeviceLinkingDeliveryResumePortV1({ indexedDB: options.indexedDB }),
     persistCommittedDeliveryResumeV1: async (input) => {
       const resume = buildDeviceLinkingCommittedResumeV1(input);
       await options.indexedDB.setAppState(committedResumeAppStateKeyV1(resume.authorityId), resume);
@@ -198,16 +239,77 @@ export function createDeviceLinkingAuthorityInstallationPortV1(
       parseDeviceLinkingCommittedResumeV1(
         await options.indexedDB.getAppState<unknown>(committedResumeAppStateKeyV1(authorityId)),
       ),
-    clearCommittedDeliveryResumeV1: async ({ authorityId }) => {
-      await options.indexedDB.setAppState(committedResumeAppStateKeyV1(authorityId), null);
+    persistPendingActivationAcknowledgementV1: async ({ acknowledgement }) => {
+      const pending = buildDeviceLinkingPendingAcknowledgementV1(acknowledgement);
+      await options.indexedDB.setAppState(
+        pendingAcknowledgementAppStateKeyV1(acknowledgement.authorityId),
+        pending,
+      );
     },
+    readPendingActivationAcknowledgementV1: async ({ authorityId }) => {
+      const pending = parseDeviceLinkingPendingAcknowledgementV1(
+        await options.indexedDB.getAppState<unknown>(pendingAcknowledgementAppStateKeyV1(authorityId)),
+      );
+      return pending?.acknowledgement ?? null;
+    },
+    readLocalAuthorityInstallationReceiptV1: async ({ authorityId }) =>
+      await options.indexedDB.getLocalAuthorityInstallationReceipt(authorityId),
     installLocalAuthorityV1: (input) => installLocalAuthorityV1({ ...input, ...options }),
-    finalizeLocalAuthorityActivationV1: ({ active, expectedLockGeneration }) =>
-      finalizeLocalAuthorityActivationV1({
+    publishLocalAuthorityActivationV1: ({ active, expectedLockGeneration }) =>
+      publishLocalAuthorityActivationV1({
         indexedDB: options.indexedDB,
         active,
         expectedLockGeneration,
       }),
+    finalizeLocalAuthorityActivationV1: ({ active, operationCredential, expectedLockGeneration }) =>
+      finalizeLocalAuthorityActivationV1({
+        indexedDB: options.indexedDB,
+        active,
+        operationCredential,
+        expectedLockGeneration,
+      }),
+  };
+}
+
+export function createDeviceLinkingDeliveryResumePortV1(input: {
+  readonly indexedDB: UnifiedIndexedDBManager;
+}): DeviceLinkingDeliveryResumePortV1 {
+  return {
+    listCommittedDeliveryResumesV1: async () => {
+      const rows = await input.indexedDB.listAppStateEntriesByPrefix(
+        LINKED_DEVICE_COMMITTED_RESUME_APP_STATE_PREFIX_V1,
+      );
+      return rows.flatMap((row) => {
+        if (row.value === null) return [];
+        const resume = parseDeviceLinkingCommittedResumeV1(row.value);
+        if (!resume || committedResumeAppStateKeyV1(resume.authorityId) !== row.key) {
+          throw new Error('durable linked-device delivery resume is corrupt');
+        }
+        return [resume];
+      });
+    },
+    listPendingActivationAcknowledgementsV1: async () => {
+      const rows = await input.indexedDB.listAppStateEntriesByPrefix(
+        LINKED_DEVICE_PENDING_ACK_APP_STATE_PREFIX_V1,
+      );
+      return rows.flatMap((row) => {
+        if (row.value === null) return [];
+        const pending = parseDeviceLinkingPendingAcknowledgementV1(row.value);
+        if (
+          !pending ||
+          pendingAcknowledgementAppStateKeyV1(pending.acknowledgement.authorityId) !== row.key
+        ) {
+          throw new Error('durable linked-device acknowledgement is corrupt');
+        }
+        return [pending.acknowledgement];
+      });
+    },
+    clearCommittedDeliveryResumeV1: async ({ authorityId }) => {
+      await input.indexedDB.setAppState(committedResumeAppStateKeyV1(authorityId), null);
+    },
+    clearPendingActivationAcknowledgementV1: async ({ authorityId }) => {
+      await input.indexedDB.setAppState(pendingAcknowledgementAppStateKeyV1(authorityId), null);
+    },
   };
 }
 
@@ -283,16 +385,45 @@ export async function installLocalAuthorityV1(input: {
   }
 }
 
+async function publishLocalAuthorityActivationV1(input: {
+  readonly indexedDB: UnifiedIndexedDBManager;
+  readonly active: Extract<ActivateInstalledAuthorityResultV1, { readonly kind: 'active' }>;
+  readonly expectedLockGeneration: number;
+}): Promise<void> {
+  const result: LocalAuthorityActivationPublicationResultV1 =
+    await input.indexedDB.publishLocalAuthorityActivation({
+      authority: input.active.authority,
+      authMethod: input.active.authMethod,
+      expectedLockGeneration: input.expectedLockGeneration,
+    });
+  switch (result.kind) {
+    case 'published':
+      return;
+    case 'stale_lock_generation':
+      throw new Error(
+        `local authority activation lock generation is stale (expected ${result.expectedLockGeneration}, actual ${result.actualLockGeneration})`,
+      );
+    case 'wallet_locked':
+      throw new Error(
+        `local authority activation refused while wallet is locked at generation ${result.lockGeneration}`,
+      );
+    default:
+      result satisfies never;
+      throw new Error('local authority activation publication returned an unknown result');
+  }
+}
+
 export async function finalizeLocalAuthorityActivationV1(input: {
   readonly indexedDB: UnifiedIndexedDBManager;
   readonly active: Extract<ActivateInstalledAuthorityResultV1, { readonly kind: 'active' }>;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
   readonly expectedLockGeneration: number;
 }): Promise<void> {
   const finalization: LocalAuthorityActivationFinalizationInputV1 = {
     authority: input.active.authority,
     authMethod: input.active.authMethod,
     walletSession: input.active.walletSession,
-    operationCredential: input.active.operationCredential,
+    operationCredential: input.operationCredential,
     expectedLockGeneration: input.expectedLockGeneration,
   };
   const result = await input.indexedDB.finalizeLocalAuthorityActivation(finalization);
@@ -366,37 +497,46 @@ export async function activateLinkedAuthorityV1(
         receipt,
       });
       if (activationReceiptResult) return activationReceiptResult;
-      await input.installation.finalizeLocalAuthorityActivationV1({
+      await input.installation.publishLocalAuthorityActivationV1({
         active,
         expectedLockGeneration: input.expectedLockGeneration,
       });
-      const acknowledgedAtMs = input.nowMs();
-      if (!Number.isSafeInteger(acknowledgedAtMs) || acknowledgedAtMs <= 0) {
-        throw new Error('local authority activation acknowledgement clock is invalid');
-      }
-      await input.transport.acknowledgeLocalAuthorityActivationV1({
-        acknowledgement: {
-          kind: 'local_authority_activation_final_ack_v1',
-          linkSessionId: input.linkSessionId,
-          authorityId: active.authority.authorityId,
-          packageSetDigestB64u: receipt.packageSetDigestB64u,
-          authorizationId: active.walletSession.authorizationId,
-          walletSessionId: active.operationCredential.walletSessionId,
-          credentialDigestB64u: await computeWalletSessionOperationCredentialDigestB64u(
-            active.operationCredential,
-          ),
-          installationReceiptDigestB64u:
-            await computeWalletSessionInstallationReceiptDigestB64u(receipt),
-          acknowledgedAtMs,
-        },
+      await assertLinkedDeviceWalletSessionCredentialDeliveryIntegrityV1(active.sealedDelivery);
+      await assertDeliveryMatchesActivation({
+        active,
+        receipt,
+        linkSessionId: input.linkSessionId,
+        deliveryRecipientPublicKey65B64u: input.deliveryRecipientPublicKey65B64u,
       });
-      await input.installation.clearCommittedDeliveryResumeV1({
-        authorityId: active.authority.authorityId,
+      const operationCredential =
+        await input.keyMaterialPort.openWalletSessionCredentialDeliveryV1({
+          keyMaterial: input.keyMaterial,
+          delivery: active.sealedDelivery,
+          expected: {
+            linkSessionId: input.linkSessionId,
+            walletId: active.walletSession.walletId,
+            authorityId: active.walletSession.authorityId,
+            walletAuthMethodId: active.walletSession.authMethodId,
+            authorizationId: active.walletSession.authorizationId,
+            walletSessionId: active.sealedDelivery.aad.walletSessionId,
+            quotaId: active.walletSession.quotaId,
+            deliveryBinding: active.deliveryBinding,
+            credentialDigestB64u: active.sealedDelivery.aad.credentialDigestB64u,
+            installationReceiptDigestB64u: active.sealedDelivery.installationReceiptDigestB64u,
+            recipientPublicKey65B64u: input.deliveryRecipientPublicKey65B64u,
+            issuedAtMs: active.walletSession.issuedAtMs,
+            expiresAtMs: active.walletSession.expiresAtMs,
+          },
+        });
+      await input.installation.finalizeLocalAuthorityActivationV1({
+        active,
+        operationCredential,
+        expectedLockGeneration: input.expectedLockGeneration,
       });
       return {
         kind: 'active',
         session: active.walletSession,
-        operationCredential: active.operationCredential,
+        operationCredential,
       };
     }
   }
@@ -472,6 +612,41 @@ function assertActivationResultMatchesReceipt(input: {
     };
   }
   return null;
+}
+
+async function assertDeliveryMatchesActivation(input: {
+  readonly active: Extract<ActivateInstalledAuthorityResultV1, { readonly kind: 'active' }>;
+  readonly receipt: LocalAuthorityInstallationReceiptV1;
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly deliveryRecipientPublicKey65B64u: string;
+}): Promise<void> {
+  const aad = input.active.sealedDelivery.aad;
+  const binding = input.active.deliveryBinding;
+  const installationReceiptDigestB64u = input.active.sealedDelivery.installationReceiptDigestB64u;
+  const expectedInstallationReceiptDigestB64u =
+    await computeWalletSessionInstallationReceiptDigestB64u(input.receipt);
+  if (
+    binding.namespace !== aad.namespace ||
+    binding.orgId !== aad.orgId ||
+    binding.projectId !== aad.projectId ||
+    binding.envId !== aad.envId ||
+    binding.tenantId !== aad.tenantId ||
+    binding.principalId !== aad.principalId ||
+    aad.linkSessionId !== input.linkSessionId ||
+    aad.walletId !== input.receipt.walletId ||
+    aad.authorityId !== input.receipt.authorityId ||
+    aad.walletAuthMethodId !== input.receipt.authMethodId ||
+    aad.authorizationId !== input.active.walletSession.authorizationId ||
+    aad.quotaId !== input.active.walletSession.quotaId ||
+    String(aad.principalId) !==
+      `linked-device:${String(input.active.authority.principal.deviceId)}` ||
+    aad.recipientPublicKey65B64u !== input.deliveryRecipientPublicKey65B64u ||
+    aad.issuedAtMs !== input.active.walletSession.issuedAtMs ||
+    aad.expiresAtMs !== input.active.walletSession.expiresAtMs ||
+    installationReceiptDigestB64u !== expectedInstallationReceiptDigestB64u
+  ) {
+    throw new Error('linked-device Wallet Session credential delivery identity changed');
+  }
 }
 
 function assertSealedAuthorityRecordsMatchCommitted(input: {

@@ -308,6 +308,58 @@ test('maps a target preparation recipient replay conflict to HTTP 409', async ()
   expect(await response.json()).toEqual({ ok: false, code: 'conflict', message });
 });
 
+test('keeps device-proof acknowledgement on the live linked-device path', async () => {
+  temporary = await openDatabase();
+  const fixture = buildR103DeviceLinkFixture({
+    linkSessionId: 'link-session:route-ack-proof',
+    expiresAtMs: Date.now() + 60_000,
+  });
+  const session = await buildR103AwaitingTargetPasskeySessionRecordV1(fixture);
+  const sessionService = buildSessionService(fixture);
+  const baseRouteService = routeServiceFor(sessionService, fixture, 3_000);
+  let authenticationKind: string | undefined;
+  const routeService: DeviceLinkingRouteServiceV1 = {
+    ...baseRouteService,
+    sessionService: {
+      ...baseRouteService.sessionService,
+      getSessionV1: async () => session,
+    },
+    installationReceipt: {
+      commitPendingAuthorityV1: async () => {
+        throw new Error('commit is outside this acknowledgement test');
+      },
+      readCommittedAuthorityPackagesV1: async () => null,
+      activateInstalledAuthorityV1: async () => {
+        throw new Error('activation is outside this acknowledgement test');
+      },
+      acknowledgeLocalAuthorityActivationV1: async ({ authentication }) => {
+        authenticationKind = authentication.kind;
+      },
+      readActivationCleanupReceiptV1: async () => null,
+    },
+  };
+  const acknowledgement = {
+    kind: 'local_authority_activation_final_ack_v1' as const,
+    linkSessionId: fixture.payload.linkSessionId,
+    authorityId: session.authorityId ?? 'authority:r103',
+    packageSetDigestB64u: fixture.packageSetDigestB64u,
+    authorizationId: fixture.approval.ownerAuthorization.authorizationId,
+    walletSessionId: fixture.approval.ownerAuthorization.walletSessionId,
+    credentialDigestB64u: fixture.packageSetDigestB64u,
+    installationReceiptDigestB64u: fixture.packageSetDigestB64u,
+    acknowledgedAtMs: 3_000,
+  };
+
+  const response = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/receipt`,
+    body: acknowledgement,
+  });
+
+  expect(response.status).toBe(204);
+  expect(authenticationKind).toBe('live');
+});
+
 test('keeps the claimed session when no Email OTP base method is eligible', async () => {
   temporary = await openDatabase();
   const fixture = buildR103DeviceLinkFixture({
