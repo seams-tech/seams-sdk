@@ -80,7 +80,9 @@ for (const origin of recoveryOrigins) {
   });
 }
 
-test('a committed Google recovery survives a lost finalization response', async ({ harness }) => {
+test('a committed Google recovery survives a lost finalization response and runtime reset', async ({
+  harness,
+}) => {
   await harness.registerPasskeyWallet();
   await harness.awaitNearReady();
   await harness.signTempoTransaction('post_registration');

@@ -64,15 +64,23 @@ for (const origin of recoveryOrigins) {
   });
 }
 
-test('a failed finalization leaves its admitted recovery code reusable', async ({
-  harness,
-}) => {
+test('a failed finalization leaves its admitted recovery code reusable', async ({ harness }) => {
   await harness.registerPasskeyWallet();
   await harness.awaitNearReady();
   await harness.signTempoTransaction('post_registration');
   await harness.recoverPasskeyWalletAfterFailedFinalization();
   await harness.assertRecoveryAuthorityIsAdditive('passkey');
   await harness.assertConsumedRecoveryCodeReportedAsUsed();
+});
+
+test('a committed Passkey recovery survives a lost finalization response and runtime reset', async ({
+  harness,
+}) => {
+  await harness.registerPasskeyWallet();
+  await harness.awaitNearReady();
+  await harness.signTempoTransaction('post_registration');
+  await harness.recoverPasskeyWalletAfterLostFinalizationResponse();
+  await harness.assertRecoveryAuthorityIsAdditive('passkey');
 });
 
 test('a Passkey-founded wallet recovers with Passkey, adds Email OTP, then signs, exports, and steps up through it', async ({
