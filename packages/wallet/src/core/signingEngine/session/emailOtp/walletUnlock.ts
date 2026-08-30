@@ -4,6 +4,7 @@ import type {
   ActiveWalletSessionV1,
   WalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
+import type { ExactWalletSessionAuthorization } from '../persistence/walletSessionAuthorizationProjection';
 import type {
   EmailOtpEd25519YaoRecoveryBootstrapV1,
   EmailOtpEcdsaSessionBootstrapHandleBinding,
@@ -24,6 +25,7 @@ import type { EmailOtpVerifiedAuthorityProjection } from './publicTypes';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import { ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 } from '@shared/utils/routerAbEd25519Yao';
 import type {
+  RouterAbEcdsaCredentialFreeSessionActivationResponseV1,
   RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -76,11 +78,19 @@ export type EmailOtpEd25519YaoUnlockResult =
 export type EmailOtpWalletUnlockCapabilityResults = {
   kind: 'wallet_unlock_capabilities';
   recovery: EmailOtpWalletUnlockRecovery;
+  walletSessionAuthorization: ExactWalletSessionAuthorization;
   ed25519ExportRootCustody: Extract<
     EmailOtpWalletUnlockMaterialResult,
     { kind: 'wallet_unlock_capabilities' }
   >['ed25519ExportRootCustody'];
-  ecdsa: Extract<EmailOtpWalletUnlockResult, { operation: 'wallet_unlock' }>;
+  ecdsa: {
+    kind: 'ecdsa';
+    operation: 'wallet_unlock';
+    recovery: EmailOtpWalletUnlockRecovery;
+    emailOtpSessionHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+    ecdsaSession: RouterAbEcdsaCredentialFreeSessionActivationResponseV1;
+    ecdsaCustody: EmailOtpEcdsaCustodyRestoreV1;
+  };
   ed25519Yao: EmailOtpEd25519YaoUnlockResult;
 };
 
@@ -326,6 +336,7 @@ export async function unlockEmailOtpWalletCapabilities(
   return {
     kind: 'wallet_unlock_capabilities',
     recovery: result.recovery,
+    walletSessionAuthorization: result.walletSessionAuthorization,
     ed25519ExportRootCustody: result.ed25519ExportRootCustody,
     ecdsa: {
       kind: 'ecdsa',

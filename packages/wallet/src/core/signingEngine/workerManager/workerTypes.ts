@@ -119,6 +119,7 @@ import type {
   Ed25519YaoLaneJobV1,
 } from '@shared/signing-lanes/rotation';
 import type { NearResolvedEd25519SigningSessionState } from '../interfaces/near';
+import type { ExactWalletSessionAuthorization } from '../session/persistence/walletSessionAuthorizationProjection';
 import type { WalletRegistrationEd25519YaoSignerRuntimeBootstrap } from '@/core/rpcClients/relayer/walletRegistration';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type { WalletRecoverySetRotationWorkerResultV1 } from '@shared/wallet-recovery/walletRecoveryRotation';
@@ -303,6 +304,7 @@ export type EmailOtpWalletUnlockMaterialResult =
   | ({
       readonly kind: 'ecdsa';
       readonly emailOtpSessionHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+      readonly walletSessionAuthorization?: never;
       readonly pendingFactorHandle?: never;
       readonly ed25519YaoRecovery?: never;
     } & (
@@ -320,6 +322,7 @@ export type EmailOtpWalletUnlockMaterialResult =
       readonly kind: 'wallet_custody_cache_absent';
       readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
       readonly emailOtpSessionHandle?: never;
+      readonly walletSessionAuthorization?: never;
     }
   | {
       readonly kind: 'ed25519_yao_capability';
@@ -333,12 +336,14 @@ export type EmailOtpWalletUnlockMaterialResult =
         readonly factorSecret32: Uint8Array;
       };
       readonly emailOtpSessionHandle?: never;
+      readonly walletSessionAuthorization?: never;
       readonly pendingFactorHandle?: never;
       readonly ed25519YaoRecovery?: never;
     }
   | {
       readonly kind: 'wallet_unlock_capabilities';
       readonly operation: 'wallet_unlock';
+      readonly walletSessionAuthorization: ExactWalletSessionAuthorization;
       readonly ed25519ExportRootCustody: {
         readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
         readonly factorSecret32: Uint8Array;
@@ -1052,6 +1057,7 @@ export interface EmailOtpWorkerOperationMap {
     };
     result: EmailOtpEd25519YaoWorkerActivationResult & {
       readonly ecdsaSession: RouterAbEcdsaCredentialFreeSessionActivationResponseV1;
+      readonly walletSessionAuthorization: ExactWalletSessionAuthorization;
     };
   };
   activateEmailOtpEd25519YaoRegistrationMaterial: {
