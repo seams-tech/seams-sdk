@@ -1424,7 +1424,11 @@ remaining consumers are converted.
       atomic exact retirement. The D1 CAS tests prove exact sibling isolation,
       quota closure, hosted-child cleanup, and stable replay for all three
       owning transitions.
-- [ ] Convert every route in the route policy matrix.
+- [x] Convert every route in the route policy matrix. Built-in route handlers
+      resolve exact operation credentials directly at their request boundary;
+      the route-definition policy registry applies only to extension routes.
+      Frozen Router A/B discriminators such as `reusable_wallet_session` remain
+      wire vocabulary and do not select a V1 persistence or admission path.
 - [x] Implement hosted child credentials and exact parent lifecycle handling.
 - [x] Update material promotion and exact status readback.
 
