@@ -27,10 +27,8 @@ import {
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
-  parseWalletUnlockIssuanceRejectionCode,
   routerApiEmailOtpRouteService,
   type RouterApiWalletSessionAuthorizationV2AdmissionContext,
-  type WalletUnlockEmailOtpAuthorityResolution,
 } from '../../../framework/authServicePort';
 import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
@@ -80,7 +78,6 @@ import {
 } from '../../../../authorization/domain';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import { base58Encode } from '@shared/utils/base58';
 
@@ -120,46 +117,22 @@ function hostedWalletOriginIsAllowed(ctx: FetchRouterApiContext, origin: Session
   });
 }
 
-type WalletEmailOtpChallengeSelector =
-  | {
-      readonly kind: 'wallet';
-      readonly walletId: WalletId;
-    }
-  | {
-      readonly kind: 'method';
-      readonly walletId: WalletId;
-      readonly walletAuthMethodId: WalletAuthMethodId;
-    };
-
 type ParsedWalletEmailOtpChallengeRequest = {
-  readonly selector: WalletEmailOtpChallengeSelector;
+  readonly walletId: WalletId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly operation: WalletEmailOtpLoginOperation;
   readonly operationFingerprintDigest?: DigestB64u;
 };
 
-type WalletEmailOtpChallengeAuthorityResolution =
-  | {
-      readonly ok: true;
-      readonly authority: EmailOtpWalletAuthAuthority;
-    }
-  | {
-      readonly ok: false;
-      readonly code: string;
-      readonly message: string;
-    };
-
 function parseWalletEmailOtpChallengeRequest(value: unknown): ParsedWalletEmailOtpChallengeRequest {
   if (!isPlainObject(value)) throw new Error('Expected JSON object body');
   const fields = Object.keys(value).sort().join(',');
-  const hasWalletAuthMethodId =
+  const hasExactFields =
     fields === 'operation,otpChannel,walletAuthMethodId,walletId' ||
     fields === 'operation,operationFingerprintDigest,otpChannel,walletAuthMethodId,walletId';
-  const isWalletLevel =
-    fields === 'operation,otpChannel,walletId' ||
-    fields === 'operation,operationFingerprintDigest,otpChannel,walletId';
-  if (!hasWalletAuthMethodId && !isWalletLevel) {
+  if (!hasExactFields) {
     throw new Error(
-      'Email OTP challenge body must contain walletId, otpChannel, operation, and optionally walletAuthMethodId and operationFingerprintDigest',
+      'Email OTP challenge body must contain walletId, walletAuthMethodId, otpChannel, operation, and optionally operationFingerprintDigest',
     );
   }
 
@@ -174,42 +147,15 @@ function parseWalletEmailOtpChallengeRequest(value: unknown): ParsedWalletEmailO
   const operationFingerprintDigest = Object.hasOwn(value, 'operationFingerprintDigest')
     ? parseDigestB64u(value.operationFingerprintDigest)
     : undefined;
-  if (hasWalletAuthMethodId) {
-    const parsedWalletAuthMethodId = parseWalletAuthMethodId(value.walletAuthMethodId);
-    if (!parsedWalletAuthMethodId.ok) {
-      throw new Error(parsedWalletAuthMethodId.error.message);
-    }
-    return {
-      selector: {
-        kind: 'method',
-        walletId: parsedWalletId.value,
-        walletAuthMethodId: parsedWalletAuthMethodId.value,
-      },
-      operation: parsedOperation.operation,
-      ...(operationFingerprintDigest ? { operationFingerprintDigest } : {}),
-    };
+  const parsedWalletAuthMethodId = parseWalletAuthMethodId(value.walletAuthMethodId);
+  if (!parsedWalletAuthMethodId.ok) {
+    throw new Error(parsedWalletAuthMethodId.error.message);
   }
   return {
-    selector: { kind: 'wallet', walletId: parsedWalletId.value },
+    walletId: parsedWalletId.value,
+    walletAuthMethodId: parsedWalletAuthMethodId.value,
     operation: parsedOperation.operation,
     ...(operationFingerprintDigest ? { operationFingerprintDigest } : {}),
-  };
-}
-
-function normalizeWalletEmailOtpUnlockAuthority(
-  resolution: WalletUnlockEmailOtpAuthorityResolution,
-): WalletEmailOtpChallengeAuthorityResolution {
-  switch (resolution.kind) {
-    case 'active_authority':
-      return { ok: true, authority: resolution.walletAuthAuthority };
-    case 'rejected':
-      return { ok: false, code: resolution.code, message: resolution.message };
-  }
-  resolution satisfies never;
-  return {
-    ok: false,
-    code: 'internal',
-    message: 'Email OTP authority resolution is invalid',
   };
 }
 
@@ -218,32 +164,12 @@ async function resolveWalletEmailOtpChallengeAuthority(args: {
   readonly walletId: WalletId;
   readonly orgId: string;
   readonly providerUserId: string;
-  readonly selector: ParsedWalletEmailOtpChallengeRequest['selector'];
-}): Promise<WalletUnlockEmailOtpAuthorityResolution> {
-  if (args.selector.kind === 'method') {
-    return await args.ctx.service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
-      walletId: args.walletId,
-      orgId: args.orgId,
-      walletAuthMethodId: args.selector.walletAuthMethodId,
-      providerUserId: args.providerUserId,
-    });
-  }
-  const selected =
-    await args.ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
-      walletId: args.walletId,
-      providerUserId: args.providerUserId,
-    });
-  if (!selected.ok) {
-    return {
-      kind: 'rejected',
-      code: parseWalletUnlockIssuanceRejectionCode(selected.code),
-      message: selected.message,
-    };
-  }
+  readonly walletAuthMethodId: WalletAuthMethodId;
+}): Promise<Awaited<ReturnType<FetchRouterApiContext['service']['walletUnlock']['resolveEmailOtpAuthorityForUnlock']>>> {
   return await args.ctx.service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
     walletId: args.walletId,
     orgId: args.orgId,
-    walletAuthMethodId: selected.authority.bindingId,
+    walletAuthMethodId: args.walletAuthMethodId,
     providerUserId: args.providerUserId,
   });
 }
@@ -931,6 +857,8 @@ export async function handleWalletUnlockChallenge(
     await readJson(ctx.request),
     ctx.service.authorizedOperations.tenantId,
   );
+  const authorityError = await validateWalletUnlockEmailOtpChallengeAuthority(ctx, body);
+  if (authorityError) return authorityError;
   const response = await handleWalletUnlockChallengeRoute({
     body,
     service: ctx.service.walletUnlock,
@@ -941,6 +869,59 @@ export async function handleWalletUnlockChallenge(
 function walletUnlockBodyWithAuthoritativeOrgId(body: unknown, orgId: string): unknown {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
   return { ...body, orgId };
+}
+
+async function validateWalletUnlockEmailOtpChallengeAuthority(
+  ctx: FetchRouterApiContext,
+  body: unknown,
+): Promise<Response | null> {
+  if (!isPlainObject(body) || body.unlockBackend !== EMAIL_OTP_CHANNEL) return null;
+
+  const walletId = parseWalletId(body.walletId);
+  const walletAuthMethodId = parseWalletAuthMethodId(body.walletAuthMethodId);
+  if (!walletId.ok) {
+    return json(
+      {
+        ok: false,
+        code: 'invalid_body',
+        message: walletId.error.message,
+      },
+      { status: 400 },
+    );
+  }
+  if (!walletAuthMethodId.ok) {
+    return json(
+      {
+        ok: false,
+        code: 'invalid_body',
+        message: `walletAuthMethodId ${walletAuthMethodId.error.message}`,
+      },
+      { status: 400 },
+    );
+  }
+
+  const orgId = ctx.service.authorizedOperations.tenantId;
+  const enrollment = await ctx.service.emailOtp.readActiveEmailOtpEnrollment({
+    walletId: walletId.value,
+    orgId,
+  });
+  if (!enrollment.ok) {
+    return json(enrollment, { status: emailOtpStatusCode(enrollment.code) });
+  }
+
+  const authority = await ctx.service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
+    walletId: walletId.value,
+    orgId,
+    walletAuthMethodId: walletAuthMethodId.value,
+    providerUserId: enrollment.enrollment.providerUserId,
+  });
+  if (authority.kind === 'rejected') {
+    return json(
+      { ok: false, code: authority.code, message: authority.message },
+      { status: authority.code === 'internal' ? 500 : 403 },
+    );
+  }
+  return null;
 }
 
 export async function handleWalletEmailOtpChallenge(
@@ -963,7 +944,7 @@ export async function handleWalletEmailOtpChallenge(
       { status: 400 },
     );
   }
-  const walletId = request.selector.walletId;
+  const walletId = request.walletId;
   const orgId = ctx.service.authorizedOperations.tenantId;
   const enrollment = await ctx.service.emailOtp.readActiveEmailOtpEnrollment({ walletId, orgId });
   if (!enrollment.ok) {
@@ -974,7 +955,7 @@ export async function handleWalletEmailOtpChallenge(
     walletId,
     orgId,
     providerUserId: enrollment.enrollment.providerUserId,
-    selector: request.selector,
+    walletAuthMethodId: request.walletAuthMethodId,
   });
   if (authorityResolution.kind === 'rejected') {
     return json(
@@ -1058,7 +1039,7 @@ type WalletEmailOtpFactorReleaseRequest = {
   | { readonly kind: 'wallet_session' }
   | {
       readonly kind: 'email_otp';
-      readonly walletAuthMethodId?: unknown;
+      readonly walletAuthMethodId: unknown;
       readonly challengeId: unknown;
       readonly otpCode: unknown;
       readonly operation: WalletEmailOtpOperation;
@@ -1082,7 +1063,7 @@ function parseWalletEmailOtpFactorReleaseRequest(
               'operation',
               'otpCode',
               'walletId',
-              ...(Object.hasOwn(value, 'walletAuthMethodId') ? ['walletAuthMethodId'] : []),
+              'walletAuthMethodId',
               'workerEphemeralPublicKey65B64u',
             ].sort()
           : null;
@@ -1109,9 +1090,7 @@ function parseWalletEmailOtpFactorReleaseRequest(
   return {
     kind: 'email_otp',
     walletId: value.walletId,
-    ...(Object.hasOwn(value, 'walletAuthMethodId')
-      ? { walletAuthMethodId: value.walletAuthMethodId }
-      : {}),
+    walletAuthMethodId: value.walletAuthMethodId,
     challengeId: value.challengeId,
     otpCode: value.otpCode,
     operation: operation.operation,
@@ -1212,30 +1191,25 @@ export async function handleWalletEmailOtpFactorRelease(
         );
       }
       const origin = requestOrigin(ctx.request);
-      const requestedWalletAuthMethodId =
-        body.walletAuthMethodId === undefined
-          ? null
-          : parseWalletAuthMethodId(body.walletAuthMethodId);
-      if (requestedWalletAuthMethodId && !requestedWalletAuthMethodId.ok) {
+      const walletAuthMethodId = parseWalletAuthMethodId(body.walletAuthMethodId);
+      if (!walletAuthMethodId.ok) {
         return json(
           { ok: false, code: 'invalid_body', message: 'walletAuthMethodId is invalid' },
           { status: 400 },
         );
       }
-      const authority = requestedWalletAuthMethodId?.ok
-        ? normalizeWalletEmailOtpUnlockAuthority(
-            await ctx.service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
-              walletId: walletId.value,
-              orgId: orgId.value,
-              walletAuthMethodId: requestedWalletAuthMethodId.value,
-              providerUserId: enrollment.enrollment.providerUserId,
-            }),
-          )
-        : await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
-            walletId: walletId.value,
-            providerUserId: enrollment.enrollment.providerUserId,
-          });
-      if (!authority.ok) return json(authority, { status: 403 });
+      const authority = await ctx.service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
+        walletId: walletId.value,
+        orgId: orgId.value,
+        walletAuthMethodId: walletAuthMethodId.value,
+        providerUserId: enrollment.enrollment.providerUserId,
+      });
+      if (authority.kind === 'rejected') {
+        return json(
+          { ok: false, code: authority.code, message: authority.message },
+          { status: authority.code === 'internal' ? 500 : 403 },
+        );
+      }
       const ownerProofBindingDigest = await hashEmailOtpOperationBinding({
         walletId: walletId.value,
         providerUserId: enrollment.enrollment.providerUserId,
@@ -1243,7 +1217,7 @@ export async function handleWalletEmailOtpFactorRelease(
         operation: body.operation,
         requestOrigin: origin,
         audience: origin,
-        authorityRef: await walletAuthAuthorityRef({ authority: authority.authority }),
+        authorityRef: await walletAuthAuthorityRef({ authority: authority.walletAuthAuthority }),
       });
       const verified = await ctx.service.emailOtp.verifyEmailOtpChallenge({
         userId: enrollment.enrollment.providerUserId,
@@ -1422,18 +1396,6 @@ export async function handleWalletUnlockVerify(
     ecdsaSession,
     tenantId: ctx.service.authorizationSessions.tenantId,
     buildVerifiedOwnerProof: ctx.service.authorizedOperations.buildVerifiedOwnerProof,
-    resolveEmailOtpAuthority: async (request) => {
-      const resolved =
-        await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject(
-          request,
-        );
-      if (resolved.ok) return resolved;
-      return {
-        ok: false,
-        code: parseWalletUnlockIssuanceRejectionCode(resolved.code),
-        message: resolved.message,
-      };
-    },
     emitRouterApiWebhook: async (event) => {
       await emitRouterApiWebhookEvent({
         logger: ctx.logger,

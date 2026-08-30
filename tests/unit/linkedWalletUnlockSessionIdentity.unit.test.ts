@@ -234,9 +234,6 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     ecdsaSession: { kind: 'no_ecdsa_session' as const },
     tenantId: required(parseTenantId('tenant:linked-runtime')),
     buildVerifiedOwnerProof,
-    resolveEmailOtpAuthority: async () => {
-      throw new Error('Email OTP is outside this Passkey test');
-    },
   } satisfies Omit<Parameters<typeof handleWalletUnlockVerifyRoute>[0], 'body'>;
 
   const response = await handleWalletUnlockVerifyRoute({
