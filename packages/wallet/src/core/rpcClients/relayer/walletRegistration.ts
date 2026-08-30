@@ -2012,7 +2012,7 @@ export type WalletRegistrationActivateResponseV2 =
     > & {
       ecdsa: ActivateTerminalEcdsaPayload;
       registrationEstablishedSession: RegistrationEstablishedSessionResultV2;
-      nearProvisioning?: { status: 'pending' };
+      nearProvisioning?: { status: 'near_pending' };
     })
   | WalletRegistrationActivateEd25519PendingV2;
 
@@ -2155,7 +2155,7 @@ function parseWalletRegistrationActivateResponseV2(
       value: nearProvisioning,
     });
     requireExactResponseKeys(provisioning, ['status'], `${responseName} nearProvisioning`);
-    if (provisioning.status !== 'pending') {
+    if (provisioning.status !== 'near_pending') {
       throw new Error(`${responseName} nearProvisioning status is invalid`);
     }
   }
@@ -2191,7 +2191,9 @@ function parseWalletRegistrationActivateResponseV2(
       bootstrap: parseThresholdEcdsaDerivationRoleLocalBootstrapValue(bootstrap),
     },
     registrationEstablishedSession,
-    ...(nearProvisioning === undefined ? {} : { nearProvisioning: { status: 'pending' as const } }),
+    ...(nearProvisioning === undefined
+      ? {}
+      : { nearProvisioning: { status: 'near_pending' as const } }),
   };
 }
 
