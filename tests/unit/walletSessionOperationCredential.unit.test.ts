@@ -1141,3 +1141,172 @@ test('replaceExactActive deletes late legacy rows while preserving sibling and f
     result.rows.some((row) => row.record_version === 'wallet_session_authorization_v4'),
   ).toBe(false);
 });
+
+test('wallet bootstrap keeps storage states explicit without a blank shell', async ({ page }) => {
+  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+
+  const result = await page.evaluate(
+    async ({ activeWalletSession, operationCredential }) => {
+      const indexedDbModule = await import('/_test-sdk/esm/core/indexedDB/index.js');
+      const repositoryModule = await import(
+        '/_test-sdk/esm/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore.js'
+      );
+      const storeName = indexedDbModule.SEAMS_WALLET_STORES.walletSessionAuthorizations;
+      const scope = {
+        walletId: activeWalletSession.walletId,
+        authorityId: activeWalletSession.authorityId,
+        authMethodId: activeWalletSession.authMethodId,
+      };
+
+      const createScenario = (label: string) => {
+        const seamsWalletDB = new indexedDbModule.SeamsWalletDBManager();
+        const dbName = indexedDbModule.createSeamsTestWalletDbName(
+          `wallet_bootstrap_${label}_${crypto.randomUUID()}`,
+        );
+        seamsWalletDB.setDbName(dbName);
+        const indexedDB = new indexedDbModule.UnifiedIndexedDBManager({ seamsWalletDB });
+        const repository = new repositoryModule.WalletSessionAuthorizationRepository(seamsWalletDB);
+        return { dbName, indexedDB, repository, seamsWalletDB };
+      };
+
+      const empty = createScenario('empty');
+      await empty.indexedDB.initialize();
+      const emptyLastProfile = await empty.indexedDB.getLastProfileState();
+      const emptyProfiles = await empty.indexedDB.listProfiles();
+      const emptyDb = await empty.seamsWalletDB.getDB();
+
+      const exact = createScenario('exact');
+      await exact.indexedDB.upsertProfile({
+        profileId: activeWalletSession.walletId,
+        defaultSignerSlot: 1,
+      });
+      await exact.indexedDB.setLastProfileStateForProfile(activeWalletSession.walletId, 1);
+      await exact.repository.writeExactWithOperationCredential({
+        record: activeWalletSession,
+        operationCredential,
+      });
+      await exact.indexedDB.initialize();
+      const exactProfiles = await exact.indexedDB.listProfiles();
+      const exactLastProfile = await exact.indexedDB.getLastProfileState();
+      const exactRead = await exact.repository.readExactActiveForWallet(scope);
+
+      const legacy = createScenario('legacy');
+      const legacyDb = await legacy.seamsWalletDB.getDB();
+      const legacyRow = {
+        record_version: 'wallet_session_authorization_v5',
+        wallet_session_id: 'wallet-session:wallet-bootstrap-legacy',
+        wallet_id: activeWalletSession.walletId,
+      };
+      await legacyDb.put(storeName, legacyRow);
+      await legacy.indexedDB.initialize();
+      const legacyRead = await legacy.repository.readExactActiveForWallet(scope);
+      const legacyPersisted = await legacyDb.get(storeName, legacyRow.wallet_session_id);
+      const legacyProfiles = await legacy.indexedDB.listProfiles();
+
+      const malformed = createScenario('malformed');
+      await malformed.repository.writeExactWithOperationCredential({
+        record: activeWalletSession,
+        operationCredential,
+      });
+      const malformedDb = await malformed.seamsWalletDB.getDB();
+      const validRow = await malformedDb.get(storeName, operationCredential.walletSessionId);
+      if (!validRow) throw new Error('stored V6 Wallet Session row is missing');
+      const malformedRow = {
+        ...validRow,
+        authorization_id: 'authorization:wallet-bootstrap-malformed',
+      };
+      await malformedDb.put(storeName, malformedRow);
+      await malformed.indexedDB.initialize();
+      const malformedRead = await malformed.repository.readExactActiveForWallet(scope);
+      const malformedProfiles = await malformed.indexedDB.listProfiles();
+
+      const future = createScenario('future');
+      const futureDb = await future.seamsWalletDB.getDB();
+      const futureRow = {
+        record_version: 'wallet_session_authorization_v7',
+        wallet_session_id: 'wallet-session:wallet-bootstrap-future',
+        wallet_id: activeWalletSession.walletId,
+        wallet_authority_id: activeWalletSession.authorityId,
+        wallet_auth_method_id: activeWalletSession.authMethodId,
+        future_payload: { preserved: true, marker: 'wallet-bootstrap-future' },
+      };
+      await futureDb.put(storeName, futureRow);
+      await future.indexedDB.initialize();
+      const futureRead = await future.repository.readExactActiveForWallet(scope);
+      const futurePersisted = await futureDb.get(storeName, futureRow.wallet_session_id);
+      const futureProfiles = await future.indexedDB.listProfiles();
+
+      return {
+        empty: {
+          initialized: empty.indexedDB.isInitialized,
+          profileCount: emptyProfiles.length,
+          lastProfile: emptyLastProfile,
+          sessionCount: await emptyDb.count(storeName),
+        },
+        exact: {
+          initialized: exact.indexedDB.isInitialized,
+          profileIds: exactProfiles.map((profile) => profile.profileId),
+          lastProfileId: exactLastProfile?.profileId ?? null,
+          read: exactRead.kind,
+          operationCredentialWalletSessionId:
+            exactRead.kind === 'found' ? exactRead.operationCredential.walletSessionId : null,
+        },
+        legacy: {
+          initialized: legacy.indexedDB.isInitialized,
+          read: legacyRead.kind,
+          persisted: legacyPersisted !== undefined,
+          profileCount: legacyProfiles.length,
+        },
+        malformed: {
+          initialized: malformed.indexedDB.isInitialized,
+          read: malformedRead.kind,
+          profileCount: malformedProfiles.length,
+        },
+        future: {
+          initialized: future.indexedDB.isInitialized,
+          read: futureRead.kind,
+          persisted: futurePersisted !== undefined,
+          profileCount: futureProfiles.length,
+        },
+      };
+    },
+    {
+      activeWalletSession: fixture.activeWalletSession,
+      operationCredential: fixture.operationCredential,
+    },
+  );
+
+  expect(result).toEqual({
+    empty: {
+      initialized: true,
+      profileCount: 0,
+      lastProfile: null,
+      sessionCount: 0,
+    },
+    exact: {
+      initialized: true,
+      profileIds: [fixture.activeWalletSession.walletId],
+      lastProfileId: fixture.activeWalletSession.walletId,
+      read: 'found',
+      operationCredentialWalletSessionId: fixture.operationCredential.walletSessionId,
+    },
+    legacy: {
+      initialized: true,
+      read: 'missing',
+      persisted: false,
+      profileCount: 0,
+    },
+    malformed: {
+      initialized: true,
+      read: 'corrupt',
+      profileCount: 0,
+    },
+    future: {
+      initialized: true,
+      read: 'upgrade_required',
+      persisted: true,
+      profileCount: 0,
+    },
+  });
+});
