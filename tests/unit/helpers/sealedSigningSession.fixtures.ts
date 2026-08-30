@@ -608,6 +608,7 @@ export function seedEmailOtpEcdsaSealedSigningSessionRecord(
 
 type EmailOtpEcdsaSealedRuntimeFixtureCorruption =
   | { kind: 'blank_binding_digest' }
+  | { kind: 'binding_digest'; bindingDigest: string }
   | { kind: 'blank_relayer_url' }
   | {
       kind: 'foreign_material_activation';
@@ -621,9 +622,19 @@ type EmailOtpEcdsaSealedRuntimeFixtureCorruption =
   | { kind: 'remaining_uses'; remainingUses: number }
   | { kind: 'expires_at_ms'; expiresAtMs: number }
   | { kind: 'normal_signing_wallet_id'; walletId: string }
+  | { kind: 'key_handle'; keyHandle: string }
+  | { kind: 'ecdsa_threshold_key_id'; thresholdKeyId: string }
+  | { kind: 'threshold_public_key'; publicKeyB64u: string }
+  | { kind: 'client_verifying_share'; shareB64u: string }
+  | { kind: 'signing_root_id'; signingRootId: string }
+  | { kind: 'signing_root_version'; signingRootVersion: string }
+  | { kind: 'ethereum_address'; ethereumAddress: string }
   | { kind: 'auth_method'; authMethod: CurrentEcdsaSealedSessionRecord['authMethod'] }
   | { kind: 'normal_signing_worker_id'; signingWorkerId: string }
+  | { kind: 'normal_signing_context'; applicationBindingDigestB64u: string }
+  | { kind: 'normal_signing_server_public_key'; publicKeyB64u: string }
   | { kind: 'public_capability_signer_id'; signerId: string }
+  | { kind: 'public_capability_router_id'; routerId: string }
   | { kind: 'relayer_key_id'; relayerKeyId: string };
 
 /** The scope the relayer issues at bootstrap and the sealed store persists.
@@ -901,6 +912,17 @@ function corruptEmailOtpEcdsaSealedRuntimeRecordFixture(
           },
         },
       };
+    case 'binding_digest':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          roleLocalMaterialRef: {
+            ...record.ecdsaRestore.roleLocalMaterialRef,
+            bindingDigest: corruption.bindingDigest,
+          },
+        },
+      };
     case 'blank_relayer_url':
       return { ...record, relayerUrl: '   ' };
     case 'foreign_material_activation':
@@ -942,6 +964,53 @@ function corruptEmailOtpEcdsaSealedRuntimeRecordFixture(
           },
         },
       };
+    case 'key_handle':
+      return {
+        ...record,
+        ecdsaRestore: { ...record.ecdsaRestore, keyHandle: corruption.keyHandle },
+      };
+    case 'ecdsa_threshold_key_id':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          ecdsaThresholdKeyId: corruption.thresholdKeyId,
+        },
+      };
+    case 'threshold_public_key':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          thresholdEcdsaPublicKeyB64u: corruption.publicKeyB64u,
+        },
+      };
+    case 'client_verifying_share':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          clientVerifyingShareB64u: corruption.shareB64u,
+        },
+      };
+    case 'signing_root_id':
+      return {
+        ...record,
+        ecdsaRestore: { ...record.ecdsaRestore, signingRootId: corruption.signingRootId },
+      };
+    case 'signing_root_version':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          signingRootVersion: corruption.signingRootVersion,
+        },
+      };
+    case 'ethereum_address':
+      return {
+        ...record,
+        ecdsaRestore: { ...record.ecdsaRestore, ethereumAddress: corruption.ethereumAddress },
+      };
     case 'auth_method':
       return { ...record, authMethod: corruption.authMethod };
     case 'normal_signing_worker_id':
@@ -961,6 +1030,40 @@ function corruptEmailOtpEcdsaSealedRuntimeRecordFixture(
           },
         },
       };
+    case 'normal_signing_context':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          routerAbEcdsaDerivationNormalSigning: {
+            ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning,
+            scope: {
+              ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope,
+              context: {
+                ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope.context,
+                application_binding_digest_b64u: corruption.applicationBindingDigestB64u,
+              },
+            },
+          },
+        },
+      };
+    case 'normal_signing_server_public_key':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          routerAbEcdsaDerivationNormalSigning: {
+            ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning,
+            scope: {
+              ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope,
+              public_identity: {
+                ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope.public_identity,
+                server_public_key33_b64u: corruption.publicKeyB64u,
+              },
+            },
+          },
+        },
+      };
     case 'public_capability_signer_id':
       return {
         ...record,
@@ -975,6 +1078,17 @@ function corruptEmailOtpEcdsaSealedRuntimeRecordFixture(
                 server_id: corruption.signerId,
               },
             },
+          },
+        },
+      };
+    case 'public_capability_router_id':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          publicCapability: {
+            ...record.ecdsaRestore.publicCapability,
+            router_id: corruption.routerId,
           },
         },
       };
