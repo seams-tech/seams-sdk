@@ -123,6 +123,7 @@ import type { WalletRegistrationEd25519YaoSignerRuntimeBootstrap } from '@/core/
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type { WalletRecoverySetRotationWorkerResultV1 } from '@shared/wallet-recovery/walletRecoveryRotation';
 import type {
+  RouterAbEcdsaCredentialFreeSessionActivationResponseV1,
   RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
@@ -344,7 +345,7 @@ export type EmailOtpWalletUnlockMaterialResult =
       };
       readonly ecdsa: {
         readonly emailOtpSessionHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
-        readonly session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        readonly session: RouterAbEcdsaCredentialFreeSessionActivationResponseV1;
         readonly custody: EmailOtpEcdsaCustodyRestoreV1;
       };
       readonly ed25519Yao:
@@ -1050,7 +1051,7 @@ export interface EmailOtpWorkerOperationMap {
       >;
     };
     result: EmailOtpEd25519YaoWorkerActivationResult & {
-      readonly ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+      readonly ecdsaSession: RouterAbEcdsaCredentialFreeSessionActivationResponseV1;
     };
   };
   activateEmailOtpEd25519YaoRegistrationMaterial: {

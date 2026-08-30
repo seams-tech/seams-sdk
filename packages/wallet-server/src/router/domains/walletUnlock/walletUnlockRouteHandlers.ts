@@ -54,9 +54,12 @@ import {
   type EmailOtpWebhookEventDescriptor,
 } from '../emailOtp/emailOtpSessionRouteHelpers';
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../ed25519Yao/recovery/routerAbEd25519YaoRecovery';
-import type { RouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { RouterAbEcdsaPostRegistrationSessionActivationPolicyV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaCredentialFreeSessionActivationResponseV1,
+  RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  RouterAbEcdsaRegistrationActivationReceiptV1,
+  RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletEcdsaSignerRecord } from '../../../core/WalletStore';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type { WalletUnlockKeyManifestV1 } from '../passkeyCustody/walletRecoveryKeyManifest';
@@ -144,6 +147,10 @@ function isWalletUnlockEd25519YaoRequestedContext(
   );
 }
 
+type WalletUnlockEcdsaSessionActivation =
+  | RouterAbEcdsaPostRegistrationSessionActivationResponseV1
+  | RouterAbEcdsaCredentialFreeSessionActivationResponseV1;
+
 export type WalletUnlockEcdsaSessionContext =
   | { readonly kind: 'no_ecdsa_session' }
   | {
@@ -153,7 +160,7 @@ export type WalletUnlockEcdsaSessionContext =
       readonly provisionWalletSession: (input: WalletUnlockEcdsaAuthorization) => Promise<
         | {
             readonly ok: true;
-            readonly activation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+            readonly activation: WalletUnlockEcdsaSessionActivation;
             readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
             readonly continuity: WalletUnlockEcdsaCustodyContinuityV1;
           }
@@ -194,6 +201,7 @@ export type WalletUnlockEcdsaAuthorization =
   | {
       readonly kind: 'verified_wallet_unlock';
       readonly proof: WalletSessionOwnerProof;
+      readonly operationCredential?: never;
     }
   | {
       readonly kind: 'wallet_session_operation_credential_v1';
@@ -259,7 +267,7 @@ type WalletUnlockProvisionedCapabilityResult =
 type WalletUnlockEcdsaSessionResult =
   | {
       readonly ok: true;
-      readonly activation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | null;
+      readonly activation: WalletUnlockEcdsaSessionActivation | null;
       readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1 | null;
       readonly continuity: WalletUnlockEcdsaCustodyContinuityV1 | null;
     }
