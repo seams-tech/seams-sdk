@@ -11,6 +11,7 @@ import {
   handleWalletUnlockChallengeRoute,
   handleWalletUnlockVerifyRoute,
   type WalletUnlockEcdsaCustodySignerV1,
+  type WalletUnlockEcdsaAuthorization,
   type WalletUnlockEcdsaSessionContext,
   type WalletUnlockCapabilityContext,
 } from '../../../domains/walletUnlock/walletUnlockRouteHandlers';
@@ -18,6 +19,7 @@ import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../../../do
 import { handleStrictEcdsaSessionActivation } from './thresholdEcdsa';
 import {
   parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
+  parseRouterAbEcdsaCredentialFreeSessionActivationResponseV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -605,6 +607,18 @@ export async function authorWalletUnlockEcdsaRequest(
   };
 }
 
+function parseWalletUnlockEcdsaActivationResponse(
+  responseBody: unknown,
+  authorization: WalletUnlockEcdsaAuthorization,
+) {
+  switch (authorization.kind) {
+    case 'verified_wallet_unlock':
+      return parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(responseBody);
+    case 'wallet_session_operation_credential_v1':
+      return parseRouterAbEcdsaCredentialFreeSessionActivationResponseV1(responseBody);
+  }
+}
+
 function walletUnlockEcdsaSessionContext(
   ctx: FetchRouterApiContext,
   body: unknown,
@@ -657,7 +671,7 @@ function walletUnlockEcdsaSessionContext(
       }
       return {
         ok: true,
-        activation: parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(responseBody),
+        activation: parseWalletUnlockEcdsaActivationResponse(responseBody, authorization),
         activationReceipt,
         continuity,
       };

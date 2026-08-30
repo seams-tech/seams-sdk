@@ -113,7 +113,7 @@ test('Email OTP signing-session refresh resolves the selected exact primary cred
     expect(emailOtpEcdsaSigningSessionAuthLane(resolved)).toEqual({
       kind: 'signing_session',
       curve: 'ecdsa',
-      walletSessionToken: authorization.operationCredential.token,
+      operationCredential: authorization.operationCredential,
       thresholdSessionId: runtime.sealedRecord.thresholdSessionId,
       chainTarget: runtime.chainTarget,
     });

@@ -109,6 +109,7 @@ function required<T>(
 
 type HarnessOptions = {
   readonly deviceId?: string;
+  readonly sessionUnavailableAtMs?: number;
   readonly cleanupBatchFailure?: {
     mode: 'before_commit' | 'after_commit' | null;
   };
@@ -129,6 +130,12 @@ class CleanupFailureSessionStore implements LinkedDeviceAuthorityInstallSessionS
     private readonly database: TemporaryD1Database['database'],
     private readonly failure: NonNullable<HarnessOptions['cleanupBatchFailure']>,
   ) {}
+
+  getSessionV1(
+    ...args: Parameters<D1LinkedDeviceSessionStoreV1['getSessionV1']>
+  ): ReturnType<D1LinkedDeviceSessionStoreV1['getSessionV1']> {
+    return this.delegate.getSessionV1(...args);
+  }
 
   buildAuthorityPendingLocalInstallCasStatementsV1(
     ...args: Parameters<
@@ -282,6 +289,7 @@ test('rolls back activation and acknowledgement cleanup, converges on retry, and
     const cleanupBatchFailure: NonNullable<HarnessOptions['cleanupBatchFailure']> = {
       mode: 'before_commit',
     };
+    const sessionUnavailableAtMs = 10_001;
     const harness = await buildHarness(temporary, source, 'r103-atomic-activation', {
       authorizationService,
       authorizationStore: {
@@ -322,6 +330,7 @@ test('rolls back activation and acknowledgement cleanup, converges on retry, and
         activateOrdinaryInactiveSignerMaterialV1: async () => undefined,
       },
       cleanupBatchFailure,
+      sessionUnavailableAtMs,
     });
 
     const committed = await harness.install.commitPendingAuthorityV1(harness.input);
@@ -576,12 +585,28 @@ test('rolls back activation and acknowledgement cleanup, converges on retry, and
       harness.install.acknowledgeLocalAuthorityActivationV1({
         acknowledgement,
         authentication: exactAuthentication,
-        requestedAtMs: installedAtMs,
+        requestedAtMs: sessionUnavailableAtMs,
       }),
     ).resolves.toBeUndefined();
     await expect(
       harness.sessionStore.getSessionV1(harness.input.linkSessionId),
     ).resolves.toBeNull();
+    const linkSessionAfterCleanup = await temporary.database
+      .prepare(
+        `SELECT link_session_id
+           FROM linked_device_sessions
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ?`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        String(harness.input.linkSessionId),
+      )
+      .first();
+    expect(linkSessionAfterCleanup).toBeNull();
     const allocation = await temporary.database
       .prepare(
         `SELECT authority_id
@@ -605,7 +630,8 @@ test('rolls back activation and acknowledgement cleanup, converges on retry, and
     });
     expect(cleanupReceipt).not.toBeNull();
     if (!cleanupReceipt) throw new Error('expected durable activation cleanup receipt');
-    expect(cleanupReceipt.expiresAtMs).toBe(replay.session.qrPayload.expiresAtMs);
+    expect(cleanupReceipt.expiresAtMs).toBe(sessionUnavailableAtMs + 5 * 60 * 1000);
+    expect(cleanupReceipt.expiresAtMs).toBeGreaterThan(replay.session.qrPayload.expiresAtMs);
     expect(cleanupReceipt.expiresAtMs).toBeLessThan(exactAuthentication.expiresAtMs);
     await harness.install.acknowledgeLocalAuthorityActivationV1({
       acknowledgement,
@@ -982,7 +1008,10 @@ async function buildHarness(
     sessionStore: serviceSessionStore,
     sessionService: {
       getSessionV1: async ({ linkSessionId, nowMs: requestedAtMs }) =>
-        await sessionService.getSessionV1({ linkSessionId, nowMs: requestedAtMs }),
+        options.sessionUnavailableAtMs !== undefined &&
+        requestedAtMs >= options.sessionUnavailableAtMs
+          ? null
+          : await sessionService.getSessionV1({ linkSessionId, nowMs: requestedAtMs }),
       deleteActiveSessionV1: sessionService.deleteActiveSessionV1.bind(sessionService),
     },
     reservationService,
