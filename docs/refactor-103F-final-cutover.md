@@ -1406,8 +1406,10 @@ remaining consumers are converted.
       typed lifecycle handling. Closure searches find no V1/opaque runtime
       consumer in these five families, and the focused exact status, quota,
       source, replay, lifecycle, and admission selection passes 50/50.
-- [ ] Convert method and authority revocation plus same-method replacement to
-      atomic exact retirement.
+- [x] Convert method and authority revocation plus same-method replacement to
+      atomic exact retirement. The D1 CAS tests prove exact sibling isolation,
+      quota closure, hosted-child cleanup, and stable replay for all three
+      owning transitions.
 - [ ] Convert every route in the route policy matrix.
 - [x] Implement hosted child credentials and exact parent lifecycle handling.
 - [x] Update material promotion and exact status readback.
