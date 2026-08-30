@@ -4,6 +4,7 @@ import {
   readBrowserExactNearEd25519WalletSessionAuthorization,
   resolveBrowserActiveEcdsaWalletSessionAuthorization,
 } from '@/SeamsWeb/assembly/browserSigningSurfaceAssembly';
+import { persistExactWalletSessionAuthorizationFromEcdsaBootstrap } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import { createBrowserSigningStores } from '@/SeamsWeb/assembly/createBrowserSigningStores';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import { IndexedDBManager } from '@/core/indexedDB';
@@ -35,6 +36,7 @@ import {
   fullOwnerPermissionsForManagementFixture,
 } from './helpers/linkedDeviceManagement.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 function required<T>(
   result:
@@ -222,6 +224,73 @@ test('accepts the authenticated promoted server projection for the exact ECDSA r
     );
     expect(result.authorization.session).toEqual(harness.serverAuthorization);
     expect(result.authorization.selectedAuthority).toEqual(harness.promotedAuthority);
+  } finally {
+    harness.restore();
+  }
+});
+
+test('persists an ECDSA bootstrap session with a promoted full authority', async () => {
+  const harness = await createResolverHarness();
+  const bootstrap = createThresholdEcdsaBootstrapFixture({
+    nearAccountId: String(harness.walletId),
+    chain: 'evm',
+    sessionId: 'browser-ecdsa-promotion-bootstrap',
+    expiresAtMs: harness.serverAuthorization.expiresAtMs,
+  });
+  const promotedBootstrap = {
+    ...bootstrap,
+    session: {
+      ...bootstrap.session,
+      authorizationId: harness.serverAuthorization.authorizationId,
+      walletSessionId: harness.fixture.operationCredential.walletSessionId,
+      quotaId: harness.serverAuthorization.quotaId,
+      expiresAtMs: harness.serverAuthorization.expiresAtMs,
+      walletSession: harness.serverAuthorization,
+      operationCredential: harness.fixture.operationCredential,
+    },
+  };
+  let writes = 0;
+  const writer = {
+    writeExactWithOperationCredential: async (
+      input: Parameters<typeof walletSessionAuthorizations.writeExactWithOperationCredential>[0],
+    ) => {
+      writes += 1;
+      return input.record;
+    },
+  };
+
+  try {
+    expect(harness.serverAuthorization.authorityDigestB64u).not.toBe(
+      harness.manifest.signer.authority.authorityDigest,
+    );
+    await expect(
+      persistExactWalletSessionAuthorizationFromEcdsaBootstrap(writer, {
+        walletId: harness.walletId,
+        authority: harness.manifest.signer.authority,
+        bootstrap: {
+          ...promotedBootstrap,
+          session: {
+            ...promotedBootstrap.session,
+            operationCredential: {
+              ...promotedBootstrap.session.operationCredential,
+              walletSessionId: bootstrap.session.walletSessionId,
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow('ECDSA bootstrap exact Wallet Session authority does not match its request');
+    expect(writes).toBe(0);
+    await expect(
+      persistExactWalletSessionAuthorizationFromEcdsaBootstrap(writer, {
+        walletId: harness.walletId,
+        authority: harness.manifest.signer.authority,
+        bootstrap: promotedBootstrap,
+      }),
+    ).resolves.toEqual({
+      record: harness.serverAuthorization,
+      operationCredential: harness.fixture.operationCredential,
+    });
+    expect(writes).toBe(1);
   } finally {
     harness.restore();
   }
