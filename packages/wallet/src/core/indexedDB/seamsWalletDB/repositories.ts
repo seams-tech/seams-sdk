@@ -547,6 +547,7 @@ export type PublishPendingWalletRegistrationCommitInputV1 = {
   readonly foundingAuthority: PersistFoundingWalletAuthorityInputV1;
   readonly request: WalletRegistrationCommitPublicationRequestV1;
   readonly registration: StoreWalletRegistrationPublicationInputV1;
+  readonly ecdsaContinuity: readonly PreparedImportedWalletCustodyEcdsaContinuity[];
   readonly walletSessionPublication: WalletRegistrationSessionPublicationV1;
 };
 
@@ -880,6 +881,10 @@ const WALLET_REGISTRATION_PUBLICATION_STORES = [
   SEAMS_WALLET_STORES.signerOpsOutbox,
   SEAMS_WALLET_STORES.keyMaterial,
   SEAMS_WALLET_STORES.walletSessionAuthorizations,
+  SEAMS_WALLET_STORES.ecdsaCapabilityManifests,
+  SEAMS_WALLET_STORES.ecdsaCurrentCapabilityManifests,
+  SEAMS_WALLET_STORES.ecdsaRoleLocalMaterial,
+  SEAMS_WALLET_STORES.ecdsaMaterialSealingKeys,
 ] as const;
 const WALLET_RECOVERY_PUBLICATION_STORES = [
   SEAMS_WALLET_STORES.appState,
@@ -6085,6 +6090,7 @@ export class SeamsWalletRepositories {
         authority,
         foundingAuthority,
         registration: input.registration,
+        ecdsaContinuity: input.ecdsaContinuity,
         walletSessionPublication: input.walletSessionPublication,
       }),
     );
@@ -6136,6 +6142,7 @@ export class SeamsWalletRepositories {
       readonly authority: WalletAuthAuthority;
       readonly foundingAuthority: ValidatedFoundingWalletAuthorityInputV1;
       readonly registration: StoreWalletRegistrationPublicationInputV1;
+      readonly ecdsaContinuity: readonly PreparedImportedWalletCustodyEcdsaContinuity[];
       readonly walletSessionPublication: WalletRegistrationSessionPublicationV1;
     },
     ctx: SeamsWalletTransactionContext,
@@ -6198,6 +6205,9 @@ export class SeamsWalletRepositories {
       ctx,
     );
     await this.persistFoundingWalletAuthorityInTransaction(input.foundingAuthority, ctx);
+    for (const continuity of input.ecdsaContinuity) {
+      await persistPreparedImportedWalletCustodyEcdsaContinuityInTransaction(ctx, continuity);
+    }
     const shouldDeletePending =
       input.walletSessionPublication.kind === 'issued'
         ? shouldDeletePublishedPendingWalletRegistrationCommit(input.pending)

@@ -30,6 +30,7 @@ import {
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import {
   buildWalletAuthMethodRecordV2,
+  walletIdFromString,
   type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
 import {
@@ -48,6 +49,10 @@ import type {
 import type { KeyMaterialRecord } from '@/core/indexedDB/keyMaterial.types';
 import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerLifecycle';
 import {
+  prepareImportedWalletCustodyEcdsaContinuity,
+  type PreparedImportedWalletCustodyEcdsaContinuity,
+} from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import {
   prepareWalletEd25519RegistrationProjectionPublication,
   prepareWalletEmailOtpEd25519RegistrationPublication,
 } from '@/core/signingEngine/flows/registration/accountLifecycle';
@@ -62,7 +67,11 @@ import type {
   StoreWalletRegistrationPublicationInputV1,
 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import { buildWalletCustodyCommitPayloadFixture } from './passkeyCustodyEnvelope.fixtures';
-import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
+import {
+  buildMpcMaterialActivationRefFixture,
+  buildWalletAuthAuthorityRefForAuthorityFixture,
+} from './ecdsaMaterialRef.fixtures';
+import { ecdsaCapabilityActivationFixture } from './ecdsaCapabilityManifest.fixtures';
 import { buildExactWalletSessionAuthorizationFixture } from './exactWalletSessionAuthorization.fixtures';
 import { projectActiveWalletSession } from '../../../packages/wallet-server/src/authorization/domain';
 import { fixtureRouterAbEcdsaActivationFacts } from '../../helpers/routerAbSigningRuntimeTestUtils';
@@ -153,6 +162,21 @@ function buildSignerActivationSet(walletId: WalletId): WalletSignerActivationSet
     },
   });
   return activationSet;
+}
+
+async function buildEcdsaContinuityFixture(args: {
+  readonly walletId: WalletId;
+  readonly authority: WalletAuthAuthority;
+}): Promise<PreparedImportedWalletCustodyEcdsaContinuity> {
+  const fixture = ecdsaCapabilityActivationFixture({
+    walletId: walletIdFromString(String(args.walletId)),
+    authority: buildWalletAuthAuthorityRefForAuthorityFixture(args.authority),
+  });
+  return await prepareImportedWalletCustodyEcdsaContinuity({
+    activationBinding: fixture.prepareInput.activationBinding,
+    serverCommit: fixture.serverCommit,
+    ...fixture.sealInput,
+  });
 }
 
 type PublicationFixtureVariant =
@@ -468,6 +492,15 @@ export async function buildPendingWalletRegistrationPublicationFixture(
     token: `wst_${base64UrlEncode(new Uint8Array(32).fill(authKind === 'passkey' ? 29 : 30))}`,
     walletSessionId: issuedSession.session.walletSessionId,
   });
+  const ecdsaContinuity =
+    keyFamilies === 'ecdsa_secp256k1'
+      ? [
+          await buildEcdsaContinuityFixture({
+            walletId,
+            authority,
+          }),
+        ]
+      : [];
   return {
     walletId: String(walletId),
     authorityId: String(authorityId),
@@ -489,6 +522,7 @@ export async function buildPendingWalletRegistrationPublicationFixture(
         walletSession: projectActiveWalletSession(issuedSession),
         operationCredential,
       },
+      ecdsaContinuity,
       registration,
     },
   };
@@ -580,6 +614,7 @@ export async function buildPasskeyNearProvisioningProductionPublicationFixture()
       foundingAuthority: fixture.input.foundingAuthority,
       request: fixture.input.request,
       walletSessionPublication: fixture.input.walletSessionPublication,
+      ecdsaContinuity: fixture.input.ecdsaContinuity,
       registration,
     },
   };
@@ -635,6 +670,7 @@ export async function buildEmailOtpNearProvisioningProductionPublicationFixture(
       foundingAuthority: fixture.input.foundingAuthority,
       request: fixture.input.request,
       walletSessionPublication: fixture.input.walletSessionPublication,
+      ecdsaContinuity: fixture.input.ecdsaContinuity,
       registration,
     },
   };
