@@ -1271,14 +1271,18 @@ Primary files:
 - [x] Update `tests/scripts/check-wallet-session-vocabulary-boundaries.mjs` to
       forbid V1 tables, `not_v2`, V3 client records, and opaque fallback while
       allowing frozen reusable-operation discriminators.
-- [ ] Prefer the type fixtures, behavior tests, and closure searches in this
-      plan over new source-text guards.
+- [x] Prefer the type fixtures, behavior tests, and closure searches in this
+      plan over new source-text guards. R103F extended the existing focused
+      suites and retired or narrowed the two pre-existing guards; it introduced
+      no new source-text guard.
 - [x] Update `docs/threshold-ecdsa/ecdsa-threshold-signing.md`.
 - [x] Update `docs/auth-gating-routes.md`.
 - [x] Update `docs/intended-behaviours.md` and registration contracts for
       credential-free lost-response replay.
-- [ ] Update R115 recovery contracts only where R103F changes Wallet Session
-      representation.
+- [x] Update R115 recovery contracts only where R103F changes Wallet Session
+      representation. The R115 contract already states that finalization is
+      credential-free and normal exact-method unlock issues the next Wallet
+      Session, so no compatibility wording or representation change was needed.
 - [x] Update `packages/wallet/README.md`.
 - [x] Correct R103E, R107, and R109D completion records that imply the final
       cutover already landed.
@@ -1473,7 +1477,10 @@ resume without creating a second authority or ceremony.
 ### Phase 4 — Delete V1 and verify the cutover
 
 - [x] Delete the registration adapter and temporary client capability.
-- [ ] Delete every V1 request and persistence resolver.
+- [x] Delete every V1 request and persistence resolver. The closure-ledger
+      searches for reusable issuers/status readers, opaque-token resolvers,
+      bridge issuers, legacy mint helpers, and registration token projections
+      return no production matches; only immutable migration history remains.
 - [x] Apply the enforcement/deletion migration and update table manifests.
 - [ ] Delete remaining V1 stores, ports, services, parsers, types, browser
       records, fixtures, guards, and obsolete documentation.
@@ -1778,8 +1785,11 @@ Remaining causal baseline work:
       usable duplicates, deterministic retirement of unusable/expired rows, and
       zero foreign-key-check results.
 - [x] Update Router A/B Wallet Session claim fixture helpers.
-- [ ] Delete stale inline JWT-shaped Wallet Session fixtures found by closure
-      searches.
+- [x] Delete stale inline JWT-shaped Wallet Session fixtures found by closure
+      searches. The remaining signing, funding, export, and presignature tests use
+      the final opaque operation-credential bearer shape; the obsolete mock
+      `mintWalletSession` producer was deleted. Negative persistence fixtures that
+      deliberately prove `walletSessionJwt` rejection remain as hostile inputs.
 
 ### Acceptance matrix
 

@@ -16,10 +16,7 @@ import {
   parseWalletEd25519SignerRecord,
 } from '../../packages/wallet-server/src/core/d1WalletStore';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import type {
-  RouterAbEd25519YaoProductRegistrationRuntimeV1,
-  RouterAbEd25519YaoWalletSessionMintInputV1,
-} from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import { normalizeRuntimePolicyScope } from '../../packages/shared-ts/src/threshold/signingRootScope';
 import {
   registrationNearEd25519BranchKey,
@@ -348,36 +345,6 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
     return { ok: false, code: 'unknown_capability', message: 'not used by add-signer test' };
   }
 
-  async mintWalletSession(
-    input: RouterAbEd25519YaoWalletSessionMintInputV1,
-  ): ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['mintWalletSession']> {
-    const expiresAtMs =
-      input.kind === 'verified_wallet_unlock_v1' ? input.expiresAtMs : Date.now() + 60_000;
-    return {
-      ok: true,
-      session: {
-        sessionKind: 'jwt',
-        walletSessionJwt: 'test.ed25519.yao.wallet.session',
-        walletId: input.walletId,
-        nearAccountId: input.nearAccountId,
-        nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
-        authorityScope: { kind: 'passkey_rp', rpId: 'example.com' },
-        thresholdSessionId: input.thresholdSessionId,
-        walletSessionId: input.walletSessionId,
-        quotaId: input.quotaId,
-        expiresAtMs,
-        participantIds: [input.participantIds[0], input.participantIds[1]],
-        remainingUses: input.remainingUses,
-        signingRootId: `${input.runtimePolicyScope.projectId}:${input.runtimePolicyScope.envId}`,
-        signingRootVersion: input.runtimePolicyScope.signingRootVersion,
-        runtimePolicyScope: input.runtimePolicyScope,
-        routerAbNormalSigning: {
-          kind: 'router_ab_ed25519_normal_signing_v1',
-          signingWorkerId: TEST_YAO_SIGNING_WORKER_ID,
-        },
-      },
-    };
-  }
 }
 
 test('passkey Ed25519 budget refresh accepts current session identity independently of registration provenance', async () => {

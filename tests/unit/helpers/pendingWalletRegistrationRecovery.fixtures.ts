@@ -14,9 +14,13 @@ import {
   type WalletRegistrationNearProvisioningResponseV2,
 } from '@/core/rpcClients/relayer/walletRegistration';
 import type { PendingWalletRegistrationLocalMaterialV1 } from '@/core/indexedDB/pendingWalletRegistrationCommit';
+import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { buildExactWalletSessionAuthorizationFixture } from './exactWalletSessionAuthorization.fixtures';
-import { buildPasskeyNearProvisioningPublicationFixture } from './pendingWalletRegistrationPublication.fixtures';
-import type { PendingPasskeyNearProvisioningCommit } from '../../../packages/wallet/src/SeamsWeb/operations/registration/pendingRegistrationRecovery';
+import {
+  buildEmailNearProvisioningPublicationFixture,
+  buildPasskeyNearProvisioningPublicationFixture,
+} from './pendingWalletRegistrationPublication.fixtures';
+import type { PendingNearProvisioningCommit } from '../../../packages/wallet/src/SeamsWeb/operations/registration/pendingRegistrationRecovery';
 
 function required<T>(
   result:
@@ -36,21 +40,16 @@ function isEd25519LocalMaterial(
   return value.keyFamilies.length === 1 && value.keyFamilies[0] === 'ed25519';
 }
 
-function pendingPasskeyCommit(
+function pendingNearProvisioningCommit(
   value: Awaited<
     ReturnType<typeof buildPasskeyNearProvisioningPublicationFixture>
   >['input']['pending'],
-): PendingPasskeyNearProvisioningCommit {
-  const auth = value.auth;
+): PendingNearProvisioningCommit {
   const localMaterial = value.localMaterial;
-  if (
-    value.operation !== 'near_provisioning' ||
-    auth.kind !== 'passkey' ||
-    !isEd25519LocalMaterial(localMaterial)
-  ) {
-    throw new Error('pending recovery fixture is not a Passkey NEAR provisioning commit');
+  if (value.operation !== 'near_provisioning' || !isEd25519LocalMaterial(localMaterial)) {
+    throw new Error('pending recovery fixture is not an Ed25519 NEAR provisioning commit');
   }
-  return { ...value, auth, localMaterial };
+  return { ...value, localMaterial };
 }
 
 function normalSigningState(signingWorkerId: string) {
@@ -63,7 +62,7 @@ function normalSigningState(signingWorkerId: string) {
 }
 
 function sessionTokens(args: {
-  readonly pending: PendingPasskeyNearProvisioningCommit;
+  readonly pending: PendingNearProvisioningCommit;
   readonly nearAccountId: string;
   readonly thresholdSessionId: string;
 }) {
@@ -87,14 +86,21 @@ function sessionTokens(args: {
   };
 }
 
-export async function buildPendingWalletRegistrationRecoveryFixture(): Promise<{
-  readonly pending: PendingPasskeyNearProvisioningCommit;
+type PendingWalletRegistrationRecoveryFixture = {
+  readonly pending: PendingNearProvisioningCommit;
   readonly firstResponse: WalletRegistrationNearProvisioningResponseV2;
   readonly replayResponse: WalletRegistrationNearProvisioningResponseV2;
-}> {
-  const publication = await buildPasskeyNearProvisioningPublicationFixture();
-  const pendingBase = pendingPasskeyCommit(publication.input.pending);
-  const pending: PendingPasskeyNearProvisioningCommit = {
+};
+
+async function buildRecoveryFixture(
+  authKind: 'passkey' | 'email_otp',
+): Promise<PendingWalletRegistrationRecoveryFixture> {
+  const publication =
+    authKind === 'passkey'
+      ? await buildPasskeyNearProvisioningPublicationFixture()
+      : await buildEmailNearProvisioningPublicationFixture();
+  const pendingBase = pendingNearProvisioningCommit(publication.input.pending);
+  const pending: PendingNearProvisioningCommit = {
     ...pendingBase,
     localMaterial: {
       ...pendingBase.localMaterial,
@@ -160,44 +166,71 @@ export async function buildPendingWalletRegistrationRecoveryFixture(): Promise<{
   if (!replayResult || replayResult.kind !== 'already_committed') {
     throw new Error('pending recovery fixture projection is invalid');
   }
-  const parsedFinalized = parseWalletRegistrationFinalizeResponse({
-    expectedKind: 'near_ed25519',
-    value: {
-      ok: true,
-      walletId: publication.input.request.walletId,
-      authority: publication.input.authority,
-      foundingAuthority: publication.input.foundingAuthority.authority,
-      foundingAuthMethod: publication.input.foundingAuthority.authMethod,
+  const authority = publication.input.authority;
+  const finalizedBase = {
+    ok: true as const,
+    walletId: publication.input.request.walletId,
+    authority,
+    foundingAuthority: publication.input.foundingAuthority.authority,
+    foundingAuthMethod: publication.input.foundingAuthority.authMethod,
+    walletCustody: { status: 'committed' as const },
+    custodyKeyManifestDigestB64u: pending.localMaterial.custodyCommit.keyManifestDigestB64u,
+    kind: 'near_ed25519' as const,
+    accountProvisioning: {
+      kind: 'implicit_account' as const,
+      accountIdSource: 'ed25519_public_key' as const,
+    },
+    resolvedAccount: {
+      kind: 'implicit_account' as const,
+      nearAccountId,
+      nearEd25519SigningKeyId: metadata.nearEd25519SigningKeyId,
+    },
+    ed25519: {
+      signerSlot: metadata.signerSlot,
+      nearAccountId,
+      nearEd25519SigningKeyId: metadata.nearEd25519SigningKeyId,
+      publicKey: registeredPublicKey,
+      relayerKeyId: metadata.signingWorkerId,
+      keyVersion: 'r103f-recovery-v1',
+      recoveryExportCapable: true as const,
+      participantIds: metadata.participantIds,
+      thresholdSessionId,
+      runtimePolicyScope: tokens.ed25519.runtimePolicyScope,
+      routerAbNormalSigning: tokens.ed25519.routerAbNormalSigning,
+    },
+  };
+  let finalizedInput: Record<string, unknown>;
+  if (pending.auth.kind === 'passkey') {
+    finalizedInput = {
+      ...finalizedBase,
       rpId: pending.auth.rpId,
       authMethod: {
-        kind: 'passkey',
+        kind: 'passkey' as const,
         credentialIdB64u: pending.auth.credentialIdB64u,
         credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(23)),
       },
-      walletCustody: { status: 'committed' },
-      custodyKeyManifestDigestB64u: pending.localMaterial.custodyCommit.keyManifestDigestB64u,
-      kind: 'near_ed25519',
-      authorityScope: { kind: 'passkey_rp', rpId: pending.auth.rpId },
-      accountProvisioning: { kind: 'implicit_account', accountIdSource: 'ed25519_public_key' },
-      resolvedAccount: {
-        kind: 'implicit_account',
-        nearAccountId,
-        nearEd25519SigningKeyId: metadata.nearEd25519SigningKeyId,
+      authorityScope: { kind: 'passkey_rp' as const, rpId: pending.auth.rpId },
+    };
+  } else {
+    if (!isEmailOtpWalletAuthAuthority(authority)) {
+      throw new Error('Email OTP recovery fixture has a non-Email OTP authority');
+    }
+    finalizedInput = {
+      ...finalizedBase,
+      authMethod: {
+        kind: 'email_otp' as const,
+        registrationAuthorityId: pending.auth.registrationAuthorityId,
       },
-      ed25519: {
-        signerSlot: metadata.signerSlot,
-        nearAccountId,
-        nearEd25519SigningKeyId: metadata.nearEd25519SigningKeyId,
-        publicKey: registeredPublicKey,
-        relayerKeyId: metadata.signingWorkerId,
-        keyVersion: 'r103f-recovery-v1',
-        recoveryExportCapable: true,
-        participantIds: metadata.participantIds,
-        thresholdSessionId,
-        runtimePolicyScope: tokens.ed25519.runtimePolicyScope,
-        routerAbNormalSigning: tokens.ed25519.routerAbNormalSigning,
+      authorityScope: {
+        kind: 'email_otp' as const,
+        provider: authority.factor.provider,
+        providerUserId: authority.factor.providerUserId,
       },
-    },
+    };
+  }
+  const parsedFinalized = parseWalletRegistrationFinalizeResponse({
+    expectedKind: 'near_ed25519',
+    value: finalizedInput,
   });
   if (parsedFinalized.kind !== 'near_ed25519') {
     throw new Error('pending recovery fixture final response is not a NEAR response');
@@ -216,4 +249,12 @@ export async function buildPendingWalletRegistrationRecoveryFixture(): Promise<{
       registrationEstablishedSession: replayResult,
     },
   };
+}
+
+export function buildPendingWalletRegistrationRecoveryFixture(): Promise<PendingWalletRegistrationRecoveryFixture> {
+  return buildRecoveryFixture('passkey');
+}
+
+export function buildEmailOtpWalletRegistrationRecoveryFixture(): Promise<PendingWalletRegistrationRecoveryFixture> {
+  return buildRecoveryFixture('email_otp');
 }

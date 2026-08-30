@@ -5,11 +5,12 @@ import type {
 } from '@/core/indexedDB';
 import type {
   PublishPendingWalletRegistrationCommitInputV1,
+  StoreWalletRegistrationPublicationInputV1,
   StoreWalletRegistrationFinalizeBatchResult,
 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import {
+  prepareWalletEmailOtpEd25519RegistrationPublication,
   prepareWalletEd25519RegistrationProjectionPublication,
-  type PrepareWalletEd25519RegistrationProjectionPublicationInput,
 } from '@/core/signingEngine/flows/registration/accountLifecycle';
 import {
   WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
@@ -19,18 +20,21 @@ import {
   completeWalletRegistrationNearProvisioning,
   type WalletRegistrationNearProvisioningResponseV2,
 } from '@/core/rpcClients/relayer/walletRegistration';
-import { requireEd25519YaoRegistrationPublicResultMatches } from './registrationEd25519Yao';
+import {
+  requireEd25519YaoRegistrationPublicResultMatches,
+  requireEmailOtpEd25519YaoRegistrationPublicResultMatches,
+} from './registrationEd25519Yao';
 import { base58Encode } from '@shared/utils/base58';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { mpcMaterialActivationRefsEqual, type WalletId } from '@shared/utils/domainIds';
 import { toAccountId } from '@/core/types/accountIds';
 import type { RegistrationEstablishedSessionResultV2 } from '@shared/utils/registrationEstablishedSession';
+import { parseEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
-export type PendingPasskeyNearProvisioningCommit = Extract<
+export type PendingNearProvisioningCommit = Extract<
   PendingWalletRegistrationCommitV1,
   { readonly operation: 'near_provisioning' }
 > & {
-  readonly auth: Extract<PendingWalletRegistrationCommitV1['auth'], { readonly kind: 'passkey' }>;
   readonly localMaterial: Extract<
     PendingWalletRegistrationLocalMaterialV1,
     { readonly keyFamilies: readonly ['ed25519'] }
@@ -96,19 +100,18 @@ function asError(error: unknown): Error {
     : new Error(String(error || 'pending registration replay failed'));
 }
 
-function isPasskeyNearProvisioningCommit(
+function isNearProvisioningEd25519Commit(
   pending: PendingWalletRegistrationCommitV1,
-): pending is PendingPasskeyNearProvisioningCommit {
+): pending is PendingNearProvisioningCommit {
   return (
     pending.operation === 'near_provisioning' &&
-    pending.auth.kind === 'passkey' &&
     pending.localMaterial.keyFamilies.length === 1 &&
     pending.localMaterial.keyFamilies[0] === 'ed25519'
   );
 }
 
 function pendingCustodyMaterial(
-  pending: PendingPasskeyNearProvisioningCommit,
+  pending: PendingNearProvisioningCommit,
   finalized: FinalizedNearProvisioningResponse,
 ): LoadedWalletCustodyEd25519MaterialV1 {
   const metadata = pending.localMaterial.ed25519.metadata;
@@ -134,7 +137,7 @@ function pendingCustodyMaterial(
   };
 }
 
-function registeredPublicKeyFromPending(pending: PendingPasskeyNearProvisioningCommit): string {
+function registeredPublicKeyFromPending(pending: PendingNearProvisioningCommit): string {
   const publicKey = base64UrlDecode(pending.localMaterial.ed25519.metadata.registeredPublicKeyB64u);
   if (publicKey.length !== 32) {
     throw new Error('pending registration has an invalid Ed25519 registered public key');
@@ -143,20 +146,31 @@ function registeredPublicKeyFromPending(pending: PendingPasskeyNearProvisioningC
 }
 
 function assertFinalizedSignerMatchesPending(
-  pending: PendingPasskeyNearProvisioningCommit,
+  pending: PendingNearProvisioningCommit,
   finalized: FinalizedNearProvisioningResponse,
   clientPublicKey: string,
 ): void {
   const metadata = pending.localMaterial.ed25519.metadata;
   const commit = pending.localMaterial.custodyCommit;
-  const passkey = requireEd25519YaoRegistrationPublicResultMatches({
-    clientPublicKey,
-    finalized,
-    expectedRpId: pending.auth.rpId,
-    expectedWalletId: pending.walletId,
-  });
+  if (pending.auth.kind === 'passkey') {
+    const passkey = requireEd25519YaoRegistrationPublicResultMatches({
+      clientPublicKey,
+      finalized,
+      expectedRpId: pending.auth.rpId,
+      expectedWalletId: pending.walletId,
+    });
+    if (passkey.credentialIdB64u !== pending.auth.credentialIdB64u) {
+      throw new Error('pending registration returned a different Passkey credential');
+    }
+  } else {
+    requireEmailOtpEd25519YaoRegistrationPublicResultMatches({
+      clientPublicKey,
+      finalized,
+      expectedRegistrationAuthorityId: pending.auth.registrationAuthorityId,
+      expectedWalletId: pending.walletId,
+    });
+  }
   if (
-    passkey.credentialIdB64u !== pending.auth.credentialIdB64u ||
     finalized.foundingAuthMethod.walletAuthMethodId !== pending.walletAuthMethodId ||
     finalized.foundingAuthMethod.walletId !== pending.walletId ||
     finalized.foundingAuthority.walletId !== pending.walletId ||
@@ -170,7 +184,7 @@ function assertFinalizedSignerMatchesPending(
     (commit.registeredPublicKeyB64u !== undefined &&
       commit.registeredPublicKeyB64u !== metadata.registeredPublicKeyB64u)
   ) {
-    throw new Error('pending registration does not match the committed Passkey/NEAR projection');
+    throw new Error('pending registration does not match the committed NEAR projection');
   }
   assertPendingWalletRegistrationIdentity(pending, {
     operation: pending.operation,
@@ -181,7 +195,7 @@ function assertFinalizedSignerMatchesPending(
 }
 
 function assertRegistrationSessionMatchesPending(
-  pending: PendingPasskeyNearProvisioningCommit,
+  pending: PendingNearProvisioningCommit,
   finalized: FinalizedNearProvisioningResponse,
 ): void {
   const sessionResult = finalized.registrationEstablishedSession;
@@ -213,18 +227,18 @@ function assertRegistrationSessionMatchesPending(
 }
 
 function requireFinalizedNearProvisioningResponse(
-  pending: PendingPasskeyNearProvisioningCommit,
+  pending: PendingNearProvisioningCommit,
   response: WalletRegistrationNearProvisioningResponseV2,
 ): FinalizedNearProvisioningResponse {
   if (!response.ok || response.kind !== 'near_ed25519') {
     throw new Error(
       response.ok
-        ? 'pending Passkey registration replay returned a different signer branch'
-        : `pending Passkey registration replay failed: ${response.code}`,
+        ? 'pending registration replay returned a different signer branch'
+        : `pending registration replay failed: ${response.code}`,
     );
   }
   if (response.walletCustody?.status !== 'committed') {
-    throw new Error('pending Passkey registration replay did not commit wallet custody');
+    throw new Error('pending registration replay did not commit wallet custody');
   }
   const clientPublicKey = registeredPublicKeyFromPending(pending);
   assertFinalizedSignerMatchesPending(pending, response, clientPublicKey);
@@ -232,34 +246,53 @@ function requireFinalizedNearProvisioningResponse(
   return response;
 }
 
-function registrationProjectionFromPending(
-  pending: PendingPasskeyNearProvisioningCommit,
+async function registrationProjectionFromPending(
+  pending: PendingNearProvisioningCommit,
   finalized: FinalizedNearProvisioningResponse,
-): PrepareWalletEd25519RegistrationProjectionPublicationInput {
+): Promise<StoreWalletRegistrationPublicationInputV1> {
   const clientPublicKey = registeredPublicKeyFromPending(pending);
-  if (finalized.authMethod.kind !== 'passkey') {
-    throw new Error('pending Passkey registration replay returned a non-Passkey auth method');
-  }
-  return {
+  const common = {
     walletId: pending.walletId,
     nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
     nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
-    rpId: pending.auth.rpId,
-    credentialIdB64u: pending.auth.credentialIdB64u,
-    credentialPublicKeyB64u: finalized.authMethod.credentialPublicKeyB64u,
     signerSlot: finalized.ed25519.signerSlot,
     operationalPublicKey: clientPublicKey,
     relayerKeyId: finalized.ed25519.relayerKeyId,
     keyVersion: finalized.ed25519.keyVersion,
     participantIds: finalized.ed25519.participantIds,
-    transports: pending.auth.transports,
     custodyMaterial: pendingCustodyMaterial(pending, finalized),
-  };
+  } as const;
+  if (pending.auth.kind === 'passkey') {
+    if (finalized.authMethod.kind !== 'passkey') {
+      throw new Error('pending Passkey registration replay returned a non-Passkey auth method');
+    }
+    return prepareWalletEd25519RegistrationProjectionPublication({
+      ...common,
+      rpId: pending.auth.rpId,
+      credentialIdB64u: pending.auth.credentialIdB64u,
+      credentialPublicKeyB64u: finalized.authMethod.credentialPublicKeyB64u,
+      transports: pending.auth.transports,
+    });
+  }
+  if (finalized.authMethod.kind !== 'email_otp') {
+    throw new Error('pending Email OTP registration replay returned a non-Email OTP auth method');
+  }
+  const authority = parseEmailOtpWalletAuthAuthority(finalized.authority);
+  if (!authority) {
+    throw new Error('pending Email OTP registration replay returned an invalid authority');
+  }
+  return await prepareWalletEmailOtpEd25519RegistrationPublication({
+    ...common,
+    email: pending.auth.email,
+    registrationAuthorityId: pending.auth.registrationAuthorityId,
+    authority,
+  });
 }
 
 function publicationInputFromPending(
-  pending: PendingPasskeyNearProvisioningCommit,
+  pending: PendingNearProvisioningCommit,
   finalized: FinalizedNearProvisioningResponse,
+  registration: StoreWalletRegistrationPublicationInputV1,
 ): PublishPendingWalletRegistrationCommitInputV1 {
   return {
     pending,
@@ -284,15 +317,13 @@ function publicationInputFromPending(
               finalized.registrationEstablishedSession.session.operationCredential,
           }
         : { kind: 'credential_free_projection' },
-    registration: prepareWalletEd25519RegistrationProjectionPublication(
-      registrationProjectionFromPending(pending, finalized),
-    ),
+    registration,
   };
 }
 
 function pendingNearProvisioningRequest(
   relayerUrl: string,
-  pending: PendingPasskeyNearProvisioningCommit,
+  pending: PendingNearProvisioningCommit,
 ): Parameters<typeof completeWalletRegistrationNearProvisioning>[0] {
   return {
     relayerUrl,
@@ -300,14 +331,17 @@ function pendingNearProvisioningRequest(
     signedSetup: pending.signedSetup,
     idempotencyKey: pending.idempotencyKey,
     ed25519: { activationReference: pending.localMaterial.ed25519.activationReference },
-    auth: { kind: 'passkey' },
+    auth:
+      pending.auth.kind === 'passkey'
+        ? { kind: 'passkey' }
+        : { kind: 'email_otp', enrollment: pending.auth.enrollment },
     walletCustodyCommit: pending.localMaterial.custodyCommit,
   };
 }
 
 async function completeCredentialFreePendingNearProvisioning(args: {
   readonly relayerUrl: string;
-  readonly pending: PendingPasskeyNearProvisioningCommit;
+  readonly pending: PendingNearProvisioningCommit;
   readonly ports: PendingRegistrationRecoveryPorts;
 }): Promise<FinalizedNearProvisioningResponse> {
   const request = pendingNearProvisioningRequest(args.relayerUrl, args.pending);
@@ -315,14 +349,15 @@ async function completeCredentialFreePendingNearProvisioning(args: {
   return requireFinalizedNearProvisioningResponse(args.pending, response);
 }
 
-export async function replayPendingPasskeyNearProvisioning(args: {
+export async function replayPendingNearProvisioning(args: {
   readonly relayerUrl: string;
-  readonly pending: PendingPasskeyNearProvisioningCommit;
+  readonly pending: PendingNearProvisioningCommit;
   readonly ports: PendingRegistrationRecoveryPorts;
 }): Promise<PendingRegistrationRecoveryResult> {
   const finalized = await completeCredentialFreePendingNearProvisioning(args);
+  const registration = await registrationProjectionFromPending(args.pending, finalized);
   await args.ports.publishPendingWalletRegistrationCommit(
-    publicationInputFromPending(args.pending, finalized),
+    publicationInputFromPending(args.pending, finalized, registration),
   );
   return {
     kind: 'published',
@@ -332,7 +367,7 @@ export async function replayPendingPasskeyNearProvisioning(args: {
   };
 }
 
-export async function resumePendingPasskeyNearRegistrations(args: {
+export async function resumePendingNearRegistrations(args: {
   readonly relayerUrl: string;
   readonly ports?: PendingRegistrationRecoveryPorts;
 }): Promise<PendingRegistrationRecoveryResult[]> {
@@ -340,10 +375,10 @@ export async function resumePendingPasskeyNearRegistrations(args: {
   const pendingRows = await ports.listPendingWalletRegistrationCommits();
   const results: PendingRegistrationRecoveryResult[] = [];
   for (const pending of pendingRows) {
-    if (!isPasskeyNearProvisioningCommit(pending)) continue;
+    if (!isNearProvisioningEd25519Commit(pending)) continue;
     try {
       results.push(
-        await replayPendingPasskeyNearProvisioning({
+        await replayPendingNearProvisioning({
           relayerUrl: args.relayerUrl,
           pending,
           ports,
