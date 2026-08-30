@@ -42,7 +42,6 @@ import { storeEcdsaRoleLocalSigningMaterialWasm } from '../crypto/ecdsaDerivatio
 import {
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
-  type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   type RouterAbEcdsaOperationStepUpPreparationV1Wire,
   type RouterAbEcdsaOperationStepUpUnsealV1Wire,
   parseRouterAbEcdsaOperationStepUpPreparationV1,
@@ -55,6 +54,7 @@ import type {
 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecdsaRoleLocalMaterialResolver';
+import type { EcdsaPreauthorizedSessionActivation } from './postRegistrationSessionActivation';
 
 export type ThresholdEcdsaEvmChainTarget = EvmEip155ChainTarget;
 export type ThresholdEcdsaTempoChainTarget = TempoChainTarget;
@@ -182,7 +182,7 @@ type ActivateEcdsaExistingSessionRequestBase = ActivateEcdsaSessionRequestCommon
 export type ActivateEcdsaExistingSessionRequest = ActivateEcdsaExistingSessionRequestBase &
   ActivateEcdsaSessionAuth & { purpose: 'transaction_signing' } & (
     | {
-        preauthorizedSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        preauthorizedSessionActivation: EcdsaPreauthorizedSessionActivation;
         walletSessionRouteAuth?: never;
       }
     | {

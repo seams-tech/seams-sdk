@@ -43,9 +43,9 @@ import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy'
 import type { ThresholdEcdsaBackendBinding } from '../../interfaces/signing';
 import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
-  RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
+import type { EcdsaPreauthorizedSessionActivation } from '../../threshold/ecdsa/postRegistrationSessionActivation';
 
 export type ProvisionThresholdEcdsaSessionDeps = {
   queueByWallet: Map<string, Promise<void>>;
@@ -141,7 +141,7 @@ export type ThresholdEcdsaEmailOtpActivationRequest = ThresholdEcdsaEmailOtpActi
         preauthorizedSessionActivation?: never;
       }
     | {
-        preauthorizedSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        preauthorizedSessionActivation: EcdsaPreauthorizedSessionActivation;
         walletSessionRouteAuth?: never;
       }
   );
@@ -200,7 +200,7 @@ type BuildEmailOtpPreauthorizedSessionBootstrapEcdsaActivationArgs = Omit<
   BuildEmailOtpSessionBootstrapEcdsaActivationArgs,
   'walletSessionRouteAuth'
 > & {
-  preauthorizedSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+  preauthorizedSessionActivation: EcdsaPreauthorizedSessionActivation;
   walletSessionRouteAuth?: never;
 };
 

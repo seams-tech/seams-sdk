@@ -43,6 +43,7 @@ import type {
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
+import type { EcdsaPreauthorizedSessionActivation } from '../../threshold/ecdsa/postRegistrationSessionActivation';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { persistExactWalletSessionAuthorizationFromEcdsaBootstrap } from '../persistence/walletSessionAuthorizationProjection';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
@@ -180,7 +181,7 @@ export type EmailOtpEcdsaBootstrapRequest = EmailOtpEcdsaBootstrapRequestBase &
         sessionActivation?: never;
       }
     | {
-        sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        sessionActivation: EcdsaPreauthorizedSessionActivation;
         routeAuth?: never;
       }
   );

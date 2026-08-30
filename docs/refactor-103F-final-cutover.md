@@ -467,9 +467,10 @@ digest, authorization, Wallet Session, credential digest, and installation-
 receipt digest. A missing or conflicting receipt fails closed. The completed
 receipt remains until the acknowledgement replay window elapses.
 
-Loss of the recipient handle or delivery expiry resumes the durable local
-authority installation and runs exact-method unlock. It does not reseal the
-committed credential or start a second link.
+Interruption after credential installation resumes the durable local authority
+installation and runs exact-method unlock. Pre-decryption recipient-handle
+loss and sealed-delivery expiry remain open recovery cases; neither path may
+reseal the committed credential or start a second link.
 
 ### Shared IndexedDB and SDK/iframe boundaries
 
@@ -1041,12 +1042,17 @@ Primary files:
       The wallet host reads the exact persisted V6 tuple, retries through the
       Wallet Session bearer-only acknowledgement transport, and leaves the
       durable intent untouched while the exact session is unavailable.
-- [ ] Select and document the product-security policy for acknowledgement
+- [x] Select and document the product-security policy for acknowledgement
       recovery when the exact operation credential is expired, lost, or
-      retired. The choice must define which durable Device 2 proof may
-      authenticate cleanup after live-link deletion, its replay window, and
-      whether exact-method unlock may mint the required recovery authority;
-      implementation and loss-path tests follow that decision.
+      retired. A fresh active exact-method Wallet Session for the same tenant,
+      principal, wallet, authority, and auth method is the successor proof.
+      Cleanup additionally validates the durable installation and delivery
+      facts for the original authorization, Wallet Session, credential digest,
+      installation receipt, and Device 2 binding. The server-owned cleanup
+      receipt expires five minutes after its acknowledgement attempt timestamp
+      and remains independent of the original session expiry; exact-method
+      unlock may mint the successor without fabricating or reusing the retired
+      credential. The route and service loss-path proofs cover this policy.
 - [ ] Recover pre-decryption ECDH recipient-private-handle loss or sealed-
       delivery expiry through durable local install plus exact-method unlock,
       without resealing or relinking. Existing acknowledgement replay covers
@@ -1808,12 +1814,14 @@ change.
       source/target factor combinations, including the remaining immediate
       post-link factor combinations from I6.
 
-Acceptance checkpoint on 2026-08-30: `passkey.unlock`, `email-otp.unlock`, and
-the first `passkey.recovery` case reached the same production regression during
-deferred NEAR readiness: direct-V2 same-mint replay rejected the committed
-session after its authority projection had legitimately gained the Ed25519
-capability. These items remain unchecked until the replay boundary is corrected
-and the isolated cases pass.
+Acceptance checkpoint on 2026-08-30: the direct-V2 same-mint authority-
+promotion regression is fixed. Fresh isolated `passkey.unlock` and
+`email-otp.unlock` runs now stop during the SDK build before browser assertions:
+the combined Ed25519 plus ECDSA unlock returns the intended credential-free
+ECDSA activation and one exact Wallet Session authorization, while
+`ecdsaLogin.ts` still requires the retired credential-bearing activation shape.
+The unlock and recovery items remain unchecked until that consumer boundary is
+converted and every isolated case passes.
 
 #### Required targeted additions and updates
 
@@ -1849,7 +1857,9 @@ and the isolated cases pass.
       finalization, acknowledgement replay, activation rollback/convergence,
       and acknowledged cleanup.
 - [ ] Linked loss tests for pre-decryption recipient-private-handle loss,
-      delivery expiry, and the selected post-live-session recovery proof.
+      delivery expiry, and the selected post-live-session recovery proof. The
+      post-live-session exact-successor case is covered; pre-decryption handle
+      loss and sealed-delivery expiry still lack a recovery path.
 - [x] Linked recipient/AAD binding and cross-session stale acknowledgement
       tests.
 - [x] Crash injection around the single cleanup batch containing the delivery
@@ -1857,7 +1867,7 @@ and the isolated cases pass.
       and cleanup completion. The focused test proves pre-commit rollback and
       post-commit response-loss replay; no intermediate transition is committed
       independently.
-- [ ] After the acknowledgement-recovery product-security policy is selected,
+- [x] After the acknowledgement-recovery product-security policy is selected,
       add the route proof for the chosen durable authentication path after
       live-session deletion and ensure it avoids early `not_found`.
 - [x] Local prerequisite tests covering pending-state invisibility, rollback,

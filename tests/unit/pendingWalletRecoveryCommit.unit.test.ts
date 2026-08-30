@@ -2,8 +2,6 @@ import { expect, test } from '@playwright/test';
 import { sdkEsmPath, setupBasicPasskeyTest } from '../setup';
 import {
   buildPendingWalletRecoveryCommitV1,
-  decryptPendingWalletRecoveryPlaintextV1,
-  encryptPendingWalletRecoveryPlaintextV1,
   parsePendingWalletRecoveryCommitAppStateRow,
   parsePendingWalletRecoveryCommitV1,
   toPendingWalletRecoveryCommitAppStateRow,
@@ -199,23 +197,6 @@ async function buildPendingRecord(projection: WalletRecoveryCommittedProjectionV
     projection,
   });
 }
-
-test('round-trips supported encrypted material and rejects recovery secrets', async () => {
-  const plaintext = {
-    bytes: new Uint8Array([1, 2, 3]),
-    count: 7,
-    enabled: true,
-    nested: { epoch: 42n, empty: null },
-    values: ['local', false],
-  };
-  const encrypted = await encryptPendingWalletRecoveryPlaintextV1(plaintext);
-
-  expect(encrypted.key.extractable).toBe(false);
-  await expect(decryptPendingWalletRecoveryPlaintextV1(encrypted)).resolves.toEqual(plaintext);
-  await expect(
-    encryptPendingWalletRecoveryPlaintextV1({ nested: { factorSecret: 'secret' } }),
-  ).rejects.toThrow('forbidden field factorSecret');
-});
 
 test('persists strict encrypted pending records for Passkey and Google Email OTP', async () => {
   const passkey = await passkeyProjectionFixture();

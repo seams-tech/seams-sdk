@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 import {
   DEVICE_LINKING_REQUEST_PROOF_HEADER_V1,
   handleDeviceLinking,
@@ -47,6 +48,8 @@ import { sha256Bytes } from '@shared/utils/digests';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/createFetchRouter';
 import { createRouterApiRouteDefinitions } from '../../packages/wallet-server/src/router/framework/routeDefinitions';
+import type { RouterApiAuthorizationSessionService } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 
 const scope: D1LinkedDeviceSessionScopeV1 = {
   namespace: 'signer',
@@ -358,6 +361,107 @@ test('keeps device-proof acknowledgement on the live linked-device path', async 
 
   expect(response.status).toBe(204);
   expect(authenticationKind).toBe('live');
+});
+
+test('routes exact successor acknowledgement after the original link session expires', async () => {
+  temporary = await openDatabase();
+  const originalLinkSessionExpiryMs = 10_000;
+  const successorAuthenticationAtMs = originalLinkSessionExpiryMs + 1;
+  const fixture = buildR103DeviceLinkFixture({
+    linkSessionId: 'link-session:route-ack-successor',
+    expiresAtMs: originalLinkSessionExpiryMs,
+  });
+  const successor = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'route-ack-successor',
+    permissions: buildFullOwnerPermissionsV1(),
+    provenance: 'wallet_registration',
+    tenantId: 'tenant:r103',
+    principalId: 'principal:r103-successor',
+    expiresAtMs: 20_000,
+    identity: {
+      walletId: 'wallet:r103',
+      authorityId: 'authority:r103',
+      walletAuthMethodId: 'wallet-auth-method:r103-successor',
+      rpId: 'wallet.example.test',
+    },
+  });
+  const baseRouteService = routeServiceFor(
+    buildSessionService(fixture),
+    fixture,
+    successorAuthenticationAtMs,
+  );
+  let authenticationKind: string | undefined;
+  let authenticationAuthorizationId: unknown;
+  let authenticationWalletSessionId: unknown;
+  const routeService: DeviceLinkingRouteServiceV1 = {
+    ...baseRouteService,
+    sessionService: {
+      ...baseRouteService.sessionService,
+      getSessionV1: async () => {
+        throw new Error('exact successor acknowledgement must not read the expired link session');
+      },
+    },
+    installationReceipt: {
+      commitPendingAuthorityV1: async () => {
+        throw new Error('commit is outside this acknowledgement test');
+      },
+      readCommittedAuthorityPackagesV1: async () => null,
+      activateInstalledAuthorityV1: async () => {
+        throw new Error('activation is outside this acknowledgement test');
+      },
+      acknowledgeLocalAuthorityActivationV1: async ({ authentication }) => {
+        authenticationKind = authentication.kind;
+        if (authentication.kind !== 'exact_wallet_session') {
+          throw new Error('expected exact successor authentication');
+        }
+        authenticationAuthorizationId = authentication.authorizationId;
+        authenticationWalletSessionId = authentication.walletSessionId;
+      },
+      readActivationCleanupReceiptV1: async () => {
+        throw new Error('exact successor acknowledgement must not require a cleanup receipt');
+      },
+    },
+  };
+  const authorizationSessions: Pick<
+    RouterApiAuthorizationSessionService,
+    'tenantId' | 'readWalletSessionAuthorizationV2ByOperationCredential'
+  > = {
+    tenantId: successor.issuedSession.session.tenantId,
+    readWalletSessionAuthorizationV2ByOperationCredential: async ({ token, nowMs }) => {
+      expect(token).toBe('pk_test_linked_device');
+      expect(nowMs).toBe(successorAuthenticationAtMs);
+      return {
+        authorization: successor.issuedSession,
+        authority: successor.authority,
+        authMethod: successor.authMethod,
+        retiredAtMs: null,
+      };
+    },
+  };
+  const acknowledgement = {
+    kind: 'local_authority_activation_final_ack_v1' as const,
+    linkSessionId: fixture.payload.linkSessionId,
+    authorityId: successor.authority.authorityId,
+    packageSetDigestB64u: fixture.packageSetDigestB64u,
+    authorizationId: fixture.approval.ownerAuthorization.authorizationId,
+    walletSessionId: fixture.approval.ownerAuthorization.walletSessionId,
+    credentialDigestB64u: fixture.packageSetDigestB64u,
+    installationReceiptDigestB64u: fixture.packageSetDigestB64u,
+    acknowledgedAtMs: originalLinkSessionExpiryMs,
+  };
+
+  const response = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/receipt`,
+    body: acknowledgement,
+    includeDeviceProof: false,
+    authorizationSessions,
+  });
+
+  expect(response.status).toBe(204);
+  expect(authenticationKind).toBe('exact_wallet_session');
+  expect(authenticationAuthorizationId).toBe(successor.issuedSession.session.authorizationId);
+  expect(authenticationWalletSessionId).toBe(successor.issuedSession.session.walletSessionId);
 });
 
 test('keeps the claimed session when no Email OTP base method is eligible', async () => {
@@ -832,16 +936,23 @@ async function invoke(
     readonly pathname: string;
     readonly body?: unknown;
     readonly origin?: string;
+    readonly includeDeviceProof?: boolean;
+    readonly authorizationSessions?: Pick<
+      RouterApiAuthorizationSessionService,
+      'tenantId' | 'readWalletSessionAuthorizationV2ByOperationCredential'
+    >;
   },
 ): Promise<Response> {
   const bodyText = input.body === undefined ? undefined : JSON.stringify(input.body);
   const headers = new Headers();
   headers.set('authorization', 'Bearer pk_test_linked_device');
   headers.set('x-seams-environment-id', 'project:dev');
-  headers.set(
-    DEVICE_LINKING_REQUEST_PROOF_HEADER_V1,
-    await requestProofHeader(input.method, input.pathname, bodyText),
-  );
+  if (input.includeDeviceProof !== false) {
+    headers.set(
+      DEVICE_LINKING_REQUEST_PROOF_HEADER_V1,
+      await requestProofHeader(input.method, input.pathname, bodyText),
+    );
+  }
   if (input.origin) headers.set('origin', input.origin);
   if (bodyText !== undefined) headers.set('content-type', 'application/json');
   const request = new Request(`https://example.test${input.pathname}`, {
@@ -854,7 +965,12 @@ async function invoke(
     pathname: input.pathname,
     method: input.method,
     runtime: { kind: 'inline' as const },
-    service: { deviceLinking: routeService },
+    service: {
+      deviceLinking: routeService,
+      ...(input.authorizationSessions === undefined
+        ? {}
+        : { authorizationSessions: input.authorizationSessions }),
+    },
     opts: {
       publishableKeyAuth: {
         authenticate: async () => ({
