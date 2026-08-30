@@ -1430,7 +1430,7 @@ credentials, and a current registration path still reaches immediate signing.
       installation, exact admission, and immediate NEAR/EVM-family signing.
 - [x] Add failure injection proving a failed batch exposes no usable session or
       quota and replay cannot rotate the credential.
-- [ ] Assign every live opaque runtime-binding field to the exact material
+- [x] Assign every live opaque runtime-binding field to the exact material
       resolver or delete its consumer.
 
 Exit: one complete user operating path proves the final architecture before the
@@ -1739,7 +1739,7 @@ Remaining causal baseline work:
       both founding methods; credential-free replay remains pending for exact
       unlock.
 - [x] Mint tests proving same-mint identity replay and fresh-mint replacement.
-- [ ] Exact material-resolution tests covering every legacy opaque runtime
+- [x] Exact material-resolution tests covering every legacy opaque runtime
       field and rejecting synthesized identities.
 - [x] Linked activation tests proving digest, credential, recipient, ciphertext,
       and session stability on replay.
