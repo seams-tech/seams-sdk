@@ -32,6 +32,7 @@ import {
   type PasskeyWalletAuthAuthority,
   type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
+import type { WalletAuthorityProvenanceV1 } from '@shared/authorization/walletAuthority';
 import { ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 } from '@shared/utils/routerAbEd25519Yao';
 import type {
   DirectV2IssueResult,
@@ -615,6 +616,39 @@ type ActiveWalletUnlockPasskeyAuthorityResolution = Extract<
   WalletUnlockPasskeyAuthorityResolution,
   { readonly kind: 'active_authority' }
 >;
+
+type WalletUnlockAuthorityEcdsaSessionPlan =
+  | { readonly kind: 'accepted' }
+  | { readonly kind: 'reject_device_link_ecdsa_session' };
+
+function planWalletUnlockAuthorityEcdsaSession(input: {
+  readonly provenanceKind: WalletAuthorityProvenanceV1['kind'];
+  readonly ecdsaSession: WalletUnlockEcdsaSessionContext;
+}): WalletUnlockAuthorityEcdsaSessionPlan {
+  switch (input.provenanceKind) {
+    case 'device_link':
+      switch (input.ecdsaSession.kind) {
+        case 'no_ecdsa_session':
+          return { kind: 'accepted' };
+        case 'provision_first_ecdsa_session':
+          return { kind: 'reject_device_link_ecdsa_session' };
+      }
+    case 'wallet_registration':
+    case 'wallet_recovery':
+      return { kind: 'accepted' };
+  }
+}
+
+function walletUnlockDeviceLinkEcdsaSessionRejection(): WalletUnlockRouteResponse {
+  return {
+    status: 400,
+    body: {
+      ok: false,
+      code: 'invalid_body',
+      message: 'ecdsaSessionPolicy is not supported for device-linked wallet unlock',
+    },
+  };
+}
 
 type WalletUnlockPasskeySessionPlan =
   | {
@@ -1230,6 +1264,15 @@ export async function handleWalletUnlockVerifyRoute(input: {
         },
       };
     }
+    if (authorityResolution.kind === 'active_authority') {
+      const authorityEcdsaPlan = planWalletUnlockAuthorityEcdsaSession({
+        provenanceKind: authorityResolution.authority.provenance.kind,
+        ecdsaSession: input.ecdsaSession,
+      });
+      if (authorityEcdsaPlan.kind === 'reject_device_link_ecdsa_session') {
+        return walletUnlockDeviceLinkEcdsaSessionRejection();
+      }
+    }
     const sessionPlan = planWalletUnlockPasskeySession({
       authorityResolution,
       ed25519SessionRequest,
@@ -1472,6 +1515,13 @@ export async function handleWalletUnlockVerifyRoute(input: {
     };
   }
   const exactEmailOtpAuthority: VerifiedEmailOtpAuthorityForUnlock = authorityResolution;
+  const authorityEcdsaPlan = planWalletUnlockAuthorityEcdsaSession({
+    provenanceKind: exactEmailOtpAuthority.authority.provenance.kind,
+    ecdsaSession: input.ecdsaSession,
+  });
+  if (authorityEcdsaPlan.kind === 'reject_device_link_ecdsa_session') {
+    return walletUnlockDeviceLinkEcdsaSessionRejection();
+  }
 
   const verifiedAuthorityProjection = {
     kind: 'email_otp_verified_authority_projection_v1' as const,
