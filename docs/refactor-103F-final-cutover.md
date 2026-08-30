@@ -1559,7 +1559,7 @@ HEAD reconciliation on 2026-08-30:
       bridge issuers, legacy mint helpers, and registration token projections
       return no production matches; only immutable migration history remains.
 - [x] Apply the enforcement/deletion migration and update table manifests.
-- [ ] Delete the remaining generic legacy route-auth vocabulary in
+- [x] Delete the remaining generic legacy route-auth vocabulary in
       `packages/shared-ts/src/utils/sessionTokens.ts`: `OpaqueWalletSessionToken`,
       `OpaqueWalletSessionAuth`, `WalletSessionRouteAuth`, and
       `requireOpaqueWalletSessionToken`. This is one seven-file route-auth
@@ -1568,10 +1568,10 @@ HEAD reconciliation on 2026-08-30:
       propagation and fixtures, not separate cutover boundaries. Narrow the
       boundary directly to `WalletSessionOperationCredentialV1` and update its
       propagation in the same change.
-- [ ] Review extracted modules for forwarding-only wrappers, cycles, duplicate
+- [x] Review extracted modules for forwarding-only wrappers, cycles, duplicate
       validators, compatibility re-exports, and single-caller helpers; inline or
       delete them unless they preserve a clear domain boundary.
-- [ ] Run the expanded closure ledger after the route-auth vocabulary deletion.
+- [x] Run the expanded closure ledger after the route-auth vocabulary deletion.
 - [ ] Run the focused acceptance matrix.
 
 Exit: repository code and schema contain only the exact Wallet Session model,
