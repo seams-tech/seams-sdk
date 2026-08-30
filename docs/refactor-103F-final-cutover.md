@@ -690,10 +690,13 @@ Primary files:
       The strict boundary now persists and parses the activation journal,
       verified client-activation facts, activation-request digest, and exact
       auth-method identity, then returns them in the typed unlock continuation.
-- [ ] Complete ECDSA-only and mixed registration recovery orchestration: unlock
-      the exact method, validate the retained finalization facts against the
-      committed projection, and publish through the existing atomic local
-      transaction.
+- [ ] Complete ECDSA-only registration recovery orchestration: unlock the exact
+      method, validate the retained finalization facts against the committed
+      projection, and publish through the existing atomic local transaction.
+- [ ] Complete mixed registration recovery orchestration: publish the recovered
+      ECDSA continuity and exact session while retaining the deferred-NEAR leg,
+      then replay NEAR provisioning and remove the pending state only after
+      terminal publication.
 - [x] Change final registration replay to credential-free committed projection
       plus `unlock_exact_method`.
 - [x] Validate Passkey Ed25519 deferred-NEAR replay against the pending record
@@ -967,10 +970,11 @@ Final status/source symbols are `handleExactWalletSessionStatus`,
       transaction. `tests/unit/pendingWalletRecoveryCommit.unit.test.ts` passes
       7/7 and proves both-stage refusal deletion, uncertainty retention, reload,
       and late-write rollback without partial local discovery.
-- [x] Keep wallet lock local to browser record/runtime disposal. Server
+- [x] Keep wallet lock local to browser record/runtime disposal. Lock advances
+      the local generation, retires local browser records, and clears runtime
+      material without sending a server-side session-retirement request. Server
       retirement is produced only by same-method replacement, exact-method
-      revocation, and authority revocation; no explicit session-retirement
-      producer exists.
+      revocation, and authority revocation.
 
 Primary files:
 
@@ -1526,8 +1530,10 @@ exact admission contexts. No V1 request or persistence resolver remains.
       installation. The D1 install-service, bootstrap replay, and linked unlock
       tests cover the committed path through cleanup.
 
-The remaining Phase 3 code is owned by the I2 registration-recovery
-orchestration task and the I5 browser recovery-coordinator task.
+The durable I5 browser recovery coordinator landed in `6064a28ea` and its
+completion evidence was recorded in `a01e8ee26`. The remaining Phase 3
+registration code is the split I2 ECDSA-only and mixed recovery orchestration
+described above.
 
 - [x] Reconcile all affected browser records after material promotion.
 - [x] Bump the host/iframe protocol and remove reusable-session message fields.
@@ -1559,16 +1565,17 @@ HEAD reconciliation on 2026-08-30:
 - `502fd8601` proves acknowledgement cleanup is one atomic D1 batch: a
   pre-commit failure preserves the active session, allocation, issued delivery,
   and ciphertext, while post-commit response loss converges through replay.
-- `d21cc81c5` makes the current recovery auth-method branches exhaustive. The
-  coordinator still does not consume `PendingWalletRecoveryCommitV1`, so
-  durable recovery continuity stays open.
-- `d22c27746` proves the Email OTP pending-recovery record reaches the same
-  exact, atomic local publication boundary as Passkey. Post-promotion startup
-  replay and coordinator consumption remain open.
+- `d21cc81c5` makes the current recovery auth-method branches exhaustive, and
+  `d22c27746` proves the Email OTP pending-recovery record reaches the same
+  exact, atomic local publication boundary as Passkey. `6064a28ea` consumes
+  `PendingWalletRecoveryCommitV1` from startup, resumes credential-free server
+  promotion, publishes local continuity atomically, and deletes the journal
+  only after success; `a01e8ee26` records that I5 closure evidence.
 - `e97083adb` durably retains the ECDSA activation journal, verified client
   activation, request digest, and exact auth-method identity for registration
-  replay. Exact unlock, committed-projection validation, and atomic local
-  publication remain one browser-orchestration task.
+  replay. ECDSA-only exact unlock, committed-projection validation, and atomic
+  publication remain one I2 task; mixed registration additionally retains and
+  completes its deferred-NEAR leg.
 - `188412a3a` authorizes an exact active registration session against durable
   Passkey or Email OTP ECDSA capability state, and `eebb4217c` removes the
   caller-supplied Email OTP runtime-policy scope so the exact durable runtime
@@ -1663,10 +1670,12 @@ fresh managed D1 root and Vite cache per case, and
 post-promotion, pre-local-publication interruption only as part of the R103F
 change.
 
-- [ ] Exercise real-browser Passkey and configured Google recovery activation
-      in every supported browser before removing any target-ready user action.
-      In-process tests cannot prove transient browser activation survives the
-      async prepare and iframe-to-host boundary.
+Real-browser Passkey and configured Google recovery activation remain required
+before removing any target-ready user action. The intended runner currently
+executes its Chromium project through CDP. The Passkey and Google recovery
+contract inventory items below own the executable evidence; in-process tests
+cannot prove transient browser activation survives the async prepare and
+iframe-to-host boundary.
 
 #### Existing focused test inventory
 
@@ -1680,7 +1689,8 @@ change.
 - [x] `tests/unit/walletSessionAuthorizationStatus.unit.test.ts`
 - [x] `tests/unit/pendingWalletRecoveryCommit.unit.test.ts`, proving the strict
       encrypted boundary and atomic local publication primitive for both
-      recovery targets; coordinator integration remains open in I5
+      recovery targets, including coordinator startup replay and local
+      publication after `6064a28ea`
 - [x] `tests/unit/linkedDeviceUnlockRuntime.unit.test.ts`, proving the linked
       Passkey and Email OTP target exact inventory, NEAR and EVM-family signing
       readiness, exact V6 install identity, and export-lane readiness before
@@ -1818,14 +1828,12 @@ change.
       source/target factor combinations, including the remaining immediate
       post-link factor combinations from I6.
 
-Acceptance checkpoint on 2026-08-30: the direct-V2 same-mint authority-
-promotion regression is fixed. Fresh isolated `passkey.unlock` and
-`email-otp.unlock` runs now stop during the SDK build before browser assertions:
-the combined Ed25519 plus ECDSA unlock returns the intended credential-free
-ECDSA activation and one exact Wallet Session authorization, while
-`ecdsaLogin.ts` still requires the retired credential-bearing activation shape.
-The unlock and recovery items remain unchecked until that consumer boundary is
-converted and every isolated case passes.
+Acceptance checkpoint on 2026-08-31: the clean SDK build passes. The latest
+isolated `passkey.unlock` run reached the browser and exposed an exhausted-budget
+NEAR step-up bypass: signing completed without the required fresh Passkey proof.
+The remaining unlock, recovery, auth-method addition, and linked-device
+acceptance entries stay unchecked until their isolated or composed contract
+runs pass.
 
 #### Required targeted additions and updates
 
