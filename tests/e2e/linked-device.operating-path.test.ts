@@ -3036,6 +3036,15 @@ async function readLinkedDeviceInventory(
   return parsed;
 }
 
+async function assertSingleMethodSourceInventory(
+  page: Page,
+  sourceFactor: 'email_otp' | 'passkey',
+): Promise<void> {
+  const inventory = await readLinkedDeviceInventory(page);
+  expect(inventory.devices).toEqual([]);
+  expect(inventory.ownerDevices.map((device) => device.credential.kind)).toEqual([sourceFactor]);
+}
+
 async function assertLinkedDeviceRetired(
   page: Page,
   activation: LinkedActivationSnapshot,
@@ -3445,12 +3454,7 @@ async function setupEmailLinkedOwnerPair(
         routerOrigin,
       );
     }
-    if (passkeyOwner) {
-      const ownerInventory = await readLinkedDeviceInventory(ownerPage);
-      expect(ownerInventory.ownerDevices.map((device) => device.credential.kind)).toEqual([
-        'passkey',
-      ]);
-    }
+    await assertSingleMethodSourceInventory(ownerPage, sourceFactor);
     const webauthnOperationsBeforeLink = webauthnOperations.length;
     const ownerLocalAuthorityBeforeLink = await readLocalAuthoritySnapshot(
       ownerPage,
@@ -3915,6 +3919,7 @@ async function setupLinkedOwnerPair(
       : new URL(config.relayerUrl).origin;
     passkeyLinkedDeviceStage(`${profile} owner registered`);
     await assertSignerProfileActions(ownerPage, profile);
+    await assertSingleMethodSourceInventory(ownerPage, sourceFactor);
     const ownerLocalAuthorityBeforeLink = await readLocalAuthoritySnapshot(
       ownerPage,
       publicIdentity.walletId,
