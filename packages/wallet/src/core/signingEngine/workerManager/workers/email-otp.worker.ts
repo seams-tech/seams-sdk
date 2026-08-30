@@ -86,10 +86,6 @@ import {
   type WalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
 import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
-import {
-  requireOpaqueWalletSessionToken,
-  type WalletSessionRouteAuth,
-} from '@shared/utils/sessionTokens';
 import { parseEmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/challengeDelivery';
 import {
   parseEmailOtpUnlockEd25519Identity,
@@ -246,7 +242,6 @@ import { parseWalletRecoverySetRotationWorkerResultV1 } from '@shared/wallet-rec
 import { postEmailOtpJson } from './email-otp/fetch';
 import { getShamir3PassRuntime } from './shamir3pass/runtime';
 import {
-  authLaneToRouteAuth,
   buildEmailOtpRoutePlan,
   emailOtpRoutePath,
   normalizeEmailOtpRoutePlan,
@@ -370,7 +365,7 @@ type ExactEmailOtpEcdsaWarmSessionRestore = {
 
 type ExactEmailOtpEcdsaWarmSessionTransport = {
   relayerUrl: string;
-  walletSessionToken: string;
+  operationCredential: WalletSessionOperationCredentialV1;
   keyVersion?: string;
   groupId: string;
 };
@@ -389,7 +384,7 @@ type ParseEmailOtpEcdsaWarmSessionRehydrateArgsResult =
 
 type SigningSessionSealTransport = {
   relayerUrl: string;
-  walletSessionToken: string;
+  operationCredential: WalletSessionOperationCredentialV1;
   keyVersion?: string;
   groupId?: string;
 };
@@ -847,7 +842,7 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
       expiresAtMs: Math.max(0, Math.floor(Number(args.expiresAtMs) || 0)),
       transport: {
         relayerUrl: readString(args.transport.relayerUrl, 'relayerUrl'),
-        walletSessionToken: args.transport.walletSessionToken,
+        operationCredential: args.transport.operationCredential,
         ...(args.transport.keyVersion ? { keyVersion: args.transport.keyVersion } : {}),
         groupId,
       },
@@ -1071,10 +1066,9 @@ function assertEmailOtpUnlockMaterialRouteAuth(args: {
           'Email OTP Ed25519 session requires a wallet-unlock or signing-session route plan',
         );
       }
-      const routeAuth = authLaneToRouteAuth(args.routePlan.authLane);
+      const operationCredential = args.routePlan.authLane.operationCredential;
       const usesEd25519WalletSession =
-        routeAuth?.kind === 'opaque_wallet_session' &&
-        args.routePlan.authLane.kind === 'signing_session' &&
+        operationCredential.kind === 'opaque_wallet_session_operation_credential_v1' &&
         args.routePlan.authLane.curve === 'ed25519';
       if (!usesEd25519WalletSession) {
         throw new Error('Email OTP Ed25519 session requires an authenticated route plan');
@@ -1108,13 +1102,17 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   if (!transport) return null;
   const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
   if (!relayerUrl) return null;
-  const walletSessionToken = normalizeOptionalNonEmptyString(transport.walletSessionToken);
-  if (!walletSessionToken) return null;
+  let operationCredential: WalletSessionOperationCredentialV1;
+  try {
+    operationCredential = parseWalletSessionOperationCredentialV1(transport.operationCredential);
+  } catch {
+    return null;
+  }
   const keyVersion = normalizeOptionalNonEmptyString(transport.signingSessionSealKeyVersion);
   const groupId = normalizeOptionalNonEmptyString(transport.groupId);
   return {
     relayerUrl,
-    walletSessionToken,
+    operationCredential,
     ...(keyVersion ? { keyVersion } : {}),
     ...(groupId ? { groupId } : {}),
   };
@@ -1195,7 +1193,7 @@ async function callSigningSessionSealRoute(args: {
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
-    headers.Authorization = `Bearer ${args.transport.walletSessionToken}`;
+    headers.Authorization = `Bearer ${args.transport.operationCredential.token}`;
     const response = await fetch(url, {
       method: 'POST',
       credentials: 'omit',
@@ -2168,7 +2166,7 @@ async function releaseEmailOtpFactorSecret(
         kind: 'verified_grant';
         challengeId: string;
         loginGrant: string;
-        sessionAuth: WalletSessionRouteAuth | undefined;
+        sessionAuth: WalletSessionOperationCredentialV1 | undefined;
         otpCode?: never;
         operation?: never;
       }
@@ -2178,12 +2176,12 @@ async function releaseEmailOtpFactorSecret(
         challengeId: string;
         otpCode: string;
         operation: WalletEmailOtpOperation;
-        sessionAuth: WalletSessionRouteAuth | undefined;
+        sessionAuth: WalletSessionOperationCredentialV1 | undefined;
         loginGrant?: never;
       }
     | {
         kind: 'wallet_session';
-        sessionAuth: WalletSessionRouteAuth;
+        sessionAuth: WalletSessionOperationCredentialV1;
         challengeId?: never;
         loginGrant?: never;
         otpCode?: never;
@@ -2568,10 +2566,18 @@ async function rehydrateEmailOtpEd25519YaoOperationMaterial(
   if (String(args.proof.authorityRef.walletId) !== walletId) {
     throw new Error('Email OTP operation material authority wallet binding changed');
   }
-  const credential = args.credential;
-  if (credential.kind !== 'wallet_session_opaque') {
-    throw new Error('Email OTP operation material requires an opaque Wallet Session credential');
+  const operationCredential = parseWalletSessionOperationCredentialV1(args.operationCredential);
+  if (
+    args.normalSigningRequest.scope.authorization.kind === 'reusable_wallet_session' &&
+    args.normalSigningRequest.scope.authorization.wallet_session_id !==
+      String(operationCredential.walletSessionId)
+  ) {
+    throw new Error('Email OTP operation material Wallet Session identity changed');
   }
+  const credential: Ed25519OperationStepUpCredential = {
+    kind: 'wallet_session_opaque',
+    walletSessionToken: operationCredential.token,
+  };
   const material: Extract<EmailOtpWalletUnlockMaterialRequest, { kind: 'ed25519_yao_recovery' }> = {
     kind: 'ed25519_yao_recovery',
     ed25519YaoRecovery: args.ed25519YaoRecovery,
@@ -2630,10 +2636,7 @@ async function rehydrateEmailOtpEd25519YaoOperationMaterial(
       enrollmentSealKeyVersion: released.enrollmentSealKeyVersion,
       clientSecret32: factorSecret32,
       material,
-      sessionAuth: {
-        kind: 'opaque_wallet_session',
-        walletSessionToken: requireOpaqueWalletSessionToken(credential.walletSessionToken),
-      },
+      sessionAuth: operationCredential,
     });
     if (unlocked.kind !== 'ed25519_yao_capability') {
       throw new Error('Email OTP operation material did not activate an Ed25519 capability');
@@ -2677,11 +2680,7 @@ async function rehydrateActiveEmailOtpEd25519YaoSessionMaterial(
   const relayUrl = readString(args.relayUrl, 'relayUrl');
   const walletId = readString(args.walletId, 'walletId');
   const providerSubjectId = readString(args.providerSubjectId, 'providerSubjectId');
-  const walletSessionToken = requireOpaqueWalletSessionToken(args.walletSessionToken);
-  const sessionAuth: WalletSessionRouteAuth = {
-    kind: 'opaque_wallet_session',
-    walletSessionToken,
-  };
+  const sessionAuth = parseWalletSessionOperationCredentialV1(args.operationCredential);
   const released = await releaseEmailOtpFactorSecret({
     relayUrl,
     walletId,
@@ -3269,7 +3268,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
   enrollmentSealKeyVersion: string;
   clientSecret32: Uint8Array;
   material: EmailOtpUnlockSecretMaterialRequest;
-  sessionAuth: WalletSessionRouteAuth | undefined;
+  sessionAuth: WalletSessionOperationCredentialV1 | undefined;
 }): Promise<
   {
     unlockChallengeId: string;
@@ -3572,7 +3571,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   try {
     const sessionAuth =
       args.routePlan.routeFamily === 'signing_session'
-        ? authLaneToRouteAuth(args.routePlan.authLane)
+        ? args.routePlan.authLane.operationCredential
         : undefined;
     let challengeId = readOptionalString(args.challengeId);
     if (!challengeId && !args.skipServerFinalize) {
@@ -3704,7 +3703,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
       };
   groupId: string;
   routePlan: EmailOtpRoutePlan;
-  factorReleaseSessionAuth?: WalletSessionRouteAuth;
+  factorReleaseSessionAuth?: WalletSessionOperationCredentialV1;
   material: EmailOtpUnlockSecretMaterialRequest;
   onProgress?: (code: EmailOtpWorkerProgressCode) => void;
 }): Promise<
@@ -3776,7 +3775,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
   try {
     const sessionAuth =
       args.routePlan.routeFamily === 'signing_session'
-        ? authLaneToRouteAuth(args.routePlan.authLane)
+        ? args.routePlan.authLane.operationCredential
         : undefined;
     let challengeId: string;
     if (args.verification.kind === 'email_otp_unseal_grant') {
@@ -5288,24 +5287,6 @@ function optionalWorkerBooleanTrue(value: unknown): true | undefined {
   return value === true ? true : undefined;
 }
 
-function parseWorkerRouteAuth(value: unknown, label: string): WalletSessionRouteAuth {
-  const obj = workerPayloadObject(value);
-  const kind = normalizeOptionalTrimmedString(obj?.kind);
-  const walletSessionToken = normalizeOptionalTrimmedString(obj?.walletSessionToken);
-  if (kind === 'opaque_wallet_session' && walletSessionToken) {
-    return {
-      kind: 'opaque_wallet_session',
-      walletSessionToken: requireOpaqueWalletSessionToken(walletSessionToken),
-    };
-  }
-  throw new Error(`${label} requires opaque routeAuth`);
-}
-
-function parseOptionalWorkerRouteAuth(value: unknown): WalletSessionRouteAuth | undefined {
-  if (value == null) return undefined;
-  return parseWorkerRouteAuth(value, 'Email OTP worker request');
-}
-
 function parseWorkerRuntimePolicyScope(value: unknown, label: string): ThresholdRuntimePolicyScope {
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(value);
   if (!runtimePolicyScope) {
@@ -5586,19 +5567,16 @@ function parseWorkerParticipantIds(value: unknown): number[] | undefined {
 
 function parseWorkerSealTransport(value: unknown): {
   relayerUrl: string;
-  walletSessionToken: string;
+  operationCredential: WalletSessionOperationCredentialV1;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   groupId?: string;
 } {
   const obj = workerPayloadObject(value);
   if (!obj) throw new Error('Email OTP worker request requires transport');
-  const walletSessionToken = optionalWorkerString(obj.walletSessionToken);
-  if (!walletSessionToken) {
-    throw new Error('Email OTP worker request requires an opaque Wallet Session token');
-  }
+  const operationCredential = parseWalletSessionOperationCredentialV1(obj.operationCredential);
   return {
     relayerUrl: readString(obj.relayerUrl, 'transport.relayerUrl'),
-    walletSessionToken,
+    operationCredential,
     ...(optionalWorkerString(obj.signingSessionSealKeyVersion)
       ? {
           signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
@@ -5907,23 +5885,6 @@ function parseEmailOtpOperationStepUpProof(
     providerSubjectId: readString(record.providerSubjectId, 'proof.providerSubjectId'),
     challengeId: readString(record.challengeId, 'proof.challengeId'),
     otpCode: readString(record.otpCode, 'proof.otpCode'),
-  };
-}
-
-function parseEmailOtpOperationCredential(value: unknown): Ed25519OperationStepUpCredential {
-  const record = workerPayloadObject(value);
-  if (!record) throw new Error('operation step-up credential is required');
-  rejectUnknownEmailOtpYaoFields(
-    record,
-    ['kind', 'walletSessionToken'],
-    'operation step-up credential',
-  );
-  if (readString(record.kind, 'credential.kind') !== 'wallet_session_opaque') {
-    throw new Error('Email OTP operation material requires an opaque Wallet Session credential');
-  }
-  return {
-    kind: 'wallet_session_opaque',
-    walletSessionToken: readString(record.walletSessionToken, 'credential.walletSessionToken'),
   };
 }
 
@@ -6412,7 +6373,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           'normalSigningRequest',
           'displayDigest',
           'proof',
-          'credential',
+          'operationCredential',
         ],
         type,
       );
@@ -6451,7 +6412,9 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           ),
           displayDigest: readString(payload.displayDigest, 'displayDigest'),
           proof: parseEmailOtpOperationStepUpProof(payload.proof),
-          credential: parseEmailOtpOperationCredential(payload.credential),
+          operationCredential: parseWalletSessionOperationCredentialV1(
+            payload.operationCredential,
+          ),
         },
       };
     }
@@ -6469,7 +6432,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           'remainingUses',
           'expectedOperationalPublicKey',
           'expectedThresholdSessionId',
-          'walletSessionToken',
+          'operationCredential',
           'ecdsa',
           'walletCustodyEd25519Material',
         ],
@@ -6516,7 +6479,9 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
             payload.expectedThresholdSessionId,
             'expectedThresholdSessionId',
           ),
-          walletSessionToken: requireOpaqueWalletSessionToken(payload.walletSessionToken),
+          operationCredential: parseWalletSessionOperationCredentialV1(
+            payload.operationCredential,
+          ),
           ecdsa: {
             sessionHandleBinding: { ...ecdsaBinding, operation: 'wallet_unlock' },
             runtimePolicyScope: parseWorkerRuntimePolicyScope(
@@ -6679,7 +6644,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const routePlan = readRoutePlan(msg.payload.routePlan, 'requestEmailOtpChallenge');
         const sessionAuth =
           routePlan.routeFamily === 'signing_session'
-            ? authLaneToRouteAuth(routePlan.authLane)
+            ? routePlan.authLane.operationCredential
             : undefined;
         const response = await postEmailOtpJson({
           relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
@@ -6751,7 +6716,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         );
         const sessionAuth =
           routePlan.routeFamily === 'signing_session'
-            ? authLaneToRouteAuth(routePlan.authLane)
+            ? routePlan.authLane.operationCredential
             : undefined;
         const response = await postEmailOtpJson({
           relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),

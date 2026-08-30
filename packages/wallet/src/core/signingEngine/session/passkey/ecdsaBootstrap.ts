@@ -19,7 +19,7 @@ import type {
 } from '../identity/laneIdentity';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
-import type { WalletSessionRouteAuth } from '@shared/utils/sessionTokens';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type { SigningOperationIntent } from '../operationState/types';
 import type {
   ThresholdEcdsaChainTarget,
@@ -131,7 +131,7 @@ type PasskeyFreshEcdsaBootstrapExactRequestBase = EcdsaBootstrapExactRequestBase
 
 type PasskeyFreshEcdsaBootstrapExactRequest = PasskeyFreshEcdsaBootstrapExactRequestBase &
   PasskeyCredentialBootstrapAuth & {
-    routeAuth: WalletSessionRouteAuth;
+    routeAuth: WalletSessionOperationCredentialV1;
   };
 
 type EcdsaExplicitExportBootstrapRequestBase = {
@@ -157,7 +157,7 @@ export type PasskeyPreauthorizedEcdsaBootstrapRequest = EcdsaBootstrapExactReque
 export type WalletSessionReconnectEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase & {
   kind: 'wallet_session_reconnect_ecdsa_bootstrap';
   authorizationAuthority: WalletAuthAuthorityRef;
-  routeAuth: Extract<WalletSessionRouteAuth, { kind: 'opaque_wallet_session' }>;
+  routeAuth: WalletSessionOperationCredentialV1;
   passkeyCredentialIdB64u: string;
   webauthnAuthentication?: never;
   passkeyPrfFirstB64u?: never;
@@ -176,7 +176,7 @@ type EmailOtpEcdsaBootstrapRequestBase = EcdsaBootstrapExactRequestBase & {
 export type EmailOtpEcdsaBootstrapRequest = EmailOtpEcdsaBootstrapRequestBase &
   (
     | {
-        routeAuth?: WalletSessionRouteAuth;
+        routeAuth?: WalletSessionOperationCredentialV1;
         sessionActivation?: never;
       }
     | {

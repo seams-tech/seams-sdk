@@ -76,7 +76,6 @@ import {
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import {
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
   parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
@@ -167,7 +166,6 @@ import {
 } from '@/core/indexedDB/linkedAuthoritySignerMaterial';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
-import type { OpaqueWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
 import {
   nearEd25519SigningKeyIdFromString,
@@ -1663,7 +1661,7 @@ function resolveLoginWarmEd25519ProvisioningIdentity(args: {
       if (args.ecdsaMint) {
         return {
           kind: 'exact_ed25519_provisioning' as const,
-          existingWalletSessionToken: args.ecdsaMint.thresholdEcdsaSessionToken,
+          existingWalletSessionToken: args.ecdsaMint.operationCredential.token,
           laneIdentity: loginEd25519ExactProvisionLaneIdentity({
             walletBinding: args.walletBinding,
             signerSlot: args.signerSlot,
@@ -1690,7 +1688,7 @@ function resolveLoginWarmEd25519ProvisioningIdentity(args: {
       }
       return {
         kind: 'exact_ed25519_provisioning' as const,
-        existingWalletSessionToken: args.ecdsaMint.thresholdEcdsaSessionToken,
+        existingWalletSessionToken: args.ecdsaMint.operationCredential.token,
         laneIdentity: loginEd25519ExactProvisionLaneIdentity({
           walletBinding: args.walletBinding,
           signerSlot: args.signerSlot,
@@ -5030,7 +5028,7 @@ type ThresholdLoginWarmEd25519State = {
   authorizationId: WalletSessionAuthorizationId | null;
   walletSessionId: WalletSessionId | null;
   quotaId: MpcWalletSigningQuotaId | null;
-  walletSessionToken: string;
+  operationCredential: WalletSessionOperationCredentialV1 | null;
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope | null;
@@ -5089,7 +5087,7 @@ async function stageMintedLoginEd25519WalletSessionAuthority(
   context.sharedState.ed25519.authorizationId = minted.authorizationId;
   context.sharedState.ed25519.walletSessionId = minted.walletSessionId;
   context.sharedState.ed25519.quotaId = minted.quotaId;
-  context.sharedState.ed25519.walletSessionToken = minted.walletSessionToken;
+  context.sharedState.ed25519.operationCredential = minted.operationCredential;
   context.sharedState.ed25519.expiresAtMs = minted.expiresAtMs;
   context.sharedState.ed25519.remainingUses = minted.remainingUses;
   context.sharedState.ed25519.runtimePolicyScope = minted.runtimePolicyScope;
@@ -5122,13 +5120,13 @@ function createActiveLoginSigningSessionStatus(args: {
 }
 
 type ThresholdLoginWarmEcdsaBootstrapIdentity = {
-  routeAuth?: OpaqueWalletSessionAuth;
+  routeAuth?: WalletSessionOperationCredentialV1;
 };
 
 function isWalletSessionReconnectEcdsaRouteAuth(
-  auth: OpaqueWalletSessionAuth | undefined,
-): auth is OpaqueWalletSessionAuth {
-  return auth?.kind === 'opaque_wallet_session';
+  auth: WalletSessionOperationCredentialV1 | undefined,
+): auth is WalletSessionOperationCredentialV1 {
+  return auth?.kind === 'opaque_wallet_session_operation_credential_v1';
 }
 
 type ThresholdLoginWarmupResult = {
@@ -5137,7 +5135,7 @@ type ThresholdLoginWarmupResult = {
 };
 
 type ThresholdEcdsaAuthorizedEd25519Mint = {
-  thresholdEcdsaSessionToken: string;
+  operationCredential: WalletSessionOperationCredentialV1;
   passkeyPrfFirstB64u: string;
   passkeyCredentialIdB64u: string;
   walletSessionId: WalletSessionId;
@@ -5838,7 +5836,7 @@ async function primeThresholdLoginWarmSigners(args: {
       authorizationId: null,
       walletSessionId: null,
       quotaId: null,
-      walletSessionToken: '',
+      operationCredential: null,
       expiresAtMs: 0,
       remainingUses: 0,
       runtimePolicyScope: null,
@@ -6075,20 +6073,18 @@ async function primeThresholdLoginWarmSigners(args: {
           bootstrap: ThresholdEcdsaSessionBootstrapResult,
         ): void => {
           if (ecdsaAuthorizedEd25519Mint) return;
-          const thresholdEcdsaSessionToken = String(
-            bootstrap.session.walletSessionToken || '',
-          ).trim();
+          const operationCredential = bootstrap.session.operationCredential;
           const passkeyPrfFirstB64u = credential
             ? passkeyPrfFirstB64uFromCredential(credential)
             : '';
           const passkeyCredentialIdB64u =
             passkeyCredentialIdB64uFromAuthentication(credential || undefined) ||
             localPasskeyCredentialIdB64u;
-          if (!thresholdEcdsaSessionToken || !passkeyPrfFirstB64u || !passkeyCredentialIdB64u) {
+          if (!operationCredential.token || !passkeyPrfFirstB64u || !passkeyCredentialIdB64u) {
             return;
           }
           ecdsaAuthorizedEd25519Mint = {
-            thresholdEcdsaSessionToken,
+            operationCredential,
             passkeyPrfFirstB64u,
             passkeyCredentialIdB64u,
             walletSessionId: bootstrap.session.walletSessionId,
@@ -6096,25 +6092,15 @@ async function primeThresholdLoginWarmSigners(args: {
           };
         };
         const resolveCurrentBootstrapIdentity = (): ThresholdLoginWarmEcdsaBootstrapIdentity => {
-          if (sharedState.ed25519.walletSessionToken) {
+          if (sharedState.ed25519.operationCredential) {
             return {
-              routeAuth: {
-                kind: 'opaque_wallet_session',
-                walletSessionToken: requireOpaqueWalletSessionToken(
-                  sharedState.ed25519.walletSessionToken,
-                ),
-              },
+              routeAuth: sharedState.ed25519.operationCredential,
             };
           }
-          const thresholdEcdsaSessionToken = String(
-            ecdsaAuthorizedEd25519Mint?.thresholdEcdsaSessionToken || '',
-          ).trim();
-          if (thresholdEcdsaSessionToken) {
+          const operationCredential = ecdsaAuthorizedEd25519Mint?.operationCredential;
+          if (operationCredential) {
             return {
-              routeAuth: {
-                kind: 'opaque_wallet_session',
-                walletSessionToken: requireOpaqueWalletSessionToken(thresholdEcdsaSessionToken),
-              },
+              routeAuth: operationCredential,
             };
           }
           if (bootstrapIdentity) return bootstrapIdentity;

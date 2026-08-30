@@ -26,7 +26,6 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { buildEcdsaRoleLocalPublicFacts } from '../persistence/ecdsaRoleLocalRecords';
 import { buildPersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
-import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import {
   buildEvmFamilyEcdsaWalletKey,
   type EvmFamilyEcdsaWalletKey,
@@ -412,7 +411,7 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
   if (restoreSource.authorization.runtime.kind !== 'exact_ecdsa_sealed_runtime_v1') {
     throw new Error('Email OTP sealed refresh requires a sealed ECDSA runtime');
   }
-  const walletSessionToken = restoreSource.authorization.operationCredential.token;
+  const operationCredential = restoreSource.authorization.operationCredential;
   if (emailOtpAuthContextRetention(restoreSource.emailOtpAuthContext) !== 'session') return null;
 
   const workerCtx = args.getSignerWorkerContext();
@@ -436,7 +435,7 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
     expiresAtMs: sealedRecord.expiresAtMs,
     transport: {
       relayerUrl: restoreSource.relayerUrl,
-      walletSessionToken,
+      operationCredential,
       signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
         restoreSource.signingSessionSealKeyVersion,
       ),
@@ -471,10 +470,7 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
       relayerUrl: restoreSource.relayerUrl,
       emailOtpAuthContext: restoreSource.emailOtpAuthContext,
       emailOtpWorkerSessionHandle,
-      routeAuth: {
-        kind: 'opaque_wallet_session',
-        walletSessionToken: requireOpaqueWalletSessionToken(walletSessionToken),
-      },
+      routeAuth: operationCredential,
     }),
   );
   const currentBeforeCommit: ActiveEcdsaCapabilityRuntimeResolution =

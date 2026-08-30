@@ -116,7 +116,6 @@ import {
   buildRelayerJsonPostRequestInit,
   normalizeRelayerBaseUrl,
 } from './relayerHttp';
-import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import { isPlainObject as isRecord } from '@shared/utils/validation';
 import { parseThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {

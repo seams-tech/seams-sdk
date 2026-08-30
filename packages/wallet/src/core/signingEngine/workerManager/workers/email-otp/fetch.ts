@@ -1,9 +1,6 @@
 import { errorMessage } from '@shared/utils/errors';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
-import type { WalletSessionRouteAuth } from '@shared/utils/sessionTokens';
-
-type EmailOtpSessionAuth =
-  WalletSessionRouteAuth;
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 
 export type EmailOtpWorkerJson = Record<string, unknown>;
 
@@ -15,10 +12,10 @@ function requireObjectJson(value: unknown, label: string): EmailOtpWorkerJson {
 }
 
 function buildSessionHeaders(args: {
-  sessionAuth?: EmailOtpSessionAuth;
+  sessionAuth?: WalletSessionOperationCredentialV1;
 }): HeadersInit {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = String(args.sessionAuth?.walletSessionToken || '').trim();
+  const token = String(args.sessionAuth?.token || '').trim();
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
@@ -27,7 +24,7 @@ export async function postEmailOtpJson(args: {
   relayUrl: string;
   route: string;
   body: EmailOtpWorkerJson;
-  sessionAuth?: EmailOtpSessionAuth;
+  sessionAuth?: WalletSessionOperationCredentialV1;
 }): Promise<EmailOtpWorkerJson> {
   const url = joinNormalizedUrl(args.relayUrl, args.route);
   try {

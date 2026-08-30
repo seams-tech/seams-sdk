@@ -15,7 +15,7 @@ import type {
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
-import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 declare const walletId: WalletId;
@@ -33,6 +33,7 @@ declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
 declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
 declare const authorizationAuthority: WalletAuthAuthorityRef;
+declare const operationCredential: WalletSessionOperationCredentialV1;
 
 const validReuseBootstrap = {
   kind: 'reuse_warm_ecdsa_bootstrap',
@@ -60,10 +61,7 @@ const validPasskeyFreshBootstrap = {
   existingRoleLocalMaterial,
   source: 'login',
   passkeyCredentialIdB64u,
-  routeAuth: {
-    kind: 'opaque_wallet_session',
-    walletSessionToken: requireOpaqueWalletSessionToken('threshold-session-token'),
-  },
+  routeAuth: operationCredential,
 } satisfies EcdsaBootstrapRequest;
 void validPasskeyFreshBootstrap;
 
@@ -95,6 +93,7 @@ const invalidPasskeyPreauthorizedBootstrapWithoutActivation: EcdsaBootstrapReque
 };
 void invalidPasskeyPreauthorizedBootstrapWithoutActivation;
 
+// @ts-expect-error Preauthorized bootstrap cannot trigger another route authorization.
 const invalidPasskeyPreauthorizedBootstrapWithRouteAuth: EcdsaBootstrapRequest = {
   kind: 'passkey_preauthorized_ecdsa_bootstrap',
   keyHandle,
@@ -106,11 +105,7 @@ const invalidPasskeyPreauthorizedBootstrapWithRouteAuth: EcdsaBootstrapRequest =
   source: 'login',
   passkeyCredentialIdB64u,
   sessionActivation,
-  routeAuth: {
-    // @ts-expect-error Preauthorized bootstrap cannot trigger another route authorization.
-    kind: 'opaque_wallet_session',
-    walletSessionToken: requireOpaqueWalletSessionToken('threshold-session-token'),
-  },
+  routeAuth: operationCredential,
 };
 void invalidPasskeyPreauthorizedBootstrapWithRouteAuth;
 
@@ -132,10 +127,7 @@ const validWalletSessionReconnectBootstrap = {
   existingRoleLocalMaterial,
   authorizationAuthority,
   passkeyCredentialIdB64u,
-  routeAuth: {
-    kind: 'opaque_wallet_session',
-    walletSessionToken: requireOpaqueWalletSessionToken('threshold-session-token'),
-  },
+  routeAuth: operationCredential,
 } satisfies EcdsaBootstrapRequest;
 void validWalletSessionReconnectBootstrap;
 

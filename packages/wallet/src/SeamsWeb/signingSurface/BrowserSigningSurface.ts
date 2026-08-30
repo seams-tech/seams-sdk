@@ -281,7 +281,6 @@ import { sha256HexUtf8 } from '@shared/utils/digests';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { materialActivationKey } from '@/core/signingEngine/session/sealedRecovery/materialActivationKey';
 import { isPlainObject } from '@shared/utils/validation';
-import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import { WalletSessionAuthorizationUpgradeRequiredError } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { createRelayerExactWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import {
@@ -1561,10 +1560,7 @@ async function passkeyWalletSessionStateFromPublicLane(args: {
     signingRootId: facts.signingRootId,
     signingRootVersion: facts.signingRootVersion,
     routerAbNormalSigning: facts.routerAbNormalSigning,
-    walletSessionToken: requireOpaqueWalletSessionToken(
-      args.authorization.operationCredential.token,
-      '[SigningEngine][near] Passkey Ed25519 Wallet Session token',
-    ),
+    walletSessionToken: args.authorization.operationCredential.token,
     nowMs: Date.now(),
   });
   if (!signingWalletSession.ok) {
@@ -1913,10 +1909,7 @@ async function emailOtpWalletSessionStateFromPublicLane(args: {
     signingRootId: facts.signingRootId,
     signingRootVersion: facts.signingRootVersion,
     routerAbNormalSigning: facts.routerAbNormalSigning,
-    walletSessionToken: requireOpaqueWalletSessionToken(
-      args.authorization.operationCredential.token,
-      '[SigningEngine][near] Email OTP Ed25519 Wallet Session token',
-    ),
+    walletSessionToken: args.authorization.operationCredential.token,
     nowMs: Date.now(),
   });
   if (!signingWalletSession.ok) {
@@ -2105,10 +2098,7 @@ async function hydrateOwnerNearEd25519ExecutionLane(args: {
   ) {
     throw new Error('Owner Ed25519 execution-lane material changed');
   }
-  const walletSessionToken = requireOpaqueWalletSessionToken(
-    args.authorization.operationCredential.token,
-    'Owner Ed25519 execution-lane Wallet Session token',
-  );
+  const walletSessionToken = args.authorization.operationCredential.token;
   const exactMaterial = validateExactNearEd25519YaoOperationMaterial({
     material: args.material,
     input: args.input,
@@ -3742,10 +3732,7 @@ export class BrowserSigningSurface {
       nearAccountId: String(input.nearAccountId),
       signerSlot: user.signerSlot,
     });
-    const walletSessionToken = requireOpaqueWalletSessionToken(
-      args.authorization.operationCredential.token,
-      '[SigningEngine][near] Email OTP Wallet Session token',
-    );
+    const operationCredential = args.authorization.operationCredential;
     if (sealed.kind !== 'found') {
       throw new Error('[SigningEngine][near] Email OTP session material is unavailable');
     }
@@ -3778,7 +3765,7 @@ export class BrowserSigningSurface {
           remainingUses: args.remainingUses,
           expectedOperationalPublicKey: user.operationalPublicKey,
           expectedThresholdSessionId: publicLane.thresholdSessionId,
-          walletSessionToken,
+          operationCredential,
           ecdsa: {
             sessionHandleBinding: {
               operation: 'wallet_unlock',
@@ -4516,10 +4503,7 @@ export class BrowserSigningSurface {
     ) {
       throw new Error('[SigningEngine][near] authenticated funding session material changed');
     }
-    const walletSessionToken = requireOpaqueWalletSessionToken(
-      authorizationRead.authorization.operationCredential.token,
-      '[SigningEngine][near] authenticated funding Wallet Session token',
-    );
+    const walletSessionToken = authorizationRead.authorization.operationCredential.token;
     if (
       authorizationRead.authorization.session.walletId !==
         identity.signer.account.wallet.walletId ||
@@ -4678,14 +4662,11 @@ export class BrowserSigningSurface {
     ) {
       throw new Error('[SigningEngine][near] Email OTP operation authority changed');
     }
-    const credential = await this.resolveOperationStepUpCredential({
-      walletId: args.walletId,
-      relayerUrl: context.facts.relayerUrl,
-      proof: request.proof,
-    });
-    if (credential.kind !== 'wallet_session_opaque') {
-      throw new Error('[SigningEngine][near] Email OTP recovery requires an opaque Wallet Session');
-    }
+    const operationCredential =
+      await resolveExactNearEd25519WalletSessionOperationCredentialForStepUp({
+        walletId: args.walletId,
+        proof: request.proof,
+      });
     const recovered = await requestRehydrateEmailOtpEd25519YaoOperationMaterial({
       workerCtx: this.signerWorkerManager.getContext(),
       payload: {
@@ -4711,7 +4692,7 @@ export class BrowserSigningSurface {
         normalSigningRequest: request.normalSigningRequest,
         displayDigest: request.displayDigest,
         proof: request.proof,
-        credential,
+        operationCredential,
       },
     });
     if (recovered.walletCustodyEd25519Material) {

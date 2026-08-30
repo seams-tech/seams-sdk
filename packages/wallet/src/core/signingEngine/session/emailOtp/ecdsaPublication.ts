@@ -515,7 +515,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     emailOtpAuthContext: args.emailOtpAuthContext,
   });
 
-  const operationCredentialToken = String(session.operationCredential.token || '').trim();
+  const operationCredential = session.operationCredential;
   const runtimePolicyScope = args.runtimePolicyScope;
   const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
   const signingRootId = String(signingRootScope?.signingRootId || '').trim();
@@ -560,7 +560,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     !publicCapability ||
     !roleLocalMaterialRef ||
     !participantIds.length ||
-    !operationCredentialToken ||
+    !operationCredential.token ||
     !signingRootId ||
     !signingRootVersion
   ) {
@@ -610,7 +610,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     target: { kind: 'ecdsa', thresholdSessionId: emailOtpWorkerSessionId },
     transport: {
       relayerUrl,
-      walletSessionToken: operationCredentialToken,
+      operationCredential,
       groupId,
     },
   }).catch((error) => {

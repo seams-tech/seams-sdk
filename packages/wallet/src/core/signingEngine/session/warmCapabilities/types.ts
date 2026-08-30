@@ -664,7 +664,7 @@ export type MintedEd25519WalletSessionAuthority = {
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  walletSessionToken: string;
+  operationCredential: WalletSessionOperationCredentialV1;
 };
 
 type ProvisionWarmEd25519CapabilitySuccessResultBase = {

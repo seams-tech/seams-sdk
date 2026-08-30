@@ -5,7 +5,6 @@ import type {
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
-import type { WalletSessionRouteAuth } from '@shared/utils/sessionTokens';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
   buildEcdsaSessionIdentity,
@@ -21,7 +20,7 @@ declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 declare const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 declare const operationCredential: WalletSessionOperationCredentialV1;
-declare const walletSessionRouteAuth: WalletSessionRouteAuth;
+declare const walletSessionRouteAuth: WalletSessionOperationCredentialV1;
 declare const emailOtpWorkerHandle: Extract<
   EmailOtpWorkerIssuedSessionHandle,
   { action: 'threshold_ecdsa_bootstrap' }

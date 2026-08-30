@@ -1208,7 +1208,11 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
   test('requests transaction challenges with signing-session auth only', async () => {
     const { coordinator, workerCalls } = createCoordinator();
-    const walletSessionToken = 'threshold-session-token';
+    const operationCredential = createEcdsaSessionActivationFixture({
+      walletId: 'alice.testnet',
+      chain: 'tempo',
+      sessionId: 'email-otp-auth-lane',
+    }).response.session.operation_credential;
 
     const challenge = await coordinator.requestTransactionSigningChallenge({
       kind: 'near_account_challenge',
@@ -1217,7 +1221,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       chain: 'near',
       authLane: {
         kind: 'signing_session',
-        walletSessionToken,
+        operationCredential,
         curve: 'ed25519',
       },
     });
@@ -1237,7 +1241,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
             routeFamily: 'signing_session',
             authLane: {
               kind: 'signing_session',
-              walletSessionToken,
+              operationCredential,
               curve: 'ed25519',
             },
             operation: 'transaction_sign',
@@ -1586,7 +1590,11 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           },
           transport: {
             relayerUrl: 'https://relay.example',
-            walletSessionToken: expect.any(String),
+            operationCredential: {
+              kind: 'opaque_wallet_session_operation_credential_v1',
+              token: expect.any(String),
+              walletSessionId: expect.any(String),
+            },
             groupId: 'rfc2409-group2',
           },
         },
@@ -1827,7 +1835,11 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           expiresAtMs,
           transport: {
             relayerUrl: sealedRecord.relayerUrl,
-            walletSessionToken: expect.any(String),
+            operationCredential: {
+              kind: 'opaque_wallet_session_operation_credential_v1',
+              token: expect.any(String),
+              walletSessionId: expect.any(String),
+            },
             signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
             groupId: 'rfc2409-group2',
           },
@@ -2013,7 +2025,11 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       request: {
         payload: {
           transport: {
-            walletSessionToken: expect.any(String),
+            operationCredential: {
+              kind: 'opaque_wallet_session_operation_credential_v1',
+              token: expect.any(String),
+              walletSessionId: expect.any(String),
+            },
           },
           restore: {
             thresholdSessionId: 'ecdsa-session',

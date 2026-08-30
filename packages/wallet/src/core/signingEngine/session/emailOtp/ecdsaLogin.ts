@@ -83,7 +83,6 @@ import {
   assertEmailOtpSigningSessionAuthLane,
   buildEmailOtpSigningSessionRoutePlan,
   emailOtpEcdsaBootstrapRouteAuthFromRoutePlan,
-  emailOtpEcdsaBootstrapRouteAuthToTransport,
   type EmailOtpEcdsaBootstrapAuthorization,
 } from './routePlan';
 import {
@@ -116,10 +115,7 @@ import {
   type EcdsaSessionIdentity,
 } from '../warmCapabilities/ecdsaProvisionPlan';
 import { generateSessionId } from '../passkey/prfCache';
-import {
-  requireOpaqueWalletSessionToken,
-  type WalletSessionRouteAuth,
-} from '@shared/utils/sessionTokens';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
 import { parseWalletSessionMintId } from '@shared/authorization/capabilityKinds';
@@ -813,17 +809,9 @@ function requireEmailOtpUnlockWalletSessionMintId(value: string) {
   return parsed.value;
 }
 
-function requireEmailOtpWalletSessionToken(value: unknown) {
-  const walletSessionToken = String(value || '').trim();
-  if (!walletSessionToken) {
-    throw new Error('Email OTP unlock returned an empty Wallet Session token');
-  }
-  return requireOpaqueWalletSessionToken(walletSessionToken);
-}
-
 function requireEmailOtpBootstrapTransportAuth(
-  value: WalletSessionRouteAuth | undefined,
-): WalletSessionRouteAuth {
+  value: WalletSessionOperationCredentialV1 | undefined,
+): WalletSessionOperationCredentialV1 {
   if (!value) throw new Error('Email OTP ECDSA bootstrap requires route auth');
   return value;
 }
@@ -886,7 +874,7 @@ export function buildEmailOtpExistingKeyActivation(args: {
   authorization:
     | {
         kind: 'route_authorized';
-        routeAuth: WalletSessionRouteAuth;
+        routeAuth: WalletSessionOperationCredentialV1;
       }
     | {
         kind: 'preauthorized_wallet_unlock';
@@ -964,7 +952,7 @@ export function buildEmailOtpRecoveredKeyActivation(args: {
   relayerUrl: string;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpSessionAuthContext;
   emailOtpWorkerSessionHandle: ReturnType<typeof parseEmailOtpWorkerIssuedSessionHandle>;
-  routeAuth: WalletSessionRouteAuth;
+  routeAuth: WalletSessionOperationCredentialV1;
 }): ThresholdEcdsaActivationRequest {
   if (args.emailOtpWorkerSessionHandle.action !== 'threshold_ecdsa_bootstrap') {
     throw new Error('Email OTP ECDSA recovery requires a threshold ECDSA worker handle');
@@ -1001,7 +989,7 @@ type EmailOtpPrimaryEcdsaSessionProvisioning =
   | {
       kind: 'route_authorized';
       sessionIdentity: EcdsaSessionIdentity;
-      routeAuth: WalletSessionRouteAuth;
+      routeAuth: WalletSessionOperationCredentialV1;
     }
   | {
       kind: 'preauthorized_wallet_unlock';
@@ -1078,12 +1066,7 @@ export async function provisionEmailOtpExistingKeySessions(args: {
       ? primarySession.authorization
       : {
           kind: 'route_authorized' as const,
-          routeAuth: {
-            kind: 'opaque_wallet_session' as const,
-            walletSessionToken: requireEmailOtpWalletSessionToken(
-              primaryBootstrap.session.operationCredential.token,
-            ),
-          },
+          routeAuth: primaryBootstrap.session.operationCredential,
         };
   const additionalContext: ProvisionEmailOtpExistingKeySessionContext = {
     ...provisionContext,
@@ -1092,12 +1075,7 @@ export async function provisionEmailOtpExistingKeySessions(args: {
       primarySession: {
         kind: 'route_authorized',
         sessionIdentity: primarySession.sessionIdentity,
-        routeAuth: {
-          kind: 'opaque_wallet_session',
-          walletSessionToken: requireEmailOtpWalletSessionToken(
-            primaryBootstrap.session.operationCredential.token,
-          ),
-        },
+        routeAuth: primaryBootstrap.session.operationCredential,
       },
     },
     authorization: additionalAuthorization,
@@ -1397,7 +1375,7 @@ async function runEmailOtpEcdsaCapability(
       ? emailOtpEcdsaBootstrapRouteAuthFromRoutePlan(routePlan)
       : args.ecdsaBootstrapAuthorization.routeAuth;
   const bootstrapTransportAuth = bootstrapRouteAuth
-    ? emailOtpEcdsaBootstrapRouteAuthToTransport(bootstrapRouteAuth)
+    ? bootstrapRouteAuth.operationCredential
     : undefined;
   // Runtime policy comes from sealed runtime state.
   const requestedRuntimePolicyScope = args.runtimePolicyScope;
