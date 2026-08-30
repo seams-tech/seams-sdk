@@ -39,6 +39,7 @@ function context(body: unknown, finalize: (request: unknown) => Promise<unknown>
 
 function baseBody() {
   return {
+    kind: 'finalize' as const,
     recoveryOperationId: OPERATION_ID,
     reservationId: RESERVATION_ID,
     replacementEnvelope: passkeyCustodyEnvelope(),
@@ -159,11 +160,13 @@ test('finalization forwards the operation, envelope, proofs, and create material
   expect(Object.keys(seen as object).sort()).toEqual([
     'ecdsaMaterialPossessionProofs',
     'emailOtpEnrollment',
+    'kind',
     'recoveryOperationId',
     'replacementEnvelope',
     'reservationId',
   ]);
   expect(seen).toMatchObject({
+    kind: 'finalize',
     recoveryOperationId: OPERATION_ID,
     reservationId: RESERVATION_ID,
     emailOtpEnrollment: {
@@ -201,4 +204,33 @@ test('successful finalization returns only the credential-free committed project
   expect(body).toMatchObject({ ok: true, projection: { kind: 'google_email_otp' } });
   expect(Object.keys(body).sort()).toEqual(['ok', 'projection']);
   expect(JSON.stringify(body)).not.toContain('serverSealedFactorCiphertextB64u');
+});
+
+test('replay forwards only the sealed Email OTP replacement and public operation ids', async () => {
+  let seen: unknown = null;
+  const response = await handleWalletRecoveryGoogleEmailOtpFinalize(
+    context(
+      {
+        kind: 'replay',
+        recoveryOperationId: OPERATION_ID,
+        reservationId: RESERVATION_ID,
+        replacementEnvelope: passkeyCustodyEnvelope(),
+      },
+      async (request) => {
+        seen = request;
+        return { kind: 'conflict', reason: 'test conflict' };
+      },
+    ),
+  );
+
+  expect(response?.status).toBe(409);
+  expect(Object.keys(seen as object).sort()).toEqual([
+    'kind',
+    'recoveryOperationId',
+    'replacementEnvelope',
+    'reservationId',
+  ]);
+  expect(seen).toMatchObject({ kind: 'replay', recoveryOperationId: OPERATION_ID });
+  expect(seen).not.toHaveProperty('ecdsaMaterialPossessionProofs');
+  expect(seen).not.toHaveProperty('emailOtpEnrollment');
 });

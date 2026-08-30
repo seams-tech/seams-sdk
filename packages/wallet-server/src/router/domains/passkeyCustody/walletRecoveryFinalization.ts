@@ -35,9 +35,7 @@ import {
 import type { WalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery';
 import type { DeviceId } from '@shared/authorization/capabilityKinds';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
-import type {
-  PasskeyCustodyEnvelopeLocator,
-} from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
+import type { PasskeyCustodyEnvelopeLocator } from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import type {
   CloudflareD1WalletCustodyCommitStore,
   WalletRecoveryAuthenticatorCommit,
@@ -663,8 +661,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   }
   if (
     input.replacementEnvelope.ownership.kind !== 'method_bound' ||
-    input.replacementEnvelope.ownership.walletAuthMethodId !==
-      challenge.targetWalletAuthMethodId ||
+    input.replacementEnvelope.ownership.walletAuthMethodId !== challenge.targetWalletAuthMethodId ||
     input.replacementEnvelope.lifecycle.state !== 'active' ||
     Number(input.replacementEnvelope.envelopeRevision) !== 1
   ) {
@@ -702,9 +699,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     walletId,
     reservationId: String(challenge.reservationId),
     replacementId: String(challenge.replacementId),
-    sourceAuthorityDigestB64u: parseRecoveryAuthorityDigest(
-      challenge.continuityAnchor.authority,
-    ),
+    sourceAuthorityDigestB64u: parseRecoveryAuthorityDigest(challenge.continuityAnchor.authority),
     challengeB64u: challenge.challengeB64u,
     expiresAtMs: challenge.expiresAtMs,
   });
@@ -730,7 +725,10 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
 
   const parsedRpId = parseWebAuthnRpId(challenge.rpId);
   if (!parsedRpId.ok) {
-    return { kind: 'registration_rejected', reason: 'the replacement registration rpId is invalid' };
+    return {
+      kind: 'registration_rejected',
+      reason: 'the replacement registration rpId is invalid',
+    };
   }
   const verifiedRegistration = await verifyWebAuthnRegistrationCredentialForIntent({
     webauthnRegistration: input.webauthnRegistration,
@@ -768,7 +766,10 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     }),
   ]);
   if (existingAuthenticator || existingBinding) {
-    return { kind: 'registration_rejected', reason: 'the replacement credential is already registered' };
+    return {
+      kind: 'registration_rejected',
+      reason: 'the replacement credential is already registered',
+    };
   }
 
   let bindingSource: RecoveryBindingSource;
@@ -978,7 +979,9 @@ export async function resolveCommittedRecoveryReplayV1(
     input.walletAuthorityStore.readById(input.targetAuthorityId),
   ]);
   if (
-    locator ||
+    !locator ||
+    locator.walletId !== walletId ||
+    String(locator.recoveryKeyId) !== String(consumedRecoveryKeyId) ||
     !authenticator ||
     !binding ||
     binding.userId !== String(walletId) ||

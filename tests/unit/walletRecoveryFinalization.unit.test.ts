@@ -12,6 +12,8 @@ import {
   type WalletRecoveryEnvelopeSetRecord,
 } from '@shared/wallet-recovery';
 import { parseRecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
+import { parseRecoveryCodeLocatorV1 } from '@shared/wallet-recovery/recoveryCodeLocator';
+import { parseDerivedWalletRecoveryKeyId } from '@shared/wallet-recovery/recoveryKeyId';
 import { parseDeviceId } from '@shared/authorization/capabilityKinds';
 import {
   parseWalletAuthMethodId,
@@ -33,7 +35,9 @@ import {
 } from '@shared/utils/registrationIntent';
 import {
   buildActiveMethodBoundPasskeyCustodyEnvelopeFixture,
+  ALT_DIGEST_B64U,
   CREDENTIAL_ID_B64U,
+  RECOVERY_LOCATOR_DIGEST_B64U,
   rawWalletRecoveryEnvelopeSet,
   RP_ID,
   WALLET_ID,
@@ -75,6 +79,9 @@ const TARGET_AUTHORITY_ID = required(parseWalletAuthorityId('wallet-authority:re
 const TARGET_METHOD_ID = required(parseWalletAuthMethodId('wallet-auth-method:recovery-target'));
 const TARGET_CREDENTIAL_ID = required(parseWebAuthnCredentialIdB64u(CREDENTIAL_ID_B64U));
 const TARGET_PUBLIC_KEY = 'recovery-target-public-key';
+const MISMATCHED_RECOVERY_KEY_ID = parseDerivedWalletRecoveryKeyId(
+  `wallet-rkid-v1-${ALT_DIGEST_B64U}`,
+);
 
 const temporaryDatabase = createTemporaryD1Database();
 const TEST_SCOPE = {
@@ -237,10 +244,26 @@ class ReplayEnvelopeStore extends CloudflareD1PasskeyCustodyEnvelopeStore {
 
 class ReplayCommitStore extends CloudflareD1WalletCustodyCommitStore {
   private readonly fixture: ReplayCoreFixture;
+  private locator: WalletRecoveryCodeLocatorRecord | null;
+  private recoverySet: WalletRecoveryEnvelopeSetRecord;
 
   constructor(fixture: ReplayCoreFixture) {
     super({ database: temporaryDatabase.database, scope: TEST_SCOPE });
     this.fixture = fixture;
+    this.recoverySet = fixture.recoverySet;
+    this.locator = {
+      locatorB64u: parseRecoveryCodeLocatorV1(RECOVERY_LOCATOR_DIGEST_B64U),
+      walletId: WALLET,
+      recoveryKeyId: fixture.recoveryKeyId,
+    };
+  }
+
+  setLocator(locator: WalletRecoveryCodeLocatorRecord | null): void {
+    this.locator = locator;
+  }
+
+  setRecoverySet(recoverySet: WalletRecoveryEnvelopeSetRecord): void {
+    this.recoverySet = recoverySet;
   }
 
   override async readRecoveryEnvelopeSet(walletId: WalletId): Promise<{
@@ -248,14 +271,14 @@ class ReplayCommitStore extends CloudflareD1WalletCustodyCommitStore {
     readonly storeVersion: string;
   } | null> {
     if (walletId !== WALLET) return null;
-    return { record: this.fixture.recoverySet, storeVersion: 'recovery-v1' };
+    return { record: this.recoverySet, storeVersion: 'recovery-v1' };
   }
 
   override async readRecoveryCodeLocatorByRecoveryKey(_input: {
     readonly walletId: WalletId;
     readonly recoveryKeyId: ReplayCoreFixture['recoveryKeyId'];
   }): Promise<WalletRecoveryCodeLocatorRecord | null> {
-    return null;
+    return this.locator;
   }
 
   override async readWalletAuthMethodById(
@@ -498,4 +521,32 @@ test('exact additive replay recognizes the fresh recovery authority and preserve
       session: fixture.sourceSession,
     }),
   ).toBe(fixture.sourceSnapshot);
+});
+
+test('replay rejects a locator tombstone for another recovery identity', async () => {
+  const fixture = await buildReplayFixture(true);
+  fixture.walletCustodyCommits.setLocator({
+    locatorB64u: parseRecoveryCodeLocatorV1(RECOVERY_LOCATOR_DIGEST_B64U),
+    walletId: required(parseWalletId('mallory.testnet')),
+    recoveryKeyId: MISMATCHED_RECOVERY_KEY_ID,
+  });
+
+  await expect(replay(fixture)).resolves.toEqual({
+    kind: 'conflict',
+    reason: 'the recovery commit is incomplete; retry finalization or contact support',
+  });
+});
+
+test('replay rejects an unconsumed recovery set before reading locator state', async () => {
+  const fixture = await buildReplayFixture(true);
+  fixture.walletCustodyCommits.setRecoverySet(
+    parseWalletRecoveryEnvelopeSetRecord(rawWalletRecoveryEnvelopeSet(), {
+      expectedWalletId: WALLET,
+    }),
+  );
+
+  await expect(replay(fixture)).resolves.toEqual({
+    kind: 'rejected',
+    reason: 'the replacement registration challenge is unknown, expired, or already used',
+  });
 });

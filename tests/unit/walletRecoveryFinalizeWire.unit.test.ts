@@ -4,8 +4,10 @@ import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
 } from '../../packages/wallet-server/src/router/framework/routeDefinitions';
+import { handleWalletRecoveryFinalize } from '../../packages/wallet-server/src/router/transport/fetch/routes/passkeyCustody';
 import { finalizeWalletRecovery } from '../../packages/wallet/src/core/rpcClients/relayer/walletRecoveryFinalize';
 import {
+  buildActiveMethodBoundPasskeyCustodyEnvelopeFixture,
   ENVELOPE_ID,
   WALLET_ID,
   passkeyCustodyEnvelope,
@@ -95,6 +97,22 @@ function finalizeWith(fetchImpl: typeof fetch) {
   });
 }
 
+function passkeyFinalizeContext(body: unknown, finalize: (request: unknown) => Promise<unknown>) {
+  return {
+    routeDefinitions: createRouterApiRouteDefinitions(),
+    method: 'POST',
+    pathname: '/wallets/recovery/finalize',
+    request: new Request('https://relay.localhost/wallets/recovery/finalize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+    service: { passkeyCustody: { finalizeRecovery: finalize } },
+    logger: { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} },
+    opts: {},
+  } as never;
+}
+
 async function recoveryProjectionFixture() {
   return await buildLinkedDeviceManagementAuthorityFixture({
     label: 'wire-1',
@@ -141,6 +159,7 @@ test('finalize posts only the atomic R115 promotion request', async () => {
   expect(Object.keys(captured.body ?? {}).sort()).toEqual([
     'challengeId',
     'ecdsaMaterialPossessionProofs',
+    'kind',
     'recoveryOperationId',
     'replacementEnvelope',
     'replacementId',
@@ -152,6 +171,7 @@ test('finalize posts only the atomic R115 promotion request', async () => {
     'webauthnRegistration',
   ]);
   expect(captured.body).toMatchObject({
+    kind: 'finalize',
     walletId: WALLET_ID,
     reservationId: 'reservation-1',
     recoveryOperationId: 'wallet-recovery-operation:wire-1',
@@ -169,6 +189,52 @@ test('finalize posts only the atomic R115 promotion request', async () => {
     authority: projection.authority,
     authMethod: projection.authMethod,
   });
+});
+
+test('replay forwards only the sealed replacement and public recovery identities', async () => {
+  let seen: unknown = null;
+  const replacementEnvelope = buildActiveMethodBoundPasskeyCustodyEnvelopeFixture({
+    walletId: WALLET_ID,
+    envelopeId: ENVELOPE_ID,
+    rpId: 'wallet.example.localhost',
+    credentialIdB64u: 'Y3JlZGVudGlhbC0x',
+    walletAuthMethodId: String(TARGET_AUTH_METHOD_ID),
+  });
+  const response = await handleWalletRecoveryFinalize(
+    passkeyFinalizeContext(
+      {
+        kind: 'replay',
+        walletId: WALLET_ID,
+        reservationId: 'reservation-1',
+        recoveryOperationId: String(RECOVERY_OPERATION_ID),
+        targetDeviceId: String(TARGET_DEVICE_ID),
+        targetAuthorityId: String(TARGET_AUTHORITY_ID),
+        targetWalletAuthMethodId: String(TARGET_AUTH_METHOD_ID),
+        replacementId: ENVELOPE_ID,
+        replacementEnvelope,
+      },
+      async (request) => {
+        seen = request;
+        return { kind: 'conflict', reason: 'test conflict' };
+      },
+    ),
+  );
+
+  expect(response?.status).toBe(409);
+  expect(Object.keys(seen as object).sort()).toEqual([
+    'kind',
+    'recoveryOperationId',
+    'replacementEnvelope',
+    'replacementId',
+    'reservationId',
+    'targetAuthorityId',
+    'targetDeviceId',
+    'targetWalletAuthMethodId',
+    'walletId',
+  ]);
+  expect(seen).toMatchObject({ kind: 'replay', walletId: WALLET_ID });
+  expect(seen).not.toHaveProperty('webauthnRegistration');
+  expect(seen).not.toHaveProperty('ecdsaMaterialPossessionProofs');
 });
 
 test('finalize accepts only the exact success response', async () => {

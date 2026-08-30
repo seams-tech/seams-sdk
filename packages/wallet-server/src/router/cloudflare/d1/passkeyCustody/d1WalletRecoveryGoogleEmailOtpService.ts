@@ -52,12 +52,8 @@ import {
   parseVerifiedGoogleEmail,
   type WalletId,
 } from '@shared/utils/domainIds';
-import type {
-  CloudflareD1EmailOtpChallengeIssuer,
-} from '../emailOtp/d1EmailOtpChallengeIssuer';
-import type {
-  CloudflareD1EmailOtpChallengeVerifier,
-} from '../emailOtp/d1EmailOtpChallengeVerifier';
+import type { CloudflareD1EmailOtpChallengeIssuer } from '../emailOtp/d1EmailOtpChallengeIssuer';
+import type { CloudflareD1EmailOtpChallengeVerifier } from '../emailOtp/d1EmailOtpChallengeVerifier';
 import type { CloudflareD1EmailOtpEnrollmentStore } from '../emailOtp/d1EmailOtpEnrollmentStore';
 import type { CloudflareD1EmailOtpServerSealRuntime } from '../emailOtp/d1EmailOtpServerSealRuntime';
 import type { CloudflareD1OidcVerificationService } from '../oidc/d1OidcVerificationService';
@@ -131,13 +127,21 @@ export type WalletRecoveryGoogleEmailOtpFinalizationResult =
   | { readonly kind: 'envelope_rejected'; readonly reason: string }
   | { readonly kind: 'enrollment_rejected'; readonly reason: string };
 
-export type WalletRecoveryGoogleEmailOtpFinalizationRequest = {
-  readonly recovery: WalletRecoveryGoogleEmailOtpFinalizationInput;
-  readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
-  readonly emailOtpEnrollment: WalletRecoveryGoogleEmailOtpFinalizationEnrollment;
-  readonly ecdsaMaterialPossessionProofs: readonly WalletRecoveryEcdsaMaterialPossessionProofInputV1[];
-  readonly dependencies: WalletRecoveryGoogleEmailOtpFinalizationDependencies;
-};
+export type WalletRecoveryGoogleEmailOtpFinalizationRequest =
+  | {
+      readonly kind: 'finalize';
+      readonly recovery: WalletRecoveryGoogleEmailOtpFinalizationInput;
+      readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+      readonly emailOtpEnrollment: WalletRecoveryGoogleEmailOtpFinalizationEnrollment;
+      readonly ecdsaMaterialPossessionProofs: readonly WalletRecoveryEcdsaMaterialPossessionProofInputV1[];
+      readonly dependencies: WalletRecoveryGoogleEmailOtpFinalizationDependencies;
+    }
+  | {
+      readonly kind: 'replay';
+      readonly recovery: WalletRecoveryGoogleEmailOtpFinalizationInput;
+      readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+      readonly dependencies: WalletRecoveryGoogleEmailOtpFinalizationDependencies;
+    };
 
 export type WalletRecoveryGoogleEmailOtpChallengeResult =
   | {
@@ -203,10 +207,7 @@ export class CloudflareD1WalletRecoveryGoogleEmailOtpService {
     'verifyGoogleLoginForRecovery'
   >;
   private readonly issuer: Pick<CloudflareD1EmailOtpChallengeIssuer, 'create'>;
-  private readonly verifier: Pick<
-    CloudflareD1EmailOtpChallengeVerifier,
-    'verifyRecoveryBootstrap'
-  >;
+  private readonly verifier: Pick<CloudflareD1EmailOtpChallengeVerifier, 'verifyRecoveryBootstrap'>;
   private readonly enrollments: Pick<CloudflareD1EmailOtpEnrollmentStore, 'readEnrollment'>;
   private readonly serverSeal: Pick<
     CloudflareD1EmailOtpServerSealRuntime,
@@ -217,20 +218,11 @@ export class CloudflareD1WalletRecoveryGoogleEmailOtpService {
 
   constructor(input: {
     readonly attempts: CloudflareD1WalletRecoveryGoogleEmailOtpAttemptStore;
-    readonly google: Pick<
-      CloudflareD1OidcVerificationService,
-      'verifyGoogleLoginForRecovery'
-    >;
+    readonly google: Pick<CloudflareD1OidcVerificationService, 'verifyGoogleLoginForRecovery'>;
     readonly issuer: Pick<CloudflareD1EmailOtpChallengeIssuer, 'create'>;
-    readonly verifier: Pick<
-      CloudflareD1EmailOtpChallengeVerifier,
-      'verifyRecoveryBootstrap'
-    >;
+    readonly verifier: Pick<CloudflareD1EmailOtpChallengeVerifier, 'verifyRecoveryBootstrap'>;
     readonly enrollments: Pick<CloudflareD1EmailOtpEnrollmentStore, 'readEnrollment'>;
-    readonly serverSeal: Pick<
-      CloudflareD1EmailOtpServerSealRuntime,
-      'removeEmailOtpServerSeal'
-    >;
+    readonly serverSeal: Pick<CloudflareD1EmailOtpServerSealRuntime, 'removeEmailOtpServerSeal'>;
     readonly orgId: string;
     readonly nowMs?: () => number;
   }) {
@@ -246,19 +238,25 @@ export class CloudflareD1WalletRecoveryGoogleEmailOtpService {
 
   async persistPrepared(input: {
     readonly attempt: WalletRecoveryGoogleEmailOtpAttemptRecord;
-  }): Promise<{ readonly kind: 'stored'; readonly version: string } | { readonly kind: 'conflict' }> {
+  }): Promise<
+    { readonly kind: 'stored'; readonly version: string } | { readonly kind: 'conflict' }
+  > {
     return await this.attempts.create(input.attempt);
   }
 
   async readAttempt(
-    recoveryOperationId: Parameters<CloudflareD1WalletRecoveryGoogleEmailOtpAttemptStore['read']>[0],
+    recoveryOperationId: Parameters<
+      CloudflareD1WalletRecoveryGoogleEmailOtpAttemptStore['read']
+    >[0],
   ) {
     return await this.attempts.read(recoveryOperationId);
   }
 
   /** Verifies the Google token and issues the recovery-bound OTP. */
   async verifyGoogle(input: {
-    readonly recoveryOperationId: Parameters<CloudflareD1WalletRecoveryGoogleEmailOtpAttemptStore['read']>[0];
+    readonly recoveryOperationId: Parameters<
+      CloudflareD1WalletRecoveryGoogleEmailOtpAttemptStore['read']
+    >[0];
     readonly reservationId: string;
     readonly idToken: unknown;
     readonly requestOrigin: string | null;
@@ -332,7 +330,9 @@ export class CloudflareD1WalletRecoveryGoogleEmailOtpService {
 
   /** Consumes the recovery-bound OTP; factor release is a separate retryable gate. */
   async verifyOtp(input: {
-    readonly recoveryOperationId: Parameters<CloudflareD1WalletRecoveryGoogleEmailOtpAttemptStore['read']>[0];
+    readonly recoveryOperationId: Parameters<
+      CloudflareD1WalletRecoveryGoogleEmailOtpAttemptStore['read']
+    >[0];
     readonly reservationId: string;
     readonly challengeId: string;
     readonly otpCode: unknown;
@@ -376,7 +376,9 @@ export class CloudflareD1WalletRecoveryGoogleEmailOtpService {
 
   /** Releases existing Email material, or returns authorization to create the first enrollment. */
   async releaseFactor(input: {
-    readonly recoveryOperationId: Parameters<CloudflareD1WalletRecoveryGoogleEmailOtpAttemptStore['read']>[0];
+    readonly recoveryOperationId: Parameters<
+      CloudflareD1WalletRecoveryGoogleEmailOtpAttemptStore['read']
+    >[0];
     readonly reservationId: string;
     readonly workerEphemeralPublicKey65B64u?: unknown;
   }): Promise<WalletRecoveryGoogleEmailOtpFactorReleaseResult> {
@@ -471,12 +473,6 @@ export class CloudflareD1WalletRecoveryGoogleEmailOtpService {
     if (recovery.orgId !== this.orgId) {
       return recoveryFinalizationRefused('recovery operation tenant changed');
     }
-    const enrollmentInput = validateFinalizationEnrollment({
-      recovery,
-      enrollment: input.emailOtpEnrollment,
-    });
-    if (!enrollmentInput.ok) return enrollmentInput;
-
     const stored = await this.attempts.read(recovery.recoveryOperationId);
     if (stored.kind === 'missing') {
       return { kind: 'conflict', reason: 'the recovery operation is unavailable or incomplete' };
@@ -499,6 +495,14 @@ export class CloudflareD1WalletRecoveryGoogleEmailOtpService {
         dependencies: input.dependencies,
       });
     }
+    if (input.kind === 'replay') {
+      return recoveryAttemptUnavailableForFinalization();
+    }
+    const enrollmentInput = validateFinalizationEnrollment({
+      recovery,
+      enrollment: input.emailOtpEnrollment,
+    });
+    if (!enrollmentInput.ok) return enrollmentInput;
     if (stored.value.state !== 'otp_verified') {
       return recoveryAttemptUnavailableForFinalization();
     }
@@ -625,12 +629,11 @@ export class CloudflareD1WalletRecoveryGoogleEmailOtpService {
     if (reservedIndex < 0 || !selected || selected.lifecycle.state !== 'reserved') {
       return recoveryAttemptUnavailableForFinalization();
     }
-    const locator = await input.dependencies.walletCustodyCommits.readRecoveryCodeLocatorByRecoveryKey(
-      {
+    const locator =
+      await input.dependencies.walletCustodyCommits.readRecoveryCodeLocatorByRecoveryKey({
         walletId: recovery.walletId,
         recoveryKeyId: selected.recoveryKeyId,
-      },
-    );
+      });
     if (!locator) return recoveryAttemptUnavailableForFinalization();
     const consumed = consumeReservedRecoveryCode({
       lifecycle: selected.lifecycle,
@@ -754,8 +757,7 @@ async function prepareGoogleEmailRecoveryEnrollment(input: {
         existing.providerUserId !== recovery.providerSubject ||
         existing.verifiedEmail !== recovery.verifiedEmail ||
         existing.enrollmentId !== enrollmentInput.enrollmentId ||
-        existing.enrollmentSealKeyVersion !==
-          enrollmentInput.enrollmentSealKeyVersion
+        existing.enrollmentSealKeyVersion !== enrollmentInput.enrollmentSealKeyVersion
       ) {
         return {
           ok: false,
@@ -1158,7 +1160,7 @@ async function replayGoogleEmailOtpRecovery(input: {
 
 function parseGoogleIdentity(
   result: GoogleVerificationResult,
-): { readonly ok: true } & GoogleIdentity | GoogleRecoveryFailure {
+): ({ readonly ok: true } & GoogleIdentity) | GoogleRecoveryFailure {
   if (!result.ok || result.verified !== true) {
     return {
       ok: false,
@@ -1239,7 +1241,10 @@ function resolveTargetEnrollment(input: {
 }
 
 async function recoveryOwnerProofBindingDigest(input: {
-  readonly attempt: Extract<WalletRecoveryGoogleEmailOtpAttemptRecord, { readonly state: 'prepared' | 'otp_issued' }>;
+  readonly attempt: Extract<
+    WalletRecoveryGoogleEmailOtpAttemptRecord,
+    { readonly state: 'prepared' | 'otp_issued' }
+  >;
   readonly identity: GoogleIdentity;
 }): Promise<DigestB64u> {
   const operationFingerprintDigest = parseDigestB64u(
