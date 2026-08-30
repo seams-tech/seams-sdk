@@ -1,6 +1,5 @@
 import { parseDeviceId, type DeviceId } from '@shared/authorization/capabilityKinds';
 import { alphabetizeStringify } from '@shared/utils/digests';
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
@@ -32,31 +31,6 @@ const RECORD_KIND = 'pending_wallet_recovery_commit_v1' as const;
 const RECORD_VERSION = 1 as const;
 const APP_STATE_PREFIX = `${RECORD_KIND}:`;
 const AES_GCM_IV_BYTES = 12;
-const LOCAL_MATERIAL_CODEC_KIND = 'pending_wallet_recovery_plaintext_codec_v1' as const;
-const FORBIDDEN_PLAINTEXT_KEY =
-  /^(?:recoveryCode(?:Bytes|B64u|Plaintext)?|otpCode|idToken|custodySeed(?:B64u)?|walletCustodySeed(?:B64u)?|seed(?:B64u)?|recoverySecret(?:B64u)?|factorSecret(?:32|B64u)?|clientSecret32|ownedFactorSecret(?:B64u)?|prf(?:Output|First|_output|_first|FirstB64u|_first_b64u)?|passkeyPrfFirstB64u|nearPrivateKey|privateKey|canonicalSeed(?:B64u)?|signingShare32(?:B64u)?|xClientBase(?:B64u)?|clientOutputMask(?:B64u)?)$/i;
-const MAX_LOCAL_MATERIAL_CODEC_DEPTH = 32;
-
-type PendingWalletRecoveryEncodedValueV1 =
-  | null
-  | boolean
-  | string
-  | number
-  | { readonly kind: 'bigint'; readonly decimal: string }
-  | { readonly kind: 'uint8_array'; readonly bytesB64u: string }
-  | { readonly kind: 'array'; readonly items: readonly PendingWalletRecoveryEncodedValueV1[] }
-  | {
-      readonly kind: 'record';
-      readonly entries: readonly {
-        readonly key: string;
-        readonly value: PendingWalletRecoveryEncodedValueV1;
-      }[];
-    };
-
-type PendingWalletRecoveryPlaintextEnvelopeV1 = {
-  readonly kind: typeof LOCAL_MATERIAL_CODEC_KIND;
-  readonly value: PendingWalletRecoveryEncodedValueV1;
-};
 
 /**
  * Local recovery material is carried as one encrypted envelope. The key is a
@@ -148,197 +122,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function encodePendingWalletRecoveryValue(
-  value: unknown,
-  path: string,
-  depth = 0,
-): PendingWalletRecoveryEncodedValueV1 {
-  if (depth > MAX_LOCAL_MATERIAL_CODEC_DEPTH) {
-    throw new Error(`pending wallet recovery plaintext ${path} is too deeply nested`);
-  }
-  if (value === null || typeof value === 'boolean' || typeof value === 'string') return value;
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value) || !Number.isSafeInteger(value) || Object.is(value, -0)) {
-      throw new Error(`pending wallet recovery plaintext ${path} has an invalid number`);
-    }
-    return value;
-  }
-  if (typeof value === 'bigint') return { kind: 'bigint', decimal: value.toString(10) };
-  if (value instanceof Uint8Array) {
-    return { kind: 'uint8_array', bytesB64u: base64UrlEncode(value) };
-  }
-  if (Array.isArray(value)) {
-    const items: PendingWalletRecoveryEncodedValueV1[] = [];
-    for (let index = 0; index < value.length; index += 1) {
-      items.push(encodePendingWalletRecoveryValue(value[index], `${path}[${index}]`, depth + 1));
-    }
-    return {
-      kind: 'array',
-      items,
-    };
-  }
-  if (!isRecord(value) || Object.getPrototypeOf(value) !== Object.prototype) {
-    throw new Error(`pending wallet recovery plaintext ${path} is not a plain record`);
-  }
-  const entries: {
-    readonly key: string;
-    readonly value: PendingWalletRecoveryEncodedValueV1;
-  }[] = [];
-  for (const key of Object.keys(value).sort()) {
-    if (
-      FORBIDDEN_PLAINTEXT_KEY.test(key) ||
-      key === '__proto__' ||
-      key === 'constructor' ||
-      key === 'prototype'
-    ) {
-      throw new Error(`pending wallet recovery plaintext contains forbidden field ${key}`);
-    }
-    const child = value[key];
-    if (child === undefined) {
-      throw new Error(`pending wallet recovery plaintext ${path}.${key} is undefined`);
-    }
-    entries.push({
-      key,
-      value: encodePendingWalletRecoveryValue(child, `${path}.${key}`, depth + 1),
-    });
-  }
-  return { kind: 'record', entries };
-}
-
-function decodePendingWalletRecoveryValue(
-  raw: unknown,
-  path: string,
-  depth = 0,
-): unknown {
-  if (depth > MAX_LOCAL_MATERIAL_CODEC_DEPTH) {
-    throw new Error(`pending wallet recovery plaintext ${path} is too deeply nested`);
-  }
-  if (
-    raw === null ||
-    typeof raw === 'boolean' ||
-    typeof raw === 'string' ||
-    (typeof raw === 'number' && Number.isSafeInteger(raw) && !Object.is(raw, -0))
-  ) {
-    return raw;
-  }
-  if (!isRecord(raw) || typeof raw.kind !== 'string') {
-    throw new Error(`pending wallet recovery plaintext ${path} is invalid`);
-  }
-  switch (raw.kind) {
-    case 'bigint': {
-      if (
-        !hasExactKeys(raw, ['kind', 'decimal']) ||
-        typeof raw.decimal !== 'string' ||
-        !/^(?:0|[1-9][0-9]*|-[1-9][0-9]*)$/.test(raw.decimal)
-      ) {
-        throw new Error(`pending wallet recovery plaintext ${path} bigint is invalid`);
-      }
-      return BigInt(raw.decimal);
-    }
-    case 'uint8_array': {
-      if (!hasExactKeys(raw, ['kind', 'bytesB64u']) || typeof raw.bytesB64u !== 'string') {
-        throw new Error(`pending wallet recovery plaintext ${path} bytes are invalid`);
-      }
-      const bytes = base64UrlDecode(raw.bytesB64u);
-      if (base64UrlEncode(bytes) !== raw.bytesB64u) {
-        throw new Error(`pending wallet recovery plaintext ${path} bytes are not canonical`);
-      }
-      return Uint8Array.from(bytes);
-    }
-    case 'array': {
-      if (!hasExactKeys(raw, ['kind', 'items']) || !Array.isArray(raw.items)) {
-        throw new Error(`pending wallet recovery plaintext ${path} array is invalid`);
-      }
-      const items: unknown[] = [];
-      for (let index = 0; index < raw.items.length; index += 1) {
-        items.push(
-          decodePendingWalletRecoveryValue(raw.items[index], `${path}[${index}]`, depth + 1),
-        );
-      }
-      return items;
-    }
-    case 'record': {
-      if (!hasExactKeys(raw, ['kind', 'entries']) || !Array.isArray(raw.entries)) {
-        throw new Error(`pending wallet recovery plaintext ${path} record is invalid`);
-      }
-      const result: Record<string, unknown> = {};
-      let previousKey = '';
-      for (const [index, entryRaw] of raw.entries.entries()) {
-        if (!isRecord(entryRaw) || !hasExactKeys(entryRaw, ['key', 'value'])) {
-          throw new Error(`pending wallet recovery plaintext ${path} entry is invalid`);
-        }
-        const key = nonEmptyString(entryRaw.key);
-        if (!key || FORBIDDEN_PLAINTEXT_KEY.test(key) || (index > 0 && key <= previousKey)) {
-          throw new Error(`pending wallet recovery plaintext ${path} key is invalid`);
-        }
-        if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
-          throw new Error(`pending wallet recovery plaintext ${path} key is invalid`);
-        }
-        Object.defineProperty(result, key, {
-          configurable: true,
-          enumerable: true,
-          value: decodePendingWalletRecoveryValue(entryRaw.value, `${path}.${key}`, depth + 1),
-          writable: true,
-        });
-        previousKey = key;
-      }
-      return result;
-    }
-    default:
-      throw new Error(`pending wallet recovery plaintext ${path} tag is invalid`);
-  }
-}
-
-export async function encryptPendingWalletRecoveryPlaintextV1(
-  plaintext: unknown,
-): Promise<PendingWalletRecoveryEncryptedMaterialV1> {
-  const envelope: PendingWalletRecoveryPlaintextEnvelopeV1 = {
-    kind: LOCAL_MATERIAL_CODEC_KIND,
-    value: encodePendingWalletRecoveryValue(plaintext, 'value'),
-  };
-  const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
-    'encrypt',
-    'decrypt',
-  ]);
-  const iv = crypto.getRandomValues(new Uint8Array(AES_GCM_IV_BYTES));
-  const encoded = new TextEncoder().encode(JSON.stringify(envelope));
-  try {
-    const ciphertext = new Uint8Array(
-      await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded),
-    );
-    return { kind: 'wallet_recovery_encrypted_material_v1', key, iv, ciphertext };
-  } finally {
-    encoded.fill(0);
-  }
-}
-
-export async function decryptPendingWalletRecoveryPlaintextV1(
-  material: PendingWalletRecoveryEncryptedMaterialV1,
-): Promise<unknown> {
-  const parsedMaterial = parseEncryptedMaterial(material);
-  if (!parsedMaterial) throw new Error('pending wallet recovery encrypted material is invalid');
-  const bytes = new Uint8Array(
-    await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: parsedMaterial.iv },
-      parsedMaterial.key,
-      parsedMaterial.ciphertext,
-    ),
-  );
-  try {
-    const raw: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-    if (
-      !isRecord(raw) ||
-      !hasExactKeys(raw, ['kind', 'value']) ||
-      raw.kind !== LOCAL_MATERIAL_CODEC_KIND
-    ) {
-      throw new Error('pending wallet recovery plaintext envelope is invalid');
-    }
-    return decodePendingWalletRecoveryValue(raw.value, 'value');
-  } finally {
-    bytes.fill(0);
-  }
-}
-
 function hasExactKeys(record: Record<string, unknown>, keys: readonly string[]): boolean {
   const expected = new Set(keys);
   const actual = Object.keys(record);
@@ -355,19 +138,15 @@ function positiveSafeInteger(value: unknown): number | null {
 }
 
 function isNonExtractableAesGcmKey(value: unknown): value is CryptoKey {
-  if (
-    typeof CryptoKey === 'undefined' ||
-    !(value instanceof CryptoKey) ||
-    value.type !== 'secret' ||
-    value.extractable !== false ||
-    value.algorithm.name !== 'AES-GCM' ||
-    value.usages.length !== 2 ||
-    !value.usages.includes('encrypt') ||
-    !value.usages.includes('decrypt')
-  ) {
-    return false;
-  }
-  return 'length' in value.algorithm && value.algorithm.length === 256;
+  return (
+    typeof CryptoKey !== 'undefined' &&
+    value instanceof CryptoKey &&
+    value.type === 'secret' &&
+    value.extractable === false &&
+    value.algorithm.name === 'AES-GCM' &&
+    value.usages.includes('encrypt') &&
+    value.usages.includes('decrypt')
+  );
 }
 
 function parseEncryptedMaterial(raw: unknown): PendingWalletRecoveryEncryptedMaterialV1 | null {
