@@ -446,10 +446,16 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
     const operation = await admitRouterAbEcdsaReusableWalletSessionOperation({
       request,
       materialActivation: authorization.admission.materialActivation,
-      binding: {
-        kind: 'wallet_session_operation_credential_v1',
-        context: authorization.validated.admission.context,
-      },
+      binding:
+        authorization.kind === 'wallet_session_operation_credential_v1'
+          ? {
+              kind: 'wallet_session_operation_credential_v1' as const,
+              context: authorization.validated.admission.context,
+            }
+          : {
+              kind: 'wallet_session_operation_credential_exhausted_candidate_v1' as const,
+              candidate: authorization.candidate,
+            },
       authorizedOperations: input.ctx.service.authorizedOperations,
       resolveEcdsaMaterialActivation:
         input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation.bind(
@@ -544,7 +550,10 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
         );
     }
     authorizedOperation = operation.admission.operation;
-    const session = authorization.validated.admission.context.authorization.session;
+    const session =
+      authorization.kind === 'wallet_session_operation_credential_v1'
+        ? authorization.validated.admission.context.authorization.session
+        : authorization.candidate.session;
     const runtimePolicyScope = authorization.activeMaterial.runtimePolicyScope;
     authorizedOperationWire = buildRouterAbEcdsaAuthorizedOperationWire({
       operation: authorizedOperation,
@@ -581,14 +590,17 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
       : {
           kind: 'wallet_auth_method' as const,
           walletAuthMethodId:
-            authorization.validated.admission.context.authorization.session.walletAuthMethodId,
+            authorization.kind === 'wallet_session_operation_credential_v1'
+              ? authorization.validated.admission.context.authorization.session.walletAuthMethodId
+              : authorization.candidate.session.walletAuthMethodId,
         };
   const admittedBody = {
     ...input.body,
     authorized_operation: authorizedOperationWire,
   };
   const upstream =
-    authorization.kind === 'wallet_session_operation_credential_v1'
+    authorization.kind === 'wallet_session_operation_credential_v1' ||
+    authorization.kind === 'wallet_session_operation_credential_exhausted_candidate_v1'
       ? await proxyNormalSigningRequestToMpcRouter({
           request: input.ctx.request,
           proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
