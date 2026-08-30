@@ -27,6 +27,7 @@ import type {
 import type { NearEd25519YaoSigningPreparation } from '../../session/material/nearEd25519YaoSigningPreparation';
 import {
   isWarmSessionSigningAuthPlan,
+  type SigningAuthPlan,
   type UserConfirmProgressEvent,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
@@ -76,6 +77,8 @@ import {
 import {
   buildSigningConfirmationAuthParams,
   confirmationConfigForSigningAuthPlan,
+  mapSigningConfirmationProgress,
+  resolveSigningConfirmationAuthMethod,
   runSigningConfirmationCommand,
   type ConfirmTransactionSigningOperationResult,
 } from '../shared/signingConfirmation';
@@ -221,6 +224,27 @@ function emitNearSigningEvent(
       }),
     );
   } catch {}
+}
+
+export function emitNearSigningConfirmationProgress(
+  args: {
+    onEvent: ((event: SigningFlowEvent) => void) | undefined;
+    nearAccountId: AccountId | string;
+    signingAuthPlan: SigningAuthPlan;
+  },
+  progress: UserConfirmProgressEvent,
+): void {
+  if (
+    progress.phase !== 'auth.passkey.prompt.started' &&
+    progress.phase !== 'auth.passkey.prompt.succeeded'
+  ) {
+    return;
+  }
+  const authMethod = resolveSigningConfirmationAuthMethod(args.signingAuthPlan);
+  if (authMethod !== 'passkey') return;
+  const event = mapSigningConfirmationProgress(progress, authMethod);
+  if (!event) return;
+  emitNearSigningEvent(args.onEvent, args.nearAccountId, { ...event, authMethod });
 }
 
 async function requireActiveAuthorizedWalletSessionState(
@@ -473,6 +497,11 @@ async function runNearAuthorizationRequiredTransactionSigning(
         }),
         title,
         body,
+        onProgress: emitNearSigningConfirmationProgress.bind(undefined, {
+          onEvent,
+          nearAccountId,
+          signingAuthPlan: preparedStepUp.confirmationAuthPayload.signingAuthPlan,
+        }),
       },
     });
   } finally {
@@ -503,6 +532,14 @@ async function runNearAuthorizationRequiredTransactionSigning(
     displayDigest: confirmation.intentDigest,
     authorization: stepUpAuthorization,
     proof: requireNearEd25519OperationStepUpProof(operationStepUpProof),
+  });
+  emitNearSigningEvent(onEvent, nearAccountId, {
+    phase: SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE,
+    status: 'succeeded',
+    interaction: { kind: 'none', overlay: 'none' },
+    authMethod: resolveSigningConfirmationAuthMethod(
+      preparedStepUp.confirmationAuthPayload.signingAuthPlan,
+    ),
   });
   try {
     await ctx.nonceCoordinator.recoverDurableLeases({ walletId: String(candidate.walletId) });
@@ -711,6 +748,14 @@ async function runAuthorizedNearTransactionWithActionsSigning({
     if (progress.phase === 'auth.passkey.prompt.started') {
       emitConfirmedAuthSideEffectStarted('passkey_reauth');
     }
+    emitNearSigningConfirmationProgress(
+      {
+        onEvent,
+        nearAccountId,
+        signingAuthPlan: signingSessionAuthPlan.confirmationAuthPayload.signingAuthPlan,
+      },
+      progress,
+    );
   };
   const preparedStepUp = await requireNearStepUpAuth({
     signingAuthPlan: providedSigningAuthPlan,
