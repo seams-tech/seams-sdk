@@ -965,12 +965,12 @@ Primary files:
 - [x] Persist Device 2 profile, authenticator, method/factor, authority,
       signer-material state, receipt, and selection as one invisible
       `pending_local_install` transaction before activation.
-- [ ] Make local pending replay idempotent by receipt identity and terminal
+- [x] Make local pending replay idempotent by receipt identity and terminal
       cleanup preserve any pre-existing record.
 - [x] Preserve `server_worker_activation_pending` and
       `wallet_session_issuance_pending` as retryable states that allocate no
       second authority.
-- [ ] Make resume finalize a locally pending method as active before credential
+- [x] Make resume finalize a locally pending method as active before credential
       decrypt.
 - [x] Commit authorization, quota, credential digest, authority/method
       activation, and one complete sealed-delivery row in the activation CAS.
@@ -983,8 +983,12 @@ Primary files:
       excluding IndexedDB bytes and plaintext credential bytes.
 - [x] Make activation replay return the original sealed delivery, recipient,
       digest, and exact session without minting or overwriting.
-- [ ] Order Device 2 as decrypt, validate exact identities, persist V6, activate
-      runtimes, record acknowledgement intent, and acknowledge.
+- [x] Order Device 2 as durable invisible prerequisites, server activation,
+      local login-prerequisite publication, credential decrypt and exact
+      validation, atomic V6/selection finalization, runtime activation,
+      acknowledgement-intent persistence, and acknowledgement. This leaves a
+      normal exact-method unlock recovery path if the recipient handle is lost
+      after the local method becomes active.
 - [x] Extend acknowledgement with authorization ID, Wallet Session ID,
       credential digest, and installation-receipt digest.
 - [x] Reject cross-session or stale acknowledgement before consuming delivery.
