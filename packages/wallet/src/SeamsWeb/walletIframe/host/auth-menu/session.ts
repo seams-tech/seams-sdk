@@ -1965,10 +1965,7 @@ export class AuthMenuSession {
       this.createRecoveryPasskey();
       return;
     }
-    const googleReadyState: Extract<
-      AuthMenuRecoveryState,
-      { readonly stage: 'google_ready' }
-    > = {
+    const googleReadyState: Extract<AuthMenuRecoveryState, { readonly stage: 'google_ready' }> = {
       kind: 'recovery',
       stage: 'google_ready',
       operation: result,
@@ -2740,6 +2737,16 @@ export class AuthMenuSession {
             },
           };
           this.updateElement();
+          return;
+        }
+        if (event.error?.code === DeviceLinkingErrorCode.DELIVERY_RECOVERY_REQUIRED) {
+          this.showLinkedDeviceActivationError(
+            state,
+            new Error(
+              event.message ||
+                'Return to sign in and unlock the new linked method to finish setup.',
+            ),
+          );
           return;
         }
         break;

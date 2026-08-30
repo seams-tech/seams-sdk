@@ -66,6 +66,11 @@ export enum DeviceLinkingErrorCode {
    * wallet and scans again.
    */
   WALLET_UNLOCK_REQUIRED = 'WALLET_UNLOCK_REQUIRED',
+  /**
+   * The committed linked authority is locally installed, while the one-shot
+   * delivery cannot be opened. Exact-method unlock continues the installation.
+   */
+  DELIVERY_RECOVERY_REQUIRED = 'DELIVERY_RECOVERY_REQUIRED',
   SESSION_EXPIRED = 'SESSION_EXPIRED',
   UNSUPPORTED = 'UNSUPPORTED',
 }

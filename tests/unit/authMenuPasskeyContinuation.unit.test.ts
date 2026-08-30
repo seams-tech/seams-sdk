@@ -26,6 +26,8 @@ import { walletIdFromString } from '@shared/utils/registrationIntent';
 import type { AppearanceConfig } from '@/core/types/seams';
 import type { GoogleEmailOtpWalletAuthLoginFlow } from '@/SeamsWeb/publicApi/types';
 import { createLinkDeviceFlowEvent, LinkDeviceEventPhase } from '@/core/types/sdkSentEvents';
+import { classifyLinkedDeviceDeliveryFailureV1 } from '@/SeamsWeb/operations/devices/linkDevice';
+import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { HostedRecoveryPort } from '@/SeamsWeb/walletIframe/host/recovery-port';
 import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
@@ -345,6 +347,62 @@ test.describe('hosted auth-menu passkey continuation', () => {
       },
     });
     session.cleanup();
+  });
+
+  test('routes linked delivery recovery to exact-method sign in', async () => {
+    const message =
+      'The linked device is ready. Return to sign in and unlock the new method to finish setup.';
+    let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
+    const session = authMenuSession({
+      startDeviceLinking: async (_targetFactor, callbacks) => {
+        onEvent = callbacks.onEvent;
+        return await new Promise<never>(() => {});
+      },
+    });
+
+    openAndStartPasskeyDeviceLinking(session);
+    if (!onEvent) throw new Error('Device-linking flow did not publish its event callback');
+    onEvent(
+      createLinkDeviceFlowEvent({
+        flowId: 'linked-device-delivery-recovery-test',
+        phase: LinkDeviceEventPhase.FAILED,
+        status: 'failed',
+        message,
+        error: {
+          code: DeviceLinkingErrorCode.DELIVERY_RECOVERY_REQUIRED,
+          message,
+          retryable: false,
+        },
+      }),
+    );
+
+    expect(session.state).toMatchObject({
+      kind: 'link_device',
+      viewModel: {
+        linkDevice: {
+          kind: 'activation_error',
+          message,
+        },
+      },
+    });
+    session.cleanup();
+  });
+
+  test('classifies pre-decryption recipient loss and sealed delivery expiry', () => {
+    expect(
+      classifyLinkedDeviceDeliveryFailureV1(
+        new Error('device-linking key handle is unknown or discarded'),
+      ),
+    ).toBe('recipient_private_handle_lost');
+    expect(
+      classifyLinkedDeviceDeliveryFailureV1(new Error('recipient handle lost before decrypt')),
+    ).toBe('recipient_private_handle_lost');
+    expect(
+      classifyLinkedDeviceDeliveryFailureV1(
+        new Error('linked-device Wallet Session credential delivery is expired'),
+      ),
+    ).toBe('sealed_delivery_expired');
+    expect(classifyLinkedDeviceDeliveryFailureV1(new Error('session expired'))).toBeNull();
   });
 
   test('shows an explicit retry state when device linking expires', async () => {

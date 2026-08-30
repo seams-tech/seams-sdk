@@ -804,6 +804,10 @@ type SeamsWebDeviceDomain = {
   readonly dispose: () => void;
 };
 
+type SeamsWebContextWithDeviceLinkingResumeV1 = SeamsWebContext & {
+  readonly resumePendingAcknowledgementsV1: () => void;
+};
+
 export function resolveSeamsWebDeviceDomainModeV1(mode: SeamsWebRuntimeMode): 'direct' | 'iframe' {
   return mode === 'wallet_host' ? 'direct' : 'iframe';
 }
@@ -881,9 +885,7 @@ function noopDeviceLinkingDisposeV1(): void {}
 
 async function noopDeviceLinkingAcknowledgementResumeV1(): Promise<void> {}
 
-function resumeDeviceLinkingAcknowledgementsInBackgroundV1(
-  resume: () => Promise<void>,
-): void {
+function resumeDeviceLinkingAcknowledgementsInBackgroundV1(resume: () => Promise<void>): void {
   void resume().catch(reportDeviceLinkingAcknowledgementResumeFailureV1);
 }
 
@@ -1073,6 +1075,7 @@ export class SeamsWeb {
   readonly evm: EvmSignerCapability;
   private readonly walletIframeControls: WalletIframeControlCapability;
   private readonly deviceLinkingDispose: () => void;
+  private readonly resumePendingAcknowledgementsV1: () => Promise<void>;
   private emailOtpUnlockPrewarmRecord: EmailOtpUnlockPrewarmRecord = { kind: 'none' };
 
   constructor(
@@ -1131,6 +1134,7 @@ export class SeamsWeb {
             walletIframe: this.walletIframe,
           });
     this.deviceLinkingDispose = deviceDomain.dispose;
+    this.resumePendingAcknowledgementsV1 = deviceDomain.resumePendingAcknowledgementsV1;
     this.lifecycleEventSource = resolveSeamsWebLifecycleEventSource({
       mode: resolveSeamsWebRuntimeMode(internalOptions),
       signingEngine: this.signingEngine,
@@ -1204,9 +1208,7 @@ export class SeamsWeb {
     this.evm = publicApi.evm;
 
     void this.resumePendingRegistrationOnStartup();
-    resumeDeviceLinkingAcknowledgementsInBackgroundV1(
-      deviceDomain.resumePendingAcknowledgementsV1,
-    );
+    resumeDeviceLinkingAcknowledgementsInBackgroundV1(deviceDomain.resumePendingAcknowledgementsV1);
 
     // UserConfirm worker initializes automatically in the constructor
   }
@@ -1290,13 +1292,19 @@ export class SeamsWeb {
     return this.walletIframeControls.onWalletIframePreferencesChanged(listener);
   }
 
-  getContext(): SeamsWebContext {
+  getContext(): SeamsWebContextWithDeviceLinkingResumeV1 {
     return {
       signingEngine: this.signingEngine,
       nearClient: this.nearClient,
       configs: this.configs,
       theme: this.theme,
+      resumePendingAcknowledgementsV1:
+        this.resumePendingAcknowledgementsAfterExactUnlockV1.bind(this),
     };
+  }
+
+  private resumePendingAcknowledgementsAfterExactUnlockV1(): void {
+    resumeDeviceLinkingAcknowledgementsInBackgroundV1(this.resumePendingAcknowledgementsV1);
   }
 
   private async resumePendingRegistrationOnStartup(): Promise<void> {
@@ -2336,6 +2344,7 @@ export class SeamsWeb {
         otpCode: args.otpCode,
         relayUrl: args.relayUrl,
       });
+      this.resumePendingAcknowledgementsAfterExactUnlockV1();
       return;
     }
     const emailHashHex = await this.emailOtpEmailHashHex(args.email);
@@ -2350,6 +2359,7 @@ export class SeamsWeb {
       otpCode: args.otpCode,
       relayUrl: args.relayUrl,
     });
+    this.resumePendingAcknowledgementsAfterExactUnlockV1();
   }
 
   private async prewarmEmailOtpYaoDomain(): Promise<void> {
