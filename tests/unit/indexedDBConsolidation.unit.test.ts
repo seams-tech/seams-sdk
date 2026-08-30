@@ -8,7 +8,12 @@ import {
   SEAMS_WALLET_STORES,
   assertCanonicalIndexedDBName,
   createSeamsTestWalletDbName,
+  type SeamsWalletStoreName,
 } from '../../packages/wallet/src/core/indexedDB/schemaNames';
+import type {
+  SeamsWalletTransactionContext,
+  SeamsWalletTransactionMode,
+} from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/manager';
 import {
   buildFullOwnerPermissionsV1,
   buildSigningOnlyPermissionsV1,
@@ -1480,6 +1485,94 @@ test.describe('IndexedDB consolidation', () => {
       signerId: 'ed25519:real-material',
       publicKey: 'ed25519:real-material',
       relayerKeyId: 'relayer-real',
+    });
+  });
+
+  test('aborts every local-authority store when the install transaction fails after writes', async ({
+    page,
+  }) => {
+    const fixture = await buildLocalAuthorityInstallationFixture('both');
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    const result = await page.evaluate(
+      async ({ fixture }) => {
+        const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+        const managerModule =
+          await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+        const repositoryModule =
+          await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+        const dbName = schemaNames.createSeamsTestWalletDbName(
+          `authority_install_abort_${crypto.randomUUID()}`,
+        );
+        const manager = new managerModule.SeamsWalletDBManager();
+        manager.setDbName(dbName);
+        const repositories = new repositoryModule.SeamsWalletRepositories(manager);
+        const db = await manager.getDB();
+        await db.put(schemaNames.SEAMS_WALLET_STORES.walletSelections, fixture.selection);
+
+        const runTransaction = manager.runTransaction.bind(manager);
+        manager.runTransaction = async function runTransactionWithInjectedAbort<T>(
+          stores: readonly SeamsWalletStoreName[],
+          mode: SeamsWalletTransactionMode,
+          task: (context: SeamsWalletTransactionContext) => Promise<T> | T,
+        ): Promise<T> {
+          return await runTransaction(stores, mode, async (context) => {
+            await task(context);
+            throw new Error('forced linked-device local-install transaction abort');
+          });
+        };
+
+        let failure = '';
+        try {
+          await repositories.installLocalAuthority(fixture.input);
+        } catch (error: unknown) {
+          failure = error instanceof Error ? error.message : String(error);
+        }
+
+        const selection = await db.get(
+          schemaNames.SEAMS_WALLET_STORES.walletSelections,
+          fixture.walletId,
+        );
+        const counts = {
+          appState: await db.count(schemaNames.SEAMS_WALLET_STORES.appState),
+          wallets: await db.count(schemaNames.SEAMS_WALLET_STORES.wallets),
+          authMethods: await db.count(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods),
+          authorities: await db.count(schemaNames.SEAMS_WALLET_STORES.walletAuthorities),
+          signerMaterials: await db.count(
+            schemaNames.SEAMS_WALLET_STORES.walletAuthoritySignerMaterials,
+          ),
+          exportRoots: await db.count(
+            schemaNames.SEAMS_WALLET_STORES.walletAuthorityExportRoots,
+          ),
+          receipts: await db.count(
+            schemaNames.SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts,
+          ),
+          selections: await db.count(schemaNames.SEAMS_WALLET_STORES.walletSelections),
+        };
+        manager.close();
+        await new Promise<void>((resolve) => {
+          const request = indexedDB.deleteDatabase(dbName);
+          request.onsuccess = () => resolve();
+          request.onerror = () => resolve();
+          request.onblocked = () => resolve();
+        });
+        return { failure, selection, counts };
+      },
+      { fixture },
+    );
+
+    expect(result).toEqual({
+      failure: 'forced linked-device local-install transaction abort',
+      selection: fixture.selection,
+      counts: {
+        appState: 0,
+        wallets: 0,
+        authMethods: 0,
+        authorities: 0,
+        signerMaterials: 0,
+        exportRoots: 0,
+        receipts: 0,
+        selections: 1,
+      },
     });
   });
 
