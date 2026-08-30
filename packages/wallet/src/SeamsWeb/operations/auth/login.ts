@@ -1,6 +1,7 @@
 import type {
   AfterCall,
   CreateUnlockFlowEventInput,
+  EcdsaKeyFactsInventoryWalletSessionCredential,
   LoginHooksOptions,
 } from '@/core/types/sdkSentEvents';
 import { createUnlockFlowEvent, UnlockEventPhase } from '@/core/types/sdkSentEvents';
@@ -49,6 +50,7 @@ import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject } from '@shared/utils/validation';
 import type { WalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type {
   ActiveWalletSessionV1,
   WalletCapabilitySubjectV1,
@@ -145,7 +147,7 @@ import {
   type Ed25519YaoPublicCapabilityLaneReferenceV1,
 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import {
-  fetchWalletEcdsaKeyFactsInventoryWithOpaqueWalletSession,
+  fetchWalletEcdsaKeyFactsInventoryWithOperationCredential,
   fetchWalletEcdsaKeyFactsInventoryWithWebAuthn,
   type WalletEcdsaKeyFactsInventoryResponse,
   type WalletEcdsaKeyFactsInventoryTarget,
@@ -1345,9 +1347,8 @@ async function readActiveWalletPasskeyAuthenticators(
 
 type LoginEcdsaKeyFactsInventoryAuthority =
   | {
-      kind: 'opaque_wallet_session';
-      curve: 'ecdsa_secp256k1';
-      walletSessionToken: string;
+      kind: 'wallet_session_operation_credential_v1';
+      operationCredential: EcdsaKeyFactsInventoryWalletSessionCredential;
     }
   | {
       kind: 'webauthn';
@@ -1468,19 +1469,45 @@ function resolveLoginEcdsaKeyFactsInventoryAuthority(args: {
 }): LoginEcdsaKeyFactsInventoryAuthority | null {
   if (!args.request) return null;
   switch (args.request.mode) {
-    case 'opaque_wallet_session': {
-      const walletSessionToken = args.request.walletSessionToken.trim();
-      if (!walletSessionToken) return null;
-      return {
-        kind: 'opaque_wallet_session',
-        curve: args.request.curve,
-        walletSessionToken,
-      };
+    case 'wallet_session_operation_credential_v1': {
+      try {
+        return {
+          kind: 'wallet_session_operation_credential_v1',
+          operationCredential: parseLoginEcdsaInventoryOperationCredential(
+            args.request.operationCredential,
+          ),
+        };
+      } catch {
+        return null;
+      }
     }
     case 'webauthn':
       return { kind: 'webauthn' };
   }
   return null;
+}
+
+function parseLoginEcdsaInventoryOperationCredential(
+  value: EcdsaKeyFactsInventoryWalletSessionCredential,
+): EcdsaKeyFactsInventoryWalletSessionCredential {
+  if (value.kind === 'opaque_wallet_session_operation_credential_v1') {
+    return parseWalletSessionOperationCredentialV1(value);
+  }
+  if (
+    value.kind !== 'opaque_hosted_wallet_session_operation_credential_v1' ||
+    !/^wsh_[A-Za-z0-9_-]{43}$/.test(value.token)
+  ) {
+    throw new Error('Hosted Wallet Session operation credential is invalid');
+  }
+  const walletSessionId = parseWalletSessionId(value.walletSessionId);
+  if (!walletSessionId.ok) {
+    throw new Error(`Hosted Wallet Session ID is invalid: ${walletSessionId.error.message}`);
+  }
+  return {
+    kind: value.kind,
+    token: value.token,
+    walletSessionId: walletSessionId.value,
+  };
 }
 
 function resolveLoginWarmupRouteAuthorization(): LoginWarmupRouteAuthorization {
@@ -4513,16 +4540,19 @@ function resolveUnlockEcdsaKeyFactsInventoryAuthority(args: {
 }): LoginEcdsaKeyFactsInventoryAuthority | null {
   if (!args.wantsEcdsaWarmup) return null;
   if (args.completedActivation) {
-    const walletSessionToken = String(
-      args.completedActivation.response.session.operation_credential.token || '',
-    ).trim();
-    if (!walletSessionToken) {
-      throw new Error('[login] completed ECDSA unlock omitted its Wallet Session token');
+    let operationCredential: WalletSessionOperationCredentialV1;
+    try {
+      operationCredential = parseWalletSessionOperationCredentialV1(
+        args.completedActivation.response.session.operation_credential,
+      );
+    } catch {
+      throw new Error(
+        '[login] completed ECDSA unlock omitted a valid Wallet Session operation credential',
+      );
     }
     return {
-      kind: 'opaque_wallet_session',
-      curve: 'ecdsa_secp256k1',
-      walletSessionToken,
+      kind: 'wallet_session_operation_credential_v1',
+      operationCredential,
     };
   }
   const authority = resolveLoginEcdsaKeyFactsInventoryAuthority({
@@ -6811,13 +6841,12 @@ async function resolveWalletEcdsaKeyFactsInventoryForLogin(args: {
   if (!relayerUrl || !rpId) {
     throw new Error('[login] threshold ECDSA key-facts inventory requires relayerUrl and rpId');
   }
-  if (args.authority?.kind === 'opaque_wallet_session') {
-    return await fetchWalletEcdsaKeyFactsInventoryWithOpaqueWalletSession({
+  if (args.authority?.kind === 'wallet_session_operation_credential_v1') {
+    return await fetchWalletEcdsaKeyFactsInventoryWithOperationCredential({
       relayerUrl,
       walletId: args.walletId,
       rpId,
-      curve: args.authority.curve,
-      walletSessionToken: args.authority.walletSessionToken,
+      operationCredential: args.authority.operationCredential,
       keyTargets: args.keyTargets,
     });
   }

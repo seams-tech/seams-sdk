@@ -48,7 +48,11 @@ import {
   type WalletAuthMethodId,
 } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
-import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
+import {
+  parseWalletSessionOperationCredentialV1,
+  type WalletSessionOperationCredentialV1,
+} from '@shared/device-linking';
+import type { EcdsaKeyFactsInventoryWalletSessionCredential } from '@/core/types/sdkSentEvents';
 import type {
   MpcWalletSigningQuotaId,
   WalletSessionAuthorizationId,
@@ -2729,40 +2733,38 @@ export async function finalizeWalletAddAuthMethod(
   });
 }
 
-export async function fetchWalletEcdsaKeyFactsInventoryWithOpaqueWalletSession(args: {
+export async function fetchWalletEcdsaKeyFactsInventoryWithOperationCredential(args: {
   relayerUrl: string;
   walletId: WalletId;
   rpId: string;
-  curve: 'ecdsa_secp256k1';
-  walletSessionToken: string;
+  operationCredential: EcdsaKeyFactsInventoryWalletSessionCredential;
   keyTargets: readonly WalletEcdsaKeyFactsInventoryTarget[];
 }): Promise<WalletEcdsaKeyFactsInventoryResponse> {
   const walletId = String(args.walletId || '').trim();
   const rpId = String(args.rpId || '').trim();
-  const walletSessionToken = String(args.walletSessionToken || '').trim();
+  const operationCredential = parseEcdsaKeyFactsInventoryOperationCredential(
+    args.operationCredential,
+  );
   if (!walletId) {
     throw new Error('walletId is required for ECDSA key-facts inventory');
   }
   if (!rpId) {
     throw new Error('rpId is required for ECDSA key-facts inventory');
   }
-  if (!walletSessionToken) {
-    throw new Error('walletSessionToken is required for ECDSA key-facts inventory');
-  }
-
   const data = await postJson<Record<string, unknown>>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/signers/ecdsa/key-facts/inventory`,
     headers: buildBearerAuthorizationHeader({
-      token: walletSessionToken,
-      missingMessage: 'walletSessionToken is required for ECDSA key-facts inventory',
+      token: operationCredential.token,
+      missingMessage:
+        'Wallet Session operation credential is required for ECDSA key-facts inventory',
     }),
     body: {
       rpId,
       keyTargets: args.keyTargets,
       auth: {
-        kind: 'opaque_wallet_session',
-        curve: args.curve,
+        kind: operationCredential.kind,
+        walletSessionId: operationCredential.walletSessionId,
       },
     },
   });
@@ -2777,6 +2779,29 @@ export async function fetchWalletEcdsaKeyFactsInventoryWithOpaqueWalletSession(a
     diagnostics: Object.prototype.hasOwnProperty.call(data, 'diagnostics')
       ? data.diagnostics
       : null,
+  };
+}
+
+function parseEcdsaKeyFactsInventoryOperationCredential(
+  value: EcdsaKeyFactsInventoryWalletSessionCredential,
+): EcdsaKeyFactsInventoryWalletSessionCredential {
+  if (value.kind === 'opaque_wallet_session_operation_credential_v1') {
+    return parseWalletSessionOperationCredentialV1(value);
+  }
+  if (
+    value.kind !== 'opaque_hosted_wallet_session_operation_credential_v1' ||
+    !/^wsh_[A-Za-z0-9_-]{43}$/.test(value.token)
+  ) {
+    throw new Error('Hosted Wallet Session operation credential is invalid');
+  }
+  const walletSessionId = parseWalletSessionId(value.walletSessionId);
+  if (!walletSessionId.ok) {
+    throw new Error(`Hosted Wallet Session ID is invalid: ${walletSessionId.error.message}`);
+  }
+  return {
+    kind: value.kind,
+    token: value.token,
+    walletSessionId: walletSessionId.value,
   };
 }
 
