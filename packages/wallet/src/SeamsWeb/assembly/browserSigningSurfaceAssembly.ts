@@ -105,6 +105,10 @@ import { readEmailOtpProviderSubjectForWalletV1 } from '@/core/signingEngine/thr
 import { readExactWalletSessionAuthorization } from './createBrowserRecoveryPublicDeps';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import { resolveExactEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
+import {
+  ed25519SealedRuntimeAuthorityRef,
+  type ExactEd25519SealedSessionRuntime,
+} from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import type {
   CurrentEcdsaSealedSessionRecord,
   CurrentSealedSessionRecord,
@@ -284,6 +288,101 @@ async function resolveBrowserSelectedFactorAuthority(
       getWalletPasskeyAuthenticator: noWalletPasskeyAuthenticator,
     },
   });
+}
+
+async function resolveBrowserSelectedPasskeyFactorAuthorityForSealedRuntime(args: {
+  readonly walletId: ReturnType<typeof toWalletId>;
+  readonly runtime: ExactEd25519SealedSessionRuntime;
+}): Promise<WalletAuthAuthorityRef> {
+  let selectedResult: BrowserSelectedWalletAuthorityResolution;
+  try {
+    selectedResult = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
+  } catch {
+    throw new Error('[SigningEngine][near] exact Passkey authority is unavailable');
+  }
+  const selected = exactSelectedWalletAuthority(selectedResult, args.walletId);
+  if (!selected || selected.authMethod.kind !== WALLET_AUTH_METHODS.passkey) {
+    throw new Error('[SigningEngine][near] exact Passkey authority is unavailable');
+  }
+  if (
+    args.runtime.walletId !== args.walletId ||
+    args.runtime.factor.kind !== WALLET_AUTH_METHODS.passkey ||
+    String(args.runtime.factor.rpId) !== String(selected.authMethod.rpId) ||
+    args.runtime.factor.credentialIdB64u !== selected.authMethod.credentialIdB64u
+  ) {
+    throw new Error('[SigningEngine][near] exact Passkey authority changed');
+  }
+
+  let sealedAuthority: WalletAuthAuthorityRef;
+  try {
+    sealedAuthority = await ed25519SealedRuntimeAuthorityRef({
+      runtime: args.runtime,
+      walletAuthMethodId: selected.authMethod.walletAuthMethodId,
+    });
+  } catch {
+    throw new Error('[SigningEngine][near] exact Passkey authority changed');
+  }
+  let factorAuthority: WalletAuthAuthority;
+  try {
+    factorAuthority = await resolveBrowserSelectedFactorAuthority(selected);
+  } catch {
+    throw new Error('[SigningEngine][near] exact Passkey authority changed');
+  }
+  const factorAuthorityRef = await walletAuthAuthorityRef({ authority: factorAuthority });
+  if (
+    factorAuthorityRef.walletId !== sealedAuthority.walletId ||
+    factorAuthorityRef.walletAuthMethodId !== sealedAuthority.walletAuthMethodId ||
+    factorAuthorityRef.authorityDigest !== sealedAuthority.authorityDigest
+  ) {
+    throw new Error('[SigningEngine][near] exact Passkey authority changed');
+  }
+  return factorAuthorityRef;
+}
+
+type BrowserNearEd25519PasskeyMaterialAuthorizationRead = Extract<
+  NearEd25519WalletSessionAuthorizationReadResult,
+  { readonly kind: 'found' }
+> | { readonly kind: 'exhausted'; readonly authorization?: never };
+
+export async function resolveBrowserNearEd25519PasskeyAuthorityForMaterial(args: {
+  readonly walletId: ReturnType<typeof toWalletId>;
+  readonly runtime: ExactEd25519SealedSessionRuntime;
+  readonly authorizationRead: BrowserNearEd25519PasskeyMaterialAuthorizationRead;
+}): Promise<WalletAuthAuthorityRef> {
+  switch (args.authorizationRead.kind) {
+    case 'exhausted':
+      return await resolveBrowserSelectedPasskeyFactorAuthorityForSealedRuntime(args);
+    case 'found': {
+      const authorization = args.authorizationRead.authorization;
+      if (
+        authorization.selectedAuthMethod.kind !== WALLET_AUTH_METHODS.passkey ||
+        args.runtime.factor.kind !== WALLET_AUTH_METHODS.passkey ||
+        String(args.runtime.factor.rpId) !== String(authorization.selectedAuthMethod.rpId) ||
+        args.runtime.factor.credentialIdB64u !==
+          authorization.selectedAuthMethod.credentialIdB64u
+      ) {
+        throw new Error('[SigningEngine][near] exact Passkey authority changed');
+      }
+      const authority = await ed25519SealedRuntimeAuthorityRef({
+        runtime: args.runtime,
+        walletAuthMethodId: authorization.selectedAuthMethod.walletAuthMethodId,
+      });
+      const selectedFactorAuthority = await walletAuthAuthorityRef({
+        authority: authorization.selectedFactorAuthority,
+      });
+      if (
+        authority.walletId !== selectedFactorAuthority.walletId ||
+        authority.walletAuthMethodId !== selectedFactorAuthority.walletAuthMethodId ||
+        authority.authorityDigest !== selectedFactorAuthority.authorityDigest
+      ) {
+        throw new Error('[SigningEngine][near] exact Passkey authority changed');
+      }
+      return authority;
+    }
+    default:
+      args.authorizationRead satisfies never;
+      throw new Error('[SigningEngine][near] unsupported exact Passkey authorization read');
+  }
 }
 
 type NearEd25519NonAuthorizedReadResult = Exclude<
