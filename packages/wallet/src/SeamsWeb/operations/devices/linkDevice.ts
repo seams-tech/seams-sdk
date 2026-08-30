@@ -379,6 +379,83 @@ function assertNeverTargetCredentialActivationState(value: never): never {
   throw new Error(`Unknown target credential activation state: ${String(value)}`);
 }
 
+type PostLinkActivationV1 =
+  | {
+      readonly factor: {
+        readonly kind: 'passkey';
+        readonly walletId: ActiveWalletSessionV1['walletId'];
+      };
+      readonly factorSecret32: Uint8Array;
+    }
+  | {
+      readonly factor: {
+        readonly kind: 'email_otp';
+        readonly walletId: ActiveWalletSessionV1['walletId'];
+        readonly walletAuthMethodId: LinkedDeviceTargetCredentialRegistrationResultV1['walletAuthMethodId'];
+        readonly emailHashHex: string;
+        readonly providerIdentity: {
+          readonly provider: 'google' | 'email';
+          readonly providerSubjectId: string;
+        };
+      };
+      readonly factorSecret32: Uint8Array;
+    };
+
+function resolvePostLinkActivationV1(input: {
+  readonly targetFactor: LinkedDeviceTargetCredentialRegistrationResultV1['targetFactor'];
+  readonly walletAuthMethodId: LinkedDeviceTargetCredentialRegistrationResultV1['walletAuthMethodId'];
+  readonly targetCredentialActivationState: TargetCredentialActivationState;
+  readonly emailOtpTargetActivationState: EmailOtpTargetActivationStateV1;
+  readonly walletId: ActiveWalletSessionV1['walletId'];
+  readonly runEpoch: number;
+}): PostLinkActivationV1 {
+  switch (input.targetFactor.kind) {
+    case 'verified_passkey_target_v1': {
+      const activation = input.targetCredentialActivationState;
+      if (
+        (activation.kind !== 'factor_ready' && activation.kind !== 'consuming') ||
+        activation.runEpoch !== input.runEpoch
+      ) {
+        throw new Error('linked-device Passkey factor runtime is unavailable');
+      }
+      return {
+        factor: {
+          kind: 'passkey',
+          walletId: input.walletId,
+        },
+        factorSecret32: activation.factorSecret,
+      };
+    }
+    case 'verified_email_otp_target_v1': {
+      const activation = requireCompletedEmailOtpTargetActivationStateV1(
+        input.emailOtpTargetActivationState,
+      );
+      if (activation.runEpoch !== input.runEpoch) {
+        throw new Error('linked-device Email OTP factor runtime is unavailable');
+      }
+      return {
+        factor: {
+          kind: 'email_otp',
+          walletId: input.walletId,
+          walletAuthMethodId: input.walletAuthMethodId,
+          emailHashHex: input.targetFactor.authMethod.emailHashHex,
+          providerIdentity: {
+            provider: emailOtpProviderForLinkedEnrollment(activation.enrollment),
+            providerSubjectId: activation.providerUserId,
+          },
+        },
+        factorSecret32: activation.factorSecret,
+      };
+    }
+    default:
+      return assertNeverVerifiedTargetFactor(input.targetFactor);
+  }
+}
+
+function assertNeverVerifiedTargetFactor(value: never): never {
+  throw new Error(`Unknown verified target factor kind: ${String(value)}`);
+}
+
 function zeroizeLiveBytes(value: Uint8Array): void {
   if (value.byteLength > 0) value.fill(0);
 }
@@ -1884,45 +1961,14 @@ export class LinkDeviceFlow {
     if (!authenticationContext) {
       throw new Error('linked-device authentication context is unavailable');
     }
-    const postLinkActivation =
-      registration.targetFactor.kind === 'verified_passkey_target_v1'
-        ? (() => {
-            const activation = this.targetCredentialActivationState;
-            if (
-              (activation.kind !== 'factor_ready' && activation.kind !== 'consuming') ||
-              activation.runEpoch !== runEpoch
-            ) {
-              throw new Error('linked-device Passkey factor runtime is unavailable');
-            }
-            return {
-              factor: {
-                kind: 'passkey' as const,
-                walletId: walletSession.walletId,
-              },
-              factorSecret32: activation.factorSecret,
-            };
-          })()
-        : (() => {
-            const activation = requireCompletedEmailOtpTargetActivationStateV1(
-              this.emailOtpTargetActivationState,
-            );
-            if (activation.runEpoch !== runEpoch) {
-              throw new Error('linked-device Email OTP factor runtime is unavailable');
-            }
-            return {
-              factor: {
-                kind: 'email_otp' as const,
-                walletId: walletSession.walletId,
-                walletAuthMethodId: registration.walletAuthMethodId,
-                emailHashHex: registration.targetFactor.authMethod.emailHashHex,
-                providerIdentity: {
-                  provider: emailOtpProviderForLinkedEnrollment(activation.enrollment),
-                  providerSubjectId: activation.providerUserId,
-                },
-              },
-              factorSecret32: activation.factorSecret,
-            };
-          })();
+    const postLinkActivation = resolvePostLinkActivationV1({
+      targetFactor: registration.targetFactor,
+      walletAuthMethodId: registration.walletAuthMethodId,
+      targetCredentialActivationState: this.targetCredentialActivationState,
+      emailOtpTargetActivationState: this.emailOtpTargetActivationState,
+      walletId: walletSession.walletId,
+      runEpoch,
+    });
     await activateLinkedDeviceSignerRuntimesAfterLink({
       context: authenticationContext,
       factor: postLinkActivation.factor,

@@ -288,7 +288,7 @@ import {
 import {
   projectWalletRegistrationSessionCommitReceiptV2,
   registrationReplayAuthMethodFields,
-  legacyRegistrationCommit,
+  replayedRegistrationCommit,
   unissuedRegistrationCommit,
   type RegistrationCommitExecution,
   type WalletRegistrationNearProvisioningFinalizeResponse,
@@ -1016,15 +1016,13 @@ function assertNeverFoundingSignerFacts(value: never): never {
 export type D1WalletRegistrationActivateSideEffectRecord =
   RouterAbEd25519YaoRegistrationSideEffectRecordV2<
     WalletRegistrationSessionCommitReceiptV2,
-    D1WalletRegistrationOperationPreparedV1,
-    WalletRegistrationActivateResponseV2
+    D1WalletRegistrationOperationPreparedV1
   >;
 
 export type D1WalletRegistrationActivateSideEffectStore =
   RouterAbEd25519YaoRegistrationSideEffectStoreV2<
     WalletRegistrationSessionCommitReceiptV2,
-    D1WalletRegistrationOperationPreparedV1,
-    WalletRegistrationActivateResponseV2
+    D1WalletRegistrationOperationPreparedV1
   > & {
     listByKeyPrefix(
       keyStartsWith: string,
@@ -1196,15 +1194,13 @@ function registrationEstablishedSessionResultFromIssuance(
 export type D1WalletRegistrationNearProvisioningSideEffectStore =
   RouterAbEd25519YaoRegistrationSideEffectStoreV2<
     WalletRegistrationSessionCommitReceiptV2,
-    D1WalletRegistrationOperationPreparedV1,
-    WalletRegistrationNearProvisioningFinalizeResponse
+    D1WalletRegistrationOperationPreparedV1
   >;
 
 export type D1WalletRegistrationNearProvisioningSideEffectRecord =
   RouterAbEd25519YaoRegistrationSideEffectRecordV2<
     WalletRegistrationSessionCommitReceiptV2,
-    D1WalletRegistrationOperationPreparedV1,
-    WalletRegistrationNearProvisioningFinalizeResponse
+    D1WalletRegistrationOperationPreparedV1
   >;
 
 function recordValue(value: unknown): Record<string, unknown> | null {
@@ -3480,13 +3476,9 @@ export class CloudflareD1WalletRegistrationService {
         { readonly kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v2' }
       >;
     }> = [];
-    let legacyCompletionFound = false;
     for (const entry of entries) {
       if (entry.result.kind !== 'present') continue;
       switch (entry.result.value.kind) {
-        case 'router_ab_ed25519_yao_registration_side_effect_completion_v1':
-          legacyCompletionFound = true;
-          break;
         case 'router_ab_ed25519_yao_registration_side_effect_completion_v2':
           completed.push({ record: entry.result.value });
           break;
@@ -3496,9 +3488,9 @@ export class CloudflareD1WalletRegistrationService {
           return assertNeverD1RegistrationSideEffectRecord(entry.result.value);
       }
     }
-    if (legacyCompletionFound) {
-      throw new Error('registration activation has no credential-free installation receipt');
-    }
+    /* A retired credential-bearing completion row no longer parses, so the scan
+       drops it and no installation is found. Every caller that needs one fails
+       rather than continuing, so such a row can never replay a stored bearer. */
     if (completed.length === 0) return null;
     if (completed.length !== 1) {
       throw new Error('registration activation has conflicting committed installation receipts');
@@ -3757,14 +3749,14 @@ export class CloudflareD1WalletRegistrationService {
     }
     switch (receipt.committed.kind) {
       case 'error':
-        return legacyRegistrationCommit(receipt.committed.error);
+        return replayedRegistrationCommit(receipt.committed.error);
       case 'near_pending': {
         if (!isRegistrationNearPendingReceipt(receipt)) {
           throw new Error('Registration pending receipt branch is invalid');
         }
         const authMethod = registrationReplayAuthMethodFields(receipt);
         if (authMethod.kind === 'passkey') {
-          return legacyRegistrationCommit({
+          return replayedRegistrationCommit({
             ok: true,
             kind: 'near_ed25519',
             walletId: receipt.walletId,
@@ -3777,7 +3769,7 @@ export class CloudflareD1WalletRegistrationService {
             nearProvisioning: { status: 'near_pending' },
           });
         }
-        return legacyRegistrationCommit({
+        return replayedRegistrationCommit({
           ok: true,
           kind: 'near_ed25519',
           walletId: receipt.walletId,
@@ -3818,13 +3810,13 @@ export class CloudflareD1WalletRegistrationService {
             : {}),
         };
         if (authMethod.kind === 'passkey') {
-          return legacyRegistrationCommit({
+          return replayedRegistrationCommit({
             ...committedFields,
             authMethod: authMethod.authMethod,
             rpId: authMethod.rpId,
           });
         }
-        return legacyRegistrationCommit({
+        return replayedRegistrationCommit({
           ...committedFields,
           authMethod: authMethod.authMethod,
         });
@@ -3843,7 +3835,7 @@ export class CloudflareD1WalletRegistrationService {
       throw new Error('Registration NEAR provisioning receipt operation is invalid');
     }
     if (receipt.committed.kind === 'error') {
-      return legacyRegistrationCommit(receipt.committed.error);
+      return replayedRegistrationCommit(receipt.committed.error);
     }
     if (receipt.committed.kind !== 'near_ready') {
       throw new Error('Registration NEAR provisioning receipt branch is invalid');
@@ -3873,13 +3865,13 @@ export class CloudflareD1WalletRegistrationService {
       registrationEstablishedSession,
     };
     if (authMethod.kind === 'passkey') {
-      return legacyRegistrationCommit({
+      return replayedRegistrationCommit({
         ...committedFields,
         authMethod: authMethod.authMethod,
         rpId: authMethod.rpId,
       });
     }
-    return legacyRegistrationCommit({
+    return replayedRegistrationCommit({
       ...committedFields,
       authMethod: authMethod.authMethod,
     });
@@ -3928,8 +3920,7 @@ export class CloudflareD1WalletRegistrationService {
       const run = await runRouterAbEd25519YaoRegistrationSideEffectV2<
         RegistrationCommitExecution<WalletRegistrationNearProvisioningFinalizeResponse>,
         WalletRegistrationSessionCommitReceiptV2,
-        D1WalletRegistrationOperationPreparedV1,
-        WalletRegistrationNearProvisioningFinalizeResponse
+        D1WalletRegistrationOperationPreparedV1
       >(this.nearProvisioningSideEffects, {
         kind: 'prepared_resumable',
         operation: 'near_provisioning',
@@ -3952,7 +3943,6 @@ export class CloudflareD1WalletRegistrationService {
             registrationCeremonyId: input.registrationCeremonyId,
             execution,
           }),
-        adaptLegacyResponse: legacyRegistrationCommit,
         replay: this.replayWalletRegistrationNearProvisioningCommit.bind(this),
       });
       switch (run.kind) {
@@ -4387,8 +4377,7 @@ export class CloudflareD1WalletRegistrationService {
       const run = await runRouterAbEd25519YaoRegistrationSideEffectV2<
         RegistrationCommitExecution<WalletRegistrationActivateResponseV2>,
         WalletRegistrationSessionCommitReceiptV2,
-        D1WalletRegistrationOperationPreparedV1,
-        WalletRegistrationActivateResponseV2
+        D1WalletRegistrationOperationPreparedV1
       >(this.activateSideEffects, {
         kind: 'prepared_resumable',
         operation: 'registration_activate',
@@ -4413,7 +4402,6 @@ export class CloudflareD1WalletRegistrationService {
             registrationCeremonyId: claims.registrationCeremonyId,
             execution,
           }),
-        adaptLegacyResponse: legacyRegistrationCommit,
         replay: this.replayWalletRegistrationActivateCommit.bind(this),
       });
       switch (run.kind) {

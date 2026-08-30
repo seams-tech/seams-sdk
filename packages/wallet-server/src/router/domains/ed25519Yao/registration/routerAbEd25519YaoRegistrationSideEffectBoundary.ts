@@ -95,79 +95,19 @@ export type RouterAbEd25519YaoRegistrationSideEffectCompletionV2<C, P> = {
   readonly receipt: C;
 };
 
-export type RouterAbEd25519YaoRegistrationSideEffectWritableRecordV2<C, P> =
+export type RouterAbEd25519YaoRegistrationSideEffectRecordV2<C, P> =
   | RouterAbEd25519YaoRegistrationSideEffectClaimV1<P>
   | RouterAbEd25519YaoRegistrationSideEffectCompletionV2<C, P>;
 
-export type RouterAbEd25519YaoRegistrationSideEffectRecordV2<C, P, T = never> =
-  | RouterAbEd25519YaoRegistrationSideEffectWritableRecordV2<C, P>
-  | RouterAbEd25519YaoRegistrationSideEffectCompletionV1<T, P>;
-
-export interface RouterAbEd25519YaoRegistrationSideEffectStoreV2<C, P, T = never> {
+export interface RouterAbEd25519YaoRegistrationSideEffectStoreV2<C, P> {
   read(
     key: string,
-  ): Promise<
-    VersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV2<C, P, T>>
-  >;
+  ): Promise<VersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV2<C, P>>>;
   put(
     key: string,
-    value: RouterAbEd25519YaoRegistrationSideEffectWritableRecordV2<C, P>,
+    value: RouterAbEd25519YaoRegistrationSideEffectRecordV2<C, P>,
     expectedVersion: string | null,
   ): Promise<VersionedJsonRecordPutResult>;
-}
-
-export function parseRouterAbEd25519YaoRegistrationSideEffectRecordV2WithLegacy<T, C, P>(
-  raw: unknown,
-  input: {
-    readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
-    readonly parsePrepared: (value: unknown) => P | null;
-    readonly parseReceipt: (value: unknown) => C | null;
-    readonly parseLegacyResponse: (value: unknown) => T | null;
-  },
-): RouterAbEd25519YaoRegistrationSideEffectRecordV2<C, P, T> | null {
-  if (
-    isRecord(raw) &&
-    raw.kind === 'router_ab_ed25519_yao_registration_side_effect_completion_v1'
-  ) {
-    const requestFingerprint = parseFingerprint(raw.requestFingerprint);
-    const preparedArtifactFingerprint = parsePreparedFingerprint(raw.preparedArtifactFingerprint);
-    const claimedAtMs = parseTimestamp(raw.claimedAtMs);
-    const completedAtMs = parseTimestamp(raw.completedAtMs);
-    const prepared = input.parsePrepared(raw.prepared);
-    const response = input.parseLegacyResponse(raw.response);
-    if (
-      raw.operation !== input.operation ||
-      !hasExactKeys(raw, [
-        'kind',
-        'operation',
-        'requestFingerprint',
-        'preparedArtifactFingerprint',
-        'claimedAtMs',
-        'completedAtMs',
-        'prepared',
-        'response',
-      ]) ||
-      requestFingerprint === null ||
-      preparedArtifactFingerprint === null ||
-      claimedAtMs === null ||
-      completedAtMs === null ||
-      prepared === null ||
-      response === null
-    ) {
-      return null;
-    }
-    return {
-      kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
-      operation: input.operation,
-      requestFingerprint,
-      preparedArtifactFingerprint,
-      claimedAtMs,
-      completedAtMs,
-      prepared,
-      response,
-    };
-  }
-  return parseRouterAbEd25519YaoRegistrationSideEffectRecordV2(raw, input);
 }
 
 export function parseRouterAbEd25519YaoRegistrationSideEffectRecordV2<C, P>(
@@ -504,7 +444,7 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P>(
   };
 }
 
-export type RouterAbEd25519YaoRegistrationSideEffectRunInputV2<T, C, P, L = T> = {
+export type RouterAbEd25519YaoRegistrationSideEffectRunInputV2<T, C, P> = {
   readonly kind: 'prepared_resumable';
   readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
   readonly key: string;
@@ -519,29 +459,28 @@ export type RouterAbEd25519YaoRegistrationSideEffectRunInputV2<T, C, P, L = T> =
   ) => Promise<T>;
   readonly projectReceipt: (response: T) => Promise<C> | C;
   readonly replay: (receipt: C) => Promise<T>;
-  readonly adaptLegacyResponse: (response: L) => T;
 };
 
 export type RouterAbEd25519YaoRegistrationSideEffectRunResultV2<T, P> =
   RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T, P>;
 
-type RegistrationV2AdapterResponse<T, C, L> =
+type RegistrationV2AdapterResponse<T, C> =
   | { readonly kind: 'executed_response'; readonly response: T }
-  | { readonly kind: 'receipt_replay'; readonly receipt: C }
-  | { readonly kind: 'legacy_replay'; readonly response: L };
+  | { readonly kind: 'receipt_replay'; readonly receipt: C };
 
 /**
- * Registration-only journal runner. Completion CAS stores a receipt instead
- * of the public response; replay is responsible for minting any ephemeral
- * bearer after the durable receipt has been read.
+ * Registration-only journal runner. Completion CAS stores a credential-free
+ * receipt instead of the public response, and replay rebuilds the committed
+ * projection from that receipt. A committed credential cannot be recovered
+ * from its digest, so replay never reconstructs one.
  */
-export async function runRouterAbEd25519YaoRegistrationSideEffectV2<T, C, P, L = T>(
-  store: RouterAbEd25519YaoRegistrationSideEffectStoreV2<C, P, L>,
-  input: RouterAbEd25519YaoRegistrationSideEffectRunInputV2<T, C, P, L>,
+export async function runRouterAbEd25519YaoRegistrationSideEffectV2<T, C, P>(
+  store: RouterAbEd25519YaoRegistrationSideEffectStoreV2<C, P>,
+  input: RouterAbEd25519YaoRegistrationSideEffectRunInputV2<T, C, P>,
 ): Promise<RouterAbEd25519YaoRegistrationSideEffectRunResultV2<T, P>> {
   const adaptedStore = new RegistrationV2StoreAdapter(store, input.projectReceipt);
   const adaptedInput: RouterAbEd25519YaoRegistrationSideEffectRunInputV1<
-    RegistrationV2AdapterResponse<T, C, L>,
+    RegistrationV2AdapterResponse<T, C>,
     P
   > = {
     kind: input.kind,
@@ -586,17 +525,15 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV2<T, C, P, L =
   }
 }
 
-async function resolveRegistrationV2AdapterReplay<T, C, P, L>(
-  value: RegistrationV2AdapterResponse<T, C, L>,
-  input: RouterAbEd25519YaoRegistrationSideEffectRunInputV2<T, C, P, L>,
+async function resolveRegistrationV2AdapterReplay<T, C, P>(
+  value: RegistrationV2AdapterResponse<T, C>,
+  input: RouterAbEd25519YaoRegistrationSideEffectRunInputV2<T, C, P>,
 ): Promise<T> {
   switch (value.kind) {
     case 'executed_response':
       return value.response;
     case 'receipt_replay':
       return await input.replay(value.receipt);
-    case 'legacy_replay':
-      return input.adaptLegacyResponse(value.response);
     default:
       return assertNever(value);
   }
@@ -606,13 +543,12 @@ class RegistrationV2StoreAdapter<
   T,
   C,
   P,
-  L,
 > implements RouterAbEd25519YaoRegistrationSideEffectStoreV1<
-  RegistrationV2AdapterResponse<T, C, L>,
+  RegistrationV2AdapterResponse<T, C>,
   P
 > {
   public constructor(
-    private readonly store: RouterAbEd25519YaoRegistrationSideEffectStoreV2<C, P, L>,
+    private readonly store: RouterAbEd25519YaoRegistrationSideEffectStoreV2<C, P>,
     private readonly projectReceipt: (response: T) => Promise<C> | C,
   ) {}
 
@@ -620,7 +556,7 @@ class RegistrationV2StoreAdapter<
     key: string,
   ): Promise<
     VersionedJsonRecordReadResult<
-      RouterAbEd25519YaoRegistrationSideEffectRecordV1<RegistrationV2AdapterResponse<T, C, L>, P>
+      RouterAbEd25519YaoRegistrationSideEffectRecordV1<RegistrationV2AdapterResponse<T, C>, P>
     >
   > {
     const result = await this.store.read(key);
@@ -648,21 +584,6 @@ class RegistrationV2StoreAdapter<
           },
         };
       }
-      case 'router_ab_ed25519_yao_registration_side_effect_completion_v1':
-        return {
-          kind: 'present',
-          version: result.version,
-          value: {
-            kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
-            operation: result.value.operation,
-            requestFingerprint: result.value.requestFingerprint,
-            preparedArtifactFingerprint: result.value.preparedArtifactFingerprint,
-            claimedAtMs: result.value.claimedAtMs,
-            completedAtMs: result.value.completedAtMs,
-            prepared: result.value.prepared,
-            response: { kind: 'legacy_replay', response: result.value.response },
-          },
-        };
       default:
         return assertNever(result.value);
     }
@@ -670,10 +591,7 @@ class RegistrationV2StoreAdapter<
 
   public async put(
     key: string,
-    value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<
-      RegistrationV2AdapterResponse<T, C, L>,
-      P
-    >,
+    value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<RegistrationV2AdapterResponse<T, C>, P>,
     expectedVersion: string | null,
   ): Promise<VersionedJsonRecordPutResult> {
     switch (value.kind) {

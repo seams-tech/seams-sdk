@@ -7,29 +7,18 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const sourceRoots = [
-  'packages/shared-ts/src',
-  'packages/wallet/src',
-  'packages/wallet-server/src',
-];
+const sourceRoots = ['packages/shared-ts/src', 'packages/wallet/src', 'packages/wallet-server/src'];
 
 // Temporary Refactor 91 inventory. New occurrences fail; removals must shrink this list.
 const approvedBinaryFallbacks = new Map([
   ['packages/wallet/src/SeamsWeb/assembly/browserSigningSurfaceAssembly.ts', 1],
   ['packages/wallet/src/core/signingEngine/flows/signNear/signTransactions.ts', 1],
   ['packages/wallet/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts', 1],
-  [
-    'packages/wallet-server/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts',
-    1,
-  ],
 ]);
 const approvedLiteralUnions = new Map([
   ['packages/wallet/src/core/signingEngine/flows/recovery/ecdsaExportMaterial.ts', 1],
   ['packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts', 7],
-  [
-    'packages/wallet/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
-    4,
-  ],
+  ['packages/wallet/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts', 4],
   ['packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore.ts', 6],
   ['packages/wallet/src/core/signingEngine/session/postconditions/runtimePostconditions.ts', 0],
   ['packages/wallet/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts', 1],
