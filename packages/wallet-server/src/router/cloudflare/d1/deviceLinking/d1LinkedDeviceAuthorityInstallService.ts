@@ -54,6 +54,7 @@ import {
 import type {
   LocalAuthorityActivationFinalAckV1,
   LocalAuthorityInstallationReceiptV1,
+  LinkDevicePublicKeyB64u,
   OrdinarySignerMaterialRecipientRequestV1,
   LinkedDeviceOrdinaryMaterialSourceContributionV1,
   OrdinarySignerMaterialReservationPreparationV1 as SharedOrdinarySignerMaterialReservationPreparationV1,
@@ -173,6 +174,7 @@ export type D1LinkedDeviceAuthorityInstallServiceOptionsV1 = {
   readonly listWalletEd25519Signers: ListWalletEd25519SignersV1;
   readonly sessionStore: Pick<
     D1LinkedDeviceSessionStoreV1,
+    | 'getSessionV1'
     | 'buildAuthorityPendingLocalInstallCasStatementsV1'
     | 'buildAuthorityActivationCasStatementsV1'
     | 'deleteActiveSessionWithStatementsV1'
@@ -270,6 +272,9 @@ class LinkedDeviceActivationIntegrityErrorV1 extends Error {
     this.name = 'LinkedDeviceActivationIntegrityErrorV1';
   }
 }
+
+/** Exact-method cleanup remains available for five minutes after server receipt creation. */
+const LINKED_DEVICE_ACKNOWLEDGEMENT_CLEANUP_WINDOW_MS = 5 * 60 * 1000;
 
 export type LocalAuthorityActivationAcknowledgementAuthenticationV1 =
   | {
@@ -1069,16 +1074,54 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         authentication: input.authentication,
         nowMs,
       });
+      const persistedCleanupReceipt = await this.readActivationCleanupReceiptV1({
+        linkSessionId: acknowledgement.linkSessionId,
+        requestedAtMs: nowMs,
+      });
+      if (persistedCleanupReceipt) {
+        assertAcknowledgementMatchesCleanupReceipt(acknowledgement, persistedCleanupReceipt);
+        return;
+      }
+      const durableSession = await this.options.sessionStore.getSessionV1(
+        acknowledgement.linkSessionId,
+      );
+      const session = durableSession
+        ? null
+        : await this.options.sessionService.getSessionV1({
+            linkSessionId: acknowledgement.linkSessionId,
+            nowMs,
+          });
+      if (durableSession && durableSession.state.state !== 'active') {
+        throw new Error('active authority acknowledgement requires an active link session');
+      }
+      const cleanupSession = durableSession;
+      const devicePublicKeyB64u =
+        durableSession?.qrPayload.devicePublicKeyB64u ?? session?.qrPayload.devicePublicKeyB64u;
+      if (!devicePublicKeyB64u) {
+        throw new LinkedDeviceActivationIntegrityErrorV1(
+          'exact Wallet Session acknowledgement has no durable cleanup receipt or device identity',
+        );
+      }
+      const prepared = await this.prepareActivationAcknowledgementV1({
+        acknowledgement,
+        devicePublicKeyB64u,
+        nowMs,
+      });
+      await this.commitAcknowledgementCleanupV1({
+        prepared,
+        session: cleanupSession,
+        nowMs,
+      });
+      return;
     }
     const providedSession =
       input.authentication.kind === 'live' ? input.authentication.session : null;
-    const session =
-      providedSession || input.authentication.kind === 'exact_wallet_session'
-        ? await this.options.sessionService.getSessionV1({
-            linkSessionId: providedSession?.linkSessionId ?? acknowledgement.linkSessionId,
-            nowMs,
-          })
-        : null;
+    const session = providedSession
+      ? await this.options.sessionService.getSessionV1({
+          linkSessionId: providedSession.linkSessionId,
+          nowMs,
+        })
+      : null;
     if (providedSession && session && session.revision !== providedSession.revision) {
       throw new Error('active authority acknowledgement session is stale');
     }
@@ -1099,11 +1142,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       }
       const cleanupReceipt = persistedCleanupReceipt;
       if (!cleanupReceipt) {
-        if (input.authentication.kind === 'exact_wallet_session') {
-          throw new LinkedDeviceActivationIntegrityErrorV1(
-            'exact Wallet Session acknowledgement has no durable cleanup receipt',
-          );
-        }
         throw new Error('active authority acknowledgement session is stale or missing');
       }
       if (
@@ -1129,51 +1167,71 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     }
     const prepared = await this.prepareActivationAcknowledgementV1({
       acknowledgement,
-      session,
+      devicePublicKeyB64u: session.qrPayload.devicePublicKeyB64u,
       nowMs,
     });
+    await this.commitAcknowledgementCleanupV1({ prepared, session, nowMs });
+  }
+
+  private async commitAcknowledgementCleanupV1(input: {
+    readonly prepared: {
+      readonly acknowledgement: LocalAuthorityActivationFinalAckV1;
+      readonly cleanupReceipt: LinkedDeviceActivationCleanupReceiptV1;
+      readonly delivery: LinkedDeviceWalletSessionCredentialDeliveryV1;
+      readonly authBindingDigestB64u: DigestB64u;
+      readonly authExpiresAtMs: number;
+    };
+    readonly session: LinkedDeviceSessionRecordV1 | null;
+    readonly nowMs: number;
+  }): Promise<void> {
     const beforeDeleteStatements = [
-      this.buildCredentialDeliveryAcknowledgementStatement(prepared),
-      this.buildAuthorityAllocationDeleteStatement(acknowledgement.linkSessionId),
+      this.buildCredentialDeliveryAcknowledgementStatement(input.prepared),
+      this.buildAuthorityAllocationDeleteStatement(input.prepared.acknowledgement.linkSessionId),
       this.buildCredentialDeliveryCleanupStateStatement({
-        linkSessionId: acknowledgement.linkSessionId,
+        linkSessionId: input.prepared.acknowledgement.linkSessionId,
         from: 'pending',
         to: 'allocation_removed',
       }),
     ];
     const afterDeleteStatements = [
       this.buildCredentialDeliveryCleanupStateStatement({
-        linkSessionId: acknowledgement.linkSessionId,
+        linkSessionId: input.prepared.acknowledgement.linkSessionId,
         from: 'allocation_removed',
         to: 'session_removed',
       }),
-      this.buildCredentialDeliveryCleanupCompleteStatement(acknowledgement.linkSessionId),
+      this.buildCredentialDeliveryCleanupCompleteStatement(
+        input.prepared.acknowledgement.linkSessionId,
+      ),
     ];
     try {
-      const deleted = await this.options.sessionStore.deleteActiveSessionWithStatementsV1({
-        linkSessionId: session.linkSessionId,
-        expectedRevision: session.revision,
-        authorityId: acknowledgement.authorityId,
-        packageSetDigestB64u: acknowledgement.packageSetDigestB64u,
-        nowMs,
-        beforeDeleteStatements,
-        afterDeleteStatements,
-      });
-      if (
-        deleted.outcome !== 'applied' &&
-        deleted.outcome !== 'replayed' &&
-        deleted.outcome !== 'deleted'
-      ) {
-        const detail = 'message' in deleted && deleted.message ? `: ${deleted.message}` : '';
-        throw new Error(`active authority cleanup failed: ${deleted.outcome}${detail}`);
+      if (input.session) {
+        const deleted = await this.options.sessionStore.deleteActiveSessionWithStatementsV1({
+          linkSessionId: input.session.linkSessionId,
+          expectedRevision: input.session.revision,
+          authorityId: input.prepared.acknowledgement.authorityId,
+          packageSetDigestB64u: input.prepared.acknowledgement.packageSetDigestB64u,
+          nowMs: input.nowMs,
+          beforeDeleteStatements,
+          afterDeleteStatements,
+        });
+        if (
+          deleted.outcome !== 'applied' &&
+          deleted.outcome !== 'replayed' &&
+          deleted.outcome !== 'deleted'
+        ) {
+          const detail = 'message' in deleted && deleted.message ? `: ${deleted.message}` : '';
+          throw new Error(`active authority cleanup failed: ${deleted.outcome}${detail}`);
+        }
+      } else {
+        await this.options.database.batch([...beforeDeleteStatements, ...afterDeleteStatements]);
       }
     } catch (error: unknown) {
       const replay = await this.readActivationCleanupReceiptV1({
-        linkSessionId: acknowledgement.linkSessionId,
-        requestedAtMs: nowMs,
+        linkSessionId: input.prepared.acknowledgement.linkSessionId,
+        requestedAtMs: input.nowMs,
       });
       if (replay) {
-        assertAcknowledgementMatchesCleanupReceipt(acknowledgement, replay);
+        assertAcknowledgementMatchesCleanupReceipt(input.prepared.acknowledgement, replay);
         return;
       }
       throw error;
@@ -1224,7 +1282,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
 
   private async prepareActivationAcknowledgementV1(input: {
     readonly acknowledgement: LocalAuthorityActivationFinalAckV1;
-    readonly session: LinkedDeviceSessionRecordV1;
+    readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
     readonly nowMs: number;
   }): Promise<{
     readonly acknowledgement: LocalAuthorityActivationFinalAckV1;
@@ -1297,18 +1355,15 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         'active authority acknowledgement Wallet Session identity does not match the delivery',
       );
     }
-    const authExpiresAtMs = Math.min(input.session.qrPayload.expiresAtMs, delivery.aad.expiresAtMs);
-    if (
-      input.acknowledgement.acknowledgedAtMs >= authExpiresAtMs ||
-      input.nowMs >= authExpiresAtMs
-    ) {
+    const authExpiresAtMs = input.nowMs + LINKED_DEVICE_ACKNOWLEDGEMENT_CLEANUP_WINDOW_MS;
+    if (!Number.isSafeInteger(authExpiresAtMs)) {
       throw new Error('active authority acknowledgement is expired');
     }
     const cleanupReceipt: LinkedDeviceActivationCleanupReceiptV1 = {
       kind: 'linked_device_activation_cleanup_receipt_v1',
-      devicePublicKeyB64u: input.session.qrPayload.devicePublicKeyB64u,
+      devicePublicKeyB64u: input.devicePublicKeyB64u,
       devicePublicKeyDigestB64u: await computeLinkedDevicePublicKeyDigestV1(
-        input.session.qrPayload.devicePublicKeyB64u,
+        input.devicePublicKeyB64u,
       ),
       linkSessionId: input.acknowledgement.linkSessionId,
       walletId: stored.walletId,
