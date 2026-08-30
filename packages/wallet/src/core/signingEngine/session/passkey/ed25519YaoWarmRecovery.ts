@@ -20,8 +20,6 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import {
-  parsePasskeyWalletAuthAuthority,
-  parseWalletAuthAuthorityRef,
   walletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
@@ -188,10 +186,7 @@ function requireParticipantIds(value: unknown): readonly [number, number] {
   return [Number(value[0]), Number(value[1])];
 }
 
-const OWNER_WARM_RECOVERY_RESPONSE_KEYS = [
-  'authority',
-  'authorityRef',
-  'authorityScope',
+const WARM_RECOVERY_RESPONSE_KEYS = [
   'capability',
   'kind',
   'nearAccountId',
@@ -481,15 +476,11 @@ async function parseWarmRecoveryDescriptor(args: {
 }): Promise<ParsedPasskeyEd25519YaoRecoveryDescriptorV1> {
   const record = args.record;
   const response = args.response;
-  exactResponseKeys(response, OWNER_WARM_RECOVERY_RESPONSE_KEYS);
-  if (response.kind !== 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1') {
+  exactResponseKeys(response, WARM_RECOVERY_RESPONSE_KEYS);
+  if (response.kind !== 'router_ab_ed25519_yao_v2_session_bootstrap_v1') {
     throw new Error('warm recovery bootstrap response kind is invalid');
   }
   const restore = record.ed25519Restore;
-  const credentialIdB64u = requireString(
-    restore.credentialIdB64u,
-    'ed25519Restore.credentialIdB64u',
-  );
   const walletId = requireString(response.walletId, 'response.walletId');
   const nearAccountId = requireString(response.nearAccountId, 'response.nearAccountId');
   const nearEd25519SigningKeyId = requireString(
@@ -507,9 +498,6 @@ async function parseWarmRecoveryDescriptor(args: {
     'response.thresholdExpiresAtMs',
   );
   const participantIds = requireParticipantIds(response.participantIds);
-  const authority = parsePasskeyWalletAuthAuthority(response.authority);
-  const authorityRef = parseWalletAuthAuthorityRef(response.authorityRef);
-  const authorityScope = requireRecord(response.authorityScope, 'response.authorityScope');
   const responseRuntimePolicyScope = normalizeRuntimePolicyScope(
     requireRecord(response.runtimePolicyScope, 'response.runtimePolicyScope'),
   );
@@ -523,28 +511,13 @@ async function parseWarmRecoveryDescriptor(args: {
   const quotaId = parseMpcWalletSigningQuotaId(response.quotaId);
   const capability = parseEd25519YaoRecoveryCapabilityV1(response.capability);
   const walletSessionToken = args.authorization.operationCredential.token;
-  const responseAuthorityRef = authority ? await walletAuthAuthorityRef({ authority }) : null;
   if (
-    !authority ||
-    !authorityRef ||
-    !responseAuthorityRef ||
-    authorityRef.walletId !== responseAuthorityRef.walletId ||
-    authorityRef.walletAuthMethodId !== responseAuthorityRef.walletAuthMethodId ||
-    authorityRef.authorityDigest !== responseAuthorityRef.authorityDigest ||
-    authority.walletId !== record.walletId ||
-    authority.factor.credentialIdB64u !== credentialIdB64u ||
-    authority.verifier.rpId !== restore.rpId ||
-    authority.bindingId !== args.expectedAuthorityRef.walletAuthMethodId ||
-    authorityRef.walletId !== args.expectedAuthorityRef.walletId ||
-    authorityRef.walletAuthMethodId !== args.expectedAuthorityRef.walletAuthMethodId ||
-    authorityRef.authorityDigest !== args.expectedAuthorityRef.authorityDigest ||
-    authorityScope.kind !== 'passkey_rp' ||
     !walletSessionId.ok ||
     !quotaId.ok ||
+    args.expectedAuthorityRef.walletId !== record.walletId ||
     String(walletSessionId.value) !==
       String(args.authorization.operationCredential.walletSessionId) ||
     String(quotaId.value) !== String(args.authorization.record.quotaId) ||
-    authorityScope.rpId !== restore.rpId ||
     !routerAbNormalSigning ||
     walletId !== record.walletId ||
     nearAccountId !== restore.nearAccountId ||
@@ -570,14 +543,14 @@ async function parseWarmRecoveryDescriptor(args: {
     throw new Error('[SigningEngine][near] active Wallet Session authorization is unavailable');
   }
   const descriptor: ParsedPasskeyEd25519YaoRecoveryDescriptorV1 = {
-    authority: authorityRef,
+    authority: args.expectedAuthorityRef,
     walletId: walletIdFromString(walletId),
     nearAccountId: toAccountId(nearAccountId),
     nearEd25519SigningKeyId,
     signerSlot,
     operationalPublicKey: `ed25519:${base58Encode(Uint8Array.from(capability.registeredPublicKey))}`,
     relayerKeyId: signingWorkerId,
-    credentialIdB64u,
+    credentialIdB64u: requireString(restore.credentialIdB64u, 'ed25519Restore.credentialIdB64u'),
     session: {
       sessionKind: 'opaque',
       walletSessionToken,
