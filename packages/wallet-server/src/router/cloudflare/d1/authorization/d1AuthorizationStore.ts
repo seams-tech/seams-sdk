@@ -90,6 +90,10 @@ export type D1AuthorizationStoreOptions = {
   readonly walletSignerScope: D1WalletStoreScope;
 };
 
+type DirectV2CommitMode =
+  | { readonly kind: 'strict' }
+  | { readonly kind: 'validated_registration_authority_projection' };
+
 const ECDSA_SIGNER_MATCH = `
   EXISTS (
     SELECT 1
@@ -1167,7 +1171,27 @@ export class CloudflareD1AuthorizationStore
   async commitDirectWalletSessionAuthorizationV2(input: {
     readonly persisted: PersistedActiveWalletSessionAuthorizationV2;
   }): Promise<DirectV2CommitResult> {
-    const { persisted } = input;
+    return await this.commitDirectWalletSessionAuthorizationV2WithMode({
+      persisted: input.persisted,
+      mode: { kind: 'strict' },
+    });
+  }
+
+  /** A promoted registration replay accepts the committed winner after an insert race. */
+  async commitDirectRegistrationPromotedWalletSessionAuthorizationV2(input: {
+    readonly persisted: PersistedActiveWalletSessionAuthorizationV2;
+  }): Promise<DirectV2CommitResult> {
+    return await this.commitDirectWalletSessionAuthorizationV2WithMode({
+      persisted: input.persisted,
+      mode: { kind: 'validated_registration_authority_projection' },
+    });
+  }
+
+  private async commitDirectWalletSessionAuthorizationV2WithMode(input: {
+    readonly persisted: PersistedActiveWalletSessionAuthorizationV2;
+    readonly mode: DirectV2CommitMode;
+  }): Promise<DirectV2CommitResult> {
+    const { persisted, mode } = input;
     requireExactPersistedActiveWalletSessionAuthorizationV2(persisted);
     const statements = this.prepareDirectWalletSessionAuthorizationV2Statements(persisted);
     const results = await this.database.batch<D1ResultLike>(statements);
@@ -1195,6 +1219,16 @@ export class CloudflareD1AuthorizationStore
     const committed = await this.readWalletSessionAuthorizationV2ByMint(lookup);
     if (!committed) {
       throw new Error('Direct V2 Wallet Session authorization commit was not readable');
+    }
+    if (sessionChanges === 0) {
+      switch (mode.kind) {
+        case 'strict':
+          break;
+        case 'validated_registration_authority_projection':
+          return { kind: 'already_committed', committed };
+        default:
+          return assertNeverDirectV2CommitMode(mode);
+      }
     }
     if (committed.session.walletSessionId !== persisted.session.walletSessionId) {
       throw new Error('Direct V2 Wallet Session commit returned a different session identity');
@@ -3027,4 +3061,8 @@ function parseExactWalletSessionQuotaProjectionRow(
     remainingUses,
     expiresAtMs,
   });
+}
+
+function assertNeverDirectV2CommitMode(value: never): never {
+  throw new Error(`Unsupported direct V2 Wallet Session commit mode: ${String(value)}`);
 }
