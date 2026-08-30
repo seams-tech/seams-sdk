@@ -7,6 +7,12 @@ import {
 } from '@server/router/auth/walletSessionFailure';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import {
   parseWalletSessionAuthorizationBoundary,
   requireActiveWalletSessionAuthorization,
@@ -22,15 +28,21 @@ import {
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseWebAuthnCredentialIdB64u,
+  parseWalletAuthMethodId,
   type WebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
+import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import { buildEd25519PasskeySigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { toAccountId } from '@/core/types/accountIds';
 import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import type { SessionParseFailureReason } from '@server/core/sessionValidation';
-import { buildLinkedDeviceUnlockRuntimeFixture } from './helpers/linkedDeviceUnlockRuntime.fixtures';
+import {
+  buildLinkedDeviceActiveWalletSessionFixture,
+  buildLinkedDeviceUnlockRuntimeFixture,
+  type LinkedDeviceUnlockRuntimeFixture,
+} from './helpers/linkedDeviceUnlockRuntime.fixtures';
 
 const NOW_MS = 1_900_000_000_000;
 const NOW_SECONDS = Math.floor(NOW_MS / 1_000);
@@ -92,9 +104,111 @@ class ClientWalletSessionAuthorizationPersistenceHarness {
   }
 }
 
+type ParsedFixtureValue<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: { readonly message: string } };
+
+function requireParsedFixtureValue<T>(result: ParsedFixtureValue<T>): T {
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
+
+function buildExportSiblingFixture(fixture: LinkedDeviceUnlockRuntimeFixture) {
+  const authMethodId = requireParsedFixtureValue(
+    parseWalletAuthMethodId('wallet-auth-method:export-sibling'),
+  );
+  const authorizationId = requireParsedFixtureValue(
+    parseWalletSessionAuthorizationId('authorization:export-sibling'),
+  );
+  const quotaId = requireParsedFixtureValue(
+    parseMpcWalletSigningQuotaId('wallet-quota:export-sibling'),
+  );
+  const walletSessionId = requireParsedFixtureValue(
+    parseWalletSessionId('wallet-session:export-sibling'),
+  );
+  const authMethod = buildWalletAuthMethodRecordV2({
+    ...fixture.authMethod,
+    walletAuthMethodId: authMethodId,
+    credentialIdB64u: webAuthnCredentialId('export-sibling-credential'),
+    updatedAtMs: fixture.authMethod.updatedAtMs + 1,
+  });
+  if (authMethod.kind !== 'passkey' || authMethod.status !== 'active') {
+    throw new Error('export sibling fixture changed auth-method branch');
+  }
+  const session = buildLinkedDeviceActiveWalletSessionFixture({
+    source: fixture.activeWalletSession,
+    authMethodId,
+    authorizationId,
+    quotaId,
+    authorityDigestB64u: fixture.authority.authorityDigestB64u,
+    authorityRevocationEpoch: fixture.authority.revocationEpoch,
+  });
+  const operationCredential = parseWalletSessionOperationCredentialV1({
+    kind: 'opaque_wallet_session_operation_credential_v1',
+    token: `wst_${'E'.repeat(43)}`,
+    walletSessionId,
+  });
+  return { authMethod, operationCredential, session };
+}
+
+function selectedWalletAuthorityForExport(
+  fixture: LinkedDeviceUnlockRuntimeFixture,
+  authMethod: LinkedDeviceUnlockRuntimeFixture['authMethod'],
+): SelectedWalletAuthorityResult {
+  return {
+    kind: 'resolved',
+    selection: {
+      ...fixture.selection,
+      walletAuthMethodId: authMethod.walletAuthMethodId,
+    },
+    authMethod,
+    authority: fixture.authority,
+    signerMaterials: fixture.signerMaterials,
+    exportRoot: null,
+  };
+}
+
+class ExactExportSiblingReaderHarness {
+  selected: SelectedWalletAuthorityResult;
+  readonly exactReadInputs: Array<
+    Parameters<ClientWalletSessionAuthorizationPersistenceDeps['readExactActiveForWallet']>[0]
+  > = [];
+  readonly deps: ClientWalletSessionAuthorizationPersistenceDeps;
+
+  constructor(
+    private readonly reads: ReadonlyMap<string, WalletSessionAuthorizationExactActiveReadResult>,
+    selected: SelectedWalletAuthorityResult,
+  ) {
+    this.selected = selected;
+    this.deps = {
+      resolveSelectedWalletAuthority: this.resolveSelectedWalletAuthority.bind(this),
+      readExactActiveForWallet: this.readExactActiveForWallet.bind(this),
+    };
+  }
+
+  async resolveSelectedWalletAuthority(): Promise<SelectedWalletAuthorityResult> {
+    return this.selected;
+  }
+
+  async readExactActiveForWallet(
+    input: Parameters<
+      ClientWalletSessionAuthorizationPersistenceDeps['readExactActiveForWallet']
+    >[0],
+  ): Promise<WalletSessionAuthorizationExactActiveReadResult> {
+    this.exactReadInputs.push(input);
+    return this.reads.get(String(input.authMethodId)) ?? { kind: 'missing' };
+  }
+}
+
 function linkedRuntimeEd25519Lane(
   fixture: Awaited<ReturnType<typeof buildLinkedDeviceUnlockRuntimeFixture>>,
   credentialIdB64u: WebAuthnCredentialIdB64u = fixture.authMethod.credentialIdB64u,
+  operationCredential: Awaited<
+    ReturnType<typeof buildLinkedDeviceUnlockRuntimeFixture>
+  >['operationCredential'] = fixture.operationCredential,
+  session: Awaited<
+    ReturnType<typeof buildLinkedDeviceUnlockRuntimeFixture>
+  >['activeWalletSession'] = fixture.activeWalletSession,
 ) {
   return buildEd25519PasskeySigningLane({
     walletId: fixture.walletId,
@@ -108,8 +222,8 @@ function linkedRuntimeEd25519Lane(
       rpId: toRpId(String(fixture.authMethod.rpId)),
       credentialIdB64u,
     },
-    walletSessionId: fixture.operationCredential.walletSessionId,
-    quotaId: fixture.ed25519Session.quotaId,
+    walletSessionId: operationCredential.walletSessionId,
+    quotaId: session.quotaId,
     thresholdSessionId: fixture.ed25519Session.thresholdSessionId,
     storageSource: 'login',
   });
@@ -285,6 +399,77 @@ test('Ed25519 export preflight reads only the selected exact Wallet Session', as
       }),
     ).resolves.toEqual(expect.objectContaining(failure.expected));
   }
+});
+
+test('Ed25519 export preflight keeps same-wallet sibling credentials isolated', async () => {
+  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  const sibling = buildExportSiblingFixture(fixture);
+  const primaryLane = linkedRuntimeEd25519Lane(fixture);
+  const siblingLane = linkedRuntimeEd25519Lane(
+    fixture,
+    sibling.authMethod.credentialIdB64u,
+    sibling.operationCredential,
+    sibling.session,
+  );
+  const primarySelected = selectedWalletAuthorityForExport(fixture, fixture.authMethod);
+  const siblingSelected = selectedWalletAuthorityForExport(fixture, sibling.authMethod);
+  const harness = new ExactExportSiblingReaderHarness(
+    new Map([
+      [
+        String(fixture.authMethod.walletAuthMethodId),
+        {
+          kind: 'found' as const,
+          record: fixture.activeWalletSession,
+          operationCredential: fixture.operationCredential,
+        },
+      ],
+      [
+        String(sibling.authMethod.walletAuthMethodId),
+        {
+          kind: 'found' as const,
+          record: sibling.session,
+          operationCredential: sibling.operationCredential,
+        },
+      ],
+    ]),
+    primarySelected,
+  );
+
+  const primaryState = await readClientWalletSessionAuthorization(harness.deps, {
+    kind: 'ed25519',
+    laneIdentity: primaryLane.identity,
+    nowMs: Date.now(),
+  });
+  expect(primaryState).toMatchObject({
+    kind: 'active',
+    walletSessionId: fixture.operationCredential.walletSessionId,
+    quotaId: fixture.activeWalletSession.quotaId,
+  });
+
+  harness.selected = siblingSelected;
+  const siblingState = await readClientWalletSessionAuthorization(harness.deps, {
+    kind: 'ed25519',
+    laneIdentity: siblingLane.identity,
+    nowMs: Date.now(),
+  });
+  expect(siblingState).toMatchObject({
+    kind: 'active',
+    walletSessionId: sibling.operationCredential.walletSessionId,
+    quotaId: sibling.session.quotaId,
+  });
+
+  expect(harness.exactReadInputs).toEqual([
+    {
+      walletId: fixture.walletId,
+      authorityId: fixture.authority.authorityId,
+      authMethodId: fixture.authMethod.walletAuthMethodId,
+    },
+    {
+      walletId: fixture.walletId,
+      authorityId: fixture.authority.authorityId,
+      authMethodId: sibling.authMethod.walletAuthMethodId,
+    },
+  ]);
 });
 
 test('Ed25519 persistence rejects a sibling quota substituted into the exact session', async () => {
