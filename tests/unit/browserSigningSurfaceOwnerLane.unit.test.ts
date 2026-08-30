@@ -3,17 +3,26 @@ import {
   BrowserSigningSurface,
   resolveExactNearEd25519WalletSessionOperationCredentialForStepUp,
 } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
+import {
+  resolveBrowserNearEd25519PasskeyAuthorityForMaterial,
+} from '@/SeamsWeb/assembly/browserSigningSurfaceAssembly';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import {
   walletSessionAuthorizations,
   type WalletSessionAuthorizationExactActiveReadResult,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   buildLinkedDeviceManagementAuthorityFixture,
   linkedDevicePermissionsForManagementFixture,
 } from './helpers/linkedDeviceManagement.fixtures';
 import { buildLinkedDeviceUnlockRuntimeFixture } from './helpers/linkedDeviceUnlockRuntime.fixtures';
+import {
+  buildPasskeyEd25519SealedSessionRecordFixture,
+  buildPasskeyExactEd25519AuthorizationFixture,
+} from './helpers/sealedSigningSession.fixtures';
 
 type ResolvedOwnerAuthority = Extract<
   ResolveSelectedWalletAuthorityResultV1,
@@ -226,5 +235,61 @@ test('fails closed when operation step-up has no selected exact Wallet Session',
   } finally {
     IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelected;
     walletSessionAuthorizations.readExactWithOperationCredential = originalReadExact;
+  }
+});
+
+test('resolves the selected Passkey factor for an exhausted sealed runtime without a session credential', async () => {
+  const record = buildPasskeyEd25519SealedSessionRecordFixture();
+  const runtime = parseExactEd25519SealedSessionRuntime(record);
+  if (!runtime) throw new Error('Passkey sealed runtime fixture is invalid');
+  const authorization = buildPasskeyExactEd25519AuthorizationFixture(record);
+  const selected = {
+    kind: 'resolved' as const,
+    selection: {
+      kind: 'wallet_selection_v1' as const,
+      walletId: authorization.selectedAuthority.walletId,
+      walletAuthMethodId: authorization.selectedAuthMethod.walletAuthMethodId,
+      lockGeneration: 0,
+      lockState: 'unlocked' as const,
+      updatedAtMs: 2,
+    },
+    authMethod: authorization.selectedAuthMethod,
+    authority: authorization.selectedAuthority,
+    signerMaterials: [],
+    exportRoot: null,
+  };
+  const originalResolveSelected = IndexedDBManager.resolveSelectedWalletAuthority;
+  try {
+    IndexedDBManager.resolveSelectedWalletAuthority = async () => selected;
+
+    const resolved = await resolveBrowserNearEd25519PasskeyAuthorityForMaterial({
+      walletId: authorization.selectedAuthority.walletId,
+      runtime,
+      authorizationRead: { kind: 'exhausted' },
+    });
+    expect(resolved).toEqual(
+      await walletAuthAuthorityRef({ authority: authorization.selectedFactorAuthority }),
+    );
+    expect(resolved).not.toHaveProperty('operationCredential');
+
+    const mismatchedRecord = buildPasskeyEd25519SealedSessionRecordFixture({
+      walletId: record.walletId,
+      nearAccountId: record.ed25519Restore.nearAccountId,
+      nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
+      thresholdSessionId: 'ed25519-sealed-runtime-mismatched-factor',
+      materialActivation: record.ed25519Restore.materialActivation,
+      credentialIdB64u: 'ed25519-sealed-runtime-mismatched-credential',
+    });
+    const mismatchedRuntime = parseExactEd25519SealedSessionRuntime(mismatchedRecord);
+    if (!mismatchedRuntime) throw new Error('mismatched Passkey runtime fixture is invalid');
+    await expect(
+      resolveBrowserNearEd25519PasskeyAuthorityForMaterial({
+        walletId: authorization.selectedAuthority.walletId,
+        runtime: mismatchedRuntime,
+        authorizationRead: { kind: 'exhausted' },
+      }),
+    ).rejects.toThrow('exact Passkey authority changed');
+  } finally {
+    IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelected;
   }
 });
