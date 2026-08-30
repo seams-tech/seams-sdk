@@ -1561,6 +1561,42 @@ export function prepareWalletEcdsaRegistrationPublication(
   });
 }
 
+export type PrepareWalletMixedRegistrationPublicationInput =
+  | (PrepareWalletEd25519RegistrationPublicationInput & {
+      readonly kind: 'passkey';
+      readonly walletKeys: NonEmptyWalletEcdsaKeys;
+    })
+  | (PrepareWalletEmailOtpEd25519RegistrationPublicationInput & {
+      readonly kind: 'email_otp';
+      readonly walletKeys: NonEmptyWalletEcdsaKeys;
+    });
+
+export async function prepareWalletMixedRegistrationPublication(
+  args: PrepareWalletMixedRegistrationPublicationInput,
+): Promise<StoreWalletRegistrationPublicationInputV1> {
+  const composition: StoreWalletRegistrationComposition = {
+    kind: 'near_ed25519_and_evm_family_ecdsa',
+    walletKeys: args.walletKeys,
+  };
+  const prepared =
+    args.kind === 'passkey'
+      ? prepareWalletEd25519RegistrationBatch(args, { kind: 'fresh_registration' }, composition)
+      : await prepareWalletEmailOtpEd25519RegistrationBatch(
+          args,
+          composition,
+          { kind: 'fresh_registration' },
+        );
+  return buildWalletEd25519RegistrationPublication({
+    prepared,
+    walletId: args.walletId,
+    nearAccountId: args.nearAccountId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+    signerSlot: args.signerSlot,
+    participantIds: args.participantIds,
+    custodyMaterials: [args.custodyMaterial],
+  });
+}
+
 type WalletRecoveryPasskeyPublicationCommon = {
   readonly walletId: WalletId;
   readonly rpId: WebAuthnRpId;
