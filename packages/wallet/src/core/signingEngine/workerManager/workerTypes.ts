@@ -77,7 +77,6 @@ import type {
   FinalizeEcdsaHolderOrdinaryExportResultV1,
 } from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 import type {
-  Ed25519OperationStepUpCredential,
   Ed25519OperationStepUpProof,
   IssuedEd25519OperationStepUpAuthorization,
 } from '../threshold/ed25519/walletSession';
@@ -628,7 +627,7 @@ export type EmailOtpEd25519YaoOperationMaterialRequest = {
   readonly normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
   readonly displayDigest: string;
   readonly proof: Extract<Ed25519OperationStepUpProof, { kind: 'email_otp' }>;
-  readonly credential: Ed25519OperationStepUpCredential;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
 };
 
 export interface EmailOtpWorkerOperationMap {
@@ -961,7 +960,7 @@ export interface EmailOtpWorkerOperationMap {
       target: EmailOtpWarmMaterialTarget;
       transport: {
         relayerUrl: string;
-        walletSessionToken?: string;
+        operationCredential?: WalletSessionOperationCredentialV1;
         signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
         groupId?: string;
       };
@@ -993,7 +992,7 @@ export interface EmailOtpWorkerOperationMap {
       expiresAtMs: number;
       transport: {
         relayerUrl: string;
-        walletSessionToken?: string;
+        operationCredential?: WalletSessionOperationCredentialV1;
         signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
         groupId?: string;
       };
@@ -1036,7 +1035,7 @@ export interface EmailOtpWorkerOperationMap {
       readonly remainingUses: number;
       readonly expectedOperationalPublicKey: string;
       readonly expectedThresholdSessionId: ThresholdEd25519SessionId;
-      readonly walletSessionToken: string;
+      readonly operationCredential: WalletSessionOperationCredentialV1;
       readonly ecdsa: {
         readonly sessionHandleBinding: Extract<
           EmailOtpEcdsaSessionBootstrapHandleBinding,

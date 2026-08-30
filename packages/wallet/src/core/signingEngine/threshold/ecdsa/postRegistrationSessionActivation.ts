@@ -39,7 +39,7 @@ export type ActivateStrictEcdsaPostRegistrationSessionInput = {
   readonly relayerUrl: string;
   readonly routeAuth: Extract<
     ThresholdEcdsaDerivationRouteAuth,
-    { kind: 'opaque_wallet_session' }
+    { kind: 'opaque_wallet_session_operation_credential_v1' }
   >;
   readonly workerCtx: WorkerOperationContext;
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;

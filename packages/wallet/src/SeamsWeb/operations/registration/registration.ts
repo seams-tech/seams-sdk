@@ -11,7 +11,6 @@ import {
   type WebAuthnRpId,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
-import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import type {
   CreateRegistrationFlowEventInput,
   RegistrationFlowEvent,
@@ -51,7 +50,7 @@ import { type ConfirmationConfig } from '@/core/types/signer-worker';
 import { getUserFriendlyErrorMessage } from '@shared/utils/errors';
 import { alphabetizeStringify, sha256BytesUtf8, sha256HexUtf8 } from '@shared/utils/digests';
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
-import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
+import { IndexedDBManager } from '@/core/indexedDB';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
   WalletIframeAuthMenuSessionId,
@@ -72,6 +71,7 @@ import type {
   RegistrationSignerPlanBranch,
   RegisterWalletInput,
   RegistrationSignerSetSelection,
+  WalletAuthMethodRecordV2,
   WalletId,
 } from '@shared/utils/registrationIntent';
 import {
@@ -181,11 +181,7 @@ import { persistPasskeyEd25519YaoSignerMaterialV1 } from '@/core/signingEngine/s
 import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
 import { toAccountId } from '@/core/types/accountIds';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { persistActiveWalletSessionAuthorizationFromDirectRegistration } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
-import type {
-  ActiveWalletSessionV1,
-  WalletCapabilitySubjectV1,
-} from '@shared/device-linking/contracts';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import type {
   RegistrationEstablishedSessionProjectionV2,
   RegistrationEstablishedSessionResultV2,
@@ -2075,30 +2071,11 @@ function requireDeferredNearCustodyWork(
   return work;
 }
 
-function appendRegistrationEd25519SigningCapability(
-  subjects: ActiveWalletSessionV1['capabilitySubjects'],
-  materialActivation: MpcMaterialActivationRef,
-): ActiveWalletSessionV1['capabilitySubjects'] {
-  const existing = subjects.find(
-    (subject) => subject.kind === 'sign' && subject.keyFamily === 'ed25519',
-  );
-  if (existing) {
-    if (
-      existing.kind !== 'sign' ||
-      !mpcMaterialActivationRefsEqual(existing.materialActivation, materialActivation)
-    ) {
-      throw new Error('Mixed registration returned a different Ed25519 material activation');
-    }
-    return subjects;
-  }
-  const [first, ...remaining] = subjects;
-  if (!first) throw new Error('Mixed registration Wallet Session has no capabilities');
-  return [first, ...remaining, { kind: 'sign', keyFamily: 'ed25519', materialActivation }];
-}
-
 function mixedRegistrationSessionFromDeferredResult(
   ecdsaSession: RegistrationEstablishedSessionV2,
   result: RegistrationEstablishedSessionResultV2,
+  finalAuthority: ActiveWalletAuthorityV1,
+  finalAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>,
 ): RegistrationEstablishedSessionV2 {
   switch (result.kind) {
     case 'issued':
@@ -2107,7 +2084,9 @@ function mixedRegistrationSessionFromDeferredResult(
       const projection = result.session;
       if (
         ecdsaSession.tokens.kind !== 'evm_family_ecdsa' ||
-        projection.tokens.kind !== 'near_ed25519' ||
+        projection.tokens.kind !== 'near_ed25519_and_evm_family_ecdsa' ||
+        alphabetizeStringify(projection.tokens.ecdsa) !==
+          alphabetizeStringify(ecdsaSession.tokens.ecdsa) ||
         projection.walletId !== ecdsaSession.walletId ||
         projection.authorizationId !== ecdsaSession.authorizationId ||
         projection.walletSessionId !== ecdsaSession.walletSessionId ||
@@ -2117,6 +2096,25 @@ function mixedRegistrationSessionFromDeferredResult(
       ) {
         throw new Error('Mixed registration deferred completion changed the committed session');
       }
+      const walletSession = projection.walletSession;
+      if (
+        walletSession.walletId !== ecdsaSession.walletSession.walletId ||
+        walletSession.authorityId !== ecdsaSession.walletSession.authorityId ||
+        walletSession.authMethodId !== ecdsaSession.walletSession.authMethodId ||
+        walletSession.authorizationId !== ecdsaSession.walletSession.authorizationId ||
+        walletSession.quotaId !== ecdsaSession.walletSession.quotaId ||
+        walletSession.issuedAtMs !== ecdsaSession.walletSession.issuedAtMs ||
+        walletSession.expiresAtMs !== ecdsaSession.walletSession.expiresAtMs ||
+        finalAuthority.walletId !== walletSession.walletId ||
+        finalAuthority.authorityId !== walletSession.authorityId ||
+        finalAuthority.authorityDigestB64u !== walletSession.authorityDigestB64u ||
+        finalAuthority.revocationEpoch !== walletSession.authorityRevocationEpoch ||
+        finalAuthMethod.walletId !== walletSession.walletId ||
+        finalAuthMethod.walletAuthorityId !== walletSession.authorityId ||
+        finalAuthMethod.walletAuthMethodId !== walletSession.authMethodId
+      ) {
+        throw new Error('Mixed registration canonical Wallet Session authority is inconsistent');
+      }
       return {
         kind: 'registration_established_wallet_session_v2',
         walletId: ecdsaSession.walletId,
@@ -2125,28 +2123,9 @@ function mixedRegistrationSessionFromDeferredResult(
         quotaId: ecdsaSession.quotaId,
         expiresAtMs: ecdsaSession.expiresAtMs,
         remainingUses: ecdsaSession.remainingUses,
-        walletSession: {
-          kind: ecdsaSession.walletSession.kind,
-          walletId: ecdsaSession.walletSession.walletId,
-          authorityId: ecdsaSession.walletSession.authorityId,
-          authMethodId: ecdsaSession.walletSession.authMethodId,
-          authorizationId: ecdsaSession.walletSession.authorizationId,
-          quotaId: ecdsaSession.walletSession.quotaId,
-          authorityDigestB64u: ecdsaSession.walletSession.authorityDigestB64u,
-          authorityRevocationEpoch: ecdsaSession.walletSession.authorityRevocationEpoch,
-          capabilitySubjects: appendRegistrationEd25519SigningCapability(
-            ecdsaSession.walletSession.capabilitySubjects,
-            projection.tokens.ed25519.materialActivation,
-          ),
-          issuedAtMs: ecdsaSession.walletSession.issuedAtMs,
-          expiresAtMs: ecdsaSession.walletSession.expiresAtMs,
-        },
+        walletSession,
         operationCredential: ecdsaSession.operationCredential,
-        tokens: {
-          kind: 'near_ed25519_and_evm_family_ecdsa',
-          ecdsa: ecdsaSession.tokens.ecdsa,
-          ed25519: projection.tokens.ed25519,
-        },
+        tokens: projection.tokens,
       };
     }
     default:
@@ -2185,7 +2164,7 @@ async function commitDeferredEd25519Registration(args: {
       registrationCeremonyId: args.registrationCeremonyId,
       activationReference,
     });
-    await persistPendingRegistrationCommit({
+    const nearProvisioningPending = await persistPendingRegistrationCommit({
       operation: 'near_provisioning',
       registrationCeremonyId: args.registrationCeremonyId,
       idempotencyKey: nearProvisioningIdempotencyKey,
@@ -2240,6 +2219,8 @@ async function commitDeferredEd25519Registration(args: {
     const registrationSession = mixedRegistrationSessionFromDeferredResult(
       args.plan.ecdsa.session.registrationEstablishedSession,
       finalized.registrationEstablishedSession,
+      finalized.foundingAuthority,
+      finalized.foundingAuthMethod,
     );
     const nearAccountId = toAccountId(finalized.ed25519.nearAccountId);
     const passkeyCredentialIdB64u =
@@ -2251,22 +2232,6 @@ async function commitDeferredEd25519Registration(args: {
         expectedRpId: auth.rpId,
         expectedWalletId: args.walletId,
       });
-      const stored = await args.context.signingEngine.storeWalletEd25519RegistrationData({
-        walletId: args.walletId,
-        nearAccountId,
-        nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
-        rpId: requireWebAuthnRpId(auth.rpId),
-        credential: auth.credential,
-        credentialPublicKeyB64u: auth.credentialPublicKeyB64u,
-        signerSlot: finalized.ed25519.signerSlot,
-        operationalPublicKey: clientPublicKey,
-        relayerKeyId: finalized.ed25519.relayerKeyId,
-        keyVersion: finalized.ed25519.keyVersion,
-        participantIds: [...finalized.ed25519.participantIds],
-      });
-      if (stored.signerSlot !== finalized.ed25519.signerSlot) {
-        throw new Error('Deferred Ed25519 registration persisted a different signer slot');
-      }
     } else {
       requireEmailOtpEd25519YaoRegistrationPublicResultMatches({
         clientPublicKey,
@@ -2274,24 +2239,6 @@ async function commitDeferredEd25519Registration(args: {
         expectedRegistrationAuthorityId: auth.registrationAuthorityId,
         expectedWalletId: args.walletId,
       });
-      const stored = await args.context.signingEngine.storeWalletEmailOtpEd25519RegistrationData({
-        walletId: args.walletId,
-        nearAccountId,
-        nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
-        email: auth.email,
-        registrationAuthorityId: auth.registrationAuthorityId,
-        authority: auth.authority,
-        signerSlot: finalized.ed25519.signerSlot,
-        operationalPublicKey: clientPublicKey,
-        relayerKeyId: finalized.ed25519.relayerKeyId,
-        keyVersion: finalized.ed25519.keyVersion,
-        participantIds: [...finalized.ed25519.participantIds],
-      });
-      if (stored.signerSlot !== finalized.ed25519.signerSlot) {
-        throw new Error(
-          'Deferred Email OTP Ed25519 registration persisted a different signer slot',
-        );
-      }
     }
     const materialFacts = registrationEd25519MaterialFacts({
       deferredNear: args.deferredNear,
@@ -2301,6 +2248,67 @@ async function commitDeferredEd25519Registration(args: {
     });
     const metadata = joined.metadata;
     const materialActivation = nearEd25519YaoMaterialActivationFromMetadata(metadata);
+    const custodyMaterial = walletCustodyRegistrationMaterial({
+      established: joined,
+      walletId: String(args.walletId),
+      nearAccountId: String(nearAccountId),
+      nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+      signerSlot: finalized.ed25519.signerSlot,
+    });
+    const registration =
+      auth.kind === 'passkey'
+        ? prepareWalletEd25519RegistrationPublication({
+            walletId: args.walletId,
+            nearAccountId,
+            nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+            rpId: requireWebAuthnRpId(auth.rpId),
+            credential: auth.credential,
+            credentialPublicKeyB64u: auth.credentialPublicKeyB64u,
+            signerSlot: finalized.ed25519.signerSlot,
+            operationalPublicKey: clientPublicKey,
+            relayerKeyId: finalized.ed25519.relayerKeyId,
+            keyVersion: finalized.ed25519.keyVersion,
+            participantIds: [...finalized.ed25519.participantIds],
+            custodyMaterial,
+          })
+        : await prepareWalletEmailOtpEd25519RegistrationPublication({
+            walletId: args.walletId,
+            nearAccountId,
+            nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+            email: auth.email,
+            registrationAuthorityId: auth.registrationAuthorityId,
+            authority: auth.authority,
+            signerSlot: finalized.ed25519.signerSlot,
+            operationalPublicKey: clientPublicKey,
+            relayerKeyId: finalized.ed25519.relayerKeyId,
+            keyVersion: finalized.ed25519.keyVersion,
+            participantIds: [...finalized.ed25519.participantIds],
+            custodyMaterial,
+          });
+    const stored = await IndexedDBManager.publishPendingWalletRegistrationCommit({
+      pending: nearProvisioningPending,
+      authority: finalized.authority,
+      foundingAuthority: {
+        authority: finalized.foundingAuthority,
+        authMethod: finalized.foundingAuthMethod,
+      },
+      request: {
+        operation: 'near_provisioning',
+        registrationCeremonyId: args.registrationCeremonyId,
+        idempotencyKey: nearProvisioningIdempotencyKey,
+        walletId: args.walletId,
+        walletAuthMethodId: finalized.foundingAuthMethod.walletAuthMethodId,
+      },
+      walletSessionPublication: {
+        kind: 'credential_free_projection',
+        walletSession: registrationSession.walletSession,
+      },
+      registration,
+    });
+    const storedNearActivation = stored.signerActivations[1];
+    if (!storedNearActivation || storedNearActivation.signerSlot !== finalized.ed25519.signerSlot) {
+      throw new Error('Deferred Ed25519 registration persisted a different signer slot');
+    }
     if (args.authMaterial.kind === 'passkey') {
       const registrationEd25519Session = registrationEstablishedEd25519Session(registrationSession);
       await args.context.signingEngine.hydrateSigningSession({
@@ -2335,17 +2343,6 @@ async function commitDeferredEd25519Registration(args: {
       signerSlot: finalized.ed25519.signerSlot,
       nearClient: args.context.nearClient,
     });
-    const custodyMaterial = walletCustodyRegistrationMaterial({
-      established: joined,
-      walletId: String(args.walletId),
-      nearAccountId: String(nearAccountId),
-      nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
-      signerSlot: finalized.ed25519.signerSlot,
-    });
-    await args.context.signingEngine.persistWalletCustodyEd25519Material({
-      binding: custodyMaterial.binding,
-      sealed: custodyMaterial.sealed,
-    });
     await args.context.signingEngine.upsertEd25519YaoPublicCapabilityLaneReference({
       walletId: args.walletId,
       nearAccountId,
@@ -2358,14 +2355,6 @@ async function commitDeferredEd25519Registration(args: {
       ),
       signerSlot: finalized.ed25519.signerSlot,
     });
-    await IndexedDBManager.persistFoundingWalletAuthority({
-      authority: finalized.foundingAuthority,
-      authMethod: finalized.foundingAuthMethod,
-    });
-    await persistActiveWalletSessionAuthorizationFromDirectRegistration(
-      walletSessionAuthorizations,
-      registrationSession,
-    );
     if (auth.kind === 'email_otp') {
       const walletSessionState = await buildRegistrationEmailOtpEd25519SessionState({
         registrationEstablishedSession: registrationSession,

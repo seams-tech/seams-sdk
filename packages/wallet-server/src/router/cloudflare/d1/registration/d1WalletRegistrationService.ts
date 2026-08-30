@@ -302,7 +302,10 @@ import {
   replayDirectRegistrationEstablishedEcdsaSession,
   walletSessionPrincipalId,
 } from './walletRegistrationEstablishedSessionIssuer';
-import type { RegistrationEstablishedSessionIssuanceResultV2 } from './walletRegistrationEstablishedSessionIssuer';
+import type {
+  Ed25519RegistrationSessionPredecessor,
+  RegistrationEstablishedSessionIssuanceResultV2,
+} from './walletRegistrationEstablishedSessionIssuer';
 import type { CloudflareD1VersionedJsonRecordReadManyEntryV1 } from '../versionedJson/d1VersionedJsonRecordStore';
 
 type RespondWalletRegistrationDerivationInput = WalletRegistrationEcdsaDerivationRespondRequest;
@@ -3641,12 +3644,14 @@ export class CloudflareD1WalletRegistrationService {
     );
     let recovery: D1WalletRegistrationFinalizeRecovery | null = null;
     let registrationAuthority: StoredRegistrationAuthority;
+    let sessionPredecessor: Ed25519RegistrationSessionPredecessor;
     if (ceremony) {
       const authority = verifiedRegistrationCeremonyAuthority(ceremony);
       if (!authority) {
         throw new Error('Registration authority is unavailable before finalize');
       }
       registrationAuthority = authority;
+      sessionPredecessor = { kind: 'ed25519_only' };
     } else {
       const committed = await this.readCommittedRegistrationInstallation(
         args.input.registrationCeremonyId,
@@ -3663,6 +3668,17 @@ export class CloudflareD1WalletRegistrationService {
         throw new Error('Committed registration installation has no verified authority');
       }
       registrationAuthority = authority;
+      const activationReceipt = committed.receipt;
+      if (!isRegistrationEcdsaReadyReceipt(activationReceipt)) {
+        throw new Error('Committed mixed registration receipt is not ECDSA-ready');
+      }
+      if (activationReceipt.committed.session.tokens.kind !== 'evm_family_ecdsa') {
+        throw new Error('Committed mixed registration is missing its ECDSA session projection');
+      }
+      sessionPredecessor = {
+        kind: 'mixed',
+        ecdsa: activationReceipt.committed.session.tokens.ecdsa,
+      };
     }
     const effectivePrepared = await this.prepareNearProvisioningOperation(
       args.input.registrationCeremonyId,
@@ -3705,6 +3721,7 @@ export class CloudflareD1WalletRegistrationService {
       expiresAtMs: Date.now() + DEFAULT_WALLET_SESSION_TTL_MS,
       remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
       publicResult: finalized.ed25519,
+      predecessor: sessionPredecessor,
       keyManifestDigestB64u: finalized.custodyKeyManifestDigestB64u,
       proof,
     });

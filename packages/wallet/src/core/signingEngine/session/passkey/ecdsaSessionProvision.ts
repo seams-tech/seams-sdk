@@ -45,7 +45,7 @@ import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { WalletSessionRouteAuth } from '@shared/utils/sessionTokens';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 
 export type ProvisionThresholdEcdsaSessionDeps = {
   queueByWallet: Map<string, Promise<void>>;
@@ -101,7 +101,7 @@ export type ThresholdEcdsaPasskeyActivationRequest = ThresholdEcdsaActivationReq
   sessionKind: 'opaque';
   requestId: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
-  walletSessionRouteAuth: WalletSessionRouteAuth;
+  walletSessionRouteAuth: WalletSessionOperationCredentialV1;
   emailOtpAuthContext?: never;
 };
 
@@ -137,7 +137,7 @@ type ThresholdEcdsaEmailOtpActivationRequestBase = ThresholdEcdsaActivationReque
 export type ThresholdEcdsaEmailOtpActivationRequest = ThresholdEcdsaEmailOtpActivationRequestBase &
   (
     | {
-        walletSessionRouteAuth: WalletSessionRouteAuth;
+        walletSessionRouteAuth: WalletSessionOperationCredentialV1;
         preauthorizedSessionActivation?: never;
       }
     | {
@@ -165,7 +165,7 @@ type BuildPasskeyEcdsaActivationArgs = BuildThresholdEcdsaActivationRequestCommo
   sessionKind: 'opaque';
   requestId: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
-  walletSessionRouteAuth: WalletSessionRouteAuth;
+  walletSessionRouteAuth: WalletSessionOperationCredentialV1;
   emailOtpAuthContext?: never;
 };
 
@@ -180,7 +180,7 @@ type BuildEmailOtpSessionBootstrapEcdsaActivationArgs =
   sessionKind: 'opaque';
     emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpSessionAuthContext;
-    walletSessionRouteAuth: WalletSessionRouteAuth;
+    walletSessionRouteAuth: WalletSessionOperationCredentialV1;
     passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
   };
@@ -210,7 +210,7 @@ type BuildEmailOtpPerOperationReauthEcdsaActivationArgs =
   sessionKind: 'opaque';
     emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpPendingSingleUseAuthContext;
-  walletSessionRouteAuth: WalletSessionRouteAuth;
+  walletSessionRouteAuth: WalletSessionOperationCredentialV1;
     passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
   };

@@ -79,6 +79,7 @@ export function projectRegistrationEstablishedSessionV2(
     quotaId: session.quotaId,
     expiresAtMs: session.expiresAtMs,
     remainingUses: session.remainingUses,
+    walletSession: session.walletSession,
     tokens: session.tokens,
   };
 }

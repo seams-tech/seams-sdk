@@ -1,7 +1,6 @@
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WalletSessionRouteAuth } from '@shared/utils/sessionTokens';
-import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type {
   WalletEmailOtpExportOperation,
   WalletEmailOtpLoginOperation,
@@ -60,14 +59,14 @@ export function throwEmailOtpSigningSessionAuthStateError(
 
 export type EmailOtpThresholdEd25519RouteAuth = {
   kind: 'threshold_ed25519_session';
-  walletSessionToken: string;
+  operationCredential: WalletSessionOperationCredentialV1;
   curve: 'ed25519';
   chainTarget?: never;
 };
 
 export type EmailOtpThresholdEcdsaRouteAuth = {
   kind: 'threshold_ecdsa_session';
-  walletSessionToken: string;
+  operationCredential: WalletSessionOperationCredentialV1;
   curve: 'ecdsa';
   // Session-scoped runtime state only. Operation authority is attached later.
   thresholdSessionId: string;
@@ -137,7 +136,7 @@ export function emailOtpEcdsaBootstrapRouteAuthFromAuthLane(
   if (authLane.kind === 'signing_session' && authLane.curve === 'ecdsa') {
     return {
       kind: 'threshold_ecdsa_session',
-      walletSessionToken: authLane.walletSessionToken,
+      operationCredential: authLane.operationCredential,
       curve: 'ecdsa',
       thresholdSessionId: authLane.thresholdSessionId,
       chainTarget: authLane.chainTarget,
@@ -151,13 +150,4 @@ export function emailOtpEcdsaBootstrapRouteAuthFromRoutePlan(
 ): EmailOtpEcdsaBootstrapRouteAuth | undefined {
   if (routePlan.routeFamily !== 'signing_session') return undefined;
   return emailOtpEcdsaBootstrapRouteAuthFromAuthLane(routePlan.authLane);
-}
-
-export function emailOtpEcdsaBootstrapRouteAuthToTransport(
-  auth: EmailOtpEcdsaBootstrapRouteAuth,
-): WalletSessionRouteAuth {
-  return {
-    kind: 'opaque_wallet_session',
-    walletSessionToken: requireOpaqueWalletSessionToken(auth.walletSessionToken),
-  };
 }

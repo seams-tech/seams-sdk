@@ -956,7 +956,14 @@ function parseWalletRegistrationSessionCommitReceiptCommitted(
   }
   const near = parseWalletRegistrationSessionCommitNear(record, receipt);
   const session = parseRegistrationEstablishedSessionProjectionV2(record.session);
-  if (!near || !session || session.tokens.kind !== 'near_ed25519') return null;
+  if (
+    !near ||
+    !session ||
+    (session.tokens.kind !== 'near_ed25519' &&
+      session.tokens.kind !== 'near_ed25519_and_evm_family_ecdsa')
+  ) {
+    return null;
+  }
   return {
     kind: 'near_ready',
     authorityScope: near.authorityScope,

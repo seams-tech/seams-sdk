@@ -1,6 +1,5 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
-import type { WalletSessionRouteAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -75,7 +74,7 @@ export type EmailOtpEcdsaSessionProvision = {
 
   // Branch-specific fields.
   provisionSecretSource: EmailOtpEcdsaProvisionSecretSource;
-  walletSessionRouteAuth: WalletSessionRouteAuth;
+  walletSessionRouteAuth: WalletSessionOperationCredentialV1;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   emailOtpAuthContext?: never;
   passkeyPrfFirstB64u?: never;
@@ -118,7 +117,7 @@ type BuildEmailOtpEcdsaSessionProvisionPlanArgs = {
   sessionKind: 'opaque';
   sessionBudgetUses: number;
   provisionSecretSource: EmailOtpEcdsaProvisionSecretSource;
-  walletSessionRouteAuth: WalletSessionRouteAuth;
+  walletSessionRouteAuth: WalletSessionOperationCredentialV1;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   emailOtpAuthContext?: never;
   passkeyPrfFirstB64u?: never;
@@ -231,7 +230,7 @@ export function buildEmailOtpEcdsaSessionProvision(args: {
   sessionKind: 'opaque';
   sessionBudgetUses: number;
   provisionSecretSource: EmailOtpEcdsaProvisionSecretSource;
-  walletSessionRouteAuth: WalletSessionRouteAuth;
+  walletSessionRouteAuth: WalletSessionOperationCredentialV1;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 }): EmailOtpEcdsaSessionProvision {
   return {

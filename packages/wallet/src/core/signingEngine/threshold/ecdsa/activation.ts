@@ -200,12 +200,15 @@ export type ActivateExplicitKeyExportEcdsaSessionRequest = {
 
 function requireStrictEcdsaRouteAuth(
   auth: ThresholdEcdsaDerivationRouteAuth | undefined,
-): Extract<ThresholdEcdsaDerivationRouteAuth, { kind: 'opaque_wallet_session' }> {
+): Extract<
+  ThresholdEcdsaDerivationRouteAuth,
+  { kind: 'opaque_wallet_session_operation_credential_v1' }
+> {
   if (!auth) {
     throw new Error('Strict ECDSA session bootstrap requires Wallet Session authority');
   }
   switch (auth.kind) {
-    case 'opaque_wallet_session':
+    case 'opaque_wallet_session_operation_credential_v1':
       return auth;
     case 'publishable_key':
       throw new Error('Strict ECDSA session bootstrap requires Wallet Session authority');

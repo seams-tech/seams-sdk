@@ -98,6 +98,7 @@ export type RegistrationEstablishedSessionProjectionV2 = {
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly expiresAtMs: number;
   readonly remainingUses: number;
+  readonly walletSession: ActiveWalletSessionV1;
   readonly tokens: RegistrationEstablishedSessionProjectionTokensV2;
 };
 
@@ -188,6 +189,7 @@ export function parseRegistrationEstablishedSessionV2(
     if (
       walletSession.walletId !== walletId.value ||
       walletSession.authorizationId !== authorizationId.value ||
+      walletSession.quotaId !== quotaId.value ||
       walletSession.expiresAtMs !== expiresAtMs ||
       operationCredential.walletSessionId !== walletSessionId.value
     ) {
@@ -289,6 +291,7 @@ export function parseRegistrationEstablishedSessionProjectionV2(
         'quotaId',
         'expiresAtMs',
         'remainingUses',
+        'walletSession',
         'tokens',
       ]) ||
       raw.kind !== 'registration_established_wallet_session_projection_v2'
@@ -305,13 +308,19 @@ export function parseRegistrationEstablishedSessionProjectionV2(
     }
     const expiresAtMs = parseNonNegativeSafeInteger(raw.expiresAtMs);
     const remainingUses = parseNonNegativeSafeInteger(raw.remainingUses);
+    const walletSession = parseActiveWalletSessionV1(raw.walletSession);
     const tokens = parseRegistrationEstablishedSessionProjectionTokensV2(raw.tokens);
     if (
       expiresAtMs === null ||
       expiresAtMs <= 0 ||
       remainingUses === null ||
       remainingUses <= 0 ||
-      tokens === null
+      tokens === null ||
+      walletSession.walletId !== walletId.value ||
+      walletSession.authorizationId !== authorizationId.value ||
+      walletSession.quotaId !== quotaId.value ||
+      walletSession.expiresAtMs !== expiresAtMs ||
+      !registrationSessionTokensMatchCapabilities(walletSession, tokens)
     ) {
       return null;
     }
@@ -323,6 +332,7 @@ export function parseRegistrationEstablishedSessionProjectionV2(
       quotaId: quotaId.value,
       expiresAtMs,
       remainingUses,
+      walletSession,
       tokens,
     };
   } catch {

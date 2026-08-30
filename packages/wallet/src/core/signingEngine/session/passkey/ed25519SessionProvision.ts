@@ -309,7 +309,7 @@ export async function provisionThresholdEd25519Session(
     expiresAtMs,
     remainingUses,
     runtimePolicyScope,
-    walletSessionToken,
+    operationCredential,
   };
   const rpId = deps.touchIdPrompt.getRpId();
   if (prfFirstB64u && args.source === 'email_otp') {

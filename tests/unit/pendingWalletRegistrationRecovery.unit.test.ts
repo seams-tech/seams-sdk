@@ -167,6 +167,7 @@ test.describe('pending registration reload', () => {
     expect(publications).toHaveLength(1);
     expect(publications[0]?.walletSessionPublication).toEqual({
       kind: 'credential_free_projection',
+      walletSession: fixture.replayResponse.registrationEstablishedSession.session.walletSession,
     });
   });
 

@@ -3,4 +3,8 @@ import type { ActivateStrictEcdsaPostRegistrationSessionInput } from './postRegi
 declare const validInput: ActivateStrictEcdsaPostRegistrationSessionInput;
 
 validInput.routeAuth satisfies
-  { readonly kind: 'opaque_wallet_session'; readonly walletSessionToken: string };
+  {
+    readonly kind: 'opaque_wallet_session_operation_credential_v1';
+    readonly token: string;
+    readonly walletSessionId: string;
+  };

@@ -87,7 +87,7 @@ export function emailOtpEcdsaSigningSessionAuthLane(
   }
   return {
     kind: 'signing_session',
-    walletSessionToken: authorization.operationCredential.token,
+    operationCredential: authorization.operationCredential,
     thresholdSessionId: authorization.runtime.sealedRecord.thresholdSessionId,
     curve: 'ecdsa',
     chainTarget: authorization.runtime.chainTarget,

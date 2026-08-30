@@ -37,6 +37,7 @@ import {
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import { requireRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { parseWalletCustodyRegistrationOutcome } from '@shared/passkey-custody';
+import { isPlainObject } from '@shared/utils/validation';
 import type {
   RegistrationNearAccountProvisioning,
   ResolvedRegistrationNearAccount,
@@ -51,10 +52,6 @@ import type {
   WalletRegistrationRouteDiagnostics,
   WalletRegistrationRouteTimingName,
 } from './walletRegistration';
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
 
 export function requireResponseString(args: {
   responseName: string;
@@ -73,7 +70,7 @@ export function requireResponseRecord(args: {
   field: string;
   value: unknown;
 }): Record<string, unknown> {
-  if (!isRecord(args.value)) {
+  if (!isPlainObject(args.value)) {
     throw new Error(`${args.responseName} response missing ${args.field}`);
   }
   return args.value;

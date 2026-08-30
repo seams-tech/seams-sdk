@@ -7,12 +7,13 @@ import type {
   SignerWorkerOperationResult,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 
 type EmailOtpWorkerRequester = Pick<WorkerOperationContext, 'requestWorkerOperation'>;
 
 export type EmailOtpWarmSessionTransport = {
   relayerUrl: string;
-  walletSessionToken?: string;
+  operationCredential?: WalletSessionOperationCredentialV1;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   groupId?: string;
 };

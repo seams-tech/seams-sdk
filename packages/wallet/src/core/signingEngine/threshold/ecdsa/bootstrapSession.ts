@@ -58,7 +58,7 @@ type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaExactSessionArgsBase &
     | {
         bootstrapAuth: Extract<
           ThresholdEcdsaDerivationRouteAuth,
-          { kind: 'opaque_wallet_session' }
+          { kind: 'opaque_wallet_session_operation_credential_v1' }
         >;
         sessionActivation?: never;
       }

@@ -25,7 +25,7 @@ export type ExactWalletSessionAuthenticationReadResult =
       readonly state?: never;
     };
 
-export type ExactWalletSessionAuthorityScope = {
+type ExactWalletSessionAuthorityScope = {
   readonly walletId: WalletId;
   readonly authorityId: WalletAuthorityId;
   readonly authMethodId: WalletAuthMethodId;
@@ -33,7 +33,7 @@ export type ExactWalletSessionAuthorityScope = {
   readonly authorityRevocationEpoch: number;
 };
 
-export function exactWalletSessionMatchesAuthorityScope(args: {
+function exactWalletSessionMatchesAuthorityScope(args: {
   readonly record: ActiveWalletSessionV1;
   readonly operationCredential: WalletSessionOperationCredentialV1;
   readonly scope: ExactWalletSessionAuthorityScope;

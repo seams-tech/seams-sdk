@@ -529,6 +529,7 @@ export type WalletRegistrationSessionPublicationV1 =
     }
   | {
       readonly kind: 'credential_free_projection';
+      readonly walletSession: ActiveWalletSessionV1;
     };
 
 export type PublishPendingWalletRegistrationCommitInputV1 = {
@@ -779,6 +780,23 @@ function shouldDeletePublishedPendingWalletRegistrationCommit(
         pending.localMaterial.keyFamilies.length === 1 &&
         pending.localMaterial.keyFamilies[0] === 'ecdsa_secp256k1'
       );
+  }
+}
+
+function assertCredentialFreeRegistrationSessionProjectionMatchesExisting(input: {
+  readonly incoming: ActiveWalletSessionV1;
+  readonly existing: ActiveWalletSessionV1;
+}): void {
+  if (
+    input.incoming.walletId !== input.existing.walletId ||
+    input.incoming.authorityId !== input.existing.authorityId ||
+    input.incoming.authMethodId !== input.existing.authMethodId ||
+    input.incoming.authorizationId !== input.existing.authorizationId ||
+    input.incoming.quotaId !== input.existing.quotaId ||
+    input.incoming.issuedAtMs !== input.existing.issuedAtMs ||
+    input.incoming.expiresAtMs !== input.existing.expiresAtMs
+  ) {
+    throw new Error('Credential-free registration projection changed immutable session identity');
   }
 }
 
@@ -6001,17 +6019,15 @@ export class SeamsWalletRepositories {
       foundingAuthority,
       registration: input.registration,
     });
-    if (input.walletSessionPublication.kind === 'issued') {
-      const walletSession = input.walletSessionPublication.walletSession;
-      if (
-        walletSession.walletId !== pending.walletId ||
-        walletSession.authorityId !== foundingAuthority.authority.authorityId ||
-        walletSession.authMethodId !== pending.walletAuthMethodId ||
-        walletSession.authorityDigestB64u !== foundingAuthority.authority.authorityDigestB64u ||
-        walletSession.authorityRevocationEpoch !== foundingAuthority.authority.revocationEpoch
-      ) {
-        throw new Error('registration Wallet Session identity does not match the pending wallet');
-      }
+    const walletSession = input.walletSessionPublication.walletSession;
+    if (
+      walletSession.walletId !== pending.walletId ||
+      walletSession.authorityId !== foundingAuthority.authority.authorityId ||
+      walletSession.authMethodId !== pending.walletAuthMethodId ||
+      walletSession.authorityDigestB64u !== foundingAuthority.authority.authorityDigestB64u ||
+      walletSession.authorityRevocationEpoch !== foundingAuthority.authority.revocationEpoch
+    ) {
+      throw new Error('registration Wallet Session identity does not match the pending wallet');
     }
     return this.manager.runTransaction(
       WALLET_REGISTRATION_PUBLICATION_STORES,
@@ -6098,33 +6114,45 @@ export class SeamsWalletRepositories {
     ) {
       throw new Error('stored pending wallet registration commit does not match the expected row');
     }
+    let credentialFreeSessionReconciled = false;
     if (input.walletSessionPublication.kind === 'issued') {
       await replaceExactActiveWalletSessionAuthorizationInTransaction({
         ctx,
         active: input.walletSessionPublication.walletSession,
         operationCredential: input.walletSessionPublication.operationCredential,
       });
-    }
-    const result = await this.persistWalletRegistrationFinalizeInTransaction(
-      input.registration,
-      ctx,
-    );
-    await this.persistFoundingWalletAuthorityInTransaction(input.foundingAuthority, ctx);
-    let shouldDeletePending =
-      input.walletSessionPublication.kind === 'issued' &&
-      shouldDeletePublishedPendingWalletRegistrationCommit(input.pending);
-    if (input.walletSessionPublication.kind === 'credential_free_projection') {
+    } else {
       const existingSession = await readExactActiveWalletSessionForScopeInTransaction({
         ctx,
         walletId: input.pending.walletId,
         authorityId: input.foundingAuthority.authority.authorityId,
         authMethodId: input.pending.walletAuthMethodId,
       });
-      if (existingSession.kind === 'corrupt') {
-        throw new Error('Stored Wallet Session authorization v6 is corrupt');
+      if (existingSession.kind !== 'found') {
+        throw new Error(
+          'Credential-free registration projection has no exact local Wallet Session',
+        );
       }
-      shouldDeletePending = existingSession.kind === 'found';
+      assertCredentialFreeRegistrationSessionProjectionMatchesExisting({
+        incoming: input.walletSessionPublication.walletSession,
+        existing: existingSession.record,
+      });
+      await replaceExactActiveWalletSessionAuthorizationInTransaction({
+        ctx,
+        active: input.walletSessionPublication.walletSession,
+        operationCredential: existingSession.operationCredential,
+      });
+      credentialFreeSessionReconciled = true;
     }
+    const result = await this.persistWalletRegistrationFinalizeInTransaction(
+      input.registration,
+      ctx,
+    );
+    await this.persistFoundingWalletAuthorityInTransaction(input.foundingAuthority, ctx);
+    const shouldDeletePending =
+      input.walletSessionPublication.kind === 'issued'
+        ? shouldDeletePublishedPendingWalletRegistrationCommit(input.pending)
+        : credentialFreeSessionReconciled;
     if (shouldDeletePending) {
       await ctx.store(SEAMS_WALLET_STORES.appState).delete(pendingKey);
     }
