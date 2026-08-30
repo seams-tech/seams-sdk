@@ -17,10 +17,3 @@ export function requireOpaqueWalletSessionToken(
   if (!token) throw new Error(`${label} is required`);
   return token as OpaqueWalletSessionToken;
 }
-
-export function opaqueWalletSessionAuth(tokenRaw: unknown): OpaqueWalletSessionAuth {
-  return {
-    kind: 'opaque_wallet_session',
-    walletSessionToken: requireOpaqueWalletSessionToken(tokenRaw),
-  };
-}

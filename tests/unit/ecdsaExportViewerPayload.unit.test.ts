@@ -11,7 +11,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WebAuthnAuthenticationCredential } from '../../packages/wallet/src/core/types/webauthn';
-import { resolveEmailOtpAuthLane } from '../../packages/wallet/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
+import type { EmailOtpSigningSessionAuthLane } from '../../packages/wallet/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import {
   KeyExportEventPhase,
   type KeyExportFlowEvent,
@@ -44,6 +44,13 @@ const TEST_WEBAUTHN_CREDENTIAL = {
     },
   },
 } satisfies WebAuthnAuthenticationCredential;
+
+const EMAIL_OTP_ED25519_AUTH_LANE = {
+  kind: 'signing_session',
+  walletSessionToken: 'durable-wallet-session-jwt',
+  thresholdSessionId: 'threshold-session-1',
+  curve: 'ed25519',
+} satisfies Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
 
 test.describe('threshold ECDSA export viewer payload', () => {
   test('renders Ed25519 loading state without private material', async () => {
@@ -295,14 +302,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
   test('emits the demo Email OTP code on the Ed25519 key-export lane', async () => {
     const walletId = toWalletId('frost-vermillion-k7p9m2');
     const exportEvents: KeyExportFlowEvent[] = [];
-    const authLane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'wallet_session', jwt: 'durable-wallet-session-jwt' },
-      thresholdSessionId: 'threshold-session-1',
-      curve: 'ed25519',
-    });
-    if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
-      throw new Error('expected Ed25519 signing-session auth lane');
-    }
+    const authLane = EMAIL_OTP_ED25519_AUTH_LANE;
 
     const authorization = await requestEmailOtpEd25519KeyExportAuthorization(
       {
@@ -364,14 +364,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
   test('withholds the demo code from the Ed25519 lane on provider-only delivery', async () => {
     const walletId = toWalletId('frost-vermillion-k7p9m2');
     const exportEvents: KeyExportFlowEvent[] = [];
-    const authLane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'wallet_session', jwt: 'durable-wallet-session-jwt' },
-      thresholdSessionId: 'threshold-session-1',
-      curve: 'ed25519',
-    });
-    if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
-      throw new Error('expected Ed25519 signing-session auth lane');
-    }
+    const authLane = EMAIL_OTP_ED25519_AUTH_LANE;
 
     await requestEmailOtpEd25519KeyExportAuthorization(
       {
