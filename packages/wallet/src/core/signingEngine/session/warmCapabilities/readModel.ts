@@ -1,5 +1,9 @@
 import { laneCandidateStateFromRuntimePolicy } from '../identity/laneIdentity';
 import type { ExactEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import {
+  nearEd25519SessionMatchesMaterialActivation,
+  type ExactNearEd25519WalletSessionAuthorization,
+} from '../material/nearEd25519YaoSigningPreparation';
 import type {
   SigningSessionRetention,
   SigningSessionStatus,
@@ -23,7 +27,6 @@ import {
 } from '../identity/laneIdentity';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
-import { type ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type WarmSessionReadPortsInput =
   | Partial<
@@ -200,13 +203,34 @@ export async function readWarmSessionClaims(args: {
 
 export function deriveEd25519CapabilityState(args: {
   runtime: ExactEd25519SealedSessionRuntime;
-  auth: ActiveWalletSessionAuthorizationProjection | null;
+  auth: ExactNearEd25519WalletSessionAuthorization | null;
   prfClaim: WarmSessionPrfClaim | null;
 }): WarmSessionEd25519CapabilityState['state'] {
   if (
     !args.auth ||
-    String(args.auth.walletId) !== String(args.runtime.walletId) ||
-    args.auth.authMethod !== args.runtime.factor.kind
+    String(args.auth.session.walletId) !== String(args.runtime.walletId) ||
+    args.auth.selectedAuthMethod.kind !== args.runtime.factor.kind ||
+    args.auth.status.remainingUses <= 0 ||
+    args.auth.status.quotaId !== args.auth.session.quotaId ||
+    !nearEd25519SessionMatchesMaterialActivation({
+      session: args.auth.session,
+      materialActivation: args.runtime.sealedRecord.ed25519Restore.materialActivation,
+    }) ||
+    (args.runtime.factor.kind === 'passkey' &&
+      (args.auth.selectedAuthMethod.kind !== 'passkey' ||
+        String(args.auth.selectedAuthMethod.rpId) !== String(args.runtime.factor.rpId) ||
+        args.auth.selectedAuthMethod.credentialIdB64u !== args.runtime.factor.credentialIdB64u ||
+        args.auth.selectedFactorAuthority.factor.kind !== 'passkey' ||
+        args.auth.selectedFactorAuthority.factor.credentialIdB64u !==
+          args.runtime.factor.credentialIdB64u)) ||
+    (args.runtime.factor.kind === 'email_otp' &&
+      (args.auth.selectedAuthMethod.kind !== 'email_otp' ||
+        args.auth.selectedFactorAuthority.factor.kind !== 'email_otp' ||
+        args.auth.selectedFactorAuthority.factor.providerUserId !==
+          args.runtime.factor.providerSubjectId ||
+        args.auth.selectedFactorAuthority.verifier.kind !== 'email_otp_wallet_auth_method' ||
+        args.auth.selectedFactorAuthority.verifier.emailHashHex !==
+          args.runtime.factor.emailHashHex))
   ) {
     return 'authorization_required';
   }

@@ -103,12 +103,6 @@ const EMAIL_OTP_ED25519_RESTORE = {
   materialActivation: buildMpcMaterialActivationRefFixture('sealed-store-ed25519-email'),
 } as const;
 
-function jwtWithPayload(payload: Record<string, unknown>): string {
-  const encode = (value: unknown): string =>
-    Buffer.from(JSON.stringify(value)).toString('base64url');
-  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.sig`;
-}
-
 test.describe('signing session sealed store', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
@@ -376,63 +370,6 @@ test.describe('signing session sealed store', () => {
     expect(result.rawHasPlaintextS).toBe(false);
     expect(result.rawHasEnrollmentEscrow).toBe(false);
     expect(result.rawHasJwt).toBe(false);
-  });
-
-  test('rejects Wallet Session bearer fields in sealed restore records', async ({ page }) => {
-    const walletId = 'sealed-store-router-ab.testnet';
-    const walletSessionJwt = jwtWithPayload({
-      kind: 'router_ab_ecdsa_derivation_wallet_session_v1',
-      sub: walletId,
-      walletId,
-      thresholdSessionId: 'router-ab-ecdsa-session',
-      keyScope: 'evm-family',
-      keyHandle: ECDSA_RESTORE.keyHandle,
-      relayerKeyId: ECDSA_RESTORE.relayerKeyId,
-      rpId: ECDSA_RESTORE.rpId,
-      thresholdExpiresAtMs: Date.now() + 60_000,
-      participantIds: ECDSA_RESTORE.participantIds,
-    });
-
-    const result = await page.evaluate(
-      async ({ paths, walletId, walletSessionJwt }) => {
-        const mod = await import(paths.sealedSessionStore);
-        await mod.clearAllSealedSessions();
-        const record = mod.buildCurrentSealedSessionRecord({
-          thresholdSessionId: 'router-ab-ecdsa-session',
-          thresholdSessionIds: { ecdsa: 'router-ab-ecdsa-session' },
-          curve: 'ecdsa',
-          authMethod: 'passkey',
-          ecdsaRestore: {
-            ...ECDSA_RESTORE,
-            sessionKind: 'jwt',
-            walletSessionJwt,
-          },
-          walletId,
-          relayerUrl: 'https://relay.example',
-          groupId: 'rfc2409-group2',
-          keyVersion: 'signing-session-seal-test-r2',
-          sealedSecretB64u: 'sealed-secret-b64u',
-          issuedAtMs: Date.now(),
-          expiresAtMs: Date.now() + 60_000,
-          remainingUses: 3,
-          updatedAtMs: Date.now(),
-        });
-        return {
-          built: Boolean(record),
-          persisted: record
-            ? await mod.readExactSealedSession('router-ab-ecdsa-session', {
-                authMethod: 'passkey',
-                curve: 'ecdsa',
-                chain: 'tempo',
-                chainTarget: ECDSA_RESTORE.chainTarget,
-              })
-            : null,
-        };
-      },
-      { paths: IMPORT_PATHS, walletId, walletSessionJwt },
-    );
-
-    expect(result).toEqual({ built: false, persisted: null });
   });
 
   test('fails closed on malformed plaintext record payloads', async ({ page }) => {

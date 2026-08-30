@@ -11,6 +11,10 @@ import {
   type WalletIframeExactSessionState,
 } from '../../shared/exactSessionState';
 import {
+  reconcileWalletIframeExactSessions,
+  type WalletIframeExactSessionReconciliationDependencies,
+} from '../../shared/exactSessionReconciliation';
+import {
   pmUnlockPayloadToLoginHooksOptions,
   requirePMUnlockPayload,
   type PMUnlockLoginHooksOptions,
@@ -24,7 +28,7 @@ import { createHostedAuthMenuHandlers } from './authMenu';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import { createRelayerExactWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 
 async function readWalletIframeExactSessionStatus(
   relayUrl: string,
@@ -32,7 +36,7 @@ async function readWalletIframeExactSessionStatus(
 ): Promise<WalletIframeExactSessionStatus> {
   const normalizedRelayUrl = String(relayUrl || '').trim();
   if (!normalizedRelayUrl) throw new Error('Wallet iframe relayer URL is required');
-  return await createRelayerReusableWalletSessionStatusPort({
+  return await createRelayerExactWalletSessionStatusPort({
     relayerUrl: normalizedRelayUrl,
     operationCredential: input.operationCredential,
   }).read({
@@ -43,14 +47,22 @@ async function readWalletIframeExactSessionStatus(
 
 function exactSessionReadDependenciesForRelay(
   relayUrl: string,
-): WalletIframeExactSessionReadDependencies {
+): WalletIframeExactSessionReadDependencies & WalletIframeExactSessionReconciliationDependencies {
   return {
     resolveSelectedWalletAuthority:
       IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
+    listWalletAuthMethodsV2ForWallet:
+      IndexedDBManager.listWalletAuthMethodsV2ForWallet.bind(IndexedDBManager),
+    resolveWalletAuthorityForMethod:
+      IndexedDBManager.resolveWalletAuthorityForMethod.bind(IndexedDBManager),
     readExactActiveForWallet: walletSessionAuthorizations.readExactActiveForWallet.bind(
       walletSessionAuthorizations,
     ),
     readStatus: readWalletIframeExactSessionStatus.bind(null, relayUrl),
+    writeExactWithOperationCredential:
+      walletSessionAuthorizations.writeExactWithOperationCredential.bind(
+        walletSessionAuthorizations,
+      ),
     nowMs: Date.now,
   };
 }
@@ -74,8 +86,12 @@ function assertUnlockPayloadHasNoParentBearer(payload: unknown): void {
     !Array.isArray(inventoryOption.value)
       ? (inventoryOption.value as Record<string, unknown>)
       : null;
-  if (inventory && Object.prototype.hasOwnProperty.call(inventory, 'walletSessionToken')) {
-    throw new Error('wallet iframe unlock requests must not carry walletSessionToken');
+  if (
+    inventory &&
+    (Object.prototype.hasOwnProperty.call(inventory, 'walletSessionToken') ||
+      Object.prototype.hasOwnProperty.call(inventory, 'operationCredential'))
+  ) {
+    throw new Error('wallet iframe unlock requests must not carry a Wallet Session bearer');
   }
 }
 
@@ -96,8 +112,8 @@ function walletOriginUnlockOptions(
   return {
     ...optionsWithoutInventory,
     ecdsaKeyFactsInventory: {
-      ...inventory,
-      walletSessionToken: operationCredential.token,
+      mode: 'wallet_session_operation_credential_v1',
+      operationCredential,
     },
   };
 }
@@ -145,9 +161,21 @@ async function resolveExactWalletSessionState(
       break;
   }
   if (!walletId) return { kind: 'wallet_locked' };
+  const dependencies = exactSessionReadDependenciesForRelay(pm.configs.network.relayer.url);
+  const reconciliation = await reconcileWalletIframeExactSessions(
+    { walletId: toWalletId(walletId) },
+    dependencies,
+  );
+  if (reconciliation.kind === 'failed') {
+    return {
+      kind: 'wallet_unlocked_without_signing_session',
+      walletId: toWalletId(walletId),
+      reason: reconciliation.reason,
+    };
+  }
   return await readSelectedWalletIframeExactSessionState(
     { walletId: toWalletId(walletId) },
-    exactSessionReadDependenciesForRelay(pm.configs.network.relayer.url),
+    dependencies,
   );
 }
 

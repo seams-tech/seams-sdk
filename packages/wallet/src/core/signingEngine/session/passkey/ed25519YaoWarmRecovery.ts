@@ -34,9 +34,7 @@ import {
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
-  buildActiveWalletSessionAuthorizationProjection,
   walletSessionAuthorizations,
-  type ActiveWalletSessionAuthorizationProjection,
   type WalletSessionAuthorizationExactActiveReadResult,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
@@ -47,7 +45,6 @@ import {
   type ThresholdEd25519SessionId,
   type WalletId,
 } from '@shared/utils/domainIds';
-import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import { readPasskeyCustodySessionEnvelope } from './passkeyCustodySessionCache';
 
 export type PasskeyEd25519RecordRuntimePorts = {
@@ -128,7 +125,7 @@ export type PasskeyEd25519YaoExportContextV1 = {
   readonly kind: 'passkey_ed25519_yao_export_context_v1';
   readonly selectedLaneMaterialActivation: MpcMaterialActivationRef;
   readonly material: PasskeyEd25519YaoExportMaterialV1;
-  readonly authorization: ActiveWalletSessionAuthorizationProjection;
+  readonly authorization: ExactPasskeyWalletSessionAuthorization;
   readonly relayerUrl: string;
   readonly rpId: string;
   readonly walletCustodyEnvelope: PasskeyCustodyEnvelopeRecord;
@@ -393,32 +390,6 @@ export async function requirePasskeyEd25519RestoreAuthorization(args: {
   return authorization;
 }
 
-function projectExactPasskeyWalletSessionAuthorization(args: {
-  readonly authorization: ExactPasskeyWalletSessionAuthorization;
-  readonly authority: WalletAuthAuthorityRef;
-  readonly thresholdSessionId: ThresholdEd25519SessionId;
-}): ActiveWalletSessionAuthorizationProjection {
-  // The export flow still consumes a projection-shaped context. Derive it from
-  // the exact record and lane identity without consulting the V3 store.
-  const { record, operationCredential } = args.authorization;
-  return buildActiveWalletSessionAuthorizationProjection({
-    walletId: record.walletId,
-    walletSessionId: operationCredential.walletSessionId,
-    quotaId: record.quotaId,
-    walletSessionTokens: {
-      kind: 'near_ed25519',
-      ed25519: {
-        authorizationId: record.authorizationId,
-        walletSessionToken: operationCredential.token,
-        thresholdSessionId: args.thresholdSessionId,
-      },
-    },
-    authMethod: 'passkey',
-    authority: args.authority,
-    expiresAtMs: record.expiresAtMs,
-  });
-}
-
 function ownerWarmRecoveryBootstrapRequest(
   record: CurrentEd25519SealedSessionRecord,
   thresholdSessionId: ThresholdEd25519SessionId,
@@ -473,10 +444,8 @@ async function fetchWarmRecoveryBootstrap(args: {
       return { kind: 'unavailable', reason: 'wallet_session_expired' };
     }
     const message = parsedBody ? String(parsedBody.message || '').trim() : '';
-    const tokenClaims = decodeJwtPayloadRecord(walletSessionToken);
-    const tokenKind = String(tokenClaims?.kind || 'opaque');
     throw new Error(
-      `[SigningEngine][near] Ed25519 warm recovery bootstrap failed (HTTP ${response.status}${code ? `, ${code}` : ''}, token ${tokenKind}): ${message || 'invalid response'}`,
+      `[SigningEngine][near] Ed25519 warm recovery bootstrap failed (HTTP ${response.status}${code ? `, ${code}` : ''}): ${message || 'invalid response'}`,
     );
   }
   if (!parsedBody) throw new Error('Ed25519 warm recovery bootstrap returned invalid JSON');
@@ -767,11 +736,7 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
         credentialIdB64u: descriptor.credentialIdB64u,
         capability: descriptor.capability,
       },
-      authorization: projectExactPasskeyWalletSessionAuthorization({
-        authorization,
-        authority: expectedAuthorityRef,
-        thresholdSessionId: input.subject.thresholdSessionId,
-      }),
+      authorization,
       relayerUrl: input.relayerUrl,
       rpId: exactRecord.record.ed25519Restore.rpId,
       walletCustodyEnvelope,

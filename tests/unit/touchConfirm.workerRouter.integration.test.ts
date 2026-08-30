@@ -1,8 +1,5 @@
 import { expect, test } from '@playwright/test';
 import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
-import {
-  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-} from '@shared/utils/sessionTokens';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { setupBasicPasskeyTest } from '../setup';
 import { canonicalEvmFamilyEcdsaSigningCapabilityFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
@@ -128,29 +125,6 @@ function materialRestoreIdentityFromPasskeyRecord(record: CurrentEcdsaSealedSess
     }),
     ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
   };
-}
-
-function unsignedJwt(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
-  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  return `${header}.${body}.`;
-}
-
-function routerAbEcdsaWalletSessionJwt(args: {
-  walletId: string;
-  thresholdSessionId: string;
-  keyHandle: string;
-  chainTarget: Record<string, unknown>;
-}): string {
-  return unsignedJwt({
-    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'owner_wallet_session',
-    sub: args.walletId,
-    walletId: args.walletId,
-    keyHandle: args.keyHandle,
-    chainTarget: args.chainTarget,
-    thresholdSessionId: args.thresholdSessionId,
-  });
 }
 
 test.describe('UserConfirm worker router', () => {

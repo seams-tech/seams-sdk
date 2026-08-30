@@ -1,14 +1,13 @@
 import { BrowserSigningSurface } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
-import {
-  walletSessionAuthorizations,
-  type ActiveWalletSessionAuthorizationProjection,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import {
   addWalletSigner as addWalletSignerWithUnifiedCeremony,
   isRegistrationBenchmarkDiagnosticsEnabled,
   registerWallet as registerWalletWithUnifiedCeremony,
   WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
+import { resumePendingNearRegistrations } from '@/SeamsWeb/operations/registration/pendingRegistrationRecovery';
 import { addPasskeyWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import { revokeWalletAuthMethodOperation } from '@/SeamsWeb/operations/authMethods/revokeAuthMethod';
 import { addEmailOtpWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/emailOtp/addEmailOtp';
@@ -68,13 +67,13 @@ import {
 } from '@shared/utils/domainIds';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { EmailOtpVerifiedAuthorityProjection } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import {
   isEmailOtpWalletAuthAuthority,
   walletAuthAuthoritiesMatch,
-  type ActiveWalletSession,
+  parseWalletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
@@ -278,14 +277,27 @@ function requireWalletAuthMethodId(value: string): WalletAuthMethodId {
   return parsed.value;
 }
 
+function exactEmailOtpAuthorityRefFromLoginResult(
+  result: LoginWithEmailOtpEcdsaCapabilityInternalResult,
+): WalletAuthAuthorityRef {
+  const authority = result.recovery.verifiedAuthorityProjection.authority;
+  const authorityRef = parseWalletAuthAuthorityRef({
+    kind: 'wallet_auth_authority_ref',
+    walletId: authority.walletId,
+    walletAuthMethodId: result.authorization.record.authMethodId,
+    authorityDigest: authority.authorityDigestB64u,
+  });
+  if (!authorityRef) {
+    throw new Error('Email OTP unlock returned an invalid authority reference');
+  }
+  return authorityRef;
+}
+
 type EmailOtpUnlockActivationPlan = {
   kind: 'email_otp_unlock_activation_plan_v1';
   mode: 'evm_family_ecdsa';
-  activeAuthorization: ActiveWalletSessionAuthorizationProjection;
-  authorizations: readonly [
-    ActiveWalletSessionAuthorizationProjection,
-    ...ActiveWalletSessionAuthorizationProjection[],
-  ];
+  activeAuthorization: ExactWalletSessionAuthorization;
+  authorizations: readonly [ExactWalletSessionAuthorization, ...ExactWalletSessionAuthorization[]];
   runtimeState: EmailOtpUnlockActiveRuntimeState;
 };
 
@@ -515,7 +527,7 @@ function buildEmailOtpEcdsaUnlockActivationPlan(args: {
   result: LoginWithEmailOtpEcdsaCapabilityInternalResult;
   runtimeInventory: WalletRuntimeInventory;
 }): EmailOtpUnlockActivationPlan {
-  if (args.result.authorization.walletId !== args.walletSession.walletId) {
+  if (args.result.authorization.record.walletId !== args.walletSession.walletId) {
     throw new Error('Email OTP unlock authorization does not match the wallet session');
   }
   return {
@@ -532,9 +544,11 @@ function logEmailOtpUnlockActivationPlan(plan: EmailOtpUnlockActivationPlan): vo
   console.info('[EmailOtpUnlock] activation plan constructed', {
     kind: plan.kind,
     mode: plan.mode,
-    walletId: plan.activeAuthorization.walletId,
-    authorityDigest: plan.activeAuthorization.authority.authorityDigest,
-    walletSessionIds: plan.authorizations.map((authorization) => authorization.walletSessionId),
+    walletId: plan.activeAuthorization.record.walletId,
+    authorityDigest: plan.activeAuthorization.record.authorityDigestB64u,
+    walletSessionIds: plan.authorizations.map(
+      (authorization) => authorization.operationCredential.walletSessionId,
+    ),
     runtimeTargetCount: plan.runtimeState.inventory.ecdsaByTarget.size,
   });
 }
@@ -786,6 +800,7 @@ function deliverNearProvisioningStateChanged(
 
 type SeamsWebDeviceDomain = {
   readonly domain: DevicesCapabilityDomainMethods;
+  readonly resumePendingAcknowledgementsV1: () => Promise<void>;
   readonly dispose: () => void;
 };
 
@@ -824,6 +839,7 @@ function createSeamsWebDeviceDomainV1(args: SeamsWebDeviceDomainArgsV1): SeamsWe
             walletIframe: args.walletIframe,
           }),
         },
+        resumePendingAcknowledgementsV1: noopDeviceLinkingAcknowledgementResumeV1,
         dispose: noopDeviceLinkingDisposeV1,
       };
     case 'wallet_host': {
@@ -853,6 +869,8 @@ function createSeamsWebDeviceDomainV1(args: SeamsWebDeviceDomainArgsV1): SeamsWe
           linkedDeviceManagement: composition.linkedDeviceManagement,
           deviceLinkingPorts: composition.deviceLinkingPorts,
         },
+        resumePendingAcknowledgementsV1:
+          composition.deviceLinkingPorts.resumePendingAcknowledgementsV1,
         dispose: composition.dispose,
       };
     }
@@ -860,6 +878,21 @@ function createSeamsWebDeviceDomainV1(args: SeamsWebDeviceDomainArgsV1): SeamsWe
 }
 
 function noopDeviceLinkingDisposeV1(): void {}
+
+async function noopDeviceLinkingAcknowledgementResumeV1(): Promise<void> {}
+
+function resumeDeviceLinkingAcknowledgementsInBackgroundV1(
+  resume: () => Promise<void>,
+): void {
+  void resume().catch(reportDeviceLinkingAcknowledgementResumeFailureV1);
+}
+
+function reportDeviceLinkingAcknowledgementResumeFailureV1(error: unknown): void {
+  console.warn(
+    '[SeamsWeb] pending linked-device acknowledgement replay failed:',
+    error instanceof Error ? error.message : String(error || 'unknown error'),
+  );
+}
 
 function createWalletHostOwnerApprovalUpdatesV1(args: {
   readonly request: LinkSessionOwnerAuthenticatedRequestPortV1;
@@ -1170,6 +1203,11 @@ export class SeamsWeb {
     this.tempo = publicApi.tempo;
     this.evm = publicApi.evm;
 
+    void this.resumePendingRegistrationOnStartup();
+    resumeDeviceLinkingAcknowledgementsInBackgroundV1(
+      deviceDomain.resumePendingAcknowledgementsV1,
+    );
+
     // UserConfirm worker initializes automatically in the constructor
   }
 
@@ -1259,6 +1297,29 @@ export class SeamsWeb {
       configs: this.configs,
       theme: this.theme,
     };
+  }
+
+  private async resumePendingRegistrationOnStartup(): Promise<void> {
+    try {
+      if (IndexedDBManager.isDisabled()) return;
+      const relayerUrl = String(this.configs.network.relayer?.url || '').trim();
+      if (!relayerUrl) return;
+      const results = await resumePendingNearRegistrations({ relayerUrl });
+      for (const result of results) {
+        if (result.kind === 'failed') {
+          console.warn(
+            '[SeamsWeb] pending registration replay remains pending:',
+            result.registrationCeremonyId,
+            result.error,
+          );
+        }
+      }
+    } catch (error: unknown) {
+      console.warn(
+        '[SeamsWeb] pending registration startup replay failed:',
+        error instanceof Error ? error.message : String(error || 'unknown error'),
+      );
+    }
   }
 
   dispose(): void {
@@ -1820,17 +1881,8 @@ export class SeamsWeb {
         });
         return result;
       }
-      /* Every wallet method can share one email, so an operation-bound
-         challenge without an exact method id gets the locally selected active
-         Email OTP method — the only identity the server accepts once linking
-         has added a second active method. Unlock owns its selector end to end
-         and is left untouched; every other operation (export, signing) needs
-         the exact method named here. */
       let walletAuthMethodId = args.walletAuthMethodId;
-      const operationNeedsExactMethod =
-        Boolean(args.operationFingerprintDigest) ||
-        (Boolean(args.operation) && args.operation !== WALLET_EMAIL_OTP_UNLOCK_OPERATION);
-      if (!walletAuthMethodId && operationNeedsExactMethod) {
+      if (!walletAuthMethodId) {
         const selected = await IndexedDBManager.resolveSelectedWalletAuthority(
           String(args.walletId || '').trim(),
         );
@@ -1843,10 +1895,13 @@ export class SeamsWeb {
           walletAuthMethodId = String(selected.authMethod.walletAuthMethodId);
         }
       }
+      if (!walletAuthMethodId) {
+        throw new Error('Email OTP challenge requires an exact walletAuthMethodId');
+      }
       const result = await requestEmailOtpChallenge({
         relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
         walletId: String(args.walletId || '').trim(),
-        ...(walletAuthMethodId ? { walletAuthMethodId } : {}),
+        walletAuthMethodId,
         ...(args.operation ? { operation: args.operation } : {}),
         ...(args.operationFingerprintDigest
           ? { operationFingerprintDigest: args.operationFingerprintDigest }
@@ -2552,7 +2607,7 @@ export class SeamsWeb {
                 bootstrap: result.ed25519YaoRecovery.bootstrap,
                 activeClientHandle: result.ed25519YaoRecovery.activeClientHandle,
                 metadata: result.ed25519YaoRecovery.metadata,
-                authority: result.authorization.authority,
+                authority: exactEmailOtpAuthorityRefFromLoginResult(result),
               });
             break;
           case 'cache_absent':
@@ -2618,7 +2673,7 @@ export class SeamsWeb {
         timingStartedAtMs,
       );
       timingStartedAtMs = nowMs();
-      const ownerAuthority = result.authorization.authority;
+      const ownerAuthority = exactEmailOtpAuthorityRefFromLoginResult(result);
       const runtimeInventory = await assertWalletRuntimePostconditions({
         source: 'wallet_unlock',
         walletId,

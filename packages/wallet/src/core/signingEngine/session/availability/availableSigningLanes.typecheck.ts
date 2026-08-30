@@ -17,7 +17,7 @@ import { toAccountId } from '../../../types/accountIds';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactNearEd25519WalletSessionAuthorization } from '../material/nearEd25519YaoSigningPreparation';
 import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../material/ecdsaSigningCapability';
 
 const chainTarget = {
@@ -50,7 +50,7 @@ const emailOtpAuth = {
 declare const keyHandle: EvmFamilyEcdsaKeyHandle;
 declare const materialActivation: MpcMaterialActivationRef;
 declare const canonicalCapability: CanonicalEvmFamilyEcdsaSigningCapability;
-declare const ed25519Authorization: ActiveWalletSessionAuthorizationProjection;
+declare const ed25519Authorization: ExactNearEd25519WalletSessionAuthorization;
 
 const publicFacts = buildVerifiedEcdsaPublicFacts({
   keyHandle,

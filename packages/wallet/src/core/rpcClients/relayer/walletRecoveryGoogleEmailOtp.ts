@@ -1,4 +1,3 @@
-import { isActiveRecoveredWalletAuthorityV1, parseWalletAuthorityV1 } from '@shared/authorization';
 import {
   parsePasskeyCustodyEnvelopeRecord,
   rejectUnknownFields,
@@ -6,14 +5,15 @@ import {
 } from '@shared/passkey-custody';
 import {
   parseEmailOtpChallengeId,
+  parseEmailOtpProviderUserId,
   parseWalletRecoveryOperationId,
   type EmailOtpChallengeId,
+  type WalletId,
   type WalletRecoveryOperationId,
 } from '@shared/utils/domainIds';
-import {
-  parseWalletAuthMethodRecordV2,
-  type WalletAuthMethodRecordV2,
-} from '@shared/utils/registrationIntent';
+import type { DeviceId } from '@shared/authorization/capabilityKinds';
+import type { WalletAuthMethodId, WalletAuthorityId } from '@shared/utils/domainIds';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import {
   parseRecoveryCodeReservationId,
   type RecoveryCodeReservationId,
@@ -25,6 +25,10 @@ import {
 import { parseEmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/challengeDelivery';
 import type { EmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { ActiveRecoveredWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import {
+  parseWalletRecoveryCommittedProjectionV1,
+  type WalletRecoveryCommittedProjectionExpectationV1,
+} from '@shared/wallet-recovery/walletRecoveryCommittedProjection';
 import { buildRelayerJsonPostRequestInit, normalizeRelayerBaseUrl } from './relayerHttp';
 import type { WalletRecoveryAttemptFailure } from './walletRecoveryPrepare';
 
@@ -143,6 +147,13 @@ export async function verifyWalletRecoveryEmailOtp(
 
 export async function finalizeWalletRecoveryGoogleEmailOtp(
   args: RecoveryOperationInput & {
+    readonly walletId: WalletId;
+    readonly targetDeviceId: DeviceId;
+    readonly targetAuthorityId: WalletAuthorityId;
+    readonly targetWalletAuthMethodId: WalletAuthMethodId;
+    readonly expectedProviderSubject: string;
+    readonly expectedEmailHashHex: string;
+    readonly expectedRegistrationAuthorityId: string;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
     readonly ecdsaMaterialPossessionProofs: readonly {
       readonly keySetId: `evm_family_ecdsa:${string}`;
@@ -173,6 +184,7 @@ export async function finalizeWalletRecoveryGoogleEmailOtp(
     return { kind: 'refused' };
   }
   const response = await postRecoveryJson(args, GOOGLE_EMAIL_OTP_FINALIZE_PATH, {
+    kind: 'finalize',
     recoveryOperationId: args.recoveryOperationId,
     reservationId: args.reservationId,
     replacementEnvelope,
@@ -183,28 +195,20 @@ export async function finalizeWalletRecoveryGoogleEmailOtp(
   try {
     rejectUnknownFields(
       response.body,
-      ['ok', 'storeVersion', 'authority', 'authMethod'],
+      ['ok', 'projection'],
       'walletRecoveryGoogleEmailOtpFinalize',
     );
-    const authority = parseWalletAuthorityV1(response.body.authority);
-    const authMethod = parseWalletAuthMethodRecordV2(response.body.authMethod);
-    if (
-      !authority.ok ||
-      authority.value.state !== 'active' ||
-      !isActiveRecoveredWalletAuthorityV1(authority.value) ||
-      !authMethod ||
-      authMethod.kind !== 'email_otp' ||
-      authMethod.status !== 'active' ||
-      authMethod.walletId !== authority.value.walletId ||
-      authMethod.walletAuthorityId !== authority.value.authorityId
-    ) {
-      throw new Error('invalid committed projection');
-    }
+    const projection = await parseWalletRecoveryCommittedProjectionV1(
+      response.body.projection,
+      buildGoogleEmailOtpProjectionExpectation(args, replacementEnvelope),
+    );
+    if (projection.kind !== 'google_email_otp')
+      throw new Error('recovery projection branch changed');
     return {
       kind: 'promoted',
-      storeVersion: requireString(response.body.storeVersion),
-      authority: authority.value,
-      authMethod,
+      storeVersion: projection.storeVersion,
+      authority: projection.authority,
+      authMethod: projection.authMethod,
     };
   } catch {
     return { kind: 'transport_uncertain' };
@@ -272,6 +276,46 @@ function requireParsed<T>(
 function requireString(value: unknown): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error('value must be a string');
   return value.trim();
+}
+
+function buildGoogleEmailOtpProjectionExpectation(
+  args: {
+    readonly walletId: WalletId;
+    readonly recoveryOperationId: WalletRecoveryOperationId;
+    readonly targetDeviceId: DeviceId;
+    readonly targetAuthorityId: WalletAuthorityId;
+    readonly targetWalletAuthMethodId: WalletAuthMethodId;
+    readonly expectedProviderSubject: string;
+    readonly expectedEmailHashHex: string;
+    readonly expectedRegistrationAuthorityId: string;
+  },
+  replacementEnvelope: PasskeyCustodyEnvelopeRecord,
+): WalletRecoveryCommittedProjectionExpectationV1 {
+  if (replacementEnvelope.factor.kind !== 'email_otp') {
+    throw new Error('replacement envelope is not an Email OTP envelope');
+  }
+  return {
+    kind: 'google_email_otp',
+    walletId: args.walletId,
+    recoveryOperationId: args.recoveryOperationId,
+    targetDeviceId: args.targetDeviceId,
+    targetAuthorityId: args.targetAuthorityId,
+    targetWalletAuthMethodId: args.targetWalletAuthMethodId,
+    providerSubject: requireParsed(parseEmailOtpProviderUserId(args.expectedProviderSubject)),
+    emailHashHex: requireEmailHash(args.expectedEmailHashHex),
+    registrationAuthorityId: requireString(args.expectedRegistrationAuthorityId),
+    enrollment: {
+      kind: 'email_otp_enrollment_reference_v1',
+      enrollmentId: requireString(replacementEnvelope.factor.enrollmentId),
+      enrollmentSealKeyVersion: requireString(replacementEnvelope.factor.enrollmentSealKeyVersion),
+    },
+  };
+}
+
+function requireEmailHash(value: string): string {
+  const hash = requireString(value);
+  if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error('email hash is invalid');
+  return hash;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

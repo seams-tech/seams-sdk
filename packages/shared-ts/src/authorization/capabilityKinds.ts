@@ -10,12 +10,6 @@ export type AuthorizationParseResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: AuthorizationParseError };
 
-export const WALLET_SESSION_CLIENT_CAPABILITY_V1 =
-  'direct_exact_response_future_record_tolerant' as const;
-
-export type WalletSessionClientCapabilityV1 =
-  typeof WALLET_SESSION_CLIENT_CAPABILITY_V1;
-
 export const CAPABILITY_KINDS = {
   vaultAccess: 'vault_access',
   nearEd25519MpcSigning: 'near_ed25519_mpc_signing',
@@ -105,7 +99,6 @@ export type CapabilityId = DomainId<'CapabilityId'>;
 export type CapabilityBindingId = DomainId<'CapabilityBindingId'>;
 export type CapabilityOperationId = DomainId<'CapabilityOperationId'>;
 export type WalletSessionAuthorizationId = DomainId<'WalletSessionAuthorizationId'>;
-export type ReusableWalletSessionAuthorizationId = WalletSessionAuthorizationId;
 
 export const AUTHORIZATION_GRANT_KINDS = {
   walletSession: 'wallet_session_authorization',
@@ -119,12 +112,12 @@ export type WalletSessionAuthorizationRef = {
   readonly authorizationId: WalletSessionAuthorizationId;
 };
 
-/** Each reusable authorization branch carries exactly one authorization identity. */
+/** Each authorization grant carries exactly one Wallet Session authorization identity. */
 export type AuthorizationGrantRef = WalletSessionAuthorizationRef;
 export type AuthorizedOperationId = DomainId<'AuthorizedOperationId'>;
 export type WalletSessionId = DomainId<'WalletSessionId'>;
 export type MpcWalletSigningQuotaId = DomainId<'MpcWalletSigningQuotaId'>;
-export type ReusableWalletSessionMintId = DomainId<'ReusableWalletSessionMintId'>;
+export type WalletSessionMintId = DomainId<'WalletSessionMintId'>;
 export type AuthorizationEvidenceId = DomainId<'AuthorizationEvidenceId'>;
 export type AuthorizationEvidenceSetId = DomainId<'AuthorizationEvidenceSetId'>;
 export type GrantChallengeId = DomainId<'GrantChallengeId'>;
@@ -239,31 +232,6 @@ export function parseTenantId(value: unknown): AuthorizationParseResult<TenantId
   return parseAuthorizationId(value, 'tenantId');
 }
 
-export function parseWalletSessionClientCapabilityV1(
-  value: unknown,
-): AuthorizationParseResult<WalletSessionClientCapabilityV1> {
-  if (value === WALLET_SESSION_CLIENT_CAPABILITY_V1) {
-    return { ok: true, value };
-  }
-  if (value === undefined) {
-    return {
-      ok: false,
-      error: {
-        code: 'missing',
-        message: 'walletSessionClientCapability is required',
-      },
-    };
-  }
-  return {
-    ok: false,
-    error: {
-      code: 'invalid',
-      message:
-        'walletSessionClientCapability must be direct_exact_response_future_record_tolerant',
-    },
-  };
-}
-
 export function parsePrincipalId(value: unknown): AuthorizationParseResult<PrincipalId> {
   return parseAuthorizationId(value, 'principalId');
 }
@@ -352,12 +320,6 @@ export function parseWalletSessionAuthorizationId(
   return parseAuthorizationId(value, 'walletSessionAuthorizationId');
 }
 
-export function parseReusableWalletSessionAuthorizationId(
-  value: unknown,
-): AuthorizationParseResult<ReusableWalletSessionAuthorizationId> {
-  return parseAuthorizationId(value, 'reusableWalletSessionAuthorizationId');
-}
-
 export function parseAuthorizedOperationId(
   value: unknown,
 ): AuthorizationParseResult<AuthorizedOperationId> {
@@ -374,10 +336,10 @@ export function parseMpcWalletSigningQuotaId(
   return parseAuthorizationId(value, 'mpcWalletSigningQuotaId');
 }
 
-export function parseReusableWalletSessionMintId(
+export function parseWalletSessionMintId(
   value: unknown,
-): AuthorizationParseResult<ReusableWalletSessionMintId> {
-  return parseAuthorizationId(value, 'reusableWalletSessionMintId');
+): AuthorizationParseResult<WalletSessionMintId> {
+  return parseAuthorizationId(value, 'walletSessionMintId');
 }
 
 export function parseAuthorizationEvidenceId(

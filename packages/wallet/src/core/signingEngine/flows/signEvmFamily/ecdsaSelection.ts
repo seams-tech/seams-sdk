@@ -1,4 +1,3 @@
-import type { ExactEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
@@ -27,7 +26,8 @@ import {
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import type { DurableEmailOtpEcdsaSigningSessionAuthorityResolver } from '../../interfaces/operationDeps';
-import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
+import { emailOtpEcdsaSigningSessionAuthLane } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 import { exactEcdsaSigningLaneIdentityFromSelectedLane } from '../../session/identity/exactSigningLaneIdentity';
 import type { EvmFamilySenderSignatureAlgorithm } from './types';
 import {
@@ -171,7 +171,7 @@ function summarizeLaneCandidate(
 // finds the exact authority or the selection has none.
 type EmailOtpSelectionAuthority = {
   kind: 'durable_authority_backed';
-  laneAuthority: EmailOtpEcdsaSigningSessionAuthority;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
 };
 
 type EcdsaCommittedLaneAuthFacts<A extends WalletAuthAuthority> =
@@ -276,7 +276,7 @@ async function resolveEmailOtpAuthorityForSelection(args: {
   if (laneAuthority) {
     return {
       kind: 'durable_authority_backed',
-      laneAuthority,
+      authorization: laneAuthority,
     };
   }
   logEvmFamilyEcdsaLaneDiagnostic('Email OTP exact ECDSA authority not found', {
@@ -306,7 +306,7 @@ function requireEmailOtpEcdsaSigningSessionAuthLane(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   candidate: AuthorizedEcdsaLaneCandidate;
 }): Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }> {
-  const authLane = args.authority.laneAuthority.authLane;
+  const authLane = emailOtpEcdsaSigningSessionAuthLane(args.authority.authorization);
   if (
     authLane.kind === 'signing_session' &&
     authLane.curve === 'ecdsa' &&
@@ -352,7 +352,11 @@ function commitEmailOtpEcdsaLaneForSelection(args: {
     lane: args.lane,
     candidate: args.candidate,
   });
-  const authority = args.authority.laneAuthority.authority;
+  const authorization = args.authority.authorization;
+  if (authorization.runtime.authBinding.kind !== 'email_otp') {
+    throw new Error('[SigningEngine][ecdsa] Email OTP authority runtime binding is invalid');
+  }
+  const authority = authorization.runtime.authBinding.emailOtpAuthority;
   assertEcdsaCommittedLaneAuthorityMatchesWallet({
     authority,
     lane: args.lane,
@@ -363,7 +367,7 @@ function commitEmailOtpEcdsaLaneForSelection(args: {
     lane: args.lane,
     authority,
     authLane,
-    authorization: args.lane.authorization,
+    authorization,
   };
   return {
     ...common,

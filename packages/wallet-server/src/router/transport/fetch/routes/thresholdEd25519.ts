@@ -11,7 +11,6 @@ import {
   resolveWalletSessionOperationCredentialAdmission,
   resolveThresholdRuntimePolicyScope,
 } from '../../../auth/commonRouterUtils';
-import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
 import { normalizeCorsOrigin } from '../../../../core/SessionService';
 import {
   authenticateRouterAbWalletOperationStepUpIdentity,
@@ -31,7 +30,6 @@ import {
 import {
   isPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
-  type WalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
@@ -53,8 +51,6 @@ import {
   parseAuthorizationEvidenceId,
   parseAuthorizationEvidenceSetId,
   parsePrincipalId,
-  parseTenantId,
-  EVM_ECDSA_MPC_OPERATION_KINDS,
 } from '@shared/authorization/capabilityKinds';
 import {
   buildCapabilityOperationEnvelope,
@@ -106,9 +102,7 @@ import {
 import { sealEmailOtpFactorSecretForWorker } from '../../../domains/emailOtp/emailOtpRouteHandlers';
 import type { RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse } from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
 import type {
-  RouterApiAuthorizationSessionService,
   RouterApiEmailOtpRouteService,
-  RouterApiWalletRegistrationService,
   RouterApiWalletAuthMethodService,
 } from '../../../framework/authServicePort';
 import {
@@ -171,92 +165,45 @@ async function resolveActiveEd25519OperationStepUpAuthority(
   }
 }
 
-function reusableWalletSessionPrincipalSubject(authority: WalletAuthAuthority): string {
-  switch (authority.factor.kind) {
-    case 'email_otp':
-      return authority.factor.providerUserId;
-    case 'passkey':
-      return authority.walletId;
-  }
-}
-
-type AcceptedEd25519ReusableWalletSessionAuthorization = Extract<
+type AcceptedEd25519WalletSessionAuthorization = Extract<
   Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
   {
     readonly ok: true;
-    readonly kind: 'reusable_wallet_session' | 'wallet_session_operation_credential_v1';
+    readonly kind: 'wallet_session_operation_credential_v1';
   }
 >;
 
 function ed25519ReusableWalletSessionIdentity(
-  authorization: AcceptedEd25519ReusableWalletSessionAuthorization,
+  authorization: AcceptedEd25519WalletSessionAuthorization,
 ) {
-  if (authorization.kind === 'wallet_session_operation_credential_v1') {
-    const session = authorization.validated.context.authorization.session;
-    return {
-      tenantId: session.tenantId,
-      principalId: session.principalId,
-      walletSessionId: session.walletSessionId,
-      authorizationId: session.authorizationId,
-      quotaId: session.quotaId,
-    };
-  }
-  const binding = authorization.validated.binding;
+  const session = authorization.validated.admission.context.authorization.session;
   return {
-    tenantId: requireAuthorizationValue(parseTenantId(binding.runtimePolicyScope.orgId)),
-    principalId: requireAuthorizationValue(
-      parsePrincipalId(reusableWalletSessionPrincipalSubject(binding.authority)),
-    ),
-    walletSessionId: binding.walletSessionId,
-    authorizationId: binding.authorizationId,
-    quotaId: binding.quotaId,
+    tenantId: session.tenantId,
+    principalId: session.principalId,
+    walletSessionId: session.walletSessionId,
+    authorizationId: session.authorizationId,
+    quotaId: session.quotaId,
   };
 }
 
 function buildEd25519GatewayOwnerWalletSessionBinding(
-  authorization: AcceptedEd25519NormalSigningAuthorization,
+  authorization: AcceptedEd25519WalletSessionAuthorization,
 ) {
-  if (authorization.kind === 'wallet_session_operation_credential_v1') {
-    const session = authorization.validated.context.authorization.session;
-    const runtimePolicyScope = authorization.activeMaterial.runtimePolicyScope;
-    return {
-      kind: 'gateway_owner_wallet_session' as const,
-      subjectId: String(session.principalId),
-      accountId: String(session.walletId),
-      authorizationSessionId: String(session.authorizationId),
-      authorizationId: String(session.authorizationId),
-      walletSessionId: String(session.walletSessionId),
-      quotaId: String(session.quotaId),
-      thresholdSessionId: authorization.activeMaterial.exportIdentity.scope.threshold_session_id,
-      orgId: runtimePolicyScope.orgId,
-      projectId: runtimePolicyScope.projectId,
-      environment: runtimePolicyScope.envId,
-      signingWorkerId: authorization.activeMaterial.signingWorkerId,
-      expiresAtMs: session.expiresAtMs,
-    };
-  }
-  if (authorization.kind !== 'reusable_wallet_session') {
-    throw new Error('Ed25519 Gateway owner Wallet Session requires owner authorization');
-  }
-  const binding = authorization.validated.binding;
-  const runtimePolicyScope = binding.runtimePolicyScope;
-  if (!runtimePolicyScope) {
-    throw new Error('Ed25519 Wallet Session runtime policy scope is required');
-  }
+  const session = authorization.validated.admission.context.authorization.session;
+  const runtimePolicyScope = authorization.activeMaterial.runtimePolicyScope;
   return {
     kind: 'gateway_owner_wallet_session' as const,
-    subjectId: binding.subjectId,
-    accountId: binding.walletId,
-    authorizationSessionId: binding.walletSessionId,
-    authorizationId: binding.authorizationId,
-    walletSessionId: binding.walletSessionId,
-    quotaId: binding.quotaId,
-    thresholdSessionId: binding.thresholdSessionId,
+    subjectId: String(session.principalId),
+    accountId: String(session.walletId),
+    authorizationId: String(session.authorizationId),
+    walletSessionId: String(session.walletSessionId),
+    quotaId: String(session.quotaId),
+    thresholdSessionId: authorization.activeMaterial.exportIdentity.scope.threshold_session_id,
     orgId: runtimePolicyScope.orgId,
     projectId: runtimePolicyScope.projectId,
     environment: runtimePolicyScope.envId,
-    signingWorkerId: binding.routerAbNormalSigning.signingWorkerId,
-    expiresAtMs: binding.thresholdExpiresAtMs,
+    signingWorkerId: authorization.activeMaterial.signingWorkerId,
+    expiresAtMs: session.expiresAtMs,
   };
 }
 
@@ -272,7 +219,6 @@ type RouterAbEd25519AuthorizedOperationWire = {
         readonly kind: 'gateway_owner_wallet_session';
         readonly subject_id: string;
         readonly account_id: string;
-        readonly authorization_session_id: string;
         readonly authorization_id: string;
         readonly wallet_session_id: string;
         readonly quota_id: string;
@@ -313,7 +259,6 @@ type RouterAbEd25519AuthorizedOperationWireInput =
         readonly kind: 'gateway_owner_wallet_session';
         readonly subjectId: string;
         readonly accountId: string;
-        readonly authorizationSessionId: string;
         readonly authorizationId: string;
         readonly walletSessionId: string;
         readonly quotaId: string;
@@ -388,7 +333,6 @@ function buildRouterAbEd25519AuthorizedOperationWire(
           kind: 'gateway_owner_wallet_session',
           subject_id: input.binding.subjectId,
           account_id: input.binding.accountId,
-          authorization_session_id: input.binding.authorizationSessionId,
           authorization_id: input.binding.authorizationId,
           wallet_session_id: input.binding.walletSessionId,
           quota_id: input.binding.quotaId,
@@ -498,156 +442,6 @@ type PasskeyEd25519AuthorizationResult =
       >;
     }
   | { ok: false; response: Response };
-
-type ReusedEcdsaWalletSessionResult =
-  | {
-      readonly ok: true;
-      readonly existingWalletSession: Extract<
-        RouterAbEd25519YaoBudgetRefreshRequestV1,
-        { readonly kind: 'router_ab_ed25519_yao_same_wallet_session_curve_mint_v1' }
-      >['existingWalletSession'];
-    }
-  | { readonly ok: false; readonly response: Response };
-
-function reusedEcdsaWalletSessionFailure(
-  code: string,
-  message: string,
-  status: number,
-): Extract<ReusedEcdsaWalletSessionResult, { readonly ok: false }> {
-  return {
-    ok: false,
-    response: json({ ok: false, code, message }, { status }),
-  };
-}
-
-export async function resolveReusedEcdsaWalletSession(input: {
-  readonly authorizationSessions: RouterApiAuthorizationSessionService;
-  readonly walletRegistration: Pick<
-    RouterApiWalletRegistrationService,
-    'resolveEcdsaMaterialActivation'
-  >;
-  readonly headers: Headers;
-  readonly runtimePolicyScope: RouterAbEd25519YaoSessionRouteCommandV1['sessionPolicy']['runtimePolicyScope'];
-  readonly authority: PasskeyWalletAuthAuthority;
-}): Promise<ReusedEcdsaWalletSessionResult> {
-  const token = extractBearerCredential(input.headers);
-  if (!token) {
-    return reusedEcdsaWalletSessionFailure(
-      'unauthorized',
-      'Existing ECDSA Wallet Session authorization is required',
-      401,
-    );
-  }
-  const nowMs = Date.now();
-  let resolution: Awaited<ReturnType<typeof resolveWalletSessionOperationCredentialAdmission>>;
-  try {
-    resolution = await resolveWalletSessionOperationCredentialAdmission({
-      authorizationSessions: input.authorizationSessions,
-      token,
-      nowMs,
-      operation: {
-        keyFamily: 'ecdsa_secp256k1',
-        operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
-      },
-    });
-  } catch {
-    return reusedEcdsaWalletSessionFailure(
-      'wallet_session_unavailable',
-      'Existing ECDSA Wallet Session is unavailable',
-      503,
-    );
-  }
-  if (resolution.kind === 'not_found') {
-    return reusedEcdsaWalletSessionFailure(
-      'wallet_session_invalid',
-      'Existing ECDSA Wallet Session is invalid',
-      401,
-    );
-  }
-  const admission = resolution.kind === 'admitted' ? resolution.admission : null;
-  const context = admission?.context;
-  const authMethod = context?.authMethod;
-  const session = context?.authorization.session;
-  if (
-    !admission ||
-    admission.curve !== 'ecdsa' ||
-    !context ||
-    !session ||
-    !authMethod ||
-    authMethod.kind !== 'passkey' ||
-    String(session.walletId) !== String(input.authority.walletId) ||
-    authMethod.walletAuthMethodId !== input.authority.bindingId ||
-    authMethod.credentialIdB64u !== input.authority.factor.credentialIdB64u ||
-    authMethod.rpId !== input.authority.verifier.rpId
-  ) {
-    return reusedEcdsaWalletSessionFailure(
-      'scope_mismatch',
-      'ECDSA Wallet Session does not match the requested Ed25519 signing lane',
-      403,
-    );
-  }
-  const materialActivation = routerAbMpcMaterialActivationRefToWire(
-    admission.admission.materialActivation,
-  );
-  let activeMaterial: Awaited<
-    ReturnType<RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation']>
-  >;
-  try {
-    activeMaterial = await input.walletRegistration.resolveEcdsaMaterialActivation({
-      walletId: String(session.walletId),
-      materialActivation,
-    });
-  } catch {
-    return reusedEcdsaWalletSessionFailure(
-      'wallet_session_unavailable',
-      'Existing ECDSA Wallet Session material is unavailable',
-      503,
-    );
-  }
-  if (!activeMaterial.ok) {
-    return activeMaterial.code === 'internal'
-      ? reusedEcdsaWalletSessionFailure(
-          'wallet_session_unavailable',
-          'Existing ECDSA Wallet Session material is unavailable',
-          503,
-        )
-      : reusedEcdsaWalletSessionFailure(
-          'scope_mismatch',
-          'Existing ECDSA Wallet Session material is not active',
-          403,
-        );
-  }
-  const normalSigning = activeMaterial.routerAbEcdsaDerivationNormalSigning;
-  if (
-    normalSigning.scope.wallet_id !== String(session.walletId) ||
-    normalSigning.scope.public_identity.threshold_public_key33_b64u !==
-      admission.admission.signer.thresholdPublicKey33B64u ||
-    !sameRouterAbMpcMaterialActivationRef(activeMaterial.materialActivation, materialActivation) ||
-    !sameRouterAbMpcMaterialActivationRef(
-      normalSigning.scope.material_activation,
-      materialActivation,
-    ) ||
-    alphabetizeStringify(activeMaterial.runtimePolicyScope) !==
-      alphabetizeStringify(input.runtimePolicyScope)
-  ) {
-    return reusedEcdsaWalletSessionFailure(
-      'scope_mismatch',
-      'ECDSA Wallet Session does not match the requested Ed25519 signing lane',
-      403,
-    );
-  }
-  const quota = context.authorization.quota;
-  return {
-    ok: true,
-    existingWalletSession: {
-      authorizationId: session.authorizationId,
-      walletSessionId: session.walletSessionId,
-      quotaId: session.quotaId,
-      expiresAtMs: quota.expiresAtMs,
-      remainingUses: quota.remainingUses,
-    },
-  };
-}
 
 async function validatePasskeyEd25519SessionAuthorization(input: {
   ctx: FetchRouterApiContext;
@@ -824,7 +618,7 @@ function parseEd25519VerifiedStepUpAuthorizedOperationReceipt(
 async function authorizeEd25519ReusableWalletSessionOperation(input: {
   ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
-  authorization: AcceptedEd25519ReusableWalletSessionAuthorization;
+  authorization: AcceptedEd25519WalletSessionAuthorization;
 }): Promise<
   | {
       readonly ok: true;
@@ -841,25 +635,16 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
     if (!operation.ok) throw new Error(operation.message);
     const intent = isPlainObject(input.body.intent) ? input.body.intent : null;
     if (!intent) throw new Error('Ed25519 normal-signing intent is required');
+    const session = input.authorization.validated.admission.context.authorization.session;
     const privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
       phase: 'prepare',
       body: input.body,
-      authorization:
-        input.authorization.kind === 'wallet_session_operation_credential_v1'
-          ? {
-              kind: 'wallet_session_operation_credential_v1',
-              walletSessionId: String(
-                input.authorization.validated.context.authorization.session.walletSessionId,
-              ),
-              principalId: String(
-                input.authorization.validated.context.authorization.session.principalId,
-              ),
-              runtimePolicyScope: input.authorization.activeMaterial.runtimePolicyScope,
-            }
-          : {
-              kind: 'reusable_wallet_session',
-              binding: input.authorization.validated.binding,
-            },
+      authorization: {
+        kind: 'wallet_session_operation_credential_v1',
+        walletSessionId: String(session.walletSessionId),
+        principalId: String(session.principalId),
+        runtimePolicyScope: input.authorization.activeMaterial.runtimePolicyScope,
+      },
       headers: Object.fromEntries(input.ctx.request.headers.entries()),
     });
     if (!('admission_candidate' in privateBody)) {
@@ -1131,7 +916,7 @@ function buildEd25519ReusableOperationEnvelope(
 async function validateEd25519ReusableAuthorizedOperation(input: {
   ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
-  authorization: AcceptedEd25519ReusableWalletSessionAuthorization;
+  authorization: AcceptedEd25519WalletSessionAuthorization;
 }): Promise<
   | {
       readonly ok: true;
@@ -1733,9 +1518,7 @@ async function issueEd25519OperationStepUpGrant(input: {
         subject: {
           kind: 'provider_identity',
           orgId: requireAuthorizationValue(parseOrgId(authenticated.session.tenantId)),
-          providerSubject: requireAuthorizationValue(
-            parseProviderSubject(proof.providerSubjectId),
-          ),
+          providerSubject: requireAuthorizationValue(parseProviderSubject(proof.providerSubjectId)),
           walletId: walletIdFromString(authenticated.session.walletId),
         },
         loginGrant: verified.loginGrant,
@@ -1904,13 +1687,7 @@ async function proxyEd25519OwnerLaneExecution(input: {
       { status: 400 },
     );
   }
-  const laneAuthorization =
-    input.authorization.kind === 'operation_step_up'
-      ? input.authorization.session.laneAuthorization
-      : {
-          kind: 'wallet_auth_method' as const,
-          walletAuthMethodId: input.authorization.validated.walletSessionAuth.walletAuthMethodId,
-        };
+  const laneAuthorization = input.authorization.session.laneAuthorization;
   return await proxyOwnerLaneAdmittedNormalSigningRequest({
     request: input.ctx.request,
     proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
@@ -2350,33 +2127,11 @@ export async function handleThresholdEd25519(ctx: FetchRouterApiContext): Promis
       });
       if (!authorization.ok) return authorization.response;
 
-      let refreshRequest: RouterAbEd25519YaoBudgetRefreshRequestV1;
-      switch (b.walletSessionTarget.kind) {
-        case 'new_wallet_session':
-          refreshRequest = {
-            kind: 'router_ab_ed25519_yao_budget_refresh_v1',
-            sessionPolicy: b.sessionPolicy,
-            authorization: authorization.authorization,
-          };
-          break;
-        case 'reuse_ecdsa_wallet_session': {
-          const reused = await resolveReusedEcdsaWalletSession({
-            authorizationSessions: ctx.service.authorizationSessions,
-            walletRegistration: ctx.service.walletRegistration,
-            headers: ctx.request.headers,
-            runtimePolicyScope: b.sessionPolicy.runtimePolicyScope,
-            authority,
-          });
-          if (!reused.ok) return reused.response;
-          refreshRequest = {
-            kind: 'router_ab_ed25519_yao_same_wallet_session_curve_mint_v1',
-            sessionPolicy: b.sessionPolicy,
-            authorization: authorization.authorization,
-            existingWalletSession: reused.existingWalletSession,
-          };
-          break;
-        }
-      }
+      const refreshRequest: RouterAbEd25519YaoBudgetRefreshRequestV1 = {
+        kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+        sessionPolicy: b.sessionPolicy,
+        authorization: authorization.authorization,
+      };
       const result =
         await ctx.service.walletRegistration.refreshEd25519YaoWalletSession(refreshRequest);
       const status = thresholdEd25519StatusCode(result);

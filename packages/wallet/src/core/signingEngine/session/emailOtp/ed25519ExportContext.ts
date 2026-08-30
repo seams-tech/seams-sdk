@@ -9,14 +9,15 @@ import type {
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { LoadedWalletCustodyEd25519MaterialV1 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import { parseEd25519YaoRecoveryCapabilityV1 } from '@/core/signingEngine/session/passkey/ed25519YaoRecoveryCapability';
-import type { ReusableWalletSessionState } from '@/core/types/seams';
 import type { AccountId } from '@/core/types/accountIds';
 import {
-  type ActiveWalletSessionAuthorizationProjection,
-  type WalletSessionAuthorizationReadResult,
-  walletSessionAuthorizationIdForCurve,
-  walletSessionTokenForCurve,
+  type ActiveWalletSessionV1,
+  type WalletSessionOperationCredentialV1,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactWalletSessionStatus } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import type { ActiveWalletAuthMethodV2 } from '@/core/signingEngine/session/identity/ownerLaneScope';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import { activeWalletSessionV1RecordsEqual } from '@shared/device-linking/activeWalletSession';
 import {
   mpcMaterialActivationRefsEqual,
   parseThresholdEd25519SessionId,
@@ -30,7 +31,11 @@ import {
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
   parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import { parseEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  parseEmailOtpWalletAuthAuthority,
+  walletAuthAuthoritiesMatch,
+  type EmailOtpWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import {
   normalizeRuntimePolicyScope,
   signingRootScopeFromRuntimePolicyScope,
@@ -41,8 +46,55 @@ import type {
   PasskeyCustodyEnvelopeRecord,
   PasskeyCustodySecretBinding,
 } from '@shared/passkey-custody';
-
 type EmailOtpEd25519LaneAuth = Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>;
+type ExactEmailOtpWalletSessionStatus = Extract<
+  ExactWalletSessionStatus,
+  { readonly status: 'active' }
+>;
+
+export type EmailOtpEd25519YaoRecoveredCapabilityActivationV1 =
+  EmailOtpEd25519YaoWorkerActivationResult & {
+    readonly emailHashHex: string;
+  };
+
+export type EmailOtpEd25519YaoRecoveredCapabilityActivationRequestV1 = {
+  readonly activation: EmailOtpEd25519YaoRecoveredCapabilityActivationV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
+};
+
+type EmailOtpEd25519YaoWorkerActivationRequestV1 = {
+  readonly activation: EmailOtpEd25519YaoWorkerActivationResult;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
+};
+
+export type ExactWalletSessionAuthorizationForEd25519ExportV1 = {
+  readonly selectedAuthority: ActiveWalletAuthorityV1;
+  readonly selectedAuthMethod: Extract<ActiveWalletAuthMethodV2, { readonly kind: 'email_otp' }>;
+  readonly factorAuthority: EmailOtpWalletAuthAuthority;
+  readonly record: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
+  readonly status: ExactEmailOtpWalletSessionStatus;
+};
+
+export type EmailOtpEd25519ExportAuthorizationReadResultV1 =
+  | {
+      readonly kind: 'found';
+      readonly authorization: ExactWalletSessionAuthorizationForEd25519ExportV1;
+    }
+  | {
+      readonly kind:
+        | 'missing'
+        | 'upgrade_required'
+        | 'corrupt'
+        | 'persistence_unavailable'
+        | 'exhausted'
+        | 'expired'
+        | 'superseded'
+        | 'authority_unavailable'
+        | 'method_unavailable'
+        | 'capability_unavailable';
+      readonly authorization?: never;
+    };
 
 type Ed25519YaoClientRootEnvelopeRecordV1 = PasskeyCustodyEnvelopeRecord & {
   readonly binding: Extract<
@@ -70,7 +122,7 @@ export type ResolvedWalletCustodyEd25519ExportV1 = {
   readonly kind: 'wallet_custody_ed25519_export_context_v1';
   readonly lane: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
   readonly selectedLaneMaterialActivation: MpcMaterialActivationRef;
-  readonly authorization: ActiveWalletSessionAuthorizationProjection;
+  readonly authorization: ExactWalletSessionAuthorizationForEd25519ExportV1;
   readonly material:
     | {
         readonly kind: 'active_capability';
@@ -84,7 +136,7 @@ export type ResolvedWalletCustodyEd25519ExportV1 = {
         readonly walletCustodyEd25519Material: LoadedWalletCustodyEd25519MaterialV1;
         readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
         readonly activateRecoveredCapability: (
-          result: EmailOtpEd25519YaoWorkerActivationResult,
+          request: EmailOtpEd25519YaoWorkerActivationRequestV1,
         ) => Promise<void>;
       }
     | {
@@ -155,13 +207,12 @@ function requireParticipantIds(value: unknown): readonly [number, number] {
 
 async function readColdExportBootstrap(input: {
   readonly subject: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
-  readonly authorization: ActiveWalletSessionAuthorizationProjection;
+  readonly authorization: ExactWalletSessionAuthorizationForEd25519ExportV1;
   readonly source: {
     readonly signingWorkerId: string;
     readonly participantIds: readonly [number, number];
     readonly registeredPublicKeyB64u: string;
   };
-  readonly reusableSession: ReusableWalletSessionState;
   readonly expectedMaterialActivation: MpcMaterialActivationRef;
   readonly relayerUrl: string;
   readonly fetch: typeof fetch;
@@ -169,30 +220,17 @@ async function readColdExportBootstrap(input: {
   readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   readonly emailHashHex: string;
 }> {
-  /* An exhausted session is an ordinary state here, not a missing one: this
-     export authorizes itself with a fresh OTP step-up right after the context
-     resolves, and the session's job is only to identify the wallet for the
-     bootstrap read. Spending the signing budget must route to that step-up,
-     not throw before the prompt - the same conflation the NEAR signing path
-     fixed for budget exhaustion. */
-  if (
-    (input.reusableSession.kind !== 'active' && input.reusableSession.kind !== 'exhausted') ||
-    input.reusableSession.walletSessionId !== input.authorization.walletSessionId ||
-    input.reusableSession.authMethod !== 'email_otp'
-  ) {
-    throw new Error('[SigningEngine][ed25519-export] reusable Wallet Session is unavailable');
-  }
-  const walletSessionToken = walletSessionTokenForCurve(input.authorization, 'ed25519');
-  const authorizationId = walletSessionAuthorizationIdForCurve(input.authorization, 'ed25519');
+  const operationCredential = input.authorization.operationCredential;
+  const status = input.authorization.status;
+  const authorizationId = input.authorization.record.authorizationId;
   const signer = input.subject.signer;
   const binding = input.source;
   if (
-    !walletSessionToken ||
-    input.authorization.walletId !== signer.account.wallet.walletId ||
-    input.authorization.authMethod !== 'email_otp' ||
-    !authorizationId ||
-    !input.authorization.walletSessionId ||
-    !input.authorization.quotaId ||
+    input.authorization.record.walletId !== signer.account.wallet.walletId ||
+    input.authorization.record.authMethodId !==
+      input.authorization.selectedAuthMethod.walletAuthMethodId ||
+    input.authorization.factorAuthority.factor.providerUserId !==
+      input.subject.auth.providerSubjectId ||
     !binding.signingWorkerId ||
     binding.participantIds.length !== 2 ||
     !binding.registeredPublicKeyB64u
@@ -215,7 +253,7 @@ async function readColdExportBootstrap(input: {
     {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${walletSessionToken}`,
+        Authorization: `Bearer ${operationCredential.token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(request.value),
@@ -284,12 +322,13 @@ async function readColdExportBootstrap(input: {
     !authority ||
     !signingRoot ||
     !routerAbNormalSigning ||
+    !walletAuthAuthoritiesMatch(authority, input.authorization.factorAuthority) ||
     walletId !== String(signer.account.wallet.walletId) ||
     nearAccountId !== String(signer.account.nearAccountId) ||
     nearEd25519SigningKeyId !== String(signer.nearEd25519SigningKeyId) ||
     thresholdSessionId.value !== capability.lifecycle.thresholdSessionId ||
-    walletSessionId.value !== input.authorization.walletSessionId ||
-    quotaId.value !== input.authorization.quotaId ||
+    walletSessionId.value !== operationCredential.walletSessionId ||
+    quotaId.value !== input.authorization.record.quotaId ||
     requirePositiveInteger(record.signerSlot, 'bootstrap.signerSlot') !== signer.signerSlot ||
     requireString(record.signingWorkerId, 'bootstrap.signingWorkerId') !==
       binding.signingWorkerId ||
@@ -306,8 +345,6 @@ async function readColdExportBootstrap(input: {
     bootstrap: {
       kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
       session: {
-        sessionKind: 'opaque',
-        walletSessionToken,
         walletId: signer.account.wallet.walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
@@ -322,10 +359,10 @@ async function readColdExportBootstrap(input: {
         quotaId: quotaId.value,
         expiresAtMs: Math.min(
           requirePositiveInteger(record.thresholdExpiresAtMs, 'bootstrap.thresholdExpiresAtMs'),
-          input.reusableSession.expiresAtMs,
+          status.expiresAtMs,
         ),
         participantIds,
-        remainingUses: input.reusableSession.remainingUses,
+        remainingUses: status.remainingUses,
         signingRootId: signingRoot.signingRootId,
         signingRootVersion: runtimePolicyScope.signingRootVersion,
         runtimePolicyScope,
@@ -338,7 +375,7 @@ async function readColdExportBootstrap(input: {
 
 async function readLinkedExportCapability(input: {
   readonly subject: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
-  readonly authorization: ActiveWalletSessionAuthorizationProjection;
+  readonly authorization: ExactWalletSessionAuthorizationForEd25519ExportV1;
   readonly source: {
     readonly signingWorkerId: string;
     readonly participantIds: readonly [number, number];
@@ -348,12 +385,14 @@ async function readLinkedExportCapability(input: {
   readonly relayerUrl: string;
   readonly fetch: typeof fetch;
 }): Promise<EmailOtpEd25519YaoActiveCapabilityDescriptorV1> {
-  const walletSessionToken = walletSessionTokenForCurve(input.authorization, 'ed25519');
+  const operationCredential = input.authorization.operationCredential;
   const signer = input.subject.signer;
   if (
-    !walletSessionToken ||
-    input.authorization.walletId !== signer.account.wallet.walletId ||
-    input.authorization.authMethod !== 'email_otp'
+    input.authorization.record.walletId !== signer.account.wallet.walletId ||
+    input.authorization.record.authMethodId !==
+      input.authorization.selectedAuthMethod.walletAuthMethodId ||
+    input.authorization.factorAuthority.factor.providerUserId !==
+      input.subject.auth.providerSubjectId
   ) {
     throw new Error('[SigningEngine][ed25519-export] linked Wallet Session is unavailable');
   }
@@ -373,7 +412,7 @@ async function readLinkedExportCapability(input: {
     {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${walletSessionToken}`,
+        Authorization: `Bearer ${operationCredential.token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(request.value),
@@ -438,8 +477,8 @@ async function readLinkedExportCapability(input: {
       String(signer.nearEd25519SigningKeyId) ||
     requirePositiveInteger(record.signerSlot, 'bootstrap.signerSlot') !== signer.signerSlot ||
     thresholdSessionId.value !== capability.lifecycle.thresholdSessionId ||
-    walletSessionId.value !== input.authorization.walletSessionId ||
-    quotaId.value !== input.authorization.quotaId ||
+    walletSessionId.value !== operationCredential.walletSessionId ||
+    quotaId.value !== input.authorization.record.quotaId ||
     requireString(record.signingWorkerId, 'bootstrap.signingWorkerId') !==
       input.source.signingWorkerId ||
     participantIds[0] !== input.source.participantIds[0] ||
@@ -452,28 +491,129 @@ async function readLinkedExportCapability(input: {
   return capability;
 }
 
-function resolveActiveEmailOtpAuthorization(args: {
-  walletId: WalletId;
-  result: WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>;
-}): ActiveWalletSessionAuthorizationProjection {
-  if (args.result.kind !== 'found') {
-    throw new Error(
-      '[SigningEngine][ed25519-export] active Wallet Session authorization is unavailable',
-    );
+function countExactEd25519ExportSubjects(
+  subjects: ActiveWalletSessionV1['capabilitySubjects'],
+  expectedMaterialActivation: MpcMaterialActivationRef,
+): number {
+  let matchCount = 0;
+  for (const subject of subjects) {
+    switch (subject.kind) {
+      case 'export_keys':
+        if (
+          subject.keyFamily === 'ed25519' &&
+          mpcMaterialActivationRefsEqual(subject.materialActivation, expectedMaterialActivation)
+        ) {
+          matchCount += 1;
+        }
+        break;
+      case 'sign':
+      case 'link_devices':
+      case 'revoke_devices':
+        break;
+      default:
+        subject satisfies never;
+        break;
+    }
   }
-  const authorization = args.result.projection;
+  return matchCount;
+}
+
+function assertExactEmailOtpExportAuthorization(args: {
+  readonly subject: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
+  readonly expectedMaterialActivation: MpcMaterialActivationRef;
+  readonly authorization: ExactWalletSessionAuthorizationForEd25519ExportV1;
+}): void {
+  const { authorization } = args;
+  const selectedAuthority = authorization.selectedAuthority;
+  const selectedAuthMethod = authorization.selectedAuthMethod;
+  const factorAuthority = authorization.factorAuthority;
+  const record = authorization.record;
+  const operationCredential = authorization.operationCredential;
+  const status = authorization.status;
   if (
-    authorization.status !== 'active' ||
-    authorization.walletId !== args.walletId ||
-    authorization.authority.walletId !== args.walletId ||
-    authorization.authMethod !== 'email_otp' ||
-    authorization.expiresAtMs <= Date.now()
+    selectedAuthority.state !== 'active' ||
+    selectedAuthority.walletId !== args.subject.signer.account.wallet.walletId ||
+    selectedAuthMethod.status !== 'active' ||
+    selectedAuthMethod.walletId !== args.subject.signer.account.wallet.walletId ||
+    selectedAuthMethod.walletAuthorityId !== selectedAuthority.authorityId ||
+    factorAuthority.walletId !== args.subject.signer.account.wallet.walletId ||
+    factorAuthority.bindingId !== selectedAuthMethod.walletAuthMethodId ||
+    factorAuthority.verifier.emailHashHex !== selectedAuthMethod.emailHashHex ||
+    factorAuthority.factor.providerUserId !== args.subject.auth.providerSubjectId ||
+    record.walletId !== args.subject.signer.account.wallet.walletId ||
+    record.authorityId !== selectedAuthority.authorityId ||
+    record.authMethodId !== selectedAuthMethod.walletAuthMethodId ||
+    String(record.authorityDigestB64u) !== String(selectedAuthority.authorityDigestB64u) ||
+    record.authorityRevocationEpoch !== selectedAuthority.revocationEpoch ||
+    status.quotaLifecycle !== 'active' ||
+    status.remainingUses <= 0 ||
+    status.walletSessionId !== operationCredential.walletSessionId ||
+    status.quotaId !== record.quotaId ||
+    !activeWalletSessionV1RecordsEqual(status.authorization, record) ||
+    operationCredential.walletSessionId.trim().length === 0 ||
+    operationCredential.token.trim().length === 0 ||
+    status.expiresAtMs <= Date.now() ||
+    countExactEd25519ExportSubjects(record.capabilitySubjects, args.expectedMaterialActivation) !==
+      1
   ) {
     throw new Error(
-      '[SigningEngine][ed25519-export] Email OTP Wallet Session authorization is invalid',
+      '[SigningEngine][ed25519-export] exact Email OTP authorization identity mismatch',
     );
   }
-  return authorization;
+}
+
+function resolveExactEmailOtpExportAuthorization(args: {
+  readonly subject: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
+  readonly expectedMaterialActivation: MpcMaterialActivationRef;
+  readonly result: EmailOtpEd25519ExportAuthorizationReadResultV1;
+}): ExactWalletSessionAuthorizationForEd25519ExportV1 {
+  switch (args.result.kind) {
+    case 'found':
+      assertExactEmailOtpExportAuthorization({
+        subject: args.subject,
+        expectedMaterialActivation: args.expectedMaterialActivation,
+        authorization: args.result.authorization,
+      });
+      return args.result.authorization;
+    case 'missing':
+      throw new Error('[SigningEngine][ed25519-export] exact Email OTP authorization is missing');
+    case 'upgrade_required':
+      throw new Error(
+        '[SigningEngine][ed25519-export] exact Email OTP authorization requires an upgrade',
+      );
+    case 'corrupt':
+      throw new Error('[SigningEngine][ed25519-export] exact Email OTP authorization is corrupt');
+    case 'persistence_unavailable':
+      throw new Error(
+        '[SigningEngine][ed25519-export] exact Email OTP authorization persistence is unavailable',
+      );
+    case 'exhausted':
+      throw new Error(
+        '[SigningEngine][ed25519-export] exact Email OTP authorization is exhausted',
+      );
+    case 'expired':
+      throw new Error('[SigningEngine][ed25519-export] exact Email OTP authorization is expired');
+    case 'superseded':
+      throw new Error(
+        '[SigningEngine][ed25519-export] exact Email OTP authorization is superseded',
+      );
+    case 'authority_unavailable':
+      throw new Error(
+        '[SigningEngine][ed25519-export] exact Email OTP authority is unavailable',
+      );
+    case 'method_unavailable':
+      throw new Error(
+        '[SigningEngine][ed25519-export] exact Email OTP method is unavailable',
+      );
+    case 'capability_unavailable':
+      throw new Error(
+        '[SigningEngine][ed25519-export] exact Email OTP export capability is unavailable',
+      );
+    default: {
+      const exhaustive: never = args.result;
+      return exhaustive;
+    }
+  }
 }
 
 function capabilityFromActiveMaterial(args: {
@@ -533,9 +673,10 @@ function capabilityFromActiveMaterial(args: {
 export async function resolveWalletCustodyEd25519ExportContextV1(input: {
   subject: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
   expectedMaterialActivation: MpcMaterialActivationRef;
-  readActiveWalletSessionAuthorization: (
-    walletId: WalletId,
-  ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
+  readExactWalletSessionAuthorization: (args: {
+    readonly subject: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
+    readonly expectedMaterialActivation: MpcMaterialActivationRef;
+  }) => Promise<EmailOtpEd25519ExportAuthorizationReadResultV1>;
   resolveActiveCapability: (
     walletId: WalletId,
     nearAccountId: AccountId,
@@ -550,20 +691,20 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
     | { readonly kind: 'found'; readonly material: LoadedWalletCustodyEd25519MaterialV1 }
     | { readonly kind: 'absent' }
   >;
-  readReusableWalletSessionState: () => Promise<ReusableWalletSessionState>;
   relayerUrl: string;
   fetch: typeof fetch;
   activateRecoveredCapability: (
-    result: EmailOtpEd25519YaoWorkerActivationResult & {
-      readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
-      readonly emailHashHex: string;
-    },
+    request: EmailOtpEd25519YaoRecoveredCapabilityActivationRequestV1,
   ) => Promise<void>;
 }): Promise<ResolvedWalletCustodyEd25519ExportV1> {
   const walletId = input.subject.signer.account.wallet.walletId;
-  const authorization = resolveActiveEmailOtpAuthorization({
-    walletId,
-    result: await input.readActiveWalletSessionAuthorization(walletId),
+  const exactAuthorization = resolveExactEmailOtpExportAuthorization({
+    subject: input.subject,
+    expectedMaterialActivation: input.expectedMaterialActivation,
+    result: await input.readExactWalletSessionAuthorization({
+      subject: input.subject,
+      expectedMaterialActivation: input.expectedMaterialActivation,
+    }),
   });
   const material = input.resolveActiveCapability(
     walletId,
@@ -590,7 +731,7 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
   if (rootResolution && 'envelope' in rootResolution) {
     rootCapability = await readLinkedExportCapability({
       subject: input.subject,
-      authorization,
+      authorization: exactAuthorization,
       source: rootResolution.source,
       expectedMaterialActivation: rootResolution.source.materialActivation,
       relayerUrl: input.relayerUrl,
@@ -607,7 +748,7 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
       kind: 'wallet_custody_ed25519_export_context_v1',
       lane: input.subject,
       selectedLaneMaterialActivation: input.expectedMaterialActivation,
-      authorization,
+      authorization: exactAuthorization,
       material: {
         kind: 'sealed_export_root',
         materialActivation: rootCapability.materialActivation,
@@ -624,7 +765,7 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
       kind: 'wallet_custody_ed25519_export_context_v1',
       lane: input.subject,
       selectedLaneMaterialActivation: input.expectedMaterialActivation,
-      authorization,
+      authorization: exactAuthorization,
       material: {
         kind: 'active_capability',
         materialActivation: input.expectedMaterialActivation,
@@ -640,9 +781,8 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
   }
   const cold = await readColdExportBootstrap({
     subject: input.subject,
-    authorization,
+    authorization: exactAuthorization,
     source: loaded.material.binding,
-    reusableSession: await input.readReusableWalletSessionState(),
     expectedMaterialActivation: input.expectedMaterialActivation,
     relayerUrl: input.relayerUrl,
     fetch: input.fetch,
@@ -651,19 +791,32 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
     kind: 'wallet_custody_ed25519_export_context_v1',
     lane: input.subject,
     selectedLaneMaterialActivation: input.expectedMaterialActivation,
-    authorization,
+    authorization: exactAuthorization,
     material: {
       kind: 'sealed_custody',
       materialActivation: input.expectedMaterialActivation,
       capability: cold.bootstrap.capability,
       walletCustodyEd25519Material: loaded.material,
       bootstrap: cold.bootstrap,
-      activateRecoveredCapability: (result) =>
-        input.activateRecoveredCapability({
-          ...result,
-          bootstrap: cold.bootstrap,
-          emailHashHex: cold.emailHashHex,
-        }),
+      activateRecoveredCapability: (request) => {
+        if (
+          request.operationCredential.walletSessionId !==
+            exactAuthorization.operationCredential.walletSessionId ||
+          request.operationCredential.token !== exactAuthorization.operationCredential.token
+        ) {
+          throw new Error(
+            '[SigningEngine][ed25519-export] recovered capability credential does not match authorization',
+          );
+        }
+        return input.activateRecoveredCapability({
+          activation: {
+            ...request.activation,
+            bootstrap: cold.bootstrap,
+            emailHashHex: cold.emailHashHex,
+          },
+          operationCredential: request.operationCredential,
+        });
+      },
     },
   };
 }

@@ -37,12 +37,10 @@ const ED25519_PARTICIPANT_IDS: readonly [number, number] = [1, 2];
 const ED25519_REGISTERED_PUBLIC_KEY = new Array<number>(32).fill(34);
 
 type RouteState = {
-  readonly walletLevelCalls: unknown[];
   readonly exactCalls: unknown[];
   readonly challengeCalls: unknown[];
   readonly ed25519MaterialCalls: unknown[];
   readonly ecdsaMaterialCalls: unknown[];
-  readonly walletLevelResolution: unknown;
   readonly exactResolution: unknown;
   readonly ed25519MaterialResolution: unknown;
   readonly ecdsaMaterialResolution: unknown;
@@ -164,12 +162,6 @@ function context(body: unknown, state: RouteState) {
           return challengeResult();
         },
       },
-      walletAuthMethods: {
-        resolveActiveEmailOtpAuthorityForVerifiedSubject: async (input: unknown) => {
-          state.walletLevelCalls.push(input);
-          return state.walletLevelResolution;
-        },
-      },
       walletUnlock: {
         resolveEmailOtpAuthorityForUnlock: async (input: unknown) => {
           state.exactCalls.push(input);
@@ -194,12 +186,10 @@ function context(body: unknown, state: RouteState) {
 
 function state(overrides: Partial<RouteState> = {}): RouteState {
   return {
-    walletLevelCalls: [],
     exactCalls: [],
     challengeCalls: [],
     ed25519MaterialCalls: [],
     ecdsaMaterialCalls: [],
-    walletLevelResolution: { ok: false, code: 'unused', message: 'unused' },
     exactResolution: { kind: 'rejected', code: 'unused', message: 'unused' },
     ed25519MaterialResolution: { ok: false, code: 'unused', message: 'unused' },
     ecdsaMaterialResolution: { ok: false, code: 'unused', message: 'unused' },
@@ -233,7 +223,6 @@ test('an exact Email OTP method returns ed25519_only for an Ed25519 active autho
   );
 
   expect(response?.status).toBe(200);
-  expect(routeState.walletLevelCalls).toEqual([]);
   expect(routeState.exactCalls).toEqual([
     {
       walletId: WALLET_ID,
@@ -354,27 +343,12 @@ test('wrong-wallet, wrong-kind, and revoked exact methods are rejected before ch
       message: rejectionCase.message,
     });
     expect(routeState.challengeCalls, rejectionCase.name).toEqual([]);
-    expect(routeState.walletLevelCalls, rejectionCase.name).toEqual([]);
+    expect(routeState.exactCalls, rejectionCase.name).toHaveLength(1);
   }
 });
 
-test('a wallet-level selector preserves the canonical current-authority behavior', async () => {
-  const authority = await activeAuthority('ed25519');
-  const materialActivation = authority.signerActivations.ed25519?.materialActivation;
-  if (!materialActivation) throw new Error('Ed25519 authority fixture has no material activation');
-  const materialActivationWire = routerAbMpcMaterialActivationRefToWire(materialActivation);
-  const routeState = state({
-    walletLevelResolution: {
-      ok: true,
-      authority: selectedAuthority(),
-    },
-    exactResolution: {
-      kind: 'active_authority',
-      authority,
-      walletAuthAuthority: selectedAuthority(),
-    },
-    ed25519MaterialResolution: await ed25519MaterialResolution(materialActivationWire),
-  });
+test('Email OTP challenge rejects an omitted exact wallet auth method', async () => {
+  const routeState = state();
   const response = await handleWalletEmailOtpChallenge(
     context(
       {
@@ -386,41 +360,12 @@ test('a wallet-level selector preserves the canonical current-authority behavior
     ),
   );
 
-  expect(response?.status).toBe(200);
-  expect(routeState.exactCalls).toEqual([
-    {
-      walletId: WALLET_ID,
-      orgId: ORG_ID,
-      walletAuthMethodId: WALLET_AUTH_METHOD_ID,
-      providerUserId: PROVIDER_USER_ID,
-    },
-  ]);
-  expect(routeState.walletLevelCalls).toEqual([
-    {
-      walletId: WALLET_ID,
-      providerUserId: PROVIDER_USER_ID,
-    },
-  ]);
-  expect(routeState.challengeCalls).toHaveLength(1);
-  expect(routeState.ed25519MaterialCalls).toEqual([
-    {
-      walletId: WALLET_ID,
-      materialActivation: materialActivationWire,
-    },
-  ]);
+  expect(response?.status).toBe(400);
   await expect(response?.json()).resolves.toMatchObject({
-    ok: true,
-    walletAuthMethodId: WALLET_AUTH_METHOD_ID,
-    signerSelection: {
-      kind: 'ed25519_only',
-      materialActivation,
-      nearAccountId: WALLET_ID,
-      signerSlot: 1,
-      operationalPublicKey: `ed25519:${base58Encode(
-        Uint8Array.from(ED25519_REGISTERED_PUBLIC_KEY),
-      )}`,
-      thresholdSessionId: ED25519_THRESHOLD_SESSION_ID,
-      runtimePolicyScope: ED25519_RUNTIME_POLICY_SCOPE,
-    },
+    ok: false,
+    code: 'invalid_body',
+    message: expect.stringContaining('walletAuthMethodId'),
   });
+  expect(routeState.exactCalls).toEqual([]);
+  expect(routeState.challengeCalls).toEqual([]);
 });

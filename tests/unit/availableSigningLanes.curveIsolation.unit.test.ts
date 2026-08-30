@@ -1,12 +1,20 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import {
-  buildEmailOtpEd25519AuthorizationProjectionFixture,
+  buildEmailOtpExactEd25519AuthorizationFixture,
   buildEmailOtpEd25519SealedSessionRecordFixture,
-  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyExactEd25519AuthorizationFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
-import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  buildMpcMaterialActivationRefFixture,
+  buildWalletAuthAuthorityRefForAuthorityFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  buildPromotedActiveWalletSessionFixture,
+  extendFixtureAuthorityWithEcdsaSigner,
+} from './helpers/linkedDeviceManagement.fixtures';
+import { buildActiveNearEd25519WalletSessionAuthorization } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
 
 const AVAILABLE_SIGNING_LANES_PATH =
   '/_test-sdk/esm/core/signingEngine/session/availability/availableSigningLanes.js';
@@ -54,7 +62,7 @@ test.describe('available signing lane curve isolation', () => {
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 7,
     });
-    const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(sealedRecord);
+    const authorization = buildPasskeyExactEd25519AuthorizationFixture(sealedRecord);
     const restore = sealedRecord.ed25519Restore;
     const publicCapabilityReference = {
       walletId: sealedRecord.walletId,
@@ -90,7 +98,10 @@ test.describe('available signing lane curve isolation', () => {
             listSealedRecordsForWallet: async () => [sealedRecord],
             listPublicCapabilityReferences: async () => [publicCapabilityReference],
             isPublicCapabilityActive: () => true,
-            readActiveWalletSessionAuthorization: async () => authorization,
+            readActiveWalletSessionAuthorization: async () => ({
+              kind: 'found',
+              authorization,
+            }),
           },
         );
         const lane = lanes.lanes.ed25519.near;
@@ -125,20 +136,26 @@ test.describe('available signing lane curve isolation', () => {
     });
   });
 
-  test('prefers a current public capability over deferred durable policy', async ({
-    page,
-  }) => {
+  test('prefers a current public capability over deferred durable policy', async ({ page }) => {
     const durableRecord = buildPasskeyEd25519SealedSessionRecordFixture({
       thresholdSessionId: 'ed25519-sealed-runtime-session-old',
+      materialActivation: buildMpcMaterialActivationRefFixture(
+        'ed25519-sealed-runtime-material-old',
+        'ed25519-sealed-runtime-wallet',
+      ),
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 7,
     });
     const currentRecord = buildPasskeyEd25519SealedSessionRecordFixture({
       thresholdSessionId: 'ed25519-sealed-runtime-session-current',
+      materialActivation: buildMpcMaterialActivationRefFixture(
+        'ed25519-sealed-runtime-material-current',
+        'ed25519-sealed-runtime-wallet',
+      ),
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 9,
     });
-    const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(currentRecord);
+    const authorization = buildPasskeyExactEd25519AuthorizationFixture(currentRecord);
     const restore = currentRecord.ed25519Restore;
     const publicCapabilityReference = {
       walletId: currentRecord.walletId,
@@ -174,7 +191,10 @@ test.describe('available signing lane curve isolation', () => {
             listSealedRecordsForWallet: async () => [durableRecord],
             listPublicCapabilityReferences: async () => [publicCapabilityReference],
             isPublicCapabilityActive: () => true,
-            readActiveWalletSessionAuthorization: async () => authorization,
+            readActiveWalletSessionAuthorization: async () => ({
+              kind: 'found',
+              authorization,
+            }),
           },
         );
         const lane = lanes.lanes.ed25519.near;
@@ -199,11 +219,11 @@ test.describe('available signing lane curve isolation', () => {
     );
 
     expect(result).toEqual({
-      candidateCount: 1,
+      candidateCount: 2,
       lane: {
         authorizationState: 'authorized',
         expiresAtMs: currentRecord.expiresAtMs,
-        remainingUses: undefined,
+        remainingUses: 9,
         source: 'public_capability_reference',
         state: 'ready',
         thresholdSessionId: currentRecord.thresholdSessionIds.ed25519,
@@ -231,7 +251,7 @@ test.describe('available signing lane curve isolation', () => {
         walletId,
       ),
     });
-    const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(currentRecord);
+    const authorization = buildPasskeyExactEd25519AuthorizationFixture(currentRecord);
     const result = await page.evaluate(
       async ({ modulePath, retiredRecord, currentRecord, authorization }) => {
         const { readAvailableSigningLanes } = await import(modulePath);
@@ -250,7 +270,10 @@ test.describe('available signing lane curve isolation', () => {
           },
           {
             listSealedRecordsForWallet: async () => [retiredRecord, currentRecord],
-            readActiveWalletSessionAuthorization: async () => authorization,
+            readActiveWalletSessionAuthorization: async () => ({
+              kind: 'found',
+              authorization,
+            }),
           },
         );
         return lanes.candidates.ed25519.near.map((lane: Record<string, unknown>) => ({
@@ -281,14 +304,45 @@ test.describe('available signing lane curve isolation', () => {
     ]);
   });
 
-  test('prefers a fresh Email OTP unlock capability over exhausted durable policy', async ({
+  test('prefers a fresh Email OTP unlock capability under a promoted full authority', async ({
     page,
   }) => {
+    const nowMs = Date.now();
     const record = buildEmailOtpEd25519SealedSessionRecordFixture({
-      expiresAtMs: Date.now() + 60_000,
+      expiresAtMs: nowMs + 60_000,
       remainingUses: 0,
     });
-    const authorization = buildEmailOtpEd25519AuthorizationProjectionFixture(record);
+    const sourceAuthorization = buildEmailOtpExactEd25519AuthorizationFixture(record, {
+      remainingUses: 3,
+    });
+    const promotedAuthority = await extendFixtureAuthorityWithEcdsaSigner(
+      sourceAuthorization.selectedAuthority,
+    );
+    const promotedSession = buildPromotedActiveWalletSessionFixture({
+      source: sourceAuthorization.session,
+      authority: promotedAuthority,
+    });
+    const authorization = buildActiveNearEd25519WalletSessionAuthorization({
+      selectedAuthority: promotedAuthority,
+      selectedAuthMethod: sourceAuthorization.selectedAuthMethod,
+      selectedFactorAuthority: sourceAuthorization.selectedFactorAuthority,
+      session: promotedSession,
+      operationCredential: sourceAuthorization.operationCredential,
+      status: {
+        status: 'active',
+        walletSessionId: sourceAuthorization.status.walletSessionId,
+        quotaId: sourceAuthorization.status.quotaId,
+        remainingUses: sourceAuthorization.status.remainingUses,
+        expiresAtMs: sourceAuthorization.status.expiresAtMs,
+        quotaLifecycle: 'active',
+        authorization: promotedSession,
+      },
+      nowMs,
+    });
+    const factorAuthorityRef = buildWalletAuthAuthorityRefForAuthorityFixture(
+      sourceAuthorization.selectedFactorAuthority,
+    );
+    expect(promotedAuthority.authorityDigestB64u).not.toBe(factorAuthorityRef.authorityDigest);
     const restore = record.ed25519Restore;
     const publicCapabilityReference = {
       walletId: record.walletId,
@@ -303,10 +357,16 @@ test.describe('available signing lane curve isolation', () => {
       nearEd25519SigningKeyId: restore.nearEd25519SigningKeyId,
       signerSlot: restore.signerSlot,
       remainingUses: 3,
-      expiresAtMs: authorization.expiresAtMs,
+      expiresAtMs: authorization.status.expiresAtMs,
     };
     const result = await page.evaluate(
-      async ({ modulePath, record, publicCapabilityReference, authorization }) => {
+      async ({
+        modulePath,
+        record,
+        publicCapabilityReference,
+        authorization,
+        factorAuthorityRef,
+      }) => {
         const { readAvailableSigningLanes } = await import(modulePath);
         const lanes = await readAvailableSigningLanes(
           {
@@ -318,8 +378,8 @@ test.describe('available signing lane curve isolation', () => {
                 providerSubjectId: publicCapabilityReference.auth.providerSubjectId,
               },
               ownerAuthority: {
-                walletAuthMethodId: authorization.authority.walletAuthMethodId,
-                authorityDigest: authorization.authority.authorityDigest,
+                walletAuthMethodId: authorization.selectedAuthMethod.walletAuthMethodId,
+                authorityDigest: factorAuthorityRef.authorityDigest,
               },
             },
           },
@@ -327,7 +387,10 @@ test.describe('available signing lane curve isolation', () => {
             listSealedRecordsForWallet: async () => [record],
             listPublicCapabilityReferences: async () => [publicCapabilityReference],
             isPublicCapabilityActive: () => true,
-            readActiveWalletSessionAuthorization: async () => authorization,
+            readActiveWalletSessionAuthorization: async () => ({
+              kind: 'found',
+              authorization,
+            }),
           },
         );
         const lane = lanes.lanes.ed25519.near;
@@ -346,6 +409,7 @@ test.describe('available signing lane curve isolation', () => {
         record,
         publicCapabilityReference,
         authorization,
+        factorAuthorityRef,
       },
     );
 

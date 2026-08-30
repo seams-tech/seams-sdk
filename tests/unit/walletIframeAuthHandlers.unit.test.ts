@@ -174,7 +174,7 @@ test.describe('wallet iframe auth handlers', () => {
     });
   });
 
-  test('rejects a parent-supplied wallet session token on unlock', async () => {
+  test('rejects a parent-supplied Wallet Session credential on unlock', async () => {
     const posted: ChildToParentEnvelope[] = [];
     const unlockCalls: unknown[][] = [];
     const deps = createDeps({
@@ -188,35 +188,40 @@ test.describe('wallet iframe auth handlers', () => {
     });
     const handlers = createAuthWalletIframeHandlers(deps);
 
-    await expect(
-      handlers.PM_UNLOCK!({
-        type: 'PM_UNLOCK',
-        requestId: 'unlock-parent-bearer',
-        payload: {
-          kind: 'custom_options',
-          walletId: 'harbor-current',
-          options: {
-            kind: 'pm_unlock_options_v1',
-            signerSlot: { kind: 'default' },
-            signingSession: { kind: 'default' },
-            unlockSelection: { kind: 'default' },
-            ecdsaKeyFactsInventory: {
-              kind: 'value',
-              value: {
-                mode: 'opaque_wallet_session',
-                curve: 'ecdsa_secp256k1',
-                walletSessionToken: 'wst_parent-supplied-token',
+    const invalidRequest = {
+      type: 'PM_UNLOCK',
+      requestId: 'unlock-parent-bearer',
+      payload: {
+        kind: 'custom_options',
+        walletId: 'harbor-current',
+        options: {
+          kind: 'pm_unlock_options_v1',
+          signerSlot: { kind: 'default' },
+          signingSession: { kind: 'default' },
+          unlockSelection: { kind: 'default' },
+          ecdsaKeyFactsInventory: {
+            kind: 'value',
+            value: {
+              mode: 'wallet_session_operation_credential_v1',
+              operationCredential: {
+                kind: 'opaque_wallet_session_operation_credential_v1',
+                token: `wst_${'p'.repeat(43)}`,
+                walletSessionId: 'wallet-session-parent',
               },
             },
           },
         },
-      }),
-    ).rejects.toThrow('wallet iframe unlock requests must not carry walletSessionToken');
+      },
+    } as unknown as Extract<ParentToChildEnvelope, { type: 'PM_UNLOCK' }>;
+
+    await expect(handlers.PM_UNLOCK!(invalidRequest)).rejects.toThrow(
+      'wallet iframe unlock requests must not carry a Wallet Session bearer',
+    );
 
     expect(unlockCalls).toHaveLength(0);
   });
 
-  test('injects the host-origin wallet session token for opaque key-facts lookups', async () => {
+  test('injects the host-origin exact credential for Wallet Session key-facts lookups', async () => {
     const originalWindow = Reflect.get(globalThis, 'window');
     const posted: ChildToParentEnvelope[] = [];
     const unlockCalls: unknown[][] = [];
@@ -248,7 +253,7 @@ test.describe('wallet iframe auth handlers', () => {
             unlockSelection: { kind: 'default' },
             ecdsaKeyFactsInventory: {
               kind: 'value',
-              value: { mode: 'opaque_wallet_session', curve: 'ecdsa_secp256k1' },
+              value: { mode: 'wallet_session_operation_credential_v1' },
             },
           },
         },
@@ -259,9 +264,12 @@ test.describe('wallet iframe auth handlers', () => {
         'harbor-current',
         expect.objectContaining({
           ecdsaKeyFactsInventory: {
-            mode: 'opaque_wallet_session',
-            curve: 'ecdsa_secp256k1',
-            walletSessionToken: HOST_WALLET_SESSION_TOKEN,
+            mode: 'wallet_session_operation_credential_v1',
+            operationCredential: {
+              kind: 'opaque_hosted_wallet_session_operation_credential_v1',
+              token: HOST_WALLET_SESSION_TOKEN,
+              walletSessionId: 'wallet-session-1',
+            },
           },
         }),
       ]);

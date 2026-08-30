@@ -1,5 +1,14 @@
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import type { ActiveWalletSessionQuotaStatusV1 } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import type {
+  ActiveNearEd25519WalletSessionStatus,
+  ExactNearEd25519WalletSessionAuthorization,
+} from './nearEd25519YaoSigningPreparation';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '@shared/device-linking/contracts';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import type { ActiveWalletAuthMethodV2 } from '../identity/ownerLaneScope';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import type { MpcCapabilityHydrationPlan } from './mpcCapabilityHydration';
 import {
@@ -11,19 +20,30 @@ import {
 
 declare const hydration: MpcCapabilityHydrationPlan;
 declare const requirement: SigningLaneAuthBinding;
-declare const projection: ActiveWalletSessionAuthorizationProjection;
-declare const status: ActiveWalletSessionQuotaStatusV1;
+declare const selectedAuthority: ActiveWalletAuthorityV1;
+declare const selectedAuthMethod: ActiveWalletAuthMethodV2;
+declare const selectedFactorAuthority: WalletAuthAuthority;
+declare const session: ActiveWalletSessionV1;
+declare const operationCredential: WalletSessionOperationCredentialV1;
+declare const status: ActiveNearEd25519WalletSessionStatus;
+declare const nowMs: number;
 
 const authorization = buildActiveNearEd25519WalletSessionAuthorization({
-  projection,
+  selectedAuthority,
+  selectedAuthMethod,
+  selectedFactorAuthority,
+  session,
+  operationCredential,
   status,
+  nowMs,
 });
 
-const authorized = buildAuthorizedNearEd25519YaoSigningPreparation({
-  hydration,
-  requirement,
-  authorization,
-});
+const authorized: Promise<NearEd25519YaoSigningPreparation> =
+  buildAuthorizedNearEd25519YaoSigningPreparation({
+    hydration,
+    requirement,
+    authorization,
+  });
 
 const authorizationRequired = buildAuthorizationRequiredNearEd25519YaoSigningPreparation({
   hydration,
@@ -44,8 +64,8 @@ const invalidAuthorized: NearEd25519YaoSigningPreparation = {
 buildAuthorizedNearEd25519YaoSigningPreparation({
   hydration,
   requirement,
-  // @ts-expect-error A projection without authoritative active status is not authorization.
-  authorization: projection,
+  // @ts-expect-error A value without the exact selected authority/session/status is not authorization.
+  authorization: { kind: 'legacy_projection' },
 });
 
 const invalidAuthorizationRequired: NearEd25519YaoSigningPreparation = {

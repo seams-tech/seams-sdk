@@ -84,7 +84,7 @@ import { alphabetizeStringify } from '@shared/utils/digests';
 import { replaceActiveWalletAuthorityEd25519MaterialActivationV1 } from '@shared/authorization/walletAuthority';
 import {
   parseMpcWalletSigningQuotaId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -548,7 +548,7 @@ function parseExactSyncAccountAlreadyCommittedResponse(input: {
     raw.walletAuthMethodId,
     parseWalletAuthMethodId,
   );
-  const mintId = parseCanonicalTerminalIdentity(raw.mintId, parseReusableWalletSessionMintId);
+  const mintId = parseCanonicalTerminalIdentity(raw.mintId, parseWalletSessionMintId);
   const authorizationId = parseCanonicalTerminalIdentity(
     raw.authorizationId,
     parseWalletSessionAuthorizationId,

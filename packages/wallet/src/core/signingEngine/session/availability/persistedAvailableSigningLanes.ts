@@ -30,7 +30,7 @@ import {
   type ActiveWalletAuthorityEcdsaLaneProjectionV1,
   type ResolveActiveWalletAuthorityEcdsaRuntimeV1Input,
 } from '../material/activeWalletAuthorityEcdsaRuntime';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { NearEd25519WalletSessionAuthorizationReadResult } from '../material/nearEd25519YaoSigningPreparation';
 import type {
   Ed25519YaoPublicCapabilityLaneReferenceStorePort,
   Ed25519YaoPublicCapabilityLaneReferenceV1,
@@ -56,7 +56,7 @@ export type PersistedAvailableSigningLanesDeps = {
   ) => boolean;
   readActiveWalletSessionAuthorization?: (
     walletId: WalletId,
-  ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
+  ) => Promise<NearEd25519WalletSessionAuthorizationReadResult>;
   listEcdsaSigningCapabilitiesForWallet: (args: {
     walletId: string;
     chainTargets: readonly ThresholdEcdsaChainTarget[];

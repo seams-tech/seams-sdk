@@ -52,7 +52,7 @@ import {
   type RecoveryCodeReservationId,
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import { secureRandomId } from '@shared/utils/secureRandomId';
-import { sha256Bytes } from '@shared/utils/digests';
+import { sha256Bytes, sha256HexUtf8 } from '@shared/utils/digests';
 import { NEAR_ED25519_YAO_KEY_VERSION_V1 } from '@shared/utils/registrationIntent';
 import type { EmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { EmailOtpWorkerOperationMap } from '@/core/signingEngine/workerManager/workerTypes';
@@ -63,6 +63,10 @@ import { computeEcdsaDerivationRoleLocalRelayerKeyId } from '@shared/threshold/e
 const RECOVERY_PREPARE_RETRY_TTL_MS = 5 * 60 * 1000;
 // ECDSA-only registration establishes its wallet-scoped passkey at slot 1.
 const ECDSA_ONLY_WALLET_SIGNER_SLOT = 1;
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled wallet recovery branch: ${String(value)}`);
+}
 
 export type WalletRecoveryPreparedHandle = {
   readonly kind: 'prepared';
@@ -155,6 +159,7 @@ type RecoveryEmailOtpReplacement = {
   readonly enrollment: WalletRecoveryEmailOtpEnrollment;
   readonly providerSubject: string;
   readonly verifiedEmail: string;
+  readonly registrationAuthorityId: string;
 };
 
 function isGooglePreparedWalletRecovery(
@@ -476,6 +481,20 @@ function emailOtpManifestRecoveredOperation(
   };
 }
 
+function manifestRecoveredOperationFromRecovered(
+  current: Extract<RecoveryOperation, { stage: 'credential_created' | 'email_otp_verified' }>,
+  recovered: RecoveredWalletCustodyManifestV1,
+): Extract<RecoveryOperation, { stage: 'manifest_recovered' }> {
+  switch (current.stage) {
+    case 'credential_created':
+      return passkeyManifestRecoveredOperation(current, recovered);
+    case 'email_otp_verified':
+      return emailOtpManifestRecoveredOperation(current, recovered);
+    default:
+      return assertNever(current);
+  }
+}
+
 function passkeyPromotedPendingContinuityOperation(
   current: Extract<RecoveryOperation, { stage: 'manifest_recovered'; target: { kind: 'passkey' } }>,
   committedPromotion: Extract<
@@ -724,7 +743,7 @@ async function persistRecoveredEmailOtpLocalContinuity(input: {
         nearEd25519SigningKeyId: application.near_ed25519_signing_key_id,
         operationalPublicKey: `ed25519:${base58Encode(recovered.metadata.registeredPublicKey)}`,
         email: emailAddress,
-        registrationAuthorityId: providerSubject,
+        registrationAuthorityId: committedAuthMethod.registrationAuthorityId,
         authority: localAuthority,
         relayerKeyId: recovered.metadata.scope.signing_worker_id,
         keyVersion: NEAR_ED25519_YAO_KEY_VERSION_V1,
@@ -1171,6 +1190,7 @@ export class WalletRecoveryCoordinator {
           },
           providerSubject: released.providerSubject,
           verifiedEmail: released.verifiedEmail,
+          registrationAuthorityId: input.challengeId,
         };
         const next = emailOtpVerifiedOperation(current, replacement);
         this.#operations.set(next.recoveryOperationId, next);
@@ -1220,6 +1240,7 @@ export class WalletRecoveryCoordinator {
           },
           providerSubject: released.providerSubject,
           verifiedEmail: released.verifiedEmail,
+          registrationAuthorityId: input.challengeId,
         };
         const next = emailOtpVerifiedOperation(current, replacement);
         this.#operations.set(next.recoveryOperationId, next);
@@ -1285,10 +1306,7 @@ export class WalletRecoveryCoordinator {
             ? current.replacement.factorSecret
             : current.replacement.factor.factorSecret,
         );
-        current =
-          current.stage === 'credential_created'
-            ? passkeyManifestRecoveredOperation(current, recovered)
-            : emailOtpManifestRecoveredOperation(current, recovered);
+        current = manifestRecoveredOperationFromRecovered(current, recovered);
         this.#operations.set(current.recoveryOperationId, current);
       }
 
@@ -1301,8 +1319,15 @@ export class WalletRecoveryCoordinator {
           : this.rpc
             ? await this.rpc.finalizeEmailOtp({
                 relayUrl: current.relayUrl,
+                walletId: current.walletId,
                 recoveryOperationId: current.prepared.recoveryOperationId,
                 reservationId: current.prepared.reservationId,
+                targetDeviceId: current.prepared.targetDeviceId,
+                targetAuthorityId: current.prepared.targetAuthorityId,
+                targetWalletAuthMethodId: current.prepared.targetWalletAuthMethodId,
+                expectedProviderSubject: current.replacement.providerSubject,
+                expectedEmailHashHex: await sha256HexUtf8(current.replacement.verifiedEmail),
+                expectedRegistrationAuthorityId: current.replacement.registrationAuthorityId,
                 replacementEnvelope: current.recovered.replacementEnvelope,
                 ecdsaMaterialPossessionProofs: current.recovered.ecdsaKeySets.map((keySet) => ({
                   keySetId: keySet.entry.keySetId,

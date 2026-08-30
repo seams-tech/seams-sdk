@@ -1,22 +1,23 @@
-# Router A/B Router A/B ECDSA derivation Signing
+# Router A/B ECDSA Derivation Signing
 
-Last updated: 2026-06-17
+Last updated: 2026-08-30
 
 ## Scope
 
-ECDSA signing now uses Router A/B Router A/B ECDSA derivation for product signing flows. Public
-SDK callers provide wallet/session context and a concrete chain target; they do
-not call public threshold ECDSA authorize, presign, sign-init, or sign-finalize
-routes.
+ECDSA product signing uses Router A/B ECDSA derivation. Public SDK callers
+enter through an exact Wallet Session authorization and a concrete EVM-family
+chain target. They do not call threshold ECDSA authorize, presign, sign-init,
+or sign-finalize endpoints.
 
-The active release requirement is:
+The current lifecycle is:
 
-- EVM-family digest signing uses Router A/B Router A/B ECDSA derivation normal signing.
-- Pool-hit signing consumes one prepared Router A/B Router A/B ECDSA derivation presignature.
-- Pool-miss signing refills through Router A/B Router A/B ECDSA derivation pool-fill and then
-  signs through the same Router A/B normal-signing boundary.
+- EVM-family digest signing uses Router A/B normal signing.
+- A pool hit consumes one prepared Router A/B presignature and signs through
+  the normal-signing boundary.
+- A pool miss refills through Router A/B pool-fill and then signs through the
+  same normal-signing boundary.
 - Registration, activation, recovery, refresh, export, and keyset publication
-  keep using the current Router A/B ECDSA derivation lifecycle surfaces described in
+  use the Router A/B ECDSA derivation lifecycle surfaces described in
   [router-ab/protocol.md](../router-ab/protocol.md).
 
 ## Public Signing Boundary
@@ -26,64 +27,74 @@ The public client boundary is the Router A/B normal-signing route pair:
 - `POST /router-ab/ecdsa-derivation/sign/prepare`
 - `POST /router-ab/ecdsa-derivation/sign`
 
-The Router A/B Router A/B ECDSA derivation pool-fill boundary is:
+Presignature pool-fill uses:
 
 - `POST /router-ab/ecdsa-derivation/presignature-pool/fill/init`
 - `POST /router-ab/ecdsa-derivation/presignature-pool/fill/step`
 
-The SDK sends a bearer Wallet Session JWT with browser credentials omitted. The
-request builders bind the typed Router A/B ECDSA derivation scope, request id, signing digest,
-presignature id, expiry, and response digest checks before the signature is
-accepted by the SDK.
+The SDK sends the primary `WalletSessionOperationCredentialV1` as the bearer
+`Authorization` credential with browser credentials omitted. The server
+resolves that credential to one exact Wallet Session authorization before
+admitting the ECDSA operation.
 
-The old public threshold ECDSA authorize, presign, and signing endpoint family
-is deleted from active Express and Cloudflare route definitions.
+Request builders bind the typed Router A/B ECDSA derivation scope, request and
+operation ids, operation digests, signing digest, presignature id, expiry, and
+response-digest checks before a signature is accepted. The bearer authenticates
+the HTTP request; the canonical protocol request carries the resolved ECDSA
+material and operation scope.
 
-## Identity Model
+The former threshold ECDSA authorize, presign, and signing endpoint family is
+absent from active Express and Cloudflare route definitions.
 
-Public ECDSA operation inputs stay wallet and chain scoped:
+## Exact Wallet Session Identity
 
-```ts
-{
-  walletSession: {
-    walletId: string;
-    walletSessionUserId: string;
-  };
-  chainTarget:
-    | { kind: 'tempo'; chainId: number; networkSlug: string }
-    | { kind: 'evm'; namespace: 'eip155'; chainId: number; networkSlug: string };
-}
-```
+Every ECDSA normal-signing and pool-fill operation is admitted against one
+exact V2 Wallet Session authorization. The resolved identity binds:
 
-`signingRootId` and `signingRootVersion` are server/protocol/persistence
-normalization details. They should not reappear as client SDK domain fields.
-Client-side active signing state uses Router A/B key-handle state and Wallet
-Session credentials instead.
+- wallet id, authority id, and `walletAuthMethodId`;
+- authorization id, Wallet Session id, and quota id;
+- authority digest, authority revocation epoch, and expiry; and
+- the ECDSA `sign` capability subject naming the exact material activation.
+
+The material activation resolves the key handle, relayer key, participant set,
+signing worker, runtime-policy scope, normal-signing state, and EVM-family
+public identity. Each resolved value must agree with the exact authority,
+method, Wallet Session, quota, and capability subject before admission. No
+route infers an authentication method from wallet uniqueness, and sibling
+method sessions remain independent.
+
+The concrete EVM-family chain target is a separate typed operation input. It
+can partition request, policy, lane, and transaction state; it does not replace
+the exact authority, method, session, or quota identity or partition the
+EVM-family key identity. Signing-root identifiers remain protocol and
+persistence fields rather than client-selected authorization identity.
 
 ## Presignature Lifecycle
 
-Router A/B Router A/B ECDSA derivation preserves the user-facing latency model:
+Router A/B preserves the user-facing latency model:
 
 - Pool hit: pop one local presignature, finalize through Router A/B normal
   signing, and consume the matching server presignature exactly once.
-- Pool miss: perform Router A/B Router A/B ECDSA derivation pool-fill, then continue through the
-  Router A/B normal-signing boundary.
-- Missing `poolFill` is a hard failure in live presign refill. There is no
-  fallback to the old public threshold ECDSA presign routes.
+- Pool miss: perform Router A/B pool-fill, then continue through the normal-
+  signing boundary.
+- A missing pool-fill response is a hard failure. There is no alternate
+  threshold presignature route.
 
-One-use presignature semantics are release-critical. A claimed presignature must
-be bound to the exact request context and must not return to the available pool
-after use, abort, expiry, or drift rejection.
+Signing and pool-fill admission consume the exact session quota and bind the
+operation claim to the request and material scope. A claimed presignature must
+not return to the available pool after use, abort, expiry, or drift rejection.
 
-## Current Evidence
+ECDSA export uses the exact `export_keys` capability subject and a fresh
+operation-bound step-up. It does not substitute another authority or auth
+method for the session that admitted the operation.
 
-Current implementation and cleanup evidence is tracked in:
+## Implementation Anchors
 
-- [router-ab/protocol.md](../router-ab/protocol.md)
-- [router-ab/deployment.md](../router-ab/deployment.md)
-- [router-ab/protocol.md](../router-ab/protocol.md)
-- [refactor-68-wallet-session-v2.md](../refactor-68-wallet-session-v2.md)
+The live route and request boundaries are implemented in:
 
-Local type-checks, focused Router A/B Router A/B ECDSA derivation tests, source guards, local
-smoke, bundled smoke, release checks, and staging dry-run are recorded there.
-Deployed Cloudflare browser evidence remains the release-tail gate.
+- `packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa.ts`
+- `packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts`
+- `packages/shared-ts/src/device-linking/contracts.ts`
+
+The shared Router A/B protocol details and canonical encoding rules are in
+[router-ab/protocol.md](../router-ab/protocol.md).

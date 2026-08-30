@@ -17,10 +17,9 @@ import {
   type ActiveWalletAuthorityV1,
 } from '@shared/authorization/walletAuthority';
 import {
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parsePrincipalId,
   parseTenantId,
-  WALLET_SESSION_CLIENT_CAPABILITY_V1,
   type MpcWalletSigningQuotaId,
   type PrincipalId,
   type TenantId,
@@ -35,7 +34,6 @@ import { AuthorizationService } from '../../../packages/wallet-server/src/author
 import {
   buildWalletSessionAuthorizationV2,
   parseWalletSessionAuthorizationV2,
-  WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
 } from '../../../packages/wallet-server/src/authorization/domain';
 import { CloudflareD1AuthorizationStore } from '../../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { D1WalletAuthorityStore } from '../../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
@@ -220,12 +218,10 @@ export async function seedExactWalletSessionStatusFixture(input: {
       walletId: records.authority.walletId,
       authority: records.authority,
       walletAuthMethodId: records.authMethod.walletAuthMethodId,
-      mintId: required(parseReusableWalletSessionMintId(`mint:${input.label}`)),
+      mintId: required(parseWalletSessionMintId(`mint:${input.label}`)),
       remainingUses: 3,
       issuedAtMs,
       expiresAtMs,
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
     });
     if (issued.kind !== 'issued') {
       throw new Error(`exact status Wallet Session fixture was not issued: ${issued.kind}`);

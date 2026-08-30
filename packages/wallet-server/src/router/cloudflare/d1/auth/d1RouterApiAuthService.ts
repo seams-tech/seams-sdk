@@ -1,13 +1,9 @@
 import { parseRouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import {
-  parseRegistrationEstablishedSessionProjectionV2,
-  parseRegistrationEstablishedSessionResultV2,
-} from '@shared/utils/registrationEstablishedSession';
+import { parseRegistrationEstablishedSessionProjectionV2 } from '@shared/utils/registrationEstablishedSession';
 import {
   parseDeviceId,
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
-  type WalletSessionClientCapabilityV1,
+  parseWalletSessionMintId,
 } from '@shared/authorization/capabilityKinds';
 import { parseWalletAuthMethodId, parseWalletAuthorityId } from '@shared/utils/domainIds';
 import { computeWalletAuthMethodRevokeOperationFingerprintV1 } from '@shared/utils/registrationIntent';
@@ -16,11 +12,7 @@ import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
   DEFAULT_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
-import type {
-  WalletRegistrationActivateResponseV2,
-  WalletRegistrationSessionCommitReceiptV2,
-} from '../../../../core/threeRouteRegistrationContracts';
-import type { WalletRegistrationFinalizeResponse } from '../../../../core/registrationContracts';
+import type { WalletRegistrationSessionCommitReceiptV2 } from '../../../../core/threeRouteRegistrationContracts';
 import { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
 import { D1WalletStore } from '../../../../core/d1WalletStore';
 import {
@@ -64,7 +56,6 @@ import type {
   DirectV2IssueResult,
   IssuedWalletSessionAuthorizationV2,
 } from '../../../../authorization/domain';
-import { WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1 } from '../../../../authorization/domain';
 import { AuthorizationService } from '../../../../authorization/service';
 import { capabilityPolicyPort } from '../../../../authorization/capabilityPolicy';
 import { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
@@ -107,7 +98,6 @@ import {
   parseD1EcdsaDerivationServerBootstrapResponse,
   parseD1WalletRegistrationCommittedInstallationProjection,
   parseD1WalletRegistrationFinalizeReplayResponse,
-  parseD1WalletRegistrationFinalizeTerminalResponse,
 } from '../registration/d1RegistrationCeremonyRecords';
 import { parseWalletRegistrationSessionCommitReceiptV2 } from '../registration/walletRegistrationSessionCommitReceipt';
 import { CloudflareD1WalletRegistrationCommitStore } from '../registration/d1WalletRegistrationCommitStore';
@@ -134,7 +124,7 @@ import {
   type PreparedSponsoredNearAccountCreationV1,
 } from '../../../../core/nearRelayerAccountProvisioning';
 import {
-  parseRouterAbEd25519YaoRegistrationSideEffectRecordV2WithLegacy,
+  parseRouterAbEd25519YaoRegistrationSideEffectRecordV2,
   runRouterAbEd25519YaoRegistrationSideEffectV1,
   type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
   type RouterAbEd25519YaoRegistrationSideEffectRecordV2,
@@ -345,9 +335,8 @@ function createD1LinkedDeviceComposition(input: {
   readonly authorizationService: AuthorizationService;
   readonly authorizationStore: Pick<
     CloudflareD1AuthorizationStore,
-    | 'prepareWalletSessionAuthorizationV2Statements'
-    | 'prepareRevokeReusableWalletSessionsForAuthority'
-    | 'readOpaqueWalletSessionTokenByIdentity'
+    | 'prepareDirectWalletSessionAuthorizationV2Statements'
+    | 'prepareRetireWalletSessionAuthorizationsV2ForAuthority'
     | 'readActiveWalletSessionAuthorizationV2ByIdentity'
   >;
   readonly walletRegistration: Pick<
@@ -577,6 +566,8 @@ function createD1LinkedDeviceComposition(input: {
         authorityInstall.readCommittedAuthorityPackagesV1.bind(authorityInstall),
       activateInstalledAuthorityV1: async ({ receipt, requestedAtMs }) =>
         await authorityInstall.activateInstalledAuthorityV1({ receipt, nowMs: requestedAtMs }),
+      readActivationCleanupReceiptV1:
+        authorityInstall.readActivationCleanupReceiptV1.bind(authorityInstall),
       acknowledgeLocalAuthorityActivationV1:
         authorityInstall.acknowledgeLocalAuthorityActivationV1.bind(authorityInstall),
     };
@@ -895,80 +886,6 @@ function hasExactKeys(record: Record<string, unknown>, keys: readonly string[]):
   return Object.keys(record).length === keys.length && hasOnlyKeys(record, keys);
 }
 
-/**
- * Refactor 94C. The activate operation row. Same record shape as the
- * finalize journal it absorbs, tagged with its own operation so an activate
- * row can never be read as a finalize row or vice versa.
- */
-/**
- * The activate terminal response is the finalize commit merged with the
- * activation receipt and derivation bootstrap. Validating the commit half
- * through the existing parser keeps one definition of that shape; the
- * activation half must simply be present, since a stored response missing it
- * could not bring a wallet online and is not a usable replay.
- */
-function parseD1WalletRegistrationActivateTerminalResponse(
-  raw: unknown,
-): WalletRegistrationActivateResponseV2 | null {
-  /* The Ed25519-only pending terminal is not a finalize response: it has no
-     signer, resolved account, or key identity, because none exist yet. It
-     round-trips as itself, so a pending replay returns what was stored rather
-     than a degraded parse. */
-  if (
-    isRecordValue(raw) &&
-    raw.ok === true &&
-    raw.kind === 'near_ed25519' &&
-    isRecordValue(raw.nearProvisioning) &&
-    raw.nearProvisioning.status === 'near_pending'
-  ) {
-    return raw as unknown as WalletRegistrationActivateResponseV2;
-  }
-  const commit = parseD1WalletRegistrationFinalizeTerminalResponse(raw);
-  if (!commit) {
-    return null;
-  }
-  if (!commit.ok) return commit;
-  if (commit.kind !== 'evm_family_ecdsa' || !isRecordValue(raw)) {
-    return null;
-  }
-  const stored = isRecordValue(raw.ecdsa) ? raw.ecdsa : null;
-  if (!stored || !isRecordValue(stored.bootstrap)) {
-    return null;
-  }
-  const parsedRegistrationEstablishedSession = parseRegistrationEstablishedSessionResultV2(
-    raw.registrationEstablishedSession,
-  );
-  if (
-    !parsedRegistrationEstablishedSession ||
-    parsedRegistrationEstablishedSession.session.walletId !== commit.walletId
-  ) {
-    return null;
-  }
-  const registrationEstablishedSession = parsedRegistrationEstablishedSession;
-  let activation: ReturnType<typeof parseRouterAbEcdsaRegistrationActivationReceiptV1>;
-  try {
-    activation = parseRouterAbEcdsaRegistrationActivationReceiptV1(stored.activation);
-  } catch {
-    return null;
-  }
-  const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(stored.bootstrap);
-  if (!bootstrap) {
-    return null;
-  }
-  return {
-    ...commit,
-    registrationEstablishedSession,
-    ecdsa: {
-      ...commit.ecdsa,
-      activation,
-      /* The bootstrap is the Gateway's own derivation payload, written by
-         this service and never client-supplied; there is no separate parser
-         for it, so presence is the check. */
-      bootstrap,
-    },
-  };
-}
-
 function parseWalletRegistrationSessionCommitReceipt(
   raw: unknown,
 ): WalletRegistrationSessionCommitReceiptV2 | null {
@@ -1006,7 +923,10 @@ function parseWalletRegistrationSessionCommitReceiptCommitted(
     const ecdsa = parseWalletRegistrationSessionCommitEcdsa(record.ecdsa, receipt);
     const session = parseRegistrationEstablishedSessionProjectionV2(record.session);
     if (!ecdsa || !session || session.tokens.kind !== 'evm_family_ecdsa') return null;
-    const nearProvisioning = parseNearPendingProjection(record.nearProvisioning);
+    const nearProvisioning =
+      record.nearProvisioning === undefined
+        ? undefined
+        : parseNearPendingProjection(record.nearProvisioning);
     if (record.nearProvisioning !== undefined && !nearProvisioning) return null;
     const installation =
       record.installation === undefined
@@ -1042,7 +962,14 @@ function parseWalletRegistrationSessionCommitReceiptCommitted(
   }
   const near = parseWalletRegistrationSessionCommitNear(record, receipt);
   const session = parseRegistrationEstablishedSessionProjectionV2(record.session);
-  if (!near || !session || session.tokens.kind !== 'near_ed25519') return null;
+  if (
+    !near ||
+    !session ||
+    (session.tokens.kind !== 'near_ed25519' &&
+      session.tokens.kind !== 'near_ed25519_and_evm_family_ecdsa')
+  ) {
+    return null;
+  }
   return {
     kind: 'near_ready',
     authorityScope: near.authorityScope,
@@ -1143,15 +1070,13 @@ function parseNearPendingProjection(raw: unknown): { readonly status: 'near_pend
 function parseWalletRegistrationActivateSideEffectRecord(
   raw: unknown,
 ): D1WalletRegistrationActivateSideEffectRecord | null {
-  const record = parseRouterAbEd25519YaoRegistrationSideEffectRecordV2WithLegacy<
-    WalletRegistrationActivateResponseV2,
+  const record = parseRouterAbEd25519YaoRegistrationSideEffectRecordV2<
     WalletRegistrationSessionCommitReceiptV2,
     D1WalletRegistrationOperationPreparedV1
   >(raw, {
     operation: 'registration_activate',
     parsePrepared: parseWalletRegistrationOperationPrepared,
     parseReceipt: parseWalletRegistrationSessionCommitReceipt,
-    parseLegacyResponse: parseD1WalletRegistrationActivateTerminalResponse,
   });
   if (record === null || !registrationReceiptMatchesJournal(record)) return null;
   return record;
@@ -1165,25 +1090,22 @@ function parseWalletRegistrationActivateSideEffectRecord(
 function parseWalletRegistrationNearProvisioningSideEffectRecord(
   raw: unknown,
 ): D1WalletRegistrationNearProvisioningSideEffectRecord | null {
-  const record = parseRouterAbEd25519YaoRegistrationSideEffectRecordV2WithLegacy<
-    WalletRegistrationFinalizeResponse,
+  const record = parseRouterAbEd25519YaoRegistrationSideEffectRecordV2<
     WalletRegistrationSessionCommitReceiptV2,
     D1WalletRegistrationOperationPreparedV1
   >(raw, {
     operation: 'near_provisioning',
     parsePrepared: parseWalletRegistrationOperationPrepared,
     parseReceipt: parseWalletRegistrationSessionCommitReceipt,
-    parseLegacyResponse: parseD1WalletRegistrationFinalizeTerminalResponse,
   });
   if (record === null || !registrationReceiptMatchesJournal(record)) return null;
   return record;
 }
 
-function registrationReceiptMatchesJournal<T>(
+function registrationReceiptMatchesJournal(
   record: RouterAbEd25519YaoRegistrationSideEffectRecordV2<
     WalletRegistrationSessionCommitReceiptV2,
-    D1WalletRegistrationOperationPreparedV1,
-    T
+    D1WalletRegistrationOperationPreparedV1
   >,
 ): boolean {
   if (record.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v2') return true;
@@ -1669,7 +1591,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     getWalletAuthMethodStore,
     googleEmailOtpRegistrationAttempts,
     prepareOwnerWalletSessionRevocation: (sessionInput) =>
-      authorizationStore.prepareRevokeReusableWalletSessionsForAuthMethod({
+      authorizationStore.prepareRetireWalletSessionAuthorizationsForAuthMethod({
         tenantId: authorizationTenantId.value,
         walletId: sessionInput.walletId,
         walletAuthMethodId: sessionInput.walletAuthMethodId,
@@ -2114,7 +2036,6 @@ async function issueWalletSessionForActiveAuthority(input: {
   readonly authorizationService: AuthorizationService;
   readonly orgId: string;
   readonly verifiedChallengeId: string;
-  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
 }): Promise<WalletUnlockPasskeySessionResolution> {
   const tenantId = parseTenantId(input.orgId);
   const principalId = parsePrincipalId(
@@ -2122,7 +2043,7 @@ async function issueWalletSessionForActiveAuthority(input: {
       ? input.resolved.walletAuthAuthority.factor.providerUserId
       : String(input.resolved.authority.walletId),
   );
-  const mintId = parseReusableWalletSessionMintId(input.verifiedChallengeId);
+  const mintId = parseWalletSessionMintId(input.verifiedChallengeId);
   if (!tenantId.ok || !principalId.ok || !mintId.ok) {
     return {
       kind: 'rejected',
@@ -2148,8 +2069,6 @@ async function issueWalletSessionForActiveAuthority(input: {
       expiresAtMs:
         issuedAtMs +
         (deviceLinked ? LINKED_DEVICE_WALLET_SESSION_TTL_MS : DEFAULT_WALLET_SESSION_TTL_MS),
-      walletSessionClientCapability: input.walletSessionClientCapability,
-      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
     });
     const authorityProvenanceKind = input.resolved.authority.provenance.kind;
     if (authorityProvenanceKind === 'wallet_registration') {
@@ -2164,13 +2083,6 @@ async function issueWalletSessionForActiveAuthority(input: {
         kind: 'already_committed',
         authorityProvenanceKind,
         committed: directIssue,
-      };
-    }
-    if (directIssue.kind === 'protocol_mismatch') {
-      return {
-        kind: 'rejected',
-        code: directIssue.code,
-        message: directIssue.message,
       };
     }
     return {
@@ -2226,7 +2138,6 @@ async function issueWalletSessionForPasskeyUnlock(input: {
     authorizationService: input.authorizationService,
     orgId: input.orgId,
     verifiedChallengeId: input.request.verifiedChallengeId,
-    walletSessionClientCapability: input.request.walletSessionClientCapability,
   });
 }
 
@@ -2264,7 +2175,6 @@ async function issueWalletSessionForEmailOtpUnlock(input: {
     authorizationService: input.authorizationService,
     orgId: input.request.orgId,
     verifiedChallengeId: input.request.verifiedChallengeId,
-    walletSessionClientCapability: input.request.walletSessionClientCapability,
   });
 }
 
@@ -2441,13 +2351,6 @@ function createD1AuthorizationSessionRouteService(
     tenantId: tenantId.value,
     issueDirectWalletSessionAuthorizationV2:
       assembly.authorizationService.issueDirectWalletSessionAuthorizationV2.bind(
-        assembly.authorizationService,
-      ),
-    issueOpaqueWalletSessionToken: assembly.authorizationService.issueOpaqueWalletSessionToken.bind(
-      assembly.authorizationService,
-    ),
-    resolveOpaqueWalletSessionToken:
-      assembly.authorizationService.resolveOpaqueWalletSessionToken.bind(
         assembly.authorizationService,
       ),
     readWalletSessionAuthorizationV2ByOperationCredential: async (input) => {

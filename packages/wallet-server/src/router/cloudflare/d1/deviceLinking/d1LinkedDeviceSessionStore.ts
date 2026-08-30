@@ -551,6 +551,22 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     readonly packageSetDigestB64u: DigestB64u;
     readonly nowMs: number;
   }): Promise<LinkedDeviceSessionMutationResultV1> {
+    return await this.deleteActiveSessionWithStatementsV1({
+      ...input,
+      beforeDeleteStatements: [],
+      afterDeleteStatements: [],
+    });
+  }
+
+  async deleteActiveSessionWithStatementsV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly expectedRevision: number;
+    readonly authorityId: WalletAuthorityId;
+    readonly packageSetDigestB64u: DigestB64u;
+    readonly nowMs: number;
+    readonly beforeDeleteStatements: readonly D1PreparedStatementLike[];
+    readonly afterDeleteStatements: readonly D1PreparedStatementLike[];
+  }): Promise<LinkedDeviceSessionMutationResultV1> {
     const current = await this.getSessionV1(input.linkSessionId);
     if (!current) return { outcome: 'deleted', record: null };
     if (current.state.state !== 'active') return invalidStateResult(current);
@@ -563,7 +579,15 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     if (current.revision !== input.expectedRevision) {
       return conflictResult(input.expectedRevision, current);
     }
+    const guardEachStatement = (
+      statements: readonly D1PreparedStatementLike[],
+    ): D1PreparedStatementLike[] =>
+      statements.flatMap((statement) => [
+        statement,
+        this.database.prepare(SESSION_CAS_GUARD_SQL),
+      ]);
     await this.database.batch([
+      ...guardEachStatement(input.beforeDeleteStatements),
       ...buildSessionScopedDeleteStatements({
         database: this.database,
         scope: this.scope,
@@ -577,6 +601,7 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
         )
         .bind(...scopeValues(this.scope), String(input.linkSessionId), input.expectedRevision),
       this.database.prepare(SESSION_CAS_GUARD_SQL),
+      ...guardEachStatement(input.afterDeleteStatements),
     ]);
     const persisted = await this.getSessionV1(input.linkSessionId);
     return persisted

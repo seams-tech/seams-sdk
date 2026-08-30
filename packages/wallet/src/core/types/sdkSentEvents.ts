@@ -22,8 +22,17 @@ import {
 import { parseWalletSessionId, type WalletSessionId } from '@shared/authorization/capabilityKinds';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 
 export type { WalletSessionId };
+
+export type EcdsaKeyFactsInventoryWalletSessionCredential =
+  | WalletSessionOperationCredentialV1
+  | {
+      readonly kind: 'opaque_hosted_wallet_session_operation_credential_v1';
+      readonly token: string;
+      readonly walletSessionId: WalletSessionId;
+    };
 
 /////////////////////////////////////
 // Signing Session Lifecycle Events
@@ -938,9 +947,8 @@ export interface LoginHooksOptions {
       };
   ecdsaKeyFactsInventory?:
     | {
-        mode: 'opaque_wallet_session';
-        curve: 'ecdsa_secp256k1';
-        walletSessionToken: string;
+        mode: 'wallet_session_operation_credential_v1';
+        operationCredential: EcdsaKeyFactsInventoryWalletSessionCredential;
       }
     | {
         mode: 'webauthn';

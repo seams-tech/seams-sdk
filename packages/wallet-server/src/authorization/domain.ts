@@ -4,7 +4,7 @@ import {
   NEAR_ED25519_MPC_OPERATION_KINDS,
   parseMpcWalletSigningQuotaId,
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseTenantId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -20,10 +20,9 @@ import type {
   HostedWalletSessionExchangeCodeId,
   MpcWalletSigningQuotaId,
   PrincipalId,
-  ReusableWalletSessionMintId,
+  WalletSessionMintId,
   TenantId,
   WalletSessionId,
-  WalletSessionClientCapabilityV1,
 } from '@shared/authorization/capabilityKinds';
 export {
   parseMpcWalletSigningQuotaId,
@@ -231,20 +230,6 @@ export type ActiveWalletSessionQuota = {
   readonly expiresAtMs: number;
 };
 
-export type WalletSessionAuthorization = {
-  readonly kind: 'wallet_session_authorization';
-  readonly tenantId: TenantId;
-  readonly principalId: PrincipalId;
-  readonly walletId: WalletId;
-  readonly authority: WalletAuthAuthorityRef;
-  readonly mintId: ReusableWalletSessionMintId;
-  readonly authorizationId: WalletSessionAuthorizationId;
-  readonly walletSessionId: WalletSessionId;
-  readonly quotaId: MpcWalletSigningQuotaId;
-  readonly createdAtMs: number;
-  readonly expiresAtMs: number;
-};
-
 export type WalletSessionCapabilitySubjectV1 =
   | {
       readonly kind: 'sign';
@@ -289,7 +274,7 @@ export type WalletSessionAuthorizationV2 = {
   readonly walletAuthMethodId: WalletAuthMethodId;
   readonly authorityDigestB64u: DigestB64u;
   readonly authorityRevocationEpoch: number;
-  readonly mintId: ReusableWalletSessionMintId;
+  readonly mintId: WalletSessionMintId;
   readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
@@ -453,20 +438,6 @@ export function projectActiveWalletSession(
   return projectExactWalletSessionAuthorizationV1(issued.session);
 }
 
-/** Exact response families are persisted so replay cannot cross route contracts. */
-export const WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1 = 'wallet_unlock_exact_response_v1' as const;
-export const WALLET_SYNC_EXACT_RESPONSE_FAMILY_V1 = 'wallet_sync_exact_response_v1' as const;
-export const WALLET_REGISTRATION_EXACT_RESPONSE_FAMILY_V1 =
-  'wallet_registration_exact_response_v1' as const;
-export const WALLET_ECDSA_ACTIVATION_EXACT_RESPONSE_FAMILY_V1 =
-  'wallet_ecdsa_activation_exact_response_v1' as const;
-
-export type WalletSessionIssuanceResponseFamilyV1 =
-  | typeof WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1
-  | typeof WALLET_SYNC_EXACT_RESPONSE_FAMILY_V1
-  | typeof WALLET_REGISTRATION_EXACT_RESPONSE_FAMILY_V1
-  | typeof WALLET_ECDSA_ACTIVATION_EXACT_RESPONSE_FAMILY_V1;
-
 /**
  * The server-side aggregate that is safe to expose to persistence code after
  * an exact Wallet Session commit. The credential digest never crosses the
@@ -477,8 +448,6 @@ export type PersistedActiveWalletSessionAuthorizationV2 = {
   readonly session: WalletSessionAuthorizationV2;
   readonly quota: ActiveWalletSessionQuota;
   readonly primaryOperationCredentialDigestB64u: DigestB64u;
-  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
-  readonly responseFamily: WalletSessionIssuanceResponseFamilyV1;
   readonly retiredAtMs?: never;
 };
 
@@ -488,7 +457,7 @@ export type WalletSessionAuthorizationV2MintLookup = {
   readonly walletId: WalletId;
   readonly authorityId: WalletAuthorityId;
   readonly walletAuthMethodId: WalletAuthMethodId;
-  readonly mintId: ReusableWalletSessionMintId;
+  readonly mintId: WalletSessionMintId;
 };
 
 /**
@@ -499,8 +468,6 @@ export type WalletSessionAuthorizationV2MintRead = {
   readonly kind: 'committed';
   readonly session: WalletSessionAuthorizationV2;
   readonly primaryOperationCredentialDigestB64u: DigestB64u;
-  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1 | null;
-  readonly responseFamily: string | null;
   readonly retiredAtMs: number | null;
 };
 
@@ -523,24 +490,17 @@ export type DirectV2IssueResult =
       readonly walletId: WalletId;
       readonly authorityId: WalletAuthorityId;
       readonly walletAuthMethodId: WalletAuthMethodId;
-      readonly mintId: ReusableWalletSessionMintId;
+      readonly mintId: WalletSessionMintId;
       readonly authorizationId: WalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly quotaId: MpcWalletSigningQuotaId;
       readonly next: 'unlock_exact_method';
-    }
-  | {
-      readonly kind: 'protocol_mismatch';
-      readonly code: 'protocol_mismatch';
-      readonly message: string;
     };
 
 export function buildPersistedActiveWalletSessionAuthorizationV2(fields: {
   readonly session: WalletSessionAuthorizationV2;
   readonly quota: ActiveWalletSessionQuota;
   readonly primaryOperationCredentialDigestB64u: DigestB64u;
-  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
-  readonly responseFamily: WalletSessionIssuanceResponseFamilyV1;
 }): PersistedActiveWalletSessionAuthorizationV2 {
   if (
     fields.session.tenantId !== fields.quota.tenantId ||
@@ -557,8 +517,6 @@ export function buildPersistedActiveWalletSessionAuthorizationV2(fields: {
     session: fields.session,
     quota: fields.quota,
     primaryOperationCredentialDigestB64u: fields.primaryOperationCredentialDigestB64u,
-    walletSessionClientCapability: fields.walletSessionClientCapability,
-    responseFamily: fields.responseFamily,
   };
 }
 
@@ -848,7 +806,7 @@ export function parseWalletSessionAuthorizationV2(value: unknown): WalletSession
   const authorityId = parseWalletAuthorityIdRequired(value.authorityId);
   const walletAuthMethodId = parseWalletAuthMethodIdRequired(value.walletAuthMethodId);
   const authorityDigestB64u = parseDigestB64u(value.authorityDigestB64u);
-  const mintIdResult = parseReusableWalletSessionMintId(value.mintId);
+  const mintIdResult = parseWalletSessionMintId(value.mintId);
   if (!mintIdResult.ok) throw new Error(mintIdResult.error.message);
   const authorizationIdResult = parseWalletSessionAuthorizationId(value.authorizationId);
   if (!authorizationIdResult.ok) throw new Error(authorizationIdResult.error.message);
@@ -1241,40 +1199,6 @@ export function buildActiveWalletSessionQuota(
     walletSessionId: fields.walletSessionId,
     quotaId: fields.quotaId,
     remainingUses: fields.remainingUses,
-    expiresAtMs: fields.expiresAtMs,
-  };
-}
-
-export function buildWalletSessionAuthorization(
-  fields: Omit<WalletSessionAuthorization, 'kind'>,
-): WalletSessionAuthorization {
-  requireOrderedTimes(fields.createdAtMs, fields.expiresAtMs, 'reusable Wallet Session');
-  if (fields.authority.walletId !== fields.walletId) {
-    throw new Error('reusable Wallet Session authority must identify the exact wallet');
-  }
-  const authorizationId = String(fields.authorizationId);
-  const walletSessionId = String(fields.walletSessionId);
-  const quotaId = String(fields.quotaId);
-  if (
-    authorizationId === walletSessionId ||
-    authorizationId === quotaId ||
-    walletSessionId === quotaId
-  ) {
-    throw new Error(
-      'authorization, Wallet Session, and quota identities must be pairwise distinct',
-    );
-  }
-  return {
-    kind: 'wallet_session_authorization',
-    tenantId: fields.tenantId,
-    principalId: fields.principalId,
-    walletId: fields.walletId,
-    authority: fields.authority,
-    mintId: fields.mintId,
-    authorizationId: fields.authorizationId,
-    walletSessionId: fields.walletSessionId,
-    quotaId: fields.quotaId,
-    createdAtMs: fields.createdAtMs,
     expiresAtMs: fields.expiresAtMs,
   };
 }

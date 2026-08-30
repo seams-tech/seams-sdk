@@ -21,10 +21,9 @@ import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import { SigningSessionIds, type ThresholdEd25519SessionId } from '../operationState/types';
 import {
-  walletSessionAuthorizationIdForCurve,
-  walletSessionTokenForCurve,
-  type ActiveWalletSessionAuthorizationProjection,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+  nearEd25519SessionMatchesMaterialActivation,
+  type ExactNearEd25519WalletSessionAuthorization,
+} from '../material/nearEd25519YaoSigningPreparation';
 import {
   mpcMaterialActivationRefsEqual,
   type MpcMaterialActivationRef,
@@ -299,27 +298,75 @@ function assertNeverEd25519Factor(value: never): never {
   throw new Error(`Unsupported Ed25519 factor: ${String(value)}`);
 }
 
-export function ed25519AuthorizationIdentityMatchesRuntime(args: {
+export async function ed25519AuthorizationIdentityMatchesRuntime(args: {
   runtime: ExactEd25519SealedSessionRuntime;
-  authorization: ActiveWalletSessionAuthorizationProjection;
-}): boolean {
-  const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
-  const authorizationId = walletSessionAuthorizationIdForCurve(args.authorization, 'ed25519');
-  if (!walletSessionToken) return false;
-  return Boolean(
-    String(args.authorization.walletId) === String(args.runtime.walletId) &&
-    args.authorization.authMethod === args.runtime.factor.kind &&
-    authorizationId !== null &&
-    args.authorization.walletSessionId.length > 0 &&
-    args.authorization.quotaId.length > 0,
-  );
+  authorization: ExactNearEd25519WalletSessionAuthorization;
+}): Promise<boolean> {
+  const { authorization, runtime } = args;
+  if (
+    authorization.session.walletId !== runtime.walletId ||
+    authorization.session.authMethodId !== authorization.selectedAuthMethod.walletAuthMethodId ||
+    authorization.session.quotaId !== authorization.status.quotaId ||
+    authorization.operationCredential.walletSessionId !== authorization.status.walletSessionId ||
+    authorization.operationCredential.token.trim().length === 0 ||
+    authorization.status.remainingUses <= 0 ||
+    !nearEd25519SessionMatchesMaterialActivation({
+      session: authorization.session,
+      materialActivation: runtime.sealedRecord.ed25519Restore.materialActivation,
+    })
+  ) {
+    return false;
+  }
+  if (runtime.factor.kind === 'passkey') {
+    if (
+      authorization.selectedAuthMethod.kind !== 'passkey' ||
+      String(authorization.selectedAuthMethod.rpId) !== String(runtime.factor.rpId) ||
+      authorization.selectedAuthMethod.credentialIdB64u !== runtime.factor.credentialIdB64u ||
+      authorization.selectedFactorAuthority.factor.kind !== 'passkey' ||
+      authorization.selectedFactorAuthority.factor.credentialIdB64u !==
+        runtime.factor.credentialIdB64u ||
+      authorization.selectedFactorAuthority.verifier.kind !== 'webauthn' ||
+      String(authorization.selectedFactorAuthority.verifier.rpId) !== String(runtime.factor.rpId)
+    ) {
+      return false;
+    }
+  } else if (
+    authorization.selectedAuthMethod.kind !== 'email_otp' ||
+    authorization.selectedAuthMethod.emailHashHex !== runtime.factor.emailHashHex ||
+    authorization.selectedFactorAuthority.factor.kind !== 'email_otp' ||
+    authorization.selectedFactorAuthority.factor.provider !== runtime.factor.provider ||
+    authorization.selectedFactorAuthority.factor.providerUserId !==
+      runtime.factor.providerSubjectId ||
+    authorization.selectedFactorAuthority.verifier.kind !== 'email_otp_wallet_auth_method' ||
+    authorization.selectedFactorAuthority.verifier.emailHashHex !== runtime.factor.emailHashHex
+  ) {
+    return false;
+  }
+  try {
+    const expected = await ed25519SealedRuntimeAuthorityRef({
+      runtime,
+      walletAuthMethodId: authorization.selectedAuthMethod.walletAuthMethodId,
+    });
+    const selectedFactorRef = await walletAuthAuthorityRef({
+      authority: authorization.selectedFactorAuthority,
+    });
+    return (
+      expected.walletId === authorization.selectedAuthority.walletId &&
+      expected.walletAuthMethodId === authorization.selectedAuthMethod.walletAuthMethodId &&
+      expected.walletId === selectedFactorRef.walletId &&
+      expected.walletAuthMethodId === selectedFactorRef.walletAuthMethodId &&
+      expected.authorityDigest === selectedFactorRef.authorityDigest
+    );
+  } catch {
+    return false;
+  }
 }
 
-export function ed25519WalletSessionAuthorizationForRuntime(args: {
+export async function ed25519WalletSessionAuthorizationForRuntime(args: {
   runtime: ExactEd25519SealedSessionRuntime;
-  authorization: ActiveWalletSessionAuthorizationProjection;
-}): ActiveWalletSessionAuthorizationProjection | null {
-  return ed25519AuthorizationIdentityMatchesRuntime(args) ? args.authorization : null;
+  authorization: ExactNearEd25519WalletSessionAuthorization;
+}): Promise<ExactNearEd25519WalletSessionAuthorization | null> {
+  return (await ed25519AuthorizationIdentityMatchesRuntime(args)) ? args.authorization : null;
 }
 
 function authBindingsEqual(left: SigningLaneAuthBinding, right: SigningLaneAuthBinding): boolean {

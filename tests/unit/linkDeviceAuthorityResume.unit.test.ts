@@ -1,42 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
-import {
-  buildActiveWalletAuthorityV1,
-  buildPendingWalletAuthorityV1,
-  buildWalletSignerActivationSetV1,
-} from '@shared/authorization/walletAuthority';
-import {
-  type ActivateInstalledAuthorityResultV1,
-  type ActiveWalletSessionV1,
-  type CommittedAuthorityPackagesV1,
-  type LinkSessionStateV1,
-  type LocalAuthorityInstallationReceiptV1,
-  type VerifiedTargetFactorV1,
-} from '@shared/device-linking';
-import {
-  parseDeviceId,
-  parseMpcWalletSigningQuotaId,
-  parseWalletSessionAuthorizationId,
-  parseWalletSessionId,
-} from '@shared/authorization/capabilityKinds';
-import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
-import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
-import {
-  parseLinkDeviceSessionId,
-  parseLinkedDeviceEnrollmentId,
-  parseWalletAuthMethodId,
-  parseWalletAuthorityId,
-  parseWalletId,
-  parseWebAuthnCredentialIdB64u,
-  parseWebAuthnRpId,
-} from '@shared/utils/domainIds';
-import { base64UrlEncode } from '@shared/utils/base64';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import {
   activateLinkedAuthorityV1,
+  replayPendingDeviceLinkingAcknowledgementsV1,
   type DeviceLinkingAuthorityActivationFlowInputV1,
 } from '@/SeamsWeb/operations/devices/deviceLinkingAuthorityInstallation';
+import {
+  resumePendingDeviceLinkingAcknowledgementsV1,
+  type DeviceLinkingAcknowledgementExactSessionReaderV1,
+} from '@/SeamsWeb/operations/devices/deviceLinkingComposition';
 import {
   buildDeviceLinkingCommittedResumeV1,
   compareDeviceLinkingCommittedResumeV1,
@@ -45,15 +16,19 @@ import {
 import type {
   DeviceLinkingAuthorityActivationTransportPortV1,
   DeviceLinkingAuthorityInstallationPortV1,
-  DeviceLinkingKeyMaterialHandleV1,
+  DeviceLinkingDeliveryResumePortV1,
+  DeviceLinkingKeyMaterialPortV1,
+  DeviceLinkingWalletSessionAcknowledgementReplayPortV1,
 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
+import type { LocalAuthorityActivationFinalAckV1 } from '@shared/device-linking';
 import {
-  buildOrdinaryEd25519ActivationReceiptFixture,
-  buildOrdinaryEd25519ClientMaterialFixture,
-  buildOrdinaryEd25519SignerFixture,
-  buildOrdinaryEd25519SignerMaterialRecordFixture,
-  buildOrdinaryMaterialActivationFixture,
-} from './helpers/ordinarySignerMaterialReservation.fixtures';
+  computeWalletSessionInstallationReceiptDigestB64u,
+  computeWalletSessionOperationCredentialDigestB64u,
+} from '@shared/device-linking/digests';
+import {
+  buildResumeFixture,
+  type ResumeFixture,
+} from './helpers/linkDeviceAuthorityResume.fixtures';
 import { sdkEsmPath, setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
@@ -61,259 +36,31 @@ const IMPORT_PATHS = {
   installation: sdkEsmPath('SeamsWeb/operations/devices/deviceLinkingAuthorityInstallation.js'),
 } as const;
 
-function required<T>(
-  result:
-    | { readonly ok: true; readonly value: T }
-    | { readonly ok: false; readonly error: { readonly message: string } },
-): T {
-  if (result.ok) return result.value;
-  throw new Error(result.error.message);
-}
-
-type ResumeFixture = {
-  readonly committed: CommittedAuthorityPackagesV1;
-  readonly targetFactor: VerifiedTargetFactorV1;
-  readonly receipt: LocalAuthorityInstallationReceiptV1;
-  readonly signerMaterials: readonly [
-    WalletAuthoritySignerMaterialRecordV1,
-    ...WalletAuthoritySignerMaterialRecordV1[],
-  ];
-  readonly active: Extract<ActivateInstalledAuthorityResultV1, { readonly kind: 'active' }>;
-  readonly inputBase: Pick<
-    DeviceLinkingAuthorityActivationFlowInputV1,
-    | 'linkSessionId'
-    | 'targetFactor'
-    | 'keyMaterial'
-    | 'resealedExportRoot'
-    | 'expectedLockGeneration'
-    | 'nowMs'
-    | 'sessionState'
-  >;
-};
-
-function buildResumeFixture(label: string): ResumeFixture {
-  const walletId = required(parseWalletId(`wallet:ordinary-reservation:${label}`));
-  const authorityId = required(parseWalletAuthorityId(`authority:resume:${label}`));
-  const authMethodId = required(parseWalletAuthMethodId(`passkey:wallet.example.test:${label}`));
-  const deviceId = required(parseDeviceId(`device:resume:${label}`));
-  const enrollmentId = required(parseLinkedDeviceEnrollmentId(`enrollment:resume:${label}`));
-  const linkSessionId = required(parseLinkDeviceSessionId(`link-session:resume:${label}`));
-  const sourceAuthorityId = required(parseWalletAuthorityId(`authority:source:${label}`));
-  const signer = buildOrdinaryEd25519SignerFixture(label);
-  const materialActivation = buildOrdinaryMaterialActivationFixture(label);
-  const manifest = parseExactAdministeredSignerManifestV1({
-    kind: 'exact_administered_signer_manifest_v1',
-    keyFamilies: ['ed25519'],
-    signers: [
-      {
-        kind: 'exact_administered_ed25519_signer_v1',
-        keyFamily: 'ed25519',
-        walletId,
-        walletKeyId: signer.walletKeyId,
-        registeredPublicKeyB64u: signer.registeredPublicKeyB64u,
-      },
-    ],
-  });
-  const signerActivations = buildWalletSignerActivationSetV1({
-    manifest,
-    materialActivations: { keyFamilies: ['ed25519'], ed25519: materialActivation },
-  });
-  const digest = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(9)));
-  const pendingAuthority = buildPendingWalletAuthorityV1({
-    kind: 'wallet_authority_v1',
-    authorityId,
-    walletId,
-    principal: { kind: 'owner_device', deviceId },
-    provenance: {
-      kind: 'device_link',
-      enrollmentId,
-      sourceAuthorityId,
-      linkSessionId,
-    },
-    permissions: buildFullOwnerPermissionsV1(),
-    signerActivations,
-    signerActivationSetDigestB64u: digest,
-    authorityDigestB64u: digest,
-    revocationEpoch: 0,
-    createdAtMs: 100,
-    updatedAtMs: 100,
-    state: 'pending_local_install',
-    localInstallPackageSetDigestB64u: digest,
-  });
-  const rpId = required(parseWebAuthnRpId('wallet.example.test'));
-  const credentialIdB64u = required(
-    parseWebAuthnCredentialIdB64u(base64UrlEncode(new Uint8Array(32).fill(10))),
-  );
-  const pendingAuthMethod = buildWalletAuthMethodRecordV2({
-    version: 'wallet_auth_method_v2',
-    walletAuthMethodId: authMethodId,
-    walletId,
-    walletAuthorityId: authorityId,
-    kind: 'passkey',
-    status: 'pending_local_install',
-    rpId,
-    credentialIdB64u,
-    credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(11)),
-    counter: 0,
-    createdAtMs: 100,
-    updatedAtMs: 100,
-  });
-  if (pendingAuthMethod.status !== 'pending_local_install') {
-    throw new Error('resume fixture auth method is not pending');
-  }
-  const signerMaterial = buildOrdinaryEd25519SignerMaterialRecordFixture({
-    authorityId,
-    walletAuthMethodId: authMethodId,
-    materialActivation,
-    sealedMaterialB64u: 'sealed-material-resume',
-    sealedMaterialDigestB64u: digest,
-  });
-  const clientMaterial = buildOrdinaryEd25519ClientMaterialFixture(label);
-  const committed: CommittedAuthorityPackagesV1 = {
-    kind: 'committed_authority_packages_v1',
-    authority: pendingAuthority,
-    authMethod: pendingAuthMethod,
-    signerPackages: {
-      kind: 'committed_signer_package_set_v1',
-      keyFamilies: ['ed25519'],
-      ed25519: {
-        kind: 'committed_ed25519_signer_package_v1',
-        materialActivation,
-        participantIds: [1, 2],
-        activationReceipt: buildOrdinaryEd25519ActivationReceiptFixture(label, materialActivation),
-        deriver_a_client_package: clientMaterial.deriver_a_client_package,
-        deriver_b_client_package: clientMaterial.deriver_b_client_package,
-      },
-    },
-    ed25519ExportRootPackage: null,
-    packageSetDigestB64u: digest,
-  };
-  const targetFactor: VerifiedTargetFactorV1 = {
-    kind: 'verified_passkey_target_v1',
-    authMethod: {
-      walletAuthMethodId: authMethodId,
-      walletId,
-      createdAtMs: 100,
-      kind: 'passkey',
-      rpId,
-      credentialIdB64u,
-      credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(11)),
-      counter: 0,
-    },
-    verificationDigestB64u: digest,
-    verifiedAtMs: 200,
-  };
-  const receipt: LocalAuthorityInstallationReceiptV1 = {
-    kind: 'local_authority_installation_receipt_v1',
-    authorityId,
-    walletId,
-    authMethodId,
-    deviceId,
-    packageSetDigestB64u: digest,
-    installedActivationRefs: signerActivations,
-    installedRecordSetDigestB64u: digest,
-    targetFactorVerificationDigestB64u: digest,
-    installedAtMs: 300,
-  };
-  const activeAuthority = buildActiveWalletAuthorityV1({
-    kind: 'wallet_authority_v1',
-    authorityId,
-    walletId,
-    principal: { kind: 'owner_device', deviceId },
-    provenance: pendingAuthority.provenance,
-    permissions: pendingAuthority.permissions,
-    signerActivations,
-    signerActivationSetDigestB64u: digest,
-    authorityDigestB64u: digest,
-    revocationEpoch: 0,
-    createdAtMs: 100,
-    updatedAtMs: 400,
-    state: 'active',
-    activatedAtMs: 400,
-  });
-  const activeAuthMethod = buildWalletAuthMethodRecordV2({
-    version: 'wallet_auth_method_v2',
-    walletAuthMethodId: authMethodId,
-    walletId,
-    walletAuthorityId: authorityId,
-    kind: 'passkey',
-    status: 'active',
-    rpId,
-    credentialIdB64u,
-    credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(11)),
-    counter: 0,
-    createdAtMs: 100,
-    updatedAtMs: 400,
-    activatedAtMs: 400,
-  });
-  if (activeAuthMethod.status !== 'active')
-    throw new Error('resume fixture auth method is not active');
-  const authorizationId = required(
-    parseWalletSessionAuthorizationId(`wallet-session:resume:${label}`),
-  );
-  const walletSessionId = required(parseWalletSessionId(`wallet-session:resume:${label}`));
-  const quotaId = required(parseMpcWalletSigningQuotaId(`quota:resume:${label}`));
-  const walletSession: ActiveWalletSessionV1 = {
-    kind: 'active_wallet_session_v1',
-    walletId,
-    authorityId,
-    authMethodId,
-    authorizationId,
-    quotaId,
-    authorityDigestB64u: digest,
-    authorityRevocationEpoch: 0,
-    capabilitySubjects: [{ kind: 'sign', keyFamily: 'ed25519', materialActivation }],
-    issuedAtMs: 400,
-    expiresAtMs: 3_600_400,
-  };
-  const operationCredential = parseWalletSessionOperationCredentialV1({
-    kind: 'opaque_wallet_session_operation_credential_v1',
-    token: `wst_${'R'.repeat(43)}`,
-    walletSessionId,
-  });
-  const active: Extract<ActivateInstalledAuthorityResultV1, { readonly kind: 'active' }> = {
-    kind: 'active',
-    authority: activeAuthority,
-    authMethod: activeAuthMethod,
-    walletSession,
-    operationCredential,
-  };
-  const keyMaterial: DeviceLinkingKeyMaterialHandleV1 = {
-    kind: 'device_linking_key_material_handle_v1',
-    handleId: `resume-${label}`,
-  };
-  const sessionState: Extract<LinkSessionStateV1, { readonly state: 'provisioning' }> = {
-    state: 'provisioning',
-    deviceId,
-  };
-  return {
-    committed,
-    targetFactor,
-    receipt,
-    signerMaterials: [signerMaterial],
-    active,
-    inputBase: {
-      linkSessionId,
-      targetFactor,
-      keyMaterial,
-      resealedExportRoot: null,
-      expectedLockGeneration: 7,
-      nowMs: () => 500,
-      sessionState,
-    },
-  };
-}
-
 function activationInput(
   fixture: ResumeFixture,
   transport: DeviceLinkingAuthorityActivationTransportPortV1,
   installation: DeviceLinkingAuthorityInstallationPortV1,
+  openWalletSessionCredentialDeliveryV1?: DeviceLinkingKeyMaterialPortV1['openWalletSessionCredentialDeliveryV1'],
 ): DeviceLinkingAuthorityActivationFlowInputV1 {
   return {
     ...fixture.inputBase,
     transport,
     installation,
     committed: fixture.committed,
+    keyMaterialPort: {
+      async createBootstrapKeyMaterialV1() {
+        throw new Error('bootstrap key material is outside this continuation test');
+      },
+      openWalletSessionCredentialDeliveryV1:
+        openWalletSessionCredentialDeliveryV1 ?? (async () => fixture.operationCredential),
+      async discardKeyMaterialV1() {
+        return undefined;
+      },
+      async signDeviceSessionRequestV1() {
+        throw new Error('device-session signing is outside this continuation test');
+      },
+    },
+    deliveryRecipientPublicKey65B64u: fixture.active.sealedDelivery.aad.recipientPublicKey65B64u,
   };
 }
 
@@ -322,7 +69,7 @@ test.describe('linked-device committed delivery continuation', () => {
     page,
   }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
-    const fixture = buildResumeFixture('profile-prerequisites');
+    const fixture = await buildResumeFixture('profile-prerequisites');
     const browserFixture = {
       committed: fixture.committed,
       targetFactor: fixture.targetFactor,
@@ -334,7 +81,7 @@ test.describe('linked-device committed delivery continuation', () => {
     const persisted = await page.evaluate(
       async ({ paths, fixture }) => {
         const { UnifiedIndexedDBManager } = await import(paths.indexedDB);
-        const { installLocalAuthorityV1 } = await import(paths.installation);
+        const { createDeviceLinkingAuthorityInstallationPortV1 } = await import(paths.installation);
         const indexedDB = new UnifiedIndexedDBManager();
         indexedDB.getLocalAuthorityInstallationReceipt = async () => null;
 
@@ -362,7 +109,7 @@ test.describe('linked-device committed delivery continuation', () => {
           return { kind: 'installed', receipt: fixture.receipt };
         };
 
-        const result = await installLocalAuthorityV1({
+        const installation = createDeviceLinkingAuthorityInstallationPortV1({
           indexedDB,
           sealing: {
             async sealCommittedAuthorityPackagesV1() {
@@ -374,6 +121,8 @@ test.describe('linked-device committed delivery continuation', () => {
             },
           },
           nowMs: () => 500,
+        });
+        const result = await installation.installLocalAuthorityV1({
           committed: fixture.committed,
           targetFactor: fixture.targetFactor,
           keyMaterial: fixture.keyMaterial,
@@ -405,7 +154,7 @@ test.describe('linked-device committed delivery continuation', () => {
   });
 
   test('reuses the exact committed package state after an interrupted local install', async () => {
-    const fixture = buildResumeFixture('install-retry');
+    const fixture = await buildResumeFixture('install-retry');
     let installAttempts = 0;
     let activationAttempts = 0;
     let persistedResume: DeviceLinkingCommittedResumeV1 | null = null;
@@ -419,6 +168,14 @@ test.describe('linked-device committed delivery continuation', () => {
       async clearCommittedDeliveryResumeV1() {
         persistedResume = null;
       },
+      async persistPendingActivationAcknowledgementV1() {},
+      async readPendingActivationAcknowledgementV1() {
+        return null;
+      },
+      async clearPendingActivationAcknowledgementV1() {},
+      async readLocalAuthorityInstallationReceiptV1() {
+        return fixture.receipt;
+      },
       async installLocalAuthorityV1(input) {
         expect(input.committed).toBe(fixture.committed);
         expect(input.keyMaterial).toBe(fixture.inputBase.keyMaterial);
@@ -426,6 +183,7 @@ test.describe('linked-device committed delivery continuation', () => {
         if (installAttempts === 1) throw new Error('local install interrupted');
         return fixture.receipt;
       },
+      async publishLocalAuthorityActivationV1() {},
       async finalizeLocalAuthorityActivationV1() {
         throw new Error('finalization should not run while activation is pending');
       },
@@ -481,8 +239,83 @@ test.describe('linked-device committed delivery continuation', () => {
     ).toBeNull();
   });
 
+  test('retries wallet session issuance against the same durable local install', async () => {
+    const fixture = await buildResumeFixture('wallet-session-issuance-retry');
+    let persistedResume: DeviceLinkingCommittedResumeV1 | null = null;
+    let installAttempts = 0;
+    let activationAttempts = 0;
+    let finalizationAttempts = 0;
+    const installation: DeviceLinkingAuthorityInstallationPortV1 = {
+      async persistCommittedDeliveryResumeV1(input) {
+        persistedResume = buildDeviceLinkingCommittedResumeV1(input);
+      },
+      async readCommittedDeliveryResumeV1() {
+        return persistedResume;
+      },
+      async clearCommittedDeliveryResumeV1() {
+        persistedResume = null;
+      },
+      async persistPendingActivationAcknowledgementV1() {},
+      async readPendingActivationAcknowledgementV1() {
+        return null;
+      },
+      async clearPendingActivationAcknowledgementV1() {},
+      async readLocalAuthorityInstallationReceiptV1() {
+        return fixture.receipt;
+      },
+      async installLocalAuthorityV1(input) {
+        expect(input.committed).toBe(fixture.committed);
+        installAttempts += 1;
+        return fixture.receipt;
+      },
+      async publishLocalAuthorityActivationV1() {},
+      async finalizeLocalAuthorityActivationV1(input) {
+        expect(input.active).toBe(fixture.active);
+        finalizationAttempts += 1;
+      },
+    };
+    const transport: DeviceLinkingAuthorityActivationTransportPortV1 = {
+      async receiveCommittedAuthorityPackagesV1() {
+        return fixture.committed;
+      },
+      async activateInstalledAuthorityV1(input) {
+        expect(input.receipt).toBe(fixture.receipt);
+        activationAttempts += 1;
+        return activationAttempts === 1
+          ? {
+              kind: 'pending_local_install',
+              authorityId: fixture.committed.authority.authorityId,
+              reason: { kind: 'wallet_session_issuance_pending' },
+            }
+          : fixture.active;
+      },
+      async acknowledgeLocalAuthorityActivationV1() {
+        throw new Error('acknowledgement is outside authority activation');
+      },
+    };
+    const input = activationInput(fixture, transport, installation);
+
+    await expect(activateLinkedAuthorityV1(input)).resolves.toEqual({
+      kind: 'pending_local_install',
+      authorityId: fixture.committed.authority.authorityId,
+      packageSetDigestB64u: fixture.committed.packageSetDigestB64u,
+    });
+    expect(finalizationAttempts).toBe(0);
+    expect(persistedResume?.authorityId).toBe(fixture.committed.authority.authorityId);
+
+    await expect(activateLinkedAuthorityV1(input)).resolves.toEqual({
+      kind: 'active',
+      session: fixture.active.walletSession,
+      operationCredential: fixture.operationCredential,
+    });
+    expect(installAttempts).toBe(2);
+    expect(activationAttempts).toBe(2);
+    expect(finalizationAttempts).toBe(1);
+    expect(persistedResume?.packageSetDigestB64u).toBe(fixture.committed.packageSetDigestB64u);
+  });
+
   test('replays the retained receipt after an interruption during local finalization', async () => {
-    const fixture = buildResumeFixture('finalize-retry');
+    const fixture = await buildResumeFixture('finalize-retry');
     let installAttempts = 0;
     let activationAttempts = 0;
     let finalizationAttempts = 0;
@@ -498,11 +331,20 @@ test.describe('linked-device committed delivery continuation', () => {
       async clearCommittedDeliveryResumeV1() {
         persistedResume = null;
       },
+      async persistPendingActivationAcknowledgementV1() {},
+      async readPendingActivationAcknowledgementV1() {
+        return null;
+      },
+      async clearPendingActivationAcknowledgementV1() {},
+      async readLocalAuthorityInstallationReceiptV1() {
+        return fixture.receipt;
+      },
       async installLocalAuthorityV1(input) {
         expect(input.committed).toBe(fixture.committed);
         installAttempts += 1;
         return fixture.receipt;
       },
+      async publishLocalAuthorityActivationV1() {},
       async finalizeLocalAuthorityActivationV1(input) {
         expect(input.active).toBe(fixture.active);
         finalizationAttempts += 1;
@@ -534,12 +376,181 @@ test.describe('linked-device committed delivery continuation', () => {
     await expect(activateLinkedAuthorityV1(input)).resolves.toEqual({
       kind: 'active',
       session: fixture.active.walletSession,
-      operationCredential: fixture.active.operationCredential,
+      operationCredential: fixture.operationCredential,
     });
     expect(installAttempts).toBe(2);
     expect(activationAttempts).toBe(2);
     expect(finalizationAttempts).toBe(2);
-    expect(acknowledgementAttempts).toBe(1);
-    expect(persistedResume).toBeNull();
+    // Acknowledgement is persisted and sent by the owning link flow after this
+    // activation helper returns the decrypted credential.
+    expect(acknowledgementAttempts).toBe(0);
+    expect(persistedResume).not.toBeNull();
+  });
+
+  test('persists acknowledgement intent after delivery validation and before credential decrypt', async () => {
+    const fixture = await buildResumeFixture('pre-decrypt-intent');
+    const stages: string[] = [];
+    let acknowledgement: LocalAuthorityActivationFinalAckV1 | null = null;
+    const installation: DeviceLinkingAuthorityInstallationPortV1 = {
+      async persistCommittedDeliveryResumeV1() {},
+      async readCommittedDeliveryResumeV1() {
+        return null;
+      },
+      async clearCommittedDeliveryResumeV1() {},
+      async persistPendingActivationAcknowledgementV1(input) {
+        stages.push('acknowledgement_persisted');
+        acknowledgement = input.acknowledgement;
+      },
+      async readPendingActivationAcknowledgementV1() {
+        return acknowledgement;
+      },
+      async clearPendingActivationAcknowledgementV1() {},
+      async readLocalAuthorityInstallationReceiptV1() {
+        return fixture.receipt;
+      },
+      async installLocalAuthorityV1() {
+        return fixture.receipt;
+      },
+      async publishLocalAuthorityActivationV1() {
+        stages.push('authority_published');
+      },
+      async finalizeLocalAuthorityActivationV1() {
+        throw new Error('finalization must not run without a decrypted credential');
+      },
+    };
+    const transport: DeviceLinkingAuthorityActivationTransportPortV1 = {
+      async receiveCommittedAuthorityPackagesV1() {
+        return fixture.committed;
+      },
+      async activateInstalledAuthorityV1() {
+        return fixture.active;
+      },
+      async acknowledgeLocalAuthorityActivationV1() {
+        throw new Error('acknowledgement transport is outside authority activation');
+      },
+    };
+    const openDelivery: DeviceLinkingKeyMaterialPortV1['openWalletSessionCredentialDeliveryV1'] =
+      async () => {
+        stages.push('credential_decrypt');
+        expect(acknowledgement).not.toBeNull();
+        throw new Error('recipient handle lost before decrypt');
+      };
+
+    await expect(
+      activateLinkedAuthorityV1(activationInput(fixture, transport, installation, openDelivery)),
+    ).rejects.toThrow('recipient handle lost before decrypt');
+    expect(stages).toEqual([
+      'authority_published',
+      'acknowledgement_persisted',
+      'credential_decrypt',
+    ]);
+    expect(acknowledgement).toEqual({
+      kind: 'local_authority_activation_final_ack_v1',
+      linkSessionId: fixture.inputBase.linkSessionId,
+      authorityId: fixture.active.authority.authorityId,
+      packageSetDigestB64u: fixture.committed.packageSetDigestB64u,
+      authorizationId: fixture.active.sealedDelivery.aad.authorizationId,
+      walletSessionId: fixture.active.sealedDelivery.aad.walletSessionId,
+      credentialDigestB64u: fixture.active.sealedDelivery.aad.credentialDigestB64u,
+      installationReceiptDigestB64u: await computeWalletSessionInstallationReceiptDigestB64u(
+        fixture.receipt,
+      ),
+      acknowledgedAtMs: fixture.inputBase.nowMs(),
+    });
+  });
+
+  test('replays a durable acknowledgement after recipient-handle loss and page reload', async () => {
+    const fixture = await buildResumeFixture('bootstrap-replay');
+    const acknowledgement: LocalAuthorityActivationFinalAckV1 = {
+      kind: 'local_authority_activation_final_ack_v1',
+      linkSessionId: fixture.inputBase.linkSessionId,
+      authorityId: fixture.active.authority.authorityId,
+      packageSetDigestB64u: fixture.committed.packageSetDigestB64u,
+      authorizationId: fixture.active.walletSession.authorizationId,
+      walletSessionId: fixture.active.walletSession.walletSessionId,
+      credentialDigestB64u: await computeWalletSessionOperationCredentialDigestB64u(
+        fixture.operationCredential,
+      ),
+      installationReceiptDigestB64u: await computeWalletSessionInstallationReceiptDigestB64u(
+        fixture.receipt,
+      ),
+      acknowledgedAtMs: 500,
+    };
+    let pending = [acknowledgement];
+    let resumes = [
+      buildDeviceLinkingCommittedResumeV1({
+        linkSessionId: fixture.inputBase.linkSessionId,
+        committed: fixture.committed,
+        targetFactor: fixture.targetFactor,
+        committedAtMs: fixture.receipt.installedAtMs,
+      }),
+    ];
+    let transportCalls = 0;
+    const installation: DeviceLinkingDeliveryResumePortV1 = {
+      async listCommittedDeliveryResumesV1() {
+        return resumes;
+      },
+      async listPendingActivationAcknowledgementsV1() {
+        return pending;
+      },
+      async clearCommittedDeliveryResumeV1({ authorityId }) {
+        resumes = resumes.filter((resume) => resume.authorityId !== authorityId);
+      },
+      async clearPendingActivationAcknowledgementV1({ authorityId }) {
+        pending = pending.filter((ack) => ack.authorityId !== authorityId);
+      },
+    };
+    const transport: DeviceLinkingWalletSessionAcknowledgementReplayPortV1 = {
+      async acknowledgeLocalAuthorityActivationWithWalletSessionV1(input) {
+        transportCalls += 1;
+        expect(input.acknowledgement).toEqual(acknowledgement);
+        expect(input.operationCredential).toBe(fixture.operationCredential);
+      },
+    };
+    let exactSessionAvailable = false;
+    const readExactSession: DeviceLinkingAcknowledgementExactSessionReaderV1 = async (input) => {
+      expect(input).toEqual({
+        walletId: fixture.committed.authority.walletId,
+        authorityId: fixture.committed.authority.authorityId,
+        authMethodId: fixture.committed.authMethod.walletAuthMethodId,
+      });
+      return exactSessionAvailable
+        ? { kind: 'found', operationCredential: fixture.operationCredential }
+        : { kind: 'missing' };
+    };
+
+    await expect(
+      resumePendingDeviceLinkingAcknowledgementsV1({
+        installation,
+        transport,
+        readExactSession,
+      }),
+    ).resolves.toBeUndefined();
+    expect(transportCalls).toBe(0);
+    expect(pending).toEqual([acknowledgement]);
+    expect(resumes).toHaveLength(1);
+
+    exactSessionAvailable = true;
+    await expect(
+      resumePendingDeviceLinkingAcknowledgementsV1({
+        installation,
+        transport,
+        readExactSession,
+      }),
+    ).resolves.toBeUndefined();
+    expect(transportCalls).toBe(1);
+    expect(pending).toEqual([]);
+    expect(resumes).toEqual([]);
+    await expect(
+      replayPendingDeviceLinkingAcknowledgementsV1({
+        installation,
+        transport,
+        walletId: fixture.committed.authority.walletId,
+        authorityId: fixture.committed.authority.authorityId,
+        authMethodId: fixture.committed.authMethod.walletAuthMethodId,
+        operationCredential: fixture.operationCredential,
+      }),
+    ).resolves.toEqual({ kind: 'none' });
+    expect(transportCalls).toBe(1);
   });
 });

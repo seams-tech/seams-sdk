@@ -76,7 +76,7 @@ declare const finalizedPublicCapability: FinalizeRouterAbEcdsaRegistrationActiva
 declare const roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
 declare const ecdsaSessionPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
 
-if (emailOtpEd25519YaoSession.sessionKind === 'issued_wallet_session_v1') {
+if (emailOtpEd25519YaoSession.sessionKind === 'issued_exact_wallet_session') {
   emailOtpEd25519YaoSession.operationCredential.token satisfies string;
 } else {
   // @ts-expect-error Reused worker sessions cannot carry an operation credential.
@@ -274,7 +274,6 @@ const emailOtpEcdsaExplicitUnlockMaterial: EmailOtpEcdsaWalletUnlockMaterial = {
   },
   runtimePolicyScope,
   ecdsaSessionPolicy,
-  walletSessionAuthorization: { kind: 'verified_wallet_unlock' },
 };
 void emailOtpEcdsaExplicitUnlockMaterial;
 

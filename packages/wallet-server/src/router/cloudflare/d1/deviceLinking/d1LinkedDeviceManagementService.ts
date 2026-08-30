@@ -26,7 +26,7 @@ export function createD1LinkedDeviceManagementServiceV1(input: {
   readonly walletSessionAuthorizations: Pick<
     CloudflareD1AuthorizationStore,
     | 'readActiveWalletSessionAuthorizationV2ByIdentity'
-    | 'prepareRevokeReusableWalletSessionsForAuthority'
+    | 'prepareRetireWalletSessionAuthorizationsV2ForAuthority'
   >;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   /** Absent when Email OTP is not deployed; an email_otp method then fails closed. */
@@ -86,7 +86,7 @@ function authorityPortV1(input: {
   readonly tenantId: TenantId;
   readonly walletSessionAuthorizations: Pick<
     CloudflareD1AuthorizationStore,
-    'prepareRevokeReusableWalletSessionsForAuthority'
+    'prepareRetireWalletSessionAuthorizationsV2ForAuthority'
   >;
 }): ConstructorParameters<typeof LinkedDeviceManagementServiceV1>[0]['authority'] {
   return {
@@ -123,7 +123,7 @@ function authorityPortV1(input: {
       await input.store.revokeWalletAuthMethod({
         ...request,
         sessionRevocationStatements:
-          input.walletSessionAuthorizations.prepareRevokeReusableWalletSessionsForAuthority({
+          input.walletSessionAuthorizations.prepareRetireWalletSessionAuthorizationsV2ForAuthority({
             tenantId: input.tenantId,
             walletId: request.walletId,
             authorityId: request.authorityId,

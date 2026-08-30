@@ -28,6 +28,7 @@ import type {
   WalletSignerLookup,
 } from './passkeyClientDB.types';
 import type { PendingWalletRegistrationCommitV1 } from './pendingWalletRegistrationCommit';
+import type { PendingWalletRecoveryCommitV1 } from './pendingWalletRecoveryCommit';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ActivateAccountSignerInput as AccountSignerLifecycleInput,
@@ -46,12 +47,15 @@ import {
   type StoreWalletRegistrationFinalizeBatchInput,
   type StoreWalletRegistrationFinalizeBatchResult,
   type PublishPendingWalletRegistrationCommitInputV1,
+  type PublishPendingWalletRecoveryCommitInputV1,
   type AtomicKeyMaterialRecoveryFinalizationInput,
   type LocalAuthorityInstallationInputV1,
   type PersistFoundingWalletAuthorityInputV1,
   type LocalAuthorityInstallationResultV1,
   type LocalAuthorityActivationFinalizationInputV1,
   type LocalAuthorityActivationFinalizationResultV1,
+  type LocalAuthorityActivationPublicationInputV1,
+  type LocalAuthorityActivationPublicationResultV1,
   type WalletLockGenerationAdvanceInputV1,
   type RecoveredWalletAuthorityProjectionInputV1,
   type ResolveSelectedWalletAuthorityResultV1,
@@ -164,6 +168,10 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.getAppState<T>(key);
   }
 
+  async listAppStateEntriesByPrefix(prefix: string): Promise<ReadonlyArray<{ key: string; value: unknown }>> {
+    return this.seamsWalletRepositories.listAppStateEntriesByPrefix(prefix);
+  }
+
   async setAppState<T = unknown>(key: string, value: T): Promise<void> {
     return this.seamsWalletRepositories.setAppState(key, value);
   }
@@ -190,6 +198,26 @@ export class UnifiedIndexedDBManager {
     operation: PendingWalletRegistrationCommitV1['operation'];
   }): Promise<void> {
     return this.seamsWalletRepositories.deletePendingWalletRegistrationCommit(input);
+  }
+
+  async putPendingWalletRecoveryCommit(record: PendingWalletRecoveryCommitV1): Promise<void> {
+    return this.seamsWalletRepositories.putPendingWalletRecoveryCommit(record);
+  }
+
+  async getPendingWalletRecoveryCommit(
+    recoveryOperationId: PendingWalletRecoveryCommitV1['recoveryOperationId'],
+  ): Promise<PendingWalletRecoveryCommitV1 | null> {
+    return this.seamsWalletRepositories.getPendingWalletRecoveryCommit(recoveryOperationId);
+  }
+
+  async listPendingWalletRecoveryCommits(): Promise<PendingWalletRecoveryCommitV1[]> {
+    return this.seamsWalletRepositories.listPendingWalletRecoveryCommits();
+  }
+
+  async deletePendingWalletRecoveryCommit(
+    recoveryOperationId: PendingWalletRecoveryCommitV1['recoveryOperationId'],
+  ): Promise<void> {
+    return this.seamsWalletRepositories.deletePendingWalletRecoveryCommit(recoveryOperationId);
   }
 
   async compareAndSwapAppState(input: {
@@ -466,6 +494,12 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.finalizeLocalAuthorityActivation(input);
   }
 
+  async publishLocalAuthorityActivation(
+    input: LocalAuthorityActivationPublicationInputV1,
+  ): Promise<LocalAuthorityActivationPublicationResultV1> {
+    return this.seamsWalletRepositories.publishLocalAuthorityActivation(input);
+  }
+
   async advanceWalletLockGeneration(input: WalletLockGenerationAdvanceInputV1): Promise<number> {
     return this.seamsWalletRepositories.advanceWalletLockGeneration(input);
   }
@@ -535,6 +569,12 @@ export class UnifiedIndexedDBManager {
     input: PublishPendingWalletRegistrationCommitInputV1,
   ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
     return this.seamsWalletRepositories.publishPendingWalletRegistrationCommit(input);
+  }
+
+  async publishPendingWalletRecoveryCommit(
+    input: PublishPendingWalletRecoveryCommitInputV1,
+  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+    return this.seamsWalletRepositories.publishPendingWalletRecoveryCommit(input);
   }
 
   async persistWalletSignerFinalize(

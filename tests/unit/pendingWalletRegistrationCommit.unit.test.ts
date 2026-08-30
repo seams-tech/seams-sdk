@@ -6,6 +6,14 @@ import {
   toPendingWalletRegistrationCommitAppStateRow,
   toPendingWalletRegistrationCommitStorageRow,
 } from '../../packages/wallet/src/core/indexedDB/pendingWalletRegistrationCommit';
+import { fixtureRouterAbEcdsaActivationFacts } from '../helpers/routerAbSigningRuntimeTestUtils';
+import { base64UrlEncode } from '@shared/utils/base64';
+
+const ecdsaReplay = {
+  activationJournalId: 'ecdsa-activation-journal-pending',
+  clientActivation: fixtureRouterAbEcdsaActivationFacts(),
+  activationRequestDigestB64u: base64UrlEncode(new Uint8Array(32).fill(41)),
+};
 
 const custodyCommit = {
   walletId: 'wallet_pending_registration',
@@ -25,6 +33,25 @@ const ed25519LocalMaterial = {
   applicationBindingDigestB64u: 'ed25519-binding',
 };
 
+const ed25519Metadata = {
+  materialActivation: {
+    kind: 'mpc_material_activation_ref',
+    activationId: 'activation-pending',
+    capability: 'capability-pending',
+    materialOwner: 'material-owner-pending',
+    keyBinding: 'key-binding-pending',
+    lifecycleBinding: 'lifecycle-binding-pending',
+    signingWorker: 'signing-worker-pending',
+  },
+  registeredPublicKeyB64u: 'registered-ed25519-public-key',
+  signingWorkerVerifyingShareB64u: 'signing-worker-verifying-share',
+  stateEpoch: '1',
+  signingWorkerId: 'signing-worker-pending',
+  participantIds: [1, 2],
+  nearEd25519SigningKeyId: 'ed25519-key-pending',
+  signerSlot: 1,
+};
+
 function pendingRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     kind: 'pending_wallet_registration_commit_v1',
@@ -38,6 +65,7 @@ function pendingRecord(overrides: Record<string, unknown> = {}): Record<string, 
       kind: 'passkey',
       rpId: 'example.com',
       credentialIdB64u: 'credential-pending',
+      transports: ['internal'],
     },
     localMaterial: {
       keyFamilies: ['ed25519'],
@@ -45,6 +73,7 @@ function pendingRecord(overrides: Record<string, unknown> = {}): Record<string, 
       ed25519: {
         activationReference,
         localMaterial: ed25519LocalMaterial,
+        metadata: ed25519Metadata,
       },
     },
     createdAtMs: 100,
@@ -114,11 +143,44 @@ test('pending registration parser accepts activation and deferred NEAR records',
         ed25519: {
           activationReference,
           localMaterial: ed25519LocalMaterial,
+          metadata: ed25519Metadata,
         },
       },
     }),
   );
   expect(establishedCustody).not.toBeNull();
+});
+
+test('pending registration parser requires complete Ed25519 publication metadata', () => {
+  expect(
+    parsePendingWalletRegistrationCommitV1(
+      pendingRecord({
+        localMaterial: {
+          keyFamilies: ['ed25519'],
+          custodyCommit,
+          ed25519: {
+            activationReference,
+            localMaterial: ed25519LocalMaterial,
+          },
+        },
+      }),
+    ),
+  ).toBeNull();
+  expect(
+    parsePendingWalletRegistrationCommitV1(
+      pendingRecord({
+        localMaterial: {
+          keyFamilies: ['ed25519'],
+          custodyCommit,
+          ed25519: {
+            activationReference,
+            localMaterial: ed25519LocalMaterial,
+            metadata: { ...ed25519Metadata, participantIds: [1] },
+          },
+        },
+      }),
+    ),
+  ).toBeNull();
 });
 
 test('pending registration parser keeps ECDSA and mixed local-material branches distinct', () => {
@@ -127,9 +189,7 @@ test('pending registration parser keeps ECDSA and mixed local-material branches 
       localMaterial: {
         keyFamilies: ['ecdsa_secp256k1'],
         custodyCommit: { ...custodyCommit, keySet: 'evm_family_ecdsa_v1' },
-        ecdsa: {
-          activationJournalId: 'ecdsa-activation-journal-pending',
-        },
+        ecdsa: ecdsaReplay,
       },
     }),
   );
@@ -143,14 +203,25 @@ test('pending registration parser keeps ECDSA and mixed local-material branches 
         ed25519: {
           activationReference,
           localMaterial: ed25519LocalMaterial,
+          metadata: ed25519Metadata,
         },
-        ecdsa: {
-          activationJournalId: 'ecdsa-activation-journal-pending',
-        },
+        ecdsa: ecdsaReplay,
       },
     }),
   );
   expect(mixed?.localMaterial.keyFamilies).toEqual(['ed25519', 'ecdsa_secp256k1']);
+
+  expect(
+    parsePendingWalletRegistrationCommitV1(
+      pendingRecord({
+        localMaterial: {
+          keyFamilies: ['ecdsa_secp256k1'],
+          custodyCommit: { ...custodyCommit, keySet: 'evm_family_ecdsa_v1' },
+          ecdsa: { activationJournalId: ecdsaReplay.activationJournalId },
+        },
+      }),
+    ),
+  ).toBeNull();
 });
 
 test('pending registration storage rows round-trip without exposing credentials', () => {
@@ -168,6 +239,7 @@ test('pending registration storage rows round-trip without exposing credentials'
     record: parsed,
   });
   expect(JSON.stringify(row)).not.toMatch(/walletSessionToken|operationCredential|response/);
+  expect(parsed.auth.kind === 'passkey' ? parsed.auth.transports : null).toEqual(['internal']);
   expect(parsePendingWalletRegistrationCommitStorageRow(row)).toEqual(row);
 
   const appStateRow = toPendingWalletRegistrationCommitAppStateRow(parsed);
@@ -191,6 +263,7 @@ test('pending registration parser rejects credentials, responses, malformed time
         ed25519: {
           activationReference,
           localMaterial: ed25519LocalMaterial,
+          metadata: ed25519Metadata,
         },
       },
     },
@@ -199,7 +272,7 @@ test('pending registration parser rejects credentials, responses, malformed time
         keyFamilies: ['ecdsa_secp256k1'],
         custodyCommit,
         ecdsa: {
-          activationJournalId: 'ecdsa-activation-journal-pending',
+          ...ecdsaReplay,
           publicFacts: {},
           readyStateBlobB64u: 'unencrypted-ready-state',
         },
@@ -214,12 +287,25 @@ test('pending registration parser rejects credentials, responses, malformed time
   expect(
     parsePendingWalletRegistrationCommitV1(
       pendingRecord({
+        auth: {
+          kind: 'passkey',
+          rpId: 'example.com',
+          credentialIdB64u: 'credential-pending',
+          transports: ['internal', 'internal'],
+        },
+      }),
+    ),
+  ).toBeNull();
+  expect(
+    parsePendingWalletRegistrationCommitV1(
+      pendingRecord({
         localMaterial: {
           keyFamilies: ['ed25519'],
           custodyCommit: { ...custodyCommit, walletId: 'other-wallet' },
           ed25519: {
             activationReference,
             localMaterial: ed25519LocalMaterial,
+            metadata: ed25519Metadata,
           },
         },
       }),
@@ -232,7 +318,7 @@ test('pending registration parser rejects credentials, responses, malformed time
           keyFamilies: ['ecdsa_secp256k1'],
           custodyCommit,
           ecdsa: {
-            activationJournalId: 'ecdsa-activation-journal-pending',
+            ...ecdsaReplay,
           },
         },
       }),

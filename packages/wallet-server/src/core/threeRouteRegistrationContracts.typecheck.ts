@@ -19,7 +19,6 @@ import type {
   WalletRegistrationRespondRequestV2,
   WalletRegistrationSessionCommitReceiptV2,
 } from './threeRouteRegistrationContracts';
-import { WALLET_SESSION_CLIENT_CAPABILITY_V1 } from '@shared/authorization/capabilityKinds';
 
 declare const signedSetup: WalletRegistrationRespondRequestV2['signedSetup'];
 declare const webauthnRegistration: Extract<
@@ -44,7 +43,6 @@ const ACTIVATE_BASE = {
   registrationCeremonyId: 'wrc_1',
   signedSetup,
   idempotencyKey,
-  walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
 } as const;
 
 /* --- valid shapes compile --- */

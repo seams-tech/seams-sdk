@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import {
-  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyExactEd25519AuthorizationFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
 
@@ -34,7 +34,7 @@ test.describe('owner-scoped available signing lanes', () => {
       credentialIdB64u: 'credential-owner-b',
       signerSlot: 2,
     });
-    const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(ownerA);
+    const authorization = buildPasskeyExactEd25519AuthorizationFixture(ownerA);
     const result = await page.evaluate(
       async ({ modulePath, ownerA, ownerB, authorization }) => {
         const { readAvailableSigningLanes } = await import(modulePath);
@@ -56,7 +56,10 @@ test.describe('owner-scoped available signing lanes', () => {
             },
             {
               listSealedRecordsForWallet: async () => records,
-              readActiveWalletSessionAuthorization: async () => authorization,
+              readActiveWalletSessionAuthorization: async () => ({
+                kind: 'found',
+                authorization,
+              }),
             },
           );
         const withSibling = await read([ownerA, ownerB]);
@@ -104,7 +107,7 @@ test.describe('owner-scoped available signing lanes', () => {
       signerSlot: 1,
       expiresAtMs: 1_000,
     });
-    const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(current);
+    const authorization = buildPasskeyExactEd25519AuthorizationFixture(current);
     const result = await page.evaluate(
       async ({ modulePath, current, retired, authorization }) => {
         const { readAvailableSigningLanes } = await import(modulePath);
@@ -126,7 +129,10 @@ test.describe('owner-scoped available signing lanes', () => {
             },
             {
               listSealedRecordsForWallet: async () => records,
-              readActiveWalletSessionAuthorization: async () => authorization,
+              readActiveWalletSessionAuthorization: async () => ({
+                kind: 'found',
+                authorization,
+              }),
             },
           );
         const withRetired = await read([retired, current]);
@@ -171,7 +177,7 @@ test.describe('owner-scoped available signing lanes', () => {
       credentialIdB64u: 'credential-owner-b',
       signerSlot: 2,
     });
-    const authorizationB = buildPasskeyEd25519AuthorizationProjectionFixture(ownerB);
+    const authorizationB = buildPasskeyExactEd25519AuthorizationFixture(ownerB);
     const result = await page.evaluate(
       async ({ modulePath, ownerA, ownerB, authorizationB }) => {
         const { readAvailableSigningLanes } = await import(modulePath);
@@ -191,7 +197,10 @@ test.describe('owner-scoped available signing lanes', () => {
           },
           {
             listSealedRecordsForWallet: async () => [ownerA, ownerB],
-            readActiveWalletSessionAuthorization: async () => authorizationB,
+            readActiveWalletSessionAuthorization: async () => ({
+              kind: 'found',
+              authorization: authorizationB,
+            }),
           },
         );
         return {

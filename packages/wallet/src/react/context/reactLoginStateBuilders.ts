@@ -36,9 +36,7 @@ export function linkedDeviceManagementPermissionForLoginState(
   return { kind: 'owner' };
 }
 
-export function accountMenuCapabilitiesForLoginState(
-  state: LoginState,
-): AccountMenuCapabilities {
+export function accountMenuCapabilitiesForLoginState(state: LoginState): AccountMenuCapabilities {
   const management = linkedDeviceManagementPermissionForLoginState(state);
   switch (management.kind) {
     case 'unauthenticated':
@@ -73,11 +71,7 @@ export function buildReactLoggedInLoginStateFromSession(session: WalletSession):
   if (session.appIdentity.kind !== 'resolved') return null;
   const appIdentity = session.appIdentity;
   const authentication = session.authentication;
-  if (
-    authentication.kind === 'authenticated' &&
-    session.reusableWalletSession.kind === 'active' &&
-    session.appIdentity.authMethods.length === 0
-  ) {
+  if (authentication.kind === 'authenticated' && session.appIdentity.authMethods.length === 0) {
     return {
       isLoggedIn: true,
       walletId: String(appIdentity.walletId),

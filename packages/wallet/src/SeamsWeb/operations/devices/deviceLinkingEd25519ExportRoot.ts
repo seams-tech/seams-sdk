@@ -236,9 +236,10 @@ export function createDeviceLinkingEd25519ExportRootPortV1(
         replacementEnvelope.binding.registeredPublicKeyB64u !==
           registration.registeredPublicKeyB64u ||
         replacementEnvelope.binding.revocationEpoch !== registration.revocationEpoch ||
-        (registration.targetFactor.kind === 'passkey_prf'
-          ? replacementEnvelope.factor.kind !== 'passkey'
-          : replacementEnvelope.factor.kind !== 'email_otp')
+        !replacementEnvelopeFactorMatchesTargetFactor(
+          registration.targetFactor,
+          replacementEnvelope.factor,
+        )
       ) {
         throw new Error('Ed25519 export-root replacement envelope identity is invalid');
       }
@@ -341,6 +342,23 @@ function rootPackageMatchesRecipient(
     transferPackage.revocationEpoch === recipient.revocationEpoch &&
     transferPackage.recipientPublicKeyB64u === recipient.recipientPublicKeyB64u
   );
+}
+
+function replacementEnvelopeFactorMatchesTargetFactor(
+  targetFactor: LinkedDeviceTargetFactorV1,
+  replacementFactor: PasskeyCustodyEnvelopeRecord['factor'],
+): boolean {
+  switch (targetFactor.kind) {
+    case 'passkey_prf':
+      return replacementFactor.kind === 'passkey';
+    case 'email_otp':
+      return replacementFactor.kind === 'email_otp';
+  }
+  return assertNeverLinkedDeviceTargetFactor(targetFactor);
+}
+
+function assertNeverLinkedDeviceTargetFactor(value: never): never {
+  throw new Error(`Unsupported linked-device target factor kind: ${String(value)}`);
 }
 
 function requireRecord<T extends Record<string, unknown> = Record<string, unknown>>(

@@ -2,11 +2,11 @@ import { expect, test } from '@playwright/test';
 import {
   buildActiveWalletAuthorityV1,
   buildPendingWalletAuthorityV1,
-  buildRevokedWalletAuthorityV1,
   buildWalletSignerActivationSetV1,
   computeWalletAuthorityDigestB64u,
   computeWalletSignerActivationSetDigestB64u,
   type ActiveWalletAuthorityV1,
+  type PendingWalletAuthorityV1,
 } from '@shared/authorization/walletAuthority';
 import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 import {
@@ -18,18 +18,18 @@ import {
   parseCapabilityId,
   parseCapabilityOperationId,
   parseDeviceId,
-  WALLET_SESSION_CLIENT_CAPABILITY_V1,
 } from '@shared/authorization/capabilityKinds';
 import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 import {
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseTenantId,
 } from '@shared/authorization/capabilityKinds';
 import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
   parseWalletId,
+  parseWalletRecoveryOperationId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
   type WalletAuthMethodId,
@@ -54,9 +54,9 @@ import {
   parseHostedWalletSeamsSessionExchangeCode,
   parseHostedWalletSeamsSessionExchangeNonce,
   parseSessionOrigin,
-  WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
 } from '../../packages/wallet-server/src/authorization/domain';
 import { D1WalletAuthorityStore } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
+import { prepareD1WalletAuthMethodV2PutStatement } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
 import {
@@ -70,11 +70,24 @@ import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef
 /** Wallet Sessions record which auth method issued them for precise revocation. */
 const signerMigrations = listD1MigrationFiles('d1-signer');
 
+type AuthorizationScope = {
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+};
+
+const DEFAULT_AUTHORIZATION_SCOPE: AuthorizationScope = {
+  orgId: 'test-org',
+  projectId: 'test-project',
+  envId: 'test-env',
+};
+
 function createService(
   database: Parameters<typeof applyD1MigrationFiles>[0],
   namespace: string,
+  scope: AuthorizationScope = DEFAULT_AUTHORIZATION_SCOPE,
 ): AuthorizationService {
-  const store = createAuthorizationStore(database, namespace);
+  const store = createAuthorizationStore(database, namespace, scope);
   return new AuthorizationService({
     policy: capabilityPolicyPort,
     sessions: store,
@@ -88,21 +101,20 @@ function createService(
 function createAuthorizationStore(
   database: Parameters<typeof applyD1MigrationFiles>[0],
   namespace: string,
+  scope: AuthorizationScope = DEFAULT_AUTHORIZATION_SCOPE,
 ): CloudflareD1AuthorizationStore {
   return new CloudflareD1AuthorizationStore({
     database,
     namespace,
     walletSignerScope: {
       namespace,
-      orgId: 'test-org',
-      projectId: 'test-project',
-      envId: 'test-env',
+      ...scope,
     },
   });
 }
 
 function requiredMintId(value: string) {
-  const parsed = parseReusableWalletSessionMintId(value);
+  const parsed = parseWalletSessionMintId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
 }
@@ -144,8 +156,13 @@ async function digestOpaqueCredentialForTest(value: string): Promise<DigestB64u>
 
 type ActiveAuthorityFixture = {
   readonly authority: ActiveWalletAuthorityV1;
-  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+  readonly authMethod: ActivePasskeyAuthMethod;
 };
+
+type ActivePasskeyAuthMethod = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'passkey'; readonly status: 'active' }
+>;
 
 function requiredParsed<T>(
   result:
@@ -154,6 +171,32 @@ function requiredParsed<T>(
 ): T {
   if (result.ok) return result.value;
   throw new Error(result.error.message);
+}
+
+function buildSiblingActivePasskeyAuthMethod(
+  source: ActivePasskeyAuthMethod,
+  credentialByte: number,
+): ActivePasskeyAuthMethod {
+  const credentialIdB64u = requiredParsed(
+    parseWebAuthnCredentialIdB64u(base64UrlEncode(new Uint8Array(32).fill(credentialByte))),
+  );
+  return buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: requiredWalletAuthMethodId(
+      `passkey:${source.rpId}:${credentialIdB64u}`,
+    ),
+    walletId: source.walletId,
+    walletAuthorityId: source.walletAuthorityId,
+    kind: 'passkey',
+    status: 'active',
+    rpId: source.rpId,
+    credentialIdB64u,
+    credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(credentialByte + 1)),
+    counter: 0,
+    createdAtMs: source.createdAtMs,
+    updatedAtMs: source.updatedAtMs,
+    activatedAtMs: source.activatedAtMs,
+  });
 }
 
 async function buildActiveAuthorityFixture(
@@ -354,6 +397,90 @@ function authorityWithProvenance(
   });
 }
 
+async function recoveredAuthority(
+  authority: ActiveWalletAuthorityV1,
+): Promise<ActiveWalletAuthorityV1> {
+  const recoveryProvenance = {
+    kind: 'wallet_recovery' as const,
+    recoveryOperationId: requiredParsed(
+      parseWalletRecoveryOperationId('wallet-recovery:v2-direct-issuance'),
+    ),
+    continuityAuthorityId: requiredParsed(
+      parseWalletAuthorityId('authority:v2-recovery-continuity'),
+    ),
+  };
+  const draft = buildActiveWalletAuthorityV1({
+    kind: authority.kind,
+    authorityId: authority.authorityId,
+    walletId: authority.walletId,
+    principal: authority.principal,
+    provenance: recoveryProvenance,
+    permissions: authority.permissions,
+    signerActivations: authority.signerActivations,
+    signerActivationSetDigestB64u: authority.signerActivationSetDigestB64u,
+    authorityDigestB64u: authority.authorityDigestB64u,
+    revocationEpoch: authority.revocationEpoch,
+    createdAtMs: authority.createdAtMs,
+    updatedAtMs: authority.updatedAtMs,
+    state: authority.state,
+    activatedAtMs: authority.activatedAtMs,
+  });
+  return buildActiveWalletAuthorityV1({
+    kind: draft.kind,
+    authorityId: draft.authorityId,
+    walletId: draft.walletId,
+    principal: draft.principal,
+    provenance: draft.provenance,
+    permissions: draft.permissions,
+    signerActivations: draft.signerActivations,
+    signerActivationSetDigestB64u: draft.signerActivationSetDigestB64u,
+    authorityDigestB64u: parseDigestB64u(await computeWalletAuthorityDigestB64u(draft)),
+    revocationEpoch: draft.revocationEpoch,
+    createdAtMs: draft.createdAtMs,
+    updatedAtMs: draft.updatedAtMs,
+    state: draft.state,
+    activatedAtMs: draft.activatedAtMs,
+  });
+}
+
+async function pendingRecoveredAuthority(
+  authority: ActiveWalletAuthorityV1,
+  localInstallPackageSetDigestB64u: DigestB64u,
+): Promise<PendingWalletAuthorityV1> {
+  const draft = buildPendingWalletAuthorityV1({
+    kind: authority.kind,
+    authorityId: authority.authorityId,
+    walletId: authority.walletId,
+    principal: authority.principal,
+    provenance: authority.provenance,
+    permissions: authority.permissions,
+    signerActivations: authority.signerActivations,
+    signerActivationSetDigestB64u: authority.signerActivationSetDigestB64u,
+    authorityDigestB64u: authority.authorityDigestB64u,
+    revocationEpoch: authority.revocationEpoch,
+    createdAtMs: authority.createdAtMs,
+    updatedAtMs: authority.createdAtMs,
+    state: 'pending_local_install',
+    localInstallPackageSetDigestB64u,
+  });
+  return buildPendingWalletAuthorityV1({
+    kind: draft.kind,
+    authorityId: draft.authorityId,
+    walletId: draft.walletId,
+    principal: draft.principal,
+    provenance: draft.provenance,
+    permissions: draft.permissions,
+    signerActivations: draft.signerActivations,
+    signerActivationSetDigestB64u: draft.signerActivationSetDigestB64u,
+    authorityDigestB64u: parseDigestB64u(await computeWalletAuthorityDigestB64u(draft)),
+    revocationEpoch: draft.revocationEpoch,
+    createdAtMs: draft.createdAtMs,
+    updatedAtMs: draft.updatedAtMs,
+    state: draft.state,
+    localInstallPackageSetDigestB64u: draft.localInstallPackageSetDigestB64u,
+  });
+}
+
 test('keeps exact V2 session identity readable for device inventory after quota exhaustion', async () => {
   const temporary = createTemporaryD1Database();
   try {
@@ -361,7 +488,7 @@ test('keeps exact V2 session identity readable for device inventory after quota 
     const namespace = 'device-inventory-exhausted-session';
     const fixture = await seedActiveAuthority(temporary.database, namespace, 'device-inventory');
     const service = createService(temporary.database, namespace);
-    const issued = await service.issueWalletSessionAuthorizationV2({
+    const issued = await service.issueDirectWalletSessionAuthorizationV2({
       tenantId: requiredParsed(parseTenantId('tenant:device-inventory')),
       principalId: requiredParsed(parsePrincipalId('principal:device-inventory')),
       walletId: fixture.authority.walletId,
@@ -372,6 +499,8 @@ test('keeps exact V2 session identity readable for device inventory after quota 
       issuedAtMs: 300,
       expiresAtMs: 400,
     });
+    expect(issued.kind).toBe('issued');
+    if (issued.kind !== 'issued') throw new Error('device inventory session did not issue');
     await temporary.database
       .prepare(
         `UPDATE authorization_wallet_session_quotas
@@ -425,18 +554,25 @@ test('issues V2 Wallet Sessions only for exact active authority provenance', asy
       issuedAtMs: 300,
       expiresAtMs: 400,
     };
-    const issued = await service.issueWalletSessionAuthorizationV2(input);
+    const issued = await service.issueDirectWalletSessionAuthorizationV2(input);
+    expect(issued.kind).toBe('issued');
+    if (issued.kind !== 'issued') throw new Error('exact provenance session did not issue');
     expect(issued.session.authorityId).toBe(fixture.authority.authorityId);
     expect(issued.session.walletAuthMethodId).toBe(fixture.authMethod.walletAuthMethodId);
     expect(issued.session.capabilitySubjects.length).toBeGreaterThan(0);
 
-    await expect(service.issueWalletSessionAuthorizationV2(input)).resolves.toEqual(issued);
+    await expect(service.issueDirectWalletSessionAuthorizationV2(input)).resolves.toMatchObject({
+      kind: 'already_committed',
+      authorizationId: issued.session.authorizationId,
+      walletSessionId: issued.session.walletSessionId,
+      quotaId: issued.session.quotaId,
+    });
     await expect(
       service.readWalletSessionAuthorizationV2ByAuthorizationId({
         expected: issued.session,
         nowMs: 301,
       }),
-    ).resolves.toEqual(issued);
+    ).resolves.toEqual({ session: issued.session, quota: issued.quota });
 
     const otherMethodId = requiredWalletAuthMethodId(
       'passkey:example.test:other-v2-session-method',
@@ -458,7 +594,7 @@ test('issues V2 Wallet Sessions only for exact active authority provenance', asy
       },
     ];
     for (const driftInput of driftInputs) {
-      await expect(service.issueWalletSessionAuthorizationV2(driftInput)).rejects.toThrow(
+      await expect(service.issueDirectWalletSessionAuthorizationV2(driftInput)).rejects.toThrow(
         /V2 Wallet Session|provenance|replay/,
       );
     }
@@ -467,7 +603,7 @@ test('issues V2 Wallet Sessions only for exact active authority provenance', asy
   }
 });
 
-test('hosted V2 exchange issues one origin-bound child and retires it with its parent', async () => {
+test('hosted V2 child shares quota, expires, and retires with its parent', async () => {
   const temporary = createTemporaryD1Database();
   try {
     await applyD1MigrationFiles(temporary.database, signerMigrations);
@@ -483,11 +619,9 @@ test('hosted V2 exchange issues one origin-bound child and retires it with its p
       authority: fixture.authority,
       walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
       mintId: requiredMintId('unlock:hosted-exchange:first'),
-      remainingUses: 3,
+      remainingUses: 1,
       issuedAtMs: 300,
       expiresAtMs: 700,
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
     } as const;
     const first = await service.issueDirectWalletSessionAuthorizationV2(firstInput);
     expect(first.kind).toBe('issued');
@@ -564,10 +698,33 @@ test('hosted V2 exchange issues one origin-bound child and retires it with its p
       }),
     ).resolves.toMatchObject({
       kind: 'resolved_hosted_wallet_session_operation_credential_v2',
-      authorization: { session: first.session },
+      authorization: { session: first.session, quota: first.quota },
       appOrigin,
       walletOrigin,
     });
+    await expect(
+      service.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId,
+        token: first.operationCredential.token,
+        nowMs: 353,
+      }),
+    ).resolves.toEqual({ session: first.session, quota: first.quota });
+    await expect(
+      service.readHostedWalletSessionOperationCredentialV2({
+        tenantId,
+        token: first.operationCredential.token,
+        requestOrigin: walletOrigin,
+        nowMs: 353,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      service.readHostedWalletSessionOperationCredentialV2({
+        tenantId,
+        token: redeemed.operationCredential.token,
+        requestOrigin: walletOrigin,
+        nowMs: first.session.expiresAtMs,
+      }),
+    ).resolves.toBeNull();
     await expect(
       temporary.database
         .prepare(
@@ -597,6 +754,61 @@ test('hosted V2 exchange issues one origin-bound child and retires it with its p
       walletOrigin,
       issuedAtMs: 360,
       expiresAtMs: 600,
+    });
+    const operation = buildCapabilityOperationEnvelope({
+      tenantId: first.session.tenantId,
+      principalId: first.session.principalId,
+      capabilityId: requiredParsed(
+        parseCapabilityId(String(fixture.authority.signerActivations.ed25519.capability)),
+      ),
+      operationId: requiredParsed(parseCapabilityOperationId('operation:hosted-quota')),
+      operation: buildNearEd25519MpcOperationRef(NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction),
+      digests: {
+        laneDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(84))),
+        intentDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(85))),
+        displayDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(86))),
+      },
+    });
+    const claimInput = await buildAuthorizedOperation({
+      tenantId: first.session.tenantId,
+      authorizedOperationId: requiredParsed(
+        parseAuthorizedOperationId('authorized-operation:hosted-quota'),
+      ),
+      auditEventId: requiredParsed(parseAuthorizationAuditEventId('audit:hosted-quota')),
+      operation,
+      authorization: {
+        kind: 'authorization_grant',
+        authorizationGrantRef: buildAuthorizationGrantRef(first.session.authorizationId),
+      },
+      quota: {
+        kind: 'consume_reusable_wallet_session',
+        quotaId: first.session.quotaId,
+      },
+      claimedAtMs: 361,
+    });
+    await expect(
+      service.admitAuthorizedOperation({ operation: claimInput }),
+    ).resolves.toMatchObject({
+      kind: 'claimed',
+    });
+    await expect(
+      service.readHostedWalletSessionOperationCredentialV2({
+        tenantId,
+        token: redeemed.operationCredential.token,
+        requestOrigin: walletOrigin,
+        nowMs: 362,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      service.readExactWalletSessionStatusByOperationCredential({
+        tenantId,
+        token: first.operationCredential.token,
+        nowMs: 362,
+      }),
+    ).resolves.toMatchObject({
+      kind: 'exhausted',
+      session: first.session,
+      quota: { remainingUses: 0, lifecycle: 'exhausted' },
     });
     const replacement = await service.issueDirectWalletSessionAuthorizationV2({
       ...firstInput,
@@ -657,8 +869,6 @@ test('hosted exchange routes require the dedicated wallet-origin policy and V2 w
       remainingUses: 2,
       issuedAtMs: 300,
       expiresAtMs: 700,
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
     });
     expect(issued.kind).toBe('issued');
     if (issued.kind !== 'issued') throw new Error('hosted route parent issuance did not issue');
@@ -789,8 +999,6 @@ test('direct V2 issuance is replay-stable and exhausts the same-method predecess
       remainingUses: 3,
       issuedAtMs: 300,
       expiresAtMs: 500,
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
     } as const;
 
     const first = await service.issueDirectWalletSessionAuthorizationV2(firstInput);
@@ -806,127 +1014,34 @@ test('direct V2 issuance is replay-stable and exhausts the same-method predecess
       next: 'unlock_exact_method',
     });
 
-    const firstMetadata = await temporary.database
-      .prepare(
-        `SELECT operation_credential_hash,
-                wallet_session_client_capability,
-                response_family
-           FROM wallet_session_authorizations_v2
-          WHERE namespace = ? AND tenant_id = ? AND mint_id = ?`,
-      )
-      .bind(namespace, firstInput.tenantId, String(firstInput.mintId))
-      .first<{
-        readonly operation_credential_hash: string;
-        readonly wallet_session_client_capability: string;
-        readonly response_family: string;
-      }>();
-    expect(firstMetadata).toEqual({
-      operation_credential_hash: await digestOpaqueCredentialForTest(
-        first.operationCredential.token,
-      ),
-      wallet_session_client_capability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-      response_family: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
-    });
-
-    await temporary.database
-      .prepare(
-        `UPDATE wallet_session_authorizations_v2
-            SET wallet_session_client_capability = NULL
-          WHERE namespace = ? AND tenant_id = ? AND mint_id = ?`,
-      )
-      .bind(namespace, firstInput.tenantId, String(firstInput.mintId))
-      .run();
-    await expect(service.issueDirectWalletSessionAuthorizationV2(firstInput)).resolves.toEqual({
-      kind: 'protocol_mismatch',
-      code: 'protocol_mismatch',
-      message: 'Wallet Session unlock protocol does not match the committed issuance',
-    });
-
-    await temporary.database
-      .prepare(
-        `UPDATE wallet_session_authorizations_v2
-            SET wallet_session_client_capability = 'future_wallet_session_capability_v1'
-          WHERE namespace = ? AND tenant_id = ? AND mint_id = ?`,
-      )
-      .bind(namespace, firstInput.tenantId, String(firstInput.mintId))
-      .run();
-    await expect(service.issueDirectWalletSessionAuthorizationV2(firstInput)).resolves.toEqual({
-      kind: 'protocol_mismatch',
-      code: 'protocol_mismatch',
-      message: 'Wallet Session unlock protocol does not match the committed issuance',
-    });
-
-    await temporary.database
-      .prepare(
-        `UPDATE wallet_session_authorizations_v2
-            SET wallet_session_client_capability = ?, response_family = 'future_wallet_unlock_family_v1'
-          WHERE namespace = ? AND tenant_id = ? AND mint_id = ?`,
-      )
-      .bind(
-        WALLET_SESSION_CLIENT_CAPABILITY_V1,
-        namespace,
-        firstInput.tenantId,
-        String(firstInput.mintId),
-      )
-      .run();
-    await expect(service.issueDirectWalletSessionAuthorizationV2(firstInput)).resolves.toEqual({
-      kind: 'protocol_mismatch',
-      code: 'protocol_mismatch',
-      message: 'Wallet Session unlock protocol does not match the committed issuance',
-    });
-
-    await temporary.database
-      .prepare(
-        `UPDATE wallet_session_authorizations_v2
-            SET wallet_session_client_capability = ?, response_family = ?
-          WHERE namespace = ? AND tenant_id = ? AND mint_id = ?`,
-      )
-      .bind(
-        WALLET_SESSION_CLIENT_CAPABILITY_V1,
-        WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
-        namespace,
-        firstInput.tenantId,
-        String(firstInput.mintId),
-      )
-      .run();
-    const firstAfterMismatch = await temporary.database
-      .prepare(
-        `SELECT operation_credential_hash, retired_at_ms
-           FROM wallet_session_authorizations_v2
-          WHERE namespace = ? AND tenant_id = ? AND mint_id = ?`,
-      )
-      .bind(namespace, firstInput.tenantId, String(firstInput.mintId))
-      .first<{
-        readonly operation_credential_hash: string;
-        readonly retired_at_ms: number | null;
-      }>();
-    expect(firstAfterMismatch).toEqual({
-      operation_credential_hash: firstMetadata?.operation_credential_hash,
-      retired_at_ms: null,
-    });
-
     const losingDigest = await digestOpaqueCredentialForTest('concurrent-losing-credential');
-    const concurrentLoser = await createAuthorizationStore(
+    const committedDigest = await digestOpaqueCredentialForTest(first.operationCredential.token);
+    const concurrentReplay = await createAuthorizationStore(
       temporary.database,
       namespace,
     ).commitDirectWalletSessionAuthorizationV2({
       persisted: buildPersistedActiveWalletSessionAuthorizationV2({
         session: first.session,
         quota: first.quota,
-        primaryOperationCredentialDigestB64u: losingDigest,
-        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-        responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
+        primaryOperationCredentialDigestB64u: committedDigest,
       }),
     });
-    expect(concurrentLoser).toMatchObject({
+    expect(concurrentReplay).toMatchObject({
       kind: 'already_committed',
       committed: {
         session: first.session,
-        primaryOperationCredentialDigestB64u: await digestOpaqueCredentialForTest(
-          first.operationCredential.token,
-        ),
+        primaryOperationCredentialDigestB64u: committedDigest,
       },
     });
+    await expect(
+      createAuthorizationStore(temporary.database, namespace).commitDirectWalletSessionAuthorizationV2({
+        persisted: buildPersistedActiveWalletSessionAuthorizationV2({
+          session: first.session,
+          quota: first.quota,
+          primaryOperationCredentialDigestB64u: losingDigest,
+        }),
+      }),
+    ).rejects.toThrow('different credential digest');
 
     const replacementInput = {
       ...firstInput,
@@ -1085,137 +1200,79 @@ test('direct V2 issuance is replay-stable and exhausts the same-method predecess
   }
 });
 
-test('issues and rereads one exact operation credential, refusing wrong, rotated, revoked, and expired bindings', async () => {
+test('direct V2 recovery login issues and replays the exact recovered authority session', async () => {
   const temporary = createTemporaryD1Database();
   try {
     await applyD1MigrationFiles(temporary.database, signerMigrations);
-    const namespace = 'wallet-session-v2-operation-credential';
+    const namespace = 'wallet-session-v2-recovery-direct';
     const service = createService(temporary.database, namespace);
-    const fixture = await seedActiveAuthority(
-      temporary.database,
-      namespace,
-      'operation-credential',
+    const fixture = await buildActiveAuthorityFixture('recovery-direct');
+    const authority = await recoveredAuthority(fixture.authority);
+    const pendingAuthority = await pendingRecoveredAuthority(
+      authority,
+      fixture.pendingAuthority.localInstallPackageSetDigestB64u,
     );
+    const authorityStore = new D1WalletAuthorityStore({
+      database: temporary.database,
+      scope: {
+        namespace,
+        orgId: 'test-org',
+        projectId: 'test-project',
+        envId: 'test-env',
+      },
+      ensureSchema: false,
+    });
+    await expect(
+      authorityStore.commitPendingAuthority({
+        authority: pendingAuthority,
+        authMethod: fixture.pendingAuthMethod,
+      }),
+    ).resolves.toMatchObject({ kind: 'committed_wallet_authority_v1' });
+    await expect(
+      authorityStore.activatePendingAuthority({
+        pendingAuthority,
+        activeAuthority: authority,
+        pendingAuthMethod: fixture.pendingAuthMethod,
+        activeAuthMethod: fixture.authMethod,
+      }),
+    ).resolves.toMatchObject({ kind: 'activated' });
     const input = {
-      tenantId: requiredParsed(parseTenantId('tenant:v2-operation-credential')),
-      principalId: requiredParsed(parsePrincipalId('principal:v2-operation-credential')),
-      walletId: fixture.authority.walletId,
-      authority: fixture.authority,
+      tenantId: requiredParsed(parseTenantId('tenant:v2-recovery-direct')),
+      principalId: requiredParsed(parsePrincipalId('principal:v2-recovery-direct')),
+      walletId: authority.walletId,
+      authority,
       walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
-      mintId: requiredMintId('unlock:v2-operation-credential'),
+      mintId: requiredMintId('unlock:v2-recovery-direct'),
       remainingUses: 3,
       issuedAtMs: 300,
-      expiresAtMs: 400,
+      expiresAtMs: 500,
     } as const;
-    const issued = await service.issueWalletSessionAuthorizationV2(input);
 
-    const credential = await service.issueWalletSessionAuthorizationV2OperationCredential({
-      session: issued.session,
+    const first = await service.issueDirectWalletSessionAuthorizationV2(input);
+    expect(first.kind).toBe('issued');
+    if (first.kind !== 'issued') throw new Error('recovered direct issuance did not issue');
+    expect(first.session).toMatchObject({
+      kind: 'wallet_session_authorization_v2',
+      walletId: authority.walletId,
+      authorityId: authority.authorityId,
+      walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+      authorityDigestB64u: authority.authorityDigestB64u,
     });
-    expect(credential.kind).toBe('opaque_wallet_session_operation_credential_v1');
-    expect(credential.token).toMatch(/^wst_[A-Za-z0-9_-]{43}$/);
-    expect(credential.walletSessionId).toBe(issued.session.walletSessionId);
-    await expect(
-      temporary.database
-        .prepare(
-          `SELECT operation_credential_hash
-             FROM wallet_session_authorizations_v2
-            WHERE namespace = ? AND tenant_id = ? AND authorization_id = ?`,
-        )
-        .bind(namespace, input.tenantId, String(issued.session.authorizationId))
-        .first<{ readonly operation_credential_hash?: unknown }>(),
-    ).resolves.toEqual({
-      operation_credential_hash: await digestOpaqueCredentialForTest(credential.token),
-    });
-    await expect(
-      service.readWalletSessionAuthorizationV2ByOperationCredential({
-        tenantId: input.tenantId,
-        token: credential.token,
-        nowMs: 301,
-      }),
-    ).resolves.toEqual(issued);
-    await expect(
-      service.readWalletSessionAuthorizationV2ByOperationCredential({
-        tenantId: input.tenantId,
-        token: `${credential.token}x`,
-        nowMs: 301,
-      }),
-    ).resolves.toBeNull();
 
-    const rotated = await service.issueWalletSessionAuthorizationV2OperationCredential({
-      session: issued.session,
+    const replay = await service.issueDirectWalletSessionAuthorizationV2(input);
+    expect(replay).toEqual({
+      kind: 'already_committed',
+      walletId: first.session.walletId,
+      authorityId: first.session.authorityId,
+      walletAuthMethodId: first.session.walletAuthMethodId,
+      mintId: first.session.mintId,
+      authorizationId: first.session.authorizationId,
+      walletSessionId: first.session.walletSessionId,
+      quotaId: first.session.quotaId,
+      next: 'unlock_exact_method',
     });
-    expect(rotated.token).not.toBe(credential.token);
-    expect(rotated.walletSessionId).toBe(credential.walletSessionId);
-    await expect(
-      service.readWalletSessionAuthorizationV2ByOperationCredential({
-        tenantId: input.tenantId,
-        token: credential.token,
-        nowMs: 301,
-      }),
-    ).resolves.toBeNull();
-    await expect(
-      service.readWalletSessionAuthorizationV2ByOperationCredential({
-        tenantId: input.tenantId,
-        token: rotated.token,
-        nowMs: 301,
-      }),
-    ).resolves.toEqual(issued);
-    await expect(
-      service.readWalletSessionAuthorizationV2ByOperationCredential({
-        tenantId: input.tenantId,
-        token: rotated.token,
-        nowMs: issued.session.expiresAtMs,
-      }),
-    ).rejects.toThrow(/expired/);
-
-    const revokedAuthorityDigest = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(99)));
-    const revokedAuthority = buildRevokedWalletAuthorityV1({
-      kind: 'wallet_authority_v1',
-      authorityId: fixture.authority.authorityId,
-      walletId: fixture.authority.walletId,
-      principal: fixture.authority.principal,
-      provenance: fixture.authority.provenance,
-      permissions: fixture.authority.permissions,
-      signerActivations: fixture.authority.signerActivations,
-      signerActivationSetDigestB64u: fixture.authority.signerActivationSetDigestB64u,
-      authorityDigestB64u: revokedAuthorityDigest,
-      revocationEpoch: fixture.authority.revocationEpoch + 1,
-      createdAtMs: fixture.authority.createdAtMs,
-      updatedAtMs: 401,
-      state: 'revoked' as const,
-      activatedAtMs: fixture.authority.activatedAtMs,
-      revokedAtMs: 401,
-    });
-    await temporary.database
-      .prepare(
-        `UPDATE wallet_authorities
-            SET lifecycle_state = ?,
-                authority_digest_b64u = ?,
-                revocation_epoch = ?,
-                record_json = ?,
-                updated_at_ms = ?,
-                revoked_at_ms = ?
-          WHERE namespace = ? AND authority_id = ?`,
-      )
-      .bind(
-        revokedAuthority.state,
-        String(revokedAuthority.authorityDigestB64u),
-        revokedAuthority.revocationEpoch,
-        JSON.stringify(revokedAuthority),
-        revokedAuthority.updatedAtMs,
-        revokedAuthority.revokedAtMs,
-        namespace,
-        String(revokedAuthority.authorityId),
-      )
-      .run();
-    await expect(
-      service.readWalletSessionAuthorizationV2ByOperationCredential({
-        tenantId: input.tenantId,
-        token: rotated.token,
-        nowMs: 301,
-      }),
-    ).rejects.toThrow(/provenance|active/);
+    expect(replay).not.toHaveProperty('operationCredential');
+    expect(replay).not.toHaveProperty('walletSessionToken');
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
@@ -1238,8 +1295,6 @@ test('admits a V2 Wallet Session operation and replays against its exact source'
       remainingUses: 2,
       issuedAtMs: 300,
       expiresAtMs: 400,
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
     });
     if (directIssue.kind !== 'issued') {
       throw new Error('V2 operation admission fixture did not issue its direct credential');
@@ -1282,11 +1337,9 @@ test('admits a V2 Wallet Session operation and replays against its exact source'
       claimedAtMs: 301,
     });
 
-    await expect(
-      service.admitAuthorizedOperation({ operation: claimInput }),
-    ).resolves.toMatchObject({
-      kind: 'claimed',
-    });
+    const claimed = await service.admitAuthorizedOperation({ operation: claimInput });
+    expect(claimed.kind).toBe('claimed');
+    if (claimed.kind !== 'claimed') throw new Error('V2 operation admission was not claimed');
     await expect(
       temporary.database
         .prepare(
@@ -1319,6 +1372,104 @@ test('admits a V2 Wallet Session operation and replays against its exact source'
         .bind(namespace, session.session.tenantId, session.session.quotaId)
         .first(),
     ).resolves.toEqual({ remaining_uses: 1 });
+
+    const siblingMethod = buildSiblingActivePasskeyAuthMethod(fixture.authMethod, 41);
+    await prepareD1WalletAuthMethodV2PutStatement({
+      database: temporary.database,
+      scope: {
+        namespace,
+        orgId: 'test-org',
+        projectId: 'test-project',
+        envId: 'test-env',
+      },
+      record: siblingMethod,
+      insertOnly: true,
+    }).run();
+    const siblingIssue = await service.issueDirectWalletSessionAuthorizationV2({
+      tenantId: session.session.tenantId,
+      principalId: session.session.principalId,
+      walletId: fixture.authority.walletId,
+      authority: fixture.authority,
+      walletAuthMethodId: siblingMethod.walletAuthMethodId,
+      mintId: requiredMintId('unlock:v2-claim-sibling'),
+      remainingUses: 2,
+      issuedAtMs: 303,
+      expiresAtMs: 400,
+    });
+    if (siblingIssue.kind !== 'issued') {
+      throw new Error('Sibling-method V2 operation fixture did not issue');
+    }
+    const siblingRetry = await buildAuthorizedOperation({
+      ...retry,
+      authorization: {
+        kind: 'authorization_grant',
+        authorizationGrantRef: buildAuthorizationGrantRef(siblingIssue.session.authorizationId),
+      },
+      quota: {
+        kind: 'consume_reusable_wallet_session',
+        quotaId: siblingIssue.session.quotaId,
+      },
+      claimedAtMs: 304,
+    });
+    await expect(
+      service.admitAuthorizedOperation({ operation: siblingRetry }),
+    ).resolves.toEqual({ kind: 'authorization_grant_rejected' });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT remaining_uses
+             FROM authorization_wallet_session_quotas
+            WHERE namespace = ? AND tenant_id = ? AND quota_id = ?`,
+        )
+        .bind(namespace, siblingIssue.session.tenantId, siblingIssue.session.quotaId)
+        .first(),
+    ).resolves.toEqual({ remaining_uses: 2 });
+
+    const completed = await service.completeAuthorizedOperation({
+      operation: claimed.operation,
+      result: 'succeeded',
+      response: { status: 200, contentType: 'application/json', bodyText: '{"ok":true}' },
+      completedAtMs: 305,
+    });
+    expect(completed.lifecycle).toBe('completed');
+    await expect(
+      service.admitAuthorizedOperation({ operation: { ...retry, claimedAtMs: 306 } }),
+    ).resolves.toMatchObject({ kind: 'replayed' });
+
+    const persistedScope = await temporary.database
+      .prepare(
+        `SELECT linked_scope_org_id, linked_scope_project_id, linked_scope_env_id
+           FROM authorized_operations
+          WHERE namespace = ? AND tenant_id = ? AND authorized_operation_id = ?`,
+      )
+      .bind(namespace, session.session.tenantId, String(claimInput.authorizedOperationId))
+      .first();
+    expect(persistedScope).toEqual({
+      linked_scope_org_id: DEFAULT_AUTHORIZATION_SCOPE.orgId,
+      linked_scope_project_id: DEFAULT_AUTHORIZATION_SCOPE.projectId,
+      linked_scope_env_id: DEFAULT_AUTHORIZATION_SCOPE.envId,
+    });
+    for (const scope of [
+      { ...DEFAULT_AUTHORIZATION_SCOPE, orgId: 'other-org' },
+      { ...DEFAULT_AUTHORIZATION_SCOPE, projectId: 'other-project' },
+      { ...DEFAULT_AUTHORIZATION_SCOPE, envId: 'other-env' },
+    ]) {
+      await expect(
+        createService(temporary.database, namespace, scope).admitAuthorizedOperation({
+          operation: { ...retry, claimedAtMs: 306 },
+        }),
+      ).resolves.toEqual({ kind: 'authorization_grant_rejected' });
+    }
+
+    await service.retireWalletSessionAuthorizationsForAuthMethod({
+      tenantId: session.session.tenantId,
+      walletId: session.session.walletId,
+      walletAuthMethodId: session.session.walletAuthMethodId,
+      nowMs: 307,
+    });
+    await expect(
+      service.admitAuthorizedOperation({ operation: { ...retry, claimedAtMs: 308 } }),
+    ).resolves.toEqual({ kind: 'authorization_grant_rejected' });
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }

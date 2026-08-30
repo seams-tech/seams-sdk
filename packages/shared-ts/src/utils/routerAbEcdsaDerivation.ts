@@ -40,13 +40,13 @@ import {
 import {
   EVM_ECDSA_MPC_OPERATION_KINDS,
   parseMpcWalletSigningQuotaId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseEcdsaAuthorizationSessionId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type EvmEcdsaMpcOperationKind,
   type MpcWalletSigningQuotaId,
-  type ReusableWalletSessionMintId,
+  type WalletSessionMintId,
   type EcdsaAuthorizationSessionId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
@@ -370,7 +370,7 @@ export type RouterAbEcdsaDerivationPublicCapabilityV1 = {
 
 export type RouterAbEcdsaPostRegistrationSessionPolicyV1 = {
   threshold_session_id: ThresholdEcdsaSessionId;
-  wallet_session_mint_id: ReusableWalletSessionMintId;
+  wallet_session_mint_id: WalletSessionMintId;
   ttl_ms: number;
   remaining_uses: number;
   runtime_policy_scope: RuntimePolicyScope;
@@ -2258,7 +2258,7 @@ function parsePostRegistrationSessionPolicy(
       record.threshold_session_id,
       `${label}.threshold_session_id`,
     ),
-    wallet_session_mint_id: requireReusableWalletSessionMintId(
+    wallet_session_mint_id: requireWalletSessionMintId(
       record.wallet_session_mint_id,
       `${label}.wallet_session_mint_id`,
     ),
@@ -2284,11 +2284,11 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(
   };
 }
 
-function requireReusableWalletSessionMintId(
+function requireWalletSessionMintId(
   value: unknown,
   label: string,
-): ReusableWalletSessionMintId {
-  const parsed = parseReusableWalletSessionMintId(value);
+): WalletSessionMintId {
+  const parsed = parseWalletSessionMintId(value);
   if (!parsed.ok) throw new Error(`${label} is invalid`);
   return parsed.value;
 }

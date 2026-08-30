@@ -309,12 +309,6 @@ export type RegistrationWalletCandidate = {
   registrationAttemptId: string;
 };
 
-export type ActiveWalletSession = {
-  kind: 'active_wallet_session';
-  authority: WalletAuthAuthority;
-  walletSessionToken: string;
-};
-
 function parseEmailOtpProvider(raw: unknown): EmailOtpProvider | null {
   const provider = String(raw || '')
     .trim()

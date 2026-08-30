@@ -102,3 +102,79 @@ test('add-method source claim fails closed when the selected exact session is ab
     walletSessionAuthorizations.readExactWithOperationCredential = originalRead;
   }
 });
+
+test('add-method source claims keep same-wallet sibling methods isolated', async () => {
+  const primary = await sourceClaimFixture();
+  const sibling = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'add-auth-method-source-sibling',
+    permissions: buildFullOwnerPermissionsV1(),
+    provenance: 'wallet_registration',
+    keyFamily: 'ed25519',
+    expiresAtMs: Date.now() + 60_000,
+    identity: {
+      walletId: String(primary.authority.walletId),
+      authorityId: 'authority:add-auth-method-source-sibling',
+      walletAuthMethodId: 'auth-method:add-auth-method-source-sibling',
+      rpId: 'wallet.example.test',
+    },
+  });
+  const originalResolve = IndexedDBManager.resolveSelectedWalletAuthority;
+  const originalRead = walletSessionAuthorizations.readExactWithOperationCredential;
+  const exactReads: unknown[] = [];
+  let selected = resolvedSourceSelection(primary);
+  const sessionsByMethod = new Map([
+    [String(primary.authMethod.walletAuthMethodId), primary],
+    [String(sibling.authMethod.walletAuthMethodId), sibling],
+  ]);
+  IndexedDBManager.resolveSelectedWalletAuthority = async () => selected;
+  walletSessionAuthorizations.readExactWithOperationCredential = async (input) => {
+    exactReads.push(input);
+    const fixture = sessionsByMethod.get(String(input.authMethodId));
+    if (!fixture) return { kind: 'missing' as const };
+    return {
+      kind: 'found' as const,
+      record: fixture.activeWalletSession,
+      operationCredential: fixture.operationCredential,
+    };
+  };
+
+  try {
+    const primaryResult = await resolveAddAuthMethodSourceClaimV1(primary.authority.walletId);
+    selected = resolvedSourceSelection(sibling);
+    const siblingResult = await resolveAddAuthMethodSourceClaimV1(sibling.authority.walletId);
+
+    expect(primaryResult).toMatchObject({
+      kind: 'resolved',
+      sourceAuthMethod: primary.authMethod,
+      source: {
+        walletAuthorityId: primary.authMethod.walletAuthorityId,
+        walletAuthMethodId: primary.authMethod.walletAuthMethodId,
+        walletSessionId: primary.operationCredential.walletSessionId,
+      },
+    });
+    expect(siblingResult).toMatchObject({
+      kind: 'resolved',
+      sourceAuthMethod: sibling.authMethod,
+      source: {
+        walletAuthorityId: sibling.authMethod.walletAuthorityId,
+        walletAuthMethodId: sibling.authMethod.walletAuthMethodId,
+        walletSessionId: sibling.operationCredential.walletSessionId,
+      },
+    });
+    expect(exactReads).toEqual([
+      {
+        walletId: primary.authority.walletId,
+        authorityId: primary.authority.authorityId,
+        authMethodId: primary.authMethod.walletAuthMethodId,
+      },
+      {
+        walletId: sibling.authority.walletId,
+        authorityId: sibling.authority.authorityId,
+        authMethodId: sibling.authMethod.walletAuthMethodId,
+      },
+    ]);
+  } finally {
+    IndexedDBManager.resolveSelectedWalletAuthority = originalResolve;
+    walletSessionAuthorizations.readExactWithOperationCredential = originalRead;
+  }
+});

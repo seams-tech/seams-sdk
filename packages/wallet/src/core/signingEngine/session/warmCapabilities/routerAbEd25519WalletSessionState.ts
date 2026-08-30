@@ -7,10 +7,7 @@ import type {
 } from '@/core/signingEngine/interfaces/near';
 import {
   walletSessionAuthorizations,
-  walletSessionAuthorizationIdForCurve,
-  walletSessionTokenForCurve,
   type ActiveWalletSessionV1,
-  type ActiveWalletSessionAuthorizationProjection,
   type WalletSessionOperationCredentialV1,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { IndexedDBManager } from '@/core/indexedDB';
@@ -23,7 +20,10 @@ import {
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { AccountId } from '@/core/types/accountIds';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
-import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import {
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import {
   mpcMaterialActivationRefsEqual,
   type MpcMaterialActivationRef,
@@ -32,6 +32,7 @@ import {
   ed25519SealedRuntimeAuthorityRef,
   type ExactEd25519SealedSessionRuntime,
 } from './ed25519SealedSessionRuntime';
+import type { ExactNearEd25519WalletSessionAuthorization } from '../material/nearEd25519YaoSigningPreparation';
 import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 
 export type ResolvedRouterAbEd25519WalletSessionState = NearResolvedEd25519SigningSessionState & {
@@ -179,24 +180,32 @@ export function buildPasskeyRouterAbEd25519WalletSessionState(
 
 export async function rebindRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
   runtime: ExactEd25519SealedSessionRuntime;
-  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorization: ExactNearEd25519WalletSessionAuthorization;
   nowMs: number;
 }): Promise<ResolvedRouterAbEd25519WalletSessionState> {
-  const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
-  const authorizationId = walletSessionAuthorizationIdForCurve(args.authorization, 'ed25519');
+  const walletSessionToken = args.authorization.operationCredential.token;
+  const authorizationId = args.authorization.session.authorizationId;
   const exactAuthority = await ed25519SealedRuntimeAuthorityRef({
     runtime: args.runtime,
-    walletAuthMethodId: args.authorization.authority.walletAuthMethodId,
+    walletAuthMethodId: args.authorization.selectedAuthMethod.walletAuthMethodId,
   });
-  const expiresAtMs = Math.min(args.runtime.expiresAtMs, args.authorization.expiresAtMs);
+  const selectedFactorAuthorityRef = await walletAuthAuthorityRef({
+    authority: args.authorization.selectedFactorAuthority,
+  });
+  const expiresAtMs = Math.min(args.runtime.expiresAtMs, args.authorization.status.expiresAtMs);
   if (
     !walletSessionToken ||
     !authorizationId ||
-    args.authorization.walletId !== args.runtime.walletId ||
-    args.authorization.authMethod !== args.runtime.auth.kind ||
+    args.authorization.session.walletId !== args.runtime.walletId ||
+    args.authorization.selectedAuthMethod.kind !== args.runtime.auth.kind ||
     exactAuthority.walletId !== args.runtime.walletId ||
-    exactAuthority.walletAuthMethodId !== args.authorization.authority.walletAuthMethodId ||
-    exactAuthority.authorityDigest !== args.authorization.authority.authorityDigest ||
+    exactAuthority.walletAuthMethodId !==
+      args.authorization.selectedAuthMethod.walletAuthMethodId ||
+    exactAuthority.walletId !== selectedFactorAuthorityRef.walletId ||
+    exactAuthority.walletAuthMethodId !== selectedFactorAuthorityRef.walletAuthMethodId ||
+    String(exactAuthority.authorityDigest) !== String(selectedFactorAuthorityRef.authorityDigest) ||
+    args.authorization.operationCredential.walletSessionId !==
+      args.authorization.status.walletSessionId ||
     expiresAtMs <= args.nowMs
   ) {
     throw new Error('Ed25519 Wallet Session authorization does not match sealed material');
@@ -205,11 +214,11 @@ export async function rebindRouterAbEd25519WalletSessionStateFromExactRuntime(ar
     walletId: args.runtime.walletId,
     nearAccountId: args.runtime.nearAccountId,
     nearEd25519SigningKeyId: args.runtime.nearEd25519SigningKeyId,
-    walletSessionId: args.authorization.walletSessionId,
+    walletSessionId: args.authorization.operationCredential.walletSessionId,
     authorizationId,
-    quotaId: args.authorization.quotaId,
+    quotaId: args.authorization.session.quotaId,
     thresholdSessionId: args.runtime.thresholdSessionId,
-    remainingUses: args.runtime.remainingUses,
+    remainingUses: Math.min(args.runtime.remainingUses, args.authorization.status.remainingUses),
     expiresAtMs,
     runtimePolicyScope: args.runtime.runtimePolicyScope,
     signingRootId: args.runtime.signingRootId,

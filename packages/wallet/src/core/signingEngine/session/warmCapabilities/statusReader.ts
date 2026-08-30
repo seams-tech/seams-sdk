@@ -8,22 +8,13 @@ import {
   toSigningSessionStatus,
   type WarmSessionReadPortsInput,
 } from './readModel';
-import type {
-  ThresholdWarmSessionStatusReader,
-  WarmSessionPrfClaim,
-} from './types';
+import type { ThresholdWarmSessionStatusReader, WarmSessionPrfClaim } from './types';
 import {
   ed25519AuthorizationIdentityMatchesRuntime,
   type ExactEd25519SealedSessionRuntime,
 } from './ed25519SealedSessionRuntime';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactNearEd25519WalletSessionAuthorization } from '../material/nearEd25519YaoSigningPreparation';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
-import {
-  buildEmailOtpWalletAuthAuthority,
-  buildPasskeyWalletAuthAuthority,
-  walletAuthAuthorityRef,
-  type WalletAuthAuthority,
-} from '@shared/utils/walletAuthAuthority';
 function ed25519SessionMetadata(runtime: ExactEd25519SealedSessionRuntime): {
   authMethod: SignerAuthMethod;
   retention?: 'session';
@@ -44,49 +35,14 @@ function ed25519SessionMetadata(runtime: ExactEd25519SealedSessionRuntime): {
   }
 }
 
-function ed25519WalletAuthAuthority(
-  runtime: ExactEd25519SealedSessionRuntime,
-): WalletAuthAuthority {
-  switch (runtime.factor.kind) {
-    case SIGNER_AUTH_METHODS.passkey:
-      return buildPasskeyWalletAuthAuthority({
-        walletId: runtime.walletId,
-        rpId: runtime.factor.rpId,
-        credentialIdB64u: runtime.factor.credentialIdB64u,
-      });
-    case SIGNER_AUTH_METHODS.emailOtp:
-      return buildEmailOtpWalletAuthAuthority({
-        walletId: runtime.walletId,
-        provider: runtime.factor.provider,
-        providerUserId: runtime.factor.providerSubjectId,
-        emailHashHex: runtime.factor.emailHashHex,
-      });
-    default:
-      runtime.factor satisfies never;
-      throw new Error('[WarmSessionStore] unsupported Ed25519 runtime factor');
-  }
-}
-
 async function ed25519AuthorizationMatchesRuntime(args: {
   runtime: ExactEd25519SealedSessionRuntime;
-  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorization: ExactNearEd25519WalletSessionAuthorization;
 }): Promise<boolean> {
-  const runtime = args.runtime;
-  const authorization = args.authorization;
-  if (
-    String(authorization.walletId) !== String(runtime.walletId) ||
-    authorization.authMethod !== runtime.factor.kind
-  ) {
-    return false;
-  }
-  if (!ed25519AuthorizationIdentityMatchesRuntime({ runtime, authorization })) return false;
-  try {
-    const authority = ed25519WalletAuthAuthority(runtime);
-    const expected = await walletAuthAuthorityRef({ authority });
-    return expected.authorityDigest === authorization.authority.authorityDigest;
-  } catch {
-    return false;
-  }
+  return ed25519AuthorizationIdentityMatchesRuntime({
+    runtime: args.runtime,
+    authorization: args.authorization,
+  });
 }
 
 export type WarmSessionStatusReaderDeps = {
@@ -145,7 +101,7 @@ export function createWarmSessionStatusReader(
 
   async function getEd25519SigningSessionStatus(args: {
     runtime: ExactEd25519SealedSessionRuntime;
-    authorization: ActiveWalletSessionAuthorizationProjection | null;
+    authorization: ExactNearEd25519WalletSessionAuthorization | null;
     nowMs: number;
   }): Promise<SigningSessionStatus> {
     const runtime = args.runtime;
@@ -165,14 +121,11 @@ export function createWarmSessionStatusReader(
         ...metadata,
       };
     }
-    if (args.authorization.expiresAtMs <= args.nowMs || runtime.expiresAtMs <= args.nowMs) {
+    if (args.authorization.status.expiresAtMs <= args.nowMs || runtime.expiresAtMs <= args.nowMs) {
       return {
         sessionId: thresholdSessionId,
         status: 'expired',
-        expiresAtMs: Math.min(
-          args.authorization.expiresAtMs,
-          runtime.expiresAtMs,
-        ),
+        expiresAtMs: Math.min(args.authorization.status.expiresAtMs, runtime.expiresAtMs),
         ...metadata,
       };
     }

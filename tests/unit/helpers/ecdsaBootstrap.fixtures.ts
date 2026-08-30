@@ -14,7 +14,7 @@ import {
 } from './ecdsaMaterialRef.fixtures';
 import {
   parseMpcWalletSigningQuotaId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseEcdsaAuthorizationSessionId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -430,7 +430,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       runtimePolicyScope,
       walletSession: activeWalletSession,
       operationCredential,
-      walletSessionToken,
       clientVerifyingShareB64u,
     },
   };
@@ -467,7 +466,7 @@ export function createEcdsaSessionActivationFixture(args: {
   });
   const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
   const runtimePolicyScope = bootstrap.session.runtimePolicyScope;
-  const walletSessionToken = bootstrap.session.walletSessionToken;
+  const walletSessionToken = bootstrap.session.operationCredential.token;
   const normalSigning = bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning;
   if (
     !binding ||
@@ -485,7 +484,7 @@ export function createEcdsaSessionActivationFixture(args: {
       session_policy: {
         threshold_session_id: bootstrap.session.thresholdSessionId,
         wallet_session_mint_id: requireBootstrapAuthorizationId(
-          parseReusableWalletSessionMintId('wallet-session-mint-fixture'),
+          parseWalletSessionMintId('wallet-session-mint-fixture'),
         ),
         ttl_ms: Math.max(1, bootstrap.session.expiresAtMs - Date.now()),
         remaining_uses: bootstrap.session.remainingUses,

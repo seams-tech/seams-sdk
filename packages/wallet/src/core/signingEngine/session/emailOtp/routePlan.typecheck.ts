@@ -8,6 +8,9 @@ import {
   type EmailOtpEcdsaBootstrapRouteAuth,
   type EmailOtpThresholdEd25519RouteAuth,
 } from './routePlan';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
+
+declare const operationCredential: WalletSessionOperationCredentialV1;
 
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
@@ -15,7 +18,7 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 void ({
   kind: 'signing_session',
-  walletSessionToken: 'threshold-session-token',
+  operationCredential,
   thresholdSessionId: 'threshold-session',
   curve: 'ecdsa',
   chainTarget,
@@ -25,7 +28,7 @@ void buildEmailOtpRoutePlan({
   routeFamily: 'signing_session',
   authLane: {
     kind: 'signing_session',
-    walletSessionToken: 'threshold-session-token',
+    operationCredential,
     thresholdSessionId: 'threshold-session',
     curve: 'ecdsa',
     chainTarget,
@@ -35,7 +38,7 @@ void buildEmailOtpRoutePlan({
 
 const ecdsaBootstrapRouteAuth = {
   kind: 'threshold_ecdsa_session',
-  walletSessionToken: 'threshold-ecdsa-session-token',
+  operationCredential,
   curve: 'ecdsa',
   thresholdSessionId: 'ecdsa-threshold-session',
   chainTarget,
@@ -48,7 +51,7 @@ void ({
 
 const ed25519RouteAuth = {
   kind: 'threshold_ed25519_session',
-  walletSessionToken: 'threshold-ed25519-session-token',
+  operationCredential,
   curve: 'ed25519',
 } satisfies EmailOtpThresholdEd25519RouteAuth;
 

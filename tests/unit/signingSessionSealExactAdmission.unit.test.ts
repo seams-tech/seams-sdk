@@ -20,7 +20,6 @@ async function unsupportedAuthorizationSessionOperation(): Promise<never> {
 class AuthorizationSessionsFixture implements RouterApiAuthorizationSessionService {
   readonly tenantId: RouterApiAuthorizationSessionService['tenantId'];
   exactReads = 0;
-  legacyReads = 0;
 
   constructor(
     private readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext | null,
@@ -28,15 +27,6 @@ class AuthorizationSessionsFixture implements RouterApiAuthorizationSessionServi
     const fallback = parseTenantId('tenant:signing-seal');
     if (!fallback.ok) throw new Error(fallback.error.message);
     this.tenantId = context?.authorization.session.tenantId ?? fallback.value;
-  }
-
-  async issueOpaqueWalletSessionToken(): Promise<never> {
-    return await unsupportedAuthorizationSessionOperation();
-  }
-
-  async resolveOpaqueWalletSessionToken(): Promise<null> {
-    this.legacyReads += 1;
-    return null;
   }
 
   async readWalletSessionAuthorizationV2ByOperationCredential(): Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null> {
@@ -98,7 +88,6 @@ test('exact Ed25519 operation credential authorizes its active threshold session
     },
   });
   expect(sessions.exactReads).toBe(1);
-  expect(sessions.legacyReads).toBe(0);
 });
 
 test('exact ECDSA operation credential authorizes its active derivation state', async () => {
@@ -117,7 +106,6 @@ test('exact ECDSA operation credential authorizes its active derivation state', 
     },
   });
   expect(sessions.exactReads).toBe(1);
-  expect(sessions.legacyReads).toBe(0);
 });
 
 test('exact credential cannot seal a different threshold session', async () => {
@@ -131,7 +119,6 @@ test('exact credential cannot seal a different threshold session', async () => {
     status: 403,
   });
   expect(sessions.exactReads).toBe(1);
-  expect(sessions.legacyReads).toBe(0);
 });
 
 test('missing exact credential fails without consulting the legacy store', async () => {
@@ -153,5 +140,4 @@ test('missing exact credential fails without consulting the legacy store', async
     status: 401,
   });
   expect(sessions.exactReads).toBe(1);
-  expect(sessions.legacyReads).toBe(0);
 });

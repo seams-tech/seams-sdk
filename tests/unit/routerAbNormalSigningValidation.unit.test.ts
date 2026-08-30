@@ -145,7 +145,10 @@ async function prepareWithHttpError(fixture: HttpErrorFixture): Promise<unknown>
   try {
     await prepareRouterAbNormalSigningV2({
       relayServerUrl: 'https://router.example/base/',
-      credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
+      credential: {
+        kind: 'wallet_session_opaque',
+        walletSessionToken: 'wallet-session-token',
+      },
       request,
     });
     return null;
@@ -174,7 +177,10 @@ async function prepareRequestWithHttpResponse(
   try {
     return await prepareRouterAbNormalSigningV2({
       relayServerUrl: 'https://router.example/base/',
-      credential: { kind: 'jwt', walletSessionJwt: 'wallet-session-jwt' },
+      credential: {
+        kind: 'wallet_session_opaque',
+        walletSessionToken: 'wallet-session-token',
+      },
       request: requestInput,
     });
   } finally {

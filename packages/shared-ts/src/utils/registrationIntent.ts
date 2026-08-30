@@ -593,7 +593,7 @@ function parseWalletAuthMethodLifecycle(raw: Record<string, unknown>): WalletAut
 
 function exactWalletAuthMethodV2Fields(
   raw: Record<string, unknown>,
-  kind: 'passkey' | 'email_otp',
+  kind: WalletAuthMethodRecordV2['kind'],
   status: string,
 ): void {
   const fields = [

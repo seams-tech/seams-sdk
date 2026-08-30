@@ -24,20 +24,13 @@ import type {
   ResolvedRegistrationNearAccount,
   WalletId,
 } from '@shared/utils/registrationIntent';
-import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 import type { WalletAuthMethodBinding } from '@shared/utils/walletCapabilityBindings';
-import type {
-  WalletSessionAuthorizationId,
-  WalletSessionId,
-} from '@shared/authorization/capabilityKinds';
 import type { ThresholdEcdsaChainTarget } from '../signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EvmFamilyEcdsaWalletUnlockSubject,
   NearEd25519WalletUnlockSubject,
   WalletUnlockSubjectSet,
 } from '../signingEngine/session/identity/walletUnlockSubject';
-
-export type ReusableWalletSessionAuthorizationId = WalletSessionAuthorizationId;
 
 export type {
   SensitiveOperationPolicy,
@@ -373,117 +366,6 @@ export type WalletAuthenticationState =
       readonly authMethod: WalletAuthMethod;
     };
 
-export type ReusableWalletSessionState =
-  | {
-      readonly kind: 'absent';
-      readonly walletId?: never;
-      readonly authorizationId?: never;
-      readonly walletSessionId?: never;
-      readonly authMethod?: never;
-      readonly walletAuthMethodId?: never;
-      readonly remainingUses?: never;
-      readonly expiresAtMs?: never;
-      readonly detectedAtMs?: never;
-      readonly reason?: never;
-    }
-  | {
-      readonly kind: 'active';
-      readonly walletId: WalletId;
-      readonly authorizationId: ReusableWalletSessionAuthorizationId;
-      readonly walletSessionId: WalletSessionId;
-      readonly authMethod: WalletAuthMethod;
-      /**
-       * The exact credential this session was issued to.
-       *
-       * `authMethod` names only the family, which stopped identifying anything
-       * once a wallet could hold two methods of different families on one
-       * authority: a caller asking "which credential is this session for" has
-       * no other way to tell an added method from the one that added it.
-       */
-      readonly walletAuthMethodId: WalletAuthMethodId;
-      readonly remainingUses: number;
-      readonly expiresAtMs: number;
-      readonly detectedAtMs?: never;
-      readonly reason?: never;
-    }
-  | {
-      readonly kind: 'exhausted';
-      readonly walletId: WalletId;
-      readonly authorizationId: ReusableWalletSessionAuthorizationId;
-      readonly walletSessionId: WalletSessionId;
-      readonly authMethod: WalletAuthMethod;
-      readonly remainingUses: 0;
-      readonly expiresAtMs: number;
-      readonly detectedAtMs?: never;
-      readonly reason?: never;
-    }
-  | {
-      readonly kind: 'expired';
-      readonly walletId: WalletId;
-      readonly authorizationId: ReusableWalletSessionAuthorizationId;
-      readonly walletSessionId: WalletSessionId;
-      readonly authMethod: WalletAuthMethod;
-      readonly expiresAtMs: number;
-      readonly detectedAtMs: number;
-      readonly remainingUses?: never;
-      readonly reason?: never;
-    }
-  | {
-      readonly kind: 'missing';
-      readonly walletId: WalletId;
-      readonly authorizationId: ReusableWalletSessionAuthorizationId;
-      readonly walletSessionId: WalletSessionId;
-      readonly authMethod: WalletAuthMethod;
-      readonly remainingUses?: never;
-      readonly expiresAtMs?: never;
-      readonly detectedAtMs?: never;
-      readonly reason?: never;
-    }
-  // R90-INV-010. The authority or lifecycle behind this session was replaced,
-  // so the session is stale rather than broken: discard it and resolve current
-  // state again. It carries no expiry or remaining uses because the replaced
-  // session's budget is no longer the one that governs.
-  | {
-      readonly kind: 'superseded';
-      readonly walletId: WalletId;
-      readonly authorizationId: ReusableWalletSessionAuthorizationId;
-      readonly walletSessionId: WalletSessionId;
-      readonly authMethod: WalletAuthMethod;
-      readonly detectedAtMs: number;
-      readonly remainingUses?: never;
-      readonly expiresAtMs?: never;
-      readonly reason?: never;
-    }
-  | {
-      readonly kind: 'unavailable';
-      readonly walletId: WalletId;
-      readonly authorizationId?: ReusableWalletSessionAuthorizationId;
-      readonly reason: 'persistence_unavailable';
-      readonly walletSessionId?: never;
-      readonly authMethod?: never;
-      readonly remainingUses?: never;
-      readonly expiresAtMs?: never;
-      readonly detectedAtMs?: never;
-    }
-  | {
-      readonly kind: 'invalid';
-      readonly walletId: WalletId;
-      readonly authorizationId?: ReusableWalletSessionAuthorizationId;
-      // `lifecycle_mismatch` is gone: replacement is `superseded`, which the
-      // caller re-resolves. Collapsing it here told adapters a routine
-      // replacement was a broken session.
-      readonly reason:
-        | 'malformed'
-        | 'identity_mismatch'
-        | 'ambiguous_wallet_session'
-        | 'auth_method_mismatch';
-      readonly walletSessionId?: never;
-      readonly authMethod?: never;
-      readonly remainingUses?: never;
-      readonly expiresAtMs?: never;
-      readonly detectedAtMs?: never;
-    };
-
 export type WalletSessionCapabilityLaneReadiness =
   | {
       readonly kind: 'ready';
@@ -583,7 +465,6 @@ export type WalletSessionCapabilityProjection =
 export interface WalletSession {
   readonly appIdentity: WalletSessionAppIdentity;
   readonly authentication: WalletAuthenticationState;
-  readonly reusableWalletSession: ReusableWalletSessionState;
   readonly capabilityProjection: WalletSessionCapabilityProjection;
   readonly nonceDiagnostics: NonceCoordinatorDiagnostics | null;
 }

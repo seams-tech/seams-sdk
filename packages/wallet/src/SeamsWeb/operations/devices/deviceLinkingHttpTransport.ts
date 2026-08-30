@@ -4,6 +4,7 @@ import type {
   LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV5,
+  LocalAuthorityActivationFinalAckV1,
   LinkedDeviceTargetPreparationRequestV1,
 } from '@shared/device-linking';
 import {
@@ -22,6 +23,7 @@ import {
   parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceTargetPreparationRequestV1,
+  parseWalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
 import {
   computeLinkedDevicePublicKeyDigestV1,
@@ -42,6 +44,7 @@ import type {
   DeviceLinkingAuthorityActivationTransportPortV1,
   DeviceLinkingKeyMaterialHandleV1,
   DeviceLinkingKeyMaterialPortV1,
+  DeviceLinkingWalletSessionAcknowledgementReplayPortV1,
   LinkSessionSnapshotV1,
   LinkSessionSubscriptionV1,
   LinkSessionOwnerTransportPortV1,
@@ -112,6 +115,12 @@ export type DeviceLinkingSessionTransportAssemblyOptionsV1 = {
   readonly pollIntervalMs: number;
 };
 
+export type DeviceLinkingWalletSessionAcknowledgementTransportOptionsV1 = {
+  readonly http: HttpTransport;
+  readonly relayerUrl: string;
+  readonly projectEnvironmentId: string;
+};
+
 type SessionMutationEnvelopeV1 = {
   readonly ok: true;
   readonly outcome: 'applied' | 'replayed';
@@ -132,6 +141,7 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
   }
   return {
     ...createDeviceLinkingAuthorityActivationTransportV1(options),
+    ...createDeviceLinkingWalletSessionAcknowledgementReplayPortV1(options),
     createUnclaimedSessionV1: async (input) => {
       await requestMutationV1({
         options,
@@ -271,6 +281,31 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
         linkSessionId,
         onEvent,
       }),
+  };
+}
+
+export function createDeviceLinkingWalletSessionAcknowledgementReplayPortV1(
+  options: DeviceLinkingWalletSessionAcknowledgementTransportOptionsV1,
+): DeviceLinkingWalletSessionAcknowledgementReplayPortV1 {
+  const baseUrl = normalizeBaseUrl(options.relayerUrl);
+  return {
+    acknowledgeLocalAuthorityActivationWithWalletSessionV1: async ({
+      acknowledgement,
+      operationCredential,
+    }) => {
+      const parsedAcknowledgement = parseLocalAuthorityActivationFinalAckV1(acknowledgement);
+      const parsedCredential = parseWalletSessionOperationCredentialV1(operationCredential);
+      if (parsedCredential.walletSessionId !== parsedAcknowledgement.walletSessionId) {
+        throw new Error('linked-device acknowledgement credential does not match Wallet Session');
+      }
+      await requestWalletSessionAcknowledgementV1({
+        options,
+        baseUrl,
+        linkSessionId: parsedAcknowledgement.linkSessionId,
+        token: parsedCredential.token,
+        body: parsedAcknowledgement,
+      });
+    },
   };
 }
 
@@ -434,6 +469,35 @@ async function requestDeviceV1(input: {
     throw new Error(parseHttpFailureMessageV1(response.value));
   }
   return response.value;
+}
+
+async function requestWalletSessionAcknowledgementV1(input: {
+  readonly options: DeviceLinkingWalletSessionAcknowledgementTransportOptionsV1;
+  readonly baseUrl: string;
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly token: string;
+  readonly body: LocalAuthorityActivationFinalAckV1;
+}): Promise<void> {
+  const token = input.token.trim();
+  const projectEnvironmentId = input.options.projectEnvironmentId.trim();
+  if (!token || !projectEnvironmentId) {
+    throw new Error('linked-device Wallet Session acknowledgement requires session credentials');
+  }
+  const response = await input.options.http.request({
+    method: 'POST',
+    url: `${input.baseUrl}${sessionActionPath(input.linkSessionId, 'receipt')}`,
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'X-Seams-Environment-Id': projectEnvironmentId,
+    },
+    body: input.body,
+  });
+  if (!response.ok) throw new Error(`linked-device request failed: ${response.message}`);
+  if (response.value.status < 200 || response.value.status >= 300) {
+    throw new Error(parseHttpFailureMessageV1(response.value));
+  }
 }
 
 async function createPollingSubscriptionV1(input: {

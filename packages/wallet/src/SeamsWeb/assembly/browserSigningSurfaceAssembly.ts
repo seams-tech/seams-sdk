@@ -8,7 +8,10 @@ import {
 import { IndexedDbEcdsaCapabilityManifestStore } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
-import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import {
+  createRelayerExactWalletSessionStatusPort,
+  type ExactWalletSessionStatus,
+} from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningOperation } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
 import { createCanonicalWalletSessionStatusReader } from '@/core/signingEngine/session/lifecycle/canonicalWalletSessionStatus';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
@@ -31,6 +34,7 @@ import {
 import {
   authorizeEvmFamilyEcdsaSigningCapability,
   buildCanonicalEvmFamilyEcdsaSigningCapability,
+  buildExactEcdsaDirectCapabilityRuntime,
   buildExactEvmFamilyWalletSessionAuthorization,
   type AuthorizedEvmFamilyEcdsaSigningCapability,
   type BuildExactEvmFamilyWalletSessionAuthorizationInput,
@@ -38,6 +42,11 @@ import {
   type ExactEvmFamilyWalletSessionAuthorization,
   type EvmFamilyEcdsaSigningCapabilityAvailability,
 } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
+import {
+  buildActiveNearEd25519WalletSessionAuthorization,
+  type ExactNearEd25519WalletSessionAuthorization,
+  type NearEd25519WalletSessionAuthorizationReadResult,
+} from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
@@ -78,6 +87,7 @@ import {
 } from '@shared/utils/signerDomain';
 import {
   walletAuthAuthorityRef,
+  type WalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -94,10 +104,12 @@ import type { EcdsaCapabilityManifestLookup } from '@/core/indexedDB/seamsWallet
 import { readEmailOtpProviderSubjectForWalletV1 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import { readExactWalletSessionAuthorization } from './createBrowserRecoveryPublicDeps';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
+import { resolveExactEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 import type {
   CurrentEcdsaSealedSessionRecord,
   CurrentSealedSessionRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import type { ActiveWalletSessionV1 } from '@shared/device-linking/contracts';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 
@@ -119,9 +131,38 @@ type BrowserSelectedWalletAuthorityResolution = Awaited<
 type BrowserEcdsaWalletSessionAuthorizationInput = Pick<
   Parameters<
     Parameters<typeof createSigningEnginePorts>[0]['resolveAuthorizedEcdsaSigningCapability']
-  >[0],
+>[0],
   'walletId' | 'chainTarget' | 'materialActivation'
 >;
+
+function walletSessionImmutableIdentityMatches(
+  left: ActiveWalletSessionV1,
+  right: ActiveWalletSessionV1,
+): boolean {
+  return (
+    left.kind === right.kind &&
+    left.walletId === right.walletId &&
+    left.authorityId === right.authorityId &&
+    left.authMethodId === right.authMethodId &&
+    left.authorizationId === right.authorizationId &&
+    left.quotaId === right.quotaId &&
+    left.issuedAtMs === right.issuedAtMs &&
+    left.expiresAtMs === right.expiresAtMs
+  );
+}
+
+function walletSessionMatchesSelectedAuthority(
+  session: ActiveWalletSessionV1,
+  selected: BrowserSelectedWalletAuthority,
+): boolean {
+  return (
+    session.walletId === selected.authority.walletId &&
+    session.authorityId === selected.authority.authorityId &&
+    session.authMethodId === selected.authMethod.walletAuthMethodId &&
+    session.authorityDigestB64u === selected.authority.authorityDigestB64u &&
+    session.authorityRevocationEpoch === selected.authority.revocationEpoch
+  );
+}
 
 function omitPasskeyRestoreAuthMethod(
   input: RestorePersistedSessionForSigningInput,
@@ -139,6 +180,16 @@ type ExactWalletAuthMethodStore = Pick<
   | 'listWalletAuthMethodsForWallet'
   | 'readEmailOtpProviderSubjectForWallet'
 >;
+
+const browserExactWalletAuthMethodStore: ExactWalletAuthMethodStore = {
+  getWalletAuthMethodV2: IndexedDBManager.getWalletAuthMethodV2.bind(IndexedDBManager),
+  listWalletAuthMethodsForWallet:
+    IndexedDBManager.listWalletAuthMethodsForWallet.bind(IndexedDBManager),
+  readEmailOtpProviderSubjectForWallet: readEmailOtpProviderSubjectForWalletV1.bind(
+    null,
+    IndexedDBManager,
+  ),
+};
 
 async function noWalletPasskeyAuthenticator(): Promise<null> {
   return null;
@@ -223,6 +274,170 @@ function exactSelectedWalletAuthority(
   };
 }
 
+async function resolveBrowserSelectedFactorAuthority(
+  selected: BrowserSelectedWalletAuthority,
+): Promise<WalletAuthAuthority> {
+  return await resolveExactWalletAuthAuthorityFromMethod({
+    authMethod: selected.authMethod,
+    stores: {
+      ...browserExactWalletAuthMethodStore,
+      getWalletPasskeyAuthenticator: noWalletPasskeyAuthenticator,
+    },
+  });
+}
+
+type NearEd25519NonAuthorizedReadResult = Exclude<
+  NearEd25519WalletSessionAuthorizationReadResult,
+  { readonly kind: 'found' }
+>;
+
+function nearEd25519ReadResultFromRemoteStatus(
+  status: ExactWalletSessionStatus,
+): NearEd25519NonAuthorizedReadResult {
+  switch (status.status) {
+    case 'missing':
+      return { kind: 'missing' };
+    case 'exhausted':
+      return { kind: 'exhausted' };
+    case 'expired':
+      return { kind: 'expired' };
+    case 'superseded':
+      return { kind: 'superseded' };
+    case 'authority_unavailable':
+      return { kind: 'authority_unavailable' };
+    case 'method_unavailable':
+      return { kind: 'method_unavailable' };
+    case 'capability_unavailable':
+      return { kind: 'capability_unavailable' };
+    case 'invalid':
+      return { kind: 'unavailable' };
+    case 'active':
+      throw new Error('[SigningEngine][near] active status must be resolved as authorization');
+    default:
+      status satisfies never;
+      throw new Error('[SigningEngine][near] unsupported Wallet Session status');
+  }
+}
+
+/**
+ * Reads the selected authority, exact V6 session row, and authenticated
+ * relayer status as one Ed25519 authorization value. The local row never
+ * authorizes an operation without the status read.
+ */
+export async function readBrowserExactNearEd25519WalletSessionAuthorization(
+  walletIdInput: ReturnType<typeof toWalletId>,
+  relayerUrlInput: string,
+): Promise<NearEd25519WalletSessionAuthorizationReadResult> {
+  const walletId = toWalletId(walletIdInput);
+  let selectedResult: BrowserSelectedWalletAuthorityResolution;
+  try {
+    selectedResult = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+  } catch {
+    return { kind: 'persistence_unavailable' };
+  }
+  const selected = exactSelectedWalletAuthority(selectedResult, walletId);
+  if (!selected) return { kind: 'missing' };
+
+  let exactRead: Awaited<ReturnType<typeof walletSessionAuthorizations.readExactActiveForWallet>>;
+  try {
+    exactRead = await walletSessionAuthorizations.readExactActiveForWallet({
+      walletId,
+      authorityId: selected.authority.authorityId,
+      authMethodId: selected.authMethod.walletAuthMethodId,
+    });
+  } catch {
+    return { kind: 'persistence_unavailable' };
+  }
+  switch (exactRead.kind) {
+    case 'missing':
+    case 'corrupt':
+    case 'persistence_unavailable':
+    case 'upgrade_required':
+      return exactRead;
+    case 'found':
+      break;
+    default:
+      exactRead satisfies never;
+      throw new Error('[SigningEngine][near] unsupported exact Wallet Session read result');
+  }
+
+  const relayerUrl = String(relayerUrlInput || '').trim();
+  if (!relayerUrl) return { kind: 'unavailable' };
+  const nowMs = Date.now();
+  if (exactRead.record.expiresAtMs <= nowMs) return { kind: 'expired' };
+
+  let status: ExactWalletSessionStatus;
+  try {
+    status = await createRelayerExactWalletSessionStatusPort({
+      relayerUrl,
+      operationCredential: exactRead.operationCredential,
+    }).read({
+      walletSessionId: exactRead.operationCredential.walletSessionId,
+      quotaId: exactRead.record.quotaId,
+    });
+  } catch {
+    return { kind: 'unavailable' };
+  }
+  if (status.status !== 'active') return nearEd25519ReadResultFromRemoteStatus(status);
+
+  let currentSelectedResult: BrowserSelectedWalletAuthorityResolution;
+  try {
+    currentSelectedResult = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+  } catch {
+    return { kind: 'persistence_unavailable' };
+  }
+  const currentSelected = exactSelectedWalletAuthority(currentSelectedResult, walletId);
+  if (!currentSelected) return { kind: 'missing' };
+  const authorizationNowMs = Date.now();
+  if (status.authorization.expiresAtMs <= authorizationNowMs) return { kind: 'expired' };
+  if (
+    status.walletSessionId !== exactRead.operationCredential.walletSessionId ||
+    status.quotaId !== exactRead.record.quotaId ||
+    status.expiresAtMs !== status.authorization.expiresAtMs ||
+    !walletSessionImmutableIdentityMatches(status.authorization, exactRead.record) ||
+    !walletSessionMatchesSelectedAuthority(status.authorization, currentSelected)
+  ) {
+    return { kind: 'corrupt' };
+  }
+  try {
+    await walletSessionAuthorizations.replaceExactActive({
+      active: status.authorization,
+      operationCredential: exactRead.operationCredential,
+    });
+  } catch {
+    return { kind: 'persistence_unavailable' };
+  }
+  let selectedFactorAuthority: WalletAuthAuthority;
+  try {
+    selectedFactorAuthority = await resolveBrowserSelectedFactorAuthority(currentSelected);
+  } catch {
+    return { kind: 'unavailable' };
+  }
+
+  try {
+    const authorization = buildActiveNearEd25519WalletSessionAuthorization({
+      selectedAuthority: currentSelected.authority,
+      selectedAuthMethod: currentSelected.authMethod,
+      selectedFactorAuthority,
+      session: status.authorization,
+      operationCredential: exactRead.operationCredential,
+      status,
+      nowMs: authorizationNowMs,
+    });
+    return { kind: 'found', authorization };
+  } catch {
+    return { kind: 'corrupt' };
+  }
+}
+
+export async function resolveBrowserActiveNearEd25519WalletSessionAuthorization(
+  walletId: ReturnType<typeof toWalletId>,
+  relayerUrl: string,
+): Promise<ExactNearEd25519WalletSessionAuthorization | null> {
+  const read = await readBrowserExactNearEd25519WalletSessionAuthorization(walletId, relayerUrl);
+  return read.kind === 'found' ? read.authorization : null;
+}
+
 function isCurrentEcdsaSealedSessionRecord(
   record: CurrentSealedSessionRecord,
 ): record is CurrentEcdsaSealedSessionRecord {
@@ -241,8 +456,6 @@ function manifestMatchesExactEcdsaAuthorization(args: {
     manifest.signer.walletId === walletId &&
     manifest.signer.authority.walletId === walletId &&
     manifest.signer.authority.walletAuthMethodId === selected.authMethod.walletAuthMethodId &&
-    String(manifest.signer.authority.authorityDigest) ===
-      String(selected.authority.authorityDigestB64u) &&
     mpcMaterialActivationRefsEqual(manifest.activation.materialActivation, materialActivation) &&
     manifest.signer.scope.targetMemberships.some(
       (membership) =>
@@ -257,10 +470,14 @@ async function buildBrowserExactEcdsaWalletSessionAuthorization(args: {
   readonly selected: BrowserSelectedWalletAuthority;
   readonly session: BrowserWalletSession;
   readonly operationCredential: BrowserWalletSessionOperationCredential;
+  readonly status: Extract<ExactWalletSessionStatus, { readonly status: 'active' }>;
   readonly chainTarget: ThresholdEcdsaChainTarget;
   readonly materialActivation: MpcMaterialActivationRef;
   readonly nowMs: number;
-}): Promise<ExactEvmFamilyWalletSessionAuthorization | null> {
+}): Promise<
+  | { readonly kind: 'resolved'; readonly authorization: ExactEvmFamilyWalletSessionAuthorization }
+  | { readonly kind: 'inactive'; readonly reason: string }
+> {
   const manifests = await listBrowserActiveEcdsaCapabilityManifestsForWallet(String(args.walletId));
   const matchingManifests = manifests.filter((candidate) =>
     manifestMatchesExactEcdsaAuthorization({
@@ -271,9 +488,14 @@ async function buildBrowserExactEcdsaWalletSessionAuthorization(args: {
       materialActivation: args.materialActivation,
     }),
   );
-  if (matchingManifests.length !== 1) return null;
+  if (matchingManifests.length !== 1) {
+    return {
+      kind: 'inactive',
+      reason: `Expected one exact ECDSA capability manifest; found ${matchingManifests.length}`,
+    };
+  }
   const [manifest] = matchingManifests;
-  if (!manifest) return null;
+  if (!manifest) return { kind: 'inactive', reason: 'Exact ECDSA capability manifest is missing' };
   const capability = await browserCanonicalEcdsaCapabilityFromManifest(manifest);
   const sealedRecords =
     await args.context.sealedSigningSessionStore.listExactSealedSessionsForWallet({
@@ -290,18 +512,57 @@ async function buildBrowserExactEcdsaWalletSessionAuthorization(args: {
     chainTarget: args.chainTarget,
     sealedRecords: sealedRecords.filter(isCurrentEcdsaSealedSessionRecord),
   });
-  if (runtimeResolution.kind !== 'resolved') return null;
-  try {
-    return buildExactEvmFamilyWalletSessionAuthorization({
-      capability,
-      selected: args.selected,
-      session: args.session,
-      operationCredential: args.operationCredential,
-      runtime: runtimeResolution.runtime,
-      nowMs: args.nowMs,
+  let runtime: BuildExactEvmFamilyWalletSessionAuthorizationInput['runtime'];
+  if (runtimeResolution.kind === 'resolved') {
+    runtime = runtimeResolution.runtime;
+  } else {
+    if (runtimeResolution.reason !== 'missing_material') {
+      return {
+        kind: 'inactive',
+        reason: `Exact sealed ECDSA runtime is ${runtimeResolution.reason}`,
+      };
+    }
+    const capabilityRuntime = await resolveExactEcdsaCapabilityRuntime({
+      manifest,
+      chainTarget: args.chainTarget,
+      relayerUrl: args.context.seamsWebConfigs.network.relayer?.url ?? '',
     });
-  } catch {
-    return null;
+    if (capabilityRuntime.kind !== 'resolved') {
+      return {
+        kind: 'inactive',
+        reason: `Exact durable ECDSA capability runtime is ${capabilityRuntime.reason}`,
+      };
+    }
+    try {
+      runtime = buildExactEcdsaDirectCapabilityRuntime({
+        runtime: capabilityRuntime.runtime,
+        authority: capability.authority,
+        status: args.status,
+      });
+    } catch {
+      return { kind: 'inactive', reason: 'Exact durable ECDSA quota facts are invalid' };
+    }
+  }
+  try {
+    return {
+      kind: 'resolved',
+      authorization: buildExactEvmFamilyWalletSessionAuthorization({
+        capability,
+        selected: args.selected,
+        session: args.session,
+        operationCredential: args.operationCredential,
+        runtime,
+        nowMs: args.nowMs,
+      }),
+    };
+  } catch (error) {
+    return {
+      kind: 'inactive',
+      reason:
+        error instanceof Error
+          ? error.message
+          : 'Exact ECDSA Wallet Session authorization is invalid',
+    };
   }
 }
 
@@ -329,7 +590,7 @@ export async function resolveBrowserActiveEcdsaWalletSessionAuthorization(
     };
   }
   const relayerUrl = String(args.seamsWebConfigs.network.relayer?.url || '').trim();
-  if (!relayerUrl) throw new Error('Reusable Wallet Session status requires a relayer URL');
+  if (!relayerUrl) throw new Error('Exact Wallet Session status requires a relayer URL');
   const exactAuthorization = await readExactWalletSessionAuthorization(walletId);
   if (exactAuthorization.kind !== 'found') {
     return {
@@ -340,7 +601,7 @@ export async function resolveBrowserActiveEcdsaWalletSessionAuthorization(
   if (exactAuthorization.record.expiresAtMs <= nowMs) {
     return { kind: 'inactive', reason: 'Exact Wallet Session authorization is expired' };
   }
-  const status = await createRelayerReusableWalletSessionStatusPort({
+  const status = await createRelayerExactWalletSessionStatusPort({
     relayerUrl,
     operationCredential: exactAuthorization.operationCredential,
   }).read({
@@ -348,28 +609,54 @@ export async function resolveBrowserActiveEcdsaWalletSessionAuthorization(
     quotaId: exactAuthorization.record.quotaId,
   });
   if (status.status !== 'active') {
-    return { kind: 'inactive', reason: `Reusable Wallet Session is ${status.status}` };
+    return { kind: 'inactive', reason: `Exact Wallet Session is ${status.status}` };
+  }
+  const currentSelectedResult = await IndexedDBManager.resolveSelectedWalletAuthority(
+    String(walletId),
+  );
+  const currentSelected = exactSelectedWalletAuthority(currentSelectedResult, walletId);
+  if (
+    !currentSelected ||
+    status.walletSessionId !== exactAuthorization.operationCredential.walletSessionId ||
+    status.quotaId !== exactAuthorization.record.quotaId ||
+    status.expiresAtMs !== status.authorization.expiresAtMs ||
+    !walletSessionImmutableIdentityMatches(status.authorization, exactAuthorization.record) ||
+    !walletSessionMatchesSelectedAuthority(status.authorization, currentSelected)
+  ) {
+    return { kind: 'inactive', reason: 'Exact Wallet Session status identity is inconsistent' };
   }
   const authorizationNowMs = Date.now();
-  if (exactAuthorization.record.expiresAtMs <= authorizationNowMs) {
+  if (status.authorization.expiresAtMs <= authorizationNowMs) {
     return { kind: 'inactive', reason: 'Exact Wallet Session authorization is expired' };
   }
-  const authorization = await buildBrowserExactEcdsaWalletSessionAuthorization({
+  try {
+    await walletSessionAuthorizations.replaceExactActive({
+      active: status.authorization,
+      operationCredential: exactAuthorization.operationCredential,
+    });
+  } catch {
+    return {
+      kind: 'inactive',
+      reason: 'Exact Wallet Session promotion reconciliation could not be persisted',
+    };
+  }
+  const authorizationResolution = await buildBrowserExactEcdsaWalletSessionAuthorization({
     context: args,
     walletId,
-    selected,
-    session: exactAuthorization.record,
+    selected: currentSelected,
+    session: status.authorization,
     operationCredential: exactAuthorization.operationCredential,
+    status,
     chainTarget: input.chainTarget,
     materialActivation: input.materialActivation,
     nowMs: authorizationNowMs,
   });
-  if (!authorization) {
-    return { kind: 'inactive', reason: 'Exact ECDSA Wallet Session runtime is unavailable' };
+  if (authorizationResolution.kind !== 'resolved') {
+    return authorizationResolution;
   }
   return {
     kind: 'active',
-    authorization,
+    authorization: authorizationResolution.authorization,
   };
 }
 
@@ -662,11 +949,7 @@ export async function listBrowserEcdsaSigningCapabilitiesForWallet(
         materialActivation: manifest.activation.materialActivation,
       },
     );
-    if (
-      authorizationResolution.kind === 'active' &&
-      String(authorizationResolution.authorization.selectedAuthority.authorityDigestB64u) ===
-        String(capability.manifest.signer.authority.authorityDigest)
-    ) {
+    if (authorizationResolution.kind === 'active') {
       try {
         capabilities.push(
           authorizeEvmFamilyEcdsaSigningCapability({
@@ -865,12 +1148,11 @@ export function createBrowserSigningSurfaceEnginePorts(
                 );
             }
           },
-          readActiveWalletSessionAuthorization: async (walletId) => {
-            const read = await walletSessionAuthorizations.readActiveForWallet(
+          readActiveWalletSessionAuthorization: (walletId) =>
+            readBrowserExactNearEd25519WalletSessionAuthorization(
               toWalletId(walletId),
-            );
-            return read.kind === 'found' ? read.projection : null;
-          },
+              String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
+            ),
           listEcdsaSigningCapabilitiesForWallet: (input) =>
             listBrowserEcdsaSigningCapabilitiesForWallet(args, input),
         },

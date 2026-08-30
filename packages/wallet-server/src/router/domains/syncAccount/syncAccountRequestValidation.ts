@@ -1,8 +1,4 @@
 import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
-import {
-  parseWalletSessionClientCapabilityV1,
-  type WalletSessionClientCapabilityV1,
-} from '@shared/authorization/capabilityKinds';
 
 export type SyncAccountOptionsRequest = {
   rp_id: string;
@@ -14,7 +10,6 @@ export type SyncAccountVerifyRequest = {
   challengeId: string;
   webauthn_authentication: Record<string, unknown>;
   expected_origin: string;
-  walletSessionClientCapability: WalletSessionClientCapabilityV1;
 };
 
 export type SyncAccountRouteErrorBody = {
@@ -31,7 +26,6 @@ const SYNC_ACCOUNT_OPTIONS_KEYS = ['rp_id', 'account_id', 'ttl_ms'] as const;
 const SYNC_ACCOUNT_VERIFY_KEYS = [
   'challengeId',
   'webauthn_authentication',
-  'walletSessionClientCapability',
 ] as const;
 
 function invalidSyncAccountBody(message: string): SyncAccountRouteParseResult<never> {
@@ -115,20 +109,12 @@ export function parseSyncAccountVerifyRequest(input: {
   if (!expectedOrigin) {
     return invalidSyncAccountBody('Origin header is required');
   }
-  const walletSessionClientCapability = parseWalletSessionClientCapabilityV1(
-    input.body.walletSessionClientCapability,
-  );
-  if (!walletSessionClientCapability.ok) {
-    return invalidSyncAccountBody(walletSessionClientCapability.error.message);
-  }
-
   return {
     ok: true,
     request: {
       challengeId,
       webauthn_authentication: input.body.webauthn_authentication,
       expected_origin: expectedOrigin,
-      walletSessionClientCapability: walletSessionClientCapability.value,
     },
   };
 }

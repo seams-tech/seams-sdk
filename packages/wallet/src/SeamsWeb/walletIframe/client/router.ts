@@ -146,9 +146,11 @@ import {
   parseLinkedDeviceListResultV1,
   parseLinkedDeviceRevokeRequestV1,
   parseLinkedDeviceRevokeResultV1,
+  parseWalletSessionOperationCredentialV1,
   type QrLinkedDeviceSessionPayloadV5,
   type LinkedDeviceListResultV1,
   type LinkedDeviceRevokeResultV1,
+  type WalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
 import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccount';
 // The router sits below the public boundary: `options` is already normalized
@@ -263,10 +265,6 @@ import {
   type RegistrationAuthMethodInput,
   type WalletAuthMethodRevocationProof,
 } from '@shared/utils/registrationIntent';
-import {
-  requireOpaqueWalletSessionToken,
-  type OpaqueWalletSessionToken,
-} from '@shared/utils/sessionTokens';
 import { joinNormalizedUrl, stripTrailingSlashes } from '@shared/utils/normalize';
 import { needsExplicitActivation } from '@/utils/deviceDetection';
 import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
@@ -865,7 +863,7 @@ type PostResult<T> = {
 
 export type HostedWalletSeamsSessionSource = {
   readonly relayUrl: string;
-  readonly walletSessionToken: OpaqueWalletSessionToken;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
 };
 
 type HostedWalletSeamsSessionExchangeDelivery = {
@@ -1009,18 +1007,19 @@ function hostedWalletSessionSourcesMatch(
     left !== null &&
     canonicalHostedWalletRelayUrl(left.relayUrl) ===
       canonicalHostedWalletRelayUrl(right.relayUrl) &&
-    left.walletSessionToken === right.walletSessionToken
+    left.operationCredential.walletSessionId === right.operationCredential.walletSessionId &&
+    left.operationCredential.token === right.operationCredential.token
   );
 }
 
 function hostedWalletSeamsSessionSource(input: {
   readonly relayUrl?: string;
-  readonly walletSessionToken?: string;
+  readonly operationCredential?: WalletSessionOperationCredentialV1;
 }): HostedWalletSeamsSessionSource | null {
-  if (input.walletSessionToken === undefined) return null;
+  if (input.operationCredential === undefined) return null;
   return {
     relayUrl: canonicalHostedWalletRelayUrl(input.relayUrl),
-    walletSessionToken: requireOpaqueWalletSessionToken(input.walletSessionToken),
+    operationCredential: parseWalletSessionOperationCredentialV1(input.operationCredential),
   };
 }
 
@@ -1030,10 +1029,16 @@ function hostedWalletSeamsSessionSourceFromUnlock(
 ): HostedWalletSeamsSessionSource | null {
   if (request.kind !== 'custom_options') return null;
   const inventory = request.options.ecdsaKeyFactsInventory;
-  if (!inventory || inventory.mode !== 'opaque_wallet_session') return null;
+  if (
+    !inventory ||
+    inventory.mode !== 'wallet_session_operation_credential_v1' ||
+    inventory.operationCredential.kind !== 'opaque_wallet_session_operation_credential_v1'
+  ) {
+    return null;
+  }
   return hostedWalletSeamsSessionSource({
     relayUrl: defaultRelayUrl,
-    walletSessionToken: inventory.walletSessionToken,
+    operationCredential: inventory.operationCredential,
   });
 }
 
@@ -2233,7 +2238,7 @@ export class WalletIframeRouter {
     if (!source) return;
     const normalizedSource: HostedWalletSeamsSessionSource = {
       relayUrl: canonicalHostedWalletRelayUrl(source.relayUrl),
-      walletSessionToken: requireOpaqueWalletSessionToken(source.walletSessionToken),
+      operationCredential: parseWalletSessionOperationCredentialV1(source.operationCredential),
     };
     if (
       this.state.hostedWalletSessionExpiresAtMs > Date.now() + 30_000 &&
@@ -2264,14 +2269,16 @@ export class WalletIframeRouter {
     source: HostedWalletSeamsSessionSource,
   ): Promise<void> {
     const relayUrl = canonicalHostedWalletRelayUrl(source.relayUrl);
-    const walletSessionToken = requireOpaqueWalletSessionToken(source.walletSessionToken);
+    const operationCredential = parseWalletSessionOperationCredentialV1(
+      source.operationCredential,
+    );
     const appOrigin = window.location.origin;
     const walletOrigin = this.walletOriginOrigin;
     const response = await fetch(joinNormalizedUrl(relayUrl, '/wallet/session/exchange/issue'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${walletSessionToken}`,
+        Authorization: `Bearer ${operationCredential.token}`,
       },
       body: JSON.stringify({
         appOrigin,
@@ -2298,7 +2305,7 @@ export class WalletIframeRouter {
     this.state.hostedWalletSessionExpiresAtMs = redemption.expiresAtMs;
     this.state.hostedWalletSessionSource = {
       relayUrl,
-      walletSessionToken,
+      operationCredential,
     };
   }
 

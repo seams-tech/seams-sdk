@@ -32,6 +32,22 @@ export type {
   PendingWalletRegistrationLocalMaterialV1,
 } from './pendingWalletRegistrationCommit';
 export {
+  buildPendingWalletRecoveryCommitV1,
+  parsePendingWalletRecoveryCommitAppStateRow,
+  parsePendingWalletRecoveryCommitV1,
+  pendingWalletRecoveryCommitAppStateKey,
+  pendingWalletRecoveryCommitAppStateRowsMatch,
+  pendingWalletRecoveryProjectionExpectation,
+  toPendingWalletRecoveryCommitAppStateRow,
+} from './pendingWalletRecoveryCommit';
+export type {
+  PendingWalletRecoveryCommitAppStateRow,
+  PendingWalletRecoveryCommitStorageRow,
+  PendingWalletRecoveryCommitV1,
+  PendingWalletRecoveryEncryptedMaterialV1,
+  PendingWalletRecoveryTargetIdentityV1,
+} from './pendingWalletRecoveryCommit';
+export {
   LaneSealedHolderMaterialRepository,
   laneSealedHolderMaterialRepository,
   laneSealedHolderStoreKeyV1,
@@ -42,34 +58,21 @@ export type {
   LaneSealedHolderRecordLookupV1,
 } from './seamsWalletDB/laneHolderMaterialStore';
 export {
-  WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
-  WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V4,
-  WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5,
+  WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V6,
   WalletSessionAuthorizationRepository,
   WalletSessionAuthorizationUpgradeRequiredError,
   buildActiveWalletSessionV1,
-  buildActiveWalletSessionAuthorizationProjection,
-  parseExactWalletSessionAuthorizationRecordV4,
-  parseWalletSessionAuthorizationProjection,
-  parseStoredExactWalletSessionAuthorizationRow,
-  parseStoredExactWalletSessionAuthorizationWithOperationCredential,
-  retireWalletSessionAuthorizationProjection,
+  parseStoredExactWalletSessionAuthorizationRowV6,
   retireWalletSessionV1,
-  toStoredExactWalletSessionAuthorizationRow,
-  toStoredExactWalletSessionAuthorizationRowV5,
+  toStoredExactWalletSessionAuthorizationRowV6,
   walletSessionAuthorizations,
 } from './seamsWalletDB/walletSessionAuthorizationStore';
 export type {
-  ActiveWalletSessionAuthorizationProjection,
-  BuildActiveWalletSessionAuthorizationProjectionInput,
   RetiredWalletSessionV1,
-  RetiredWalletSessionAuthorizationProjection,
-  WalletSessionAuthorizationRecordV4,
+  WalletSessionAuthorizationRecord,
   WalletSessionOperationCredentialV1,
-  WalletSessionAuthorizationToken,
-  WalletSessionAuthorizationProjection,
-  WalletSessionAuthorizationReadResult,
   WalletSessionAuthorizationExactOperationCredentialReadResult,
+  WalletSessionAuthorizationExactActiveReadResult,
   WalletSessionAuthorizationRetirementReason,
 } from './seamsWalletDB/walletSessionAuthorizationStore';
 export type {
@@ -135,7 +138,10 @@ export type {
 export type {
   LocalAuthorityActivationFinalizationInputV1,
   LocalAuthorityActivationFinalizationResultV1,
+  LocalAuthorityActivationPublicationInputV1,
+  LocalAuthorityActivationPublicationResultV1,
   WalletLockGenerationAdvanceInputV1,
+  PublishPendingWalletRecoveryCommitInputV1,
 } from './seamsWalletDB/repositories';
 
 export type {

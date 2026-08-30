@@ -2,9 +2,7 @@ import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { RouterAbNormalSigningConfig } from '@/core/types/seams';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManagerContext } from '../../workerManager/SignerWorkerManager';
-import type {
-  ThresholdCredentialStorePort,
-} from '../../threshold/crypto/webauthn';
+import type { ThresholdCredentialStorePort } from '../../threshold/crypto/webauthn';
 import {
   activateEcdsaSession,
   activateExplicitKeyExportEcdsaSession,
@@ -21,7 +19,7 @@ import type {
 } from '../identity/laneIdentity';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
-import type { WalletSessionRouteAuth } from '@shared/utils/sessionTokens';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type { SigningOperationIntent } from '../operationState/types';
 import type {
   ThresholdEcdsaChainTarget,
@@ -45,8 +43,9 @@ import type {
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
+import type { EcdsaPreauthorizedSessionActivation } from '../../threshold/ecdsa/postRegistrationSessionActivation';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { persistActiveWalletSessionAuthorizationFromEcdsaBootstrap } from '../persistence/walletSessionAuthorizationProjection';
+import { persistExactWalletSessionAuthorizationFromEcdsaBootstrap } from '../persistence/walletSessionAuthorizationProjection';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export type ExistingEcdsaBootstrapKeyIntent = {
@@ -133,7 +132,7 @@ type PasskeyFreshEcdsaBootstrapExactRequestBase = EcdsaBootstrapExactRequestBase
 
 type PasskeyFreshEcdsaBootstrapExactRequest = PasskeyFreshEcdsaBootstrapExactRequestBase &
   PasskeyCredentialBootstrapAuth & {
-    routeAuth: WalletSessionRouteAuth;
+    routeAuth: WalletSessionOperationCredentialV1;
   };
 
 type EcdsaExplicitExportBootstrapRequestBase = {
@@ -159,10 +158,7 @@ export type PasskeyPreauthorizedEcdsaBootstrapRequest = EcdsaBootstrapExactReque
 export type WalletSessionReconnectEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase & {
   kind: 'wallet_session_reconnect_ecdsa_bootstrap';
   authorizationAuthority: WalletAuthAuthorityRef;
-  routeAuth: Extract<
-    WalletSessionRouteAuth,
-    { kind: 'opaque_wallet_session' }
-  >;
+  routeAuth: WalletSessionOperationCredentialV1;
   passkeyCredentialIdB64u: string;
   webauthnAuthentication?: never;
   passkeyPrfFirstB64u?: never;
@@ -181,11 +177,11 @@ type EmailOtpEcdsaBootstrapRequestBase = EcdsaBootstrapExactRequestBase & {
 export type EmailOtpEcdsaBootstrapRequest = EmailOtpEcdsaBootstrapRequestBase &
   (
     | {
-        routeAuth?: WalletSessionRouteAuth;
+        routeAuth?: WalletSessionOperationCredentialV1;
         sessionActivation?: never;
       }
     | {
-        sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        sessionActivation: EcdsaPreauthorizedSessionActivation;
         routeAuth?: never;
       }
   );
@@ -429,10 +425,9 @@ export async function bootstrapEcdsaSessionValue(
   });
   // Combined unlock overlaps both curves, then commits their shared authorization in curve order.
   await request.beforeAuthorizationPersistence?.();
-  await persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(walletSessionAuthorizations, {
+  await persistExactWalletSessionAuthorizationFromEcdsaBootstrap(walletSessionAuthorizations, {
     walletId,
     authority,
-    authMethod: signerAuth.authMethod,
     bootstrap: canonicalBootstrap,
   });
   return canonicalBootstrap;

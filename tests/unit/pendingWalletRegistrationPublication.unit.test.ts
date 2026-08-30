@@ -38,6 +38,8 @@ type ProductionPublicationState = {
   readonly walletSigners: number;
   readonly nearSigners: number;
   readonly keyMaterials: number;
+  readonly walletSessionCount: number;
+  readonly walletSessionVersions: readonly string[];
 };
 
 type ProductionPublicationRetryResult = {
@@ -114,6 +116,7 @@ async function exerciseProductionPublicationRollbackAndRetry(
     async ({ paths, input: publicationInput, nearProfileId }) => {
       const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
         await import(paths.indexedDB);
+      const { SEAMS_WALLET_STORES } = await import(paths.schemaNames);
       const seamsWalletDB = new SeamsWalletDBManager();
       seamsWalletDB.setDbName(
         createSeamsTestWalletDbName(`pending-production-publication-${crypto.randomUUID()}`),
@@ -122,6 +125,10 @@ async function exerciseProductionPublicationRollbackAndRetry(
       await db.putPendingWalletRegistrationCommit(publicationInput.pending);
 
       async function readState() {
+        const database = await seamsWalletDB.getDB();
+        const walletSessionRows = (await database.getAll(
+          SEAMS_WALLET_STORES.walletSessionAuthorizations,
+        )) as Array<{ readonly record_version?: string }>;
         return {
           pending:
             (await db.getPendingWalletRegistrationCommit({
@@ -146,6 +153,8 @@ async function exerciseProductionPublicationRollbackAndRetry(
           ).length,
           nearSigners: (await db.listAccountSignersByProfile({ profileId: nearProfileId })).length,
           keyMaterials: (await db.listKeyMaterialByProfile(nearProfileId)).length,
+          walletSessionCount: walletSessionRows.length,
+          walletSessionVersions: walletSessionRows.map((row) => row.record_version || '').sort(),
         } satisfies ProductionPublicationState;
       }
 
@@ -193,6 +202,8 @@ function expectProductionPublicationRollbackAndRetry(
     walletSigners: 0,
     nearSigners: 0,
     keyMaterials: 0,
+    walletSessionCount: 0,
+    walletSessionVersions: [],
   });
   expect(result.afterRetry).toEqual({
     pending: false,
@@ -205,6 +216,8 @@ function expectProductionPublicationRollbackAndRetry(
     walletSigners: 1,
     nearSigners: 1,
     keyMaterials: 2,
+    walletSessionCount: 1,
+    walletSessionVersions: ['wallet_session_authorization_v6'],
   });
 }
 
@@ -229,6 +242,158 @@ test.describe('pending registration publication', () => {
       signerCount: 1,
       accountCount: 1,
       keyMaterialCount: 1,
+    });
+  });
+
+  test('replaces a same-method predecessor while preserving a same-wallet sibling session', async ({
+    page,
+  }) => {
+    const fixture = await buildPasskeyNearProvisioningPublicationFixture();
+    const result = await page.evaluate(
+      async ({ paths, input: publicationInput }) => {
+        const {
+          UnifiedIndexedDBManager,
+          SeamsWalletDBManager,
+          buildActiveWalletSessionV1,
+          createSeamsTestWalletDbName,
+          toStoredExactWalletSessionAuthorizationRowV6,
+        } = await import(paths.indexedDB);
+        const { SEAMS_WALLET_STORES } = await import(paths.schemaNames);
+        if (publicationInput.walletSessionPublication.kind !== 'issued') {
+          throw new Error('publication fixture must issue a Wallet Session');
+        }
+        const seamsWalletDB = new SeamsWalletDBManager();
+        seamsWalletDB.setDbName(
+          createSeamsTestWalletDbName(`pending-publication-${crypto.randomUUID()}`),
+        );
+        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+        const active = publicationInput.walletSessionPublication.walletSession;
+        const predecessor = buildActiveWalletSessionV1({
+          ...active,
+          authorizationId: 'authorization:r103f-publication-predecessor',
+          quotaId: 'quota:r103f-publication-predecessor',
+          issuedAtMs: 11,
+          expiresAtMs: 10_001,
+        });
+        const predecessorCredential = {
+          kind: 'opaque_wallet_session_operation_credential_v1',
+          token: publicationInput.walletSessionPublication.operationCredential.token,
+          walletSessionId: 'wallet-session:r103f-publication-predecessor',
+        };
+        const sibling = buildActiveWalletSessionV1({
+          ...active,
+          authorityId: 'authority:r103f-publication-sibling',
+          authMethodId: 'wallet-auth-method:r103f-publication-sibling',
+          authorizationId: 'authorization:r103f-publication-sibling',
+          quotaId: 'quota:r103f-publication-sibling',
+          issuedAtMs: 12,
+          expiresAtMs: 10_002,
+        });
+        const siblingCredential = {
+          kind: 'opaque_wallet_session_operation_credential_v1',
+          token: publicationInput.walletSessionPublication.operationCredential.token,
+          walletSessionId: 'wallet-session:r103f-publication-sibling',
+        };
+        const database = await seamsWalletDB.getDB();
+        await database.put(
+          SEAMS_WALLET_STORES.walletSessionAuthorizations,
+          toStoredExactWalletSessionAuthorizationRowV6(predecessor, predecessorCredential),
+        );
+        await database.put(
+          SEAMS_WALLET_STORES.walletSessionAuthorizations,
+          toStoredExactWalletSessionAuthorizationRowV6(sibling, siblingCredential),
+        );
+        await db.putPendingWalletRegistrationCommit(publicationInput.pending);
+        await db.publishPendingWalletRegistrationCommit(publicationInput);
+        const rows = (await database.getAll(
+          SEAMS_WALLET_STORES.walletSessionAuthorizations,
+        )) as Array<{ readonly wallet_session_id: string }>;
+        seamsWalletDB.close();
+        return rows.map((row) => row.wallet_session_id).sort();
+      },
+      { paths: IMPORT_PATHS, input: fixture.input },
+    );
+
+    expect(result).toEqual(
+      [
+        'wallet-session:r103f-publication-sibling',
+        String(
+          (fixture.input.walletSessionPublication.kind === 'issued' &&
+            fixture.input.walletSessionPublication.operationCredential.walletSessionId) ||
+            '',
+        ),
+      ].sort(),
+    );
+    expect(result).not.toContain('wallet-session:r103f-publication-predecessor');
+  });
+
+  test('rejects credential rotation for the same exact Wallet Session', async ({ page }) => {
+    const fixture = await buildPasskeyNearProvisioningPublicationFixture();
+    const result = await page.evaluate(
+      async ({ paths, input: publicationInput }) => {
+        const {
+          UnifiedIndexedDBManager,
+          SeamsWalletDBManager,
+          createSeamsTestWalletDbName,
+          toStoredExactWalletSessionAuthorizationRowV6,
+        } = await import(paths.indexedDB);
+        const { SEAMS_WALLET_STORES } = await import(paths.schemaNames);
+        if (publicationInput.walletSessionPublication.kind !== 'issued') {
+          throw new Error('publication fixture must issue a Wallet Session');
+        }
+        const binary = String.fromCharCode(...new Uint8Array(32).fill(31));
+        const rotatedToken = `wst_${btoa(binary)
+          .replaceAll('+', '-')
+          .replaceAll('/', '_')
+          .replace(/=+$/, '')}`;
+        const existingCredential = {
+          ...publicationInput.walletSessionPublication.operationCredential,
+          token: rotatedToken,
+        };
+        const seamsWalletDB = new SeamsWalletDBManager();
+        seamsWalletDB.setDbName(
+          createSeamsTestWalletDbName(`pending-publication-${crypto.randomUUID()}`),
+        );
+        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+        const database = await seamsWalletDB.getDB();
+        await database.put(
+          SEAMS_WALLET_STORES.walletSessionAuthorizations,
+          toStoredExactWalletSessionAuthorizationRowV6(
+            publicationInput.walletSessionPublication.walletSession,
+            existingCredential,
+          ),
+        );
+        await db.putPendingWalletRegistrationCommit(publicationInput.pending);
+        let error: string | null = null;
+        try {
+          await db.publishPendingWalletRegistrationCommit(publicationInput);
+        } catch (caught) {
+          error = caught instanceof Error ? caught.message : String(caught);
+        }
+        const rows = (await database.getAll(
+          SEAMS_WALLET_STORES.walletSessionAuthorizations,
+        )) as Array<{
+          readonly operation_credential?: { readonly token?: string };
+        }>;
+        const pending = await db.getPendingWalletRegistrationCommit(publicationInput.request);
+        seamsWalletDB.close();
+        return {
+          error,
+          pending: pending !== null,
+          sessionCount: rows.length,
+          storedToken: rows[0]?.operation_credential?.token || null,
+          rotatedToken,
+        };
+      },
+      { paths: IMPORT_PATHS, input: fixture.input },
+    );
+
+    expect(result).toEqual({
+      error: 'Stored Wallet Session conflicts with the issued operation credential',
+      pending: true,
+      sessionCount: 1,
+      storedToken: result.rotatedToken,
+      rotatedToken: result.rotatedToken,
     });
   });
 
@@ -446,5 +611,79 @@ test.describe('pending registration publication', () => {
       accountCount: 0,
       keyMaterialCount: 0,
     });
+  });
+
+  test('credential-free publication promotes the canonical session and preserves its credential', async ({
+    page,
+  }) => {
+    const fixture = await buildMixedActivationPublicationFixture();
+    const result = await page.evaluate(
+      async ({ paths, input: publicationInput }) => {
+        const {
+          UnifiedIndexedDBManager,
+          SeamsWalletDBManager,
+          createSeamsTestWalletDbName,
+          buildActiveWalletSessionV1,
+          toStoredExactWalletSessionAuthorizationRowV6,
+        } = await import(paths.indexedDB);
+        const { SEAMS_WALLET_STORES } = await import(paths.schemaNames);
+        if (publicationInput.walletSessionPublication.kind !== 'issued') {
+          throw new Error('mixed publication fixture must issue a Wallet Session');
+        }
+        const issued = publicationInput.walletSessionPublication;
+        const credentialFreeInput = {
+          ...publicationInput,
+          walletSessionPublication: {
+            kind: 'credential_free_projection' as const,
+            walletSession: issued.walletSession,
+          },
+        };
+        const seamsWalletDB = new SeamsWalletDBManager();
+        seamsWalletDB.setDbName(
+          createSeamsTestWalletDbName(`pending-publication-${crypto.randomUUID()}`),
+        );
+        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+        const database = await seamsWalletDB.getDB();
+        const staleDigest = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)))
+          .replaceAll('+', '-')
+          .replaceAll('/', '_')
+          .replace(/=+$/, '');
+        const staleSession = buildActiveWalletSessionV1({
+          ...issued.walletSession,
+          authorityDigestB64u: staleDigest,
+        });
+        await database.put(
+          SEAMS_WALLET_STORES.walletSessionAuthorizations,
+          toStoredExactWalletSessionAuthorizationRowV6(staleSession, issued.operationCredential),
+        );
+        await db.putPendingWalletRegistrationCommit(publicationInput.pending);
+        await db.publishPendingWalletRegistrationCommit(credentialFreeInput);
+        const pending = await db.getPendingWalletRegistrationCommit(publicationInput.request);
+        const sessionRows = (await database.getAll(
+          SEAMS_WALLET_STORES.walletSessionAuthorizations,
+        )) as Array<{
+          readonly record?: unknown;
+          readonly operation_credential?: { readonly token?: string };
+        }>;
+        seamsWalletDB.close();
+        return {
+          pending: pending !== null,
+          sessionCount: sessionRows.length,
+          session: sessionRows[0]?.record,
+          token: sessionRows[0]?.operation_credential?.token,
+          expectedSession: issued.walletSession,
+          expectedToken: issued.operationCredential.token,
+        };
+      },
+      {
+        paths: IMPORT_PATHS,
+        input: fixture.input,
+      },
+    );
+
+    expect(result.pending).toBe(false);
+    expect(result.sessionCount).toBe(1);
+    expect(result.session).toMatchObject(result.expectedSession);
+    expect(result.token).toBe(result.expectedToken);
   });
 });

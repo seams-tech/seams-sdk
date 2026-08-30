@@ -54,7 +54,7 @@ test('rejects a fresh proof from the target auth method itself', async () => {
         walletAuthMethodId === owner.authMethod.walletAuthMethodId ? owner.authMethod : null,
     },
     sessions: {
-      revokeReusableWalletSessionsForAuthMethod: async () => {
+      retireWalletSessionAuthorizationsForAuthMethod: async () => {
         throw new Error('same-method rejection must precede session fencing');
       },
     },
@@ -114,7 +114,7 @@ test('lists active wallet authorities and hides non-linked owner records after s
         authMethods.find((method) => method.walletAuthMethodId === walletAuthMethodId) ?? null,
     },
     sessions: {
-      revokeReusableWalletSessionsForAuthMethod: async () => {
+      retireWalletSessionAuthorizationsForAuthMethod: async () => {
         throw new Error('unexpected session revocation');
       },
     },
@@ -227,7 +227,7 @@ test('revokes one exact linked auth method, fences sessions, and disables its or
             : null,
     },
     sessions: {
-      revokeReusableWalletSessionsForAuthMethod: async ({ walletAuthMethodId }) => {
+      retireWalletSessionAuthorizationsForAuthMethod: async ({ walletAuthMethodId }) => {
         fencedMethodId = walletAuthMethodId;
       },
     },
@@ -323,7 +323,7 @@ test('replays a durable revocation and retries terminal material deactivation', 
             : null,
     },
     sessions: {
-      revokeReusableWalletSessionsForAuthMethod: async () => {
+      retireWalletSessionAuthorizationsForAuthMethod: async () => {
         sessionFenceCalls += 1;
       },
     },

@@ -7,28 +7,28 @@ import type {
   Ed25519AuthorityScope,
 } from '../threshold/sessionPolicy';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
-import {
-  buildPasskeyWalletAuthAuthority,
-} from '@shared/utils/walletAuthAuthority';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   buildEmailOtpAuthContextForCanonicalWallet,
   type EmailOtpAuthUse,
 } from './identity/laneIdentity';
 import type { ExactEd25519SigningLaneIdentity } from './identity/exactSigningLaneIdentity';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 
 declare const walletId: WalletId;
 declare const routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 declare const rpId: WebAuthnRpId;
 declare const exactEd25519LaneIdentity: ExactEd25519SigningLaneIdentity;
+declare const exactOperationCredential: WalletSessionOperationCredentialV1;
 const passkeyWalletAuthAuthority = buildPasskeyWalletAuthAuthority({
   walletId,
   rpId,
   credentialIdB64u: 'credential-id',
 });
 const emailOtpAuthContext = buildEmailOtpAuthContextForCanonicalWallet({
-walletId: 'wallet.testnet',
-emailHashHex: 'email-hash',
-policy: 'session',
+  walletId: 'wallet.testnet',
+  emailHashHex: 'email-hash',
+  policy: 'session',
   retention: 'session',
   reason: 'login',
   provider: 'google',
@@ -53,11 +53,10 @@ void invalidConsumedSingleUseEmailOtpAuthUse;
 const connectEmailOtpEd25519SessionArgs: ConnectEd25519SessionArgs = {
   kind: 'exact_ed25519_provisioning',
   laneIdentity: exactEd25519LaneIdentity,
-  existingWalletSessionToken: 'wst_test',
+  operationCredential: exactOperationCredential,
   relayerKeyId: 'router-key-1',
   routerAbNormalSigning,
   participantIds: [1, 2],
-  sessionKind: 'opaque',
   source: 'email_otp',
   authority: { kind: 'wallet_auth_authority', authority: emailOtpAuthContext.authority },
   emailOtpAuthContext,
@@ -140,7 +139,6 @@ const invalidEmailOtpEd25519SessionPasskeyAuthorityArgs: ConnectEd25519SessionAr
   relayerKeyId: 'router-key-1',
   routerAbNormalSigning,
   participantIds: [1, 2],
-  sessionKind: 'opaque',
   source: 'email_otp',
   authority: { kind: 'wallet_auth_authority', authority: passkeyWalletAuthAuthority },
   emailOtpAuthContext,

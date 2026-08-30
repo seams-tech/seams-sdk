@@ -18,6 +18,7 @@ import type {
   MpcWalletSigningQuotaId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 
@@ -131,15 +132,86 @@ function exactEd25519ProvisionReturnedDifferentIdentity(args: {
   throw new Error('[threshold-ed25519] unsupported resolved provisioning identity');
 }
 
+type ConnectedEd25519Session = Extract<
+  Awaited<ReturnType<typeof connectEd25519Session>>,
+  { readonly ok: true }
+>;
+
+type ResolvedEd25519ProvisionCredential =
+  | {
+      readonly ok: true;
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+    }
+  | {
+      readonly ok: false;
+      readonly code: 'invalid_result' | 'unlock_exact_method';
+      readonly message: string;
+    };
+
+function resolveEd25519ProvisionOperationCredential(args: {
+  connected: ConnectedEd25519Session;
+  protocol: ResolvedEd25519ProvisionProtocol;
+  existingOperationCredential: WalletSessionOperationCredentialV1 | undefined;
+}): ResolvedEd25519ProvisionCredential {
+  switch (args.connected.sessionKind) {
+    case 'issued_exact_wallet_session':
+      if (args.connected.operationCredential.walletSessionId !== args.connected.walletSessionId) {
+        return {
+          ok: false,
+          code: 'invalid_result',
+          message: 'Threshold Ed25519 session mint credential does not identify its session',
+        };
+      }
+      return {
+        ok: true,
+        operationCredential: args.connected.operationCredential,
+      };
+    case 'already_committed_exact_wallet_session': {
+      if (args.protocol.kind !== 'exact' || !args.existingOperationCredential) {
+        return {
+          ok: false,
+          code: 'unlock_exact_method',
+          message:
+            'Threshold Ed25519 session reuse returned no credential; exact-method unlock is required',
+        };
+      }
+      const operationCredential = args.existingOperationCredential;
+      if (operationCredential.walletSessionId !== args.connected.walletSessionId) {
+        return {
+          ok: false,
+          code: 'unlock_exact_method',
+          message: 'Threshold Ed25519 reused session credential identifies another session',
+        };
+      }
+      return { ok: true, operationCredential };
+    }
+    default:
+      return assertNeverEd25519ProvisionSessionKind(args.connected);
+  }
+}
+
+function assertNeverEd25519ProvisionSessionKind(value: never): never {
+  throw new Error(`[threshold-ed25519] unsupported connected session kind: ${String(value)}`);
+}
+
 export async function provisionThresholdEd25519Session(
   deps: ProvisionThresholdEd25519SessionDeps,
   args: ProvisionWarmEd25519CapabilityArgs,
 ): Promise<ProvisionWarmEd25519CapabilityResult> {
   const protocol = resolveEd25519ProvisionProtocol(args);
+  if (
+    args.kind === 'exact_ed25519_provisioning' &&
+    args.operationCredential.walletSessionId !== args.laneIdentity.walletSessionId
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Threshold Ed25519 exact credential identifies another Wallet Session',
+    };
+  }
   const nearAccountId = toAccountId(protocol.nearAccountId);
   const relayerUrl = String(args.relayerUrl || deps.defaultRelayerUrl || '').trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
-  const sessionKind = 'opaque';
   if (!relayerUrl) {
     throw new Error('Missing relayer url (configs.network.relayer.url)');
   }
@@ -161,13 +233,12 @@ export async function provisionThresholdEd25519Session(
     ...(args.runtimeScopeBootstrap ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap } : {}),
     nearAccountId,
     participantIds,
-    sessionKind,
     thresholdSessionId: protocol.thresholdSessionId,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
     workerCtx,
     ...(args.kind === 'exact_ed25519_provisioning'
-      ? { existingWalletSessionToken: args.existingWalletSessionToken }
+      ? { existingOperationCredential: args.operationCredential }
       : {}),
   });
   if (!connected.ok) {
@@ -181,7 +252,6 @@ export async function provisionThresholdEd25519Session(
   const resolvedThresholdSessionId = connected.thresholdSessionId || protocol.thresholdSessionId;
   const expiresAtMs = Number(connected.expiresAtMs);
   const remainingUses = Number(connected.remainingUses);
-  const walletSessionToken = String(connected.walletSessionToken || '').trim();
   const prfFirstB64u = String(connected.passkeyPrfFirstB64u || '').trim();
   const runtimePolicyScope = connected.runtimePolicyScope;
   if (
@@ -190,8 +260,7 @@ export async function provisionThresholdEd25519Session(
     !connected.authorizationId ||
     !connected.quotaId ||
     !Number.isFinite(expiresAtMs) ||
-    !Number.isFinite(remainingUses) ||
-    !walletSessionToken
+    !Number.isFinite(remainingUses)
   ) {
     return {
       ok: false,
@@ -214,6 +283,16 @@ export async function provisionThresholdEd25519Session(
     };
   }
 
+  const credentialResolution = resolveEd25519ProvisionOperationCredential({
+    connected,
+    protocol,
+    existingOperationCredential:
+      args.kind === 'exact_ed25519_provisioning' ? args.operationCredential : undefined,
+  });
+  if (!credentialResolution.ok) return credentialResolution;
+  const { operationCredential } = credentialResolution;
+  const walletSessionToken = operationCredential.token;
+
   const mintedAuthority: MintedEd25519WalletSessionAuthority = {
     kind: 'minted_ed25519_wallet_session_authority',
     thresholdSessionId: resolvedThresholdSessionId,
@@ -223,7 +302,7 @@ export async function provisionThresholdEd25519Session(
     expiresAtMs,
     remainingUses,
     runtimePolicyScope,
-    walletSessionToken,
+    operationCredential,
   };
   const rpId = deps.touchIdPrompt.getRpId();
   if (prfFirstB64u && args.source === 'email_otp') {
@@ -279,6 +358,7 @@ export async function provisionThresholdEd25519Session(
 
   return {
     ok: true,
+    sessionKind: connected.sessionKind,
     thresholdSessionId: resolvedThresholdSessionId,
     walletSessionId: connected.walletSessionId,
     authorizationId: connected.authorizationId,
@@ -286,6 +366,6 @@ export async function provisionThresholdEd25519Session(
     expiresAtMs,
     remainingUses,
     runtimePolicyScope,
-    walletSessionToken,
+    operationCredential,
   };
 }

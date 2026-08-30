@@ -2,7 +2,6 @@ import type { RouterAbWalletSessionCredential } from '@/core/rpcClients/relayer/
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import {
   parseThresholdEd25519SessionId,
   type ThresholdEd25519SessionId,
@@ -117,12 +116,7 @@ export type BuildRouterAbEd25519SigningWalletSessionInput = {
 export function buildRouterAbEd25519SigningWalletSession(
   input: BuildRouterAbEd25519SigningWalletSessionInput,
 ): RouterAbSigningWalletSessionResult<RouterAbEd25519SigningWalletSession> {
-  let walletSessionToken: string;
-  try {
-    walletSessionToken = requireOpaqueWalletSessionToken(input.walletSessionToken);
-  } catch {
-    return { ok: false, reason: 'missing_wallet_session_token' };
-  }
+  const walletSessionToken = nonEmptyString(input.walletSessionToken);
   const auth = buildWalletSessionOpaqueAuth(walletSessionToken);
   if (!auth) return { ok: false, reason: 'missing_wallet_session_token' };
   const walletId = nonEmptyString(input.walletId);

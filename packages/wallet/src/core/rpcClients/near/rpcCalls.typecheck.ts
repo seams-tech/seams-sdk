@@ -10,7 +10,7 @@ declare const credential: WebAuthnAuthenticationCredential;
 declare const activationPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
 declare const ed25519Session: PasskeyWalletUnlockEd25519Session;
 
-if (ed25519Session.sessionKind === 'issued_wallet_session_v1') {
+if (ed25519Session.sessionKind === 'issued_exact_wallet_session') {
   ed25519Session.operationCredential.token satisfies string;
 } else {
   // @ts-expect-error Reused sessions are credential-free at this boundary.

@@ -23,9 +23,8 @@ import type {
   RegistrationEstablishedSessionProjectionV2,
   RegistrationEstablishedSessionResultV2,
 } from '@shared/utils/registrationEstablishedSession';
-import type { WalletSessionClientCapabilityV1 } from '@shared/authorization/capabilityKinds';
 import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
-import type { ReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
+import type { WalletSessionMintId } from '@shared/authorization/capabilityKinds';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import type {
   RegistrationNearAccountProvisioning,
@@ -128,7 +127,7 @@ type WalletRegistrationSessionCommitReadyBaseV2 =
   WalletRegistrationSessionCommitReceiptMetadataV2 & {
     readonly foundingAuthority: ActiveWalletAuthorityV1;
     readonly foundingAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
-    readonly mintId: ReusableWalletSessionMintId;
+    readonly mintId: WalletSessionMintId;
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
     readonly custodyKeyManifestDigestB64u: DigestB64u;
@@ -390,7 +389,6 @@ type WalletRegistrationActivateRequestBaseV2 = {
   registrationCeremonyId: string;
   signedSetup: SignedSetupPayloadB64u;
   idempotencyKey: ActivateIdempotencyKey;
-  walletSessionClientCapability: WalletSessionClientCapabilityV1;
 };
 
 export type ActivateEcdsaWorkV2 = {
@@ -508,7 +506,6 @@ export type WalletRegistrationNearProvisioningRequestV2 = {
   idempotencyKey: ActivateIdempotencyKey;
   ed25519: Extract<WalletRegistrationFinalizeRequest, { kind: 'near_ed25519' }>['ed25519'];
   emailOtpEnrollment?: NonNullable<WalletRegistrationFinalizeRequest['emailOtpEnrollment']>;
-  walletSessionClientCapability: WalletSessionClientCapabilityV1;
 };
 
 type WalletRegistrationNearProvisioningSuccessV2 = Extract<

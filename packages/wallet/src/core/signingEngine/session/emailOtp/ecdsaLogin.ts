@@ -26,10 +26,7 @@ import type {
   ThresholdEcdsaExplicitKeyExportActivationResult,
   ThresholdEcdsaSessionBootstrapResult,
 } from '@/core/signingEngine/threshold/ecdsa/activation';
-import {
-  walletSessionAuthorizations,
-  type ActiveWalletSessionAuthorizationProjection,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactWalletSessionAuthorization } from '../persistence/walletSessionAuthorizationProjection';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   EmailOtpEd25519YaoRecoveryBootstrapV1,
@@ -71,6 +68,7 @@ import {
   unlockEmailOtpWalletCapabilities,
   unlockEmailOtpWallet,
   type EmailOtpEd25519YaoUnlockResult,
+  type EmailOtpWalletUnlockCapabilityResults,
   type EmailOtpWalletUnlockResult,
 } from './walletUnlock';
 import { disposeWalletCustodyEd25519ActiveClientV1 } from '../../walletCustody/ed25519ActiveClient';
@@ -86,7 +84,6 @@ import {
   assertEmailOtpSigningSessionAuthLane,
   buildEmailOtpSigningSessionRoutePlan,
   emailOtpEcdsaBootstrapRouteAuthFromRoutePlan,
-  emailOtpEcdsaBootstrapRouteAuthToTransport,
   type EmailOtpEcdsaBootstrapAuthorization,
 } from './routePlan';
 import {
@@ -108,7 +105,11 @@ import {
   type ThresholdEcdsaEmailOtpExportActivationRequest,
 } from '../passkey/ecdsaSessionProvision';
 import { SigningSessionIds } from '../operationState/types';
-import { buildStrictEcdsaPostRegistrationSessionActivationRequest } from '../../threshold/ecdsa/postRegistrationSessionActivation';
+import {
+  buildStrictEcdsaPostRegistrationSessionActivationRequest,
+  isEcdsaCredentialFreeSessionActivationAuthorization,
+  type EcdsaPreauthorizedSessionActivation,
+} from '../../threshold/ecdsa/postRegistrationSessionActivation';
 
 import type { RouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbEcdsaPostRegistrationSessionActivationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -119,13 +120,10 @@ import {
   type EcdsaSessionIdentity,
 } from '../warmCapabilities/ecdsaProvisionPlan';
 import { generateSessionId } from '../passkey/prfCache';
-import {
-  requireOpaqueWalletSessionToken,
-  type WalletSessionRouteAuth,
-} from '@shared/utils/sessionTokens';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
-import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
+import { parseWalletSessionMintId } from '@shared/authorization/capabilityKinds';
 import {
   mpcMaterialActivationRefsEqual,
   parseProviderSubject,
@@ -155,6 +153,14 @@ type EmailOtpLoginSessionPolicy = {
   readonly remainingUses: number;
 };
 
+type EmailOtpEcdsaWorkerResult =
+  | EmailOtpWalletUnlockResult
+  | EmailOtpWalletUnlockCapabilityResults['ecdsa'];
+
+type EmailOtpEcdsaWalletUnlockResult =
+  | Extract<EmailOtpWalletUnlockResult, { operation: 'wallet_unlock' }>
+  | EmailOtpWalletUnlockCapabilityResults['ecdsa'];
+
 export type EmailOtpThresholdEcdsaLoginTimingBucket =
   | 'emailOtpProofVerificationMs'
   | 'ecdsaMaterialRestoreMs'
@@ -182,11 +188,8 @@ type EmailOtpEd25519YaoLoginMaterial =
 export type EmailOtpThresholdEcdsaLoginResult = {
   recovery: EmailOtpBootstrapRecovery;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  authorization: ActiveWalletSessionAuthorizationProjection;
-  authorizations: readonly [
-    ActiveWalletSessionAuthorizationProjection,
-    ...ActiveWalletSessionAuthorizationProjection[],
-  ];
+  authorization: ExactWalletSessionAuthorization;
+  authorizations: readonly [ExactWalletSessionAuthorization, ...ExactWalletSessionAuthorization[]];
   emailOtpSessionHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
   ed25519YaoRecovery: EmailOtpEd25519YaoLoginMaterial;
   timings: EmailOtpThresholdEcdsaLoginTimings;
@@ -263,7 +266,7 @@ async function establishEmailOtpUnlockedEd25519ExportRootCapability(args: {
     Awaited<ReturnType<typeof unlockEmailOtpWalletCapabilities>>,
     { kind: 'wallet_unlock_capabilities' }
   >;
-  readonly authorization: ActiveWalletSessionAuthorizationProjection;
+  readonly authorization: ExactWalletSessionAuthorization;
   readonly walletAuthMethodId: string;
 }): Promise<void> {
   try {
@@ -272,10 +275,10 @@ async function establishEmailOtpUnlockedEd25519ExportRootCapability(args: {
       {
         existingEnvelope: args.unlock.ed25519ExportRootCustody.existingEnvelope,
         existingFactorSecret: args.unlock.ed25519ExportRootCustody.factorSecret32,
-        walletId: String(args.authorization.walletId),
+        walletId: String(args.authorization.record.walletId),
         walletAuthMethodId: args.walletAuthMethodId,
-        walletSessionId: String(args.authorization.walletSessionId),
-        expiresAtMs: args.authorization.expiresAtMs,
+        walletSessionId: String(args.authorization.operationCredential.walletSessionId),
+        expiresAtMs: args.authorization.record.expiresAtMs,
       },
     );
   } catch (error: unknown) {
@@ -669,7 +672,7 @@ function buildAuthoritativeEmailOtpMixedWalletSigningBudget(args: {
 }
 
 function resolveEmailOtpLoginSigningBudget(args: {
-  ecdsaResult: EmailOtpWalletUnlockResult;
+  ecdsaResult: EmailOtpEcdsaWorkerResult;
   ed25519YaoResult: EmailOtpEd25519YaoUnlockResult | null;
   emailOtpAuthPolicy: EmailOtpAuthPolicy;
   routePlan: EmailOtpRoutePlan;
@@ -731,12 +734,32 @@ function buildEmailOtpUnlockSessionPolicy(args: {
 }
 
 function requireEmailOtpUnlockSessionResponse(
-  result: EmailOtpWalletUnlockResult,
-): RouterAbEcdsaPostRegistrationSessionActivationResponseV1 {
-  if (!result.ecdsaSession) {
+  result: EmailOtpEcdsaWorkerResult,
+  walletSessionAuthorization: ExactWalletSessionAuthorization | undefined,
+): EcdsaPreauthorizedSessionActivation {
+  if (result.operation !== 'wallet_unlock' || !result.ecdsaSession) {
     throw new Error('Email OTP unlock did not return its ECDSA Wallet Session');
   }
+  if (result.ecdsaSession.kind === 'router_ab_ecdsa_credential_free_session_activated_v1') {
+    if (!walletSessionAuthorization) {
+      throw new Error('Email OTP combined unlock did not return its exact Wallet Session');
+    }
+    return {
+      kind: 'credential_free_ecdsa_session_activation_authorization_v1',
+      activation: result.ecdsaSession,
+      authorization: walletSessionAuthorization,
+    };
+  }
   return result.ecdsaSession;
+}
+
+function requirePreparedEmailOtpUnlockSessionResponse(
+  value: EcdsaPreauthorizedSessionActivation | null,
+): EcdsaPreauthorizedSessionActivation {
+  if (!value) {
+    throw new Error('Email OTP unlock did not return its prepared ECDSA Wallet Session');
+  }
+  return value;
 }
 
 function requireEmailOtpEcdsaCustodySigner(
@@ -777,7 +800,7 @@ function nonEmptyEmailOtpEcdsaChainTargets(
 }
 
 async function restoreEmailOtpEcdsaCustodyContinuity(args: {
-  readonly restore: EmailOtpWalletUnlockResult & { readonly operation: 'wallet_unlock' };
+  readonly restore: EmailOtpEcdsaWalletUnlockResult;
   readonly walletId: string;
   readonly keyHandle: string;
   readonly authority: WalletAuthAuthorityRef;
@@ -814,22 +837,14 @@ function requireEmailOtpUnlockThresholdSessionId(value: string) {
 }
 
 function requireEmailOtpUnlockWalletSessionMintId(value: string) {
-  const parsed = parseReusableWalletSessionMintId(value);
+  const parsed = parseWalletSessionMintId(value);
   if (!parsed.ok) throw new Error('Failed to create Email OTP Wallet Session mint identity');
   return parsed.value;
 }
 
-function requireEmailOtpWalletSessionToken(value: unknown) {
-  const walletSessionToken = String(value || '').trim();
-  if (!walletSessionToken) {
-    throw new Error('Email OTP unlock returned an empty Wallet Session token');
-  }
-  return requireOpaqueWalletSessionToken(walletSessionToken);
-}
-
 function requireEmailOtpBootstrapTransportAuth(
-  value: WalletSessionRouteAuth | undefined,
-): WalletSessionRouteAuth {
+  value: WalletSessionOperationCredentialV1 | undefined,
+): WalletSessionOperationCredentialV1 {
   if (!value) throw new Error('Email OTP ECDSA bootstrap requires route auth');
   return value;
 }
@@ -892,11 +907,11 @@ export function buildEmailOtpExistingKeyActivation(args: {
   authorization:
     | {
         kind: 'route_authorized';
-        routeAuth: WalletSessionRouteAuth;
+        routeAuth: WalletSessionOperationCredentialV1;
       }
     | {
         kind: 'preauthorized_wallet_unlock';
-        sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        sessionActivation: EcdsaPreauthorizedSessionActivation;
       };
 }): ThresholdEcdsaActivationRequest {
   if (args.emailOtpWorkerSessionHandle.action !== 'threshold_ecdsa_bootstrap') {
@@ -970,7 +985,7 @@ export function buildEmailOtpRecoveredKeyActivation(args: {
   relayerUrl: string;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpSessionAuthContext;
   emailOtpWorkerSessionHandle: ReturnType<typeof parseEmailOtpWorkerIssuedSessionHandle>;
-  routeAuth: WalletSessionRouteAuth;
+  routeAuth: WalletSessionOperationCredentialV1;
 }): ThresholdEcdsaActivationRequest {
   if (args.emailOtpWorkerSessionHandle.action !== 'threshold_ecdsa_bootstrap') {
     throw new Error('Email OTP ECDSA recovery requires a threshold ECDSA worker handle');
@@ -1007,12 +1022,12 @@ type EmailOtpPrimaryEcdsaSessionProvisioning =
   | {
       kind: 'route_authorized';
       sessionIdentity: EcdsaSessionIdentity;
-      routeAuth: WalletSessionRouteAuth;
+      routeAuth: WalletSessionOperationCredentialV1;
     }
   | {
       kind: 'preauthorized_wallet_unlock';
       request: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
-      response: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+      response: EcdsaPreauthorizedSessionActivation;
     };
 
 function resolveEmailOtpPrimaryEcdsaSessionProvisioning(
@@ -1029,7 +1044,9 @@ function resolveEmailOtpPrimaryEcdsaSessionProvisioning(
       };
     case 'preauthorized_wallet_unlock': {
       const policy = provisioning.request.session_policy;
-      const session = provisioning.response.session;
+      const session = isEcdsaCredentialFreeSessionActivationAuthorization(provisioning.response)
+        ? provisioning.response.activation.session
+        : provisioning.response.session;
       if (policy.threshold_session_id !== session.threshold_session_id) {
         throw new Error('Email OTP unlock returned a different prepared ECDSA session identity');
       }
@@ -1084,12 +1101,7 @@ export async function provisionEmailOtpExistingKeySessions(args: {
       ? primarySession.authorization
       : {
           kind: 'route_authorized' as const,
-          routeAuth: {
-            kind: 'opaque_wallet_session' as const,
-            walletSessionToken: requireEmailOtpWalletSessionToken(
-              primaryBootstrap.session.walletSessionToken,
-            ),
-          },
+          routeAuth: primaryBootstrap.session.operationCredential,
         };
   const additionalContext: ProvisionEmailOtpExistingKeySessionContext = {
     ...provisionContext,
@@ -1098,12 +1110,7 @@ export async function provisionEmailOtpExistingKeySessions(args: {
       primarySession: {
         kind: 'route_authorized',
         sessionIdentity: primarySession.sessionIdentity,
-        routeAuth: {
-          kind: 'opaque_wallet_session',
-          walletSessionToken: requireEmailOtpWalletSessionToken(
-            primaryBootstrap.session.walletSessionToken,
-          ),
-        },
+        routeAuth: primaryBootstrap.session.operationCredential,
       },
     },
     authorization: additionalAuthorization,
@@ -1354,95 +1361,6 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
   });
 }
 
-export async function resolveReusableEmailOtpEcdsaUnlockOperationCredential(args: {
-  readonly walletId: WalletSessionRef['walletId'];
-  readonly authority: ResolvedEmailOtpExistingEcdsaKey['persistedRoleLocalMaterial']['authority'];
-  readonly materialActivation: ResolvedEmailOtpExistingEcdsaKey['persistedRoleLocalMaterial']['materialActivation'];
-}): Promise<string | null> {
-  const walletId = toWalletId(args.walletId);
-  let selected: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
-  try {
-    selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
-  } catch {
-    return null;
-  }
-  if (selected.kind !== 'resolved') return null;
-  if (
-    selected.selection.lockState !== 'unlocked' ||
-    selected.selection.walletId !== walletId ||
-    selected.selection.walletAuthMethodId !== selected.authMethod.walletAuthMethodId ||
-    selected.authMethod.kind !== 'email_otp' ||
-    selected.authMethod.status !== 'active' ||
-    selected.authMethod.walletId !== walletId ||
-    selected.authMethod.walletAuthorityId !== selected.authority.authorityId ||
-    selected.authority.state !== 'active' ||
-    selected.authority.walletId !== walletId ||
-    args.authority.walletId !== walletId ||
-    args.authority.walletAuthMethodId !== selected.authMethod.walletAuthMethodId
-  ) {
-    return null;
-  }
-  let factorAuthorityRef: WalletAuthAuthorityRef;
-  try {
-    const factorAuthority = await resolveExactWalletAuthAuthority({
-      authMethod: selected.authMethod,
-      stores: emailOtpOwnerLaneScopeStores(),
-    });
-    if (!isEmailOtpWalletAuthAuthority(factorAuthority)) return null;
-    factorAuthorityRef = await walletAuthAuthorityRef({ authority: factorAuthority });
-  } catch {
-    return null;
-  }
-  if (
-    factorAuthorityRef.walletId !== args.authority.walletId ||
-    factorAuthorityRef.walletAuthMethodId !== args.authority.walletAuthMethodId ||
-    factorAuthorityRef.authorityDigest !== args.authority.authorityDigest
-  ) {
-    return null;
-  }
-  const ecdsaActivation = selected.authority.signerActivations.ecdsa;
-  if (
-    !ecdsaActivation ||
-    ecdsaActivation.signer.walletId !== walletId ||
-    !mpcMaterialActivationRefsEqual(ecdsaActivation.materialActivation, args.materialActivation)
-  ) {
-    return null;
-  }
-  let read: Awaited<
-    ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
-  >;
-  try {
-    read = await walletSessionAuthorizations.readExactWithOperationCredential({
-      walletId,
-      authorityId: selected.authority.authorityId,
-      authMethodId: selected.authMethod.walletAuthMethodId,
-    });
-  } catch {
-    return null;
-  }
-  if (read.kind !== 'found') return null;
-  const { record, operationCredential } = read;
-  if (
-    record.walletId !== walletId ||
-    record.authorityId !== selected.authority.authorityId ||
-    record.authMethodId !== selected.authMethod.walletAuthMethodId ||
-    record.authorityDigestB64u !== selected.authority.authorityDigestB64u ||
-    record.authorityRevocationEpoch !== selected.authority.revocationEpoch ||
-    record.expiresAtMs <= Date.now() ||
-    operationCredential.walletSessionId.trim().length === 0 ||
-    operationCredential.token.trim().length === 0
-  ) {
-    return null;
-  }
-  const signSubjects = record.capabilitySubjects.filter(
-    (subject) =>
-      subject.kind === 'sign' &&
-      subject.keyFamily === 'ecdsa_secp256k1' &&
-      mpcMaterialActivationRefsEqual(subject.materialActivation, args.materialActivation),
-  );
-  return signSubjects.length === 1 ? String(operationCredential.token) : null;
-}
-
 async function runEmailOtpEcdsaCapability(
   args: LoginEmailOtpEcdsaCapabilityArgs | PrepareEmailOtpEcdsaExportCapabilityArgs,
   ports: EmailOtpEcdsaLoginPorts,
@@ -1492,7 +1410,7 @@ async function runEmailOtpEcdsaCapability(
       ? emailOtpEcdsaBootstrapRouteAuthFromRoutePlan(routePlan)
       : args.ecdsaBootstrapAuthorization.routeAuth;
   const bootstrapTransportAuth = bootstrapRouteAuth
-    ? emailOtpEcdsaBootstrapRouteAuthToTransport(bootstrapRouteAuth)
+    ? bootstrapRouteAuth.operationCredential
     : undefined;
   // Runtime policy comes from sealed runtime state.
   const requestedRuntimePolicyScope = args.runtimePolicyScope;
@@ -1589,16 +1507,6 @@ async function runEmailOtpEcdsaCapability(
           signerSlot: args.ed25519YaoRecovery.signerSlot,
         })
       : null;
-  const reusableWalletSessionOperationCredential =
-    isWalletUnlock && args.ed25519YaoRecovery.kind === 'not_requested'
-      ? existingKey
-        ? await resolveReusableEmailOtpEcdsaUnlockOperationCredential({
-            walletId: args.walletSession.walletId,
-            authority: existingKey.persistedRoleLocalMaterial.authority,
-            materialActivation: existingKey.persistedRoleLocalMaterial.materialActivation,
-          })
-        : null
-      : null;
   const preparedUnlockSessionPolicy = isWalletUnlock
     ? clampThresholdSessionPolicy({
         ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
@@ -1686,12 +1594,6 @@ async function runEmailOtpEcdsaCapability(
                       keyHandle: ecdsaKeyHandle,
                     })
                   : preparedUnlockSessionPolicyWire,
-                walletSessionAuthorization: reusableWalletSessionOperationCredential
-                  ? {
-                      kind: 'reuse_ed25519_wallet_session' as const,
-                      walletSessionToken: reusableWalletSessionOperationCredential,
-                    }
-                  : { kind: 'verified_wallet_unlock' as const },
               }
             : {
                 ecdsaSessionHandleBinding: emailOtpNonUnlockEcdsaHandleBinding({
@@ -1730,6 +1632,10 @@ async function runEmailOtpEcdsaCapability(
     unlockResult.kind === 'wallet_unlock_capabilities' ? unlockResult.ecdsa : unlockResult;
   const ed25519YaoResult =
     unlockResult.kind === 'wallet_unlock_capabilities' ? unlockResult.ed25519Yao : null;
+  const walletSessionAuthorization =
+    unlockResult.kind === 'wallet_unlock_capabilities'
+      ? unlockResult.walletSessionAuthorization
+      : undefined;
   try {
     if (workerResult.operation === 'wallet_unlock' && !existingKey) {
       const restoreAuthority = await walletAuthAuthorityRef({
@@ -1787,7 +1693,7 @@ async function runEmailOtpEcdsaCapability(
     }
     addEmailOtpThresholdEcdsaLoginTiming(timings, 'emailOtpProofVerificationMs', timingStartedAtMs);
     const preparedUnlockSessionResponse = effectivePreparedUnlockSessionActivation
-      ? requireEmailOtpUnlockSessionResponse(workerResult)
+      ? requireEmailOtpUnlockSessionResponse(workerResult, walletSessionAuthorization)
       : null;
     const sessionPolicy = preparedUnlockSessionResponse
       ? buildEmailOtpEcdsaOnlySigningBudget({
@@ -1833,7 +1739,7 @@ async function runEmailOtpEcdsaCapability(
         ? {
             kind: 'preauthorized_wallet_unlock',
             request: effectivePreparedUnlockSessionActivation,
-            response: requireEmailOtpUnlockSessionResponse(workerResult),
+            response: requirePreparedEmailOtpUnlockSessionResponse(preparedUnlockSessionResponse),
           }
         : {
             kind: 'route_authorized',

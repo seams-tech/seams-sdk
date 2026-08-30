@@ -21,6 +21,7 @@ import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { WalletId } from '@shared/utils/registrationIntent';
 import type { RootShareEpoch, WebAuthnRpId } from '@shared/utils/domainIds';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type {
   MpcWalletSigningQuotaId,
   WalletSessionId,
@@ -493,25 +494,24 @@ export type Ed25519SessionPolicy = {
   remainingUses: number;
 };
 
-export type ThresholdEd25519VerifiedWalletAuth =
-  | {
-      kind: 'threshold_ecdsa_session';
-      claims: {
-        sub: string;
-        walletId: string;
-        kind: 'router_ab_ecdsa_derivation_wallet_session_v1';
-        thresholdSessionId: string;
-        walletSessionId: WalletSessionId;
-        quotaId: MpcWalletSigningQuotaId;
-        keyScope: 'evm-family';
-        keyHandle: string;
-        relayerKeyId: string;
-        evmFamilySigningKeySlotId: string;
-        runtimePolicyScope?: ThresholdRuntimePolicyScope;
-        thresholdExpiresAtMs: number;
-        participantIds: number[];
-      };
-    };
+export type ThresholdEd25519VerifiedWalletAuth = {
+  kind: 'threshold_ecdsa_session';
+  claims: {
+    sub: string;
+    walletId: string;
+    kind: 'router_ab_ecdsa_derivation_wallet_session_v1';
+    thresholdSessionId: string;
+    walletSessionId: WalletSessionId;
+    quotaId: MpcWalletSigningQuotaId;
+    keyScope: 'evm-family';
+    keyHandle: string;
+    relayerKeyId: string;
+    evmFamilySigningKeySlotId: string;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    thresholdExpiresAtMs: number;
+    participantIds: number[];
+  };
+};
 
 export type ThresholdEd25519SessionAuth =
   | {
@@ -632,12 +632,12 @@ export type WalletKeyFactsInventoryAuth =
       curve?: never;
     }
   | {
-      kind: 'opaque_wallet_session';
-      curve: 'ecdsa_secp256k1';
-      credential?: never;
-      expectedChallengeDigestB64u?: never;
-      serverNonceB64u?: never;
-      runtimePolicyScope?: never;
+      kind: WalletSessionOperationCredentialV1['kind'];
+      walletSessionId: WalletSessionId;
+    }
+  | {
+      kind: 'opaque_hosted_wallet_session_operation_credential_v1';
+      walletSessionId: WalletSessionId;
     };
 
 export interface ThresholdEcdsaDerivationFinalizeResponse {

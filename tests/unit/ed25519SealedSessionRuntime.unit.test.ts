@@ -13,14 +13,25 @@ import { toAccountId } from '@/core/types/accountIds';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyExactEd25519AuthorizationFixture,
   buildEmailOtpEd25519SealedSessionRecordFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  buildPromotedActiveWalletSessionFixture,
+  extendFixtureAuthorityWithEcdsaSigner,
+} from './helpers/linkedDeviceManagement.fixtures';
+import {
+  buildActiveNearEd25519WalletSessionAuthorization,
+  buildAuthorizedNearEd25519YaoSigningPreparation,
+} from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { buildUseLiveRuntimeHydrationPlan } from '@/core/signingEngine/session/material/mpcCapabilityHydration';
+import { nearEd25519YaoRuntimeRef } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 
 const RECORD = buildPasskeyEd25519SealedSessionRecordFixture();
-const AUTHORIZATION = buildPasskeyEd25519AuthorizationProjectionFixture(RECORD);
+const AUTHORIZATION = buildPasskeyExactEd25519AuthorizationFixture(RECORD);
 const LANE = buildEd25519PasskeySigningLane({
   walletId: toWalletId(RECORD.walletId),
   nearAccountId: toAccountId(RECORD.ed25519Restore.nearAccountId),
@@ -33,8 +44,8 @@ const LANE = buildEd25519PasskeySigningLane({
     rpId: toRpId('wallet.example.test'),
     credentialIdB64u: 'ed25519-sealed-runtime-credential',
   },
-  walletSessionId: AUTHORIZATION.walletSessionId,
-  quotaId: AUTHORIZATION.quotaId,
+  walletSessionId: AUTHORIZATION.operationCredential.walletSessionId,
+  quotaId: AUTHORIZATION.session.quotaId,
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session(RECORD.thresholdSessionIds.ed25519),
   storageSource: 'login',
 });
@@ -85,11 +96,73 @@ test('builds passkey hydration state from the exact sealed runtime and active Wa
   });
 
   expect(state.thresholdSessionId).toBe(RECORD.thresholdSessionIds.ed25519);
-  expect(state.walletSessionId).toBe(AUTHORIZATION.walletSessionId);
-  expect(state.quotaId).toBe(AUTHORIZATION.quotaId);
+  expect(state.walletSessionId).toBe(AUTHORIZATION.operationCredential.walletSessionId);
+  expect(state.quotaId).toBe(AUTHORIZATION.session.quotaId);
   expect(state.signingLane.identity.signer.nearEd25519SigningKeyId).toBe(
     RECORD.ed25519Restore.nearEd25519SigningKeyId,
   );
+});
+
+test('rebinds sealed Ed25519 material to a promoted full wallet authority', async () => {
+  const resolution = await resolveExactEd25519SealedSessionRuntimeForLaneWithResolver(
+    {
+      walletId: toWalletId(RECORD.walletId),
+      laneIdentity: LANE.identity,
+    },
+    {
+      listExactSealedSessionsForWallet: async () => [RECORD],
+    },
+  );
+  expect(resolution.kind).toBe('resolved');
+  if (resolution.kind !== 'resolved') return;
+  const promotedAuthority = await extendFixtureAuthorityWithEcdsaSigner(
+    AUTHORIZATION.selectedAuthority,
+  );
+  const promotedSession = buildPromotedActiveWalletSessionFixture({
+    source: AUTHORIZATION.session,
+    authority: promotedAuthority,
+  });
+  const factorAuthorityRef = await walletAuthAuthorityRef({
+    authority: AUTHORIZATION.selectedFactorAuthority,
+  });
+  const promotedAuthorization = buildActiveNearEd25519WalletSessionAuthorization({
+    selectedAuthority: promotedAuthority,
+    selectedAuthMethod: AUTHORIZATION.selectedAuthMethod,
+    selectedFactorAuthority: AUTHORIZATION.selectedFactorAuthority,
+    session: promotedSession,
+    operationCredential: AUTHORIZATION.operationCredential,
+    status: {
+      status: 'active',
+      walletSessionId: AUTHORIZATION.status.walletSessionId,
+      quotaId: AUTHORIZATION.status.quotaId,
+      remainingUses: AUTHORIZATION.status.remainingUses,
+      expiresAtMs: AUTHORIZATION.status.expiresAtMs,
+      quotaLifecycle: 'active',
+      authorization: promotedSession,
+    },
+    nowMs: resolution.runtime.expiresAtMs - 1,
+  });
+  expect(promotedAuthority.authorityDigestB64u).not.toBe(factorAuthorityRef.authorityDigest);
+
+  const state = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
+    runtime: resolution.runtime,
+    authorization: promotedAuthorization,
+    nowMs: resolution.runtime.expiresAtMs - 1,
+  });
+
+  expect(state.authority).toEqual(factorAuthorityRef);
+  expect(state.walletSessionId).toBe(AUTHORIZATION.operationCredential.walletSessionId);
+
+  const preparation = await buildAuthorizedNearEd25519YaoSigningPreparation({
+    hydration: buildUseLiveRuntimeHydrationPlan({
+      authority: factorAuthorityRef,
+      runtime: nearEd25519YaoRuntimeRef(RECORD.ed25519Restore.materialActivation),
+      materialActivation: RECORD.ed25519Restore.materialActivation,
+    }),
+    requirement: LANE.identity.auth,
+    authorization: promotedAuthorization,
+  });
+  expect(preparation.authorization.kind).toBe('authorized');
 });
 
 test('keeps missing and conflicting sealed Ed25519 sessions distinct', async () => {

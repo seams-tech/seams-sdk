@@ -20,7 +20,6 @@ import type {
 } from '../identity/laneIdentity';
 import { laneCandidateStateFromRuntimePolicy } from '../identity/laneIdentity';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
-import type { EmailOtpEcdsaSigningSessionAuthority } from '../emailOtp/ecdsaSigningSessionAuthority';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type {
   EmailOtpEd25519SessionPolicyAuthority,
@@ -42,12 +41,10 @@ import type {
   ExactEcdsaSigningLaneIdentity,
   ExactEd25519SigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
-import {
-  walletSessionTokenForCurve,
-  type ActiveWalletSessionAuthorizationProjection,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactNearEd25519WalletSessionAuthorization } from '../material/nearEd25519YaoSigningPreparation';
 import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
 import type { MpcMaterialActivationRef, ThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 
 function authMethodForThresholdEcdsaSessionSource(
   source: ThresholdEcdsaSessionStoreSource,
@@ -197,7 +194,7 @@ type WarmSessionEd25519AuthorizationRequiredState = {
 type WarmSessionEd25519AuthorizedState = {
   capability: 'ed25519';
   runtime: ExactEd25519SealedSessionRuntime;
-  auth: ActiveWalletSessionAuthorizationProjection;
+  auth: ExactNearEd25519WalletSessionAuthorization;
   prfClaim: WarmSessionPrfClaim | null;
   invalidReason?: never;
   state: Exclude<
@@ -339,11 +336,11 @@ type WarmSessionPresentCapabilityState = Exclude<
 
 function expectedPresentCapabilityState(args: {
   capability: WarmSessionPresentCapabilityState;
-  hasWalletSessionToken: boolean;
+  hasWalletSessionAuthorization: boolean;
   emailOtpSingleUseConsumed: boolean;
 }): WarmSessionEd25519CapabilityState['state'] | WarmSessionEcdsaCapabilityState['state'] {
   const { capability } = args;
-  if (!capability.auth || !args.hasWalletSessionToken) {
+  if (!capability.auth || !args.hasWalletSessionAuthorization) {
     return capability.capability === 'ed25519' ? 'authorization_required' : 'auth_missing';
   }
   if (args.emailOtpSingleUseConsumed) return 'prf_missing';
@@ -420,12 +417,12 @@ function assertEd25519CapabilityStateInvariant(args: {
   }
 
   if (auth) {
-    if (String(auth.walletId) !== String(runtime.walletId)) {
+    if (String(auth.session.walletId) !== String(runtime.walletId)) {
       throw new Error(
         `[WarmSessionStore] invalid ${args.label} capability: authorization wallet does not match runtime`,
       );
     }
-    if (auth.authMethod !== runtime.factor.kind) {
+    if (auth.selectedAuthMethod.kind !== runtime.factor.kind) {
       throw new Error(
         `[WarmSessionStore] invalid ${args.label} capability: authorization factor does not match runtime`,
       );
@@ -463,10 +460,10 @@ function assertEd25519CapabilityStateInvariant(args: {
     }
   }
 
-  const hasWalletSessionToken = Boolean(auth && walletSessionTokenForCurve(auth, 'ed25519'));
+  const hasWalletSessionAuthorization = Boolean(auth);
   const expectedState = expectedPresentCapabilityState({
     capability,
-    hasWalletSessionToken,
+    hasWalletSessionAuthorization,
     emailOtpSingleUseConsumed: false,
   });
   if (capability.state !== expectedState) {
@@ -605,7 +602,6 @@ type ProvisionWarmEd25519CapabilityBaseArgs = {
     publishableKey: string;
   };
   participantIds: readonly number[];
-  sessionKind: 'opaque';
   relayerUrl?: string;
   ttlMs?: number;
   remainingUses?: number;
@@ -647,7 +643,7 @@ export type FreshWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519Capabi
 export type ExactWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519CapabilityCommonArgs & {
   kind: 'exact_ed25519_provisioning';
   laneIdentity: ExactEd25519SigningLaneIdentity;
-  existingWalletSessionToken: string;
+  operationCredential: WalletSessionOperationCredentialV1;
   walletId?: never;
   nearAccountId?: never;
   nearEd25519SigningKeyId?: never;
@@ -668,10 +664,10 @@ export type MintedEd25519WalletSessionAuthority = {
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  walletSessionToken: string;
+  operationCredential: WalletSessionOperationCredentialV1;
 };
 
-export type ProvisionWarmEd25519CapabilitySuccessResult = {
+type ProvisionWarmEd25519CapabilitySuccessResultBase = {
   ok: true;
   thresholdSessionId: ThresholdEd25519SessionId;
   walletSessionId: WalletSessionId;
@@ -680,8 +676,18 @@ export type ProvisionWarmEd25519CapabilitySuccessResult = {
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  walletSessionToken: string;
 };
+
+/** Warm-session callers receive an exact credential even when the issuer reused a session. */
+export type ProvisionWarmEd25519CapabilitySuccessResult =
+  | (ProvisionWarmEd25519CapabilitySuccessResultBase & {
+      sessionKind: 'issued_exact_wallet_session';
+      operationCredential: WalletSessionOperationCredentialV1;
+    })
+  | (ProvisionWarmEd25519CapabilitySuccessResultBase & {
+      sessionKind: 'already_committed_exact_wallet_session';
+      operationCredential: WalletSessionOperationCredentialV1;
+    });
 
 export type ProvisionWarmEd25519CapabilityFailureResult = {
   ok: false;
@@ -743,7 +749,7 @@ export type WarmSessionCapabilityReader = {
 export type ThresholdWarmSessionStatusReader = {
   getEd25519SigningSessionStatus: (args: {
     runtime: ExactEd25519SealedSessionRuntime;
-    authorization: ActiveWalletSessionAuthorizationProjection | null;
+    authorization: ExactNearEd25519WalletSessionAuthorization | null;
     nowMs: number;
   }) => Promise<SigningSessionStatus>;
 };

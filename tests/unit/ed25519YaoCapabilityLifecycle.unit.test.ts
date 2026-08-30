@@ -19,7 +19,7 @@ import { toRpId } from '../../packages/wallet/src/core/signingEngine/session/ide
 import { nearEd25519PublicLocatorObservation } from '../../packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface';
 import { passkeyEd25519YaoLaneReferenceFromRecovery } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
 import {
-  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyExactEd25519AuthorizationFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
@@ -207,7 +207,7 @@ test.describe('Ed25519 Yao public capability lifecycle', () => {
     const record = buildPasskeyEd25519SealedSessionRecordFixture();
     const runtime = parseExactEd25519SealedSessionRuntime(record);
     if (!runtime) throw new Error('passkey sealed runtime fixture is invalid');
-    const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(record);
+    const authorization = buildPasskeyExactEd25519AuthorizationFixture(record);
     const walletSessionState = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
       runtime,
       authorization,

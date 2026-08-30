@@ -15,6 +15,11 @@ import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
 } from '@shared/utils/routerAbEd25519Yao';
 import {
+  parseRegistrationEstablishedSessionResultV2,
+  type RegistrationEstablishedSessionProjectionV2,
+} from '@shared/utils/registrationEstablishedSession';
+import { projectRegistrationEstablishedSessionV2 } from '../../../packages/wallet-server/src/router/cloudflare/d1/registration/walletRegistrationSessionCommitReceipt';
+import {
   parseRefactor93StagingConfig,
   REFACTOR93_STAGING_CONFIG,
   REFACTOR93_STAGING_RUNTIME_PATHS,
@@ -26,6 +31,7 @@ const OBSERVED_PATHS = [
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
+  '/wallets/register/near-provisioning',
 ] as const;
 
 type ObservedPath = (typeof OBSERVED_PATHS)[number];
@@ -74,7 +80,7 @@ if (REFACTOR93_STAGING_CONFIG.mode === 'live') {
     expect(process.env.SEAMS_INTENDED_PUBLISHABLE_KEY).toBe(liveConfig.publishableKey);
   });
   test(
-    'staging registration redelivers exact terminal output for byte-identical replay',
+    'staging registration replay returns the same credential-free committed identity',
     runLiveStagingCohort,
   );
 }
@@ -89,9 +95,9 @@ async function runLiveStagingCohort({ context, page, request }: LiveTestFixtures
   );
   const pathCounter = new OperationPathCounter(REFACTOR93_STAGING_CONFIG.origins.gateway);
   context.on('request', pathCounter.observe.bind(pathCounter));
-  const replayCapture = new RegistrationExecuteReplayCapture();
+  const replayCapture = new RegistrationTerminalReplayCapture();
   await context.route(
-    `${REFACTOR93_STAGING_CONFIG.origins.gateway}${ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1}`,
+    `${REFACTOR93_STAGING_CONFIG.origins.gateway}/wallets/register/near-provisioning`,
     replayCapture.handle.bind(replayCapture),
   );
 
@@ -115,17 +121,17 @@ async function runLiveStagingCohort({ context, page, request }: LiveTestFixtures
       expectedSha: REFACTOR93_STAGING_CONFIG.expectedSha,
       pathCounts: pathCounter.snapshot(),
       requestBodySha256: replay.requestBodySha256,
-      terminalResponseSha256: replay.terminalResponseSha256,
+      committedProjectionSha256: replay.committedProjectionSha256,
     });
   } finally {
     replayCapture.clear();
   }
 }
 
-class RegistrationExecuteReplayCapture {
+class RegistrationTerminalReplayCapture {
   private replayRequest: ReplayRequest | null = null;
 
-  private terminalResponseSha256: string | null = null;
+  private issuedProjection: RegistrationEstablishedSessionProjectionV2 | null = null;
 
   private readonly observedRequestDigests: string[] = [];
 
@@ -146,7 +152,7 @@ class RegistrationExecuteReplayCapture {
         `Staging registration execute returned HTTP ${upstream.status()}: ${safeFailureSummary(responseBody)}`,
       );
     }
-    this.terminalResponseSha256 = sha256(responseBody);
+    this.issuedProjection = requireIssuedRegistrationProjection(responseBody);
     await route.fulfill({ response: upstream, body: responseBody });
   }
 
@@ -156,27 +162,31 @@ class RegistrationExecuteReplayCapture {
 
   async replayTerminalConcurrently(request: APIRequestContext): Promise<ReplayEvidence> {
     const replayRequest = this.replayRequest;
-    const expectedResponseDigest = this.terminalResponseSha256;
-    if (!replayRequest || !expectedResponseDigest) {
+    const issuedProjection = this.issuedProjection;
+    if (!replayRequest || !issuedProjection) {
       throw new Error('Registration response-loss capture did not complete');
     }
     const responses = await Promise.all([
       sendReplayRequest(request, replayRequest),
       sendReplayRequest(request, replayRequest),
     ]);
+    const committedProjectionDigests: string[] = [];
     for (const response of responses) {
       expect(response.status).toBe(200);
-      expect(response.bodySha256).toBe(expectedResponseDigest);
+      const committedProjection = requireCommittedRegistrationProjection(response.body);
+      expect(committedProjection).toEqual(issuedProjection);
+      committedProjectionDigests.push(sha256(JSON.stringify(committedProjection)));
     }
+    expect(new Set(committedProjectionDigests).size).toBe(1);
     return {
       requestBodySha256: sha256(replayRequest.body),
-      terminalResponseSha256: expectedResponseDigest,
+      committedProjectionSha256: committedProjectionDigests[0]!,
     };
   }
 
   clear(): void {
     this.replayRequest = null;
-    this.terminalResponseSha256 = null;
+    this.issuedProjection = null;
     this.observedRequestDigests.length = 0;
   }
 }
@@ -207,15 +217,14 @@ class OperationPathCounter {
 
 type ReplayRequest = {
   url: string;
-  authorization: string;
   contentType: string;
-  traceId: string;
+  traceId: string | null;
   body: string;
 };
 
 type ReplayEvidence = {
   requestBodySha256: string;
-  terminalResponseSha256: string;
+  committedProjectionSha256: string;
 };
 
 type LiveTestFixtures = {
@@ -231,9 +240,8 @@ function captureReplayRequest(
 ): ReplayRequest {
   return {
     url,
-    authorization: requireHeader(headers, 'authorization'),
     contentType: requireHeader(headers, 'content-type'),
-    traceId: requireHeader(headers, 'x-seams-trace-id'),
+    traceId: optionalHeader(headers, 'x-seams-trace-id'),
     body,
   };
 }
@@ -241,17 +249,53 @@ function captureReplayRequest(
 async function sendReplayRequest(
   request: APIRequestContext,
   replay: ReplayRequest,
-): Promise<{ status: number; bodySha256: string }> {
+): Promise<{ status: number; body: Buffer }> {
   const response = await request.fetch(replay.url, {
     method: 'POST',
     headers: {
-      authorization: replay.authorization,
       'content-type': replay.contentType,
-      'x-seams-trace-id': replay.traceId,
+      ...(replay.traceId ? { 'x-seams-trace-id': replay.traceId } : {}),
     },
     data: replay.body,
   });
-  return { status: response.status(), bodySha256: sha256(await response.body()) };
+  return { status: response.status(), body: await response.body() };
+}
+
+function requireIssuedRegistrationProjection(
+  body: Buffer,
+): RegistrationEstablishedSessionProjectionV2 {
+  const result = parseRegistrationEstablishedSessionResultV2(
+    requireRegistrationEstablishedSession(body),
+  );
+  if (result?.kind !== 'issued') {
+    throw new Error('Initial registration terminal did not issue an exact Wallet Session');
+  }
+  return projectRegistrationEstablishedSessionV2(result.session);
+}
+
+function requireCommittedRegistrationProjection(
+  body: Buffer,
+): RegistrationEstablishedSessionProjectionV2 {
+  const result = parseRegistrationEstablishedSessionResultV2(
+    requireRegistrationEstablishedSession(body),
+  );
+  if (result?.kind !== 'already_committed' || result.next !== 'unlock_exact_method') {
+    throw new Error('Registration retry did not return an exact-method committed projection');
+  }
+  return result.session;
+}
+
+function requireRegistrationEstablishedSession(body: Buffer): unknown {
+  const parsed: unknown = JSON.parse(body.toString('utf8'));
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !Object.prototype.hasOwnProperty.call(parsed, 'registrationEstablishedSession')
+  ) {
+    throw new Error('Registration terminal response is missing its session result');
+  }
+  return (parsed as { readonly registrationEstablishedSession: unknown })
+    .registrationEstablishedSession;
 }
 
 async function proxyLocalSiteRequest(localSiteOrigin: string, route: Route): Promise<void> {
@@ -286,6 +330,11 @@ function requireHeader(headers: Record<string, string>, name: string): string {
   throw new Error(`Captured staging request is missing ${name}`);
 }
 
+function optionalHeader(headers: Record<string, string>, name: string): string | null {
+  const value = String(headers[name] || '').trim();
+  return value || null;
+}
+
 function isObservedPath(value: string): value is ObservedPath {
   return (OBSERVED_PATHS as readonly string[]).includes(value);
 }
@@ -315,7 +364,7 @@ function printSafeEvidence(input: {
   expectedSha: string;
   pathCounts: Record<ObservedPath, number>;
   requestBodySha256: string;
-  terminalResponseSha256: string;
+  committedProjectionSha256: string;
 }): void {
   process.stdout.write(
     `${JSON.stringify({ version: 'refactor93_staging_browser_cohort_v1', ...input })}\n`,

@@ -23,7 +23,6 @@ import type {
   PersistedActiveWalletSessionAuthorizationV2,
   WalletSessionAuthorizationV2MintLookup,
   WalletSessionAuthorizationV2MintRead,
-  WalletSessionIssuanceResponseFamilyV1,
   WalletSessionAuthorizationV2,
   VerifiedOwnerProof,
 } from './domain';
@@ -43,18 +42,16 @@ import {
 import {
   parseHostedWalletSessionExchangeCodeId,
   parseWalletSessionAuthorizationId,
-  parseEcdsaAuthorizationSessionId,
   type MpcWalletSigningQuotaId,
   type AuthorizedOperationId,
   type PrincipalId,
-  type ReusableWalletSessionMintId,
+  type WalletSessionMintId,
   type TenantId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { WalletSessionClientCapabilityV1 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import { sha256BytesUtf8 } from '@shared/utils/digests';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import {
@@ -72,31 +69,9 @@ import type { AuthorizationEvidenceRequirement } from '@shared/authorization/cap
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import type { ThresholdEd25519AuthorityScope } from '../core/types';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
-import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
-import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
-import { parseRouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type {
-  WalletAuthAuthority,
-  WalletAuthAuthorityRef,
-} from '@shared/utils/walletAuthAuthority';
-import {
-  parseWalletAuthAuthority,
-  parseWalletAuthAuthorityRef,
-} from '@shared/utils/walletAuthAuthority';
-import type { ProviderSubject, WebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
-import {
-  parseProviderSubject,
-  parseWalletId,
-  parseWebAuthnCredentialIdB64u,
-} from '@shared/utils/domainIds';
-import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../core/ThresholdService/validation';
 import type { CapabilityOperationFingerprintDigest } from '@shared/authorization/operationFingerprint';
-import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 
 export interface AuthorizationSessionPort {
   putIssuedHostedWalletSeamsSessionExchange(
@@ -123,15 +98,11 @@ export interface AuthorizationEvidencePort {
 }
 
 export interface AuthorizationGrantPort {
-  revokeReusableWalletSessionsForAuthMethod(input: {
+  retireWalletSessionAuthorizationsForAuthMethod(input: {
     readonly tenantId: TenantId;
     readonly walletId: WalletId;
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly nowMs: number;
-  }): Promise<void>;
-  putWalletSessionAuthorizationV2(input: {
-    readonly session: WalletSessionAuthorizationV2;
-    readonly quota: ActiveWalletSessionQuota;
   }): Promise<void>;
   replaceWalletSessionAuthorizationV2AuthorityProjection(input: {
     readonly session: WalletSessionAuthorizationV2;
@@ -141,6 +112,9 @@ export interface AuthorizationGrantPort {
     input: WalletSessionAuthorizationV2MintLookup,
   ): Promise<WalletSessionAuthorizationV2MintRead | null>;
   commitDirectWalletSessionAuthorizationV2(input: {
+    readonly persisted: PersistedActiveWalletSessionAuthorizationV2;
+  }): Promise<DirectV2CommitResult>;
+  commitDirectRegistrationPromotedWalletSessionAuthorizationV2(input: {
     readonly persisted: PersistedActiveWalletSessionAuthorizationV2;
   }): Promise<DirectV2CommitResult>;
   readWalletSessionAuthorizationV2ByAuthorizationId(input: {
@@ -154,10 +128,6 @@ export interface AuthorizationGrantPort {
     readonly authorizationId: WalletSessionAuthorizationId;
     readonly nowMs: number;
   }): Promise<IssuedWalletSessionAuthorizationV2 | null>;
-  putWalletSessionAuthorizationV2OperationCredential(input: {
-    readonly session: WalletSessionAuthorizationV2;
-    readonly tokenHash: DigestB64u;
-  }): Promise<void>;
   readWalletSessionAuthorizationV2ByOperationCredential(input: {
     readonly tenantId: TenantId;
     readonly tokenHash: DigestB64u;
@@ -168,19 +138,6 @@ export interface AuthorizationGrantPort {
     readonly tokenHash: DigestB64u;
     readonly nowMs: number;
   }): Promise<ExactWalletSessionStatusV2>;
-  putOpaqueWalletSessionToken(input: {
-    readonly tokenHash: DigestB64u;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly binding: OpaqueOwnerWalletSessionBinding;
-    readonly tenantId: TenantId;
-    readonly walletSessionId: WalletSessionId;
-  }): Promise<void>;
-  readOpaqueWalletSessionToken(input: {
-    readonly tenantId: TenantId;
-    readonly tokenHash: DigestB64u;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly nowMs: number;
-  }): Promise<ResolvedOpaqueWalletSessionToken | null>;
 }
 
 export interface AuthorizedOperationPort {
@@ -236,314 +193,39 @@ export type AuthorizationServicePorts = {
   readonly audit: object;
 };
 
-export type IssueWalletSessionAuthorizationV2Input = {
+type IssueWalletSessionAuthorizationV2InputBase = {
   readonly tenantId: TenantId;
   readonly principalId: PrincipalId;
   readonly walletId: WalletId;
   readonly authority: import('@shared/authorization/walletAuthority').ActiveWalletAuthorityV1;
   readonly walletAuthMethodId: WalletAuthMethodId;
-  readonly mintId: ReusableWalletSessionMintId;
+  readonly mintId: WalletSessionMintId;
   readonly remainingUses: number;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };
 
-export type IssueDirectWalletSessionAuthorizationV2Input =
-  IssueWalletSessionAuthorizationV2Input & {
-    readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
-    readonly responseFamily: WalletSessionIssuanceResponseFamilyV1;
-  };
+export type IssueWalletSessionAuthorizationV2Input = IssueWalletSessionAuthorizationV2InputBase;
 
-export type OpaqueWalletSessionCurve = 'ecdsa' | 'ed25519';
-
-/** Trusted, curve-local data retained for an opaque owner Wallet Session. */
-export type OpaqueOwnerWalletSessionBinding =
-  | {
-      readonly kind: 'opaque_owner_wallet_session_binding_v1';
-      readonly curve: 'ed25519';
-      readonly walletId: WalletId;
-      readonly thresholdSessionId: string;
-      readonly authorizationId: WalletSessionAuthorizationId;
-      readonly walletSessionId: WalletSessionId;
-      readonly quotaId: MpcWalletSigningQuotaId;
-      readonly relayerKeyId: string;
-      readonly participantIds: readonly number[];
-      readonly thresholdExpiresAtMs: number;
-      readonly subjectId: string;
-      readonly keyManifestDigestB64u: DigestB64u;
-      readonly nearAccountId: string;
-      readonly nearEd25519SigningKeyId: string;
-      readonly authority: WalletAuthAuthority;
-      readonly authorityScope: ThresholdEd25519AuthorityScope;
-      readonly runtimePolicyScope: RuntimePolicyScope;
-      readonly routerAbNormalSigning: RouterAbEd25519NormalSigningState;
-    }
-  | {
-      readonly kind: 'opaque_owner_wallet_session_binding_v1';
-      readonly curve: 'ecdsa';
-      readonly walletId: WalletId;
-      readonly thresholdSessionId: string;
-      readonly authorizationId: WalletSessionAuthorizationId;
-      readonly authorizationSessionId: string;
-      readonly walletSessionId: WalletSessionId;
-      readonly quotaId: MpcWalletSigningQuotaId;
-      readonly relayerKeyId: string;
-      readonly participantIds: readonly number[];
-      readonly thresholdExpiresAtMs: number;
-      readonly subjectId: string;
-      readonly keyManifestDigestB64u: DigestB64u;
-      readonly keyHandle: string;
-      readonly walletAuthAuthorityRef: WalletAuthAuthorityRef;
-      readonly authSource:
-        | { readonly kind: 'passkey'; readonly credentialIdB64u: WebAuthnCredentialIdB64u }
-        | {
-            readonly kind: 'oidc_provider';
-            readonly providerId: 'google_oidc' | 'oidc';
-            readonly providerSubject: ProviderSubject;
-          };
-      readonly runtimePolicyScope?: RuntimePolicyScope;
-      readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
-    };
-
-function opaqueBindingObject(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function opaqueBindingString(value: unknown): string | null {
-  const text = typeof value === 'string' ? value.trim() : '';
-  return text || null;
-}
-
-function parseOpaqueBindingBase(value: Record<string, unknown>): {
-  walletId: WalletId;
-  thresholdSessionId: string;
-  authorizationId: WalletSessionAuthorizationId;
-  walletSessionId: WalletSessionId;
-  quotaId: MpcWalletSigningQuotaId;
-  relayerKeyId: string;
-  participantIds: readonly number[];
-  thresholdExpiresAtMs: number;
-  subjectId: string;
-  keyManifestDigestB64u: DigestB64u;
-} | null {
-  const walletId = parseWalletId(value.walletId);
-  const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
-  const walletSessionId = parseWalletSessionId(value.walletSessionId);
-  const quotaId = parseMpcWalletSigningQuotaId(value.quotaId);
-  const thresholdSessionId = opaqueBindingString(value.thresholdSessionId);
-  const relayerKeyId = opaqueBindingString(value.relayerKeyId);
-  const subjectId = opaqueBindingString(value.subjectId);
-  const thresholdExpiresAtMs = value.thresholdExpiresAtMs;
-  const participantIds = value.participantIds;
-  const normalizedParticipantIds = normalizeThresholdEd25519ParticipantIds(participantIds);
-  // The key manifest this session's key set was registered against. Owner
-  // custody seals no manifest into the seed — each key set records its own at
-  // registration — so the session claim is where a verified manifest becomes
-  // addressable per curve.
-  let keyManifestDigestB64u: DigestB64u;
-  try {
-    keyManifestDigestB64u = parseDigestB64u(value.keyManifestDigestB64u);
-  } catch {
-    return null;
-  }
-  if (
-    !walletId.ok ||
-    !authorizationId.ok ||
-    !walletSessionId.ok ||
-    !quotaId.ok ||
-    !thresholdSessionId ||
-    !relayerKeyId ||
-    !subjectId ||
-    typeof thresholdExpiresAtMs !== 'number' ||
-    !Number.isSafeInteger(thresholdExpiresAtMs) ||
-    thresholdExpiresAtMs <= 0 ||
-    !Array.isArray(participantIds) ||
-    !normalizedParticipantIds ||
-    normalizedParticipantIds.length < 2 ||
-    normalizedParticipantIds.length !== participantIds.length ||
-    normalizedParticipantIds.some((id, index) => id !== participantIds[index])
-  ) {
-    return null;
-  }
-  return {
-    walletId: walletId.value,
-    thresholdSessionId,
-    authorizationId: authorizationId.value,
-    walletSessionId: walletSessionId.value,
-    quotaId: quotaId.value,
-    relayerKeyId,
-    participantIds: normalizedParticipantIds,
-    thresholdExpiresAtMs,
-    subjectId,
-    keyManifestDigestB64u,
-  };
-}
-
-type OpaqueEcdsaAuthSource =
-  | { readonly kind: 'passkey'; readonly credentialIdB64u: WebAuthnCredentialIdB64u }
-  | {
-      readonly kind: 'oidc_provider';
-      readonly providerId: 'google_oidc' | 'oidc';
-      readonly providerSubject: ProviderSubject;
-    };
-
-function parseOpaqueEcdsaAuthSource(value: unknown): OpaqueEcdsaAuthSource | null {
-  const record = opaqueBindingObject(value);
-  if (!record) return null;
-  if (record.kind === 'passkey') {
-    const credentialId = parseWebAuthnCredentialIdB64u(record.credentialIdB64u);
-    return credentialId.ok ? { kind: 'passkey', credentialIdB64u: credentialId.value } : null;
-  }
-  if (
-    record.kind !== 'oidc_provider' ||
-    (record.providerId !== 'google_oidc' && record.providerId !== 'oidc')
-  ) {
-    return null;
-  }
-  const providerSubject = parseProviderSubject(record.providerSubject);
-  return providerSubject.ok
-    ? {
-        kind: 'oidc_provider',
-        providerId: record.providerId,
-        providerSubject: providerSubject.value,
-      }
-    : null;
-}
-
-/** Converts persisted JSON into the only owner admission shape core code accepts. */
-export function parseOpaqueOwnerWalletSessionBinding(
-  value: unknown,
-): OpaqueOwnerWalletSessionBinding | null {
-  if (typeof value === 'string') {
-    try {
-      value = JSON.parse(value);
-    } catch {
-      return null;
-    }
-  }
-  const record = opaqueBindingObject(value);
-  if (!record || record.kind !== 'opaque_owner_wallet_session_binding_v1') {
-    return null;
-  }
-  const base = parseOpaqueBindingBase(record);
-  if (!base || (record.curve !== 'ed25519' && record.curve !== 'ecdsa')) return null;
-  try {
-    if (record.curve === 'ed25519') {
-      const authority = parseWalletAuthAuthority(record.authority);
-      const nearAccountId = opaqueBindingString(record.nearAccountId);
-      const nearEd25519SigningKeyId = opaqueBindingString(record.nearEd25519SigningKeyId);
-      const runtimePolicyScope = opaqueBindingObject(record.runtimePolicyScope);
-      const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
-        record.routerAbNormalSigning,
-      );
-      if (
-        !authority ||
-        !nearAccountId ||
-        !nearEd25519SigningKeyId ||
-        !runtimePolicyScope ||
-        !routerAbNormalSigning
-      ) {
-        return null;
-      }
-      return {
-        kind: 'opaque_owner_wallet_session_binding_v1',
-        curve: 'ed25519',
-        ...base,
-        nearAccountId,
-        nearEd25519SigningKeyId,
-        authority,
-        authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
-        runtimePolicyScope: normalizeRuntimePolicyScope(runtimePolicyScope),
-        routerAbNormalSigning,
-      };
-    }
-    const authorizationSessionIdRaw = opaqueBindingString(record.authorizationSessionId);
-    const authorizationSessionId = authorizationSessionIdRaw
-      ? parseEcdsaAuthorizationSessionId(authorizationSessionIdRaw)
-      : null;
-    const keyHandle = opaqueBindingString(record.keyHandle);
-    const walletAuthAuthorityRef = parseWalletAuthAuthorityRef(record.walletAuthAuthorityRef);
-    const authSource = parseOpaqueEcdsaAuthSource(record.authSource);
-    const normalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
-      record.routerAbEcdsaDerivationNormalSigning,
-    );
-    if (
-      !authorizationSessionId?.ok ||
-      !keyHandle ||
-      !walletAuthAuthorityRef ||
-      !authSource ||
-      !normalSigning
-    ) {
-      return null;
-    }
-    const runtimePolicyScope =
-      record.runtimePolicyScope === undefined
-        ? undefined
-        : normalizeRuntimePolicyScope(opaqueBindingObject(record.runtimePolicyScope) || {});
-    return {
-      kind: 'opaque_owner_wallet_session_binding_v1',
-      curve: 'ecdsa',
-      ...base,
-      authorizationSessionId: authorizationSessionId.value,
-      keyHandle,
-      walletAuthAuthorityRef,
-      authSource,
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-      routerAbEcdsaDerivationNormalSigning: normalSigning,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export type IssuedOpaqueWalletSessionToken = {
-  readonly kind: 'opaque_wallet_session_token';
-  readonly token: string;
-  readonly curve: OpaqueWalletSessionCurve;
-  readonly expiresAtMs: number;
-};
+type DirectWalletSessionReplayMode =
+  | { readonly kind: 'strict' }
+  | { readonly kind: 'validated_registration_authority_projection' };
 
 export type PreparedWalletSessionAuthorizationV2 = {
   readonly session: WalletSessionAuthorizationV2;
   readonly quota: ActiveWalletSessionQuota;
 };
 
-export type ResolvedOpaqueWalletSessionToken = {
-  readonly kind: 'resolved_opaque_wallet_session_token';
-  readonly curve: OpaqueWalletSessionCurve;
-  readonly binding: OpaqueOwnerWalletSessionBinding;
-  readonly authorization: {
-    readonly tenantId: TenantId;
-    readonly principalId: PrincipalId;
-    readonly walletId: WalletId;
-    readonly authorityDigest: DigestB64u;
-    /**
-     * Which wallet auth method issued this session, when the row records one.
-     *
-     * Null for sessions minted before provenance was persisted: they are
-     * unattributed and cannot be fenced by binding, so they run out on their
-     * own clock instead. Everything minted since carries its issuer.
-     */
-    readonly walletAuthMethodId: WalletAuthMethodId | null;
-    readonly authorizationId: WalletSessionAuthorizationId;
-    readonly walletSessionId: WalletSessionId;
-    readonly quotaId: MpcWalletSigningQuotaId;
-    readonly expiresAtMs: number;
-  };
-};
-
 export class AuthorizationService {
   constructor(private readonly ports: AuthorizationServicePorts) {}
 
-  async revokeReusableWalletSessionsForAuthMethod(input: {
+  async retireWalletSessionAuthorizationsForAuthMethod(input: {
     readonly tenantId: TenantId;
     readonly walletId: WalletId;
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly nowMs: number;
   }): Promise<void> {
-    await this.ports.grants.revokeReusableWalletSessionsForAuthMethod(input);
+    await this.ports.grants.retireWalletSessionAuthorizationsForAuthMethod(input);
   }
 
   async mintHostedWalletSeamsSessionExchange(input: {
@@ -683,29 +365,31 @@ export class AuthorizationService {
     return await this.ports.authorizedOperations.completeAuthorizedOperation(input);
   }
 
-  async issueWalletSessionAuthorizationV2(
-    input: IssueWalletSessionAuthorizationV2Input,
-  ): Promise<IssuedWalletSessionAuthorizationV2> {
-    const prepared = await this.prepareWalletSessionAuthorizationV2(input);
-    await this.ports.grants.putWalletSessionAuthorizationV2(prepared);
-    const persisted = await this.ports.grants.readWalletSessionAuthorizationV2ByAuthorizationId({
-      expected: prepared.session,
-      nowMs: input.issuedAtMs,
-    });
-    if (!persisted) throw new Error('Issued V2 Wallet Session authorization was not persisted');
-    if (persisted.quota.remainingUses !== prepared.quota.remainingUses) {
-      throw new Error('V2 Wallet Session issuance replay does not match');
-    }
-    return persisted;
-  }
-
   /**
    * Issues one exact Wallet Session and its primary credential in the same
    * persistence transition. The replay branch is credential-free because a
    * committed digest cannot reproduce plaintext.
    */
   async issueDirectWalletSessionAuthorizationV2(
-    input: IssueDirectWalletSessionAuthorizationV2Input,
+    input: IssueWalletSessionAuthorizationV2Input,
+  ): Promise<DirectV2IssueResult> {
+    return await this.issueDirectWalletSessionAuthorizationV2WithReplayMode(input, {
+      kind: 'strict',
+    });
+  }
+
+  /** The Ed25519 registration caller validates current authority and owner proof first. */
+  async issueDirectRegistrationPromotedWalletSessionAuthorizationV2(
+    input: IssueWalletSessionAuthorizationV2Input,
+  ): Promise<DirectV2IssueResult> {
+    return await this.issueDirectWalletSessionAuthorizationV2WithReplayMode(input, {
+      kind: 'validated_registration_authority_projection',
+    });
+  }
+
+  private async issueDirectWalletSessionAuthorizationV2WithReplayMode(
+    input: IssueWalletSessionAuthorizationV2Input,
+    replayMode: DirectWalletSessionReplayMode,
   ): Promise<DirectV2IssueResult> {
     if (input.authority.walletId !== input.walletId) {
       throw new Error('Wallet Session authorization authority does not identify the wallet');
@@ -718,10 +402,12 @@ export class AuthorizationService {
       walletAuthMethodId: input.walletAuthMethodId,
       mintId: input.mintId,
     };
-    const alreadyCommitted = await this.ports.grants.readWalletSessionAuthorizationV2ByMint(lookup);
-    if (alreadyCommitted) return directV2ReplayResult(alreadyCommitted, input);
-
     const prepared = await this.prepareWalletSessionAuthorizationV2(input);
+    const alreadyCommitted = await this.ports.grants.readWalletSessionAuthorizationV2ByMint(lookup);
+    if (alreadyCommitted) {
+      return directV2AlreadyCommitted(prepared.session, alreadyCommitted.session, replayMode);
+    }
+
     const token = `wst_${secureRandomBase64Url(32, 'direct V2 Wallet Session operation credentials')}`;
     const operationCredential = parseWalletSessionOperationCredentialV1({
       kind: 'opaque_wallet_session_operation_credential_v1',
@@ -732,12 +418,23 @@ export class AuthorizationService {
       session: prepared.session,
       quota: prepared.quota,
       primaryOperationCredentialDigestB64u: await digestOpaqueValue(token),
-      walletSessionClientCapability: input.walletSessionClientCapability,
-      responseFamily: input.responseFamily,
     });
-    const commit = await this.ports.grants.commitDirectWalletSessionAuthorizationV2({ persisted });
+    let commit: DirectV2CommitResult;
+    switch (replayMode.kind) {
+      case 'strict':
+        commit = await this.ports.grants.commitDirectWalletSessionAuthorizationV2({ persisted });
+        break;
+      case 'validated_registration_authority_projection':
+        commit =
+          await this.ports.grants.commitDirectRegistrationPromotedWalletSessionAuthorizationV2({
+            persisted,
+          });
+        break;
+      default:
+        return assertNeverDirectWalletSessionReplayMode(replayMode);
+    }
     if (commit.kind === 'already_committed') {
-      return directV2ReplayResult(commit.committed, input);
+      return directV2AlreadyCommitted(prepared.session, commit.committed.session, replayMode);
     }
     const committed = await this.ports.grants.readWalletSessionAuthorizationV2ByMint(lookup);
     if (!committed) {
@@ -749,34 +446,11 @@ export class AuthorizationService {
     ) {
       throw new Error('Direct V2 Wallet Session credential digest does not match its commit');
     }
-    if (!directV2CommitMetadataMatches(committed, input)) {
-      return directV2ProtocolMismatch();
-    }
     return {
       kind: 'issued',
       session: prepared.session,
       quota: prepared.quota,
       operationCredential,
-    };
-  }
-
-  /**
-   * Issues the separately transported ordinary-operation bearer. The digest is
-   * persisted against the exact V2 authorization row; the plaintext remains
-   * in the activation/unlock response only.
-   */
-  async issueWalletSessionAuthorizationV2OperationCredential(input: {
-    readonly session: WalletSessionAuthorizationV2;
-  }): Promise<WalletSessionOperationCredentialV1> {
-    const token = `wst_${secureRandomBase64Url(32, 'V2 Wallet Session operation credentials')}`;
-    await this.ports.grants.putWalletSessionAuthorizationV2OperationCredential({
-      session: input.session,
-      tokenHash: await digestOpaqueValue(token),
-    });
-    return {
-      kind: 'opaque_wallet_session_operation_credential_v1',
-      token,
-      walletSessionId: input.session.walletSessionId,
     };
   }
 
@@ -948,80 +622,6 @@ export class AuthorizationService {
     });
   }
 
-  async issueOpaqueWalletSessionToken(input: {
-    readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
-    readonly tenantId: TenantId;
-    readonly authorizationId: WalletSessionAuthorizationId;
-    readonly walletSessionId: WalletSessionId;
-    readonly quotaId: MpcWalletSigningQuotaId;
-    readonly expiresAtMs: number;
-    readonly consumedAtMs: number;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly binding: OpaqueOwnerWalletSessionBinding;
-  }): Promise<IssuedOpaqueWalletSessionToken> {
-    if (input.proof.tenantId !== input.tenantId) {
-      throw new Error('owner proof does not match the opaque Wallet Session tenant');
-    }
-    if (
-      input.binding.curve !== input.curve ||
-      input.binding.authorizationId !== input.authorizationId ||
-      input.binding.walletSessionId !== input.walletSessionId ||
-      input.binding.quotaId !== input.quotaId ||
-      input.binding.thresholdExpiresAtMs !== input.expiresAtMs
-    ) {
-      throw new Error('opaque Wallet Session binding does not match its authorization');
-    }
-    const consumedAtMs = requirePositiveTimestamp(
-      input.consumedAtMs,
-      'owner proof consumption time',
-    );
-    if (
-      input.proof.verifiedAtMs > consumedAtMs ||
-      input.proof.expiresAtMs <= consumedAtMs ||
-      input.expiresAtMs <= consumedAtMs
-    ) {
-      throw new Error('owner proof or Wallet Session expiry is invalid');
-    }
-    const bindingJson = JSON.stringify(input.binding);
-    if (!bindingJson || bindingJson === '{}') {
-      throw new Error('opaque Wallet Session binding is required');
-    }
-    const consumed = await this.ports.evidence.consumeVerifiedOwnerProof(
-      input.proof,
-      consumedAtMs,
-      String(input.walletSessionId),
-    );
-    if (!consumed) throw new Error('owner proof has already been consumed');
-    const token = `wst_${secureRandomBase64Url(32, 'opaque Wallet Session tokens')}`;
-    await this.ports.grants.putOpaqueWalletSessionToken({
-      tokenHash: await digestOpaqueValue(token),
-      curve: input.curve,
-      binding: input.binding,
-      tenantId: input.tenantId,
-      walletSessionId: input.walletSessionId,
-    });
-    return {
-      kind: 'opaque_wallet_session_token',
-      token,
-      curve: input.curve,
-      expiresAtMs: input.expiresAtMs,
-    };
-  }
-
-  async resolveOpaqueWalletSessionToken(input: {
-    readonly tenantId: TenantId;
-    readonly token: string;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly nowMs: number;
-  }): Promise<ResolvedOpaqueWalletSessionToken | null> {
-    return await this.ports.grants.readOpaqueWalletSessionToken({
-      tenantId: input.tenantId,
-      tokenHash: await digestOpaqueValue(input.token),
-      curve: input.curve,
-      nowMs: input.nowMs,
-    });
-  }
-
   parseEvidenceRequirement(value: unknown): ParseAuthorizationEvidenceRequirementResult {
     return this.ports.policy.parseEvidenceRequirement(value);
   }
@@ -1063,56 +663,55 @@ export async function digestOpaqueValue(value: string) {
 }
 
 function directV2AlreadyCommitted(
-  session: WalletSessionAuthorizationV2,
+  prepared: WalletSessionAuthorizationV2,
+  committed: WalletSessionAuthorizationV2,
+  replayMode: DirectWalletSessionReplayMode,
 ): Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }> {
+  switch (replayMode.kind) {
+    case 'strict':
+      if (alphabetizeStringify(prepared) !== alphabetizeStringify(committed)) {
+        throw new Error('Direct V2 Wallet Session mint replay does not match its committed session');
+      }
+      break;
+    case 'validated_registration_authority_projection':
+      if (!directV2MintScopeMatches(prepared, committed)) {
+        throw new Error(
+          'Registration Ed25519 Wallet Session mint replay does not match its committed identity',
+        );
+      }
+      break;
+    default:
+      return assertNeverDirectWalletSessionReplayMode(replayMode);
+  }
   return {
     kind: 'already_committed',
-    walletId: session.walletId,
-    authorityId: session.authorityId,
-    walletAuthMethodId: session.walletAuthMethodId,
-    mintId: session.mintId,
-    authorizationId: session.authorizationId,
-    walletSessionId: session.walletSessionId,
-    quotaId: session.quotaId,
+    walletId: committed.walletId,
+    authorityId: committed.authorityId,
+    walletAuthMethodId: committed.walletAuthMethodId,
+    mintId: committed.mintId,
+    authorizationId: committed.authorizationId,
+    walletSessionId: committed.walletSessionId,
+    quotaId: committed.quotaId,
     next: 'unlock_exact_method',
   };
 }
 
-function directV2CommitMetadataMatches(
-  committed: WalletSessionAuthorizationV2MintRead,
-  expected: Pick<
-    IssueDirectWalletSessionAuthorizationV2Input,
-    'walletSessionClientCapability' | 'responseFamily'
-  >,
+function directV2MintScopeMatches(
+  prepared: WalletSessionAuthorizationV2,
+  committed: WalletSessionAuthorizationV2,
 ): boolean {
   return (
-    committed.walletSessionClientCapability === expected.walletSessionClientCapability &&
-    committed.responseFamily === expected.responseFamily
+    prepared.tenantId === committed.tenantId &&
+    prepared.principalId === committed.principalId &&
+    prepared.walletId === committed.walletId &&
+    prepared.authorityId === committed.authorityId &&
+    prepared.walletAuthMethodId === committed.walletAuthMethodId &&
+    prepared.mintId === committed.mintId
   );
 }
 
-function directV2ProtocolMismatch(): Extract<
-  DirectV2IssueResult,
-  { readonly kind: 'protocol_mismatch' }
-> {
-  return {
-    kind: 'protocol_mismatch',
-    code: 'protocol_mismatch',
-    message: 'Wallet Session unlock protocol does not match the committed issuance',
-  };
-}
-
-function directV2ReplayResult(
-  committed: WalletSessionAuthorizationV2MintRead,
-  expected: Pick<
-    IssueDirectWalletSessionAuthorizationV2Input,
-    'walletSessionClientCapability' | 'responseFamily'
-  >,
-): DirectV2IssueResult {
-  if (!directV2CommitMetadataMatches(committed, expected)) {
-    return directV2ProtocolMismatch();
-  }
-  return directV2AlreadyCommitted(committed.session);
+function assertNeverDirectWalletSessionReplayMode(value: never): never {
+  throw new Error(`Unsupported direct Wallet Session replay mode: ${String(value)}`);
 }
 
 function parseRequired<T>(

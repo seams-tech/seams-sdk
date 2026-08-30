@@ -42,7 +42,6 @@ import { storeEcdsaRoleLocalSigningMaterialWasm } from '../crypto/ecdsaDerivatio
 import {
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
-  type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   type RouterAbEcdsaOperationStepUpPreparationV1Wire,
   type RouterAbEcdsaOperationStepUpUnsealV1Wire,
   parseRouterAbEcdsaOperationStepUpPreparationV1,
@@ -55,6 +54,7 @@ import type {
 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecdsaRoleLocalMaterialResolver';
+import type { EcdsaPreauthorizedSessionActivation } from './postRegistrationSessionActivation';
 
 export type ThresholdEcdsaEvmChainTarget = EvmEip155ChainTarget;
 export type ThresholdEcdsaTempoChainTarget = TempoChainTarget;
@@ -100,7 +100,6 @@ export type ThresholdEcdsaSessionBootstrapResult = {
     runtimePolicyScope: ThresholdRuntimePolicyScope;
     walletSession: import('@shared/device-linking/contracts').ActiveWalletSessionV1;
     operationCredential: import('@shared/device-linking/contracts').WalletSessionOperationCredentialV1;
-    walletSessionToken: string;
     clientVerifyingShareB64u: string;
   };
 };
@@ -183,7 +182,7 @@ type ActivateEcdsaExistingSessionRequestBase = ActivateEcdsaSessionRequestCommon
 export type ActivateEcdsaExistingSessionRequest = ActivateEcdsaExistingSessionRequestBase &
   ActivateEcdsaSessionAuth & { purpose: 'transaction_signing' } & (
     | {
-        preauthorizedSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        preauthorizedSessionActivation: EcdsaPreauthorizedSessionActivation;
         walletSessionRouteAuth?: never;
       }
     | {
@@ -200,12 +199,15 @@ export type ActivateExplicitKeyExportEcdsaSessionRequest = {
 
 function requireStrictEcdsaRouteAuth(
   auth: ThresholdEcdsaDerivationRouteAuth | undefined,
-): Extract<ThresholdEcdsaDerivationRouteAuth, { kind: 'opaque_wallet_session' }> {
+): Extract<
+  ThresholdEcdsaDerivationRouteAuth,
+  { kind: 'opaque_wallet_session_operation_credential_v1' }
+> {
   if (!auth) {
     throw new Error('Strict ECDSA session bootstrap requires Wallet Session authority');
   }
   switch (auth.kind) {
-    case 'opaque_wallet_session':
+    case 'opaque_wallet_session_operation_credential_v1':
       return auth;
     case 'publishable_key':
       throw new Error('Strict ECDSA session bootstrap requires Wallet Session authority');
@@ -407,10 +409,6 @@ async function activateEcdsaSessionByPurpose(
   if (!thresholdSessionId) {
     throw new Error('threshold-ecdsa bootstrap returned empty thresholdSessionId');
   }
-  const walletSessionToken = String(bootstrap.walletSessionToken || '').trim();
-  if (!walletSessionToken) {
-    throw new Error('threshold-ecdsa bootstrap returned empty Wallet Session token');
-  }
   const expiresAtMs = Number(bootstrap.expiresAtMs);
   if (!Number.isFinite(expiresAtMs)) {
     throw new Error('threshold-ecdsa bootstrap returned invalid expiresAtMs');
@@ -466,7 +464,6 @@ async function activateEcdsaSessionByPurpose(
     runtimePolicyScope: bootstrap.runtimePolicyScope,
     walletSession: bootstrap.walletSession,
     operationCredential: bootstrap.operationCredential,
-    walletSessionToken,
     clientVerifyingShareB64u,
   };
 

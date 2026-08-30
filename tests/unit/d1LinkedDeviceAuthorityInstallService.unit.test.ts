@@ -27,10 +27,8 @@ import {
 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import type { PasskeyWalletAuthMethodDraftV1 } from '@shared/utils/registrationIntent';
 import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
-import {
-  AuthorizationService,
-  type PreparedWalletSessionAuthorizationV2,
-} from '../../packages/wallet-server/src/authorization/service';
+import { AuthorizationService } from '../../packages/wallet-server/src/authorization/service';
+import type { PersistedActiveWalletSessionAuthorizationV2 } from '../../packages/wallet-server/src/authorization/domain';
 import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import {
@@ -50,6 +48,7 @@ import {
   parseCommittedSignerPackageSetV1,
 } from '@shared/device-linking/committedSignerPackages';
 import { buildLinkedDeviceApprovalV1 } from '@shared/device-linking/parsers';
+import { computeWalletSessionInstallationReceiptDigestB64u } from '@shared/device-linking/digests';
 import { buildSourcePreservingEd25519ReservationRequestFixture } from './helpers/ordinarySourcePreservingReservation.fixtures';
 import {
   D1LinkedDeviceAuthorityInstallServiceV1,
@@ -77,7 +76,13 @@ import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { requireRouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import { parseDeviceId } from '@shared/authorization/capabilityKinds';
+import {
+  parseDeviceId,
+  parsePrincipalId,
+  parseTenantId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import { parseWebAuthnCredentialIdB64u, parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
   parseWalletAuthMethodId,
@@ -93,17 +98,83 @@ const scope: D1WalletAuthorityStoreScope & D1LinkedDeviceSessionScopeV1 = {
 };
 const nowMs = 3_000;
 
+function required<T>(
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+): T {
+  if (result.ok) return result.value;
+  throw new Error(result.error.message);
+}
+
 type HarnessOptions = {
   readonly deviceId?: string;
+  readonly sessionUnavailableAtMs?: number;
+  readonly cleanupBatchFailure?: {
+    mode: 'before_commit' | 'after_commit' | null;
+  };
   readonly authorizationService?: Pick<
     AuthorizationService,
-    | 'prepareWalletSessionAuthorizationV2'
-    | 'issueWalletSessionAuthorizationV2'
-    | 'issueWalletSessionAuthorizationV2OperationCredential'
+    'prepareWalletSessionAuthorizationV2' | 'readWalletSessionAuthorizationV2ByMint'
   >;
   readonly authorizationStore?: D1LinkedDeviceAuthorityInstallServiceOptionsV1['authorizationStore'];
   readonly materialActivation?: D1LinkedDeviceAuthorityInstallServiceOptionsV1['materialActivation'];
 };
+
+type LinkedDeviceAuthorityInstallSessionStore =
+  D1LinkedDeviceAuthorityInstallServiceOptionsV1['sessionStore'];
+
+class CleanupFailureSessionStore implements LinkedDeviceAuthorityInstallSessionStore {
+  constructor(
+    private readonly delegate: D1LinkedDeviceSessionStoreV1,
+    private readonly database: TemporaryD1Database['database'],
+    private readonly failure: NonNullable<HarnessOptions['cleanupBatchFailure']>,
+  ) {}
+
+  getSessionV1(
+    ...args: Parameters<D1LinkedDeviceSessionStoreV1['getSessionV1']>
+  ): ReturnType<D1LinkedDeviceSessionStoreV1['getSessionV1']> {
+    return this.delegate.getSessionV1(...args);
+  }
+
+  buildAuthorityPendingLocalInstallCasStatementsV1(
+    ...args: Parameters<
+      D1LinkedDeviceSessionStoreV1['buildAuthorityPendingLocalInstallCasStatementsV1']
+    >
+  ): ReturnType<D1LinkedDeviceSessionStoreV1['buildAuthorityPendingLocalInstallCasStatementsV1']> {
+    return this.delegate.buildAuthorityPendingLocalInstallCasStatementsV1(...args);
+  }
+
+  buildAuthorityActivationCasStatementsV1(
+    ...args: Parameters<D1LinkedDeviceSessionStoreV1['buildAuthorityActivationCasStatementsV1']>
+  ): ReturnType<D1LinkedDeviceSessionStoreV1['buildAuthorityActivationCasStatementsV1']> {
+    return this.delegate.buildAuthorityActivationCasStatementsV1(...args);
+  }
+
+  async deleteActiveSessionWithStatementsV1(
+    input: Parameters<D1LinkedDeviceSessionStoreV1['deleteActiveSessionWithStatementsV1']>[0],
+  ): Promise<
+    Awaited<ReturnType<D1LinkedDeviceSessionStoreV1['deleteActiveSessionWithStatementsV1']>>
+  > {
+    const mode = this.failure.mode;
+    if (mode === 'before_commit') {
+      this.failure.mode = null;
+      return await this.delegate.deleteActiveSessionWithStatementsV1({
+        ...input,
+        afterDeleteStatements: [
+          ...input.afterDeleteStatements,
+          this.database.prepare('SELECT * FROM forced_atomic_cleanup_fault'),
+        ],
+      });
+    }
+    const result = await this.delegate.deleteActiveSessionWithStatementsV1(input);
+    if (mode === 'after_commit') {
+      this.failure.mode = null;
+      throw new Error('scripted D1 response loss after cleanup commit');
+    }
+    return result;
+  }
+}
 
 test('allocates one opaque authority id and replays the persisted id', async () => {
   const temporary = await openDatabase();
@@ -197,7 +268,7 @@ test('allocates a fresh authority id when the same physical device relinks', asy
   }
 });
 
-test('rolls back authority activation, converges on retry, and accepts the final acknowledgement', async () => {
+test('rolls back activation and acknowledgement cleanup, converges on retry, and accepts the final acknowledgement', async () => {
   const temporary = await openDatabase();
   try {
     const source = await buildSourceAuthority();
@@ -215,19 +286,41 @@ test('rolls back authority activation, converges on retry, and accepts the final
       audit: authorizationStore,
     });
     let failNextWalletSessionStatement = true;
+    const cleanupBatchFailure: NonNullable<HarnessOptions['cleanupBatchFailure']> = {
+      mode: 'before_commit',
+    };
+    const sessionUnavailableAtMs = 10_001;
     const harness = await buildHarness(temporary, source, 'r103-atomic-activation', {
       authorizationService,
       authorizationStore: {
-        prepareWalletSessionAuthorizationV2Statements: (
-          input: PreparedWalletSessionAuthorizationV2,
+        prepareDirectWalletSessionAuthorizationV2Statements: (
+          input: PersistedActiveWalletSessionAuthorizationV2,
         ) => {
           const statements =
-            authorizationStore.prepareWalletSessionAuthorizationV2Statements(input);
+            authorizationStore.prepareDirectWalletSessionAuthorizationV2Statements(input);
           if (!failNextWalletSessionStatement) return statements;
           failNextWalletSessionStatement = false;
-          const [quotaStatement] = statements;
-          if (!quotaStatement) throw new Error('Wallet Session quota statement is missing');
+          const [
+            exhaustQuotas,
+            deleteExchanges,
+            retireCredentials,
+            retireSessions,
+            quotaStatement,
+          ] = statements;
+          if (
+            !exhaustQuotas ||
+            !deleteExchanges ||
+            !retireCredentials ||
+            !retireSessions ||
+            !quotaStatement
+          ) {
+            throw new Error('Wallet Session direct statements are incomplete');
+          }
           return [
+            exhaustQuotas,
+            deleteExchanges,
+            retireCredentials,
+            retireSessions,
             quotaStatement,
             temporary.database.prepare('SELECT * FROM forced_atomic_activation_fault'),
           ];
@@ -236,6 +329,8 @@ test('rolls back authority activation, converges on retry, and accepts the final
       materialActivation: {
         activateOrdinaryInactiveSignerMaterialV1: async () => undefined,
       },
+      cleanupBatchFailure,
+      sessionUnavailableAtMs,
     });
 
     const committed = await harness.install.commitPendingAuthorityV1(harness.input);
@@ -345,21 +440,173 @@ test('rolls back authority activation, converges on retry, and accepts the final
       counter: replay.authMethod.counter,
     });
     expect(authenticator?.device_info_json).toBeTruthy();
-    await harness.install.acknowledgeLocalAuthorityActivationV1({
-      acknowledgement: {
-        kind: 'local_authority_activation_final_ack_v1',
-        linkSessionId: harness.input.linkSessionId,
-        authorityId: replay.authority.authorityId,
-        packageSetDigestB64u: committed.packages.packageSetDigestB64u,
-        authorizationId: replay.walletSession.session.authorizationId,
-        acknowledgedAtMs: installedAtMs,
-      },
-      session: replay.session,
-      requestedAtMs: installedAtMs,
+    const delivery = await temporary.database
+      .prepare(
+        `SELECT wallet_session_id, credential_digest_b64u
+           FROM linked_device_wallet_session_credential_deliveries_v1
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ?`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        String(harness.input.linkSessionId),
+      )
+      .first<{
+        readonly wallet_session_id?: unknown;
+        readonly credential_digest_b64u?: unknown;
+      }>();
+    if (!delivery?.wallet_session_id || !delivery.credential_digest_b64u) {
+      throw new Error('sealed credential delivery is missing from the activation replay');
+    }
+    const acknowledgement = {
+      kind: 'local_authority_activation_final_ack_v1' as const,
+      linkSessionId: harness.input.linkSessionId,
+      authorityId: replay.authority.authorityId,
+      packageSetDigestB64u: committed.packages.packageSetDigestB64u,
+      authorizationId: replay.walletSession.session.authorizationId,
+      walletSessionId: required(parseWalletSessionId(String(delivery.wallet_session_id))),
+      credentialDigestB64u: parseDigestB64u(String(delivery.credential_digest_b64u)),
+      installationReceiptDigestB64u:
+        await computeWalletSessionInstallationReceiptDigestB64u(receipt),
+      acknowledgedAtMs: installedAtMs,
+    };
+    const activationReplay = await harness.install.activateInstalledAuthorityV1({
+      receipt,
+      nowMs: installedAtMs,
     });
+    expect(activationReplay.kind).toBe('active');
+    if (activationReplay.kind !== 'active') throw new Error('expected activation replay');
+    expect(activationReplay.outcome).toBe('replayed');
+    expect(alphabetizeStringify(activationReplay.sealedDelivery)).toBe(
+      alphabetizeStringify(replay.sealedDelivery),
+    );
+    expect(activationReplay.walletSession.session.authorizationId).toBe(
+      replay.walletSession.session.authorizationId,
+    );
+    expect(activationReplay.sealedDelivery.aad.credentialDigestB64u).toBe(
+      replay.sealedDelivery.aad.credentialDigestB64u,
+    );
+    await expect(
+      harness.install.acknowledgeLocalAuthorityActivationV1({
+        acknowledgement,
+        authentication: { kind: 'live', session: replay.session },
+        requestedAtMs: installedAtMs,
+      }),
+    ).rejects.toThrow(/forced_atomic_cleanup_fault|no such table/i);
+    await expect(
+      harness.sessionStore.getSessionV1(harness.input.linkSessionId),
+    ).resolves.toMatchObject({
+      revision: replay.session.revision,
+      state: {
+        state: 'active',
+        authorityId: replay.authority.authorityId,
+      },
+    });
+    const deliveryAfterFailedCleanup = await temporary.database
+      .prepare(
+        `SELECT lifecycle_kind, cleanup_state, sealed_envelope_json,
+                acknowledgement_receipt_json, cleanup_receipt_json
+           FROM linked_device_wallet_session_credential_deliveries_v1
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ?`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        String(harness.input.linkSessionId),
+      )
+      .first<{
+        readonly lifecycle_kind?: unknown;
+        readonly cleanup_state?: unknown;
+        readonly sealed_envelope_json?: unknown;
+        readonly acknowledgement_receipt_json?: unknown;
+        readonly cleanup_receipt_json?: unknown;
+      }>();
+    expect(deliveryAfterFailedCleanup).toMatchObject({
+      lifecycle_kind: 'issued',
+      cleanup_state: 'pending',
+      acknowledgement_receipt_json: null,
+      cleanup_receipt_json: null,
+    });
+    expect(deliveryAfterFailedCleanup?.sealed_envelope_json).toBeTruthy();
+    const allocationAfterFailedCleanup = await temporary.database
+      .prepare(
+        `SELECT authority_id
+           FROM linked_device_authority_allocations
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ?`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        String(harness.input.linkSessionId),
+      )
+      .first<{ readonly authority_id?: unknown }>();
+    expect(allocationAfterFailedCleanup?.authority_id).toBe(String(replay.authority.authorityId));
+    const retiredOriginal = await temporary.database
+      .prepare(
+        `UPDATE wallet_session_authorizations_v2
+            SET retired_at_ms = ?
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND tenant_id = ? AND authorization_id = ? AND wallet_session_id = ?`,
+      )
+      .bind(
+        installedAtMs,
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        String(replay.walletSession.session.tenantId),
+        String(replay.walletSession.session.authorizationId),
+        String(replay.walletSession.session.walletSessionId),
+      )
+      .run();
+    expect(retiredOriginal.meta?.changes).toBe(1);
+    const exactAuthentication = {
+      kind: 'exact_wallet_session' as const,
+      tenantId: replay.walletSession.session.tenantId,
+      principalId: replay.walletSession.session.principalId,
+      walletId: replay.walletSession.session.walletId,
+      authorityId: replay.walletSession.session.authorityId,
+      walletAuthMethodId: replay.walletSession.session.walletAuthMethodId,
+      authorizationId: required(parseWalletSessionAuthorizationId('authorization:r103-successor')),
+      walletSessionId: required(parseWalletSessionId('wallet-session:r103-successor')),
+      expiresAtMs: replay.walletSession.session.expiresAtMs + 60_000,
+    };
+    cleanupBatchFailure.mode = 'after_commit';
+    await expect(
+      harness.install.acknowledgeLocalAuthorityActivationV1({
+        acknowledgement,
+        authentication: exactAuthentication,
+        requestedAtMs: sessionUnavailableAtMs,
+      }),
+    ).resolves.toBeUndefined();
     await expect(
       harness.sessionStore.getSessionV1(harness.input.linkSessionId),
     ).resolves.toBeNull();
+    const linkSessionAfterCleanup = await temporary.database
+      .prepare(
+        `SELECT link_session_id
+           FROM linked_device_sessions
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ?`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        String(harness.input.linkSessionId),
+      )
+      .first();
+    expect(linkSessionAfterCleanup).toBeNull();
     const allocation = await temporary.database
       .prepare(
         `SELECT authority_id
@@ -376,6 +623,151 @@ test('rolls back authority activation, converges on retry, and accepts the final
       )
       .first();
     expect(allocation).toBeNull();
+
+    const cleanupReceipt = await harness.install.readActivationCleanupReceiptV1({
+      linkSessionId: harness.input.linkSessionId,
+      requestedAtMs: installedAtMs,
+    });
+    expect(cleanupReceipt).not.toBeNull();
+    if (!cleanupReceipt) throw new Error('expected durable activation cleanup receipt');
+    expect(cleanupReceipt.expiresAtMs).toBe(sessionUnavailableAtMs + 5 * 60 * 1000);
+    expect(cleanupReceipt.expiresAtMs).toBeGreaterThan(replay.session.qrPayload.expiresAtMs);
+    expect(cleanupReceipt.expiresAtMs).toBeLessThan(exactAuthentication.expiresAtMs);
+    await harness.install.acknowledgeLocalAuthorityActivationV1({
+      acknowledgement,
+      authentication: { kind: 'cleanup_receipt', receipt: cleanupReceipt },
+      requestedAtMs: installedAtMs,
+    });
+    await harness.install.acknowledgeLocalAuthorityActivationV1({
+      acknowledgement,
+      authentication: exactAuthentication,
+      requestedAtMs: installedAtMs,
+    });
+    await expect(
+      harness.install.acknowledgeLocalAuthorityActivationV1({
+        acknowledgement,
+        authentication: exactAuthentication,
+        requestedAtMs: cleanupReceipt.expiresAtMs,
+      }),
+    ).rejects.toThrow(/durable cleanup receipt|expired/i);
+    await expect(
+      harness.install.acknowledgeLocalAuthorityActivationV1({
+        acknowledgement: {
+          ...acknowledgement,
+          credentialDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(90))),
+        },
+        authentication: { kind: 'cleanup_receipt', receipt: cleanupReceipt },
+        requestedAtMs: installedAtMs,
+      }),
+    ).rejects.toThrow(/cleanup receipt|Wallet Session identity/i);
+    await expect(
+      harness.install.acknowledgeLocalAuthorityActivationV1({
+        acknowledgement: {
+          ...acknowledgement,
+          walletSessionId: required(parseWalletSessionId('wallet-session:r103-wrong')),
+        },
+        authentication: { kind: 'cleanup_receipt', receipt: cleanupReceipt },
+        requestedAtMs: installedAtMs,
+      }),
+    ).rejects.toThrow(/cleanup receipt|Wallet Session identity/i);
+    await expect(
+      harness.install.acknowledgeLocalAuthorityActivationV1({
+        acknowledgement: {
+          ...acknowledgement,
+          installationReceiptDigestB64u: parseDigestB64u(
+            base64UrlEncode(new Uint8Array(32).fill(91)),
+          ),
+        },
+        authentication: { kind: 'cleanup_receipt', receipt: cleanupReceipt },
+        requestedAtMs: installedAtMs,
+      }),
+    ).rejects.toThrow(/cleanup receipt|installation receipt|identity/i);
+    const exactIdentityMismatches = [
+      {
+        label: 'tenant',
+        authentication: {
+          ...exactAuthentication,
+          tenantId: required(parseTenantId('tenant:r103-wrong')),
+        },
+      },
+      {
+        label: 'principal',
+        authentication: {
+          ...exactAuthentication,
+          principalId: required(parsePrincipalId('principal:r103-wrong')),
+        },
+      },
+      {
+        label: 'wallet',
+        authentication: {
+          ...exactAuthentication,
+          walletId: required(parseWalletId('wallet:r103-wrong')),
+        },
+      },
+      {
+        label: 'authority',
+        authentication: {
+          ...exactAuthentication,
+          authorityId: required(parseWalletAuthorityId('wallet-authority:r103-wrong')),
+        },
+      },
+      {
+        label: 'auth method',
+        authentication: {
+          ...exactAuthentication,
+          walletAuthMethodId: required(parseWalletAuthMethodId('wallet-auth-method:r103-wrong')),
+        },
+      },
+    ] as const;
+    for (const mismatch of exactIdentityMismatches) {
+      await expect(
+        harness.install.acknowledgeLocalAuthorityActivationV1({
+          acknowledgement,
+          authentication: mismatch.authentication,
+          requestedAtMs: installedAtMs,
+        }),
+        `exact acknowledgement accepted a mismatched ${mismatch.label}`,
+      ).rejects.toThrow(/identity does not match|identity/i);
+    }
+    await expect(
+      harness.install.acknowledgeLocalAuthorityActivationV1({
+        acknowledgement,
+        authentication: { ...exactAuthentication, expiresAtMs: installedAtMs },
+        requestedAtMs: installedAtMs,
+      }),
+    ).rejects.toThrow(/expired|expires/i);
+    const deliveryAfterCleanup = await temporary.database
+      .prepare(
+        `SELECT lifecycle_kind, cleanup_state, sealed_envelope_json,
+                acknowledgement_receipt_json, cleanup_receipt_json,
+                cleanup_completed_at_ms
+           FROM linked_device_wallet_session_credential_deliveries_v1
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ?`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        String(harness.input.linkSessionId),
+      )
+      .first<{
+        readonly lifecycle_kind?: unknown;
+        readonly cleanup_state?: unknown;
+        readonly sealed_envelope_json?: unknown;
+        readonly acknowledgement_receipt_json?: unknown;
+        readonly cleanup_receipt_json?: unknown;
+        readonly cleanup_completed_at_ms?: unknown;
+      }>();
+    expect(deliveryAfterCleanup).toMatchObject({
+      lifecycle_kind: 'cleanup_complete',
+      cleanup_state: 'complete',
+      sealed_envelope_json: null,
+    });
+    expect(deliveryAfterCleanup?.acknowledgement_receipt_json).toBeTruthy();
+    expect(deliveryAfterCleanup?.cleanup_receipt_json).toBeTruthy();
+    expect(deliveryAfterCleanup?.cleanup_completed_at_ms).toBeTruthy();
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
@@ -604,16 +996,22 @@ async function buildHarness(
   const reservationService = new OrdinaryInactiveSignerMaterialReservationServiceV1(
     new EcdsaReservationWorkerFixture(),
   );
+  const serviceSessionStore = options.cleanupBatchFailure
+    ? new CleanupFailureSessionStore(sessionStore, temporary.database, options.cleanupBatchFailure)
+    : sessionStore;
   const serviceOptions: D1LinkedDeviceAuthorityInstallServiceOptionsV1 = {
     database: temporary.database,
     scope,
     authorityStore,
     authMethodStore,
     listWalletEd25519Signers: async () => [],
-    sessionStore,
+    sessionStore: serviceSessionStore,
     sessionService: {
       getSessionV1: async ({ linkSessionId, nowMs: requestedAtMs }) =>
-        await sessionService.getSessionV1({ linkSessionId, nowMs: requestedAtMs }),
+        options.sessionUnavailableAtMs !== undefined &&
+        requestedAtMs >= options.sessionUnavailableAtMs
+          ? null
+          : await sessionService.getSessionV1({ linkSessionId, nowMs: requestedAtMs }),
       deleteActiveSessionV1: sessionService.deleteActiveSessionV1.bind(sessionService),
     },
     reservationService,
@@ -624,11 +1022,10 @@ async function buildHarness(
     },
     authorizationService: options.authorizationService ?? {
       prepareWalletSessionAuthorizationV2: unsupportedAuthorizationOperation,
-      issueWalletSessionAuthorizationV2: unsupportedAuthorizationOperation,
-      issueWalletSessionAuthorizationV2OperationCredential: unsupportedAuthorizationOperation,
+      readWalletSessionAuthorizationV2ByMint: unsupportedAuthorizationOperation,
     },
     authorizationStore: options.authorizationStore ?? {
-      prepareWalletSessionAuthorizationV2Statements: unsupportedAuthorizationStatements,
+      prepareDirectWalletSessionAuthorizationV2Statements: unsupportedAuthorizationStatements,
     },
     tenantId: 'tenant:r103',
   };

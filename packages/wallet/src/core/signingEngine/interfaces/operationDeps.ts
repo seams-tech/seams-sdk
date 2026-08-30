@@ -5,7 +5,6 @@ import type { RegistrationAccountStorePort } from '../flows/registration/registr
 import type { AccountId } from '@/core/types/accountIds';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { EmailOtpSigningSessionAuthLane } from '../stepUpConfirmation/otpPrompt/authLane';
-import type { EmailOtpEcdsaSigningSessionAuthority } from '../session/emailOtp/ecdsaSigningSessionAuthority';
 import type { EmailOtpTransactionSigningChallenge } from '../session/emailOtp/publicTypes';
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
@@ -24,7 +23,6 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { UserPreferencesManager } from '../session/userPreferences';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type {
   UiConfirmContextPort,
   UiConfirmRegistrationPort,
@@ -44,6 +42,7 @@ import type {
   ExactEcdsaWalletSessionAuthorizationResolver,
   AuthorizedEvmFamilyEcdsaSigningCapability,
   CanonicalEvmFamilyEcdsaSigningCapability,
+  ExactEvmFamilyWalletSessionAuthorization,
 } from '../session/material/ecdsaSigningCapability';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { OwnerLaneScope } from '../session/identity/signingLaneAuthBinding';
@@ -51,19 +50,14 @@ import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 
 export type EvmFamilyChain = 'tempo' | 'evm';
 
-export type EmailOtpEcdsaSigningBootstrapResult = {
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  authorization: ActiveWalletSessionAuthorizationProjection;
-};
-
 export type DurableEmailOtpEcdsaSigningSessionAuthorityResolver = {
   resolveDurableEmailOtpEcdsaSigningSessionAuthority: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
     chain: EvmFamilyChain;
   }) =>
-    | EmailOtpEcdsaSigningSessionAuthority
+    | ExactEvmFamilyWalletSessionAuthorization
     | null
-    | Promise<EmailOtpEcdsaSigningSessionAuthority | null>;
+    | Promise<ExactEvmFamilyWalletSessionAuthorization | null>;
 };
 
 /** Stable Ed25519 material identity used before a reusable Wallet Session exists. */

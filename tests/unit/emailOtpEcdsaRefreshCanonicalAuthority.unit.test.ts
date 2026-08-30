@@ -1,8 +1,4 @@
 import { expect, test } from '@playwright/test';
-import {
-  buildEmailOtpEcdsaSigningSessionAuthority,
-  resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability,
-} from '@/core/signingEngine/session/emailOtp/ecdsaSigningSessionAuthority';
 import { resolveCanonicalEmailOtpEcdsaExportMaterialForLane } from '@/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import type { ExactEcdsaExportLane } from '@/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import {
@@ -16,7 +12,6 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  activeEvmFamilyWalletSessionAuthorizationFixture,
   canonicalEvmFamilyEcdsaSigningCapabilityFixture,
   ecdsaCapabilityHydrationLookupFixture,
 } from './helpers/ecdsaCapabilityManifest.fixtures';
@@ -25,9 +20,9 @@ import {
   refreshEmailOtpSigningSession,
   type EmailOtpEcdsaSigningSessionDeps,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
+import { buildExactEmailOtpEvmFamilyWalletSessionAuthorizationFixture } from './helpers/exactEvmFamilyWalletSessionAuthorization.fixtures';
 import { resolveThresholdEcdsaSigningQueueKey } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
-import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 
 // Email OTP refresh renews authorization over material that already exists. It
 // resolves the exact manifest plus sealed runtime, takes the Email OTP binding
@@ -35,8 +30,15 @@ import { parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
 // Wallet Session resolved independently. Refresh must not move the material
 // activation, and must never reach for recovery or device linking.
 
-function resolvedRuntime(overrides: { thresholdSessionId?: string } = {}) {
-  const manifest = ecdsaCapabilityHydrationLookupFixture().active.manifest;
+function resolvedRuntime(
+  overrides: {
+    manifest?: Awaited<
+      ReturnType<typeof canonicalEvmFamilyEcdsaSigningCapabilityFixture>
+    >['manifest'];
+    thresholdSessionId?: string;
+  } = {},
+) {
+  const manifest = overrides.manifest ?? ecdsaCapabilityHydrationLookupFixture().active.manifest;
   const record = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
     manifest,
     ...(overrides.thresholdSessionId ? { thresholdSessionId: overrides.thresholdSessionId } : {}),
@@ -54,85 +56,11 @@ function resolvedRuntime(overrides: { thresholdSessionId?: string } = {}) {
   return { manifest, walletId, runtime: resolution.runtime, record };
 }
 
-function activeAuthorization(walletSessionId: string) {
-  return activeEvmFamilyWalletSessionAuthorizationFixture({
-    manifest: ecdsaCapabilityHydrationLookupFixture().active.manifest,
-    walletSessionId,
-    authMethod: 'email_otp',
-  }).projection;
-}
-
-function requiredParsed<T>(result: { ok: true; value: T } | { ok: false }): T {
-  if (!result.ok) throw new Error('focused authorization fixture identity is invalid');
-  return result.value;
-}
-
-function activeCanonicalAuthorization(
-  manifest: Awaited<ReturnType<typeof canonicalEvmFamilyEcdsaSigningCapabilityFixture>>['manifest'],
-  thresholdSessionId: string,
-) {
-  const active = activeEvmFamilyWalletSessionAuthorizationFixture({
-    manifest,
-    authMethod: 'email_otp',
-  }).projection;
-  if (active.walletSessionTokens.kind !== 'evm_family_ecdsa') {
-    throw new Error('ECDSA authorization fixture must carry an ECDSA token');
-  }
-  const [header, payload, signature] =
-    active.walletSessionTokens.ecdsa.walletSessionToken.split('.');
-  if (!header || !payload || !signature) throw new Error('invalid ECDSA JWT fixture');
-  const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<
-    string,
-    unknown
-  >;
-  claims.thresholdSessionId = thresholdSessionId;
-  return buildActiveWalletSessionAuthorizationProjection({
-    walletId: active.walletId,
-    walletSessionId: active.walletSessionId,
-    quotaId: active.quotaId,
-    walletSessionTokens: {
-      kind: 'evm_family_ecdsa',
-      ecdsa: {
-        authorizationId: active.walletSessionTokens.ecdsa.authorizationId,
-        walletSessionToken: `${header}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.${signature}`,
-        thresholdSessionId: requiredParsed(parseThresholdEcdsaSessionId(thresholdSessionId)),
-      },
-    },
-    authMethod: active.authMethod,
-    authority: active.authority,
-    expiresAtMs: active.expiresAtMs,
-  });
-}
-
-function activeRuntimeSigningSessionAuthority(
-  runtime: ReturnType<typeof resolvedRuntime>['runtime'],
-) {
-  if (runtime.authBinding.kind !== 'email_otp') {
-    throw new Error('Email OTP runtime fixture must carry an Email OTP authority');
-  }
-  const authorization = activeAuthorization('wallet-session-refresh');
-  if (authorization.walletSessionTokens.kind !== 'evm_family_ecdsa') {
-    throw new Error('ECDSA authorization fixture must carry an ECDSA token');
-  }
-  const authority = buildEmailOtpEcdsaSigningSessionAuthority({
-    authority: runtime.authBinding.emailOtpAuthority,
-    authLane: {
-      kind: 'signing_session',
-      walletSessionToken: authorization.walletSessionTokens.ecdsa.walletSessionToken,
-      thresholdSessionId: runtime.sealedRecord.thresholdSessionId,
-      curve: 'ecdsa',
-      chainTarget: runtime.chainTarget,
-    },
-  });
-  if (!authority) throw new Error('Email OTP runtime fixture must build a signing-session lane');
-  return authority;
-}
-
 function canonicalEmailOtpExportLaneFixture(args: {
   capability: Awaited<
     ReturnType<typeof canonicalEvmFamilyEcdsaSigningCapabilityFixture>
   >['capability'];
-  authorization: ReturnType<typeof activeEvmFamilyWalletSessionAuthorizationFixture>;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
   chainTarget: ThresholdEcdsaChainTarget;
 }): ExactEcdsaExportLane {
   const manifest = args.capability.manifest;
@@ -175,58 +103,6 @@ function canonicalEmailOtpExportLaneFixture(args: {
 }
 
 test.describe('Email OTP ECDSA refresh canonical authority', () => {
-  test('builds a post-registration lane from the canonical capability without a sealed record', async () => {
-    const { capability, manifest } =
-      await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp');
-    const [chainTarget] = manifest.signer.scope.targetMemberships;
-    if (!chainTarget) throw new Error('ECDSA fixture must have a target membership');
-    const authorization = activeCanonicalAuthorization(manifest, 'ec-session-registration');
-    const resolution = resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability({
-      capability,
-      authorization,
-      chainTarget,
-    });
-
-    expect(resolution.kind).toBe('ready');
-    if (resolution.kind !== 'ready') return;
-    expect(resolution.authority.authority).toEqual(capability.authority);
-    expect(resolution.authority.authLane.thresholdSessionId).toBe('ec-session-registration');
-    expect(resolution.authority.authLane.chainTarget).toEqual(chainTarget);
-  });
-
-  test('projects shared ECDSA material onto a sibling Tempo target', async () => {
-    const { capability, manifest } = await canonicalEvmFamilyEcdsaSigningCapabilityFixture(
-      'email_otp',
-      {
-        targetMemberships: [
-          {
-            kind: 'evm',
-            namespace: 'eip155',
-            chainId: 1,
-            networkSlug: 'ethereum',
-          },
-          {
-            kind: 'tempo',
-            chainId: 42431,
-            networkSlug: 'tempo-testnet',
-          },
-        ],
-      },
-    );
-    const tempoTarget = manifest.signer.scope.targetMemberships[1];
-    if (!tempoTarget) throw new Error('ECDSA fixture must have a sibling Tempo target');
-    const authorization = activeCanonicalAuthorization(manifest, 'ec-session-tempo');
-    const resolution = resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability({
-      capability,
-      authorization,
-      chainTarget: tempoTarget,
-    });
-
-    expect(resolution.kind).toBe('ready');
-    if (resolution.kind !== 'ready') return;
-    expect(resolution.authority.authLane.chainTarget).toEqual(tempoTarget);
-  });
-
   test('prepares immediate post-registration ECDSA export from canonical material', async () => {
     const { capability, manifest } = await canonicalEvmFamilyEcdsaSigningCapabilityFixture(
       'email_otp',
@@ -248,14 +124,12 @@ test.describe('Email OTP ECDSA refresh canonical authority', () => {
     );
     const tempoTarget = manifest.signer.scope.targetMemberships[1];
     if (!tempoTarget) throw new Error('ECDSA fixture must have a sibling Tempo target');
-    const active = activeEvmFamilyWalletSessionAuthorizationFixture({
-      manifest,
-      authMethod: 'email_otp',
+    const { runtime } = resolvedRuntime({ manifest });
+    const authorization = await buildExactEmailOtpEvmFamilyWalletSessionAuthorizationFixture({
+      capability,
+      runtime,
+      label: 'canonical-export',
     });
-    const authorization = {
-      ...active,
-      projection: activeCanonicalAuthorization(manifest, 'ec-session-registration-export'),
-    };
     const lane = canonicalEmailOtpExportLaneFixture({
       capability,
       authorization,
@@ -300,8 +174,13 @@ test.describe('Email OTP ECDSA refresh canonical authority', () => {
   });
 
   test('rechecks the exact activation inside its owner queue before consuming refresh', async () => {
-    const initial = resolvedRuntime();
-    const authority = activeRuntimeSigningSessionAuthority(initial.runtime);
+    const capability = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp');
+    const initial = resolvedRuntime({ manifest: capability.manifest });
+    const exactAuthorization = await buildExactEmailOtpEvmFamilyWalletSessionAuthorizationFixture({
+      capability: capability.capability,
+      runtime: initial.runtime,
+      label: 'refresh-fence',
+    });
     let resolutionCalls = 0;
     let queueCalls = 0;
     let loginCalls = 0;
@@ -312,7 +191,7 @@ test.describe('Email OTP ECDSA refresh canonical authority', () => {
           return {
             manifest: initial.manifest,
             runtime: initial.runtime,
-            authority,
+            authority: exactAuthorization,
           };
         }
         throw new Error('capability disappeared while queued');

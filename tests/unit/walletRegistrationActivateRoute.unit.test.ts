@@ -6,9 +6,22 @@ import type { WalletRegistrationActivateResponseV2 } from '../../packages/wallet
 import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { projectRegistrationEstablishedSessionV2 } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/walletRegistrationSessionCommitReceipt';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
-import { WALLET_SESSION_CLIENT_CAPABILITY_V1 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import {
+  parseAuthFactorId,
+  parsePrincipalId,
+  parseTenantId,
+  parseWalletSessionMintId,
+} from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { implicitNearAccountProvisioning } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseRegistrationEstablishedSessionResultV2 } from '../../packages/shared-ts/src/utils/registrationEstablishedSession';
+import { buildVerifiedWalletSessionPasskeyFactorResult } from '../../packages/wallet-server/src/authorization/factorEvidence';
+import { parseVerifiedOwnerProofId } from '../../packages/wallet-server/src/authorization/domain';
+import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import {
+  buildPasskeyWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   buildFixtureRouterAbEcdsaStrictRegistrationRequest,
@@ -18,10 +31,15 @@ import {
 } from '../helpers/routerAbSigningRuntimeTestUtils';
 import { createActivatedFinalizeYaoRuntimeFixture } from './helpers/d1WalletRegistrationFinalizeConvergence.fixtures';
 import { CloudflareD1WalletCustodyCommitStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
-import { buildWalletCustodyCommitPayloadFixture } from './helpers/passkeyCustodyEnvelope.fixtures';
+import {
+  buildAcknowledgedWalletCustodyCommitPayloadFixture,
+  buildWalletCustodyCommitPayloadFixture,
+} from './helpers/passkeyCustodyEnvelope.fixtures';
 import {
   applySignerMigrations,
   createWebAuthnRegistrationCredential,
+  insertWalletAuthMethod,
+  readWalletAuthMethodRecord,
   RecordingDurableObjectNamespace,
   requireParsedDomainId,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
@@ -108,7 +126,20 @@ function expectCredentialFreeRegistrationJournal(
   for (const field of PERSISTED_REGISTRATION_CREDENTIAL_FIELDS) {
     expect(fieldNames.has(field), `persisted registration field: ${field}`).toBe(false);
   }
-  expect(JSON.stringify(raw)).not.toContain(ephemeralBearer);
+  const serialized = JSON.stringify(raw);
+  expect(serialized).not.toContain(ephemeralBearer);
+  expect(serialized).not.toMatch(/"(?:wst|wsh)_[A-Za-z0-9_-]+"/);
+}
+
+function expectCredentialFreeRegistrationReplay(raw: unknown, ephemeralBearer: string): void {
+  const fieldNames = new Set<string>();
+  collectObjectFieldNames(raw, fieldNames);
+  for (const field of PERSISTED_REGISTRATION_CREDENTIAL_FIELDS) {
+    expect(fieldNames.has(field), `registration replay field: ${field}`).toBe(false);
+  }
+  const serialized = JSON.stringify(raw);
+  expect(serialized).not.toContain(ephemeralBearer);
+  expect(serialized).not.toMatch(/"(?:wst|wsh)_[A-Za-z0-9_-]+"/);
 }
 
 /**
@@ -174,7 +205,7 @@ function requireEcdsaActivateSuccess(
   response: WalletRegistrationActivateResponseV2,
 ): EcdsaActivateSuccess {
   if (!response.ok || response.kind !== 'evm_family_ecdsa') {
-    throw new Error('expected an ECDSA activation success');
+    throw new Error(`expected an ECDSA activation success: ${JSON.stringify(response)}`);
   }
   return response;
 }
@@ -301,7 +332,6 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
     registrationCeremonyId: setup.registrationCeremonyId,
     signedSetup: setup.signedSetup,
     idempotencyKey: 'activate-key-1',
-    walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
     planKind: 'evm_family_ecdsa',
     session: signer,
     ecdsa: {
@@ -309,7 +339,9 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
       activationRequestDigestB64u: base64UrlEncode(new Uint8Array(32)),
       clientActivation: fixtureRouterAbEcdsaActivationFacts(),
     },
-    walletCustodyCommit: buildWalletCustodyCommitPayloadFixture({ walletId: setup.walletId }),
+    walletCustodyCommit: buildAcknowledgedWalletCustodyCommitPayloadFixture({
+      walletId: setup.walletId,
+    }),
     verifier: signer,
     minter: signer,
   };
@@ -340,14 +372,18 @@ test('a conflicting activate retry is refused before any custody effect', async 
       ...activateRequest,
       /* Same key, different request bytes. */
       ecdsa: {
+        ...activateRequest.ecdsa,
         clientActivation: {
-          ...(activateRequest.ecdsa.clientActivation as Record<string, unknown>),
+          ...activateRequest.ecdsa.clientActivation,
           clientShareRetryCounter: 7,
         },
       },
     } as never);
 
-    expect(conflicting).toMatchObject({ ok: false, code: 'idempotency_conflict' });
+    expect(conflicting, JSON.stringify(conflicting)).toMatchObject({
+      ok: false,
+      code: 'idempotency_conflict',
+    });
     expect(strictRegistration.activateCalls).toBe(activateCallsAfterFirst);
   } finally {
     cleanupTemporaryD1Database(tempDir);
@@ -464,6 +500,72 @@ test('identical activate retries return one credential-free committed projection
     expect(replayedSuccess.ecdsa.activation).toBeTruthy();
     expect(thresholdStore.objectNames).toEqual([]);
     expect(replayedSuccess.ecdsa.bootstrap).toBeTruthy();
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('ECDSA-only receipt reconstruction accepts absent NEAR state and rejects malformed present state', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const { service, setup, activateRequest } = await respondedCeremony(
+      database,
+      new CountingStrictRegistrationPort(),
+    );
+
+    const activated = requireEcdsaActivateSuccess(
+      await service.walletRegistration.activateWalletRegistration(activateRequest as never),
+    );
+    const replayed = requireEcdsaActivateSuccess(
+      await service.walletRegistration.activateWalletRegistration(activateRequest as never),
+    );
+    expect(replayed.registrationEstablishedSession.kind).toBe('already_committed');
+    expect(replayed.ecdsa).toEqual(activated.ecdsa);
+
+    const recordKey = `wallet-registration-activate:registration-activate:${setup.registrationCeremonyId}:${activateRequest.idempotencyKey}`;
+    const completion = await readRegistrationJournalRecord({
+      database,
+      scope: SCOPE,
+      recordKey,
+    });
+    if (
+      !isRecordValue(completion) ||
+      !isRecordValue(completion.receipt) ||
+      !isRecordValue(completion.receipt.committed)
+    ) {
+      throw new Error('ECDSA-only completion receipt is missing');
+    }
+    expect('nearProvisioning' in completion.receipt.committed).toBe(false);
+
+    completion.receipt.committed.nearProvisioning = { status: 'near_ready' };
+    await database
+      .prepare(
+        `UPDATE router_ab_yao_versioned_json_records
+            SET record_json = ?1
+          WHERE namespace = ?2
+            AND org_id = ?3
+            AND project_id = ?4
+            AND env_id = ?5
+            AND record_key = ?6`,
+      )
+      .bind(
+        JSON.stringify(completion),
+        SCOPE.namespace,
+        SCOPE.orgId,
+        SCOPE.projectId,
+        SCOPE.envId,
+        recordKey,
+      )
+      .run();
+
+    await expect(
+      service.walletRegistration.activateWalletRegistration(activateRequest as never),
+    ).resolves.toEqual({
+      ok: false,
+      code: 'internal',
+      message: 'Stored D1 versioned JSON record is invalid',
+    });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -606,7 +708,6 @@ test('activate refuses a ceremony whose authority proof is not yet verified', as
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'activate-unverified',
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       ecdsa: { clientActivation: fixtureRouterAbEcdsaActivationFacts() },
       verifier: signer,
       minter: signer,
@@ -783,7 +884,7 @@ function derivingYaoRuntime(capture?: {
   });
 }
 
-test('Ed25519-only registers end to end: pending wallet now, signer when Yao resolves', async () => {
+test('Ed25519-only registration replay unlocks an exact successor and retires its predecessor', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -850,7 +951,6 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'ed25519-e2e-activate',
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       planKind: 'near_ed25519',
       session: signer,
       verifier: signer,
@@ -871,6 +971,17 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
     );
     expect(replayed).toEqual(activated);
 
+    const activationCompletion = await readRegistrationJournalRecord({
+      database,
+      scope: ED_SCOPE,
+      recordKey: `wallet-registration-activate:registration-activate:${setup.registrationCeremonyId}:${activateRequest.idempotencyKey}`,
+    });
+    expectCredentialFreeRegistrationJournal(
+      activationCompletion,
+      'registration_activate',
+      setup.signedSetup,
+    );
+
     if (!yaoCredential.activationSessionId || !yaoCredential.registeredPublicKeyB64u) {
       throw new Error('Yao activation result is missing its deferred provisioning identity');
     }
@@ -878,27 +989,27 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       walletId: setup.walletId,
       keySet: 'near_ed25519_v1',
     });
+    const nearProvisioningRequest = {
+      registrationCeremonyId: setup.registrationCeremonyId,
+      signedSetup: setup.signedSetup,
+      idempotencyKey: 'ed25519-e2e-provisioning',
+      ed25519: {
+        activationReference: {
+          lifecycle_id: setup.registrationCeremonyId,
+          session_id: yaoCredential.activationSessionId,
+        },
+      },
+      walletCustodyCommit: {
+        walletId: custodyJoinFixture.walletId,
+        keySet: custodyJoinFixture.keySet,
+        keyManifestDigestB64u: custodyJoinFixture.keyManifestDigestB64u,
+        registeredPublicKeyB64u: yaoCredential.registeredPublicKeyB64u,
+      },
+      verifier: signer,
+      session: signer,
+    };
     const provisioned = await service.walletRegistration.completeWalletRegistrationNearProvisioning(
-      {
-        registrationCeremonyId: setup.registrationCeremonyId,
-        signedSetup: setup.signedSetup,
-        idempotencyKey: 'ed25519-e2e-provisioning',
-        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
-        ed25519: {
-          activationReference: {
-            lifecycle_id: setup.registrationCeremonyId,
-            session_id: yaoCredential.activationSessionId,
-          },
-        },
-        walletCustodyCommit: {
-          walletId: custodyJoinFixture.walletId,
-          keySet: custodyJoinFixture.keySet,
-          keyManifestDigestB64u: custodyJoinFixture.keyManifestDigestB64u,
-          registeredPublicKeyB64u: yaoCredential.registeredPublicKeyB64u,
-        },
-        verifier: signer,
-        session: signer,
-      } as never,
+      nearProvisioningRequest as never,
     );
     if (!provisioned.ok) {
       throw new Error(`near provisioning: ${provisioned.code}: ${provisioned.message}`);
@@ -913,15 +1024,219 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
     if (provisioned.registrationEstablishedSession.kind !== 'issued') {
       throw new Error('deferred provisioning did not issue a Wallet Session');
     }
-    const provisioningTokens = provisioned.registrationEstablishedSession.session.tokens;
+    const issuedProvisioningSession = provisioned.registrationEstablishedSession.session;
+    const provisioningTokens = issuedProvisioningSession.tokens;
     if (provisioningTokens.kind !== 'near_ed25519') {
       throw new Error('deferred provisioning did not issue a NEAR session');
     }
     expectCredentialFreeRegistrationJournal(
       provisioningCompletion,
       'near_provisioning',
-      setup.signedSetup,
+      issuedProvisioningSession.operationCredential.token,
     );
+
+    const replayedProvisioning =
+      await service.walletRegistration.completeWalletRegistrationNearProvisioning(
+        nearProvisioningRequest as never,
+      );
+    if (!replayedProvisioning.ok) {
+      throw new Error(
+        `near provisioning replay: ${replayedProvisioning.code}: ${replayedProvisioning.message}`,
+      );
+    }
+    if (replayedProvisioning.registrationEstablishedSession.kind !== 'already_committed') {
+      throw new Error('deferred provisioning replay did not return its committed projection');
+    }
+    expect(replayedProvisioning.registrationEstablishedSession).toEqual({
+      kind: 'already_committed',
+      session: projectRegistrationEstablishedSessionV2(issuedProvisioningSession),
+      next: 'unlock_exact_method',
+    });
+    expectCredentialFreeRegistrationReplay(
+      replayedProvisioning.registrationEstablishedSession,
+      issuedProvisioningSession.operationCredential.token,
+    );
+
+    /* A lost registration response leaves only this committed projection. The
+       exact-method unlock must mint a successor directly, retiring the
+       unreachable registration credential's session and quota in the same
+       transaction. */
+    const authority = replayedProvisioning.authority;
+    if (!isPasskeyWalletAuthAuthority(authority)) {
+      throw new Error('Ed25519-only passkey registration returned a non-passkey authority');
+    }
+    expect(String(replayedProvisioning.foundingAuthMethod.walletAuthMethodId)).toBe(
+      String(authority.bindingId),
+    );
+    const siblingAuthority = buildPasskeyWalletAuthAuthority({
+      walletId: authority.walletId,
+      rpId,
+      credentialIdB64u: 'registration-sibling-credential',
+    });
+    await insertWalletAuthMethod({
+      database,
+      ...ED_SCOPE,
+      record: {
+        kind: 'passkey',
+        walletAuthMethodId: String(siblingAuthority.bindingId),
+        walletAuthorityId: String(replayedProvisioning.foundingAuthority.authorityId),
+        walletId: String(authority.walletId),
+        rpId: String(rpId),
+        credentialIdB64u: String(siblingAuthority.factor.credentialIdB64u),
+        credentialPublicKeyB64u: 'registration-sibling-public-key',
+        counter: 0,
+        createdAtMs: Date.now(),
+        updatedAtMs: Date.now(),
+      },
+    });
+    const siblingMethodBefore = await readWalletAuthMethodRecord({
+      database,
+      ...ED_SCOPE,
+      walletAuthMethodId: String(siblingAuthority.bindingId),
+    });
+    const tenantId = requireParsedDomainId(parseTenantId(ED_SCOPE.orgId));
+    const principalId = requireParsedDomainId(parsePrincipalId(String(authority.walletId)));
+    const siblingMintId = requireParsedDomainId(
+      parseWalletSessionMintId('wallet-mint:registration-sibling'),
+    );
+    const siblingIssuedAtMs = Date.now();
+    const sibling = await service.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
+      tenantId,
+      principalId,
+      walletId: authority.walletId,
+      authority: replayedProvisioning.foundingAuthority,
+      walletAuthMethodId: siblingAuthority.bindingId,
+      mintId: siblingMintId,
+      remainingUses: 7,
+      issuedAtMs: siblingIssuedAtMs,
+      expiresAtMs: siblingIssuedAtMs + 300_000,
+    });
+    if (sibling.kind !== 'issued') {
+      throw new Error('sibling Wallet Session fixture did not issue');
+    }
+    const siblingAuthorizationBefore =
+      await service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId,
+        token: sibling.operationCredential.token,
+        nowMs: siblingIssuedAtMs,
+      });
+    expect(siblingAuthorizationBefore).not.toBeNull();
+
+    const unlockChallengeId = 'unlock:registration-replay-successor';
+    const unlockVerifiedAtMs = Date.now();
+    const unlockProof = await service.authorizedOperations.buildVerifiedOwnerProof({
+      purpose: 'wallet_session',
+      proofId: parseVerifiedOwnerProofId(`owner-proof:${unlockChallengeId}`),
+      factor: buildVerifiedWalletSessionPasskeyFactorResult({
+        tenantId,
+        principalId,
+        walletId: authority.walletId,
+        authorityRef: await walletAuthAuthorityRef({ authority }),
+        requestOrigin: 'https://wallet.example.test',
+        audience: 'https://wallet.example.test',
+        factorId: requireParsedDomainId(
+          parseAuthFactorId(`passkey:${authority.factor.credentialIdB64u}`),
+        ),
+        credentialIdB64u: authority.factor.credentialIdB64u,
+        assertionDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(9))),
+        verifiedAtMs: unlockVerifiedAtMs,
+        expiresAtMs: unlockVerifiedAtMs + 300_000,
+      }),
+    });
+    const unlocked = await service.walletRegistration.provisionEd25519YaoWalletSession({
+      walletId: String(authority.walletId),
+      signerSlot: replayedProvisioning.ed25519.signerSlot,
+      remainingUses: 1,
+      verifiedChallengeId: unlockChallengeId,
+      authority,
+      walletSessionIdentity: { kind: 'new_wallet_session' },
+      proof: unlockProof,
+    } as never);
+    expect(unlocked, JSON.stringify(unlocked)).toMatchObject({
+      ok: true,
+      session: {
+        sessionKind: 'issued_exact_wallet_session',
+        walletId: authority.walletId,
+        remainingUses: 1,
+      },
+    });
+    if (!unlocked.ok) throw new Error(unlocked.message);
+    if (unlocked.session.sessionKind !== 'issued_exact_wallet_session') {
+      throw new Error('exact-method unlock did not issue a successor Wallet Session');
+    }
+    expect(unlocked.session.operationCredential.walletSessionId).toBe(
+      unlocked.session.walletSessionId,
+    );
+    expect(unlocked.session.walletSessionId).not.toBe(issuedProvisioningSession.walletSessionId);
+    expect(unlocked.session.walletSessionId).not.toBe(sibling.session.walletSessionId);
+
+    const predecessorState = await database
+      .prepare(
+        `SELECT session.wallet_auth_method_id, session.retired_at_ms,
+                quota.remaining_uses, quota.lifecycle_kind
+           FROM wallet_session_authorizations_v2 AS session
+           JOIN authorization_wallet_session_quotas AS quota
+             ON quota.namespace = session.namespace
+            AND quota.tenant_id = session.tenant_id
+            AND quota.quota_id = session.quota_id
+          WHERE session.namespace = ?
+            AND session.tenant_id = ?
+            AND session.wallet_session_id = ?`,
+      )
+      .bind(ED_SCOPE.namespace, tenantId, String(issuedProvisioningSession.walletSessionId))
+      .first<{
+        readonly wallet_auth_method_id: string;
+        readonly retired_at_ms: number | null;
+        readonly remaining_uses: number;
+        readonly lifecycle_kind: string;
+      }>();
+    expect(predecessorState).toMatchObject({
+      wallet_auth_method_id: String(authority.bindingId),
+      retired_at_ms: expect.any(Number),
+      remaining_uses: 0,
+      lifecycle_kind: 'exhausted',
+    });
+
+    const successorState = await database
+      .prepare(
+        `SELECT session.wallet_auth_method_id, session.retired_at_ms,
+                quota.remaining_uses, quota.lifecycle_kind
+           FROM wallet_session_authorizations_v2 AS session
+           JOIN authorization_wallet_session_quotas AS quota
+             ON quota.namespace = session.namespace
+            AND quota.tenant_id = session.tenant_id
+            AND quota.quota_id = session.quota_id
+          WHERE session.namespace = ?
+            AND session.tenant_id = ?
+            AND session.wallet_session_id = ?`,
+      )
+      .bind(ED_SCOPE.namespace, tenantId, String(unlocked.session.walletSessionId))
+      .first<{
+        readonly wallet_auth_method_id: string;
+        readonly retired_at_ms: number | null;
+        readonly remaining_uses: number;
+        readonly lifecycle_kind: string;
+      }>();
+    expect(successorState).toEqual({
+      wallet_auth_method_id: String(authority.bindingId),
+      retired_at_ms: null,
+      remaining_uses: 1,
+      lifecycle_kind: 'active',
+    });
+
+    const siblingAuthorizationAfter =
+      await service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId,
+        token: sibling.operationCredential.token,
+        nowMs: siblingIssuedAtMs,
+      });
+    const siblingMethodAfter = await readWalletAuthMethodRecord({
+      database,
+      ...ED_SCOPE,
+      walletAuthMethodId: String(siblingAuthority.bindingId),
+    });
+    expect(siblingAuthorizationAfter).toEqual(siblingAuthorizationBefore);
+    expect(siblingMethodAfter).toEqual(siblingMethodBefore);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -953,7 +1268,6 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
     const unlockPublicKeyB64u = await compressedSecp256k1PubkeyB64u();
     const email = 'ed25519-otp@example.test';
     const providerSubject = 'google:ed25519-otp-user';
-    const appSessionVersion = 'app-session-v1';
 
     const setup = await service.walletRegistration.setupWalletRegistration({
       request: {
@@ -962,8 +1276,8 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
           kind: 'email_otp',
           proofKind: 'otp_challenge',
           email,
+          providerSubject,
           otpCode: 'intent-otp-placeholder',
-          appSessionJwt: 'intent-session-placeholder',
         },
       },
       orgId: ED_SCOPE.orgId,
@@ -983,8 +1297,7 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
       orgId: ED_SCOPE.orgId,
       email,
       otpChannel: 'email_otp',
-      sessionHash: setup.registrationIntentDigestB64u,
-      appSessionVersion,
+      ownerProofBindingDigest: setup.registrationIntentDigestB64u,
     });
     if (!challenge.ok) throw new Error(`challenge: ${challenge.message}`);
     const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
@@ -1009,7 +1322,6 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
           otpCode: outbox.otpCode,
           otpChannel: 'email_otp',
           registrationIntentDigestB64u: setup.registrationIntentDigestB64u,
-          appSessionVersion,
         },
       },
       verifier: signer,
@@ -1022,10 +1334,10 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'ed25519-otp-activate',
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       planKind: 'near_ed25519',
       emailOtpEnrollment: {
         enrollmentSealKeyVersion: 'seal-v1',
+        serverSealedFactorCiphertextB64u: 'sealed-factor-ed25519-otp',
         clientUnlockPublicKeyB64u: unlockPublicKeyB64u,
         unlockKeyVersion: 'unlock-v1',
       },
@@ -1089,7 +1401,9 @@ test('an activate carrying a custody payload commits it under the registered wal
 
     const activated = await service.walletRegistration.activateWalletRegistration({
       ...activateRequest,
-      walletCustodyCommit: buildWalletCustodyCommitPayloadFixture({ walletId: setup.walletId }),
+      walletCustodyCommit: buildAcknowledgedWalletCustodyCommitPayloadFixture({
+        walletId: setup.walletId,
+      }),
     } as never);
     if (!activated.ok) throw new Error(`activate: ${activated.code}: ${activated.message}`);
 
@@ -1108,38 +1422,6 @@ test('an activate carrying a custody payload commits it under the registered wal
   }
 });
 
-test('a custody payload naming another wallet is refused without failing activation', async () => {
-  const { database, tempDir } = createTemporaryD1Database();
-  try {
-    await applySignerMigrations(database);
-    const { service, setup, activateRequest } = await respondedCeremony(
-      database,
-      new CountingStrictRegistrationPort(),
-    );
-
-    const activated = await service.walletRegistration.activateWalletRegistration({
-      ...activateRequest,
-      walletCustodyCommit: buildWalletCustodyCommitPayloadFixture({ walletId: 'mallory.testnet' }),
-    } as never);
-
-    /* Activation never fails because of custody: the wallet is already
-       committed when the payload is admitted, and the seed exists only in the
-       client's worker, so an error response would leave the client with a
-       registered wallet and no instruction it can read. */
-    if (!activated.ok) throw new Error(`activate: ${activated.code}: ${activated.message}`);
-    expect(activated.walletCustody?.status).toBe('rejected');
-
-    const custodyStore = new CloudflareD1WalletCustodyCommitStore({
-      database: database as never,
-      scope: SCOPE,
-    });
-    expect(await custodyStore.readRecoveryEnvelopeSet(setup.walletId as never)).toBeNull();
-    expect(await custodyStore.readRecoveryEnvelopeSet('mallory.testnet' as never)).toBeNull();
-  } finally {
-    cleanupTemporaryD1Database(tempDir);
-  }
-});
-
 test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not at activate', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
@@ -1151,6 +1433,7 @@ test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not a
     const yaoCapture = {
       registrationBearerToken: null as string | null,
       activationSessionId: null as readonly number[] | null,
+      registeredPublicKeyB64u: null as string | null,
     };
     const service = createCloudflareD1RouterApiAuthService({
       database: database as never,
@@ -1200,7 +1483,6 @@ test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not a
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'ed25519-custody-activate',
-      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       planKind: 'near_ed25519',
       session: signer,
       verifier: signer,
@@ -1216,6 +1498,10 @@ test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not a
     });
     expect(await custodyStore.readRecoveryEnvelopeSet(setup.walletId as never)).toBeNull();
 
+    if (!yaoCapture.activationSessionId || !yaoCapture.registeredPublicKeyB64u) {
+      throw new Error('Yao activation result is missing its deferred custody facts');
+    }
+
     /* The deferred leg. This is the first point at which an Ed25519-only
        wallet has a key set at all, so it is where its custody is established —
        a commit wired only into activate would never fire for this wallet. */
@@ -1224,16 +1510,16 @@ test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not a
         registrationCeremonyId: setup.registrationCeremonyId,
         signedSetup: setup.signedSetup,
         idempotencyKey: 'ed25519-custody-provisioning',
-        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
         ed25519: {
           activationReference: {
             lifecycle_id: setup.registrationCeremonyId,
             session_id: yaoCapture.activationSessionId,
           },
         },
-        walletCustodyCommit: buildWalletCustodyCommitPayloadFixture({
+        walletCustodyCommit: buildAcknowledgedWalletCustodyCommitPayloadFixture({
           walletId: setup.walletId,
           keySet: 'near_ed25519_v1',
+          registeredPublicKeyB64u: yaoCapture.registeredPublicKeyB64u,
         }),
         verifier: signer,
         session: signer,

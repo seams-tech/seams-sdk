@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import { buildLinkedDeviceUnlockRuntimeFixture } from './helpers/linkedDeviceUnlockRuntime.fixtures';
-import { buildWalletAuthAuthorityRefForAuthorityFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 test('persists and rereads one exact Wallet Session operation credential row', async ({ page }) => {
   const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
@@ -253,7 +252,7 @@ test('same-wallet sibling exact sessions coexist and read by their exact method'
   ]);
 });
 
-test('does not fall back to an exact V4 Wallet Session row', async ({ page }) => {
+test('does not admit a credential-free V4 Wallet Session row', async ({ page }) => {
   const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
   await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
 
@@ -269,25 +268,37 @@ test('does not fall back to an exact V4 Wallet Session row', async ({ page }) =>
       const manager = new managerModule.SeamsWalletDBManager();
       manager.setDbName(dbName);
       const repository = new repositoryModule.WalletSessionAuthorizationRepository(manager);
-      await repository.writeExact(activeWalletSession);
       const db = await manager.getDB();
-      const raw = await db.get(
-        schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations,
-        activeWalletSession.authorizationId,
-      );
-      const legacy = repositoryModule.parseStoredExactWalletSessionAuthorizationRow(raw);
+      const legacy = {
+        record_version: 'wallet_session_authorization_v4',
+        wallet_session_id: activeWalletSession.authorizationId,
+        wallet_id: activeWalletSession.walletId,
+        wallet_authority_id: activeWalletSession.authorityId,
+        wallet_auth_method_id: activeWalletSession.authMethodId,
+        authority_digest_b64u: activeWalletSession.authorityDigestB64u,
+        authority_revocation_epoch: activeWalletSession.authorityRevocationEpoch,
+        status: 'active',
+        issued_at_ms: activeWalletSession.issuedAtMs,
+        expires_at_ms: activeWalletSession.expiresAtMs,
+        record: activeWalletSession,
+      };
+      await db.put(schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations, legacy);
       const exactByCredential = await repository.readExactWithOperationCredential({
         walletId: activeWalletSession.walletId,
         authorityId: activeWalletSession.authorityId,
         authMethodId: activeWalletSession.authMethodId,
       });
-      return { legacy, exactByCredential };
+      const remaining = await db.get(
+        schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations,
+        activeWalletSession.authorizationId,
+      );
+      return { exactByCredential, remaining };
     },
     { activeWalletSession: fixture.activeWalletSession },
   );
 
-  expect(result.legacy).toEqual(fixture.activeWalletSession);
   expect(result.exactByCredential).toEqual({ kind: 'missing' });
+  expect(result.remaining).toBeUndefined();
 });
 
 test('replaces duplicate exact V6 Wallet Session rows at the write boundary', async ({ page }) => {
@@ -365,13 +376,13 @@ test('replaces duplicate exact V6 Wallet Session rows at the write boundary', as
       walletSessionId: 'wallet-session:linked-runtime-replacement',
     },
   });
-  expect(result.rows).toHaveLength(2);
+  expect(result.rows).toHaveLength(1);
   expect(
     result.rows.filter((row) => row.record_version === 'wallet_session_authorization_v6'),
   ).toHaveLength(1);
   expect(
     result.rows.find((row) => row.record_version === 'wallet_session_authorization_v4'),
-  ).toMatchObject({ status: 'retired' });
+  ).toBeUndefined();
 });
 
 test('retiring an exact V6 session removes its Wallet Session key', async ({ page }) => {
@@ -394,12 +405,17 @@ test('retiring an exact V6 session removes its Wallet Session key', async ({ pag
         record: activeWalletSession,
         operationCredential,
       });
+      const db = await manager.getDB();
+      await db.put(schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations, {
+        record_version: 'wallet_session_authorization_v5',
+        wallet_session_id: 'wallet-session:legacy-retirement-row',
+        wallet_id: activeWalletSession.walletId,
+      });
       const retired = await repository.retireExactActiveForWallet({
         walletId: activeWalletSession.walletId,
         reason: 'wallet_locked',
         retiredAtMs: activeWalletSession.expiresAtMs,
       });
-      const db = await manager.getDB();
       const rows = await db.getAllFromIndex(
         schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations,
         schemaNames.SEAMS_WALLET_INDEXES.walletId,
@@ -421,12 +437,89 @@ test('retiring an exact V6 session removes its Wallet Session key', async ({ pag
       retirementReason: 'wallet_locked',
     }),
   ]);
-  expect(result.rows).toHaveLength(1);
-  expect(result.rows[0]).toMatchObject({
-    record_version: 'wallet_session_authorization_v4',
-    wallet_session_id: fixture.activeWalletSession.authorizationId,
-    status: 'retired',
-  });
+  expect(result.rows).toEqual([]);
+});
+
+test('locking retires both active sibling sessions so exact readers cannot reuse either', async ({
+  page,
+}) => {
+  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+
+  const result = await page.evaluate(
+    async ({ activeWalletSession, operationCredential }) => {
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const repositoryModule =
+        await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore.js');
+      const dbName = schemaNames.createSeamsTestWalletDbName(
+        `operation_credential_lock_siblings_${crypto.randomUUID()}`,
+      );
+      const manager = new managerModule.SeamsWalletDBManager();
+      manager.setDbName(dbName);
+      const repository = new repositoryModule.WalletSessionAuthorizationRepository(manager);
+      await repository.writeExactWithOperationCredential({
+        record: activeWalletSession,
+        operationCredential,
+      });
+      const sibling = repositoryModule.buildActiveWalletSessionV1({
+        walletId: activeWalletSession.walletId,
+        authorityId: activeWalletSession.authorityId,
+        authMethodId: 'wallet-auth-method:lock-sibling',
+        authorizationId: 'authorization:lock-sibling',
+        quotaId: 'wallet-quota:lock-sibling',
+        authorityDigestB64u: activeWalletSession.authorityDigestB64u,
+        authorityRevocationEpoch: activeWalletSession.authorityRevocationEpoch,
+        capabilitySubjects: activeWalletSession.capabilitySubjects,
+        issuedAtMs: activeWalletSession.issuedAtMs,
+        expiresAtMs: activeWalletSession.expiresAtMs,
+      });
+      const siblingCredential = {
+        kind: 'opaque_wallet_session_operation_credential_v1' as const,
+        token: `wst_${'l'.repeat(43)}`,
+        walletSessionId: 'wallet-session:lock-sibling',
+      };
+      await repository.writeExactWithOperationCredential({
+        record: sibling,
+        operationCredential: siblingCredential,
+      });
+
+      const retired = await repository.retireExactActiveForWallet({
+        walletId: activeWalletSession.walletId,
+        reason: 'wallet_locked',
+        retiredAtMs: activeWalletSession.expiresAtMs,
+      });
+      const primaryRead = await repository.readExactWithOperationCredential({
+        walletId: activeWalletSession.walletId,
+        authorityId: activeWalletSession.authorityId,
+        authMethodId: activeWalletSession.authMethodId,
+      });
+      const siblingRead = await repository.readExactWithOperationCredential({
+        walletId: sibling.walletId,
+        authorityId: sibling.authorityId,
+        authMethodId: sibling.authMethodId,
+      });
+      const db = await manager.getDB();
+      const rows = await db.getAllFromIndex(
+        schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations,
+        schemaNames.SEAMS_WALLET_INDEXES.walletId,
+        activeWalletSession.walletId,
+      );
+      return { retired, primaryRead, siblingRead, rows };
+    },
+    {
+      activeWalletSession: fixture.activeWalletSession,
+      operationCredential: fixture.operationCredential,
+    },
+  );
+
+  expect(result.retired.map((record) => record.authMethodId).sort()).toEqual([
+    fixture.activeWalletSession.authMethodId,
+    'wallet-auth-method:lock-sibling',
+  ]);
+  expect(result.primaryRead).toEqual({ kind: 'missing' });
+  expect(result.siblingRead).toEqual({ kind: 'missing' });
+  expect(result.rows).toEqual([]);
 });
 
 test('rejects a corrupt matching exact V6 Wallet Session row', async ({ page }) => {
@@ -537,7 +630,6 @@ test('rejects a malformed V6 row during exact replacement', async ({ page }) => 
         await repository.replaceExactActive({
           active: activeWalletSession,
           operationCredential,
-          replacedAtMs: activeWalletSession.issuedAtMs,
         });
       } catch (error) {
         errorMessage = error instanceof Error ? error.message : String(error);
@@ -554,13 +646,12 @@ test('rejects a malformed V6 row during exact replacement', async ({ page }) => 
   expect(result.errorMessage).toBe('Stored Wallet Session authorization v6 is corrupt');
 });
 
-test('quarantines V3, V4, and V5 rows during exact installation', async ({ page }) => {
+test('readExact quarantines V3, V4, and V5 rows at the persistence boundary', async ({ page }) => {
   const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
-  const authorityRef = buildWalletAuthAuthorityRefForAuthorityFixture(fixture.factorAuthority);
   await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
 
   const result = await page.evaluate(
-    async ({ activeWalletSession, authorityRef, walletSessionToken, operationCredential }) => {
+    async ({ activeWalletSession, operationCredential }) => {
       const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
       const repositoryModule =
@@ -571,91 +662,142 @@ test('quarantines V3, V4, and V5 rows during exact installation', async ({ page 
       const manager = new managerModule.SeamsWalletDBManager();
       manager.setDbName(dbName);
       const repository = new repositoryModule.WalletSessionAuthorizationRepository(manager);
-      const legacyActive = repositoryModule.buildActiveWalletSessionAuthorizationProjection({
-        walletId: activeWalletSession.walletId,
-        walletSessionId: 'wallet-session:quarantine-v3',
-        quotaId: 'wallet-quota:quarantine-v3',
-        walletSessionTokens: {
-          kind: 'near_ed25519',
-          ed25519: {
-            authorizationId: 'authorization:quarantine-v3',
-            walletSessionToken,
-            thresholdSessionId: 'threshold-ed25519:linked-runtime',
-          },
-        },
-        authMethod: 'passkey',
-        authority: authorityRef,
-        expiresAtMs: activeWalletSession.expiresAtMs,
-      });
-      const legacyRetired = repositoryModule.retireWalletSessionAuthorizationProjection({
-        active: legacyActive,
-        reason: 'replaced',
-        retiredAtMs: activeWalletSession.expiresAtMs,
-      });
-      const legacyExactRetired = repositoryModule.retireWalletSessionV1({
-        active: activeWalletSession,
-        reason: 'replaced',
-        retiredAtMs: activeWalletSession.expiresAtMs,
-      });
-      await repository.write(legacyRetired);
-      await repository.writeExact(legacyExactRetired);
       const db = await manager.getDB();
       const storeName = schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations;
-      await db.put(
-        storeName,
-        repositoryModule.toStoredExactWalletSessionAuthorizationRowV5(activeWalletSession, {
-          kind: 'opaque_wallet_session_operation_credential_v1',
-          token: `wst_${'Q'.repeat(43)}`,
-          walletSessionId: 'wallet-session:quarantine-v5',
-        }),
-      );
+      const legacyV3 = {
+        wallet_session_id: 'wallet-session:quarantine-v3',
+        wallet_id: activeWalletSession.walletId,
+        record: { recordVersion: 'wallet_session_authorization_v3' },
+      };
+      const legacyV4 = {
+        record_version: 'wallet_session_authorization_v4',
+        wallet_session_id: 'authorization:quarantine-v4',
+        wallet_id: activeWalletSession.walletId,
+      };
+      await db.put(storeName, legacyV3);
+      await db.put(storeName, legacyV4);
+      const legacyV5 = {
+        record_version: 'wallet_session_authorization_v5',
+        wallet_session_id: 'wallet-session:quarantine-v5',
+        wallet_id: activeWalletSession.walletId,
+      };
+      await db.put(storeName, legacyV5);
+      const v3Read = await repository.readExact(legacyV3.wallet_session_id);
+      const v4Read = await repository.readExact(legacyV4.wallet_session_id);
+      const v5Read = await repository.readExact('wallet-session:quarantine-v5');
+      const quarantinedRows = {
+        v3: await db.get(storeName, legacyV3.wallet_session_id),
+        v4: await db.get(storeName, legacyV4.wallet_session_id),
+        v5: await db.get(storeName, 'wallet-session:quarantine-v5'),
+      };
       await repository.replaceExactActive({
         active: activeWalletSession,
         operationCredential,
-        replacedAtMs: activeWalletSession.issuedAtMs,
       });
       const rows = await db.getAllFromIndex(
         storeName,
         schemaNames.SEAMS_WALLET_INDEXES.walletId,
         activeWalletSession.walletId,
       );
+      return { rows, v3Read, v4Read, v5Read, quarantinedRows };
+    },
+    {
+      activeWalletSession: fixture.activeWalletSession,
+      operationCredential: fixture.operationCredential,
+    },
+  );
+
+  expect(result.v3Read).toBeNull();
+  expect(result.v4Read).toBeNull();
+  expect(result.v5Read).toBeNull();
+  expect(result.quarantinedRows).toEqual({ v3: undefined, v4: undefined, v5: undefined });
+  expect(result.rows).toHaveLength(1);
+  expect(result.rows[0]).toMatchObject({
+    record_version: 'wallet_session_authorization_v6',
+    status: 'active',
+  });
+});
+
+test('readExactActiveForWallet quarantines legacy rows and preserves a matching future row', async ({
+  page,
+}) => {
+  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+
+  const result = await page.evaluate(
+    async ({ activeWalletSession, operationCredential }) => {
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const repositoryModule =
+        await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore.js');
+      const dbName = schemaNames.createSeamsTestWalletDbName(
+        `quarantine_active_legacy_${crypto.randomUUID()}`,
+      );
+      const manager = new managerModule.SeamsWalletDBManager();
+      manager.setDbName(dbName);
+      const repository = new repositoryModule.WalletSessionAuthorizationRepository(manager);
+      await repository.writeExactWithOperationCredential({
+        record: activeWalletSession,
+        operationCredential,
+      });
+      const storeName = schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations;
+      const db = await manager.getDB();
+      const legacyV3 = {
+        wallet_session_id: 'wallet-session:active-quarantine-v3',
+        wallet_id: activeWalletSession.walletId,
+        record: { recordVersion: 'wallet_session_authorization_v3' },
+      };
+      const legacyV4 = {
+        record_version: 'wallet_session_authorization_v4',
+        wallet_session_id: 'authorization:active-quarantine-v4',
+        wallet_id: activeWalletSession.walletId,
+      };
+      await db.put(storeName, legacyV3);
+      await db.put(storeName, legacyV4);
+      const legacyV5 = {
+        record_version: 'wallet_session_authorization_v5',
+        wallet_session_id: 'wallet-session:active-quarantine-v5',
+        wallet_id: activeWalletSession.walletId,
+      };
+      await db.put(storeName, legacyV5);
+      const future = {
+        record_version: 'wallet_session_authorization_v7',
+        wallet_session_id: 'wallet-session:active-quarantine-future',
+        wallet_id: activeWalletSession.walletId,
+        wallet_authority_id: activeWalletSession.authorityId,
+        wallet_auth_method_id: activeWalletSession.authMethodId,
+        future_payload: { preserved: true, marker: 'active-quarantine' },
+      };
+      await db.put(storeName, future);
       const read = await repository.readExactActiveForWallet({
         walletId: activeWalletSession.walletId,
         authorityId: activeWalletSession.authorityId,
         authMethodId: activeWalletSession.authMethodId,
       });
-      return { rows, read };
+      return {
+        read,
+        future,
+        persistedFuture: await db.get(storeName, future.wallet_session_id),
+        legacyRows: {
+          v3: await db.get(storeName, legacyV3.wallet_session_id),
+          v4: await db.get(storeName, legacyV4.wallet_session_id),
+          v5: await db.get(storeName, 'wallet-session:active-quarantine-v5'),
+        },
+        current: await db.get(storeName, operationCredential.walletSessionId),
+      };
     },
     {
       activeWalletSession: fixture.activeWalletSession,
-      authorityRef,
-      walletSessionToken: fixture.operationCredential.token,
       operationCredential: fixture.operationCredential,
     },
   );
 
-  expect(result.rows).toHaveLength(4);
-  expect(result.rows).toContainEqual(
-    expect.objectContaining({
-      record: expect.objectContaining({
-        recordVersion: 'wallet_session_authorization_v3',
-      }),
-    }),
-  );
-  expect(
-    result.rows
-      .map((row) => row.record_version)
-      .filter(Boolean)
-      .sort(),
-  ).toEqual([
-    'wallet_session_authorization_v4',
-    'wallet_session_authorization_v5',
-    'wallet_session_authorization_v6',
-  ]);
-  expect(result.read).toEqual({
-    kind: 'found',
-    record: fixture.activeWalletSession,
-    operationCredential: fixture.operationCredential,
+  expect(result.read).toEqual({ kind: 'upgrade_required' });
+  expect(result.persistedFuture).toEqual(result.future);
+  expect(result.legacyRows).toEqual({ v3: undefined, v4: undefined, v5: undefined });
+  expect(result.current).toMatchObject({
+    record_version: 'wallet_session_authorization_v6',
+    status: 'active',
   });
 });
 
@@ -692,16 +834,24 @@ test('returns upgrade_required and preserves a future exact Wallet Session row',
         authorityId: activeWalletSession.authorityId,
         authMethodId: activeWalletSession.authMethodId,
       });
+      let directReadWasUpgradeRequired = false;
+      try {
+        await repository.readExact(future.wallet_session_id);
+      } catch (error) {
+        directReadWasUpgradeRequired =
+          error instanceof repositoryModule.WalletSessionAuthorizationUpgradeRequiredError;
+      }
       const persisted = await db.get(
         schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations,
         future.wallet_session_id,
       );
-      return { read, future, persisted };
+      return { read, directReadWasUpgradeRequired, future, persisted };
     },
     { activeWalletSession: fixture.activeWalletSession },
   );
 
   expect(result.read).toEqual({ kind: 'upgrade_required' });
+  expect(result.directReadWasUpgradeRequired).toBe(true);
   expect(result.persisted).toEqual(result.future);
 });
 
@@ -838,153 +988,14 @@ test('login surfaces exact-session upgrade_required without mutating authenticat
   expect(result.activeWalletSession.kind).toBe('active_wallet_session_v1');
 });
 
-test('preserves unknown future rows across legacy Wallet Session writers', async ({ page }) => {
+test('replaceExactActive deletes late legacy rows while preserving sibling and future rows', async ({
+  page,
+}) => {
   const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
-  const authorityRef = buildWalletAuthAuthorityRefForAuthorityFixture(fixture.factorAuthority);
-  await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
-
-  const results = await page.evaluate(
-    async ({ activeWalletSession, authorityRef, walletSessionToken }) => {
-      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
-      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const repositoryModule =
-        await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore.js');
-      const storeName = schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations;
-      const writerNames = [
-        'replaceActive',
-        'createOrMergeExactActive',
-        'upsertActiveWithCurveMerge',
-      ] as const;
-      const results: Array<{
-        readonly writer: (typeof writerNames)[number];
-        readonly future: Record<string, unknown>;
-        readonly persisted: unknown;
-        readonly rows: readonly Record<string, unknown>[];
-      }> = [];
-      for (const writer of writerNames) {
-        const dbName = schemaNames.createSeamsTestWalletDbName(
-          `future_legacy_writer_${writer}_${crypto.randomUUID()}`,
-        );
-        const manager = new managerModule.SeamsWalletDBManager();
-        manager.setDbName(dbName);
-        const repository = new repositoryModule.WalletSessionAuthorizationRepository(manager);
-        const active = repositoryModule.buildActiveWalletSessionAuthorizationProjection({
-          walletId: activeWalletSession.walletId,
-          walletSessionId: `wallet-session:${writer}-initial`,
-          quotaId: `wallet-quota:${writer}-initial`,
-          walletSessionTokens: {
-            kind: 'near_ed25519',
-            ed25519: {
-              authorizationId: `authorization:${writer}-initial`,
-              walletSessionToken,
-              thresholdSessionId: 'threshold-ed25519:linked-runtime',
-            },
-          },
-          authMethod: 'passkey',
-          authority: authorityRef,
-          expiresAtMs: activeWalletSession.expiresAtMs,
-        });
-        await repository.replaceActive({
-          active,
-          replacedAtMs: activeWalletSession.expiresAtMs,
-        });
-        const future = {
-          record_version: 'wallet_session_authorization_v7',
-          wallet_session_id: `wallet-session:${writer}-future`,
-          wallet_id: activeWalletSession.walletId,
-          wallet_authority_id: activeWalletSession.authorityId,
-          wallet_auth_method_id: activeWalletSession.authMethodId,
-          future_payload: { preserved: true, writer },
-        };
-        const db = await manager.getDB();
-        await db.put(storeName, future);
-        switch (writer) {
-          case 'replaceActive':
-            await repository.replaceActive({
-              active: repositoryModule.buildActiveWalletSessionAuthorizationProjection({
-                walletId: activeWalletSession.walletId,
-                walletSessionId: `wallet-session:${writer}-replacement`,
-                quotaId: `wallet-quota:${writer}-replacement`,
-                walletSessionTokens: {
-                  kind: 'near_ed25519',
-                  ed25519: {
-                    authorizationId: `authorization:${writer}-replacement`,
-                    walletSessionToken,
-                    thresholdSessionId: 'threshold-ed25519:linked-runtime',
-                  },
-                },
-                authMethod: 'passkey',
-                authority: authorityRef,
-                expiresAtMs: activeWalletSession.expiresAtMs,
-              }),
-              replacedAtMs: activeWalletSession.expiresAtMs,
-            });
-            break;
-          case 'createOrMergeExactActive':
-            await repository.createOrMergeExactActive({
-              incoming: active,
-              mergedAtMs: activeWalletSession.expiresAtMs,
-            });
-            break;
-          case 'upsertActiveWithCurveMerge':
-            await repository.upsertActiveWithCurveMerge({
-              incoming: active,
-              writtenAtMs: activeWalletSession.expiresAtMs,
-            });
-            break;
-        }
-        results.push({
-          writer,
-          future,
-          persisted: await db.get(storeName, future.wallet_session_id),
-          rows: await db.getAllFromIndex(
-            storeName,
-            schemaNames.SEAMS_WALLET_INDEXES.walletId,
-            activeWalletSession.walletId,
-          ),
-        });
-      }
-      return results;
-    },
-    {
-      activeWalletSession: fixture.activeWalletSession,
-      authorityRef,
-      walletSessionToken: fixture.operationCredential.token,
-    },
-  );
-
-  expect(results).toHaveLength(3);
-  for (const result of results) {
-    expect(result.persisted).toEqual(result.future);
-  }
-  const replacement = results.find((result) => result.writer === 'replaceActive');
-  expect(replacement?.rows).toContainEqual(
-    expect.objectContaining({
-      record: expect.objectContaining({
-        recordVersion: 'wallet_session_authorization_v3',
-      }),
-      status: 'retired',
-      wallet_session_id: 'wallet-session:replaceActive-initial',
-    }),
-  );
-  expect(replacement?.rows).toContainEqual(
-    expect.objectContaining({
-      record: expect.objectContaining({
-        recordVersion: 'wallet_session_authorization_v3',
-      }),
-      status: 'active',
-      wallet_session_id: 'wallet-session:replaceActive-replacement',
-    }),
-  );
-});
-
-test('contains late legacy and future rows during exact V6 replacement', async ({ page }) => {
-  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
-  const authorityRef = buildWalletAuthAuthorityRefForAuthorityFixture(fixture.factorAuthority);
   await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
 
   const result = await page.evaluate(
-    async ({ activeWalletSession, operationCredential, authorityRef, walletSessionToken }) => {
+    async ({ activeWalletSession, operationCredential }) => {
       const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
       const repositoryModule =
@@ -997,30 +1008,38 @@ test('contains late legacy and future rows during exact V6 replacement', async (
         record: activeWalletSession,
         operationCredential,
       });
-      const legacyActive = repositoryModule.buildActiveWalletSessionAuthorizationProjection({
+      const sibling = repositoryModule.buildActiveWalletSessionV1({
         walletId: activeWalletSession.walletId,
-        walletSessionId: 'wallet-session:late-legacy',
-        quotaId: 'wallet-quota:late-legacy',
-        walletSessionTokens: {
-          kind: 'near_ed25519',
-          ed25519: {
-            authorizationId: 'authorization:late-legacy',
-            walletSessionToken,
-            thresholdSessionId: 'threshold-ed25519:linked-runtime',
-          },
-        },
-        authMethod: 'passkey',
-        authority: authorityRef,
+        authorityId: activeWalletSession.authorityId,
+        authMethodId: 'wallet-auth-method:late-sibling',
+        authorizationId: 'authorization:late-sibling',
+        quotaId: 'wallet-quota:late-sibling',
+        authorityDigestB64u: activeWalletSession.authorityDigestB64u,
+        authorityRevocationEpoch: activeWalletSession.authorityRevocationEpoch,
+        capabilitySubjects: activeWalletSession.capabilitySubjects,
+        issuedAtMs: activeWalletSession.issuedAtMs,
         expiresAtMs: activeWalletSession.expiresAtMs,
       });
-      const legacy = repositoryModule.retireWalletSessionAuthorizationProjection({
-        active: legacyActive,
-        reason: 'replaced',
-        retiredAtMs: activeWalletSession.expiresAtMs,
+      const siblingCredential = {
+        kind: 'opaque_wallet_session_operation_credential_v1' as const,
+        token: `wst_${'S'.repeat(43)}`,
+        walletSessionId: 'wallet-session:late-sibling',
+      };
+      await repository.writeExactWithOperationCredential({
+        record: sibling,
+        operationCredential: siblingCredential,
       });
-      await repository.write(legacy);
       const db = await manager.getDB();
       const storeName = schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations;
+      const legacy = {
+        wallet_session_id: 'wallet-session:late-legacy',
+        wallet_id: activeWalletSession.walletId,
+        record: {
+          recordVersion: 'wallet_session_authorization_v3',
+          status: 'retired',
+        },
+      };
+      await db.put(storeName, legacy);
       const future = {
         record_version: 'wallet_session_authorization_v7',
         wallet_session_id: 'wallet-session:late-future',
@@ -1071,37 +1090,46 @@ test('contains late legacy and future rows during exact V6 replacement', async (
       await repository.replaceExactActive({
         active: latest,
         operationCredential: latestCredential,
-        replacedAtMs: activeWalletSession.issuedAtMs + 2,
       });
       const rows = await db.getAllFromIndex(
         storeName,
         schemaNames.SEAMS_WALLET_INDEXES.walletId,
         activeWalletSession.walletId,
       );
-      const legacyRaw = await db.get(storeName, legacy.walletSessionId);
+      const legacyRaw = await db.get(storeName, legacy.wallet_session_id);
       const futureRaw = await db.get(storeName, future.wallet_session_id);
-      return { rows, legacy, legacyRaw, future, futureRaw, latest, latestCredential };
+      const siblingRaw = await db.get(storeName, siblingCredential.walletSessionId);
+      return {
+        rows,
+        legacy,
+        legacyRaw,
+        future,
+        futureRaw,
+        sibling,
+        siblingCredential,
+        siblingRaw,
+        latest,
+        latestCredential,
+      };
     },
     {
       activeWalletSession: fixture.activeWalletSession,
       operationCredential: fixture.operationCredential,
-      authorityRef,
-      walletSessionToken: fixture.operationCredential.token,
     },
   );
 
-  expect(result.legacyRaw).toMatchObject({
-    wallet_session_id: result.legacy.walletSessionId,
-    wallet_id: result.legacy.walletId,
-    status: result.legacy.status,
-    expires_at_ms: result.legacy.expiresAtMs,
-    record: result.legacy,
-  });
+  expect(result.legacyRaw).toBeUndefined();
   expect(result.futureRaw).toEqual(result.future);
-  expect(result.rows).toHaveLength(5);
+  expect(result.siblingRaw).toMatchObject({
+    record_version: 'wallet_session_authorization_v6',
+    wallet_session_id: result.siblingCredential.walletSessionId,
+    authorization_id: result.sibling.authorizationId,
+    wallet_auth_method_id: result.sibling.authMethodId,
+  });
+  expect(result.rows).toHaveLength(3);
   expect(
     result.rows.filter((row) => row.record_version === 'wallet_session_authorization_v6'),
-  ).toHaveLength(1);
+  ).toHaveLength(2);
   expect(result.rows).toContainEqual(
     expect.objectContaining({
       record_version: 'wallet_session_authorization_v6',
@@ -1109,18 +1137,176 @@ test('contains late legacy and future rows during exact V6 replacement', async (
       wallet_session_id: 'wallet-session:late-v4-replacement',
     }),
   );
-  expect(result.rows).toContainEqual(
-    expect.objectContaining({
-      record_version: 'wallet_session_authorization_v4',
-      status: 'retired',
-      wallet_session_id: 'authorization:linked-runtime',
-    }),
+  expect(
+    result.rows.some((row) => row.record_version === 'wallet_session_authorization_v4'),
+  ).toBe(false);
+});
+
+test('wallet bootstrap keeps storage states explicit without a blank shell', async ({ page }) => {
+  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+
+  const result = await page.evaluate(
+    async ({ activeWalletSession, operationCredential }) => {
+      const indexedDbModule = await import('/_test-sdk/esm/core/indexedDB/index.js');
+      const repositoryModule = await import(
+        '/_test-sdk/esm/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore.js'
+      );
+      const storeName = indexedDbModule.SEAMS_WALLET_STORES.walletSessionAuthorizations;
+      const scope = {
+        walletId: activeWalletSession.walletId,
+        authorityId: activeWalletSession.authorityId,
+        authMethodId: activeWalletSession.authMethodId,
+      };
+
+      const createScenario = (label: string) => {
+        const seamsWalletDB = new indexedDbModule.SeamsWalletDBManager();
+        const dbName = indexedDbModule.createSeamsTestWalletDbName(
+          `wallet_bootstrap_${label}_${crypto.randomUUID()}`,
+        );
+        seamsWalletDB.setDbName(dbName);
+        const indexedDB = new indexedDbModule.UnifiedIndexedDBManager({ seamsWalletDB });
+        const repository = new repositoryModule.WalletSessionAuthorizationRepository(seamsWalletDB);
+        return { dbName, indexedDB, repository, seamsWalletDB };
+      };
+
+      const empty = createScenario('empty');
+      await empty.indexedDB.initialize();
+      const emptyLastProfile = await empty.indexedDB.getLastProfileState();
+      const emptyProfiles = await empty.indexedDB.listProfiles();
+      const emptyDb = await empty.seamsWalletDB.getDB();
+
+      const exact = createScenario('exact');
+      await exact.indexedDB.upsertProfile({
+        profileId: activeWalletSession.walletId,
+        defaultSignerSlot: 1,
+      });
+      await exact.indexedDB.setLastProfileStateForProfile(activeWalletSession.walletId, 1);
+      await exact.repository.writeExactWithOperationCredential({
+        record: activeWalletSession,
+        operationCredential,
+      });
+      await exact.indexedDB.initialize();
+      const exactProfiles = await exact.indexedDB.listProfiles();
+      const exactLastProfile = await exact.indexedDB.getLastProfileState();
+      const exactRead = await exact.repository.readExactActiveForWallet(scope);
+
+      const legacy = createScenario('legacy');
+      const legacyDb = await legacy.seamsWalletDB.getDB();
+      const legacyRow = {
+        record_version: 'wallet_session_authorization_v5',
+        wallet_session_id: 'wallet-session:wallet-bootstrap-legacy',
+        wallet_id: activeWalletSession.walletId,
+      };
+      await legacyDb.put(storeName, legacyRow);
+      await legacy.indexedDB.initialize();
+      const legacyRead = await legacy.repository.readExactActiveForWallet(scope);
+      const legacyPersisted = await legacyDb.get(storeName, legacyRow.wallet_session_id);
+      const legacyProfiles = await legacy.indexedDB.listProfiles();
+
+      const malformed = createScenario('malformed');
+      await malformed.repository.writeExactWithOperationCredential({
+        record: activeWalletSession,
+        operationCredential,
+      });
+      const malformedDb = await malformed.seamsWalletDB.getDB();
+      const validRow = await malformedDb.get(storeName, operationCredential.walletSessionId);
+      if (!validRow) throw new Error('stored V6 Wallet Session row is missing');
+      const malformedRow = {
+        ...validRow,
+        authorization_id: 'authorization:wallet-bootstrap-malformed',
+      };
+      await malformedDb.put(storeName, malformedRow);
+      await malformed.indexedDB.initialize();
+      const malformedRead = await malformed.repository.readExactActiveForWallet(scope);
+      const malformedProfiles = await malformed.indexedDB.listProfiles();
+
+      const future = createScenario('future');
+      const futureDb = await future.seamsWalletDB.getDB();
+      const futureRow = {
+        record_version: 'wallet_session_authorization_v7',
+        wallet_session_id: 'wallet-session:wallet-bootstrap-future',
+        wallet_id: activeWalletSession.walletId,
+        wallet_authority_id: activeWalletSession.authorityId,
+        wallet_auth_method_id: activeWalletSession.authMethodId,
+        future_payload: { preserved: true, marker: 'wallet-bootstrap-future' },
+      };
+      await futureDb.put(storeName, futureRow);
+      await future.indexedDB.initialize();
+      const futureRead = await future.repository.readExactActiveForWallet(scope);
+      const futurePersisted = await futureDb.get(storeName, futureRow.wallet_session_id);
+      const futureProfiles = await future.indexedDB.listProfiles();
+
+      return {
+        empty: {
+          initialized: empty.indexedDB.isInitialized,
+          profileCount: emptyProfiles.length,
+          lastProfile: emptyLastProfile,
+          sessionCount: await emptyDb.count(storeName),
+        },
+        exact: {
+          initialized: exact.indexedDB.isInitialized,
+          profileIds: exactProfiles.map((profile) => profile.profileId),
+          lastProfileId: exactLastProfile?.profileId ?? null,
+          read: exactRead.kind,
+          operationCredentialWalletSessionId:
+            exactRead.kind === 'found' ? exactRead.operationCredential.walletSessionId : null,
+        },
+        legacy: {
+          initialized: legacy.indexedDB.isInitialized,
+          read: legacyRead.kind,
+          persisted: legacyPersisted !== undefined,
+          profileCount: legacyProfiles.length,
+        },
+        malformed: {
+          initialized: malformed.indexedDB.isInitialized,
+          read: malformedRead.kind,
+          profileCount: malformedProfiles.length,
+        },
+        future: {
+          initialized: future.indexedDB.isInitialized,
+          read: futureRead.kind,
+          persisted: futurePersisted !== undefined,
+          profileCount: futureProfiles.length,
+        },
+      };
+    },
+    {
+      activeWalletSession: fixture.activeWalletSession,
+      operationCredential: fixture.operationCredential,
+    },
   );
-  expect(result.rows).toContainEqual(
-    expect.objectContaining({
-      record_version: 'wallet_session_authorization_v4',
-      status: 'retired',
-      wallet_session_id: 'authorization:late-v5-replacement',
-    }),
-  );
+
+  expect(result).toEqual({
+    empty: {
+      initialized: true,
+      profileCount: 0,
+      lastProfile: null,
+      sessionCount: 0,
+    },
+    exact: {
+      initialized: true,
+      profileIds: [fixture.activeWalletSession.walletId],
+      lastProfileId: fixture.activeWalletSession.walletId,
+      read: 'found',
+      operationCredentialWalletSessionId: fixture.operationCredential.walletSessionId,
+    },
+    legacy: {
+      initialized: true,
+      read: 'missing',
+      persisted: false,
+      profileCount: 0,
+    },
+    malformed: {
+      initialized: true,
+      read: 'corrupt',
+      profileCount: 0,
+    },
+    future: {
+      initialized: true,
+      read: 'upgrade_required',
+      persisted: true,
+      profileCount: 0,
+    },
+  });
 });

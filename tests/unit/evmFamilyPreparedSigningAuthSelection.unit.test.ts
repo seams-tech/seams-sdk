@@ -135,8 +135,9 @@ test.describe('EVM-family prepared signing auth selection', () => {
     expect(selected.kind).toBe('authorized');
     if (selected.kind !== 'authorized') throw new Error('expected authorized material selection');
     expect(selected.candidate.authorizationState).toBe('authorized');
-    expect(selected.lane.authorization.projection.walletSessionId).toBe(
-      materialRecord.authorization?.projection.walletSessionId,
+    if (!materialRecord.authorization) throw new Error('expected exact material authorization');
+    expect(selected.lane.authorization.session.walletSessionId).toBe(
+      materialRecord.authorization.session.walletSessionId,
     );
     expect(selected.lane.materialActivation.activationId).toBe(
       materialRecord.materialActivation.activationId,

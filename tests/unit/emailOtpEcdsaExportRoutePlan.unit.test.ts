@@ -3,7 +3,6 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { buildEcdsaOperationStepUpPreparation } from '@/core/signingEngine/threshold/ecdsa/operationStepUp';
 import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
-import { buildEmailOtpEcdsaSigningSessionAuthority } from '@/core/signingEngine/session/emailOtp/ecdsaSigningSessionAuthority';
 import { exportEcdsaKeyWithDurableAuthorization } from '@/core/signingEngine/session/emailOtp/exportRecovery';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import {
@@ -41,18 +40,6 @@ test('ECDSA Email OTP export verifies its challenge with the originating app ses
     expiresAtMs: Date.now() + 60_000,
   });
   const appSessionJwt = 'originating-app-session-jwt';
-  const signingSessionAuthority = buildEmailOtpEcdsaSigningSessionAuthority({
-    authority,
-    authLane: {
-      kind: 'signing_session',
-      jwt: 'durable-wallet-session-jwt',
-      thresholdSessionId: 'durable-ecdsa-session',
-      curve: 'ecdsa',
-      chainTarget,
-    },
-  });
-  if (!signingSessionAuthority)
-    throw new Error('ECDSA signing-session authority fixture is invalid');
   const persistedMaterial = buildPersistedEcdsaRoleLocalMaterial({
     authority: manifest.signer.authority,
     materialActivation: manifest.durableMaterial.materialActivation,
@@ -92,7 +79,7 @@ test('ECDSA Email OTP export verifies its challenge with the originating app ses
           envId: 'fixture-env',
           signingRootVersion: String(manifest.signer.signingRootVersion),
         },
-        signingSessionAuthority,
+        authority,
         persistedMaterial,
         explicitExportAuthorization,
         prepareEcdsaExportCapability: async (input) => {
@@ -104,7 +91,6 @@ test('ECDSA Email OTP export verifies its challenge with the originating app ses
   ).rejects.toThrow('captured before worker execution');
   expect(capturedRoutePlan).toEqual({
     routeFamily: 'login',
-    authLane: { kind: 'app_session', jwt: appSessionJwt },
     operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
   });
 });

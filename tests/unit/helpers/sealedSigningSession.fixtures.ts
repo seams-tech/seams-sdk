@@ -22,7 +22,19 @@ import { buildWalletAuthAuthorityRefForAuthorityFixture } from './ecdsaMaterialR
 import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
+  type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
+import {
+  buildActiveWalletAuthorityV1,
+  buildWalletSignerActivationSetV1,
+  type ActiveWalletAuthorityV1,
+} from '@shared/authorization/walletAuthority';
+import { buildSigningOnlyPermissionsV1 } from '@shared/authorization/delegatedAuthority';
+import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
+import {
+  parseActiveWalletSessionV1,
+  parseWalletSessionOperationCredentialV1,
+} from '@shared/device-linking/parsers';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import {
   buildEcdsaInactiveMaterialPublicRestore,
@@ -37,13 +49,19 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { ecdsaSealedRecordStoreKey } from '@/core/signingEngine/session/persistence/ecdsaSealedRecordKey';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
-import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
+  parseDeviceId,
   parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import { parseWalletAuthorityId, type MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
+import { base64UrlEncode } from '@shared/utils/base64';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
+import { buildActiveNearEd25519WalletSessionAuthorization } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
+import type { ActiveWalletAuthMethodV2 } from '@/core/signingEngine/session/identity/ownerLaneScope';
 
 function requireFixtureDomainId<T>(
   result: { ok: true; value: T } | { ok: false; error: unknown },
@@ -53,7 +71,130 @@ function requireFixtureDomainId<T>(
 }
 
 function fixtureWalletSessionToken(label: string): string {
-  return `opaque-wallet-session-token:${label}`;
+  const encoded = base64UrlEncode(new TextEncoder().encode(label));
+  return `wst_${encoded.padEnd(43, 'A').slice(0, 43)}`;
+}
+
+function buildActiveEd25519WalletAuthorityFixture(args: {
+  record: CurrentEd25519SealedSessionRecord;
+  factorAuthority: WalletAuthAuthority;
+}): ActiveWalletAuthorityV1 {
+  const { record, factorAuthority } = args;
+  const authorityRef = buildWalletAuthAuthorityRefForAuthorityFixture(factorAuthority);
+  const walletAuthorityId = requireFixtureDomainId(
+    parseWalletAuthorityId(`authority:sealed-ed25519:${record.thresholdSessionIds.ed25519}`),
+  );
+  const signerManifest = parseExactAdministeredSignerManifestV1({
+    kind: 'exact_administered_signer_manifest_v1',
+    keyFamilies: ['ed25519'],
+    signers: [
+      {
+        kind: 'exact_administered_ed25519_signer_v1',
+        keyFamily: 'ed25519',
+        walletId: factorAuthority.walletId,
+        walletKeyId: `wallet-key:sealed-ed25519:${record.thresholdSessionIds.ed25519}`,
+        registeredPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(7)),
+      },
+    ],
+  });
+  const signerActivations = buildWalletSignerActivationSetV1({
+    manifest: signerManifest,
+    materialActivations: {
+      keyFamilies: ['ed25519'],
+      ed25519: record.ed25519Restore.materialActivation,
+    },
+  });
+  return buildActiveWalletAuthorityV1({
+    kind: 'wallet_authority_v1',
+    authorityId: walletAuthorityId,
+    walletId: factorAuthority.walletId,
+    principal: {
+      kind: 'owner_device',
+      deviceId: requireFixtureDomainId(
+        parseDeviceId(`device:sealed-ed25519:${record.thresholdSessionIds.ed25519}`),
+      ),
+    },
+    provenance: { kind: 'wallet_registration' },
+    permissions: buildSigningOnlyPermissionsV1(),
+    signerActivations,
+    signerActivationSetDigestB64u: parseDigestB64u(String(authorityRef.authorityDigest)),
+    authorityDigestB64u: parseDigestB64u(String(authorityRef.authorityDigest)),
+    revocationEpoch: 0,
+    createdAtMs: 1,
+    updatedAtMs: 2,
+    state: 'active',
+    activatedAtMs: 2,
+  });
+}
+
+function buildExactEd25519AuthorizationFixture(args: {
+  record: CurrentEd25519SealedSessionRecord;
+  selectedAuthority: ActiveWalletAuthorityV1;
+  selectedAuthMethod: ActiveWalletAuthMethodV2;
+  selectedFactorAuthority: WalletAuthAuthority;
+  authorizationId?: string;
+  walletSessionId?: string;
+  quotaId?: string;
+  authorizationExpiresAtMs?: number;
+  remainingUses?: number;
+}) {
+  const authorizationExpiresAtMs = args.authorizationExpiresAtMs ?? args.record.expiresAtMs;
+  const walletSessionId = requireFixtureDomainId(
+    parseWalletSessionId(
+      args.walletSessionId ?? `wallet-session:${args.record.thresholdSessionIds.ed25519}`,
+    ),
+  );
+  const quotaId = requireFixtureDomainId(
+    parseMpcWalletSigningQuotaId(
+      args.quotaId ?? `quota:${args.record.thresholdSessionIds.ed25519}`,
+    ),
+  );
+  const session = parseActiveWalletSessionV1({
+    kind: 'active_wallet_session_v1',
+    walletId: args.selectedAuthority.walletId,
+    authorityId: args.selectedAuthority.authorityId,
+    authMethodId: args.selectedAuthMethod.walletAuthMethodId,
+    authorizationId: requireFixtureDomainId(
+      parseWalletSessionAuthorizationId(
+        args.authorizationId ??
+          `wallet-session-authorization:${args.record.thresholdSessionIds.ed25519}`,
+      ),
+    ),
+    quotaId,
+    authorityDigestB64u: args.selectedAuthority.authorityDigestB64u,
+    authorityRevocationEpoch: args.selectedAuthority.revocationEpoch,
+    capabilitySubjects: [
+      {
+        kind: 'sign',
+        keyFamily: 'ed25519',
+        materialActivation: args.record.ed25519Restore.materialActivation,
+      },
+    ],
+    issuedAtMs: 1,
+    expiresAtMs: authorizationExpiresAtMs,
+  });
+  const operationCredential = parseWalletSessionOperationCredentialV1({
+    kind: 'opaque_wallet_session_operation_credential_v1',
+    token: fixtureWalletSessionToken(args.record.thresholdSessionIds.ed25519),
+    walletSessionId,
+  });
+  return buildActiveNearEd25519WalletSessionAuthorization({
+    selectedAuthority: args.selectedAuthority,
+    selectedAuthMethod: args.selectedAuthMethod,
+    selectedFactorAuthority: args.selectedFactorAuthority,
+    session,
+    operationCredential,
+    status: {
+      status: 'active',
+      walletSessionId,
+      quotaId,
+      remainingUses: args.remainingUses ?? args.record.remainingUses,
+      expiresAtMs: authorizationExpiresAtMs,
+      quotaLifecycle: 'active',
+      authorization: session,
+    },
+    nowMs: Math.max(0, Math.min(authorizationExpiresAtMs - 1, Date.now())),
+  });
 }
 
 export function buildPasskeyEd25519SealedSessionRecordFixture(
@@ -119,13 +260,14 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
   return record;
 }
 
-export function buildPasskeyEd25519AuthorizationProjectionFixture(
+export function buildPasskeyExactEd25519AuthorizationFixture(
   record: CurrentEd25519SealedSessionRecord,
   args: {
     authorizationId?: string;
     walletSessionId?: string;
     quotaId?: string;
     authorizationExpiresAtMs?: number;
+    remainingUses?: number;
   } = {},
 ) {
   if (!('credentialIdB64u' in record.ed25519Restore)) {
@@ -136,27 +278,34 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
     rpId: record.ed25519Restore.rpId,
     credentialIdB64u: record.ed25519Restore.credentialIdB64u,
   });
-  const authorizationId =
-    args.authorizationId ?? `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`;
-  const walletSessionId =
-    args.walletSessionId ?? `wallet-session:${record.thresholdSessionIds.ed25519}`;
-  const quotaId = args.quotaId ?? `quota:${record.thresholdSessionIds.ed25519}`;
-  const authorizationExpiresAtMs = args.authorizationExpiresAtMs ?? record.expiresAtMs;
-  return buildActiveWalletSessionAuthorizationProjection({
+  const selectedAuthority = buildActiveEd25519WalletAuthorityFixture({
+    record,
+    factorAuthority: authority,
+  });
+  const selectedAuthMethod = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: authority.bindingId,
     walletId: authority.walletId,
-    walletSessionId: requireFixtureDomainId(parseWalletSessionId(walletSessionId)),
-    quotaId: requireFixtureDomainId(parseMpcWalletSigningQuotaId(quotaId)),
-    walletSessionTokens: {
-      kind: 'near_ed25519',
-      ed25519: {
-        authorizationId,
-        walletSessionToken: fixtureWalletSessionToken(record.thresholdSessionIds.ed25519),
-        thresholdSessionId: record.thresholdSessionIds.ed25519,
-      },
-    },
-    authMethod: 'passkey',
-    authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),
-    expiresAtMs: authorizationExpiresAtMs,
+    walletAuthorityId: selectedAuthority.authorityId,
+    kind: 'passkey',
+    status: 'active',
+    rpId: authority.verifier.rpId,
+    credentialIdB64u: authority.factor.credentialIdB64u,
+    credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(65).fill(8)),
+    counter: 0,
+    createdAtMs: 1,
+    updatedAtMs: 2,
+    activatedAtMs: 2,
+  });
+  if (selectedAuthMethod.status !== 'active') {
+    throw new Error('sealed Ed25519 authorization fixture requires an active method');
+  }
+  return buildExactEd25519AuthorizationFixture({
+    record,
+    selectedAuthority,
+    selectedAuthMethod,
+    selectedFactorAuthority: authority,
+    ...args,
   });
 }
 
@@ -220,8 +369,15 @@ export function buildEmailOtpEd25519SealedSessionRecordFixture(
   return record;
 }
 
-export function buildEmailOtpEd25519AuthorizationProjectionFixture(
+export function buildEmailOtpExactEd25519AuthorizationFixture(
   record: CurrentEd25519SealedSessionRecord,
+  args: {
+    authorizationId?: string;
+    walletSessionId?: string;
+    quotaId?: string;
+    authorizationExpiresAtMs?: number;
+    remainingUses?: number;
+  } = {},
 ) {
   if (!('provider' in record.ed25519Restore)) {
     throw new Error('Email OTP Ed25519 authorization fixture requires provider restore metadata');
@@ -232,27 +388,32 @@ export function buildEmailOtpEd25519AuthorizationProjectionFixture(
     providerUserId: record.ed25519Restore.providerSubjectId,
     emailHashHex: record.ed25519Restore.emailHashHex,
   });
-  return buildActiveWalletSessionAuthorizationProjection({
+  const selectedAuthority = buildActiveEd25519WalletAuthorityFixture({
+    record,
+    factorAuthority: authority,
+  });
+  const selectedAuthMethod = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: authority.bindingId,
     walletId: authority.walletId,
-    walletSessionId: requireFixtureDomainId(
-      parseWalletSessionId(`wallet-session:${record.thresholdSessionIds.ed25519}`),
-    ),
-    quotaId: requireFixtureDomainId(
-      parseMpcWalletSigningQuotaId(`quota:${record.thresholdSessionIds.ed25519}`),
-    ),
-    walletSessionTokens: {
-      kind: 'near_ed25519',
-      ed25519: {
-        authorizationId: `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`,
-        walletSessionToken: fixtureWalletSessionToken(
-          `email-otp:${record.thresholdSessionIds.ed25519}`,
-        ),
-        thresholdSessionId: record.thresholdSessionIds.ed25519,
-      },
-    },
-    authMethod: 'email_otp',
-    authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),
-    expiresAtMs: record.expiresAtMs,
+    walletAuthorityId: selectedAuthority.authorityId,
+    kind: 'email_otp',
+    status: 'active',
+    emailHashHex: authority.verifier.emailHashHex,
+    registrationAuthorityId: String(selectedAuthority.authorityId),
+    createdAtMs: 1,
+    updatedAtMs: 2,
+    activatedAtMs: 2,
+  });
+  if (selectedAuthMethod.status !== 'active') {
+    throw new Error('sealed Ed25519 authorization fixture requires an active method');
+  }
+  return buildExactEd25519AuthorizationFixture({
+    record,
+    selectedAuthority,
+    selectedAuthMethod,
+    selectedFactorAuthority: authority,
+    ...args,
   });
 }
 
@@ -447,6 +608,7 @@ export function seedEmailOtpEcdsaSealedSigningSessionRecord(
 
 type EmailOtpEcdsaSealedRuntimeFixtureCorruption =
   | { kind: 'blank_binding_digest' }
+  | { kind: 'binding_digest'; bindingDigest: string }
   | { kind: 'blank_relayer_url' }
   | {
       kind: 'foreign_material_activation';
@@ -460,6 +622,19 @@ type EmailOtpEcdsaSealedRuntimeFixtureCorruption =
   | { kind: 'remaining_uses'; remainingUses: number }
   | { kind: 'expires_at_ms'; expiresAtMs: number }
   | { kind: 'normal_signing_wallet_id'; walletId: string }
+  | { kind: 'key_handle'; keyHandle: string }
+  | { kind: 'ecdsa_threshold_key_id'; thresholdKeyId: string }
+  | { kind: 'threshold_public_key'; publicKeyB64u: string }
+  | { kind: 'client_verifying_share'; shareB64u: string }
+  | { kind: 'signing_root_id'; signingRootId: string }
+  | { kind: 'signing_root_version'; signingRootVersion: string }
+  | { kind: 'ethereum_address'; ethereumAddress: string }
+  | { kind: 'auth_method'; authMethod: CurrentEcdsaSealedSessionRecord['authMethod'] }
+  | { kind: 'normal_signing_worker_id'; signingWorkerId: string }
+  | { kind: 'normal_signing_context'; applicationBindingDigestB64u: string }
+  | { kind: 'normal_signing_server_public_key'; publicKeyB64u: string }
+  | { kind: 'public_capability_signer_id'; signerId: string }
+  | { kind: 'public_capability_router_id'; routerId: string }
   | { kind: 'relayer_key_id'; relayerKeyId: string };
 
 /** The scope the relayer issues at bootstrap and the sealed store persists.
@@ -737,6 +912,17 @@ function corruptEmailOtpEcdsaSealedRuntimeRecordFixture(
           },
         },
       };
+    case 'binding_digest':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          roleLocalMaterialRef: {
+            ...record.ecdsaRestore.roleLocalMaterialRef,
+            bindingDigest: corruption.bindingDigest,
+          },
+        },
+      };
     case 'blank_relayer_url':
       return { ...record, relayerUrl: '   ' };
     case 'foreign_material_activation':
@@ -775,6 +961,134 @@ function corruptEmailOtpEcdsaSealedRuntimeRecordFixture(
               ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope,
               wallet_id: corruption.walletId,
             },
+          },
+        },
+      };
+    case 'key_handle':
+      return {
+        ...record,
+        ecdsaRestore: { ...record.ecdsaRestore, keyHandle: corruption.keyHandle },
+      };
+    case 'ecdsa_threshold_key_id':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          ecdsaThresholdKeyId: corruption.thresholdKeyId,
+        },
+      };
+    case 'threshold_public_key':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          thresholdEcdsaPublicKeyB64u: corruption.publicKeyB64u,
+        },
+      };
+    case 'client_verifying_share':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          clientVerifyingShareB64u: corruption.shareB64u,
+        },
+      };
+    case 'signing_root_id':
+      return {
+        ...record,
+        ecdsaRestore: { ...record.ecdsaRestore, signingRootId: corruption.signingRootId },
+      };
+    case 'signing_root_version':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          signingRootVersion: corruption.signingRootVersion,
+        },
+      };
+    case 'ethereum_address':
+      return {
+        ...record,
+        ecdsaRestore: { ...record.ecdsaRestore, ethereumAddress: corruption.ethereumAddress },
+      };
+    case 'auth_method':
+      return { ...record, authMethod: corruption.authMethod };
+    case 'normal_signing_worker_id':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          routerAbEcdsaDerivationNormalSigning: {
+            ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning,
+            scope: {
+              ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope,
+              signing_worker: {
+                ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope.signing_worker,
+                server_id: corruption.signingWorkerId,
+              },
+            },
+          },
+        },
+      };
+    case 'normal_signing_context':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          routerAbEcdsaDerivationNormalSigning: {
+            ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning,
+            scope: {
+              ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope,
+              context: {
+                ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope.context,
+                application_binding_digest_b64u: corruption.applicationBindingDigestB64u,
+              },
+            },
+          },
+        },
+      };
+    case 'normal_signing_server_public_key':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          routerAbEcdsaDerivationNormalSigning: {
+            ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning,
+            scope: {
+              ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope,
+              public_identity: {
+                ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope.public_identity,
+                server_public_key33_b64u: corruption.publicKeyB64u,
+              },
+            },
+          },
+        },
+      };
+    case 'public_capability_signer_id':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          publicCapability: {
+            ...record.ecdsaRestore.publicCapability,
+            signer_set: {
+              ...record.ecdsaRestore.publicCapability.signer_set,
+              selected_server: {
+                ...record.ecdsaRestore.publicCapability.signer_set.selected_server,
+                server_id: corruption.signerId,
+              },
+            },
+          },
+        },
+      };
+    case 'public_capability_router_id':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          publicCapability: {
+            ...record.ecdsaRestore.publicCapability,
+            router_id: corruption.routerId,
           },
         },
       };

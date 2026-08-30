@@ -3,21 +3,19 @@ import {
   parseWalletRegistrationFinalizeResponse,
   type WalletRegistrationEcdsaWalletKey,
 } from '@/core/rpcClients/relayer/walletRegistration';
-import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   createThresholdEcdsaBootstrapFixture,
   thresholdEcdsaBootstrapPublicFactsFixture,
 } from './helpers/ecdsaBootstrap.fixtures';
+import { buildEcdsaActivationPublicationFixture } from './helpers/pendingWalletRegistrationPublication.fixtures';
+import { isPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
-const WALLET_ID = 'registration-finalize-boundary';
-const RP_ID = 'wallet.example.test';
-const CREDENTIAL_ID = 'credential-registration-finalize';
 const OWNER_ADDRESS = `0x${'41'.repeat(20)}`;
 
-function registrationFinalizeEcdsaWalletKey(): WalletRegistrationEcdsaWalletKey {
+function registrationFinalizeEcdsaWalletKey(walletId: string): WalletRegistrationEcdsaWalletKey {
   const bootstrap = createThresholdEcdsaBootstrapFixture({
-    nearAccountId: WALLET_ID,
+    nearAccountId: walletId,
     chain: 'tempo',
     ethereumAddress: OWNER_ADDRESS,
   });
@@ -27,9 +25,9 @@ function registrationFinalizeEcdsaWalletKey(): WalletRegistrationEcdsaWalletKey 
   return {
     keyScope: 'evm-family',
     chainTarget: bootstrap.thresholdEcdsaKeyRef.chainTarget,
-    walletId: WALLET_ID,
+    walletId,
     evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-      walletId: WALLET_ID,
+      walletId,
       signingRootId: publicFacts.signingRootId,
       signingRootVersion: publicFacts.signingRootVersion,
     }),
@@ -50,21 +48,29 @@ function registrationFinalizeEcdsaWalletKey(): WalletRegistrationEcdsaWalletKey 
   };
 }
 
-function validFinalizeResponse() {
-  const walletKey = registrationFinalizeEcdsaWalletKey();
+async function validFinalizeResponse() {
+  const publication = await buildEcdsaActivationPublicationFixture();
+  const authority = publication.input.authority;
+  if (!isPasskeyWalletAuthAuthority(authority)) {
+    throw new Error('expected passkey registration publication fixture');
+  }
+  const foundingAuthMethod = publication.input.foundingAuthority.authMethod;
+  if (foundingAuthMethod.kind !== 'passkey') {
+    throw new Error('expected passkey founding auth method fixture');
+  }
+  const walletId = publication.walletId;
+  const walletKey = registrationFinalizeEcdsaWalletKey(walletId);
   return {
     ok: true,
-    walletId: WALLET_ID,
-    authority: buildPasskeyWalletAuthAuthority({
-      walletId: WALLET_ID,
-      rpId: RP_ID,
-      credentialIdB64u: CREDENTIAL_ID,
-    }),
-    rpId: RP_ID,
+    walletId,
+    authority,
+    foundingAuthority: publication.input.foundingAuthority.authority,
+    foundingAuthMethod,
+    rpId: String(authority.verifier.rpId),
     authMethod: {
       kind: 'passkey',
-      credentialIdB64u: CREDENTIAL_ID,
-      credentialPublicKeyB64u: 'credential-public-key',
+      credentialIdB64u: String(authority.factor.credentialIdB64u),
+      credentialPublicKeyB64u: foundingAuthMethod.credentialPublicKeyB64u,
     },
     kind: 'evm_family_ecdsa',
     ecdsa: { walletKeys: [walletKey] },
@@ -76,9 +82,9 @@ function validFinalizeResponse() {
   };
 }
 
-test('registration finalize parser validates the complete ECDSA response', () => {
+test('registration finalize parser validates the complete ECDSA response', async () => {
   const parsed = parseWalletRegistrationFinalizeResponse({
-    value: validFinalizeResponse(),
+    value: await validFinalizeResponse(),
     expectedKind: 'evm_family_ecdsa',
   });
 
@@ -86,26 +92,15 @@ test('registration finalize parser validates the complete ECDSA response', () =>
   expect(parsed.ecdsa.walletKeys[0]?.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
 });
 
-test('registration finalize parser retains validated Ed25519 material facts', () => {
-  const authority = buildPasskeyWalletAuthAuthority({
-    walletId: WALLET_ID,
-    rpId: RP_ID,
-    credentialIdB64u: CREDENTIAL_ID,
-  });
+test('registration finalize parser retains validated Ed25519 material facts', async () => {
+  const { ecdsa: _ecdsa, ...finalizeResponse } = await validFinalizeResponse();
   const parsed = parseWalletRegistrationFinalizeResponse({
     expectedKind: 'near_ed25519',
     value: {
       ok: true,
-      walletId: WALLET_ID,
-      authority,
-      rpId: RP_ID,
-      authMethod: {
-        kind: 'passkey',
-        credentialIdB64u: CREDENTIAL_ID,
-        credentialPublicKeyB64u: 'credential-public-key',
-      },
+      ...finalizeResponse,
       kind: 'near_ed25519',
-      authorityScope: { kind: 'passkey_rp', rpId: RP_ID },
+      authorityScope: { kind: 'passkey_rp', rpId: finalizeResponse.rpId },
       accountProvisioning: {
         kind: 'sponsored_named_account',
         requestedAccountId: 'alice.testnet',
@@ -153,8 +148,8 @@ test('registration finalize parser retains validated Ed25519 material facts', ()
   expect(parsed.ed25519.routerAbNormalSigning.signingWorkerId).toBe('worker-1');
 });
 
-test('registration finalize parser rejects nested server material', () => {
-  const response = validFinalizeResponse();
+test('registration finalize parser rejects nested server material', async () => {
+  const response = await validFinalizeResponse();
   const walletKey = response.ecdsa.walletKeys[0] as WalletRegistrationEcdsaWalletKey & {
     serverShare?: string;
   };
@@ -168,8 +163,8 @@ test('registration finalize parser rejects nested server material', () => {
   ).toThrow('unexpected serverShare');
 });
 
-test('registration finalize parser rejects public capability substitution', () => {
-  const response = validFinalizeResponse();
+test('registration finalize parser rejects public capability substitution', async () => {
+  const response = await validFinalizeResponse();
   response.ecdsa.walletKeys[0]!.contextBinding32B64u = 'substituted-context';
 
   expect(() =>

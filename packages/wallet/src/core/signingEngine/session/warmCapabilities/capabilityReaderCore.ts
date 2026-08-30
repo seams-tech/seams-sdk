@@ -26,7 +26,7 @@ import type {
   WarmSessionPrfClaim,
 } from './types';
 import type { WarmSigningStatusReader } from './statusReader';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactNearEd25519WalletSessionAuthorization } from '../material/nearEd25519YaoSigningPreparation';
 import {
   resolveExactEd25519SealedSessionRuntimeForWallet,
   type Ed25519WalletSealedSessionRuntimeResolution,
@@ -75,7 +75,7 @@ export type WarmSessionCapabilityReaderCoreDeps = {
   resolveActiveEcdsaWalletSessionAuthorization?: ExactEcdsaWalletSessionAuthorizationResolver;
   resolveActiveEd25519WalletSessionAuthorization?: (
     walletId: WalletId,
-  ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
+  ) => Promise<ExactNearEd25519WalletSessionAuthorization | null>;
 };
 
 export type WarmSessionCapabilityReaderCore = {
@@ -134,7 +134,7 @@ export function createWarmSessionCapabilityReaderCore(
 ): WarmSessionCapabilityReaderCore {
   async function resolveEd25519AuthorizationForWallet(
     walletId: WalletId,
-  ): Promise<ActiveWalletSessionAuthorizationProjection | null> {
+  ): Promise<ExactNearEd25519WalletSessionAuthorization | null> {
     const resolve = deps.resolveActiveEd25519WalletSessionAuthorization;
     if (!resolve) return null;
     try {
@@ -146,7 +146,7 @@ export function createWarmSessionCapabilityReaderCore(
 
   function buildEd25519CapabilityState(args: {
     resolution: Ed25519WalletSealedSessionRuntimeResolution;
-    auth: ActiveWalletSessionAuthorizationProjection | null;
+    auth: ExactNearEd25519WalletSessionAuthorization | null;
     prfClaim: WarmSessionEd25519CapabilityState['prfClaim'];
   }): WarmSessionEd25519CapabilityState {
     if (args.resolution.kind === 'missing') {

@@ -16,7 +16,7 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ProvisionWarmEd25519CapabilityResult } from '@/core/signingEngine/session/warmCapabilities/types';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
   AvailableSigningLanes,
@@ -28,7 +28,6 @@ import type { OwnerLaneScope } from '@/core/signingEngine/session/identity/signi
 import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
-import type { ReusableWalletSessionState } from '@/core/types/seams';
 import type {
   NearSignIntentRequest,
   NearSignIntentResult,
@@ -599,7 +598,6 @@ export interface SigningSessionSurface {
     thresholdSessionId: string;
     transport: Exclude<WarmSessionSealTransportInput, { authMethod: 'email_otp' }>;
   }): Promise<WarmSessionSealAndPersistResult>;
-  readReusableWalletSessionState(walletId: WalletId | string): Promise<ReusableWalletSessionState>;
   discoverPersistedSessionsForWallet(
     args: DiscoverPersistedSessionsForWalletInput,
   ): Promise<DiscoverPersistedSessionsForWalletResult>;
@@ -647,12 +645,7 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
   UserAccountLookupSurface &
   WarmSessionStatusSurface &
   Pick<WalletAuthenticationSurface, 'readWalletAuthenticationState' | 'setWalletAuthenticated'> &
-  Pick<
-    SigningSessionSurface,
-    | 'readReusableWalletSessionState'
-    | 'readPersistedAvailableSigningLanes'
-    | 'readOwnerScopedSigningLanes'
-  >;
+  Pick<SigningSessionSurface, 'readPersistedAvailableSigningLanes' | 'readOwnerScopedSigningLanes'>;
 
 export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   Pick<WalletLockGenerationSurface, 'markWalletSelectionUnlocked'> &
@@ -851,10 +844,10 @@ export interface EmailOtpSigningSessionSurface {
   }): Promise<{
     recovery: EmailOtpBootstrapRecovery;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    authorization: ActiveWalletSessionAuthorizationProjection;
+    authorization: ExactWalletSessionAuthorization;
     authorizations: readonly [
-      ActiveWalletSessionAuthorizationProjection,
-      ...ActiveWalletSessionAuthorizationProjection[],
+      ExactWalletSessionAuthorization,
+      ...ExactWalletSessionAuthorization[],
     ];
   }>;
   enrollEmailOtpInternal(args: EnrollEmailOtpInternalArgs): Promise<EnrollEmailOtpInternalResult>;

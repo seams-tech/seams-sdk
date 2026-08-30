@@ -237,7 +237,7 @@ declare global {
     __seamsIntendedConcurrentActionObserver?: IntendedConcurrentActionObserver;
     __seamsIntendedE2ELockWallet?: () => Promise<void>;
     __seamsIntendedE2EReadWalletLockState?: () => Promise<{
-      reusableWalletSessionKind: string;
+      authenticationKind: 'authenticated' | 'signed_out';
     }>;
   }
 }
@@ -387,8 +387,7 @@ type EmailOtpRegistrationCoreSnapshot = {
   kind: 'email_otp_registration_success';
   initialWalletId: string;
   walletId: string;
-  signingSessionStatus: string;
-  remainingUses: number | null;
+  authenticationKind: 'authenticated';
 } & RegisteredNearStateSnapshot;
 
 type EmailOtpRegistrationResultSnapshot = EmailOtpRegistrationCoreSnapshot & EcdsaEnabledSnapshot;
@@ -415,9 +414,8 @@ type PasskeyUnlockResultSnapshot =
       nearIdentity: 'ready';
       nearAccountId: string;
       operationalPublicKey: string;
-      sessionWalletAuthMethodId: string | null;
-      signingSessionStatus: string;
-      remainingUses: number | null;
+      sessionWalletAuthMethodId: string;
+      authenticationKind: 'authenticated';
     }
   | {
       kind: 'passkey_unlock_success';
@@ -425,9 +423,8 @@ type PasskeyUnlockResultSnapshot =
       nearIdentity: 'absent';
       nearAccountId?: never;
       operationalPublicKey?: never;
-      sessionWalletAuthMethodId: string | null;
-      signingSessionStatus: string;
-      remainingUses: number | null;
+      sessionWalletAuthMethodId: string;
+      authenticationKind: 'authenticated';
     };
 
 type PasskeySyncResultSnapshot = {
@@ -456,8 +453,8 @@ type EmailOtpUnlockCoreSnapshot = {
   walletId: string;
   nearAccountId: string;
   operationalPublicKey: string;
-  signingSessionStatus: string;
-  remainingUses: number | null;
+  sessionWalletAuthMethodId: string;
+  authenticationKind: 'authenticated';
 };
 
 type EmailOtpUnlockResultSnapshot = EmailOtpUnlockCoreSnapshot & EcdsaEnabledSnapshot;
@@ -522,9 +519,8 @@ type RevokeAuthMethodResultSnapshot = {
 type AddedEmailOtpUnlockResultSnapshot = {
   kind: 'added_email_otp_unlock_success';
   walletId: string;
-  sessionWalletAuthMethodId: string | null;
-  signingSessionStatus: string;
-  remainingUses: number | null;
+  sessionWalletAuthMethodId: string;
+  authenticationKind: 'authenticated';
 };
 
 type IntendedActionResultSnapshot =
@@ -1289,29 +1285,27 @@ export class IntendedBehaviourHarness {
   }
 
   /**
-   * Refactor 109C: the Wallet Session belongs to the method that opened it.
+   * Refactor 109C: the authenticated capability belongs to the method that
+   * opened it.
    *
    * The family alone proves nothing here - both methods live on one authority,
-   * and the wallet would look identical if it had issued the session to the
-   * method that did the adding. Only the exact id separates the two.
+   * and the wallet would look identical if it had authenticated the method
+   * that did the adding. Only the exact capability id separates the two.
    */
   private assertWalletSessionNamesAddedMethod(input: {
     readonly label: string;
-    readonly sessionWalletAuthMethodId: string | null;
+    readonly sessionWalletAuthMethodId: string;
   }): void {
     const expected = this.addedWalletAuthMethodId;
     if (!expected) {
       throw new Error(`${input.label} unlock ran without a recorded added auth method`);
     }
-    if (!input.sessionWalletAuthMethodId) {
-      throw new Error(`${input.label} unlock issued a Wallet Session naming no auth method`);
-    }
     if (input.sessionWalletAuthMethodId !== expected) {
       throw new Error(
-        `${input.label} unlock issued a Wallet Session for ${input.sessionWalletAuthMethodId}, not the added ${expected}`,
+        `${input.label} unlock authenticated ${input.sessionWalletAuthMethodId}, not the added ${expected}`,
       );
     }
-    this.recordService(`${input.label} wallet session method=${expected}`);
+    this.recordService(`${input.label} authenticated method=${expected}`);
   }
 
   /**
@@ -1356,9 +1350,9 @@ export class IntendedBehaviourHarness {
         `added-passkey unlock returned NEAR identity ${result.nearIdentity} for a ${registration.nearReadiness} wallet`,
       );
     }
-    if (result.signingSessionStatus !== 'active') {
+    if (result.authenticationKind !== 'authenticated') {
       throw new Error(
-        `unlock with the added passkey did not activate its Wallet Session: ${result.signingSessionStatus}`,
+        `unlock with the added passkey did not authenticate the wallet: ${result.authenticationKind}`,
       );
     }
     this.assertWalletSessionNamesAddedMethod({
@@ -1568,9 +1562,9 @@ export class IntendedBehaviourHarness {
     if (result.walletId !== registration.walletId) {
       throw new Error('unlock with the added email code opened a different wallet');
     }
-    if (result.signingSessionStatus !== 'active') {
+    if (result.authenticationKind !== 'authenticated') {
       throw new Error(
-        `unlock with the added email code did not activate its Wallet Session: ${result.signingSessionStatus}`,
+        `unlock with the added email code did not authenticate the wallet: ${result.authenticationKind}`,
       );
     }
     this.assertWalletSessionNamesAddedMethod({
@@ -2084,15 +2078,15 @@ export class IntendedBehaviourHarness {
       if (!readLockState) throw new Error('Intended wallet lock-state helper is unavailable');
       return await readLockState();
     });
-    if (lockState.reusableWalletSessionKind === 'active') {
-      throw new Error('A locked Wallet Session became active after page reload');
+    if (lockState.authenticationKind === 'authenticated') {
+      throw new Error('A locked wallet remained authenticated after page reload');
     }
     await expect(pageRoot).toHaveAttribute('data-login-state', 'logged_out');
     await expect(pageRoot).toHaveAttribute('data-login-wallet-id', '');
     this.intendedPageReady = true;
     this.reloadIntendedPageBeforeNextAction = false;
     this.recordService(
-      `locked page reload remained locked session=${lockState.reusableWalletSessionKind}`,
+      `locked page reload remained locked authentication=${lockState.authenticationKind}`,
     );
   }
 
@@ -3076,8 +3070,7 @@ function emailOtpWalletWithNearReady(
     nearReadiness: 'ready' as const,
     nearAccountId: ready.nearAccountId,
     operationalPublicKey: ready.operationalPublicKey,
-    signingSessionStatus: registration.signingSessionStatus,
-    remainingUses: registration.remainingUses,
+    authenticationKind: registration.authenticationKind,
   };
   switch (registration.ecdsaTargetProfile) {
     case 'none':
@@ -3280,9 +3273,7 @@ async function assertHttpOk(request: APIRequestContext, url: string, label: stri
     }
     await new Promise<void>(scheduleServiceReadinessRetry);
   }
-  throw new Error(
-    `${label} is not ready at ${url}${lastStatus > 0 ? `: HTTP ${lastStatus}` : ''}`,
-  );
+  throw new Error(`${label} is not ready at ${url}${lastStatus > 0 ? `: HTTP ${lastStatus}` : ''}`);
 }
 
 function isExternalStubHost(hostname: string): boolean {
@@ -3822,9 +3813,9 @@ function requireEmailOtpRegistrationResult(
   if (result.walletId === result.initialWalletId) {
     throw new Error('Email OTP registration did not reroll the initial wallet id');
   }
-  if (result.signingSessionStatus !== 'active') {
+  if (result.authenticationKind !== 'authenticated') {
     throw new Error(
-      `Email OTP registration did not establish an active signing session: ${result.signingSessionStatus}`,
+      `Email OTP registration did not authenticate the wallet: ${result.authenticationKind}`,
     );
   }
   return result;
@@ -3903,8 +3894,8 @@ function requirePasskeyUnlockResult(
   if (result.operationalPublicKey !== expected.operationalPublicKey) {
     throw new Error('Passkey unlock operational public key mismatch');
   }
-  if (result.signingSessionStatus !== 'active') {
-    throw new Error(`Passkey unlock signing session is not active: ${result.signingSessionStatus}`);
+  if (result.authenticationKind !== 'authenticated') {
+    throw new Error(`Passkey unlock did not authenticate the wallet: ${result.authenticationKind}`);
   }
   return result;
 }
@@ -3999,9 +3990,9 @@ function requireEmailOtpUnlockResult(
     expected,
     label: 'Email OTP unlock',
   });
-  if (result.signingSessionStatus !== 'active') {
+  if (result.authenticationKind !== 'authenticated') {
     throw new Error(
-      `Email OTP unlock signing session is not active: ${result.signingSessionStatus}`,
+      `Email OTP unlock did not authenticate the wallet: ${result.authenticationKind}`,
     );
   }
   return result;
@@ -4653,15 +4644,14 @@ function parsePasskeyUnlockResultSnapshot(
   const common = {
     kind: 'passkey_unlock_success' as const,
     walletId: requireString(record.walletId, 'passkey unlock walletId'),
-    sessionWalletAuthMethodId:
-      typeof record.sessionWalletAuthMethodId === 'string'
-        ? record.sessionWalletAuthMethodId
-        : null,
-    signingSessionStatus: requireString(
-      record.signingSessionStatus,
-      'passkey unlock signingSessionStatus',
+    sessionWalletAuthMethodId: requireString(
+      record.sessionWalletAuthMethodId,
+      'passkey unlock sessionWalletAuthMethodId',
     ),
-    remainingUses: nullableNumber(record.remainingUses, 'passkey unlock remainingUses'),
+    authenticationKind: requireAuthenticatedKind(
+      record.authenticationKind,
+      'passkey unlock authenticationKind',
+    ),
   };
   switch (nearIdentity) {
     case 'ready':
@@ -4748,19 +4738,17 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
         walletAuthMethodId: requireString(record.walletAuthMethodId, 'revoke walletAuthMethodId'),
       };
     case 'added_email_otp_unlock_success': {
-      const remainingUses = record.remainingUses;
       return {
         kind,
         walletId: requireString(record.walletId, 'added email-code unlock walletId'),
-        sessionWalletAuthMethodId:
-          typeof record.sessionWalletAuthMethodId === 'string'
-            ? record.sessionWalletAuthMethodId
-            : null,
-        signingSessionStatus: requireString(
-          record.signingSessionStatus,
-          'added email-code unlock signing session status',
+        sessionWalletAuthMethodId: requireString(
+          record.sessionWalletAuthMethodId,
+          'added email-code unlock sessionWalletAuthMethodId',
         ),
-        remainingUses: typeof remainingUses === 'number' ? remainingUses : null,
+        authenticationKind: requireAuthenticatedKind(
+          record.authenticationKind,
+          'added email-code unlock authenticationKind',
+        ),
       };
     }
     case 'near_sign_success':
@@ -4786,11 +4774,10 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
         ),
         walletId: requireString(record.walletId, 'Email OTP registration walletId'),
         ...parseRegisteredNearState(record, 'Email OTP registration'),
-        signingSessionStatus: requireString(
-          record.signingSessionStatus,
-          'Email OTP registration signingSessionStatus',
+        authenticationKind: requireAuthenticatedKind(
+          record.authenticationKind,
+          'Email OTP registration authenticationKind',
         ),
-        remainingUses: nullableNumber(record.remainingUses, 'Email OTP registration remainingUses'),
         ...parseEcdsaEnabledSnapshot(record, 'Email OTP registration'),
       };
     case 'near_provisioning_ready':
@@ -4850,11 +4837,14 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
           record.operationalPublicKey,
           'Email OTP unlock operationalPublicKey',
         ),
-        signingSessionStatus: requireString(
-          record.signingSessionStatus,
-          'Email OTP unlock signingSessionStatus',
+        sessionWalletAuthMethodId: requireString(
+          record.sessionWalletAuthMethodId,
+          'Email OTP unlock sessionWalletAuthMethodId',
         ),
-        remainingUses: nullableNumber(record.remainingUses, 'Email OTP unlock remainingUses'),
+        authenticationKind: requireAuthenticatedKind(
+          record.authenticationKind,
+          'Email OTP unlock authenticationKind',
+        ),
         ...parseEcdsaEnabledSnapshot(record, 'Email OTP unlock'),
       };
     case 'tempo_sign_success':
@@ -5312,6 +5302,14 @@ function requireString(raw: unknown, label: string): string {
   return value;
 }
 
+function requireAuthenticatedKind(raw: unknown, label: string): 'authenticated' {
+  const value = requireString(raw, label);
+  if (value !== 'authenticated') {
+    throw new Error(`${label} must be authenticated`);
+  }
+  return value;
+}
+
 function requireHexString(raw: unknown, label: string): `0x${string}` {
   const value = requireString(raw, label);
   if (!/^0x[0-9a-fA-F]*$/.test(value)) {
@@ -5649,16 +5647,11 @@ async function clickWalletIframeConfirm(
 
     let intendedAction: string | null = null;
     try {
-      intendedAction = await page
-        .getByTestId('intended-action-status')
-        .getAttribute('data-action');
+      intendedAction = await page.getByTestId('intended-action-status').getAttribute('data-action');
     } catch {
       intendedAction = null;
     }
-    if (
-      intendedAction === 'unlockEmailOtpWallet' ||
-      intendedAction === 'unlockWithAddedEmailOtp'
-    ) {
+    if (intendedAction === 'unlockEmailOtpWallet' || intendedAction === 'unlockWithAddedEmailOtp') {
       const google = frame.locator('[data-auth-menu-provider="google"]').first();
       let googleVisible = false;
       try {
@@ -5679,9 +5672,7 @@ async function clickWalletIframeConfirm(
       const primary = frame.locator('[data-auth-menu-primary]').first();
       const primaryEnabled = await primary.isEnabled().catch(() => false);
       if (!primaryEnabled) {
-        const walletId = await page
-          .getByTestId('intended-e2e-page')
-          .getAttribute('data-wallet-id');
+        const walletId = await page.getByTestId('intended-e2e-page').getAttribute('data-wallet-id');
         if (!walletId) {
           throw new Error('Passkey auto-confirm requires current intended wallet id');
         }

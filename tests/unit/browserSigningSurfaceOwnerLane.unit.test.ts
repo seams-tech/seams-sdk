@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   BrowserSigningSurface,
-  resolveExactNearEd25519WalletSessionTokenForStepUp,
+  resolveExactNearEd25519WalletSessionOperationCredentialForStepUp,
 } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
@@ -48,7 +48,6 @@ test('resolves the selected owner lane from its exact Wallet Session tuple', asy
   const surface = createSurfaceForOwnerLaneResolution();
   const originalResolveSelected = IndexedDBManager.resolveSelectedWalletAuthority;
   const originalReadExact = walletSessionAuthorizations.readExactActiveForWallet;
-  const originalReadActive = walletSessionAuthorizations.readActiveForWallet;
   let exactReadInput:
     | Parameters<typeof walletSessionAuthorizations.readExactActiveForWallet>[0]
     | null = null;
@@ -62,10 +61,6 @@ test('resolves the selected owner lane from its exact Wallet Session tuple', asy
         operationCredential: fixture.operationCredential,
       };
     };
-    walletSessionAuthorizations.readActiveForWallet = async () => {
-      throw new Error('wallet-wide owner-session fallback must not run');
-    };
-
     await expect(surface.resolveActiveOwnerLaneScope(fixture.authority.walletId)).resolves.toEqual({
       auth: {
         kind: 'passkey',
@@ -82,11 +77,10 @@ test('resolves the selected owner lane from its exact Wallet Session tuple', asy
   } finally {
     IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelected;
     walletSessionAuthorizations.readExactActiveForWallet = originalReadExact;
-    walletSessionAuthorizations.readActiveForWallet = originalReadActive;
   }
 });
 
-test('fails closed for exact owner-session read states without wallet-wide fallback', async () => {
+test('fails closed for exact owner-session read states', async () => {
   const fixture = await buildLinkedDeviceManagementAuthorityFixture({
     label: 'owner-lane-failure',
     permissions: linkedDevicePermissionsForManagementFixture(),
@@ -97,7 +91,6 @@ test('fails closed for exact owner-session read states without wallet-wide fallb
   const surface = createSurfaceForOwnerLaneResolution();
   const originalResolveSelected = IndexedDBManager.resolveSelectedWalletAuthority;
   const originalReadExact = walletSessionAuthorizations.readExactActiveForWallet;
-  const originalReadActive = walletSessionAuthorizations.readActiveForWallet;
   const cases: ReadonlyArray<{
     readonly read: WalletSessionAuthorizationExactActiveReadResult;
     readonly message: string;
@@ -120,14 +113,9 @@ test('fails closed for exact owner-session read states without wallet-wide fallb
     },
   ];
   let exactRead: WalletSessionAuthorizationExactActiveReadResult = cases[0].read;
-  let walletWideReads = 0;
   try {
     IndexedDBManager.resolveSelectedWalletAuthority = async () => resolvedOwnerAuthority(fixture);
     walletSessionAuthorizations.readExactActiveForWallet = async () => exactRead;
-    walletSessionAuthorizations.readActiveForWallet = async () => {
-      walletWideReads += 1;
-      throw new Error('wallet-wide owner-session fallback must not run');
-    };
 
     for (const failureCase of cases) {
       exactRead = failureCase.read;
@@ -135,11 +123,9 @@ test('fails closed for exact owner-session read states without wallet-wide fallb
         failureCase.message,
       );
     }
-    expect(walletWideReads).toBe(0);
   } finally {
     IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelected;
     walletSessionAuthorizations.readExactActiveForWallet = originalReadExact;
-    walletSessionAuthorizations.readActiveForWallet = originalReadActive;
   }
 });
 
@@ -153,24 +139,16 @@ test('does not infer an owner lane when the wallet selection is missing', async 
   });
   const surface = createSurfaceForOwnerLaneResolution();
   const originalResolveSelected = IndexedDBManager.resolveSelectedWalletAuthority;
-  const originalReadActive = walletSessionAuthorizations.readActiveForWallet;
-  let walletWideReads = 0;
   try {
     IndexedDBManager.resolveSelectedWalletAuthority = async () => ({
       kind: 'missing_selection',
     });
-    walletSessionAuthorizations.readActiveForWallet = async () => {
-      walletWideReads += 1;
-      throw new Error('wallet-wide owner-session fallback must not run');
-    };
 
     await expect(surface.resolveActiveOwnerLaneScope(fixture.authority.walletId)).rejects.toThrow(
       'selected Wallet Authority is missing_selection',
     );
-    expect(walletWideReads).toBe(0);
   } finally {
     IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelected;
-    walletSessionAuthorizations.readActiveForWallet = originalReadActive;
   }
 });
 
@@ -178,11 +156,9 @@ test('resolves operation step-up from the selected exact Wallet Session credenti
   const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
   const originalResolveSelected = IndexedDBManager.resolveSelectedWalletAuthority;
   const originalReadExact = walletSessionAuthorizations.readExactWithOperationCredential;
-  const originalReadActive = walletSessionAuthorizations.readActiveForWallet;
   let exactReadInput:
     | Parameters<typeof walletSessionAuthorizations.readExactWithOperationCredential>[0]
     | null = null;
-  let walletWideReads = 0;
   try {
     IndexedDBManager.resolveSelectedWalletAuthority = async () => ({
       kind: 'resolved',
@@ -200,13 +176,8 @@ test('resolves operation step-up from the selected exact Wallet Session credenti
         operationCredential: fixture.operationCredential,
       };
     };
-    walletSessionAuthorizations.readActiveForWallet = async () => {
-      walletWideReads += 1;
-      throw new Error('wallet-wide step-up session fallback must not run');
-    };
-
     await expect(
-      resolveExactNearEd25519WalletSessionTokenForStepUp({
+      resolveExactNearEd25519WalletSessionOperationCredentialForStepUp({
         walletId: fixture.walletId,
         proof: {
           kind: 'passkey',
@@ -214,17 +185,15 @@ test('resolves operation step-up from the selected exact Wallet Session credenti
           credential: fixture.credential,
         },
       }),
-    ).resolves.toBe(fixture.operationCredential.token);
+    ).resolves.toEqual(fixture.operationCredential);
     expect(exactReadInput).toEqual({
       walletId: fixture.walletId,
       authorityId: fixture.authority.authorityId,
       authMethodId: fixture.authMethod.walletAuthMethodId,
     });
-    expect(walletWideReads).toBe(0);
   } finally {
     IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelected;
     walletSessionAuthorizations.readExactWithOperationCredential = originalReadExact;
-    walletSessionAuthorizations.readActiveForWallet = originalReadActive;
   }
 });
 
@@ -232,8 +201,6 @@ test('fails closed when operation step-up has no selected exact Wallet Session',
   const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
   const originalResolveSelected = IndexedDBManager.resolveSelectedWalletAuthority;
   const originalReadExact = walletSessionAuthorizations.readExactWithOperationCredential;
-  const originalReadActive = walletSessionAuthorizations.readActiveForWallet;
-  let walletWideReads = 0;
   try {
     IndexedDBManager.resolveSelectedWalletAuthority = async () => ({
       kind: 'resolved',
@@ -246,13 +213,8 @@ test('fails closed when operation step-up has no selected exact Wallet Session',
     walletSessionAuthorizations.readExactWithOperationCredential = async () => ({
       kind: 'missing',
     });
-    walletSessionAuthorizations.readActiveForWallet = async () => {
-      walletWideReads += 1;
-      throw new Error('wallet-wide step-up session fallback must not run');
-    };
-
     await expect(
-      resolveExactNearEd25519WalletSessionTokenForStepUp({
+      resolveExactNearEd25519WalletSessionOperationCredentialForStepUp({
         walletId: fixture.walletId,
         proof: {
           kind: 'passkey',
@@ -261,10 +223,8 @@ test('fails closed when operation step-up has no selected exact Wallet Session',
         },
       }),
     ).rejects.toThrow('exact Wallet Session is unavailable for operation step-up');
-    expect(walletWideReads).toBe(0);
   } finally {
     IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelected;
     walletSessionAuthorizations.readExactWithOperationCredential = originalReadExact;
-    walletSessionAuthorizations.readActiveForWallet = originalReadActive;
   }
 });

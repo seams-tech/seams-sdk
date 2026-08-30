@@ -2,12 +2,15 @@
 
 Date created: August 12, 2026
 
-Last reconciled: August 17, 2026 against the landed implementation
+Last reconciled: August 17, 2026 against the R107 landed implementation
 (`7dabc3769`, `a68098fd6`, `5666434c7`, `76f28275d`, `cb28cd463`,
 `15c0298ef`, `b68eed371` and follow-ups)
 
-Status: Complete. Phases 0–5 landed. The stale wallet app-session tests were
-reconciled in `76f28275d`, and the final repository gate passes.
+Status: Complete for R107's app-session-plane removal. Phases 0–5 landed, the
+stale wallet app-session tests were reconciled in `76f28275d`, and the R107
+repository gate passes. The final exact Wallet Session issuance, admission,
+persistence, and legacy-branch cleanup remain [R103F](refactor-103F-final-cutover.md)
+ownership.
 
 ## Reconciliation Verdict
 

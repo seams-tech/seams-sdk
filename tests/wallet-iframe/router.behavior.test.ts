@@ -211,16 +211,6 @@ const EMAIL_OTP_REGISTRATION_SESSION_SCRIPT = String.raw`
           walletId: 'alice.testnet',
           authMethod: 'email_otp',
         },
-        reusableWalletSession: {
-          kind: 'active',
-          walletId: 'alice.testnet',
-          authorizationId: 'returned-session-authorization-router-fixture',
-          walletSessionId: 'returned-session-router-fixture',
-          authMethod: 'email_otp',
-          walletAuthMethodId: 'wallet-auth-method:router-fixture',
-          remainingUses: 3,
-          expiresAtMs: Date.now() + 60_000,
-        },
         capabilityProjection: { kind: 'not_requested' },
         nonceDiagnostics: null,
       };

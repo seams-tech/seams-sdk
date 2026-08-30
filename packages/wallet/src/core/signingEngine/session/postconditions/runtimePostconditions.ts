@@ -16,7 +16,7 @@ import { signingLaneAuthMethod, type OwnerLaneScope } from '../identity/signingL
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 import type {
   MpcWalletSigningQuotaId,
-  ReusableWalletSessionAuthorizationId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
@@ -48,7 +48,7 @@ type UsableRuntimeLaneIdentity =
   | {
       authMethod: SigningSessionSealAuthMethod;
       target: { curve: 'ecdsa'; chainTarget: ThresholdEcdsaChainTarget };
-      authorizationId: ReusableWalletSessionAuthorizationId;
+      authorizationId: WalletSessionAuthorizationId;
       materialActivationId: string;
     };
 
@@ -175,8 +175,8 @@ function readReadyEd25519Lane(args: {
   const expiresAtMs = laneExpiresAtMs(lane, args.nowMs);
   if (
     lane.authorizationState !== 'authorized' ||
-    !lane.authorization.walletSessionId ||
-    !lane.authorization.quotaId ||
+    !lane.authorization.operationCredential.walletSessionId ||
+    !lane.authorization.session.quotaId ||
     !lane.thresholdSessionId ||
     !remainingSignatureUses ||
     !expiresAtMs
@@ -188,8 +188,8 @@ function readReadyEd25519Lane(args: {
   const common = {
     authMethod: args.authMethod,
     target: { curve: 'ed25519' as const },
-    walletSessionId: lane.authorization.walletSessionId,
-    quotaId: lane.authorization.quotaId,
+    walletSessionId: lane.authorization.operationCredential.walletSessionId,
+    quotaId: lane.authorization.session.quotaId,
     thresholdSessionId: lane.thresholdSessionId,
     remainingSignatureUses,
     expiresAtMs,

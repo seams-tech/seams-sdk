@@ -21,7 +21,6 @@ function mixedWalletSession(publicKey: string): WalletSession {
     nearOperationalPublicKey: publicKey,
     thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
     thresholdEcdsaPublicKeyB64u: 'mixed-wallet-ecdsa-public-key',
-    walletSessionId: 'mixed-wallet-session',
   });
 }
 

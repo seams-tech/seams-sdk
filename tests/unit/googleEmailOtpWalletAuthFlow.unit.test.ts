@@ -499,7 +499,6 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       chainTarget: TEMPO_TARGET,
       publicationChainTargets: [TEMPO_TARGET],
       keyHandle: 'ecdsa-key-handle-1',
-      runtimePolicyScope: TEST_RUNTIME_POLICY_SCOPE,
       providerIdentity: {
         provider: 'google',
         providerSubjectId: 'google-subject-1',
@@ -507,6 +506,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       challengeId: 'login-challenge-1',
       otpCode: '123456',
     });
+    expect(loginCall?.args).not.toHaveProperty('runtimePolicyScope');
   });
 
   test('wallet-targeted Google login opens an added verified-address Email OTP method', async () => {
@@ -588,10 +588,10 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       publicationChainTargets: [TEMPO_TARGET, EVM_TARGET],
       walletAuthMethodId: 'email-otp-method-1',
       keyHandle: 'ecdsa-key-handle-1',
-      runtimePolicyScope: TEST_RUNTIME_POLICY_SCOPE,
       challengeId: 'login-challenge-1',
       otpCode: '123456',
     });
+    expect(loginCalls[0]?.args).not.toHaveProperty('runtimePolicyScope');
   });
 
   test('login path supports Ed25519-only Email OTP wallets without ECDSA targets', async () => {
@@ -655,10 +655,10 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       publicationChainTargets: [TEMPO_TARGET, EVM_TARGET],
       walletAuthMethodId: 'email-otp-method-1',
       keyHandle: 'ecdsa-key-handle-1',
-      runtimePolicyScope: TEST_RUNTIME_POLICY_SCOPE,
       challengeId: 'login-challenge-1',
       otpCode: '123456',
     });
+    expect(loginCall?.args).not.toHaveProperty('runtimePolicyScope');
     expect(calls.find((call) => call.type === 'loginWithEmailOtpEd25519YaoCapability')).toBeFalsy();
   });
 

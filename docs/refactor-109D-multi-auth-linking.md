@@ -2,8 +2,11 @@
 
 Date created: August 20, 2026
 
-Status: COMPLETE and merged into `dev`. All four source/target auth-method
-combinations use the ordinary linked-device operating path.
+Status: COMPLETE for the linked-device operating path and merged into `dev`.
+All four source/target auth-method combinations use that ordinary path. The
+final exact Wallet Session admission and persistence cutover remains
+[R103F](refactor-103F-final-cutover.md) ownership and is outside this completion
+record.
 
 ## Goal
 
@@ -24,7 +27,8 @@ Device 2. They do not need to match.
 
 - R103E owns authorities, auth-method records, signer activations, the
   link-session lifecycle, seedless installation, Wallet Session issuance,
-  retry, inventory, unlock, and exact-method revocation.
+  retry, inventory, unlock, and exact-method revocation within the linked-device
+  operating path; R103F owns the final exact-session cutover.
 - R109C owns multi-method inventory, same-device factor addition, Email OTP
   cardinality, and verification of the R103E revocation prerequisite.
 - R109D owns source/target factor independence, Email base-method selection,
@@ -69,8 +73,8 @@ Do not implement R109D until:
 - [x] Confirm every founding and linked ordinary Wallet Session persists the
       operation credential consumed by `readExactWithOperationCredential`.
 - [x] Delete linked-device `orderedOwnerSourceLaneHints` and retired owner/lane
-      projections. The exact reusable Wallet Session now resolves the verified
-      signer manifest and source facts on the server.
+      projections. The exact Wallet Session now resolves the verified signer
+      manifest and source facts on the server.
 - [x] Repair the authority-install fixture through its shared factory and make
       the focused R103E checks green.
 
@@ -78,8 +82,8 @@ R109D product implementation may proceed.
 
 ### Implementation checkpoint
 
-- [x] Require the exact reusable Wallet Session and derive source signer facts
-      on the server.
+- [x] Require the exact Wallet Session and derive source signer facts on the
+      server.
 - [x] Resolve eligible Email OTP base methods from the exact wallet and expose
       masked, stable choices through the owner-authenticated route.
 - [x] Bind the selected Email OTP base method through approval, preparation,

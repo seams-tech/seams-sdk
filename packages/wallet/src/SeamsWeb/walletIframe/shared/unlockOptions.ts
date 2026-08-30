@@ -53,7 +53,15 @@ function pmEcdsaKeyFactsInventoryOption(
   inventory: LoginHooksOptions['ecdsaKeyFactsInventory'],
 ): LoginUnlockPayloadOption<PMUnlockEcdsaKeyFactsInventory> {
   if (!inventory) return { kind: 'default' };
-  return { kind: 'value', value: inventory };
+  switch (inventory.mode) {
+    case 'webauthn':
+      return { kind: 'value', value: { mode: 'webauthn' } };
+    case 'wallet_session_operation_credential_v1':
+      return {
+        kind: 'value',
+        value: { mode: 'wallet_session_operation_credential_v1' },
+      };
+  }
 }
 
 export function requirePMUnlockPayload(payload: PMUnlockPayload | undefined): PMUnlockPayload {

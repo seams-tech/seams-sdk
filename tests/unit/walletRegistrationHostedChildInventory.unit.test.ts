@@ -77,7 +77,6 @@ function hostedInventoryContext(
 class InventoryRouteHarness {
   primaryReads = 0;
   hostedReads = 0;
-  legacyReads = 0;
   inventoryReads = 0;
   hostedReadInput: unknown = null;
 
@@ -97,11 +96,6 @@ class InventoryRouteHarness {
     this.hostedReads += 1;
     this.hostedReadInput = input;
     return this.hostedContext;
-  }
-
-  async readLegacy(): Promise<null> {
-    this.legacyReads += 1;
-    return null;
   }
 
   async listInventory() {
@@ -126,7 +120,6 @@ class InventoryRouteHarness {
         'tenant:hosted-inventory',
       readWalletSessionAuthorizationV2ByOperationCredential: this.readPrimary.bind(this),
       readHostedWalletSessionOperationCredentialV2: this.readHosted.bind(this),
-      resolveOpaqueWalletSessionToken: this.readLegacy.bind(this),
     };
   }
 
@@ -140,6 +133,7 @@ class InventoryRouteHarness {
 function inventoryRouteInput(input: {
   readonly harness: InventoryRouteHarness;
   readonly token: string;
+  readonly walletSessionId: string;
   readonly origin?: string;
   readonly hostedWalletOrigins?: readonly string[];
   readonly walletId?: string;
@@ -155,7 +149,12 @@ function inventoryRouteInput(input: {
           chainTarget: { kind: 'tempo', chainId: 42431 },
         },
       ],
-      auth: { kind: 'opaque_wallet_session', curve: 'ecdsa_secp256k1' },
+      auth: {
+        kind: input.token.startsWith('wsh_')
+          ? 'opaque_hosted_wallet_session_operation_credential_v1'
+          : 'opaque_wallet_session_operation_credential_v1',
+        walletSessionId: input.walletSessionId,
+      },
     },
     headers: { authorization: `Bearer ${input.token}` },
     hostedWalletOrigins: input.hostedWalletOrigins ?? [],
@@ -178,13 +177,16 @@ test('ECDSA inventory preserves primary exact credential admission without hoste
   const harness = new InventoryRouteHarness(exact, null);
 
   const response = await handleRouterApiWalletEcdsaKeyFactsInventory(
-    inventoryRouteInput({ harness, token: PRIMARY_TOKEN }),
+    inventoryRouteInput({
+      harness,
+      token: PRIMARY_TOKEN,
+      walletSessionId: exact.authorization.session.walletSessionId,
+    }),
   );
 
   expect(response.status).toBe(200);
   expect(harness.primaryReads).toBe(1);
   expect(harness.hostedReads).toBe(0);
-  expect(harness.legacyReads).toBe(0);
   expect(harness.inventoryReads).toBe(1);
 });
 
@@ -199,6 +201,7 @@ test('ECDSA inventory admits an allowed-origin hosted child through its exact pa
     inventoryRouteInput({
       harness,
       token: HOSTED_TOKEN,
+      walletSessionId: exact.authorization.session.walletSessionId,
       origin: WALLET_ORIGIN,
       hostedWalletOrigins: [WALLET_ORIGIN],
     }),
@@ -211,7 +214,6 @@ test('ECDSA inventory admits an allowed-origin hosted child through its exact pa
     token: HOSTED_TOKEN,
     requestOrigin: WALLET_ORIGIN,
   });
-  expect(harness.legacyReads).toBe(0);
   expect(harness.inventoryReads).toBe(1);
 });
 
@@ -222,6 +224,7 @@ test('ECDSA inventory rejects a hosted child when only an unrelated origin is al
     inventoryRouteInput({
       harness,
       token: HOSTED_TOKEN,
+      walletSessionId: 'wallet-session:unavailable-origin',
       origin: WALLET_ORIGIN,
       hostedWalletOrigins: [APP_ORIGIN],
     }),
@@ -230,7 +233,6 @@ test('ECDSA inventory rejects a hosted child when only an unrelated origin is al
   expect(response.status).toBe(403);
   expect(harness.primaryReads).toBe(0);
   expect(harness.hostedReads).toBe(0);
-  expect(harness.legacyReads).toBe(0);
   expect(harness.inventoryReads).toBe(0);
 });
 
@@ -247,6 +249,7 @@ test('ECDSA inventory rejects a hosted child whose parent wallet or ECDSA sign s
     inventoryRouteInput({
       harness: walletMismatchHarness,
       token: HOSTED_TOKEN,
+      walletSessionId: signingExact.authorization.session.walletSessionId,
       origin: WALLET_ORIGIN,
       hostedWalletOrigins: [WALLET_ORIGIN],
       walletId: 'wallet:other',
@@ -262,6 +265,7 @@ test('ECDSA inventory rejects a hosted child whose parent wallet or ECDSA sign s
     inventoryRouteInput({
       harness: exportHarness,
       token: HOSTED_TOKEN,
+      walletSessionId: exportExact.authorization.session.walletSessionId,
       origin: WALLET_ORIGIN,
       hostedWalletOrigins: [WALLET_ORIGIN],
     }),
@@ -271,5 +275,4 @@ test('ECDSA inventory rejects a hosted child whose parent wallet or ECDSA sign s
   expect(exportOnly.status).toBe(401);
   expect(walletMismatchHarness.inventoryReads).toBe(0);
   expect(exportHarness.inventoryReads).toBe(0);
-  expect(walletMismatchHarness.legacyReads + exportHarness.legacyReads).toBe(0);
 });

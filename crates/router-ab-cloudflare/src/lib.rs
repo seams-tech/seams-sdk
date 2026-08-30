@@ -5647,7 +5647,6 @@ pub enum CloudflareRouterEd25519AcceptedCapabilityBindingV1 {
     GatewayOwnerWalletSession {
         subject_id: String,
         account_id: String,
-        authorization_session_id: String,
         authorization_id: String,
         wallet_session_id: String,
         quota_id: String,
@@ -5833,7 +5832,6 @@ impl CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
                 CloudflareRouterEd25519AcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
                     subject_id,
                     account_id,
-                    authorization_session_id,
                     authorization_id,
                     wallet_session_id,
                     quota_id,
@@ -5850,10 +5848,6 @@ impl CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
             ) => {
                 require_non_empty("accepted Ed25519 Gateway subject_id", subject_id)?;
                 require_non_empty("accepted Ed25519 Gateway account_id", account_id)?;
-                require_non_empty(
-                    "accepted Ed25519 Gateway authorization_session_id",
-                    authorization_session_id,
-                )?;
                 require_non_empty("accepted Ed25519 Gateway authorization_id", authorization_id)?;
                 require_non_empty("accepted Ed25519 Gateway wallet_session_id", wallet_session_id)?;
                 require_non_empty("accepted Ed25519 Gateway quota_id", quota_id)?;
@@ -6000,16 +5994,12 @@ impl CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
                     "accepted Ed25519 linked-device binding requires trusted Gateway admission",
                 ));
             }
-            CloudflareRouterEd25519AcceptedCapabilityBindingV1::OperationStepUp {
-                authorization_session_id,
-                ..
-            } if wallet_session.authorization_session_id != *authorization_session_id => {
+            CloudflareRouterEd25519AcceptedCapabilityBindingV1::OperationStepUp { .. } => {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::InvalidGateDecision,
-                    "accepted Ed25519 step-up session does not match Wallet Session",
+                    "accepted Ed25519 step-up session cannot use a Wallet Session credential",
                 ));
             }
-            CloudflareRouterEd25519AcceptedCapabilityBindingV1::OperationStepUp { .. } => {}
         }
         Ok(())
     }
@@ -6024,7 +6014,6 @@ impl CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
         let CloudflareRouterEd25519AcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
             subject_id,
             account_id,
-            authorization_session_id,
             authorization_id,
             wallet_session_id,
             quota_id,
@@ -6044,7 +6033,6 @@ impl CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
         let wallet_session = CloudflareRouterVerifiedWalletSessionV1::new(
             subject_id.clone(),
             account_id.clone(),
-            authorization_session_id.clone(),
             authorization_id.clone(),
             wallet_session_id.clone(),
             quota_id.clone(),
@@ -6348,7 +6336,6 @@ pub enum CloudflareRouterEcdsaAcceptedCapabilityBindingV1 {
     GatewayOwnerWalletSession {
         subject_id: String,
         account_id: String,
-        authorization_session_id: String,
         authorization_id: String,
         wallet_session_id: String,
         quota_id: String,
@@ -6562,7 +6549,6 @@ impl CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
                 CloudflareRouterEcdsaAcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
                     subject_id,
                     account_id,
-                    authorization_session_id,
                     authorization_id,
                     wallet_session_id,
                     quota_id,
@@ -6579,10 +6565,6 @@ impl CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
             ) => {
                 require_non_empty("accepted ECDSA Gateway subject_id", subject_id)?;
                 require_non_empty("accepted ECDSA Gateway account_id", account_id)?;
-                require_non_empty(
-                    "accepted ECDSA Gateway authorization_session_id",
-                    authorization_session_id,
-                )?;
                 require_non_empty("accepted ECDSA Gateway authorization_id", authorization_id)?;
                 require_non_empty("accepted ECDSA Gateway wallet_session_id", wallet_session_id)?;
                 require_non_empty("accepted ECDSA Gateway quota_id", quota_id)?;
@@ -6673,16 +6655,12 @@ impl CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
                     ));
                 }
             }
-            CloudflareRouterEcdsaAcceptedCapabilityBindingV1::OperationStepUp {
-                authorization_session_id,
-                ..
-            } if wallet_session.authorization_session_id != *authorization_session_id => {
+            CloudflareRouterEcdsaAcceptedCapabilityBindingV1::OperationStepUp { .. } => {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::InvalidGateDecision,
-                    "accepted ECDSA step-up session does not match Wallet Session",
+                    "accepted ECDSA step-up session cannot use a Wallet Session credential",
                 ));
             }
-            CloudflareRouterEcdsaAcceptedCapabilityBindingV1::OperationStepUp { .. } => {}
         }
         Ok(())
     }
@@ -6696,7 +6674,6 @@ impl CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
         let CloudflareRouterEcdsaAcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
             subject_id,
             account_id,
-            authorization_session_id,
             authorization_id,
             wallet_session_id,
             quota_id,
@@ -6716,7 +6693,6 @@ impl CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
         let wallet_session = CloudflareRouterVerifiedWalletSessionV1::new(
             subject_id.clone(),
             account_id.clone(),
-            authorization_session_id.clone(),
             authorization_id.clone(),
             wallet_session_id.clone(),
             quota_id.clone(),
@@ -8244,10 +8220,7 @@ where
     authorized_operation.validate_for_wallet_session(&wallet_session)?;
     authorized_operation
         .authorized_operation
-        .validate_for_finalize_request_with_session(
-            &request,
-            Some(&wallet_session.authorization_session_id),
-        )?;
+        .validate_for_finalize_request_with_session(&request, None)?;
     let admission =
         CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1::from_finalize_request(
             &wallet_session,

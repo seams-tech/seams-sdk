@@ -12,7 +12,7 @@ import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/d
 import {
   parseMpcWalletSigningQuotaId,
   parsePrincipalId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseTenantId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -180,7 +180,7 @@ function buildSession(
     walletAuthMethodId,
     authorityDigestB64u: authority.authorityDigestB64u,
     authorityRevocationEpoch: authority.revocationEpoch,
-    mintId: required(parseReusableWalletSessionMintId('mint:v2-session')),
+    mintId: required(parseWalletSessionMintId('mint:v2-session')),
     authorizationId: required(parseWalletSessionAuthorizationId('authorization:v2-session')),
     walletSessionId: required(parseWalletSessionId('wallet-session:v2-session')),
     quotaId: required(parseMpcWalletSigningQuotaId('quota:v2-session')),

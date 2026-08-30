@@ -19,10 +19,12 @@ import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrat
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import {
   parsePrincipalId,
+  parseWalletSessionMintId,
   parseTenantId,
+  type PrincipalId,
   type TenantId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
-import { buildExactWalletSessionAuthorizationFixture } from './helpers/exactWalletSessionAuthorization.fixtures';
+import { parseSessionOrigin } from '../../packages/wallet-server/src/authorization/domain';
 
 /**
  * Refactor 109C Phase 0: exact method revocation between two SIBLINGS on ONE
@@ -127,34 +129,26 @@ async function seedExactSiblingWalletSessions(input: {
     namespace: SCOPE.namespace,
     walletSignerScope: SCOPE,
   });
-  const passkey = buildExactWalletSessionAuthorizationFixture({
-    label: 'r109c-passkey',
+  const service = createCloudflareD1RouterApiAuthService({ database: input.database, ...SCOPE });
+  const passkey = await service.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
     tenantId,
     principalId,
+    walletId: input.authority.walletId,
     authority: input.authority,
     walletAuthMethodId: required(parseWalletAuthMethodId(PASSKEY_METHOD_ID)),
+    mintId: required(parseWalletSessionMintId('mint:r109c-passkey')),
     issuedAtMs: 3_000,
     expiresAtMs: 10_000,
     remainingUses: 3,
   });
-  await authorizationStore.putWalletSessionAuthorizationV2(passkey);
-  const email = buildExactWalletSessionAuthorizationFixture({
-    label: 'r109c-email',
-    tenantId,
-    principalId,
-    authority: input.authority,
-    walletAuthMethodId: required(parseWalletAuthMethodId(EMAIL_METHOD_ID)),
-    issuedAtMs: 3_000,
-    expiresAtMs: 10_000,
-    remainingUses: 3,
-  });
-  await authorizationStore.putWalletSessionAuthorizationV2(email);
-  return { authorizationStore, tenantId };
+  if (passkey.kind !== 'issued') throw new Error('Passkey sibling session did not issue');
+  return { authorizationStore, tenantId, principalId };
 }
 
 async function readExactSiblingWalletSessions(input: {
   readonly database: SiblingDatabase;
   readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
 }) {
   return await input.database
     .prepare(
@@ -169,9 +163,10 @@ async function readExactSiblingWalletSessions(input: {
           AND quota.quota_id = session.quota_id
         WHERE session.namespace = ?
           AND session.tenant_id = ?
+          AND session.principal_id = ?
         ORDER BY session.wallet_auth_method_id`,
     )
-    .bind(SCOPE.namespace, input.tenantId)
+    .bind(SCOPE.namespace, input.tenantId, input.principalId)
     .all<{
       readonly wallet_auth_method_id: string;
       readonly retired_at_ms: number | null;
@@ -240,8 +235,52 @@ test('method revocation retires only its exact V2 sessions and exhausts their qu
   try {
     await applySignerMigrations(database);
     const { walletId, authority } = await seedAuthorityWithBothSiblings(database);
-    const exact = await seedExactSiblingWalletSessions({ database, authority });
     const service = createCloudflareD1RouterApiAuthService({ database, ...SCOPE });
+    const hostedTenantId = required(parseTenantId(SCOPE.orgId));
+    const hostedPrincipalId = required(parsePrincipalId('principal:r109c-sibling-revocation'));
+    const hostedParent =
+      await service.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
+        tenantId: hostedTenantId,
+        principalId: hostedPrincipalId,
+        walletId,
+        authority,
+        walletAuthMethodId: required(parseWalletAuthMethodId(EMAIL_METHOD_ID)),
+        mintId: required(parseWalletSessionMintId('mint:r109c-hosted-revocation')),
+        remainingUses: 3,
+        issuedAtMs: 3_500,
+        expiresAtMs: 10_000,
+      });
+    expect(hostedParent.kind).toBe('issued');
+    if (hostedParent.kind !== 'issued') throw new Error('hosted parent did not issue');
+    const appOrigin = parseSessionOrigin('https://app.r109c.example.test');
+    const walletOrigin = parseSessionOrigin('https://wallet.r109c.example.test');
+    const hostedDelivery = await service.authorizationSessions.mintHostedWalletSeamsSessionExchange(
+      {
+        authorization: hostedParent,
+        appOrigin,
+        walletOrigin,
+        issuedAtMs: 4_000,
+        expiresAtMs: 9_000,
+      },
+    );
+    const hostedCredential =
+      await service.authorizationSessions.redeemHostedWalletSeamsSessionExchange({
+        exchangeCode: hostedDelivery.exchangeCode,
+        nonce: hostedDelivery.nonce,
+        appOrigin,
+        walletOrigin,
+        redeemedAtMs: 4_100,
+      });
+    expect(hostedCredential.kind).toBe('redeemed');
+    if (hostedCredential.kind !== 'redeemed') throw new Error('hosted child did not redeem');
+    await service.authorizationSessions.mintHostedWalletSeamsSessionExchange({
+      authorization: hostedParent,
+      appOrigin,
+      walletOrigin,
+      issuedAtMs: 4_200,
+      expiresAtMs: 9_000,
+    });
+    const exact = await seedExactSiblingWalletSessions({ database, authority });
 
     const revoked = await service.walletAuthMethods.revokeWalletAuthMethod(
       revocationCommand({
@@ -253,7 +292,13 @@ test('method revocation retires only its exact V2 sessions and exhausts their qu
     expect(revoked, JSON.stringify(revoked)).toMatchObject({ ok: true });
 
     expect(
-      (await readExactSiblingWalletSessions({ database, tenantId: exact.tenantId })).results,
+      (
+        await readExactSiblingWalletSessions({
+          database,
+          tenantId: exact.tenantId,
+          principalId: exact.principalId,
+        })
+      ).results,
     ).toEqual([
       {
         wallet_auth_method_id: EMAIL_METHOD_ID,
@@ -268,15 +313,42 @@ test('method revocation retires only its exact V2 sessions and exhausts their qu
         lifecycle_kind: 'active',
       },
     ]);
+    await expect(
+      database
+        .prepare(
+          `SELECT lifecycle_kind, retired_at_ms
+             FROM wallet_session_hosted_credentials_v2
+            WHERE namespace = ? AND tenant_id = ? AND wallet_auth_method_id = ?`,
+        )
+        .bind(SCOPE.namespace, hostedTenantId, EMAIL_METHOD_ID)
+        .first(),
+    ).resolves.toEqual({ lifecycle_kind: 'retired', retired_at_ms: 5_000 });
+    await expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count
+             FROM wallet_session_hosted_exchange_codes_v2
+            WHERE namespace = ? AND tenant_id = ? AND wallet_auth_method_id = ?
+              AND lifecycle_kind = 'issued'`,
+        )
+        .bind(SCOPE.namespace, hostedTenantId, EMAIL_METHOD_ID)
+        .first<{ readonly count?: unknown }>(),
+    ).resolves.toEqual({ count: 0 });
 
-    await exact.authorizationStore.revokeReusableWalletSessionsForAuthMethod({
+    await exact.authorizationStore.retireWalletSessionAuthorizationsForAuthMethod({
       tenantId: exact.tenantId,
       walletId,
       walletAuthMethodId: required(parseWalletAuthMethodId(EMAIL_METHOD_ID)),
       nowMs: 6_000,
     });
     expect(
-      (await readExactSiblingWalletSessions({ database, tenantId: exact.tenantId })).results,
+      (
+        await readExactSiblingWalletSessions({
+          database,
+          tenantId: exact.tenantId,
+          principalId: exact.principalId,
+        })
+      ).results,
     ).toEqual([
       {
         wallet_auth_method_id: EMAIL_METHOD_ID,

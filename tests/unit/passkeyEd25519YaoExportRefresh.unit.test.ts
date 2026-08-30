@@ -48,6 +48,11 @@ const DURABLE_EXPORT_AUTHORIZATION = availableLaneEd25519Authorization({
   identitySeed: 'passkey-export-refresh',
   authMethod: 'passkey',
 });
+const DURABLE_EXPORT_AUTHORIZATION_READ = {
+  kind: 'found' as const,
+  record: DURABLE_EXPORT_AUTHORIZATION.session,
+  operationCredential: DURABLE_EXPORT_AUTHORIZATION.operationCredential,
+};
 
 function passkeyLaneIdentity(
   walletSessionId: string,
@@ -91,7 +96,7 @@ class PasskeyEd25519ExportRefreshHarness {
       selectedLaneMaterialActivation: MATERIAL_ACTIVATION,
       relayerUrl: RELAYER_URL,
       rpId: RP_ID,
-      authorization: DURABLE_EXPORT_AUTHORIZATION,
+      authorization: DURABLE_EXPORT_AUTHORIZATION_READ,
       material: {
         walletId: WALLET_ID,
         nearAccountId: NEAR_ACCOUNT_ID,
@@ -181,7 +186,7 @@ class DurablePasskeyEd25519ExportRefreshHarness extends PasskeyEd25519ExportRefr
         selectedLaneMaterialActivation: MATERIAL_ACTIVATION,
         relayerUrl: RELAYER_URL,
         rpId: RP_ID,
-        authorization: DURABLE_EXPORT_AUTHORIZATION,
+        authorization: DURABLE_EXPORT_AUTHORIZATION_READ,
         material: {
           walletId: WALLET_ID,
           nearAccountId: NEAR_ACCOUNT_ID,
@@ -235,8 +240,8 @@ test('page-refresh passkey export prompts from durable context without activatin
     exportedSchemes: ['ed25519'],
   });
   expect(harness.workerPayload?.exactLane.materialActivation).toEqual(MATERIAL_ACTIVATION);
-  expect(harness.workerPayload?.authorization.walletSessionJwt).toBe(
-    DURABLE_EXPORT_AUTHORIZATION.walletSessionJwt,
+  expect(harness.workerPayload?.authorization.walletSessionToken).toBe(
+    DURABLE_EXPORT_AUTHORIZATION.operationCredential.token,
   );
 });
 
@@ -261,8 +266,8 @@ test('page-refresh passkey export uses the exact durable context returned after 
     credentialIdB64u: CREDENTIAL_ID,
     materialActivation: MATERIAL_ACTIVATION,
   });
-  expect(harness.workerPayload?.authorization.walletSessionJwt).toBe(
-    DURABLE_EXPORT_AUTHORIZATION.walletSessionJwt,
+  expect(harness.workerPayload?.authorization.walletSessionToken).toBe(
+    DURABLE_EXPORT_AUTHORIZATION.operationCredential.token,
   );
 });
 

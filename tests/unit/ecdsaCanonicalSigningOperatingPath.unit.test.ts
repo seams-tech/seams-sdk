@@ -26,6 +26,11 @@ import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { resolveExactInactiveEcdsaMaterialRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import { resolveExactEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
+import { buildExactEcdsaDirectCapabilityRuntime } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import { Secp256k1Engine } from '@/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
 import { clearAllRouterAbEcdsaDerivationClientPresignatures } from '@/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool';
 import {
@@ -80,6 +85,38 @@ function requireInactiveRuntime(
 }
 
 for (const factor of ['passkey', 'email_otp'] as const) {
+  test(`durable ${factor} capability pairs with an exact active session without sealed state`, async () => {
+    const { fixture, runtime: sealedRuntime } = await canonicalEcdsaSealedRuntimeFixture(factor);
+    const capabilityRuntime = await resolveExactEcdsaCapabilityRuntime({
+      manifest: fixture.manifest,
+      chainTarget: sealedRuntime.chainTarget,
+      relayerUrl: sealedRuntime.relayerUrl,
+    });
+    if (capabilityRuntime.kind !== 'resolved') {
+      throw new Error(`${factor} durable capability did not resolve: ${capabilityRuntime.reason}`);
+    }
+    const walletSessionId = parseWalletSessionId(`wallet-session:direct-${factor}`);
+    const quotaId = parseMpcWalletSigningQuotaId(`quota:direct-${factor}`);
+    if (!walletSessionId.ok || !quotaId.ok) throw new Error('Direct session fixture is invalid');
+
+    const runtime = buildExactEcdsaDirectCapabilityRuntime({
+      runtime: capabilityRuntime.runtime,
+      authority: fixture.authority,
+      status: {
+        status: 'active',
+        walletSessionId: walletSessionId.value,
+        quotaId: quotaId.value,
+        remainingUses: sealedRuntime.remainingUses,
+        expiresAtMs: sealedRuntime.expiresAtMs,
+      },
+    });
+
+    expect(runtime.kind).toBe('exact_ecdsa_direct_capability_runtime_v1');
+    expect(runtime.sealedRecord).toBeUndefined();
+    expect(runtime.authBinding.kind).toBe(factor);
+    expect(runtime.materialActivation).toEqual(fixture.manifest.activation.materialActivation);
+  });
+
   test(`inactive ${factor} material reaches canonical worker hydration`, async () => {
     const {
       fixture,
@@ -149,11 +186,11 @@ test('inactive ECDSA hydration binds the worker and signs the exact authorized o
   try {
     ready = await authorizeEvmFamilyEcdsaOperationStepUp({
       relayerUrl: 'https://relayer.example.test',
-      sessionAuth: { kind: 'app_session_cookie' },
       authority: fixture.authority,
       authorization: ecdsaOperationStepUpAuthorizationFixture('passkey'),
       prepared,
       material: hydration.material,
+      walletSessionToken: WALLET_SESSION_TOKEN,
     });
   } finally {
     restoreGrantFetch();
@@ -306,6 +343,7 @@ test('canonical ECDSA material projects to a published Arc target', async () => 
 // from preparation through grant attachment is production code.
 
 const OPERATION_ID = 'operating-path-operation-1';
+const WALLET_SESSION_TOKEN = 'wallet-session-operation-credential';
 const EVIDENCE_SET_DIGEST = Buffer.alloc(32, 42).toString('base64url');
 const operationDigests = ecdsaOperationDigestSetFixture();
 
@@ -319,6 +357,7 @@ function stubGrantEndpoint(requests: unknown[]): () => void {
       JSON.stringify({
         ok: true,
         kind: 'verified_step_up',
+        operation_kind: 'evm.sign_transaction',
         authorization: {
           kind: 'operation_step_up',
           evidence_set_digest: EVIDENCE_SET_DIGEST,
@@ -361,11 +400,11 @@ for (const factor of ['passkey', 'email_otp'] as const) {
     try {
       ready = await authorizeEvmFamilyEcdsaOperationStepUp({
         relayerUrl: 'https://relayer.example.test',
-        sessionAuth: { kind: 'app_session_cookie' },
         authority,
         authorization: ecdsaOperationStepUpAuthorizationFixture(factor),
         prepared,
         material,
+        walletSessionToken: WALLET_SESSION_TOKEN,
       });
     } finally {
       restoreFetch();
@@ -381,7 +420,10 @@ for (const factor of ['passkey', 'email_otp'] as const) {
 
     // No reusable Wallet Session was created or read anywhere on this path.
     expect(ready.singleUseEmailOtpSession).toBe(false);
-    expect(ready.credential).toEqual({ kind: 'app_session_cookie' });
+    expect(ready.credential).toEqual({
+      kind: 'operation_step_up',
+      walletSessionToken: WALLET_SESSION_TOKEN,
+    });
   });
 
   test(`a ${factor} step-up cannot prove against the other factor's authority`, async () => {
@@ -399,12 +441,12 @@ for (const factor of ['passkey', 'email_otp'] as const) {
       await expect(
         authorizeEvmFamilyEcdsaOperationStepUp({
           relayerUrl: 'https://relayer.example.test',
-          sessionAuth: { kind: 'app_session_cookie' },
           authority,
           // The proof is built for the wrong factor for this capability.
           authorization: ecdsaOperationStepUpAuthorizationFixture(otherFactor),
           prepared,
           material,
+          walletSessionToken: WALLET_SESSION_TOKEN,
         }),
       ).rejects.toThrow(/exact (passkey|Email OTP) authority/);
     } finally {

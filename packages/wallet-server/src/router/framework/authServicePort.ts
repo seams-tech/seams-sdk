@@ -91,7 +91,7 @@ import type {
   DirectV2IssueResult,
   IssuedWalletSessionAuthorizationV2,
 } from '../../authorization/domain';
-import type { IssueDirectWalletSessionAuthorizationV2Input } from '../../authorization/service';
+import type { IssueWalletSessionAuthorizationV2Input } from '../../authorization/service';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 
 export type WalletAuthMethodManagementSubject = Readonly<{
@@ -106,8 +106,7 @@ export type WalletUnlockIssuanceRejectionCode =
   | 'not_found'
   | 'tenant_scope_mismatch'
   | 'provider_identity_mismatch'
-  | 'internal'
-  | 'protocol_mismatch';
+  | 'internal';
 
 export function parseWalletUnlockIssuanceRejectionCode(
   value: unknown,
@@ -120,7 +119,6 @@ export function parseWalletUnlockIssuanceRejectionCode(
     case 'tenant_scope_mismatch':
     case 'provider_identity_mismatch':
     case 'internal':
-    case 'protocol_mismatch':
       return value;
     default:
       return 'internal';
@@ -319,17 +317,10 @@ import type {
   VerifiedWalletOperationFactorEvidenceSetInput,
   VerifiedOwnerProofInput,
 } from '../../authorization/factorEvidence';
-import type {
-  IssuedOpaqueWalletSessionToken,
-  OpaqueWalletSessionCurve,
-  OpaqueOwnerWalletSessionBinding,
-  ResolvedOpaqueWalletSessionToken,
-  EcdsaMaterialActivationScope,
-} from '../../authorization/service';
+import type { EcdsaMaterialActivationScope } from '../../authorization/service';
 import type {
   PrincipalId,
   TenantId,
-  WalletSessionClientCapabilityV1,
 } from '@shared/authorization/capabilityKinds';
 
 export type EmailOtpChallengeDelivery =
@@ -1388,7 +1379,6 @@ export interface RouterApiWalletUnlockService {
     readonly rpId: WebAuthnRpId;
     readonly credentialIdB64u: WebAuthnCredentialIdB64u;
     readonly verifiedChallengeId: string;
-    readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
   }): Promise<WalletUnlockPasskeySessionResolution>;
   issueWalletSessionForEmailOtpUnlock(input: {
     readonly walletId: WalletId;
@@ -1396,7 +1386,6 @@ export interface RouterApiWalletUnlockService {
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly providerUserId: string;
     readonly verifiedChallengeId: string;
-    readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
   }): Promise<WalletUnlockPasskeySessionResolution>;
 }
 
@@ -1580,25 +1569,8 @@ export interface RouterApiAuthorizedOperationService {
 export interface RouterApiAuthorizationSessionService {
   readonly tenantId: TenantId;
   issueDirectWalletSessionAuthorizationV2(
-    input: IssueDirectWalletSessionAuthorizationV2Input,
+    input: IssueWalletSessionAuthorizationV2Input,
   ): Promise<DirectV2IssueResult>;
-  issueOpaqueWalletSessionToken(input: {
-    readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
-    readonly tenantId: TenantId;
-    readonly authorizationId: import('@shared/authorization/capabilityKinds').WalletSessionAuthorizationId;
-    readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
-    readonly quotaId: import('@shared/authorization/capabilityKinds').MpcWalletSigningQuotaId;
-    readonly expiresAtMs: number;
-    readonly consumedAtMs: number;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly binding: OpaqueOwnerWalletSessionBinding;
-  }): Promise<IssuedOpaqueWalletSessionToken>;
-  resolveOpaqueWalletSessionToken(input: {
-    readonly tenantId: TenantId;
-    readonly token: string;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly nowMs: number;
-  }): Promise<ResolvedOpaqueWalletSessionToken | null>;
   /** Reads the opaque V2 operation credential and its active authority records. */
   readonly readWalletSessionAuthorizationV2ByOperationCredential: (input: {
     readonly tenantId: TenantId;

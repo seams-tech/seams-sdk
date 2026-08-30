@@ -18,8 +18,8 @@ import type {
   RegistrationEstablishedSessionProjectionV2,
 } from '@shared/utils/registrationEstablishedSession';
 import {
-  parseReusableWalletSessionMintId,
-  type ReusableWalletSessionMintId,
+  parseWalletSessionMintId,
+  type WalletSessionMintId,
 } from '@shared/authorization/capabilityKinds';
 import { parseWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import {
@@ -39,7 +39,7 @@ export type WalletRegistrationNearProvisioningFinalizeResponse =
 
 export type RegistrationCommitExecution<T> =
   | { readonly kind: 'unissued'; readonly response: T }
-  | { readonly kind: 'legacy'; readonly response: T }
+  | { readonly kind: 'replayed'; readonly response: T }
   | {
       readonly kind: 'near_pending';
       readonly response: T;
@@ -64,8 +64,8 @@ export function unissuedRegistrationCommit<T>(response: T): RegistrationCommitEx
   return { kind: 'unissued', response };
 }
 
-export function legacyRegistrationCommit<T>(response: T): RegistrationCommitExecution<T> {
-  return { kind: 'legacy', response };
+export function replayedRegistrationCommit<T>(response: T): RegistrationCommitExecution<T> {
+  return { kind: 'replayed', response };
 }
 
 export function projectRegistrationEstablishedSessionV2(
@@ -79,6 +79,7 @@ export function projectRegistrationEstablishedSessionV2(
     quotaId: session.quotaId,
     expiresAtMs: session.expiresAtMs,
     remainingUses: session.remainingUses,
+    walletSession: session.walletSession,
     tokens: session.tokens,
   };
 }
@@ -121,7 +122,7 @@ export function projectWalletRegistrationSessionCommitReceiptV2(input: {
       committed: { kind: 'error', error: response },
     };
   }
-  if (input.execution.kind === 'unissued' || input.execution.kind === 'legacy') {
+  if (input.execution.kind === 'unissued' || input.execution.kind === 'replayed') {
     throw new Error('Registration commit receipt requires an issued or pending response');
   }
   const expectedOrigin = input.execution.expectedOrigin;
@@ -309,8 +310,8 @@ function assertNeverRegistrationReplayAuthMethod(value: never): never {
 
 export function registrationEstablishedMintId(
   registrationCeremonyId: string,
-): ReusableWalletSessionMintId {
-  const parsed = parseReusableWalletSessionMintId(
+): WalletSessionMintId {
+  const parsed = parseWalletSessionMintId(
     `registration-established:${registrationCeremonyId}`,
   );
   if (!parsed.ok) throw new Error(parsed.error.message);
@@ -444,7 +445,7 @@ export function parseWalletRegistrationSessionCommitReceiptV2(
   }
   const foundingAuthority = parseWalletAuthorityV1(raw.foundingAuthority);
   const foundingAuthMethod = parseWalletAuthMethodRecordV2(raw.foundingAuthMethod);
-  const mintId = parseReusableWalletSessionMintId(raw.mintId);
+  const mintId = parseWalletSessionMintId(raw.mintId);
   const issuedAtMs = parsePositiveSafeInteger(raw.issuedAtMs);
   const expiresAtMs = parsePositiveSafeInteger(raw.expiresAtMs);
   let custodyKeyManifestDigestB64u: DigestB64u;

@@ -17,6 +17,7 @@ import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPri
 import {
   buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
   buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+  routerAbEcdsaDerivationActiveStateId,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
@@ -252,7 +253,6 @@ type RouteSideEffects = {
   audits: number;
   quotaWrites: number;
   runtimeCalls: number;
-  opaqueReads: number;
 };
 
 function emptyRouteSideEffects(): RouteSideEffects {
@@ -265,7 +265,6 @@ function emptyRouteSideEffects(): RouteSideEffects {
     audits: 0,
     quotaWrites: 0,
     runtimeCalls: 0,
-    opaqueReads: 0,
   };
 }
 
@@ -408,6 +407,7 @@ async function stepUpRouteFixture(input: {
     authorizationSessionId: 'wallet-session-material-activation',
     walletSessionId: 'wallet-session-material-activation',
     quotaId: 'quota-material-activation',
+    thresholdSessionId: 'threshold-session-material-activation',
     walletAuthAuthorityRef: sessionFixture.authorityRef,
     authSource: {
       kind: 'passkey',
@@ -491,10 +491,6 @@ async function stepUpRouteFixture(input: {
             authMethod: resolvedSession.authMethod,
             retiredAtMs: null,
           };
-        },
-        async resolveOpaqueWalletSessionToken() {
-          input.sideEffects.opaqueReads += 1;
-          throw new Error('operation step-up must not probe the opaque Wallet Session store');
         },
       },
       authorizedOperations: {
@@ -611,7 +607,6 @@ test('strict post-registration refresh admits exact sign operation credentials b
   await expect(response?.json()).resolves.toMatchObject({ result: 'stopped' });
   expect(calls.refresh).toBe(1);
   expect(calls.export).toBe(0);
-  expect(sideEffects.opaqueReads).toBe(0);
 });
 
 test('strict post-registration rejects an opaque bearer without probing the opaque session resolver', async () => {
@@ -645,7 +640,6 @@ test('strict post-registration rejects an opaque bearer without probing the opaq
   await expect(response?.json()).resolves.toMatchObject({ code: 'wallet_session_invalid' });
   expect(calls.refresh).toBe(0);
   expect(calls.export).toBe(0);
-  expect(sideEffects.opaqueReads).toBe(0);
 });
 
 test('strict post-registration export compares the exact V2 step-up admission before forwarding', async () => {
@@ -700,7 +694,6 @@ test('strict post-registration export compares the exact V2 step-up admission be
   await expect(response?.json()).resolves.toMatchObject({ code: 'scope_mismatch' });
   expect(reads).toBe(2);
   expect(calls.export).toBe(0);
-  expect(sideEffects.opaqueReads).toBe(0);
 });
 
 test('wallet store resolves ECDSA signers only by the exact material activation ref', async () => {
@@ -838,7 +831,108 @@ test('operation step-up admits one authorized operation for the exact canonical 
   expect(sideEffects.claims).toBe(0);
   expect(sideEffects.audits).toBe(0);
   expect(sideEffects.quotaWrites).toBe(0);
-  expect(sideEffects.opaqueReads).toBe(0);
+});
+
+test('reusable signing forwards the authoritative ECDSA threshold session identity', async () => {
+  const walletId = fixtureWalletId();
+  const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
+  const sideEffects = emptyRouteSideEffects();
+  const ctx = await stepUpRouteFixture({
+    signer,
+    requestedActivation: signer.walletKey.publicCapability.material_activation,
+    sideEffects,
+  });
+  const authorizationSessions = ctx.service.authorizationSessions;
+  if (!authorizationSessions) throw new Error('exact Wallet Session service is unavailable');
+  const exactContext =
+    await authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+      tenantId: authorizationSessions.tenantId,
+      token: EXACT_OPERATION_CREDENTIAL,
+      nowMs: Date.now(),
+    });
+  if (!exactContext) throw new Error('exact Wallet Session fixture is unavailable');
+
+  const capability = signer.walletKey.publicCapability;
+  const walletSessionId = exactContext.authorization.session.walletSessionId;
+  const scope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
+    wallet_id: String(walletId),
+    ecdsa_threshold_key_id: signer.walletKey.ecdsaThresholdKeyId,
+    signing_root_id: signer.walletKey.signingRootId,
+    signing_root_version: signer.walletKey.signingRootVersion,
+    context: capability.context,
+    public_identity: capability.public_identity,
+    material_activation: capability.material_activation,
+    signing_worker: capability.signer_set.selected_server,
+    activation_epoch: capability.activation_epoch,
+  };
+  const requestBody = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
+    scope,
+    requestId: 'reusable-authoritative-threshold-session',
+    operationId: 'reusable-authoritative-threshold-session-operation',
+    operationDigests: {
+      lane_digest_b64u: digest(21),
+      intent_digest_b64u: digest(22),
+      display_digest_b64u: digest(23),
+    },
+    authorization: {
+      kind: 'reusable_wallet_session',
+      wallet_session_id: walletSessionId,
+    },
+    materialActivation: capability.material_activation,
+    clientPresignatureId: 'reusable-authoritative-threshold-session-presignature',
+    expiresAtMs: Date.now() + 40_000,
+    signingDigest32: new Uint8Array(32).fill(22),
+    clientRerandomizationCommitment32: new Uint8Array(32).fill(25),
+  });
+  let forwardedBody: Record<string, unknown> | null = null;
+  ctx.request = new Request(
+    `https://app.example.test${ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH}`,
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${EXACT_OPERATION_CREDENTIAL}`,
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
+      body: JSON.stringify(requestBody),
+    },
+  );
+  ctx.url = new URL(ctx.request.url);
+  ctx.pathname = ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH;
+  ctx.opts.routerAbNormalSigningAdmission = {
+    async evaluatePolicy() {
+      return { ok: true };
+    },
+  };
+  ctx.opts.routerAbNormalSigningRouterProxy = {
+    internalServiceAuthSecret: 'test-router-internal-service-auth',
+    async fetch(request) {
+      forwardedBody = (await request.json()) as Record<string, unknown>;
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  };
+
+  const response = await handleThresholdEcdsa(ctx);
+  expect(response?.status, response ? await response.clone().text() : 'missing response').toBe(200);
+  const authorizedOperation = forwardedBody?.authorized_operation as
+    | {
+        readonly binding?: {
+          readonly threshold_session_id?: unknown;
+          readonly authorization_session_id?: unknown;
+        };
+      }
+    | undefined;
+  expect(authorizedOperation?.binding?.threshold_session_id).toBe(
+    routerAbEcdsaDerivationActiveStateId({
+      kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+      scope,
+    }),
+  );
+  expect(authorizedOperation?.binding?.threshold_session_id).not.toBe(walletSessionId);
+  expect(authorizedOperation?.binding).not.toHaveProperty('authorization_session_id');
 });
 
 test('operation step-up rejects a material replacement before proof, evidence, or admission', async () => {
@@ -1109,6 +1203,16 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
             ...(testCase.authorizationKind === 'operation_step_up' ? { operation } : {}),
           };
     if (testCase.authorizationKind === 'reusable_wallet_session') {
+      const reusableSessionFixture = await buildPasskeyWalletSessionIssuanceFixture({
+        tenantId: signer.runtimePolicyScope.orgId,
+        principalId: 'principal-material-activation',
+        walletId: String(walletId),
+        walletAuthMethodId: 'wallet-auth-method:material-activation',
+        credentialIdB64u: 'credential-material-activation',
+        rpId: 'app.example.test',
+        origin: 'https://app.example.test',
+        expiresAtMs: Date.now() + 50_000,
+      });
       const claims = buildRouterAbEcdsaWalletSessionClaimsFixture({
         walletId: String(walletId),
         keyHandle: signer.walletKey.keyHandle,
@@ -1121,11 +1225,17 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
           envId: 'env-material-activation',
           signingRootVersion: signer.walletKey.signingRootVersion,
         },
+        authorizationId: 'authorization-grant-pool',
         normalSigningScope: reusableScope,
         authorizationSessionId: 'authorization-session-pool',
         walletSessionId: 'wallet-session-pool',
         quotaId: 'wallet-quota-pool',
         thresholdSessionId: 'threshold-session-pool',
+        walletAuthAuthorityRef: reusableSessionFixture.authorityRef,
+        authSource: {
+          kind: 'passkey',
+          credentialIdB64u: reusableSessionFixture.authority.factor.credentialIdB64u,
+        },
       });
       ctx.opts.session = {
         async parse() {

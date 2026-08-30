@@ -28,12 +28,9 @@ import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthor
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 
-// The manifest and the sealed store own complementary halves of one capability:
-// the manifest selects the exact capability, its public facts, and the material
-// activation; the sealed record supplies the session-scoped runtime state that
-// signing needs (normal-signing scope, transport identity, current allowance).
-// Prefill, Email OTP refresh, and provisioning each need the same correlation,
-// so it lives here once.
+// The manifest owns the durable capability and material binding. A sealed
+// record adds restorable signing-session state for prefill and refresh paths;
+// direct authorization can pair the durable capability with live quota facts.
 //
 // Material is identified by materialActivation. A threshold-session id is
 // runtime state carried on the result, never a key used to find it.
@@ -74,10 +71,8 @@ export type ExactEcdsaMaterialRuntime = {
   readonly ecdsaThresholdKeyId: string;
   readonly thresholdEcdsaPublicKeyB64u: string;
   readonly keyHandle: string;
-  /** Read from the sealed record rather than parsed out of the Wallet Session
-   * JWT: the sealed store owns session-scoped runtime state. Optional because
-   * the store itself persists it conditionally; consumers that need it to
-   * build a signing session require it at the point of use. */
+  /** Canonical policy scope from the durable capability or its sealed copy.
+   * Consumers that require a scoped signing session validate it at use. */
   readonly runtimePolicyScope: RuntimePolicyScope | null;
   /** The durable material this runtime unlocks, in the canonical persisted form
    * the role-local material resolver consumes. */
@@ -96,6 +91,23 @@ export type ExactEcdsaSealedRuntime = ExactEcdsaMaterialRuntime & {
   readonly remainingUses: number;
   readonly sealedRecord: ExactEcdsaSealedRecordIdentity;
 };
+
+/**
+ * A durable capability paired with an authenticated exact Wallet Session.
+ * Registration has already persisted the role-local material and capability
+ * manifest, so immediate signing does not require a separate warm-session
+ * envelope. Sealed-session restore remains a distinct source below.
+ */
+export type ExactEcdsaDirectCapabilityRuntime = ExactEcdsaMaterialRuntime & {
+  readonly kind: 'exact_ecdsa_direct_capability_runtime_v1';
+  readonly expiresAtMs: number;
+  readonly remainingUses: number;
+  readonly sealedRecord?: never;
+};
+
+export type ExactEcdsaWalletSessionRuntime =
+  | ExactEcdsaDirectCapabilityRuntime
+  | ExactEcdsaSealedRuntime;
 
 export type ExactInactiveEcdsaMaterialRuntime = ExactEcdsaMaterialRuntime & {
   readonly kind: 'exact_inactive_ecdsa_material_runtime_v1';
@@ -167,9 +179,7 @@ function normalizedNonEmpty(value: unknown): string {
   return String(value ?? '').trim();
 }
 
-type ExactEcdsaMaterialRecord =
-  | CurrentEcdsaSealedSessionRecord
-  | EcdsaInactiveSealedMaterialRecord;
+type ExactEcdsaMaterialRecord = CurrentEcdsaSealedSessionRecord | EcdsaInactiveSealedMaterialRecord;
 
 type ExactEcdsaMaterialRestore = ExactEcdsaMaterialRecord['ecdsaRestore'];
 
@@ -273,7 +283,8 @@ function sealedRecordBindsManifestFacts(args: {
     resolvedThresholdKeyId === normalizedNonEmpty(binding.ecdsaThresholdKeyId) &&
     resolvedThresholdKeyId === normalizedNonEmpty(publicFacts.ecdsaThresholdKeyId) &&
     resolvedClientVerifyingShare === normalizedNonEmpty(binding.clientVerifyingPublicKey33B64u) &&
-    resolvedClientVerifyingShare === normalizedNonEmpty(publicFacts.derivationClientSharePublicKey33B64u) &&
+    resolvedClientVerifyingShare ===
+      normalizedNonEmpty(publicFacts.derivationClientSharePublicKey33B64u) &&
     resolvedThresholdPublicKey === normalizedNonEmpty(publicFacts.groupPublicKey33B64u) &&
     normalizedNonEmpty(restore.relayerKeyId) === normalizedNonEmpty(binding.relayerKeyId) &&
     participantIdsEqual(restore.participantIds, binding.participantIds) &&
@@ -297,9 +308,7 @@ function sealedRecordBindsManifestFacts(args: {
       public_identity: publicFacts.publicCapability.public_identity,
       signing_worker: publicFacts.publicCapability.signer_set.selected_server,
       activation_epoch: publicFacts.publicCapability.activation_epoch,
-      material_activation: routerAbMpcMaterialActivationRefToWire(
-        durable.materialActivation,
-      ),
+      material_activation: routerAbMpcMaterialActivationRefToWire(durable.materialActivation),
     })
   );
 }

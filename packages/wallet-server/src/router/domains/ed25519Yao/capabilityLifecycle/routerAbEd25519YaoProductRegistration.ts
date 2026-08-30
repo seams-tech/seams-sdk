@@ -87,10 +87,10 @@ import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
  */
 export type RouterAbEd25519YaoWalletSessionCredentialV1 =
   | {
-      readonly kind: 'issued_wallet_session_v1';
+      readonly kind: 'issued_exact_wallet_session';
       readonly operationCredential: WalletSessionOperationCredentialV1;
     }
-  | { readonly kind: 'reused_wallet_session_v2'; readonly operationCredential?: never };
+  | { readonly kind: 'already_committed_exact_wallet_session'; readonly operationCredential?: never };
 
 type RouterAbEd25519YaoWalletSessionMintIdentityV1 = {
   readonly walletSessionCredential: RouterAbEd25519YaoWalletSessionCredentialV1;
@@ -117,11 +117,6 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'same_identity_budget_refresh_v1';
-      readonly expiresAtMs: number;
-      readonly remainingUses: number;
-    })
-  | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
-      readonly kind: 'same_wallet_session_curve_mint_v1';
       readonly expiresAtMs: number;
       readonly remainingUses: number;
     });
@@ -423,17 +418,6 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
           Math.max(1, Math.floor(input.remainingUses)),
         ),
       };
-    case 'same_wallet_session_curve_mint_v1':
-      if (!Number.isSafeInteger(input.expiresAtMs) || input.expiresAtMs <= nowMs) {
-        throw new Error('Existing Wallet Session expiry must follow issuance');
-      }
-      return {
-        expiresAtMs: input.expiresAtMs,
-        remainingUses: Math.min(
-          DEFAULT_WALLET_SESSION_REMAINING_USES,
-          Math.max(1, Math.floor(input.remainingUses)),
-        ),
-      };
     default:
       return assertNeverWalletSessionMintInput(input);
   }
@@ -504,7 +488,7 @@ class RouterAbEd25519YaoProductRegistrationRuntime implements RouterAbEd25519Yao
  * primary credential digest together; this only carries the credential that
  * issuer already returned, so a replay reaches this code with none to carry.
  */
-export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
+export async function projectRouterAbEd25519YaoExactWalletSession(input: {
   readonly signingWorkerId: string;
   readonly sessionInput: RouterAbEd25519YaoWalletSessionMintInputV1;
 }): Promise<WalletRegistrationEd25519YaoBootstrapSession> {
@@ -513,7 +497,7 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
   const sessionInput = input.sessionInput;
   const credential = sessionInput.walletSessionCredential;
   if (
-    credential.kind === 'issued_wallet_session_v1' &&
+    credential.kind === 'issued_exact_wallet_session' &&
     credential.operationCredential.walletSessionId !== sessionInput.walletSessionId
   ) {
     throw new Error('Ed25519 Yao Wallet Session credential does not identify its session');
@@ -539,13 +523,13 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
       signingWorkerId,
     } as const,
   };
-  return credential.kind === 'issued_wallet_session_v1'
+  return credential.kind === 'issued_exact_wallet_session'
     ? {
         ...identity,
-        sessionKind: 'issued_wallet_session_v1',
+        sessionKind: 'issued_exact_wallet_session',
         operationCredential: credential.operationCredential,
       }
-    : { ...identity, sessionKind: 'reused_wallet_session_v2' };
+    : { ...identity, sessionKind: 'already_committed_exact_wallet_session' };
 }
 
 export function createRouterAbEd25519YaoProductRegistrationRuntimeV1(input: {

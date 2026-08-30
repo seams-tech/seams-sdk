@@ -11,35 +11,28 @@ import {
   type WalletEmailOtpOperation,
 } from '@shared/utils/emailOtpDomain';
 import {
-  requireOpaqueWalletSessionToken,
-  type WalletSessionRouteAuth,
-} from '@shared/utils/sessionTokens';
+  parseWalletSessionOperationCredentialV1,
+  type WalletSessionOperationCredentialV1,
+} from '@shared/device-linking';
 import { isPlainObject } from '@shared/utils/validation';
 
-export type EmailOtpAuthLane =
-  | { kind: 'opaque_wallet_session'; walletSessionToken: string }
-  | EmailOtpSigningSessionAuthLane;
+export type EmailOtpAuthLane = EmailOtpSigningSessionAuthLane;
 
 export type EmailOtpSigningSessionAuthLane =
   | {
       kind: 'signing_session';
-      walletSessionToken: string;
+      operationCredential: WalletSessionOperationCredentialV1;
       curve: 'ed25519';
     }
   | {
       kind: 'signing_session';
-      walletSessionToken: string;
+      operationCredential: WalletSessionOperationCredentialV1;
       thresholdSessionId: string;
       curve: 'ecdsa';
       chainTarget: ThresholdEcdsaChainTarget;
     };
 
 export type EmailOtpRouteFamily = 'login' | 'registration' | 'signing_session';
-
-type EmailOtpFreshAuthLane = Extract<
-  EmailOtpAuthLane,
-  { kind: 'opaque_wallet_session' }
->;
 
 export type EmailOtpRoutePlan =
   | {
@@ -60,38 +53,28 @@ export type EmailOtpRoutePlan =
         | typeof WALLET_EMAIL_OTP_EXPORT_OPERATION;
     };
 
-export type ResolveEmailOtpAuthLaneArgs = {
-  routeAuth?: WalletSessionRouteAuth;
-  thresholdSessionId?: string;
-  curve?: 'ed25519' | 'ecdsa';
-  chainTarget?: ThresholdEcdsaChainTarget;
-};
-
 function nonEmptyString(value: unknown): string {
   return String(value || '').trim();
 }
 
 function buildEmailOtpSigningSessionAuthLane(args: {
-  walletSessionToken: unknown;
+  operationCredential: unknown;
   thresholdSessionId: unknown;
   curve: unknown;
   chainTarget?: unknown;
 }): EmailOtpSigningSessionAuthLane | undefined {
-  const walletSessionToken = nonEmptyString(args.walletSessionToken);
-  const thresholdSessionId = nonEmptyString(args.thresholdSessionId);
-  if (!walletSessionToken) {
-    console.warn('[EmailOtpAuthLane] rejected incomplete signing-session auth lane', {
-      hasAuthToken: !!walletSessionToken,
-      thresholdSessionId,
-      curve: args.curve,
-      chainTarget: args.chainTarget,
-    });
+  let operationCredential: WalletSessionOperationCredentialV1;
+  try {
+    operationCredential = parseWalletSessionOperationCredentialV1(args.operationCredential);
+  } catch {
+    console.warn('[EmailOtpAuthLane] rejected invalid signing-session operation credential');
     return undefined;
   }
+  const thresholdSessionId = nonEmptyString(args.thresholdSessionId);
   if (args.curve === 'ed25519') {
     return {
       kind: 'signing_session',
-      walletSessionToken,
+      operationCredential,
       curve: 'ed25519',
     };
   }
@@ -109,7 +92,7 @@ function buildEmailOtpSigningSessionAuthLane(args: {
     }
     return {
       kind: 'signing_session',
-      walletSessionToken,
+      operationCredential,
       thresholdSessionId,
       curve: 'ecdsa',
       chainTarget,
@@ -124,44 +107,6 @@ function buildEmailOtpSigningSessionAuthLane(args: {
     },
   );
   return undefined;
-}
-
-export function resolveEmailOtpAuthLane(
-  args: ResolveEmailOtpAuthLaneArgs,
-): EmailOtpAuthLane | undefined {
-  if (args.routeAuth?.kind === 'opaque_wallet_session') {
-    const walletSessionToken = nonEmptyString(args.routeAuth.walletSessionToken);
-    return walletSessionToken
-      ? { kind: 'opaque_wallet_session', walletSessionToken: requireOpaqueWalletSessionToken(walletSessionToken) }
-      : undefined;
-  }
-
-  return undefined;
-}
-
-export function authLaneToRouteAuth(
-  lane: EmailOtpAuthLane,
-): WalletSessionRouteAuth | undefined {
-  if (lane.kind === 'opaque_wallet_session') {
-    return {
-      kind: 'opaque_wallet_session',
-      walletSessionToken: requireOpaqueWalletSessionToken(lane.walletSessionToken),
-    };
-  }
-  return {
-    kind: 'opaque_wallet_session',
-    walletSessionToken: requireOpaqueWalletSessionToken(lane.walletSessionToken),
-  };
-}
-
-export function requireEmailOtpAuthLane(
-  lane: EmailOtpAuthLane | undefined,
-  context: string,
-): EmailOtpAuthLane {
-  if (!lane) {
-    throw new Error(`Email OTP ${context} requires an auth lane`);
-  }
-  return lane;
 }
 
 export function buildEmailOtpRoutePlan(args: {
@@ -202,13 +147,6 @@ export function buildEmailOtpRoutePlan(args: {
   throw new Error('Unsupported Email OTP route family');
 }
 
-export function routeFamilyForAuthLane(args: {
-  authLane: EmailOtpAuthLane;
-  freshRouteFamily: Extract<EmailOtpRouteFamily, 'login' | 'registration'>;
-}): EmailOtpRouteFamily {
-  return args.authLane.kind === 'signing_session' ? 'signing_session' : args.freshRouteFamily;
-}
-
 export function emailOtpRoutePath(
   plan: EmailOtpRoutePlan,
   action: 'challenge' | 'seal' | 'finalize',
@@ -234,7 +172,7 @@ export function normalizeEmailOtpRoutePlan(value: unknown): EmailOtpRoutePlan | 
     operation?: unknown;
     authLane?: {
       kind?: unknown;
-      walletSessionToken?: unknown;
+      operationCredential?: unknown;
       thresholdSessionId?: unknown;
       curve?: unknown;
       chainTarget?: ThresholdEcdsaChainTarget;
@@ -259,7 +197,7 @@ export function normalizeEmailOtpRoutePlan(value: unknown): EmailOtpRoutePlan | 
       return buildEmailOtpRoutePlan({ routeFamily, operation });
     }
     const authLane = buildEmailOtpSigningSessionAuthLane({
-      walletSessionToken: input.authLane?.walletSessionToken,
+      operationCredential: input.authLane?.operationCredential,
       thresholdSessionId: input.authLane?.thresholdSessionId,
       curve: input.authLane?.curve,
       chainTarget: input.authLane?.chainTarget,

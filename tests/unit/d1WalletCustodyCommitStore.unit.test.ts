@@ -1,14 +1,32 @@
 import { expect, test } from '@playwright/test';
-import { parseWalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery';
+import {
+  buildActiveWalletAuthorityV1,
+  computeWalletAuthorityDigestB64u,
+} from '@shared/authorization/walletAuthority';
+import {
+  buildWalletRecoveryEnvelopeSetRecord,
+  buildWalletRecoveryManifestKekWrap,
+  parseWalletRecoveryEnvelopeSetRecord,
+  type WalletRecoveryEnvelopeSetRecord,
+} from '@shared/wallet-recovery';
+import { parseRecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
 import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import { CloudflareD1WalletCustodyCommitStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import { D1WalletAuthorityStore } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
+import {
+  CloudflareD1WebAuthnStore,
+  type WebAuthnRecoveryRegistrationChallengeRecord,
+} from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
+import { resolveCommittedRecoveryReplayV1 } from '../../packages/wallet-server/src/router/domains/passkeyCustody/walletRecoveryFinalization';
 import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import type {
   PasskeyEnvelopeId,
   WalletId,
+  WalletRecoveryOperationId,
   WebAuthnCredentialIdB64u,
   WebAuthnRpId,
 } from '../../packages/shared-ts/src/utils/domainIds';
+import { parseWalletRecoveryOperationId } from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { buildWalletRecoveryBackupAcknowledgementV1 } from '../../packages/shared-ts/src/wallet-recovery/backupAcknowledgement';
 import { parseRecoveryCodeLocatorV1 } from '../../packages/shared-ts/src/wallet-recovery/recoveryCodeLocator';
@@ -27,6 +45,15 @@ import {
   rawWalletRecoveryEnvelopeSet,
   rawWalletRecoveryCodeLocators,
 } from './helpers/passkeyCustodyEnvelope.fixtures';
+import { buildActiveMethodBoundPasskeyCustodyEnvelopeFixture } from './helpers/passkeyCustodyEnvelope.fixtures';
+import {
+  buildLinkedDeviceManagementAuthorityFixture,
+  fullOwnerPermissionsForManagementFixture,
+} from './helpers/linkedDeviceManagement.fixtures';
+import {
+  testWebAuthnAuthenticatorRecord,
+  testWebAuthnCredentialBindingRecord,
+} from './helpers/webauthnAuthenticatorListing.fixtures';
 
 /**
  * The registration commit writes a custody envelope and a recovery envelope set
@@ -76,6 +103,44 @@ function registrationCommit(input: {
       walletId: input.recoverySet.walletId,
       recoveryKeyId: locator.recoveryKeyId as never,
     })),
+  };
+}
+
+function consumeFirstRecoveryCode(input: {
+  readonly record: WalletRecoveryEnvelopeSetRecord;
+  readonly reservationId: ReturnType<typeof parseRecoveryCodeReservationId>;
+  readonly consumedAtMs: number;
+}): {
+  readonly record: WalletRecoveryEnvelopeSetRecord;
+  readonly recoveryKeyId: WalletRecoveryEnvelopeSetRecord['manifestKekWraps'][number]['recoveryKeyId'];
+} {
+  const selected = input.record.manifestKekWraps[0];
+  if (!selected || selected.lifecycle.state !== 'active') {
+    throw new Error('recovery fixture has no active code');
+  }
+  const consumed = buildWalletRecoveryManifestKekWrap({
+    recoveryKeyId: selected.recoveryKeyId,
+    nonceB64u: selected.nonceB64u,
+    wrappedManifestKekB64u: selected.wrappedManifestKekB64u,
+    aadHashB64u: selected.aadHashB64u,
+    lifecycle: {
+      state: 'consumed',
+      issuedAtMs: selected.lifecycle.issuedAtMs,
+      reservationId: input.reservationId,
+      consumedAtMs: input.consumedAtMs,
+    },
+  });
+  return {
+    record: buildWalletRecoveryEnvelopeSetRecord({
+      walletId: input.record.walletId,
+      manifestKekWraps: input.record.manifestKekWraps.map((wrap, index) =>
+        index === 0 ? consumed : wrap,
+      ),
+      entries: input.record.entries,
+      issuedAtMs: input.record.issuedAtMs,
+      updatedAtMs: input.consumedAtMs,
+    }),
+    recoveryKeyId: selected.recoveryKeyId,
   };
 }
 
@@ -322,5 +387,208 @@ test('a rotation rejects reusing an existing locator before replacing the set', 
 
     const stored = await commit.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
     expect(stored?.record.issuedAtMs).toBe(1_000);
+  });
+});
+
+test('a real recovery commit retains the consumed locator tombstone for exact replay', async () => {
+  await withStores(async ({ commit, envelopes, database }) => {
+    const source = await buildLinkedDeviceManagementAuthorityFixture({
+      label: 'recovery-real-source',
+      permissions: fullOwnerPermissionsForManagementFixture(),
+      provenance: 'wallet_registration',
+      identity: {
+        walletId: WALLET_ID,
+        authorityId: 'wallet-authority:recovery-real-source',
+        walletAuthMethodId: 'wallet-auth-method:recovery-real-source',
+        rpId: RP_ID,
+      },
+    });
+    const target = await buildLinkedDeviceManagementAuthorityFixture({
+      label: 'recovery-real-target',
+      permissions: fullOwnerPermissionsForManagementFixture(),
+      provenance: 'wallet_recovery',
+      sourceAuthorityId: source.authority.authorityId,
+      identity: {
+        walletId: WALLET_ID,
+        authorityId: 'wallet-authority:recovery-real-target',
+        walletAuthMethodId: 'wallet-auth-method:recovery-real-target',
+        rpId: RP_ID,
+      },
+    });
+    const targetAuthorityDraft = buildActiveWalletAuthorityV1({
+      ...source.authority,
+      authorityId: target.authority.authorityId,
+      principal: target.authority.principal,
+      provenance: target.authority.provenance,
+      createdAtMs: 500,
+      updatedAtMs: 500,
+      activatedAtMs: 500,
+      authorityDigestB64u: source.authority.authorityDigestB64u,
+    });
+    const targetAuthority = buildActiveWalletAuthorityV1({
+      ...targetAuthorityDraft,
+      authorityDigestB64u: await computeWalletAuthorityDigestB64u(targetAuthorityDraft),
+    });
+    const sourceEnvelope = buildActiveMethodBoundPasskeyCustodyEnvelopeFixture({
+      walletId: WALLET_ID,
+      envelopeId: 'passkey-envelope:recovery-real-source',
+      rpId: String(source.authMethod.rpId),
+      credentialIdB64u: String(source.authMethod.credentialIdB64u),
+      walletAuthMethodId: String(source.authMethod.walletAuthMethodId),
+    });
+    const targetEnvelope = buildActiveMethodBoundPasskeyCustodyEnvelopeFixture({
+      walletId: WALLET_ID,
+      envelopeId: 'passkey-envelope:recovery-real-target',
+      rpId: String(target.authMethod.rpId),
+      credentialIdB64u: String(target.authMethod.credentialIdB64u),
+      walletAuthMethodId: String(target.authMethod.walletAuthMethodId),
+    });
+    const targetCredentialIdB64u = String(target.authMethod.credentialIdB64u);
+    const targetRpId = String(target.authMethod.rpId);
+    const authenticator = testWebAuthnAuthenticatorRecord({
+      credentialIdB64u: targetCredentialIdB64u,
+      credentialPublicKeyB64u: target.authMethod.credentialPublicKeyB64u,
+      counter: target.authMethod.counter,
+      createdAtMs: 500,
+      updatedAtMs: 500,
+    });
+    const binding = testWebAuthnCredentialBindingRecord({
+      credentialIdB64u: targetCredentialIdB64u,
+      userId: WALLET_ID,
+      rpId: targetRpId,
+      createdAtMs: 500,
+      updatedAtMs: 500,
+    });
+    const reservationId = parseRecoveryCodeReservationId('recovery-operation:real-replay');
+    const parsedRecoveryOperationId = parseWalletRecoveryOperationId(
+      'wallet-recovery-operation:recovery-real-target',
+    );
+    if (!parsedRecoveryOperationId.ok) throw new Error(parsedRecoveryOperationId.error.message);
+    const recoveryOperationId: WalletRecoveryOperationId = parsedRecoveryOperationId.value;
+    const initialRecoverySet = recoverySet();
+    const committedRecovery = consumeFirstRecoveryCode({
+      record: initialRecoverySet,
+      reservationId,
+      consumedAtMs: 3_000,
+    });
+    const registration = await commit.commitRegistration(
+      registrationCommit({ envelope: passkeyCustodyEnvelope(), recoverySet: initialRecoverySet }),
+    );
+    expect(registration.kind).toBe('committed');
+    const storedRecoverySet = await commit.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
+    if (!storedRecoverySet) throw new Error('recovery fixture was not stored');
+
+    const webAuthn = new CloudflareD1WebAuthnStore({
+      database,
+      namespace: TEST_SCOPE.namespace,
+      orgId: TEST_SCOPE.orgId,
+      projectId: TEST_SCOPE.projectId,
+      envId: TEST_SCOPE.envId,
+    });
+    const challengeId = 'recovery-registration-real-replay';
+    const sourceFactor = sourceEnvelope.factor;
+    if (sourceFactor.kind !== 'passkey') throw new Error('source fixture is not passkey-bound');
+    const challenge: WebAuthnRecoveryRegistrationChallengeRecord = {
+      version: 'webauthn_recovery_registration_challenge_v2',
+      challengeId,
+      walletId: WALLET_ID as WalletId,
+      reservationId,
+      recoveryOperationId,
+      targetDeviceId: targetAuthority.principal.deviceId,
+      targetAuthorityId: targetAuthority.authorityId,
+      targetWalletAuthMethodId: target.authMethod.walletAuthMethodId,
+      origin: 'https://wallet.example.test',
+      rpId: target.authMethod.rpId,
+      replacementId: String(targetEnvelope.envelopeId),
+      challengeB64u: 'AQIDBAUGBwgJCgsMDQ4PEA',
+      continuityAnchor: {
+        kind: 'wallet_recovery_continuity_anchor_v1',
+        authority: source.authority,
+        method: source.authMethod,
+        envelope: {
+          kind: 'passkey',
+          envelopeId: sourceEnvelope.envelopeId,
+          walletId: WALLET_ID as WalletId,
+          rpId: sourceFactor.rpId,
+          credentialIdB64u: sourceFactor.credentialIdB64u,
+          envelopeRevision: sourceEnvelope.envelopeRevision,
+          updatedAtMs: sourceEnvelope.updatedAtMs,
+          bindingKind: 'wallet_custody_seed_v1',
+        },
+      },
+      createdAtMs: 400,
+      expiresAtMs: 10_000,
+    };
+    await webAuthn.writeChallenge({
+      challengeId,
+      challengeKind: 'recovery_registration',
+      record: challenge,
+      createdAtMs: challenge.createdAtMs,
+      expiresAtMs: challenge.expiresAtMs,
+    });
+    const commitResult = await commit.commitRecoveryAuthorityInstall({
+      continuityAuthority: source.authority,
+      authority: targetAuthority,
+      recoverySet: committedRecovery.record,
+      expectedRecoverySetVersion: storedRecoverySet.storeVersion,
+      replacementEnvelope: targetEnvelope,
+      reservationId,
+      recoveryKeyId: committedRecovery.recoveryKeyId,
+      authenticatorCommit: {
+        userId: WALLET_ID,
+        authenticator,
+        binding,
+        walletAuthMethod: target.authMethod,
+        challengeDeleteStatement: webAuthn.prepareRecoveryRegistrationChallengeDeleteStatement({
+          challengeId,
+          record: challenge,
+          nowMs: 3_000,
+        }),
+      },
+    });
+    expect(commitResult.kind).toBe('committed');
+    await expect(
+      commit.readRecoveryCodeLocatorByRecoveryKey({
+        walletId: WALLET_ID as WalletId,
+        recoveryKeyId: committedRecovery.recoveryKeyId,
+      }),
+    ).resolves.toMatchObject({
+      walletId: WALLET_ID,
+      recoveryKeyId: committedRecovery.recoveryKeyId,
+    });
+    await expect(
+      webAuthn.readRecoveryRegistrationChallenge(challengeId, 3_000),
+    ).resolves.toBeNull();
+
+    const authorityStore = new D1WalletAuthorityStore({ database, scope: TEST_SCOPE });
+    const replay = await resolveCommittedRecoveryReplayV1({
+      envelopeStore: envelopes,
+      walletCustodyCommits: commit,
+      walletAuthorityStore: {
+        readById: async (authorityId) =>
+          authorityId === source.authority.authorityId
+            ? source.authority
+            : authorityStore.readById(authorityId),
+      },
+      webAuthnStore: webAuthn,
+      walletId: WALLET_ID,
+      reservationId,
+      recoveryOperationId,
+      targetDeviceId: targetAuthority.principal.deviceId,
+      targetAuthorityId: targetAuthority.authorityId,
+      targetWalletAuthMethodId: target.authMethod.walletAuthMethodId,
+      replacementId: String(targetEnvelope.envelopeId),
+      replacementEnvelope: targetEnvelope,
+    });
+    expect(replay).toMatchObject({
+      kind: 'promoted',
+      credential: {
+        credentialIdB64u: targetCredentialIdB64u,
+        credentialPublicKeyB64u: target.authMethod.credentialPublicKeyB64u,
+        counter: target.authMethod.counter,
+      },
+      walletAuthMethodId: target.authMethod.walletAuthMethodId,
+      walletAuthorityId: targetAuthority.authorityId,
+    });
   });
 });

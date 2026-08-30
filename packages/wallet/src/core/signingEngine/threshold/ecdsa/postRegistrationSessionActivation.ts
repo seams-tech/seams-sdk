@@ -6,13 +6,19 @@ import {
 import {
   parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
+  type RouterAbEcdsaCredentialFreeSessionActivationResponseV1,
   type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { base64UrlDecode } from '@shared/utils/base64';
-import type { ThresholdEcdsaSessionId } from '@shared/utils/domainIds';
-import type { ReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
+import {
+  mpcMaterialActivationRefsEqual,
+  type ThresholdEcdsaSessionId,
+} from '@shared/utils/domainIds';
+import type { WalletSessionMintId } from '@shared/authorization/capabilityKinds';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { ExactWalletSessionAuthorization } from '../../session/persistence/walletSessionAuthorizationProjection';
 import type {
   EcdsaRoleLocalPersistedMaterialRef,
   EcdsaRoleLocalWorkerHandle,
@@ -39,14 +45,14 @@ export type ActivateStrictEcdsaPostRegistrationSessionInput = {
   readonly relayerUrl: string;
   readonly routeAuth: Extract<
     ThresholdEcdsaDerivationRouteAuth,
-    { kind: 'opaque_wallet_session' }
+    { kind: 'opaque_wallet_session_operation_credential_v1' }
   >;
   readonly workerCtx: WorkerOperationContext;
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   readonly persistedRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
   readonly walletId: string;
   readonly thresholdSessionId: ThresholdEcdsaSessionId;
-  readonly walletSessionMintId: ReusableWalletSessionMintId;
+  readonly walletSessionMintId: WalletSessionMintId;
   readonly ttlMs: number;
   readonly remainingUses: number;
   readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -57,12 +63,46 @@ export type ActivateStrictEcdsaPostRegistrationSessionResult = {
   readonly roleLocalActivation: ExistingEcdsaRoleLocalActivation;
 };
 
+export type EcdsaCredentialFreeSessionActivationAuthorization = {
+  readonly kind: 'credential_free_ecdsa_session_activation_authorization_v1';
+  readonly activation: RouterAbEcdsaCredentialFreeSessionActivationResponseV1;
+  readonly authorization: ExactWalletSessionAuthorization;
+};
+
+export type EcdsaPreauthorizedSessionActivation =
+  | RouterAbEcdsaPostRegistrationSessionActivationResponseV1
+  | EcdsaCredentialFreeSessionActivationAuthorization;
+
 export type AdoptStrictEcdsaPostRegistrationSessionInput = Omit<
   ActivateStrictEcdsaPostRegistrationSessionInput,
   'relayerUrl' | 'routeAuth' | 'walletSessionMintId'
 > & {
   readonly sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
 };
+
+export type AdoptStrictEcdsaCredentialFreePostRegistrationSessionInput = Omit<
+  ActivateStrictEcdsaPostRegistrationSessionInput,
+  'relayerUrl' | 'routeAuth' | 'walletSessionMintId'
+> & {
+  readonly sessionActivation: EcdsaCredentialFreeSessionActivationAuthorization;
+};
+
+export type AdoptStrictEcdsaCredentialFreePostRegistrationSessionResult = {
+  readonly sessionActivation: RouterAbEcdsaCredentialFreeSessionActivationResponseV1;
+  readonly authorization: ExactWalletSessionAuthorization;
+  readonly roleLocalActivation: ExistingEcdsaRoleLocalActivation;
+};
+
+type StrictEcdsaPostRegistrationSessionInput = Pick<
+  ActivateStrictEcdsaPostRegistrationSessionInput,
+  'workerCtx' | 'persistedRoleLocalMaterial' | 'publicCapability'
+>;
+
+export function isEcdsaCredentialFreeSessionActivationAuthorization(
+  value: EcdsaPreauthorizedSessionActivation,
+): value is EcdsaCredentialFreeSessionActivationAuthorization {
+  return value.kind === 'credential_free_ecdsa_session_activation_authorization_v1';
+}
 
 function routeFailureMessage(
   result: { readonly code?: string; readonly message?: string; readonly error?: string },
@@ -74,7 +114,7 @@ function routeFailureMessage(
 export function buildStrictEcdsaPostRegistrationSessionActivationRequest(input: {
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   readonly thresholdSessionId: ThresholdEcdsaSessionId;
-  readonly walletSessionMintId: ReusableWalletSessionMintId;
+  readonly walletSessionMintId: WalletSessionMintId;
   readonly ttlMs: number;
   readonly remainingUses: number;
   readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -112,7 +152,7 @@ function roleLocalPublicFactsMatchCapability(
 }
 
 function normalSigningMatchesRoleLocalFacts(
-  activation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  activation: Pick<RouterAbEcdsaPostRegistrationSessionActivationResponseV1, 'normal_signing'>,
   publicFacts: EcdsaRoleLocalPublicFacts,
 ): boolean {
   const scope = activation.normal_signing.scope;
@@ -122,6 +162,82 @@ function normalSigningMatchesRoleLocalFacts(
     scope.signing_root_id === String(publicFacts.signingRootId) &&
     scope.signing_root_version === String(publicFacts.signingRootVersion)
   );
+}
+
+type StrictEcdsaSessionActivationIdentity = Pick<
+  RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  'public_capability' | 'normal_signing'
+> & {
+  readonly session: Pick<
+    RouterAbEcdsaPostRegistrationSessionActivationResponseV1['session'],
+    'threshold_session_id'
+  >;
+};
+
+function validateStrictSessionActivationIdentity(input: {
+  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  readonly persistedRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
+  readonly thresholdSessionId: ThresholdEcdsaSessionId;
+  readonly sessionActivation: StrictEcdsaSessionActivationIdentity;
+}): void {
+  const roleLocalPublicFacts = input.persistedRoleLocalMaterial.publicFacts;
+  if (
+    alphabetizeStringify(input.sessionActivation.public_capability) !==
+      alphabetizeStringify(input.publicCapability) ||
+    input.sessionActivation.session.threshold_session_id !== input.thresholdSessionId ||
+    !normalSigningMatchesRoleLocalFacts(input.sessionActivation, roleLocalPublicFacts)
+  ) {
+    throw new Error('Strict ECDSA session activation returned a different registered key identity');
+  }
+}
+
+function validateCredentialFreeSessionAuthorization(input: {
+  readonly walletId: string;
+  readonly thresholdSessionId: ThresholdEcdsaSessionId;
+  readonly remainingUses: number;
+  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  readonly persistedRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
+  readonly sessionActivation: EcdsaCredentialFreeSessionActivationAuthorization;
+}): void {
+  const activation = input.sessionActivation.activation;
+  const authorization = input.sessionActivation.authorization;
+  const record = authorization.record;
+  const materialActivation = routerAbMpcMaterialActivationRefFromWire(
+    activation.public_capability.material_activation,
+  );
+  let matchingEcdsaSubjectCount = 0;
+  for (const subject of record.capabilitySubjects) {
+    if (
+      subject.kind === 'sign' &&
+      subject.keyFamily === 'ecdsa_secp256k1' &&
+      mpcMaterialActivationRefsEqual(subject.materialActivation, materialActivation)
+    ) {
+      matchingEcdsaSubjectCount += 1;
+    }
+  }
+  validateStrictSessionActivationIdentity({
+    publicCapability: input.publicCapability,
+    persistedRoleLocalMaterial: input.persistedRoleLocalMaterial,
+    thresholdSessionId: input.thresholdSessionId,
+    sessionActivation: activation,
+  });
+  if (
+    String(record.walletId) !== input.walletId ||
+    String(record.walletId) !== String(activation.public_capability.client_id) ||
+    record.authMethodId !== input.persistedRoleLocalMaterial.authority.walletAuthMethodId ||
+    record.authorizationId !== activation.session.authorization_id ||
+    record.quotaId !== activation.session.quota_id ||
+    record.expiresAtMs !== activation.session.expires_at_ms ||
+    activation.session.remaining_uses !== input.remainingUses ||
+    authorization.operationCredential.walletSessionId !== activation.session.wallet_session_id ||
+    !mpcMaterialActivationRefsEqual(
+      materialActivation,
+      input.persistedRoleLocalMaterial.materialActivation,
+    ) ||
+    matchingEcdsaSubjectCount !== 1
+  ) {
+    throw new Error('Strict ECDSA credential-free activation authority does not match its session');
+  }
 }
 
 function validateStrictSessionInput(
@@ -176,6 +292,24 @@ function requireResolvedRegistrationMaterial(
   }
 }
 
+async function activateExistingEcdsaRoleLocalMaterial(
+  input: StrictEcdsaPostRegistrationSessionInput,
+): Promise<ExistingEcdsaRoleLocalActivation> {
+  const materialResolution = await resolveEcdsaRoleLocalMaterial({
+    purpose: 'registration_activation',
+    source: ecdsaRoleLocalPersistedMaterialSource(input.persistedRoleLocalMaterial),
+    workerCtx: input.workerCtx,
+  });
+  const resolvedRoleLocalMaterial = requireResolvedRegistrationMaterial(materialResolution);
+  return {
+    kind: 'existing_ecdsa_role_local_material_activated_v1',
+    roleLocalMaterial: resolvedRoleLocalMaterial.liveHandle,
+    roleLocalMaterialRef: resolvedRoleLocalMaterial.materialRef,
+    publicFacts: input.persistedRoleLocalMaterial.publicFacts,
+    publicCapability: input.publicCapability,
+  };
+}
+
 export async function activateStrictEcdsaPostRegistrationSession(
   input: ActivateStrictEcdsaPostRegistrationSessionInput,
 ): Promise<ActivateStrictEcdsaPostRegistrationSessionResult> {
@@ -204,29 +338,26 @@ export async function adoptStrictEcdsaPostRegistrationSession(
   input: AdoptStrictEcdsaPostRegistrationSessionInput,
 ): Promise<ActivateStrictEcdsaPostRegistrationSessionResult> {
   validateStrictSessionInput(input);
-  const materialResolution = await resolveEcdsaRoleLocalMaterial({
-    purpose: 'registration_activation',
-    source: ecdsaRoleLocalPersistedMaterialSource(input.persistedRoleLocalMaterial),
-    workerCtx: input.workerCtx,
+  validateStrictSessionActivationIdentity({
+    publicCapability: input.publicCapability,
+    persistedRoleLocalMaterial: input.persistedRoleLocalMaterial,
+    thresholdSessionId: input.thresholdSessionId,
+    sessionActivation: input.sessionActivation,
   });
-  const resolvedRoleLocalMaterial = requireResolvedRegistrationMaterial(materialResolution);
-  const roleLocalPublicFacts = input.persistedRoleLocalMaterial.publicFacts;
-  if (
-    alphabetizeStringify(input.sessionActivation.public_capability) !==
-      alphabetizeStringify(input.publicCapability) ||
-    input.sessionActivation.session.threshold_session_id !== input.thresholdSessionId ||
-    !normalSigningMatchesRoleLocalFacts(input.sessionActivation, roleLocalPublicFacts)
-  ) {
-    throw new Error('Strict ECDSA session activation returned a different registered key identity');
-  }
   return {
     sessionActivation: input.sessionActivation,
-    roleLocalActivation: {
-      kind: 'existing_ecdsa_role_local_material_activated_v1',
-      roleLocalMaterial: resolvedRoleLocalMaterial.liveHandle,
-      roleLocalMaterialRef: resolvedRoleLocalMaterial.materialRef,
-      publicFacts: roleLocalPublicFacts,
-      publicCapability: input.publicCapability,
-    },
+    roleLocalActivation: await activateExistingEcdsaRoleLocalMaterial(input),
+  };
+}
+
+export async function adoptStrictEcdsaCredentialFreePostRegistrationSession(
+  input: AdoptStrictEcdsaCredentialFreePostRegistrationSessionInput,
+): Promise<AdoptStrictEcdsaCredentialFreePostRegistrationSessionResult> {
+  validateStrictSessionInput(input);
+  validateCredentialFreeSessionAuthorization(input);
+  return {
+    sessionActivation: input.sessionActivation.activation,
+    authorization: input.sessionActivation.authorization,
+    roleLocalActivation: await activateExistingEcdsaRoleLocalMaterial(input),
   };
 }

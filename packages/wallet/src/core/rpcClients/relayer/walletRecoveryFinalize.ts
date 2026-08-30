@@ -11,18 +11,19 @@ import {
   type WalletRecoveryEcdsaPossessionProofV1,
 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
 import type { WalletRecoveryAttemptFailure } from './walletRecoveryPrepare';
+import { parseDeviceId } from '@shared/authorization/capabilityKinds';
+import type { ActiveRecoveredWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import {
+  parseWalletAuthorityId,
+  parseWalletAuthMethodId,
   parseWalletId,
+  parseWalletRecoveryOperationId,
 } from '@shared/utils/domainIds';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import {
-  parseWalletAuthMethodRecordV2,
-  type WalletAuthMethodRecordV2,
-} from '@shared/utils/registrationIntent';
-import {
-  isActiveRecoveredWalletAuthorityV1,
-  parseWalletAuthorityV1,
-  type ActiveRecoveredWalletAuthorityV1,
-} from '@shared/authorization/walletAuthority';
+  parseWalletRecoveryCommittedProjectionV1,
+  type WalletRecoveryCommittedProjectionExpectationV1,
+} from '@shared/wallet-recovery/walletRecoveryCommittedProjection';
 
 /**
  * Installing the replacement credential a recovery enrolled.
@@ -126,6 +127,7 @@ export async function finalizeWalletRecovery(args: {
       url,
       buildRelayerJsonPostRequestInit({
         body: {
+          kind: 'finalize',
           walletId: args.walletId,
           reservationId: args.reservationId,
           recoveryOperationId: args.recoveryOperationId,
@@ -148,35 +150,17 @@ export async function finalizeWalletRecovery(args: {
   const body = isRecord(bodyUnknown) ? bodyUnknown : {};
   if (response.status === 200 && body.ok === true) {
     try {
-      rejectUnknownFields(
-        body,
-        ['ok', 'storeVersion', 'authority', 'authMethod'],
-        'walletRecoveryFinalize',
+      rejectUnknownFields(body, ['ok', 'projection'], 'walletRecoveryFinalize');
+      const projection = await parseWalletRecoveryCommittedProjectionV1(
+        body.projection,
+        buildPasskeyProjectionExpectation(args, replacementEnvelope),
       );
-      const storeVersion = String(body.storeVersion || '').trim();
-      if (!storeVersion) throw new Error('missing store version');
-      const authority = parseWalletAuthorityV1(body.authority);
-      const authMethod = parseWalletAuthMethodRecordV2(body.authMethod);
-      const walletId = parseWalletId(args.walletId);
-      if (
-        !walletId.ok ||
-        !authority.ok ||
-        authority.value.state !== 'active' ||
-        !isActiveRecoveredWalletAuthorityV1(authority.value) ||
-        !authMethod ||
-        authMethod.kind !== 'passkey' ||
-        authMethod.status !== 'active' ||
-        authority.value.walletId !== walletId.value ||
-        authMethod.walletId !== authority.value.walletId ||
-        authMethod.walletAuthorityId !== authority.value.authorityId
-      ) {
-        throw new Error('recovery authority projection is invalid');
-      }
+      if (projection.kind !== 'passkey') throw new Error('recovery projection branch changed');
       return {
         kind: 'promoted',
-        storeVersion,
-        authority: authority.value,
-        authMethod,
+        storeVersion: projection.storeVersion,
+        authority: projection.authority,
+        authMethod: projection.authMethod,
       };
     } catch {
       return { kind: 'transport_uncertain' };
@@ -193,4 +177,36 @@ export async function finalizeWalletRecovery(args: {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function buildPasskeyProjectionExpectation(
+  args: {
+    readonly walletId: string;
+    readonly recoveryOperationId: string;
+    readonly targetDeviceId: string;
+    readonly targetAuthorityId: string;
+    readonly targetWalletAuthMethodId: string;
+  },
+  replacementEnvelope: PasskeyCustodyEnvelopeRecord,
+): WalletRecoveryCommittedProjectionExpectationV1 {
+  if (replacementEnvelope.factor.kind !== 'passkey') {
+    throw new Error('replacement envelope is not a passkey envelope');
+  }
+  return {
+    kind: 'passkey',
+    walletId: requireParsed(parseWalletId(args.walletId)),
+    recoveryOperationId: requireParsed(parseWalletRecoveryOperationId(args.recoveryOperationId)),
+    targetDeviceId: requireParsed(parseDeviceId(args.targetDeviceId)),
+    targetAuthorityId: requireParsed(parseWalletAuthorityId(args.targetAuthorityId)),
+    targetWalletAuthMethodId: requireParsed(parseWalletAuthMethodId(args.targetWalletAuthMethodId)),
+    rpId: replacementEnvelope.factor.rpId,
+    credentialIdB64u: replacementEnvelope.factor.credentialIdB64u,
+  };
+}
+
+function requireParsed<T>(
+  result: { readonly ok: true; readonly value: T } | { readonly ok: false },
+): T {
+  if (!result.ok) throw new Error('invalid recovery identity');
+  return result.value;
 }

@@ -11,7 +11,7 @@ import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../../../c
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../recovery/routerAbEd25519YaoRecovery';
 import type {
   MpcWalletSigningQuotaId,
-  ReusableWalletSessionMintId,
+  WalletSessionMintId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -46,9 +46,7 @@ export type RouterAbEd25519YaoSessionRouteCommandV1 = {
     readonly kind: 'passkey';
     readonly webauthnAuthentication: WebAuthnAuthenticationCredential;
   };
-  readonly walletSessionTarget:
-    | { readonly kind: 'new_wallet_session' }
-    | { readonly kind: 'reuse_ecdsa_wallet_session' };
+  readonly walletSessionTarget: { readonly kind: 'new_wallet_session' };
   readonly sessionKind: 'opaque';
 };
 
@@ -119,24 +117,11 @@ export type RouterAbEd25519YaoBudgetRefreshAuthorizationV1 = {
 };
 
 export type RouterAbEd25519YaoBudgetRefreshRequestV1 =
-  | {
-      readonly kind: 'router_ab_ed25519_yao_budget_refresh_v1';
-      readonly sessionPolicy: RouterAbEd25519YaoSessionPolicyV1;
-      readonly authorization: RouterAbEd25519YaoBudgetRefreshAuthorizationV1;
-      readonly existingWalletSession?: never;
-    }
-  | {
-      readonly kind: 'router_ab_ed25519_yao_same_wallet_session_curve_mint_v1';
-      readonly sessionPolicy: RouterAbEd25519YaoSessionPolicyV1;
-      readonly authorization: RouterAbEd25519YaoBudgetRefreshAuthorizationV1;
-      readonly existingWalletSession: {
-        readonly authorizationId: WalletSessionAuthorizationId;
-        readonly walletSessionId: WalletSessionId;
-        readonly quotaId: MpcWalletSigningQuotaId;
-        readonly expiresAtMs: number;
-        readonly remainingUses: number;
-      };
-    };
+  {
+    readonly kind: 'router_ab_ed25519_yao_budget_refresh_v1';
+    readonly sessionPolicy: RouterAbEd25519YaoSessionPolicyV1;
+    readonly authorization: RouterAbEd25519YaoBudgetRefreshAuthorizationV1;
+  };
 
 /**
  * The committed identity of one Wallet Session issuance attempt whose
@@ -148,7 +133,7 @@ export type RouterAbEd25519YaoCommittedWalletSessionV1 = {
   readonly walletId: WalletId;
   readonly authorityId: WalletAuthorityId;
   readonly walletAuthMethodId: WalletAuthMethodId;
-  readonly mintId: ReusableWalletSessionMintId;
+  readonly mintId: WalletSessionMintId;
   readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
@@ -190,11 +175,11 @@ type RouterAbEd25519YaoBudgetRefreshSessionV1 = {
 
 export type RouterAbEd25519YaoBudgetRefreshResponseV1 =
   | (RouterAbEd25519YaoBudgetRefreshSessionV1 & {
-      readonly sessionKind: 'issued_wallet_session_v1';
+      readonly sessionKind: 'issued_exact_wallet_session';
       readonly operationCredential: WalletSessionOperationCredentialV1;
     })
   | (RouterAbEd25519YaoBudgetRefreshSessionV1 & {
-      readonly sessionKind: 'reused_wallet_session_v2';
+      readonly sessionKind: 'already_committed_exact_wallet_session';
       readonly operationCredential?: never;
     })
   | RouterAbEd25519YaoAlreadyCommittedResponseV1
@@ -210,7 +195,7 @@ type RouterAbEd25519YaoVerifiedWalletUnlockRequestBaseV1 = {
 };
 
 export type RouterAbEd25519YaoWalletSessionIdentityV1 =
-  | { readonly kind: 'issue_wallet_session_v1' }
+  | { readonly kind: 'new_wallet_session' }
   | {
       readonly kind: 'reuse_wallet_session_v2';
       readonly authorizationId: WalletSessionAuthorizationId;

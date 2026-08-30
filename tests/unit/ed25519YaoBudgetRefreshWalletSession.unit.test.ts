@@ -78,7 +78,7 @@ async function refreshWalletSessionFetch(
     JSON.stringify(
       activeRefreshResponseBody || {
         ok: true,
-        sessionKind: 'issued_wallet_session_v1',
+        sessionKind: 'issued_exact_wallet_session',
         thresholdSessionId: 'threshold-session-1',
         walletSessionId: 'wallet-session-1',
         authorizationId: 'authorization-1',
@@ -262,7 +262,7 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
       walletSessionId: 'wallet-session-1',
       quotaId: 'quota-1',
       remainingUses: 3,
-      sessionKind: 'issued_wallet_session_v1',
+      sessionKind: 'issued_exact_wallet_session',
       operationCredential: {
         kind: 'opaque_wallet_session_operation_credential_v1',
         token: `wst_${'R'.repeat(43)}`,
@@ -276,6 +276,7 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
     expect(capture.body).toContain('"signature":"signature-b64u"');
     expect(capture.body).not.toContain(PRF_FIRST_B64U);
     expect(capture.body).toContain('"projectEnvironmentId":"env-refresh"');
+    expect(capture.body).toContain('"walletSessionTarget":{"kind":"new_wallet_session"}');
   } finally {
     activeRefreshFetchCapture = null;
     activeRefreshResponseBody = null;
@@ -388,79 +389,6 @@ test('Wallet Session parser normalizes the flat exact-method already-committed r
   expect(parseWalletSessionAlreadyCommittedResponseV1(flatResponse)).toBeNull();
 });
 
-test('Wallet Session mint preserves a reused identity without a second credential', async () => {
-  const originalFetch = globalThis.fetch;
-  const capture: RefreshFetchCapture = {
-    authorization: '',
-    body: '',
-    credentials: undefined,
-  };
-  const existingWalletSessionToken = `wst_${'E'.repeat(43)}`;
-  activeRefreshFetchCapture = capture;
-  activeRefreshResponseBody = {
-    ok: true,
-    sessionKind: 'reused_wallet_session_v2',
-    thresholdSessionId: 'threshold-session-1',
-    walletSessionId: 'wallet-session-1',
-    authorizationId: 'authorization-1',
-    quotaId: 'quota-1',
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    remainingUses: 3,
-    runtimePolicyScope: {
-      orgId: 'org-refresh',
-      projectId: 'project-refresh',
-      envId: 'env-refresh',
-      signingRootVersion: 'root-version-refresh',
-    },
-  };
-  globalThis.fetch = refreshWalletSessionFetch;
-
-  try {
-    const result = await mintEd25519WalletSession({
-      relayerUrl: 'https://relay.example.test',
-      sessionKind: 'opaque',
-      relayerKeyId: 'ed25519:relayer-key',
-      sessionPolicy: refreshSessionPolicyFixture(),
-      auth: {
-        kind: 'threshold_session_policy_webauthn',
-        policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
-          credential: refreshCredentialFixture(),
-          rpId: 'localhost',
-        }),
-      },
-      existingWalletSessionToken,
-      publishableKey: PUBLISHABLE_KEY,
-      projectEnvironmentId: 'env-refresh',
-    });
-
-    expect(result).toEqual({
-      ok: true,
-      sessionKind: 'reused_wallet_session_v2',
-      thresholdSessionId: 'threshold-session-1',
-      walletSessionId: 'wallet-session-1',
-      authorizationId: 'authorization-1',
-      quotaId: 'quota-1',
-      expiresAtMs: expect.any(Number),
-      remainingUses: 3,
-      runtimePolicyScope: {
-        orgId: 'org-refresh',
-        projectId: 'project-refresh',
-        envId: 'env-refresh',
-        signingRootVersion: 'root-version-refresh',
-      },
-    });
-    expect(result).not.toHaveProperty('operationCredential');
-    expect(result).not.toHaveProperty('walletSessionToken');
-    expect(capture.authorization).toBe(`Bearer ${existingWalletSessionToken}`);
-    expect(capture.body).toContain('"walletSessionTarget":{"kind":"reuse_ecdsa_wallet_session"}');
-    expect(capture.body).not.toContain('"projectEnvironmentId"');
-  } finally {
-    activeRefreshFetchCapture = null;
-    activeRefreshResponseBody = null;
-    globalThis.fetch = originalFetch;
-  }
-});
-
 test('Wallet Session mint rejects an issued credential bound to another session', async () => {
   const originalFetch = globalThis.fetch;
   const capture: RefreshFetchCapture = {
@@ -471,7 +399,7 @@ test('Wallet Session mint rejects an issued credential bound to another session'
   activeRefreshFetchCapture = capture;
   activeRefreshResponseBody = {
     ok: true,
-    sessionKind: 'issued_wallet_session_v1',
+    sessionKind: 'issued_exact_wallet_session',
     thresholdSessionId: 'threshold-session-1',
     walletSessionId: 'wallet-session-1',
     authorizationId: 'authorization-1',
@@ -577,6 +505,62 @@ test('Ed25519 session connection rejects success without a runtime policy scope'
   }
 });
 
+async function connectRefreshEd25519Session() {
+  const authority = buildPasskeyWalletAuthAuthority({
+    walletId: 'refresh-wallet',
+    rpId: 'localhost',
+    credentialIdB64u: 'credential-id-b64u',
+  });
+  return await connectEd25519Session({
+    credentialStore: unusedCredentialStore,
+    touchIdPrompt: unusedTouchIdPrompt,
+    relayerUrl: 'https://relay.example.test',
+    relayerKeyId: 'ed25519:relayer-key',
+    walletId: 'refresh-wallet',
+    nearAccountId: 'refresh.testnet',
+    nearEd25519SigningKeyId: 'refresh.testnet',
+    authority: {
+      kind: 'wallet_auth_authority',
+      authority,
+    },
+    participantIds: [1, 2],
+    routerAbNormalSigning: {
+      kind: 'router_ab_ed25519_normal_signing_v1',
+      signingWorkerId: 'local-signing-worker',
+    },
+    auth: {
+      kind: 'threshold_session_policy_webauthn',
+      policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+        credential: refreshCredentialFixture(),
+        rpId: 'localhost',
+      }),
+    },
+  });
+}
+
+test('Ed25519 session connection returns the issued operation credential exactly', async () => {
+  const originalFetch = globalThis.fetch;
+  activeRefreshFetchCapture = {
+    authorization: '',
+    body: '',
+    credentials: undefined,
+  };
+  globalThis.fetch = refreshWalletSessionFetch;
+
+  try {
+    const result = await connectRefreshEd25519Session();
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected an issued Ed25519 session');
+    expect(result.sessionKind).toBe('issued_exact_wallet_session');
+    expect(result.operationCredential.walletSessionId).toBe(result.walletSessionId);
+    expect(result).not.toHaveProperty('walletSessionToken');
+  } finally {
+    activeRefreshFetchCapture = null;
+    activeRefreshResponseBody = null;
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('Email OTP Ed25519 step-up sends exact operation proof without material recovery or a reusable session', async () => {
   const originalFetch = globalThis.fetch;
   const capture: RefreshFetchCapture = {
@@ -597,7 +581,7 @@ test('Email OTP Ed25519 step-up sends exact operation proof without material rec
     const authorityRef = await walletAuthAuthorityRef({ authority });
     const result = await issueEd25519OperationStepUpAuthorization({
       relayerUrl: 'https://relay.example.test',
-      credential: { kind: 'app_session_cookie' },
+      credential: { kind: 'operation_step_up' },
       normalSigningRequest: await operationStepUpPrepareRequest(),
       displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
       proof: {
@@ -619,7 +603,7 @@ test('Email OTP Ed25519 step-up sends exact operation proof without material rec
       expiresAtMs: result.expiresAtMs,
       materialRecovery: { kind: 'not_requested' },
     });
-    expect(capture.credentials).toBe('include');
+    expect(capture.credentials).toBe('omit');
     expect(capture.authorization).toBe('');
     const body = JSON.parse(capture.body) as Record<string, unknown>;
     expect(body).toMatchObject({
@@ -681,7 +665,7 @@ test('Email OTP Ed25519 step-up serializes and parses factor-release material re
     const authorityRef = await walletAuthAuthorityRef({ authority });
     const result = await issueEd25519OperationStepUpAuthorization({
       relayerUrl: 'https://relay.example.test',
-      credential: { kind: 'app_session_cookie' },
+      credential: { kind: 'operation_step_up' },
       normalSigningRequest: await operationStepUpPrepareRequest(),
       displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
       proof: {
@@ -758,7 +742,7 @@ test('Ed25519 operation step-up rejects a factor-release response for a request 
     await expect(
       issueEd25519OperationStepUpAuthorization({
         relayerUrl: 'https://relay.example.test',
-        credential: { kind: 'app_session_cookie' },
+        credential: { kind: 'operation_step_up' },
         normalSigningRequest: await operationStepUpPrepareRequest(),
         displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
         proof: {
@@ -810,7 +794,7 @@ test('Ed25519 operation step-up rejects unexpected success-response fields', asy
     await expect(
       issueEd25519OperationStepUpAuthorization({
         relayerUrl: 'https://relay.example.test',
-        credential: { kind: 'app_session_cookie' },
+        credential: { kind: 'operation_step_up' },
         normalSigningRequest: await operationStepUpPrepareRequest(),
         displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
         proof: {

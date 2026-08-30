@@ -18,7 +18,7 @@ export interface AuthenticationMethodsModalProps {
 }
 
 type AuthenticationMethodView = {
-  readonly kind: 'passkey' | 'email_otp';
+  readonly kind: LinkedOwnerCredentialMetadataV1['kind'];
   readonly walletAuthMethodId: string;
   readonly credential: LinkedOwnerCredentialMetadataV1;
 };
@@ -43,7 +43,7 @@ type LoadState =
 
 type ActionState =
   | { readonly kind: 'idle' }
-  | { readonly kind: 'adding'; readonly method: 'passkey' | 'email_otp' }
+  | { readonly kind: 'adding'; readonly method: LinkedOwnerCredentialMetadataV1['kind'] }
   | { readonly kind: 'confirming_revoke'; readonly method: AuthenticationMethodView }
   | { readonly kind: 'revoking'; readonly method: AuthenticationMethodView }
   | { readonly kind: 'error'; readonly message: string };
@@ -277,7 +277,7 @@ export const AuthenticationMethodsModal: React.FC<AuthenticationMethodsModalProp
   }, [isOpen, loadInventory]);
 
   const addMethod = React.useCallback(
-    async (method: 'passkey' | 'email_otp') => {
+    async (method: LinkedOwnerCredentialMetadataV1['kind']) => {
       if (!walletId || actionState.kind === 'adding') return;
       const normalizedEmail = emailAddress.trim();
       if (method === 'email_otp' && !normalizedEmail) {

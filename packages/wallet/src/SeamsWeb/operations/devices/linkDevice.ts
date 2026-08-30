@@ -22,6 +22,10 @@ import {
   serializeQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import { computeLinkedDeviceTargetPreparationDigestV1 } from '@shared/device-linking';
+import {
+  computeWalletSessionInstallationReceiptDigestB64u,
+  computeWalletSessionOperationCredentialDigestB64u,
+} from '@shared/device-linking/digests';
 import type {
   LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkSessionStateV1,
@@ -33,6 +37,8 @@ import type {
   CommittedAuthorityPackagesV1,
   QrLinkedDeviceSessionPayloadV5,
   OrdinarySignerMaterialRecipientRequestV1,
+  LocalAuthorityActivationFinalAckV1,
+  WalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
 import type { WalletEmailOtpEnrollmentMaterialV1 } from '@shared/utils/registrationIntent';
 import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
@@ -373,6 +379,83 @@ function assertNeverTargetCredentialActivationState(value: never): never {
   throw new Error(`Unknown target credential activation state: ${String(value)}`);
 }
 
+type PostLinkActivationV1 =
+  | {
+      readonly factor: {
+        readonly kind: 'passkey';
+        readonly walletId: ActiveWalletSessionV1['walletId'];
+      };
+      readonly factorSecret32: Uint8Array;
+    }
+  | {
+      readonly factor: {
+        readonly kind: 'email_otp';
+        readonly walletId: ActiveWalletSessionV1['walletId'];
+        readonly walletAuthMethodId: LinkedDeviceTargetCredentialRegistrationResultV1['walletAuthMethodId'];
+        readonly emailHashHex: string;
+        readonly providerIdentity: {
+          readonly provider: 'google' | 'email';
+          readonly providerSubjectId: string;
+        };
+      };
+      readonly factorSecret32: Uint8Array;
+    };
+
+function resolvePostLinkActivationV1(input: {
+  readonly targetFactor: LinkedDeviceTargetCredentialRegistrationResultV1['targetFactor'];
+  readonly walletAuthMethodId: LinkedDeviceTargetCredentialRegistrationResultV1['walletAuthMethodId'];
+  readonly targetCredentialActivationState: TargetCredentialActivationState;
+  readonly emailOtpTargetActivationState: EmailOtpTargetActivationStateV1;
+  readonly walletId: ActiveWalletSessionV1['walletId'];
+  readonly runEpoch: number;
+}): PostLinkActivationV1 {
+  switch (input.targetFactor.kind) {
+    case 'verified_passkey_target_v1': {
+      const activation = input.targetCredentialActivationState;
+      if (
+        (activation.kind !== 'factor_ready' && activation.kind !== 'consuming') ||
+        activation.runEpoch !== input.runEpoch
+      ) {
+        throw new Error('linked-device Passkey factor runtime is unavailable');
+      }
+      return {
+        factor: {
+          kind: 'passkey',
+          walletId: input.walletId,
+        },
+        factorSecret32: activation.factorSecret,
+      };
+    }
+    case 'verified_email_otp_target_v1': {
+      const activation = requireCompletedEmailOtpTargetActivationStateV1(
+        input.emailOtpTargetActivationState,
+      );
+      if (activation.runEpoch !== input.runEpoch) {
+        throw new Error('linked-device Email OTP factor runtime is unavailable');
+      }
+      return {
+        factor: {
+          kind: 'email_otp',
+          walletId: input.walletId,
+          walletAuthMethodId: input.walletAuthMethodId,
+          emailHashHex: input.targetFactor.authMethod.emailHashHex,
+          providerIdentity: {
+            provider: emailOtpProviderForLinkedEnrollment(activation.enrollment),
+            providerSubjectId: activation.providerUserId,
+          },
+        },
+        factorSecret32: activation.factorSecret,
+      };
+    }
+    default:
+      return assertNeverVerifiedTargetFactor(input.targetFactor);
+  }
+}
+
+function assertNeverVerifiedTargetFactor(value: never): never {
+  throw new Error(`Unknown verified target factor kind: ${String(value)}`);
+}
+
 function zeroizeLiveBytes(value: Uint8Array): void {
   if (value.byteLength > 0) value.fill(0);
 }
@@ -672,7 +755,8 @@ export class LinkDeviceFlow {
             break;
           case 'claimed':
           case 'awaiting_target_factor':
-          case 'awaiting_source_contribution': {
+          case 'awaiting_source_contribution':
+          case 'provisioning': {
             const identity = await this.resolveLinkIdentityV1(session.linkSessionId);
             await authenticatedTransport.cancelSessionV1({
               request: buildLinkedDeviceSessionCancelClaimedRequestV1({
@@ -689,7 +773,6 @@ export class LinkDeviceFlow {
             };
             break;
           }
-          case 'provisioning':
           case 'authority_pending_local_install':
             break;
           case 'active':
@@ -1824,7 +1907,9 @@ export class LinkDeviceFlow {
         sessionState: state,
         linkSessionId: this.requireSessionV1().linkSessionId,
         targetFactor: registration.targetFactor,
+        keyMaterialPort: this.ports.keyMaterial,
         keyMaterial,
+        deliveryRecipientPublicKey65B64u: this.requireDeliveryRecipientPublicKey65B64u(),
         resealedExportRoot: this.resealedExportRoot,
         expectedLockGeneration,
         nowMs: () => Date.now(),
@@ -1847,7 +1932,7 @@ export class LinkDeviceFlow {
       { readonly state: 'provisioning' | 'authority_pending_local_install' | 'active' }
     >,
     walletSession: ActiveWalletSessionV1,
-    operationCredential: import('@shared/device-linking').WalletSessionOperationCredentialV1,
+    operationCredential: WalletSessionOperationCredentialV1,
     runEpoch: number,
   ): Promise<void> {
     this.assertCurrentRun(runEpoch);
@@ -1876,51 +1961,58 @@ export class LinkDeviceFlow {
     if (!authenticationContext) {
       throw new Error('linked-device authentication context is unavailable');
     }
-    const postLinkActivation =
-      registration.targetFactor.kind === 'verified_passkey_target_v1'
-        ? (() => {
-            const activation = this.targetCredentialActivationState;
-            if (
-              (activation.kind !== 'factor_ready' && activation.kind !== 'consuming') ||
-              activation.runEpoch !== runEpoch
-            ) {
-              throw new Error('linked-device Passkey factor runtime is unavailable');
-            }
-            return {
-              factor: {
-                kind: 'passkey' as const,
-                walletId: walletSession.walletId,
-              },
-              factorSecret32: activation.factorSecret,
-            };
-          })()
-        : (() => {
-            const activation = requireCompletedEmailOtpTargetActivationStateV1(
-              this.emailOtpTargetActivationState,
-            );
-            if (activation.runEpoch !== runEpoch) {
-              throw new Error('linked-device Email OTP factor runtime is unavailable');
-            }
-            return {
-              factor: {
-                kind: 'email_otp' as const,
-                walletId: walletSession.walletId,
-                walletAuthMethodId: registration.walletAuthMethodId,
-                emailHashHex: registration.targetFactor.authMethod.emailHashHex,
-                providerIdentity: {
-                  provider: emailOtpProviderForLinkedEnrollment(activation.enrollment),
-                  providerSubjectId: activation.providerUserId,
-                },
-              },
-              factorSecret32: activation.factorSecret,
-            };
-          })();
+    const postLinkActivation = resolvePostLinkActivationV1({
+      targetFactor: registration.targetFactor,
+      walletAuthMethodId: registration.walletAuthMethodId,
+      targetCredentialActivationState: this.targetCredentialActivationState,
+      emailOtpTargetActivationState: this.emailOtpTargetActivationState,
+      walletId: walletSession.walletId,
+      runEpoch,
+    });
     await activateLinkedDeviceSignerRuntimesAfterLink({
       context: authenticationContext,
       factor: postLinkActivation.factor,
       walletSession,
       operationCredential,
       factorSecret32: postLinkActivation.factorSecret32,
+    });
+    const committed = this.committedAuthorityPackages;
+    if (!committed) {
+      throw new Error(
+        'linked-device committed authority packages are unavailable for acknowledgement',
+      );
+    }
+    const installationReceipt =
+      await this.ports.authorityInstallation.readLocalAuthorityInstallationReceiptV1({
+        authorityId: walletSession.authorityId,
+      });
+    if (!installationReceipt) {
+      throw new Error('linked-device installation receipt is unavailable for acknowledgement');
+    }
+    const acknowledgement: LocalAuthorityActivationFinalAckV1 = {
+      kind: 'local_authority_activation_final_ack_v1',
+      linkSessionId: session.qrData.linkSessionId,
+      authorityId: walletSession.authorityId,
+      packageSetDigestB64u: committed.packageSetDigestB64u,
+      authorizationId: walletSession.authorizationId,
+      walletSessionId: operationCredential.walletSessionId,
+      credentialDigestB64u:
+        await computeWalletSessionOperationCredentialDigestB64u(operationCredential),
+      installationReceiptDigestB64u:
+        await computeWalletSessionInstallationReceiptDigestB64u(installationReceipt),
+      acknowledgedAtMs: Date.now(),
+    };
+    await this.ports.authorityInstallation.persistPendingActivationAcknowledgementV1({
+      acknowledgement,
+    });
+    await this.requireAuthenticatedTransport().acknowledgeLocalAuthorityActivationV1({
+      acknowledgement,
+    });
+    await this.ports.authorityInstallation.clearPendingActivationAcknowledgementV1({
+      authorityId: acknowledgement.authorityId,
+    });
+    await this.ports.authorityInstallation.clearCommittedDeliveryResumeV1({
+      authorityId: acknowledgement.authorityId,
     });
     this.session = activeSession;
     authenticationContext.signingEngine.setWalletAuthenticated(
@@ -2058,6 +2150,7 @@ export class LinkDeviceFlow {
   }
 
   private async retryCommittedDeliveryV1(event: LinkSessionTransportEventV1): Promise<void> {
+    if (await this.replayPendingActivationAcknowledgementV1()) return;
     switch (event.state.state) {
       case 'provisioning':
       case 'authority_pending_local_install':
@@ -2092,12 +2185,41 @@ export class LinkDeviceFlow {
     }
   }
 
+  private async replayPendingActivationAcknowledgementV1(): Promise<boolean> {
+    const committed = this.committedAuthorityPackages;
+    if (!committed) return false;
+    const pending = await this.ports.authorityInstallation.readPendingActivationAcknowledgementV1({
+      authorityId: committed.authority.authorityId,
+    });
+    if (!pending) return false;
+    const session = this.requireSessionV1();
+    if (
+      pending.linkSessionId !== session.qrData.linkSessionId ||
+      pending.authorityId !== committed.authority.authorityId ||
+      pending.packageSetDigestB64u !== committed.packageSetDigestB64u
+    ) {
+      throw new Error('pending linked-device acknowledgement identity is inconsistent');
+    }
+    await this.requireAuthenticatedTransport().acknowledgeLocalAuthorityActivationV1({
+      acknowledgement: pending,
+    });
+    await this.ports.authorityInstallation.clearPendingActivationAcknowledgementV1({
+      authorityId: pending.authorityId,
+    });
+    await this.ports.authorityInstallation.clearCommittedDeliveryResumeV1({
+      authorityId: pending.authorityId,
+    });
+    return true;
+  }
+
   private async cancelFailedPrecommitSession(event: LinkSessionTransportEventV1): Promise<void> {
     const transport = this.authenticatedTransport;
     if (!transport) return;
     switch (event.state.state) {
       case 'claimed':
-      case 'awaiting_target_factor': {
+      case 'awaiting_target_factor':
+      case 'awaiting_source_contribution':
+      case 'provisioning': {
         const cancelledAtMs = Date.now();
         const identity = await this.resolveLinkIdentityV1(event.linkSessionId);
         await transport.cancelSessionV1({
@@ -2118,8 +2240,6 @@ export class LinkDeviceFlow {
         return;
       }
       case 'displaying_qr':
-      case 'awaiting_source_contribution':
-      case 'provisioning':
       case 'authority_pending_local_install':
       case 'active':
       case 'expired':
@@ -2184,7 +2304,6 @@ export class LinkDeviceFlow {
 
   private hasCommittedDeliveryState(): boolean {
     return (
-      this.targetCredentialRegistrationResult !== null ||
       this.committedAuthorityPackages !== null ||
       (this.keyMaterialHandle !== null &&
         (this.session?.state.state === 'authority_pending_local_install' ||

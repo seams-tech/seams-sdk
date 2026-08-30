@@ -57,14 +57,13 @@ const sessionIdBoundaryRoots = [
 const classifiedSessionIdPublicSurfaceFiles = {
   'apps/seams-site/src/flows/demo/hooks/useDemoSigningSession.ts':
     'rename_later_agent_b_signing_or_wasm',
-  'packages/wallet-server/src/authorization/domain.ts':
-    'keep_app_device_or_recovery_session',
-  'packages/wallet-server/src/authorization/service.ts':
-    'keep_app_device_or_recovery_session',
+  'packages/wallet-server/src/authorization/domain.ts': 'keep_app_device_or_recovery_session',
+  'packages/wallet-server/src/authorization/service.ts': 'keep_app_device_or_recovery_session',
   'packages/wallet-server/src/core/RegistrationCeremonyStore.ts':
     'keep_ed25519_yao_protocol_session',
   'packages/wallet-server/src/core/types.ts': 'rename_later_agent_b_signing_or_wasm',
-  'packages/wallet-server/src/router/framework/authServicePort.ts': 'keep_app_device_or_recovery_session',
+  'packages/wallet-server/src/router/framework/authServicePort.ts':
+    'keep_app_device_or_recovery_session',
   'packages/wallet-server/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExport.ts':
     'keep_ed25519_yao_protocol_session',
   'packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery.ts':
@@ -73,8 +72,7 @@ const classifiedSessionIdPublicSurfaceFiles = {
     'keep_ed25519_yao_protocol_session',
   'packages/wallet-server/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration.ts':
     'rename_later_agent_b_signing_or_wasm',
-  'packages/wallet/src/SeamsWeb/signingSurface/ports.ts':
-    'rename_later_agent_b_signing_or_wasm',
+  'packages/wallet/src/SeamsWeb/signingSurface/ports.ts': 'rename_later_agent_b_signing_or_wasm',
   'packages/wallet/src/core/platform/generated/signerCoreCommands.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/wallet/src/core/platform/ports.ts': 'rename_later_agent_b_signing_or_wasm',
@@ -166,8 +164,7 @@ const classifiedSessionIdPublicSurfaceFiles = {
 };
 const classifiedSessionIdBoundaryFiles = {
   'apps/docs/src/concepts/security-model.md': 'keep_secureconfirm_session',
-  'crates/signer-core/src/commands/ecdsa_bootstrap.rs':
-    'rename_later_agent_b_signing_or_wasm',
+  'crates/signer-core/src/commands/ecdsa_bootstrap.rs': 'rename_later_agent_b_signing_or_wasm',
   'wasm/near_signer/src/handlers/handle_sign_delegate_action.rs':
     'rename_later_agent_b_signing_or_wasm',
   'wasm/near_signer/src/handlers/handle_sign_nep413_message.rs':
@@ -192,6 +189,39 @@ const forbiddenWalletSigningSessionMarkers = [
   'wallet signing-session',
   'Wallet signing-session',
   'wallet-signing session',
+];
+const retiredWalletSessionMarkers = [
+  'reusable_wallet_sessions',
+  'opaque_wallet_session_tokens',
+  'registration_replay_opaque_wallet_session_tokens_v1',
+  'not_v2',
+  'readActiveForWallet',
+  'wallet_session_authorization_v3',
+  'WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V4',
+  'WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5',
+  'issueReusableWalletSession',
+  'readReusableWalletSessionStatus',
+  'resolveOpaqueWalletSessionToken',
+  'issueOpaqueWalletSessionToken',
+  'readOpaqueWalletSessionTokenByIdentity',
+  joined(['Opaque', 'WalletSessionToken']),
+  joined(['Opaque', 'WalletSessionAuth']),
+  joined(['WalletSession', 'RouteAuth']),
+  joined(['requireOpaque', 'WalletSessionToken']),
+  'resolveOpaqueOwnerWalletSessionAdmission',
+  'issueWalletSessionAuthorizationV2FromReusableSession',
+  'refreshWalletSessionAuthorizationV2FromReusableSession',
+  'projectReusableWalletSessionV2',
+  'mintRouterAbEd25519YaoWalletSessionV1',
+  'issueRouterAbEd25519OpaqueWalletSessionToken',
+  'walletSessionPolicyMintId',
+  'ReusableWalletSessionMintId',
+  'parseReusableWalletSessionMintId',
+  'registration_established_wallet_session_v1',
+  'RegistrationEstablishedSessionTokens',
+  'walletSessionTokenForCurve',
+  'walletSessionClientCapability',
+  'direct_exact_response_future_record_tolerant',
 ];
 
 function joined(parts) {
@@ -232,7 +262,13 @@ function listBoundaryFiles(relativePath) {
 }
 
 function activeSourceFiles() {
-  return sourceRoots.flatMap((root) => listSourceFiles(root)).filter((file) => !selfPaths.has(file));
+  return sourceRoots
+    .flatMap((root) => listSourceFiles(root))
+    .filter((file) => !selfPaths.has(file));
+}
+
+function activeProductionSourceFiles() {
+  return sourceRoots.filter((root) => root !== 'tests').flatMap((root) => listSourceFiles(root));
 }
 
 function publicSurfaceFiles() {
@@ -251,7 +287,10 @@ function sourceContainsSessionIdMarker(source) {
 
 function hasExportModifier(node) {
   if (!ts.canHaveModifiers(node)) return false;
-  return ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) === true;
+  return (
+    ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ===
+    true
+  );
 }
 
 function propertyNameText(name) {
@@ -301,22 +340,41 @@ function checkActiveSourcesAvoidOldSigningGrantNames() {
   );
 }
 
-function checkRouterAbWalletSessionJwtPayloadsUseThresholdSessionId() {
-  const jwtKindMarkers = [
-    'ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND',
-    'ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND',
-    'router_ab_ed25519_wallet_session_v1',
-    'router_ab_ecdsa_derivation_wallet_session_v1',
-  ];
+function collectRetiredWalletSessionMarkerViolations(files) {
   const offenders = [];
-  for (const file of activeSourceFiles()) {
+  for (const file of files) {
     const source = readSource(file);
-    for (const kind of jwtKindMarkers) {
-      const pattern = new RegExp(`${kind}[\\s\\S]{0,420}["']?sessionId["']?\\s*:`);
-      if (pattern.test(source)) offenders.push(`${file} uses sessionId near ${kind}`);
+    for (const marker of retiredWalletSessionMarkers) {
+      const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escapedMarker}\\b`).test(source)) {
+        offenders.push(`${file} contains retired marker ${marker}`);
+      }
     }
   }
-  assertNoViolations('Router A/B Wallet Session JWT payloads use thresholdSessionId claims', offenders);
+  return offenders;
+}
+
+function checkProductionSourcesAvoidRetiredWalletSessionMarkers() {
+  assertNoViolations(
+    'active production sources do not expose retired Wallet Session tables, fallbacks, or record markers',
+    collectRetiredWalletSessionMarkerViolations(activeProductionSourceFiles()),
+  );
+}
+
+function checkRouterAbSessionIssuerAvoidsRetiredClaimBuilders() {
+  const relativePath = 'packages/wallet-server/src/router/auth/commonRouterUtils.ts';
+  const source = readSource(relativePath);
+  const offenders = [];
+  for (const marker of [
+    'extraClaims',
+    'allowedSessionKinds',
+    'WalletSessionJwtKind',
+    'signWalletSessionJwt',
+    'isEcdsaWalletSessionJwtKind',
+  ]) {
+    if (source.includes(marker)) offenders.push(`${relativePath} contains ${marker}`);
+  }
+  assertNoViolations('Router A/B session issuer does not use retired claim builders', offenders);
 }
 
 function checkDocsAvoidOldSigningGrantNames() {
@@ -334,7 +392,10 @@ function checkActiveSigningPathsAvoidThresholdSessionAuthTokenNaming() {
       offenders.push(`${file} contains thresholdSessionAuthToken`);
     }
   }
-  assertNoViolations('active signing paths do not use threshold-session auth token naming', offenders);
+  assertNoViolations(
+    'active signing paths do not use threshold-session auth token naming',
+    offenders,
+  );
 }
 
 function checkExportedSessionIdPublicSurfacesAreClassified() {
@@ -354,11 +415,15 @@ function checkBoundarySessionIdMarkersAreClassified() {
     if (classifiedSessionIdBoundaryFiles[file]) continue;
     offenders.push(`${file} contains an unclassified sessionId/session_id marker`);
   }
-  assertNoViolations('non-package sessionId boundary files have explicit classifications', offenders);
+  assertNoViolations(
+    'non-package sessionId boundary files have explicit classifications',
+    offenders,
+  );
 }
 
 checkActiveSourcesAvoidOldSigningGrantNames();
-checkRouterAbWalletSessionJwtPayloadsUseThresholdSessionId();
+checkProductionSourcesAvoidRetiredWalletSessionMarkers();
+checkRouterAbSessionIssuerAvoidsRetiredClaimBuilders();
 checkDocsAvoidOldSigningGrantNames();
 checkActiveSigningPathsAvoidThresholdSessionAuthTokenNaming();
 checkExportedSessionIdPublicSurfacesAreClassified();

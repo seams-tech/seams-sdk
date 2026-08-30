@@ -134,9 +134,9 @@ export type LinkedDeviceManagementAuthenticatorPortV1 = {
   }): Promise<LinkedDeviceManagementOwnerSessionV1 | null>;
 };
 
-export type LinkedDeviceManagementSessionRevocationPortV1 = Pick<
+export type LinkedDeviceManagementSessionRetirementPortV1 = Pick<
   AuthorizationService,
-  'revokeReusableWalletSessionsForAuthMethod'
+  'retireWalletSessionAuthorizationsForAuthMethod'
 >;
 
 export type LinkedDeviceManagementCredentialMetadataPortV1 = {
@@ -158,7 +158,7 @@ export type LinkedDeviceManagementServiceOptionsV1 = {
   readonly authenticator: LinkedDeviceManagementAuthenticatorPortV1;
   readonly authority: LinkedDeviceManagementAuthorityPortV1;
   readonly authMethod: LinkedDeviceManagementAuthMethodPortV1;
-  readonly sessions: LinkedDeviceManagementSessionRevocationPortV1;
+  readonly sessions: LinkedDeviceManagementSessionRetirementPortV1;
   readonly credentials: LinkedDeviceManagementCredentialMetadataPortV1;
   readonly materialDeactivation?: OrdinaryInactiveSignerMaterialDeactivationPortV1;
 };
@@ -281,7 +281,7 @@ export class LinkedDeviceManagementServiceV1 {
       return { kind: 'not_found' };
     }
     if (targetMethod.status === 'revoked') {
-      await this.options.sessions.revokeReusableWalletSessionsForAuthMethod({
+      await this.options.sessions.retireWalletSessionAuthorizationsForAuthMethod({
         tenantId: this.options.tenantId,
         walletId: request.walletId,
         walletAuthMethodId: targetMethod.walletAuthMethodId,
@@ -310,7 +310,7 @@ export class LinkedDeviceManagementServiceV1 {
     if (result.kind === 'would_remove_last_wallet_auth_method' || result.kind === 'conflict') {
       return { kind: 'conflict' };
     }
-    await this.options.sessions.revokeReusableWalletSessionsForAuthMethod({
+    await this.options.sessions.retireWalletSessionAuthorizationsForAuthMethod({
       tenantId: this.options.tenantId,
       walletId: request.walletId,
       walletAuthMethodId: targetMethod.walletAuthMethodId,

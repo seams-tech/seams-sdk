@@ -12,7 +12,6 @@ import {
   parseTenantId,
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
-  parseReusableWalletSessionMintId,
   buildAuthorizationGrantRef,
   type AuthorizationParseResult,
   type EvmEcdsaMpcOperationKind,
@@ -57,13 +56,11 @@ import {
 } from '../../../packages/shared-ts/src/utils/registrationIntent';
 import {
   buildAuthorizedOperation,
-  buildWalletSessionAuthorization,
   buildActiveWalletSessionQuota,
   parseSessionOrigin,
   computeAuthorizedOperationResultDigest,
   parseAuthorizedOperationReplayResponse,
   type ActiveWalletSessionQuota,
-  type WalletSessionAuthorization,
   type AuthorizedOperation,
   type AuthorizedOperationReplayResponse,
 } from '../../../packages/wallet-server/src/authorization/domain';
@@ -86,14 +83,18 @@ export type ReusableAuthorizationCoreFixture = {
   };
   readonly evidenceSet: VerifiedAuthorizationEvidenceSet;
   readonly quota: ActiveWalletSessionQuota;
-  readonly reusableWalletSession: WalletSessionAuthorization;
+  readonly walletSessionIdentity: Readonly<{
+    readonly walletId: WalletId;
+    readonly authorizationId: WalletSessionAuthorizationId;
+    readonly quotaId: MpcWalletSigningQuotaId;
+  }>;
   readonly authorizedOperation: AuthorizedOperation;
   readonly response: AuthorizedOperationReplayResponse;
 };
 
 export type StepUpAuthorizationCoreFixture = Omit<
   ReusableAuthorizationCoreFixture,
-  'quota' | 'reusableWalletSession'
+  'quota' | 'walletSessionIdentity'
 >;
 
 export type WalletOperationPasskeyVerifiedFactorFixture = {
@@ -238,18 +239,11 @@ export async function buildReusableAuthorizationCoreFixture(
       remainingUses: input.quotaRemainingUses ?? 2,
       expiresAtMs: walletSessionExpiresAtMs,
     }),
-    reusableWalletSession: buildWalletSessionAuthorization({
-      tenantId,
-      principalId,
+    walletSessionIdentity: {
       walletId,
-      authority,
-      mintId: parsed('wallet-session-mint-1', parseReusableWalletSessionMintId),
       authorizationId,
-      walletSessionId,
       quotaId,
-      createdAtMs: FIXTURE_NOW_MS,
-      expiresAtMs: walletSessionExpiresAtMs,
-    }),
+    },
     authorizedOperation,
     response: {
       status: 200,
@@ -297,8 +291,8 @@ export async function buildAdditionalAuthorizedOperation(
     authorizedOperationId: parsed(`authorized-operation-${suffix}`, parseAuthorizedOperationId),
     auditEventId: parsed(`audit-event-${suffix}`, parseAuthorizationAuditEventId),
     fixtureOperation,
-    authorizationId: fixture.reusableWalletSession.authorizationId,
-    quotaId: fixture.reusableWalletSession.quotaId,
+    authorizationId: fixture.walletSessionIdentity.authorizationId,
+    quotaId: fixture.walletSessionIdentity.quotaId,
     claimedAtMs: FIXTURE_NOW_MS + 1_000,
   });
 }

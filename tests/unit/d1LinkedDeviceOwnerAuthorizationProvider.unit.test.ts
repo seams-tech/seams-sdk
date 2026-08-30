@@ -133,6 +133,7 @@ test('rebuilds owner context from the approved Wallet Session V2 projection', as
     walletSessionId: 'wallet-session:owner-metadata',
     authorizationId: 'wallet-session-authorization:owner-metadata',
     quotaId: 'mpc-wallet-signing-quota:owner-metadata',
+    thresholdSessionId: 'threshold-session:owner-metadata',
   });
   const ownerAuthorization = buildWalletSessionLinkedDeviceOwnerAuthorizationV1({
     walletSessionId: binding.walletSessionId,

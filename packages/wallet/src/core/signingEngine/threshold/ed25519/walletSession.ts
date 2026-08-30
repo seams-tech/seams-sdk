@@ -125,7 +125,7 @@ export function localPrfFirstForEd25519WalletSessionMintAuthorization(
 export type Ed25519WalletSessionMintSuccess =
   | {
       readonly ok: true;
-      readonly sessionKind: 'issued_wallet_session_v1';
+      readonly sessionKind: 'issued_exact_wallet_session';
       readonly thresholdSessionId: ThresholdEd25519SessionId;
       readonly authorizationId: WalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
@@ -137,7 +137,7 @@ export type Ed25519WalletSessionMintSuccess =
     }
   | {
       readonly ok: true;
-      readonly sessionKind: 'reused_wallet_session_v2';
+      readonly sessionKind: 'already_committed_exact_wallet_session';
       readonly thresholdSessionId: ThresholdEd25519SessionId;
       readonly authorizationId: WalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
@@ -196,7 +196,7 @@ export async function mintEd25519WalletSession(args: {
   auth: Ed25519WalletSessionMintAuthorization;
   projectEnvironmentId?: string;
   publishableKey?: string;
-  existingWalletSessionToken?: string;
+  existingOperationCredential?: WalletSessionOperationCredentialV1;
 }): Promise<Ed25519WalletSessionMintResult> {
   const relayerUrl = stripTrailingSlashes(toTrimmedString(args.relayerUrl));
   if (!relayerUrl) {
@@ -223,11 +223,11 @@ export async function mintEd25519WalletSession(args: {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   try {
     const url = `${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`;
-    const existingWalletSessionToken = String(args.existingWalletSessionToken || '').trim();
+    const existingOperationCredential = args.existingOperationCredential;
     const publishableKey = String(args.publishableKey || '').trim() || undefined;
-    const bearerToken = existingWalletSessionToken || publishableKey;
+    const bearerToken = existingOperationCredential?.token || publishableKey;
     const projectEnvironmentId =
-      !existingWalletSessionToken && publishableKey
+      !existingOperationCredential && publishableKey
         ? String(args.projectEnvironmentId || '').trim() || undefined
         : undefined;
     timeoutId = setTimeout(
@@ -248,9 +248,7 @@ export async function mintEd25519WalletSession(args: {
         relayerKeyId: args.relayerKeyId,
         sessionPolicy: args.sessionPolicy,
         ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
-        walletSessionTarget: existingWalletSessionToken
-          ? { kind: 'reuse_ecdsa_wallet_session' }
-          : { kind: 'new_wallet_session' },
+        walletSessionTarget: { kind: 'new_wallet_session' },
         ...(webauthn_authentication ? { webauthn_authentication } : {}),
       }),
     });
@@ -322,7 +320,7 @@ export async function mintEd25519WalletSession(args: {
       remainingUses,
       runtimePolicyScope,
     };
-    if (data.sessionKind === 'issued_wallet_session_v1') {
+    if (data.sessionKind === 'issued_exact_wallet_session') {
       let operationCredential: WalletSessionOperationCredentialV1;
       try {
         operationCredential = parseWalletSessionOperationCredentialV1(data.operationCredential);
@@ -343,18 +341,28 @@ export async function mintEd25519WalletSession(args: {
       }
       return { ...base, sessionKind: data.sessionKind, operationCredential };
     }
-    if (data.sessionKind !== 'reused_wallet_session_v2' || data.operationCredential !== undefined) {
+    if (
+      data.sessionKind !== 'already_committed_exact_wallet_session' ||
+      data.operationCredential !== undefined
+    ) {
       return {
         ok: false,
         code: 'invalid_response',
         message: 'Wallet Session mint returned an invalid session branch',
       };
     }
-    if (!existingWalletSessionToken) {
+    if (!existingOperationCredential) {
       return {
         ok: false,
         code: 'invalid_response',
         message: 'Reused Wallet Session mint requires the credential the caller already holds',
+      };
+    }
+    if (existingOperationCredential.walletSessionId !== walletSessionId.value) {
+      return {
+        ok: false,
+        code: 'invalid_response',
+        message: 'Reused Wallet Session mint returned another lifecycle identity',
       };
     }
     return { ...base, sessionKind: data.sessionKind };
