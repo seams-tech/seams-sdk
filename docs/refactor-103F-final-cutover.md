@@ -676,8 +676,11 @@ Primary files:
       publication.
 - [x] Change final registration replay to credential-free committed projection
       plus `unlock_exact_method`.
-- [ ] Validate replay against the pending record and atomically publish profile,
-      authenticator, authority, method, signer/account state, and selection.
+- [x] Validate Passkey Ed25519 deferred-NEAR replay against the pending record
+      and atomically publish profile, authenticator, authority, method,
+      signer/account state, selection, and an issued V6 Wallet Session.
+- [ ] Extend reload replay and atomic publication to Email OTP registration and
+      ECDSA-only or mixed registration finalization.
 - [x] Implement the nine-store publication primitive: re-read the exact pending
       row in-transaction, validate Passkey/Email OTP and founding identities,
       roll back all local state on failure, and retain mixed activation pending
@@ -692,10 +695,13 @@ Primary files:
       `WalletRegistrationSessionCommitReceiptV2`.
 - [x] Use one credential-free committed installation projection for terminal
       replay.
-- [ ] Consume that projection for final pending-commit recovery. Deferred NEAR
-      recovery must validate the receipt, prepared fingerprint, authority set,
-      provisioning plan, and already-finalized ECDSA state before local
-      publication.
+- [x] Consume the credential-free projection for Passkey Ed25519 deferred-NEAR
+      recovery. Retain the pending row until exact-method unlock installs V6,
+      then let idempotent replay remove the completed journal.
+- [ ] Consume that projection for the remaining final pending-commit recovery.
+      Email OTP and ECDSA/mixed recovery must validate the receipt, prepared
+      fingerprint, authority set, provisioning plan, and already-finalized
+      ECDSA state before local publication.
 - [x] Delete the old-client replay adapter, its V1 bearer reconstruction, and
       every adapter-only resolver and test.
 - [x] Drop `registration_replay_opaque_wallet_session_tokens_v1` in migration
@@ -978,7 +984,7 @@ Primary files:
       decrypt.
 - [x] Commit authorization, quota, credential digest, authority/method
       activation, and one complete sealed-delivery row in the activation CAS.
-- [ ] Add exact composite foreign keys to the linked installation and V2
+- [x] Add exact composite foreign keys to the linked installation and V2
       authorization plus unique full-scope link and digest identities.
 - [x] Bind canonical AAD to tenant scope, link, wallet, authority, method,
       authorization, Wallet Session, quota, credential digest, recipient, issue
@@ -1008,7 +1014,10 @@ Primary files:
 - [x] Persist pending acknowledgement intent locally and provide an idempotent
       replay helper that clears the intent together with the local
       delivery-resume record after cleanup completes.
-- [ ] Invoke pending acknowledgement replay from the production bootstrap path.
+- [x] Invoke pending acknowledgement replay from the production bootstrap path.
+      The wallet host reads the exact persisted V6 tuple, retries through the
+      Wallet Session bearer-only acknowledgement transport, and leaves the
+      durable intent untouched while the exact session is unavailable.
 - [ ] Recover recipient-handle loss or delivery expiry through durable local
       install plus exact-method unlock, without resealing or relinking.
 - [ ] Preserve interactive cancellation across `claimed`,
@@ -1561,6 +1570,15 @@ Remaining causal baseline work:
       direct registration persistence is covered by the V2 replay/parser tests.
 - [x] `tests/unit/walletRegistrationActivateRoute.unit.test.ts`, covering direct
       issuance, credential-free same-mint replay, and strict response parsing
+- [x] `tests/unit/pendingWalletRegistrationPublication.unit.test.ts`, proving
+      issued V6 installation shares the local publication transaction,
+      same-method predecessor replacement preserves siblings, late failure
+      rolls back every row, and credential-free replay stays pending until V6
+      exists.
+- [x] `tests/unit/pendingWalletRegistrationRecovery.unit.test.ts`, proving
+      startup reconstructs exact Passkey Route 4, validates the committed
+      projection, publishes an issued session, and retains credential-free
+      replay for exact-method unlock.
 - [x] `tests/unit/routerAbEcdsaExactActivationWire.unit.test.ts`, covering the
       exact session/credential response, retired-bearer rejection, ECDSA
       material binding, and removal of client-capability fields
@@ -1626,7 +1644,9 @@ Remaining causal baseline work:
 - [x] `tests/unit/deviceLinkingRoutes.unit.test.ts`, rerun after exact-only
       source and owner authorization across claim, approval, target credential,
       cancellation, and source-contribution routes
-- [x] `tests/unit/linkDeviceAuthorityResume.unit.test.ts`
+- [x] `tests/unit/linkDeviceAuthorityResume.unit.test.ts`, including production
+      bootstrap deferral without V6 and replay once the exact credential is
+      available
 - [x] `tests/unit/authMenuPasskeyContinuation.unit.test.ts`, preserving the
       terminal retry state when the other device cancels
 - [x] `tests/unit/emailOtpEcdsaSigningRefreshRuntimeScope.unit.test.ts`

@@ -5,7 +5,12 @@ import {
   computeWalletSignerActivationSetDigestB64u,
 } from '@shared/authorization/walletAuthority';
 import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
-import { parseDeviceId } from '@shared/authorization/capabilityKinds';
+import {
+  parseDeviceId,
+  parsePrincipalId,
+  parseTenantId,
+} from '@shared/authorization/capabilityKinds';
+import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
 import { buildExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 import { parseEd25519PublicKeyB64u } from '@shared/passkey-custody/primitives';
 import { parseCorrelationId, parseDigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -58,6 +63,8 @@ import type {
 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import { buildWalletCustodyCommitPayloadFixture } from './passkeyCustodyEnvelope.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
+import { buildExactWalletSessionAuthorizationFixture } from './exactWalletSessionAuthorization.fixtures';
+import { projectActiveWalletSession } from '../../../packages/wallet-server/src/authorization/domain';
 
 function unwrap<T>(result: { ok: true; value: T } | { ok: false; error: { message: string } }): T {
   if (!result.ok) throw new Error(result.error.message);
@@ -439,6 +446,21 @@ export async function buildPendingWalletRegistrationPublicationFixture(
     keyMaterials: includeSigner ? [signerData.keyMaterial] : [],
     lastProfileState: { profileId: String(walletId), activeSignerSlot: 1, scope: null },
   };
+  const issuedSession = buildExactWalletSessionAuthorizationFixture({
+    label: `pending-publication-${authKind}-${operation}`,
+    tenantId: unwrap(parseTenantId(`tenant:pending-publication-${authKind}`)),
+    principalId: unwrap(parsePrincipalId(`principal:pending-publication-${authKind}`)),
+    authority: foundingAuthority,
+    walletAuthMethodId: foundingAuthMethod.walletAuthMethodId,
+    issuedAtMs: 10,
+    expiresAtMs: 10_000,
+    remainingUses: 3,
+  });
+  const operationCredential = parseWalletSessionOperationCredentialV1({
+    kind: 'opaque_wallet_session_operation_credential_v1',
+    token: `wst_${base64UrlEncode(new Uint8Array(32).fill(authKind === 'passkey' ? 29 : 30))}`,
+    walletSessionId: issuedSession.session.walletSessionId,
+  });
   return {
     walletId: String(walletId),
     authorityId: String(authorityId),
@@ -455,6 +477,14 @@ export async function buildPendingWalletRegistrationPublicationFixture(
         walletId,
         walletAuthMethodId,
       },
+      walletSessionPublication:
+        keyFamilies === 'mixed'
+          ? { kind: 'credential_free_projection' }
+          : {
+              kind: 'issued',
+              walletSession: projectActiveWalletSession(issuedSession),
+              operationCredential,
+            },
       registration,
     },
   };
@@ -545,6 +575,7 @@ export async function buildPasskeyNearProvisioningProductionPublicationFixture()
       authority: fixture.input.authority,
       foundingAuthority: fixture.input.foundingAuthority,
       request: fixture.input.request,
+      walletSessionPublication: fixture.input.walletSessionPublication,
       registration,
     },
   };
@@ -599,6 +630,7 @@ export async function buildEmailOtpNearProvisioningProductionPublicationFixture(
       authority: fixture.input.authority,
       foundingAuthority: fixture.input.foundingAuthority,
       request: fixture.input.request,
+      walletSessionPublication: fixture.input.walletSessionPublication,
       registration,
     },
   };

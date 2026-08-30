@@ -5,6 +5,10 @@ import {
   type DeviceLinkingAuthorityActivationFlowInputV1,
 } from '@/SeamsWeb/operations/devices/deviceLinkingAuthorityInstallation';
 import {
+  resumePendingDeviceLinkingAcknowledgementsV1,
+  type DeviceLinkingAcknowledgementExactSessionReaderV1,
+} from '@/SeamsWeb/operations/devices/deviceLinkingComposition';
+import {
   buildDeviceLinkingCommittedResumeV1,
   compareDeviceLinkingCommittedResumeV1,
   type DeviceLinkingCommittedResumeV1,
@@ -358,17 +362,37 @@ test.describe('linked-device committed delivery continuation', () => {
         expect(input.operationCredential).toBe(fixture.operationCredential);
       },
     };
-
-    await expect(
-      replayPendingDeviceLinkingAcknowledgementsV1({
-        installation,
-        transport,
+    let exactSessionAvailable = false;
+    const readExactSession: DeviceLinkingAcknowledgementExactSessionReaderV1 = async (input) => {
+      expect(input).toEqual({
         walletId: fixture.committed.authority.walletId,
         authorityId: fixture.committed.authority.authorityId,
         authMethodId: fixture.committed.authMethod.walletAuthMethodId,
-        operationCredential: fixture.operationCredential,
+      });
+      return exactSessionAvailable
+        ? { kind: 'found', operationCredential: fixture.operationCredential }
+        : { kind: 'missing' };
+    };
+
+    await expect(
+      resumePendingDeviceLinkingAcknowledgementsV1({
+        installation,
+        transport,
+        readExactSession,
       }),
-    ).resolves.toEqual({ kind: 'replayed', count: 1 });
+    ).resolves.toBeUndefined();
+    expect(transportCalls).toBe(0);
+    expect(pending).toEqual([acknowledgement]);
+    expect(resumes).toHaveLength(1);
+
+    exactSessionAvailable = true;
+    await expect(
+      resumePendingDeviceLinkingAcknowledgementsV1({
+        installation,
+        transport,
+        readExactSession,
+      }),
+    ).resolves.toBeUndefined();
     expect(transportCalls).toBe(1);
     expect(pending).toEqual([]);
     expect(resumes).toEqual([]);

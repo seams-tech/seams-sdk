@@ -3431,6 +3431,11 @@ async function registerEmailOtpEd25519YaoWalletOnly(
         walletId: finalized.walletId,
         walletAuthMethodId: finalized.foundingAuthMethod.walletAuthMethodId,
       },
+      walletSessionPublication: {
+        kind: 'issued',
+        walletSession: registrationSession.walletSession,
+        operationCredential: registrationSession.operationCredential,
+      },
       registration,
     });
     const storedNearActivation = stored.signerActivations[1];
@@ -3460,10 +3465,6 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       remainingUses: registrationSession.remainingUses,
       expiresAtMs: registrationSession.expiresAtMs,
     });
-    await persistActiveWalletSessionAuthorizationFromDirectRegistration(
-      walletSessionAuthorizations,
-      registrationSession,
-    );
     if (!emailOtpCustodyCapabilityFactorSecret32) {
       throw new Error('Email OTP registration has no custody capability material');
     }
@@ -3835,23 +3836,6 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       ),
       signerSlot: finalized.ed25519.signerSlot,
     });
-    await persistActiveWalletSessionAuthorizationFromDirectRegistration(
-      walletSessionAuthorizations,
-      registrationSession,
-    );
-    /* R103 zero-prompt handoff. The owner factor was presented for this
-       registration and the owner Wallet Session persisted above is active, so
-       the linking capability is established here from the envelope this
-       ceremony just sealed — never later, and never from the linking flow. */
-    await establishPasskeyRegistrationEd25519ExportRootCapability({
-      signingEngine: context.signingEngine,
-      commit: established.commitPayload,
-      passkeyPrfFirstB64u: passkeyAuthority.prfFirstB64u,
-      walletId: String(finalized.walletId),
-      walletAuthMethodId: String(finalized.foundingAuthMethod.walletAuthMethodId),
-      walletSessionId: String(registrationSession.walletSessionId),
-      expiresAtMs: registrationSession.expiresAtMs,
-    });
     const registration = prepareWalletEd25519RegistrationPublication({
       walletId: finalized.walletId,
       nearAccountId,
@@ -3880,12 +3864,31 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         walletId: finalized.walletId,
         walletAuthMethodId: finalized.foundingAuthMethod.walletAuthMethodId,
       },
+      walletSessionPublication: {
+        kind: 'issued',
+        walletSession: registrationSession.walletSession,
+        operationCredential: registrationSession.operationCredential,
+      },
       registration,
     });
     const storedNearActivation = stored.signerActivations[1];
     if (!storedNearActivation || storedNearActivation.signerSlot !== finalized.ed25519.signerSlot) {
       throw new Error('Ed25519 Yao registration persisted a different signer slot');
     }
+    /* R103 zero-prompt handoff. The owner factor was presented for this
+       registration and the atomic publication above made the owner Wallet
+       Session active, so the linking capability can be established here from
+       the envelope this ceremony just sealed — never later, and never from
+       the linking flow. */
+    await establishPasskeyRegistrationEd25519ExportRootCapability({
+      signingEngine: context.signingEngine,
+      commit: established.commitPayload,
+      passkeyPrfFirstB64u: passkeyAuthority.prfFirstB64u,
+      walletId: String(finalized.walletId),
+      walletAuthMethodId: String(finalized.foundingAuthMethod.walletAuthMethodId),
+      walletSessionId: String(registrationSession.walletSessionId),
+      expiresAtMs: registrationSession.expiresAtMs,
+    });
     await context.signingEngine.activateAuthenticatedWalletState({
       walletId: finalized.walletId,
       nearAccountId,

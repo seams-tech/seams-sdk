@@ -7,6 +7,7 @@ import {
   registerWallet as registerWalletWithUnifiedCeremony,
   WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
+import { resumePendingPasskeyNearRegistrations } from '@/SeamsWeb/operations/registration/pendingRegistrationRecovery';
 import { addPasskeyWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import { revokeWalletAuthMethodOperation } from '@/SeamsWeb/operations/authMethods/revokeAuthMethod';
 import { addEmailOtpWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/emailOtp/addEmailOtp';
@@ -799,6 +800,7 @@ function deliverNearProvisioningStateChanged(
 
 type SeamsWebDeviceDomain = {
   readonly domain: DevicesCapabilityDomainMethods;
+  readonly resumePendingAcknowledgementsV1: () => Promise<void>;
   readonly dispose: () => void;
 };
 
@@ -837,6 +839,7 @@ function createSeamsWebDeviceDomainV1(args: SeamsWebDeviceDomainArgsV1): SeamsWe
             walletIframe: args.walletIframe,
           }),
         },
+        resumePendingAcknowledgementsV1: noopDeviceLinkingAcknowledgementResumeV1,
         dispose: noopDeviceLinkingDisposeV1,
       };
     case 'wallet_host': {
@@ -866,6 +869,8 @@ function createSeamsWebDeviceDomainV1(args: SeamsWebDeviceDomainArgsV1): SeamsWe
           linkedDeviceManagement: composition.linkedDeviceManagement,
           deviceLinkingPorts: composition.deviceLinkingPorts,
         },
+        resumePendingAcknowledgementsV1:
+          composition.deviceLinkingPorts.resumePendingAcknowledgementsV1,
         dispose: composition.dispose,
       };
     }
@@ -873,6 +878,21 @@ function createSeamsWebDeviceDomainV1(args: SeamsWebDeviceDomainArgsV1): SeamsWe
 }
 
 function noopDeviceLinkingDisposeV1(): void {}
+
+async function noopDeviceLinkingAcknowledgementResumeV1(): Promise<void> {}
+
+function resumeDeviceLinkingAcknowledgementsInBackgroundV1(
+  resume: () => Promise<void>,
+): void {
+  void resume().catch(reportDeviceLinkingAcknowledgementResumeFailureV1);
+}
+
+function reportDeviceLinkingAcknowledgementResumeFailureV1(error: unknown): void {
+  console.warn(
+    '[SeamsWeb] pending linked-device acknowledgement replay failed:',
+    error instanceof Error ? error.message : String(error || 'unknown error'),
+  );
+}
 
 function createWalletHostOwnerApprovalUpdatesV1(args: {
   readonly request: LinkSessionOwnerAuthenticatedRequestPortV1;
@@ -1183,6 +1203,11 @@ export class SeamsWeb {
     this.tempo = publicApi.tempo;
     this.evm = publicApi.evm;
 
+    void this.resumePendingRegistrationOnStartup();
+    resumeDeviceLinkingAcknowledgementsInBackgroundV1(
+      deviceDomain.resumePendingAcknowledgementsV1,
+    );
+
     // UserConfirm worker initializes automatically in the constructor
   }
 
@@ -1272,6 +1297,29 @@ export class SeamsWeb {
       configs: this.configs,
       theme: this.theme,
     };
+  }
+
+  private async resumePendingRegistrationOnStartup(): Promise<void> {
+    try {
+      if (IndexedDBManager.isDisabled()) return;
+      const relayerUrl = String(this.configs.network.relayer?.url || '').trim();
+      if (!relayerUrl) return;
+      const results = await resumePendingPasskeyNearRegistrations({ relayerUrl });
+      for (const result of results) {
+        if (result.kind === 'failed') {
+          console.warn(
+            '[SeamsWeb] pending Passkey registration replay remains pending:',
+            result.registrationCeremonyId,
+            result.error,
+          );
+        }
+      }
+    } catch (error: unknown) {
+      console.warn(
+        '[SeamsWeb] pending Passkey registration startup replay failed:',
+        error instanceof Error ? error.message : String(error || 'unknown error'),
+      );
+    }
   }
 
   dispose(): void {
