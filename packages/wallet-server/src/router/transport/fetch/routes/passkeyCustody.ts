@@ -1,6 +1,7 @@
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import type {
   PasskeyCustodyEnvelopeRetrievalWireRequest,
+  WalletRecoveryPasskeyRouteFinalizationRequest,
   WalletRecoveryGoogleEmailOtpRouteFinalizationRequest,
 } from '../../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
 import type { WalletRecoveryCodeLocatorRecord } from '../../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
@@ -1365,9 +1366,35 @@ function parseWalletRecoveryGoogleEmailOtpFinalizeRequest(
   if (!isObject(value)) {
     throw new Error('wallet recovery Google Email OTP finalization body must be an object');
   }
+  const recoveryOperationId = parseWalletRecoveryOperationId(value.recoveryOperationId);
+  if (!recoveryOperationId.ok) {
+    throw new Error('wallet recovery Google Email OTP finalization operation is invalid');
+  }
+  const reservationId = parseRecoveryCodeReservationId(value.reservationId);
+  const replacementEnvelope = parsePasskeyCustodyEnvelopeRecord(
+    value.replacementEnvelope,
+    'walletRecoveryGoogleEmailOtpFinalize.replacementEnvelope',
+  );
+  if (value.kind === 'replay') {
+    requireExactObjectFields(
+      value,
+      ['kind', 'recoveryOperationId', 'reservationId', 'replacementEnvelope'],
+      'wallet recovery Google Email OTP replay',
+    );
+    return {
+      kind: 'replay',
+      recoveryOperationId: recoveryOperationId.value,
+      reservationId,
+      replacementEnvelope,
+    };
+  }
+  if (value.kind !== 'finalize') {
+    throw new Error('wallet recovery Google Email OTP finalization kind is invalid');
+  }
   requireExactObjectFields(
     value,
     [
+      'kind',
       'recoveryOperationId',
       'reservationId',
       'replacementEnvelope',
@@ -1376,21 +1403,15 @@ function parseWalletRecoveryGoogleEmailOtpFinalizeRequest(
     ],
     'wallet recovery Google Email OTP finalization',
   );
-  const recoveryOperationId = parseWalletRecoveryOperationId(value.recoveryOperationId);
-  if (!recoveryOperationId.ok) {
-    throw new Error('wallet recovery Google Email OTP finalization operation is invalid');
-  }
   const emailOtpEnrollment =
     value.emailOtpEnrollment === undefined
       ? null
       : parseWalletRecoveryGoogleEmailOtpCreateEnrollment(value.emailOtpEnrollment);
   return {
+    kind: 'finalize',
     recoveryOperationId: recoveryOperationId.value,
-    reservationId: parseRecoveryCodeReservationId(value.reservationId),
-    replacementEnvelope: parsePasskeyCustodyEnvelopeRecord(
-      value.replacementEnvelope,
-      'walletRecoveryGoogleEmailOtpFinalize.replacementEnvelope',
-    ),
+    reservationId,
+    replacementEnvelope,
     ecdsaMaterialPossessionProofs: parseEcdsaMaterialPossessionProofs(
       value.ecdsaMaterialPossessionProofs,
     ),
@@ -1400,7 +1421,12 @@ function parseWalletRecoveryGoogleEmailOtpFinalizeRequest(
 
 function parseWalletRecoveryGoogleEmailOtpCreateEnrollment(
   value: unknown,
-): NonNullable<WalletRecoveryGoogleEmailOtpRouteFinalizationRequest['emailOtpEnrollment']> {
+): NonNullable<
+  Extract<
+    WalletRecoveryGoogleEmailOtpRouteFinalizationRequest,
+    { readonly kind: 'finalize' }
+  >['emailOtpEnrollment']
+> {
   if (!isObject(value)) {
     throw new Error('new recovery Email enrollment is invalid');
   }
@@ -1631,32 +1657,49 @@ export async function handleWalletRecoveryFinalize(
     });
   }
 
-  const expectedOrigin = trimmed(ctx.request.headers.get('origin'));
-  if (!expectedOrigin) {
-    return toFetchRouteResponse({
-      status: 400,
-      body: {
-        ok: false,
-        code: 'invalid_origin',
-        message: 'wallet recovery finalization requires the request Origin header',
-      },
-    });
+  let serviceRequest: WalletRecoveryPasskeyRouteFinalizationRequest;
+  if (requestBody.kind === 'finalize') {
+    const expectedOrigin = trimmed(ctx.request.headers.get('origin'));
+    if (!expectedOrigin) {
+      return toFetchRouteResponse({
+        status: 400,
+        body: {
+          ok: false,
+          code: 'invalid_origin',
+          message: 'wallet recovery finalization requires the request Origin header',
+        },
+      });
+    }
+    serviceRequest = {
+      kind: 'finalize',
+      walletId: requestBody.walletId,
+      reservationId: requestBody.reservationId,
+      recoveryOperationId: requestBody.recoveryOperationId,
+      targetDeviceId: requestBody.targetDeviceId,
+      targetAuthorityId: requestBody.targetAuthorityId,
+      targetWalletAuthMethodId: requestBody.targetWalletAuthMethodId,
+      challengeId: requestBody.challengeId,
+      replacementId: requestBody.replacementId,
+      webauthnRegistration: requestBody.webauthnRegistration,
+      expectedOrigin,
+      replacementEnvelope: requestBody.replacementEnvelope,
+      ecdsaMaterialPossessionProofs: requestBody.ecdsaMaterialPossessionProofs,
+    };
+  } else {
+    serviceRequest = {
+      kind: 'replay',
+      walletId: requestBody.walletId,
+      reservationId: requestBody.reservationId,
+      recoveryOperationId: requestBody.recoveryOperationId,
+      targetDeviceId: requestBody.targetDeviceId,
+      targetAuthorityId: requestBody.targetAuthorityId,
+      targetWalletAuthMethodId: requestBody.targetWalletAuthMethodId,
+      replacementId: requestBody.replacementId,
+      replacementEnvelope: requestBody.replacementEnvelope,
+    };
   }
 
-  const result = await ctx.service.passkeyCustody.finalizeRecovery({
-    walletId: requestBody.walletId,
-    reservationId: requestBody.reservationId,
-    recoveryOperationId: requestBody.recoveryOperationId,
-    targetDeviceId: requestBody.targetDeviceId,
-    targetAuthorityId: requestBody.targetAuthorityId,
-    targetWalletAuthMethodId: requestBody.targetWalletAuthMethodId,
-    challengeId: requestBody.challengeId,
-    replacementId: requestBody.replacementId,
-    webauthnRegistration: requestBody.webauthnRegistration,
-    expectedOrigin,
-    replacementEnvelope: requestBody.replacementEnvelope,
-    ecdsaMaterialPossessionProofs: requestBody.ecdsaMaterialPossessionProofs,
-  });
+  const result = await ctx.service.passkeyCustody.finalizeRecovery(serviceRequest);
 
   switch (result.kind) {
     case 'promoted':
@@ -1681,42 +1724,15 @@ export async function handleWalletRecoveryFinalize(
       });
   }
 }
-type WalletRecoveryFinalizeBody = {
-  readonly walletId: WalletId;
-  readonly reservationId: RecoveryCodeReservationId;
-  readonly recoveryOperationId: WalletRecoveryOperationId;
-  readonly targetDeviceId: DeviceId;
-  readonly targetAuthorityId: WalletAuthorityId;
-  readonly targetWalletAuthMethodId: WalletAuthMethodId;
-  readonly challengeId: string;
-  readonly replacementId: string;
-  readonly webauthnRegistration: Record<string, unknown>;
-  readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
-  readonly ecdsaMaterialPossessionProofs: readonly {
-    readonly keySetId: string;
-    readonly proof: WalletRecoveryEcdsaPossessionProofV1;
-  }[];
-};
+type WalletRecoveryFinalizeBody =
+  | Omit<
+      Extract<WalletRecoveryPasskeyRouteFinalizationRequest, { readonly kind: 'finalize' }>,
+      'expectedOrigin'
+    >
+  | Extract<WalletRecoveryPasskeyRouteFinalizationRequest, { readonly kind: 'replay' }>;
 
 function parseWalletRecoveryFinalizeBody(value: unknown): WalletRecoveryFinalizeBody {
   if (!isObject(value)) throw new Error('wallet recovery finalization body must be an object');
-  requireExactObjectFields(
-    value,
-    [
-      'walletId',
-      'reservationId',
-      'recoveryOperationId',
-      'targetDeviceId',
-      'targetAuthorityId',
-      'targetWalletAuthMethodId',
-      'challengeId',
-      'replacementId',
-      'webauthnRegistration',
-      'replacementEnvelope',
-      'ecdsaMaterialPossessionProofs',
-    ],
-    'wallet recovery finalization',
-  );
   const walletId = parseWalletId(value.walletId);
   const recoveryOperationId = parseWalletRecoveryOperationId(value.recoveryOperationId);
   const targetDeviceId = parseDeviceId(value.targetDeviceId);
@@ -1731,23 +1747,66 @@ function parseWalletRecoveryFinalizeBody(value: unknown): WalletRecoveryFinalize
   ) {
     throw new Error('wallet recovery finalization identity is invalid');
   }
-  if (!isObject(value.webauthnRegistration)) {
-    throw new Error('wallet recovery finalization registration is invalid');
-  }
-  return {
+  const identity = {
     walletId: walletId.value,
     reservationId: parseRecoveryCodeReservationId(value.reservationId),
     recoveryOperationId: recoveryOperationId.value,
     targetDeviceId: targetDeviceId.value,
     targetAuthorityId: targetAuthorityId.value,
     targetWalletAuthMethodId: targetWalletAuthMethodId.value,
-    challengeId: parseRequiredString(value.challengeId, 'challengeId'),
     replacementId: parseRequiredString(value.replacementId, 'replacementId'),
-    webauthnRegistration: value.webauthnRegistration,
     replacementEnvelope: parsePasskeyCustodyEnvelopeRecord(
       value.replacementEnvelope,
       'walletRecoveryFinalize.replacementEnvelope',
     ),
+  };
+  if (value.kind === 'replay') {
+    requireExactObjectFields(
+      value,
+      [
+        'kind',
+        'walletId',
+        'reservationId',
+        'recoveryOperationId',
+        'targetDeviceId',
+        'targetAuthorityId',
+        'targetWalletAuthMethodId',
+        'replacementId',
+        'replacementEnvelope',
+      ],
+      'wallet recovery replay',
+    );
+    return { kind: 'replay', ...identity };
+  }
+  if (value.kind !== 'finalize') {
+    throw new Error('wallet recovery finalization kind is invalid');
+  }
+  requireExactObjectFields(
+    value,
+    [
+      'kind',
+      'walletId',
+      'reservationId',
+      'recoveryOperationId',
+      'targetDeviceId',
+      'targetAuthorityId',
+      'targetWalletAuthMethodId',
+      'challengeId',
+      'replacementId',
+      'webauthnRegistration',
+      'replacementEnvelope',
+      'ecdsaMaterialPossessionProofs',
+    ],
+    'wallet recovery finalization',
+  );
+  if (!isObject(value.webauthnRegistration)) {
+    throw new Error('wallet recovery finalization registration is invalid');
+  }
+  return {
+    kind: 'finalize',
+    ...identity,
+    challengeId: parseRequiredString(value.challengeId, 'challengeId'),
+    webauthnRegistration: value.webauthnRegistration,
     ecdsaMaterialPossessionProofs: parseEcdsaMaterialPossessionProofs(
       value.ecdsaMaterialPossessionProofs,
     ),

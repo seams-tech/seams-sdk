@@ -914,7 +914,9 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
       recovered Passkey and Email OTP authorities while preserving every
       pre-existing access path.
 - [x] Preserve strict server-read recovery projections for active recovery
-      authority and target method on both target branches.
+      authority and target method on both target branches. Credential-free
+      replay accepts only the consumed recovery set and its matching retained
+      locator tombstone; active or mismatched locators fail closed.
 - [x] Validate wallet, authority, method, target, digest, enrollment, and
       lifecycle relationships at the response boundary.
 - [x] Preserve provenance dispatch: `wallet_registration` and
@@ -963,41 +965,46 @@ Primary files:
 - [x] Persist Device 2 profile, authenticator, method/factor, authority,
       signer-material state, receipt, and selection as one invisible
       `pending_local_install` transaction before activation.
-- [ ] Make local pending replay idempotent by receipt identity and terminal
+- [x] Make local pending replay idempotent by receipt identity and terminal
       cleanup preserve any pre-existing record.
-- [ ] Preserve `server_worker_activation_pending` and
+- [x] Preserve `server_worker_activation_pending` and
       `wallet_session_issuance_pending` as retryable states that allocate no
       second authority.
-- [ ] Make resume finalize a locally pending method as active before credential
+- [x] Make resume finalize a locally pending method as active before credential
       decrypt.
-- [ ] Commit authorization, quota, credential digest, authority/method
+- [x] Commit authorization, quota, credential digest, authority/method
       activation, and one complete sealed-delivery row in the activation CAS.
 - [ ] Add exact composite foreign keys to the linked installation and V2
       authorization plus unique full-scope link and digest identities.
-- [ ] Bind canonical AAD to tenant scope, link, wallet, authority, method,
+- [x] Bind canonical AAD to tenant scope, link, wallet, authority, method,
       authorization, Wallet Session, quota, credential digest, recipient, issue
       time, and expiry.
-- [ ] Define the installation-receipt digest over one canonical logical shape,
+- [x] Define the installation-receipt digest over one canonical logical shape,
       excluding IndexedDB bytes and plaintext credential bytes.
-- [ ] Make activation replay return the original sealed delivery, recipient,
+- [x] Make activation replay return the original sealed delivery, recipient,
       digest, and exact session without minting or overwriting.
-- [ ] Order Device 2 as decrypt, validate exact identities, persist V6, activate
-      runtimes, record acknowledgement intent, and acknowledge.
-- [ ] Extend acknowledgement with authorization ID, Wallet Session ID,
+- [x] Order Device 2 as durable invisible prerequisites, server activation,
+      local login-prerequisite publication, credential decrypt and exact
+      validation, atomic V6/selection finalization, runtime activation,
+      acknowledgement-intent persistence, and acknowledgement. This leaves a
+      normal exact-method unlock recovery path if the recipient handle is lost
+      after the local method becomes active.
+- [x] Extend acknowledgement with authorization ID, Wallet Session ID,
       credential digest, and installation-receipt digest.
-- [ ] Reject cross-session or stale acknowledgement before consuming delivery.
-- [ ] Implement one idempotent acknowledgement lifecycle covering delivery
+- [x] Reject cross-session or stale acknowledgement before consuming delivery.
+- [x] Implement one idempotent acknowledgement lifecycle covering delivery
       tombstone, ciphertext removal, allocation deletion, link-session deletion,
       and completion.
-- [ ] Delete or fold any parallel sealed-delivery cleanup that could race the
+- [x] Delete or fold any parallel sealed-delivery cleanup that could race the
       acknowledgement lifecycle.
-- [ ] Retain a bounded Device 2 authentication binding in the cleanup receipt;
+- [x] Retain a bounded Device 2 authentication binding in the cleanup receipt;
       bind Device 2 credential, link session, authority, package set,
       authorization, Wallet Session, credential digest, and receipt digest, and
       resolve it before requiring a live link session.
-- [ ] Persist pending acknowledgement intent locally and replay it during
-      bootstrap until cleanup completes; then clear the intent together with
-      the local delivery-resume record.
+- [x] Persist pending acknowledgement intent locally and provide an idempotent
+      replay helper that clears the intent together with the local
+      delivery-resume record after cleanup completes.
+- [ ] Invoke pending acknowledgement replay from the production bootstrap path.
 - [ ] Recover recipient-handle loss or delivery expiry through durable local
       install plus exact-method unlock, without resealing or relinking.
 - [ ] Preserve interactive cancellation across `claimed`,
@@ -1675,11 +1682,11 @@ Remaining causal baseline work:
 - [x] Mint tests proving same-mint identity replay and fresh-mint replacement.
 - [ ] Exact material-resolution tests covering every legacy opaque runtime
       field and rejecting synthesized identities.
-- [ ] Linked activation tests proving digest, credential, recipient, ciphertext,
+- [x] Linked activation tests proving digest, credential, recipient, ciphertext,
       and session stability on replay.
 - [ ] Linked loss tests for response loss, failed exact-record write, recipient
       loss, delivery expiry, acknowledgement loss, and acknowledged cleanup.
-- [ ] Linked recipient/AAD binding and cross-session stale acknowledgement
+- [x] Linked recipient/AAD binding and cross-session stale acknowledgement
       tests.
 - [ ] Crash injection after delivery tombstone, ciphertext removal, allocation
       deletion, link-session deletion, and cleanup completion.

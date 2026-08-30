@@ -127,6 +127,7 @@ export async function finalizeWalletRecovery(args: {
       url,
       buildRelayerJsonPostRequestInit({
         body: {
+          kind: 'finalize',
           walletId: args.walletId,
           reservationId: args.reservationId,
           recoveryOperationId: args.recoveryOperationId,

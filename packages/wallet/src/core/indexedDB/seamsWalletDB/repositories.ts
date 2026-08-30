@@ -121,6 +121,13 @@ type AppStateRow<T = unknown> = {
   value: T;
 };
 
+const LOCAL_AUTHORITY_PENDING_PROFILE_PROJECTION_APP_STATE_PREFIX_V1 =
+  'local-authority/pending-profile-projection/v1/';
+
+function localAuthorityPendingProfileProjectionAppStateKeyV1(authorityId: string): string {
+  return `${LOCAL_AUTHORITY_PENDING_PROFILE_PROJECTION_APP_STATE_PREFIX_V1}${authorityId}`;
+}
+
 type WalletRow = {
   wallet_id: string;
   rp_id: string;
@@ -295,6 +302,16 @@ type WalletSelectionRow = {
   record: WalletSelectionRecordV1;
 };
 
+type LocalAuthorityPendingProfileProjectionV1 = {
+  readonly kind: 'local_authority_pending_profile_projection_v1';
+  readonly authorityId: string;
+  readonly walletId: string;
+  readonly authMethodId: string;
+  readonly profile: WalletRow;
+  readonly authenticator: WalletPasskeyAuthMethodRow | null;
+  readonly localAuthMethod: WalletEmailOtpAuthMethodRow | null;
+};
+
 export type LocalAuthorityInstallationInputV1 = {
   readonly authority: PendingWalletAuthorityV1;
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { status: 'pending_local_install' }>;
@@ -333,6 +350,21 @@ export type LocalAuthorityActivationFinalizationInputV1 = {
   readonly operationCredential: WalletSessionOperationCredentialV1;
   readonly expectedLockGeneration: number;
 };
+
+export type LocalAuthorityActivationPublicationInputV1 = {
+  readonly authority: Extract<WalletAuthorityV1, { readonly state: 'active' }>;
+  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+  readonly expectedLockGeneration: number;
+};
+
+export type LocalAuthorityActivationPublicationResultV1 =
+  | { readonly kind: 'published' }
+  | {
+      readonly kind: 'stale_lock_generation';
+      readonly expectedLockGeneration: number;
+      readonly actualLockGeneration: number;
+    }
+  | { readonly kind: 'wallet_locked'; readonly lockGeneration: number };
 
 export type LocalAuthorityActivationFinalizationResultV1 =
   | { readonly kind: 'finalized' }
@@ -933,6 +965,76 @@ function parseProfileRow(value: unknown): ProfileRecord | null {
   return record;
 }
 
+function parseLocalAuthorityPendingProfileProjectionV1(
+  value: unknown,
+): LocalAuthorityPendingProfileProjectionV1 | null {
+  if (!isRecord(value) || value.kind !== 'local_authority_pending_profile_projection_v1') {
+    return null;
+  }
+  const profile = parseProfileStorageRowV1(value.profile);
+  const authenticator =
+    value.authenticator === null
+      ? null
+      : parseWalletAuthMethodStorageRow(value.authenticator);
+  const localAuthMethod =
+    value.localAuthMethod === null
+      ? null
+      : parseWalletAuthMethodStorageRow(value.localAuthMethod);
+  if (
+    !profile ||
+    (value.authenticator !== null &&
+      (!authenticator || authenticator.kind !== 'passkey' || authenticator.status !== 'active')) ||
+    (value.localAuthMethod !== null &&
+      (!localAuthMethod || localAuthMethod.kind !== 'email_otp' || localAuthMethod.status !== 'active'))
+  ) {
+    return null;
+  }
+  const authorityId = value.authorityId;
+  const walletId = value.walletId;
+  const authMethodId = value.authMethodId;
+  if (
+    typeof authorityId !== 'string' ||
+    typeof walletId !== 'string' ||
+    typeof authMethodId !== 'string' ||
+    !authorityId ||
+    !walletId ||
+    !authMethodId ||
+    authorityId.trim() !== authorityId ||
+    walletId.trim() !== walletId ||
+    authMethodId.trim() !== authMethodId ||
+    profile.wallet_id !== walletId ||
+    (authenticator !== null && authenticator.wallet_id !== walletId) ||
+    (localAuthMethod !== null && localAuthMethod.wallet_id !== walletId)
+  ) {
+    return null;
+  }
+  return {
+    kind: 'local_authority_pending_profile_projection_v1',
+    authorityId,
+    walletId,
+    authMethodId,
+    profile,
+    authenticator: authenticator?.kind === 'passkey' ? authenticator : null,
+    localAuthMethod: localAuthMethod?.kind === 'email_otp' ? localAuthMethod : null,
+  };
+}
+
+function parseProfileStorageRowV1(value: unknown): WalletRow | null {
+  if (!isRecord(value) || value.status !== 'active' || typeof value.rp_id !== 'string') {
+    return null;
+  }
+  const record = parseProfileRow(value);
+  if (!record || value.wallet_id !== record.profileId) return null;
+  return {
+    wallet_id: record.profileId,
+    rp_id: value.rp_id,
+    status: 'active',
+    created_at: record.createdAt,
+    updated_at: record.updatedAt,
+    record,
+  };
+}
+
 function walletAuthMethodIdentifier(record: LocalWalletAuthMethodRecord): string {
   switch (record.kind) {
     case 'passkey':
@@ -1210,6 +1312,81 @@ function walletAuthMethodRowFromAuthenticator(
     binding: passkeyBindingFromAuthenticator(authenticator, existing?.record),
     authenticator,
   });
+}
+
+function buildLocalAuthorityPendingProfileProjectionV1(input: {
+  readonly authorityId: string;
+  readonly walletId: string;
+  readonly authMethodId: string;
+  readonly profile: WalletRow;
+  readonly authenticator: WalletPasskeyAuthMethodRow | null;
+  readonly localAuthMethod: WalletEmailOtpAuthMethodRow | null;
+}): LocalAuthorityPendingProfileProjectionV1 {
+  if (
+    input.profile.wallet_id !== input.walletId ||
+    (input.authenticator !== null && input.authenticator.wallet_id !== input.walletId) ||
+    (input.localAuthMethod !== null && input.localAuthMethod.wallet_id !== input.walletId)
+  ) {
+    throw new Error('local authority profile projection identity does not match installation');
+  }
+  if (
+    input.authenticator?.wallet_auth_method_id === input.authMethodId ||
+    input.localAuthMethod?.wallet_auth_method_id === input.authMethodId
+  ) {
+    throw new Error('local authority profile projection collides with the V2 auth-method key');
+  }
+  return {
+    kind: 'local_authority_pending_profile_projection_v1',
+    authorityId: input.authorityId,
+    walletId: input.walletId,
+    authMethodId: input.authMethodId,
+    profile: input.profile,
+    authenticator: input.authenticator,
+    localAuthMethod: input.localAuthMethod,
+  };
+}
+
+function localAuthorityPendingProfileProjectionsMatchV1(
+  left: LocalAuthorityPendingProfileProjectionV1,
+  right: LocalAuthorityPendingProfileProjectionV1,
+): boolean {
+  return (
+    left.authorityId === right.authorityId &&
+    left.walletId === right.walletId &&
+    left.authMethodId === right.authMethodId &&
+    rollbackRecordsEqual(left.profile, right.profile) &&
+    rollbackRecordsEqual(left.authenticator, right.authenticator) &&
+    rollbackRecordsEqual(left.localAuthMethod, right.localAuthMethod)
+  );
+}
+
+function localAuthorityPendingProfileProjectionMatchesInputV1(
+  projection: LocalAuthorityPendingProfileProjectionV1,
+  input: Pick<
+    ValidatedLocalAuthorityInstallationInput,
+    'authority' | 'authMethod' | 'profile' | 'authenticator' | 'localAuthMethod'
+  >,
+): boolean {
+  return (
+    projection.authorityId === input.authority.authorityId &&
+    projection.walletId === input.authority.walletId &&
+    projection.authMethodId === input.authMethod.walletAuthMethodId &&
+    projection.profile.record.profileId === input.profile.profileId &&
+    projection.profile.record.defaultSignerSlot === (input.profile.defaultSignerSlot ?? 1) &&
+    (input.profile.passkeyCredential === undefined ||
+      (projection.profile.record.passkeyCredential?.id === input.profile.passkeyCredential.id &&
+        projection.profile.record.passkeyCredential.rawId === input.profile.passkeyCredential.rawId)) &&
+    (input.profile.preferences === undefined ||
+      rollbackRecordsEqual(projection.profile.record.preferences, input.profile.preferences)) &&
+    (input.authenticator === null
+      ? projection.authenticator === null
+      : projection.authenticator !== null &&
+        rollbackRecordsEqual(projection.authenticator.authenticator, input.authenticator)) &&
+    (input.localAuthMethod === null
+      ? projection.localAuthMethod === null
+      : projection.localAuthMethod !== null &&
+        rollbackRecordsEqual(projection.localAuthMethod.record, input.localAuthMethod))
+  );
 }
 
 function parseWalletAuthMethodStorageRow(value: unknown): WalletAuthMethodRow | null {
@@ -2916,6 +3093,7 @@ export class SeamsWalletRepositories {
     }
     return this.manager.runTransaction(
       [
+        SEAMS_WALLET_STORES.appState,
         SEAMS_WALLET_STORES.wallets,
         SEAMS_WALLET_STORES.walletAuthMethods,
         SEAMS_WALLET_STORES.walletAuthorities,
@@ -2964,6 +3142,8 @@ export class SeamsWalletRepositories {
     }
     return await this.manager.runTransaction(
       [
+        SEAMS_WALLET_STORES.appState,
+        SEAMS_WALLET_STORES.wallets,
         SEAMS_WALLET_STORES.walletAuthorities,
         SEAMS_WALLET_STORES.walletAuthMethods,
         SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts,
@@ -2976,6 +3156,48 @@ export class SeamsWalletRepositories {
         authMethod,
         walletSession,
         operationCredential: input.operationCredential,
+        expectedLockGeneration,
+      }),
+    );
+  }
+
+  async publishLocalAuthorityActivation(
+    input: LocalAuthorityActivationPublicationInputV1,
+  ): Promise<LocalAuthorityActivationPublicationResultV1> {
+    const authorityResult = parseWalletAuthorityV1(input.authority);
+    if (!authorityResult.ok || authorityResult.value.state !== 'active') {
+      throw new Error('active WalletAuthorityV1 is invalid');
+    }
+    const authMethod = parseWalletAuthMethodRecordV2(input.authMethod);
+    if (!authMethod || authMethod.status !== 'active') {
+      throw new Error('active WalletAuthMethodRecordV2 is invalid');
+    }
+    const expectedLockGeneration = parseNonNegativeSafeInteger(
+      input.expectedLockGeneration,
+      'expectedLockGeneration',
+    );
+    if (
+      authMethod.walletId !== authorityResult.value.walletId ||
+      authMethod.walletAuthorityId !== authorityResult.value.authorityId
+    ) {
+      throw new Error('active authority and auth method identities differ');
+    }
+    if (!(await walletAuthorityDigestsMatchV1(authorityResult.value))) {
+      throw new Error('active WalletAuthorityV1 digest is invalid');
+    }
+    return await this.manager.runTransaction(
+      [
+        SEAMS_WALLET_STORES.appState,
+        SEAMS_WALLET_STORES.wallets,
+        SEAMS_WALLET_STORES.walletAuthorities,
+        SEAMS_WALLET_STORES.walletAuthMethods,
+        SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts,
+        SEAMS_WALLET_STORES.walletSelections,
+      ],
+      'readwrite',
+      this.publishLocalAuthorityActivationInTransaction.bind(this, {
+        authority: authorityResult.value,
+        authMethod,
         expectedLockGeneration,
       }),
     );
@@ -3067,6 +3289,7 @@ export class SeamsWalletRepositories {
     input: LocalAuthorityActivationFinalizationInputV1,
     ctx: SeamsWalletTransactionContext,
   ): Promise<LocalAuthorityActivationFinalizationResultV1> {
+    const appStateStore = ctx.store(SEAMS_WALLET_STORES.appState);
     const authorityStore = ctx.store(SEAMS_WALLET_STORES.walletAuthorities);
     const authMethodStore = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
     const receiptStore = ctx.store(SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts);
@@ -3076,6 +3299,16 @@ export class SeamsWalletRepositories {
     const authMethodRaw = await authMethodStore.get(input.authMethod.walletAuthMethodId);
     const receiptRaw = await receiptStore.get(input.authority.authorityId);
     const sessionRaw = await sessionStore.get(input.operationCredential.walletSessionId);
+    const profileProjectionRaw = await appStateStore.get(
+      localAuthorityPendingProfileProjectionAppStateKeyV1(input.authority.authorityId),
+    );
+    const profileProjection =
+      profileProjectionRaw === undefined
+        ? null
+        : parseLocalAuthorityPendingProfileProjectionV1(profileProjectionRaw.value);
+    if (profileProjectionRaw !== undefined && !profileProjection) {
+      throw new Error('local authority profile projection is missing or corrupt');
+    }
     const existingAuthority =
       authorityRaw === undefined ? null : parseWalletAuthorityStorageRow(authorityRaw);
     const existingAuthMethod =
@@ -3106,13 +3339,59 @@ export class SeamsWalletRepositories {
       if (
         !walletAuthorityRecordsMatch(existingAuthority.record, input.authority) ||
         existingAuthMethod.record.status !== 'active' ||
-        !walletAuthMethodRecordsMatch(existingAuthMethod.record, input.authMethod) ||
-        !existingSession ||
+        !walletAuthMethodRecordsMatch(existingAuthMethod.record, input.authMethod)
+      ) {
+        throw new Error('active local authority replay conflicts with supplied records');
+      }
+      if (profileProjection) {
+        await this.publishPendingLocalAuthorityProfileProjectionInTransaction(
+          input.authority,
+          input.authMethod,
+          profileProjection,
+          ctx,
+        );
+      }
+      if (!existingSession) {
+        const selectionRaw = await selectionStore.get(input.authority.walletId);
+        if (selectionRaw === undefined) throw new Error('wallet selection is missing');
+        const selection = parseWalletSelectionStorageRow(selectionRaw);
+        if (!selection || selection.wallet_id !== input.authority.walletId) {
+          throw new Error('wallet selection is corrupt');
+        }
+        if (selection.lock_generation !== input.expectedLockGeneration) {
+          return {
+            kind: 'stale_lock_generation',
+            expectedLockGeneration: input.expectedLockGeneration,
+            actualLockGeneration: selection.lock_generation,
+          };
+        }
+        if (selection.record.lockState === 'locked') {
+          return { kind: 'wallet_locked', lockGeneration: selection.lock_generation };
+        }
+        await sessionStore.put(
+          toStoredExactWalletSessionAuthorizationRowV6(
+            input.walletSession,
+            input.operationCredential,
+          ),
+        );
+        await selectionStore.put(
+          walletSelectionStorageRow({
+            kind: 'wallet_selection_v1',
+            walletId: selection.record.walletId,
+            walletAuthMethodId: input.authMethod.walletAuthMethodId,
+            lockGeneration: selection.record.lockGeneration,
+            lockState: 'unlocked',
+            updatedAtMs: input.walletSession.issuedAtMs,
+          }),
+        );
+        return { kind: 'finalized' };
+      }
+      if (
         existingSession.kind !== 'active_wallet_session_v1' ||
         !walletSessionRecordsMatch(existingSession, input.walletSession) ||
         existingSessionWithCredential?.operationCredential.token !== input.operationCredential.token
       ) {
-        throw new Error('active local authority replay conflicts with supplied records');
+        throw new Error('active local authority replay conflicts with supplied Wallet Session');
       }
       await sessionStore.put(
         toStoredExactWalletSessionAuthorizationRowV6(
@@ -3157,6 +3436,15 @@ export class SeamsWalletRepositories {
     if (selection.record.lockState === 'locked') {
       return { kind: 'wallet_locked', lockGeneration: selection.lock_generation };
     }
+    if (!profileProjection) {
+      throw new Error('local authority profile projection is missing or corrupt');
+    }
+    await this.publishPendingLocalAuthorityProfileProjectionInTransaction(
+      input.authority,
+      input.authMethod,
+      profileProjection,
+      ctx,
+    );
     await authorityStore.put(walletAuthorityStorageRow(input.authority));
     await authMethodStore.put(walletAuthMethodV2StorageRow(input.authMethod));
     await sessionStore.put(
@@ -3173,6 +3461,152 @@ export class SeamsWalletRepositories {
       }),
     );
     return { kind: 'finalized' };
+  }
+
+  private async publishPendingLocalAuthorityProfileProjectionInTransaction(
+    authority: Extract<WalletAuthorityV1, { readonly state: 'active' }>,
+    authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>,
+    projection: LocalAuthorityPendingProfileProjectionV1,
+    ctx: SeamsWalletTransactionContext,
+  ): Promise<void> {
+    if (
+      projection.authorityId !== authority.authorityId ||
+      projection.walletId !== authority.walletId ||
+      projection.authMethodId !== authMethod.walletAuthMethodId
+    ) {
+      throw new Error('local authority profile projection identity does not match activation');
+    }
+    const expectedV2Row = walletAuthMethodV2StorageRow(authMethod);
+    if (
+      projection.authenticator?.wallet_auth_method_id === expectedV2Row.wallet_auth_method_id ||
+      projection.localAuthMethod?.wallet_auth_method_id === expectedV2Row.wallet_auth_method_id
+    ) {
+      throw new Error('local authority profile projection collides with the V2 auth-method key');
+    }
+    const profileStore = ctx.store(SEAMS_WALLET_STORES.wallets);
+    const authMethodStore = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
+    const existingProfileRaw = await profileStore.get(projection.profile.wallet_id);
+    const existingProfile =
+      existingProfileRaw === undefined ? null : parseProfileStorageRowV1(existingProfileRaw);
+    if (existingProfileRaw !== undefined && !existingProfile) {
+      throw new Error('stored wallet profile is corrupt during authority publication');
+    }
+    if (existingProfile && !rollbackRecordsEqual(existingProfile, projection.profile.record)) {
+      throw new Error('stored wallet profile changed during authority publication');
+    }
+    await profileStore.put(projection.profile);
+    for (const row of [projection.authenticator, projection.localAuthMethod]) {
+      if (!row) continue;
+      const existingRaw = await authMethodStore.get(row.wallet_auth_method_id);
+      if (existingRaw !== undefined) {
+        const existing = parseWalletAuthMethodStorageRow(existingRaw);
+        if (!existing || !rollbackRecordsEqual(existing, row)) {
+          throw new Error('stored local auth method changed during authority publication');
+        }
+      }
+      await authMethodStore.put(row);
+    }
+    await authMethodStore.put(expectedV2Row);
+    await ctx
+      .store(SEAMS_WALLET_STORES.appState)
+      .delete(localAuthorityPendingProfileProjectionAppStateKeyV1(authority.authorityId));
+  }
+
+  private async publishLocalAuthorityActivationInTransaction(
+    input: LocalAuthorityActivationPublicationInputV1,
+    ctx: SeamsWalletTransactionContext,
+  ): Promise<LocalAuthorityActivationPublicationResultV1> {
+    const profileProjectionRaw = await ctx
+      .store(SEAMS_WALLET_STORES.appState)
+      .get(localAuthorityPendingProfileProjectionAppStateKeyV1(input.authority.authorityId));
+    const profileProjection =
+      profileProjectionRaw === undefined
+        ? null
+        : parseLocalAuthorityPendingProfileProjectionV1(profileProjectionRaw.value);
+    if (profileProjectionRaw !== undefined && !profileProjection) {
+      throw new Error('local authority profile projection is missing or corrupt');
+    }
+    const authorityRaw = await ctx
+      .store(SEAMS_WALLET_STORES.walletAuthorities)
+      .get(input.authority.authorityId);
+    const authMethodRaw = await ctx
+      .store(SEAMS_WALLET_STORES.walletAuthMethods)
+      .get(input.authMethod.walletAuthMethodId);
+    const receiptRaw = await ctx
+      .store(SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts)
+      .get(input.authority.authorityId);
+    const authority = authorityRaw === undefined ? null : parseWalletAuthorityStorageRow(authorityRaw);
+    const authMethod =
+      authMethodRaw === undefined ? null : parseWalletAuthMethodV2StorageRow(authMethodRaw);
+    const receipt =
+      receiptRaw === undefined ? null : parseLocalAuthorityInstallationReceiptStorageRow(receiptRaw);
+    if (!authority || !authMethod || !receipt) {
+      throw new Error('local authority publication prerequisites are missing');
+    }
+    if (
+      receipt.record.authorityId !== input.authority.authorityId ||
+      receipt.record.walletId !== input.authority.walletId ||
+      receipt.record.authMethodId !== input.authMethod.walletAuthMethodId ||
+      !walletSignerActivationSetsMatch(
+        receipt.record.installedActivationRefs,
+        input.authority.signerActivations,
+      )
+    ) {
+      throw new Error('local authority installation receipt does not match publication');
+    }
+    if (authority.record.state === 'active') {
+      if (
+        !walletAuthorityRecordsMatch(authority.record, input.authority) ||
+        authMethod.record.status !== 'active' ||
+        !walletAuthMethodRecordsMatch(authMethod.record, input.authMethod)
+      ) {
+        throw new Error('active local authority publication conflicts with stored records');
+      }
+      if (profileProjection) {
+        await this.publishPendingLocalAuthorityProfileProjectionInTransaction(
+          input.authority,
+          input.authMethod,
+          profileProjection,
+          ctx,
+        );
+      }
+      return { kind: 'published' };
+    }
+    if (
+      authority.record.state !== 'pending_local_install' ||
+      authMethod.record.status !== 'pending_local_install' ||
+      !walletAuthorityPendingMatchesActive(authority.record, input.authority) ||
+      !walletAuthMethodPendingMatchesActive(authMethod.record, input.authMethod)
+    ) {
+      throw new Error('local authority records are not the expected pending installation');
+    }
+    const selectionRaw = await ctx.store(SEAMS_WALLET_STORES.walletSelections).get(input.authority.walletId);
+    if (selectionRaw === undefined) throw new Error('wallet selection is missing');
+    const selection = parseWalletSelectionStorageRow(selectionRaw);
+    if (!selection || selection.wallet_id !== input.authority.walletId) {
+      throw new Error('wallet selection is corrupt');
+    }
+    if (selection.lock_generation !== input.expectedLockGeneration) {
+      return {
+        kind: 'stale_lock_generation',
+        expectedLockGeneration: input.expectedLockGeneration,
+        actualLockGeneration: selection.lock_generation,
+      };
+    }
+    if (selection.record.lockState === 'locked') {
+      return { kind: 'wallet_locked', lockGeneration: selection.lock_generation };
+    }
+    if (!profileProjection) {
+      throw new Error('local authority profile projection is missing or corrupt');
+    }
+    await this.publishPendingLocalAuthorityProfileProjectionInTransaction(
+      input.authority,
+      input.authMethod,
+      profileProjection,
+      ctx,
+    );
+    await ctx.store(SEAMS_WALLET_STORES.walletAuthorities).put(walletAuthorityStorageRow(input.authority));
+    return { kind: 'published' };
   }
 
   private async advanceWalletLockGenerationInTransaction(
@@ -3313,6 +3747,7 @@ export class SeamsWalletRepositories {
     input: ValidatedLocalAuthorityInstallationInput,
     ctx: SeamsWalletTransactionContext,
   ): Promise<LocalAuthorityInstallationResultV1> {
+    const appStateStore = ctx.store(SEAMS_WALLET_STORES.appState);
     const profileStore = ctx.store(SEAMS_WALLET_STORES.wallets);
     const profileRaw = await profileStore.get(input.profile.profileId);
     const existingProfile = profileRaw === undefined ? null : parseProfileRow(profileRaw);
@@ -3320,31 +3755,28 @@ export class SeamsWalletRepositories {
       return { kind: 'integrity_error', reason: 'wallet profile row is invalid' };
     }
     const authenticatorStore = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
-    const authenticatorRow = input.authenticator
+    const authenticatorLookupRow = input.authenticator
       ? walletAuthMethodRowFromAuthenticator(input.authenticator)
       : null;
     const localAuthMethodRow = input.localAuthMethod
       ? walletAuthMethodRowFromBinding(input.localAuthMethod, input.profile.defaultSignerSlot ?? 1)
       : null;
-    const authenticatorRaw = authenticatorRow
-      ? await authenticatorStore.get(authenticatorRow.wallet_auth_method_id)
+    const authenticatorRaw = authenticatorLookupRow
+      ? await authenticatorStore.get(authenticatorLookupRow.wallet_auth_method_id)
       : undefined;
     const existingAuthenticatorRow =
       authenticatorRaw === undefined ? null : parseWalletAuthMethodStorageRow(authenticatorRaw);
-    const existingAuthenticator =
-      existingAuthenticatorRow?.kind === 'passkey' && existingAuthenticatorRow.status === 'active'
-        ? existingAuthenticatorRow.authenticator
-        : null;
+    const authenticatorRow = input.authenticator
+      ? walletAuthMethodRowFromAuthenticator(
+          input.authenticator,
+          existingAuthenticatorRow?.kind === 'passkey' ? existingAuthenticatorRow : undefined,
+        )
+      : null;
     const localAuthMethodRaw = localAuthMethodRow
       ? await authenticatorStore.get(localAuthMethodRow.wallet_auth_method_id)
       : undefined;
     const existingLocalAuthMethodRow =
       localAuthMethodRaw === undefined ? null : parseWalletAuthMethodStorageRow(localAuthMethodRaw);
-    const existingLocalAuthMethod =
-      existingLocalAuthMethodRow?.kind === 'email_otp' &&
-      existingLocalAuthMethodRow.status === 'active'
-        ? existingLocalAuthMethodRow.record
-        : null;
     const selectionStore = ctx.store(SEAMS_WALLET_STORES.walletSelections);
     const selectionRaw = await selectionStore.get(input.authority.walletId);
     const selection =
@@ -3374,6 +3806,30 @@ export class SeamsWalletRepositories {
     const signerMaterialStore = ctx.store(SEAMS_WALLET_STORES.walletAuthoritySignerMaterials);
     const exportRootStore = ctx.store(SEAMS_WALLET_STORES.walletAuthorityExportRoots);
     const receiptStore = ctx.store(SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts);
+    const profileProjectionKey = localAuthorityPendingProfileProjectionAppStateKeyV1(
+      input.authority.authorityId,
+    );
+    const profileProjectionRaw = await appStateStore.get(profileProjectionKey);
+    const profileProjection =
+      profileProjectionRaw === undefined
+        ? null
+        : parseLocalAuthorityPendingProfileProjectionV1(profileProjectionRaw.value);
+    if (profileProjectionRaw !== undefined && !profileProjection) {
+      return {
+        kind: 'integrity_error',
+        reason: 'local authority profile projection is missing or corrupt',
+      };
+    }
+    const profileProjectionRecord =
+      profileProjection ??
+      buildLocalAuthorityPendingProfileProjectionV1({
+        authorityId: input.authority.authorityId,
+        walletId: input.authority.walletId,
+        authMethodId: input.authMethod.walletAuthMethodId,
+        profile: profileRow(input.profile, existingProfile || undefined),
+        authenticator: authenticatorRow,
+        localAuthMethod: localAuthMethodRow?.kind === 'email_otp' ? localAuthMethodRow : null,
+      });
     const authorityRaw = await authorityStore.get(input.authority.authorityId);
     const authMethodRaw = await authMethodStore.get(input.authMethod.walletAuthMethodId);
     const signerMaterialRaws: unknown[] = [];
@@ -3415,37 +3871,37 @@ export class SeamsWalletRepositories {
       receiptRaw === undefined
         ? null
         : parseLocalAuthorityInstallationReceiptStorageRow(receiptRaw)?.record || null;
-    const anyExisting =
+    if (
+      profileProjection &&
+      !localAuthorityPendingProfileProjectionMatchesInputV1(profileProjection, input)
+    ) {
+      return {
+        kind: 'integrity_error',
+        reason: 'local authority profile projection conflicts with replay',
+      };
+    }
+    const installationStateExists =
       authorityRaw !== undefined ||
       authMethodRaw !== undefined ||
-      profileRaw !== undefined ||
-      authenticatorRaw !== undefined ||
-      localAuthMethodRaw !== undefined ||
       signerMaterialRaws.some(rawValueIsPresent) ||
       exportRootRaw !== undefined ||
-      receiptRaw !== undefined;
-    const allExisting =
+      receiptRaw !== undefined ||
+      profileProjectionRaw !== undefined;
+    const allInstallationRecords =
       authorityRaw !== undefined &&
       authMethodRaw !== undefined &&
-      profileRaw !== undefined &&
-      (input.authenticator === null
-        ? authenticatorRaw === undefined
-        : authenticatorRaw !== undefined) &&
-      (input.localAuthMethod === null
-        ? localAuthMethodRaw === undefined
-        : localAuthMethodRaw !== undefined) &&
       signerMaterialRaws.every(rawValueIsPresent) &&
       (input.exportRoot === null ? exportRootRaw === undefined : exportRootRaw !== undefined) &&
       receiptRaw !== undefined;
-    if (anyExisting) {
+    if (installationStateExists) {
       if (
         !selection ||
-        !allExisting ||
+        !allInstallationRecords ||
         !existingAuthority ||
         !existingAuthMethod ||
-        !existingProfile ||
         !existingReceipt ||
-        (input.localAuthMethod !== null && !existingLocalAuthMethod)
+        !profileProjection ||
+        !localAuthorityPendingProfileProjectionsMatchV1(profileProjection, profileProjectionRecord)
       ) {
         return {
           kind: 'integrity_error',
@@ -3455,11 +3911,6 @@ export class SeamsWalletRepositories {
       if (
         !walletAuthorityRecordsMatch(existingAuthority.record, input.authority) ||
         !walletAuthMethodRecordsMatch(existingAuthMethod.record, input.authMethod) ||
-        existingProfile.profileId !== input.profile.profileId ||
-        existingProfile.defaultSignerSlot !== (input.profile.defaultSignerSlot ?? 1) ||
-        (input.profile.passkeyCredential !== undefined &&
-          (existingProfile.passkeyCredential?.id !== input.profile.passkeyCredential.id ||
-            existingProfile.passkeyCredential.rawId !== input.profile.passkeyCredential.rawId)) ||
         !localAuthorityInstallationReceiptsMatch(existingReceipt, input.receipt)
       ) {
         return {
@@ -3468,23 +3919,18 @@ export class SeamsWalletRepositories {
         };
       }
       if (
-        input.authenticator &&
-        (!existingAuthenticator ||
-          !rollbackRecordsEqual(existingAuthenticator, input.authenticator))
+        (existingProfile &&
+          !rollbackRecordsEqual(existingProfile, profileProjection.profile.record)) ||
+        (profileProjection.authenticator &&
+          existingAuthenticatorRow !== null &&
+          !rollbackRecordsEqual(existingAuthenticatorRow, profileProjection.authenticator)) ||
+        (profileProjection.localAuthMethod &&
+          existingLocalAuthMethodRow !== null &&
+          !rollbackRecordsEqual(existingLocalAuthMethodRow, profileProjection.localAuthMethod))
       ) {
         return {
           kind: 'integrity_error',
-          reason: 'stored profile authenticator conflicts with replay',
-        };
-      }
-      if (
-        input.localAuthMethod &&
-        (!existingLocalAuthMethod ||
-          !rollbackRecordsEqual(existingLocalAuthMethod, input.localAuthMethod))
-      ) {
-        return {
-          kind: 'integrity_error',
-          reason: 'stored local Email OTP auth method conflicts with replay',
+          reason: 'stored local profile projection conflicts with replay',
         };
       }
       for (let index = 0; index < input.signerMaterials.length; index += 1) {
@@ -3513,13 +3959,7 @@ export class SeamsWalletRepositories {
       return { kind: 'idempotent_replay', receipt: existingReceipt };
     }
 
-    await profileStore.put(profileRow(input.profile, existingProfile || undefined));
-    if (authenticatorRow) {
-      await authenticatorStore.put(authenticatorRow);
-    }
-    if (localAuthMethodRow) {
-      await authenticatorStore.put(localAuthMethodRow);
-    }
+    await appStateStore.put({ key: profileProjectionKey, value: profileProjectionRecord });
     await authorityStore.put(walletAuthorityStorageRow(input.authority));
     await authMethodStore.put(walletAuthMethodV2StorageRow(input.authMethod));
     for (const material of input.signerMaterials) {
@@ -3552,8 +3992,10 @@ export class SeamsWalletRepositories {
     const validated = validateFoundingWalletAuthorityInput(input);
     await this.manager.runTransaction(
       [
+        SEAMS_WALLET_STORES.appState,
         SEAMS_WALLET_STORES.walletAuthorities,
         SEAMS_WALLET_STORES.walletAuthMethods,
+        SEAMS_WALLET_STORES.wallets,
         SEAMS_WALLET_STORES.walletSelections,
       ],
       'readwrite',
@@ -3851,6 +4293,20 @@ export class SeamsWalletRepositories {
       | AppStateRow<T>
       | undefined;
     return row?.value;
+  }
+
+  async listAppStateEntriesByPrefix(prefix: string): Promise<ReadonlyArray<AppStateRow>> {
+    const normalizedPrefix = toTrimmedString(prefix || '');
+    if (!normalizedPrefix) return [];
+    const db = await this.manager.getDB();
+    const rawRows = (await db.getAll(SEAMS_WALLET_STORES.appState)) as unknown[];
+    return rawRows.flatMap((raw) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+      const row = raw as Partial<AppStateRow>;
+      return typeof row.key === 'string' && row.key.startsWith(normalizedPrefix)
+        ? [{ key: row.key, value: row.value }]
+        : [];
+    });
   }
 
   async setAppState<T = unknown>(key: string, value: T): Promise<void> {
@@ -4704,6 +5160,8 @@ export class SeamsWalletRepositories {
     let result: ActivateAccountSignerResult | null = null;
     await this.manager.runTransaction(
       [
+        SEAMS_WALLET_STORES.appState,
+        SEAMS_WALLET_STORES.wallets,
         SEAMS_WALLET_STORES.wallets,
         SEAMS_WALLET_STORES.nearAccountProjections,
         SEAMS_WALLET_STORES.walletSigners,

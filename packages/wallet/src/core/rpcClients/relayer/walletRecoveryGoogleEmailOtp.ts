@@ -184,6 +184,7 @@ export async function finalizeWalletRecoveryGoogleEmailOtp(
     return { kind: 'refused' };
   }
   const response = await postRecoveryJson(args, GOOGLE_EMAIL_OTP_FINALIZE_PATH, {
+    kind: 'finalize',
     recoveryOperationId: args.recoveryOperationId,
     reservationId: args.reservationId,
     replacementEnvelope,
