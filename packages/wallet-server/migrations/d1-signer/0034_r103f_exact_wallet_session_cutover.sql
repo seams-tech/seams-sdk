@@ -290,7 +290,15 @@ SELECT 1
 DROP TABLE r103f_active_tuple_guard;
 
 -- The child tables retain their exact composite foreign keys. Drop the old
--- parent indexes before replacing the parent so their names can be reused.
+-- parent guards and indexes before replacing the parent so SQLite never has
+-- to compile a trigger against the temporarily absent table and the index
+-- names can be reused.
+DROP TRIGGER IF EXISTS authorized_operation_owner_grant_claim_atomic;
+DROP TRIGGER IF EXISTS wallet_session_hosted_credentials_v2_parent_guard;
+DROP TRIGGER IF EXISTS wallet_session_hosted_credentials_v2_parent_update_guard;
+DROP TRIGGER IF EXISTS wallet_session_hosted_exchange_codes_v2_parent_guard;
+DROP TRIGGER IF EXISTS wallet_session_hosted_exchange_codes_v2_parent_update_guard;
+DROP TRIGGER IF EXISTS linked_device_wallet_session_credential_delivery_parent_guard;
 DROP INDEX IF EXISTS wallet_session_authorizations_v2_authority_idx;
 DROP INDEX IF EXISTS wallet_session_authorizations_v2_method_idx;
 DROP INDEX IF EXISTS wallet_session_authorizations_v2_wallet_idx;
@@ -464,6 +472,252 @@ CREATE INDEX wallet_session_authorizations_v2_credential_lifecycle_idx
     wallet_id, authority_id, wallet_auth_method_id,
     retired_at_ms, expires_at_ms, operation_credential_hash
   );
+
+CREATE TRIGGER authorized_operation_owner_grant_claim_atomic
+AFTER INSERT ON authorized_operations
+WHEN NEW.lifecycle_kind = 'claimed'
+  AND NEW.authorization_source_kind = 'authorization_grant'
+  AND NEW.authorization_grant_kind = 'wallet_session_authorization'
+BEGIN
+  SELECT CASE
+    WHEN NOT EXISTS (
+      SELECT 1
+        FROM wallet_session_authorizations_v2 AS session
+        JOIN authorization_wallet_session_quotas AS quota
+          ON quota.namespace = session.namespace
+         AND quota.tenant_id = session.tenant_id
+         AND quota.quota_id = session.quota_id
+         AND quota.wallet_session_id = session.wallet_session_id
+         AND quota.principal_id = session.principal_id
+        JOIN wallet_authorities AS authority
+          ON authority.namespace = session.namespace
+         AND authority.org_id = session.org_id
+         AND authority.project_id = session.project_id
+         AND authority.env_id = session.env_id
+         AND authority.authority_id = session.authority_id
+         AND authority.wallet_id = session.wallet_id
+        JOIN wallet_auth_methods AS auth_method
+          ON auth_method.namespace = session.namespace
+         AND auth_method.org_id = session.org_id
+         AND auth_method.project_id = session.project_id
+         AND auth_method.env_id = session.env_id
+         AND auth_method.wallet_auth_method_id = session.wallet_auth_method_id
+         AND auth_method.wallet_id = session.wallet_id
+         AND auth_method.wallet_authority_id = session.authority_id
+       WHERE session.namespace = NEW.namespace
+         AND session.org_id = NEW.linked_scope_org_id
+         AND session.project_id = NEW.linked_scope_project_id
+         AND session.env_id = NEW.linked_scope_env_id
+         AND session.tenant_id = NEW.tenant_id
+         AND session.authorization_id = NEW.authorization_id
+         AND session.principal_id = NEW.principal_id
+         AND (NEW.quota_kind = 'quota_neutral' OR session.quota_id = NEW.quota_id)
+         AND session.operation_credential_hash IS NOT NULL
+         AND session.retired_at_ms IS NULL
+         AND session.expires_at_ms > NEW.claimed_at_ms
+         AND authority.lifecycle_state = 'active'
+         AND authority.authority_digest_b64u = session.authority_digest_b64u
+         AND authority.revocation_epoch = session.authority_revocation_epoch
+         AND auth_method.status = 'active'
+    )
+    THEN RAISE(ABORT, 'authorization_wallet_session_rejected')
+  END;
+
+  UPDATE authorization_wallet_session_quotas
+     SET remaining_uses = remaining_uses - 1,
+         lifecycle_kind = CASE WHEN remaining_uses = 1 THEN 'exhausted' ELSE 'active' END
+   WHERE NEW.quota_kind = 'consume_reusable_wallet_session'
+     AND namespace = NEW.namespace
+     AND tenant_id = NEW.tenant_id
+     AND quota_id = NEW.quota_id
+     AND principal_id = NEW.principal_id
+     AND lifecycle_kind = 'active'
+     AND remaining_uses > 0
+     AND expires_at_ms > NEW.claimed_at_ms
+     AND wallet_session_id = (
+       SELECT session.wallet_session_id
+         FROM wallet_session_authorizations_v2 AS session
+         JOIN authorization_wallet_session_quotas AS quota
+           ON quota.namespace = session.namespace
+          AND quota.tenant_id = session.tenant_id
+          AND quota.quota_id = session.quota_id
+          AND quota.wallet_session_id = session.wallet_session_id
+          AND quota.principal_id = session.principal_id
+         JOIN wallet_authorities AS authority
+           ON authority.namespace = session.namespace
+          AND authority.org_id = session.org_id
+          AND authority.project_id = session.project_id
+          AND authority.env_id = session.env_id
+          AND authority.authority_id = session.authority_id
+          AND authority.wallet_id = session.wallet_id
+         JOIN wallet_auth_methods AS auth_method
+           ON auth_method.namespace = session.namespace
+          AND auth_method.org_id = session.org_id
+          AND auth_method.project_id = session.project_id
+          AND auth_method.env_id = session.env_id
+          AND auth_method.wallet_auth_method_id = session.wallet_auth_method_id
+          AND auth_method.wallet_id = session.wallet_id
+          AND auth_method.wallet_authority_id = session.authority_id
+        WHERE session.namespace = NEW.namespace
+          AND session.org_id = NEW.linked_scope_org_id
+          AND session.project_id = NEW.linked_scope_project_id
+          AND session.env_id = NEW.linked_scope_env_id
+          AND session.tenant_id = NEW.tenant_id
+          AND session.authorization_id = NEW.authorization_id
+          AND session.principal_id = NEW.principal_id
+          AND session.quota_id = NEW.quota_id
+          AND session.operation_credential_hash IS NOT NULL
+          AND session.retired_at_ms IS NULL
+          AND session.expires_at_ms > NEW.claimed_at_ms
+          AND authority.lifecycle_state = 'active'
+          AND authority.authority_digest_b64u = session.authority_digest_b64u
+          AND authority.revocation_epoch = session.authority_revocation_epoch
+          AND auth_method.status = 'active'
+        LIMIT 1
+     );
+
+  SELECT CASE
+    WHEN NEW.quota_kind = 'consume_reusable_wallet_session' AND changes() != 1
+    THEN RAISE(ABORT, 'authorization_wallet_session_quota_rejected')
+  END;
+END;
+
+CREATE TRIGGER wallet_session_hosted_credentials_v2_parent_guard
+BEFORE INSERT ON wallet_session_hosted_credentials_v2
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM wallet_session_authorizations_v2 AS session
+   WHERE session.namespace = NEW.namespace
+     AND session.org_id = NEW.org_id
+     AND session.project_id = NEW.project_id
+     AND session.env_id = NEW.env_id
+     AND session.tenant_id = NEW.tenant_id
+     AND session.authorization_id = NEW.authorization_id
+     AND session.wallet_session_id = NEW.wallet_session_id
+     AND session.quota_id = NEW.quota_id
+     AND session.principal_id = NEW.principal_id
+     AND session.wallet_id = NEW.wallet_id
+     AND session.authority_id = NEW.authority_id
+     AND session.wallet_auth_method_id = NEW.wallet_auth_method_id
+     AND session.operation_credential_hash IS NOT NULL
+     AND session.retired_at_ms IS NULL
+     AND session.expires_at_ms >= NEW.expires_at_ms
+)
+BEGIN
+  SELECT RAISE(ABORT, 'wallet_session_hosted_credential_parent_rejected');
+END;
+
+CREATE TRIGGER wallet_session_hosted_credentials_v2_parent_update_guard
+BEFORE UPDATE OF lifecycle_kind
+ON wallet_session_hosted_credentials_v2
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM wallet_session_authorizations_v2 AS session
+   WHERE session.namespace = NEW.namespace
+     AND session.org_id = NEW.org_id
+     AND session.project_id = NEW.project_id
+     AND session.env_id = NEW.env_id
+     AND session.tenant_id = NEW.tenant_id
+     AND session.authorization_id = NEW.authorization_id
+     AND session.wallet_session_id = NEW.wallet_session_id
+     AND session.quota_id = NEW.quota_id
+     AND session.principal_id = NEW.principal_id
+     AND session.wallet_id = NEW.wallet_id
+     AND session.authority_id = NEW.authority_id
+     AND session.wallet_auth_method_id = NEW.wallet_auth_method_id
+     AND session.operation_credential_hash IS NOT NULL
+     AND session.retired_at_ms IS NULL
+     AND session.expires_at_ms >= NEW.expires_at_ms
+)
+BEGIN
+  SELECT RAISE(ABORT, 'wallet_session_hosted_credential_parent_rejected');
+END;
+
+CREATE TRIGGER wallet_session_hosted_exchange_codes_v2_parent_guard
+BEFORE INSERT ON wallet_session_hosted_exchange_codes_v2
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM wallet_session_authorizations_v2 AS session
+   WHERE session.namespace = NEW.namespace
+     AND session.org_id = NEW.org_id
+     AND session.project_id = NEW.project_id
+     AND session.env_id = NEW.env_id
+     AND session.tenant_id = NEW.tenant_id
+     AND session.authorization_id = NEW.authorization_id
+     AND session.wallet_session_id = NEW.wallet_session_id
+     AND session.quota_id = NEW.quota_id
+     AND session.principal_id = NEW.principal_id
+     AND session.wallet_id = NEW.wallet_id
+     AND session.authority_id = NEW.authority_id
+     AND session.wallet_auth_method_id = NEW.wallet_auth_method_id
+     AND session.operation_credential_hash IS NOT NULL
+     AND session.retired_at_ms IS NULL
+     AND session.expires_at_ms >= NEW.expires_at_ms
+)
+BEGIN
+  SELECT RAISE(ABORT, 'wallet_session_hosted_exchange_parent_rejected');
+END;
+
+CREATE TRIGGER wallet_session_hosted_exchange_codes_v2_parent_update_guard
+BEFORE UPDATE OF lifecycle_kind, hosted_credential_id
+ON wallet_session_hosted_exchange_codes_v2
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM wallet_session_authorizations_v2 AS session
+   WHERE session.namespace = NEW.namespace
+     AND session.org_id = NEW.org_id
+     AND session.project_id = NEW.project_id
+     AND session.env_id = NEW.env_id
+     AND session.tenant_id = NEW.tenant_id
+     AND session.authorization_id = NEW.authorization_id
+     AND session.wallet_session_id = NEW.wallet_session_id
+     AND session.quota_id = NEW.quota_id
+     AND session.principal_id = NEW.principal_id
+     AND session.wallet_id = NEW.wallet_id
+     AND session.authority_id = NEW.authority_id
+     AND session.wallet_auth_method_id = NEW.wallet_auth_method_id
+     AND session.operation_credential_hash IS NOT NULL
+     AND session.retired_at_ms IS NULL
+     AND session.expires_at_ms >= NEW.expires_at_ms
+     AND session.expires_at_ms > COALESCE(NEW.consumed_at_ms, NEW.issued_at_ms)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'wallet_session_hosted_exchange_parent_rejected');
+END;
+
+CREATE TRIGGER linked_device_wallet_session_credential_delivery_parent_guard
+BEFORE INSERT ON linked_device_wallet_session_credential_deliveries_v1
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM wallet_session_authorizations_v2 AS session
+    JOIN linked_device_authority_installations AS installation
+      ON installation.namespace = NEW.namespace
+     AND installation.org_id = NEW.org_id
+     AND installation.project_id = NEW.project_id
+     AND installation.env_id = NEW.env_id
+     AND installation.link_session_id = NEW.link_session_id
+   WHERE session.namespace = NEW.namespace
+     AND session.org_id = NEW.org_id
+     AND session.project_id = NEW.project_id
+     AND session.env_id = NEW.env_id
+     AND session.tenant_id = NEW.tenant_id
+     AND session.authorization_id = NEW.authorization_id
+     AND session.wallet_session_id = NEW.wallet_session_id
+     AND session.quota_id = NEW.quota_id
+     AND session.principal_id = NEW.principal_id
+     AND session.wallet_id = NEW.wallet_id
+     AND session.authority_id = NEW.authority_id
+     AND session.wallet_auth_method_id = NEW.wallet_auth_method_id
+     AND session.operation_credential_hash IS NOT NULL
+     AND session.retired_at_ms IS NULL
+     AND session.expires_at_ms >= NEW.expires_at_ms
+     AND installation.authority_id = NEW.authority_id
+     AND installation.wallet_id = NEW.wallet_id
+     AND installation.auth_method_id = NEW.wallet_auth_method_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'linked_device_wallet_session_credential_delivery_parent_rejected');
+END;
 
 -- D1 has no convenient SQL-level RAISE outside triggers. A duplicate guard
 -- makes any foreign-key-check result fail the migration before it can finish.

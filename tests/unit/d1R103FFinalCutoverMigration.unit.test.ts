@@ -59,6 +59,14 @@ const RETIRED_SESSION_TABLES = [
   'hosted_wallet_session_exchange_codes',
   'registration_replay_opaque_wallet_session_tokens_v1',
 ] as const;
+const FINAL_PARENT_GUARD_TRIGGERS = [
+  'authorized_operation_owner_grant_claim_atomic',
+  'linked_device_wallet_session_credential_delivery_parent_guard',
+  'wallet_session_hosted_credentials_v2_parent_guard',
+  'wallet_session_hosted_credentials_v2_parent_update_guard',
+  'wallet_session_hosted_exchange_codes_v2_parent_guard',
+  'wallet_session_hosted_exchange_codes_v2_parent_update_guard',
+] as const;
 
 const AUTHORITY_RECORD = JSON.stringify({
   authorityId: AUTHORITY_ID,
@@ -746,6 +754,13 @@ async function readTableNames(database: Database): Promise<readonly string[]> {
   return rows.results.flatMap((row) => (typeof row.name === 'string' ? [row.name] : []));
 }
 
+async function readTriggerNames(database: Database): Promise<readonly string[]> {
+  const rows = await database
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name`)
+    .all<{ readonly name?: unknown }>();
+  return rows.results.flatMap((row) => (typeof row.name === 'string' ? [row.name] : []));
+}
+
 async function readForeignKeySignatures(
   database: Database,
   tableName: string,
@@ -794,6 +809,9 @@ test('R103F final cutover installs exact tables and both readiness manifests agr
     const tableNames = await readTableNames(temporary.database);
     expect(tableNames).toEqual(expect.arrayContaining([...FINAL_SESSION_MANIFEST_TABLES]));
     expect(tableNames).not.toEqual(expect.arrayContaining([...RETIRED_SESSION_TABLES]));
+    await expect(readTriggerNames(temporary.database)).resolves.toEqual(
+      expect.arrayContaining([...FINAL_PARENT_GUARD_TRIGGERS]),
+    );
     await expectForeignKeyCheckEmpty(temporary.database);
 
     const localManifest = readManifestTables(

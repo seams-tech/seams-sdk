@@ -203,6 +203,10 @@ import {
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
 import {
+  readExactWalletSessionAuthentication,
+  type ExactWalletSessionAuthenticationReadResult,
+} from '@/core/signingEngine/session/identity/exactWalletSessionReader';
+import {
   unlockEmailOtpAuthorityWallet,
   type EmailOtpAuthorityWalletUnlockResult,
   type EmailOtpAuthorityUnlockEd25519Request,
@@ -6450,74 +6454,6 @@ async function buildCapabilityUnresolvableWalletSession(args: {
       reason: args.reason,
     },
     nonceDiagnostics: readWalletSessionNonceDiagnostics(args.context, appIdentity.nearAccountId),
-  };
-}
-
-type AuthenticatedWalletState = Extract<WalletAuthenticationState, { kind: 'authenticated' }>;
-
-type ExactWalletSessionAuthenticationReadResult =
-  | {
-      readonly kind: 'authenticated';
-      readonly state: AuthenticatedWalletState;
-    }
-  | {
-      readonly kind: 'missing';
-      readonly state?: never;
-    }
-  | {
-      readonly kind: 'upgrade_required';
-      readonly state?: never;
-    };
-
-async function readExactWalletSessionAuthentication(
-  walletId: WalletId,
-): Promise<ExactWalletSessionAuthenticationReadResult> {
-  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
-  if (selected.kind !== 'resolved') return { kind: 'missing' };
-  const { selection, authMethod, authority } = selected;
-  if (
-    selection.walletId !== walletId ||
-    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
-    selection.lockState !== 'unlocked' ||
-    authMethod.walletId !== walletId ||
-    authMethod.walletAuthorityId !== authority.authorityId ||
-    authMethod.status !== 'active' ||
-    authority.walletId !== walletId ||
-    authority.state !== 'active'
-  ) {
-    return { kind: 'missing' };
-  }
-  const exact = await walletSessionAuthorizations.readExactWithOperationCredential({
-    walletId,
-    authorityId: authority.authorityId,
-    authMethodId: authMethod.walletAuthMethodId,
-  });
-  switch (exact.kind) {
-    case 'found':
-      break;
-    case 'missing':
-      return { kind: 'missing' };
-    case 'upgrade_required':
-      return { kind: 'upgrade_required' };
-  }
-  if (
-    String(exact.record.walletId) !== String(walletId) ||
-    String(exact.record.authorityId) !== String(authority.authorityId) ||
-    String(exact.record.authMethodId) !== String(authMethod.walletAuthMethodId) ||
-    exact.record.authorityDigestB64u !== authority.authorityDigestB64u ||
-    exact.record.authorityRevocationEpoch !== authority.revocationEpoch ||
-    exact.record.expiresAtMs <= Date.now() ||
-    exact.operationCredential.token.trim().length === 0
-  ) {
-    return { kind: 'missing' };
-  }
-  return {
-    kind: 'authenticated',
-    state: {
-      kind: 'authenticated',
-      walletId,
-      authMethod: authMethod.kind,
-    },
   };
 }
 
