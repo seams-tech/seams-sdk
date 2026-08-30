@@ -1407,8 +1407,10 @@ remaining consumers are converted.
 
 ### Phase 2 — Convert server consumers
 
-- [ ] Convert remaining registration, unlock, refresh, sync, ECDSA activation,
-      linked activation, and post-recovery login issuers.
+- [x] Convert remaining registration, unlock, refresh, sync, ECDSA activation,
+      linked activation, and post-recovery login issuers. Each final producer
+      either commits direct V2 atomically or remains credential-free until
+      normal exact-method unlock; issuer closure searches have no V1 match.
 - [x] Make the V2 credential reader required and delete `not_v2` from exact core
       admission.
 - [x] Convert signing, pool fill, signing-session seal, execution-lane
