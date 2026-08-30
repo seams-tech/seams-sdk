@@ -1465,7 +1465,6 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   walletAuthMethodId: EmailOtpEcdsaCapabilityArgs['walletAuthMethodId'];
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
   providerIdentity: EmailOtpEcdsaCapabilityArgs['providerIdentity'];
   publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
