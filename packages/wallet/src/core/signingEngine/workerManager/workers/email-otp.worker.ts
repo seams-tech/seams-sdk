@@ -3149,7 +3149,8 @@ function buildEmailOtpRequestedCapabilities(args: {
 }): EmailOtpRequestedCapabilities {
   switch (args.material.kind) {
     case 'ecdsa':
-      return args.material.ecdsaSessionPolicy ? { kind: 'wallet_session' } : { kind: 'none' };
+      // Direct ECDSA unlock carries its own credential-bearing activation.
+      return { kind: 'none' };
     case 'ed25519_yao_export':
       return { kind: 'none' };
     case 'ed25519_yao_recovery': {
