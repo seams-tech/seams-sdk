@@ -5,6 +5,7 @@ import {
   nearAuthenticatorsByAccount,
   storeWalletEcdsaSignerRecords,
   finalizeWalletEd25519SignerRegistration,
+  prepareWalletMixedRegistrationPublication,
   storeWalletEd25519RegistrationData,
   storeWalletEmailOtpMixedRegistrationData,
   storeWalletMixedRegistrationData,
@@ -25,12 +26,15 @@ import {
   nearEd25519SigningKeyIdFromString,
   walletIdFromString,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { makeEcdsaRoleLocalReadyRecordFixture } from './helpers/ecdsaSessionRecordVariants.fixtures';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
 import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { sha256HexUtf8 } from '../../packages/shared-ts/src/utils/digests';
 import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import { WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND } from '../../packages/wallet/src/core/signingEngine/walletCustody/ed25519SeedMaterial';
+import { buildPasskeyNearProvisioningPublicationFixture } from './helpers/pendingWalletRegistrationPublication.fixtures';
 
 function webAuthnRpId(value: string) {
   const parsed = parseWebAuthnRpId(value);
@@ -633,6 +637,99 @@ test('mixed wallet registration atomically persists Ed25519 and every ECDSA targ
       },
     ],
   });
+});
+
+test('mixed fresh-registration publication builder emits one Passkey batch', async () => {
+  const fixture = await buildPasskeyNearProvisioningPublicationFixture();
+  const pending = fixture.input.pending;
+  if (pending.operation !== 'near_provisioning' || pending.auth.kind !== 'passkey') {
+    throw new Error('Passkey publication fixture has the wrong pending branch');
+  }
+  if (!('ed25519' in pending.localMaterial)) {
+    throw new Error('Passkey publication fixture has no Ed25519 material');
+  }
+  const nearMaterial = pending.localMaterial.ed25519;
+  const walletId = String(pending.walletId);
+  const walletKey = storeWalletEcdsaWalletKeyFixture({
+    keyScope: 'evm-family',
+    chainTarget: {
+      kind: 'evm',
+      namespace: 'eip155',
+      chainId: 1,
+      networkSlug: 'ethereum',
+    },
+    walletId,
+    evmFamilySigningKeySlotId: 'evm-family-slot-mixed-publication',
+    keyHandle: 'ecdsa-key-mixed-publication',
+    ecdsaThresholdKeyId: 'ecdsa-threshold-key-mixed-publication',
+    signingRootId: 'project_registration:dev',
+    signingRootVersion: 'root_v1',
+    thresholdEcdsaPublicKeyB64u: 'A1111111111111111111111111111111111111111111',
+    thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
+    relayerKeyId: 'relayer-key-mixed-publication',
+    relayerVerifyingShareB64u: 'relayer-share-mixed-publication',
+    participantIds: [1, 2],
+  });
+
+  const registration = await prepareWalletMixedRegistrationPublication({
+    kind: 'passkey',
+    walletId: pending.walletId,
+    nearAccountId: toAccountId('publication.testnet'),
+    nearEd25519SigningKeyId: nearMaterial.metadata.nearEd25519SigningKeyId,
+    rpId: pending.auth.rpId,
+    credential,
+    credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(23)),
+    signerSlot: nearMaterial.metadata.signerSlot,
+    operationalPublicKey: 'ed25519:publication-public-key',
+    relayerKeyId: 'relayer-publication-key',
+    keyVersion: 'router-ab-ed25519-yao-v1',
+    participantIds: nearMaterial.metadata.participantIds,
+    custodyMaterial: {
+      binding: {
+        kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+        applicationBindingDigestB64u:
+          nearMaterial.localMaterial.applicationBindingDigestB64u,
+        registeredPublicKeyB64u: nearMaterial.metadata.registeredPublicKeyB64u,
+        participantIds: nearMaterial.metadata.participantIds,
+        stateEpoch: nearMaterial.metadata.stateEpoch,
+        walletId,
+        nearAccountId: 'publication.testnet',
+        nearEd25519SigningKeyId: nearMaterial.metadata.nearEd25519SigningKeyId,
+        signerSlot: nearMaterial.metadata.signerSlot,
+        signingWorkerId: nearMaterial.metadata.signingWorkerId,
+        signingWorkerVerifyingShareB64u:
+          nearMaterial.metadata.signingWorkerVerifyingShareB64u,
+      },
+      sealed: {
+        ciphertextB64u: nearMaterial.localMaterial.b64u,
+        nonceB64u: nearMaterial.localMaterial.nonceB64u,
+      },
+    },
+    walletKeys: [walletKey],
+  });
+
+  expect(registration.profiles).toHaveLength(2);
+  expect(registration.initialAuthMethod.kind).toBe('passkey');
+  expect(registration.signerActivations).toHaveLength(3);
+  expect(registration.signerActivations.slice(2)).toMatchObject([
+    {
+      account: {
+        profileId: walletId,
+        chainIdKey: 'evm:eip155:1',
+        accountModel: 'threshold-ecdsa',
+      },
+      signer: {
+        signerKind: 'threshold-ecdsa',
+        signerId: '0x1111111111111111111111111111111111111111',
+      },
+    },
+  ]);
+  expect(registration.keyMaterials).toHaveLength(4);
+  expect(
+    registration.keyMaterials.filter(
+      (material) => material.keyKind === WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+    ),
+  ).toHaveLength(1);
 });
 
 test('Email OTP mixed registration atomically persists Ed25519 and every ECDSA target', async () => {
