@@ -47,7 +47,6 @@ import {
   type WalletId,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { type PreparedThresholdSigningOperation } from '../../session/operationState/preparedOperation';
 import {
   createSigningBoundaryTraceEvent,
@@ -70,7 +69,10 @@ import {
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { EvmFamilySigningTarget } from './types';
 import type { OwnerLaneScope } from '../../session/identity/signingLaneAuthBinding';
-import type { ExactEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
+import {
+  exactEcdsaWalletSessionRuntimesMatch,
+  type ExactEvmFamilyWalletSessionAuthorization,
+} from '../../session/material/ecdsaSigningCapability';
 
 export function buildEvmFamilyTransactionSigningIntent(args: {
   walletId: WalletId;
@@ -236,14 +238,7 @@ function exactEcdsaAuthorizationIdentityMatches(
     leftSession.authorityRevocationEpoch === rightSession.authorityRevocationEpoch &&
     left.operationCredential.walletSessionId === right.operationCredential.walletSessionId &&
     left.operationCredential.token === right.operationCredential.token &&
-    thresholdEcdsaChainTargetsEqual(left.runtime.chainTarget, right.runtime.chainTarget) &&
-    mpcMaterialActivationRefsEqual(
-      left.runtime.materialActivation,
-      right.runtime.materialActivation,
-    ) &&
-    left.runtime.sealedRecord.authMethod === right.runtime.sealedRecord.authMethod &&
-    left.runtime.sealedRecord.storeKey === right.runtime.sealedRecord.storeKey &&
-    left.runtime.sealedRecord.thresholdSessionId === right.runtime.sealedRecord.thresholdSessionId
+    exactEcdsaWalletSessionRuntimesMatch(left.runtime, right.runtime)
   );
 }
 

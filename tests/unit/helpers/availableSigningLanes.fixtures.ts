@@ -79,6 +79,7 @@ import {
   type ExactNearEd25519WalletSessionAuthorization,
 } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
 import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
+import type { OwnerLaneScope } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import { projectActiveWalletSession } from '../../../packages/wallet-server/src/authorization/domain';
 import { buildExactWalletSessionAuthorizationFixture } from './exactWalletSessionAuthorization.fixtures';
 
@@ -726,6 +727,25 @@ export function authorizationRequiredCanonicalEcdsaAvailableLane(
     ...base,
     auth: authorized.auth,
     resolvedKey: authorized.resolvedKey,
+  };
+}
+
+export function canonicalEcdsaOwnerLaneScopeFixture(
+  lane: Extract<ConcreteAvailableEcdsaSigningLane, { source: 'canonical_capability' }>,
+): OwnerLaneScope {
+  const authorityRef = buildWalletAuthAuthorityRefForAuthorityFixture(lane.capability.authority);
+  if (lane.auth.kind === 'passkey') {
+    return {
+      auth: lane.auth,
+      keyFamily: 'ecdsa',
+    };
+  }
+  return {
+    auth: lane.auth,
+    ownerAuthority: {
+      walletAuthMethodId: authorityRef.walletAuthMethodId,
+      authorityDigest: authorityRef.authorityDigest,
+    },
   };
 }
 

@@ -1,6 +1,8 @@
 import {
   buildActiveWalletAuthorityV1,
   buildWalletSignerActivationSetV1,
+  computeWalletAuthorityDigestB64u,
+  computeWalletSignerActivationSetDigestB64u,
 } from '@shared/authorization/walletAuthority';
 import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 import {
@@ -54,13 +56,13 @@ export async function buildExactPasskeyEvmFamilyWalletSessionAuthorizationFixtur
   });
 }
 
-export function buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeFixture(input: {
+export async function buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeFixture(input: {
   readonly label: string;
   readonly walletSessionLabel: string;
   readonly authorizationLabel: string;
   readonly quotaLabel: string;
   readonly canonicalRuntime: Awaited<ReturnType<typeof canonicalEcdsaSealedRuntimeFixture>>;
-}): ExactEvmFamilyWalletSessionAuthorization {
+}): Promise<ExactEvmFamilyWalletSessionAuthorization> {
   const { fixture, runtime } = input.canonicalRuntime;
   if (!isPasskeyWalletAuthAuthority(fixture.authority)) {
     throw new Error('[fixture] exact Passkey authorization requires a Passkey authority');
@@ -88,9 +90,10 @@ export function buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeF
       ecdsa: materialActivation,
     },
   });
-  const bindingDigest = authorityDigest(String(fixture.manifest.signer.authority.authorityDigest));
+  const signerActivationSetDigestB64u =
+    await computeWalletSignerActivationSetDigestB64u(signerActivations);
   const authorityId = required(parseWalletAuthorityId(`authority:exact-session-${input.label}`));
-  const authority = buildActiveWalletAuthorityV1({
+  const authorityDraft = buildActiveWalletAuthorityV1({
     kind: 'wallet_authority_v1',
     authorityId,
     walletId,
@@ -101,13 +104,17 @@ export function buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeF
     provenance: { kind: 'wallet_registration' },
     permissions: buildFullOwnerPermissionsV1(),
     signerActivations,
-    signerActivationSetDigestB64u: bindingDigest,
-    authorityDigestB64u: bindingDigest,
+    signerActivationSetDigestB64u,
+    authorityDigestB64u: authorityDigest(String(fixture.manifest.signer.authority.authorityDigest)),
     revocationEpoch: 0,
     createdAtMs: 100,
     updatedAtMs: 200,
     state: 'active',
     activatedAtMs: 200,
+  });
+  const authority = buildActiveWalletAuthorityV1({
+    ...authorityDraft,
+    authorityDigestB64u: await computeWalletAuthorityDigestB64u(authorityDraft),
   });
   const authMethod = buildWalletAuthMethodRecordV2({
     version: 'wallet_auth_method_v2',
@@ -204,9 +211,7 @@ export async function buildExactEmailOtpEvmFamilyWalletSessionAuthorizationFixtu
     permissions: walletSessionFixture.authority.permissions,
     signerActivations: walletSessionFixture.authority.signerActivations,
     signerActivationSetDigestB64u: walletSessionFixture.authority.signerActivationSetDigestB64u,
-    authorityDigestB64u: authorityDigest(
-      String(input.capability.manifest.signer.authority.authorityDigest),
-    ),
+    authorityDigestB64u: walletSessionFixture.authority.authorityDigestB64u,
     revocationEpoch: walletSessionFixture.authority.revocationEpoch,
     createdAtMs: walletSessionFixture.authority.createdAtMs,
     updatedAtMs: walletSessionFixture.authority.updatedAtMs,

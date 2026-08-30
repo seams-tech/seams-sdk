@@ -565,7 +565,6 @@ export type EmailOtpEcdsaCapabilityArgs = {
   walletAuthMethodId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
   ed25519Selection: import('@/core/signingEngine/session/emailOtp/publicTypes').EmailOtpUnlockEd25519Selection;
   providerIdentity: {
     provider: EmailOtpProvider;

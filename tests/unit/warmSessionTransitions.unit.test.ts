@@ -12,22 +12,21 @@ import {
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { canonicalEcdsaSealedRuntimeFixture } from './helpers/ecdsaOperationStepUp.fixtures';
 import { buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeFixture } from './helpers/exactEvmFamilyWalletSessionAuthorization.fixtures';
-import {
-  buildPasskeyEd25519SealedSessionRecordFixture,
-} from './helpers/sealedSigningSession.fixtures';
+import { buildPasskeyEd25519SealedSessionRecordFixture } from './helpers/sealedSigningSession.fixtures';
 import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 
 async function createEnvelope(): Promise<WarmSessionEnvelope> {
   const canonicalRuntime = await canonicalEcdsaSealedRuntimeFixture('passkey');
   const { fixture, runtime } = canonicalRuntime;
-  const authorization = buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeFixture({
-    label: 'warm-transition',
-    walletSessionLabel: 'warm-transition',
-    authorizationLabel: 'warm-transition',
-    quotaLabel: 'warm-transition',
-    canonicalRuntime,
-  });
+  const authorization =
+    await buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeFixture({
+      label: 'warm-transition',
+      walletSessionLabel: 'warm-transition',
+      authorizationLabel: 'warm-transition',
+      quotaLabel: 'warm-transition',
+      canonicalRuntime,
+    });
   const publicFacts = fixture.manifest.durableMaterial.roleLocalPublicFacts;
   if (
     runtime.authBinding.kind !== 'passkey' ||

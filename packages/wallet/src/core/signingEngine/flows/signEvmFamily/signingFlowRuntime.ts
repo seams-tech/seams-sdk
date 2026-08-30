@@ -16,17 +16,13 @@ import {
 } from './readySecp256k1Material';
 import { resolveExactEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
-import {
-  walletAuthAuthoritiesMatch,
-  type WalletAuthAuthority,
-} from '@shared/utils/walletAuthAuthority';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
@@ -49,7 +45,10 @@ import type {
   ExactEvmFamilyWalletSessionAuthorization,
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../../session/material/ecdsaSigningCapability';
-import { authorizeEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
+import {
+  authorizeEvmFamilyEcdsaSigningCapability,
+  exactEcdsaWalletSessionRuntimesMatch,
+} from '../../session/material/ecdsaSigningCapability';
 import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
 import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
 import {
@@ -227,27 +226,7 @@ export function ecdsaSigningAuthorizationSupersession(args: {
     prepared.session.authorityRevocationEpoch === current.session.authorityRevocationEpoch &&
     prepared.operationCredential.walletSessionId === current.operationCredential.walletSessionId &&
     prepared.operationCredential.token === current.operationCredential.token &&
-    thresholdEcdsaChainTargetsEqual(prepared.runtime.chainTarget, current.runtime.chainTarget) &&
-    mpcMaterialActivationRefsEqual(
-      prepared.runtime.materialActivation,
-      current.runtime.materialActivation,
-    ) &&
-    prepared.runtime.sealedRecord.authMethod === current.runtime.sealedRecord.authMethod &&
-    prepared.runtime.sealedRecord.storeKey === current.runtime.sealedRecord.storeKey &&
-    prepared.runtime.sealedRecord.thresholdSessionId ===
-      current.runtime.sealedRecord.thresholdSessionId &&
-    prepared.runtime.authBinding.kind === current.runtime.authBinding.kind &&
-    ((prepared.runtime.authBinding.kind === 'email_otp' &&
-      current.runtime.authBinding.kind === 'email_otp' &&
-      walletAuthAuthoritiesMatch(
-        prepared.runtime.authBinding.emailOtpAuthority,
-        current.runtime.authBinding.emailOtpAuthority,
-      )) ||
-      (prepared.runtime.authBinding.kind === 'passkey' &&
-        current.runtime.authBinding.kind === 'passkey' &&
-        prepared.runtime.authBinding.rpId === current.runtime.authBinding.rpId &&
-        prepared.runtime.authBinding.credentialIdB64u ===
-          current.runtime.authBinding.credentialIdB64u)) &&
+    exactEcdsaWalletSessionRuntimesMatch(prepared.runtime, current.runtime) &&
     mpcMaterialActivationRefsEqual(current.runtime.materialActivation, args.materialActivation)
   ) {
     return null;

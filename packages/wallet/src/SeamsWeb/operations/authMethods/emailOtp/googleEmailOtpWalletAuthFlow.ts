@@ -583,7 +583,6 @@ async function loginWithConfiguredTargets(args: {
     chainTarget: primaryTarget,
     publicationChainTargets: args.targets,
     keyHandle: args.challenge.signerSelection.keyHandle,
-    runtimePolicyScope: args.challenge.signerSelection.runtimePolicyScope,
     ed25519Selection: args.challenge.signerSelection.ed25519,
   });
 }

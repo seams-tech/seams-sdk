@@ -78,6 +78,7 @@ export function emailOtpEcdsaSigningSessionAuthLane(
 ): Extract<EmailOtpAuthLane, { kind: 'signing_session'; curve: 'ecdsa' }> {
   if (
     authorization.selectedAuthMethod.kind !== 'email_otp' ||
+    authorization.runtime.kind !== 'exact_ecdsa_sealed_runtime_v1' ||
     authorization.runtime.authBinding.kind !== 'email_otp' ||
     authorization.operationCredential.token.trim().length === 0 ||
     authorization.runtime.sealedRecord.thresholdSessionId.trim().length === 0

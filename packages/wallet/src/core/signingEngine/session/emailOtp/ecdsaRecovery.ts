@@ -409,6 +409,9 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
     sealedRecord,
     authorization,
   });
+  if (restoreSource.authorization.runtime.kind !== 'exact_ecdsa_sealed_runtime_v1') {
+    throw new Error('Email OTP sealed refresh requires a sealed ECDSA runtime');
+  }
   const walletSessionToken = restoreSource.authorization.operationCredential.token;
   if (emailOtpAuthContextRetention(restoreSource.emailOtpAuthContext) !== 'session') return null;
 

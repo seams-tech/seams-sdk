@@ -26,6 +26,11 @@ import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { resolveExactInactiveEcdsaMaterialRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import { resolveExactEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
+import { buildExactEcdsaDirectCapabilityRuntime } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import { Secp256k1Engine } from '@/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
 import { clearAllRouterAbEcdsaDerivationClientPresignatures } from '@/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool';
 import {
@@ -80,6 +85,38 @@ function requireInactiveRuntime(
 }
 
 for (const factor of ['passkey', 'email_otp'] as const) {
+  test(`durable ${factor} capability pairs with an exact active session without sealed state`, async () => {
+    const { fixture, runtime: sealedRuntime } = await canonicalEcdsaSealedRuntimeFixture(factor);
+    const capabilityRuntime = await resolveExactEcdsaCapabilityRuntime({
+      manifest: fixture.manifest,
+      chainTarget: sealedRuntime.chainTarget,
+      relayerUrl: sealedRuntime.relayerUrl,
+    });
+    if (capabilityRuntime.kind !== 'resolved') {
+      throw new Error(`${factor} durable capability did not resolve: ${capabilityRuntime.reason}`);
+    }
+    const walletSessionId = parseWalletSessionId(`wallet-session:direct-${factor}`);
+    const quotaId = parseMpcWalletSigningQuotaId(`quota:direct-${factor}`);
+    if (!walletSessionId.ok || !quotaId.ok) throw new Error('Direct session fixture is invalid');
+
+    const runtime = buildExactEcdsaDirectCapabilityRuntime({
+      runtime: capabilityRuntime.runtime,
+      authority: fixture.authority,
+      status: {
+        status: 'active',
+        walletSessionId: walletSessionId.value,
+        quotaId: quotaId.value,
+        remainingUses: sealedRuntime.remainingUses,
+        expiresAtMs: sealedRuntime.expiresAtMs,
+      },
+    });
+
+    expect(runtime.kind).toBe('exact_ecdsa_direct_capability_runtime_v1');
+    expect(runtime.sealedRecord).toBeUndefined();
+    expect(runtime.authBinding.kind).toBe(factor);
+    expect(runtime.materialActivation).toEqual(fixture.manifest.activation.materialActivation);
+  });
+
   test(`inactive ${factor} material reaches canonical worker hydration`, async () => {
     const {
       fixture,
