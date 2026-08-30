@@ -1693,7 +1693,7 @@ Remaining causal baseline work:
 - [ ] Targeted IndexedDB cleanup test proving unrelated stores survive.
 - [ ] Wallet-bootstrap test covering empty, exact, legacy, malformed, and future
       storage without a blank shell.
-- [ ] Exact method- and authority-revocation transaction tests.
+- [x] Exact method- and authority-revocation transaction tests.
 - [ ] Additive recovery tests for both targets and source inventories, strict
       committed projections, interruption after promotion, local publication,
       preservation of existing access paths, and one normal exact login.
