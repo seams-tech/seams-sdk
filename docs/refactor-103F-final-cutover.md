@@ -655,12 +655,12 @@ Primary files:
       may update `operation_credential_hash` after session insertion.
 - [x] Persist the session, quota, and primary digest in one batch or owning
       authority-activation CAS before returning success.
-- [ ] Rebuild V2 in the enforcement migration so an active row requires a
+- [x] Rebuild V2 in the enforcement migration so an active row requires a
       non-null primary digest.
 - [x] Make same-method replacement retire its predecessor session and close its
       quota in the successor transaction without mutating same-mint replay.
 - [x] Retire hosted children in the same successor transaction.
-- [ ] Add the full-scope exact-tuple partial unique index after deterministic
+- [x] Add the full-scope exact-tuple partial unique index after deterministic
       duplicate preflight.
 - [x] Preserve historical `mint_id` uniqueness; every replacement receives a
       fresh mint and policy-derived mint helpers are deleted.
@@ -705,9 +705,9 @@ Primary files:
       stable fingerprint and committed-projection identity.
 - [x] Make the receipt parser reject bearer fields, credential-bearing
       bootstraps, local secrets, and generic persisted response payloads.
-- [ ] Rewrite complete historical registration rows to the credential-free
-      receipt or delete replay-incomplete rows in the cutover migration; test
-      both known prefixes and unknown-shape abort.
+- [x] Delete known credential-bearing historical registration completions,
+      preserve credential-free claims and V2 receipts, and abort on unknown
+      registration journal shapes for both known prefixes.
 - [x] Update material promotion so the authority CAS refreshes every affected
       non-retired V2 snapshot while preserving session identity.
 - [x] Extend authenticated exact status to return the complete digest-free
@@ -1350,7 +1350,8 @@ This migration completes the repository cutover. It:
 - aborts when multiple usable credential-bearing rows remain for an exact tuple;
 - rebuilds `wallet_session_authorizations_v2` with a required active credential
   digest and installs the exact-tuple partial unique index;
-- rebuilds parent and child tables in deferred-foreign-key order and aborts on
+- replaces the parent under deferred foreign keys, preserves every hosted and
+  linked-delivery child row with its exact composite reference, and aborts on
   any `PRAGMA foreign_key_check` result;
 - retains completed historical operations needed for replay while requiring
   complete V2 scope for pending and new grants;
@@ -1423,7 +1424,11 @@ remaining consumers are converted.
       atomic exact retirement. The D1 CAS tests prove exact sibling isolation,
       quota closure, hosted-child cleanup, and stable replay for all three
       owning transitions.
-- [ ] Convert every route in the route policy matrix.
+- [x] Convert every route in the route policy matrix. Built-in route handlers
+      resolve exact operation credentials directly at their request boundary;
+      the route-definition policy registry applies only to extension routes.
+      Frozen Router A/B discriminators such as `reusable_wallet_session` remain
+      wire vocabulary and do not select a V1 persistence or admission path.
 - [x] Implement hosted child credentials and exact parent lifecycle handling.
 - [x] Update material promotion and exact status readback.
 
@@ -1460,7 +1465,7 @@ resume without creating a second authority or ceremony.
 
 - [x] Delete the registration adapter and temporary client capability.
 - [ ] Delete every V1 request and persistence resolver.
-- [ ] Apply the enforcement/deletion migration and update table manifests.
+- [x] Apply the enforcement/deletion migration and update table manifests.
 - [ ] Delete remaining V1 stores, ports, services, parsers, types, browser
       records, fixtures, guards, and obsolete documentation.
 - [ ] Review extracted modules for forwarding-only wrappers, cycles, duplicate
@@ -1669,7 +1674,7 @@ Remaining causal baseline work:
 - [x] Direct-V2 atomic issuance failure and replay tests.
 - [x] Registration receipt tests proving activation and deferred provisioning
       persist no bearer, child credential, or credential-bearing response.
-- [ ] Registration cutover-migration tests for both prefixes: known-shape
+- [x] Registration cutover-migration tests for both prefixes: known-shape
       credential-free rewrite or deletion, unrelated-row preservation, and
       unknown/unmappable abort.
 - [x] Delete compatibility-adapter and adapter-table behavior tests with their
@@ -1747,8 +1752,8 @@ Remaining causal baseline work:
 - [ ] Additive recovery tests for both targets and source inventories, strict
       committed projections, interruption after promotion, local publication,
       preservation of existing access paths, and one normal exact login.
-- [ ] Exact-enforcement migration tests for fully scoped V2 plus rejection of
-      partial-scope and unscoped pending rows.
+- [x] Exact-enforcement migration tests for fully scoped V2, rejection of
+      partial-scope pending rows, and deletion of all-null-scope V1 pending rows.
 - [x] Clean-database and current-history migration tests covering abort on
       usable duplicates, deterministic retirement of unusable/expired rows, and
       zero foreign-key-check results.
