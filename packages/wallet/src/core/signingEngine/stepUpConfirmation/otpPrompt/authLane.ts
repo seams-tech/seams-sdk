@@ -36,11 +36,6 @@ export type EmailOtpSigningSessionAuthLane =
 
 export type EmailOtpRouteFamily = 'login' | 'registration' | 'signing_session';
 
-type EmailOtpFreshAuthLane = Extract<
-  EmailOtpAuthLane,
-  { kind: 'opaque_wallet_session' }
->;
-
 export type EmailOtpRoutePlan =
   | {
       routeFamily: 'login';
@@ -59,13 +54,6 @@ export type EmailOtpRoutePlan =
         | typeof WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION
         | typeof WALLET_EMAIL_OTP_EXPORT_OPERATION;
     };
-
-export type ResolveEmailOtpAuthLaneArgs = {
-  routeAuth?: WalletSessionRouteAuth;
-  thresholdSessionId?: string;
-  curve?: 'ed25519' | 'ecdsa';
-  chainTarget?: ThresholdEcdsaChainTarget;
-};
 
 function nonEmptyString(value: unknown): string {
   return String(value || '').trim();
@@ -123,19 +111,6 @@ function buildEmailOtpSigningSessionAuthLane(args: {
       chainTarget: args.chainTarget,
     },
   );
-  return undefined;
-}
-
-export function resolveEmailOtpAuthLane(
-  args: ResolveEmailOtpAuthLaneArgs,
-): EmailOtpAuthLane | undefined {
-  if (args.routeAuth?.kind === 'opaque_wallet_session') {
-    const walletSessionToken = nonEmptyString(args.routeAuth.walletSessionToken);
-    return walletSessionToken
-      ? { kind: 'opaque_wallet_session', walletSessionToken: requireOpaqueWalletSessionToken(walletSessionToken) }
-      : undefined;
-  }
-
   return undefined;
 }
 
