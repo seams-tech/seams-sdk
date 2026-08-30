@@ -92,8 +92,10 @@ import {
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseEd25519ReusableAuthorizedOperationReceipt,
+  parseEd25519VerifiedStepUpAuthorizedOperationReceipt,
   type Ed25519OperationKind,
   type Ed25519ReusableAuthorizedOperationReceipt,
+  type Ed25519VerifiedStepUpAuthorizedOperationReceipt,
 } from './ed25519AuthorizedOperationReceipt';
 import {
   mpcMaterialActivationRefsEqual,
@@ -3072,12 +3074,20 @@ type RouterAbEd25519NormalSigningOperationForAdmission =
   | {
       readonly phase: 'finalize';
       readonly operationKind: Ed25519OperationKind;
+      readonly authorizationKind: 'reusable_wallet_session';
       readonly receipt: Ed25519ReusableAuthorizedOperationReceipt;
+    }
+  | {
+      readonly phase: 'finalize';
+      readonly operationKind: Ed25519OperationKind;
+      readonly authorizationKind: 'operation_step_up';
+      readonly receipt: Ed25519VerifiedStepUpAuthorizedOperationReceipt;
     };
 
 function parseRouterAbEd25519NormalSigningOperationForAdmission(input: {
   readonly phase: RouterAbEd25519NormalSigningRoutePhase;
   readonly body: Record<string, unknown>;
+  readonly authorizationKind: RouterAbEd25519NormalSigningAuthorizationV2['kind'];
 }):
   | { readonly ok: true; readonly operation: RouterAbEd25519NormalSigningOperationForAdmission }
   | { readonly ok: false; readonly message: string } {
@@ -3093,15 +3103,36 @@ function parseRouterAbEd25519NormalSigningOperationForAdmission(input: {
     };
   }
   try {
-    const receipt = parseEd25519ReusableAuthorizedOperationReceipt(input.body.authorized_operation);
-    return {
-      ok: true,
-      operation: {
-        phase: 'finalize',
-        operationKind: receipt.operation_kind,
-        receipt,
-      },
-    };
+    switch (input.authorizationKind) {
+      case 'reusable_wallet_session': {
+        const receipt = parseEd25519ReusableAuthorizedOperationReceipt(
+          input.body.authorized_operation,
+        );
+        return {
+          ok: true,
+          operation: {
+            phase: 'finalize',
+            operationKind: receipt.operation_kind,
+            authorizationKind: 'reusable_wallet_session',
+            receipt,
+          },
+        };
+      }
+      case 'operation_step_up': {
+        const receipt = parseEd25519VerifiedStepUpAuthorizedOperationReceipt(
+          input.body.authorized_operation,
+        );
+        return {
+          ok: true,
+          operation: {
+            phase: 'finalize',
+            operationKind: receipt.operation_kind,
+            authorizationKind: 'operation_step_up',
+            receipt,
+          },
+        };
+      }
+    }
   } catch (error: unknown) {
     return { ok: false, message: errorMessage(error) };
   }
@@ -3264,6 +3295,7 @@ export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
   const operationForAdmission = parseRouterAbEd25519NormalSigningOperationForAdmission({
     phase: input.phase,
     body: input.body,
+    authorizationKind: scope.authorization.kind,
   });
   if (!operationForAdmission.ok) {
     return {
@@ -3319,6 +3351,17 @@ export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
 
   {
     if (operationForAdmission.operation.phase === 'finalize') {
+      if (operationForAdmission.operation.authorizationKind !== 'reusable_wallet_session') {
+        return {
+          ok: false,
+          result: routerAbEd25519OwnerOperationFailureResult({
+            status: 400,
+            code: 'invalid_authorized_operation',
+            message: 'Reusable Wallet Session authorized operation is required',
+            phase: input.phase,
+          }),
+        };
+      }
       const exactOperation = await validateRouterAbEd25519V2FinalizeAuthorizedOperation({
         receipt: operationForAdmission.operation.receipt,
         authorizedOperations: input.authorizedOperations,
