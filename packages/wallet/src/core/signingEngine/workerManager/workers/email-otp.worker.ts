@@ -148,7 +148,6 @@ import type {
   EmailOtpEd25519YaoExportMaterialV1,
   EmailOtpEd25519YaoRecoveryAugmentationV1,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
-  EmailOtpEcdsaWalletUnlockAuthorization,
   EmailOtpEcdsaCustodyContinuityV1,
   EmailOtpEcdsaCustodyRestoreV1,
   EmailOtpEcdsaCustodySignerV1,
@@ -743,7 +742,6 @@ async function resolveEmailOtpEd25519ExportCustodyEnvelope(
       clientSecret32: factorSecret32,
       material: { kind: 'ed25519_yao_export' },
       sessionAuth: undefined,
-      ed25519WalletSessionToken: undefined,
     });
     if (unlocked.kind !== 'ed25519_yao_export') {
       throw new Error('Email OTP Ed25519 Yao export returned the wrong custody material');
@@ -2636,7 +2634,6 @@ async function rehydrateEmailOtpEd25519YaoOperationMaterial(
         kind: 'opaque_wallet_session',
         walletSessionToken: requireOpaqueWalletSessionToken(credential.walletSessionToken),
       },
-      ed25519WalletSessionToken: requireOpaqueWalletSessionToken(credential.walletSessionToken),
     });
     if (unlocked.kind !== 'ed25519_yao_capability') {
       throw new Error('Email OTP operation material did not activate an Ed25519 capability');
@@ -2723,7 +2720,6 @@ async function rehydrateActiveEmailOtpEd25519YaoSessionMaterial(
         },
       },
       sessionAuth,
-      ed25519WalletSessionToken: walletSessionToken,
     });
     factorSecret32 = null;
     if (
@@ -2849,19 +2845,6 @@ function buildEmailOtpRequestedCapabilities(args: {
     default:
       return assertNeverEmailOtpWorker(args.material);
   }
-}
-
-function emailOtpEd25519WalletSessionTokenForUnlockMaterial(
-  material: EmailOtpUnlockSecretMaterialRequest,
-): string | undefined {
-  if (material.kind !== 'ecdsa' || material.ecdsaSessionPolicy === undefined) {
-    return undefined;
-  }
-  const authorization = material.walletSessionAuthorization;
-  if (authorization.kind === 'reuse_ed25519_wallet_session') {
-    return authorization.walletSessionToken;
-  }
-  return undefined;
 }
 
 function parseEmailOtpWalletCustodyUnlockProjection(args: {
@@ -3287,7 +3270,6 @@ async function completeEmailOtpUnlockFromSecret32(args: {
   clientSecret32: Uint8Array;
   material: EmailOtpUnlockSecretMaterialRequest;
   sessionAuth: WalletSessionRouteAuth | undefined;
-  ed25519WalletSessionToken: string | undefined;
 }): Promise<
   {
     unlockChallengeId: string;
@@ -3358,14 +3340,6 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           : args.material.kind === 'wallet_unlock_capabilities'
             ? { ecdsaSessionPolicy: args.material.ecdsa.sessionPolicy }
             : {}),
-        ...(args.ed25519WalletSessionToken ||
-        emailOtpEd25519WalletSessionTokenForUnlockMaterial(args.material)
-          ? {
-              ed25519WalletSessionToken:
-                args.ed25519WalletSessionToken ||
-                emailOtpEd25519WalletSessionTokenForUnlockMaterial(args.material),
-            }
-          : {}),
         requestedCapabilities,
       },
     });
@@ -3867,7 +3841,6 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
       clientSecret32,
       material: args.material,
       sessionAuth,
-      ed25519WalletSessionToken: undefined,
     });
     const commonResult = {
       challengeId,
@@ -4466,33 +4439,6 @@ function emailOtpNonUnlockEcdsaHandleBindingFromParsedBinding(
   }
 }
 
-function parseEmailOtpEcdsaWalletUnlockAuthorization(
-  value: unknown,
-): EmailOtpEcdsaWalletUnlockAuthorization {
-  const obj = workerPayloadObject(value);
-  if (!obj) throw new Error('Email OTP ECDSA wallet unlock authorization is required');
-  const kind = readString(obj.kind, 'walletSessionAuthorization.kind');
-  switch (kind) {
-    case 'verified_wallet_unlock':
-      rejectUnknownEmailOtpYaoFields(obj, ['kind'], 'walletSessionAuthorization');
-      return { kind };
-    case 'reuse_ed25519_wallet_session': {
-      rejectUnknownEmailOtpYaoFields(
-        obj,
-        ['kind', 'walletSessionToken'],
-        'walletSessionAuthorization',
-      );
-      const walletSessionToken = readString(
-        obj.walletSessionToken,
-        'walletSessionAuthorization.walletSessionToken',
-      );
-      return { kind, walletSessionToken };
-    }
-    default:
-      throw new Error(`Unsupported Email OTP ECDSA wallet unlock authorization: ${kind}`);
-  }
-}
-
 function parseEmailOtpWalletUnlockMaterialRequest(
   value: unknown,
 ): EmailOtpWalletUnlockMaterialRequest {
@@ -4503,13 +4449,7 @@ function parseEmailOtpWalletUnlockMaterialRequest(
     case 'ecdsa': {
       rejectUnknownEmailOtpYaoFields(
         obj,
-        [
-          'kind',
-          'ecdsaSessionHandleBinding',
-          'runtimePolicyScope',
-          'ecdsaSessionPolicy',
-          'walletSessionAuthorization',
-        ],
+        ['kind', 'ecdsaSessionHandleBinding', 'runtimePolicyScope', 'ecdsaSessionPolicy'],
         'material',
       );
       const binding = parseOptionalWorkerEcdsaSessionBootstrapHandleBinding(
@@ -4528,16 +4468,10 @@ function parseEmailOtpWalletUnlockMaterialRequest(
           ecdsaSessionPolicy: parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(
             obj.ecdsaSessionPolicy,
           ),
-          walletSessionAuthorization: parseEmailOtpEcdsaWalletUnlockAuthorization(
-            obj.walletSessionAuthorization,
-          ),
         };
       }
       if (obj.ecdsaSessionPolicy !== undefined) {
         throw new Error('Email OTP first ECDSA activation requires wallet-unlock binding');
-      }
-      if (obj.walletSessionAuthorization !== undefined) {
-        throw new Error('Email OTP Wallet Session authorization requires wallet-unlock binding');
       }
       return {
         kind: 'ecdsa',

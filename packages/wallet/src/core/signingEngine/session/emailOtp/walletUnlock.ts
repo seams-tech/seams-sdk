@@ -5,7 +5,6 @@ import type {
   WalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
 import type {
-  EmailOtpEcdsaWalletUnlockAuthorization,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
   EmailOtpEcdsaSessionBootstrapHandleBinding,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
@@ -176,7 +175,6 @@ export async function unlockEmailOtpWallet(
             { kind: 'ecdsa'; ecdsaSessionPolicy: unknown }
           >['ecdsaSessionHandleBinding'];
           ecdsaSessionPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
-          walletSessionAuthorization: EmailOtpEcdsaWalletUnlockAuthorization;
         }
       | {
           ecdsaSessionHandleBinding: Extract<
@@ -195,7 +193,6 @@ export async function unlockEmailOtpWallet(
           ecdsaSessionHandleBinding: args.ecdsaSessionHandleBinding,
           runtimePolicyScope: args.runtimePolicyScope,
           ecdsaSessionPolicy: args.ecdsaSessionPolicy,
-          walletSessionAuthorization: args.walletSessionAuthorization,
         }
       : {
           kind: 'ecdsa',
