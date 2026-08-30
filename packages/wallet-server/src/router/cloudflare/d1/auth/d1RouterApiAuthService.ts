@@ -54,6 +54,7 @@ import {
 } from '../../../framework/authServicePort';
 import type {
   DirectV2IssueResult,
+  ExactWalletSessionStatusV2,
   IssuedWalletSessionAuthorizationV2,
 } from '../../../../authorization/domain';
 import { AuthorizationService } from '../../../../authorization/service';
@@ -2339,6 +2340,12 @@ function createD1IdentityRouteService(
   };
 }
 
+function isExhaustedWalletSessionStatus(
+  status: ExactWalletSessionStatusV2,
+): status is ExactWalletSessionStatusV2 & { readonly kind: 'exhausted' } {
+  return status.kind === 'exhausted';
+}
+
 function createD1AuthorizationSessionRouteService(
   assembly: D1AuthorizationSessionRouteServiceAssembly,
 ): RouterApiServiceBag['authorizationSessions'] {
@@ -2384,7 +2391,7 @@ function createD1AuthorizationSessionRouteService(
         await assembly.authorizationService.readExactWalletSessionStatusByOperationCredential(
           input,
         );
-      if (status.kind !== 'exhausted') return null;
+      if (!isExhaustedWalletSessionStatus(status)) return null;
       const authority = await assembly.walletAuthorityStore.readById(status.session.authorityId);
       const authMethod = await assembly.walletAuthMethodStore.readByIdV2({
         walletAuthMethodId: status.session.walletAuthMethodId,
@@ -2404,9 +2411,10 @@ function createD1AuthorizationSessionRouteService(
         return null;
       }
       return {
-        session: status.session,
+        status,
         authority,
         authMethod,
+        retiredAtMs: null,
       };
     },
     readExactWalletSessionStatusByOperationCredential:

@@ -12,6 +12,7 @@ import type { RouterAbEcdsaStrictPostRegistrationPort } from '../../packages/wal
 import { buildVerifiedWalletOperationFactorEvidenceSet } from '../../packages/wallet-server/src/authorization/factorEvidence';
 import {
   buildAuthorizedOperation,
+  buildExactWalletSessionQuotaProjectionV1,
   type AuthorizedOperation,
 } from '../../packages/wallet-server/src/authorization/domain';
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
@@ -860,9 +861,22 @@ test('reusable signing preserves a final quota claim across exhausted-session re
     });
   if (!exactContext) throw new Error('exact Wallet Session fixture is unavailable');
   const candidate: RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext = {
-    session: exactContext.authorization.session,
+    status: {
+      kind: 'exhausted',
+      session: exactContext.authorization.session,
+      quota: buildExactWalletSessionQuotaProjectionV1({
+        lifecycle: 'exhausted',
+        tenantId: exactContext.authorization.quota.tenantId,
+        principalId: exactContext.authorization.quota.principalId,
+        walletSessionId: exactContext.authorization.quota.walletSessionId,
+        quotaId: exactContext.authorization.quota.quotaId,
+        remainingUses: 0,
+        expiresAtMs: exactContext.authorization.quota.expiresAtMs,
+      }),
+    },
     authority: exactContext.authority,
     authMethod: exactContext.authMethod,
+    retiredAtMs: null,
   };
   let activeReads = 0;
   let exhaustedCandidateReads = 0;
