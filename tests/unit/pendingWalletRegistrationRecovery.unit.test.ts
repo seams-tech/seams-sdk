@@ -212,6 +212,10 @@ test.describe('pending registration reload', () => {
         walletId: ecdsa.input.pending.walletId,
         keyFamilies: ['ecdsa_secp256k1'],
         activationJournalId: ecdsa.input.pending.localMaterial.ecdsa.activationJournalId,
+        activationRequestDigestB64u:
+          ecdsa.input.pending.localMaterial.ecdsa.activationRequestDigestB64u,
+        clientActivation: ecdsa.input.pending.localMaterial.ecdsa.clientActivation,
+        walletAuthMethodId: ecdsa.input.pending.walletAuthMethodId,
         next: 'unlock_exact_method',
         reason: 'ecdsa_local_finalization',
       },
@@ -221,6 +225,10 @@ test.describe('pending registration reload', () => {
         walletId: mixed.input.pending.walletId,
         keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
         activationJournalId: mixed.input.pending.localMaterial.ecdsa.activationJournalId,
+        activationRequestDigestB64u:
+          mixed.input.pending.localMaterial.ecdsa.activationRequestDigestB64u,
+        clientActivation: mixed.input.pending.localMaterial.ecdsa.clientActivation,
+        walletAuthMethodId: mixed.input.pending.walletAuthMethodId,
         next: 'unlock_exact_method',
         reason: 'ecdsa_local_finalization',
       },

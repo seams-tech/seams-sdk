@@ -1719,6 +1719,8 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
             custodyCommit: walletCustodyCommitPayloadForWire(bootstrap.preActivationCommitPayload),
             ecdsa: {
               activationJournalId: persisted.journalId,
+              clientActivation,
+              activationRequestDigestB64u: activationCommand.requestDigest,
             },
           },
           emailOtpEnrollment: activateEmailOtp.enrollment,
