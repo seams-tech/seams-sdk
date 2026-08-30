@@ -12,6 +12,7 @@ import type { PendingWalletRegistrationPublicationFixture } from './helpers/pend
 
 const IMPORT_PATHS = {
   indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
+  ecdsa: '/_test-sdk/esm/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.js',
   schemaNames: '/_test-sdk/esm/core/indexedDB/schemaNames.js',
 } as const;
 
@@ -593,6 +594,77 @@ test.describe('pending registration publication', () => {
       foundingAuthMethod: fixture.walletAuthMethodId,
       authority: fixture.authorityId,
       selectionCount: 1,
+    });
+  });
+
+  test('rolls back ECDSA continuity and every registration projection on a late failure', async ({
+    page,
+  }) => {
+    const fixture = await buildEcdsaActivationPublicationFixture();
+    const result = await page.evaluate(
+      async ({ paths, input: publicationInput }) => {
+        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+          await import(paths.indexedDB);
+        const { IndexedDbEcdsaCapabilityManifestStore } = await import(paths.ecdsa);
+        const { SEAMS_WALLET_STORES } = await import(paths.schemaNames);
+        if (publicationInput.ecdsaContinuity.length !== 1) {
+          throw new Error('ECDSA publication fixture must carry one prepared continuity');
+        }
+        const seamsWalletDB = new SeamsWalletDBManager();
+        seamsWalletDB.setDbName(
+          createSeamsTestWalletDbName(`pending-publication-ecdsa-rollback-${crypto.randomUUID()}`),
+        );
+        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+        await db.putPendingWalletRegistrationCommit(publicationInput.pending);
+        let firstError: string | null = null;
+        try {
+          await db.publishPendingWalletRegistrationCommit({
+            ...publicationInput,
+            ecdsaContinuity: [
+              publicationInput.ecdsaContinuity[0],
+              publicationInput.ecdsaContinuity[0],
+            ],
+          });
+        } catch (caught) {
+          firstError = caught instanceof Error ? caught.message : String(caught);
+        }
+        const database = await seamsWalletDB.getDB();
+        const ecdsaSubjects = await new IndexedDbEcdsaCapabilityManifestStore(
+          seamsWalletDB,
+        ).listActiveWalletCapabilitySubjects(publicationInput.request.walletId);
+        const sessionRows = await database.getAll(SEAMS_WALLET_STORES.walletSessionAuthorizations);
+        const state = {
+          firstError,
+          pending:
+            (await db.getPendingWalletRegistrationCommit({
+              registrationCeremonyId: publicationInput.request.registrationCeremonyId,
+              operation: publicationInput.request.operation,
+            })) !== null,
+          ecdsaSubjectCount:
+            ecdsaSubjects.kind === 'resolved' ? ecdsaSubjects.subjects.length : -1,
+          profile: await db.getProfile(publicationInput.request.walletId),
+          authMethod: await db.getWalletAuthMethodV2(publicationInput.request.walletAuthMethodId),
+          authority: await db.getWalletAuthority(
+            publicationInput.foundingAuthority.authority.authorityId,
+          ),
+          authenticators: await db.listProfileAuthenticators(publicationInput.request.walletId),
+          sessionCount: sessionRows.length,
+        };
+        seamsWalletDB.close();
+        return state;
+      },
+      { paths: IMPORT_PATHS, input: fixture.input },
+    );
+
+    expect(result).toMatchObject({
+      firstError: 'ECDSA custody import found an existing active manifest',
+      pending: true,
+      ecdsaSubjectCount: 0,
+      profile: null,
+      authMethod: null,
+      authority: null,
+      authenticators: [],
+      sessionCount: 0,
     });
   });
 
