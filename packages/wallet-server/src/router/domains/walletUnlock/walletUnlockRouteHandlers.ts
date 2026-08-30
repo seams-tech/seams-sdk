@@ -196,7 +196,7 @@ export type WalletUnlockEcdsaAuthorization =
       readonly proof: WalletSessionOwnerProof;
     }
   | {
-      readonly kind: 'reuse_wallet_session_operation_credential_v1';
+      readonly kind: 'wallet_session_operation_credential_v1';
       readonly operationCredential: WalletSessionOperationCredentialV1;
       readonly proof: WalletSessionOwnerProof;
     };
@@ -1243,7 +1243,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
       });
       if (!operationCredential) return walletUnlockEcdsaCredentialUnavailableResponse();
       ecdsaAuthorization = {
-        kind: 'reuse_wallet_session_operation_credential_v1',
+        kind: 'wallet_session_operation_credential_v1',
         operationCredential,
         proof: authorization.proof,
       };
@@ -1536,7 +1536,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
     context: input.ecdsaSession,
     verifiedWalletId: result.walletId,
     authorization: {
-      kind: 'reuse_wallet_session_operation_credential_v1',
+      kind: 'wallet_session_operation_credential_v1',
       operationCredential: ed25519OperationCredential,
       proof: authorization.proof,
     },

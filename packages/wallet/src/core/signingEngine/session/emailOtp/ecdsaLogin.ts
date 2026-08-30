@@ -26,8 +26,6 @@ import type {
   ThresholdEcdsaExplicitKeyExportActivationResult,
   ThresholdEcdsaSessionBootstrapResult,
 } from '@/core/signingEngine/threshold/ecdsa/activation';
-import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 import type { ExactWalletSessionAuthorization } from '../persistence/walletSessionAuthorizationProjection';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
@@ -1350,95 +1348,6 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
   });
 }
 
-export async function resolveReusableEmailOtpEcdsaUnlockOperationCredential(args: {
-  readonly walletId: WalletSessionRef['walletId'];
-  readonly authority: ResolvedEmailOtpExistingEcdsaKey['persistedRoleLocalMaterial']['authority'];
-  readonly materialActivation: ResolvedEmailOtpExistingEcdsaKey['persistedRoleLocalMaterial']['materialActivation'];
-}): Promise<WalletSessionOperationCredentialV1 | null> {
-  const walletId = toWalletId(args.walletId);
-  let selected: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
-  try {
-    selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
-  } catch {
-    return null;
-  }
-  if (selected.kind !== 'resolved') return null;
-  if (
-    selected.selection.lockState !== 'unlocked' ||
-    selected.selection.walletId !== walletId ||
-    selected.selection.walletAuthMethodId !== selected.authMethod.walletAuthMethodId ||
-    selected.authMethod.kind !== 'email_otp' ||
-    selected.authMethod.status !== 'active' ||
-    selected.authMethod.walletId !== walletId ||
-    selected.authMethod.walletAuthorityId !== selected.authority.authorityId ||
-    selected.authority.state !== 'active' ||
-    selected.authority.walletId !== walletId ||
-    args.authority.walletId !== walletId ||
-    args.authority.walletAuthMethodId !== selected.authMethod.walletAuthMethodId
-  ) {
-    return null;
-  }
-  let factorAuthorityRef: WalletAuthAuthorityRef;
-  try {
-    const factorAuthority = await resolveExactWalletAuthAuthority({
-      authMethod: selected.authMethod,
-      stores: emailOtpOwnerLaneScopeStores(),
-    });
-    if (!isEmailOtpWalletAuthAuthority(factorAuthority)) return null;
-    factorAuthorityRef = await walletAuthAuthorityRef({ authority: factorAuthority });
-  } catch {
-    return null;
-  }
-  if (
-    factorAuthorityRef.walletId !== args.authority.walletId ||
-    factorAuthorityRef.walletAuthMethodId !== args.authority.walletAuthMethodId ||
-    factorAuthorityRef.authorityDigest !== args.authority.authorityDigest
-  ) {
-    return null;
-  }
-  const ecdsaActivation = selected.authority.signerActivations.ecdsa;
-  if (
-    !ecdsaActivation ||
-    ecdsaActivation.signer.walletId !== walletId ||
-    !mpcMaterialActivationRefsEqual(ecdsaActivation.materialActivation, args.materialActivation)
-  ) {
-    return null;
-  }
-  let read: Awaited<
-    ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
-  >;
-  try {
-    read = await walletSessionAuthorizations.readExactWithOperationCredential({
-      walletId,
-      authorityId: selected.authority.authorityId,
-      authMethodId: selected.authMethod.walletAuthMethodId,
-    });
-  } catch {
-    return null;
-  }
-  if (read.kind !== 'found') return null;
-  const { record, operationCredential } = read;
-  if (
-    record.walletId !== walletId ||
-    record.authorityId !== selected.authority.authorityId ||
-    record.authMethodId !== selected.authMethod.walletAuthMethodId ||
-    record.authorityDigestB64u !== selected.authority.authorityDigestB64u ||
-    record.authorityRevocationEpoch !== selected.authority.revocationEpoch ||
-    record.expiresAtMs <= Date.now() ||
-    operationCredential.walletSessionId.trim().length === 0 ||
-    operationCredential.token.trim().length === 0
-  ) {
-    return null;
-  }
-  const signSubjects = record.capabilitySubjects.filter(
-    (subject) =>
-      subject.kind === 'sign' &&
-      subject.keyFamily === 'ecdsa_secp256k1' &&
-      mpcMaterialActivationRefsEqual(subject.materialActivation, args.materialActivation),
-  );
-  return signSubjects.length === 1 ? operationCredential : null;
-}
-
 async function runEmailOtpEcdsaCapability(
   args: LoginEmailOtpEcdsaCapabilityArgs | PrepareEmailOtpEcdsaExportCapabilityArgs,
   ports: EmailOtpEcdsaLoginPorts,
@@ -1585,16 +1494,6 @@ async function runEmailOtpEcdsaCapability(
           signerSlot: args.ed25519YaoRecovery.signerSlot,
         })
       : null;
-  const reusableWalletSessionOperationCredential =
-    isWalletUnlock && args.ed25519YaoRecovery.kind === 'not_requested'
-      ? existingKey
-        ? await resolveReusableEmailOtpEcdsaUnlockOperationCredential({
-            walletId: args.walletSession.walletId,
-            authority: existingKey.persistedRoleLocalMaterial.authority,
-            materialActivation: existingKey.persistedRoleLocalMaterial.materialActivation,
-          })
-        : null
-      : null;
   const preparedUnlockSessionPolicy = isWalletUnlock
     ? clampThresholdSessionPolicy({
         ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
@@ -1682,14 +1581,6 @@ async function runEmailOtpEcdsaCapability(
                       keyHandle: ecdsaKeyHandle,
                     })
                   : preparedUnlockSessionPolicyWire,
-                walletSessionAuthorization: reusableWalletSessionOperationCredential
-                  ? {
-                      kind: 'reuse_ed25519_wallet_session' as const,
-                      walletSessionToken: requireEmailOtpWalletSessionToken(
-                        reusableWalletSessionOperationCredential.token,
-                      ),
-                    }
-                  : { kind: 'verified_wallet_unlock' as const },
               }
             : {
                 ecdsaSessionHandleBinding: emailOtpNonUnlockEcdsaHandleBinding({

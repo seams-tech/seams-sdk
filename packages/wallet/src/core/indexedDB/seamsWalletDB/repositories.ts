@@ -9,6 +9,8 @@ import {
   parseWalletAuthorityId,
   parseWalletId,
   parseWalletKeyId,
+  parseWalletRecoveryOperationId,
+  type WalletRecoveryOperationId,
   parseWebAuthnRpId,
   type MpcMaterialActivationRef,
   type WalletAuthMethodId,
@@ -108,6 +110,15 @@ import {
   toPendingWalletRegistrationCommitAppStateRow,
   type PendingWalletRegistrationCommitV1,
 } from '../pendingWalletRegistrationCommit';
+import {
+  buildPendingWalletRecoveryCommitV1,
+  pendingWalletRecoveryCommitAppStateKey,
+  pendingWalletRecoveryCommitAppStateRowsMatch,
+  parsePendingWalletRecoveryCommitAppStateRow,
+  toPendingWalletRecoveryCommitAppStateRow,
+  type PendingWalletRecoveryCommitV1,
+  type PendingWalletRecoveryCommitAppStateRow,
+} from '../pendingWalletRecoveryCommit';
 import type { SeamsWalletDBManager, SeamsWalletTransactionContext } from './manager';
 import {
   parseStoredExactWalletSessionAuthorizationRowV6,
@@ -498,6 +509,13 @@ export type PublishPendingWalletRegistrationCommitInputV1 = {
   readonly walletSessionPublication: WalletRegistrationSessionPublicationV1;
 };
 
+export type PublishPendingWalletRecoveryCommitInputV1 = {
+  readonly pending: Extract<PendingWalletRecoveryCommitV1, { readonly stage: 'server_promoted' }>;
+  readonly authority: ActiveRecoveredWalletAuthorityV1;
+  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+  readonly registration: StoreWalletRegistrationPublicationInputV1;
+};
+
 function assertPendingWalletRegistrationRequestIdentity(
   pending: PendingWalletRegistrationCommitV1,
   request: WalletRegistrationCommitPublicationRequestV1,
@@ -633,6 +651,92 @@ async function assertRegistrationFinalizeMatchesPending(input: {
   }
 }
 
+function assertPendingWalletRecoveryPublicationMatchesProjection(
+  input: PublishPendingWalletRecoveryCommitInputV1,
+): void {
+  const projection = input.pending.projection;
+  if (
+    alphabetizeStringify(input.authority) !== alphabetizeStringify(projection.authority) ||
+    alphabetizeStringify(input.authMethod) !== alphabetizeStringify(projection.authMethod)
+  ) {
+    throw new Error('recovery publication records do not match the committed projection');
+  }
+  const initialMethod = input.registration.initialAuthMethod;
+  const profiles = input.registration.profiles;
+  if (
+    initialMethod.status !== 'active' ||
+    initialMethod.localStatus !== 'synced' ||
+    initialMethod.walletId !== projection.walletId ||
+    !profiles.some((profile) => profile.profileId === projection.walletId) ||
+    input.registration.lastProfileState.profileId !== projection.walletId ||
+    !Number.isSafeInteger(input.registration.lastProfileState.activeSignerSlot) ||
+    input.registration.lastProfileState.activeSignerSlot < 1
+  ) {
+    throw new Error('recovery profile publication does not match the committed projection');
+  }
+  const profileIds = new Set(profiles.map((profile) => profile.profileId));
+  for (const profile of profiles) {
+    if (
+      profile.passkeyCredential &&
+      (projection.kind !== 'passkey' ||
+        profile.passkeyCredential.rawId !== projection.target.credentialIdB64u)
+    ) {
+      throw new Error('recovery profile credential does not match the committed projection');
+    }
+  }
+  for (const activation of input.registration.signerActivations) {
+    if (!profileIds.has(activation.account.profileId)) {
+      throw new Error('recovery signer account is outside the publication profiles');
+    }
+  }
+  for (const keyMaterial of input.registration.keyMaterials) {
+    if (!profileIds.has(keyMaterial.profileId)) {
+      throw new Error('recovery key material is outside the publication profiles');
+    }
+  }
+  if (projection.kind === 'passkey') {
+    if (initialMethod.kind !== 'passkey') {
+      throw new Error('recovery passkey publication method branch is invalid');
+    }
+    if (
+      initialMethod.rpId !== projection.target.rpId ||
+      initialMethod.credentialIdB64u !== projection.target.credentialIdB64u ||
+      initialMethod.credentialPublicKeyB64u !== projection.authMethod.credentialPublicKeyB64u ||
+      !input.registration.authenticators.some(
+        (authenticator) =>
+          authenticator.profileId === projection.walletId &&
+          authenticator.credentialId === projection.target.credentialIdB64u &&
+          base64UrlEncode(authenticator.credentialPublicKey) ===
+            projection.authMethod.credentialPublicKeyB64u,
+      )
+    ) {
+      throw new Error('recovery passkey publication does not match the committed projection');
+    }
+    return;
+  }
+  if (initialMethod.kind !== 'email_otp') {
+    throw new Error('recovery Email OTP publication method branch is invalid');
+  }
+  if (
+    initialMethod.emailHashHex !== projection.target.emailHashHex ||
+    initialMethod.registrationAuthorityId !== projection.target.registrationAuthorityId ||
+    input.registration.authenticators.length !== 0 ||
+    profiles.some((profile) => profile.passkeyCredential !== undefined)
+  ) {
+    throw new Error('recovery Email OTP publication does not match the committed projection');
+  }
+  const localAuthority = parseEmailOtpWalletAuthAuthority(initialMethod.authority);
+  if (
+    !localAuthority ||
+    localAuthority.walletId !== projection.walletId ||
+    localAuthority.factor.provider !== 'google' ||
+    localAuthority.factor.providerUserId !== projection.target.providerSubject ||
+    localAuthority.verifier.emailHashHex !== projection.target.emailHashHex
+  ) {
+    throw new Error('recovery Email OTP factor does not match the committed projection');
+  }
+}
+
 function shouldDeletePublishedPendingWalletRegistrationCommit(
   pending: PendingWalletRegistrationCommitV1,
 ): boolean {
@@ -718,6 +822,17 @@ const WALLET_REGISTRATION_PUBLICATION_STORES = [
   SEAMS_WALLET_STORES.signerOpsOutbox,
   SEAMS_WALLET_STORES.keyMaterial,
   SEAMS_WALLET_STORES.walletSessionAuthorizations,
+] as const;
+const WALLET_RECOVERY_PUBLICATION_STORES = [
+  SEAMS_WALLET_STORES.appState,
+  SEAMS_WALLET_STORES.wallets,
+  SEAMS_WALLET_STORES.walletAuthMethods,
+  SEAMS_WALLET_STORES.walletAuthorities,
+  SEAMS_WALLET_STORES.walletSelections,
+  SEAMS_WALLET_STORES.walletSigners,
+  SEAMS_WALLET_STORES.nearAccountProjections,
+  SEAMS_WALLET_STORES.signerOpsOutbox,
+  SEAMS_WALLET_STORES.keyMaterial,
 ] as const;
 
 const DEFAULT_WALLET_RP_ID = 'local';
@@ -4385,6 +4500,54 @@ export class SeamsWalletRepositories {
     });
   }
 
+  async putPendingWalletRecoveryCommit(record: PendingWalletRecoveryCommitV1): Promise<void> {
+    const row = await toPendingWalletRecoveryCommitAppStateRow(record);
+    await this.manager.runTransaction([SEAMS_WALLET_STORES.appState], 'readwrite', async (ctx) => {
+      await ctx.store(SEAMS_WALLET_STORES.appState).put(row);
+    });
+  }
+
+  async getPendingWalletRecoveryCommit(
+    recoveryOperationId: WalletRecoveryOperationId,
+  ): Promise<PendingWalletRecoveryCommitV1 | null> {
+    const parsedRecoveryOperationId = requireBoundaryParsed(
+      parseWalletRecoveryOperationId(recoveryOperationId),
+      'recoveryOperationId',
+    );
+    const db = await this.manager.getDB();
+    const parsed = await parsePendingWalletRecoveryCommitAppStateRow(
+      await db.get(
+        SEAMS_WALLET_STORES.appState,
+        pendingWalletRecoveryCommitAppStateKey(parsedRecoveryOperationId),
+      ),
+    );
+    return parsed?.record ?? null;
+  }
+
+  async listPendingWalletRecoveryCommits(): Promise<PendingWalletRecoveryCommitV1[]> {
+    const db = await this.manager.getDB();
+    const parsedRows = await Promise.all(
+      ((await db.getAll(SEAMS_WALLET_STORES.appState)) as unknown[]).map(
+        parsePendingWalletRecoveryCommitAppStateRow,
+      ),
+    );
+    return parsedRows.flatMap((parsed) => (parsed ? [parsed.record] : []));
+  }
+
+  async deletePendingWalletRecoveryCommit(
+    recoveryOperationId: WalletRecoveryOperationId,
+  ): Promise<void> {
+    const parsedRecoveryOperationId = requireBoundaryParsed(
+      parseWalletRecoveryOperationId(recoveryOperationId),
+      'recoveryOperationId',
+    );
+    await this.manager.runTransaction([SEAMS_WALLET_STORES.appState], 'readwrite', async (ctx) => {
+      await ctx
+        .store(SEAMS_WALLET_STORES.appState)
+        .delete(pendingWalletRecoveryCommitAppStateKey(parsedRecoveryOperationId));
+    });
+  }
+
   async compareAndSwapAppState(input: {
     key: string;
     expected: unknown | null;
@@ -5845,6 +6008,43 @@ export class SeamsWalletRepositories {
     );
   }
 
+  async publishPendingWalletRecoveryCommit(
+    input: PublishPendingWalletRecoveryCommitInputV1,
+  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+    const pending = await buildPendingWalletRecoveryCommitV1(input.pending);
+    if (pending.stage !== 'server_promoted') {
+      throw new Error('pending wallet recovery commit is not server-promoted');
+    }
+    const authorityResult = parseWalletAuthorityV1(input.authority);
+    const authority = requireBoundaryParsed(authorityResult, 'authority');
+    if (authority.state !== 'active' || !isActiveRecoveredWalletAuthorityV1(authority)) {
+      throw new Error('recovered Wallet Authority projection is invalid');
+    }
+    const authMethod = parseWalletAuthMethodRecordV2(input.authMethod);
+    if (!authMethod || authMethod.status !== 'active') {
+      throw new Error('recovered Wallet Auth Method projection is invalid');
+    }
+    if (!(await walletAuthorityDigestsMatchV1(authority))) {
+      throw new Error('recovered Wallet Authority digest is invalid');
+    }
+    const normalizedInput: PublishPendingWalletRecoveryCommitInputV1 = {
+      pending,
+      authority,
+      authMethod,
+      registration: input.registration,
+    };
+    assertPendingWalletRecoveryPublicationMatchesProjection(normalizedInput);
+    const pendingRow = await toPendingWalletRecoveryCommitAppStateRow(pending);
+    return this.manager.runTransaction(
+      WALLET_RECOVERY_PUBLICATION_STORES,
+      'readwrite',
+      this.publishPendingWalletRecoveryCommitInTransaction.bind(this, {
+        ...normalizedInput,
+        pendingRow,
+      }),
+    );
+  }
+
   private async publishPendingWalletRegistrationCommitInTransaction(
     input: {
       readonly request: WalletRegistrationCommitPublicationRequestV1;
@@ -5909,6 +6109,32 @@ export class SeamsWalletRepositories {
     if (shouldDeletePending) {
       await ctx.store(SEAMS_WALLET_STORES.appState).delete(pendingKey);
     }
+    return result;
+  }
+
+  private async publishPendingWalletRecoveryCommitInTransaction(
+    input: PublishPendingWalletRecoveryCommitInputV1 & {
+      readonly pendingRow: PendingWalletRecoveryCommitAppStateRow;
+    },
+    ctx: SeamsWalletTransactionContext,
+  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+    const storedPending = await ctx.store(SEAMS_WALLET_STORES.appState).get(input.pendingRow.key);
+    if (!pendingWalletRecoveryCommitAppStateRowsMatch(storedPending, input.pendingRow)) {
+      throw new Error('stored pending wallet recovery commit does not match the expected row');
+    }
+    const result = await this.persistWalletRegistrationFinalizeInTransaction(
+      input.registration,
+      ctx,
+    );
+    await this.persistRecoveredWalletAuthorityInTransaction(
+      {
+        authority: input.authority,
+        authMethod: input.authMethod,
+        recoveredAtMs: input.pending.updatedAtMs,
+      },
+      ctx,
+    );
+    await ctx.store(SEAMS_WALLET_STORES.appState).delete(input.pendingRow.key);
     return result;
   }
 

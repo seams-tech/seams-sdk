@@ -274,7 +274,6 @@ const emailOtpEcdsaExplicitUnlockMaterial: EmailOtpEcdsaWalletUnlockMaterial = {
   },
   runtimePolicyScope,
   ecdsaSessionPolicy,
-  walletSessionAuthorization: { kind: 'verified_wallet_unlock' },
 };
 void emailOtpEcdsaExplicitUnlockMaterial;
 

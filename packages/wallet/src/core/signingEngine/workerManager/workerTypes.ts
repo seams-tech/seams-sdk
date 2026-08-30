@@ -211,16 +211,6 @@ export type EmailOtpEd25519YaoRecoveryBootstrapV1 = {
   readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
 };
 
-export type EmailOtpEcdsaWalletUnlockAuthorization =
-  | {
-      readonly kind: 'verified_wallet_unlock';
-      readonly walletSessionToken?: never;
-    }
-  | {
-      readonly kind: 'reuse_ed25519_wallet_session';
-      readonly walletSessionToken: string;
-    };
-
 export type EmailOtpEcdsaCustodySignerV1 = {
   readonly chainTarget: ThresholdEcdsaChainTarget;
   readonly walletKey: {
@@ -265,7 +255,6 @@ export type EmailOtpWalletUnlockMaterialRequest =
             { operation: 'wallet_unlock' }
           >;
           readonly ecdsaSessionPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
-          readonly walletSessionAuthorization: EmailOtpEcdsaWalletUnlockAuthorization;
         }
       | {
           readonly ecdsaSessionHandleBinding: Exclude<
@@ -273,7 +262,6 @@ export type EmailOtpWalletUnlockMaterialRequest =
             { operation: 'wallet_unlock' }
           >;
           readonly ecdsaSessionPolicy?: never;
-          readonly walletSessionAuthorization?: never;
         }
     ))
   | {

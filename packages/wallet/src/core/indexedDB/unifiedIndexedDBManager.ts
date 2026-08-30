@@ -28,6 +28,7 @@ import type {
   WalletSignerLookup,
 } from './passkeyClientDB.types';
 import type { PendingWalletRegistrationCommitV1 } from './pendingWalletRegistrationCommit';
+import type { PendingWalletRecoveryCommitV1 } from './pendingWalletRecoveryCommit';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ActivateAccountSignerInput as AccountSignerLifecycleInput,
@@ -46,6 +47,7 @@ import {
   type StoreWalletRegistrationFinalizeBatchInput,
   type StoreWalletRegistrationFinalizeBatchResult,
   type PublishPendingWalletRegistrationCommitInputV1,
+  type PublishPendingWalletRecoveryCommitInputV1,
   type AtomicKeyMaterialRecoveryFinalizationInput,
   type LocalAuthorityInstallationInputV1,
   type PersistFoundingWalletAuthorityInputV1,
@@ -196,6 +198,26 @@ export class UnifiedIndexedDBManager {
     operation: PendingWalletRegistrationCommitV1['operation'];
   }): Promise<void> {
     return this.seamsWalletRepositories.deletePendingWalletRegistrationCommit(input);
+  }
+
+  async putPendingWalletRecoveryCommit(record: PendingWalletRecoveryCommitV1): Promise<void> {
+    return this.seamsWalletRepositories.putPendingWalletRecoveryCommit(record);
+  }
+
+  async getPendingWalletRecoveryCommit(
+    recoveryOperationId: PendingWalletRecoveryCommitV1['recoveryOperationId'],
+  ): Promise<PendingWalletRecoveryCommitV1 | null> {
+    return this.seamsWalletRepositories.getPendingWalletRecoveryCommit(recoveryOperationId);
+  }
+
+  async listPendingWalletRecoveryCommits(): Promise<PendingWalletRecoveryCommitV1[]> {
+    return this.seamsWalletRepositories.listPendingWalletRecoveryCommits();
+  }
+
+  async deletePendingWalletRecoveryCommit(
+    recoveryOperationId: PendingWalletRecoveryCommitV1['recoveryOperationId'],
+  ): Promise<void> {
+    return this.seamsWalletRepositories.deletePendingWalletRecoveryCommit(recoveryOperationId);
   }
 
   async compareAndSwapAppState(input: {
@@ -547,6 +569,12 @@ export class UnifiedIndexedDBManager {
     input: PublishPendingWalletRegistrationCommitInputV1,
   ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
     return this.seamsWalletRepositories.publishPendingWalletRegistrationCommit(input);
+  }
+
+  async publishPendingWalletRecoveryCommit(
+    input: PublishPendingWalletRecoveryCommitInputV1,
+  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+    return this.seamsWalletRepositories.publishPendingWalletRecoveryCommit(input);
   }
 
   async persistWalletSignerFinalize(
