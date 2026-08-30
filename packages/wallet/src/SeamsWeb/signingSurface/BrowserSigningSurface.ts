@@ -56,6 +56,7 @@ import {
 import { Ed25519YaoPageLifecycleOwner } from '@/core/signingEngine/threshold/ed25519/yaoPageLifecycleOwner';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type {
+  RouterAbEcdsaCredentialFreeSessionActivationResponseV1,
   RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -253,6 +254,7 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import {
   activeWalletSessionV1RecordsEqual,
+  type ActiveWalletSessionV1,
   type WalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
 import {
@@ -562,22 +564,51 @@ function buildEmailOtpEcdsaRehydrationPolicy(args: {
   };
 }
 
+function activeWalletSessionMatchesCredentialFreeEcdsaActivation(args: {
+  readonly walletSession: ActiveWalletSessionV1;
+  readonly activation: RouterAbEcdsaCredentialFreeSessionActivationResponseV1;
+}): boolean {
+  const materialActivation = routerAbMpcMaterialActivationRefFromWire(
+    args.activation.public_capability.material_activation,
+  );
+  let matchCount = 0;
+  for (const subject of args.walletSession.capabilitySubjects) {
+    if (
+      subject.kind === 'sign' &&
+      subject.keyFamily === 'ecdsa_secp256k1' &&
+      mpcMaterialActivationRefsEqual(subject.materialActivation, materialActivation)
+    ) {
+      matchCount += 1;
+    }
+  }
+  return matchCount === 1;
+}
+
 async function persistRehydratedEmailOtpEcdsaWalletSession(args: {
   readonly walletId: WalletId;
-  readonly ed25519Authorization: ExactNearEd25519WalletSessionAuthorization;
-  readonly response: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+  readonly authorization: ExactWalletSessionAuthorization;
+  readonly response: RouterAbEcdsaCredentialFreeSessionActivationResponseV1;
 }): Promise<void> {
   const session = args.response.session;
+  const walletSession = args.authorization.record;
+  const operationCredential = args.authorization.operationCredential;
   if (
-    session.wallet_session.walletId !== args.walletId ||
-    session.wallet_session.authorizationId !== session.authorization_id ||
-    session.operation_credential.walletSessionId !== session.wallet_session_id
+    String(walletSession.walletId) !== String(args.walletId) ||
+    String(args.response.public_capability.client_id) !== String(walletSession.walletId) ||
+    walletSession.authorizationId !== session.authorization_id ||
+    walletSession.quotaId !== session.quota_id ||
+    walletSession.expiresAtMs !== session.expires_at_ms ||
+    operationCredential.walletSessionId !== session.wallet_session_id ||
+    !activeWalletSessionMatchesCredentialFreeEcdsaActivation({
+      walletSession,
+      activation: args.response,
+    })
   ) {
     throw new Error('[SigningEngine][near] refreshed ECDSA exact Wallet Session is inconsistent');
   }
   await walletSessionAuthorizations.writeExactWithOperationCredential({
-    record: session.wallet_session,
-    operationCredential: session.operation_credential,
+    record: walletSession,
+    operationCredential,
   });
 }
 
@@ -645,6 +676,7 @@ type EmailOtpEd25519CustodyCapabilityActivationArgs = {
   readonly activeClientHandle: string;
   readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
   readonly authority?: WalletAuthAuthorityRef;
+  readonly exactAuthorization?: ExactWalletSessionAuthorization;
 };
 
 type EmailOtpEd25519CredentialExpectation =
@@ -660,9 +692,12 @@ async function resolveExactEmailOtpEd25519ActivationAuthorization(args: {
   readonly providerSubject: string;
   readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   readonly verifiedAuthority?: WalletAuthAuthorityRef;
+  readonly exactAuthorization?: ExactWalletSessionAuthorization;
 }): Promise<ExactEmailOtpEd25519ActivationAuthorization> {
   const bootstrapSession = args.bootstrap.session;
-  const stored = await walletSessionAuthorizations.readExact(bootstrapSession.walletSessionId);
+  const stored =
+    args.exactAuthorization?.record ??
+    (await walletSessionAuthorizations.readExact(bootstrapSession.walletSessionId));
   if (
     !stored ||
     stored.kind !== 'active_wallet_session_v1' ||
@@ -711,19 +746,29 @@ async function resolveExactEmailOtpEd25519ActivationAuthorization(args: {
     emailHashHex: args.emailHashHex,
     providerSubject: args.providerSubject,
   });
-  const exact = await walletSessionAuthorizations.readExactActiveForWallet({
+  const exact = args.exactAuthorization;
+  if (exact) {
+    if (
+      !activeWalletSessionV1RecordsEqual(exact.record, stored) ||
+      exact.operationCredential.walletSessionId !== bootstrapSession.walletSessionId
+    ) {
+      throw new Error('[SigningEngine][near] exact Email OTP activation credential is unavailable');
+    }
+    return { authority: authorityRef, operationCredential: exact.operationCredential };
+  }
+  const persisted = await walletSessionAuthorizations.readExactActiveForWallet({
     walletId: args.walletId,
     authorityId: stored.authorityId,
     authMethodId: stored.authMethodId,
   });
   if (
-    exact.kind !== 'found' ||
-    !activeWalletSessionV1RecordsEqual(exact.record, stored) ||
-    exact.operationCredential.walletSessionId !== bootstrapSession.walletSessionId
+    persisted.kind !== 'found' ||
+    !activeWalletSessionV1RecordsEqual(persisted.record, stored) ||
+    persisted.operationCredential.walletSessionId !== bootstrapSession.walletSessionId
   ) {
     throw new Error('[SigningEngine][near] exact Email OTP activation credential is unavailable');
   }
-  return { authority: authorityRef, operationCredential: exact.operationCredential };
+  return { authority: authorityRef, operationCredential: persisted.operationCredential };
 }
 
 function unavailableEmailOtpExportAuthorizationFromStatus(
@@ -3788,6 +3833,11 @@ export class BrowserSigningSurface {
         },
       },
     });
+    await persistRehydratedEmailOtpEcdsaWalletSession({
+      walletId: input.walletId,
+      authorization: activated.walletSessionAuthorization,
+      response: activated.ecdsaSession,
+    });
     await this.activateEmailOtpEd25519CustodyCapabilityInternal({
       commitQueue: 'acquire',
       walletSession: {
@@ -3802,20 +3852,10 @@ export class BrowserSigningSurface {
       bootstrap: activated.bootstrap,
       activeClientHandle: activated.activeClientHandle,
       metadata: activated.metadata,
-    });
-    const refreshedAuthorization = await this.readExactNearEd25519WalletSessionAuthorization(
-      input.walletId,
-    );
-    if (refreshedAuthorization.kind !== 'found') {
-      throw new Error('[SigningEngine][near] refreshed Ed25519 Wallet Session is unavailable');
-    }
-    await persistRehydratedEmailOtpEcdsaWalletSession({
-      walletId: input.walletId,
-      ed25519Authorization: refreshedAuthorization.authorization,
-      response: activated.ecdsaSession,
+      exactAuthorization: activated.walletSessionAuthorization,
     });
     const refreshedAuthority = await walletAuthAuthorityRef({
-      authority: refreshedAuthorization.authorization.selectedFactorAuthority,
+      authority: args.authorization.selectedFactorAuthority,
     });
     return buildUseLiveRuntimeHydrationPlan({
       authority: refreshedAuthority,
@@ -6289,6 +6329,7 @@ export class BrowserSigningSurface {
       providerSubject: args.providerSubject,
       bootstrap: args.bootstrap,
       ...(args.authority ? { verifiedAuthority: args.authority } : {}),
+      ...(args.exactAuthorization ? { exactAuthorization: args.exactAuthorization } : {}),
     });
     if (
       args.credentialExpectation.kind === 'expect_exact_operation_credential' &&
