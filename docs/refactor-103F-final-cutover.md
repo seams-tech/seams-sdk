@@ -682,16 +682,20 @@ Primary files:
       and return a typed `unlock_required` continuation bound to the exact
       wallet, ceremony, key families, activation journal, authority, and
       method instead of attempting publication without custody material.
-- [ ] Retain recoverable ECDSA local-finalization state in the pending record
-      and validate it against the committed projection before publication.
+- [x] Retain recoverable ECDSA local-finalization state in the pending record.
+      The strict boundary now persists and parses the activation journal,
+      verified client-activation facts, activation-request digest, and exact
+      auth-method identity, then returns them in the typed unlock continuation.
+- [ ] Complete ECDSA-only and mixed registration recovery orchestration: unlock
+      the exact method, validate the retained finalization facts against the
+      committed projection, and publish through the existing atomic local
+      transaction.
 - [x] Change final registration replay to credential-free committed projection
       plus `unlock_exact_method`.
 - [x] Validate Passkey Ed25519 deferred-NEAR replay against the pending record
       and atomically publish profile, authenticator, authority, method,
       signer/account state, selection, and an issued V6 Wallet Session.
 - [x] Extend reload replay and atomic publication to Email OTP registration.
-- [ ] Extend reload replay and atomic publication to ECDSA-only or mixed
-      registration finalization.
 - [x] Implement the nine-store publication primitive: re-read the exact pending
       row in-transaction, validate Passkey/Email OTP and founding identities,
       roll back all local state on failure, and retain mixed activation pending
@@ -712,10 +716,6 @@ Primary files:
 - [x] Consume that projection for Email OTP pending-commit recovery, validating
       the receipt, founding authority/method identities, and provisioning plan
       before atomic local publication.
-- [ ] Consume that projection for ECDSA-only and mixed pending-commit recovery,
-      validating the receipt, prepared fingerprint, authority set,
-      provisioning plan, and already-finalized ECDSA state before local
-      publication.
 - [x] Delete the old-client replay adapter, its V1 bearer reconstruction, and
       every adapter-only resolver and test.
 - [x] Drop `registration_replay_opaque_wallet_session_tokens_v1` in migration
@@ -953,16 +953,14 @@ Final status/source symbols are `handleExactWalletSessionStatus`,
       Google Email OTP. `tests/unit/pendingWalletRecoveryCommit.unit.test.ts`
       proves parsing, secret rejection, exact projection binding, rollback, and
       successful publication for both branches.
-- [ ] Wire `WalletRecoveryCoordinator` to persist
-      `awaiting_server_promotion` before finalization, advance the same record to
-      `server_promoted` from the committed projection, and remove the current
-      in-memory-only `promoted_pending_continuity` gap.
-- [ ] Publish recovery authority, method, selection, profile, authenticator,
-      account, and signer continuity through the existing pending-commit
-      transaction before `ready_for_sign_in`.
-- [ ] On startup, list pending recovery commits, replay the same additive server
-      commit or retained locator tombstone, resume local installation without
-      another recovery code, and delete the pending row after publication.
+- [ ] Complete the remaining browser orchestration in
+      `WalletRecoveryCoordinator`: persist `awaiting_server_promotion`, advance
+      the same record to `server_promoted`, publish authority, method,
+      selection, profile, authenticator, account, and signer continuity through
+      the existing atomic transaction, and resume that flow from startup before
+      deleting the journal. The server projection, strict pending-record
+      boundary, repository operations, and publication transaction already
+      exist; this task adds no new recovery domain or persistence boundary.
 - [x] Keep wallet lock local to browser record/runtime disposal. Server
       retirement is produced only by same-method replacement, exact-method
       revocation, and authority revocation; no explicit session-retirement
@@ -1040,6 +1038,12 @@ Primary files:
       The wallet host reads the exact persisted V6 tuple, retries through the
       Wallet Session bearer-only acknowledgement transport, and leaves the
       durable intent untouched while the exact session is unavailable.
+- [ ] Select and document the product-security policy for acknowledgement
+      recovery when the exact operation credential is expired, lost, or
+      retired. The choice must define which durable Device 2 proof may
+      authenticate cleanup after live-link deletion, its replay window, and
+      whether exact-method unlock may mint the required recovery authority;
+      implementation and loss-path tests follow that decision.
 - [ ] Recover recipient-handle loss or delivery expiry through durable local
       install plus exact-method unlock, without resealing or relinking.
 - [x] Preserve interactive cancellation across `claimed`,
@@ -1441,8 +1445,12 @@ credentials, and a current registration path still reaches immediate signing.
 - [x] Implement one direct issuer that atomically commits the V2 authorization,
       quota, and primary credential digest.
 - [x] Narrow V2 mint replay and implement `issued` / `already_committed`.
-- [ ] Convert one registration path through direct issuance, exact browser
+- [x] Convert one registration path through direct issuance, exact browser
       installation, exact admission, and immediate NEAR/EVM-family signing.
+      `188412a3a` proves an exact active Passkey or Email OTP registration
+      session authorizes the durable ECDSA capability without requiring a
+      sealed-runtime record; the authoritative Passkey intended contract
+      remains separate acceptance evidence and is still running.
 - [x] Add failure injection proving a failed batch exposes no usable session or
       quota and replay cannot rotate the credential.
 - [x] Assign every live opaque runtime-binding field to the exact material
@@ -1500,8 +1508,9 @@ exact admission contexts. No V1 request or persistence resolver remains.
 - [ ] Recover a missing recipient handle or expired delivery through the durable
       local install and normal exact-method unlock, without resealing or
       relinking.
-- [ ] Close the post-promotion recovery crash window with resumable local
-      continuity and normal exact login.
+- [ ] Connect the completed recovery pending-record and publication primitives
+      through browser orchestration, closing the post-promotion crash window
+      and reaching normal exact login.
 - [x] Reconcile all affected browser records after material promotion.
 - [x] Bump the host/iframe protocol and remove reusable-session message fields.
 - [x] Rename `ReusableWalletSessionMintId` to `WalletSessionMintId` without an
@@ -1529,6 +1538,20 @@ HEAD reconciliation on 2026-08-30:
 - `d21cc81c5` makes the current recovery auth-method branches exhaustive. The
   coordinator still does not consume `PendingWalletRecoveryCommitV1`, so
   durable recovery continuity stays open.
+- `e97083adb` durably retains the ECDSA activation journal, verified client
+  activation, request digest, and exact auth-method identity for registration
+  replay. Exact unlock, committed-projection validation, and atomic local
+  publication remain one browser-orchestration task.
+- `188412a3a` authorizes an exact active registration session against durable
+  Passkey or Email OTP ECDSA capability state, and `eebb4217c` removes the
+  caller-supplied Email OTP runtime-policy scope so the exact durable runtime
+  remains authoritative.
+- `9bab34263` keeps the nominal
+  `WalletSessionOperationCredentialV1` intact through NEAR operation step-up
+  until the narrow Router A/B transport boundary.
+- `8a7096d18` makes every linked-device operating-path case assert a genuine
+  single-method source inventory. The operating-path run and remaining factor
+  results stay open.
 
 - [x] Delete the registration adapter and temporary client capability.
 - [x] Delete every V1 request and persistence resolver. The closure-ledger
@@ -1539,8 +1562,12 @@ HEAD reconciliation on 2026-08-30:
 - [ ] Delete the remaining generic legacy route-auth vocabulary in
       `packages/shared-ts/src/utils/sessionTokens.ts`: `OpaqueWalletSessionToken`,
       `OpaqueWalletSessionAuth`, `WalletSessionRouteAuth`, and
-      `requireOpaqueWalletSessionToken`. Narrow their ECDSA, step-up, worker,
-      and relayer consumers directly to `WalletSessionOperationCredentialV1`.
+      `requireOpaqueWalletSessionToken`. This is one seven-file route-auth
+      boundary spanning the shared definition and its ECDSA, step-up, worker,
+      and relayer owners; broader symbol matches are downstream type
+      propagation and fixtures, not separate cutover boundaries. Narrow the
+      boundary directly to `WalletSessionOperationCredentialV1` and update its
+      propagation in the same change.
 - [ ] Review extracted modules for forwarding-only wrappers, cycles, duplicate
       validators, compatibility re-exports, and single-caller helpers; inline or
       delete them unless they preserve a clear domain boundary.
@@ -1581,12 +1608,11 @@ Completed prerequisite evidence:
 
 Remaining causal baseline work:
 
-- [ ] Run `tests/e2e/linked-device.operating-path.test.ts` before changing the
-      linked production path. No green composed-run baseline is assumed. Record
-      prerequisites, command, current result, and failure classification so a
-      pre-existing environment or fixture failure is not attributed to R103F.
-      Confirm each cross-factor case begins with the genuine single-method
-      source inventory, especially Passkey-only to first-Email enrollment. Use
+- [ ] Run `tests/e2e/linked-device.operating-path.test.ts`. No green composed-run
+      result is assumed. Record prerequisites, command, current result, and
+      failure classification. `8a7096d18` already makes every cross-factor case
+      assert its genuine single-method source inventory, including
+      Passkey-only to first-Email enrollment. Use
       `pnpm test:linked-device` for managed state; use
       `pnpm test:linked-device:external` only for an intentionally composed
       external stack and label that evidence separately.
@@ -1747,6 +1773,7 @@ Remaining causal baseline work:
 #### Intended-behaviour and operating-path inventory
 
 - [ ] `tests/e2e/intended-behaviours/passkey.registration.contract.test.ts`
+      (currently running; no completion evidence recorded yet)
 - [ ] `tests/e2e/intended-behaviours/email-otp.registration.benchmark.test.ts`
 - [ ] `tests/e2e/intended-behaviours/passkey.unlock.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts`
@@ -1796,8 +1823,9 @@ Remaining causal baseline work:
       tests.
 - [ ] Crash injection after delivery tombstone, ciphertext removal, allocation
       deletion, link-session deletion, and cleanup completion.
-- [ ] Route test proving acknowledgement after live-session deletion
-      authenticates through the cleanup receipt and avoids early `not_found`.
+- [ ] After the acknowledgement-recovery product-security policy is selected,
+      add the route proof for the chosen durable authentication path after
+      live-session deletion and ensure it avoids early `not_found`.
 - [ ] Local prerequisite transaction tests covering crash atomicity,
       invisibility, receipt replay, both retryable pending reasons, and terminal
       cleanup that preserves pre-existing records.
@@ -1940,8 +1968,9 @@ vocabulary. Console-session JWT types also remain.
 At HEAD, the historical table/API, replay-adapter, browser-record, legacy-mint,
 registration-remediation, and client-capability searches are clean outside
 immutable migrations and the documented frozen vocabulary. The added generic
-route-auth search still has production matches in the shared token helper and
-its ECDSA/step-up consumers, so code closure remains open.
+route-auth search still has production matches. They belong to one seven-file
+definition/transport boundary plus its mechanical propagation and fixtures, so
+code closure remains open until that boundary is deleted as one change.
 
 Database closure is proved on clean and current-history migration fixtures. The
 final exact-session boundary retains
