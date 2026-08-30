@@ -183,6 +183,7 @@ test('a mixed plan starts the NEAR custody join before activate is called', asyn
           expect(routes.calls).toEqual(['respond']);
           const pending = buildPendingRegistrationCommit({
             operation: 'registration_activate',
+            signerPlanKind: 'near_ed25519_and_evm_family_ecdsa',
             registrationCeremonyId: 'wrc_test',
             idempotencyKey: 'idem-1',
             walletId: String(input.localMaterial.custodyCommit.walletId),

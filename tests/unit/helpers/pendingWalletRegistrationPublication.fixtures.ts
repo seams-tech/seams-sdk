@@ -402,42 +402,40 @@ export async function buildPendingWalletRegistrationPublicationFixture(
       activationRequestDigestB64u: digest(41),
     },
   };
-  const localMaterial: PendingWalletRegistrationCommitV1['localMaterial'] =
-    keyFamilies === 'ed25519'
-      ? ed25519LocalMaterial
-      : keyFamilies === 'ecdsa_secp256k1'
-        ? ecdsaLocalMaterial
-        : mixedLocalMaterial;
   const registrationCeremonyId = `ceremony:r103f-publication-${authKind}`;
   const idempotencyKey = `idempotency:r103f-publication-${authKind}`;
+  const pendingBase = {
+    kind: 'pending_wallet_registration_commit_v1' as const,
+    registrationCeremonyId,
+    idempotencyKey,
+    walletId,
+    walletAuthMethodId,
+    signedSetup: 'signed-setup:r103f-publication',
+    auth: pendingAuth,
+    createdAtMs: 10,
+    updatedAtMs: 20,
+  };
   const pending =
     operation === 'near_provisioning'
       ? buildPendingWalletRegistrationCommitV1({
-          kind: 'pending_wallet_registration_commit_v1',
-          operation: 'near_provisioning',
-          registrationCeremonyId,
-          idempotencyKey,
-          walletId,
-          walletAuthMethodId,
-          signedSetup: 'signed-setup:r103f-publication',
-          auth: pendingAuth,
+          ...pendingBase,
+          operation,
+          signerPlanKind: 'near_ed25519',
           localMaterial: ed25519LocalMaterial,
-          createdAtMs: 10,
-          updatedAtMs: 20,
         })
-      : buildPendingWalletRegistrationCommitV1({
-          kind: 'pending_wallet_registration_commit_v1',
-          operation: 'registration_activate',
-          registrationCeremonyId,
-          idempotencyKey,
-          walletId,
-          walletAuthMethodId,
-          signedSetup: 'signed-setup:r103f-publication',
-          auth: pendingAuth,
-          localMaterial,
-          createdAtMs: 10,
-          updatedAtMs: 20,
-        });
+      : keyFamilies === 'ecdsa_secp256k1'
+        ? buildPendingWalletRegistrationCommitV1({
+            ...pendingBase,
+            operation,
+            signerPlanKind: 'evm_family_ecdsa',
+            localMaterial: ecdsaLocalMaterial,
+          })
+        : buildPendingWalletRegistrationCommitV1({
+            ...pendingBase,
+            operation,
+            signerPlanKind: 'near_ed25519_and_evm_family_ecdsa',
+            localMaterial: mixedLocalMaterial,
+          });
   const signerData = buildSignerActivation(String(walletId));
   const registration: StoreWalletRegistrationPublicationInputV1 = {
     profiles: [

@@ -56,6 +56,7 @@ function pendingRecord(overrides: Record<string, unknown> = {}): Record<string, 
   return {
     kind: 'pending_wallet_registration_commit_v1',
     operation: 'registration_activate',
+    signerPlanKind: 'near_ed25519',
     registrationCeremonyId: 'registration-ceremony-pending',
     idempotencyKey: 'wallet-registration-finalize:pending',
     walletId: custodyCommit.walletId,
@@ -86,6 +87,7 @@ test('pending registration parser accepts activation and deferred NEAR records',
   const activation = parsePendingWalletRegistrationCommitV1(pendingRecord());
   expect(activation).not.toBeNull();
   expect(activation?.operation).toBe('registration_activate');
+  expect(activation?.signerPlanKind).toBe('near_ed25519');
 
   const nearProvisioning = parsePendingWalletRegistrationCommitV1(
     pendingRecord({
@@ -186,6 +188,7 @@ test('pending registration parser requires complete Ed25519 publication metadata
 test('pending registration parser keeps ECDSA and mixed local-material branches distinct', () => {
   const ecdsa = parsePendingWalletRegistrationCommitV1(
     pendingRecord({
+      signerPlanKind: 'evm_family_ecdsa',
       localMaterial: {
         keyFamilies: ['ecdsa_secp256k1'],
         custodyCommit: { ...custodyCommit, keySet: 'evm_family_ecdsa_v1' },
@@ -194,9 +197,11 @@ test('pending registration parser keeps ECDSA and mixed local-material branches 
     }),
   );
   expect(ecdsa?.localMaterial.keyFamilies).toEqual(['ecdsa_secp256k1']);
+  expect(ecdsa?.signerPlanKind).toBe('evm_family_ecdsa');
 
   const mixed = parsePendingWalletRegistrationCommitV1(
     pendingRecord({
+      signerPlanKind: 'near_ed25519_and_evm_family_ecdsa',
       localMaterial: {
         keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
         custodyCommit: { ...custodyCommit, keySet: 'evm_family_ecdsa_v1' },
@@ -210,6 +215,7 @@ test('pending registration parser keeps ECDSA and mixed local-material branches 
     }),
   );
   expect(mixed?.localMaterial.keyFamilies).toEqual(['ed25519', 'ecdsa_secp256k1']);
+  expect(mixed?.signerPlanKind).toBe('near_ed25519_and_evm_family_ecdsa');
 
   expect(
     parsePendingWalletRegistrationCommitV1(
