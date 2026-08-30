@@ -6,7 +6,15 @@ import {
   buildPasskeyExactEd25519AuthorizationFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
-import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  buildMpcMaterialActivationRefFixture,
+  buildWalletAuthAuthorityRefForAuthorityFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  buildPromotedActiveWalletSessionFixture,
+  extendFixtureAuthorityWithEcdsaSigner,
+} from './helpers/linkedDeviceManagement.fixtures';
+import { buildActiveNearEd25519WalletSessionAuthorization } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
 
 const AVAILABLE_SIGNING_LANES_PATH =
   '/_test-sdk/esm/core/signingEngine/session/availability/availableSigningLanes.js';
@@ -296,16 +304,44 @@ test.describe('available signing lane curve isolation', () => {
     ]);
   });
 
-  test('prefers a fresh Email OTP unlock capability over exhausted durable policy', async ({
+  test('prefers a fresh Email OTP unlock capability under a promoted full authority', async ({
     page,
   }) => {
     const record = buildEmailOtpEd25519SealedSessionRecordFixture({
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 0,
     });
-    const authorization = buildEmailOtpExactEd25519AuthorizationFixture(record, {
+    const sourceAuthorization = buildEmailOtpExactEd25519AuthorizationFixture(record, {
       remainingUses: 3,
     });
+    const promotedAuthority = await extendFixtureAuthorityWithEcdsaSigner(
+      sourceAuthorization.selectedAuthority,
+    );
+    const promotedSession = buildPromotedActiveWalletSessionFixture({
+      source: sourceAuthorization.session,
+      authority: promotedAuthority,
+    });
+    const authorization = buildActiveNearEd25519WalletSessionAuthorization({
+      selectedAuthority: promotedAuthority,
+      selectedAuthMethod: sourceAuthorization.selectedAuthMethod,
+      selectedFactorAuthority: sourceAuthorization.selectedFactorAuthority,
+      session: promotedSession,
+      operationCredential: sourceAuthorization.operationCredential,
+      status: {
+        status: 'active',
+        walletSessionId: sourceAuthorization.status.walletSessionId,
+        quotaId: sourceAuthorization.status.quotaId,
+        remainingUses: sourceAuthorization.status.remainingUses,
+        expiresAtMs: sourceAuthorization.status.expiresAtMs,
+        quotaLifecycle: 'active',
+        authorization: promotedSession,
+      },
+      nowMs: 1_800_000_000_000,
+    });
+    const factorAuthorityRef = buildWalletAuthAuthorityRefForAuthorityFixture(
+      sourceAuthorization.selectedFactorAuthority,
+    );
+    expect(promotedAuthority.authorityDigestB64u).not.toBe(factorAuthorityRef.authorityDigest);
     const restore = record.ed25519Restore;
     const publicCapabilityReference = {
       walletId: record.walletId,
@@ -323,7 +359,13 @@ test.describe('available signing lane curve isolation', () => {
       expiresAtMs: authorization.status.expiresAtMs,
     };
     const result = await page.evaluate(
-      async ({ modulePath, record, publicCapabilityReference, authorization }) => {
+      async ({
+        modulePath,
+        record,
+        publicCapabilityReference,
+        authorization,
+        factorAuthorityRef,
+      }) => {
         const { readAvailableSigningLanes } = await import(modulePath);
         const lanes = await readAvailableSigningLanes(
           {
@@ -336,7 +378,7 @@ test.describe('available signing lane curve isolation', () => {
               },
               ownerAuthority: {
                 walletAuthMethodId: authorization.selectedAuthMethod.walletAuthMethodId,
-                authorityDigest: authorization.selectedAuthority.authorityDigestB64u,
+                authorityDigest: factorAuthorityRef.authorityDigest,
               },
             },
           },
@@ -366,6 +408,7 @@ test.describe('available signing lane curve isolation', () => {
         record,
         publicCapabilityReference,
         authorization,
+        factorAuthorityRef,
       },
     );
 
