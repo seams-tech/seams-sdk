@@ -19,6 +19,7 @@ import {
   parseLinkDeviceSessionId,
   parseWalletAuthorityId,
   parseWalletId,
+  parseWalletRecoveryOperationId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
   parseThresholdEd25519SessionId,
@@ -679,6 +680,49 @@ export async function buildLinkedDeviceUnlockRuntimeFixture(): Promise<LinkedDev
       },
     },
   };
+}
+
+export async function buildWalletRecoveryAuthorityFixture(
+  fixture: Pick<LinkedDeviceUnlockRuntimeFixture, 'authority'>,
+): Promise<LinkedDeviceUnlockRuntimeFixture['authority']> {
+  const draft = buildActiveWalletAuthorityV1({
+    kind: fixture.authority.kind,
+    authorityId: fixture.authority.authorityId,
+    walletId: fixture.authority.walletId,
+    principal: fixture.authority.principal,
+    provenance: {
+      kind: 'wallet_recovery',
+      recoveryOperationId: required(
+        parseWalletRecoveryOperationId('wallet-recovery:linked-runtime'),
+      ),
+      continuityAuthorityId: fixture.authority.authorityId,
+    },
+    permissions: fixture.authority.permissions,
+    signerActivations: fixture.authority.signerActivations,
+    signerActivationSetDigestB64u: fixture.authority.signerActivationSetDigestB64u,
+    authorityDigestB64u: fixture.authority.authorityDigestB64u,
+    revocationEpoch: fixture.authority.revocationEpoch,
+    createdAtMs: fixture.authority.createdAtMs,
+    updatedAtMs: fixture.authority.updatedAtMs,
+    state: fixture.authority.state,
+    activatedAtMs: fixture.authority.activatedAtMs,
+  });
+  return buildActiveWalletAuthorityV1({
+    kind: draft.kind,
+    authorityId: draft.authorityId,
+    walletId: draft.walletId,
+    principal: draft.principal,
+    provenance: draft.provenance,
+    permissions: draft.permissions,
+    signerActivations: draft.signerActivations,
+    signerActivationSetDigestB64u: draft.signerActivationSetDigestB64u,
+    authorityDigestB64u: await computeWalletAuthorityDigestB64u(draft),
+    revocationEpoch: draft.revocationEpoch,
+    createdAtMs: draft.createdAtMs,
+    updatedAtMs: draft.updatedAtMs,
+    state: draft.state,
+    activatedAtMs: draft.activatedAtMs,
+  });
 }
 
 export async function buildLinkedDeviceEmailOtpUnlockRuntimeFixture(): Promise<LinkedDeviceEmailOtpUnlockRuntimeFixture> {

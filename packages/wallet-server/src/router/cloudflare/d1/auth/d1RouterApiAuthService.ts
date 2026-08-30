@@ -2196,6 +2196,10 @@ function createD1WalletUnlockRouteService(
     verifyWebAuthnLogin: assembly.webAuthnAuthService.verifyWebAuthnLogin.bind(
       assembly.webAuthnAuthService,
     ),
+    resolveActivePasskeyAuthorityForUnlock:
+      assembly.walletAuthMethods.resolveActivePasskeyAuthorityForUnlock.bind(
+        assembly.walletAuthMethods,
+      ),
     resolveEmailOtpAuthorityForUnlock: (request) =>
       resolveEmailOtpAuthorityForUnlock({
         walletAuthMethods: assembly.walletAuthMethods,
