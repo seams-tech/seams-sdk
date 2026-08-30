@@ -372,8 +372,10 @@ import {
   buildExactLinkedEmailOtpOwnerLaneScope,
   buildExactEcdsaPasskeyOwnerLaneScope,
   buildExactPasskeyOwnerLaneScope,
+  resolveExactWalletAuthAuthority as resolveExactWalletAuthAuthorityFromActiveMethod,
   resolveExactOwnerLaneScope,
   type ActiveWalletAuthMethodV2,
+  type OwnerLaneScopeStores,
 } from '@/core/signingEngine/session/identity/ownerLaneScope';
 import { parseSignerSlot, type SignerSlot } from '@shared/utils/signerSlot';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
@@ -618,10 +620,16 @@ async function readBrowserEmailOtpProviderSubject(walletId: WalletId): Promise<s
   return await readEmailOtpProviderSubjectForWalletV1(IndexedDBManager, walletId);
 }
 
-const browserSigningSurfaceExactWalletAuthMethodStore = {
-  getWalletAuthMethodV2: IndexedDBManager.getWalletAuthMethodV2.bind(IndexedDBManager),
-  listWalletAuthMethodsForWallet:
-    IndexedDBManager.listWalletAuthMethodsForWallet.bind(IndexedDBManager),
+async function noBrowserWalletPasskeyAuthenticator(): Promise<null> {
+  return null;
+}
+
+const browserSigningSurfaceExactWalletAuthMethodStore: OwnerLaneScopeStores = {
+  getWalletAuthMethodV2: (walletAuthMethodId) =>
+    IndexedDBManager.getWalletAuthMethodV2(walletAuthMethodId),
+  listWalletAuthMethodsForWallet: (walletId) =>
+    IndexedDBManager.listWalletAuthMethodsForWallet(walletId),
+  getWalletPasskeyAuthenticator: noBrowserWalletPasskeyAuthenticator,
   readEmailOtpProviderSubjectForWallet: readBrowserEmailOtpProviderSubject,
 };
 
@@ -659,6 +667,104 @@ async function resolveExactEmailOtpFactorAuthority(args: {
     throw new Error('[SigningEngine][near] exact Email OTP factor authority changed');
   }
   return factorAuthority;
+}
+
+type EmailOtpNearEd25519MaterialIdentity = Omit<NearEd25519MaterialIdentity, 'auth'> & {
+  readonly auth: Extract<SigningLaneAuthBinding, { readonly kind: 'email_otp' }>;
+};
+
+function requireEmailOtpNearEd25519MaterialIdentity(
+  identity: NearEd25519MaterialIdentity,
+): EmailOtpNearEd25519MaterialIdentity {
+  const auth = identity.auth;
+  switch (auth.kind) {
+    case WALLET_AUTH_METHODS.emailOtp:
+      return {
+        kind: identity.kind,
+        signer: identity.signer,
+        auth,
+        thresholdSessionId: identity.thresholdSessionId,
+      };
+    case WALLET_AUTH_METHODS.passkey:
+      throw new Error('[SigningEngine][near] Email OTP material identity is required');
+    default:
+      auth satisfies never;
+      throw new Error('[SigningEngine][near] unsupported Ed25519 material authority');
+  }
+}
+
+/** Selects the exact unlocked Email OTP factor for exhausted-session step-up. */
+export async function resolveBrowserNearEd25519EmailOtpAuthorityForMaterial(args: {
+  readonly walletId: WalletId;
+  readonly nearAccountId: AccountId;
+  readonly identity: EmailOtpNearEd25519MaterialIdentity;
+  readonly signerSlot: number;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly authorizationRead: {
+    readonly kind: 'exhausted';
+    readonly authorization?: never;
+  };
+}): Promise<WalletAuthAuthorityRef | null> {
+  if (
+    String(args.identity.signer.account.wallet.walletId) !== String(args.walletId) ||
+    String(args.identity.signer.account.nearAccountId) !== String(args.nearAccountId) ||
+    args.identity.signer.signerSlot !== args.signerSlot
+  ) {
+    return null;
+  }
+
+  let selected: ResolveSelectedWalletAuthorityResultV1;
+  try {
+    selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
+  } catch {
+    return null;
+  }
+  if (selected.kind !== 'resolved') return null;
+
+  const { selection, authMethod, authority } = selected;
+  const ed25519Activation = authority.signerActivations.ed25519;
+  if (
+    selection.lockState !== 'unlocked' ||
+    selection.walletId !== args.walletId ||
+    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    authMethod.kind !== WALLET_AUTH_METHODS.emailOtp ||
+    authMethod.status !== 'active' ||
+    authMethod.walletId !== args.walletId ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    authority.state !== 'active' ||
+    authority.walletId !== args.walletId ||
+    !ed25519Activation ||
+    ed25519Activation.signer.walletId !== args.walletId ||
+    !mpcMaterialActivationRefsEqual(ed25519Activation.materialActivation, args.materialActivation)
+  ) {
+    return null;
+  }
+
+  try {
+    const factorAuthority = await resolveExactWalletAuthAuthorityFromActiveMethod({
+      authMethod,
+      stores: browserSigningSurfaceExactWalletAuthMethodStore,
+    });
+    if (
+      !isEmailOtpWalletAuthAuthority(factorAuthority) ||
+      factorAuthority.walletId !== args.walletId ||
+      factorAuthority.bindingId !== authMethod.walletAuthMethodId ||
+      factorAuthority.verifier.emailHashHex !== authMethod.emailHashHex ||
+      factorAuthority.factor.providerUserId !== args.identity.auth.providerSubjectId
+    ) {
+      return null;
+    }
+    const factorAuthorityRef = await walletAuthAuthorityRef({ authority: factorAuthority });
+    if (
+      factorAuthorityRef.walletId !== args.walletId ||
+      factorAuthorityRef.walletAuthMethodId !== authMethod.walletAuthMethodId
+    ) {
+      return null;
+    }
+    return factorAuthorityRef;
+  } catch {
+    return null;
+  }
 }
 
 type ExactEmailOtpEd25519ActivationAuthorization = {
@@ -3681,6 +3787,7 @@ export class BrowserSigningSurface {
         hydration = await this.resolveWalletCustodyEmailOtpHydration({
           walletId: args.walletId,
           nearAccountId: args.nearAccountId,
+          identity: requireEmailOtpNearEd25519MaterialIdentity(identity),
           signerSlot: identity.signer.signerSlot,
           materialActivation,
         });
@@ -3698,6 +3805,7 @@ export class BrowserSigningSurface {
   private async resolveWalletCustodyEmailOtpHydration(args: {
     walletId: WalletId;
     nearAccountId: AccountId;
+    identity: EmailOtpNearEd25519MaterialIdentity;
     signerSlot: number;
     materialActivation: MpcMaterialActivationRef;
   }): Promise<MpcCapabilityHydrationPlan> {
@@ -3709,11 +3817,17 @@ export class BrowserSigningSurface {
     const authorizationRead = await this.readExactNearEd25519WalletSessionAuthorization(
       args.walletId,
     );
-    if (
-      authorizationRead.kind === 'found' &&
-      authorizationRead.authorization.selectedAuthMethod.kind === WALLET_AUTH_METHODS.emailOtp
-    ) {
-      const authority = await walletAuthAuthorityRef({
+    let authority: WalletAuthAuthorityRef;
+    if (authorizationRead.kind === 'found') {
+      if (
+        authorizationRead.authorization.selectedAuthMethod.kind !== WALLET_AUTH_METHODS.emailOtp
+      ) {
+        return buildBlockedMpcCapabilityHydrationPlan({
+          capability: args.materialActivation.capability,
+          reason: 'missing_material',
+        });
+      }
+      authority = await walletAuthAuthorityRef({
         authority: authorizationRead.authorization.selectedFactorAuthority,
       });
       if (activeMaterial) {
@@ -3723,30 +3837,81 @@ export class BrowserSigningSurface {
           materialActivation: args.materialActivation,
         });
       }
-      const loaded = await this.loadEmailOtpWalletCustodyEd25519Material({
-        nearAccountId: String(args.nearAccountId),
+    } else if (authorizationRead.kind === 'exhausted') {
+      const exhaustedAuthority = await resolveBrowserNearEd25519EmailOtpAuthorityForMaterial({
+        walletId: args.walletId,
+        nearAccountId: args.nearAccountId,
+        identity: args.identity,
         signerSlot: args.signerSlot,
+        materialActivation: args.materialActivation,
+        authorizationRead: { kind: 'exhausted' },
       });
-      if (
-        loaded.kind === 'found' &&
-        loaded.material.binding.walletId === String(args.walletId) &&
-        loaded.material.binding.nearAccountId === String(args.nearAccountId) &&
-        loaded.material.binding.signerSlot === args.signerSlot &&
-        String(args.materialActivation.materialOwner) === String(args.walletId)
-      ) {
-        return buildRehydrateMaterialActivationHydrationPlan({
-          authority,
-          materialActivation: args.materialActivation,
-          sealedMaterial: buildRestorableMpcMaterialRefForHydration(
-            JSON.stringify([
-              loaded.material.binding.walletId,
-              loaded.material.binding.nearAccountId,
-              loaded.material.binding.signerSlot,
-              args.materialActivation.activationId,
-            ]),
-          ),
+      if (!exhaustedAuthority) {
+        return buildBlockedMpcCapabilityHydrationPlan({
+          capability: args.materialActivation.capability,
+          reason: 'missing_material',
         });
       }
+      authority = exhaustedAuthority;
+      if (activeMaterial) {
+        try {
+          validateExactNearEd25519YaoOperationMaterial({
+            material: activeMaterial,
+            input: {
+              walletId: args.walletId,
+              nearAccountId: args.nearAccountId,
+              materialIdentity: args.identity,
+            },
+            expectedActivation: args.materialActivation,
+          });
+        } catch {
+          return buildBlockedMpcCapabilityHydrationPlan({
+            capability: args.materialActivation.capability,
+            reason: 'binding_mismatch',
+          });
+        }
+      }
+    } else {
+      return buildBlockedMpcCapabilityHydrationPlan({
+        capability: args.materialActivation.capability,
+        reason: 'missing_material',
+      });
+    }
+    if (activeMaterial) {
+      return buildUseLiveRuntimeHydrationPlan({
+        authority,
+        runtime: nearEd25519YaoRuntimeRef(args.materialActivation),
+        materialActivation: args.materialActivation,
+      });
+    }
+    const loaded = await this.loadEmailOtpWalletCustodyEd25519Material({
+      nearAccountId: String(args.nearAccountId),
+      signerSlot: args.signerSlot,
+    });
+    if (
+      loaded.kind === 'found' &&
+      loaded.material.binding.walletId === String(args.walletId) &&
+      loaded.material.binding.nearAccountId === String(args.nearAccountId) &&
+      loaded.material.binding.signerSlot === args.signerSlot &&
+      String(args.materialActivation.materialOwner) === String(args.walletId) &&
+      (authorizationRead.kind === 'found' ||
+        (loaded.material.binding.nearEd25519SigningKeyId ===
+          String(args.identity.signer.nearEd25519SigningKeyId) &&
+          loaded.material.binding.signingWorkerId ===
+            String(args.materialActivation.signingWorker)))
+    ) {
+      return buildRehydrateMaterialActivationHydrationPlan({
+        authority,
+        materialActivation: args.materialActivation,
+        sealedMaterial: buildRestorableMpcMaterialRefForHydration(
+          JSON.stringify([
+            loaded.material.binding.walletId,
+            loaded.material.binding.nearAccountId,
+            loaded.material.binding.signerSlot,
+            args.materialActivation.activationId,
+          ]),
+        ),
+      });
     }
     return buildBlockedMpcCapabilityHydrationPlan({
       capability: args.materialActivation.capability,
@@ -4845,6 +5010,9 @@ export class BrowserSigningSurface {
         return await this.resolveWalletCustodyEmailOtpHydration({
           walletId: args.walletId,
           nearAccountId: args.nearAccountId,
+          identity: requireEmailOtpNearEd25519MaterialIdentity(
+            nearEd25519MaterialIdentityFromBoundaryInput(args),
+          ),
           signerSlot: args.laneIdentity.signer.signerSlot,
           materialActivation: input.publicLocator.materialActivation,
         });
