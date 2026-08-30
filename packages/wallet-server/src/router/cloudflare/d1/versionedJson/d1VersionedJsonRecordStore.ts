@@ -121,9 +121,8 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
    *
    * A prefix scan rather than a key batch because the caller does not know the
    * keys: enumerating a wallet's envelopes means finding rows it has never
-   * seen. The prefix is matched literally — `LIKE` wildcards in it are escaped
-   * — so a caller cannot widen its own scan into another wallet's rows by
-   * passing `%`.
+   * seen. `substr` compares the prefix literally, so `%` and `_` never become
+   * pattern operators and D1 never compiles caller data as a LIKE pattern.
    *
    * Rows that fail to parse are skipped rather than failing the scan. A single
    * unreadable row must not make a wallet's whole envelope set unlistable,
@@ -143,7 +142,7 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
             AND org_id = ?2
             AND project_id = ?3
             AND env_id = ?4
-            AND record_key LIKE ?5 ESCAPE '\\'
+            AND substr(record_key, 1, length(?5)) = ?5
           ORDER BY record_key
           LIMIT ?6`,
       )
@@ -152,7 +151,7 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
         this.scope.orgId,
         this.scope.projectId,
         this.scope.envId,
-        `${escapeLikePattern(prefix)}%`,
+        prefix,
         limit,
       )
       .all<StoredRecord & { record_key: string }>();
@@ -688,9 +687,4 @@ function invalidRecordFailure(message: string): CloudflareD1VersionedJsonRecordS
 
 function invalidResponseFailure(message: string): CloudflareD1VersionedJsonRecordStoreError {
   return new CloudflareD1VersionedJsonRecordStoreError('invalid_response', message);
-}
-
-/** Escapes `LIKE` metacharacters so a prefix matches literally. */
-function escapeLikePattern(value: string): string {
-  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
