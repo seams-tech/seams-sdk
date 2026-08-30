@@ -360,6 +360,8 @@ export class SeamsWebIframe {
         await this.router.beginGoogleEmailOtpWalletAuth(args),
     };
     this.registration = {
+      resumePendingEcdsaRegistration: async (args) =>
+        await this.resumePendingEcdsaRegistrationDomain(args),
       getNearProvisioningState: async (args) => await this.getNearProvisioningStateDomain(args),
       onNearProvisioningStateChanged: (listener) =>
         this.router.onSdkLifecycleEvent(deliverNearProvisioningStateChanged.bind(null, listener)),
@@ -786,6 +788,13 @@ export class SeamsWebIframe {
   ): Promise<NearProvisioningState | null> {
     await this.requireRouterReady();
     return await this.router.getNearProvisioningState({ walletId: toWalletId(args.walletId) });
+  }
+
+  private async resumePendingEcdsaRegistrationDomain(
+    args: Parameters<RegistrationCapability['resumePendingEcdsaRegistration']>[0],
+  ): Promise<Awaited<ReturnType<RegistrationCapability['resumePendingEcdsaRegistration']>>> {
+    await this.requireRouterReady();
+    return await this.router.resumePendingEcdsaRegistration(args);
   }
 
   private async registerWalletDomain(
