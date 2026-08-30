@@ -122,9 +122,11 @@ function readStagingOrigins(): typeof EXPECTED_STAGING_ORIGINS {
     site: parsed.staging.site.origin,
     wallet: parsed.staging.lanes.testnet.walletOrigin,
   };
-  for (const [name, expected] of Object.entries(EXPECTED_STAGING_ORIGINS)) {
-    if (origins[name] !== expected) {
-      throw new Error(`Refactor 93 staging ${name} origin must be exactly ${expected}`);
+  for (const name of ['gateway', 'site', 'wallet'] as const) {
+    if (origins[name] !== EXPECTED_STAGING_ORIGINS[name]) {
+      throw new Error(
+        `Refactor 93 staging ${name} origin must be exactly ${EXPECTED_STAGING_ORIGINS[name]}`,
+      );
     }
   }
   return EXPECTED_STAGING_ORIGINS;

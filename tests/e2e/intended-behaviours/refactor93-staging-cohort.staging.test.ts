@@ -364,7 +364,7 @@ function printSafeEvidence(input: {
   expectedSha: string;
   pathCounts: Record<ObservedPath, number>;
   requestBodySha256: string;
-  terminalResponseSha256: string;
+  committedProjectionSha256: string;
 }): void {
   process.stdout.write(
     `${JSON.stringify({ version: 'refactor93_staging_browser_cohort_v1', ...input })}\n`,
