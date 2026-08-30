@@ -800,6 +800,7 @@ function deliverNearProvisioningStateChanged(
 
 type SeamsWebDeviceDomain = {
   readonly domain: DevicesCapabilityDomainMethods;
+  readonly resumePendingAcknowledgementsV1: () => Promise<void>;
   readonly dispose: () => void;
 };
 
@@ -838,6 +839,7 @@ function createSeamsWebDeviceDomainV1(args: SeamsWebDeviceDomainArgsV1): SeamsWe
             walletIframe: args.walletIframe,
           }),
         },
+        resumePendingAcknowledgementsV1: noopDeviceLinkingAcknowledgementResumeV1,
         dispose: noopDeviceLinkingDisposeV1,
       };
     case 'wallet_host': {
@@ -867,6 +869,8 @@ function createSeamsWebDeviceDomainV1(args: SeamsWebDeviceDomainArgsV1): SeamsWe
           linkedDeviceManagement: composition.linkedDeviceManagement,
           deviceLinkingPorts: composition.deviceLinkingPorts,
         },
+        resumePendingAcknowledgementsV1:
+          composition.deviceLinkingPorts.resumePendingAcknowledgementsV1,
         dispose: composition.dispose,
       };
     }
@@ -874,6 +878,21 @@ function createSeamsWebDeviceDomainV1(args: SeamsWebDeviceDomainArgsV1): SeamsWe
 }
 
 function noopDeviceLinkingDisposeV1(): void {}
+
+async function noopDeviceLinkingAcknowledgementResumeV1(): Promise<void> {}
+
+function resumeDeviceLinkingAcknowledgementsInBackgroundV1(
+  resume: () => Promise<void>,
+): void {
+  void resume().catch(reportDeviceLinkingAcknowledgementResumeFailureV1);
+}
+
+function reportDeviceLinkingAcknowledgementResumeFailureV1(error: unknown): void {
+  console.warn(
+    '[SeamsWeb] pending linked-device acknowledgement replay failed:',
+    error instanceof Error ? error.message : String(error || 'unknown error'),
+  );
+}
 
 function createWalletHostOwnerApprovalUpdatesV1(args: {
   readonly request: LinkSessionOwnerAuthenticatedRequestPortV1;
@@ -1185,6 +1204,9 @@ export class SeamsWeb {
     this.evm = publicApi.evm;
 
     void this.resumePendingRegistrationOnStartup();
+    resumeDeviceLinkingAcknowledgementsInBackgroundV1(
+      deviceDomain.resumePendingAcknowledgementsV1,
+    );
 
     // UserConfirm worker initializes automatically in the constructor
   }

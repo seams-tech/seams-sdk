@@ -44,6 +44,7 @@ import type {
   DeviceLinkingAuthorityActivationTransportPortV1,
   DeviceLinkingKeyMaterialHandleV1,
   DeviceLinkingKeyMaterialPortV1,
+  DeviceLinkingWalletSessionAcknowledgementReplayPortV1,
   LinkSessionSnapshotV1,
   LinkSessionSubscriptionV1,
   LinkSessionOwnerTransportPortV1,
@@ -114,6 +115,12 @@ export type DeviceLinkingSessionTransportAssemblyOptionsV1 = {
   readonly pollIntervalMs: number;
 };
 
+export type DeviceLinkingWalletSessionAcknowledgementTransportOptionsV1 = {
+  readonly http: HttpTransport;
+  readonly relayerUrl: string;
+  readonly projectEnvironmentId: string;
+};
+
 type SessionMutationEnvelopeV1 = {
   readonly ok: true;
   readonly outcome: 'applied' | 'replayed';
@@ -134,6 +141,7 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
   }
   return {
     ...createDeviceLinkingAuthorityActivationTransportV1(options),
+    ...createDeviceLinkingWalletSessionAcknowledgementReplayPortV1(options),
     createUnclaimedSessionV1: async (input) => {
       await requestMutationV1({
         options,
@@ -149,23 +157,6 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
     },
     getSessionV1: async ({ linkSessionId }) =>
       await requestSessionV1({ options, baseUrl, linkSessionId }),
-    acknowledgeLocalAuthorityActivationWithWalletSessionV1: async ({
-      acknowledgement,
-      operationCredential,
-    }) => {
-      const parsedAcknowledgement = parseLocalAuthorityActivationFinalAckV1(acknowledgement);
-      const parsedCredential = parseWalletSessionOperationCredentialV1(operationCredential);
-      if (parsedCredential.walletSessionId !== parsedAcknowledgement.walletSessionId) {
-        throw new Error('linked-device acknowledgement credential does not match Wallet Session');
-      }
-      await requestWalletSessionAcknowledgementV1({
-        options,
-        baseUrl,
-        linkSessionId: parsedAcknowledgement.linkSessionId,
-        token: parsedCredential.token,
-        body: parsedAcknowledgement,
-      });
-    },
     getApprovalV1: async ({ linkSessionId }) => {
       const response = await requestDeviceV1({
         options,
@@ -290,6 +281,31 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
         linkSessionId,
         onEvent,
       }),
+  };
+}
+
+export function createDeviceLinkingWalletSessionAcknowledgementReplayPortV1(
+  options: DeviceLinkingWalletSessionAcknowledgementTransportOptionsV1,
+): DeviceLinkingWalletSessionAcknowledgementReplayPortV1 {
+  const baseUrl = normalizeBaseUrl(options.relayerUrl);
+  return {
+    acknowledgeLocalAuthorityActivationWithWalletSessionV1: async ({
+      acknowledgement,
+      operationCredential,
+    }) => {
+      const parsedAcknowledgement = parseLocalAuthorityActivationFinalAckV1(acknowledgement);
+      const parsedCredential = parseWalletSessionOperationCredentialV1(operationCredential);
+      if (parsedCredential.walletSessionId !== parsedAcknowledgement.walletSessionId) {
+        throw new Error('linked-device acknowledgement credential does not match Wallet Session');
+      }
+      await requestWalletSessionAcknowledgementV1({
+        options,
+        baseUrl,
+        linkSessionId: parsedAcknowledgement.linkSessionId,
+        token: parsedCredential.token,
+        body: parsedAcknowledgement,
+      });
+    },
   };
 }
 
@@ -456,7 +472,7 @@ async function requestDeviceV1(input: {
 }
 
 async function requestWalletSessionAcknowledgementV1(input: {
-  readonly options: DeviceLinkingAuthenticatedSessionTransportOptionsV1;
+  readonly options: DeviceLinkingWalletSessionAcknowledgementTransportOptionsV1;
   readonly baseUrl: string;
   readonly linkSessionId: LinkDeviceSessionId;
   readonly token: string;
