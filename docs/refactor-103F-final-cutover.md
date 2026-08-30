@@ -1477,16 +1477,16 @@ Remaining causal baseline work:
       `pnpm test:linked-device` for managed state; use
       `pnpm test:linked-device:external` only for an intentionally composed
       external stack and label that evidence separately.
-- [ ] Rerun `tests/unit/authMenuPasskeyContinuation.unit.test.ts` before using it
+- [x] Rerun `tests/unit/authMenuPasskeyContinuation.unit.test.ts` before using it
       as evidence. Earlier evidence was 13 of 17. Classify the account-sync
       wallet-ID expectation, the Email target callback-publication fixture, and
       the two invalid Google OTP flow-ID fixtures. Update or delete stale
       fixtures; do not add a production compatibility branch for them.
-- [ ] Repair the three stale flat-`provenanceKind` fixtures in
+- [x] Repair the three stale flat-`provenanceKind` fixtures in
       `tests/unit/walletRecoverySourceSelection.unit.test.ts` through the shared
       active-authority builder. Production reads `authority.provenance.kind`;
       the comparator remains strict.
-- [ ] Repair the inline envelope-store stub in
+- [x] Repair the inline envelope-store stub in
       `tests/unit/passkeyCustodyRouteService.unit.test.ts` so it implements the
       current `listWalletCredentialActivity` boundary before using its
       challenge-replay result as R103F evidence.
@@ -1681,7 +1681,7 @@ Remaining causal baseline work:
       against seeded signer D1 rows;
       `tests/unit/walletSessionStatusExactAdmission.unit.test.ts` proves the
       wire projection each one publishes.
-- [ ] Authorized-operation full-scope claim and exact replay tests.
+- [x] Authorized-operation full-scope claim and exact replay tests.
 - [ ] Hosted nominal-type, disjoint-prefix, issue/redeem/use Origin,
       iframe-parent Origin, authoritative wallet-origin, quota, parent lifecycle,
       and primary-preservation tests.
@@ -1702,7 +1702,7 @@ Remaining causal baseline work:
 - [x] Clean-database and current-history migration tests covering abort on
       usable duplicates, deterministic retirement of unusable/expired rows, and
       zero foreign-key-check results.
-- [ ] Update Router A/B Wallet Session claim fixture helpers.
+- [x] Update Router A/B Wallet Session claim fixture helpers.
 - [ ] Delete stale inline JWT-shaped Wallet Session fixtures found by closure
       searches.
 
