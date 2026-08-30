@@ -19,6 +19,7 @@ import {
   AVAILABLE_LANES_WALLET_ID,
   authorizationRequiredCanonicalEcdsaAvailableLane,
   canonicalEcdsaAvailableLane,
+  canonicalEcdsaOwnerLaneScopeFixture,
   readAvailableLanesFixture,
 } from './helpers/availableSigningLanes.fixtures';
 import { walletSessionRefFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
@@ -40,8 +41,10 @@ const OPERATION_ID = SigningSessionIds.signingOperation('auth-neutral-operation-
 
 function prepareDeps(
   availableLanes: Awaited<ReturnType<typeof readAvailableLanesFixture>>,
+  record: ReturnType<typeof canonicalEcdsaAvailableLane>,
 ): PrepareEvmFamilyEcdsaSigningDeps {
   return {
+    resolveOwnerLaneScope: async () => canonicalEcdsaOwnerLaneScopeFixture(record),
     readAvailableSigningLanesForSigning: async () => availableLanes,
   };
 }
@@ -53,7 +56,7 @@ async function prepareForRecord(record: ReturnType<typeof canonicalEcdsaAvailabl
     canonicalEcdsaLanes: [record],
   });
   return await prepareEvmFamilyEcdsaSigningSession({
-    deps: prepareDeps(availableLanes),
+    deps: prepareDeps(availableLanes, record),
     walletSession: walletSessionRefFixture(AVAILABLE_LANES_WALLET_ID),
     signingTarget: AVAILABLE_LANES_ECDSA_TARGET,
     signingOperation: {
@@ -126,20 +129,19 @@ test.describe('EVM-family auth-neutral prepared signing', () => {
     // The discriminant is real: identical availability shape, differing only in
     // whether a reusable Wallet Session authorizes the material, must not
     // return the auth-neutral branch.
+    const record = canonicalEcdsaAvailableLane({
+      chainTarget: AVAILABLE_LANES_ECDSA_TARGET,
+      thresholdOwnerAddress: `0x${'cd'.repeat(20)}`,
+      authMethod: 'passkey',
+      ecdsaThresholdKeyId: 'authorized-material',
+    });
     const availableLanes = await readAvailableLanesFixture({
       walletId: AVAILABLE_LANES_WALLET_ID,
       ecdsaChainTargets: [AVAILABLE_LANES_ECDSA_TARGET],
-      canonicalEcdsaLanes: [
-        canonicalEcdsaAvailableLane({
-          chainTarget: AVAILABLE_LANES_ECDSA_TARGET,
-          thresholdOwnerAddress: `0x${'cd'.repeat(20)}`,
-          authMethod: 'passkey',
-          ecdsaThresholdKeyId: 'authorized-material',
-        }),
-      ],
+      canonicalEcdsaLanes: [record],
     });
     const outcome = await prepareEvmFamilyEcdsaSigningSession({
-      deps: prepareDeps(availableLanes),
+      deps: prepareDeps(availableLanes, record),
       walletSession: walletSessionRefFixture(AVAILABLE_LANES_WALLET_ID),
       signingTarget: AVAILABLE_LANES_ECDSA_TARGET,
       signingOperation: {
