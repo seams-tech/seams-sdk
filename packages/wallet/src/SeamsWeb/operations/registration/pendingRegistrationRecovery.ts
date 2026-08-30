@@ -41,6 +41,20 @@ export type PendingNearProvisioningCommit = Extract<
   >;
 };
 
+type PendingEcdsaRegistrationKeyFamilies =
+  | readonly ['ecdsa_secp256k1']
+  | readonly ['ed25519', 'ecdsa_secp256k1'];
+
+export type PendingEcdsaRegistrationCommit = Extract<
+  PendingWalletRegistrationCommitV1,
+  { readonly operation: 'registration_activate' }
+> & {
+  readonly localMaterial: Extract<
+    PendingWalletRegistrationLocalMaterialV1,
+    { readonly keyFamilies: PendingEcdsaRegistrationKeyFamilies }
+  >;
+};
+
 type FinalizedNearProvisioningResponse = Extract<
   WalletRegistrationNearProvisioningResponseV2,
   { readonly ok: true; readonly kind: 'near_ed25519' }
@@ -62,6 +76,15 @@ export type PendingRegistrationRecoveryResult =
       readonly registrationCeremonyId: string;
       readonly walletId: WalletId;
       readonly sessionResult: RegistrationEstablishedSessionResultV2['kind'];
+    }
+  | {
+      readonly kind: 'unlock_required';
+      readonly registrationCeremonyId: string;
+      readonly walletId: WalletId;
+      readonly keyFamilies: PendingEcdsaRegistrationKeyFamilies;
+      readonly activationJournalId: PendingEcdsaRegistrationCommit['localMaterial']['ecdsa']['activationJournalId'];
+      readonly next: 'unlock_exact_method';
+      readonly reason: 'ecdsa_local_finalization';
     }
   | {
       readonly kind: 'failed';
@@ -107,6 +130,19 @@ function isNearProvisioningEd25519Commit(
     pending.operation === 'near_provisioning' &&
     pending.localMaterial.keyFamilies.length === 1 &&
     pending.localMaterial.keyFamilies[0] === 'ed25519'
+  );
+}
+
+function isEcdsaRegistrationCommit(
+  pending: PendingWalletRegistrationCommitV1,
+): pending is PendingEcdsaRegistrationCommit {
+  if (pending.operation !== 'registration_activate') return false;
+  return (
+    (pending.localMaterial.keyFamilies.length === 1 &&
+      pending.localMaterial.keyFamilies[0] === 'ecdsa_secp256k1') ||
+    (pending.localMaterial.keyFamilies.length === 2 &&
+      pending.localMaterial.keyFamilies[0] === 'ed25519' &&
+      pending.localMaterial.keyFamilies[1] === 'ecdsa_secp256k1')
   );
 }
 
@@ -375,6 +411,18 @@ export async function resumePendingNearRegistrations(args: {
   const pendingRows = await ports.listPendingWalletRegistrationCommits();
   const results: PendingRegistrationRecoveryResult[] = [];
   for (const pending of pendingRows) {
+    if (isEcdsaRegistrationCommit(pending)) {
+      results.push({
+        kind: 'unlock_required',
+        registrationCeremonyId: pending.registrationCeremonyId,
+        walletId: pending.walletId,
+        keyFamilies: pending.localMaterial.keyFamilies,
+        activationJournalId: pending.localMaterial.ecdsa.activationJournalId,
+        next: 'unlock_exact_method',
+        reason: 'ecdsa_local_finalization',
+      });
+      continue;
+    }
     if (!isNearProvisioningEd25519Commit(pending)) continue;
     try {
       results.push(

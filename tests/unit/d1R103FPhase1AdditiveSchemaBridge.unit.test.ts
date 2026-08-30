@@ -434,6 +434,7 @@ test('R103F Phase 1 applies cleanly and after every immutable signer migration',
       'wallet_session_hosted_exchange_codes_v2',
       'linked_device_wallet_session_credential_deliveries_v1',
       'linked_device_authority_allocations',
+      'linked_device_authority_installations',
     ]) {
       await expect(readTableColumnNames(historical.database, tableName)).resolves.toEqual(
         await readTableColumnNames(clean.database, tableName),

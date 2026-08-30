@@ -4,7 +4,10 @@ import {
   type PendingRegistrationRecoveryPorts,
 } from '../../packages/wallet/src/SeamsWeb/operations/registration/pendingRegistrationRecovery';
 import type { PublishPendingWalletRegistrationCommitInputV1 } from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/repositories';
-import { buildEcdsaActivationPublicationFixture } from './helpers/pendingWalletRegistrationPublication.fixtures';
+import {
+  buildEcdsaActivationPublicationFixture,
+  buildMixedActivationPublicationFixture,
+} from './helpers/pendingWalletRegistrationPublication.fixtures';
 import {
   buildEmailOtpWalletRegistrationRecoveryFixture,
   buildPendingWalletRegistrationRecoveryFixture,
@@ -167,13 +170,18 @@ test.describe('pending registration reload', () => {
     });
   });
 
-  test('leaves non-NEAR and failed pending rows untouched', async () => {
+  test('reports ECDSA pending rows as exact-method unlock continuations', async () => {
     const fixture = await buildPendingWalletRegistrationRecoveryFixture();
     const ecdsa = await buildEcdsaActivationPublicationFixture();
+    const mixed = await buildMixedActivationPublicationFixture();
     let completeCalls = 0;
     let publicationCalls = 0;
     const ports: PendingRegistrationRecoveryPorts = {
-      listPendingWalletRegistrationCommits: async () => [fixture.pending, ecdsa.input.pending],
+      listPendingWalletRegistrationCommits: async () => [
+        fixture.pending,
+        ecdsa.input.pending,
+        mixed.input.pending,
+      ],
       completeWalletRegistrationNearProvisioning: async () => {
         completeCalls += 1;
         return { ok: false, code: 'temporary_failure', message: 'retry later' };
@@ -191,11 +199,31 @@ test.describe('pending registration reload', () => {
 
     expect(completeCalls).toBe(1);
     expect(publicationCalls).toBe(0);
-    expect(results).toHaveLength(1);
+    expect(results).toHaveLength(3);
     expect(results[0]).toMatchObject({
       kind: 'failed',
       registrationCeremonyId: fixture.pending.registrationCeremonyId,
       error: { message: 'pending registration replay failed: temporary_failure' },
     });
+    expect(results.slice(1)).toEqual([
+      {
+        kind: 'unlock_required',
+        registrationCeremonyId: ecdsa.input.pending.registrationCeremonyId,
+        walletId: ecdsa.input.pending.walletId,
+        keyFamilies: ['ecdsa_secp256k1'],
+        activationJournalId: ecdsa.input.pending.localMaterial.ecdsa.activationJournalId,
+        next: 'unlock_exact_method',
+        reason: 'ecdsa_local_finalization',
+      },
+      {
+        kind: 'unlock_required',
+        registrationCeremonyId: mixed.input.pending.registrationCeremonyId,
+        walletId: mixed.input.pending.walletId,
+        keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
+        activationJournalId: mixed.input.pending.localMaterial.ecdsa.activationJournalId,
+        next: 'unlock_exact_method',
+        reason: 'ecdsa_local_finalization',
+      },
+    ]);
   });
 });

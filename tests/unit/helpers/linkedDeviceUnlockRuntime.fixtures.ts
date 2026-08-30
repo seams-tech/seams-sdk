@@ -42,6 +42,7 @@ import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimiti
 import { parseSecp256k1CompressedPublicKeyB64u } from '@shared/passkey-custody/primitives';
 import {
   buildWalletAuthMethodRecordV2,
+  nearEd25519SigningKeyIdFromString,
   type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
 import {
@@ -59,12 +60,15 @@ import {
   buildWalletSessionAuthorizationV2,
   buildWalletSessionCapabilitySubjectsV1,
 } from '../../../packages/wallet-server/src/authorization/domain';
+import { toAccountId } from '../../../packages/wallet/src/core/types/accountIds';
 import type {
   WalletAuthorityLinkedMaterialTargetFactorV1,
   WalletAuthorityLinkedSignerMaterialRecordV1,
 } from '../../../packages/wallet/src/core/indexedDB/passkeyClientDB.types';
 import { parseEcdsaThresholdKeyId } from '../../../packages/wallet/src/core/signingEngine/session/keyMaterialBrands';
 import { sealWalletAuthorityLinkedSignerMaterialV1 } from '../../../packages/wallet/src/core/indexedDB/linkedAuthoritySignerMaterial';
+import { toRpId } from '../../../packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import type { Ed25519YaoPublicCapabilityLaneReferenceV1 } from '../../../packages/wallet/src/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import type { PasskeyWalletUnlockEd25519Session } from '../../../packages/wallet/src/core/rpcClients/near/rpcCalls';
 import type { WebAuthnAuthenticationCredential } from '../../../packages/wallet/src/core/types/webauthn';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
@@ -389,6 +393,29 @@ export type LinkedDeviceUnlockRuntimeFixture = {
   readonly ed25519Session: PasskeyWalletUnlockEd25519Session;
   readonly credential: WebAuthnAuthenticationCredential;
 };
+
+export function buildLinkedDeviceEd25519YaoCapabilityLaneFixture(
+  fixture: LinkedDeviceUnlockRuntimeFixture,
+): Ed25519YaoPublicCapabilityLaneReferenceV1 {
+  const activation = fixture.authority.signerActivations.ed25519;
+  if (!activation) throw new Error('linked runtime fixture is missing Ed25519 activation');
+  return {
+    walletId: fixture.walletId,
+    nearAccountId: toAccountId(fixture.ed25519Session.nearAccountId),
+    thresholdSessionId: fixture.ed25519Session.thresholdSessionId,
+    runtimePolicyScope: fixture.ed25519Session.runtimePolicyScope,
+    materialActivation: activation.materialActivation,
+    auth: {
+      kind: 'passkey',
+      rpId: toRpId(String(fixture.authMethod.rpId)),
+      credentialIdB64u: fixture.authMethod.credentialIdB64u,
+    },
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
+      fixture.ed25519Session.nearEd25519SigningKeyId,
+    ),
+    signerSlot: 1,
+  };
+}
 
 export async function buildLinkedDeviceUnlockRuntimeFixture(): Promise<LinkedDeviceUnlockRuntimeFixture> {
   const walletId = required(parseWalletId('wallet:linked-runtime'));
