@@ -1589,8 +1589,6 @@ HEAD reconciliation on 2026-08-30:
       validators, compatibility re-exports, and single-caller helpers; inline or
       delete them unless they preserve a clear domain boundary.
 - [x] Run the expanded closure ledger after the route-auth vocabulary deletion.
-- [ ] Run the focused acceptance matrix.
-
 Exit: repository code and schema contain only the exact Wallet Session model,
 and the closure ledger plus acceptance matrix pass.
 
@@ -1864,9 +1862,10 @@ and the isolated cases pass.
       live-session deletion and ensure it avoids early `not_found`.
 - [x] Local prerequisite tests covering pending-state invisibility, rollback,
       prerequisite projection, receipt replay, and interrupted finalization.
-- [ ] Local prerequisite tests covering real multi-store crash atomicity,
-      `wallet_session_issuance_pending`, and terminal cleanup that preserves
-      pre-existing records.
+- [ ] Local prerequisite tests covering an injected multi-store transaction
+      abort and `wallet_session_issuance_pending`. The postcommit protocol has
+      no separate terminal-rejection cleanup state: it exposes `active`,
+      retryable `pending_local_install`, or `integrity_error`.
 - [x] Migration-owned linked-install schema parity test after runtime DDL
       deletion.
 - [x] Exact-record type/parser fixtures for required fields and
@@ -1910,9 +1909,6 @@ and the isolated cases pass.
       `tests/unit/walletSessionOperationCredential.unit.test.ts` proves the
       explicit result and preservation/quarantine behavior for all five states.
 - [x] Exact method- and authority-revocation transaction tests.
-- [ ] Additive recovery tests for both targets and source inventories, strict
-      committed projections, interruption after promotion, local publication,
-      preservation of existing access paths, and one normal exact login.
 - [x] Exact-enforcement migration tests for fully scoped V2, rejection of
       partial-scope pending rows, and deletion of all-null-scope V1 pending rows.
 - [x] Clean-database and current-history migration tests covering abort on
