@@ -1053,10 +1053,12 @@ Primary files:
       and remains independent of the original session expiry; exact-method
       unlock may mint the successor without fabricating or reusing the retired
       credential. The route and service loss-path proofs cover this policy.
-- [ ] Recover pre-decryption ECDH recipient-private-handle loss or sealed-
+- [x] Recover pre-decryption ECDH recipient-private-handle loss or sealed-
       delivery expiry through durable local install plus exact-method unlock,
-      without resealing or relinking. Existing acknowledgement replay covers
-      interruption only after credential installation.
+      without resealing or relinking. The committed-delivery flow classifies
+      either terminal delivery failure, abandons only ephemeral recipient
+      state, returns the user to exact-method sign-in, and replays the durable
+      acknowledgement after either Passkey or Email OTP unlock (`610cab787`).
 - [x] Preserve interactive cancellation across `claimed`,
       `awaiting_target_factor`, `awaiting_source_contribution`, and
       `provisioning`. Device 1 retains its owner-authenticated cancellation
@@ -1522,8 +1524,8 @@ exact admission contexts. No V1 request or persistence resolver remains.
       installation. The D1 install-service, bootstrap replay, and linked unlock
       tests cover the committed path through cleanup.
 
-The remaining Phase 3 code is owned by the canonical I6 pre-decryption
-recipient/delivery recovery task and the I5 browser recovery-coordinator task.
+The remaining Phase 3 code is owned by the I2 registration-recovery
+orchestration task and the I5 browser recovery-coordinator task.
 
 - [x] Reconcile all affected browser records after material promotion.
 - [x] Bump the host/iframe protocol and remove reusable-session message fields.
@@ -1856,10 +1858,12 @@ converted and every isolated case passes.
 - [x] Linked loss tests for response replay, interrupted local installation and
       finalization, acknowledgement replay, activation rollback/convergence,
       and acknowledged cleanup.
-- [ ] Linked loss tests for pre-decryption recipient-private-handle loss,
-      delivery expiry, and the selected post-live-session recovery proof. The
-      post-live-session exact-successor case is covered; pre-decryption handle
-      loss and sealed-delivery expiry still lack a recovery path.
+- [x] Linked loss tests cover pre-decryption recipient-private-handle loss,
+      sealed-delivery-expiry classification, durable acknowledgement replay
+      after page reload and exact-method unlock, and the post-live-session
+      exact-successor cleanup proof. The flow and auth-menu tests also prove
+      the terminal delivery failure routes back to sign-in without relinking
+      (`9b11abf4c7`, `2db02c9fe4`, `065fbf37a`, `610cab787`).
 - [x] Linked recipient/AAD binding and cross-session stale acknowledgement
       tests.
 - [x] Crash injection around the single cleanup batch containing the delivery
