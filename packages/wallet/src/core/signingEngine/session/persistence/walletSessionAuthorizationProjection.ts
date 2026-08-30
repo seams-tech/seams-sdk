@@ -33,6 +33,7 @@ function validateExactWalletSessionAuthorization(args: {
   if (
     walletSession.walletId !== args.walletId ||
     walletSession.authMethodId !== args.authority.walletAuthMethodId ||
+    walletSession.walletSessionId !== args.expectedWalletSessionId ||
     walletSession.authorizationId !== args.expectedAuthorizationId ||
     walletSession.quotaId !== args.expectedQuotaId ||
     walletSession.expiresAtMs !== args.expectedExpiresAtMs ||
