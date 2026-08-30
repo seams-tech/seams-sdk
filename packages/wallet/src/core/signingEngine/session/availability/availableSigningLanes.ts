@@ -21,7 +21,10 @@ import {
   type ResolvedEvmFamilyEcdsaKey,
   type VerifiedEcdsaPublicFacts,
 } from '../identity/evmFamilyEcdsaIdentity';
-import { type WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  walletAuthAuthorityRef,
+  type WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
@@ -1806,13 +1809,13 @@ function suppressPublicEd25519CandidatesWithDurablePolicy(
  * signer slot; ECDSA lanes bind the credential alone. State stays untouched:
  * the scope decides whose lane it is, never whether it is usable.
  */
-export function ed25519LaneMatchesOwnerScope(
+export async function ed25519LaneMatchesOwnerScope(
   lane: AvailableEd25519SigningLane,
   scope: OwnerLaneScope,
-): boolean {
+): Promise<boolean> {
   if (lane.state === 'missing') return false;
   if (signingLaneAuthBindingKey(lane.auth) !== signingLaneAuthBindingKey(scope.auth)) return false;
-  if (!ownerAuthorityMatchesLane(lane, scope)) return false;
+  if (!(await ownerAuthorityMatchesEd25519Lane(lane, scope))) return false;
   if (scope.auth.kind === 'email_otp') return true;
   if ('keyFamily' in scope && scope.keyFamily === 'ecdsa') return false;
   return lane.signerSlot === scope.signerSlot;
@@ -1830,7 +1833,7 @@ export function ecdsaLaneMatchesOwnerScope(
 }
 
 function ownerAuthorityMatchesLane(
-  lane: AvailableEd25519SigningLane | AvailableEcdsaSigningLane,
+  lane: AvailableEcdsaSigningLane,
   scope: OwnerLaneScope,
 ): boolean {
   const ownerAuthority = scope.auth.kind === 'email_otp' ? scope.ownerAuthority : undefined;
@@ -1849,19 +1852,45 @@ function ownerAuthorityMatchesLane(
       String(authority.authorityDigest) === String(ownerAuthority.authorityDigest)
     );
   }
-  if (
-    lane.curve === 'ed25519' &&
-    lane.state !== 'missing' &&
-    lane.authorizationState === 'authorized'
-  ) {
-    const authority = lane.authorization.selectedAuthority;
-    return (
-      lane.authorization.selectedAuthMethod.walletAuthMethodId ===
-        ownerAuthority.walletAuthMethodId &&
-      String(authority.authorityDigestB64u) === String(ownerAuthority.authorityDigest)
-    );
-  }
   return false;
+}
+
+async function ownerAuthorityMatchesEd25519Lane(
+  lane: AvailableEd25519SigningLane,
+  scope: OwnerLaneScope,
+): Promise<boolean> {
+  const ownerAuthority = scope.auth.kind === 'email_otp' ? scope.ownerAuthority : undefined;
+  if (!ownerAuthority) return true;
+  if (
+    lane.state === 'missing' ||
+    lane.authorizationState !== 'authorized' ||
+    lane.curve !== 'ed25519'
+  ) {
+    return false;
+  }
+  try {
+    const factorAuthorityRef = await walletAuthAuthorityRef({
+      authority: lane.authorization.selectedFactorAuthority,
+    });
+    return (
+      factorAuthorityRef.walletId === lane.walletId &&
+      factorAuthorityRef.walletAuthMethodId === ownerAuthority.walletAuthMethodId &&
+      factorAuthorityRef.authorityDigest === ownerAuthority.authorityDigest
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function filterEd25519LanesByOwnerScope(
+  lanes: readonly AvailableEd25519SigningLane[],
+  scope: OwnerLaneScope,
+): Promise<AvailableEd25519SigningLane[]> {
+  const filtered: AvailableEd25519SigningLane[] = [];
+  for (const lane of lanes) {
+    if (await ed25519LaneMatchesOwnerScope(lane, scope)) filtered.push(lane);
+  }
+  return filtered;
 }
 
 export async function readAvailableSigningLanes(
@@ -1971,7 +2000,7 @@ export async function readAvailableSigningLanes(
   // ordering, or canonical fact grouping for this owner's operation.
   const ownerScope = input.ownerScope;
   const ownerScopedEd25519Candidates = ownerScope
-    ? ed25519Candidates.filter((lane) => ed25519LaneMatchesOwnerScope(lane, ownerScope))
+    ? await filterEd25519LanesByOwnerScope(ed25519Candidates, ownerScope)
     : ed25519Candidates;
   if (ownerScope) {
     for (const targetKey of Object.keys(ecdsaCandidatesByTarget)) {

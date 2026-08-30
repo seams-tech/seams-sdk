@@ -5154,10 +5154,7 @@ export class BrowserSigningSurface {
         bindingId: authMethod.walletAuthMethodId,
       },
     });
-    if (
-      String(factorAuthority.authorityDigest) !== String(authority.authorityDigestB64u) ||
-      factorAuthority.walletAuthMethodId !== authMethod.walletAuthMethodId
-    ) {
+    if (factorAuthority.walletAuthMethodId !== authMethod.walletAuthMethodId) {
       throw new Error('[SigningEngine][ed25519-export] Passkey Wallet Session authority changed');
     }
 

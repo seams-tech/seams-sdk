@@ -1449,8 +1449,9 @@ credentials, and a current registration path still reaches immediate signing.
       installation, exact admission, and immediate NEAR/EVM-family signing.
       `188412a3a` proves an exact active Passkey or Email OTP registration
       session authorizes the durable ECDSA capability without requiring a
-      sealed-runtime record; the authoritative Passkey intended contract
-      remains separate acceptance evidence and is still running.
+      sealed-runtime record; `d3d399aab` and the authoritative Passkey intended
+      contract prove the promoted exact session then signs on both Tempo and
+      NEAR.
 - [x] Add failure injection proving a failed batch exposes no usable session or
       quota and replay cannot rotate the credential.
 - [x] Assign every live opaque runtime-binding field to the exact material
@@ -1527,9 +1528,10 @@ HEAD reconciliation on 2026-08-30:
 - `56da13e67` and `1be9916c6` delete the runtime registration remediation and
   legacy terminal replay paths.
 - `457072bea`, `389aa4bb1`, and `aa197c294` remove the stale operation-admission
-  discriminator, Email OTP session-reuse branch, and status auth wrapper. The
-  shared generic route-auth token types still have production consumers, so the
-  final type/vocabulary deletion stays open.
+  discriminator, Email OTP session-reuse branch, and status auth wrapper.
+  `7ea661dd9` deletes the remaining generic route-auth types across their full
+  propagation boundary, and `74d3f88b7` preserves exact credential identity,
+  rejects unknown worker fields, and removes the last duplicate token alias.
 - `c0f8d2d46` proves credential-free registration replay creates an exact
   successor and retires its same-method predecessor.
 - `112514e78` proves the linked Passkey install, inventory, and signing-ready
@@ -1772,8 +1774,9 @@ Remaining causal baseline work:
 
 #### Intended-behaviour and operating-path inventory
 
-- [ ] `tests/e2e/intended-behaviours/passkey.registration.contract.test.ts`
-      (currently running; no completion evidence recorded yet)
+- [x] `tests/e2e/intended-behaviours/passkey.registration.contract.test.ts`,
+      covering registration, immediate Tempo signing, deferred NEAR readiness,
+      and NEAR signing after exact-session authority promotion (`d3d399aab`)
 - [ ] `tests/e2e/intended-behaviours/email-otp.registration.benchmark.test.ts`
 - [ ] `tests/e2e/intended-behaviours/passkey.unlock.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts`
@@ -1966,11 +1969,8 @@ The singular Router A/B `reusable_wallet_session` discriminator and the applied
 vocabulary. Console-session JWT types also remain.
 
 At HEAD, the historical table/API, replay-adapter, browser-record, legacy-mint,
-registration-remediation, and client-capability searches are clean outside
-immutable migrations and the documented frozen vocabulary. The added generic
-route-auth search still has production matches. They belong to one seven-file
-definition/transport boundary plus its mechanical propagation and fixtures, so
-code closure remains open until that boundary is deleted as one change.
+registration-remediation, client-capability, and generic route-auth searches are
+clean outside immutable migrations and the documented frozen vocabulary.
 
 Database closure is proved on clean and current-history migration fixtures. The
 final exact-session boundary retains
