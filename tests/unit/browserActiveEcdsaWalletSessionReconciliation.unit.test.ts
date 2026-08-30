@@ -237,16 +237,20 @@ test('persists an ECDSA bootstrap session with a promoted full authority', async
     sessionId: 'browser-ecdsa-promotion-bootstrap',
     expiresAtMs: harness.serverAuthorization.expiresAtMs,
   });
+  const promotedOperationCredential = {
+    ...harness.fixture.operationCredential,
+    walletSessionId: harness.serverAuthorization.walletSessionId,
+  };
   const promotedBootstrap = {
     ...bootstrap,
     session: {
       ...bootstrap.session,
       authorizationId: harness.serverAuthorization.authorizationId,
-      walletSessionId: harness.fixture.operationCredential.walletSessionId,
+      walletSessionId: harness.serverAuthorization.walletSessionId,
       quotaId: harness.serverAuthorization.quotaId,
       expiresAtMs: harness.serverAuthorization.expiresAtMs,
       walletSession: harness.serverAuthorization,
-      operationCredential: harness.fixture.operationCredential,
+      operationCredential: promotedOperationCredential,
     },
   };
   let writes = 0;
@@ -271,8 +275,8 @@ test('persists an ECDSA bootstrap session with a promoted full authority', async
           ...promotedBootstrap,
           session: {
             ...promotedBootstrap.session,
-            operationCredential: {
-              ...promotedBootstrap.session.operationCredential,
+            walletSession: {
+              ...promotedBootstrap.session.walletSession,
               walletSessionId: bootstrap.session.walletSessionId,
             },
           },
@@ -288,7 +292,7 @@ test('persists an ECDSA bootstrap session with a promoted full authority', async
       }),
     ).resolves.toEqual({
       record: harness.serverAuthorization,
-      operationCredential: harness.fixture.operationCredential,
+      operationCredential: promotedOperationCredential,
     });
     expect(writes).toBe(1);
   } finally {
