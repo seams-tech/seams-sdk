@@ -45,10 +45,12 @@ type HostedPasskeyPreparationCancellation = Extract<
 
 type HostedPasskeySigningSurface = LoginUnlockSigningSurface & AccountSyncSigningSurface;
 
-export type HostedPasskeyContext = SeamsWebBaseContext<HostedPasskeySigningSurface>;
+export type HostedPasskeyContext = SeamsWebBaseContext<HostedPasskeySigningSurface> & {
+  readonly resumePendingAcknowledgementsV1: () => void;
+};
 export type HostedPasskeyContextInput = Pick<
   HostedPasskeyContext,
-  'signingEngine' | 'nearClient' | 'configs' | 'theme'
+  'signingEngine' | 'nearClient' | 'configs' | 'theme' | 'resumePendingAcknowledgementsV1'
 >;
 
 export function createHostedPasskeyContext(input: HostedPasskeyContextInput): HostedPasskeyContext {
@@ -57,6 +59,7 @@ export function createHostedPasskeyContext(input: HostedPasskeyContextInput): Ho
     nearClient: input.nearClient,
     configs: input.configs,
     theme: input.theme,
+    resumePendingAcknowledgementsV1: input.resumePendingAcknowledgementsV1,
   };
 }
 
@@ -341,13 +344,13 @@ export async function completeHostedPasskeyLogin(
     };
     const result =
       prepared.kind === 'hosted_passkey_linked_authority_login_prepared_v1'
-        ? await unlockLinkedDevicePasskey(
-            state.context,
-            String(prepared.walletId),
-            loginOptions,
-          )
+        ? await unlockLinkedDevicePasskey(state.context, String(prepared.walletId), loginOptions)
         : await unlockResolvedWalletSubjectSet(state.context, prepared.subjectSet, loginOptions);
-    if (!result.success) clearHostedWalletSessions();
+    if (!result.success) {
+      clearHostedWalletSessions();
+    } else {
+      state.context.resumePendingAcknowledgementsV1();
+    }
     return { result, cancelledByUser };
   } finally {
     state.lifecycle = 'finished';

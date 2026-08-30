@@ -231,6 +231,43 @@ function errorForFailure(error: unknown, phase: DeviceLinkingError['phase']): De
   );
 }
 
+export type LinkedDeviceDeliveryRecoveryReasonV1 =
+  | 'recipient_private_handle_lost'
+  | 'sealed_delivery_expired';
+
+/**
+ * These failures happen after the server has committed the linked authority.
+ * The original delivery is intentionally abandoned; exact-method unlock uses
+ * the durable local installation to obtain a successor Wallet Session.
+ */
+export function classifyLinkedDeviceDeliveryFailureV1(
+  error: unknown,
+): LinkedDeviceDeliveryRecoveryReasonV1 | null {
+  const message = errorMessage(error).toLowerCase();
+  if (
+    message.includes('device-linking key handle is unknown or discarded') ||
+    message.includes('recipient handle lost')
+  ) {
+    return 'recipient_private_handle_lost';
+  }
+  if (message.includes('linked-device wallet session credential delivery is expired')) {
+    return 'sealed_delivery_expired';
+  }
+  return null;
+}
+
+function linkedDeviceDeliveryRecoveryMessageV1(
+  reason: LinkedDeviceDeliveryRecoveryReasonV1,
+): string {
+  switch (reason) {
+    case 'recipient_private_handle_lost':
+    case 'sealed_delivery_expired':
+      return 'The linked device is ready. Return to sign in and unlock the new method to finish setup.';
+    default:
+      return reason satisfies never;
+  }
+}
+
 class LinkDeviceFlowSupersededError extends Error {
   constructor() {
     super('Device-link flow was cancelled or reset');
@@ -577,6 +614,7 @@ export class LinkDeviceFlow {
     null;
   // This boundary is the server commit. Cleanup and retry keep its exact identity intact.
   private committedAuthorityPackages: CommittedAuthorityPackagesV1 | null = null;
+  private deliveryRecoveryReason: LinkedDeviceDeliveryRecoveryReasonV1 | null = null;
   private ordinarySignerMaterialRecipientPreparation: DeviceLinkingOrdinarySignerMaterialRecipientPreparationV1 | null =
     null;
   private authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | null = null;
@@ -835,7 +873,12 @@ export class LinkDeviceFlow {
   }
 
   private async handleSessionEvent(event: LinkSessionTransportEventV1): Promise<void> {
-    if (this.cancelled || !this.session || event.linkSessionId !== this.session.linkSessionId)
+    if (
+      this.cancelled ||
+      this.deliveryRecoveryReason !== null ||
+      !this.session ||
+      event.linkSessionId !== this.session.linkSessionId
+    )
       return;
     logDevice2LinkingStageV1({
       flowId: this.flowId,
@@ -2084,6 +2127,7 @@ export class LinkDeviceFlow {
     this.resealedExportRoot = null;
     this.targetCredentialRegistrationResult = null;
     this.committedAuthorityPackages = null;
+    this.deliveryRecoveryReason = null;
     this.ordinarySignerMaterialRecipientPreparation = null;
     this.runEpoch += 1;
     this.generationInProgress = true;
@@ -2112,21 +2156,7 @@ export class LinkDeviceFlow {
   ): Promise<void> {
     if (error instanceof LinkDeviceFlowSupersededError) return;
     if (this.hasCommittedDeliveryState()) {
-      logDevice2LinkingStageV1({
-        flowId: this.flowId,
-        linkSessionId: event.linkSessionId,
-        stage: 'committed_delivery_retry_started',
-        details: { state: event.state.state, error: errorMessage(error) },
-      });
-      this.handledStates.delete(event.state.state);
-      await this.retryCommittedDeliveryV1(event).catch((retryError: unknown) => {
-        logDevice2LinkingFailureV1({
-          flowId: this.flowId,
-          linkSessionId: event.linkSessionId,
-          state: event.state.state,
-          error: retryError,
-        });
-      });
+      await this.handleCommittedDeliveryFailureV1(event, error);
       return;
     }
     logDevice2LinkingFailureV1({
@@ -2147,6 +2177,76 @@ export class LinkDeviceFlow {
     } catch {
       // A later cancel/reset retries any retained subscription or key handle.
     }
+  }
+
+  private async handleCommittedDeliveryFailureV1(
+    event: LinkSessionTransportEventV1,
+    error: unknown,
+  ): Promise<void> {
+    const recoveryReason = classifyLinkedDeviceDeliveryFailureV1(error);
+    if (recoveryReason) {
+      await this.requireExactMethodUnlockForCommittedDeliveryV1(event, recoveryReason);
+      return;
+    }
+    logDevice2LinkingStageV1({
+      flowId: this.flowId,
+      linkSessionId: event.linkSessionId,
+      stage: 'committed_delivery_retry_started',
+      details: { state: event.state.state, error: errorMessage(error) },
+    });
+    this.handledStates.delete(event.state.state);
+    try {
+      await this.retryCommittedDeliveryV1(event);
+    } catch (retryError: unknown) {
+      const retryRecoveryReason = classifyLinkedDeviceDeliveryFailureV1(retryError);
+      if (retryRecoveryReason) {
+        await this.requireExactMethodUnlockForCommittedDeliveryV1(event, retryRecoveryReason);
+        return;
+      }
+      logDevice2LinkingFailureV1({
+        flowId: this.flowId,
+        linkSessionId: event.linkSessionId,
+        state: event.state.state,
+        error: retryError,
+      });
+    }
+  }
+
+  private async requireExactMethodUnlockForCommittedDeliveryV1(
+    event: LinkSessionTransportEventV1,
+    reason: LinkedDeviceDeliveryRecoveryReasonV1,
+  ): Promise<void> {
+    this.deliveryRecoveryReason = reason;
+    this.handledStates.clear();
+    this.runEpoch += 1;
+    const failure = new DeviceLinkingError(
+      linkedDeviceDeliveryRecoveryMessageV1(reason),
+      DeviceLinkingErrorCode.DELIVERY_RECOVERY_REQUIRED,
+      'registration',
+    );
+    this.error = failure;
+    try {
+      await this.cleanupCompletedLocalResources();
+    } catch (cleanupError: unknown) {
+      logDevice2LinkingFailureV1({
+        flowId: this.flowId,
+        linkSessionId: event.linkSessionId,
+        state: event.state.state,
+        error: cleanupError,
+      });
+    }
+    this.clearTargetCredentialActivationState();
+    this.clearEmailOtpTargetActivationState();
+    this.resealedExportRoot = null;
+    this.targetCredentialRegistrationResult = null;
+    this.committedAuthorityPackages = null;
+    this.ordinarySignerMaterialRecipientPreparation = null;
+    this.keyMaterialHandle = null;
+    this.deliveryRecipientPublicKey65B64u = null;
+    this.authenticatedTransport = null;
+    this.subscription = null;
+    this.emitFailure(failure, 'registration');
+    notifyError(this.options.options?.onError, failure);
   }
 
   private async retryCommittedDeliveryV1(event: LinkSessionTransportEventV1): Promise<void> {
@@ -2342,7 +2442,9 @@ export class LinkDeviceFlow {
       error: {
         code: error.code,
         message: error.message,
-        retryable: error.code !== DeviceLinkingErrorCode.UNSUPPORTED,
+        retryable:
+          error.code !== DeviceLinkingErrorCode.UNSUPPORTED &&
+          error.code !== DeviceLinkingErrorCode.DELIVERY_RECOVERY_REQUIRED,
       },
     });
   }
