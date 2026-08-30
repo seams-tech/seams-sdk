@@ -9,6 +9,7 @@ import {
   availableLaneEd25519Authorization,
 } from './helpers/availableSigningLanes.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { buildEmailOtpEd25519SealedSessionRecordFixture } from './helpers/sealedSigningSession.fixtures';
 
 test.describe('NEAR transaction signing shape', () => {
   test('rejects multi-transaction signing before signing-session admission', async () => {
@@ -80,6 +81,41 @@ test.describe('NEAR transaction signing shape', () => {
         phase: SigningEventPhase.STEP_06_AUTH_PASSKEY_PROMPT_SUCCEEDED,
         status: 'succeeded',
         authMethod: 'passkey',
+      },
+    ]);
+  });
+
+  test('reports Email OTP operation-step-up verification for shared sealed Ed25519 material', () => {
+    const record = buildEmailOtpEd25519SealedSessionRecordFixture();
+    if (!('providerSubjectId' in record.ed25519Restore)) {
+      throw new Error('expected Email OTP Ed25519 restore material');
+    }
+    const signingAuthPlan = signingAuthPlanForNearMaterialRequirement({
+      kind: 'email_otp',
+      providerSubjectId: record.ed25519Restore.providerSubjectId,
+    });
+    const events: SigningFlowEvent[] = [];
+
+    emitNearSigningConfirmationProgress(
+      {
+        onEvent: events.push.bind(events),
+        nearAccountId: record.ed25519Restore.nearAccountId,
+        signingAuthPlan,
+      },
+      {
+        requestId: 'near-email-otp-progress',
+        step: 2,
+        phase: 'confirmation.complete',
+        status: 'succeeded',
+        message: 'Email OTP submitted',
+      },
+    );
+
+    expect(events).toMatchObject([
+      {
+        phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_VERIFY_SUCCEEDED,
+        status: 'succeeded',
+        authMethod: 'email_otp',
       },
     ]);
   });
