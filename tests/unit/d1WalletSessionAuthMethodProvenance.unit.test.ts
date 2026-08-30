@@ -594,7 +594,7 @@ test('issues V2 Wallet Sessions only for exact active authority provenance', asy
   }
 });
 
-test('hosted V2 exchange issues one origin-bound child and retires it with its parent', async () => {
+test('hosted V2 child shares quota, expires, and retires with its parent', async () => {
   const temporary = createTemporaryD1Database();
   try {
     await applyD1MigrationFiles(temporary.database, signerMigrations);
@@ -610,7 +610,7 @@ test('hosted V2 exchange issues one origin-bound child and retires it with its p
       authority: fixture.authority,
       walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
       mintId: requiredMintId('unlock:hosted-exchange:first'),
-      remainingUses: 3,
+      remainingUses: 1,
       issuedAtMs: 300,
       expiresAtMs: 700,
     } as const;
@@ -689,10 +689,33 @@ test('hosted V2 exchange issues one origin-bound child and retires it with its p
       }),
     ).resolves.toMatchObject({
       kind: 'resolved_hosted_wallet_session_operation_credential_v2',
-      authorization: { session: first.session },
+      authorization: { session: first.session, quota: first.quota },
       appOrigin,
       walletOrigin,
     });
+    await expect(
+      service.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId,
+        token: first.operationCredential.token,
+        nowMs: 353,
+      }),
+    ).resolves.toEqual({ session: first.session, quota: first.quota });
+    await expect(
+      service.readHostedWalletSessionOperationCredentialV2({
+        tenantId,
+        token: first.operationCredential.token,
+        requestOrigin: walletOrigin,
+        nowMs: 353,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      service.readHostedWalletSessionOperationCredentialV2({
+        tenantId,
+        token: redeemed.operationCredential.token,
+        requestOrigin: walletOrigin,
+        nowMs: first.session.expiresAtMs,
+      }),
+    ).resolves.toBeNull();
     await expect(
       temporary.database
         .prepare(
@@ -722,6 +745,61 @@ test('hosted V2 exchange issues one origin-bound child and retires it with its p
       walletOrigin,
       issuedAtMs: 360,
       expiresAtMs: 600,
+    });
+    const operation = buildCapabilityOperationEnvelope({
+      tenantId: first.session.tenantId,
+      principalId: first.session.principalId,
+      capabilityId: requiredParsed(
+        parseCapabilityId(String(fixture.authority.signerActivations.ed25519.capability)),
+      ),
+      operationId: requiredParsed(parseCapabilityOperationId('operation:hosted-quota')),
+      operation: buildNearEd25519MpcOperationRef(NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction),
+      digests: {
+        laneDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(84))),
+        intentDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(85))),
+        displayDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(86))),
+      },
+    });
+    const claimInput = await buildAuthorizedOperation({
+      tenantId: first.session.tenantId,
+      authorizedOperationId: requiredParsed(
+        parseAuthorizedOperationId('authorized-operation:hosted-quota'),
+      ),
+      auditEventId: requiredParsed(parseAuthorizationAuditEventId('audit:hosted-quota')),
+      operation,
+      authorization: {
+        kind: 'authorization_grant',
+        authorizationGrantRef: buildAuthorizationGrantRef(first.session.authorizationId),
+      },
+      quota: {
+        kind: 'consume_reusable_wallet_session',
+        quotaId: first.session.quotaId,
+      },
+      claimedAtMs: 361,
+    });
+    await expect(
+      service.admitAuthorizedOperation({ operation: claimInput }),
+    ).resolves.toMatchObject({
+      kind: 'claimed',
+    });
+    await expect(
+      service.readHostedWalletSessionOperationCredentialV2({
+        tenantId,
+        token: redeemed.operationCredential.token,
+        requestOrigin: walletOrigin,
+        nowMs: 362,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      service.readExactWalletSessionStatusByOperationCredential({
+        tenantId,
+        token: first.operationCredential.token,
+        nowMs: 362,
+      }),
+    ).resolves.toMatchObject({
+      kind: 'exhausted',
+      session: first.session,
+      quota: { remainingUses: 0, lifecycle: 'exhausted' },
     });
     const replacement = await service.issueDirectWalletSessionAuthorizationV2({
       ...firstInput,
