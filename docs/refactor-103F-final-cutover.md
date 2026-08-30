@@ -1402,8 +1402,10 @@ remaining consumers are converted.
       admission.
 - [x] Convert signing, pool fill, signing-session seal, execution-lane
       preflight, recovery warm bootstrap, and operation step-up.
-- [ ] Convert status, quota, source activity, authorized-operation replay, and
-      typed lifecycle handling.
+- [x] Convert status, quota, source activity, authorized-operation replay, and
+      typed lifecycle handling. Closure searches find no V1/opaque runtime
+      consumer in these five families, and the focused exact status, quota,
+      source, replay, lifecycle, and admission selection passes 50/50.
 - [ ] Convert method and authority revocation plus same-method replacement to
       atomic exact retirement.
 - [ ] Convert every route in the route policy matrix.
