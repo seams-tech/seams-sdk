@@ -1862,10 +1862,12 @@ and the isolated cases pass.
       live-session deletion and ensure it avoids early `not_found`.
 - [x] Local prerequisite tests covering pending-state invisibility, rollback,
       prerequisite projection, receipt replay, and interrupted finalization.
-- [ ] Local prerequisite tests covering an injected multi-store transaction
-      abort and `wallet_session_issuance_pending`. The postcommit protocol has
-      no separate terminal-rejection cleanup state: it exposes `active`,
-      retryable `pending_local_install`, or `integrity_error`.
+- [x] Local prerequisite tests covering an injected multi-store transaction
+      abort and `wallet_session_issuance_pending`. The focused proofs establish
+      eight-store rollback with pre-existing selection preservation and
+      same-identity convergence from the durable issuance-pending state. The
+      postcommit protocol has no separate terminal-rejection cleanup state: it
+      exposes `active`, retryable `pending_local_install`, or `integrity_error`.
 - [x] Migration-owned linked-install schema parity test after runtime DDL
       deletion.
 - [x] Exact-record type/parser fixtures for required fields and

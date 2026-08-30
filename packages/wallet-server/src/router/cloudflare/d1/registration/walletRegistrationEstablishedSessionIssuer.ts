@@ -71,6 +71,7 @@ import { registrationEstablishedMintId } from './walletRegistrationSessionCommit
 export type RegistrationEstablishedSessionIssuerAuthorizationService = Pick<
   AuthorizationService,
   | 'issueDirectWalletSessionAuthorizationV2'
+  | 'issueDirectRegistrationPromotedWalletSessionAuthorizationV2'
   | 'readWalletSessionAuthorizationV2ByMint'
   | 'readWalletSessionAuthorizationV2ByAuthorizationId'
   | 'refreshWalletSessionAuthorizationV2AuthorityProjection'
@@ -612,17 +613,18 @@ export async function issueDirectRegistrationEstablishedEd25519Session(
     expiresAtMs: input.expiresAtMs,
     remainingUses: input.remainingUses,
   });
-  const directIssue = await input.authorizationService.issueDirectWalletSessionAuthorizationV2({
-    tenantId: input.authorizationTenantId,
-    principalId: walletSessionPrincipalId(input.authority),
-    walletId: walletIdFromString(String(input.authority.walletId)),
-    authority: activeRegistration.authority,
-    walletAuthMethodId: activeRegistration.walletAuthMethodId,
-    mintId: registrationEstablishedMintId(input.registrationCeremonyId),
-    remainingUses: policy.remainingUses,
-    issuedAtMs,
-    expiresAtMs: policy.expiresAtMs,
-  });
+  const directIssue =
+    await input.authorizationService.issueDirectRegistrationPromotedWalletSessionAuthorizationV2({
+      tenantId: input.authorizationTenantId,
+      principalId: walletSessionPrincipalId(input.authority),
+      walletId: walletIdFromString(String(input.authority.walletId)),
+      authority: activeRegistration.authority,
+      walletAuthMethodId: activeRegistration.walletAuthMethodId,
+      mintId: registrationEstablishedMintId(input.registrationCeremonyId),
+      remainingUses: policy.remainingUses,
+      issuedAtMs,
+      expiresAtMs: policy.expiresAtMs,
+    });
   let authorization: IssuedWalletSessionAuthorizationV2;
   switch (directIssue.kind) {
     case 'issued':

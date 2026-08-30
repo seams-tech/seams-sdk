@@ -14,6 +14,7 @@ import {
 import { AuthorizationService } from '../../packages/wallet-server/src/authorization/service';
 import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
+import type { WalletSessionAuthorizationV2MintLookup } from '../../packages/wallet-server/src/authorization/domain';
 import { CloudflareD1WebAuthnStore } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
 import { D1WalletAuthorityStore } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
 import { CloudflareD1EmailOtpEnrollmentStore } from '../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1EmailOtpEnrollmentStore';
@@ -357,6 +358,20 @@ function testPasskeyAuthority(
   };
 }
 
+class FirstMintReadMissAuthorizationGrantPort extends CloudflareD1AuthorizationStore {
+  private firstMintRead = true;
+
+  override async readWalletSessionAuthorizationV2ByMint(
+    input: WalletSessionAuthorizationV2MintLookup,
+  ) {
+    if (this.firstMintRead) {
+      this.firstMintRead = false;
+      return null;
+    }
+    return await super.readWalletSessionAuthorizationV2ByMint(input);
+  }
+}
+
 async function countRows(database: D1DatabaseLike, table: string): Promise<number> {
   const row = await database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first<{
     readonly count?: unknown;
@@ -697,6 +712,57 @@ test('deferred authority promotion refreshes sibling sessions before fresh issua
       now: settledAtMs,
     });
 
+    const promotedReplayInput = {
+      tenantId,
+      principalId,
+      walletId,
+      authority: combinedAuthority,
+      walletAuthMethodId: founding.authMethod.walletAuthMethodId,
+      mintId: initiating.session.mintId,
+      remainingUses: 99,
+      issuedAtMs: settledAtMs + 100,
+      expiresAtMs: settledAtMs + 20_000,
+    };
+    await expect(
+      authorizationService.issueDirectWalletSessionAuthorizationV2(promotedReplayInput),
+    ).rejects.toThrow('Direct V2 Wallet Session mint replay does not match');
+    const promotedReplay =
+      await authorizationService.issueDirectRegistrationPromotedWalletSessionAuthorizationV2(
+        promotedReplayInput,
+      );
+    expect(promotedReplay).toEqual({
+      kind: 'already_committed',
+      walletId: initiating.session.walletId,
+      authorityId: initiating.session.authorityId,
+      walletAuthMethodId: initiating.session.walletAuthMethodId,
+      mintId: initiating.session.mintId,
+      authorizationId: initiating.session.authorizationId,
+      walletSessionId: initiating.session.walletSessionId,
+      quotaId: initiating.session.quotaId,
+      next: 'unlock_exact_method',
+    });
+    expect(promotedReplay).not.toHaveProperty('operationCredential');
+
+    const racedAuthorizationStore = new FirstMintReadMissAuthorizationGrantPort({
+      database,
+      namespace: TEST_SCOPE.namespace,
+      walletSignerScope: TEST_SCOPE,
+    });
+    const racedReplayService = new AuthorizationService({
+      policy: capabilityPolicyPort,
+      sessions: racedAuthorizationStore,
+      evidence: racedAuthorizationStore,
+      grants: racedAuthorizationStore,
+      authorizedOperations: racedAuthorizationStore,
+      audit: racedAuthorizationStore,
+    });
+    const racedReplay =
+      await racedReplayService.issueDirectRegistrationPromotedWalletSessionAuthorizationV2(
+        promotedReplayInput,
+      );
+    expect(racedReplay).toEqual(promotedReplay);
+    expect(racedReplay).not.toHaveProperty('operationCredential');
+
     const refreshedInitiating =
       await authorizationService.readWalletSessionAuthorizationV2ByOperationCredential({
         tenantId,
@@ -713,6 +779,8 @@ test('deferred authority promotion refreshes sibling sessions before fresh issua
       authorizationId: initiating.session.authorizationId,
       walletSessionId: initiating.session.walletSessionId,
       quotaId: initiating.session.quotaId,
+      createdAtMs: initiating.session.createdAtMs,
+      expiresAtMs: initiating.session.expiresAtMs,
       authorityDigestB64u: combinedAuthority.authorityDigestB64u,
       authorityRevocationEpoch: combinedAuthority.revocationEpoch,
     });

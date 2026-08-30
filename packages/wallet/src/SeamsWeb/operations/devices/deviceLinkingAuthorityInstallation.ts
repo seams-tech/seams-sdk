@@ -248,7 +248,9 @@ export function createDeviceLinkingAuthorityInstallationPortV1(
     },
     readPendingActivationAcknowledgementV1: async ({ authorityId }) => {
       const pending = parseDeviceLinkingPendingAcknowledgementV1(
-        await options.indexedDB.getAppState<unknown>(pendingAcknowledgementAppStateKeyV1(authorityId)),
+        await options.indexedDB.getAppState<unknown>(
+          pendingAcknowledgementAppStateKeyV1(authorityId),
+        ),
       );
       return pending?.acknowledgement ?? null;
     },
@@ -508,8 +510,16 @@ export async function activateLinkedAuthorityV1(
         linkSessionId: input.linkSessionId,
         deliveryRecipientPublicKey65B64u: input.deliveryRecipientPublicKey65B64u,
       });
-      const operationCredential =
-        await input.keyMaterialPort.openWalletSessionCredentialDeliveryV1({
+      await input.installation.persistPendingActivationAcknowledgementV1({
+        acknowledgement: await buildPendingActivationAcknowledgementV1({
+          active,
+          receipt,
+          linkSessionId: input.linkSessionId,
+          acknowledgedAtMs: input.nowMs(),
+        }),
+      });
+      const operationCredential = await input.keyMaterialPort.openWalletSessionCredentialDeliveryV1(
+        {
           keyMaterial: input.keyMaterial,
           delivery: active.sealedDelivery,
           expected: {
@@ -527,7 +537,8 @@ export async function activateLinkedAuthorityV1(
             issuedAtMs: active.walletSession.issuedAtMs,
             expiresAtMs: active.walletSession.expiresAtMs,
           },
-        });
+        },
+      );
       await input.installation.finalizeLocalAuthorityActivationV1({
         active,
         operationCredential,
@@ -540,6 +551,30 @@ export async function activateLinkedAuthorityV1(
       };
     }
   }
+}
+
+async function buildPendingActivationAcknowledgementV1(input: {
+  readonly active: Extract<ActivateInstalledAuthorityResultV1, { readonly kind: 'active' }>;
+  readonly receipt: LocalAuthorityInstallationReceiptV1;
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly acknowledgedAtMs: number;
+}): Promise<LocalAuthorityActivationFinalAckV1> {
+  if (!Number.isSafeInteger(input.acknowledgedAtMs) || input.acknowledgedAtMs <= 0) {
+    throw new Error('linked-device acknowledgement clock is invalid');
+  }
+  return {
+    kind: 'local_authority_activation_final_ack_v1',
+    linkSessionId: input.linkSessionId,
+    authorityId: input.active.authority.authorityId,
+    packageSetDigestB64u: input.receipt.packageSetDigestB64u,
+    authorizationId: input.active.sealedDelivery.aad.authorizationId,
+    walletSessionId: input.active.sealedDelivery.aad.walletSessionId,
+    credentialDigestB64u: input.active.sealedDelivery.aad.credentialDigestB64u,
+    installationReceiptDigestB64u: await computeWalletSessionInstallationReceiptDigestB64u(
+      input.receipt,
+    ),
+    acknowledgedAtMs: input.acknowledgedAtMs,
+  };
 }
 
 function assertCommittedAuthorityStateMatchesSession(input: {

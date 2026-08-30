@@ -114,6 +114,9 @@ export interface AuthorizationGrantPort {
   commitDirectWalletSessionAuthorizationV2(input: {
     readonly persisted: PersistedActiveWalletSessionAuthorizationV2;
   }): Promise<DirectV2CommitResult>;
+  commitDirectRegistrationPromotedWalletSessionAuthorizationV2(input: {
+    readonly persisted: PersistedActiveWalletSessionAuthorizationV2;
+  }): Promise<DirectV2CommitResult>;
   readWalletSessionAuthorizationV2ByAuthorizationId(input: {
     readonly expected: WalletSessionAuthorizationV2;
     readonly nowMs: number;
@@ -190,7 +193,7 @@ export type AuthorizationServicePorts = {
   readonly audit: object;
 };
 
-export type IssueWalletSessionAuthorizationV2Input = {
+type IssueWalletSessionAuthorizationV2InputBase = {
   readonly tenantId: TenantId;
   readonly principalId: PrincipalId;
   readonly walletId: WalletId;
@@ -201,6 +204,12 @@ export type IssueWalletSessionAuthorizationV2Input = {
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };
+
+export type IssueWalletSessionAuthorizationV2Input = IssueWalletSessionAuthorizationV2InputBase;
+
+type DirectWalletSessionReplayMode =
+  | { readonly kind: 'strict' }
+  | { readonly kind: 'validated_registration_authority_projection' };
 
 export type PreparedWalletSessionAuthorizationV2 = {
   readonly session: WalletSessionAuthorizationV2;
@@ -364,6 +373,24 @@ export class AuthorizationService {
   async issueDirectWalletSessionAuthorizationV2(
     input: IssueWalletSessionAuthorizationV2Input,
   ): Promise<DirectV2IssueResult> {
+    return await this.issueDirectWalletSessionAuthorizationV2WithReplayMode(input, {
+      kind: 'strict',
+    });
+  }
+
+  /** The Ed25519 registration caller validates current authority and owner proof first. */
+  async issueDirectRegistrationPromotedWalletSessionAuthorizationV2(
+    input: IssueWalletSessionAuthorizationV2Input,
+  ): Promise<DirectV2IssueResult> {
+    return await this.issueDirectWalletSessionAuthorizationV2WithReplayMode(input, {
+      kind: 'validated_registration_authority_projection',
+    });
+  }
+
+  private async issueDirectWalletSessionAuthorizationV2WithReplayMode(
+    input: IssueWalletSessionAuthorizationV2Input,
+    replayMode: DirectWalletSessionReplayMode,
+  ): Promise<DirectV2IssueResult> {
     if (input.authority.walletId !== input.walletId) {
       throw new Error('Wallet Session authorization authority does not identify the wallet');
     }
@@ -378,7 +405,7 @@ export class AuthorizationService {
     const prepared = await this.prepareWalletSessionAuthorizationV2(input);
     const alreadyCommitted = await this.ports.grants.readWalletSessionAuthorizationV2ByMint(lookup);
     if (alreadyCommitted) {
-      return directV2AlreadyCommitted(prepared.session, alreadyCommitted.session);
+      return directV2AlreadyCommitted(prepared.session, alreadyCommitted.session, replayMode);
     }
 
     const token = `wst_${secureRandomBase64Url(32, 'direct V2 Wallet Session operation credentials')}`;
@@ -392,9 +419,22 @@ export class AuthorizationService {
       quota: prepared.quota,
       primaryOperationCredentialDigestB64u: await digestOpaqueValue(token),
     });
-    const commit = await this.ports.grants.commitDirectWalletSessionAuthorizationV2({ persisted });
+    let commit: DirectV2CommitResult;
+    switch (replayMode.kind) {
+      case 'strict':
+        commit = await this.ports.grants.commitDirectWalletSessionAuthorizationV2({ persisted });
+        break;
+      case 'validated_registration_authority_projection':
+        commit =
+          await this.ports.grants.commitDirectRegistrationPromotedWalletSessionAuthorizationV2({
+            persisted,
+          });
+        break;
+      default:
+        return assertNeverDirectWalletSessionReplayMode(replayMode);
+    }
     if (commit.kind === 'already_committed') {
-      return directV2AlreadyCommitted(prepared.session, commit.committed.session);
+      return directV2AlreadyCommitted(prepared.session, commit.committed.session, replayMode);
     }
     const committed = await this.ports.grants.readWalletSessionAuthorizationV2ByMint(lookup);
     if (!committed) {
@@ -625,9 +665,23 @@ export async function digestOpaqueValue(value: string) {
 function directV2AlreadyCommitted(
   prepared: WalletSessionAuthorizationV2,
   committed: WalletSessionAuthorizationV2,
+  replayMode: DirectWalletSessionReplayMode,
 ): Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }> {
-  if (alphabetizeStringify(prepared) !== alphabetizeStringify(committed)) {
-    throw new Error('Direct V2 Wallet Session mint replay does not match its committed session');
+  switch (replayMode.kind) {
+    case 'strict':
+      if (alphabetizeStringify(prepared) !== alphabetizeStringify(committed)) {
+        throw new Error('Direct V2 Wallet Session mint replay does not match its committed session');
+      }
+      break;
+    case 'validated_registration_authority_projection':
+      if (!directV2MintScopeMatches(prepared, committed)) {
+        throw new Error(
+          'Registration Ed25519 Wallet Session mint replay does not match its committed identity',
+        );
+      }
+      break;
+    default:
+      return assertNeverDirectWalletSessionReplayMode(replayMode);
   }
   return {
     kind: 'already_committed',
@@ -640,6 +694,24 @@ function directV2AlreadyCommitted(
     quotaId: committed.quotaId,
     next: 'unlock_exact_method',
   };
+}
+
+function directV2MintScopeMatches(
+  prepared: WalletSessionAuthorizationV2,
+  committed: WalletSessionAuthorizationV2,
+): boolean {
+  return (
+    prepared.tenantId === committed.tenantId &&
+    prepared.principalId === committed.principalId &&
+    prepared.walletId === committed.walletId &&
+    prepared.authorityId === committed.authorityId &&
+    prepared.walletAuthMethodId === committed.walletAuthMethodId &&
+    prepared.mintId === committed.mintId
+  );
+}
+
+function assertNeverDirectWalletSessionReplayMode(value: never): never {
+  throw new Error(`Unsupported direct Wallet Session replay mode: ${String(value)}`);
 }
 
 function parseRequired<T>(
