@@ -50,9 +50,13 @@ import {
   parseAuthFactorId,
   parsePrincipalId,
   parseTenantId,
+  parseWalletSessionMintId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
-import { walletAuthAuthorityRef } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { computeWalletAddSignerEcdsaActivationRequestDigestB64u } from '../../packages/shared-ts/src/utils/walletAddSignerActivation';
 import type { ActiveWalletAuthorityV1 } from '../../packages/shared-ts/src/authorization/walletAuthority';
 import { extendFixtureAuthorityWithEcdsaSigner } from './helpers/linkedDeviceManagement.fixtures';
@@ -395,6 +399,8 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
     const currentQuotaId = 'wallet-quota-current';
     const rpId = 'example.com';
     const credentialIdB64u = 'passkey-budget-refresh-credential';
+    const tenantId = requiredDomainValue(parseTenantId(scope.orgId), 'tenantId');
+    const principalId = requiredDomainValue(parsePrincipalId(String(walletId)), 'principalId');
     const walletAuthMethodId = requiredDomainValue(
       parseWalletAuthMethodId('wallet-auth-method:passkey-budget-refresh'),
       'walletAuthMethodId',
@@ -463,7 +469,7 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
        only an auth-method row is a state production cannot reach. The founding
        authority comes from the shared factory, which is also what makes this
        test's provenance claim meaningful. */
-    await seedFoundingPasskeyAuthority({
+    const founding = await seedFoundingPasskeyAuthority({
       database,
       ...scope,
       identity: {
@@ -472,6 +478,28 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
         walletAuthMethodId: String(walletAuthMethodId),
         rpId,
         credentialIdB64u,
+      },
+    });
+    const siblingCredentialIdB64u = 'passkey-budget-refresh-sibling-credential';
+    const siblingAuthority = buildPasskeyWalletAuthAuthority({
+      walletId,
+      rpId,
+      credentialIdB64u: siblingCredentialIdB64u,
+    });
+    await insertWalletAuthMethod({
+      database,
+      ...scope,
+      record: {
+        kind: 'passkey',
+        walletAuthMethodId: String(siblingAuthority.bindingId),
+        walletAuthorityId: String(founding.authority.authorityId),
+        walletId: String(walletId),
+        rpId,
+        credentialIdB64u: siblingCredentialIdB64u,
+        credentialPublicKeyB64u: 'test-sibling-passkey-public-key',
+        counter: 0,
+        createdAtMs: 1_001,
+        updatedAtMs: 1_001,
       },
     });
     const walletStore = new D1WalletStore({
@@ -500,8 +528,8 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       purpose: 'wallet_session',
       proofId: parseVerifiedOwnerProofId(`owner-proof:${verifiedChallengeId}`),
       factor: buildVerifiedWalletSessionPasskeyFactorResult({
-        tenantId: requiredDomainValue(parseTenantId(scope.orgId), 'tenantId'),
-        principalId: requiredDomainValue(parsePrincipalId(String(walletId)), 'principalId'),
+        tenantId,
+        principalId,
         walletId,
         authorityRef: await walletAuthAuthorityRef({ authority }),
         requestOrigin: 'https://wallet.example.test',
@@ -516,6 +544,37 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
         expiresAtMs: refreshVerifiedAtMs + 300_000,
       }),
     });
+    const siblingSession =
+      await service.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
+        tenantId,
+        principalId,
+        walletId,
+        authority: founding.authority,
+        walletAuthMethodId: siblingAuthority.bindingId,
+        mintId: requiredDomainValue(
+          parseWalletSessionMintId('wallet-mint:passkey-budget-refresh-sibling'),
+          'siblingWalletSessionMintId',
+        ),
+        remainingUses: 7,
+        issuedAtMs: refreshVerifiedAtMs - 1_000,
+        expiresAtMs: refreshVerifiedAtMs + 300_000,
+      });
+    if (siblingSession.kind !== 'issued') {
+      throw new Error('sibling Wallet Session fixture did not issue');
+    }
+    const siblingAuthMethodBefore = await readWalletAuthMethodRecord({
+      database,
+      ...scope,
+      walletAuthMethodId: String(siblingAuthority.bindingId),
+    });
+    const siblingAuthorizationBefore =
+      await service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId,
+        token: siblingSession.operationCredential.token,
+        nowMs: refreshVerifiedAtMs,
+      });
+    expect(siblingAuthorizationBefore).not.toBeNull();
+
     const refreshSessionPolicy = {
       version: 'threshold_session_v1',
       nearAccountId,
@@ -602,6 +661,19 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       },
     });
     expect(replay).not.toHaveProperty('operationCredential');
+    const siblingAuthMethodAfter = await readWalletAuthMethodRecord({
+      database,
+      ...scope,
+      walletAuthMethodId: String(siblingAuthority.bindingId),
+    });
+    const siblingAuthorizationAfter =
+      await service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId,
+        token: siblingSession.operationCredential.token,
+        nowMs: refreshVerifiedAtMs,
+      });
+    expect(siblingAuthMethodAfter).toEqual(siblingAuthMethodBefore);
+    expect(siblingAuthorizationAfter).toEqual(siblingAuthorizationBefore);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
