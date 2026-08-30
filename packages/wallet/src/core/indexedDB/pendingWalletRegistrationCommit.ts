@@ -7,6 +7,7 @@ import {
   parseWebAuthnRpId,
   parseVerifiedEmailAddress,
   hasWhitespaceOrControlCharacters,
+  parseMpcMaterialActivationRef,
   type WalletAuthMethodId,
   type WalletId,
   type EmailOtpChallengeId,
@@ -14,6 +15,7 @@ import {
   type VerifiedEmailAddress,
   type WebAuthnCredentialIdB64u,
   type WebAuthnRpId,
+  type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import { parseCorrelationId, type CorrelationId } from '@shared/utils/canonicalPrimitives';
 import {
@@ -68,6 +70,18 @@ type PendingWalletRegistrationEd25519LocalMaterialV1 = {
     readonly nonceB64u: string;
     readonly applicationBindingDigestB64u: string;
   };
+  readonly metadata: PendingWalletRegistrationEd25519MetadataV1;
+};
+
+export type PendingWalletRegistrationEd25519MetadataV1 = {
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly registeredPublicKeyB64u: string;
+  readonly signingWorkerVerifyingShareB64u: string;
+  readonly stateEpoch: string;
+  readonly signingWorkerId: string;
+  readonly participantIds: readonly [number, number];
+  readonly nearEd25519SigningKeyId: string;
+  readonly signerSlot: number;
 };
 
 export type PendingWalletRegistrationLocalMaterialV1 =
@@ -501,7 +515,7 @@ function parseEd25519LocalMaterial(
   raw: unknown,
 ): PendingWalletRegistrationEd25519LocalMaterialV1 | null {
   if (!isRecord(raw) || hasForbiddenCredentialField(raw)) return null;
-  if (!hasExactKeys(raw, ['activationReference', 'localMaterial'])) return null;
+  if (!hasExactKeys(raw, ['activationReference', 'localMaterial', 'metadata'])) return null;
   const activationReference = parseActivationReference(raw.activationReference);
   if (!isRecord(raw.localMaterial) || hasForbiddenCredentialField(raw.localMaterial)) return null;
   if (!hasExactKeys(raw.localMaterial, ['b64u', 'nonceB64u', 'applicationBindingDigestB64u'])) {
@@ -512,12 +526,65 @@ function parseEd25519LocalMaterial(
   const applicationBindingDigestB64u = parseCanonicalString(
     raw.localMaterial.applicationBindingDigestB64u,
   );
-  return activationReference && b64u && nonceB64u && applicationBindingDigestB64u
+  const metadata = parseEd25519Metadata(raw.metadata);
+  return activationReference && b64u && nonceB64u && applicationBindingDigestB64u && metadata
     ? {
         activationReference,
         localMaterial: { b64u, nonceB64u, applicationBindingDigestB64u },
+        metadata,
       }
     : null;
+}
+
+function parseEd25519Metadata(raw: unknown): PendingWalletRegistrationEd25519MetadataV1 | null {
+  if (!isRecord(raw) || hasForbiddenCredentialField(raw)) return null;
+  if (
+    !hasExactKeys(raw, [
+      'materialActivation',
+      'registeredPublicKeyB64u',
+      'signingWorkerVerifyingShareB64u',
+      'stateEpoch',
+      'signingWorkerId',
+      'participantIds',
+      'nearEd25519SigningKeyId',
+      'signerSlot',
+    ])
+  ) {
+    return null;
+  }
+  const materialActivation = parseMpcMaterialActivationRef(raw.materialActivation);
+  const registeredPublicKeyB64u = parseCanonicalString(raw.registeredPublicKeyB64u);
+  const signingWorkerVerifyingShareB64u = parseCanonicalString(raw.signingWorkerVerifyingShareB64u);
+  const stateEpoch = parseCanonicalStateEpoch(raw.stateEpoch);
+  const signingWorkerId = parseCanonicalString(raw.signingWorkerId);
+  const nearEd25519SigningKeyId = parseCanonicalString(raw.nearEd25519SigningKeyId);
+  if (
+    !materialActivation.ok ||
+    !registeredPublicKeyB64u ||
+    !signingWorkerVerifyingShareB64u ||
+    !stateEpoch ||
+    !signingWorkerId ||
+    !nearEd25519SigningKeyId ||
+    !Array.isArray(raw.participantIds) ||
+    raw.participantIds.length !== 2 ||
+    raw.participantIds.some(
+      (participantId) => !Number.isSafeInteger(participantId) || Number(participantId) < 1,
+    ) ||
+    !Number.isSafeInteger(raw.signerSlot) ||
+    Number(raw.signerSlot) < 1
+  ) {
+    return null;
+  }
+  return {
+    materialActivation: materialActivation.value,
+    registeredPublicKeyB64u,
+    signingWorkerVerifyingShareB64u,
+    stateEpoch,
+    signingWorkerId,
+    participantIds: [Number(raw.participantIds[0]), Number(raw.participantIds[1])],
+    nearEd25519SigningKeyId,
+    signerSlot: Number(raw.signerSlot),
+  };
 }
 
 function parseEcdsaLocalMaterial(raw: unknown): {
@@ -761,6 +828,11 @@ function parseCanonicalString(value: unknown): string | null {
     !hasWhitespaceOrControlCharacters(value)
     ? value
     : null;
+}
+
+function parseCanonicalStateEpoch(value: unknown): string | null {
+  const parsed = parseCanonicalString(value);
+  return parsed && /^[1-9][0-9]*$/u.test(parsed) ? parsed : null;
 }
 
 function parsePositiveSafeInteger(value: unknown): number | null {

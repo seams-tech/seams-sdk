@@ -118,6 +118,14 @@ export type PrepareWalletEd25519RegistrationPublicationInput = Omit<
   };
 };
 
+export type PrepareWalletEd25519RegistrationProjectionPublicationInput = Omit<
+  PrepareWalletEd25519RegistrationPublicationInput,
+  'credential'
+> & {
+  readonly credentialIdB64u: string;
+  readonly transports: readonly string[];
+};
+
 type StoreWalletEd25519RegistrationMode =
   | { kind: 'fresh_registration' }
   | { kind: 'wallet_recovery_replacement' };
@@ -1029,6 +1037,13 @@ function walletEcdsaSignerActivationPolicy(args: {
   }
 }
 
+type WalletEd25519RegistrationCredentialFacts = {
+  readonly credentialId: string;
+  readonly credentialDisplayId: string;
+  readonly credentialPublicKey: Uint8Array;
+  readonly transports: readonly string[];
+};
+
 function prepareWalletEd25519RegistrationBatch(
   args: StoreWalletEd25519RegistrationInput,
   mode: StoreWalletEd25519RegistrationMode,
@@ -1038,6 +1053,57 @@ function prepareWalletEd25519RegistrationBatch(
   if (!credentialId) {
     throw new Error('SeamsWalletDB: registration credential rawId is required');
   }
+  const participantIds =
+    args.participantIds === undefined
+      ? undefined
+      : normalizeEd25519ParticipantIds(args.participantIds);
+  return prepareWalletEd25519RegistrationBatchFromFacts(
+    {
+      walletId: args.walletId,
+      nearAccountId: args.nearAccountId,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+      rpId: args.rpId,
+      signerSlot: args.signerSlot,
+      operationalPublicKey: args.operationalPublicKey,
+      relayerKeyId: args.relayerKeyId,
+      keyVersion: args.keyVersion,
+      participantIds,
+      clientParticipantId: args.clientParticipantId,
+      relayerParticipantId: args.relayerParticipantId,
+      credentialFacts: {
+        credentialId,
+        credentialDisplayId: args.credential.id,
+        credentialPublicKey: verifiedCredentialPublicKeyBytes(
+          args.credentialPublicKeyB64u,
+          'credentialPublicKeyB64u',
+        ),
+        transports: args.credential.response?.transports ?? [],
+      },
+    },
+    mode,
+    composition,
+  );
+}
+
+function prepareWalletEd25519RegistrationBatchFromFacts(
+  args: {
+    readonly walletId: WalletId;
+    readonly nearAccountId: AccountId;
+    readonly nearEd25519SigningKeyId: string;
+    readonly rpId: WebAuthnRpId;
+    readonly credentialFacts: WalletEd25519RegistrationCredentialFacts;
+    readonly signerSlot: number;
+    readonly operationalPublicKey: string;
+    readonly relayerKeyId: string;
+    readonly keyVersion: string;
+    readonly participantIds?: readonly [number, number];
+    readonly clientParticipantId?: number;
+    readonly relayerParticipantId?: number;
+  },
+  mode: StoreWalletEd25519RegistrationMode,
+  composition: StoreWalletRegistrationComposition,
+): StoreWalletRegistrationFinalizeBatchInput {
+  const credentialId = args.credentialFacts.credentialId;
   const signerSlot = Number(args.signerSlot);
   if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
     throw new Error('SeamsWalletDB: wallet signerSlot must be an integer >= 1');
@@ -1051,12 +1117,8 @@ function prepareWalletEd25519RegistrationBatch(
   if (!nearEd25519SigningKeyId) {
     throw new Error('SeamsWalletDB: nearEd25519SigningKeyId is required');
   }
-  const credentialPublicKey = verifiedCredentialPublicKeyBytes(
-    args.credentialPublicKeyB64u,
-    'credentialPublicKeyB64u',
-  );
   const passkeyCredential = {
-    id: args.credential.id,
+    id: args.credentialFacts.credentialDisplayId,
     rawId: credentialId,
   };
   const nowIso = new Date().toISOString();
@@ -1067,7 +1129,7 @@ function prepareWalletEd25519RegistrationBatch(
     operationalPublicKey: args.operationalPublicKey,
     relayerKeyId: args.relayerKeyId,
     keyVersion: args.keyVersion,
-    passkeyCredentialId: args.credential.id,
+    passkeyCredentialId: args.credentialFacts.credentialDisplayId,
     passkeyCredentialRawId: credentialId,
     ...(args.participantIds ? { participantIds: args.participantIds } : {}),
     ...(args.clientParticipantId != null ? { clientParticipantId: args.clientParticipantId } : {}),
@@ -1179,15 +1241,15 @@ function prepareWalletEd25519RegistrationBatch(
       walletId: args.walletId,
       rpId: args.rpId,
       credentialId,
-      credentialPublicKey,
+      credentialPublicKey: args.credentialFacts.credentialPublicKey,
     }),
     authenticators: [
       {
         profileId: walletId,
         signerSlot,
         credentialId,
-        credentialPublicKey,
-        transports: args.credential.response?.transports,
+        credentialPublicKey: args.credentialFacts.credentialPublicKey,
+        transports: [...args.credentialFacts.transports],
         name: `Passkey for ${extractUsername(nearAccountId)}`,
         registered: nowIso,
         syncedAt: nowIso,
@@ -1196,8 +1258,8 @@ function prepareWalletEd25519RegistrationBatch(
         profileId: nearProfileId,
         signerSlot,
         credentialId,
-        credentialPublicKey,
-        transports: args.credential.response?.transports,
+        credentialPublicKey: args.credentialFacts.credentialPublicKey,
+        transports: [...args.credentialFacts.transports],
         name: `Passkey for ${extractUsername(nearAccountId)}`,
         registered: nowIso,
         syncedAt: nowIso,
@@ -1245,6 +1307,48 @@ export function prepareWalletEd25519RegistrationPublication(
 ): StoreWalletRegistrationPublicationInputV1 {
   const prepared = prepareWalletEd25519RegistrationBatch(
     args,
+    { kind: 'fresh_registration' },
+    { kind: 'near_ed25519_only' },
+  );
+  return buildWalletEd25519RegistrationPublication({
+    prepared,
+    walletId: args.walletId,
+    nearAccountId: args.nearAccountId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+    signerSlot: args.signerSlot,
+    participantIds: args.participantIds,
+    custodyMaterial: args.custodyMaterial,
+  });
+}
+
+export function prepareWalletEd25519RegistrationProjectionPublication(
+  args: PrepareWalletEd25519RegistrationProjectionPublicationInput,
+): StoreWalletRegistrationPublicationInputV1 {
+  const credentialId = String(args.credentialIdB64u || '').trim();
+  if (!credentialId) {
+    throw new Error('SeamsWalletDB: registration credential projection id is required');
+  }
+  const prepared = prepareWalletEd25519RegistrationBatchFromFacts(
+    {
+      walletId: args.walletId,
+      nearAccountId: args.nearAccountId,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+      rpId: args.rpId,
+      signerSlot: args.signerSlot,
+      operationalPublicKey: args.operationalPublicKey,
+      relayerKeyId: args.relayerKeyId,
+      keyVersion: args.keyVersion,
+      participantIds: args.participantIds,
+      credentialFacts: {
+        credentialId,
+        credentialDisplayId: credentialId,
+        credentialPublicKey: verifiedCredentialPublicKeyBytes(
+          args.credentialPublicKeyB64u,
+          'credentialPublicKeyB64u',
+        ),
+        transports: [...args.transports],
+      },
+    },
     { kind: 'fresh_registration' },
     { kind: 'near_ed25519_only' },
   );
@@ -1727,6 +1831,16 @@ function requireStoreWalletString(value: unknown, field: string): string {
     throw new Error(`SeamsWalletDB: ${field} is required`);
   }
   return normalized;
+}
+
+function normalizeEd25519ParticipantIds(value: readonly number[]): readonly [number, number] {
+  if (
+    value.length !== 2 ||
+    value.some((participantId) => !Number.isSafeInteger(participantId) || participantId < 1)
+  ) {
+    throw new Error('SeamsWalletDB: Ed25519 participantIds must contain two positive integers');
+  }
+  return [value[0], value[1]];
 }
 
 function normalizeStoreWalletParticipantIds(value: readonly [number, number]): readonly [1, 2] {

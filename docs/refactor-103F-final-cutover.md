@@ -1231,18 +1231,18 @@ Primary files:
 
 - [ ] Retire or replace
       `tests/scripts/check-router-ab-server-wallet-session-claim-boundaries.mjs`.
-- [ ] Update `tests/scripts/check-wallet-session-vocabulary-boundaries.mjs` to
+- [x] Update `tests/scripts/check-wallet-session-vocabulary-boundaries.mjs` to
       forbid V1 tables, `not_v2`, V3 client records, and opaque fallback while
       allowing frozen reusable-operation discriminators.
 - [ ] Prefer the type fixtures, behavior tests, and closure searches in this
       plan over new source-text guards.
 - [ ] Update `docs/threshold-ecdsa/ecdsa-threshold-signing.md`.
-- [ ] Update `docs/auth-gating-routes.md`.
+- [x] Update `docs/auth-gating-routes.md`.
 - [ ] Update `docs/intended-behaviours.md` and registration contracts for
       credential-free lost-response replay.
 - [ ] Update R115 recovery contracts only where R103F changes Wallet Session
       representation.
-- [ ] Update `packages/wallet/README.md`.
+- [x] Update `packages/wallet/README.md`.
 - [ ] Correct R103E, R107, and R109D completion records that imply the final
       cutover already landed.
 
@@ -1690,7 +1690,7 @@ Remaining causal baseline work:
       response readback.
 - [x] Host/iframe protocol-skew tests in both directions with removed fields
       rejected.
-- [ ] Targeted IndexedDB cleanup test proving unrelated stores survive.
+- [x] Targeted IndexedDB cleanup test proving unrelated stores survive.
 - [ ] Wallet-bootstrap test covering empty, exact, legacy, malformed, and future
       storage without a blank shell.
 - [x] Exact method- and authority-revocation transaction tests.

@@ -113,7 +113,6 @@ function AuthMenu() {
           const flow = await seams.auth.beginGoogleEmailOtpWalletAuth({
             idToken,
             mode,
-            sessionKind: 'jwt',
             emailOtpAuthPolicy,
           });
           if (!flow.ok) throw new Error(flow.error.message);
@@ -141,8 +140,8 @@ appears.
 
 The public flow only exposes UI-safe data: wallet id, email hint, prompt copy,
 delivery status, expiry, and `resend`/`reroll`/`submit`/`cancel` methods. It
-does not expose app-session JWTs, runtime policy scope, recovery codes, or
-ECDSA bootstrap material.
+does not expose Wallet Session operation credentials, runtime policy scope,
+recovery codes, or ECDSA bootstrap material.
 
 Low-level Email OTP methods such as `requestEmailOtpChallenge`,
 `requestEmailOtpEnrollmentChallenge`, `enrollEmailOtp`, and
@@ -152,8 +151,27 @@ SSO wallet registration and login path.
 
 In wallet-iframe mode, the same public API is used by the app origin. The wallet
 origin owns Email OTP recovery-code backup UI, acknowledgement, workers, sealed
-refresh state, and threshold-session state. App-origin iframe responses carry
-only non-secret flow metadata and submit results.
+refresh state, and exact Wallet Session persistence. App-origin iframe responses
+carry only non-secret flow metadata and submit results.
+
+### Exact Wallet Session authorization
+
+Wallet operations are scoped to one exact wallet, authority, and authentication
+method. The authorization also binds its authorization id, quota id, authority
+digest and revocation epoch, capability subjects, and expiry. A primary
+`WalletSessionOperationCredentialV1` authenticates ordinary wallet operations.
+Hosted iframe sessions redeem an origin-bound exchange into a
+`HostedWalletSessionOperationCredentialV1` child for the same parent
+authorization.
+
+The wallet origin persists the active authorization in the exact V6 IndexedDB
+record `wallet_session_authorization_v6` through
+`WalletSessionAuthorizationRepository`. It stores the scoped wallet, authority,
+auth-method, authorization, and Wallet Session ids; quota, authority
+digest/revocation epoch, capability subjects, issue/expiry times; and the
+matching operation credential. Credential and record identities must match
+exactly. Replacing a session retires the predecessor for that exact scope while
+sibling authentication methods remain independent.
 
 ## Hosted Wallet Integration
 

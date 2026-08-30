@@ -43,10 +43,9 @@ import type {
 import type { KeyMaterialRecord } from '@/core/indexedDB/keyMaterial.types';
 import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerLifecycle';
 import {
-  prepareWalletEd25519RegistrationPublication,
+  prepareWalletEd25519RegistrationProjectionPublication,
   prepareWalletEmailOtpEd25519RegistrationPublication,
 } from '@/core/signingEngine/flows/registration/accountLifecycle';
-import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import { toAccountId } from '@/core/types/accountIds';
 import { WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import {
@@ -181,30 +180,6 @@ export type PendingWalletRegistrationPublicationFixture = {
   readonly walletAuthMethodId: string;
   readonly profileId: string;
 };
-
-function buildPasskeyRegistrationCredentialFixture(input: {
-  readonly credentialIdB64u: string;
-}): WebAuthnRegistrationCredential {
-  return {
-    id: input.credentialIdB64u,
-    rawId: input.credentialIdB64u,
-    type: 'public-key',
-    authenticatorAttachment: 'platform',
-    response: {
-      clientDataJSON: 'client-data-json:r103f-publication',
-      attestationObject: 'attestation-object:r103f-publication',
-      transports: ['internal'],
-    },
-    clientExtensionResults: {
-      prf: {
-        results: {
-          first: undefined,
-          second: undefined,
-        },
-      },
-    },
-  };
-}
 
 type ActiveWalletAuthMethodRecordV2 = Extract<
   WalletAuthMethodRecordV2,
@@ -375,6 +350,16 @@ export async function buildPendingWalletRegistrationPublicationFixture(
         nonceB64u: 'nonce-ed25519-publication',
         applicationBindingDigestB64u: 'binding-ed25519-publication',
       },
+      metadata: {
+        materialActivation: buildMpcMaterialActivationRefFixture('publication-authority'),
+        registeredPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(17)),
+        signingWorkerVerifyingShareB64u: base64UrlEncode(new Uint8Array(32).fill(19)),
+        stateEpoch: '1',
+        signingWorkerId: 'signing-worker-publication',
+        participantIds: [1, 2] as const,
+        nearEd25519SigningKeyId: 'near-publication-key',
+        signerSlot: 1,
+      },
     },
   };
   const ed25519LocalMaterial: Extract<
@@ -517,14 +502,13 @@ export async function buildPasskeyNearProvisioningProductionPublicationFixture()
   if (pendingAuth.kind !== 'passkey') {
     throw new Error('Passkey publication fixture has a non-passkey pending authority');
   }
-  const registration = prepareWalletEd25519RegistrationPublication({
+  const registration = prepareWalletEd25519RegistrationProjectionPublication({
     walletId: fixture.input.request.walletId,
     nearAccountId: toAccountId('publication.testnet'),
     nearEd25519SigningKeyId: 'near-publication-key',
     rpId: pendingAuth.rpId,
-    credential: buildPasskeyRegistrationCredentialFixture({
-      credentialIdB64u: pendingAuth.credentialIdB64u,
-    }),
+    credentialIdB64u: pendingAuth.credentialIdB64u,
+    transports: pendingAuth.transports,
     credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(23)),
     signerSlot: 1,
     operationalPublicKey: 'ed25519:publication-public-key',
