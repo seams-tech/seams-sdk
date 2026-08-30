@@ -15,6 +15,8 @@ import {
   parseDeviceId,
   parsePrincipalId,
   parseTenantId,
+  parseWalletSessionMintId,
+  type PrincipalId,
   type TenantId,
 } from '@shared/authorization/capabilityKinds';
 import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
@@ -47,6 +49,8 @@ import {
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { buildExactWalletSessionAuthorizationFixture } from './helpers/exactWalletSessionAuthorization.fixtures';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { parseSessionOrigin } from '../../packages/wallet-server/src/authorization/domain';
 
 const scope: D1WalletAuthorityStoreScope = {
   namespace: 'wallet-authority-store-test',
@@ -112,6 +116,7 @@ function buildActiveSiblingAuthMethod(
 async function readExactAuthoritySessionLifecycle(input: {
   readonly database: AuthorityTestDatabase;
   readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
 }) {
   return await input.database
     .prepare(
@@ -127,9 +132,10 @@ async function readExactAuthoritySessionLifecycle(input: {
           AND quota.quota_id = session.quota_id
         WHERE session.namespace = ?
           AND session.tenant_id = ?
+          AND session.principal_id = ?
         ORDER BY session.authority_id, session.wallet_auth_method_id`,
     )
-    .bind(scope.namespace, input.tenantId)
+    .bind(scope.namespace, input.tenantId, input.principalId)
     .all<{
       readonly authority_id: string;
       readonly wallet_auth_method_id: string;
@@ -624,6 +630,56 @@ test('authority session fence waits for the final sibling and preserves unrelate
       expiresAtMs: 100,
       remainingUses: 5,
     });
+    const hostedTenantId = tenantId;
+    const hostedPrincipalId = requireParsed(
+      parsePrincipalId('principal:authority-hosted-revocation'),
+    );
+    const routerService = createCloudflareD1RouterApiAuthService({
+      database: temporary.database,
+      ...scope,
+    });
+    const hostedParent =
+      await routerService.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
+        tenantId: hostedTenantId,
+        principalId: hostedPrincipalId,
+        walletId: target.walletId,
+        authority: target.activeAuthority,
+        walletAuthMethodId: target.activeAuthMethod.walletAuthMethodId,
+        mintId: requireParsed(parseWalletSessionMintId('mint:authority-hosted-revocation')),
+        remainingUses: 3,
+        issuedAtMs: 25,
+        expiresAtMs: 100,
+      });
+    expect(hostedParent.kind).toBe('issued');
+    if (hostedParent.kind !== 'issued') throw new Error('hosted authority parent did not issue');
+    const appOrigin = parseSessionOrigin('https://app.authority.example.test');
+    const walletOrigin = parseSessionOrigin('https://wallet.authority.example.test');
+    const hostedDelivery =
+      await routerService.authorizationSessions.mintHostedWalletSeamsSessionExchange({
+        authorization: hostedParent,
+        appOrigin,
+        walletOrigin,
+        issuedAtMs: 26,
+        expiresAtMs: 90,
+      });
+    const hostedCredential =
+      await routerService.authorizationSessions.redeemHostedWalletSeamsSessionExchange({
+        exchangeCode: hostedDelivery.exchangeCode,
+        nonce: hostedDelivery.nonce,
+        appOrigin,
+        walletOrigin,
+        redeemedAtMs: 27,
+      });
+    expect(hostedCredential.kind).toBe('redeemed');
+    if (hostedCredential.kind !== 'redeemed')
+      throw new Error('hosted authority child did not redeem');
+    await routerService.authorizationSessions.mintHostedWalletSeamsSessionExchange({
+      authorization: hostedParent,
+      appOrigin,
+      walletOrigin,
+      issuedAtMs: 28,
+      expiresAtMs: 90,
+    });
     await authorizationStore.putWalletSessionAuthorizationV2(targetSession);
     await authorizationStore.putWalletSessionAuthorizationV2(siblingSession);
     await authorizationStore.putWalletSessionAuthorizationV2(unrelatedSession);
@@ -648,8 +704,13 @@ test('authority session fence waits for the final sibling and preserves unrelate
       authority: { state: 'active' },
     });
     expect(
-      (await readExactAuthoritySessionLifecycle({ database: temporary.database, tenantId }))
-        .results,
+      (
+        await readExactAuthoritySessionLifecycle({
+          database: temporary.database,
+          tenantId,
+          principalId,
+        })
+      ).results,
     ).toEqual([
       {
         authority_id: String(target.authorityId),
@@ -673,6 +734,27 @@ test('authority session fence waits for the final sibling and preserves unrelate
         lifecycle_kind: 'active',
       },
     ]);
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT lifecycle_kind, retired_at_ms
+             FROM wallet_session_hosted_credentials_v2
+            WHERE namespace = ? AND tenant_id = ? AND wallet_auth_method_id = ?`,
+        )
+        .bind(scope.namespace, hostedTenantId, String(target.activeAuthMethod.walletAuthMethodId))
+        .first(),
+    ).resolves.toEqual({ lifecycle_kind: 'active', retired_at_ms: null });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT COUNT(*) AS count
+             FROM wallet_session_hosted_exchange_codes_v2
+            WHERE namespace = ? AND tenant_id = ? AND wallet_auth_method_id = ?
+              AND lifecycle_kind = 'issued'`,
+        )
+        .bind(scope.namespace, hostedTenantId, String(target.activeAuthMethod.walletAuthMethodId))
+        .first<{ readonly count?: unknown }>(),
+    ).resolves.toEqual({ count: 1 });
 
     await expect(
       authorityStore.revokeWalletAuthMethod({
@@ -694,8 +776,13 @@ test('authority session fence waits for the final sibling and preserves unrelate
       authority: { state: 'revoked', revocationEpoch: 1 },
     });
     expect(
-      (await readExactAuthoritySessionLifecycle({ database: temporary.database, tenantId }))
-        .results,
+      (
+        await readExactAuthoritySessionLifecycle({
+          database: temporary.database,
+          tenantId,
+          principalId,
+        })
+      ).results,
     ).toEqual([
       {
         authority_id: String(target.authorityId),
@@ -719,6 +806,27 @@ test('authority session fence waits for the final sibling and preserves unrelate
         lifecycle_kind: 'active',
       },
     ]);
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT lifecycle_kind, retired_at_ms
+             FROM wallet_session_hosted_credentials_v2
+            WHERE namespace = ? AND tenant_id = ? AND wallet_auth_method_id = ?`,
+        )
+        .bind(scope.namespace, hostedTenantId, String(target.activeAuthMethod.walletAuthMethodId))
+        .first(),
+    ).resolves.toEqual({ lifecycle_kind: 'retired', retired_at_ms: 31 });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT COUNT(*) AS count
+             FROM wallet_session_hosted_exchange_codes_v2
+            WHERE namespace = ? AND tenant_id = ? AND wallet_auth_method_id = ?
+              AND lifecycle_kind = 'issued'`,
+        )
+        .bind(scope.namespace, hostedTenantId, String(target.activeAuthMethod.walletAuthMethodId))
+        .first<{ readonly count?: unknown }>(),
+    ).resolves.toEqual({ count: 0 });
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
