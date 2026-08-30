@@ -93,7 +93,6 @@ import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent'
 import type {
   DirectV2IssueResult,
   IssuedWalletSessionAuthorizationV2,
-  WalletSessionAuthorizationV2,
 } from '../../authorization/domain';
 import type { IssueWalletSessionAuthorizationV2Input } from '../../authorization/service';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
@@ -195,15 +194,12 @@ export type RouterApiWalletSessionAuthorizationV2AdmissionContext = {
   readonly retiredAtMs: number | null;
 };
 
-/**
- * Exact session identity retained after its reusable quota transitions to
- * exhausted. The quota is deliberately not represented as an active quota;
- * the operation admission fingerprint decides whether this is a replay.
- */
+/** Exact exhausted status retained before authorized-operation admission. */
 export type RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext = {
-  readonly session: WalletSessionAuthorizationV2;
+  readonly status: ExactWalletSessionStatusV2 & { readonly kind: 'exhausted' };
   readonly authority: ActiveWalletAuthorityV1;
-  readonly authMethod: WalletAuthMethodRecordV2;
+  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+  readonly retiredAtMs: null;
 };
 
 export type RouterApiHostedWalletSessionAuthorizationV2AdmissionContext =

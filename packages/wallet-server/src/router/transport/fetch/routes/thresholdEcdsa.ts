@@ -553,7 +553,7 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
     const session =
       authorization.kind === 'wallet_session_operation_credential_v1'
         ? authorization.validated.admission.context.authorization.session
-        : authorization.candidate.session;
+        : authorization.candidate.status.session;
     const runtimePolicyScope = authorization.activeMaterial.runtimePolicyScope;
     authorizedOperationWire = buildRouterAbEcdsaAuthorizedOperationWire({
       operation: authorizedOperation,
@@ -592,7 +592,7 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
           walletAuthMethodId:
             authorization.kind === 'wallet_session_operation_credential_v1'
               ? authorization.validated.admission.context.authorization.session.walletAuthMethodId
-              : authorization.candidate.session.walletAuthMethodId,
+              : authorization.candidate.status.session.walletAuthMethodId,
         };
   const admittedBody = {
     ...input.body,

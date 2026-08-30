@@ -3403,7 +3403,7 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
     const session =
       input.binding.kind === 'wallet_session_operation_credential_v1'
         ? input.binding.context.authorization.session
-        : input.binding.candidate.session;
+        : input.binding.candidate.status.session;
     const tenantId = session.tenantId;
     const principalId = session.principalId;
     const walletId = session.walletId;
@@ -3714,7 +3714,7 @@ async function resolveRouterAbEcdsaExhaustedCandidateAuthorization(input: {
   }
   if (!candidate) return null;
 
-  const session = candidate.session;
+  const session = candidate.status.session;
   const admission = resolveWalletSessionAuthorizationV2Admission({
     authorization: session,
     authority: candidate.authority,
@@ -3726,7 +3726,7 @@ async function resolveRouterAbEcdsaExhaustedCandidateAuthorization(input: {
       keyFamily: 'ecdsa_secp256k1',
       operationKind: 'evm.sign_transaction',
     },
-    retiredAtMs: null,
+    retiredAtMs: candidate.retiredAtMs,
     nowMs: Date.now(),
   });
   if (!admission.ok || admission.keyFamily !== 'ecdsa_secp256k1') {
@@ -3750,9 +3750,7 @@ async function resolveRouterAbEcdsaExhaustedCandidateAuthorization(input: {
     ok: true,
     kind: 'wallet_session_operation_credential_exhausted_candidate_v1',
     candidate,
-    admission: {
-      ...authorized.admission,
-    },
+    admission: authorized.admission,
     activeMaterial: authorized.activeMaterial,
   };
 }
@@ -4167,7 +4165,7 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
   const walletSession =
     authorization.kind === 'wallet_session_operation_credential_v1'
       ? authorization.validated.admission.context.authorization.session
-      : authorization.candidate.session;
+      : authorization.candidate.status.session;
   const privateBody = await buildRouterAbEcdsaDerivationPrivateSigningWorkerBody({
     phase: input.phase,
     body: input.body,
