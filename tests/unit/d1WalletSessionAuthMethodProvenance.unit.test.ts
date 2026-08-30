@@ -70,11 +70,24 @@ import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef
 /** Wallet Sessions record which auth method issued them for precise revocation. */
 const signerMigrations = listD1MigrationFiles('d1-signer');
 
+type AuthorizationScope = {
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+};
+
+const DEFAULT_AUTHORIZATION_SCOPE: AuthorizationScope = {
+  orgId: 'test-org',
+  projectId: 'test-project',
+  envId: 'test-env',
+};
+
 function createService(
   database: Parameters<typeof applyD1MigrationFiles>[0],
   namespace: string,
+  scope: AuthorizationScope = DEFAULT_AUTHORIZATION_SCOPE,
 ): AuthorizationService {
-  const store = createAuthorizationStore(database, namespace);
+  const store = createAuthorizationStore(database, namespace, scope);
   return new AuthorizationService({
     policy: capabilityPolicyPort,
     sessions: store,
@@ -88,15 +101,14 @@ function createService(
 function createAuthorizationStore(
   database: Parameters<typeof applyD1MigrationFiles>[0],
   namespace: string,
+  scope: AuthorizationScope = DEFAULT_AUTHORIZATION_SCOPE,
 ): CloudflareD1AuthorizationStore {
   return new CloudflareD1AuthorizationStore({
     database,
     namespace,
     walletSignerScope: {
       namespace,
-      orgId: 'test-org',
-      projectId: 'test-project',
-      envId: 'test-env',
+      ...scope,
     },
   });
 }
@@ -1336,6 +1348,31 @@ test('admits a V2 Wallet Session operation and replays against its exact source'
     await expect(
       service.admitAuthorizedOperation({ operation: { ...retry, claimedAtMs: 306 } }),
     ).resolves.toMatchObject({ kind: 'replayed' });
+
+    const persistedScope = await temporary.database
+      .prepare(
+        `SELECT linked_scope_org_id, linked_scope_project_id, linked_scope_env_id
+           FROM authorized_operations
+          WHERE namespace = ? AND tenant_id = ? AND authorized_operation_id = ?`,
+      )
+      .bind(namespace, session.session.tenantId, String(claimInput.authorizedOperationId))
+      .first();
+    expect(persistedScope).toEqual({
+      linked_scope_org_id: DEFAULT_AUTHORIZATION_SCOPE.orgId,
+      linked_scope_project_id: DEFAULT_AUTHORIZATION_SCOPE.projectId,
+      linked_scope_env_id: DEFAULT_AUTHORIZATION_SCOPE.envId,
+    });
+    for (const scope of [
+      { ...DEFAULT_AUTHORIZATION_SCOPE, orgId: 'other-org' },
+      { ...DEFAULT_AUTHORIZATION_SCOPE, projectId: 'other-project' },
+      { ...DEFAULT_AUTHORIZATION_SCOPE, envId: 'other-env' },
+    ]) {
+      await expect(
+        createService(temporary.database, namespace, scope).admitAuthorizedOperation({
+          operation: { ...retry, claimedAtMs: 306 },
+        }),
+      ).resolves.toEqual({ kind: 'authorization_grant_rejected' });
+    }
 
     await service.retireWalletSessionAuthorizationsForAuthMethod({
       tenantId: session.session.tenantId,
