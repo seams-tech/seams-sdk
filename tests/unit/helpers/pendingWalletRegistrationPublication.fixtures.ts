@@ -294,7 +294,7 @@ export async function buildPendingWalletRegistrationPublicationFixture(
     });
     if (candidate.status !== 'active') throw new Error('passkey fixture method is not active');
     foundingAuthMethod = candidate;
-    pendingAuth = { kind: 'passkey', rpId, credentialIdB64u };
+    pendingAuth = { kind: 'passkey', rpId, credentialIdB64u, transports: ['internal'] };
     authenticators = [
       {
         profileId: String(walletId),

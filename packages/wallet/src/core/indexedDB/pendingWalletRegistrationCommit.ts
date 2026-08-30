@@ -44,6 +44,7 @@ export type PendingWalletRegistrationCommitAuthV1 =
       readonly kind: 'passkey';
       readonly rpId: WebAuthnRpId;
       readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+      readonly transports: readonly string[];
     }
   | {
       readonly kind: 'email_otp';
@@ -363,11 +364,17 @@ function parsePendingAuth(raw: unknown): PendingWalletRegistrationCommitAuthV1 |
   if (!isRecord(raw) || hasForbiddenCredentialField(raw) || typeof raw.kind !== 'string')
     return null;
   if (raw.kind === 'passkey') {
-    if (!hasExactKeys(raw, ['kind', 'rpId', 'credentialIdB64u'])) return null;
+    if (!hasExactKeys(raw, ['kind', 'rpId', 'credentialIdB64u', 'transports'])) return null;
     const rpId = parseWebAuthnRpId(raw.rpId);
     const credentialIdB64u = parseWebAuthnCredentialIdB64u(raw.credentialIdB64u);
-    return rpId.ok && credentialIdB64u.ok
-      ? { kind: 'passkey', rpId: rpId.value, credentialIdB64u: credentialIdB64u.value }
+    const transports = parseCanonicalStringArray(raw.transports);
+    return rpId.ok && credentialIdB64u.ok && transports
+      ? {
+          kind: 'passkey',
+          rpId: rpId.value,
+          credentialIdB64u: credentialIdB64u.value,
+          transports,
+        }
       : null;
   }
   if (raw.kind !== 'email_otp') return null;
@@ -396,6 +403,19 @@ function parsePendingAuth(raw: unknown): PendingWalletRegistrationCommitAuthV1 |
     providerSubject: providerSubject.value,
     enrollment,
   };
+}
+
+function parseCanonicalStringArray(raw: unknown): readonly string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const values: string[] = [];
+  const seen = new Set<string>();
+  for (const value of raw) {
+    const parsed = parseCanonicalString(value);
+    if (parsed === null || seen.has(parsed)) return null;
+    seen.add(parsed);
+    values.push(parsed);
+  }
+  return values;
 }
 
 function parseEmailOtpEnrollmentMaterial(raw: unknown): WalletEmailOtpEnrollmentMaterialV1 | null {
