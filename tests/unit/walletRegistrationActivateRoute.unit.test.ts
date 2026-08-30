@@ -505,6 +505,72 @@ test('identical activate retries return one credential-free committed projection
   }
 });
 
+test('ECDSA-only receipt reconstruction accepts absent NEAR state and rejects malformed present state', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const { service, setup, activateRequest } = await respondedCeremony(
+      database,
+      new CountingStrictRegistrationPort(),
+    );
+
+    const activated = requireEcdsaActivateSuccess(
+      await service.walletRegistration.activateWalletRegistration(activateRequest as never),
+    );
+    const replayed = requireEcdsaActivateSuccess(
+      await service.walletRegistration.activateWalletRegistration(activateRequest as never),
+    );
+    expect(replayed.registrationEstablishedSession.kind).toBe('already_committed');
+    expect(replayed.ecdsa).toEqual(activated.ecdsa);
+
+    const recordKey = `wallet-registration-activate:registration-activate:${setup.registrationCeremonyId}:${activateRequest.idempotencyKey}`;
+    const completion = await readRegistrationJournalRecord({
+      database,
+      scope: SCOPE,
+      recordKey,
+    });
+    if (
+      !isRecordValue(completion) ||
+      !isRecordValue(completion.receipt) ||
+      !isRecordValue(completion.receipt.committed)
+    ) {
+      throw new Error('ECDSA-only completion receipt is missing');
+    }
+    expect('nearProvisioning' in completion.receipt.committed).toBe(false);
+
+    completion.receipt.committed.nearProvisioning = { status: 'near_ready' };
+    await database
+      .prepare(
+        `UPDATE router_ab_yao_versioned_json_records
+            SET record_json = ?1
+          WHERE namespace = ?2
+            AND org_id = ?3
+            AND project_id = ?4
+            AND env_id = ?5
+            AND record_key = ?6`,
+      )
+      .bind(
+        JSON.stringify(completion),
+        SCOPE.namespace,
+        SCOPE.orgId,
+        SCOPE.projectId,
+        SCOPE.envId,
+        recordKey,
+      )
+      .run();
+
+    await expect(
+      service.walletRegistration.activateWalletRegistration(activateRequest as never),
+    ).resolves.toEqual({
+      ok: false,
+      code: 'internal',
+      message: 'Stored D1 versioned JSON record is invalid',
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
 test('V2 registration parser rejects mismatched identity, signing capability, material, and family', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
