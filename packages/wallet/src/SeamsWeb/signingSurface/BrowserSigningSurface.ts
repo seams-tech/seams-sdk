@@ -332,8 +332,11 @@ import {
   type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
   type PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
-import type { WalletSessionAuthorizationExactOperationCredentialReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { ExactWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
+import {
+  exactWalletSessionWithOperationCredentialOrThrow,
+  readExactOwnerLaneWalletSession,
+} from '@/core/signingEngine/session/identity/exactWalletSessionReader';
 import * as emailOtpPublic from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import { createManagerAssembly } from '@/core/signingEngine/assembly/createManagers';
 import { verifySealedRefreshStartupParity } from '@/core/rpcClients/relayer/sealedRefreshCapabilities';
@@ -1659,72 +1662,6 @@ async function requireExactEd25519SealedRuntimeForMaterialIdentity(args: {
     throw new Error('[SigningEngine][near] exact persisted Ed25519 runtime is conflicting');
   }
   return runtimes[0];
-}
-
-function exactWalletSessionWithOperationCredentialOrThrow(
-  result: WalletSessionAuthorizationExactOperationCredentialReadResult,
-  message: string,
-): Extract<WalletSessionAuthorizationExactOperationCredentialReadResult, { kind: 'found' }> | null {
-  switch (result.kind) {
-    case 'found':
-      return result;
-    case 'missing':
-      return null;
-    case 'upgrade_required':
-      throw new WalletSessionAuthorizationUpgradeRequiredError(message);
-  }
-}
-
-async function readExactOwnerLaneWalletSession(args: {
-  readonly walletId: WalletId;
-  readonly authorityId: WalletAuthorityId;
-  readonly authMethodId: WalletAuthMethodId;
-  readonly authorityDigestB64u: DigestB64u;
-  readonly authorityRevocationEpoch: number;
-}): Promise<void> {
-  const read = await walletSessionAuthorizations.readExactActiveForWallet({
-    walletId: args.walletId,
-    authorityId: args.authorityId,
-    authMethodId: args.authMethodId,
-  });
-  switch (read.kind) {
-    case 'found':
-      if (
-        read.record.walletId !== args.walletId ||
-        read.record.authorityId !== args.authorityId ||
-        read.record.authMethodId !== args.authMethodId ||
-        read.record.authorityDigestB64u !== args.authorityDigestB64u ||
-        read.record.authorityRevocationEpoch !== args.authorityRevocationEpoch ||
-        read.operationCredential.kind !== 'opaque_wallet_session_operation_credential_v1' ||
-        read.operationCredential.token.trim().length === 0
-      ) {
-        throw new Error('[SigningEngine] selected Wallet Authority session identity mismatch');
-      }
-      if (read.record.expiresAtMs <= Date.now()) {
-        throw new Error(
-          '[SigningEngine] selected Wallet Authority session is unavailable: expired',
-        );
-      }
-      return;
-    case 'missing':
-      throw new Error('[SigningEngine] selected Wallet Authority session is unavailable: missing');
-    case 'upgrade_required':
-      throw new WalletSessionAuthorizationUpgradeRequiredError(
-        '[SigningEngine] selected Wallet Authority Wallet Session requires a newer client',
-      );
-    case 'corrupt':
-      throw new Error('[SigningEngine] selected Wallet Authority session is unavailable: corrupt');
-    case 'persistence_unavailable':
-      throw new Error(
-        '[SigningEngine] selected Wallet Authority session is unavailable: persistence_unavailable',
-      );
-    default:
-      return assertNeverWalletSessionAuthorizationExactActiveRead(read);
-  }
-}
-
-function assertNeverWalletSessionAuthorizationExactActiveRead(value: never): never {
-  throw new Error(`Unknown exact Wallet Session authorization read: ${String(value)}`);
 }
 
 function operationStepUpProofMatchesSelectedWalletAuthMethod(args: {
