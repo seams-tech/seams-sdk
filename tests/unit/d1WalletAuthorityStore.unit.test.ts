@@ -48,7 +48,6 @@ import {
 } from '../helpers/sqliteD1';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
-import { buildExactWalletSessionAuthorizationFixture } from './helpers/exactWalletSessionAuthorization.fixtures';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { parseSessionOrigin } from '../../packages/wallet-server/src/authorization/domain';
 
@@ -600,40 +599,8 @@ test('authority session fence waits for the final sibling and preserves unrelate
 
     const tenantId = requireParsed(parseTenantId(scope.orgId));
     const principalId = requireParsed(parsePrincipalId('principal:authority-session-fence'));
-    const targetSession = buildExactWalletSessionAuthorizationFixture({
-      label: 'authority-session-target',
-      tenantId,
-      principalId,
-      authority: target.activeAuthority,
-      walletAuthMethodId: target.activeAuthMethod.walletAuthMethodId,
-      issuedAtMs: 25,
-      expiresAtMs: 100,
-      remainingUses: 3,
-    });
-    const siblingSession = buildExactWalletSessionAuthorizationFixture({
-      label: 'authority-session-sibling',
-      tenantId,
-      principalId,
-      authority: target.activeAuthority,
-      walletAuthMethodId: siblingMethod.walletAuthMethodId,
-      issuedAtMs: 26,
-      expiresAtMs: 100,
-      remainingUses: 4,
-    });
-    const unrelatedSession = buildExactWalletSessionAuthorizationFixture({
-      label: 'authority-session-unrelated',
-      tenantId,
-      principalId,
-      authority: unrelated.activeAuthority,
-      walletAuthMethodId: unrelated.activeAuthMethod.walletAuthMethodId,
-      issuedAtMs: 27,
-      expiresAtMs: 100,
-      remainingUses: 5,
-    });
     const hostedTenantId = tenantId;
-    const hostedPrincipalId = requireParsed(
-      parsePrincipalId('principal:authority-hosted-revocation'),
-    );
+    const hostedPrincipalId = principalId;
     const routerService = createCloudflareD1RouterApiAuthService({
       database: temporary.database,
       ...scope,
@@ -680,9 +647,30 @@ test('authority session fence waits for the final sibling and preserves unrelate
       issuedAtMs: 28,
       expiresAtMs: 90,
     });
-    await authorizationStore.putWalletSessionAuthorizationV2(targetSession);
-    await authorizationStore.putWalletSessionAuthorizationV2(siblingSession);
-    await authorizationStore.putWalletSessionAuthorizationV2(unrelatedSession);
+    const siblingSession = await routerService.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
+      tenantId,
+      principalId,
+      walletId: target.walletId,
+      authority: target.activeAuthority,
+      walletAuthMethodId: siblingMethod.walletAuthMethodId,
+      mintId: requireParsed(parseWalletSessionMintId('mint:authority-session-sibling')),
+      remainingUses: 4,
+      issuedAtMs: 26,
+      expiresAtMs: 100,
+    });
+    const unrelatedSession = await routerService.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
+      tenantId,
+      principalId,
+      walletId: unrelated.walletId,
+      authority: unrelated.activeAuthority,
+      walletAuthMethodId: unrelated.activeAuthMethod.walletAuthMethodId,
+      mintId: requireParsed(parseWalletSessionMintId('mint:authority-session-unrelated')),
+      remainingUses: 5,
+      issuedAtMs: 27,
+      expiresAtMs: 100,
+    });
+    expect(siblingSession.kind).toBe('issued');
+    expect(unrelatedSession.kind).toBe('issued');
 
     await expect(
       authorityStore.revokeWalletAuthMethod({

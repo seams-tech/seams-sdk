@@ -488,7 +488,7 @@ test('keeps exact V2 session identity readable for device inventory after quota 
     const namespace = 'device-inventory-exhausted-session';
     const fixture = await seedActiveAuthority(temporary.database, namespace, 'device-inventory');
     const service = createService(temporary.database, namespace);
-    const issued = await service.issueWalletSessionAuthorizationV2({
+    const issued = await service.issueDirectWalletSessionAuthorizationV2({
       tenantId: requiredParsed(parseTenantId('tenant:device-inventory')),
       principalId: requiredParsed(parsePrincipalId('principal:device-inventory')),
       walletId: fixture.authority.walletId,
@@ -499,6 +499,8 @@ test('keeps exact V2 session identity readable for device inventory after quota 
       issuedAtMs: 300,
       expiresAtMs: 400,
     });
+    expect(issued.kind).toBe('issued');
+    if (issued.kind !== 'issued') throw new Error('device inventory session did not issue');
     await temporary.database
       .prepare(
         `UPDATE authorization_wallet_session_quotas
@@ -552,18 +554,25 @@ test('issues V2 Wallet Sessions only for exact active authority provenance', asy
       issuedAtMs: 300,
       expiresAtMs: 400,
     };
-    const issued = await service.issueWalletSessionAuthorizationV2(input);
+    const issued = await service.issueDirectWalletSessionAuthorizationV2(input);
+    expect(issued.kind).toBe('issued');
+    if (issued.kind !== 'issued') throw new Error('exact provenance session did not issue');
     expect(issued.session.authorityId).toBe(fixture.authority.authorityId);
     expect(issued.session.walletAuthMethodId).toBe(fixture.authMethod.walletAuthMethodId);
     expect(issued.session.capabilitySubjects.length).toBeGreaterThan(0);
 
-    await expect(service.issueWalletSessionAuthorizationV2(input)).resolves.toEqual(issued);
+    await expect(service.issueDirectWalletSessionAuthorizationV2(input)).resolves.toMatchObject({
+      kind: 'already_committed',
+      authorizationId: issued.session.authorizationId,
+      walletSessionId: issued.session.walletSessionId,
+      quotaId: issued.session.quotaId,
+    });
     await expect(
       service.readWalletSessionAuthorizationV2ByAuthorizationId({
         expected: issued.session,
         nowMs: 301,
       }),
-    ).resolves.toEqual(issued);
+    ).resolves.toEqual({ session: issued.session, quota: issued.quota });
 
     const otherMethodId = requiredWalletAuthMethodId(
       'passkey:example.test:other-v2-session-method',
@@ -585,7 +594,7 @@ test('issues V2 Wallet Sessions only for exact active authority provenance', asy
       },
     ];
     for (const driftInput of driftInputs) {
-      await expect(service.issueWalletSessionAuthorizationV2(driftInput)).rejects.toThrow(
+      await expect(service.issueDirectWalletSessionAuthorizationV2(driftInput)).rejects.toThrow(
         /V2 Wallet Session|provenance|replay/,
       );
     }

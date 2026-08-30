@@ -29,6 +29,8 @@ import { makeEcdsaRoleLocalReadyRecordFixture } from './helpers/ecdsaSessionReco
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
 import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import { sha256HexUtf8 } from '../../packages/shared-ts/src/utils/digests';
+import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 function webAuthnRpId(value: string) {
   const parsed = parseWebAuthnRpId(value);
@@ -640,6 +642,7 @@ test('Email OTP mixed registration atomically persists Ed25519 and every ECDSA t
     accountStore: store,
   };
   const walletId = walletIdFromString('wallet_email_mixed');
+  const emailHashHex = await sha256HexUtf8('alice@example.com');
   const walletKeys = [
     {
       keyScope: 'evm-family' as const,
@@ -694,6 +697,12 @@ test('Email OTP mixed registration atomically persists Ed25519 and every ECDSA t
     keyVersion: 'router-ab-ed25519-yao-v1',
     participantIds: [1, 2],
     walletKeys,
+    authority: buildEmailOtpWalletAuthAuthority({
+      walletId,
+      provider: 'google',
+      providerUserId: 'google:alice-subject',
+      emailHashHex,
+    }),
   });
 
   expect(store.registrationFinalizeBatches).toHaveLength(1);

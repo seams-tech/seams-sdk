@@ -114,7 +114,6 @@ type HarnessOptions = {
   readonly authorizationService?: Pick<
     AuthorizationService,
     | 'prepareWalletSessionAuthorizationV2'
-    | 'issueWalletSessionAuthorizationV2'
     | 'readWalletSessionAuthorizationV2ByMint'
   >;
   readonly authorizationStore?: D1LinkedDeviceAuthorityInstallServiceOptionsV1['authorizationStore'];
@@ -861,7 +860,6 @@ async function buildHarness(
     },
     authorizationService: options.authorizationService ?? {
       prepareWalletSessionAuthorizationV2: unsupportedAuthorizationOperation,
-      issueWalletSessionAuthorizationV2: unsupportedAuthorizationOperation,
       readWalletSessionAuthorizationV2ByMint: unsupportedAuthorizationOperation,
     },
     authorizationStore: options.authorizationStore ?? {
