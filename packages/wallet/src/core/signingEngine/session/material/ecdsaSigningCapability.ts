@@ -9,7 +9,13 @@ import type {
   WalletSessionOperationCredentialV1,
 } from '@shared/device-linking/contracts';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
-import type { ExactEcdsaSealedRuntime } from './ecdsaSealedRuntime';
+import type {
+  ExactEcdsaCapabilityRuntime,
+  ExactEcdsaDirectCapabilityRuntime,
+  ExactEcdsaSealedRuntimeAuthBinding,
+  ExactEcdsaWalletSessionRuntime,
+} from './ecdsaSealedRuntime';
+import type { ActiveWalletSessionQuotaStatusV1 } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import type { ActiveWalletAuthMethodV2 } from '../identity/ownerLaneScope';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import {
@@ -32,30 +38,24 @@ type ExactEvmFamilyWalletSessionAuthorizationBase = {
   readonly operationCredential: WalletSessionOperationCredentialV1;
 };
 
-type ExactPasskeySealedRuntime = Omit<ExactEcdsaSealedRuntime, 'authBinding'> & {
-  readonly authBinding: Extract<
-    ExactEcdsaSealedRuntime['authBinding'],
-    { readonly kind: 'passkey' }
-  >;
+type ExactPasskeyWalletSessionRuntime = ExactEcdsaWalletSessionRuntime & {
+  readonly authBinding: Extract<ExactEcdsaSealedRuntimeAuthBinding, { readonly kind: 'passkey' }>;
 };
 
-type ExactEmailOtpSealedRuntime = Omit<ExactEcdsaSealedRuntime, 'authBinding'> & {
-  readonly authBinding: Extract<
-    ExactEcdsaSealedRuntime['authBinding'],
-    { readonly kind: 'email_otp' }
-  >;
+type ExactEmailOtpWalletSessionRuntime = ExactEcdsaWalletSessionRuntime & {
+  readonly authBinding: Extract<ExactEcdsaSealedRuntimeAuthBinding, { readonly kind: 'email_otp' }>;
 };
 
 type ExactPasskeyEvmFamilyWalletSessionAuthorization =
   ExactEvmFamilyWalletSessionAuthorizationBase & {
     readonly selectedAuthMethod: Extract<ActiveWalletAuthMethodV2, { readonly kind: 'passkey' }>;
-    readonly runtime: ExactPasskeySealedRuntime;
+    readonly runtime: ExactPasskeyWalletSessionRuntime;
   };
 
 type ExactEmailOtpEvmFamilyWalletSessionAuthorization =
   ExactEvmFamilyWalletSessionAuthorizationBase & {
     readonly selectedAuthMethod: Extract<ActiveWalletAuthMethodV2, { readonly kind: 'email_otp' }>;
-    readonly runtime: ExactEmailOtpSealedRuntime;
+    readonly runtime: ExactEmailOtpWalletSessionRuntime;
   };
 
 export type ExactEvmFamilyWalletSessionAuthorization =
@@ -115,7 +115,7 @@ export type BuildExactEvmFamilyWalletSessionAuthorizationInput = {
   readonly selected: ResolvedSelectedWalletAuthority;
   readonly session: ActiveWalletSessionV1;
   readonly operationCredential: WalletSessionOperationCredentialV1;
-  readonly runtime: ExactEcdsaSealedRuntime;
+  readonly runtime: ExactEcdsaWalletSessionRuntime;
   readonly nowMs: number;
 };
 
@@ -162,7 +162,7 @@ function selectedAuthorityComponentsAreExact(args: {
 
 function capabilityAuthorityMatchesRuntime(args: {
   readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
-  readonly runtime: ExactEcdsaSealedRuntime;
+  readonly runtime: ExactEcdsaWalletSessionRuntime;
 }): boolean {
   const capabilityAuthority = args.capability.authority;
   const runtimeBinding = args.runtime.authBinding;
@@ -187,7 +187,7 @@ function capabilityAuthorityMatchesRuntime(args: {
 
 function selectedAuthMethodMatchesRuntime(args: {
   readonly selectedAuthMethod: ActiveWalletAuthMethodV2;
-  readonly runtime: ExactEcdsaSealedRuntime;
+  readonly runtime: ExactEcdsaWalletSessionRuntime;
 }): boolean {
   switch (args.runtime.authBinding.kind) {
     case 'email_otp':
@@ -237,17 +237,11 @@ function exactAuthorizationMatchesCapability(args: {
     session.authorityRevocationEpoch !== authorization.selectedAuthority.revocationEpoch ||
     signer.authority.walletId !== authorization.selectedAuthority.walletId ||
     signer.authority.walletAuthMethodId !== authorization.selectedAuthMethod.walletAuthMethodId ||
-    String(signer.authority.authorityDigest) !==
-      String(authorization.selectedAuthority.authorityDigestB64u) ||
     session.authorizationId.trim().length === 0 ||
     session.quotaId.trim().length === 0 ||
     operationCredential.walletSessionId.trim().length === 0 ||
     operationCredential.token.trim().length === 0 ||
-    runtime.kind !== 'exact_ecdsa_sealed_runtime_v1' ||
     runtime.walletId !== session.walletId ||
-    runtime.sealedRecord.authMethod !== authorization.selectedAuthMethod.kind ||
-    runtime.sealedRecord.storeKey.trim().length === 0 ||
-    runtime.sealedRecord.thresholdSessionId.trim().length === 0 ||
     !selectedAuthMethodMatchesRuntime({
       selectedAuthMethod: authorization.selectedAuthMethod,
       runtime,
@@ -276,6 +270,23 @@ function exactAuthorizationMatchesCapability(args: {
   ) {
     return false;
   }
+  switch (runtime.kind) {
+    case 'exact_ecdsa_direct_capability_runtime_v1':
+      break;
+    case 'exact_ecdsa_sealed_runtime_v1':
+      if (
+        runtime.sealedRecord.authMethod !== authorization.selectedAuthMethod.kind ||
+        runtime.sealedRecord.storeKey.trim().length === 0 ||
+        runtime.sealedRecord.thresholdSessionId.trim().length === 0
+      ) {
+        return false;
+      }
+      break;
+    default: {
+      const exhaustive: never = runtime;
+      return exhaustive;
+    }
+  }
   if (session.expiresAtMs <= args.nowMs || runtime.expiresAtMs <= args.nowMs) {
     return false;
   }
@@ -291,22 +302,22 @@ function exactAuthorizationMatchesCapability(args: {
   return true;
 }
 
-function isExactPasskeySealedRuntime(
-  runtime: ExactEcdsaSealedRuntime,
-): runtime is ExactPasskeySealedRuntime {
+function isExactPasskeyWalletSessionRuntime(
+  runtime: ExactEcdsaWalletSessionRuntime,
+): runtime is ExactPasskeyWalletSessionRuntime {
   return runtime.authBinding.kind === 'passkey';
 }
 
-function isExactEmailOtpSealedRuntime(
-  runtime: ExactEcdsaSealedRuntime,
-): runtime is ExactEmailOtpSealedRuntime {
+function isExactEmailOtpWalletSessionRuntime(
+  runtime: ExactEcdsaWalletSessionRuntime,
+): runtime is ExactEmailOtpWalletSessionRuntime {
   return runtime.authBinding.kind === 'email_otp';
 }
 
 function buildExactAuthorizationObject(
   input: BuildExactEvmFamilyWalletSessionAuthorizationInput,
 ): ExactEvmFamilyWalletSessionAuthorization {
-  if (isExactPasskeySealedRuntime(input.runtime)) {
+  if (isExactPasskeyWalletSessionRuntime(input.runtime)) {
     if (input.selected.authMethod.kind !== 'passkey') {
       throw new Error('Exact EVM-family Wallet Session authorization auth method is invalid');
     }
@@ -319,7 +330,7 @@ function buildExactAuthorizationObject(
       runtime: input.runtime,
     };
   }
-  if (isExactEmailOtpSealedRuntime(input.runtime)) {
+  if (isExactEmailOtpWalletSessionRuntime(input.runtime)) {
     if (input.selected.authMethod.kind !== 'email_otp') {
       throw new Error('Exact EVM-family Wallet Session authorization auth method is invalid');
     }
@@ -333,6 +344,120 @@ function buildExactAuthorizationObject(
     };
   }
   throw new Error('Exact EVM-family Wallet Session authorization runtime is invalid');
+}
+
+function directRuntimeAuthBinding(
+  authority: WalletAuthAuthority,
+): ExactEcdsaSealedRuntimeAuthBinding {
+  if (isPasskeyWalletAuthAuthority(authority)) {
+    return {
+      kind: 'passkey',
+      rpId: String(authority.verifier.rpId),
+      credentialIdB64u: String(authority.factor.credentialIdB64u),
+    };
+  }
+  if (isEmailOtpWalletAuthAuthority(authority)) {
+    return {
+      kind: 'email_otp',
+      providerSubjectId: String(authority.factor.providerUserId),
+      emailHashHex: String(authority.verifier.emailHashHex),
+      emailOtpAuthority: authority,
+    };
+  }
+  const exhaustive: never = authority;
+  return exhaustive;
+}
+
+export function buildExactEcdsaDirectCapabilityRuntime(args: {
+  readonly runtime: ExactEcdsaCapabilityRuntime;
+  readonly authority: WalletAuthAuthority;
+  readonly status: ActiveWalletSessionQuotaStatusV1;
+}): ExactEcdsaDirectCapabilityRuntime {
+  if (
+    !Number.isSafeInteger(args.status.expiresAtMs) ||
+    args.status.expiresAtMs <= 0 ||
+    !Number.isSafeInteger(args.status.remainingUses) ||
+    args.status.remainingUses <= 0
+  ) {
+    throw new Error('Exact ECDSA direct capability requires an active quota');
+  }
+  return {
+    kind: 'exact_ecdsa_direct_capability_runtime_v1',
+    walletId: args.runtime.walletId,
+    chainTarget: args.runtime.chainTarget,
+    materialActivation: args.runtime.materialActivation,
+    normalSigning: args.runtime.normalSigning,
+    relayerUrl: args.runtime.relayerUrl,
+    relayerKeyId: args.runtime.relayerKeyId,
+    clientVerifyingPublicKey33B64u: args.runtime.clientVerifyingPublicKey33B64u,
+    participantIds: args.runtime.participantIds,
+    ecdsaThresholdKeyId: args.runtime.ecdsaThresholdKeyId,
+    thresholdEcdsaPublicKeyB64u: args.runtime.thresholdEcdsaPublicKeyB64u,
+    keyHandle: args.runtime.keyHandle,
+    runtimePolicyScope: args.runtime.runtimePolicyScope,
+    roleLocalMaterialRef: args.runtime.roleLocalMaterialRef,
+    authBinding: directRuntimeAuthBinding(args.authority),
+    expiresAtMs: args.status.expiresAtMs,
+    remainingUses: args.status.remainingUses,
+  };
+}
+
+function exactEcdsaAuthBindingsMatch(
+  left: ExactEcdsaSealedRuntimeAuthBinding,
+  right: ExactEcdsaSealedRuntimeAuthBinding,
+): boolean {
+  if (left.kind !== right.kind) return false;
+  switch (left.kind) {
+    case 'email_otp':
+      return (
+        right.kind === 'email_otp' &&
+        left.providerSubjectId === right.providerSubjectId &&
+        left.emailHashHex === right.emailHashHex &&
+        walletAuthAuthoritiesMatch(left.emailOtpAuthority, right.emailOtpAuthority)
+      );
+    case 'passkey':
+      return (
+        right.kind === 'passkey' &&
+        left.rpId === right.rpId &&
+        left.credentialIdB64u === right.credentialIdB64u
+      );
+    default: {
+      const exhaustive: never = left;
+      return exhaustive;
+    }
+  }
+}
+
+export function exactEcdsaWalletSessionRuntimesMatch(
+  left: ExactEcdsaWalletSessionRuntime,
+  right: ExactEcdsaWalletSessionRuntime,
+): boolean {
+  if (
+    left.kind !== right.kind ||
+    left.walletId !== right.walletId ||
+    !thresholdEcdsaChainTargetsEqual(left.chainTarget, right.chainTarget) ||
+    !mpcMaterialActivationRefsEqual(left.materialActivation, right.materialActivation) ||
+    left.keyHandle !== right.keyHandle ||
+    left.ecdsaThresholdKeyId !== right.ecdsaThresholdKeyId ||
+    !exactEcdsaAuthBindingsMatch(left.authBinding, right.authBinding)
+  ) {
+    return false;
+  }
+  switch (left.kind) {
+    case 'exact_ecdsa_direct_capability_runtime_v1':
+      return right.kind === 'exact_ecdsa_direct_capability_runtime_v1';
+    case 'exact_ecdsa_sealed_runtime_v1':
+      return (
+        right.kind === 'exact_ecdsa_sealed_runtime_v1' &&
+        left.sealedRecord.authMethod === right.sealedRecord.authMethod &&
+        left.sealedRecord.storeKey === right.sealedRecord.storeKey &&
+        left.sealedRecord.thresholdSessionId === right.sealedRecord.thresholdSessionId
+      );
+    default: {
+      const exhaustive: never = left;
+      return exhaustive;
+    }
+  }
 }
 
 export function buildExactEvmFamilyWalletSessionAuthorization(
