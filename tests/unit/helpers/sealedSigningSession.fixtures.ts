@@ -621,6 +621,9 @@ type EmailOtpEcdsaSealedRuntimeFixtureCorruption =
   | { kind: 'remaining_uses'; remainingUses: number }
   | { kind: 'expires_at_ms'; expiresAtMs: number }
   | { kind: 'normal_signing_wallet_id'; walletId: string }
+  | { kind: 'auth_method'; authMethod: CurrentEcdsaSealedSessionRecord['authMethod'] }
+  | { kind: 'normal_signing_worker_id'; signingWorkerId: string }
+  | { kind: 'public_capability_signer_id'; signerId: string }
   | { kind: 'relayer_key_id'; relayerKeyId: string };
 
 /** The scope the relayer issues at bootstrap and the sealed store persists.
@@ -935,6 +938,42 @@ function corruptEmailOtpEcdsaSealedRuntimeRecordFixture(
             scope: {
               ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope,
               wallet_id: corruption.walletId,
+            },
+          },
+        },
+      };
+    case 'auth_method':
+      return { ...record, authMethod: corruption.authMethod };
+    case 'normal_signing_worker_id':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          routerAbEcdsaDerivationNormalSigning: {
+            ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning,
+            scope: {
+              ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope,
+              signing_worker: {
+                ...record.ecdsaRestore.routerAbEcdsaDerivationNormalSigning.scope.signing_worker,
+                server_id: corruption.signingWorkerId,
+              },
+            },
+          },
+        },
+      };
+    case 'public_capability_signer_id':
+      return {
+        ...record,
+        ecdsaRestore: {
+          ...record.ecdsaRestore,
+          publicCapability: {
+            ...record.ecdsaRestore.publicCapability,
+            signer_set: {
+              ...record.ecdsaRestore.publicCapability.signer_set,
+              selected_server: {
+                ...record.ecdsaRestore.publicCapability.signer_set.selected_server,
+                server_id: corruption.signerId,
+              },
             },
           },
         },

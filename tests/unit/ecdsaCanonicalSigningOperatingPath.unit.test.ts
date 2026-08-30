@@ -149,11 +149,11 @@ test('inactive ECDSA hydration binds the worker and signs the exact authorized o
   try {
     ready = await authorizeEvmFamilyEcdsaOperationStepUp({
       relayerUrl: 'https://relayer.example.test',
-      sessionAuth: { kind: 'app_session_cookie' },
       authority: fixture.authority,
       authorization: ecdsaOperationStepUpAuthorizationFixture('passkey'),
       prepared,
       material: hydration.material,
+      walletSessionToken: WALLET_SESSION_TOKEN,
     });
   } finally {
     restoreGrantFetch();
@@ -306,6 +306,7 @@ test('canonical ECDSA material projects to a published Arc target', async () => 
 // from preparation through grant attachment is production code.
 
 const OPERATION_ID = 'operating-path-operation-1';
+const WALLET_SESSION_TOKEN = 'wallet-session-operation-credential';
 const EVIDENCE_SET_DIGEST = Buffer.alloc(32, 42).toString('base64url');
 const operationDigests = ecdsaOperationDigestSetFixture();
 
@@ -319,6 +320,7 @@ function stubGrantEndpoint(requests: unknown[]): () => void {
       JSON.stringify({
         ok: true,
         kind: 'verified_step_up',
+        operation_kind: 'evm.sign_transaction',
         authorization: {
           kind: 'operation_step_up',
           evidence_set_digest: EVIDENCE_SET_DIGEST,
@@ -361,11 +363,11 @@ for (const factor of ['passkey', 'email_otp'] as const) {
     try {
       ready = await authorizeEvmFamilyEcdsaOperationStepUp({
         relayerUrl: 'https://relayer.example.test',
-        sessionAuth: { kind: 'app_session_cookie' },
         authority,
         authorization: ecdsaOperationStepUpAuthorizationFixture(factor),
         prepared,
         material,
+        walletSessionToken: WALLET_SESSION_TOKEN,
       });
     } finally {
       restoreFetch();
@@ -381,7 +383,10 @@ for (const factor of ['passkey', 'email_otp'] as const) {
 
     // No reusable Wallet Session was created or read anywhere on this path.
     expect(ready.singleUseEmailOtpSession).toBe(false);
-    expect(ready.credential).toEqual({ kind: 'app_session_cookie' });
+    expect(ready.credential).toEqual({
+      kind: 'operation_step_up',
+      walletSessionToken: WALLET_SESSION_TOKEN,
+    });
   });
 
   test(`a ${factor} step-up cannot prove against the other factor's authority`, async () => {
@@ -399,12 +404,12 @@ for (const factor of ['passkey', 'email_otp'] as const) {
       await expect(
         authorizeEvmFamilyEcdsaOperationStepUp({
           relayerUrl: 'https://relayer.example.test',
-          sessionAuth: { kind: 'app_session_cookie' },
           authority,
           // The proof is built for the wrong factor for this capability.
           authorization: ecdsaOperationStepUpAuthorizationFixture(otherFactor),
           prepared,
           material,
+          walletSessionToken: WALLET_SESSION_TOKEN,
         }),
       ).rejects.toThrow(/exact (passkey|Email OTP) authority/);
     } finally {
