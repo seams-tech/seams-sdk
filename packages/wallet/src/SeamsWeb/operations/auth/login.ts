@@ -1230,16 +1230,24 @@ async function recentUnlockAccountFromLinkedDeviceSelection(
     signerMaterials: resolved.signerMaterials,
   });
   if (nearSubject.kind !== 'resolved') return null;
+  let authMethod: RecentUnlockAccount['authMethod'];
+  switch (resolved.authMethod.kind) {
+    case SIGNER_AUTH_METHODS.passkey:
+      authMethod = SIGNER_AUTH_METHODS.passkey;
+      break;
+    case SIGNER_AUTH_METHODS.emailOtp:
+      authMethod = SIGNER_AUTH_METHODS.emailOtp;
+      break;
+    default:
+      return assertNeverLoginState(resolved.authMethod);
+  }
   return {
     walletId: String(selection.walletId),
     nearAccountId: nearSubject.subject.nearAccountId,
     displayName: String(selection.walletId),
     signerSlot: nearSubject.subject.signerSlot,
     lastLogin: selection.updatedAtMs,
-    authMethod:
-      resolved.authMethod.kind === SIGNER_AUTH_METHODS.passkey
-        ? SIGNER_AUTH_METHODS.passkey
-        : SIGNER_AUTH_METHODS.emailOtp,
+    authMethod,
   };
 }
 
@@ -2344,12 +2352,20 @@ async function resolveLinkedDeviceNearUnlockSubject(args: {
        subject the local auth method does not store. The remaining comparisons
        — this authority's exact material activation, threshold session, signing
        key, and slot — already identify one device's lane. */
-    const factorMatches =
-      args.authMethod.kind === SIGNER_AUTH_METHODS.passkey
-        ? reference.auth.kind === SIGNER_AUTH_METHODS.passkey &&
+    let factorMatches: boolean;
+    switch (args.authMethod.kind) {
+      case SIGNER_AUTH_METHODS.passkey:
+        factorMatches =
+          reference.auth.kind === SIGNER_AUTH_METHODS.passkey &&
           String(reference.auth.rpId) === String(args.authMethod.rpId) &&
-          String(reference.auth.credentialIdB64u) === String(args.authMethod.credentialIdB64u)
-        : reference.auth.kind === SIGNER_AUTH_METHODS.emailOtp;
+          String(reference.auth.credentialIdB64u) === String(args.authMethod.credentialIdB64u);
+        break;
+      case SIGNER_AUTH_METHODS.emailOtp:
+        factorMatches = reference.auth.kind === SIGNER_AUTH_METHODS.emailOtp;
+        break;
+      default:
+        return assertNeverLoginState(args.authMethod);
+    }
     if (
       !factorMatches ||
       String(reference.walletId) !== String(args.walletId) ||
