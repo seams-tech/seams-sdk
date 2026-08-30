@@ -561,12 +561,18 @@ test('issues V2 Wallet Sessions only for exact active authority provenance', asy
     expect(issued.session.walletAuthMethodId).toBe(fixture.authMethod.walletAuthMethodId);
     expect(issued.session.capabilitySubjects.length).toBeGreaterThan(0);
 
-    await expect(service.issueDirectWalletSessionAuthorizationV2(input)).resolves.toMatchObject({
+    const replay = await service.issueDirectWalletSessionAuthorizationV2({
+      ...input,
+      issuedAtMs: 1_300,
+      expiresAtMs: 1_400,
+    });
+    expect(replay).toMatchObject({
       kind: 'already_committed',
       authorizationId: issued.session.authorizationId,
       walletSessionId: issued.session.walletSessionId,
       quotaId: issued.session.quotaId,
     });
+    expect(replay).not.toHaveProperty('operationCredential');
     await expect(
       service.readWalletSessionAuthorizationV2ByAuthorizationId({
         expected: issued.session,
@@ -580,6 +586,7 @@ test('issues V2 Wallet Sessions only for exact active authority provenance', asy
     const otherDigest = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(21)));
     const driftInputs = [
       { ...input, walletAuthMethodId: otherMethodId },
+      { ...input, issuedAtMs: 1_300, expiresAtMs: 1_500 },
       {
         ...input,
         authority: authorityWithProvenance(fixture.authority, otherDigest, 0),

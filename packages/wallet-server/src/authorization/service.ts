@@ -668,11 +668,29 @@ function directV2AlreadyCommitted(
   replayMode: DirectWalletSessionReplayMode,
 ): Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }> {
   switch (replayMode.kind) {
-    case 'strict':
-      if (alphabetizeStringify(prepared) !== alphabetizeStringify(committed)) {
-        throw new Error('Direct V2 Wallet Session mint replay does not match its committed session');
+    case 'strict': {
+      const {
+        createdAtMs: preparedCreatedAtMs,
+        expiresAtMs: preparedExpiresAtMs,
+        ...preparedExactTuple
+      } = prepared;
+      const {
+        createdAtMs: committedCreatedAtMs,
+        expiresAtMs: committedExpiresAtMs,
+        ...committedExactTuple
+      } = committed;
+      const preparedLifetimeMs = preparedExpiresAtMs - preparedCreatedAtMs;
+      const committedLifetimeMs = committedExpiresAtMs - committedCreatedAtMs;
+      if (
+        preparedLifetimeMs !== committedLifetimeMs ||
+        alphabetizeStringify(preparedExactTuple) !== alphabetizeStringify(committedExactTuple)
+      ) {
+        throw new Error(
+          'Direct V2 Wallet Session mint replay does not match its committed session',
+        );
       }
       break;
+    }
     case 'validated_registration_authority_projection':
       if (!directV2MintScopeMatches(prepared, committed)) {
         throw new Error(
