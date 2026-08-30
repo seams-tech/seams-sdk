@@ -1465,15 +1465,24 @@ function walletEcdsaRegistrationSignerSource(
   readonly signerAuthMethod: (typeof SIGNER_AUTH_METHODS)[keyof typeof SIGNER_AUTH_METHODS];
   readonly signerSource: (typeof SIGNER_SOURCES)[keyof typeof SIGNER_SOURCES];
 } {
-  return kind === 'email_otp'
-    ? {
+  switch (kind) {
+    case 'email_otp':
+      return {
         signerAuthMethod: SIGNER_AUTH_METHODS.emailOtp,
         signerSource: SIGNER_SOURCES.emailOtpRegistration,
-      }
-    : {
+      };
+    case 'passkey':
+      return {
         signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
         signerSource: SIGNER_SOURCES.passkeyRegistration,
       };
+    default:
+      return assertNeverWalletEcdsaRegistrationKind(kind);
+  }
+}
+
+function assertNeverWalletEcdsaRegistrationKind(value: never): never {
+  throw new Error(`Unsupported wallet ECDSA registration kind: ${String(value)}`);
 }
 
 async function prepareWalletEcdsaRegistrationPublicationWithMode(
