@@ -2741,7 +2741,7 @@ function strictPostRegistrationFailureResponse(
 export type StrictEcdsaOperationCredentialAuthorization =
   | {
       readonly ok: true;
-      readonly kind: 'reuse_wallet_session_operation_credential_v1';
+      readonly kind: 'wallet_session_operation_credential_v1';
       readonly proof: VerifiedOwnerWalletSessionProof;
       readonly admission: Extract<
         WalletSessionOperationCredentialAdmission,
@@ -2834,7 +2834,7 @@ export async function authorizeStrictEcdsaSessionActivationFromOperationCredenti
   }
   return {
     ok: true,
-    kind: 'reuse_wallet_session_operation_credential_v1',
+    kind: 'wallet_session_operation_credential_v1',
     proof: input.proof,
     admission,
     authorizationSessionId: authorizationSessionId.value,
@@ -2907,7 +2907,7 @@ export async function handleStrictEcdsaSessionActivation(
     });
   }
   if (
-    authorized.kind === 'reuse_wallet_session_operation_credential_v1' &&
+    authorized.kind === 'wallet_session_operation_credential_v1' &&
     (!sameRouterAbMpcMaterialActivationRef(
       request.public_capability.material_activation,
       routerAbMpcMaterialActivationRefToWire(authorized.admission.admission.materialActivation),
@@ -2958,7 +2958,7 @@ export async function handleStrictEcdsaSessionActivation(
       { status: 403 },
     );
   }
-  if (authorized.kind === 'reuse_wallet_session_operation_credential_v1') {
+  if (authorized.kind === 'wallet_session_operation_credential_v1') {
     const session = authorized.admission.context.authorization.session;
     const quota = authorized.admission.context.authorization.quota;
     if (session.walletId !== walletKey.walletId) {

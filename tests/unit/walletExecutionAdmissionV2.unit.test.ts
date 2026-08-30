@@ -875,7 +875,7 @@ test('authorizes ECDSA activation from the shared exact operation credential', a
   });
 
   if (!admission.ok) throw new Error('shared exact operation credential was refused');
-  expect(admission.kind).toBe('reuse_wallet_session_operation_credential_v1');
+  expect(admission.kind).toBe('wallet_session_operation_credential_v1');
   expect(admission.admission.curve).toBe('ecdsa');
   expect(admission.admission.context.authorization.session.authorizationId).toBe(
     session.authorizationId,
