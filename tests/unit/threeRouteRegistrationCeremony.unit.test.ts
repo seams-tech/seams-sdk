@@ -192,6 +192,7 @@ test('a mixed plan starts the NEAR custody join before activate is called', asyn
               kind: 'passkey',
               rpId: 'wallet.example.test',
               credentialIdB64u: 'new-passkey-credential',
+              transports: ['internal'],
             },
             localMaterial: input.localMaterial,
             createdAtMs: 1,

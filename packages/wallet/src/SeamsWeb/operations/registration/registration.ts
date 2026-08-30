@@ -1875,6 +1875,7 @@ function pendingRegistrationAuthFromPersistenceAuth(args: {
         kind: 'passkey',
         rpId: args.auth.rpId,
         credentialIdB64u: args.authMaterial.credentialIdB64u,
+        transports: [...args.auth.credential.response.transports],
       };
     case 'email_otp':
       if (args.authMaterial.kind !== 'email_otp') {
@@ -1910,6 +1911,7 @@ function pendingRegistrationAuthFromRegistrationInputs(args: {
       credentialIdB64u: String(
         args.passkeyAuthority.credential.rawId || args.passkeyAuthority.credential.id || '',
       ).trim(),
+      transports: [...args.passkeyAuthority.webauthnRegistration.response.transports],
     };
   }
   return {
@@ -3671,6 +3673,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         kind: 'passkey',
         rpId: args.authMethod.rpId,
         credentialIdB64u: parsedCredentialId.value,
+        transports: [...passkeyAuthority.webauthnRegistration.response.transports],
       },
       localMaterial: {
         keyFamilies: ['ed25519'],
@@ -3713,6 +3716,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         kind: 'passkey',
         rpId: args.authMethod.rpId,
         credentialIdB64u: parsedCredentialId.value,
+        transports: [...passkeyAuthority.webauthnRegistration.response.transports],
       },
       localMaterial: {
         keyFamilies: ['ed25519'],

@@ -1205,7 +1205,7 @@ Primary persistence files:
       directions without retaining a message adapter.
 - [x] Replace `ActiveWalletSessionV1` plus separately transported credentials
       with the identity-coupled exact browser boundary type.
-- [ ] Delete `registration_established_wallet_session_v1`,
+- [x] Delete `registration_established_wallet_session_v1`,
       `RegistrationEstablishedSessionTokens`, and `walletSessionTokenForCurve`.
 - [x] Delete `ActiveWalletSession` aliases that do not denote the exact
       projection.
@@ -1693,7 +1693,7 @@ Remaining causal baseline work:
 - [ ] Targeted IndexedDB cleanup test proving unrelated stores survive.
 - [ ] Wallet-bootstrap test covering empty, exact, legacy, malformed, and future
       storage without a blank shell.
-- [ ] Exact method- and authority-revocation transaction tests.
+- [x] Exact method- and authority-revocation transaction tests.
 - [ ] Additive recovery tests for both targets and source inventories, strict
       committed projections, interruption after promotion, local publication,
       preservation of existing access paths, and one normal exact login.

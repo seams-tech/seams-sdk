@@ -307,7 +307,12 @@ type PendingRegistrationCommitBuilderInput = {
   walletAuthMethodId: string;
   signedSetup: string;
   auth:
-    | { kind: 'passkey'; rpId: string; credentialIdB64u: string }
+    | {
+        kind: 'passkey';
+        rpId: string;
+        credentialIdB64u: string;
+        transports: readonly string[];
+      }
     | {
         kind: 'email_otp';
         email: string;
@@ -368,7 +373,12 @@ export function buildPendingRegistrationCommit(
 
 function buildPendingRegistrationAuth(
   authInput:
-    | { kind: 'passkey'; rpId: string; credentialIdB64u: string }
+    | {
+        kind: 'passkey';
+        rpId: string;
+        credentialIdB64u: string;
+        transports: readonly string[];
+      }
     | {
         kind: 'email_otp';
         email: string;
@@ -381,7 +391,12 @@ function buildPendingRegistrationAuth(
     const rpId = requireWebAuthnRpId(authInput.rpId);
     const credentialIdB64u = parseWebAuthnCredentialIdB64u(authInput.credentialIdB64u);
     if (!credentialIdB64u.ok) throw new Error(credentialIdB64u.error.message);
-    return { kind: 'passkey', rpId, credentialIdB64u: credentialIdB64u.value };
+    return {
+      kind: 'passkey',
+      rpId,
+      credentialIdB64u: credentialIdB64u.value,
+      transports: [...authInput.transports],
+    };
   }
   const email = parseVerifiedEmailAddress(authInput.email);
   if (!email.ok) throw new Error(email.error.message);

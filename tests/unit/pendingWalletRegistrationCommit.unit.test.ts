@@ -38,6 +38,7 @@ function pendingRecord(overrides: Record<string, unknown> = {}): Record<string, 
       kind: 'passkey',
       rpId: 'example.com',
       credentialIdB64u: 'credential-pending',
+      transports: ['internal'],
     },
     localMaterial: {
       keyFamilies: ['ed25519'],
@@ -168,6 +169,7 @@ test('pending registration storage rows round-trip without exposing credentials'
     record: parsed,
   });
   expect(JSON.stringify(row)).not.toMatch(/walletSessionToken|operationCredential|response/);
+  expect(parsed.auth.kind === 'passkey' ? parsed.auth.transports : null).toEqual(['internal']);
   expect(parsePendingWalletRegistrationCommitStorageRow(row)).toEqual(row);
 
   const appStateRow = toPendingWalletRegistrationCommitAppStateRow(parsed);
@@ -211,6 +213,18 @@ test('pending registration parser rejects credentials, responses, malformed time
     expect(parsePendingWalletRegistrationCommitV1(pendingRecord(forbidden))).toBeNull();
   }
   expect(parsePendingWalletRegistrationCommitV1(pendingRecord({ createdAtMs: 0 }))).toBeNull();
+  expect(
+    parsePendingWalletRegistrationCommitV1(
+      pendingRecord({
+        auth: {
+          kind: 'passkey',
+          rpId: 'example.com',
+          credentialIdB64u: 'credential-pending',
+          transports: ['internal', 'internal'],
+        },
+      }),
+    ),
+  ).toBeNull();
   expect(
     parsePendingWalletRegistrationCommitV1(
       pendingRecord({
