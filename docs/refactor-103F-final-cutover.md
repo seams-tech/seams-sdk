@@ -957,14 +957,16 @@ Final status/source symbols are `handleExactWalletSessionStatus`,
       Google Email OTP. `tests/unit/pendingWalletRecoveryCommit.unit.test.ts`
       proves parsing, secret rejection, exact projection binding, rollback, and
       successful publication for both branches.
-- [ ] Complete the remaining browser orchestration in
+- [x] Complete the remaining browser orchestration in
       `WalletRecoveryCoordinator`: persist `awaiting_server_promotion`, advance
       the same record to `server_promoted`, publish authority, method,
       selection, profile, authenticator, account, and signer continuity through
       the existing atomic transaction, and resume that flow from startup before
-      deleting the journal. The server projection, strict pending-record
-      boundary, repository operations, and publication transaction already
-      exist; this task adds no new recovery domain or persistence boundary.
+      deleting the journal. Commit `6064a28ea` adds the encrypted durable
+      payload, credential-free replay, startup resume, and single publication
+      transaction. `tests/unit/pendingWalletRecoveryCommit.unit.test.ts` passes
+      7/7 and proves both-stage refusal deletion, uncertainty retention, reload,
+      and late-write rollback without partial local discovery.
 - [x] Keep wallet lock local to browser record/runtime disposal. Server
       retirement is produced only by same-method replacement, exact-method
       revocation, and authority revocation; no explicit session-retirement
