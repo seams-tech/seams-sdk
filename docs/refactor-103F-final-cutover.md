@@ -1655,8 +1655,11 @@ Remaining causal baseline work:
 - [ ] Registration cutover-migration tests for both prefixes: known-shape
       credential-free rewrite or deletion, unrelated-row preservation, and
       unknown/unmappable abort.
-- [ ] Delete compatibility-adapter and adapter-table tests with their production
-      issuers, resolvers, fixtures, and migration-era manifests.
+- [x] Delete compatibility-adapter and adapter-table behavior tests with their
+      production issuers, resolvers, fixtures, and runtime manifests. The
+      immutable creation migration, explicit drop migration, negative source
+      guard, and final schema-deletion proof remain as migration history rather
+      than compatibility code.
 - [x] Contract update proving Route 3, service comments, and staging assertions
       no longer promise byte-identical credential-bearing replay.
 - [x] `already_committed` replay test proving no credential fabrication and
