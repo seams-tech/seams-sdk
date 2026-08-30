@@ -25,6 +25,25 @@ const ed25519LocalMaterial = {
   applicationBindingDigestB64u: 'ed25519-binding',
 };
 
+const ed25519Metadata = {
+  materialActivation: {
+    kind: 'mpc_material_activation_ref',
+    activationId: 'activation-pending',
+    capability: 'capability-pending',
+    materialOwner: 'material-owner-pending',
+    keyBinding: 'key-binding-pending',
+    lifecycleBinding: 'lifecycle-binding-pending',
+    signingWorker: 'signing-worker-pending',
+  },
+  registeredPublicKeyB64u: 'registered-ed25519-public-key',
+  signingWorkerVerifyingShareB64u: 'signing-worker-verifying-share',
+  stateEpoch: '1',
+  signingWorkerId: 'signing-worker-pending',
+  participantIds: [1, 2],
+  nearEd25519SigningKeyId: 'ed25519-key-pending',
+  signerSlot: 1,
+};
+
 function pendingRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     kind: 'pending_wallet_registration_commit_v1',
@@ -46,6 +65,7 @@ function pendingRecord(overrides: Record<string, unknown> = {}): Record<string, 
       ed25519: {
         activationReference,
         localMaterial: ed25519LocalMaterial,
+        metadata: ed25519Metadata,
       },
     },
     createdAtMs: 100,
@@ -115,11 +135,44 @@ test('pending registration parser accepts activation and deferred NEAR records',
         ed25519: {
           activationReference,
           localMaterial: ed25519LocalMaterial,
+          metadata: ed25519Metadata,
         },
       },
     }),
   );
   expect(establishedCustody).not.toBeNull();
+});
+
+test('pending registration parser requires complete Ed25519 publication metadata', () => {
+  expect(
+    parsePendingWalletRegistrationCommitV1(
+      pendingRecord({
+        localMaterial: {
+          keyFamilies: ['ed25519'],
+          custodyCommit,
+          ed25519: {
+            activationReference,
+            localMaterial: ed25519LocalMaterial,
+          },
+        },
+      }),
+    ),
+  ).toBeNull();
+  expect(
+    parsePendingWalletRegistrationCommitV1(
+      pendingRecord({
+        localMaterial: {
+          keyFamilies: ['ed25519'],
+          custodyCommit,
+          ed25519: {
+            activationReference,
+            localMaterial: ed25519LocalMaterial,
+            metadata: { ...ed25519Metadata, participantIds: [1] },
+          },
+        },
+      }),
+    ),
+  ).toBeNull();
 });
 
 test('pending registration parser keeps ECDSA and mixed local-material branches distinct', () => {
@@ -144,6 +197,7 @@ test('pending registration parser keeps ECDSA and mixed local-material branches 
         ed25519: {
           activationReference,
           localMaterial: ed25519LocalMaterial,
+          metadata: ed25519Metadata,
         },
         ecdsa: {
           activationJournalId: 'ecdsa-activation-journal-pending',
@@ -193,6 +247,7 @@ test('pending registration parser rejects credentials, responses, malformed time
         ed25519: {
           activationReference,
           localMaterial: ed25519LocalMaterial,
+          metadata: ed25519Metadata,
         },
       },
     },
@@ -234,6 +289,7 @@ test('pending registration parser rejects credentials, responses, malformed time
           ed25519: {
             activationReference,
             localMaterial: ed25519LocalMaterial,
+            metadata: ed25519Metadata,
           },
         },
       }),

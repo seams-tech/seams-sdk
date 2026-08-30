@@ -261,6 +261,7 @@ import type {
   PendingWalletRegistrationCommitV1,
   PendingWalletRegistrationLocalMaterialV1,
 } from '@/core/indexedDB';
+import type { PendingWalletRegistrationEd25519MetadataV1 } from '@/core/indexedDB/pendingWalletRegistrationCommit';
 import { ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 } from '@shared/utils/routerAbEd25519Yao';
 // Re-exported so this module's public surface is unchanged by the move.
 export {
@@ -356,6 +357,22 @@ function walletCustodyRegistrationMaterial(args: {
       ciphertextB64u: args.established.localMaterial.b64u,
       nonceB64u: args.established.localMaterial.nonceB64u,
     },
+  };
+}
+
+function pendingRegistrationEd25519MetadataFromJoined(
+  joined: Pick<JoinedWalletCustodyNearEd25519KeySetV1, 'metadata'>,
+): PendingWalletRegistrationEd25519MetadataV1 {
+  const metadata = joined.metadata;
+  return {
+    materialActivation: nearEd25519YaoMaterialActivationFromMetadata(metadata),
+    registeredPublicKeyB64u: base64UrlEncode(metadata.registeredPublicKey),
+    signingWorkerVerifyingShareB64u: base64UrlEncode(metadata.signingWorkerVerifyingShare),
+    stateEpoch: String(metadata.stateEpoch),
+    signingWorkerId: metadata.scope.signing_worker_id,
+    participantIds: metadata.participantIds,
+    nearEd25519SigningKeyId: metadata.applicationBinding.near_ed25519_signing_key_id,
+    signerSlot: metadata.applicationBinding.key_creation_signer_slot,
   };
 }
 
@@ -2183,6 +2200,7 @@ async function commitDeferredEd25519Registration(args: {
         ed25519: {
           activationReference,
           localMaterial: joined.localMaterial,
+          metadata: pendingRegistrationEd25519MetadataFromJoined(joined),
         },
       },
     });
@@ -3248,6 +3266,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
         ed25519: {
           activationReference: established.activationReference,
           localMaterial: established.localMaterial,
+          metadata: pendingRegistrationEd25519MetadataFromJoined(established),
         },
       },
     });
@@ -3293,6 +3312,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
         ed25519: {
           activationReference: established.activationReference,
           localMaterial: established.localMaterial,
+          metadata: pendingRegistrationEd25519MetadataFromJoined(established),
         },
       },
     });
@@ -3681,6 +3701,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         ed25519: {
           activationReference: established.activationReference,
           localMaterial: established.localMaterial,
+          metadata: pendingRegistrationEd25519MetadataFromJoined(established),
         },
       },
     });
@@ -3724,6 +3745,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         ed25519: {
           activationReference: established.activationReference,
           localMaterial: established.localMaterial,
+          metadata: pendingRegistrationEd25519MetadataFromJoined(established),
         },
       },
     });
