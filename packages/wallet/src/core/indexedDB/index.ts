@@ -32,6 +32,22 @@ export type {
   PendingWalletRegistrationLocalMaterialV1,
 } from './pendingWalletRegistrationCommit';
 export {
+  buildPendingWalletRecoveryCommitV1,
+  parsePendingWalletRecoveryCommitAppStateRow,
+  parsePendingWalletRecoveryCommitV1,
+  pendingWalletRecoveryCommitAppStateKey,
+  pendingWalletRecoveryCommitAppStateRowsMatch,
+  pendingWalletRecoveryProjectionExpectation,
+  toPendingWalletRecoveryCommitAppStateRow,
+} from './pendingWalletRecoveryCommit';
+export type {
+  PendingWalletRecoveryCommitAppStateRow,
+  PendingWalletRecoveryCommitStorageRow,
+  PendingWalletRecoveryCommitV1,
+  PendingWalletRecoveryEncryptedMaterialV1,
+  PendingWalletRecoveryTargetIdentityV1,
+} from './pendingWalletRecoveryCommit';
+export {
   LaneSealedHolderMaterialRepository,
   laneSealedHolderMaterialRepository,
   laneSealedHolderStoreKeyV1,
@@ -125,6 +141,7 @@ export type {
   LocalAuthorityActivationPublicationInputV1,
   LocalAuthorityActivationPublicationResultV1,
   WalletLockGenerationAdvanceInputV1,
+  PublishPendingWalletRecoveryCommitInputV1,
 } from './seamsWalletDB/repositories';
 
 export type {

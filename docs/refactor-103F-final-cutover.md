@@ -673,6 +673,10 @@ Primary files:
 - [x] Make the pending record sufficient for Passkey and Email OTP Ed25519
       reload by retaining the exact publication facts and validating them
       against the credential-free committed projection before publication.
+- [x] Keep ECDSA-only and mixed pending records durable after terminal replay,
+      and return a typed `unlock_required` continuation bound to the exact
+      wallet, ceremony, key families, activation journal, authority, and
+      method instead of attempting publication without custody material.
 - [ ] Retain recoverable ECDSA local-finalization state in the pending record
       and validate it against the committed projection before publication.
 - [x] Change final registration replay to credential-free committed projection
@@ -1225,6 +1229,9 @@ Remove exact-first/V1 fallback from:
 - [x] wallet iframe host auth handlers;
 - [x] wallet iframe client router handlers; and
 - [x] `BrowserSigningSurface.ts` lock/retirement cleanup.
+- [x] Server operation admission: use only
+      `wallet_session_operation_credential_v1` and delete the stale
+      `reuse_wallet_session_operation_credential_v1` dispatch branch.
 
 Primary persistence files:
 
