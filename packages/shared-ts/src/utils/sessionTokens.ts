@@ -5,7 +5,6 @@ export const ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND =
 export const ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND =
   'router_ab_ecdsa_derivation_wallet_session_v1' as const;
 
-
 declare const opaqueWalletSessionTokenBrand: unique symbol;
 export type OpaqueWalletSessionToken = string & {
   readonly [opaqueWalletSessionTokenBrand]: true;
@@ -33,7 +32,6 @@ export function decodeJwtPayloadRecord(jwtRaw: string): Record<string, unknown> 
   }
 }
 
-
 export function requireOpaqueWalletSessionToken(
   tokenRaw: unknown,
   label = 'walletSessionToken',
@@ -41,11 +39,4 @@ export function requireOpaqueWalletSessionToken(
   const token = String(tokenRaw || '').trim();
   if (!token) throw new Error(`${label} is required`);
   return token as OpaqueWalletSessionToken;
-}
-
-export function opaqueWalletSessionAuth(tokenRaw: unknown): OpaqueWalletSessionAuth {
-  return {
-    kind: 'opaque_wallet_session',
-    walletSessionToken: requireOpaqueWalletSessionToken(tokenRaw),
-  };
 }

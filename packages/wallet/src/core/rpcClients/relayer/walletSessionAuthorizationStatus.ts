@@ -5,10 +5,6 @@ import {
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
-  opaqueWalletSessionAuth,
-  type WalletSessionRouteAuth,
-} from '@shared/utils/sessionTokens';
-import {
   buildBearerAuthorizationHeader,
   buildRelayerJsonPostRequestInit,
   normalizeRelayerBaseUrl,
@@ -47,14 +43,10 @@ export interface ReusableWalletSessionStatusPort {
   read(input: ReusableWalletSessionStatusIdentity): Promise<ReusableWalletSessionStatus>;
 }
 
-export type ReusableWalletSessionStatusAuth = Extract<
-  WalletSessionRouteAuth,
-  { readonly kind: 'opaque_wallet_session' }
->;
-
 export type RelayerReusableWalletSessionStatusPortOptions = {
   readonly relayerUrl: string;
-  readonly auth: ReusableWalletSessionStatusAuth;
+  /** Raw legacy status-route auth; parsed before any request is sent. */
+  readonly auth: unknown;
   readonly fetchImpl?: typeof fetch;
 };
 
@@ -86,6 +78,15 @@ function hasExactFields(record: Record<string, unknown>, fields: readonly string
 
 function isPositiveSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function parseStatusBearerToken(value: unknown): string {
+  if (!isRecord(value) || typeof value.walletSessionToken !== 'string') {
+    throw new Error('Wallet Session token is required for Wallet Session status');
+  }
+  const token = value.walletSessionToken.trim();
+  if (!token) throw new Error('Wallet Session token is required for Wallet Session status');
+  return token;
 }
 
 function parseIdentity(
@@ -164,13 +165,13 @@ export function parseReusableWalletSessionStatusResponse(
 
 export class RelayerReusableWalletSessionStatusPort implements ReusableWalletSessionStatusPort {
   private readonly relayerUrl: string;
-  private readonly auth: ReusableWalletSessionStatusAuth;
+  private readonly walletSessionToken: string;
   private readonly fetchImpl: typeof fetch;
 
   constructor(options: RelayerReusableWalletSessionStatusPortOptions) {
     this.relayerUrl = normalizeRelayerBaseUrl(options.relayerUrl);
     if (!this.relayerUrl) throw new Error('Relayer URL is required');
-    this.auth = opaqueWalletSessionAuth(options.auth.walletSessionToken);
+    this.walletSessionToken = parseStatusBearerToken(options.auth);
     this.fetchImpl = options.fetchImpl ?? defaultStatusFetch;
   }
 
@@ -180,9 +181,12 @@ export class RelayerReusableWalletSessionStatusPort implements ReusableWalletSes
       reads = new Map();
       statusReadsByFetch.set(this.fetchImpl, reads);
     }
-    const readKey = [this.relayerUrl, this.auth.walletSessionToken, input.walletSessionId, input.quotaId].join(
-      '\u0000',
-    );
+    const readKey = [
+      this.relayerUrl,
+      this.walletSessionToken,
+      input.walletSessionId,
+      input.quotaId,
+    ].join('\u0000');
     const existing = reads.get(readKey);
     if (existing) return await existing;
 
@@ -207,7 +211,7 @@ export class RelayerReusableWalletSessionStatusPort implements ReusableWalletSes
             quotaId: input.quotaId,
           },
           headers: buildBearerAuthorizationHeader({
-            token: this.auth.walletSessionToken,
+            token: this.walletSessionToken,
             missingMessage: 'Wallet Session token is required for Wallet Session status',
           }),
         }),
