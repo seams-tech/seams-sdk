@@ -241,6 +241,83 @@ test.describe('linked-device committed delivery continuation', () => {
     ).toBeNull();
   });
 
+  test('retries wallet session issuance against the same durable local install', async () => {
+    const fixture = await buildResumeFixture('wallet-session-issuance-retry');
+    let persistedResume: DeviceLinkingCommittedResumeV1 | null = null;
+    let installAttempts = 0;
+    let activationAttempts = 0;
+    let finalizationAttempts = 0;
+    const installation: DeviceLinkingAuthorityInstallationPortV1 = {
+      async persistCommittedDeliveryResumeV1(input) {
+        persistedResume = buildDeviceLinkingCommittedResumeV1(input);
+      },
+      async readCommittedDeliveryResumeV1() {
+        return persistedResume;
+      },
+      async clearCommittedDeliveryResumeV1() {
+        persistedResume = null;
+      },
+      async persistPendingActivationAcknowledgementV1() {},
+      async readPendingActivationAcknowledgementV1() {
+        return null;
+      },
+      async clearPendingActivationAcknowledgementV1() {},
+      async readLocalAuthorityInstallationReceiptV1() {
+        return fixture.receipt;
+      },
+      async installLocalAuthorityV1(input) {
+        expect(input.committed).toBe(fixture.committed);
+        installAttempts += 1;
+        return fixture.receipt;
+      },
+      async publishLocalAuthorityActivationV1() {},
+      async finalizeLocalAuthorityActivationV1(input) {
+        expect(input.active).toBe(fixture.active);
+        finalizationAttempts += 1;
+      },
+    };
+    const transport: DeviceLinkingAuthorityActivationTransportPortV1 = {
+      async receiveCommittedAuthorityPackagesV1() {
+        return fixture.committed;
+      },
+      async activateInstalledAuthorityV1(input) {
+        expect(input.receipt).toBe(fixture.receipt);
+        activationAttempts += 1;
+        return activationAttempts === 1
+          ? {
+              kind: 'pending_local_install',
+              authorityId: fixture.committed.authority.authorityId,
+              reason: { kind: 'wallet_session_issuance_pending' },
+            }
+          : fixture.active;
+      },
+      async acknowledgeLocalAuthorityActivationV1() {
+        throw new Error('acknowledgement is outside authority activation');
+      },
+    };
+    const input = activationInput(fixture, transport, installation);
+
+    await expect(activateLinkedAuthorityV1(input)).resolves.toEqual({
+      kind: 'pending_local_install',
+      authorityId: fixture.committed.authority.authorityId,
+      packageSetDigestB64u: fixture.committed.packageSetDigestB64u,
+    });
+    expect(finalizationAttempts).toBe(0);
+    expect(persistedResume?.authorityId).toBe(fixture.committed.authority.authorityId);
+
+    await expect(activateLinkedAuthorityV1(input)).resolves.toEqual({
+      kind: 'active',
+      session: fixture.active.walletSession,
+      operationCredential: fixture.operationCredential,
+    });
+    expect(installAttempts).toBe(2);
+    expect(activationAttempts).toBe(2);
+    expect(finalizationAttempts).toBe(1);
+    expect(persistedResume?.packageSetDigestB64u).toBe(
+      fixture.committed.packageSetDigestB64u,
+    );
+  });
+
   test('replays the retained receipt after an interruption during local finalization', async () => {
     const fixture = await buildResumeFixture('finalize-retry');
     let installAttempts = 0;
