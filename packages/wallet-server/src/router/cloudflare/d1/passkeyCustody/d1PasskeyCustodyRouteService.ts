@@ -444,7 +444,7 @@ export type WalletRecoveryAuthoritySelection = ActiveWalletAuthorityV1;
  */
 export function selectWalletRecoveryContinuityAnchor(input: {
   readonly walletId: WalletId;
-  readonly targetFamily: 'passkey' | 'email_otp';
+  readonly targetFamily: WalletAuthMethodRecordV2['kind'];
   readonly methods: readonly WalletAuthMethodRecordV2[];
   readonly envelopes: readonly PasskeyCustodyEnvelopeRecord[];
   readonly authorities: readonly WalletRecoveryAuthoritySelection[];
@@ -484,7 +484,9 @@ export function selectWalletRecoveryContinuityAnchor(input: {
   return candidates[0];
 }
 
-function walletRecoveryTargetFamily(target: WalletRecoveryTargetV1): 'passkey' | 'email_otp' {
+function walletRecoveryTargetFamily(
+  target: WalletRecoveryTargetV1,
+): WalletAuthMethodRecordV2['kind'] {
   switch (target.kind) {
     case 'passkey':
       return 'passkey';
@@ -501,7 +503,7 @@ function assertNeverWalletRecoveryTarget(value: never): never {
 function compareContinuityAnchors(
   left: WalletRecoveryContinuityAnchor,
   right: WalletRecoveryContinuityAnchor,
-  targetFamily: 'passkey' | 'email_otp',
+  targetFamily: WalletAuthMethodRecordV2['kind'],
 ): number {
   const leftRegistration = left.authority.provenance.kind === 'wallet_registration' ? 0 : 1;
   const rightRegistration = right.authority.provenance.kind === 'wallet_registration' ? 0 : 1;

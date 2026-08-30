@@ -48,7 +48,10 @@ import {
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { parseExactAdministeredSignerManifestV1 } from '../../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
 import type { ExactAdministeredEcdsaSignerV1 } from '../../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
-import { parseWalletSessionOperationCredentialV1 } from '../../../packages/shared-ts/src/device-linking/parsers';
+import {
+  parseActiveWalletSessionV1,
+  parseWalletSessionOperationCredentialV1,
+} from '../../../packages/shared-ts/src/device-linking/parsers';
 import type {
   ActiveWalletSessionV1,
   WalletSessionOperationCredentialV1,
@@ -460,6 +463,101 @@ export async function extendFixtureAuthorityWithEcdsaSigner(
     updatedAtMs: draft.updatedAtMs,
     state: draft.state,
     activatedAtMs: draft.activatedAtMs,
+  });
+}
+
+export async function extendFixtureAuthorityWithEd25519Signer(
+  authority: ActiveWalletAuthorityV1,
+): Promise<ActiveWalletAuthorityV1> {
+  if (authority.signerActivations.keyFamilies.length !== 1 || !authority.signerActivations.ecdsa) {
+    throw new Error('fixture authority must begin with one ECDSA signer');
+  }
+  const ed25519Signer = {
+    kind: 'exact_administered_ed25519_signer_v1' as const,
+    keyFamily: 'ed25519' as const,
+    walletId: authority.walletId,
+    walletKeyId: `wallet-key:management-deferred-near:${authority.walletId}`,
+    registeredPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(49)),
+  };
+  const manifest = parseExactAdministeredSignerManifestV1({
+    kind: 'exact_administered_signer_manifest_v1',
+    keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
+    signers: [ed25519Signer, authority.signerActivations.ecdsa.signer],
+  });
+  const signerActivations = buildWalletSignerActivationSetV1({
+    manifest,
+    materialActivations: {
+      keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
+      ed25519: buildMpcMaterialActivationRefFixture(
+        `management-deferred-near-${authority.walletId}`,
+      ),
+      ecdsa: authority.signerActivations.ecdsa.materialActivation,
+    },
+  });
+  const signerActivationSetDigestB64u =
+    await computeWalletSignerActivationSetDigestB64u(signerActivations);
+  const draft = buildActiveWalletAuthorityV1({
+    kind: authority.kind,
+    authorityId: authority.authorityId,
+    walletId: authority.walletId,
+    principal: authority.principal,
+    provenance: authority.provenance,
+    permissions: authority.permissions,
+    signerActivations,
+    signerActivationSetDigestB64u,
+    authorityDigestB64u: authority.authorityDigestB64u,
+    revocationEpoch: authority.revocationEpoch,
+    createdAtMs: authority.createdAtMs,
+    updatedAtMs: authority.updatedAtMs + 1,
+    state: authority.state,
+    activatedAtMs: authority.activatedAtMs,
+  });
+  return buildActiveWalletAuthorityV1({
+    kind: draft.kind,
+    authorityId: draft.authorityId,
+    walletId: draft.walletId,
+    principal: draft.principal,
+    provenance: draft.provenance,
+    permissions: draft.permissions,
+    signerActivations: draft.signerActivations,
+    signerActivationSetDigestB64u: draft.signerActivationSetDigestB64u,
+    authorityDigestB64u: await computeWalletAuthorityDigestB64u(draft),
+    revocationEpoch: draft.revocationEpoch,
+    createdAtMs: draft.createdAtMs,
+    updatedAtMs: draft.updatedAtMs,
+    state: draft.state,
+    activatedAtMs: draft.activatedAtMs,
+  });
+}
+
+export function buildPromotedActiveWalletSessionFixture(input: {
+  readonly source: ActiveWalletSessionV1;
+  readonly authority: ActiveWalletAuthorityV1;
+}): ActiveWalletSessionV1 {
+  const capabilitySubjects = buildWalletSessionCapabilitySubjectsV1(input.authority).map(
+    (subject) => {
+      switch (subject.kind) {
+        case 'sign':
+        case 'export_keys':
+          return subject;
+        case 'link_devices':
+        case 'revoke_devices':
+          return { kind: subject.kind };
+      }
+    },
+  );
+  return parseActiveWalletSessionV1({
+    kind: 'active_wallet_session_v1',
+    walletId: input.source.walletId,
+    authorityId: input.source.authorityId,
+    authMethodId: input.source.authMethodId,
+    authorizationId: input.source.authorizationId,
+    quotaId: input.source.quotaId,
+    authorityDigestB64u: input.authority.authorityDigestB64u,
+    authorityRevocationEpoch: input.authority.revocationEpoch,
+    capabilitySubjects,
+    issuedAtMs: input.source.issuedAtMs,
+    expiresAtMs: input.source.expiresAtMs,
   });
 }
 

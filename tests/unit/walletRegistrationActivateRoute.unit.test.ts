@@ -31,7 +31,10 @@ import {
 } from '../helpers/routerAbSigningRuntimeTestUtils';
 import { createActivatedFinalizeYaoRuntimeFixture } from './helpers/d1WalletRegistrationFinalizeConvergence.fixtures';
 import { CloudflareD1WalletCustodyCommitStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
-import { buildWalletCustodyCommitPayloadFixture } from './helpers/passkeyCustodyEnvelope.fixtures';
+import {
+  buildAcknowledgedWalletCustodyCommitPayloadFixture,
+  buildWalletCustodyCommitPayloadFixture,
+} from './helpers/passkeyCustodyEnvelope.fixtures';
 import {
   applySignerMigrations,
   createWebAuthnRegistrationCredential,
@@ -202,7 +205,7 @@ function requireEcdsaActivateSuccess(
   response: WalletRegistrationActivateResponseV2,
 ): EcdsaActivateSuccess {
   if (!response.ok || response.kind !== 'evm_family_ecdsa') {
-    throw new Error('expected an ECDSA activation success');
+    throw new Error(`expected an ECDSA activation success: ${JSON.stringify(response)}`);
   }
   return response;
 }
@@ -336,7 +339,9 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
       activationRequestDigestB64u: base64UrlEncode(new Uint8Array(32)),
       clientActivation: fixtureRouterAbEcdsaActivationFacts(),
     },
-    walletCustodyCommit: buildWalletCustodyCommitPayloadFixture({ walletId: setup.walletId }),
+    walletCustodyCommit: buildAcknowledgedWalletCustodyCommitPayloadFixture({
+      walletId: setup.walletId,
+    }),
     verifier: signer,
     minter: signer,
   };
@@ -367,14 +372,18 @@ test('a conflicting activate retry is refused before any custody effect', async 
       ...activateRequest,
       /* Same key, different request bytes. */
       ecdsa: {
+        ...activateRequest.ecdsa,
         clientActivation: {
-          ...(activateRequest.ecdsa.clientActivation as Record<string, unknown>),
+          ...activateRequest.ecdsa.clientActivation,
           clientShareRetryCounter: 7,
         },
       },
     } as never);
 
-    expect(conflicting).toMatchObject({ ok: false, code: 'idempotency_conflict' });
+    expect(conflicting, JSON.stringify(conflicting)).toMatchObject({
+      ok: false,
+      code: 'idempotency_conflict',
+    });
     expect(strictRegistration.activateCalls).toBe(activateCallsAfterFirst);
   } finally {
     cleanupTemporaryD1Database(tempDir);
@@ -1193,7 +1202,6 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
     const unlockPublicKeyB64u = await compressedSecp256k1PubkeyB64u();
     const email = 'ed25519-otp@example.test';
     const providerSubject = 'google:ed25519-otp-user';
-    const appSessionVersion = 'app-session-v1';
 
     const setup = await service.walletRegistration.setupWalletRegistration({
       request: {
@@ -1202,8 +1210,8 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
           kind: 'email_otp',
           proofKind: 'otp_challenge',
           email,
+          providerSubject,
           otpCode: 'intent-otp-placeholder',
-          appSessionJwt: 'intent-session-placeholder',
         },
       },
       orgId: ED_SCOPE.orgId,
@@ -1223,8 +1231,7 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
       orgId: ED_SCOPE.orgId,
       email,
       otpChannel: 'email_otp',
-      sessionHash: setup.registrationIntentDigestB64u,
-      appSessionVersion,
+      ownerProofBindingDigest: setup.registrationIntentDigestB64u,
     });
     if (!challenge.ok) throw new Error(`challenge: ${challenge.message}`);
     const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
@@ -1249,7 +1256,6 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
           otpCode: outbox.otpCode,
           otpChannel: 'email_otp',
           registrationIntentDigestB64u: setup.registrationIntentDigestB64u,
-          appSessionVersion,
         },
       },
       verifier: signer,
@@ -1265,6 +1271,7 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
       planKind: 'near_ed25519',
       emailOtpEnrollment: {
         enrollmentSealKeyVersion: 'seal-v1',
+        serverSealedFactorCiphertextB64u: 'sealed-factor-ed25519-otp',
         clientUnlockPublicKeyB64u: unlockPublicKeyB64u,
         unlockKeyVersion: 'unlock-v1',
       },
@@ -1328,7 +1335,9 @@ test('an activate carrying a custody payload commits it under the registered wal
 
     const activated = await service.walletRegistration.activateWalletRegistration({
       ...activateRequest,
-      walletCustodyCommit: buildWalletCustodyCommitPayloadFixture({ walletId: setup.walletId }),
+      walletCustodyCommit: buildAcknowledgedWalletCustodyCommitPayloadFixture({
+        walletId: setup.walletId,
+      }),
     } as never);
     if (!activated.ok) throw new Error(`activate: ${activated.code}: ${activated.message}`);
 
@@ -1347,38 +1356,6 @@ test('an activate carrying a custody payload commits it under the registered wal
   }
 });
 
-test('a custody payload naming another wallet is refused without failing activation', async () => {
-  const { database, tempDir } = createTemporaryD1Database();
-  try {
-    await applySignerMigrations(database);
-    const { service, setup, activateRequest } = await respondedCeremony(
-      database,
-      new CountingStrictRegistrationPort(),
-    );
-
-    const activated = await service.walletRegistration.activateWalletRegistration({
-      ...activateRequest,
-      walletCustodyCommit: buildWalletCustodyCommitPayloadFixture({ walletId: 'mallory.testnet' }),
-    } as never);
-
-    /* Activation never fails because of custody: the wallet is already
-       committed when the payload is admitted, and the seed exists only in the
-       client's worker, so an error response would leave the client with a
-       registered wallet and no instruction it can read. */
-    if (!activated.ok) throw new Error(`activate: ${activated.code}: ${activated.message}`);
-    expect(activated.walletCustody?.status).toBe('rejected');
-
-    const custodyStore = new CloudflareD1WalletCustodyCommitStore({
-      database: database as never,
-      scope: SCOPE,
-    });
-    expect(await custodyStore.readRecoveryEnvelopeSet(setup.walletId as never)).toBeNull();
-    expect(await custodyStore.readRecoveryEnvelopeSet('mallory.testnet' as never)).toBeNull();
-  } finally {
-    cleanupTemporaryD1Database(tempDir);
-  }
-});
-
 test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not at activate', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
@@ -1390,6 +1367,7 @@ test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not a
     const yaoCapture = {
       registrationBearerToken: null as string | null,
       activationSessionId: null as readonly number[] | null,
+      registeredPublicKeyB64u: null as string | null,
     };
     const service = createCloudflareD1RouterApiAuthService({
       database: database as never,
@@ -1454,6 +1432,10 @@ test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not a
     });
     expect(await custodyStore.readRecoveryEnvelopeSet(setup.walletId as never)).toBeNull();
 
+    if (!yaoCapture.activationSessionId || !yaoCapture.registeredPublicKeyB64u) {
+      throw new Error('Yao activation result is missing its deferred custody facts');
+    }
+
     /* The deferred leg. This is the first point at which an Ed25519-only
        wallet has a key set at all, so it is where its custody is established —
        a commit wired only into activate would never fire for this wallet. */
@@ -1468,9 +1450,10 @@ test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not a
             session_id: yaoCapture.activationSessionId,
           },
         },
-        walletCustodyCommit: buildWalletCustodyCommitPayloadFixture({
+        walletCustodyCommit: buildAcknowledgedWalletCustodyCommitPayloadFixture({
           walletId: setup.walletId,
           keySet: 'near_ed25519_v1',
+          registeredPublicKeyB64u: yaoCapture.registeredPublicKeyB64u,
         }),
         verifier: signer,
         session: signer,

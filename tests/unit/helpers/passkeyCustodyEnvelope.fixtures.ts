@@ -3,6 +3,7 @@ import {
   PASSKEY_PRF_KEK_VERSION_V1,
   WALLET_CUSTODY_ENVELOPE_VERSION_V2,
   parsePasskeyCustodyEnvelopeRecord,
+  walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement,
   type PasskeyCustodyEnvelopeRecord,
   type PasskeyCustodySecretKind,
   type WalletCustodyCeremonyCommitPayload,
@@ -280,6 +281,7 @@ export function buildWalletCustodyCommitPayloadFixture(input: {
   readonly walletId: string;
   readonly keySet?: WalletCustodyKeySetKind;
   readonly keyManifestDigestB64u?: string;
+  readonly registeredPublicKeyB64u?: string;
   readonly origin?: 'establish' | 'join';
 }): WalletCustodyCeremonyCommitPayload {
   const walletId = input.walletId;
@@ -287,9 +289,15 @@ export function buildWalletCustodyCommitPayloadFixture(input: {
     walletId,
     keySet: input.keySet ?? 'evm_family_ecdsa_v1',
     keyManifestDigestB64u: input.keyManifestDigestB64u ?? DIGEST_B64U,
+    ...(input.registeredPublicKeyB64u
+      ? { registeredPublicKeyB64u: input.registeredPublicKeyB64u }
+      : {}),
   } as const;
   if (input.origin === 'join') {
-    return { ...base, registeredPublicKeyB64u: ED25519_PUBLIC_KEY_B64U };
+    return {
+      ...base,
+      registeredPublicKeyB64u: input.registeredPublicKeyB64u ?? ED25519_PUBLIC_KEY_B64U,
+    };
   }
   return {
     ...base,
@@ -328,6 +336,26 @@ export function buildWalletCustodyCommitPayloadFixture(input: {
     clientRootPublicKey33B64u: VALID_SECP256K1_PUBLIC_KEY_B64U,
     ecdsaReadyStateBlobB64u: CIPHERTEXT_B64U,
   };
+}
+
+export function buildAcknowledgedWalletCustodyCommitPayloadFixture(
+  input: Parameters<typeof buildWalletCustodyCommitPayloadFixture>[0],
+): WalletCustodyCeremonyCommitPayload {
+  const payload = buildWalletCustodyCommitPayloadFixture(input);
+  const establishedCustody = payload.establishedCustody;
+  if (!establishedCustody) {
+    throw new Error('an acknowledged custody fixture must establish custody');
+  }
+  return walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement({
+    ...payload,
+    establishedCustody: {
+      ...establishedCustody,
+      recoveryCodeLocators: establishedCustody.recoveryManifestKekWraps.map((wrap, index) => ({
+        locatorB64u: `${String.fromCharCode(65 + index)}${RECOVERY_LOCATOR_DIGEST_B64U.slice(1)}`,
+        recoveryKeyId: wrap.recoveryKeyId,
+      })),
+    },
+  });
 }
 
 /**

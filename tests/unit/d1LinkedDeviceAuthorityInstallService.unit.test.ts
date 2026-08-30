@@ -80,6 +80,8 @@ import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNo
 import { requireRouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   parseDeviceId,
+  parsePrincipalId,
+  parseTenantId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -526,6 +528,55 @@ test('rolls back authority activation, converges on retry, and accepts the final
         requestedAtMs: installedAtMs,
       }),
     ).rejects.toThrow(/identity does not match|identity/i);
+    const exactIdentityMismatches = [
+      {
+        label: 'tenant',
+        authentication: {
+          ...exactAuthentication,
+          tenantId: required(parseTenantId('tenant:r103-wrong')),
+        },
+      },
+      {
+        label: 'principal',
+        authentication: {
+          ...exactAuthentication,
+          principalId: required(parsePrincipalId('principal:r103-wrong')),
+        },
+      },
+      {
+        label: 'wallet',
+        authentication: {
+          ...exactAuthentication,
+          walletId: required(parseWalletId('wallet:r103-wrong')),
+        },
+      },
+      {
+        label: 'authority',
+        authentication: {
+          ...exactAuthentication,
+          authorityId: required(parseWalletAuthorityId('wallet-authority:r103-wrong')),
+        },
+      },
+      {
+        label: 'auth method',
+        authentication: {
+          ...exactAuthentication,
+          walletAuthMethodId: required(
+            parseWalletAuthMethodId('wallet-auth-method:r103-wrong'),
+          ),
+        },
+      },
+    ] as const;
+    for (const mismatch of exactIdentityMismatches) {
+      await expect(
+        harness.install.acknowledgeLocalAuthorityActivationV1({
+          acknowledgement,
+          authentication: mismatch.authentication,
+          requestedAtMs: installedAtMs,
+        }),
+        `exact acknowledgement accepted a mismatched ${mismatch.label}`,
+      ).rejects.toThrow(/identity does not match|identity/i);
+    }
     await expect(
       harness.install.acknowledgeLocalAuthorityActivationV1({
         acknowledgement,
