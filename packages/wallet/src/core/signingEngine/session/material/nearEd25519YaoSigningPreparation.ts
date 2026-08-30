@@ -16,6 +16,7 @@ import type {
   WalletAuthAuthority,
   WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export type ActiveNearEd25519WalletSessionStatus = Extract<
   ExactWalletSessionStatus,
@@ -183,16 +184,19 @@ export function nearEd25519SessionMatchesMaterialActivation(args: {
   return matchCount === 1;
 }
 
-function assertAuthorizationMatchesHydration(args: {
+async function assertAuthorizationMatchesHydration(args: {
   readonly hydration: MpcCapabilityHydrationPlan;
   readonly authorization: ExactNearEd25519WalletSessionAuthorization;
-}): void {
+}): Promise<void> {
   const authority = hydrationAuthority(args.hydration);
   if (!authority) return;
-  const selectedAuthority = args.authorization.selectedAuthority;
+  const selectedFactorAuthority = await walletAuthAuthorityRef({
+    authority: args.authorization.selectedFactorAuthority,
+  });
   if (
-    authority.walletId !== selectedAuthority.walletId ||
-    String(authority.authorityDigest) !== String(selectedAuthority.authorityDigestB64u)
+    authority.walletId !== selectedFactorAuthority.walletId ||
+    authority.walletAuthMethodId !== selectedFactorAuthority.walletAuthMethodId ||
+    authority.authorityDigest !== selectedFactorAuthority.authorityDigest
   ) {
     throw new Error(
       '[SigningEngine][near] Wallet Session authorization does not match material authority',
@@ -262,13 +266,13 @@ export function buildActiveNearEd25519WalletSessionAuthorization(args: {
   return authorization;
 }
 
-export function buildAuthorizedNearEd25519YaoSigningPreparation(args: {
+export async function buildAuthorizedNearEd25519YaoSigningPreparation(args: {
   hydration: MpcCapabilityHydrationPlan;
   requirement: SigningLaneAuthBinding;
   authorization: ExactNearEd25519WalletSessionAuthorization;
-}): NearEd25519YaoSigningPreparation {
+}): Promise<NearEd25519YaoSigningPreparation> {
   assertAuthorizationMatchesRequirement(args);
-  assertAuthorizationMatchesHydration(args);
+  await assertAuthorizationMatchesHydration(args);
   return {
     kind: 'near_ed25519_yao_signing_preparation',
     hydration: args.hydration,

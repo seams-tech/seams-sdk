@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { resolveBrowserActiveEcdsaWalletSessionAuthorization } from '@/SeamsWeb/assembly/browserSigningSurfaceAssembly';
+import {
+  listBrowserEcdsaSigningCapabilitiesForWallet,
+  readBrowserExactNearEd25519WalletSessionAuthorization,
+  resolveBrowserActiveEcdsaWalletSessionAuthorization,
+} from '@/SeamsWeb/assembly/browserSigningSurfaceAssembly';
 import { createBrowserSigningStores } from '@/SeamsWeb/assembly/createBrowserSigningStores';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import { IndexedDBManager } from '@/core/indexedDB';
@@ -168,11 +172,14 @@ async function createResolverHarness() {
     );
 
   return {
+    context,
     fixture,
+    walletId,
     promotedAuthority,
     serverAuthorization,
     chainTarget,
     manifest,
+    factorAuthority,
     setObservedAuthorization(authorization: ActiveWalletSessionV1) {
       observedAuthorization = authorization;
     },
@@ -215,6 +222,59 @@ test('accepts the authenticated promoted server projection for the exact ECDSA r
     );
     expect(result.authorization.session).toEqual(harness.serverAuthorization);
     expect(result.authorization.selectedAuthority).toEqual(harness.promotedAuthority);
+  } finally {
+    harness.restore();
+  }
+});
+
+test('lists a promoted exact session when the full authority and factor digests differ', async () => {
+  const harness = await createResolverHarness();
+  try {
+    expect(harness.promotedAuthority.authorityDigestB64u).not.toBe(
+      harness.manifest.signer.authority.authorityDigest,
+    );
+
+    const capabilities = await listBrowserEcdsaSigningCapabilitiesForWallet(harness.context, {
+      walletId: String(harness.walletId),
+      chainTargets: [harness.chainTarget],
+      authMethod: 'passkey',
+    });
+
+    expect(capabilities).toHaveLength(1);
+    expect(capabilities[0]).toMatchObject({
+      kind: 'authorized_evm_family_ecdsa_signing_capability',
+    });
+  } finally {
+    harness.restore();
+  }
+});
+
+test('resolves the promoted exact NEAR session from the selected factor method', async () => {
+  const harness = await createResolverHarness();
+  try {
+    expect(harness.promotedAuthority.authorityDigestB64u).not.toBe(
+      harness.manifest.signer.authority.authorityDigest,
+    );
+
+    const result = await readBrowserExactNearEd25519WalletSessionAuthorization(
+      harness.walletId,
+      'https://relayer.example.test',
+    );
+
+    expect(result.kind).toBe('found');
+    if (result.kind !== 'found') throw new Error(`expected found, received ${result.kind}`);
+    expect(result.authorization.selectedAuthority.authorityId).toBe(
+      harness.promotedAuthority.authorityId,
+    );
+    expect(result.authorization.selectedAuthMethod.walletAuthMethodId).toBe(
+      harness.fixture.authMethod.walletAuthMethodId,
+    );
+    expect(result.authorization.selectedFactorAuthority.bindingId).toBe(
+      harness.factorAuthority.bindingId,
+    );
+    expect(result.authorization.session.authorizationId).toBe(
+      harness.serverAuthorization.authorizationId,
+    );
   } finally {
     harness.restore();
   }
