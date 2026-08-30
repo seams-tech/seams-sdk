@@ -1,8 +1,11 @@
 import { expect, test } from '@playwright/test';
 import {
+  getRecentUnlocks,
   resolveLinkedDevicePasskeyAuthoritySelection,
+  resolveLinkedDeviceUnlockSubjectSet,
   unlockLinkedDevicePasskey,
 } from '@/SeamsWeb/operations/auth/login';
+import { loginAccountOptions } from '@/SeamsWeb/walletIframe/host/auth-menu/account-options';
 import { BrowserSigningSurface } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
 import type { LoginWebContext } from '@/SeamsWeb/signingSurface/types';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
@@ -19,6 +22,7 @@ import {
   Ed25519YaoActiveClientRegistry,
   type Ed25519YaoActiveClientIdentityV1,
 } from '@/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
+import { IndexedDbEd25519YaoPublicCapabilityReferenceStore } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import {
   RouterAbEd25519YaoClientV1,
   type RouterAbEd25519YaoActiveClientMetadataV1,
@@ -33,7 +37,11 @@ import {
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { base64UrlEncode } from '@shared/utils/base64';
-import { buildLinkedDeviceUnlockRuntimeFixture } from './helpers/linkedDeviceUnlockRuntime.fixtures';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import {
+  buildLinkedDeviceEd25519YaoCapabilityLaneFixture,
+  buildLinkedDeviceUnlockRuntimeFixture,
+} from './helpers/linkedDeviceUnlockRuntime.fixtures';
 
 configureIndexedDB({ mode: 'disabled' });
 
@@ -141,7 +149,7 @@ function buildLockSurface(args: {
   return surface;
 }
 
-test('linked V2 unlock installs live owners, lock retires them, and exact re-unlock is idempotent', async () => {
+test('linked V2 install exposes exact inventory and unlock installs live owners idempotently', async () => {
   const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
   const activeClients = new Ed25519YaoActiveClientRegistry();
   const storedHandles: string[] = [];
@@ -151,6 +159,9 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
   const originalInitializeBundled = RouterAbEd25519YaoClientV1.initializeBundled;
   const originalResolveSelectedWalletAuthority = IndexedDBManager.resolveSelectedWalletAuthority;
   const originalGetProfile = IndexedDBManager.getProfile;
+  const originalIsDisabled = IndexedDBManager.isDisabled;
+  const originalGetAppState = IndexedDBManager.getAppState;
+  const originalListWalletSelections = IndexedDBManager.listWalletSelections;
   const originalWriteExact = walletSessionAuthorizations.writeExact;
   const originalWriteExactWithOperationCredential =
     walletSessionAuthorizations.writeExactWithOperationCredential;
@@ -162,6 +173,21 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
   const identity = linkedRuntimeIdentity(fixture);
   const ecdsaActivation = fixture.authority.signerActivations.ecdsa;
   if (!ecdsaActivation) throw new Error('linked runtime fixture is missing ECDSA activation');
+  const ecdsaMaterial = fixture.signerMaterials.find(
+    (material) => material.keyFamily === 'ecdsa_secp256k1',
+  );
+  if (!ecdsaMaterial || ecdsaMaterial.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('linked runtime fixture is missing ECDSA material');
+  }
+  const appState = new Map<string, unknown>();
+  const publicCapabilityStore = new IndexedDbEd25519YaoPublicCapabilityReferenceStore({
+    isDisabled: () => false,
+    getAppState: async <T>(key: string) => appState.get(key) as T | undefined,
+    setAppState: async <T>(key: string, value: T) => {
+      appState.set(key, value);
+    },
+  });
+  await publicCapabilityStore.upsertLane(buildLinkedDeviceEd25519YaoCapabilityLaneFixture(fixture));
 
   Reflect.set(RouterAbEd25519YaoClientV1, 'initializeBundled', async () => ({
     importLinkedMaterial: (input: {
@@ -184,6 +210,13 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
   IndexedDBManager.getProfile = async () => {
     throw new Error('legacy profile rows are unavailable during linked V2 reload');
   };
+  Reflect.set(IndexedDBManager, 'isDisabled', () => false);
+  Reflect.set(
+    IndexedDBManager,
+    'getAppState',
+    async <T>(key: string): Promise<T | undefined> => appState.get(key) as T | undefined,
+  );
+  Reflect.set(IndexedDBManager, 'listWalletSelections', async () => [fixture.selection]);
   walletSessionAuthorizations.writeExact = async (record) => {
     writtenSessions.push(record);
     return record;
@@ -219,6 +252,8 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
   };
 
   const signingEngine = {
+    getAllUsers: async () => [],
+    getLastUser: async () => null,
     getAuthenticationCredentialsSerialized: async () => fixture.credential,
     getSignerWorkerContext: () => workerContext,
     activateVerifiedNearEd25519YaoMaterial: async (material: NearEd25519YaoOperationMaterial) => {
@@ -238,8 +273,60 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
     }),
     theme: 'dark' as const,
   } as LoginWebContext;
+  const recentUnlocksContext = {
+    ...context,
+    signingEngine: {
+      ...context.signingEngine,
+      getAllUsers: async () => [],
+    },
+  } satisfies Parameters<typeof getRecentUnlocks>[0];
 
   try {
+    const expectedAuthorityRef = await walletAuthAuthorityRef({
+      authority: fixture.factorAuthority,
+    });
+    const subjectSet = await resolveLinkedDeviceUnlockSubjectSet(String(fixture.walletId));
+    expect(subjectSet).toEqual({
+      kind: 'wallet_unlock_subject_set',
+      walletId,
+      subjects: [
+        {
+          kind: 'near_ed25519_wallet',
+          walletId,
+          nearAccountId: toAccountId(fixture.ed25519Session.nearAccountId),
+          nearEd25519SigningKeyId: fixture.ed25519Session.nearEd25519SigningKeyId,
+          signerSlot: 1,
+        },
+        {
+          kind: 'evm_family_ecdsa_wallet',
+          walletId,
+          capability: ecdsaActivation.materialActivation.capability,
+          authority: expectedAuthorityRef,
+          ecdsaThresholdKeyId: ecdsaMaterial.ecdsaThresholdKeyId,
+        },
+      ],
+    });
+    const recentUnlocks = await getRecentUnlocks(recentUnlocksContext);
+    expect(recentUnlocks.accounts).toEqual([
+      expect.objectContaining({
+        walletId: String(fixture.walletId),
+        nearAccountId: fixture.ed25519Session.nearAccountId,
+        displayName: String(fixture.walletId),
+        signerSlot: 1,
+        authMethod: 'passkey',
+      }),
+    ]);
+    expect(loginAccountOptions(recentUnlocks)).toEqual([
+      {
+        walletId: String(fixture.walletId),
+        displayName: String(fixture.walletId),
+        authMethod: 'passkey',
+      },
+    ]);
+    Reflect.set(IndexedDBManager, 'isDisabled', originalIsDisabled);
+    Reflect.set(IndexedDBManager, 'getAppState', originalGetAppState);
+    Reflect.set(IndexedDBManager, 'listWalletSelections', originalListWalletSelections);
+
     const first = await unlockLinkedDevicePasskey(context, String(fixture.walletId), undefined);
     expect(first.success, first.success ? undefined : first.error).toBe(true);
     expect(first).toMatchObject({
@@ -248,6 +335,14 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
       walletId: fixture.walletId,
     });
     expect(writtenSessions).toHaveLength(1);
+    expect(writtenSessions[0]).toMatchObject({
+      record: expect.objectContaining({
+        walletId,
+        authorityId: fixture.authority.authorityId,
+        authMethodId: fixture.authMethod.walletAuthMethodId,
+      }),
+      operationCredential: fixture.operationCredential,
+    });
     expect(authenticatedStates).toHaveLength(1);
     expect(activatedMaterials).toHaveLength(1);
     expect(importedClients).toHaveLength(1);
@@ -268,6 +363,12 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
       }),
     ]);
     expect(activeClients.resolve(identity)).not.toBeNull();
+    expect(importedClients[0]?.metadata()).toMatchObject({
+      applicationBinding: fixture.signerMaterials.find(
+        (material) => material.keyFamily === 'ed25519',
+      )?.publicFacts.applicationBinding,
+      materialActivation: fixture.authority.signerActivations.ed25519?.materialActivation,
+    });
 
     const second = await unlockLinkedDevicePasskey(context, String(fixture.walletId), undefined);
     expect(second).toMatchObject({
@@ -327,6 +428,9 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
     Reflect.set(RouterAbEd25519YaoClientV1, 'initializeBundled', originalInitializeBundled);
     IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelectedWalletAuthority;
     IndexedDBManager.getProfile = originalGetProfile;
+    Reflect.set(IndexedDBManager, 'isDisabled', originalIsDisabled);
+    Reflect.set(IndexedDBManager, 'getAppState', originalGetAppState);
+    Reflect.set(IndexedDBManager, 'listWalletSelections', originalListWalletSelections);
     walletSessionAuthorizations.writeExact = originalWriteExact;
     walletSessionAuthorizations.writeExactWithOperationCredential =
       originalWriteExactWithOperationCredential;
