@@ -17,7 +17,12 @@ import {
   type WebAuthnRpId,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
-import { parseCorrelationId, type CorrelationId } from '@shared/utils/canonicalPrimitives';
+import {
+  parseCorrelationId,
+  parseDigestB64u,
+  type CorrelationId,
+  type DigestB64u,
+} from '@shared/utils/canonicalPrimitives';
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
@@ -33,6 +38,16 @@ import {
 } from '@shared/passkey-custody';
 import type { WalletEmailOtpEnrollmentMaterialV1 } from '@shared/utils/registrationIntent';
 import type { RouterAbEd25519YaoBytes32V1 } from '@shared/utils/routerAbEd25519Yao';
+import {
+  parseRouterAbEcdsaVerifiedClientActivationFactsV1,
+  type RouterAbEcdsaVerifiedClientActivationFactsV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+
+export type PendingWalletRegistrationEcdsaReplayV1 = {
+  readonly activationJournalId: CorrelationId;
+  readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  readonly activationRequestDigestB64u: DigestB64u;
+};
 
 /**
  * The local registration journal entry written before a terminal request.
@@ -88,10 +103,7 @@ export type PendingWalletRegistrationLocalMaterialV1 =
   | {
       readonly keyFamilies: readonly ['ecdsa_secp256k1'];
       readonly custodyCommit: WalletCustodyCeremonyCommitPayload;
-      readonly ecdsa: {
-        /** Final ECDSA facts arrive from Route 3; the journal is the recovery source. */
-        readonly activationJournalId: CorrelationId;
-      };
+      readonly ecdsa: PendingWalletRegistrationEcdsaReplayV1;
       readonly ed25519?: never;
       readonly activationReference?: never;
     }
@@ -106,10 +118,7 @@ export type PendingWalletRegistrationLocalMaterialV1 =
       readonly keyFamilies: readonly ['ed25519', 'ecdsa_secp256k1'];
       readonly custodyCommit: WalletCustodyCeremonyCommitPayload;
       readonly ed25519: PendingWalletRegistrationEd25519LocalMaterialV1;
-      readonly ecdsa: {
-        /** Final ECDSA facts arrive from Route 3; the journal is the recovery source. */
-        readonly activationJournalId: CorrelationId;
-      };
+      readonly ecdsa: PendingWalletRegistrationEcdsaReplayV1;
       readonly activationReference?: never;
     };
 
@@ -589,11 +598,27 @@ function parseEd25519Metadata(raw: unknown): PendingWalletRegistrationEd25519Met
 
 function parseEcdsaLocalMaterial(raw: unknown): {
   readonly activationJournalId: CorrelationId;
+  readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  readonly activationRequestDigestB64u: DigestB64u;
 } | null {
   if (!isRecord(raw) || hasForbiddenCredentialField(raw)) return null;
-  if (!hasExactKeys(raw, ['activationJournalId'])) return null;
+  if (
+    !hasExactKeys(raw, ['activationJournalId', 'clientActivation', 'activationRequestDigestB64u'])
+  ) {
+    return null;
+  }
   const activationJournalId = parseCorrelationIdSafely(raw.activationJournalId);
-  return activationJournalId ? { activationJournalId } : null;
+  const activationRequestDigestB64u = parseDigestB64uSafely(raw.activationRequestDigestB64u);
+  if (!activationJournalId || !activationRequestDigestB64u) return null;
+  try {
+    return {
+      activationJournalId,
+      clientActivation: parseRouterAbEcdsaVerifiedClientActivationFactsV1(raw.clientActivation),
+      activationRequestDigestB64u,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseEcdsaPublicFacts(raw: unknown): WalletCustodyEvmFamilyPublicFacts | null {
@@ -842,6 +867,14 @@ function parsePositiveSafeInteger(value: unknown): number | null {
 function parseCorrelationIdSafely(value: unknown): CorrelationId | null {
   try {
     return parseCorrelationId(value);
+  } catch {
+    return null;
+  }
+}
+
+function parseDigestB64uSafely(value: unknown): DigestB64u | null {
+  try {
+    return parseDigestB64u(value);
   } catch {
     return null;
   }

@@ -83,6 +83,9 @@ export type PendingRegistrationRecoveryResult =
       readonly walletId: WalletId;
       readonly keyFamilies: PendingEcdsaRegistrationKeyFamilies;
       readonly activationJournalId: PendingEcdsaRegistrationCommit['localMaterial']['ecdsa']['activationJournalId'];
+      readonly activationRequestDigestB64u: PendingEcdsaRegistrationCommit['localMaterial']['ecdsa']['activationRequestDigestB64u'];
+      readonly clientActivation: PendingEcdsaRegistrationCommit['localMaterial']['ecdsa']['clientActivation'];
+      readonly walletAuthMethodId: PendingEcdsaRegistrationCommit['walletAuthMethodId'];
       readonly next: 'unlock_exact_method';
       readonly reason: 'ecdsa_local_finalization';
     }
@@ -427,6 +430,9 @@ export async function resumePendingNearRegistrations(args: {
         walletId: pending.walletId,
         keyFamilies: pending.localMaterial.keyFamilies,
         activationJournalId: pending.localMaterial.ecdsa.activationJournalId,
+        activationRequestDigestB64u: pending.localMaterial.ecdsa.activationRequestDigestB64u,
+        clientActivation: pending.localMaterial.ecdsa.clientActivation,
+        walletAuthMethodId: pending.walletAuthMethodId,
         next: 'unlock_exact_method',
         reason: 'ecdsa_local_finalization',
       });

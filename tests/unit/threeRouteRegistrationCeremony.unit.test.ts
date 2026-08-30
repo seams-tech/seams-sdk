@@ -221,7 +221,14 @@ test('a mixed plan starts the NEAR custody join before activate is called', asyn
       keySet: 'evm_family_ecdsa_v1',
       keyManifestDigestB64u: FIXTURE_DIGEST32_B64U,
     },
-    ecdsa: { activationJournalId: 'initial-ecdsa-registration-ceremony' },
+    ecdsa: {
+      activationJournalId: 'initial-ecdsa-registration-ceremony',
+      clientActivation: expect.objectContaining({
+        participantId: 1,
+        clientShareRetryCounter: 0,
+      }),
+      activationRequestDigestB64u: expect.any(String),
+    },
   });
   expect(routes.calls).toContain('activate');
 });

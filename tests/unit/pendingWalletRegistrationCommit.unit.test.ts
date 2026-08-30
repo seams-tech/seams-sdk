@@ -6,6 +6,14 @@ import {
   toPendingWalletRegistrationCommitAppStateRow,
   toPendingWalletRegistrationCommitStorageRow,
 } from '../../packages/wallet/src/core/indexedDB/pendingWalletRegistrationCommit';
+import { fixtureRouterAbEcdsaActivationFacts } from '../helpers/routerAbSigningRuntimeTestUtils';
+import { base64UrlEncode } from '@shared/utils/base64';
+
+const ecdsaReplay = {
+  activationJournalId: 'ecdsa-activation-journal-pending',
+  clientActivation: fixtureRouterAbEcdsaActivationFacts(),
+  activationRequestDigestB64u: base64UrlEncode(new Uint8Array(32).fill(41)),
+};
 
 const custodyCommit = {
   walletId: 'wallet_pending_registration',
@@ -181,9 +189,7 @@ test('pending registration parser keeps ECDSA and mixed local-material branches 
       localMaterial: {
         keyFamilies: ['ecdsa_secp256k1'],
         custodyCommit: { ...custodyCommit, keySet: 'evm_family_ecdsa_v1' },
-        ecdsa: {
-          activationJournalId: 'ecdsa-activation-journal-pending',
-        },
+        ecdsa: ecdsaReplay,
       },
     }),
   );
@@ -199,13 +205,23 @@ test('pending registration parser keeps ECDSA and mixed local-material branches 
           localMaterial: ed25519LocalMaterial,
           metadata: ed25519Metadata,
         },
-        ecdsa: {
-          activationJournalId: 'ecdsa-activation-journal-pending',
-        },
+        ecdsa: ecdsaReplay,
       },
     }),
   );
   expect(mixed?.localMaterial.keyFamilies).toEqual(['ed25519', 'ecdsa_secp256k1']);
+
+  expect(
+    parsePendingWalletRegistrationCommitV1(
+      pendingRecord({
+        localMaterial: {
+          keyFamilies: ['ecdsa_secp256k1'],
+          custodyCommit: { ...custodyCommit, keySet: 'evm_family_ecdsa_v1' },
+          ecdsa: { activationJournalId: ecdsaReplay.activationJournalId },
+        },
+      }),
+    ),
+  ).toBeNull();
 });
 
 test('pending registration storage rows round-trip without exposing credentials', () => {
@@ -256,7 +272,7 @@ test('pending registration parser rejects credentials, responses, malformed time
         keyFamilies: ['ecdsa_secp256k1'],
         custodyCommit,
         ecdsa: {
-          activationJournalId: 'ecdsa-activation-journal-pending',
+          ...ecdsaReplay,
           publicFacts: {},
           readyStateBlobB64u: 'unencrypted-ready-state',
         },
@@ -302,7 +318,7 @@ test('pending registration parser rejects credentials, responses, malformed time
           keyFamilies: ['ecdsa_secp256k1'],
           custodyCommit,
           ecdsa: {
-            activationJournalId: 'ecdsa-activation-journal-pending',
+            ...ecdsaReplay,
           },
         },
       }),

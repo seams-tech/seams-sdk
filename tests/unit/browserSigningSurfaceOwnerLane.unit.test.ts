@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   BrowserSigningSurface,
-  resolveExactNearEd25519WalletSessionTokenForStepUp,
+  resolveExactNearEd25519WalletSessionOperationCredentialForStepUp,
 } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
@@ -177,7 +177,7 @@ test('resolves operation step-up from the selected exact Wallet Session credenti
       };
     };
     await expect(
-      resolveExactNearEd25519WalletSessionTokenForStepUp({
+      resolveExactNearEd25519WalletSessionOperationCredentialForStepUp({
         walletId: fixture.walletId,
         proof: {
           kind: 'passkey',
@@ -185,7 +185,7 @@ test('resolves operation step-up from the selected exact Wallet Session credenti
           credential: fixture.credential,
         },
       }),
-    ).resolves.toBe(fixture.operationCredential.token);
+    ).resolves.toEqual(fixture.operationCredential);
     expect(exactReadInput).toEqual({
       walletId: fixture.walletId,
       authorityId: fixture.authority.authorityId,
@@ -214,7 +214,7 @@ test('fails closed when operation step-up has no selected exact Wallet Session',
       kind: 'missing',
     });
     await expect(
-      resolveExactNearEd25519WalletSessionTokenForStepUp({
+      resolveExactNearEd25519WalletSessionOperationCredentialForStepUp({
         walletId: fixture.walletId,
         proof: {
           kind: 'passkey',

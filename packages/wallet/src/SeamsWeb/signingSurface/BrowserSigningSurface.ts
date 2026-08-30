@@ -281,10 +281,7 @@ import { sha256HexUtf8 } from '@shared/utils/digests';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { materialActivationKey } from '@/core/signingEngine/session/sealedRecovery/materialActivationKey';
 import { isPlainObject } from '@shared/utils/validation';
-import {
-  requireOpaqueWalletSessionToken,
-  type OpaqueWalletSessionToken,
-} from '@shared/utils/sessionTokens';
+import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import { WalletSessionAuthorizationUpgradeRequiredError } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { createRelayerExactWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import {
@@ -1701,10 +1698,10 @@ function operationStepUpProofMatchesSelectedWalletAuthMethod(args: {
   }
 }
 
-export async function resolveExactNearEd25519WalletSessionTokenForStepUp(args: {
+export async function resolveExactNearEd25519WalletSessionOperationCredentialForStepUp(args: {
   readonly walletId: WalletId;
   readonly proof: Ed25519OperationStepUpProof;
-}): Promise<OpaqueWalletSessionToken> {
+}): Promise<WalletSessionOperationCredentialV1> {
   const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
   if (selected.kind !== 'resolved') {
     const detail = selected.kind === 'integrity_error' ? `: ${selected.reason}` : '';
@@ -1760,10 +1757,7 @@ export async function resolveExactNearEd25519WalletSessionTokenForStepUp(args: {
       '[SigningEngine][near] exact Wallet Session is unavailable for operation step-up',
     );
   }
-  return requireOpaqueWalletSessionToken(
-    exactSession.operationCredential.token,
-    '[SigningEngine][near] exact Wallet Session token',
-  );
+  return exactSession.operationCredential;
 }
 
 async function walletSessionStateFromExactEd25519Runtime(args: {
@@ -2586,11 +2580,15 @@ export class BrowserSigningSurface {
     relayerUrl: string;
     proof: Ed25519OperationStepUpProof;
   }): Promise<RouterAbOwnerNormalSigningCredential> {
-    const walletSessionToken = await resolveExactNearEd25519WalletSessionTokenForStepUp({
-      walletId: args.walletId,
-      proof: args.proof,
-    });
-    return { kind: 'wallet_session_opaque', walletSessionToken };
+    const operationCredential =
+      await resolveExactNearEd25519WalletSessionOperationCredentialForStepUp({
+        walletId: args.walletId,
+        proof: args.proof,
+      });
+    return {
+      kind: 'wallet_session_opaque',
+      walletSessionToken: operationCredential.token,
+    };
   }
 
   private async ensureSealedRefreshStartupParity(): Promise<void> {

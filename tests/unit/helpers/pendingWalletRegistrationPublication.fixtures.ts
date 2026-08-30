@@ -65,6 +65,7 @@ import { buildWalletCustodyCommitPayloadFixture } from './passkeyCustodyEnvelope
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
 import { buildExactWalletSessionAuthorizationFixture } from './exactWalletSessionAuthorization.fixtures';
 import { projectActiveWalletSession } from '../../../packages/wallet-server/src/authorization/domain';
+import { fixtureRouterAbEcdsaActivationFacts } from '../../helpers/routerAbSigningRuntimeTestUtils';
 
 function unwrap<T>(result: { ok: true; value: T } | { ok: false; error: { message: string } }): T {
   if (!result.ok) throw new Error(result.error.message);
@@ -382,7 +383,11 @@ export async function buildPendingWalletRegistrationPublicationFixture(
   > = {
     keyFamilies: ['ecdsa_secp256k1'] as const,
     custodyCommit: localMaterialBase.custodyCommit,
-    ecdsa: { activationJournalId: parseCorrelationId('correlation:r103f-publication') },
+    ecdsa: {
+      activationJournalId: parseCorrelationId('correlation:r103f-publication'),
+      clientActivation: fixtureRouterAbEcdsaActivationFacts(),
+      activationRequestDigestB64u: digest(41),
+    },
   };
   const mixedLocalMaterial: Extract<
     PendingWalletRegistrationCommitV1['localMaterial'],
@@ -391,7 +396,11 @@ export async function buildPendingWalletRegistrationPublicationFixture(
     keyFamilies: ['ed25519', 'ecdsa_secp256k1'] as const,
     custodyCommit: localMaterialBase.custodyCommit,
     ed25519: localMaterialBase.ed25519,
-    ecdsa: { activationJournalId: parseCorrelationId('correlation:r103f-publication') },
+    ecdsa: {
+      activationJournalId: parseCorrelationId('correlation:r103f-publication'),
+      clientActivation: fixtureRouterAbEcdsaActivationFacts(),
+      activationRequestDigestB64u: digest(41),
+    },
   };
   const localMaterial: PendingWalletRegistrationCommitV1['localMaterial'] =
     keyFamilies === 'ed25519'
