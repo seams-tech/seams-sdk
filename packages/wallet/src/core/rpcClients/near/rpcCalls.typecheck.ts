@@ -30,6 +30,12 @@ const activatedUnlock = verifyPasskeyWalletUnlock('https://relay.example', activ
 
 void activatedUnlock.then((result) => {
   if (result.success) {
-    result.ecdsaSession.session.operation_credential.token satisfies string;
+    if (result.ecdsaSession.kind === 'router_ab_ecdsa_credential_free_session_activated_v1') {
+      const authorization = result.walletSessionAuthorization;
+      if (!authorization) throw new Error('credential-free branch must carry exact authorization');
+      authorization.operationCredential.token satisfies string;
+    } else {
+      result.ecdsaSession.session.operation_credential.token satisfies string;
+    }
   }
 });
