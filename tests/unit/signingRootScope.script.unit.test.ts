@@ -6,6 +6,7 @@ import {
   signingRootScopeFromRuntimePolicyScope,
 } from '../../packages/shared-ts/src/threshold/signingRootScope';
 import { createInMemoryConsoleOrgProjectEnvService } from '../../packages/console-server-ts/src/orgProjectEnv';
+import { createWalletProjectEnvironmentResolver } from '../../packages/wallet-console-server-ts/src/router/projectEnvironmentAdapter';
 import { resolveThresholdRuntimePolicyScope } from '../../packages/wallet-server/src/router/auth/commonRouterUtils';
 
 test('deriveSigningRootId composes projectId and envId without orgId', () => {
@@ -116,7 +117,7 @@ test('resolveThresholdRuntimePolicyScope loads active signingRootVersion from en
   await orgProjectEnv.upsertOrganization(ctx, { name: 'Alpha' });
   await orgProjectEnv.createProject(ctx, { id: 'proj_alpha', name: 'Alpha Project' });
   await orgProjectEnv.updateEnvironment(ctx, 'proj_alpha:dev', {
-    signingRootVersion: 'root-v2',
+    runtimeVersion: 'root-v2',
   });
 
   const resolved = await resolveThresholdRuntimePolicyScope({
@@ -127,7 +128,7 @@ test('resolveThresholdRuntimePolicyScope loads active signingRootVersion from en
       signingRootVersion: 'stale-client-value',
     },
     headers: {},
-    orgProjectEnv,
+    orgProjectEnv: createWalletProjectEnvironmentResolver(orgProjectEnv),
   });
 
   expect(resolved).toEqual({
