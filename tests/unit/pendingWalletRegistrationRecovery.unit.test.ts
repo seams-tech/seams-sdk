@@ -1,13 +1,16 @@
 import { expect, test } from '@playwright/test';
 import {
-  resumePendingPasskeyNearRegistrations,
+  resumePendingNearRegistrations,
   type PendingRegistrationRecoveryPorts,
 } from '../../packages/wallet/src/SeamsWeb/operations/registration/pendingRegistrationRecovery';
 import type { PublishPendingWalletRegistrationCommitInputV1 } from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/repositories';
 import { buildEcdsaActivationPublicationFixture } from './helpers/pendingWalletRegistrationPublication.fixtures';
-import { buildPendingWalletRegistrationRecoveryFixture } from './helpers/pendingWalletRegistrationRecovery.fixtures';
+import {
+  buildEmailOtpWalletRegistrationRecoveryFixture,
+  buildPendingWalletRegistrationRecoveryFixture,
+} from './helpers/pendingWalletRegistrationRecovery.fixtures';
 
-test.describe('pending Passkey registration reload', () => {
+test.describe('pending registration reload', () => {
   test('publishes a freshly issued session with the exact Route 4 request', async () => {
     const fixture = await buildPendingWalletRegistrationRecoveryFixture();
     const requests: unknown[] = [];
@@ -24,7 +27,7 @@ test.describe('pending Passkey registration reload', () => {
       },
     };
 
-    const results = await resumePendingPasskeyNearRegistrations({
+    const results = await resumePendingNearRegistrations({
       relayerUrl: 'https://relayer.example.test',
       ports,
     });
@@ -76,6 +79,70 @@ test.describe('pending Passkey registration reload', () => {
     );
   });
 
+  test('replays Email OTP enrollment and publishes the issued session', async () => {
+    const fixture = await buildEmailOtpWalletRegistrationRecoveryFixture();
+    const requests: unknown[] = [];
+    const publications: PublishPendingWalletRegistrationCommitInputV1[] = [];
+    const ports: PendingRegistrationRecoveryPorts = {
+      listPendingWalletRegistrationCommits: async () => [fixture.pending],
+      completeWalletRegistrationNearProvisioning: async (request) => {
+        requests.push(request);
+        return fixture.firstResponse;
+      },
+      publishPendingWalletRegistrationCommit: async (publication) => {
+        publications.push(publication);
+        return { signerActivations: [] };
+      },
+    };
+
+    const results = await resumePendingNearRegistrations({
+      relayerUrl: 'https://relayer.example.test',
+      ports,
+    });
+
+    expect(results).toMatchObject([
+      {
+        kind: 'published',
+        registrationCeremonyId: fixture.pending.registrationCeremonyId,
+        walletId: fixture.pending.walletId,
+        sessionResult: 'issued',
+      },
+    ]);
+    expect(requests).toEqual([
+      expect.objectContaining({
+        registrationCeremonyId: fixture.pending.registrationCeremonyId,
+        signedSetup: fixture.pending.signedSetup,
+        idempotencyKey: fixture.pending.idempotencyKey,
+        ed25519: { activationReference: fixture.pending.localMaterial.ed25519.activationReference },
+        auth: {
+          kind: 'email_otp',
+          enrollment:
+            fixture.pending.auth.kind === 'email_otp' ? fixture.pending.auth.enrollment : null,
+        },
+      }),
+    ]);
+    expect(publications).toMatchObject([
+      {
+        walletSessionPublication: {
+          kind: 'issued',
+          walletSession: fixture.firstResponse.registrationEstablishedSession.session.walletSession,
+          operationCredential:
+            fixture.firstResponse.registrationEstablishedSession.session.operationCredential,
+        },
+        registration: {
+          initialAuthMethod: {
+            kind: 'email_otp',
+            registrationAuthorityId:
+              fixture.pending.auth.kind === 'email_otp'
+                ? fixture.pending.auth.registrationAuthorityId
+                : null,
+          },
+          authenticators: [],
+        },
+      },
+    ]);
+  });
+
   test('retains a credential-free replay for exact-method unlock', async () => {
     const fixture = await buildPendingWalletRegistrationRecoveryFixture();
     const publications: PublishPendingWalletRegistrationCommitInputV1[] = [];
@@ -88,7 +155,7 @@ test.describe('pending Passkey registration reload', () => {
       },
     };
 
-    const results = await resumePendingPasskeyNearRegistrations({
+    const results = await resumePendingNearRegistrations({
       relayerUrl: 'https://relayer.example.test',
       ports,
     });
@@ -117,7 +184,7 @@ test.describe('pending Passkey registration reload', () => {
       },
     };
 
-    const results = await resumePendingPasskeyNearRegistrations({
+    const results = await resumePendingNearRegistrations({
       relayerUrl: 'https://relayer.example.test',
       ports,
     });
@@ -128,7 +195,7 @@ test.describe('pending Passkey registration reload', () => {
     expect(results[0]).toMatchObject({
       kind: 'failed',
       registrationCeremonyId: fixture.pending.registrationCeremonyId,
-      error: { message: 'pending Passkey registration replay failed: temporary_failure' },
+      error: { message: 'pending registration replay failed: temporary_failure' },
     });
   });
 });

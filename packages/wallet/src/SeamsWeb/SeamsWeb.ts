@@ -7,7 +7,7 @@ import {
   registerWallet as registerWalletWithUnifiedCeremony,
   WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
-import { resumePendingPasskeyNearRegistrations } from '@/SeamsWeb/operations/registration/pendingRegistrationRecovery';
+import { resumePendingNearRegistrations } from '@/SeamsWeb/operations/registration/pendingRegistrationRecovery';
 import { addPasskeyWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import { revokeWalletAuthMethodOperation } from '@/SeamsWeb/operations/authMethods/revokeAuthMethod';
 import { addEmailOtpWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/emailOtp/addEmailOtp';
@@ -1304,11 +1304,11 @@ export class SeamsWeb {
       if (IndexedDBManager.isDisabled()) return;
       const relayerUrl = String(this.configs.network.relayer?.url || '').trim();
       if (!relayerUrl) return;
-      const results = await resumePendingPasskeyNearRegistrations({ relayerUrl });
+      const results = await resumePendingNearRegistrations({ relayerUrl });
       for (const result of results) {
         if (result.kind === 'failed') {
           console.warn(
-            '[SeamsWeb] pending Passkey registration replay remains pending:',
+            '[SeamsWeb] pending registration replay remains pending:',
             result.registrationCeremonyId,
             result.error,
           );
@@ -1316,7 +1316,7 @@ export class SeamsWeb {
       }
     } catch (error: unknown) {
       console.warn(
-        '[SeamsWeb] pending Passkey registration startup replay failed:',
+        '[SeamsWeb] pending registration startup replay failed:',
         error instanceof Error ? error.message : String(error || 'unknown error'),
       );
     }
