@@ -5670,7 +5670,9 @@ async function clickWalletIframeConfirm(
 
     if (intendedAction === 'unlockPasskeyWallet') {
       const primary = frame.locator('[data-auth-menu-primary]').first();
-      const primaryEnabled = await primary.isEnabled().catch(() => false);
+      const primaryEnabled = await primary
+        .isEnabled({ timeout: timeoutMs })
+        .catch(() => false);
       if (!primaryEnabled) {
         const walletId = await page.getByTestId('intended-e2e-page').getAttribute('data-wallet-id');
         if (!walletId) {
