@@ -24,7 +24,6 @@ import {
   type PrincipalId,
   type TenantId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
-import { buildExactWalletSessionAuthorizationFixture } from './helpers/exactWalletSessionAuthorization.fixtures';
 import { parseSessionOrigin } from '../../packages/wallet-server/src/authorization/domain';
 
 /**
@@ -130,28 +129,19 @@ async function seedExactSiblingWalletSessions(input: {
     namespace: SCOPE.namespace,
     walletSignerScope: SCOPE,
   });
-  const passkey = buildExactWalletSessionAuthorizationFixture({
-    label: 'r109c-passkey',
+  const service = createCloudflareD1RouterApiAuthService({ database: input.database, ...SCOPE });
+  const passkey = await service.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
     tenantId,
     principalId,
+    walletId: input.authority.walletId,
     authority: input.authority,
     walletAuthMethodId: required(parseWalletAuthMethodId(PASSKEY_METHOD_ID)),
+    mintId: required(parseWalletSessionMintId('mint:r109c-passkey')),
     issuedAtMs: 3_000,
     expiresAtMs: 10_000,
     remainingUses: 3,
   });
-  await authorizationStore.putWalletSessionAuthorizationV2(passkey);
-  const email = buildExactWalletSessionAuthorizationFixture({
-    label: 'r109c-email',
-    tenantId,
-    principalId,
-    authority: input.authority,
-    walletAuthMethodId: required(parseWalletAuthMethodId(EMAIL_METHOD_ID)),
-    issuedAtMs: 3_000,
-    expiresAtMs: 10_000,
-    remainingUses: 3,
-  });
-  await authorizationStore.putWalletSessionAuthorizationV2(email);
+  if (passkey.kind !== 'issued') throw new Error('Passkey sibling session did not issue');
   return { authorizationStore, tenantId, principalId };
 }
 
@@ -247,7 +237,7 @@ test('method revocation retires only its exact V2 sessions and exhausts their qu
     const { walletId, authority } = await seedAuthorityWithBothSiblings(database);
     const service = createCloudflareD1RouterApiAuthService({ database, ...SCOPE });
     const hostedTenantId = required(parseTenantId(SCOPE.orgId));
-    const hostedPrincipalId = required(parsePrincipalId('principal:r109c-hosted-revocation'));
+    const hostedPrincipalId = required(parsePrincipalId('principal:r109c-sibling-revocation'));
     const hostedParent =
       await service.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
         tenantId: hostedTenantId,

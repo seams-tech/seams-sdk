@@ -197,7 +197,6 @@ export type D1LinkedDeviceAuthorityInstallServiceOptionsV1 = {
   readonly materialActivation: OrdinaryInactiveSignerMaterialActivationPortV1;
   readonly authorizationService: Pick<
     AuthorizationService,
-    | 'issueWalletSessionAuthorizationV2'
     | 'prepareWalletSessionAuthorizationV2'
     | 'readWalletSessionAuthorizationV2ByMint'
   >;
