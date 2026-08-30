@@ -1045,8 +1045,10 @@ Primary files:
       `target_factor_verified_at_ms >= 0` constraint.
 - [x] Verify the linked Passkey exact method exposes account-menu inventory and
       NEAR plus EVM-family signing-ready state immediately after linking.
-- [ ] Verify export and the remaining factor combinations immediately after
-      linking without a lock/unlock cycle.
+- [x] Verify exact export-lane readiness immediately after linking without a
+      lock/unlock cycle.
+- [ ] Verify the remaining factor combinations immediately after linking
+      without a lock/unlock cycle.
 
 Primary files:
 
