@@ -1449,8 +1449,9 @@ credentials, and a current registration path still reaches immediate signing.
       installation, exact admission, and immediate NEAR/EVM-family signing.
       `188412a3a` proves an exact active Passkey or Email OTP registration
       session authorizes the durable ECDSA capability without requiring a
-      sealed-runtime record; the authoritative Passkey intended contract
-      remains separate acceptance evidence and is still running.
+      sealed-runtime record; `d3d399aab` and the authoritative Passkey intended
+      contract prove the promoted exact session then signs on both Tempo and
+      NEAR.
 - [x] Add failure injection proving a failed batch exposes no usable session or
       quota and replay cannot rotate the credential.
 - [x] Assign every live opaque runtime-binding field to the exact material
