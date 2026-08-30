@@ -83,6 +83,7 @@ import {
 import {
   parseActiveWalletSessionV1,
   parseWalletSessionOperationCredentialV1,
+  type WalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
 import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
@@ -181,7 +182,10 @@ import {
   deriveRouterAbEd25519YaoRuntimePolicyBindingV1,
   parseRouterAbEd25519YaoExportAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import { type WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
+import {
+  type WalletRegistrationEd25519YaoBootstrapSession,
+  type WalletRegistrationEd25519YaoSignerRuntimeBootstrap,
+} from '@/core/rpcClients/relayer/walletRegistration';
 import {
   parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
@@ -2418,7 +2422,10 @@ async function unlockEmailOtpAuthorityWallet(
     let ed25519Activation: EmailOtpWorkerOperationMap['unlockEmailOtpAuthorityWallet']['result']['ed25519Activation'] =
       { kind: 'ed25519_activation_absent' };
     if (args.ed25519.kind !== 'no_ed25519') {
-      const bootstrap = parseEmailOtpEd25519YaoRecoveryBootstrap(verified.ed25519YaoCapability);
+      const bootstrap = parseEmailOtpEd25519YaoRecoveryBootstrap(
+        verified.ed25519YaoCapability,
+        verified.operationCredential,
+      );
       if (args.ed25519.kind === 'linked_device') {
         /* A linked device opens its own sealed material after this call, so the
            bootstrap is all it needs from here. */
@@ -2500,9 +2507,7 @@ function ownerEmailOtpWalletCustodyProjection(args: {
     case 'device_link':
       return null;
     default:
-      return assertNeverEmailOtpWorker(
-        args.verifiedAuthorityProjection.authority.provenance,
-      );
+      return assertNeverEmailOtpWorker(args.verifiedAuthorityProjection.authority.provenance);
   }
 }
 
@@ -3211,14 +3216,6 @@ function parseEmailOtpWalletCustodyRejoinCommitPayload(value: unknown): {
   };
 }
 
-function capabilitySessionWalletToken(
-  bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1,
-): ReturnType<typeof requireOpaqueWalletSessionToken> {
-  return requireOpaqueWalletSessionToken(
-    readString(bootstrap.session.walletSessionToken, 'wallet custody Wallet Session token'),
-  );
-}
-
 type EmailOtpEd25519WalletCustodyRestoreResult =
   | {
       kind: 'opened';
@@ -3403,7 +3400,10 @@ async function completeEmailOtpUnlockFromSecret32(args: {
     const ed25519YaoBootstrap =
       args.material.kind === 'ed25519_yao_recovery' ||
       args.material.kind === 'wallet_unlock_capabilities'
-        ? parseEmailOtpEd25519YaoRecoveryBootstrap(verified.ed25519YaoCapability)
+        ? parseEmailOtpEd25519YaoRecoveryBootstrap(
+            verified.ed25519YaoCapability,
+            verified.operationCredential,
+          )
         : null;
     if (
       ed25519YaoBootstrap &&
@@ -4693,8 +4693,71 @@ function parseEmailOtpEd25519YaoWorkerMaterialActivation(value: unknown): MpcMat
   return parsed.value;
 }
 
+type EmailOtpEd25519YaoBootstrapSessionCredential =
+  | {
+      readonly sessionKind: 'issued_wallet_session_v1';
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+    }
+  | {
+      readonly sessionKind: 'reused_wallet_session_v2';
+      readonly operationCredential?: never;
+    };
+
+/**
+ * Validates the exact response branch and rejects credentials bound to a
+ * different Wallet Session. The reused branch already delivered its
+ * credential through the surrounding unlock response.
+ */
+function parseEmailOtpEd25519YaoBootstrapSessionCredential(
+  obj: Record<string, unknown>,
+  source: EmailOtpEd25519YaoBootstrapSessionCredentialSource,
+): EmailOtpEd25519YaoBootstrapSessionCredential {
+  const walletSessionId = parseWalletSessionId(obj.walletSessionId);
+  if (!walletSessionId.ok) {
+    throw new Error('Email OTP Ed25519 Yao recovery Wallet Session identity is invalid');
+  }
+  if (obj.sessionKind === 'issued_wallet_session_v1') {
+    const issued = parseWalletSessionOperationCredentialV1(obj.operationCredential);
+    if (issued.walletSessionId !== walletSessionId.value) {
+      throw new Error('Email OTP Ed25519 credential does not identify its Wallet Session');
+    }
+    if (source.kind === 'wallet_unlock_response' && source.unlockCredential !== undefined) {
+      const active = parseWalletSessionOperationCredentialV1(source.unlockCredential);
+      if (active.walletSessionId !== walletSessionId.value || active.token !== issued.token) {
+        throw new Error('Email OTP Ed25519 unlock credentials identify different Wallet Sessions');
+      }
+    }
+    return { sessionKind: obj.sessionKind, operationCredential: issued };
+  }
+  if (obj.sessionKind !== 'reused_wallet_session_v2') {
+    throw new Error('Email OTP Ed25519 Yao recovery session kind is invalid');
+  }
+  if (source.kind === 'resolved_worker_payload') {
+    throw new Error(
+      'Email OTP Ed25519 Yao worker bootstrap requires the exact issued operation credential',
+    );
+  }
+  if (obj.operationCredential !== undefined) {
+    throw new Error('Reused Ed25519 Wallet Session must not carry its own credential');
+  }
+  if (source.kind === 'wallet_unlock_response') {
+    const reused = parseWalletSessionOperationCredentialV1(source.unlockCredential);
+    if (reused.walletSessionId !== walletSessionId.value) {
+      throw new Error('Email OTP Ed25519 session reuses another Wallet Session');
+    }
+  }
+  return { sessionKind: obj.sessionKind };
+}
+
+type EmailOtpEd25519YaoBootstrapSessionCredentialSource =
+  /** The unlock response, whose issued branch carries its own credential. */
+  | { readonly kind: 'wallet_unlock_response'; readonly unlockCredential: unknown }
+  /** A worker message, already resolved to one credential by the client. */
+  | { readonly kind: 'resolved_worker_payload' };
+
 function parseEmailOtpEd25519YaoBootstrapSession(
   value: unknown,
+  source: EmailOtpEd25519YaoBootstrapSessionCredentialSource,
 ): WalletRegistrationEd25519YaoBootstrapSession {
   const obj = workerPayloadObject(value);
   if (!obj) throw new Error('Email OTP Ed25519 Yao recovery session is required');
@@ -4702,7 +4765,7 @@ function parseEmailOtpEd25519YaoBootstrapSession(
     obj,
     [
       'sessionKind',
-      'walletSessionToken',
+      'operationCredential',
       'walletId',
       'nearAccountId',
       'nearEd25519SigningKeyId',
@@ -4721,9 +4784,7 @@ function parseEmailOtpEd25519YaoBootstrapSession(
     ],
     'ed25519YaoRecovery.session',
   );
-  if (obj.sessionKind !== 'opaque') {
-    throw new Error('Email OTP Ed25519 Yao recovery session must use an opaque token');
-  }
+  const credential = parseEmailOtpEd25519YaoBootstrapSessionCredential(obj, source);
   const authorityScope = workerPayloadObject(obj.authorityScope);
   if (!authorityScope) {
     throw new Error('Email OTP Ed25519 Yao recovery authority scope is required');
@@ -4754,9 +4815,7 @@ function parseEmailOtpEd25519YaoBootstrapSession(
   if (!walletSessionId.ok || !authorizationId.ok || !quotaId.ok) {
     throw new Error('Email OTP Ed25519 Yao recovery Wallet Session identity is invalid');
   }
-  return {
-    sessionKind: 'opaque',
-    walletSessionToken: readString(obj.walletSessionToken, 'session.walletSessionToken'),
+  const base: WalletRegistrationEd25519YaoSignerRuntimeBootstrap = {
     walletId: toWalletId(readString(obj.walletId, 'session.walletId')),
     nearAccountId: readString(obj.nearAccountId, 'session.nearAccountId'),
     nearEd25519SigningKeyId: readString(
@@ -4789,6 +4848,7 @@ function parseEmailOtpEd25519YaoBootstrapSession(
     ),
     routerAbNormalSigning,
   };
+  return { ...base, ...credential };
 }
 
 type EmailOtpEd25519YaoMaterialActivationParser = (value: unknown) => MpcMaterialActivationRef;
@@ -5084,6 +5144,7 @@ function parseEmailOtpEd25519YaoActiveCapabilityWithMaterialParser(
 
 function parseEmailOtpEd25519YaoRecoveryBootstrap(
   value: unknown,
+  unlockCredential: unknown,
 ): EmailOtpEd25519YaoRecoveryBootstrapV1 {
   const obj = workerPayloadObject(value);
   if (!obj) throw new Error('Email OTP Ed25519 Yao recovery bootstrap is required');
@@ -5093,7 +5154,10 @@ function parseEmailOtpEd25519YaoRecoveryBootstrap(
   }
   return {
     kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
-    session: parseEmailOtpEd25519YaoBootstrapSession(obj.session),
+    session: parseEmailOtpEd25519YaoBootstrapSession(obj.session, {
+      kind: 'wallet_unlock_response',
+      unlockCredential,
+    }),
     capability: parseEmailOtpEd25519YaoActiveCapability(obj.capability),
   };
 }
@@ -5109,7 +5173,9 @@ function parseEmailOtpEd25519YaoWorkerRecoveryBootstrap(
   }
   return {
     kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
-    session: parseEmailOtpEd25519YaoBootstrapSession(obj.session),
+    session: parseEmailOtpEd25519YaoBootstrapSession(obj.session, {
+      kind: 'resolved_worker_payload',
+    }),
     capability: parseEmailOtpEd25519YaoWorkerActiveCapability(obj.capability),
   };
 }

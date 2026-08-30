@@ -97,6 +97,7 @@ import type {
   EcdsaDerivationClientBootstrapRequest,
   EcdsaDerivationServerBootstrapResponse,
 } from '../../../../core/types';
+import type { WalletRegistrationCommittedInstallationProjectionV1 } from '../../../../core/threeRouteRegistrationContracts';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPrepareContext,
@@ -772,10 +773,30 @@ function parseWalletRegistrationRouteTimingName(
   raw: unknown,
 ): WalletRegistrationRouteDiagnostics['entries'][number]['name'] | null {
   switch (raw) {
+    case 'registrationIntentLoadMs':
+    case 'registrationIntentDigestMs':
+    case 'registrationIntentConsumeMs':
+    case 'registrationAttemptGateMs':
+    case 'registrationPreparationPersistMs':
+    case 'registrationPreparationLoadMs':
+    case 'registrationPreparationConsumeMs':
+    case 'registrationPreparationScopeCheckMs':
+    case 'registrationAuthorityVerifyMs':
+    case 'registrationEcdsaPrepareMs':
+    case 'registrationCeremonyPersistMs':
+    case 'registerPrepareTotalMs':
+    case 'registerStartTotalMs':
+    case 'registrationEcdsaRespondMs':
+    case 'registrationFinalizeReplayLoadMs':
     case 'registrationCeremonyLoadMs':
     case 'registrationEcdsaBootstrapVerifyMs':
+    case 'sponsoredNearAccountCreateMs':
+    case 'registrationKeygenMs':
     case 'registrationEmailOtpEnrollmentPlanMs':
+    case 'relaySessionMintMs':
+    case 'relayGoogleEmailOtpActivationPlanMs':
     case 'relayPersistenceMs':
+    case 'registrationFinalizeReplayCacheMs':
     case 'registerFinalizeTotalMs':
       return raw;
     default:
@@ -791,7 +812,8 @@ function parseWalletRegistrationRouteDiagnostics(
     !record ||
     record.kind !== 'wallet_registration_route_diagnostics_v1' ||
     record.route !== 'wallets_register_finalize' ||
-    !Array.isArray(record.entries)
+    !Array.isArray(record.entries) ||
+    !hasExactKeys(record, ['kind', 'route', 'entries'])
   ) {
     return null;
   }
@@ -799,7 +821,13 @@ function parseWalletRegistrationRouteDiagnostics(
   for (const rawEntry of record.entries) {
     const entry = toRecordValue(rawEntry);
     const name = parseWalletRegistrationRouteTimingName(entry?.name);
-    if (!entry || !name || typeof entry.durationMs !== 'number' || entry.durationMs < 0) {
+    if (
+      !entry ||
+      !hasExactKeys(entry, ['name', 'durationMs']) ||
+      !name ||
+      typeof entry.durationMs !== 'number' ||
+      entry.durationMs < 0
+    ) {
       return null;
     }
     entries.push({ name, durationMs: entry.durationMs });
@@ -809,6 +837,185 @@ function parseWalletRegistrationRouteDiagnostics(
     route: 'wallets_register_finalize',
     entries,
   };
+}
+
+function hasExactKeys(record: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(record);
+  return actual.length === expected.length && expected.every((key) => actual.includes(key));
+}
+
+function hasStrictRegistrationAuthorityRecord(raw: unknown): boolean {
+  const record = toRecordValue(raw);
+  if (!record) return false;
+  if (record.kind === 'passkey') {
+    const device = toRecordValue(record.device);
+    return (
+      hasExactKeys(record, [
+        'kind',
+        'walletId',
+        'rpId',
+        'credentialIdB64u',
+        'credentialPublicKeyB64u',
+        'counter',
+        'device',
+        'registrationIntentDigestB64u',
+      ]) &&
+      device !== null &&
+      hasStrictWebAuthnDeviceInfo(device)
+    );
+  }
+  if (record.kind !== 'email_otp') return false;
+  if (record.proofKind === 'otp_challenge') {
+    return hasExactKeys(record, [
+      'kind',
+      'proofKind',
+      'walletId',
+      'providerSubject',
+      'challengeSubjectId',
+      'email',
+      'emailHashHex',
+      'challengeId',
+      'registrationAuthorityId',
+      'originalWalletId',
+      'finalWalletId',
+      'orgId',
+      'ownerProofBindingDigest',
+      'challengePurpose',
+      'registrationIntentDigestB64u',
+    ]);
+  }
+  if (record.proofKind === 'google_sso_registration') {
+    return hasExactKeys(record, [
+      'kind',
+      'proofKind',
+      'walletId',
+      'providerSubject',
+      'email',
+      'emailHashHex',
+      'googleEmailOtpRegistrationAttemptId',
+      'googleEmailOtpRegistrationOfferId',
+      'googleEmailOtpRegistrationCandidateId',
+      'registrationAuthorityId',
+      'finalWalletId',
+      'orgId',
+      'ownerProofBindingDigest',
+      'registrationIntentDigestB64u',
+    ]);
+  }
+  return false;
+}
+
+function hasStrictWebAuthnDeviceInfo(record: Record<string, unknown>): boolean {
+  const keys = Object.keys(record);
+  const allowed = ['label', 'browser', 'os', 'synced', 'transports', 'provider', 'providerLabel'];
+  if (!keys.every((key) => allowed.includes(key))) return false;
+  if (
+    !keys.includes('label') ||
+    !keys.includes('browser') ||
+    !keys.includes('os') ||
+    !keys.includes('synced') ||
+    !keys.includes('transports')
+  ) {
+    return false;
+  }
+  return parseWebAuthnAuthenticatorDeviceInfo(record) !== null;
+}
+
+function hasStrictStoredRegistrationSignerPlan(raw: unknown): boolean {
+  const record = toRecordValue(raw);
+  if (!record || !hasExactKeys(record, ['kind', 'branches']) || record.kind !== 'signer_set') {
+    return false;
+  }
+  if (!Array.isArray(record.branches) || record.branches.length === 0) return false;
+  for (const rawBranch of record.branches) {
+    const branch = toRecordValue(rawBranch);
+    if (!branch) return false;
+    if (
+      branch.kind === 'near_ed25519' &&
+      !hasExactKeys(branch, [
+        'kind',
+        'branchKey',
+        'accountProvisioning',
+        'signerSlot',
+        'participantIds',
+        'keyPurpose',
+        'keyVersion',
+        'derivationVersion',
+      ])
+    ) {
+      return false;
+    }
+    if (
+      branch.kind === 'evm_family_ecdsa' &&
+      !hasExactKeys(branch, ['kind', 'branchKey', 'participantIds', 'chainTargets'])
+    ) {
+      return false;
+    }
+    if (branch.kind !== 'near_ed25519' && branch.kind !== 'evm_family_ecdsa') return false;
+  }
+  return true;
+}
+
+function hasStrictThresholdEcdsaChainTarget(raw: unknown): boolean {
+  const record = toRecordValue(raw);
+  if (!record) return false;
+  if (record.kind === 'evm') {
+    return (
+      (hasExactKeys(record, ['kind', 'namespace', 'chainId']) ||
+        hasExactKeys(record, ['kind', 'namespace', 'chainId', 'networkSlug'])) &&
+      record.namespace === 'eip155'
+    );
+  }
+  if (record.kind === 'tempo') {
+    return (
+      hasExactKeys(record, ['kind', 'chainId']) ||
+      hasExactKeys(record, ['kind', 'chainId', 'networkSlug'])
+    );
+  }
+  return false;
+}
+
+function hasStrictStoredWalletRegistrationPreparedContext(raw: unknown): boolean {
+  const record = toRecordValue(raw);
+  if (
+    !record ||
+    !hasExactKeys(record, [
+      'kind',
+      'signingRootId',
+      'signingRootVersion',
+      'runtimePolicy',
+      'ecdsa',
+    ]) ||
+    record.kind !== 'wallet_registration_prepared_context_v1'
+  ) {
+    return false;
+  }
+  const runtimePolicy = toRecordValue(record.runtimePolicy);
+  const ecdsa = toRecordValue(record.ecdsa);
+  if (!runtimePolicy || !ecdsa) return false;
+  if (runtimePolicy.kind === 'runtime_policy_scope') {
+    const scope = toRecordValue(runtimePolicy.scope);
+    if (
+      !hasExactKeys(runtimePolicy, ['kind', 'scope']) ||
+      !scope ||
+      !hasExactKeys(scope, ['orgId', 'projectId', 'envId', 'signingRootVersion'])
+    ) {
+      return false;
+    }
+  } else if (runtimePolicy.kind === 'signing_root_only') {
+    if (!hasExactKeys(runtimePolicy, ['kind'])) return false;
+  } else {
+    return false;
+  }
+  if (ecdsa.kind === 'evm_family_ecdsa_requested') {
+    return (
+      hasExactKeys(ecdsa, ['kind', 'chainTargets']) &&
+      Array.isArray(ecdsa.chainTargets) &&
+      ecdsa.chainTargets.length > 0 &&
+      ecdsa.chainTargets.every(hasStrictThresholdEcdsaChainTarget)
+    );
+  }
+  return ecdsa.kind === 'evm_family_ecdsa_absent' && hasExactKeys(ecdsa, ['kind']);
 }
 
 export function parseD1WalletRegistrationFinalizeTerminalResponse(
@@ -1154,9 +1361,12 @@ function parseD1StoredSignerSetRegistrationBranch(
   }
 }
 
-function parseD1StoredNearEd25519YaoAuthorizedBranch(
+export function parseD1StoredNearEd25519YaoAuthorizedBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationNearEd25519YaoAuthorizedBranch | null {
+  if (!hasExactKeys(record, ['kind', 'branchKey', 'admissionRequest', 'admissionReceipt'])) {
+    return null;
+  }
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
   const admissionRequest = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(
     record.admissionRequest,
@@ -1170,6 +1380,109 @@ function parseD1StoredNearEd25519YaoAuthorizedBranch(
     branchKey,
     admissionRequest: admissionRequest.value,
     admissionReceipt: admissionReceipt.value,
+  };
+}
+
+export function parseD1WalletRegistrationCommittedInstallationProjection(
+  raw: unknown,
+): WalletRegistrationCommittedInstallationProjectionV1 | null {
+  const record = toRecordValue(raw);
+  if (
+    !record ||
+    !hasExactKeys(record, [
+      'kind',
+      'registrationCeremonyId',
+      'walletId',
+      'orgId',
+      'registrationAuthority',
+      'signerPlan',
+      'preparedContext',
+      'nearEd25519',
+    ]) ||
+    record.kind !== 'wallet_registration_committed_installation_projection_v1'
+  ) {
+    return null;
+  }
+  const registrationCeremonyId = toOptionalTrimmedString(record.registrationCeremonyId);
+  const walletId = parseWalletIdForIntent(record.walletId);
+  const orgId = parseOrgId(record.orgId);
+  if (
+    !hasStrictRegistrationAuthorityRecord(record.registrationAuthority) ||
+    !hasStrictStoredRegistrationSignerPlan(record.signerPlan) ||
+    !hasStrictStoredWalletRegistrationPreparedContext(record.preparedContext)
+  ) {
+    return null;
+  }
+  const registrationAuthority = parseD1RegistrationAuthority(record.registrationAuthority);
+  const signerPlan = parseStoredRegistrationSignerPlan(record.signerPlan);
+  const preparedContext = parseStoredWalletRegistrationPreparedContext(record.preparedContext);
+  const nearEd25519Record = toRecordValue(record.nearEd25519);
+  if (
+    !nearEd25519Record ||
+    !hasExactKeys(nearEd25519Record, ['kind', 'branchKey', 'admissionRequest', 'admissionReceipt'])
+  ) {
+    return null;
+  }
+  const nearEd25519 = nearEd25519Record
+    ? parseD1StoredNearEd25519YaoAuthorizedBranch(nearEd25519Record)
+    : null;
+  const planNearEd25519 = signerPlan
+    ? signerPlan.branches.find((branch) => branch.kind === 'near_ed25519')
+    : undefined;
+  const planEvmFamilyEcdsa = signerPlan
+    ? signerPlan.branches.find((branch) => branch.kind === 'evm_family_ecdsa')
+    : undefined;
+  if (
+    !registrationCeremonyId ||
+    !walletId ||
+    !orgId.ok ||
+    !registrationAuthority ||
+    !signerPlan ||
+    !preparedContext ||
+    !nearEd25519 ||
+    !planNearEd25519 ||
+    !planEvmFamilyEcdsa ||
+    signerPlan.branches.length !== 2 ||
+    registrationAuthority.walletId !== walletId ||
+    nearEd25519.branchKey !== planNearEd25519.branchKey ||
+    nearEd25519.admissionRequest.application_binding.wallet_id !== walletId ||
+    nearEd25519.admissionRequest.application_binding.signing_root_id !==
+      preparedContext.signingRootId ||
+    nearEd25519.admissionRequest.scope.lifecycle_id !== registrationCeremonyId ||
+    nearEd25519.admissionRequest.scope.root_share_epoch !== preparedContext.signingRootVersion ||
+    nearEd25519.admissionRequest.scope.account_id !== String(walletId) ||
+    nearEd25519.admissionRequest.scope.signer_set_id !== String(planNearEd25519.branchKey) ||
+    nearEd25519.admissionRequest.application_binding.key_creation_signer_slot !==
+      planNearEd25519.signerSlot ||
+    nearEd25519.admissionRequest.participant_ids.length !== planNearEd25519.participantIds.length ||
+    nearEd25519.admissionRequest.participant_ids.some(
+      (participantId, index) => participantId !== planNearEd25519.participantIds[index],
+    ) ||
+    preparedContext.ecdsa.kind !== 'evm_family_ecdsa_requested' ||
+    !thresholdEcdsaChainTargetsEqual(
+      planEvmFamilyEcdsa.chainTargets,
+      preparedContext.ecdsa.chainTargets,
+    ) ||
+    (preparedContext.runtimePolicy.kind === 'runtime_policy_scope' &&
+      preparedContext.runtimePolicy.scope.signingRootVersion !==
+        preparedContext.signingRootVersion) ||
+    (registrationAuthority.kind === 'email_otp' &&
+      (registrationAuthority.finalWalletId !== walletId ||
+        registrationAuthority.orgId !== orgId.value)) ||
+    preparedContext.runtimePolicy.kind !== 'runtime_policy_scope' ||
+    preparedContext.runtimePolicy.scope.orgId !== orgId.value
+  ) {
+    return null;
+  }
+  return {
+    kind: 'wallet_registration_committed_installation_projection_v1',
+    registrationCeremonyId,
+    walletId,
+    orgId: orgId.value,
+    registrationAuthority,
+    signerPlan,
+    preparedContext,
+    nearEd25519,
   };
 }
 

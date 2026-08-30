@@ -35,9 +35,15 @@ import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonical
 import {
   parseWalletAuthMethodId,
   parseWalletAuthorityBindingDigest,
+  parseWalletAuthorityId,
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
+  type WalletAuthMethodId,
+  type WalletAuthorityId,
+  type WalletId,
+  type WebAuthnCredentialIdB64u,
+  type WebAuthnRpId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import {
   parseWalletAuthAuthorityRef,
@@ -45,6 +51,10 @@ import {
   type PasskeyWalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '../../../packages/shared-ts/src/utils/walletAuthAuthority';
+import {
+  buildWalletAuthMethodRecordV2,
+  type WalletAuthMethodRecordV2,
+} from '../../../packages/shared-ts/src/utils/registrationIntent';
 import {
   buildAuthorizedOperation,
   buildWalletSessionAuthorization,
@@ -103,6 +113,10 @@ export type PasskeyWalletSessionIssuanceFixture = {
   };
   readonly authority: PasskeyWalletAuthAuthority;
   readonly authorityRef: WalletAuthAuthorityRef;
+  readonly authMethod: Extract<
+    WalletAuthMethodRecordV2,
+    { readonly kind: 'passkey'; readonly status: 'active' }
+  >;
 };
 
 type EvmFixtureOperation =
@@ -139,11 +153,13 @@ export async function buildReusableAuthorizationCoreFixture(
   const authorizationId = parsed('authorization-grant-1', parseWalletSessionAuthorizationId);
   const quotaId = parsed('wallet-quota-1', parseMpcWalletSigningQuotaId);
   const walletId = parsed('wallet-authorization', parseWalletId);
+  const walletAuthMethodId = parsed('wallet-auth-method-1', parseWalletAuthMethodId);
   const walletSessionExpiresAtMs = input.quotaExpiresAtMs ?? FIXTURE_NOW_MS + 80_000;
   const authority = parseWalletAuthAuthorityRef({
     kind: 'wallet_auth_authority_ref',
     walletId,
     authorityDigest: parsed('authority-digest-1', parseWalletAuthorityBindingDigest),
+    walletAuthMethodId,
   });
   if (!authority) throw new Error('fixture wallet authority is invalid');
   const laneDigest = fixtureDigest(1);
@@ -373,6 +389,10 @@ export async function buildWalletOperationPasskeyVerifiedFactorFixture(): Promis
     kind: 'wallet_auth_authority_ref',
     walletId,
     authorityDigest: parsedDomain(fixtureDigest(17), parseWalletAuthorityBindingDigest),
+    walletAuthMethodId: parsedDomain(
+      'wallet-auth-method:wallet-passkey',
+      parseWalletAuthMethodId,
+    ),
   });
   if (!authorityRef) throw new Error('Wallet operation Passkey authority ref fixture is invalid');
   const requestOrigin = parseSessionOrigin('https://app.example.test');
@@ -407,26 +427,76 @@ export async function buildPasskeyWalletSessionIssuanceFixture(input: {
   readonly origin: string;
   readonly expiresAtMs: number;
 }): Promise<PasskeyWalletSessionIssuanceFixture> {
+  const walletId = parsedDomain(input.walletId, parseWalletId);
+  const walletAuthMethodId = parsedDomain(input.walletAuthMethodId, parseWalletAuthMethodId);
+  const walletAuthorityId = parsedDomain(
+    `wallet-authority:${input.walletAuthMethodId}`,
+    parseWalletAuthorityId,
+  );
+  const credentialIdB64u = parsedDomain(
+    input.credentialIdB64u,
+    parseWebAuthnCredentialIdB64u,
+  );
+  const rpId = parsedDomain(input.rpId, parseWebAuthnRpId);
   const authority: PasskeyWalletAuthAuthority = {
-    walletId: parsedDomain(input.walletId, parseWalletId),
+    walletId,
     factor: {
       kind: 'passkey',
-      credentialIdB64u: parsedDomain(input.credentialIdB64u, parseWebAuthnCredentialIdB64u),
+      credentialIdB64u,
     },
-    verifier: { kind: 'webauthn', rpId: parsedDomain(input.rpId, parseWebAuthnRpId) },
-    bindingId: parsedDomain(input.walletAuthMethodId, parseWalletAuthMethodId),
+    verifier: { kind: 'webauthn', rpId },
+    bindingId: walletAuthMethodId,
   };
+  const activatedAtMs = input.expiresAtMs - 60_000;
+  const authMethod = buildActivePasskeyAuthMethodFixture({
+    walletAuthMethodId,
+    walletId,
+    walletAuthorityId,
+    rpId,
+    credentialIdB64u,
+    activatedAtMs,
+  });
   return {
     authority,
     authorityRef: await walletAuthAuthorityRef({ authority }),
+    authMethod,
     session: {
       tenantId: parsed(input.tenantId, parseTenantId),
       principalId: parsed(input.principalId, parsePrincipalId),
-      createdAtMs: input.expiresAtMs - 60_000,
+      createdAtMs: activatedAtMs,
       expiresAtMs: input.expiresAtMs,
       origin: parseSessionOrigin(input.origin),
     },
   };
+}
+
+function buildActivePasskeyAuthMethodFixture(input: {
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly walletId: WalletId;
+  readonly walletAuthorityId: WalletAuthorityId;
+  readonly rpId: WebAuthnRpId;
+  readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  readonly activatedAtMs: number;
+}): Extract<WalletAuthMethodRecordV2, { kind: 'passkey'; status: 'active' }> {
+  const record = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: input.walletAuthMethodId,
+    walletId: input.walletId,
+    walletAuthorityId: input.walletAuthorityId,
+    kind: 'passkey',
+    status: 'active',
+    rpId: input.rpId,
+    credentialIdB64u: input.credentialIdB64u,
+    credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(65).fill(7)),
+    counter: 0,
+    createdAtMs: input.activatedAtMs,
+    updatedAtMs: input.activatedAtMs,
+    activatedAtMs: input.activatedAtMs,
+  });
+  if (record.kind !== 'passkey' || record.status !== 'active') {
+    throw new Error('authorization fixture auth method has the wrong branch');
+  }
+  return record;
 }
 
 function fixtureDigest(fill: number) {

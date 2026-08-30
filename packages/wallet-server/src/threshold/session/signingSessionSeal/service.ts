@@ -132,7 +132,7 @@ function signingSessionSealAuthorizationId(
   session: SigningSessionSealAuthorizationSessionRecord,
 ): string {
   switch (session.kind) {
-    case 'owner_threshold_session':
+    case 'exact_wallet_session_operation_credential':
       return session.thresholdSessionId;
   }
 }

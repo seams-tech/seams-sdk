@@ -91,7 +91,8 @@ export class EmailOtpWalletSessionRuntime {
         configs: deps.configs,
         withThresholdEcdsaSigningQueue: deps.withThresholdEcdsaSigningQueue,
         getSignerWorkerContext: deps.getSignerWorkerContext,
-        readActiveWalletSessionAuthorization: deps.readActiveWalletSessionAuthorization,
+        resolveSelectedWalletAuthority: deps.resolveSelectedWalletAuthority,
+        readExactWalletSessionAuthorization: deps.readExactWalletSessionAuthorization,
         provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
         commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,
         resolveCurrentEcdsaCapabilityRuntime: deps.resolveCurrentEcdsaCapabilityRuntime,
@@ -182,7 +183,6 @@ export class EmailOtpWalletSessionRuntime {
   ): Promise<EmailOtpTransactionSigningChallenge> {
     return await this.exportRecoveryRuntime.requestTransactionSigningChallenge(args);
   }
-
 
   async requestExportChallenge(
     args: RequestEmailOtpExportChallengeArgs,

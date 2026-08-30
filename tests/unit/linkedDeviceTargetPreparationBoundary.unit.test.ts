@@ -3,12 +3,16 @@ import {
   computeLinkedDevicePasskeyTargetConfigurationDigestV1,
   computeLinkedDeviceTargetPreparationDigestV1,
 } from '../../packages/shared-ts/src/device-linking/digests';
-import { parseLinkedDeviceTargetPreparationV1 } from '../../packages/shared-ts/src/device-linking/parsers';
+import {
+  parseLinkedDeviceTargetPreparationRequestV1,
+  parseLinkedDeviceTargetPreparationV1,
+} from '../../packages/shared-ts/src/device-linking/parsers';
 import {
   buildEmailOtpTargetPreparationFixtureV1,
   buildPasskeyTargetPreparationFixtureV1,
 } from './helpers/linkedDeviceTargetPreparation.fixtures';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { normalizeLinkedDevicePasskeyTargetConfigurationV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthConfig';
 
 test('passkey target preparation round-trips its server-owned creation options', async () => {
@@ -29,6 +33,54 @@ test('passkey target preparation round-trips its server-owned creation options',
   await expect(computeLinkedDeviceTargetPreparationDigestV1(changedOptions)).resolves.not.toEqual(
     digest,
   );
+});
+
+test('target preparation authenticates and digests the worker delivery recipient', async () => {
+  const preparation = buildPasskeyTargetPreparationFixtureV1();
+  const request = parseLinkedDeviceTargetPreparationRequestV1({
+    kind: 'linked_device_target_preparation_request_v1',
+    linkSessionId: preparation.linkSessionId,
+    deliveryRecipientPublicKey65B64u: preparation.deliveryRecipientPublicKey65B64u,
+  });
+  expect(request.deliveryRecipientPublicKey65B64u).toBe(
+    preparation.deliveryRecipientPublicKey65B64u,
+  );
+
+  const originalDigest = await computeLinkedDeviceTargetPreparationDigestV1(preparation);
+  const changedRecipient =
+    'BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWsBy9HAHlgGVxGBS1g_Bh6dQxzKmUzqExNEm_l8hArgo';
+  const changedPreparation = parseLinkedDeviceTargetPreparationV1({
+    ...preparation,
+    deliveryRecipientPublicKey65B64u: changedRecipient,
+  });
+  await expect(computeLinkedDeviceTargetPreparationDigestV1(changedPreparation)).resolves.not.toBe(
+    originalDigest,
+  );
+});
+
+test('target preparation rejects malformed delivery recipients at the boundary', () => {
+  const preparation = buildPasskeyTargetPreparationFixtureV1();
+  expect(() =>
+    parseLinkedDeviceTargetPreparationRequestV1({
+      kind: 'linked_device_target_preparation_request_v1',
+      linkSessionId: preparation.linkSessionId,
+      deliveryRecipientPublicKey65B64u: base64UrlEncode(new Uint8Array(65)),
+    }),
+  ).toThrow(/uncompressed SEC1 P-256 point/);
+});
+
+test('target preparation rejects off-curve delivery recipients at the boundary', () => {
+  const preparation = buildPasskeyTargetPreparationFixtureV1();
+  const offCurveRecipient = base64UrlEncode(
+    Uint8Array.from({ length: 65 }, (_, index) => (index === 0 ? 4 : 0)),
+  );
+  expect(() =>
+    parseLinkedDeviceTargetPreparationRequestV1({
+      kind: 'linked_device_target_preparation_request_v1',
+      linkSessionId: preparation.linkSessionId,
+      deliveryRecipientPublicKey65B64u: offCurveRecipient,
+    }),
+  ).toThrow(/on-curve P-256 point/);
 });
 
 test('passkey target configuration digest binds both managed RP and origin', async () => {

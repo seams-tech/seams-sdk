@@ -54,6 +54,7 @@ import {
   type DeviceLinkEmailOtpBaseFactorSelectionProgressV1,
   type DeviceLinkTargetFactorActivationProgressV1,
   HOSTED_AUTH_MENU_ERROR_EVENT,
+  buildPMRedeemHostedWalletSeamsSessionPayload,
   parseWalletIframeSurfaceMeasurement,
   parseHostedAuthMenuErrorEvent,
   isRegistrationTimingSpanV1,
@@ -278,11 +279,6 @@ import type { LoginUnlockRequest } from '@/core/types/login.types';
 import { buildPMUnlockPayload } from '../shared/unlockOptions';
 import type { WalletId } from '@shared/utils/domainIds';
 import {
-  hostedWalletSessionCurveFromBoundary,
-  type HostedWalletSessionCurve,
-} from '../host/hostedWalletSeamsSession';
-import {
-  exactSessionStateFromWalletSession,
   parseWalletIframeExactSessionLockResult,
   parseWalletIframeExactSessionState,
   parseWalletSessionFromBoundary,
@@ -869,7 +865,6 @@ type PostResult<T> = {
 
 export type HostedWalletSeamsSessionSource = {
   readonly relayUrl: string;
-  readonly curve: HostedWalletSessionCurve;
   readonly walletSessionToken: OpaqueWalletSessionToken;
 };
 
@@ -902,8 +897,27 @@ function requireCompactExchangeValue(value: unknown, label: string): string {
   return parsed;
 }
 
+function assertExactBoundaryFields(
+  value: unknown,
+  fields: ReadonlySet<string>,
+  label: string,
+): Record<string, unknown> {
+  if (!isObject(value) || Object.keys(value).length !== fields.size) {
+    throw new Error(`${label} must be an exact object`);
+  }
+  for (const field of fields) {
+    if (!Object.hasOwn(value, field)) throw new Error(`Missing ${label} field: ${field}`);
+  }
+  return value;
+}
+
 function parseHostedWalletExchangeFailure(value: unknown, status: number): Error {
-  const record = isObject(value) ? value : {};
+  const record = assertExactBoundaryFields(
+    value,
+    new Set(['ok', 'code', 'message']),
+    'session exchange failure',
+  );
+  if (record.ok !== false) throw new Error('session exchange failure is invalid');
   const code = requireNonEmptyBoundaryString(record.code, 'session exchange error code');
   const message = requireNonEmptyBoundaryString(record.message, 'session exchange error message');
   const error = new Error(message) as Error & { code: string; status: number };
@@ -916,10 +930,14 @@ function parseHostedWalletExchangeDelivery(
   value: unknown,
   expected: { readonly appOrigin: string; readonly walletOrigin: string },
 ): HostedWalletSeamsSessionExchangeDelivery {
-  if (!isObject(value) || value.ok !== true || !isObject(value.delivery)) {
+  const response = assertExactBoundaryFields(
+    value,
+    new Set(['ok', 'delivery']),
+    'session exchange response',
+  );
+  if (response.ok !== true) {
     throw new Error('session exchange response must contain one delivery');
   }
-  const delivery = value.delivery;
   const deliveryFields = new Set([
     'exchangeCode',
     'nonce',
@@ -927,16 +945,11 @@ function parseHostedWalletExchangeDelivery(
     'walletOrigin',
     'expiresAtMs',
   ]);
-  for (const key of Object.keys(delivery)) {
-    if (!deliveryFields.has(key)) {
-      throw new Error(`Unsupported session exchange delivery field: ${key}`);
-    }
-  }
-  for (const field of deliveryFields) {
-    if (!Object.hasOwn(delivery, field)) {
-      throw new Error(`Missing session exchange delivery field: ${field}`);
-    }
-  }
+  const delivery = assertExactBoundaryFields(
+    response.delivery,
+    deliveryFields,
+    'session exchange delivery',
+  );
   const appOrigin = requireNonEmptyBoundaryString(delivery.appOrigin, 'delivery.appOrigin');
   const walletOrigin = requireNonEmptyBoundaryString(
     delivery.walletOrigin,
@@ -956,6 +969,24 @@ function parseHostedWalletExchangeDelivery(
     walletOrigin,
     expiresAtMs,
   };
+}
+
+function parseHostedWalletSeamsSessionRedemption(
+  value: unknown,
+): HostedWalletSeamsSessionRedemption {
+  const result = assertExactBoundaryFields(
+    value,
+    new Set(['kind', 'expiresAtMs']),
+    'hosted-wallet session redemption result',
+  );
+  if (result.kind !== 'redeemed_hosted_wallet_seams_session') {
+    throw new Error('wallet iframe returned an invalid hosted-wallet session redemption');
+  }
+  const expiresAtMs = Number(result.expiresAtMs);
+  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
+    throw new Error('wallet iframe returned an expired hosted-wallet session redemption');
+  }
+  return { kind: result.kind, expiresAtMs };
 }
 
 async function readSessionExchangeJson(response: Response): Promise<unknown> {
@@ -978,20 +1009,17 @@ function hostedWalletSessionSourcesMatch(
     left !== null &&
     canonicalHostedWalletRelayUrl(left.relayUrl) ===
       canonicalHostedWalletRelayUrl(right.relayUrl) &&
-    left.curve === right.curve &&
     left.walletSessionToken === right.walletSessionToken
   );
 }
 
 function hostedWalletSeamsSessionSource(input: {
   readonly relayUrl?: string;
-  readonly curve?: HostedWalletSessionCurve;
   readonly walletSessionToken?: string;
 }): HostedWalletSeamsSessionSource | null {
-  if (input.curve === undefined || input.walletSessionToken === undefined) return null;
+  if (input.walletSessionToken === undefined) return null;
   return {
     relayUrl: canonicalHostedWalletRelayUrl(input.relayUrl),
-    curve: input.curve,
     walletSessionToken: requireOpaqueWalletSessionToken(input.walletSessionToken),
   };
 }
@@ -1005,7 +1033,6 @@ function hostedWalletSeamsSessionSourceFromUnlock(
   if (!inventory || inventory.mode !== 'opaque_wallet_session') return null;
   return hostedWalletSeamsSessionSource({
     relayUrl: defaultRelayUrl,
-    curve: hostedWalletSessionCurveFromBoundary(inventory.curve),
     walletSessionToken: inventory.walletSessionToken,
   });
 }
@@ -2206,7 +2233,6 @@ export class WalletIframeRouter {
     if (!source) return;
     const normalizedSource: HostedWalletSeamsSessionSource = {
       relayUrl: canonicalHostedWalletRelayUrl(source.relayUrl),
-      curve: source.curve,
       walletSessionToken: requireOpaqueWalletSessionToken(source.walletSessionToken),
     };
     if (
@@ -2248,7 +2274,6 @@ export class WalletIframeRouter {
         Authorization: `Bearer ${walletSessionToken}`,
       },
       body: JSON.stringify({
-        curve: source.curve,
         appOrigin,
         walletOrigin,
       }),
@@ -2261,26 +2286,18 @@ export class WalletIframeRouter {
     });
     const redeemed = await this.post<HostedWalletSeamsSessionRedemption>({
       type: 'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION',
-      payload: {
+      payload: buildPMRedeemHostedWalletSeamsSessionPayload({
         exchangeCode: delivery.exchangeCode,
         nonce: delivery.nonce,
-        curve: source.curve,
         appOrigin: delivery.appOrigin,
         walletOrigin: delivery.walletOrigin,
         relayUrl,
-      },
+      }),
     });
-    if (
-      redeemed.result.kind !== 'redeemed_hosted_wallet_seams_session' ||
-      !Number.isSafeInteger(redeemed.result.expiresAtMs) ||
-      redeemed.result.expiresAtMs <= Date.now()
-    ) {
-      throw new Error('wallet iframe returned an invalid hosted-wallet session redemption');
-    }
-    this.state.hostedWalletSessionExpiresAtMs = redeemed.result.expiresAtMs;
+    const redemption = parseHostedWalletSeamsSessionRedemption(redeemed.result);
+    this.state.hostedWalletSessionExpiresAtMs = redemption.expiresAtMs;
     this.state.hostedWalletSessionSource = {
       relayUrl,
-      curve: source.curve,
       walletSessionToken,
     };
   }
@@ -2861,9 +2878,10 @@ export class WalletIframeRouter {
             },
           );
           if (res.result.ok) {
-            this.mirrorExactSessionAndEmitLoginStatus(
-              exactSessionStateFromWalletSession(res.result.value.session),
-            );
+            await this.refreshExactSessionAndEmitLoginStatus('current', {
+              kind: 'exact',
+              walletId: String(res.result.value.walletId),
+            });
           }
           return res.result;
         },

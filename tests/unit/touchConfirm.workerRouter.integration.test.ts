@@ -1,13 +1,16 @@
 import { expect, test } from '@playwright/test';
+import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 import {
   ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
 } from '@shared/utils/sessionTokens';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { setupBasicPasskeyTest } from '../setup';
 import { canonicalEvmFamilyEcdsaSigningCapabilityFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import {
   buildPasskeyEcdsaSealedRuntimeRecordFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
+import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   toThresholdOwnerAddress,
@@ -27,10 +30,74 @@ const IMPORT_PATHS = {
   sealedSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
   activeEcdsaCapabilityRuntime:
     '/_test-sdk/esm/core/signingEngine/session/material/activeEcdsaCapabilityRuntime.js',
+  ecdsaSealedRuntime:
+    '/_test-sdk/esm/core/signingEngine/session/material/ecdsaSealedRuntime.js',
   availableSigningLanes:
     '/_test-sdk/esm/core/signingEngine/session/availability/availableSigningLanes.js',
   selectLane: '/_test-sdk/esm/core/signingEngine/session/identity/selectLane.js',
+  indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
 } as const;
+
+async function buildPasskeyRestoreBrowserAuthorizationFixture(
+  record: CurrentEcdsaSealedSessionRecord,
+  label: string,
+) {
+  const factorAuthority = buildPasskeyWalletAuthAuthority({
+    walletId: String(record.walletId),
+    rpId: String(record.ecdsaRestore.rpId),
+    credentialIdB64u: String(record.ecdsaRestore.credentialIdB64u),
+  });
+  return await buildLinkedDeviceManagementAuthorityFixture({
+    label,
+    permissions: buildFullOwnerPermissionsV1(),
+    provenance: 'wallet_registration',
+    keyFamily: 'ecdsa_secp256k1',
+    materialActivation: record.ecdsaRestore.roleLocalMaterialRef.materialActivation,
+    identity: {
+      walletId: String(record.walletId),
+      authorityId: `authority:passkey-restore-${label}`,
+      walletAuthMethodId: factorAuthority.bindingId,
+      rpId: String(record.ecdsaRestore.rpId),
+      credentialIdB64u: String(record.ecdsaRestore.credentialIdB64u),
+    },
+    expiresAtMs: Date.now() + 5 * 60_000,
+  });
+}
+
+async function installPasskeyRestoreBrowserState(input: {
+  paths: typeof IMPORT_PATHS;
+  sealedRecord: CurrentEcdsaSealedSessionRecord;
+  browserAuthorization: Awaited<
+    ReturnType<typeof buildPasskeyRestoreBrowserAuthorizationFixture>
+  >;
+}): Promise<void> {
+  const sealedStoreMod = await import(input.paths.sealedSessionStore);
+  const indexedDbMod = await import(input.paths.indexedDB);
+  await sealedStoreMod.writeExactSealedSession(input.sealedRecord);
+  await indexedDbMod.IndexedDBManager.persistFoundingWalletAuthority({
+    authority: input.browserAuthorization.authority,
+    authMethod: input.browserAuthorization.authMethod,
+  });
+  await indexedDbMod.walletSessionAuthorizations.writeExactWithOperationCredential({
+    record: input.browserAuthorization.activeWalletSession,
+    operationCredential: input.browserAuthorization.operationCredential,
+  });
+  const selected = await indexedDbMod.IndexedDBManager.resolveSelectedWalletAuthority(
+    String(input.sealedRecord.walletId),
+  );
+  const exactSession = await indexedDbMod.walletSessionAuthorizations.readExactWithOperationCredential(
+    {
+      walletId: input.browserAuthorization.activeWalletSession.walletId,
+      authorityId: input.browserAuthorization.authority.authorityId,
+      authMethodId: input.browserAuthorization.authMethod.walletAuthMethodId,
+    },
+  );
+  if (selected.kind !== 'resolved' || exactSession.kind !== 'found') {
+    throw new Error(
+      `Passkey restore authorization fixture failed to install: ${selected.kind}/${exactSession.kind}`,
+    );
+  }
+}
 
 function materialRestoreIdentityFromPasskeyRecord(record: CurrentEcdsaSealedSessionRecord) {
   const restore = record.ecdsaRestore;
@@ -748,12 +815,21 @@ test.describe('UserConfirm worker router', () => {
       thresholdSessionId: 'session-rehydrate',
       remainingUses: 10,
     });
+    const browserAuthorization = await buildPasskeyRestoreBrowserAuthorizationFixture(
+      sealedRecord,
+      'explicit',
+    );
+    await page.evaluate(installPasskeyRestoreBrowserState, {
+      paths: IMPORT_PATHS,
+      sealedRecord,
+      browserAuthorization,
+    });
     const materialRestoreIdentity = materialRestoreIdentityFromPasskeyRecord(sealedRecord);
     const result = await page.evaluate(
       async ({ paths, sealedRecord, materialRestoreIdentity, manifest }) => {
         const sessionMod = await import(paths.passkeyMpcSessionManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
-        const runtimeMod = await import(paths.activeEcdsaCapabilityRuntime);
+        const runtimeMod = await import(paths.ecdsaSealedRuntime);
         const manager = sessionMod.createPasskeyMpcSessionManager({
           signingSessionPersistenceMode: 'sealed_refresh_v1',
           thresholdEcdsaSigningQueueByKey: new Map(),
@@ -803,15 +879,6 @@ test.describe('UserConfirm worker router', () => {
           }
           return null;
         };
-
-        await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet');
-          request.onsuccess = () => resolve();
-          request.onerror = () =>
-            reject(request.error || new Error('Failed to clear sealed session test database'));
-          request.onblocked = () => resolve();
-        });
-        await sealedStoreMod.writeExactSealedSession(sealedRecord);
 
         (manager as any).worker = fakeWorker;
 
@@ -1174,12 +1241,20 @@ test.describe('UserConfirm worker router', () => {
       thresholdSessionId: 'session-single-flight-remove',
       remainingUses: 10,
     });
+    const browserAuthorization = await buildPasskeyRestoreBrowserAuthorizationFixture(
+      sealedRecord,
+      'single-flight',
+    );
+    await page.evaluate(installPasskeyRestoreBrowserState, {
+      paths: IMPORT_PATHS,
+      sealedRecord,
+      browserAuthorization,
+    });
     const materialRestoreIdentity = materialRestoreIdentityFromPasskeyRecord(sealedRecord);
     const result = await page.evaluate(
       async ({ paths, sealedRecord, materialRestoreIdentity, manifest }) => {
         const sessionMod = await import(paths.passkeyMpcSessionManager);
-        const sealedStoreMod = await import(paths.sealedSessionStore);
-        const runtimeMod = await import(paths.activeEcdsaCapabilityRuntime);
+        const runtimeMod = await import(paths.ecdsaSealedRuntime);
         const manager = sessionMod.createPasskeyMpcSessionManager({
           signingSessionPersistenceMode: 'sealed_refresh_v1',
           thresholdEcdsaSigningQueueByKey: new Map(),
@@ -1229,15 +1304,6 @@ test.describe('UserConfirm worker router', () => {
           }
           throw new Error(`No worker message posted at index ${index}`);
         };
-
-        await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet');
-          request.onsuccess = () => resolve();
-          request.onerror = () =>
-            reject(request.error || new Error('Failed to clear sealed session test database'));
-          request.onblocked = () => resolve();
-        });
-        await sealedStoreMod.writeExactSealedSession(sealedRecord);
 
         (manager as any).worker = fakeWorker;
 
@@ -1306,12 +1372,20 @@ test.describe('UserConfirm worker router', () => {
       thresholdSessionId: 'session-cross-manager-remove',
       remainingUses: 10,
     });
+    const browserAuthorization = await buildPasskeyRestoreBrowserAuthorizationFixture(
+      sealedRecord,
+      'cross-manager',
+    );
+    await page.evaluate(installPasskeyRestoreBrowserState, {
+      paths: IMPORT_PATHS,
+      sealedRecord,
+      browserAuthorization,
+    });
     const materialRestoreIdentity = materialRestoreIdentityFromPasskeyRecord(sealedRecord);
     const result = await page.evaluate(
       async ({ paths, sealedRecord, materialRestoreIdentity, manifest }) => {
         const sessionMod = await import(paths.passkeyMpcSessionManager);
-        const sealedStoreMod = await import(paths.sealedSessionStore);
-        const runtimeMod = await import(paths.activeEcdsaCapabilityRuntime);
+        const runtimeMod = await import(paths.ecdsaSealedRuntime);
         const managerDeps = {
           signingSessionPersistenceMode: 'sealed_refresh_v1' as const,
           thresholdEcdsaSigningQueueByKey: new Map(),
@@ -1376,15 +1450,6 @@ test.describe('UserConfirm worker router', () => {
           }
           throw new Error(`No worker message posted at index ${index}`);
         };
-
-        await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet');
-          request.onsuccess = () => resolve();
-          request.onerror = () =>
-            reject(request.error || new Error('Failed to clear sealed session test database'));
-          request.onblocked = () => resolve();
-        });
-        await sealedStoreMod.writeExactSealedSession(sealedRecord);
 
         (managerA as any).worker = workerA;
         (managerB as any).worker = workerB;
@@ -1663,12 +1728,21 @@ test.describe('UserConfirm worker router', () => {
       thresholdSessionId: 'session-expired',
       remainingUses: 2,
     });
+    const browserAuthorization = await buildPasskeyRestoreBrowserAuthorizationFixture(
+      sealedRecord,
+      'expired',
+    );
+    await page.evaluate(installPasskeyRestoreBrowserState, {
+      paths: IMPORT_PATHS,
+      sealedRecord,
+      browserAuthorization,
+    });
     const materialRestoreIdentity = materialRestoreIdentityFromPasskeyRecord(sealedRecord);
     const result = await page.evaluate(
       async ({ paths, sealedRecord, materialRestoreIdentity, manifest }) => {
         const sessionMod = await import(paths.passkeyMpcSessionManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
-        const runtimeMod = await import(paths.activeEcdsaCapabilityRuntime);
+        const runtimeMod = await import(paths.ecdsaSealedRuntime);
         const manager = sessionMod.createPasskeyMpcSessionManager({
           signingSessionPersistenceMode: 'sealed_refresh_v1',
           thresholdEcdsaSigningQueueByKey: new Map(),
@@ -1719,15 +1793,6 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet');
-          request.onsuccess = () => resolve();
-          request.onerror = () =>
-            reject(request.error || new Error('Failed to clear sealed session test database'));
-          request.onblocked = () => resolve();
-        });
-        await sealedStoreMod.writeExactSealedSession(sealedRecord);
-
         (manager as any).worker = fakeWorker;
 
         const restorePromise = manager.restorePersistedSessionForSigning({
@@ -1750,16 +1815,25 @@ test.describe('UserConfirm worker router', () => {
         });
         const restoreResult = await restorePromise;
         await new Promise((resolve) => setTimeout(resolve, 5));
-        const persistedAfter = await sealedStoreMod.readExactSealedSession('session-expired', {
+        const activeAfter = await sealedStoreMod.readExactSealedSession('session-expired', {
           authMethod: 'passkey',
           curve: 'ecdsa',
           chainTarget: sealedRecord.ecdsaRestore.chainTarget,
         });
+        const durableRecordsAfter = await sealedStoreMod.listEcdsaSealedSessionsForWallet({
+          walletId: String(sealedRecord.walletId),
+          filter: { authMethod: 'passkey', curve: 'ecdsa' },
+        });
+        const inactiveAfter = durableRecordsAfter.find(
+          (record: { recordKind?: string }) =>
+            record.recordKind === 'ecdsa_inactive_sealed_material_v1',
+        );
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
           restoreResult,
-          persistedAfter,
+          activeAfter,
+          inactiveAfter,
         };
       },
       { paths: IMPORT_PATHS, sealedRecord, materialRestoreIdentity, manifest: fixture.manifest },
@@ -1772,7 +1846,13 @@ test.describe('UserConfirm worker router', () => {
       restored: 0,
       deferred: 1,
     });
-    expect(result.persistedAfter).not.toBeNull();
+    expect(result.activeAfter).toBeNull();
+    expect(result.inactiveAfter).toMatchObject({
+      recordKind: 'ecdsa_inactive_sealed_material_v1',
+      authorizationRetirementReason: 'expired',
+      sealedSecretB64u: sealedRecord.sealedSecretB64u,
+      keyVersion: sealedRecord.keyVersion,
+    });
   });
 
   test('exportPrivateKeysWithUi strips secret fields from worker payload', async ({ page }) => {

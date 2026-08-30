@@ -19,7 +19,6 @@ import {
 import {
   buildHostedAuthMenuExternalAuthResolution,
   buildHostedAuthMenuOpenRequest,
-  hostedAuthMenuExternalAuthRequestIdFromBoundary,
   hostedAuthMenuSessionIdFromBoundary,
 } from '@/SeamsWeb/walletIframe/shared/messages';
 import { walletIframeRequestIdFromBoundary } from '@/core/types/walletIframeIdentity';
@@ -47,9 +46,7 @@ function pendingLoginPreparation(): Promise<never> {
 
 const UNAVAILABLE_RECOVERY_PORT: HostedRecoveryPort = {
   targetFor: (kind: WalletRecoveryTargetV1['kind']) =>
-    kind === 'passkey'
-      ? { kind, rpId: 'wallet.example.test' }
-      : { kind, googleProvider: 'google' },
+    kind === 'passkey' ? { kind, rpId: 'wallet.example.test' } : { kind, googleProvider: 'google' },
   prepare: async () => ({ kind: 'refused' }),
   createPasskey: async () => ({ kind: 'refused' }),
   finalize: async () => ({ kind: 'refused' }),
@@ -116,13 +113,14 @@ function googleLoginFlow(
     emailHint: 'g***@example.test',
   },
 ): GoogleEmailOtpWalletAuthLoginFlow {
+  const walletId = walletIdFromString('wallet-google-test');
   const flow: GoogleEmailOtpWalletAuthLoginFlow = {
     kind: 'google_email_otp_wallet_auth_flow_v1',
-    flowId: 'google-flow-test',
+    flowId: `google-email-otp-login:${walletId}:google-flow-test`,
     requestedMode: 'login',
     mode: 'login',
     state: 'challenge_sent',
-    walletId: walletIdFromString('wallet-google-test'),
+    walletId,
     emailHint: 'g***@example.test',
     prompt: {
       title: 'Verify your email',
@@ -213,7 +211,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
       expect(prepared).toMatchObject({
         kind: 'hosted_passkey_account_sync_prepared_v1',
         challenge: {
-          walletId,
+          walletId: null,
           syncOptions: {
             challengeId: 'sync-challenge-local-repair',
             credentialIds: ['credential-local-repair'],
@@ -469,7 +467,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
     const submittedCodes: string[] = [];
     const session = authMenuSession({
       startDeviceLinking: async (targetFactor, nextCallbacks) => {
-        selectedFactor = targetFactor.kind;
+        selectedFactor = targetFactor.targetFactor.kind;
         callbacks = nextCallbacks;
         return await new Promise<never>(() => {});
       },
@@ -478,6 +476,9 @@ test.describe('hosted auth-menu passkey continuation', () => {
     Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
     Reflect.apply(Reflect.get(session, 'selectLinkedDeviceTargetFactor'), session, [
       { kind: 'email_otp' },
+    ]);
+    Reflect.apply(Reflect.get(session, 'changeLinkedDeviceTargetEmailAddress'), session, [
+      'alice@example.test',
     ]);
     Reflect.apply(Reflect.get(session, 'startSelectedDeviceLinking'), session, []);
     if (!callbacks) throw new Error('Device-linking flow did not publish its callbacks');

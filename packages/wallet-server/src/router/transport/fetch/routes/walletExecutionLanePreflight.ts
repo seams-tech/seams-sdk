@@ -20,6 +20,10 @@ import type {
   WalletKeyRecord,
 } from '@shared/signing-lanes';
 import { isPlainObject } from '@shared/utils/validation';
+import {
+  EVM_ECDSA_MPC_OPERATION_KINDS,
+  NEAR_ED25519_MPC_OPERATION_KINDS,
+} from '@shared/authorization/capabilityKinds';
 
 export const OWNER_WALLET_EXECUTION_LANE_PREFLIGHT_PATH = '/wallet/execution-lane/owner';
 
@@ -224,25 +228,38 @@ export async function handleOwnerWalletExecutionLanePreflight(
       body: request,
       headers,
       authorizationSessions: ctx.service.authorizationSessions,
+      operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
     });
     if (!validated.ok) return validationFailure(validated);
-    walletIdRaw = validated.binding.walletId;
+    if (validated.kind !== 'wallet_session_operation_credential_v1') {
+      return validationFailure({
+        code: WALLET_SESSION_FAILURE_CODES.invalid,
+        message: 'Execution-lane preflight requires an exact Wallet Session credential',
+      });
+    }
+    walletIdRaw = String(validated.context.authorization.session.walletId);
     authorization = {
       kind: 'wallet_auth_method',
-      walletAuthMethodId: validated.walletSessionAuth.walletAuthMethodId,
+      walletAuthMethodId: validated.context.authorization.session.walletAuthMethodId,
     };
   } else {
     const validated = await validateRouterAbEcdsaDerivationWalletSessionInputs({
       body: request,
       headers,
       authorizationSessions: ctx.service.authorizationSessions,
+      operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
     });
     if (!validated.ok) return validationFailure(validated);
-    walletIdRaw = validated.binding.walletId;
+    if (validated.kind !== 'wallet_session_operation_credential_v1') {
+      return validationFailure({
+        code: WALLET_SESSION_FAILURE_CODES.invalid,
+        message: 'Execution-lane preflight requires an exact Wallet Session credential',
+      });
+    }
+    walletIdRaw = String(validated.context.authorization.session.walletId);
     authorization = {
-      kind: 'authority_ref',
-      authorityRef: validated.walletSessionAuth.walletAuthAuthorityRef,
-      authSource: validated.walletSessionAuth.authSource,
+      kind: 'wallet_auth_method',
+      walletAuthMethodId: validated.context.authorization.session.walletAuthMethodId,
     };
   }
 

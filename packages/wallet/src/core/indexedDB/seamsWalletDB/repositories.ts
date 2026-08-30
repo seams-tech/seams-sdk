@@ -1,7 +1,7 @@
 import { toTrimmedString } from '@shared/utils/validation';
 import { buildNearProfileId } from '../../accountData/near/profileId';
 import { toAccountId } from '../../types/accountIds';
-import { alphabetizeStringify } from '@shared/utils/digests';
+import { alphabetizeStringify, sha256HexUtf8 } from '@shared/utils/digests';
 import {
   parseMpcMaterialActivationRef,
   mpcMaterialActivationRefsEqual,
@@ -39,8 +39,12 @@ import {
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import {
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+  parseWalletAuthAuthority,
   parseEmailOtpWalletAuthAuthority,
   walletAuthAuthoritiesMatch,
+  type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import type { KeyMaterialKind, KeyMaterialRecord } from '../keyMaterial.types';
 import {
@@ -96,6 +100,14 @@ import {
   toIndexedDbChainTargetKey,
 } from '../normalization';
 import { SEAMS_WALLET_INDEXES, SEAMS_WALLET_STORES } from '../schemaNames';
+import {
+  assertPendingWalletRegistrationIdentity,
+  buildPendingWalletRegistrationCommitV1,
+  parsePendingWalletRegistrationCommitAppStateRow,
+  pendingWalletRegistrationCommitAppStateKey,
+  toPendingWalletRegistrationCommitAppStateRow,
+  type PendingWalletRegistrationCommitV1,
+} from '../pendingWalletRegistrationCommit';
 import type { SeamsWalletDBManager, SeamsWalletTransactionContext } from './manager';
 import {
   parseStoredExactWalletSessionAuthorizationWithOperationCredential,
@@ -287,6 +299,8 @@ type WalletSelectionRow = {
 export type LocalAuthorityInstallationInputV1 = {
   readonly authority: PendingWalletAuthorityV1;
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { status: 'pending_local_install' }>;
+  readonly profile: UpsertProfileInput;
+  readonly authenticator: ProfileAuthenticatorRecord | null;
   readonly signerMaterials: readonly WalletAuthoritySignerMaterialRecordV1[];
   readonly exportRoot: WalletAuthorityExportRootRecordV1 | null;
   readonly receipt: LocalAuthorityInstallationReceiptV1;
@@ -376,6 +390,8 @@ type ValidatedFoundingWalletAuthorityInputV1 = PersistFoundingWalletAuthorityInp
 type ValidatedLocalAuthorityInstallationInput = {
   readonly authority: PendingWalletAuthorityV1;
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { status: 'pending_local_install' }>;
+  readonly profile: UpsertProfileInput;
+  readonly authenticator: ProfileAuthenticatorRecord | null;
   readonly signerMaterials: readonly WalletAuthoritySignerMaterialRecordV1[];
   readonly exportRoot: WalletAuthorityExportRootRecordV1 | null;
   readonly receipt: LocalAuthorityInstallationReceiptV1;
@@ -408,6 +424,182 @@ export type StoreWalletRegistrationFinalizeBatchInput = {
     scope?: string | null;
   };
 };
+
+export type WalletRegistrationCommitPublicationRequestV1 = {
+  readonly operation: PendingWalletRegistrationCommitV1['operation'];
+  readonly registrationCeremonyId: string;
+  readonly idempotencyKey: string;
+  readonly walletId: WalletId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+};
+
+export type StoreWalletRegistrationPublicationInputV1 = Omit<
+  StoreWalletRegistrationFinalizeBatchInput,
+  'lastProfileState'
+> & {
+  readonly lastProfileState: {
+    readonly profileId: string;
+    readonly activeSignerSlot: number;
+    readonly scope: string | null;
+  };
+};
+
+export type PublishPendingWalletRegistrationCommitInputV1 = {
+  readonly pending: PendingWalletRegistrationCommitV1;
+  readonly authority: WalletAuthAuthority;
+  readonly foundingAuthority: PersistFoundingWalletAuthorityInputV1;
+  readonly request: WalletRegistrationCommitPublicationRequestV1;
+  readonly registration: StoreWalletRegistrationPublicationInputV1;
+};
+
+function assertPendingWalletRegistrationRequestIdentity(
+  pending: PendingWalletRegistrationCommitV1,
+  request: WalletRegistrationCommitPublicationRequestV1,
+): void {
+  if (
+    pending.operation !== request.operation ||
+    pending.registrationCeremonyId !== request.registrationCeremonyId ||
+    pending.idempotencyKey !== request.idempotencyKey ||
+    pending.walletId !== request.walletId ||
+    pending.walletAuthMethodId !== request.walletAuthMethodId
+  ) {
+    throw new Error('pending wallet registration commit does not match the request');
+  }
+}
+
+function validateFoundingWalletAuthorityInput(
+  input: PersistFoundingWalletAuthorityInputV1,
+): ValidatedFoundingWalletAuthorityInputV1 {
+  const authority = parseWalletAuthorityV1(input.authority);
+  const authMethod = parseWalletAuthMethodRecordV2(input.authMethod);
+  if (
+    !authority.ok ||
+    authority.value.state !== 'active' ||
+    !authMethod ||
+    authMethod.status !== 'active' ||
+    authority.value.provenance.kind !== 'wallet_registration' ||
+    authMethod.walletId !== authority.value.walletId ||
+    authMethod.walletAuthorityId !== authority.value.authorityId
+  ) {
+    throw new Error('founding wallet authority records are invalid');
+  }
+  return { authority: authority.value, authMethod };
+}
+
+async function assertRegistrationFinalizeMatchesPending(input: {
+  readonly request: WalletRegistrationCommitPublicationRequestV1;
+  readonly pending: PendingWalletRegistrationCommitV1;
+  readonly authority: WalletAuthAuthority;
+  readonly foundingAuthority: ValidatedFoundingWalletAuthorityInputV1;
+  readonly registration: StoreWalletRegistrationPublicationInputV1;
+}): Promise<void> {
+  const pending = input.pending;
+  const foundingMethod = input.foundingAuthority.authMethod;
+  const initialMethod = input.registration.initialAuthMethod;
+  assertPendingWalletRegistrationRequestIdentity(pending, input.request);
+  assertPendingWalletRegistrationIdentity(pending, {
+    operation: input.request.operation,
+    walletId: input.request.walletId,
+    walletAuthMethodId: input.request.walletAuthMethodId,
+    authority: input.authority,
+  });
+  if (
+    foundingMethod.walletId !== pending.walletId ||
+    foundingMethod.walletAuthMethodId !== pending.walletAuthMethodId ||
+    initialMethod.walletId !== pending.walletId ||
+    initialMethod.status !== 'active' ||
+    initialMethod.localStatus !== 'synced' ||
+    initialMethod.kind !== pending.auth.kind ||
+    foundingMethod.kind !== pending.auth.kind ||
+    !input.registration.profiles.some((profile) => profile.profileId === pending.walletId) ||
+    input.registration.lastProfileState.profileId !== pending.walletId
+  ) {
+    throw new Error('registration finalize batch does not match the pending wallet');
+  }
+  const profileIds = new Set(input.registration.profiles.map((profile) => profile.profileId));
+  for (const profile of input.registration.profiles) {
+    if (
+      profile.passkeyCredential &&
+      (pending.auth.kind !== 'passkey' ||
+        profile.passkeyCredential.rawId !== pending.auth.credentialIdB64u)
+    ) {
+      throw new Error('registration profile credential does not match the pending commit');
+    }
+  }
+  for (const activation of input.registration.signerActivations) {
+    if (!profileIds.has(activation.account.profileId)) {
+      throw new Error('registration signer account is outside the publication profiles');
+    }
+  }
+  for (const keyMaterial of input.registration.keyMaterials) {
+    if (!profileIds.has(keyMaterial.profileId)) {
+      throw new Error('registration key material is outside the publication profiles');
+    }
+  }
+  switch (pending.auth.kind) {
+    case 'passkey':
+      if (
+        !isPasskeyWalletAuthAuthority(input.authority) ||
+        initialMethod.kind !== 'passkey' ||
+        foundingMethod.kind !== 'passkey' ||
+        initialMethod.rpId !== pending.auth.rpId ||
+        initialMethod.credentialIdB64u !== pending.auth.credentialIdB64u ||
+        foundingMethod.rpId !== pending.auth.rpId ||
+        foundingMethod.credentialIdB64u !== pending.auth.credentialIdB64u ||
+        initialMethod.credentialPublicKeyB64u !== foundingMethod.credentialPublicKeyB64u
+      ) {
+        throw new Error('registration passkey records do not match the pending commit');
+      }
+      for (const authenticator of input.registration.authenticators) {
+        if (
+          !profileIds.has(authenticator.profileId) ||
+          authenticator.credentialId !== pending.auth.credentialIdB64u ||
+          base64UrlEncode(authenticator.credentialPublicKey) !==
+            initialMethod.credentialPublicKeyB64u
+        ) {
+          throw new Error('registration passkey authenticator does not match the pending commit');
+        }
+      }
+      return;
+    case 'email_otp':
+      if (initialMethod.kind !== 'email_otp' || foundingMethod.kind !== 'email_otp') {
+        throw new Error('registration Email OTP method records are invalid');
+      }
+      const emailAuthority = parseEmailOtpWalletAuthAuthority(initialMethod.authority);
+      if (!emailAuthority || !isEmailOtpWalletAuthAuthority(input.authority)) {
+        throw new Error('registration Email OTP authority records are invalid');
+      }
+      const expectedEmailHashHex = await sha256HexUtf8(pending.auth.email);
+      if (
+        initialMethod.registrationAuthorityId !== pending.auth.registrationAuthorityId ||
+        foundingMethod.registrationAuthorityId !== pending.auth.registrationAuthorityId ||
+        initialMethod.emailHashHex !== expectedEmailHashHex ||
+        foundingMethod.emailHashHex !== expectedEmailHashHex ||
+        input.authority.verifier.emailHashHex !== expectedEmailHashHex ||
+        emailAuthority.factor.providerUserId !== pending.auth.providerSubject ||
+        emailAuthority.factor.provider !== input.authority.factor.provider ||
+        !walletAuthAuthoritiesMatch(emailAuthority, input.authority) ||
+        input.registration.authenticators.length !== 0
+      ) {
+        throw new Error('registration Email OTP records do not match the pending commit');
+      }
+      return;
+  }
+}
+
+function shouldDeletePublishedPendingWalletRegistrationCommit(
+  pending: PendingWalletRegistrationCommitV1,
+): boolean {
+  switch (pending.operation) {
+    case 'near_provisioning':
+      return true;
+    case 'registration_activate':
+      return (
+        pending.localMaterial.keyFamilies.length === 1 &&
+        pending.localMaterial.keyFamilies[0] === 'ecdsa_secp256k1'
+      );
+  }
+}
 
 export type StoreWalletSignerFinalizeBatchInput = {
   profiles: readonly UpsertProfileInput[];
@@ -460,6 +652,26 @@ const DEFAULT_NONCE_LANE_LOCK_TTL_MS = 5_000;
 const DEFAULT_NONCE_LANE_LOCK_WAIT_TIMEOUT_MS = 3_000;
 const DEFAULT_NONCE_LANE_LOCK_POLL_MS = 25;
 const LAST_PROFILE_STATE_APP_STATE_KEY = 'lastProfileState';
+const WALLET_REGISTRATION_FINALIZE_STORES = [
+  SEAMS_WALLET_STORES.appState,
+  SEAMS_WALLET_STORES.wallets,
+  SEAMS_WALLET_STORES.walletAuthMethods,
+  SEAMS_WALLET_STORES.walletSigners,
+  SEAMS_WALLET_STORES.nearAccountProjections,
+  SEAMS_WALLET_STORES.signerOpsOutbox,
+  SEAMS_WALLET_STORES.keyMaterial,
+] as const;
+const WALLET_REGISTRATION_PUBLICATION_STORES = [
+  SEAMS_WALLET_STORES.appState,
+  SEAMS_WALLET_STORES.wallets,
+  SEAMS_WALLET_STORES.walletAuthMethods,
+  SEAMS_WALLET_STORES.walletAuthorities,
+  SEAMS_WALLET_STORES.walletSelections,
+  SEAMS_WALLET_STORES.walletSigners,
+  SEAMS_WALLET_STORES.nearAccountProjections,
+  SEAMS_WALLET_STORES.signerOpsOutbox,
+  SEAMS_WALLET_STORES.keyMaterial,
+] as const;
 
 const DEFAULT_WALLET_RP_ID = 'local';
 
@@ -1804,6 +2016,54 @@ function parseLocalAuthorityInstallationInput(
     if (!authMethod || authMethod.status !== 'pending_local_install') {
       throw new Error('authMethod must be a pending_local_install V2 record');
     }
+    if (!isRecord(input.profile)) {
+      throw new Error('profile must be an object');
+    }
+    const profileId = toTrimmedString(input.profile.profileId || '');
+    if (!profileId || profileId !== String(authority.walletId)) {
+      throw new Error('profile identity does not match authority');
+    }
+    const defaultSignerSlot =
+      input.profile.defaultSignerSlot === undefined
+        ? 1
+        : parseNonNegativeSafeInteger(input.profile.defaultSignerSlot, 'profile.defaultSignerSlot');
+    if (defaultSignerSlot < 1) {
+      throw new Error('profile.defaultSignerSlot must be a positive safe integer');
+    }
+    const profile: UpsertProfileInput = {
+      profileId,
+      defaultSignerSlot,
+      ...(input.profile.passkeyCredential
+        ? { passkeyCredential: input.profile.passkeyCredential }
+        : {}),
+      ...(input.profile.preferences ? { preferences: input.profile.preferences } : {}),
+      ...(input.profile.nearProvisioning
+        ? { nearProvisioning: input.profile.nearProvisioning }
+        : {}),
+    };
+    const authenticator =
+      input.authenticator === null ? null : normalizeAuthenticatorRecord(input.authenticator);
+    if (authMethod.kind === 'passkey') {
+      const passkeyCredential = profile.passkeyCredential;
+      if (
+        !passkeyCredential ||
+        passkeyCredential.id !== authMethod.credentialIdB64u ||
+        passkeyCredential.rawId !== authMethod.credentialIdB64u
+      ) {
+        throw new Error('profile passkey credential does not match authMethod');
+      }
+      if (
+        !authenticator ||
+        authenticator.profileId !== profileId ||
+        authenticator.signerSlot !== defaultSignerSlot ||
+        authenticator.credentialId !== authMethod.credentialIdB64u ||
+        base64UrlEncode(authenticator.credentialPublicKey) !== authMethod.credentialPublicKeyB64u
+      ) {
+        throw new Error('profile authenticator does not match authMethod');
+      }
+    } else if (authenticator !== null || profile.passkeyCredential !== undefined) {
+      throw new Error('Email OTP installation cannot include passkey profile records');
+    }
     if (!Array.isArray(input.signerMaterials)) {
       throw new Error('signerMaterials must be an array');
     }
@@ -1887,6 +2147,8 @@ function parseLocalAuthorityInstallationInput(
       value: {
         authority,
         authMethod,
+        profile,
+        authenticator,
         signerMaterials,
         exportRoot,
         receipt,
@@ -2614,8 +2876,9 @@ export class SeamsWalletRepositories {
     }
     return this.manager.runTransaction(
       [
-        SEAMS_WALLET_STORES.walletAuthorities,
+        SEAMS_WALLET_STORES.wallets,
         SEAMS_WALLET_STORES.walletAuthMethods,
+        SEAMS_WALLET_STORES.walletAuthorities,
         SEAMS_WALLET_STORES.walletAuthoritySignerMaterials,
         SEAMS_WALLET_STORES.walletAuthorityExportRoots,
         SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts,
@@ -2776,7 +3039,13 @@ export class SeamsWalletRepositories {
     const authorityRaw = await authorityStore.get(input.authority.authorityId);
     const authMethodRaw = await authMethodStore.get(input.authMethod.walletAuthMethodId);
     const receiptRaw = await receiptStore.get(input.authority.authorityId);
-    const sessionRaw = await sessionStore.get(input.walletSession.authorizationId);
+    const sessionAtWalletSessionKey = await sessionStore.get(
+      input.operationCredential.walletSessionId,
+    );
+    const sessionRaw =
+      sessionAtWalletSessionKey === undefined
+        ? await sessionStore.get(input.walletSession.authorizationId)
+        : sessionAtWalletSessionKey;
     const existingAuthority =
       authorityRaw === undefined ? null : parseWalletAuthorityStorageRow(authorityRaw);
     const existingAuthMethod =
@@ -3015,6 +3284,25 @@ export class SeamsWalletRepositories {
     input: ValidatedLocalAuthorityInstallationInput,
     ctx: SeamsWalletTransactionContext,
   ): Promise<LocalAuthorityInstallationResultV1> {
+    const profileStore = ctx.store(SEAMS_WALLET_STORES.wallets);
+    const profileRaw = await profileStore.get(input.profile.profileId);
+    const existingProfile = profileRaw === undefined ? null : parseProfileRow(profileRaw);
+    if (profileRaw !== undefined && !existingProfile) {
+      return { kind: 'integrity_error', reason: 'wallet profile row is invalid' };
+    }
+    const authenticatorStore = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
+    const authenticatorRow = input.authenticator
+      ? walletAuthMethodRowFromAuthenticator(input.authenticator)
+      : null;
+    const authenticatorRaw = authenticatorRow
+      ? await authenticatorStore.get(authenticatorRow.wallet_auth_method_id)
+      : undefined;
+    const existingAuthenticatorRow =
+      authenticatorRaw === undefined ? null : parseWalletAuthMethodStorageRow(authenticatorRaw);
+    const existingAuthenticator =
+      existingAuthenticatorRow?.kind === 'passkey' && existingAuthenticatorRow.status === 'active'
+        ? existingAuthenticatorRow.authenticator
+        : null;
     const selectionStore = ctx.store(SEAMS_WALLET_STORES.walletSelections);
     const selectionRaw = await selectionStore.get(input.authority.walletId);
     const selection =
@@ -3088,12 +3376,18 @@ export class SeamsWalletRepositories {
     const anyExisting =
       authorityRaw !== undefined ||
       authMethodRaw !== undefined ||
+      profileRaw !== undefined ||
+      authenticatorRaw !== undefined ||
       signerMaterialRaws.some(rawValueIsPresent) ||
       exportRootRaw !== undefined ||
       receiptRaw !== undefined;
     const allExisting =
       authorityRaw !== undefined &&
       authMethodRaw !== undefined &&
+      profileRaw !== undefined &&
+      (input.authenticator === null
+        ? authenticatorRaw === undefined
+        : authenticatorRaw !== undefined) &&
       signerMaterialRaws.every(rawValueIsPresent) &&
       (input.exportRoot === null ? exportRootRaw === undefined : exportRootRaw !== undefined) &&
       receiptRaw !== undefined;
@@ -3103,6 +3397,7 @@ export class SeamsWalletRepositories {
         !allExisting ||
         !existingAuthority ||
         !existingAuthMethod ||
+        !existingProfile ||
         !existingReceipt
       ) {
         return {
@@ -3113,11 +3408,26 @@ export class SeamsWalletRepositories {
       if (
         !walletAuthorityRecordsMatch(existingAuthority.record, input.authority) ||
         !walletAuthMethodRecordsMatch(existingAuthMethod.record, input.authMethod) ||
+        existingProfile.profileId !== input.profile.profileId ||
+        existingProfile.defaultSignerSlot !== (input.profile.defaultSignerSlot ?? 1) ||
+        (input.profile.passkeyCredential !== undefined &&
+          (existingProfile.passkeyCredential?.id !== input.profile.passkeyCredential.id ||
+            existingProfile.passkeyCredential.rawId !== input.profile.passkeyCredential.rawId)) ||
         !localAuthorityInstallationReceiptsMatch(existingReceipt, input.receipt)
       ) {
         return {
           kind: 'integrity_error',
           reason: 'local authority replay conflicts with stored records',
+        };
+      }
+      if (
+        input.authenticator &&
+        (!existingAuthenticator ||
+          !rollbackRecordsEqual(existingAuthenticator, input.authenticator))
+      ) {
+        return {
+          kind: 'integrity_error',
+          reason: 'stored profile authenticator conflicts with replay',
         };
       }
       for (let index = 0; index < input.signerMaterials.length; index += 1) {
@@ -3146,6 +3456,10 @@ export class SeamsWalletRepositories {
       return { kind: 'idempotent_replay', receipt: existingReceipt };
     }
 
+    await profileStore.put(profileRow(input.profile, existingProfile || undefined));
+    if (authenticatorRow) {
+      await authenticatorStore.put(authenticatorRow);
+    }
     await authorityStore.put(walletAuthorityStorageRow(input.authority));
     await authMethodStore.put(walletAuthMethodV2StorageRow(input.authMethod));
     for (const material of input.signerMaterials) {
@@ -3175,19 +3489,7 @@ export class SeamsWalletRepositories {
   async persistFoundingWalletAuthority(
     input: PersistFoundingWalletAuthorityInputV1,
   ): Promise<void> {
-    const authority = parseWalletAuthorityV1(input.authority);
-    const authMethod = parseWalletAuthMethodRecordV2(input.authMethod);
-    if (
-      !authority.ok ||
-      authority.value.state !== 'active' ||
-      !authMethod ||
-      authMethod.status !== 'active' ||
-      authority.value.provenance.kind !== 'wallet_registration' ||
-      authMethod.walletId !== authority.value.walletId ||
-      authMethod.walletAuthorityId !== authority.value.authorityId
-    ) {
-      throw new Error('founding wallet authority records are invalid');
-    }
+    const validated = validateFoundingWalletAuthorityInput(input);
     await this.manager.runTransaction(
       [
         SEAMS_WALLET_STORES.walletAuthorities,
@@ -3195,10 +3497,7 @@ export class SeamsWalletRepositories {
         SEAMS_WALLET_STORES.walletSelections,
       ],
       'readwrite',
-      this.persistFoundingWalletAuthorityInTransaction.bind(this, {
-        authority: authority.value,
-        authMethod,
-      }),
+      this.persistFoundingWalletAuthorityInTransaction.bind(this, validated),
     );
   }
 
@@ -3499,6 +3798,60 @@ export class SeamsWalletRepositories {
     if (!normalizedKey) return;
     await this.manager.runTransaction([SEAMS_WALLET_STORES.appState], 'readwrite', async (ctx) => {
       await ctx.store(SEAMS_WALLET_STORES.appState).put({ key: normalizedKey, value });
+    });
+  }
+
+  /* Keep pending commits in the existing private app-state store: opening a
+     new schema version currently rebuilds every object store. The namespaced
+     rows never participate in profile discovery. */
+  async putPendingWalletRegistrationCommit(
+    record: PendingWalletRegistrationCommitV1,
+  ): Promise<void> {
+    const row = toPendingWalletRegistrationCommitAppStateRow(record);
+    await this.manager.runTransaction([SEAMS_WALLET_STORES.appState], 'readwrite', async (ctx) => {
+      await ctx.store(SEAMS_WALLET_STORES.appState).put(row);
+    });
+  }
+
+  async getPendingWalletRegistrationCommit(input: {
+    registrationCeremonyId: string;
+    operation: PendingWalletRegistrationCommitV1['operation'];
+  }): Promise<PendingWalletRegistrationCommitV1 | null> {
+    const registrationCeremonyId = toTrimmedString(input.registrationCeremonyId || '');
+    if (!registrationCeremonyId) return null;
+    const db = await this.manager.getDB();
+    const raw = await db.get(
+      SEAMS_WALLET_STORES.appState,
+      pendingWalletRegistrationCommitAppStateKey({
+        registrationCeremonyId,
+        operation: input.operation,
+      }),
+    );
+    return parsePendingWalletRegistrationCommitAppStateRow(raw)?.record || null;
+  }
+
+  async listPendingWalletRegistrationCommits(): Promise<PendingWalletRegistrationCommitV1[]> {
+    const db = await this.manager.getDB();
+    const rawRows = (await db.getAll(SEAMS_WALLET_STORES.appState)) as unknown[];
+    return rawRows.flatMap((raw) => {
+      const parsed = parsePendingWalletRegistrationCommitAppStateRow(raw);
+      return parsed ? [parsed.record] : [];
+    });
+  }
+
+  async deletePendingWalletRegistrationCommit(input: {
+    registrationCeremonyId: string;
+    operation: PendingWalletRegistrationCommitV1['operation'];
+  }): Promise<void> {
+    const registrationCeremonyId = toTrimmedString(input.registrationCeremonyId || '');
+    if (!registrationCeremonyId) return;
+    await this.manager.runTransaction([SEAMS_WALLET_STORES.appState], 'readwrite', async (ctx) => {
+      await ctx.store(SEAMS_WALLET_STORES.appState).delete(
+        pendingWalletRegistrationCommitAppStateKey({
+          registrationCeremonyId,
+          operation: input.operation,
+        }),
+      );
     });
   }
 
@@ -4911,69 +5264,139 @@ export class SeamsWalletRepositories {
   async persistWalletRegistrationFinalize(
     input: StoreWalletRegistrationFinalizeBatchInput,
   ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+    return this.manager.runTransaction(
+      WALLET_REGISTRATION_FINALIZE_STORES,
+      'readwrite',
+      this.persistWalletRegistrationFinalizeInTransaction.bind(this, input),
+    );
+  }
+
+  async publishPendingWalletRegistrationCommit(
+    input: PublishPendingWalletRegistrationCommitInputV1,
+  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+    const pending = buildPendingWalletRegistrationCommitV1(input.pending);
+    const authority = parseWalletAuthAuthority(input.authority);
+    if (!authority) {
+      throw new Error('registration wallet auth authority is invalid');
+    }
+    const foundingAuthority = validateFoundingWalletAuthorityInput(input.foundingAuthority);
+    await assertRegistrationFinalizeMatchesPending({
+      request: input.request,
+      pending,
+      authority,
+      foundingAuthority,
+      registration: input.registration,
+    });
+    return this.manager.runTransaction(
+      WALLET_REGISTRATION_PUBLICATION_STORES,
+      'readwrite',
+      this.publishPendingWalletRegistrationCommitInTransaction.bind(this, {
+        request: input.request,
+        pending,
+        authority,
+        foundingAuthority,
+        registration: input.registration,
+      }),
+    );
+  }
+
+  private async publishPendingWalletRegistrationCommitInTransaction(
+    input: {
+      readonly request: WalletRegistrationCommitPublicationRequestV1;
+      readonly pending: PendingWalletRegistrationCommitV1;
+      readonly authority: WalletAuthAuthority;
+      readonly foundingAuthority: ValidatedFoundingWalletAuthorityInputV1;
+      readonly registration: StoreWalletRegistrationPublicationInputV1;
+    },
+    ctx: SeamsWalletTransactionContext,
+  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+    const pendingKey = pendingWalletRegistrationCommitAppStateKey({
+      registrationCeremonyId: input.request.registrationCeremonyId,
+      operation: input.request.operation,
+    });
+    const storedPendingRow = parsePendingWalletRegistrationCommitAppStateRow(
+      await ctx.store(SEAMS_WALLET_STORES.appState).get(pendingKey),
+    );
+    const storedPending = storedPendingRow?.record;
+    if (storedPending) {
+      assertPendingWalletRegistrationRequestIdentity(storedPending, input.request);
+    }
+    if (
+      !storedPendingRow ||
+      !storedPending ||
+      storedPendingRow?.registration_ceremony_id !== input.request.registrationCeremonyId ||
+      storedPendingRow.operation !== input.request.operation ||
+      storedPendingRow.wallet_id !== input.request.walletId ||
+      storedPendingRow.wallet_auth_method_id !== input.request.walletAuthMethodId ||
+      storedPendingRow.updated_at_ms !== input.pending.updatedAtMs ||
+      alphabetizeStringify(storedPending) !== alphabetizeStringify(input.pending)
+    ) {
+      throw new Error('stored pending wallet registration commit does not match the expected row');
+    }
+    const result = await this.persistWalletRegistrationFinalizeInTransaction(
+      input.registration,
+      ctx,
+    );
+    await this.persistFoundingWalletAuthorityInTransaction(input.foundingAuthority, ctx);
+    if (shouldDeletePublishedPendingWalletRegistrationCommit(input.pending)) {
+      await ctx.store(SEAMS_WALLET_STORES.appState).delete(pendingKey);
+    }
+    return result;
+  }
+
+  private async persistWalletRegistrationFinalizeInTransaction(
+    input: StoreWalletRegistrationFinalizeBatchInput,
+    ctx: SeamsWalletTransactionContext,
+  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
     const authMethodRows = walletAuthMethodRowsForRegistrationFinalize(input);
     const keyMaterialRows = input.keyMaterials.map((keyMaterial) => keyMaterialRow(keyMaterial));
     const signerActivations: ActivateAccountSignerResult[] = [];
-    await this.manager.runTransaction(
-      [
-        SEAMS_WALLET_STORES.appState,
-        SEAMS_WALLET_STORES.wallets,
-        SEAMS_WALLET_STORES.walletAuthMethods,
-        SEAMS_WALLET_STORES.walletSigners,
-        SEAMS_WALLET_STORES.nearAccountProjections,
-        SEAMS_WALLET_STORES.signerOpsOutbox,
-        SEAMS_WALLET_STORES.keyMaterial,
-      ],
-      'readwrite',
-      async (ctx) => {
-        const profileStore = ctx.store(SEAMS_WALLET_STORES.wallets);
-        for (const profile of input.profiles) {
-          const profileId = toTrimmedString(profile.profileId || '');
-          if (!profileId) throw new Error('[SeamsWalletDB] profileId is required');
-          const existing = parseProfileRow(await profileStore.get(profileId)) || undefined;
-          await profileStore.put(profileRow(profile, existing));
-        }
-        const authMethodStore = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
-        for (const row of authMethodRows) {
-          const profile = parseProfileRow(await profileStore.get(row.wallet_id));
-          if (!profile) {
-            throw makeConstraintError(
-              'MISSING_PROFILE',
-              `Cannot upsert auth method for unknown wallet: ${row.wallet_id}`,
-              {
-                profileId: row.wallet_id,
-                authIdentifierKey: row.auth_identifier_key,
-              },
-            );
-          }
-          await authMethodStore.put(row);
-        }
-        for (const activation of input.signerActivations) {
-          signerActivations.push(await this.activateAccountSignerInTransaction(ctx, activation));
-        }
-        await assertSignerKeyMaterialPairsInTransaction({
-          ctx,
-          signers: signerActivations.map((activation) => activation.signer),
-          keyMaterials: input.keyMaterials,
-        });
-        const keyMaterialStore = ctx.store(SEAMS_WALLET_STORES.keyMaterial);
-        for (const row of keyMaterialRows) {
-          await keyMaterialStore.put(row);
-        }
-        if (input.lastProfileState) {
-          await ctx.store(SEAMS_WALLET_STORES.appState).put({
-            key: scopedLastProfileStateAppStateKey(input.lastProfileState.scope),
-            value: {
-              profileId: input.lastProfileState.profileId,
-              activeSignerSlot: input.lastProfileState.activeSignerSlot,
-              ...(input.lastProfileState.scope
-                ? { scope: normalizeLastUserScope(input.lastProfileState.scope) }
-                : {}),
-            },
-          });
-        }
-      },
-    );
+    const profileStore = ctx.store(SEAMS_WALLET_STORES.wallets);
+    for (const profile of input.profiles) {
+      const profileId = toTrimmedString(profile.profileId || '');
+      if (!profileId) throw new Error('[SeamsWalletDB] profileId is required');
+      const existing = parseProfileRow(await profileStore.get(profileId)) || undefined;
+      await profileStore.put(profileRow(profile, existing));
+    }
+    const authMethodStore = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
+    for (const row of authMethodRows) {
+      const profile = parseProfileRow(await profileStore.get(row.wallet_id));
+      if (!profile) {
+        throw makeConstraintError(
+          'MISSING_PROFILE',
+          `Cannot upsert auth method for unknown wallet: ${row.wallet_id}`,
+          {
+            profileId: row.wallet_id,
+            authIdentifierKey: row.auth_identifier_key,
+          },
+        );
+      }
+      await authMethodStore.put(row);
+    }
+    for (const activation of input.signerActivations) {
+      signerActivations.push(await this.activateAccountSignerInTransaction(ctx, activation));
+    }
+    await assertSignerKeyMaterialPairsInTransaction({
+      ctx,
+      signers: signerActivations.map((activation) => activation.signer),
+      keyMaterials: input.keyMaterials,
+    });
+    const keyMaterialStore = ctx.store(SEAMS_WALLET_STORES.keyMaterial);
+    for (const row of keyMaterialRows) {
+      await keyMaterialStore.put(row);
+    }
+    if (input.lastProfileState) {
+      await ctx.store(SEAMS_WALLET_STORES.appState).put({
+        key: scopedLastProfileStateAppStateKey(input.lastProfileState.scope),
+        value: {
+          profileId: input.lastProfileState.profileId,
+          activeSignerSlot: input.lastProfileState.activeSignerSlot,
+          ...(input.lastProfileState.scope
+            ? { scope: normalizeLastUserScope(input.lastProfileState.scope) }
+            : {}),
+        },
+      });
+    }
     return { signerActivations };
   }
 

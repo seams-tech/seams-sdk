@@ -1,23 +1,62 @@
 import {
   isEmailOtpWalletAuthAuthority,
+  walletAuthAuthoritiesMatch,
+  walletAuthAuthorityRef,
   type EmailOtpWalletAuthAuthority,
+  type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { type EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
+import type { ActiveEcdsaCapabilityManifest } from '../material/ecdsaCapabilityManifest';
 import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../material/ecdsaSigningCapability';
 import {
   walletSessionThresholdSessionIdForCurve,
   walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { IndexedDBManager } from '@/core/indexedDB';
+import {
+  resolveExactWalletAuthAuthority,
+  type OwnerLaneScopeStores,
+} from '../identity/ownerLaneScope';
+import { readEmailOtpProviderSubjectForWalletV1 } from '../../threshold/ed25519/yaoPublicCapabilityReferences';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type EmailOtpEcdsaSigningSessionAuthority = {
   authLane: Extract<EmailOtpAuthLane, { kind: 'signing_session'; curve: 'ecdsa' }>;
   authority: EmailOtpWalletAuthAuthority;
+};
+
+async function getEmailOtpSigningSessionWalletAuthMethod(walletAuthMethodId: string) {
+  return await IndexedDBManager.getWalletAuthMethodV2(walletAuthMethodId);
+}
+
+async function listEmailOtpSigningSessionWalletAuthMethods(walletId: string) {
+  return await IndexedDBManager.listWalletAuthMethodsForWallet(walletId);
+}
+
+async function getEmailOtpSigningSessionPasskeyAuthenticator(args: {
+  readonly walletId: string;
+  readonly credentialId: string;
+}) {
+  return await IndexedDBManager.getWalletPasskeyAuthenticator(args);
+}
+
+async function readEmailOtpSigningSessionProviderSubject(walletId: string) {
+  return await readEmailOtpProviderSubjectForWalletV1(IndexedDBManager, walletId);
+}
+
+const emailOtpSigningSessionFactorStores: OwnerLaneScopeStores = {
+  getWalletAuthMethodV2: getEmailOtpSigningSessionWalletAuthMethod,
+  listWalletAuthMethodsForWallet: listEmailOtpSigningSessionWalletAuthMethods,
+  getWalletPasskeyAuthenticator: getEmailOtpSigningSessionPasskeyAuthenticator,
+  readEmailOtpProviderSubjectForWallet: readEmailOtpSigningSessionProviderSubject,
 };
 
 export function buildEmailOtpEcdsaSigningSessionAuthority(args: {
@@ -55,36 +94,138 @@ export type EmailOtpEcdsaSigningSessionAuthorityResolution =
       authority?: never;
     };
 
-/** Canonical counterpart of the record-backed resolver: the Email OTP authority
- * comes from the sealed runtime's auth binding, and the signing-session lane is
- * completed by the independently-resolved reusable Wallet Session. Material
- * identity plays no part here -- it is proven separately by the manifest.  */
-export function resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime(args: {
-  runtime: ExactEcdsaSealedRuntime;
-  authorization: ActiveWalletSessionAuthorizationProjection;
-}): EmailOtpEcdsaSigningSessionAuthorityResolution {
-  const authBinding = args.runtime.authBinding;
-  if (authBinding.kind !== 'email_otp') {
-    // A passkey-bound runtime is not an Email OTP signing session; report the
-    // missing lane rather than inventing a store source for it.
-    return { kind: 'record_missing' };
+/**
+ * The sealed runtime and capability manifest identify the material and Email
+ * OTP authority. The selected authority and exact Wallet Session record must
+ * reproduce that tuple before the signing-session lane can be built.
+ */
+export async function resolveExactEmailOtpEcdsaSigningSessionAuthority(args: {
+  readonly walletId: WalletId;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly manifest: ActiveEcdsaCapabilityManifest;
+  readonly runtime: ExactEcdsaSealedRuntime;
+}): Promise<EmailOtpEcdsaSigningSessionAuthority | null> {
+  if (
+    args.runtime.kind !== 'exact_ecdsa_sealed_runtime_v1' ||
+    args.runtime.walletId !== args.walletId ||
+    !thresholdEcdsaChainTargetsEqual(args.runtime.chainTarget, args.chainTarget) ||
+    !mpcMaterialActivationRefsEqual(
+      args.runtime.materialActivation,
+      args.manifest.activation.materialActivation,
+    ) ||
+    args.manifest.signer.walletId !== args.walletId
+  ) {
+    return null;
   }
-  const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ecdsa');
-  if (!walletSessionToken) {
-    return { kind: 'wallet_session_auth_unavailable', reason: 'missing_wallet_session_token' };
+  if (args.runtime.authBinding.kind !== 'email_otp') return null;
+
+  let runtimeAuthorityRef: Awaited<ReturnType<typeof walletAuthAuthorityRef>>;
+  try {
+    runtimeAuthorityRef = await walletAuthAuthorityRef({
+      authority: args.runtime.authBinding.emailOtpAuthority,
+    });
+  } catch {
+    return null;
   }
-  const authority = buildEmailOtpEcdsaSigningSessionAuthority({
-    authority: authBinding.emailOtpAuthority,
+  const manifestAuthorityRef = args.manifest.signer.authority;
+  if (
+    runtimeAuthorityRef.walletId !== args.walletId ||
+    runtimeAuthorityRef.walletAuthMethodId !== manifestAuthorityRef.walletAuthMethodId ||
+    runtimeAuthorityRef.authorityDigest !== manifestAuthorityRef.authorityDigest ||
+    manifestAuthorityRef.walletId !== args.walletId
+  ) {
+    return null;
+  }
+
+  let selected: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
+  try {
+    selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
+  } catch {
+    return null;
+  }
+  if (selected.kind !== 'resolved') return null;
+  const { selection, authMethod, authority } = selected;
+  const ecdsaActivation = authority.signerActivations.ecdsa;
+  if (
+    selection.lockState !== 'unlocked' ||
+    selection.walletId !== args.walletId ||
+    authMethod.kind !== 'email_otp' ||
+    authMethod.status !== 'active' ||
+    authMethod.walletId !== args.walletId ||
+    authority.state !== 'active' ||
+    authority.walletId !== args.walletId ||
+    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    authMethod.walletAuthMethodId !== runtimeAuthorityRef.walletAuthMethodId ||
+    !ecdsaActivation ||
+    ecdsaActivation.signer.walletId !== args.walletId ||
+    !mpcMaterialActivationRefsEqual(
+      ecdsaActivation.materialActivation,
+      args.runtime.materialActivation,
+    )
+  ) {
+    return null;
+  }
+
+  let selectedFactorAuthority: WalletAuthAuthority;
+  try {
+    selectedFactorAuthority = await resolveExactWalletAuthAuthority({
+      authMethod,
+      stores: emailOtpSigningSessionFactorStores,
+    });
+  } catch {
+    return null;
+  }
+  if (
+    !walletAuthAuthoritiesMatch(selectedFactorAuthority, args.runtime.authBinding.emailOtpAuthority)
+  ) {
+    return null;
+  }
+
+  let authorizationRead: Awaited<
+    ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
+  >;
+  try {
+    authorizationRead = await walletSessionAuthorizations.readExactWithOperationCredential({
+      walletId: args.walletId,
+      authorityId: authority.authorityId,
+      authMethodId: authMethod.walletAuthMethodId,
+    });
+  } catch {
+    return null;
+  }
+  if (authorizationRead.kind !== 'found') return null;
+  const { record, operationCredential } = authorizationRead;
+  if (
+    record.walletId !== args.walletId ||
+    record.authorityId !== authority.authorityId ||
+    record.authMethodId !== authMethod.walletAuthMethodId ||
+    record.authorityDigestB64u !== authority.authorityDigestB64u ||
+    record.authorityRevocationEpoch !== authority.revocationEpoch ||
+    record.expiresAtMs <= Date.now() ||
+    operationCredential.walletSessionId.trim().length === 0 ||
+    operationCredential.token.trim().length === 0
+  ) {
+    return null;
+  }
+  const signSubjects = record.capabilitySubjects.filter(
+    (subject) =>
+      subject.kind === 'sign' &&
+      subject.keyFamily === 'ecdsa_secp256k1' &&
+      mpcMaterialActivationRefsEqual(subject.materialActivation, args.runtime.materialActivation),
+  );
+  if (signSubjects.length !== 1) return null;
+
+  return buildEmailOtpEcdsaSigningSessionAuthority({
+    authority: args.runtime.authBinding.emailOtpAuthority,
     authLane: {
       kind: 'signing_session',
-      walletSessionToken,
+      walletSessionToken: operationCredential.token,
       thresholdSessionId: args.runtime.sealedRecord.thresholdSessionId,
       curve: 'ecdsa',
       chainTarget: args.runtime.chainTarget,
     },
   });
-  if (!authority) return { kind: 'authority_not_ecdsa_signing_session' };
-  return { kind: 'ready', authority };
 }
 
 /**
@@ -119,10 +260,7 @@ export function resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability(args: 
   if (!walletSessionToken) {
     return { kind: 'wallet_session_auth_unavailable', reason: 'missing_wallet_session_token' };
   }
-  const thresholdSessionId = walletSessionThresholdSessionIdForCurve(
-    args.authorization,
-    'ecdsa',
-  );
+  const thresholdSessionId = walletSessionThresholdSessionIdForCurve(args.authorization, 'ecdsa');
   if (!thresholdSessionId) return { kind: 'missing_session_identity' };
   const authority = buildEmailOtpEcdsaSigningSessionAuthority({
     authority: capabilityAuthority,
@@ -134,7 +272,5 @@ export function resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability(args: 
       chainTarget: args.chainTarget,
     },
   });
-  return authority
-    ? { kind: 'ready', authority }
-    : { kind: 'authority_not_ecdsa_signing_session' };
+  return authority ? { kind: 'ready', authority } : { kind: 'authority_not_ecdsa_signing_session' };
 }

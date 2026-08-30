@@ -24,6 +24,7 @@ import {
   type WalletIframeRequestId,
 } from '@/core/types/walletIframeIdentity';
 import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import { recordAdoptedWalletIframeParentOrigin } from './hostedWalletSeamsSession';
 
 export type WalletHostRuntimeState = {
   parentOrigin: string | null;
@@ -163,6 +164,9 @@ function syncRuntimeContext(state: WalletHostRuntimeState): HostContext {
   }
   runtimeContext.parentOrigin = state.parentOrigin;
   runtimeContext.port = state.port;
+  if (state.parentOrigin !== null) {
+    recordAdoptedWalletIframeParentOrigin(state.parentOrigin);
+  }
   setWalletHostLifecycleListener(runtimeContext, postLifecycleEvent.bind(null, runtimeContext));
   if (state.walletConfigs) {
     applyWalletConfig(runtimeContext, state.walletConfigs);

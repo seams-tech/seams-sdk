@@ -171,7 +171,6 @@ import {
   type ConcreteAvailableEd25519SigningLane,
   type ConcreteAvailableEcdsaSigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 import { resolvePasskeyEd25519YaoExportContextV1 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import type {
   PasskeyEd25519YaoExportContextResolutionV1,
@@ -241,7 +240,8 @@ import {
   type StoreNearThresholdKeyMaterialInput,
 } from '@/core/accountData/near/keyMaterial';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
-import type { WalletAuthMethodId } from '@shared/utils/domainIds';
+import type { WalletAuthMethodId, WalletAuthorityId } from '@shared/utils/domainIds';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   buildEmailOtpWalletAuthAuthority,
   isEmailOtpWalletAuthAuthority,
@@ -257,7 +257,6 @@ import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntim
 import {
   parseReusableWalletSessionAuthorizationId,
   parseReusableWalletSessionMintId,
-  parseWalletSessionAuthorizationId,
 } from '@shared/authorization/capabilityKinds';
 import {
   NEAR_ED25519_YAO_KEY_VERSION_V1,
@@ -282,7 +281,7 @@ import {
 } from '@shared/utils/sessionTokens';
 import {
   buildActiveWalletSessionAuthorizationProjection,
-  retireWalletSessionAuthorizationProjection,
+  WalletSessionAuthorizationUpgradeRequiredError,
   walletSessionAuthorizationIdForCurve,
   walletSessionThresholdSessionIdForCurve,
   walletSessionTokenForCurve,
@@ -333,7 +332,10 @@ import {
   type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
   type PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type {
+  ActiveWalletSessionAuthorizationProjection,
+  WalletSessionAuthorizationExactOperationCredentialReadResult,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { persistActiveWalletSessionAuthorizationCurve } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import * as emailOtpPublic from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import { createManagerAssembly } from '@/core/signingEngine/assembly/createManagers';
@@ -373,7 +375,6 @@ import {
   buildExactEcdsaPasskeyOwnerLaneScope,
   buildExactPasskeyOwnerLaneScope,
   resolveExactOwnerLaneScope,
-  resolveOwnerLaneScope,
   type ActiveWalletAuthMethodV2,
 } from '@/core/signingEngine/session/identity/ownerLaneScope';
 import { parseSignerSlot, type SignerSlot } from '@shared/utils/signerSlot';
@@ -572,26 +573,15 @@ async function persistRehydratedEmailOtpEcdsaWalletSession(args: {
 }): Promise<void> {
   const session = args.response.session;
   if (
-    session.wallet_session_id !== args.ed25519Authorization.walletSessionId ||
-    session.quota_id !== args.ed25519Authorization.quotaId
+    session.wallet_session.walletId !== args.walletId ||
+    session.wallet_session.authorizationId !== session.authorization_id ||
+    session.operation_credential.walletSessionId !== session.wallet_session_id
   ) {
-    throw new Error('[SigningEngine][near] refreshed Wallet Session curves do not share a budget');
+    throw new Error('[SigningEngine][near] refreshed ECDSA exact Wallet Session is inconsistent');
   }
-  const authorizationId = parseWalletSessionAuthorizationId(String(session.authorization_id));
-  if (!authorizationId.ok) {
-    throw new Error('[SigningEngine][near] refreshed ECDSA authorization id is invalid');
-  }
-  await persistActiveWalletSessionAuthorizationCurve(walletSessionAuthorizations, {
-    walletId: args.walletId,
-    authorizationId: authorizationId.value,
-    walletSessionId: session.wallet_session_id,
-    quotaId: session.quota_id,
-    expiresAtMs: session.expires_at_ms,
-    authority: args.ed25519Authorization.authority,
-    authMethod: WALLET_AUTH_METHODS.emailOtp,
-    walletSessionToken: session.wallet_session_token,
-    thresholdSessionId: session.threshold_session_id,
-    curve: 'ecdsa',
+  await walletSessionAuthorizations.writeExactWithOperationCredential({
+    record: session.wallet_session,
+    operationCredential: session.operation_credential,
   });
 }
 
@@ -1418,6 +1408,72 @@ async function requireExactEd25519SealedRuntimeForMaterialIdentity(args: {
   return runtimes[0];
 }
 
+function exactWalletSessionWithOperationCredentialOrThrow(
+  result: WalletSessionAuthorizationExactOperationCredentialReadResult,
+  message: string,
+): Extract<WalletSessionAuthorizationExactOperationCredentialReadResult, { kind: 'found' }> | null {
+  switch (result.kind) {
+    case 'found':
+      return result;
+    case 'missing':
+      return null;
+    case 'upgrade_required':
+      throw new WalletSessionAuthorizationUpgradeRequiredError(message);
+  }
+}
+
+async function readExactOwnerLaneWalletSession(args: {
+  readonly walletId: WalletId;
+  readonly authorityId: WalletAuthorityId;
+  readonly authMethodId: WalletAuthMethodId;
+  readonly authorityDigestB64u: DigestB64u;
+  readonly authorityRevocationEpoch: number;
+}): Promise<void> {
+  const read = await walletSessionAuthorizations.readExactActiveForWallet({
+    walletId: args.walletId,
+    authorityId: args.authorityId,
+    authMethodId: args.authMethodId,
+  });
+  switch (read.kind) {
+    case 'found':
+      if (
+        read.record.walletId !== args.walletId ||
+        read.record.authorityId !== args.authorityId ||
+        read.record.authMethodId !== args.authMethodId ||
+        read.record.authorityDigestB64u !== args.authorityDigestB64u ||
+        read.record.authorityRevocationEpoch !== args.authorityRevocationEpoch ||
+        read.operationCredential.kind !== 'opaque_wallet_session_operation_credential_v1' ||
+        read.operationCredential.token.trim().length === 0
+      ) {
+        throw new Error('[SigningEngine] selected Wallet Authority session identity mismatch');
+      }
+      if (read.record.expiresAtMs <= Date.now()) {
+        throw new Error(
+          '[SigningEngine] selected Wallet Authority session is unavailable: expired',
+        );
+      }
+      return;
+    case 'missing':
+      throw new Error('[SigningEngine] selected Wallet Authority session is unavailable: missing');
+    case 'upgrade_required':
+      throw new WalletSessionAuthorizationUpgradeRequiredError(
+        '[SigningEngine] selected Wallet Authority Wallet Session requires a newer client',
+      );
+    case 'corrupt':
+      throw new Error('[SigningEngine] selected Wallet Authority session is unavailable: corrupt');
+    case 'persistence_unavailable':
+      throw new Error(
+        '[SigningEngine] selected Wallet Authority session is unavailable: persistence_unavailable',
+      );
+    default:
+      return assertNeverWalletSessionAuthorizationExactActiveRead(read);
+  }
+}
+
+function assertNeverWalletSessionAuthorizationExactActiveRead(value: never): never {
+  throw new Error(`Unknown exact Wallet Session authorization read: ${String(value)}`);
+}
+
 async function resolveNearEd25519WalletSessionAuthorizationForSigning(args: {
   walletId: WalletId;
   authorization: ActiveWalletSessionAuthorizationProjection;
@@ -1444,11 +1500,14 @@ async function resolveNearEd25519WalletSessionAuthorizationForSigning(args: {
     throw new Error('[SigningEngine][near] Wallet Session authority correlation changed');
   }
 
-  const exactSession = await walletSessionAuthorizations.readExactWithOperationCredential({
-    walletId: args.walletId,
-    authorityId: authority.authorityId,
-    authMethodId: authMethod.walletAuthMethodId,
-  });
+  const exactSession = exactWalletSessionWithOperationCredentialOrThrow(
+    await walletSessionAuthorizations.readExactWithOperationCredential({
+      walletId: args.walletId,
+      authorityId: authority.authorityId,
+      authMethodId: authMethod.walletAuthMethodId,
+    }),
+    '[SigningEngine][near] exact linked Wallet Session requires a newer client',
+  );
   if (
     authority.provenance.kind === 'wallet_registration' ||
     authority.provenance.kind === 'wallet_recovery'
@@ -1561,14 +1620,60 @@ async function resolveNearEd25519WalletSessionTokenForSigning(args: {
   return token;
 }
 
-async function resolveNearEd25519WalletSessionTokenForStepUp(args: {
-  walletId: WalletId;
-  authorization: ActiveWalletSessionAuthorizationProjection;
+function operationStepUpProofMatchesSelectedWalletAuthMethod(args: {
+  readonly walletId: WalletId;
+  readonly proof: Ed25519OperationStepUpProof;
+  readonly selected: Extract<ResolveSelectedWalletAuthorityResultV1, { readonly kind: 'resolved' }>;
+}): boolean {
+  const { selection, authMethod, authority } = args.selected;
+  if (
+    selection.lockState !== 'unlocked' ||
+    selection.walletId !== args.walletId ||
+    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    authMethod.walletId !== args.walletId ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    authority.walletId !== args.walletId
+  ) {
+    return false;
+  }
+  switch (args.proof.kind) {
+    case 'passkey':
+      return (
+        authMethod.kind === WALLET_AUTH_METHODS.passkey &&
+        args.proof.authority.walletId === args.walletId &&
+        args.proof.authority.bindingId === authMethod.walletAuthMethodId &&
+        args.proof.authority.factor.credentialIdB64u === authMethod.credentialIdB64u &&
+        args.proof.authority.verifier.rpId === authMethod.rpId
+      );
+    case 'email_otp':
+      return (
+        authMethod.kind === WALLET_AUTH_METHODS.emailOtp &&
+        args.proof.authorityRef.walletId === args.walletId &&
+        args.proof.authorityRef.walletAuthMethodId === authMethod.walletAuthMethodId
+      );
+    default:
+      args.proof satisfies never;
+      throw new Error('[SigningEngine][near] unsupported operation step-up proof');
+  }
+}
+
+export async function resolveExactNearEd25519WalletSessionTokenForStepUp(args: {
+  readonly walletId: WalletId;
+  readonly proof: Ed25519OperationStepUpProof;
 }): Promise<OpaqueWalletSessionToken> {
   const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
   if (selected.kind !== 'resolved') {
     const detail = selected.kind === 'integrity_error' ? `: ${selected.reason}` : '';
     throw new Error(`[SigningEngine][near] selected Wallet Authority is ${selected.kind}${detail}`);
+  }
+  if (
+    !operationStepUpProofMatchesSelectedWalletAuthMethod({
+      walletId: args.walletId,
+      proof: args.proof,
+      selected,
+    })
+  ) {
+    throw new Error('[SigningEngine][near] operation step-up authority does not match selection');
   }
   const operation = await resolveWalletAuthorityOperation({
     selected: { authMethod: selected.authMethod, authority: selected.authority },
@@ -1579,11 +1684,42 @@ async function resolveNearEd25519WalletSessionTokenForStepUp(args: {
       `[SigningEngine][near] selected Wallet Authority rejected signing (${operation.reason.kind})`,
     );
   }
-  return await resolveNearEd25519WalletSessionTokenForSigning({
-    walletId: args.walletId,
-    authorization: args.authorization,
-    materialActivation: operation.value.materialActivation,
-  });
+  const exactSession = exactWalletSessionWithOperationCredentialOrThrow(
+    await walletSessionAuthorizations.readExactWithOperationCredential({
+      walletId: args.walletId,
+      authorityId: selected.authority.authorityId,
+      authMethodId: selected.authMethod.walletAuthMethodId,
+    }),
+    '[SigningEngine][near] exact Wallet Session requires a newer client',
+  );
+  const hasSigningSubject =
+    exactSession?.record.capabilitySubjects.filter(
+      (subject) =>
+        subject.kind === 'sign' &&
+        subject.keyFamily === 'ed25519' &&
+        mpcMaterialActivationRefsEqual(
+          subject.materialActivation,
+          operation.value.materialActivation,
+        ),
+    ).length === 1;
+  if (
+    !exactSession ||
+    exactSession.record.walletId !== args.walletId ||
+    exactSession.record.authorityId !== selected.authority.authorityId ||
+    exactSession.record.authMethodId !== selected.authMethod.walletAuthMethodId ||
+    exactSession.record.authorityDigestB64u !== selected.authority.authorityDigestB64u ||
+    exactSession.record.authorityRevocationEpoch !== selected.authority.revocationEpoch ||
+    exactSession.record.expiresAtMs <= Date.now() ||
+    !hasSigningSubject
+  ) {
+    throw new Error(
+      '[SigningEngine][near] exact Wallet Session is unavailable for operation step-up',
+    );
+  }
+  return requireOpaqueWalletSessionToken(
+    exactSession.operationCredential.token,
+    '[SigningEngine][near] exact Wallet Session token',
+  );
 }
 
 async function walletSessionStateFromExactEd25519Runtime(
@@ -2054,20 +2190,6 @@ function assertNeverSdkLifecycleEventName(value: never): never {
   throw new Error(`Unsupported SDK lifecycle event: ${String(value)}`);
 }
 
-async function resolveBrowserPasskeyOperationStepUpCredential(args: {
-  walletId: WalletId;
-}): Promise<RouterAbOwnerNormalSigningCredential> {
-  const read = await walletSessionAuthorizations.readActiveForWallet(args.walletId);
-  if (read.kind !== 'found') {
-    throw new Error('Wallet Session projection is unavailable for NEAR step-up');
-  }
-  const walletSessionToken = await resolveNearEd25519WalletSessionTokenForStepUp({
-    walletId: args.walletId,
-    authorization: read.projection,
-  });
-  return { kind: 'wallet_session_opaque', walletSessionToken };
-}
-
 export class BrowserSigningSurface {
   // Kept as fields for low-level tests that intentionally access internals.
   private readonly touchConfirm: UiConfirmRuntimeBridgePort;
@@ -2374,26 +2496,11 @@ export class BrowserSigningSurface {
     relayerUrl: string;
     proof: Ed25519OperationStepUpProof;
   }): Promise<RouterAbOwnerNormalSigningCredential> {
-    switch (args.proof.kind) {
-      case 'passkey':
-        return await resolveBrowserPasskeyOperationStepUpCredential({
-          walletId: args.walletId,
-        });
-      case 'email_otp': {
-        const authorization = await walletSessionAuthorizations.readActiveForWallet(args.walletId);
-        if (authorization.kind !== 'found') {
-          throw new Error('[SigningEngine][near] Email OTP Wallet Session is unavailable');
-        }
-        const walletSessionToken = await resolveNearEd25519WalletSessionTokenForStepUp({
-          walletId: args.walletId,
-          authorization: authorization.projection,
-        });
-        return { kind: 'wallet_session_opaque', walletSessionToken };
-      }
-      default:
-        args.proof satisfies never;
-        throw new Error('[SigningEngine][near] unsupported operation step-up proof');
-    }
+    const walletSessionToken = await resolveExactNearEd25519WalletSessionTokenForStepUp({
+      walletId: args.walletId,
+      proof: args.proof,
+    });
+    return { kind: 'wallet_session_opaque', walletSessionToken };
   }
 
   private async ensureSealedRefreshStartupParity(): Promise<void> {
@@ -2873,54 +2980,28 @@ export class BrowserSigningSurface {
     if (selected.kind === 'resolved') {
       const { selection, authMethod, authority } = selected;
       if (
+        selection.walletId !== parsedWalletId.value ||
+        selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+        authMethod.walletId !== parsedWalletId.value ||
+        authMethod.walletAuthorityId !== authority.authorityId ||
+        authority.walletId !== parsedWalletId.value
+      ) {
+        throw new Error('[SigningEngine] selected Wallet Authority identity mismatch');
+      }
+      if (
         selection.lockState !== 'unlocked' ||
         authMethod.status !== 'active' ||
         authority.state !== 'active'
       ) {
         throw new Error('[SigningEngine] selected Wallet Authority is inactive or locked');
       }
-      if (
-        authority.provenance.kind === 'wallet_registration' ||
-        authority.provenance.kind === 'wallet_recovery'
-      ) {
-        const registrationSession = await walletSessionAuthorizations.readActiveForWallet(
-          parsedWalletId.value,
-        );
-        const registrationSessionFailure =
-          registrationSession.kind !== 'found'
-            ? registrationSession.kind
-            : registrationSession.projection.expiresAtMs <= Date.now()
-              ? 'expired'
-              : registrationSession.projection.authority.walletAuthMethodId !==
-                  authMethod.walletAuthMethodId
-                ? 'auth_method_mismatch'
-                : null;
-        if (registrationSessionFailure !== null) {
-          throw new Error(
-            `[SigningEngine] selected Wallet Authority session is unavailable: ${registrationSessionFailure}`,
-          );
-        }
-        return await resolveExactOwnerLaneScope({ authMethod, stores });
-      }
-      const exactSession = await walletSessionAuthorizations.readExactWithOperationCredential({
+      await readExactOwnerLaneWalletSession({
         walletId: parsedWalletId.value,
         authorityId: authority.authorityId,
         authMethodId: authMethod.walletAuthMethodId,
+        authorityDigestB64u: authority.authorityDigestB64u,
+        authorityRevocationEpoch: authority.revocationEpoch,
       });
-      const exactSessionFailure = !exactSession
-        ? 'missing_exact_session'
-        : exactSession.record.authorityDigestB64u !== authority.authorityDigestB64u
-          ? 'authority_digest_mismatch'
-          : exactSession.record.authorityRevocationEpoch !== authority.revocationEpoch
-            ? 'revocation_epoch_mismatch'
-            : exactSession.record.expiresAtMs <= Date.now()
-              ? 'expired_exact_session'
-              : null;
-      if (exactSessionFailure !== null || !exactSession) {
-        throw new Error(
-          `[SigningEngine] selected Wallet Authority session is unavailable: ${exactSessionFailure}`,
-        );
-      }
       if (
         authority.provenance.kind === 'device_link' &&
         authMethod.kind === 'passkey' &&
@@ -2978,18 +3059,8 @@ export class BrowserSigningSurface {
       }
       return await resolveExactOwnerLaneScope({ authMethod, stores });
     }
-    if (selected.kind !== 'missing_selection') {
-      const reason = selected.kind === 'integrity_error' ? `: ${selected.reason}` : '';
-      throw new Error(`[SigningEngine] selected Wallet Authority is ${selected.kind}${reason}`);
-    }
-    const read = await walletSessionAuthorizations.readActiveForWallet(parsedWalletId.value);
-    if (read.kind !== 'found') {
-      throw new Error(`[SigningEngine] active Wallet Session authorization is ${read.kind}`);
-    }
-    return await resolveOwnerLaneScope({
-      authorityRef: read.projection.authority,
-      stores,
-    });
+    const reason = selected.kind === 'integrity_error' ? `: ${selected.reason}` : '';
+    throw new Error(`[SigningEngine] selected Wallet Authority is ${selected.kind}${reason}`);
   }
 
   async readReusableWalletSessionState(
@@ -3000,41 +3071,89 @@ export class BrowserSigningSurface {
       throw new Error(parsedWalletId.error.message);
     }
     const exactWalletId = parsedWalletId.value;
-    const read = await walletSessionAuthorizations.readActiveForWallet(exactWalletId);
-    if (read.kind !== 'found') {
-      switch (read.kind) {
-        case 'missing':
-          return { kind: 'absent' };
-        case 'persistence_unavailable':
-          return {
-            kind: 'unavailable',
-            walletId: exactWalletId,
-            reason: 'persistence_unavailable',
-          };
-        case 'corrupt':
-          return { kind: 'invalid', walletId: exactWalletId, reason: 'malformed' };
-      }
+    let selected: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
+    try {
+      selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(exactWalletId));
+    } catch {
+      return {
+        kind: 'unavailable',
+        walletId: exactWalletId,
+        reason: 'persistence_unavailable',
+      };
     }
-    const authorization = read.projection;
-    const statusCurve =
-      authorization.walletSessionTokens.kind === 'evm_family_ecdsa' ? 'ecdsa' : 'ed25519';
-    const authorizationId = walletSessionAuthorizationIdForCurve(authorization, statusCurve);
-    if (!authorizationId) {
-      return { kind: 'invalid', walletId: exactWalletId, reason: 'malformed' };
+    switch (selected.kind) {
+      case 'missing_selection':
+        return { kind: 'absent' };
+      case 'missing_auth_method':
+      case 'missing_authority':
+      case 'integrity_error':
+        return { kind: 'invalid', walletId: exactWalletId, reason: 'malformed' };
+      case 'resolved':
+        break;
+    }
+    const { selection, authMethod, authority } = selected;
+    if (
+      selection.walletId !== exactWalletId ||
+      selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+      selection.lockState !== 'unlocked' ||
+      authMethod.walletId !== exactWalletId ||
+      authMethod.walletAuthorityId !== authority.authorityId ||
+      authMethod.status !== 'active' ||
+      authority.walletId !== exactWalletId ||
+      authority.state !== 'active'
+    ) {
+      return {
+        kind: 'invalid',
+        walletId: exactWalletId,
+        reason: 'auth_method_mismatch',
+      };
+    }
+    const read = await walletSessionAuthorizations.readExactActiveForWallet({
+      walletId: exactWalletId,
+      authorityId: authority.authorityId,
+      authMethodId: authMethod.walletAuthMethodId,
+    });
+    switch (read.kind) {
+      case 'missing':
+        return { kind: 'absent' };
+      case 'corrupt':
+        return { kind: 'invalid', walletId: exactWalletId, reason: 'malformed' };
+      case 'persistence_unavailable':
+        return {
+          kind: 'unavailable',
+          walletId: exactWalletId,
+          reason: 'persistence_unavailable',
+        };
+      case 'upgrade_required':
+        throw new WalletSessionAuthorizationUpgradeRequiredError(
+          '[SigningEngine] Wallet Session authorization requires a newer client',
+        );
+      case 'found':
+        break;
+    }
+    const { record: authorization, operationCredential } = read;
+    if (
+      authorization.walletId !== exactWalletId ||
+      authorization.authorityId !== authority.authorityId ||
+      authorization.authMethodId !== authMethod.walletAuthMethodId ||
+      authorization.authorityDigestB64u !== authority.authorityDigestB64u ||
+      authorization.authorityRevocationEpoch !== authority.revocationEpoch
+    ) {
+      return {
+        kind: 'invalid',
+        walletId: exactWalletId,
+        authorizationId: authorization.authorizationId,
+        reason: 'identity_mismatch',
+      };
     }
     const nowMs = Date.now();
     if (authorization.expiresAtMs <= nowMs) {
-      await this.retireWalletSessionAuthorizationV1({
-        active: authorization,
-        reason: 'expired',
-        retiredAtMs: nowMs,
-      });
       return {
         kind: 'expired',
         walletId: exactWalletId,
-        authorizationId,
-        walletSessionId: authorization.walletSessionId,
-        authMethod: authorization.authMethod,
+        authorizationId: authorization.authorizationId,
+        walletSessionId: operationCredential.walletSessionId,
+        authMethod: authMethod.kind,
         expiresAtMs: authorization.expiresAtMs,
         detectedAtMs: nowMs,
       };
@@ -3047,20 +3166,12 @@ export class BrowserSigningSurface {
         reason: 'persistence_unavailable',
       };
     }
-    const walletSessionToken = walletSessionTokenForCurve(authorization, statusCurve);
-    if (!walletSessionToken) {
-      return {
-        kind: 'unavailable',
-        walletId: exactWalletId,
-        reason: 'persistence_unavailable',
-      };
-    }
     const status = await createRelayerReusableWalletSessionStatusPort({
       relayerUrl,
-      auth: { kind: 'opaque_wallet_session', walletSessionToken },
+      operationCredential,
     })
       .read({
-        walletSessionId: authorization.walletSessionId,
+        walletSessionId: operationCredential.walletSessionId,
         quotaId: authorization.quotaId,
       })
       .catch(() => null);
@@ -3076,10 +3187,10 @@ export class BrowserSigningSurface {
         return {
           kind: 'active',
           walletId: exactWalletId,
-          authorizationId,
-          walletSessionId: authorization.walletSessionId,
-          authMethod: authorization.authMethod,
-          walletAuthMethodId: authorization.authority.walletAuthMethodId,
+          authorizationId: authorization.authorizationId,
+          walletSessionId: operationCredential.walletSessionId,
+          authMethod: authMethod.kind,
+          walletAuthMethodId: authMethod.walletAuthMethodId,
           remainingUses: status.remainingUses,
           expiresAtMs: status.expiresAtMs,
         };
@@ -3087,81 +3198,60 @@ export class BrowserSigningSurface {
         return {
           kind: 'exhausted',
           walletId: exactWalletId,
-          authorizationId,
-          walletSessionId: authorization.walletSessionId,
-          authMethod: authorization.authMethod,
+          authorizationId: authorization.authorizationId,
+          walletSessionId: operationCredential.walletSessionId,
+          authMethod: authMethod.kind,
           remainingUses: 0,
           expiresAtMs: status.expiresAtMs,
         };
       case 'expired':
-        await this.retireWalletSessionAuthorizationV1({
-          active: authorization,
-          reason: 'expired',
-          retiredAtMs: Math.max(nowMs, status.expiresAtMs),
-        });
         return {
           kind: 'expired',
           walletId: exactWalletId,
-          authorizationId,
-          walletSessionId: authorization.walletSessionId,
-          authMethod: authorization.authMethod,
+          authorizationId: authorization.authorizationId,
+          walletSessionId: operationCredential.walletSessionId,
+          authMethod: authMethod.kind,
           expiresAtMs: status.expiresAtMs,
           detectedAtMs: nowMs,
         };
       case 'missing':
-        await this.retireWalletSessionAuthorizationV1({
-          active: authorization,
-          reason: 'invalidated',
-          retiredAtMs: nowMs,
-        });
         return {
           kind: 'missing',
           walletId: exactWalletId,
-          authorizationId,
-          walletSessionId: authorization.walletSessionId,
-          authMethod: authorization.authMethod,
+          authorizationId: authorization.authorizationId,
+          walletSessionId: operationCredential.walletSessionId,
+          authMethod: authMethod.kind,
         };
       case 'superseded':
-        await this.retireWalletSessionAuthorizationV1({
-          active: authorization,
-          reason: 'replaced',
-          retiredAtMs: nowMs,
-        });
-        // Replaced, not broken. The caller discards this session and resolves
-        // current state again; reporting `invalid` sent it to an error path.
         return {
           kind: 'superseded',
           walletId: exactWalletId,
-          authorizationId,
-          walletSessionId: authorization.walletSessionId,
-          authMethod: authorization.authMethod,
+          authorizationId: authorization.authorizationId,
+          walletSessionId: operationCredential.walletSessionId,
+          authMethod: authMethod.kind,
+          detectedAtMs: nowMs,
+        };
+      // The authorization exists but its authority, method, or capability no
+      // longer resolves: the local record is stale, not merely unverified.
+      case 'authority_unavailable':
+      case 'method_unavailable':
+      case 'capability_unavailable':
+        return {
+          kind: 'superseded',
+          walletId: exactWalletId,
+          authorizationId: authorization.authorizationId,
+          walletSessionId: operationCredential.walletSessionId,
+          authMethod: authMethod.kind,
           detectedAtMs: nowMs,
         };
       case 'invalid':
-        await this.retireWalletSessionAuthorizationV1({
-          active: authorization,
-          reason: 'invalidated',
-          retiredAtMs: nowMs,
-        });
-        return { kind: 'invalid', walletId: exactWalletId, reason: 'identity_mismatch' };
+        return {
+          kind: 'invalid',
+          walletId: exactWalletId,
+          authorizationId: authorization.authorizationId,
+          reason: 'identity_mismatch',
+        };
     }
-  }
-
-  /**
-   * Retires an owner Wallet Session projection and destroys the unlocked
-   * Ed25519 export-root capability it authorized (R103): a retired, replaced, or
-   * expired session must not leave a sealing capability behind.
-   */
-  private async retireWalletSessionAuthorizationV1(input: {
-    readonly active: ActiveWalletSessionAuthorizationProjection;
-    readonly reason: 'expired' | 'invalidated' | 'replaced' | 'wallet_locked';
-    readonly retiredAtMs: number;
-  }): Promise<void> {
-    await walletSessionAuthorizations.write(retireWalletSessionAuthorizationProjection(input));
-    void this.destroyUnlockedWalletEd25519ExportRootCapabilitiesV1({
-      kind: 'wallet_session',
-      walletSessionId: String(input.active.walletSessionId),
-    });
   }
 
   readWalletAuthenticationState(): WalletAuthenticationState {
@@ -3180,25 +3270,6 @@ export class BrowserSigningSurface {
         kind: 'wallet',
         walletId: String(walletId),
       });
-    }
-    const read = await walletSessionAuthorizations.readActiveForWallet(walletId);
-    switch (read.kind) {
-      case 'found':
-        await this.retireWalletSessionAuthorizationV1({
-          active: read.projection,
-          reason: 'wallet_locked',
-          retiredAtMs,
-        });
-        return;
-      case 'missing':
-        return;
-      case 'corrupt':
-        throw new Error('Wallet Session authorization projection is corrupt');
-      case 'persistence_unavailable':
-        throw new Error('Wallet Session authorization persistence is unavailable');
-      default:
-        read satisfies never;
-        throw new Error('Wallet Session authorization read returned an unknown result');
     }
   }
 
@@ -5181,11 +5252,14 @@ export class BrowserSigningSurface {
       throw new Error('[SigningEngine][ed25519-export] linked Ed25519 factor binding changed');
     }
 
-    const exactSession = await walletSessionAuthorizations.readExactWithOperationCredential({
-      walletId: args.walletId,
-      authorityId: authority.authorityId,
-      authMethodId: authMethod.walletAuthMethodId,
-    });
+    const exactSession = exactWalletSessionWithOperationCredentialOrThrow(
+      await walletSessionAuthorizations.readExactWithOperationCredential({
+        walletId: args.walletId,
+        authorityId: authority.authorityId,
+        authMethodId: authMethod.walletAuthMethodId,
+      }),
+      '[SigningEngine][ed25519-export] exact linked Wallet Session requires a newer client',
+    );
     let exactExportSubject = false;
     if (exactSession) {
       for (const subject of exactSession.record.capabilitySubjects) {
@@ -6481,11 +6555,14 @@ export class BrowserSigningSurface {
         metadata: unlock.metadata,
         authority,
       });
-      const exactSession = await walletSessionAuthorizations.readExactWithOperationCredential({
-        walletId: args.walletSession.walletId,
-        authorityId: unlock.recovery.verifiedAuthorityProjection.authority.authorityId,
-        authMethodId: unlock.recovery.verifiedAuthorityProjection.authMethod.walletAuthMethodId,
-      });
+      const exactSession = exactWalletSessionWithOperationCredentialOrThrow(
+        await walletSessionAuthorizations.readExactWithOperationCredential({
+          walletId: args.walletSession.walletId,
+          authorityId: unlock.recovery.verifiedAuthorityProjection.authority.authorityId,
+          authMethodId: unlock.recovery.verifiedAuthorityProjection.authMethod.walletAuthMethodId,
+        }),
+        '[SigningEngine][ed25519] exact Wallet Session requires a newer client',
+      );
       if (exactSession) {
         await establishUnlockedExportRootCapabilityWithWorkerV1(
           this.walletCustodyCeremonyTransportV1(),

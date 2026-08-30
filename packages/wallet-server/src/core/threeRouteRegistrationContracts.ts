@@ -14,9 +14,37 @@ import type {
   WalletRegistrationFinalizeResponse,
   WalletRegistrationFinalizeRouteSuccess,
   WalletRegistrationEcdsaActivationResponse,
+  WalletRegistrationEcdsaWalletKey,
+  WalletRegistrationEd25519YaoPublicResult,
+  WalletRegistrationFinalizeAuthMethod,
+  WalletRegistrationRouteDiagnostics,
 } from './registrationContracts';
-import type { RegistrationEstablishedSession } from '@shared/utils/registrationEstablishedSession';
-import type { WalletAuthMethodId } from '@shared/utils/domainIds';
+import type {
+  RegistrationEstablishedSessionProjectionV2,
+  RegistrationEstablishedSessionResultV2,
+} from '@shared/utils/registrationEstablishedSession';
+import type { WalletSessionClientCapabilityV1 } from '@shared/authorization/capabilityKinds';
+import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
+import type { ReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import type {
+  RegistrationNearAccountProvisioning,
+  ResolvedRegistrationNearAccount,
+  RegistrationAuthority,
+  RegistrationSignerPlan,
+  WalletAuthMethodRecordV2,
+} from '@shared/utils/registrationIntent';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { WalletCustodyRegistrationOutcome } from '@shared/passkey-custody';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type {
+  ThresholdEd25519AuthorityScope,
+  EcdsaDerivationServerBootstrapResponse,
+} from './types';
+import type {
+  StoredWalletRegistrationNearEd25519YaoAuthorizedBranch,
+  StoredWalletRegistrationPreparedContext,
+} from './RegistrationCeremonyStore';
 
 /**
  * Refactor 94C: the three-route registration wire contract, frozen at the
@@ -37,10 +65,13 @@ import type { WalletAuthMethodId } from '@shared/utils/domainIds';
  * - Each route binds its own canonical `PublicDigest32` over that route's
  *   canonical encoded bytes; no signed payload satisfies a route it was not
  *   minted for.
- * - Route 3's terminal response bytes are the replay record. Exact retry with
- *   the same idempotency key and fingerprint returns them byte-identically;
- *   a conflicting fingerprint returns the typed conflict.
- * - No compatibility route, legacy field, or dual-write path.
+ * - Route 3's completion row stores the credential-free committed projection
+ *   and request fingerprint. A direct-capability first response carries the
+ *   ephemeral primary credential after the receipt CAS; exact retry returns
+ *   `already_committed` with the stable projection and no credential. The
+ *   receipt projection retains the parent session expiry. A conflicting
+ *   fingerprint returns the typed conflict.
+ * - The V2 wire contract has no legacy fields or dual-write.
  */
 
 declare const signedSetupPayloadBrand: unique symbol;
@@ -62,6 +93,99 @@ type EcdsaFinalizeSuccess = Extract<
   { ok: true; kind: 'evm_family_ecdsa' }
 >;
 type EcdsaActivationSuccess = Extract<WalletRegistrationEcdsaActivationResponse, { ok: true }>;
+
+/**
+ * Credential-free installation facts retained with a mixed registration's
+ * ECDSA commit. Deferred NEAR finalization can use this after the ceremony is
+ * consumed, without rebuilding a Wallet Session credential or re-reading the
+ * original intent.
+ */
+export type WalletRegistrationCommittedInstallationProjectionV1 = {
+  readonly kind: 'wallet_registration_committed_installation_projection_v1';
+  readonly registrationCeremonyId: string;
+  readonly walletId: WalletId;
+  readonly orgId: string;
+  readonly registrationAuthority: RegistrationAuthority;
+  readonly signerPlan: RegistrationSignerPlan;
+  readonly preparedContext: StoredWalletRegistrationPreparedContext;
+  readonly nearEd25519: StoredWalletRegistrationNearEd25519YaoAuthorizedBranch;
+};
+
+type WalletRegistrationSessionCommitReceiptMetadataV2 = {
+  readonly kind: 'wallet_registration_session_commit_receipt_v2';
+  readonly operation: 'registration_activate' | 'near_provisioning';
+  readonly operationFingerprint: string;
+  readonly registrationCeremonyId: string;
+  readonly walletId: WalletId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly authority: WalletAuthAuthority;
+  readonly authMethod: WalletRegistrationFinalizeAuthMethod;
+  readonly expectedOrigin: string;
+  readonly registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+};
+
+type WalletRegistrationSessionCommitReadyBaseV2 =
+  WalletRegistrationSessionCommitReceiptMetadataV2 & {
+    readonly foundingAuthority: ActiveWalletAuthorityV1;
+    readonly foundingAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+    readonly mintId: ReusableWalletSessionMintId;
+    readonly issuedAtMs: number;
+    readonly expiresAtMs: number;
+    readonly custodyKeyManifestDigestB64u: DigestB64u;
+    readonly walletCustody?: WalletCustodyRegistrationOutcome;
+  };
+
+export type WalletRegistrationSessionCommitReceiptV2 =
+  | {
+      readonly kind: 'wallet_registration_session_commit_receipt_v2';
+      readonly operation: 'registration_activate' | 'near_provisioning';
+      readonly operationFingerprint: string;
+      readonly registrationCeremonyId: string;
+      readonly committed: {
+        readonly kind: 'error';
+        readonly error: WalletRegistrationRouteErrorV2;
+      };
+    }
+  | (WalletRegistrationSessionCommitReceiptMetadataV2 & {
+      readonly committed: {
+        readonly kind: 'near_pending';
+        readonly nearProvisioning: { readonly status: 'near_pending' };
+      };
+    })
+  | (WalletRegistrationSessionCommitReadyBaseV2 & {
+      readonly committed: WalletRegistrationEcdsaReadyCommitV2;
+    })
+  | (WalletRegistrationSessionCommitReadyBaseV2 & {
+      readonly committed: {
+        readonly kind: 'near_ready';
+        readonly authorityScope: ThresholdEd25519AuthorityScope;
+        readonly accountProvisioning: RegistrationNearAccountProvisioning;
+        readonly resolvedAccount: ResolvedRegistrationNearAccount;
+        readonly ed25519: WalletRegistrationEd25519YaoPublicResult;
+        readonly session: RegistrationEstablishedSessionProjectionV2;
+        readonly nearProvisioning: { readonly status: 'near_ready' };
+      };
+    });
+
+type WalletRegistrationEcdsaReadyCommitBaseV2 = {
+  readonly kind: 'ecdsa_ready';
+  readonly ecdsa: {
+    readonly walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
+    readonly activation: EcdsaActivationSuccess['ecdsa']['activation'];
+    readonly bootstrap: EcdsaDerivationServerBootstrapResponse;
+  };
+  readonly session: RegistrationEstablishedSessionProjectionV2;
+};
+
+export type WalletRegistrationEcdsaReadyCommitV2 =
+  | (WalletRegistrationEcdsaReadyCommitBaseV2 & {
+      readonly nearProvisioning?: never;
+      readonly installation?: never;
+    })
+  | (WalletRegistrationEcdsaReadyCommitBaseV2 & {
+      readonly nearProvisioning: { readonly status: 'near_pending' };
+      readonly installation: WalletRegistrationCommittedInstallationProjectionV1;
+    });
 
 export type WalletRegistrationRouteErrorV2 = {
   ok: false;
@@ -266,6 +390,7 @@ type WalletRegistrationActivateRequestBaseV2 = {
   registrationCeremonyId: string;
   signedSetup: SignedSetupPayloadB64u;
   idempotencyKey: ActivateIdempotencyKey;
+  walletSessionClientCapability: WalletSessionClientCapabilityV1;
 };
 
 export type ActivateEcdsaWorkV2 = {
@@ -317,11 +442,11 @@ type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> :
  *
  * Activate does not wait for Yao. It persists the wallet, profile, and
  * authentication state plus the `near_pending` provisioning record, and that
- * pending response is the stored terminal — an exact retry returns it
- * unchanged. Every field that only completed Yao can produce is `never`, so a
- * caller cannot read a signer, a resolved account, or a key identity that does
- * not exist yet. The wallet becomes signable when deferred Yao reaches
- * `near_ready`.
+ * pending response is the committed terminal projection, and a retry
+ * reconstructs that projection from the receipt. Every field that only
+ * completed Yao can produce is `never`, so a caller cannot read a signer, a
+ * resolved account, or a key identity that does not exist yet. The wallet
+ * becomes signable when deferred Yao reaches `near_ready`.
  */
 export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
   Ed25519FinalizeSuccess,
@@ -331,6 +456,8 @@ export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
   | 'authorityScope'
   | 'foundingAuthority'
   | 'foundingAuthMethod'
+  // The activate leg precedes the key set, so there is no manifest to name yet.
+  | 'custodyKeyManifestDigestB64u'
 > & {
   nearProvisioning: { status: 'near_pending' };
   ed25519?: never;
@@ -343,7 +470,7 @@ export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
 export type WalletRegistrationActivateResponseV2 =
   | (DistributiveOmit<EcdsaFinalizeSuccess, 'ecdsa'> & {
       ecdsa: ActivateEcdsaTerminalPayload;
-      registrationEstablishedSession: RegistrationEstablishedSession;
+      registrationEstablishedSession: RegistrationEstablishedSessionResultV2;
       /** Mixed plans: deferred NEAR snapshot; never identifiers before readiness. */
       nearProvisioning?: { status: 'near_pending' };
     })
@@ -381,13 +508,14 @@ export type WalletRegistrationNearProvisioningRequestV2 = {
   idempotencyKey: ActivateIdempotencyKey;
   ed25519: Extract<WalletRegistrationFinalizeRequest, { kind: 'near_ed25519' }>['ed25519'];
   emailOtpEnrollment?: NonNullable<WalletRegistrationFinalizeRequest['emailOtpEnrollment']>;
+  walletSessionClientCapability: WalletSessionClientCapabilityV1;
 };
 
 type WalletRegistrationNearProvisioningSuccessV2 = Extract<
   WalletRegistrationFinalizeResponse,
   { ok: true; kind: 'near_ed25519' }
 > & {
-  registrationEstablishedSession: RegistrationEstablishedSession;
+  registrationEstablishedSession: RegistrationEstablishedSessionResultV2;
   nearProvisioning: { status: 'near_ready' };
 };
 

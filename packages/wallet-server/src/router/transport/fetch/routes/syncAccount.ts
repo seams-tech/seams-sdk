@@ -21,7 +21,10 @@ import {
   parseWebAuthnRpId,
   type WalletAuthMethodId,
 } from '@shared/utils/domainIds';
-import { parseSessionOrigin, parseVerifiedOwnerProofId } from '../../../../authorization/domain';
+import {
+  parseSessionOrigin,
+  parseVerifiedOwnerProofId,
+} from '../../../../authorization/domain';
 import { buildVerifiedWalletSessionPasskeyFactorResult } from '../../../../authorization/factorEvidence';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
@@ -229,13 +232,28 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
         ctx,
         result: normalizedResult,
         authority,
+        activeAuthority: activeAuthority.walletAuthority,
+        foundingAuthMethod: activeAuthority.authMethod,
+        walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
         authorityRef,
         proof,
         mintId: mintId.value,
+        walletSessionClientCapability: parsed.request.walletSessionClientCapability,
         issuedAtMs,
         ecdsaThresholdSessionId: `sync-account-ecdsa:${parsed.request.challengeId}`,
         custody: { kind: 'read_verified_factor' },
       });
+      if (bootstrap.kind === 'already_committed') {
+        return json(
+          {
+            ok: false,
+            code: 'already_committed',
+            message: 'Wallet Session sync is already committed; retry the exact method',
+            ...bootstrap.committed,
+          },
+          { status: 409 },
+        );
+      }
       if (bootstrap.kind === 'error') {
         return json(
           { ok: false, code: bootstrap.code, message: bootstrap.message },

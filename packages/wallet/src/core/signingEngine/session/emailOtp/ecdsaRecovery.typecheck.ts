@@ -2,16 +2,15 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { ThresholdEcdsaEmailOtpSessionAuthContext } from '../identity/laneIdentity';
 import type { EmailOtpEcdsaSealedRecoveryRecord } from '../sealedRecovery/recoveryRecord';
 import type { EmailOtpEcdsaRestoreSource } from './ecdsaRecovery';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 
 declare const sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const emailOtpAuthContext: ThresholdEcdsaEmailOtpSessionAuthContext;
-declare const authorization: ActiveWalletSessionAuthorizationProjection;
+declare const authorization: ExactEvmFamilyWalletSessionAuthorization;
 const restoreSourceCommon = {
   emailOtpAuthContext,
   authorization,
-  thresholdSessionId: 'threshold-session-id',
   relayerUrl: 'https://relay.example',
   chainTarget,
   keyHandle: 'key-handle',
@@ -41,7 +40,7 @@ void ({
   kind: 'sealed_record_restore',
   sealedRecord,
   ...restoreSourceWithoutAuthorization,
-  // @ts-expect-error restore source branches require independent Wallet Session authorization.
+  // @ts-expect-error restore source requires the exact identity-coupled authorization.
   authorization: undefined,
 } satisfies EmailOtpEcdsaRestoreSource);
 

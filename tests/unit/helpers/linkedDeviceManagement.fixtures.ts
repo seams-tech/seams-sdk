@@ -16,6 +16,7 @@ import {
   buildActiveWalletSessionQuota,
   buildWalletSessionAuthorizationV2,
   buildWalletSessionCapabilitySubjectsV1,
+  projectActiveWalletSession,
   type IssuedWalletSessionAuthorizationV2,
 } from '../../../packages/wallet-server/src/authorization/domain';
 import {
@@ -46,6 +47,19 @@ import {
   type MpcMaterialActivationRef,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { parseExactAdministeredSignerManifestV1 } from '../../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
+import type { ExactAdministeredEcdsaSignerV1 } from '../../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
+import { parseWalletSessionOperationCredentialV1 } from '../../../packages/shared-ts/src/device-linking/parsers';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '../../../packages/shared-ts/src/device-linking/contracts';
+import type { WalletSelectionRecordV1 } from '../../../packages/wallet/src/core/indexedDB/passkeyClientDB.types';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type EmailOtpWalletAuthAuthority,
+  type WalletAuthAuthorityRef,
+} from '../../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
 
 const MANAGEMENT_DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(33)));
@@ -90,13 +104,82 @@ export type LinkedDeviceManagementAuthorityIdentityV1 = {
   readonly authorityId: string;
   readonly walletAuthMethodId: string;
   readonly rpId: string;
+  readonly credentialIdB64u?: string;
 };
 
 export type LinkedDeviceManagementAuthorityFixture = {
   readonly authority: ActiveWalletAuthorityV1;
   readonly authMethod: ActivePasskeyWalletAuthMethodRecordV2;
+  readonly selection: WalletSelectionRecordV1;
   readonly issuedSession: IssuedWalletSessionAuthorizationV2;
+  readonly activeWalletSession: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
 };
+
+export type EmailOtpEcdsaWalletSessionFixture = Omit<
+  LinkedDeviceManagementAuthorityFixture,
+  'authMethod'
+> & {
+  readonly authMethod: ActiveEmailOtpWalletAuthMethodRecordV2;
+  readonly exactFactorAuthority: EmailOtpWalletAuthAuthority;
+  readonly factorAuthority: WalletAuthAuthorityRef;
+  readonly materialActivation: MpcMaterialActivationRef;
+};
+
+export async function buildEmailOtpEcdsaWalletSessionFixture(input: {
+  readonly label: string;
+  readonly expiresAtMs: number;
+  readonly walletId?: string;
+  readonly walletAuthMethodId?: string;
+  readonly materialActivation?: MpcMaterialActivationRef;
+  readonly providerUserId?: string;
+  readonly emailHashHex?: string;
+}): Promise<EmailOtpEcdsaWalletSessionFixture> {
+  const walletId = input.walletId ?? `wallet:email-otp-ecdsa-${input.label}`;
+  const emailHashHex = input.emailHashHex ?? 'a'.repeat(64);
+  const emailOtpAuthority = buildEmailOtpWalletAuthAuthority({
+    walletId,
+    provider: 'google',
+    providerUserId: input.providerUserId ?? `provider-user-${input.label}`,
+    emailHashHex,
+  });
+  const fixture = await buildLinkedDeviceManagementAuthorityFixture({
+    label: input.label,
+    permissions: buildFullOwnerPermissionsV1(),
+    provenance: 'wallet_registration',
+    keyFamily: 'ecdsa_secp256k1',
+    ...(input.materialActivation ? { materialActivation: input.materialActivation } : {}),
+    expiresAtMs: input.expiresAtMs,
+    identity: {
+      walletId,
+      authorityId: `authority:email-otp-ecdsa-${input.label}`,
+      walletAuthMethodId: input.walletAuthMethodId ?? String(emailOtpAuthority.bindingId),
+      rpId: 'email-otp-unused.example.test',
+    },
+  });
+  const authMethod = buildActiveEmailOtpWalletAuthMethodRecord({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+    walletId: fixture.authMethod.walletId,
+    walletAuthorityId: fixture.authMethod.walletAuthorityId,
+    kind: 'email_otp',
+    status: 'active',
+    emailHashHex,
+    registrationAuthorityId: `registration-authority:${input.label}`,
+    createdAtMs: fixture.authMethod.createdAtMs,
+    updatedAtMs: fixture.authMethod.updatedAtMs,
+    activatedAtMs: fixture.authMethod.activatedAtMs,
+  });
+  const materialActivation = fixture.authority.signerActivations.ecdsa?.materialActivation;
+  if (!materialActivation) throw new Error('Email OTP ECDSA fixture lacks ECDSA activation');
+  return {
+    ...fixture,
+    authMethod,
+    exactFactorAuthority: emailOtpAuthority,
+    factorAuthority: await walletAuthAuthorityRef({ authority: emailOtpAuthority }),
+    materialActivation,
+  };
+}
 
 export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   readonly label: string;
@@ -106,6 +189,13 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   readonly materialActivation?: MpcMaterialActivationRef;
   readonly sourceAuthorityId?: ActiveWalletAuthorityV1['authorityId'];
   readonly identity?: LinkedDeviceManagementAuthorityIdentityV1;
+  readonly expiresAtMs?: number;
+  readonly tenantId?: string;
+  readonly principalId?: string;
+  readonly ecdsaSigner?: Pick<
+    ExactAdministeredEcdsaSignerV1,
+    'walletKeyId' | 'thresholdPublicKey33B64u' | 'evmAddress'
+  >;
 }): Promise<LinkedDeviceManagementAuthorityFixture> {
   const walletId = required(parseWalletId(input.identity?.walletId ?? 'wallet:management'));
   const authorityId = required(
@@ -136,11 +226,11 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
               kind: 'exact_administered_ecdsa_signer_v1',
               keyFamily: 'ecdsa_secp256k1',
               walletId: String(walletId),
-              walletKeyId: `wallet-key:management-${input.label}`,
-              thresholdPublicKey33B64u: base64UrlEncode(
-                new Uint8Array([2, ...new Uint8Array(32).fill(38)]),
-              ),
-              evmAddress: `0x${'1'.repeat(40)}`,
+              walletKeyId: input.ecdsaSigner?.walletKeyId ?? `wallet-key:management-${input.label}`,
+              thresholdPublicKey33B64u:
+                input.ecdsaSigner?.thresholdPublicKey33B64u ??
+                base64UrlEncode(new Uint8Array([2, ...new Uint8Array(32).fill(38)])),
+              evmAddress: input.ecdsaSigner?.evmAddress ?? `0x${'1'.repeat(40)}`,
             },
           ],
         });
@@ -219,7 +309,8 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   const rpId = required(parseWebAuthnRpId(input.identity?.rpId ?? 'management.example.test'));
   const credentialIdB64u = required(
     parseWebAuthnCredentialIdB64u(
-      base64UrlEncode(new Uint8Array(32).fill(input.label === 'owner' ? 35 : 36)),
+      input.identity?.credentialIdB64u ??
+        base64UrlEncode(new Uint8Array(32).fill(input.label === 'owner' ? 35 : 36)),
     ),
   );
   const authMethodId = required(
@@ -242,8 +333,10 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
     updatedAtMs: 200,
     activatedAtMs: 200,
   });
-  const tenantId = required(parseTenantId('tenant:management'));
-  const principalId = required(parsePrincipalId(`principal:management-${input.label}`));
+  const tenantId = required(parseTenantId(input.tenantId ?? 'tenant:management'));
+  const principalId = required(
+    parsePrincipalId(input.principalId ?? `principal:management-${input.label}`),
+  );
   const walletSessionId = required(
     parseWalletSessionId(`wallet-session:management-${input.label}`),
   );
@@ -254,6 +347,7 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   const mintId = required(
     parseReusableWalletSessionMintId(`wallet-mint:management-${input.label}`),
   );
+  const expiresAtMs = input.expiresAtMs ?? 10_000;
   const session = buildWalletSessionAuthorizationV2({
     tenantId,
     principalId,
@@ -268,22 +362,37 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
     quotaId,
     capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
     createdAtMs: 300,
-    expiresAtMs: 10_000,
+    expiresAtMs,
   });
+  const issuedSession = {
+    session,
+    quota: buildActiveWalletSessionQuota({
+      tenantId,
+      principalId,
+      walletSessionId,
+      quotaId,
+      remainingUses: 10,
+      expiresAtMs,
+    }),
+  };
   return {
     authority,
     authMethod,
-    issuedSession: {
-      session,
-      quota: buildActiveWalletSessionQuota({
-        tenantId,
-        principalId,
-        walletSessionId,
-        quotaId,
-        remainingUses: 10,
-        expiresAtMs: 10_000,
-      }),
+    selection: {
+      kind: 'wallet_selection_v1',
+      walletId,
+      walletAuthMethodId: authMethodId,
+      lockGeneration: 0,
+      lockState: 'unlocked',
+      updatedAtMs: 200,
     },
+    issuedSession,
+    activeWalletSession: projectActiveWalletSession(issuedSession),
+    operationCredential: parseWalletSessionOperationCredentialV1({
+      kind: 'opaque_wallet_session_operation_credential_v1',
+      token: `wst_${base64UrlEncode(new Uint8Array(32).fill((input.label.length % 254) + 1))}`,
+      walletSessionId,
+    }),
   };
 }
 
@@ -440,6 +549,16 @@ function buildRevokedPasskeyWalletAuthMethodRecord(
   const record = buildWalletAuthMethodRecordV2(input);
   if (record.kind !== 'passkey' || record.status !== 'revoked') {
     throw new Error('revoked Passkey fixture unexpectedly changed branch');
+  }
+  return record;
+}
+
+function buildActiveEmailOtpWalletAuthMethodRecord(
+  input: ActiveEmailOtpWalletAuthMethodRecordV2,
+): ActiveEmailOtpWalletAuthMethodRecordV2 {
+  const record = buildWalletAuthMethodRecordV2(input);
+  if (record.kind !== 'email_otp' || record.status !== 'active') {
+    throw new Error('active Email OTP fixture unexpectedly changed branch');
   }
   return record;
 }

@@ -6,7 +6,7 @@ import { emitRouterApiWebhookEvent } from '../../../framework/routerApiWebhooks'
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json, readJson } from '../../../framework/http';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { alphabetizeStringify } from '@shared/utils/digests';
+import { alphabetizeStringify, sha256HexUtf8 } from '@shared/utils/digests';
 import {
   handleWalletUnlockChallengeRoute,
   handleWalletUnlockVerifyRoute,
@@ -27,7 +27,9 @@ import {
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
+  parseWalletUnlockIssuanceRejectionCode,
   routerApiEmailOtpRouteService,
+  type RouterApiWalletSessionAuthorizationV2AdmissionContext,
   type WalletUnlockEmailOtpAuthorityResolution,
 } from '../../../framework/authServicePort';
 import {
@@ -62,7 +64,7 @@ import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
-  type PrincipalId,
+  type TenantId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseWebAuthnCredentialIdB64u, parseWebAuthnRpId } from '@shared/utils/domainIds';
@@ -70,10 +72,12 @@ import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   parseHostedWalletSeamsSessionExchangeCode,
   parseHostedWalletSeamsSessionExchangeNonce,
+  parsePrimaryWalletSessionOperationCredentialToken,
   parseSessionOrigin,
+  projectExactWalletSessionAuthorizationV1,
+  type ExactWalletSessionStatusV2,
   type SessionOrigin,
 } from '../../../../authorization/domain';
-import type { OpaqueWalletSessionCurve } from '../../../../authorization/service';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
@@ -81,11 +85,6 @@ import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthor
 import { base58Encode } from '@shared/utils/base58';
 
 const HOSTED_WALLET_EXCHANGE_TTL_MS = 5 * 60 * 1000;
-
-function parseHostedWalletExchangeCurve(value: unknown): OpaqueWalletSessionCurve {
-  if (value === 'ecdsa' || value === 'ed25519') return value;
-  throw new Error('hosted-wallet exchange curve is invalid');
-}
 
 function parseExactHostedWalletExchangeBody(
   value: unknown,
@@ -109,6 +108,16 @@ function requiredExchangeOrigin(record: Record<string, unknown>, field: string):
 
 function requestOrigin(request: Request): SessionOrigin {
   return parseSessionOrigin(request.headers.get('origin'));
+}
+
+function hostedWalletOriginIsAllowed(ctx: FetchRouterApiContext, origin: SessionOrigin): boolean {
+  return (ctx.opts.hostedWalletOrigins ?? []).some((candidate) => {
+    try {
+      return parseSessionOrigin(candidate) === origin;
+    } catch {
+      return false;
+    }
+  });
 }
 
 type WalletEmailOtpChallengeSelector =
@@ -225,7 +234,11 @@ async function resolveWalletEmailOtpChallengeAuthority(args: {
       providerUserId: args.providerUserId,
     });
   if (!selected.ok) {
-    return { kind: 'rejected', code: selected.code, message: selected.message };
+    return {
+      kind: 'rejected',
+      code: parseWalletUnlockIssuanceRejectionCode(selected.code),
+      message: selected.message,
+    };
   }
   return await args.ctx.service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
     walletId: args.walletId,
@@ -400,6 +413,7 @@ function hostedWalletExchangeFailure(result: { readonly kind: string }): {
       };
     case 'nonce_mismatch':
     case 'app_origin_mismatch':
+    case 'wallet_origin_mismatch':
     case 'invalid_code':
       return {
         status: 401,
@@ -422,22 +436,22 @@ export async function handleHostedWalletSessionExchangeIssue(
   let record: Record<string, unknown>;
   try {
     record = parseExactHostedWalletExchangeBody(await readJson(ctx.request), [
-      'curve',
       'appOrigin',
       'walletOrigin',
     ]);
   } catch (error) {
     return json({ ok: false, code: 'invalid_body', message: String(error) }, { status: 400 });
   }
-  let curve: OpaqueWalletSessionCurve;
   let appOrigin: SessionOrigin;
   let walletOrigin: SessionOrigin;
   try {
-    curve = parseHostedWalletExchangeCurve(record.curve);
     appOrigin = requiredExchangeOrigin(record, 'appOrigin');
     walletOrigin = requiredExchangeOrigin(record, 'walletOrigin');
     if (requestOrigin(ctx.request) !== appOrigin)
       throw new Error('request Origin does not match appOrigin');
+    if (!hostedWalletOriginIsAllowed(ctx, walletOrigin)) {
+      throw new Error('walletOrigin is not an allowed server origin');
+    }
   } catch (error) {
     return json({ ok: false, code: 'origin_mismatch', message: String(error) }, { status: 403 });
   }
@@ -447,18 +461,29 @@ export async function handleHostedWalletSessionExchangeIssue(
       { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
       { status: 401 },
     );
+  let primaryToken: string;
+  try {
+    primaryToken = parsePrimaryWalletSessionOperationCredentialToken(token);
+  } catch {
+    return json(
+      { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+      { status: 401 },
+    );
+  }
   let resolved: Awaited<
     ReturnType<
-      FetchRouterApiContext['service']['authorizationSessions']['resolveOpaqueWalletSessionToken']
+      FetchRouterApiContext['service']['authorizationSessions']['readWalletSessionAuthorizationV2ByOperationCredential']
     >
   >;
   try {
-    resolved = await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-      tenantId: ctx.service.authorizationSessions.tenantId,
-      token,
-      curve,
-      nowMs: Date.now(),
-    });
+    resolved =
+      await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential(
+        {
+          tenantId: ctx.service.authorizationSessions.tenantId,
+          token: primaryToken,
+          nowMs: Date.now(),
+        },
+      );
   } catch {
     return json(
       { ok: false, code: 'wallet_session_unavailable', message: 'Wallet Session is unavailable' },
@@ -478,12 +503,9 @@ export async function handleHostedWalletSessionExchangeIssue(
   try {
     const issuedAtMs = Date.now();
     delivery = await ctx.service.authorizationSessions.mintHostedWalletSeamsSessionExchange({
-      tenantId: ctx.service.authorizationSessions.tenantId,
-      walletSessionId: resolved.authorization.walletSessionId,
+      authorization: resolved.authorization,
       appOrigin,
       walletOrigin,
-      curve: resolved.curve,
-      binding: resolved.binding,
       issuedAtMs,
       expiresAtMs: issuedAtMs + HOSTED_WALLET_EXCHANGE_TTL_MS,
     });
@@ -517,7 +539,6 @@ export async function handleHostedWalletSessionExchangeRedeem(
     record = parseExactHostedWalletExchangeBody(await readJson(ctx.request), [
       'exchangeCode',
       'nonce',
-      'curve',
       'appOrigin',
       'walletOrigin',
     ]);
@@ -528,15 +549,16 @@ export async function handleHostedWalletSessionExchangeRedeem(
   let nonce: ReturnType<typeof parseHostedWalletSeamsSessionExchangeNonce>;
   let appOrigin: SessionOrigin;
   let walletOrigin: SessionOrigin;
-  let curve: OpaqueWalletSessionCurve;
   try {
     exchangeCode = parseHostedWalletSeamsSessionExchangeCode(record.exchangeCode);
     nonce = parseHostedWalletSeamsSessionExchangeNonce(record.nonce);
-    curve = parseHostedWalletExchangeCurve(record.curve);
     appOrigin = requiredExchangeOrigin(record, 'appOrigin');
     walletOrigin = requiredExchangeOrigin(record, 'walletOrigin');
     if (requestOrigin(ctx.request) !== walletOrigin) {
       throw new Error('request Origin does not match walletOrigin');
+    }
+    if (!hostedWalletOriginIsAllowed(ctx, walletOrigin)) {
+      throw new Error('walletOrigin is not an allowed server origin');
     }
   } catch (error) {
     return json({ ok: false, code: 'origin_mismatch', message: String(error) }, { status: 403 });
@@ -546,7 +568,6 @@ export async function handleHostedWalletSessionExchangeRedeem(
     nonce,
     appOrigin,
     walletOrigin,
-    curve,
     redeemedAtMs: Date.now(),
   });
   if (result.kind !== 'redeemed') {
@@ -560,8 +581,7 @@ export async function handleHostedWalletSessionExchangeRedeem(
     {
       ok: true,
       walletSessionId: result.walletSessionId,
-      walletSessionToken: result.walletSessionToken,
-      curve: result.curve,
+      operationCredential: result.operationCredential,
       expiresAtMs: result.expiresAtMs,
     },
     { status: 200 },
@@ -683,12 +703,12 @@ function walletUnlockEcdsaSessionContext(
       if (!authored.ok) return authored;
       const { request, activationReceipt, continuity } = authored.value;
       let response: Response;
-      if (authorization.kind === 'reuse_ed25519_wallet_session') {
+      if (authorization.kind === 'reuse_wallet_session_operation_credential_v1') {
         response = await handleStrictEcdsaSessionActivation({
           ctx,
           body: request,
-          source: 'verified_ed25519_wallet_session',
-          walletSessionToken: authorization.walletSessionToken,
+          source: 'wallet_session_operation_credential_v1',
+          operationCredential: authorization.operationCredential,
           proof: authorization.proof,
         });
       } else {
@@ -784,120 +804,88 @@ function parseReusableWalletSessionStatusBody(body: unknown): {
   };
 }
 
-type WalletSessionStatusAuthorization =
-  | {
-      readonly kind: 'reusable';
-      readonly walletId: string;
-      readonly principalId: PrincipalId;
-      readonly walletSessionId: WalletSessionId;
-      readonly quotaId: MpcWalletSigningQuotaId;
-    }
-  | {
-      readonly kind: 'exact_v2';
-      readonly walletId: string;
-      readonly walletSessionId: WalletSessionId;
-      readonly quotaId: MpcWalletSigningQuotaId;
-      readonly remainingUses: number;
-      readonly expiresAtMs: number;
-    };
-
-function walletSessionStatusInvalidResponse(body: {
+type ExactWalletSessionStatusRequest = {
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
-}): {
-  readonly ok: false;
-  readonly response: Response;
-} {
-  return {
-    ok: false,
-    response: json(
-      {
-        ok: true,
-        status: 'invalid',
-        walletSessionId: body.walletSessionId,
-        quotaId: body.quotaId,
-      },
-      { status: 200 },
-    ),
-  };
+};
+
+/**
+ * The immutable identities the presented operation credential must carry. The
+ * credential resolves one authorization; the request may only name the Wallet
+ * Session and quota that authorization already committed. Authority and auth
+ * method identity is validated against their own rows in persistence, so the
+ * route never infers either from wallet-wide uniqueness.
+ */
+function exactWalletSessionStatusIdentityMatches(input: {
+  readonly status: ExactWalletSessionStatusV2;
+  readonly request: ExactWalletSessionStatusRequest;
+  readonly tenantId: TenantId;
+}): boolean {
+  if (input.status.kind === 'missing') return true;
+  const session = input.status.session;
+  if (
+    session.tenantId !== input.tenantId ||
+    session.walletSessionId !== input.request.walletSessionId ||
+    session.quotaId !== input.request.quotaId
+  ) {
+    return false;
+  }
+  switch (input.status.kind) {
+    case 'active':
+    case 'exhausted':
+    case 'expired':
+      return (
+        input.status.quota.tenantId === session.tenantId &&
+        input.status.quota.principalId === session.principalId &&
+        input.status.quota.walletSessionId === session.walletSessionId &&
+        input.status.quota.quotaId === session.quotaId
+      );
+    default:
+      return true;
+  }
 }
 
-async function readAndValidateWalletSessionStatusAuthorization(
-  ctx: FetchRouterApiContext,
-  body: {
-    readonly walletSessionId: WalletSessionId;
-    readonly quotaId: MpcWalletSigningQuotaId;
-  },
-): Promise<
-  | { readonly ok: true; readonly authorization: WalletSessionStatusAuthorization }
-  | { readonly ok: false; readonly response: Response }
-> {
-  const bearerToken = extractBearerCredential(ctx.request.headers);
-  if (!bearerToken) {
-    return {
-      ok: false,
-      response: json(
-        { authenticated: false, code: 'unauthorized', message: 'No valid Wallet Session' },
-        { status: 401 },
-      ),
-    };
-  }
-
-  const nowMs = Date.now();
-  const exactV2 =
-    await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential?.(
-      {
-        tenantId: ctx.service.authorizationSessions.tenantId,
-        token: bearerToken,
-        nowMs,
-      },
-    );
-  if (exactV2) {
-    return {
-      ok: true,
-      authorization: {
-        kind: 'exact_v2',
-        walletId: String(exactV2.authorization.session.walletId),
-        walletSessionId: exactV2.authorization.session.walletSessionId,
-        quotaId: exactV2.authorization.session.quotaId,
-        remainingUses: exactV2.authorization.quota.remainingUses,
-        expiresAtMs: exactV2.authorization.quota.expiresAtMs,
-      },
-    };
-  }
-  const ecdsa = await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-    tenantId: ctx.service.authorizationSessions.tenantId,
-    token: bearerToken,
-    curve: 'ecdsa',
-    nowMs,
-  });
-  const walletSession =
-    ecdsa ??
-    (await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-      tenantId: ctx.service.authorizationSessions.tenantId,
-      token: bearerToken,
-      curve: 'ed25519',
-      nowMs,
-    }));
-  if (!walletSession) return walletSessionStatusInvalidResponse(body);
-  return {
-    ok: true,
-    authorization: {
-      kind: 'reusable',
-      walletId: walletSession.authorization.walletId,
-      principalId: walletSession.authorization.principalId,
-      walletSessionId: walletSession.authorization.walletSessionId,
-      quotaId: walletSession.authorization.quotaId,
-    },
+/**
+ * Projects the persistence lifecycle onto the status vocabulary. Every branch
+ * that observed a stored authorization publishes the complete digest-free
+ * authorization projection and its quota, so a browser reconciles its own
+ * record from one read; the credential digest never leaves persistence.
+ *
+ * Retirement is `superseded`; exact absence is `invalid`, which is also the
+ * only branch a caller cannot distinguish from a credential that never existed.
+ */
+function exactWalletSessionStatusResponseBody(
+  status: ExactWalletSessionStatusV2,
+  request: ExactWalletSessionStatusRequest,
+): Record<string, unknown> {
+  const identity = { walletSessionId: request.walletSessionId, quotaId: request.quotaId };
+  if (status.kind === 'missing') return { ok: true, status: 'invalid', ...identity };
+  const observed = {
+    ...identity,
+    remainingUses: status.quota.remainingUses,
+    expiresAtMs: status.quota.expiresAtMs,
+    quotaLifecycle: status.quota.lifecycle,
+    authorization: projectExactWalletSessionAuthorizationV1(status.session),
   };
+  switch (status.kind) {
+    case 'active':
+    case 'exhausted':
+    case 'expired':
+    case 'authority_unavailable':
+    case 'method_unavailable':
+    case 'capability_unavailable':
+      return { ok: true, status: status.kind, ...observed };
+    case 'retired':
+      return { ok: true, status: 'superseded', ...observed };
+  }
 }
 
 export async function handleReusableWalletSessionStatus(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/session/status') return null;
-  const body = parseReusableWalletSessionStatusBody(await readJson(ctx.request));
-  if (!body) {
+  const request = parseReusableWalletSessionStatusBody(await readJson(ctx.request));
+  if (!request) {
     return json(
       {
         ok: false,
@@ -907,12 +895,22 @@ export async function handleReusableWalletSessionStatus(
       { status: 400 },
     );
   }
-  const validated = await readAndValidateWalletSessionStatusAuthorization(ctx, body);
-  if (!validated.ok) return validated.response;
-  if (
-    validated.authorization.walletSessionId !== body.walletSessionId ||
-    validated.authorization.quotaId !== body.quotaId
-  ) {
+  const bearerToken = extractBearerCredential(ctx.request.headers);
+  if (!bearerToken) {
+    return json(
+      { authenticated: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+      { status: 401 },
+    );
+  }
+
+  const tenantId = ctx.service.authorizationSessions.tenantId;
+  const status =
+    await ctx.service.authorizationSessions.readExactWalletSessionStatusByOperationCredential({
+      tenantId,
+      token: bearerToken,
+      nowMs: Date.now(),
+    });
+  if (!exactWalletSessionStatusIdentityMatches({ status, request, tenantId })) {
     return json(
       {
         ok: false,
@@ -922,70 +920,7 @@ export async function handleReusableWalletSessionStatus(
       { status: 403 },
     );
   }
-  if (validated.authorization.kind === 'exact_v2') {
-    return json(
-      {
-        ok: true,
-        status: validated.authorization.remainingUses === 0 ? 'exhausted' : 'active',
-        walletSessionId: validated.authorization.walletSessionId,
-        quotaId: validated.authorization.quotaId,
-        remainingUses: validated.authorization.remainingUses,
-        expiresAtMs: validated.authorization.expiresAtMs,
-      },
-      { status: 200 },
-    );
-  }
-  const nowMs = Date.now();
-  const result = await ctx.service.authorizationSessions.readReusableWalletSessionStatus({
-    tenantId: ctx.service.authorizationSessions.tenantId,
-    principalId: validated.authorization.principalId,
-    walletSessionId: body.walletSessionId,
-    quotaId: body.quotaId,
-    nowMs,
-  });
-  switch (result.kind) {
-    case 'active':
-    case 'exhausted':
-      return json(
-        {
-          ok: true,
-          status: result.kind,
-          walletSessionId: result.walletSessionId,
-          quotaId: result.quotaId,
-          remainingUses: result.remainingUses,
-          expiresAtMs: result.expiresAtMs,
-        },
-        { status: 200 },
-      );
-    case 'expired':
-      return json(
-        {
-          ok: true,
-          status: result.kind,
-          walletSessionId: result.walletSessionId,
-          quotaId: result.quotaId,
-          expiresAtMs: result.expiresAtMs,
-        },
-        { status: 200 },
-      );
-    case 'superseded':
-    case 'missing':
-    case 'invalid':
-      return json(
-        {
-          ok: true,
-          status: result.kind,
-          walletSessionId: result.walletSessionId,
-          quotaId: result.quotaId,
-        },
-        { status: 200 },
-      );
-  }
-  result satisfies never;
-  return json(
-    { ok: false, code: 'internal', message: 'Invalid Wallet Session status' },
-    { status: 500 },
-  );
+  return json(exactWalletSessionStatusResponseBody(status, request), { status: 200 });
 }
 
 export async function handleWalletUnlockChallenge(
@@ -1184,6 +1119,15 @@ function parseWalletEmailOtpFactorReleaseRequest(
   };
 }
 
+function hasEd25519SigningSubject(
+  context: RouterApiWalletSessionAuthorizationV2AdmissionContext,
+): boolean {
+  for (const subject of context.authorization.session.capabilitySubjects) {
+    if (subject.kind === 'sign' && subject.keyFamily === 'ed25519') return true;
+  }
+  return false;
+}
+
 export async function handleWalletEmailOtpFactorRelease(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
@@ -1231,27 +1175,29 @@ export async function handleWalletEmailOtpFactorRelease(
   let factorReleaseChallengeId: string;
   if (body.kind === 'wallet_session') {
     const token = extractBearerCredential(ctx.request.headers);
-    const resolved = token
-      ? await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-          tenantId: ctx.service.authorizationSessions.tenantId,
-          token,
-          curve: 'ed25519',
-          nowMs: Date.now(),
-        })
+    const exact = token
+      ? await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential(
+          {
+            tenantId: ctx.service.authorizationSessions.tenantId,
+            token,
+            nowMs: Date.now(),
+          },
+        )
       : null;
+    const enrollmentEmailHashHex = await sha256HexUtf8(enrollment.enrollment.verifiedEmail);
     if (
-      !resolved ||
-      resolved.binding.curve !== 'ed25519' ||
-      resolved.authorization.walletId !== walletId.value ||
-      resolved.binding.authority.factor.kind !== 'email_otp' ||
-      resolved.binding.authority.factor.providerUserId !== enrollment.enrollment.providerUserId
+      !exact ||
+      exact.authorization.session.walletId !== walletId.value ||
+      exact.authMethod.kind !== 'email_otp' ||
+      exact.authMethod.emailHashHex !== enrollmentEmailHashHex ||
+      !hasEd25519SigningSubject(exact)
     ) {
       return json(
         { ok: false, code: 'unauthorized', message: 'No valid Email OTP Wallet Session' },
         { status: 401 },
       );
     }
-    factorReleaseChallengeId = `wallet-session:${resolved.authorization.walletSessionId}`;
+    factorReleaseChallengeId = `wallet-session:${exact.authorization.session.walletSessionId}`;
   } else {
     let loginGrant: string;
     if (body.kind === 'verified_grant') {
@@ -1476,8 +1422,18 @@ export async function handleWalletUnlockVerify(
     ecdsaSession,
     tenantId: ctx.service.authorizationSessions.tenantId,
     buildVerifiedOwnerProof: ctx.service.authorizedOperations.buildVerifiedOwnerProof,
-    resolveEmailOtpAuthority:
-      ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject,
+    resolveEmailOtpAuthority: async (request) => {
+      const resolved =
+        await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject(
+          request,
+        );
+      if (resolved.ok) return resolved;
+      return {
+        ok: false,
+        code: parseWalletUnlockIssuanceRejectionCode(resolved.code),
+        message: resolved.message,
+      };
+    },
     emitRouterApiWebhook: async (event) => {
       await emitRouterApiWebhookEvent({
         logger: ctx.logger,

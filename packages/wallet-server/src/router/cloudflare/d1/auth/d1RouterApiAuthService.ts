@@ -1,46 +1,26 @@
+import { parseRouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
-  parseRouterAbEcdsaDerivationNormalSigningStateV1,
-  parseRouterAbEcdsaRegistrationActivationReceiptV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
-import type {
-  RegistrationEstablishedEcdsaSession,
-  RegistrationEstablishedEd25519Session,
-  RegistrationEstablishedSession,
+  parseRegistrationEstablishedSessionProjectionV2,
+  parseRegistrationEstablishedSessionResultV2,
 } from '@shared/utils/registrationEstablishedSession';
 import {
   parseDeviceId,
-  parseMpcWalletSigningQuotaId,
   parsePrincipalId,
   parseReusableWalletSessionMintId,
-  parseWalletSessionAuthorizationId,
-  parseWalletSessionId,
+  type WalletSessionClientCapabilityV1,
 } from '@shared/authorization/capabilityKinds';
-import {
-  parseThresholdEcdsaSessionId,
-  parseThresholdEd25519SessionId,
-  parseWalletId,
-  parseWalletAuthMethodId,
-  parseWalletAuthorityId,
-} from '@shared/utils/domainIds';
-import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
-import {
-  computeWalletAuthMethodRevokeOperationFingerprintV1,
-  parseNearEd25519SigningKeyId,
-} from '@shared/utils/registrationIntent';
+import { parseWalletAuthMethodId, parseWalletAuthorityId } from '@shared/utils/domainIds';
+import { computeWalletAuthMethodRevokeOperationFingerprintV1 } from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
-import {
-  buildPasskeyWalletAuthAuthority,
-  walletAuthAuthorityRef,
-  type WalletAuthAuthorityRef,
-} from '@shared/utils/walletAuthAuthority';
-import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
   DEFAULT_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
-import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
-import { parseThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
-import type { WalletRegistrationActivateResponseV2 } from '../../../../core/threeRouteRegistrationContracts';
+import type {
+  WalletRegistrationActivateResponseV2,
+  WalletRegistrationSessionCommitReceiptV2,
+} from '../../../../core/threeRouteRegistrationContracts';
+import type { WalletRegistrationFinalizeResponse } from '../../../../core/registrationContracts';
 import { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
 import { D1WalletStore } from '../../../../core/d1WalletStore';
 import {
@@ -73,18 +53,24 @@ import type {
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
 } from '../../../../core/types';
-import type {
-  RouterApiServiceBag,
-  WalletUnlockEmailOtpAuthorityResolution,
-  WalletUnlockPasskeyAuthorityResolution,
-  WalletUnlockPasskeySessionResolution,
+import {
+  parseWalletUnlockIssuanceRejectionCode,
+  type WalletUnlockEmailOtpAuthorityResolution,
+  type WalletUnlockPasskeyAuthorityResolution,
+  type WalletUnlockPasskeySessionResolution,
+  type RouterApiServiceBag,
 } from '../../../framework/authServicePort';
+import type {
+  DirectV2IssueResult,
+  IssuedWalletSessionAuthorizationV2,
+} from '../../../../authorization/domain';
+import { WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1 } from '../../../../authorization/domain';
 import { AuthorizationService } from '../../../../authorization/service';
 import { capabilityPolicyPort } from '../../../../authorization/capabilityPolicy';
 import { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
 import { parseTenantId } from '@shared/authorization/capabilityKinds';
 import { CloudflareD1RegistrationCeremonyIntentStore } from '../registration/d1RegistrationCeremonyStore';
-import { isRecordValue, sha256BytesPortable } from './d1RouterApiAuthBoundary';
+import { isRecordValue, sha256BytesPortable, toRecordValue } from './d1RouterApiAuthBoundary';
 import { CloudflareD1NearPublicKeyStore } from '../near/d1NearPublicKeyStore';
 import { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
 import { parseWebAuthnAuthenticationCredential } from '../../../auth/webAuthnCredentialCodecs';
@@ -119,8 +105,11 @@ import {
 } from '../registration/d1WalletRegistrationService';
 import {
   parseD1EcdsaDerivationServerBootstrapResponse,
+  parseD1WalletRegistrationCommittedInstallationProjection,
+  parseD1WalletRegistrationFinalizeReplayResponse,
   parseD1WalletRegistrationFinalizeTerminalResponse,
 } from '../registration/d1RegistrationCeremonyRecords';
+import { parseWalletRegistrationSessionCommitReceiptV2 } from '../registration/walletRegistrationSessionCommitReceipt';
 import { CloudflareD1WalletRegistrationCommitStore } from '../registration/d1WalletRegistrationCommitStore';
 import { CloudflareD1WalletCustodyCommitStore } from '../passkeyCustody/d1WalletCustodyCommitStore';
 import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../passkeyCustody/d1PasskeyCustodyEnvelopeStore';
@@ -145,8 +134,10 @@ import {
   type PreparedSponsoredNearAccountCreationV1,
 } from '../../../../core/nearRelayerAccountProvisioning';
 import {
+  parseRouterAbEd25519YaoRegistrationSideEffectRecordV2WithLegacy,
   runRouterAbEd25519YaoRegistrationSideEffectV1,
   type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
+  type RouterAbEd25519YaoRegistrationSideEffectRecordV2,
   type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
 } from '../../../domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
 import { createCloudflareD1VersionedJsonRecordStore } from '../versionedJson/d1VersionedJsonRecordStore';
@@ -355,6 +346,7 @@ function createD1LinkedDeviceComposition(input: {
   readonly authorizationStore: Pick<
     CloudflareD1AuthorizationStore,
     | 'prepareWalletSessionAuthorizationV2Statements'
+    | 'prepareRevokeReusableWalletSessionsForAuthority'
     | 'readOpaqueWalletSessionTokenByIdentity'
     | 'readActiveWalletSessionAuthorizationV2ByIdentity'
   >;
@@ -522,7 +514,6 @@ function createD1LinkedDeviceComposition(input: {
     });
     const verifiedLinkSourceReader = createD1LinkedDeviceVerifiedLinkSourceReaderV1({
       authorizationService: input.authorizationService,
-      ordinaryWalletSessions: input.authorizationStore,
       authorityStore,
       authMethodStore: input.walletAuthMethodStore,
       walletStore: input.walletStore,
@@ -895,202 +886,13 @@ function parseWalletRegistrationOperationPrepared(
   };
 }
 
-type RegistrationEstablishedSessionIdentity = Pick<
-  RegistrationEstablishedSession,
-  'walletId' | 'authorizationId' | 'walletSessionId' | 'quotaId' | 'expiresAtMs'
->;
-
 function hasOnlyKeys(record: Record<string, unknown>, keys: readonly string[]): boolean {
   const allowed = new Set(keys);
   return Object.keys(record).every((key) => allowed.has(key));
 }
 
-function parseOpaqueWalletSessionToken(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null;
-  const token = raw.trim();
-  return token.startsWith('wst_') && token.length > 20 ? token : null;
-}
-
-function parseRegistrationEstablishedEcdsaToken(
-  raw: unknown,
-): RegistrationEstablishedEcdsaSession | null {
-  if (
-    !isRecordValue(raw) ||
-    !hasOnlyKeys(raw, [
-      'walletSessionToken',
-      'thresholdSessionId',
-      'keyHandle',
-      'runtimePolicyScope',
-      'routerAbEcdsaDerivationNormalSigning',
-    ])
-  ) {
-    return null;
-  }
-  try {
-    const thresholdSessionId = parseThresholdEcdsaSessionId(raw.thresholdSessionId);
-    if (!thresholdSessionId.ok) return null;
-    const walletSessionToken = parseOpaqueWalletSessionToken(raw.walletSessionToken);
-    if (!walletSessionToken) return null;
-    const keyHandle = parseThresholdEcdsaKeyHandle(raw.keyHandle);
-    const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
-    const routerAbEcdsaDerivationNormalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
-      raw.routerAbEcdsaDerivationNormalSigning,
-    );
-    if (!routerAbEcdsaDerivationNormalSigning) return null;
-    return {
-      sessionKind: 'opaque',
-      walletSessionToken,
-      thresholdSessionId: thresholdSessionId.value,
-      keyHandle,
-      runtimePolicyScope,
-      routerAbEcdsaDerivationNormalSigning,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function parseRegistrationEstablishedEd25519Token(
-  raw: unknown,
-): RegistrationEstablishedEd25519Session | null {
-  if (
-    !isRecordValue(raw) ||
-    !hasOnlyKeys(raw, [
-      'walletSessionToken',
-      'thresholdSessionId',
-      'nearAccountId',
-      'nearEd25519SigningKeyId',
-      'runtimePolicyScope',
-      'routerAbNormalSigning',
-    ])
-  ) {
-    return null;
-  }
-  try {
-    const thresholdSessionId = parseThresholdEd25519SessionId(raw.thresholdSessionId);
-    if (!thresholdSessionId.ok) return null;
-    const walletSessionToken = parseOpaqueWalletSessionToken(raw.walletSessionToken);
-    if (!walletSessionToken) return null;
-    const implicitNearAccountId = parseImplicitNearAccountId(raw.nearAccountId);
-    const namedNearAccountId = parseNamedNearAccountId(raw.nearAccountId);
-    const nearAccountId = implicitNearAccountId.ok
-      ? implicitNearAccountId.value
-      : namedNearAccountId.ok
-        ? namedNearAccountId.value
-        : null;
-    if (!nearAccountId) return null;
-    const nearEd25519SigningKeyId = parseNearEd25519SigningKeyId(raw.nearEd25519SigningKeyId);
-    const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
-    const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
-    if (!routerAbNormalSigning) return null;
-    return {
-      sessionKind: 'opaque',
-      walletSessionToken,
-      thresholdSessionId: thresholdSessionId.value,
-      nearAccountId,
-      nearEd25519SigningKeyId,
-      runtimePolicyScope,
-      routerAbNormalSigning,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function parseRegistrationEstablishedSessionForD1(
-  raw: unknown,
-  expectedWalletId: RegistrationEstablishedSession['walletId'],
-): RegistrationEstablishedSession | null {
-  if (
-    !isRecordValue(raw) ||
-    !hasOnlyKeys(raw, [
-      'kind',
-      'walletId',
-      'authorizationId',
-      'walletSessionId',
-      'quotaId',
-      'expiresAtMs',
-      'remainingUses',
-      'tokens',
-    ])
-  ) {
-    return null;
-  }
-  if (raw.kind !== 'registration_established_wallet_session_v1') {
-    return null;
-  }
-  const walletId = parseWalletId(raw.walletId);
-  const authorizationId = parseWalletSessionAuthorizationId(raw.authorizationId);
-  const walletSessionId = parseWalletSessionId(raw.walletSessionId);
-  const quotaId = parseMpcWalletSigningQuotaId(raw.quotaId);
-  if (
-    !walletId.ok ||
-    walletId.value !== expectedWalletId ||
-    !authorizationId.ok ||
-    !walletSessionId.ok ||
-    !quotaId.ok ||
-    new Set([authorizationId.value, walletSessionId.value, quotaId.value]).size !== 3
-  ) {
-    return null;
-  }
-  if (
-    typeof raw.expiresAtMs !== 'number' ||
-    !Number.isSafeInteger(raw.expiresAtMs) ||
-    raw.expiresAtMs <= 0 ||
-    typeof raw.remainingUses !== 'number' ||
-    !Number.isSafeInteger(raw.remainingUses) ||
-    raw.remainingUses <= 0
-  ) {
-    return null;
-  }
-  const identity: RegistrationEstablishedSessionIdentity = {
-    walletId: walletId.value,
-    authorizationId: authorizationId.value,
-    walletSessionId: walletSessionId.value,
-    quotaId: quotaId.value,
-    expiresAtMs: raw.expiresAtMs,
-  };
-  if (!isRecordValue(raw.tokens) || typeof raw.tokens.kind !== 'string') {
-    return null;
-  }
-  let tokens: RegistrationEstablishedSession['tokens'];
-  if (raw.tokens.kind === 'evm_family_ecdsa') {
-    if (!hasOnlyKeys(raw.tokens, ['kind', 'ecdsa'])) {
-      return null;
-    }
-    const ecdsa = parseRegistrationEstablishedEcdsaToken(raw.tokens.ecdsa);
-    if (!ecdsa) {
-      return null;
-    }
-    tokens = { kind: 'evm_family_ecdsa', ecdsa };
-  } else if (raw.tokens.kind === 'near_ed25519') {
-    if (!hasOnlyKeys(raw.tokens, ['kind', 'ed25519'])) {
-      return null;
-    }
-    const ed25519 = parseRegistrationEstablishedEd25519Token(raw.tokens.ed25519);
-    if (!ed25519) {
-      return null;
-    }
-    tokens = { kind: 'near_ed25519', ed25519 };
-  } else if (raw.tokens.kind === 'near_ed25519_and_evm_family_ecdsa') {
-    if (!hasOnlyKeys(raw.tokens, ['kind', 'ecdsa', 'ed25519'])) {
-      return null;
-    }
-    const ecdsa = parseRegistrationEstablishedEcdsaToken(raw.tokens.ecdsa);
-    const ed25519 = parseRegistrationEstablishedEd25519Token(raw.tokens.ed25519);
-    if (!ecdsa || !ed25519) {
-      return null;
-    }
-    tokens = { kind: 'near_ed25519_and_evm_family_ecdsa', ecdsa, ed25519 };
-  } else {
-    return null;
-  }
-  return {
-    kind: 'registration_established_wallet_session_v1',
-    ...identity,
-    remainingUses: raw.remainingUses,
-    tokens,
-  };
+function hasExactKeys(record: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(record).length === keys.length && hasOnlyKeys(record, keys);
 }
 
 /**
@@ -1133,13 +935,16 @@ function parseD1WalletRegistrationActivateTerminalResponse(
   if (!stored || !isRecordValue(stored.bootstrap)) {
     return null;
   }
-  const registrationEstablishedSession = parseRegistrationEstablishedSessionForD1(
+  const parsedRegistrationEstablishedSession = parseRegistrationEstablishedSessionResultV2(
     raw.registrationEstablishedSession,
-    commit.walletId,
   );
-  if (!registrationEstablishedSession) {
+  if (
+    !parsedRegistrationEstablishedSession ||
+    parsedRegistrationEstablishedSession.session.walletId !== commit.walletId
+  ) {
     return null;
   }
+  const registrationEstablishedSession = parsedRegistrationEstablishedSession;
   let activation: ReturnType<typeof parseRouterAbEcdsaRegistrationActivationReceiptV1>;
   try {
     activation = parseRouterAbEcdsaRegistrationActivationReceiptV1(stored.activation);
@@ -1164,50 +969,192 @@ function parseD1WalletRegistrationActivateTerminalResponse(
   };
 }
 
+function parseWalletRegistrationSessionCommitReceipt(
+  raw: unknown,
+): WalletRegistrationSessionCommitReceiptV2 | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  return parseWalletRegistrationSessionCommitReceiptV2(record, (committed) =>
+    parseWalletRegistrationSessionCommitReceiptCommitted(committed, record),
+  );
+}
+
+type WalletRegistrationEcdsaSessionCommitReceipt = Extract<
+  WalletRegistrationSessionCommitReceiptV2,
+  { readonly committed: { readonly kind: 'ecdsa_ready' } }
+>['committed'];
+
+type WalletRegistrationNearSessionCommitReceipt = Extract<
+  WalletRegistrationSessionCommitReceiptV2,
+  { readonly committed: { readonly kind: 'near_ready' } }
+>['committed'];
+
+function parseWalletRegistrationSessionCommitReceiptCommitted(
+  raw: unknown,
+  receipt: Record<string, unknown>,
+): WalletRegistrationSessionCommitReceiptV2['committed'] | null {
+  const record = toRecordValue(raw);
+  if (!record || typeof record.kind !== 'string') return null;
+  if (record.kind === 'ecdsa_ready') {
+    if (
+      !hasExactKeys(record, ['kind', 'ecdsa', 'session']) &&
+      !hasExactKeys(record, ['kind', 'ecdsa', 'session', 'nearProvisioning']) &&
+      !hasExactKeys(record, ['kind', 'ecdsa', 'session', 'nearProvisioning', 'installation'])
+    ) {
+      return null;
+    }
+    const ecdsa = parseWalletRegistrationSessionCommitEcdsa(record.ecdsa, receipt);
+    const session = parseRegistrationEstablishedSessionProjectionV2(record.session);
+    if (!ecdsa || !session || session.tokens.kind !== 'evm_family_ecdsa') return null;
+    const nearProvisioning = parseNearPendingProjection(record.nearProvisioning);
+    if (record.nearProvisioning !== undefined && !nearProvisioning) return null;
+    const installation =
+      record.installation === undefined
+        ? undefined
+        : parseD1WalletRegistrationCommittedInstallationProjection(record.installation);
+    if (
+      (record.installation !== undefined && !installation) ||
+      (nearProvisioning !== undefined) !== (installation !== undefined)
+    ) {
+      return null;
+    }
+    if (nearProvisioning && installation) {
+      return { kind: 'ecdsa_ready', ecdsa, session, nearProvisioning, installation };
+    }
+    if (nearProvisioning === undefined && installation === undefined) {
+      return { kind: 'ecdsa_ready', ecdsa, session };
+    }
+    return null;
+  }
+  if (record.kind !== 'near_ready') return null;
+  if (
+    !hasExactKeys(record, [
+      'kind',
+      'authorityScope',
+      'accountProvisioning',
+      'resolvedAccount',
+      'ed25519',
+      'session',
+      'nearProvisioning',
+    ])
+  ) {
+    return null;
+  }
+  const near = parseWalletRegistrationSessionCommitNear(record, receipt);
+  const session = parseRegistrationEstablishedSessionProjectionV2(record.session);
+  if (!near || !session || session.tokens.kind !== 'near_ed25519') return null;
+  return {
+    kind: 'near_ready',
+    authorityScope: near.authorityScope,
+    accountProvisioning: near.accountProvisioning,
+    resolvedAccount: near.resolvedAccount,
+    ed25519: near.ed25519,
+    session,
+    nearProvisioning: { status: 'near_ready' },
+  };
+}
+
+function parseWalletRegistrationSessionCommitEcdsa(
+  raw: unknown,
+  receipt: Record<string, unknown>,
+): WalletRegistrationEcdsaSessionCommitReceipt['ecdsa'] | null {
+  const record = toRecordValue(raw);
+  if (!record || !hasExactKeys(record, ['walletKeys', 'activation', 'bootstrap'])) {
+    return null;
+  }
+  const response = parseD1WalletRegistrationFinalizeReplayResponse({
+    ok: true,
+    kind: 'evm_family_ecdsa',
+    walletId: receipt.walletId,
+    authority: receipt.authority,
+    foundingAuthority: receipt.foundingAuthority,
+    foundingAuthMethod: receipt.foundingAuthMethod,
+    authMethod: receipt.authMethod,
+    ...(isRecordValue(receipt.authority) &&
+    isRecordValue(receipt.authority.verifier) &&
+    receipt.authority.verifier.kind === 'webauthn'
+      ? { rpId: receipt.authority.verifier.rpId }
+      : {}),
+    custodyKeyManifestDigestB64u: receipt.custodyKeyManifestDigestB64u,
+    ecdsa: { walletKeys: record.walletKeys },
+  });
+  if (!response || !response.ok || response.kind !== 'evm_family_ecdsa') {
+    return null;
+  }
+  let activation: ReturnType<typeof parseRouterAbEcdsaRegistrationActivationReceiptV1>;
+  try {
+    activation = parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation);
+  } catch {
+    return null;
+  }
+  const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
+  if (!bootstrap) return null;
+  return {
+    walletKeys: response.ecdsa.walletKeys,
+    activation,
+    bootstrap,
+  };
+}
+
+function parseWalletRegistrationSessionCommitNear(
+  record: Record<string, unknown>,
+  receipt: Record<string, unknown>,
+): {
+  readonly authorityScope: WalletRegistrationNearSessionCommitReceipt['authorityScope'];
+  readonly accountProvisioning: WalletRegistrationNearSessionCommitReceipt['accountProvisioning'];
+  readonly resolvedAccount: WalletRegistrationNearSessionCommitReceipt['resolvedAccount'];
+  readonly ed25519: WalletRegistrationNearSessionCommitReceipt['ed25519'];
+} | null {
+  const response = parseD1WalletRegistrationFinalizeReplayResponse({
+    ok: true,
+    kind: 'near_ed25519',
+    walletId: receipt.walletId,
+    authority: receipt.authority,
+    foundingAuthority: receipt.foundingAuthority,
+    foundingAuthMethod: receipt.foundingAuthMethod,
+    authMethod: receipt.authMethod,
+    ...(isRecordValue(receipt.authority) &&
+    isRecordValue(receipt.authority.verifier) &&
+    receipt.authority.verifier.kind === 'webauthn'
+      ? { rpId: receipt.authority.verifier.rpId }
+      : {}),
+    custodyKeyManifestDigestB64u: receipt.custodyKeyManifestDigestB64u,
+    authorityScope: record.authorityScope,
+    accountProvisioning: record.accountProvisioning,
+    resolvedAccount: record.resolvedAccount,
+    ed25519: record.ed25519,
+  });
+  if (!response || !response.ok || response.kind !== 'near_ed25519') return null;
+  return {
+    authorityScope: response.authorityScope,
+    accountProvisioning: response.accountProvisioning,
+    resolvedAccount: response.resolvedAccount,
+    ed25519: response.ed25519,
+  };
+}
+
+function parseNearPendingProjection(raw: unknown): { readonly status: 'near_pending' } | null {
+  const record = toRecordValue(raw);
+  return record && hasExactKeys(record, ['status']) && record.status === 'near_pending'
+    ? { status: 'near_pending' }
+    : null;
+}
+
 function parseWalletRegistrationActivateSideEffectRecord(
   raw: unknown,
 ): D1WalletRegistrationActivateSideEffectRecord | null {
-  if (
-    !isRecordValue(raw) ||
-    raw.operation !== 'registration_activate' ||
-    !isNonNegativeSafeInteger(raw.claimedAtMs)
-  ) {
-    return null;
-  }
-  const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
-  const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
-  const prepared = parseWalletRegistrationOperationPrepared(raw.prepared);
-  if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
-    return null;
-  }
-  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
-    return {
-      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
-      operation: 'registration_activate',
-      requestFingerprint,
-      preparedArtifactFingerprint,
-      claimedAtMs: raw.claimedAtMs,
-      prepared,
-    };
-  }
-  if (
-    raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1' ||
-    !isNonNegativeSafeInteger(raw.completedAtMs)
-  ) {
-    return null;
-  }
-  const response = parseD1WalletRegistrationActivateTerminalResponse(raw.response);
-  if (!response) return null;
-  return {
-    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+  const record = parseRouterAbEd25519YaoRegistrationSideEffectRecordV2WithLegacy<
+    WalletRegistrationActivateResponseV2,
+    WalletRegistrationSessionCommitReceiptV2,
+    D1WalletRegistrationOperationPreparedV1
+  >(raw, {
     operation: 'registration_activate',
-    requestFingerprint,
-    preparedArtifactFingerprint,
-    claimedAtMs: raw.claimedAtMs,
-    completedAtMs: raw.completedAtMs,
-    prepared,
-    response,
-  };
+    parsePrepared: parseWalletRegistrationOperationPrepared,
+    parseReceipt: parseWalletRegistrationSessionCommitReceipt,
+    parseLegacyResponse: parseD1WalletRegistrationActivateTerminalResponse,
+  });
+  if (record === null || !registrationReceiptMatchesJournal(record)) return null;
+  return record;
 }
 
 /**
@@ -1218,47 +1165,43 @@ function parseWalletRegistrationActivateSideEffectRecord(
 function parseWalletRegistrationNearProvisioningSideEffectRecord(
   raw: unknown,
 ): D1WalletRegistrationNearProvisioningSideEffectRecord | null {
-  if (
-    !isRecordValue(raw) ||
-    raw.operation !== 'near_provisioning' ||
-    !isNonNegativeSafeInteger(raw.claimedAtMs)
-  ) {
-    return null;
-  }
-  const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
-  const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
-  const prepared = parseWalletRegistrationOperationPrepared(raw.prepared);
-  if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
-    return null;
-  }
-  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
-    return {
-      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
-      operation: 'near_provisioning',
-      requestFingerprint,
-      preparedArtifactFingerprint,
-      claimedAtMs: raw.claimedAtMs,
-      prepared,
-    };
-  }
-  if (
-    raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1' ||
-    !isNonNegativeSafeInteger(raw.completedAtMs)
-  ) {
-    return null;
-  }
-  const response = parseD1WalletRegistrationFinalizeTerminalResponse(raw.response);
-  if (!response) return null;
-  return {
-    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+  const record = parseRouterAbEd25519YaoRegistrationSideEffectRecordV2WithLegacy<
+    WalletRegistrationFinalizeResponse,
+    WalletRegistrationSessionCommitReceiptV2,
+    D1WalletRegistrationOperationPreparedV1
+  >(raw, {
     operation: 'near_provisioning',
-    requestFingerprint,
-    preparedArtifactFingerprint,
-    claimedAtMs: raw.claimedAtMs,
-    completedAtMs: raw.completedAtMs,
-    prepared,
-    response,
-  };
+    parsePrepared: parseWalletRegistrationOperationPrepared,
+    parseReceipt: parseWalletRegistrationSessionCommitReceipt,
+    parseLegacyResponse: parseD1WalletRegistrationFinalizeTerminalResponse,
+  });
+  if (record === null || !registrationReceiptMatchesJournal(record)) return null;
+  return record;
+}
+
+function registrationReceiptMatchesJournal<T>(
+  record: RouterAbEd25519YaoRegistrationSideEffectRecordV2<
+    WalletRegistrationSessionCommitReceiptV2,
+    D1WalletRegistrationOperationPreparedV1,
+    T
+  >,
+): boolean {
+  if (record.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v2') return true;
+  const receipt = record.receipt;
+  if (
+    receipt.operation !== record.operation ||
+    receipt.operationFingerprint !== record.requestFingerprint
+  ) {
+    return false;
+  }
+  if (receipt.committed.kind === 'error') return true;
+  if (!('walletAuthMethodId' in receipt)) return false;
+  if (receipt.walletAuthMethodId !== record.prepared.walletAuthMethodId) return false;
+  if (receipt.committed.kind === 'near_pending') return true;
+  return (
+    'foundingAuthority' in receipt &&
+    receipt.foundingAuthority.authorityId === record.prepared.walletAuthorityId
+  );
 }
 
 function parsePreparedSponsoredNearAccountCreation(
@@ -2118,25 +2061,6 @@ type ActiveWalletUnlockAuthorityResolution =
   | Extract<WalletUnlockPasskeyAuthorityResolution, { readonly kind: 'active_authority' }>
   | Extract<WalletUnlockEmailOtpAuthorityResolution, { readonly kind: 'active_authority' }>;
 
-async function walletAuthAuthorityRefForActiveUnlock(
-  resolved: ActiveWalletUnlockAuthorityResolution,
-): Promise<WalletAuthAuthorityRef> {
-  if ('walletAuthAuthority' in resolved) {
-    return await walletAuthAuthorityRef({ authority: resolved.walletAuthAuthority });
-  }
-  const authority = buildPasskeyWalletAuthAuthority({
-    walletId: resolved.authMethod.walletId,
-    rpId: resolved.authMethod.rpId,
-    credentialIdB64u: resolved.authMethod.credentialIdB64u,
-  });
-  return await walletAuthAuthorityRef({
-    authority: {
-      ...authority,
-      bindingId: resolved.authMethod.walletAuthMethodId,
-    },
-  });
-}
-
 async function resolveEmailOtpAuthorityForUnlock(input: {
   readonly walletAuthMethods: Pick<
     CloudflareD1WalletAuthMethodService,
@@ -2158,7 +2082,7 @@ async function resolveEmailOtpAuthorityForUnlock(input: {
     if (!enrollment.ok) {
       return {
         kind: 'rejected',
-        code: enrollment.code,
+        code: parseWalletUnlockIssuanceRejectionCode(enrollment.code),
         message: enrollment.message,
       };
     }
@@ -2190,6 +2114,7 @@ async function issueWalletSessionForActiveAuthority(input: {
   readonly authorizationService: AuthorizationService;
   readonly orgId: string;
   readonly verifiedChallengeId: string;
+  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
 }): Promise<WalletUnlockPasskeySessionResolution> {
   const tenantId = parseTenantId(input.orgId);
   const principalId = parsePrincipalId(
@@ -2209,11 +2134,12 @@ async function issueWalletSessionForActiveAuthority(input: {
   const issuedAtMs = Date.now();
   const deviceLinked = input.resolved.authority.provenance.kind === 'device_link';
   try {
-    const reusableWalletSession = await input.authorizationService.issueReusableWalletSession({
+    const directIssue = await input.authorizationService.issueDirectWalletSessionAuthorizationV2({
       tenantId: tenantId.value,
       principalId: principalId.value,
       walletId: input.resolved.authority.walletId,
-      authority: await walletAuthAuthorityRefForActiveUnlock(input.resolved),
+      authority: input.resolved.authority,
+      walletAuthMethodId: input.resolved.authMethod.walletAuthMethodId,
       mintId: mintId.value,
       remainingUses: deviceLinked
         ? LINKED_DEVICE_WALLET_SESSION_REMAINING_USES
@@ -2222,17 +2148,9 @@ async function issueWalletSessionForActiveAuthority(input: {
       expiresAtMs:
         issuedAtMs +
         (deviceLinked ? LINKED_DEVICE_WALLET_SESSION_TTL_MS : DEFAULT_WALLET_SESSION_TTL_MS),
+      walletSessionClientCapability: input.walletSessionClientCapability,
+      responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
     });
-    const walletSession =
-      await input.authorizationService.issueWalletSessionAuthorizationV2FromReusableSession({
-        reusableWalletSession,
-        authority: input.resolved.authority,
-        walletAuthMethodId: input.resolved.authMethod.walletAuthMethodId,
-      });
-    const operationCredential =
-      await input.authorizationService.issueWalletSessionAuthorizationV2OperationCredential({
-        session: walletSession.session,
-      });
     const authorityProvenanceKind = input.resolved.authority.provenance.kind;
     if (authorityProvenanceKind === 'wallet_registration') {
       return {
@@ -2241,20 +2159,42 @@ async function issueWalletSessionForActiveAuthority(input: {
         message: 'Founding authority entered additive Wallet Session issuance',
       };
     }
+    if (directIssue.kind === 'already_committed') {
+      return {
+        kind: 'already_committed',
+        authorityProvenanceKind,
+        committed: directIssue,
+      };
+    }
+    if (directIssue.kind === 'protocol_mismatch') {
+      return {
+        kind: 'rejected',
+        code: directIssue.code,
+        message: directIssue.message,
+      };
+    }
     return {
       kind: 'active_authority',
       authorityProvenanceKind,
-      walletSession,
-      operationCredential,
+      walletSession: issuedWalletSessionAuthorizationV2(directIssue),
+      operationCredential: directIssue.operationCredential,
     };
   } catch (error: unknown) {
     return {
       kind: 'rejected',
       code: 'internal',
-      message:
-        error instanceof Error ? error.message : 'Linked-device Wallet Session issuance failed',
+      message: error instanceof Error ? error.message : 'Wallet Session issuance failed',
     };
   }
+}
+
+function issuedWalletSessionAuthorizationV2(
+  directIssue: Extract<DirectV2IssueResult, { readonly kind: 'issued' }>,
+): IssuedWalletSessionAuthorizationV2 {
+  return {
+    session: directIssue.session,
+    quota: directIssue.quota,
+  };
 }
 
 async function issueWalletSessionForPasskeyUnlock(input: {
@@ -2286,6 +2226,7 @@ async function issueWalletSessionForPasskeyUnlock(input: {
     authorizationService: input.authorizationService,
     orgId: input.orgId,
     verifiedChallengeId: input.request.verifiedChallengeId,
+    walletSessionClientCapability: input.request.walletSessionClientCapability,
   });
 }
 
@@ -2323,6 +2264,7 @@ async function issueWalletSessionForEmailOtpUnlock(input: {
     authorizationService: input.authorizationService,
     orgId: input.request.orgId,
     verifiedChallengeId: input.request.verifiedChallengeId,
+    walletSessionClientCapability: input.request.walletSessionClientCapability,
   });
 }
 
@@ -2497,11 +2439,8 @@ function createD1AuthorizationSessionRouteService(
   }
   return {
     tenantId: tenantId.value,
-    issueReusableWalletSession: assembly.authorizationService.issueReusableWalletSession.bind(
-      assembly.authorizationService,
-    ),
-    issueWalletSessionAuthorizationV2FromReusableSession:
-      assembly.authorizationService.issueWalletSessionAuthorizationV2FromReusableSession.bind(
+    issueDirectWalletSessionAuthorizationV2:
+      assembly.authorizationService.issueDirectWalletSessionAuthorizationV2.bind(
         assembly.authorizationService,
       ),
     issueOpaqueWalletSessionToken: assembly.authorizationService.issueOpaqueWalletSessionToken.bind(
@@ -2538,8 +2477,8 @@ function createD1AuthorizationSessionRouteService(
         retiredAtMs: null,
       };
     },
-    readReusableWalletSessionStatus:
-      assembly.authorizationService.readReusableWalletSessionStatus.bind(
+    readExactWalletSessionStatusByOperationCredential:
+      assembly.authorizationService.readExactWalletSessionStatusByOperationCredential.bind(
         assembly.authorizationService,
       ),
     mintHostedWalletSeamsSessionExchange:
@@ -2550,6 +2489,35 @@ function createD1AuthorizationSessionRouteService(
       assembly.authorizationService.redeemHostedWalletSeamsSessionExchange.bind(
         assembly.authorizationService,
       ),
+    readHostedWalletSessionOperationCredentialV2: async (input) => {
+      const resolved =
+        await assembly.authorizationService.readHostedWalletSessionOperationCredentialV2(input);
+      if (!resolved) return null;
+      const authority = await assembly.walletAuthorityStore.readById(
+        resolved.authorization.session.authorityId,
+      );
+      const authMethod = await assembly.walletAuthMethodStore.readByIdV2({
+        walletAuthMethodId: resolved.authorization.session.walletAuthMethodId,
+      });
+      if (
+        !authority ||
+        authority.state !== 'active' ||
+        !authMethod ||
+        authMethod.status !== 'active'
+      ) {
+        return null;
+      }
+      return {
+        authorization: resolved.authorization,
+        authority,
+        authMethod,
+        retiredAtMs: null,
+        hostedCredentialId: resolved.hostedCredentialId,
+        appOrigin: resolved.appOrigin,
+        walletOrigin: resolved.walletOrigin,
+        expiresAtMs: resolved.expiresAtMs,
+      };
+    },
   };
 }
 

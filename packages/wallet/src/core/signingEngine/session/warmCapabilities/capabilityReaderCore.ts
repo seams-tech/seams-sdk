@@ -3,14 +3,14 @@ import {
   resolveActiveEcdsaCapabilityRuntime,
   resolveActiveEcdsaCapabilityRuntimeForChain,
 } from '../material/activeEcdsaCapabilityRuntime';
-import {
-  buildBaseEvmFamilyEcdsaKeyIdentity,
-  toRpId,
-} from '../identity/evmFamilyEcdsaIdentity';
+import { buildBaseEvmFamilyEcdsaKeyIdentity, toRpId } from '../identity/evmFamilyEcdsaIdentity';
 import { selectedEcdsaLane } from '../identity/laneIdentity';
 import type { EcdsaSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type {
+  ExactEcdsaWalletSessionAuthorizationResolver,
+  ExactEvmFamilyWalletSessionAuthorization,
+} from '../material/ecdsaSigningCapability';
 import {
   deriveEcdsaCapabilityState,
   deriveEd25519CapabilityState,
@@ -70,17 +70,9 @@ export type WarmSessionCapabilityReaderSeal =
   | WarmSessionCapabilityReaderSealUnavailable;
 
 export type WarmSessionCapabilityReaderCoreDeps = {
-  statusReader: Pick<
-    WarmSigningStatusReader,
-    'readEd25519WarmSessionClaim'
-  >;
+  statusReader: Pick<WarmSigningStatusReader, 'readEd25519WarmSessionClaim'>;
   signingSessionSeal: WarmSessionCapabilityReaderSeal;
-  // Resolves the active reusable Wallet Session authorization for a wallet.
-  // Absent or failing resolution degrades ECDSA capabilities to
-  // `authorization_required`; it never fabricates an authorization.
-  resolveActiveEcdsaWalletSessionAuthorization?: (
-    walletId: WalletId,
-  ) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
+  resolveActiveEcdsaWalletSessionAuthorization?: ExactEcdsaWalletSessionAuthorizationResolver;
   resolveActiveEd25519WalletSessionAuthorization?: (
     walletId: WalletId,
   ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
@@ -88,20 +80,35 @@ export type WarmSessionCapabilityReaderCoreDeps = {
 
 export type WarmSessionCapabilityReaderCore = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
-  getEcdsaCapabilityForLane: (
-    args: {
-      lane: ExactEcdsaSigningLaneIdentity;
-      authorization: ActiveEvmFamilyWalletSessionAuthorization;
-    },
-  ) => Promise<WarmSessionEcdsaCapabilityState | null>;
+  getEcdsaCapabilityForLane: (args: {
+    lane: ExactEcdsaSigningLaneIdentity;
+    authorization: ExactEvmFamilyWalletSessionAuthorization;
+  }) => Promise<WarmSessionEcdsaCapabilityState | null>;
   // Lane-qualified, and async because canonical resolution reads persistence.
   // There is deliberately no threshold-session-id entry point: that id indexes
   // runtime state and must never select material.
   resolveEcdsaSealTransportForLane: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
-    authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    authorization: ExactEvmFamilyWalletSessionAuthorization;
   }) => Promise<EcdsaSealTransportAuthMaterial | null>;
 };
+
+async function resolveEcdsaAuthorizationForResolution(args: {
+  readonly resolve?: ExactEcdsaWalletSessionAuthorizationResolver;
+  readonly walletId: WalletId;
+  readonly resolution: ActiveEcdsaCapabilityRuntimeResolution;
+}): Promise<ExactEvmFamilyWalletSessionAuthorization | null> {
+  if (!args.resolve || args.resolution.kind !== 'resolved') return null;
+  try {
+    return await args.resolve({
+      walletId: args.walletId,
+      chainTarget: args.resolution.runtime.chainTarget,
+      materialActivation: args.resolution.manifest.activation.materialActivation,
+    });
+  } catch {
+    return null;
+  }
+}
 
 /** The PRF claim for a resolved ECDSA capability. Correlation has already proved
  * the material, so the claim is the sealed runtime's own allowance and expiry --
@@ -125,18 +132,6 @@ function ecdsaClaimForResolution(
 export function createWarmSessionCapabilityReaderCore(
   deps: WarmSessionCapabilityReaderCoreDeps,
 ): WarmSessionCapabilityReaderCore {
-  async function resolveEcdsaAuthorizationForWallet(
-    walletId: WalletId | string,
-  ): Promise<ActiveEvmFamilyWalletSessionAuthorization | null> {
-    const resolve = deps.resolveActiveEcdsaWalletSessionAuthorization;
-    if (!resolve) return null;
-    try {
-      return await resolve(toWalletId(walletId));
-    } catch {
-      return null;
-    }
-  }
-
   async function resolveEd25519AuthorizationForWallet(
     walletId: WalletId,
   ): Promise<ActiveWalletSessionAuthorizationProjection | null> {
@@ -169,8 +164,7 @@ export function createWarmSessionCapabilityReaderCore(
         runtime: null,
         auth: null,
         prfClaim: null,
-        invalidReason:
-          args.resolution.kind === 'conflict' ? 'exact_record_conflict' : 'corrupt',
+        invalidReason: args.resolution.kind === 'conflict' ? 'exact_record_conflict' : 'corrupt',
         state: 'invalid',
       };
     }
@@ -214,7 +208,7 @@ export function createWarmSessionCapabilityReaderCore(
    * with no lane, because a SelectedEcdsaLane embeds that authorization. */
   function buildEcdsaCapabilityState(args: {
     resolution: ActiveEcdsaCapabilityRuntimeResolution;
-    authorization: ActiveEvmFamilyWalletSessionAuthorization | null;
+    authorization: ExactEvmFamilyWalletSessionAuthorization | null;
     prfClaim: WarmSessionEcdsaCapabilityState['prfClaim'];
   }): WarmSessionEcdsaCapabilityState {
     if (args.resolution.kind === 'blocked') {
@@ -341,27 +335,32 @@ export function createWarmSessionCapabilityReaderCore(
 
   async function getWarmSession(walletId: WalletId): Promise<WarmSessionEnvelope> {
     const normalizedWalletId = toWalletId(walletId);
-    // Material and authorization are resolved independently: authorization is
-    // read unconditionally, so a wallet with durable material and no active
-    // Wallet Session reaches authorization_required instead of being gated out
-    // by a material precondition.
-    const [
-      ed25519Resolution,
-      ed25519Authorization,
-      ecdsaAuthorization,
-      evmResolution,
-      tempoResolution,
-    ] = await Promise.all([
-      resolveExactEd25519SealedSessionRuntimeForWallet(normalizedWalletId),
-      resolveEd25519AuthorizationForWallet(normalizedWalletId),
-      resolveEcdsaAuthorizationForWallet(normalizedWalletId),
-      resolveActiveEcdsaCapabilityRuntimeForChain({
+    // Resolve each material lane first so its authorization lookup is qualified
+    // by the exact target and activation. A resolved lane without authorization
+    // still reaches authorization_required.
+    const [ed25519Resolution, ed25519Authorization, evmResolution, tempoResolution] =
+      await Promise.all([
+        resolveExactEd25519SealedSessionRuntimeForWallet(normalizedWalletId),
+        resolveEd25519AuthorizationForWallet(normalizedWalletId),
+        resolveActiveEcdsaCapabilityRuntimeForChain({
+          walletId: normalizedWalletId,
+          chain: 'evm',
+        }),
+        resolveActiveEcdsaCapabilityRuntimeForChain({
+          walletId: normalizedWalletId,
+          chain: 'tempo',
+        }),
+      ]);
+    const [evmAuthorization, tempoAuthorization] = await Promise.all([
+      resolveEcdsaAuthorizationForResolution({
+        resolve: deps.resolveActiveEcdsaWalletSessionAuthorization,
         walletId: normalizedWalletId,
-        chain: 'evm',
+        resolution: evmResolution,
       }),
-      resolveActiveEcdsaCapabilityRuntimeForChain({
+      resolveEcdsaAuthorizationForResolution({
+        resolve: deps.resolveActiveEcdsaWalletSessionAuthorization,
         walletId: normalizedWalletId,
-        chain: 'tempo',
+        resolution: tempoResolution,
       }),
     ]);
     const ed25519Claim =
@@ -380,12 +379,12 @@ export function createWarmSessionCapabilityReaderCore(
           evm: buildEcdsaCapabilityState({
             resolution: evmResolution,
             prfClaim: ecdsaClaimForResolution(evmResolution),
-            authorization: ecdsaAuthorization,
+            authorization: evmAuthorization,
           }),
           tempo: buildEcdsaCapabilityState({
             resolution: tempoResolution,
             prfClaim: ecdsaClaimForResolution(tempoResolution),
-            authorization: ecdsaAuthorization,
+            authorization: tempoAuthorization,
           }),
         },
       },
@@ -397,12 +396,10 @@ export function createWarmSessionCapabilityReaderCore(
    * the capability it belongs to. The authorization the lane already carries is
    * the one this capability is read under -- re-resolving it for the wallet
    * could answer with a different Wallet Session than the caller holds. */
-  async function getEcdsaCapabilityForLane(
-    args: {
-      lane: ExactEcdsaSigningLaneIdentity;
-      authorization: ActiveEvmFamilyWalletSessionAuthorization;
-    },
-  ): Promise<WarmSessionEcdsaCapabilityState | null> {
+  async function getEcdsaCapabilityForLane(args: {
+    lane: ExactEcdsaSigningLaneIdentity;
+    authorization: ExactEvmFamilyWalletSessionAuthorization;
+  }): Promise<WarmSessionEcdsaCapabilityState | null> {
     const resolution = await resolveActiveEcdsaCapabilityRuntime({
       walletId: args.lane.signer.walletId,
       chainTarget: args.lane.signer.chainTarget,
@@ -428,7 +425,7 @@ export function createWarmSessionCapabilityReaderCore(
    * session's transport seal; the two must not be interchanged. */
   async function resolveEcdsaSealTransportForLane(args: {
     lane: ExactEcdsaSigningLaneIdentity;
-    authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    authorization: ExactEvmFamilyWalletSessionAuthorization;
   }): Promise<EcdsaSealTransportAuthMaterial | null> {
     const resolution = await resolveActiveEcdsaCapabilityRuntime({
       walletId: args.lane.signer.walletId,

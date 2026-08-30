@@ -224,6 +224,8 @@ export interface RouterApiOptions {
    * Pass raw strings; the router normalizes/merges internally.
    */
   corsOrigins?: Array<string | undefined>;
+  /** Explicit wallet origins permitted for hosted Wallet Session children. */
+  hostedWalletOrigins?: Array<string | undefined>;
   // Optional: pluggable session adapter
   session?: SessionAdapter | null;
   /**

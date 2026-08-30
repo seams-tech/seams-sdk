@@ -20,26 +20,26 @@ import type {
   WarmSessionWarmPrfClaim,
 } from '../warmCapabilities/types';
 import {
-  ed25519WalletSessionAuthorizationForRuntime,
   parseExactEd25519SealedSessionRuntime,
   type ExactEd25519SealedSessionRuntime,
 } from '../warmCapabilities/ed25519SealedSessionRuntime';
-import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  walletSessionAuthorizations,
+  type ActiveWalletSessionV1,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { IndexedDBManager } from '@/core/indexedDB';
+import { resolveWalletAuthorityOperation } from '../authority';
 import {
   normalizeWarmSessionReadPorts,
   readWarmSessionClaim,
-  readWarmSessionClaims,
   toSigningSessionStatus,
-  toWarmSessionClaimFromStatusResult,
   type WarmSessionReadPortsInput,
 } from '../warmCapabilities/readModel';
-import { unknownSigningSessionStatus } from '../lifecycle/walletSessionStatus';
 import {
   ed25519WalletSessionStatusOwner,
   normalizeSessionStatusRequired,
   walletSessionStatusOwnerKey,
   walletSessionStatusIdentityKey,
-  type SigningSessionStatusCheck,
   type WalletSessionStatusOwner,
 } from '../lifecycle/walletSessionStatus';
 import type {
@@ -50,11 +50,11 @@ import type {
   Ed25519SigningSessionReadiness,
 } from '../planning/planner';
 import type { ThresholdEd25519SessionId } from '../operationState/types';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
-  toWalletId,
-  type WalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+  mpcMaterialActivationRefsEqual,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type SigningSessionLane = {
   curve: 'ed25519';
@@ -268,6 +268,60 @@ export async function discoverLanesForWallet(
   deps: WalletSessionReadinessDeps,
   walletId: WalletId,
 ): Promise<DiscoveredSigningSessionLane[]> {
+  return discoverLanesForWalletWithResolver(deps, walletId, {
+    resolveSelectedWalletAuthority:
+      IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
+    readExactWithOperationCredential:
+      walletSessionAuthorizations.readExactWithOperationCredential.bind(
+        walletSessionAuthorizations,
+      ),
+  });
+}
+
+export type SigningSessionReadinessExactAuthorizationResolver = {
+  readonly resolveSelectedWalletAuthority: typeof IndexedDBManager.resolveSelectedWalletAuthority;
+  readonly readExactWithOperationCredential: typeof walletSessionAuthorizations.readExactWithOperationCredential;
+};
+
+function exactEd25519SignSubjectMatches(
+  authorization: ActiveWalletSessionV1,
+  materialActivation: MpcMaterialActivationRef,
+): boolean {
+  return authorization.capabilitySubjects.some(
+    (subject) =>
+      subject.kind === 'sign' &&
+      subject.keyFamily === 'ed25519' &&
+      mpcMaterialActivationRefsEqual(subject.materialActivation, materialActivation),
+  );
+}
+
+function selectedMethodMatchesRuntime(args: {
+  runtime: ExactEd25519SealedSessionRuntime;
+  authMethod: Extract<
+    Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>,
+    { readonly kind: 'resolved' }
+  >['authMethod'];
+}): boolean {
+  switch (args.runtime.factor.kind) {
+    case 'passkey':
+      return (
+        args.authMethod.kind === 'passkey' &&
+        String(args.authMethod.rpId) === String(args.runtime.factor.rpId) &&
+        String(args.authMethod.credentialIdB64u) === String(args.runtime.factor.credentialIdB64u)
+      );
+    case 'email_otp':
+      return (
+        args.authMethod.kind === 'email_otp' &&
+        args.authMethod.emailHashHex === args.runtime.factor.emailHashHex
+      );
+  }
+}
+
+export async function discoverLanesForWalletWithResolver(
+  deps: WalletSessionReadinessDeps,
+  walletId: WalletId,
+  resolver: SigningSessionReadinessExactAuthorizationResolver,
+): Promise<DiscoveredSigningSessionLane[]> {
   const listSealed = deps.listExactSealedSessionsForWallet ?? listExactSealedSessionsForWallet;
   const records = (
     await Promise.all([
@@ -281,26 +335,93 @@ export async function discoverLanesForWallet(
       }),
     ])
   ).flat();
+  let selected: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
+  try {
+    selected = await resolver.resolveSelectedWalletAuthority(String(walletId));
+  } catch {
+    return [];
+  }
+  if (selected.kind !== 'resolved') return [];
+  const { selection, authMethod, authority } = selected;
+  if (
+    selection.lockState !== 'unlocked' ||
+    selection.walletId !== walletId ||
+    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    authMethod.status !== 'active' ||
+    authMethod.walletId !== walletId ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    authority.state !== 'active' ||
+    authority.walletId !== walletId
+  ) {
+    return [];
+  }
+  let operation: Awaited<ReturnType<typeof resolveWalletAuthorityOperation>>;
+  try {
+    operation = await resolveWalletAuthorityOperation({
+      selected: { authMethod, authority },
+      operation: { kind: 'near_sign', operation: 'sign', keyFamily: 'ed25519' },
+    });
+  } catch {
+    return [];
+  }
+  if (
+    operation.kind !== 'resolved' ||
+    operation.value.walletId !== walletId ||
+    operation.value.authorityId !== authority.authorityId ||
+    operation.value.authMethodId !== authMethod.walletAuthMethodId
+  ) {
+    return [];
+  }
+  let authorizationRead: Awaited<
+    ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
+  >;
+  try {
+    authorizationRead = await resolver.readExactWithOperationCredential({
+      walletId,
+      authorityId: authority.authorityId,
+      authMethodId: authMethod.walletAuthMethodId,
+    });
+  } catch {
+    return [];
+  }
+  if (authorizationRead.kind !== 'found') return [];
+  const authorization = authorizationRead.record;
+  const operationCredential = authorizationRead.operationCredential;
+  if (
+    authorization.walletId !== walletId ||
+    authorization.authorityId !== authority.authorityId ||
+    authorization.authMethodId !== authMethod.walletAuthMethodId ||
+    authorization.authorityDigestB64u !== authority.authorityDigestB64u ||
+    authorization.authorityRevocationEpoch !== authority.revocationEpoch ||
+    authorization.expiresAtMs <= Date.now() ||
+    operationCredential.walletSessionId.length === 0 ||
+    operationCredential.token.trim().length === 0 ||
+    !exactEd25519SignSubjectMatches(authorization, operation.value.materialActivation)
+  ) {
+    return [];
+  }
   const lanes: DiscoveredSigningSessionLane[] = [];
   const seenThresholdSessionIds = new Set<string>();
   for (const record of records) {
     if (record.curve !== 'ed25519') continue;
     const runtime = parseExactEd25519SealedSessionRuntime(record);
     if (!runtime || runtime.walletId !== walletId) continue;
-    const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(walletId);
-    if (authorizationRead.kind !== 'found') continue;
-    const authorization = ed25519WalletSessionAuthorizationForRuntime({
-      runtime,
-      authorization: authorizationRead.projection,
-    });
-    if (!authorization) continue;
+    if (
+      !selectedMethodMatchesRuntime({ runtime, authMethod }) ||
+      !mpcMaterialActivationRefsEqual(
+        runtime.sealedRecord.ed25519Restore.materialActivation,
+        operation.value.materialActivation,
+      )
+    ) {
+      continue;
+    }
     if (seenThresholdSessionIds.has(runtime.thresholdSessionId)) continue;
     seenThresholdSessionIds.add(runtime.thresholdSessionId);
     addLane(
       lanes,
       buildDiscoveredLaneForRuntime(
         runtime,
-        authorization.walletSessionId,
+        operationCredential.walletSessionId,
         authorization.quotaId,
       ),
     );
@@ -730,7 +851,7 @@ export function statusFromClaim(args: {
 export type WalletSessionClearFailure =
   | 'touch_confirm_material'
   | 'email_otp_material'
-  | 'ecdsa_projection';
+  | 'wallet_session_authorization';
 
 export type WalletSessionClearResult =
   | {

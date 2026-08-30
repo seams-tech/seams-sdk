@@ -5,7 +5,6 @@ import {
   type PasskeyEd25519YaoSessionPersistencePort,
 } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
 import {
-  authorizeRouterAbEd25519WalletSessionState,
   buildPasskeyRouterAbEd25519WalletSessionState,
   rebindRouterAbEd25519WalletSessionStateFromExactRuntime,
 } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
@@ -13,20 +12,14 @@ import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/s
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import type { WarmSessionSealAndPersistResult } from '@/core/types/secure-confirm-worker';
 import {
-  buildActiveWalletSessionAuthorizationProjection,
   type ActiveWalletSessionAuthorizationProjection,
   walletSessionAuthorizationIdForCurve,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   buildPasskeyEd25519AuthorizationProjectionFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
-import {
-  buildMpcMaterialActivationRefFixture,
-  buildWalletAuthAuthorityRefFixture,
-} from './helpers/ecdsaMaterialRef.fixtures';
-import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import type { RegistrationEstablishedSession } from '@shared/utils/registrationEstablishedSession';
 import {
   normalizeRuntimePolicyScope,
@@ -103,32 +96,6 @@ class SessionPersistenceFixture implements PasskeyEd25519YaoSessionPersistencePo
 
 function sessionPersistenceCallKind(call: SessionPersistenceCall): SessionPersistenceCall['kind'] {
   return call.kind;
-}
-
-function buildPasskeyWalletSessionAuthorization(args: {
-  expiresAtMs: number;
-  walletSessionToken: string;
-  authority?: WalletAuthAuthorityRef;
-}) {
-  const expected = buildPasskeyEd25519AuthorizationProjectionFixture(SEALED_RECORD);
-  const authorizationId = walletSessionAuthorizationIdForCurve(expected, 'ed25519');
-  if (!authorizationId) throw new Error('missing Ed25519 authorization id in fixture');
-  return buildActiveWalletSessionAuthorizationProjection({
-    walletId: expected.walletId,
-    walletSessionId: expected.walletSessionId,
-    quotaId: expected.quotaId,
-    walletSessionTokens: {
-      kind: 'near_ed25519',
-      ed25519: {
-        authorizationId,
-        walletSessionToken: args.walletSessionToken,
-        thresholdSessionId: THRESHOLD_SESSION_ID,
-      },
-    },
-    authMethod: 'passkey',
-    authority: args.authority ?? expected.authority,
-    expiresAtMs: args.expiresAtMs,
-  });
 }
 
 async function buildPasskeyYaoWalletSession() {
@@ -295,146 +262,6 @@ test('persists the exact runtime from registration-established Ed25519 authoriza
   });
 
   expect(persistence.calls.map(sessionPersistenceCallKind)).toEqual(['hydrate']);
-});
-
-test('preserves the exact Ed25519 bearer while revalidating the correlated projection', async () => {
-  const fixture = await buildPasskeyYaoWalletSession();
-  const legacyProjectionToken = 'opaque-wallet-session-token:legacy-ed25519-projection';
-  const authorization = buildPasskeyWalletSessionAuthorization({
-    expiresAtMs: fixture.expiresAtMs,
-    walletSessionToken: legacyProjectionToken,
-  });
-
-  const authorized = authorizeRouterAbEd25519WalletSessionState({
-    state: fixture.session,
-    authorization,
-    nowMs: fixture.expiresAtMs - 1,
-  });
-
-  expect(authorized?.walletSessionId).toBe(authorization.walletSessionId);
-  expect(authorized?.walletSessionAuthorization).toBe(authorization);
-  expect(authorized?.signingWalletSession.auth.walletSessionToken).toBe(
-    fixture.walletSessionToken,
-  );
-  expect(authorized?.signingWalletSession.auth.walletSessionToken).not.toBe(
-    legacyProjectionToken,
-  );
-});
-
-test('rejects a renewed Ed25519 projection with a hostile authority digest', async () => {
-  const fixture = await buildPasskeyYaoWalletSession();
-  const hostileAuthorization = buildPasskeyWalletSessionAuthorization({
-    expiresAtMs: fixture.expiresAtMs,
-    walletSessionToken: fixture.walletSessionToken,
-    authority: buildWalletAuthAuthorityRefFixture({
-      walletId: WALLET_ID,
-      label: 'hostile-ed25519-authority',
-    }),
-  });
-
-  const authorized = authorizeRouterAbEd25519WalletSessionState({
-    state: fixture.session,
-    authorization: hostileAuthorization,
-    nowMs: fixture.expiresAtMs - 1,
-  });
-
-  expect(authorized).toBeNull();
-});
-
-test('accepts a renewed authorization expiry while retaining the sealed runtime expiry', async () => {
-  const fixture = await buildPasskeyYaoWalletSession();
-  const renewedExpiresAtMs = fixture.expiresAtMs + 60_000;
-  const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(SEALED_RECORD, {
-    authorizationExpiresAtMs: renewedExpiresAtMs,
-  });
-  const runtime = parseExactEd25519SealedSessionRuntime(SEALED_RECORD);
-  if (!runtime) throw new Error('failed to parse exact passkey Yao runtime fixture');
-  const renewedState = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
-    runtime,
-    authorization,
-    nowMs: fixture.expiresAtMs - 1,
-  });
-
-  const authorized = authorizeRouterAbEd25519WalletSessionState({
-    state: renewedState,
-    authorization,
-    nowMs: fixture.expiresAtMs - 1,
-  });
-
-  expect(authorized).not.toBeNull();
-  expect(authorized?.signingWalletSession.expiresAtMs).toBe(fixture.expiresAtMs);
-  expect(authorized?.walletSessionAuthorization.expiresAtMs).toBe(renewedExpiresAtMs);
-});
-
-test('renews Wallet Session authorization without changing Ed25519 material activation', async () => {
-  const runtime = parseExactEd25519SealedSessionRuntime(SEALED_RECORD);
-  if (!runtime) throw new Error('failed to parse exact passkey Yao runtime fixture');
-  const originalAuthorization = buildPasskeyEd25519AuthorizationProjectionFixture(SEALED_RECORD);
-  const renewedAuthorization = buildPasskeyEd25519AuthorizationProjectionFixture(SEALED_RECORD, {
-    authorizationId: 'wallet-session-authorization:ed25519-renewed',
-    walletSessionId: 'wallet-session:ed25519-renewed',
-    quotaId: 'quota:ed25519-renewed',
-  });
-  const originalState = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
-    runtime,
-    authorization: originalAuthorization,
-    nowMs: runtime.expiresAtMs - 1,
-  });
-  const renewedState = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
-    runtime,
-    authorization: renewedAuthorization,
-    nowMs: runtime.expiresAtMs - 1,
-  });
-
-  const original = authorizeRouterAbEd25519WalletSessionState({
-    state: originalState,
-    authorization: originalAuthorization,
-    nowMs: runtime.expiresAtMs - 1,
-  });
-  const renewed = authorizeRouterAbEd25519WalletSessionState({
-    state: renewedState,
-    authorization: renewedAuthorization,
-    nowMs: runtime.expiresAtMs - 1,
-  });
-
-  expect(original).not.toBeNull();
-  expect(renewed).not.toBeNull();
-  expect(renewedAuthorization.walletSessionId).not.toBe(originalAuthorization.walletSessionId);
-  expect(walletSessionAuthorizationIdForCurve(renewedAuthorization, 'ed25519')).not.toBe(
-    walletSessionAuthorizationIdForCurve(originalAuthorization, 'ed25519'),
-  );
-  expect(renewed?.thresholdSessionId).toBe(original?.thresholdSessionId);
-  expect(renewed?.remainingUses).toBe(original?.remainingUses);
-  expect(renewed?.remainingUses).toBe(SEALED_RECORD.remainingUses);
-  expect(
-    mpcMaterialActivationRefsEqual(
-      runtime.sealedRecord.ed25519Restore.materialActivation,
-      SEALED_RECORD.ed25519Restore.materialActivation,
-    ),
-  ).toBe(true);
-});
-
-test('rejects Wallet Session identity drift after the Ed25519 bearer is bound', async () => {
-  const runtime = parseExactEd25519SealedSessionRuntime(SEALED_RECORD);
-  if (!runtime) throw new Error('failed to parse exact passkey Yao runtime fixture');
-  const originalAuthorization = buildPasskeyEd25519AuthorizationProjectionFixture(SEALED_RECORD);
-  const renewedAuthorization = buildPasskeyEd25519AuthorizationProjectionFixture(SEALED_RECORD, {
-    walletSessionId: 'wallet-session:ed25519-rebound',
-    quotaId: 'quota:ed25519-rebound',
-  });
-  const originalState = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
-    runtime,
-    authorization: originalAuthorization,
-    nowMs: runtime.expiresAtMs - 1,
-  });
-
-  const rebound = authorizeRouterAbEd25519WalletSessionState({
-    state: originalState,
-    authorization: renewedAuthorization,
-    nowMs: runtime.expiresAtMs - 1,
-  });
-
-  expect(rebound).toBeNull();
 });
 
 test('keeps durable Ed25519 material identity when authorization is renewed', async () => {

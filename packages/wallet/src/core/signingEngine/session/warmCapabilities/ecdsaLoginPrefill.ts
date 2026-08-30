@@ -22,22 +22,25 @@ import {
 } from '@/core/config/defaultConfigs';
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '../material/ecdsaCapabilityManifest';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import {
-  parseEcdsaClientVerifyingShareB64u,
-  parseEcdsaThresholdKeyId,
-} from '../keyMaterialBrands';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionAuthorizationExactOperationCredentialReadResult,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { parseEcdsaClientVerifyingShareB64u, parseEcdsaThresholdKeyId } from '../keyMaterialBrands';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
-  walletSessionAuthorizations,
-  walletSessionTokenForCurve,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+  mpcMaterialActivationRefsEqual,
+  type WalletAuthorityId,
+  type WalletAuthMethodId,
+} from '@shared/utils/domainIds';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export type RouterAbEcdsaDerivationLoginPresignaturePrefillSkippedReason =
   | 'pool_disabled'
   | 'pool_already_warm'
   | 'missing_threshold_session_id'
-  | 'missing_wallet_session_token'
+  | 'exact_wallet_session_unavailable'
   | 'invalid_session_record'
   | 'warm_session_not_active'
   | 'warm_session_expiry_unavailable'
@@ -64,7 +67,7 @@ export type RouterAbEcdsaDerivationLoginPresignaturePrefillResult =
   | {
       status: 'skipped';
       reason:
-        | 'missing_wallet_session_token'
+        | 'exact_wallet_session_unavailable'
         | 'warm_session_not_active'
         | 'warm_session_expiry_unavailable'
         | 'missing_router_ab_ecdsa_derivation_state';
@@ -103,15 +106,51 @@ export type RouterAbEcdsaDerivationLoginPresignaturePrefillResult =
 
 export type RouterAbEcdsaDerivationLoginPresignaturePrefillDeps = {
   getSignerWorkerContext: () => SignerWorkerManagerContext;
+  resolveActiveWalletAuthority: (args: {
+    walletId: WalletId;
+    authority: WalletAuthAuthorityRef;
+  }) => Promise<{
+    walletId: WalletId;
+    authorityId: WalletAuthorityId;
+    walletAuthMethodId: WalletAuthMethodId;
+    authorityDigestB64u: DigestB64u;
+    authorityRevocationEpoch: number;
+  } | null>;
+  readExactWalletSessionWithOperationCredential: (args: {
+    walletId: WalletId;
+    authorityId: WalletAuthorityId;
+    authMethodId: WalletAuthMethodId;
+  }) => Promise<WalletSessionAuthorizationExactOperationCredentialReadResult>;
   resolveClientSigningMaterialSource: (args: {
     manifest: ActiveEcdsaCapabilityManifest;
     runtime: ExactEcdsaSealedRuntime;
-    authorization: ActiveWalletSessionAuthorizationProjection;
   }) => RouterAbEcdsaDerivationClientSigningMaterialSource;
   routerAbEcdsaDerivationPresignaturePoolPolicy?:
     | RouterAbEcdsaDerivationPresignaturePoolPolicyInput
     | RouterAbEcdsaDerivationPresignaturePoolPolicy;
 };
+
+function exactEcdsaSignCapabilityMatchesMaterial(args: {
+  session: ActiveWalletSessionV1;
+  runtime: ExactEcdsaSealedRuntime;
+  manifest: ActiveEcdsaCapabilityManifest;
+}): boolean {
+  if (
+    !mpcMaterialActivationRefsEqual(
+      args.runtime.materialActivation,
+      args.manifest.activation.materialActivation,
+    )
+  ) {
+    return false;
+  }
+  const matches = args.session.capabilitySubjects.filter(
+    (subject) =>
+      subject.kind === 'sign' &&
+      subject.keyFamily === 'ecdsa_secp256k1' &&
+      mpcMaterialActivationRefsEqual(subject.materialActivation, args.runtime.materialActivation),
+  );
+  return matches.length === 1;
+}
 
 export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
   deps: RouterAbEcdsaDerivationLoginPresignaturePrefillDeps,
@@ -144,25 +183,86 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
 
     thresholdSessionId = runtime.sealedRecord.thresholdSessionId;
 
-    const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(walletId);
-    if (authorizationRead.kind !== 'found') {
+    const manifestAuthority = args.manifest.signer.authority;
+    let activeAuthority: Awaited<
+      ReturnType<
+        RouterAbEcdsaDerivationLoginPresignaturePrefillDeps['resolveActiveWalletAuthority']
+      >
+    >;
+    try {
+      activeAuthority = await deps.resolveActiveWalletAuthority({
+        walletId,
+        authority: manifestAuthority,
+      });
+    } catch {
       return {
         status: 'skipped',
-        reason: 'missing_wallet_session_token',
+        reason: 'exact_wallet_session_unavailable',
         thresholdSessionId,
       };
     }
-    const authorization = authorizationRead.projection;
-    const walletSessionToken = walletSessionTokenForCurve(authorization, 'ecdsa');
-    if (!walletSessionToken) {
+    if (
+      !activeAuthority ||
+      activeAuthority.walletId !== walletId ||
+      manifestAuthority.walletId !== walletId ||
+      activeAuthority.walletAuthMethodId !== manifestAuthority.walletAuthMethodId
+    ) {
       return {
         status: 'skipped',
-        reason: 'missing_wallet_session_token',
+        reason: 'exact_wallet_session_unavailable',
         thresholdSessionId,
       };
     }
 
-    const policy = resolveRouterAbEcdsaDerivationPresignaturePoolPolicy(deps.routerAbEcdsaDerivationPresignaturePoolPolicy);
+    let exactRead: WalletSessionAuthorizationExactOperationCredentialReadResult;
+    try {
+      exactRead = await deps.readExactWalletSessionWithOperationCredential({
+        walletId,
+        authorityId: activeAuthority.authorityId,
+        authMethodId: activeAuthority.walletAuthMethodId,
+      });
+    } catch {
+      return {
+        status: 'skipped',
+        reason: 'exact_wallet_session_unavailable',
+        thresholdSessionId,
+      };
+    }
+    if (exactRead.kind !== 'found') {
+      return {
+        status: 'skipped',
+        reason: 'exact_wallet_session_unavailable',
+        thresholdSessionId,
+      };
+    }
+    const authorization = exactRead.record;
+    const operationCredential = exactRead.operationCredential;
+    const nowMs = Date.now();
+    if (
+      authorization.walletId !== walletId ||
+      authorization.authorityId !== activeAuthority.authorityId ||
+      authorization.authMethodId !== activeAuthority.walletAuthMethodId ||
+      authorization.authorityDigestB64u !== activeAuthority.authorityDigestB64u ||
+      authorization.authorityRevocationEpoch !== activeAuthority.authorityRevocationEpoch ||
+      authorization.expiresAtMs <= nowMs ||
+      operationCredential.walletSessionId.length === 0 ||
+      operationCredential.token.trim().length === 0 ||
+      !exactEcdsaSignCapabilityMatchesMaterial({
+        session: authorization,
+        runtime,
+        manifest: args.manifest,
+      })
+    ) {
+      return {
+        status: 'skipped',
+        reason: 'exact_wallet_session_unavailable',
+        thresholdSessionId,
+      };
+    }
+
+    const policy = resolveRouterAbEcdsaDerivationPresignaturePoolPolicy(
+      deps.routerAbEcdsaDerivationPresignaturePoolPolicy,
+    );
     if (!policy.enabled) {
       return {
         status: 'skipped',
@@ -192,8 +292,7 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
       };
     }
 
-    const nowMs = Date.now();
-    if (authorization.expiresAtMs <= nowMs || runtime.expiresAtMs <= nowMs) {
+    if (runtime.expiresAtMs <= nowMs) {
       return {
         status: 'skipped',
         reason: 'warm_session_not_active',
@@ -238,23 +337,23 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
     const clientSigningMaterial = deps.resolveClientSigningMaterialSource({
       manifest: args.manifest,
       runtime,
-      authorization,
     });
 
     const schedule = scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill({
       relayerUrl,
       ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(runtime.ecdsaThresholdKeyId),
-      clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(
-        clientVerifyingPublicKey33B64u,
-      ),
+      clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(clientVerifyingPublicKey33B64u),
       clientSigningMaterial,
       thresholdEcdsaPublicKeyB64u: runtime.thresholdEcdsaPublicKeyB64u,
       relayerVerifyingShareB64u:
         runtime.normalSigning.scope.public_identity.server_public_key33_b64u,
-      credential: { kind: 'wallet_session_opaque', walletSessionToken },
+      credential: {
+        kind: 'wallet_session_opaque',
+        walletSessionToken: operationCredential.token,
+      },
       authorization: {
         kind: 'reusable_wallet_session',
-        wallet_session_id: authorization.walletSessionId,
+        wallet_session_id: operationCredential.walletSessionId,
       },
       materialActivation: routerAbMpcMaterialActivationRefToWire(runtime.materialActivation),
       routerAbEcdsaDerivationPoolFill,

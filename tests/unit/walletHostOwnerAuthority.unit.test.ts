@@ -5,7 +5,7 @@ import { createWalletHostOwnerAuthoritiesV1 } from '@/SeamsWeb/operations/device
 import type { UnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
-import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
+import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 import type { HttpTransport } from '@/core/platform/http';
 
 const walletId = parseWalletId('wallet:r103').value;
@@ -19,6 +19,41 @@ const walletId = parseWalletId('wallet:r103').value;
  */
 
 type AuthorityOverrides = Partial<Parameters<typeof createWalletHostOwnerAuthoritiesV1>[0]>;
+type ExactOwnerFixture = Awaited<ReturnType<typeof buildLinkedDeviceManagementAuthorityFixture>>;
+
+async function exactOwnerFixture(label: string, expiresAtMs: number): Promise<ExactOwnerFixture> {
+  return await buildLinkedDeviceManagementAuthorityFixture({
+    label,
+    permissions: buildFullOwnerDelegatedWalletAuthorityV1().permissions,
+    provenance: 'wallet_registration',
+    keyFamily: 'ed25519',
+    expiresAtMs,
+    identity: {
+      walletId: String(walletId),
+      authorityId: `authority:${label}`,
+      walletAuthMethodId: `auth-method:${label}`,
+      rpId: 'wallet.example.test',
+    },
+  });
+}
+
+function resolvedOwnerSelection(fixture: ExactOwnerFixture) {
+  return {
+    kind: 'resolved' as const,
+    selection: {
+      kind: 'wallet_selection_v1' as const,
+      walletId: fixture.authority.walletId,
+      walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+      lockGeneration: 0,
+      lockState: 'unlocked' as const,
+      updatedAtMs: 1,
+    },
+    authMethod: fixture.authMethod,
+    authority: fixture.authority,
+    signerMaterials: [],
+    exportRoot: null,
+  };
+}
 
 function buildUnlockedEd25519ExportRootCapabilityFixtureV1(
   overrides: Partial<UnlockedWalletEd25519ExportRootCapabilityV1> = {},
@@ -34,7 +69,7 @@ function buildUnlockedEd25519ExportRootCapabilityFixtureV1(
   };
 }
 
-function stopBeforeHttp(overrides: AuthorityOverrides = {}) {
+function stopBeforeHttp(fixture: ExactOwnerFixture, overrides: AuthorityOverrides = {}) {
   return createWalletHostOwnerAuthoritiesV1({
     http: {
       kind: 'http_transport',
@@ -44,12 +79,12 @@ function stopBeforeHttp(overrides: AuthorityOverrides = {}) {
     },
     relayerUrl: 'https://relay.example.test',
     walletSessions: {
-      read: async () => ({ kind: 'missing' as const }),
-      readActiveForWallet: async () => ({ kind: 'missing' as const }),
+      readExactWithOperationCredential: async () => ({ kind: 'missing' as const }),
     },
+    resolveSelectedWalletAuthority: async () => resolvedOwnerSelection(fixture),
     readWalletAuthenticationState: () => ({
       kind: 'authenticated',
-      walletId,
+      walletId: fixture.authority.walletId,
       authMethod: 'passkey',
     }),
     readUnlockedEd25519ExportRootCapabilityV1: () => undefined,
@@ -58,16 +93,13 @@ function stopBeforeHttp(overrides: AuthorityOverrides = {}) {
 }
 
 function authorizedOwnerHttp(
-  projection: ReturnType<typeof availableLaneEd25519Authorization>,
-  fixture: ReturnType<typeof buildR103DeviceLinkFixture>,
+  owner: ExactOwnerFixture,
+  deviceLink: ReturnType<typeof buildR103DeviceLinkFixture>,
 ): HttpTransport {
-  if (projection.walletSessionTokens.kind !== 'near_ed25519') {
-    throw new Error('owner authorization fixture requires an Ed25519 token');
-  }
   const source = {
     kind: 'wallet_session' as const,
-    walletSessionId: projection.walletSessionId,
-    authorizationId: projection.walletSessionTokens.ed25519.authorizationId,
+    walletSessionId: owner.operationCredential.walletSessionId,
+    authorizationId: owner.activeWalletSession.authorizationId,
   };
   return {
     kind: 'http_transport',
@@ -79,12 +111,12 @@ function authorizedOwnerHttp(
           authentication: {
             kind: 'link_session_authenticated_request_v1',
             source,
-            proofDigestB64u: fixture.packageSetDigestB64u,
+            proofDigestB64u: deviceLink.packageSetDigestB64u,
           },
-          walletId: projection.walletId,
+          walletId: owner.authority.walletId,
           ownerAuthorization: source,
-          sourceSignerManifest: fixture.sourceSignerManifest,
-          expiresAtMs: projection.expiresAtMs,
+          sourceSignerManifest: deviceLink.sourceSignerManifest,
+          expiresAtMs: owner.activeWalletSession.expiresAtMs,
         },
       },
     }),
@@ -92,7 +124,7 @@ function authorizedOwnerHttp(
 }
 
 async function expectWalletUnlockRequired(
-  authorities: ReturnType<typeof stopBeforeHttp>,
+  authorities: ReturnType<typeof createWalletHostOwnerAuthoritiesV1>,
   payload = buildR103DeviceLinkFixture().payload,
 ) {
   let failure: unknown;
@@ -114,14 +146,15 @@ async function expectWalletUnlockRequired(
 }
 
 test('a locked wallet fails with wallet_unlock_required before any lookup', async () => {
+  const fixture = await exactOwnerFixture('locked-owner', Date.now() + 60_000);
   await expectWalletUnlockRequired(
-    stopBeforeHttp({
+    stopBeforeHttp(fixture, {
+      resolveSelectedWalletAuthority: async () => {
+        throw new Error('device linking must stop before authority lookup');
+      },
       readWalletAuthenticationState: () => ({ kind: 'signed_out' }),
       walletSessions: {
-        read: async () => {
-          throw new Error('device linking must stop before session lookup');
-        },
-        readActiveForWallet: async () => {
+        readExactWithOperationCredential: async () => {
           throw new Error('device linking must stop before session lookup');
         },
       },
@@ -130,8 +163,9 @@ test('a locked wallet fails with wallet_unlock_required before any lookup', asyn
 });
 
 test('a missing owner Wallet Session fails with wallet_unlock_required', async () => {
+  const fixture = await exactOwnerFixture('missing-owner-session', Date.now() + 60_000);
   await expectWalletUnlockRequired(
-    stopBeforeHttp({
+    stopBeforeHttp(fixture, {
       readUnlockedEd25519ExportRootCapabilityV1: () => {
         throw new Error('the session gate precedes the capability read');
       },
@@ -140,21 +174,19 @@ test('a missing owner Wallet Session fails with wallet_unlock_required', async (
 });
 
 test('an expired owner Wallet Session fails with wallet_unlock_required', async () => {
-  const projection = availableLaneEd25519Authorization({
-    walletId: String(walletId),
-    identitySeed: 'expired-session',
-    authMethod: 'passkey',
-    expiresAtMs: Date.now() - 1,
-  });
+  const fixture = await exactOwnerFixture('expired-owner-session', Date.now() - 1);
   await expectWalletUnlockRequired(
-    stopBeforeHttp({
+    stopBeforeHttp(fixture, {
       walletSessions: {
-        read: async () => ({ kind: 'missing' as const }),
-        readActiveForWallet: async () => ({ kind: 'found' as const, projection }),
+        readExactWithOperationCredential: async () => ({
+          kind: 'found' as const,
+          record: fixture.activeWalletSession,
+          operationCredential: fixture.operationCredential,
+        }),
       },
       readWalletAuthenticationState: () => ({
         kind: 'authenticated',
-        walletId: projection.walletId,
+        walletId: fixture.authority.walletId,
         authMethod: 'passkey',
       }),
     }),
@@ -162,11 +194,7 @@ test('an expired owner Wallet Session fails with wallet_unlock_required', async 
 });
 
 test('an export_keys owner request requires a matching unexpired export-root capability', async () => {
-  const projection = availableLaneEd25519Authorization({
-    walletId: String(walletId),
-    identitySeed: 'capability-preflight',
-    authMethod: 'passkey',
-  });
+  const owner = await exactOwnerFixture('capability-preflight', Date.now() + 60_000);
   const fixture = buildR103DeviceLinkFixture();
   const payload = {
     ...fixture.payload,
@@ -174,9 +202,9 @@ test('an export_keys owner request requires a matching unexpired export-root cap
   };
   const aligned = () =>
     buildUnlockedEd25519ExportRootCapabilityFixtureV1({
-      walletId: String(projection.walletId),
-      walletSessionId: String(projection.walletSessionId),
-      expiresAtMs: projection.expiresAtMs,
+      walletId: String(owner.authority.walletId),
+      walletSessionId: String(owner.operationCredential.walletSessionId),
+      expiresAtMs: owner.activeWalletSession.expiresAtMs,
     });
   const arms: Array<[string, AuthorityOverrides['readUnlockedEd25519ExportRootCapabilityV1']]> = [
     ['absent', () => undefined],
@@ -186,15 +214,18 @@ test('an export_keys owner request requires a matching unexpired export-root cap
   ];
   for (const [label, readCapability] of arms) {
     await expectWalletUnlockRequired(
-      stopBeforeHttp({
-        http: authorizedOwnerHttp(projection, fixture),
+      stopBeforeHttp(owner, {
+        http: authorizedOwnerHttp(owner, fixture),
         walletSessions: {
-          read: async () => ({ kind: 'missing' as const }),
-          readActiveForWallet: async () => ({ kind: 'found' as const, projection }),
+          readExactWithOperationCredential: async () => ({
+            kind: 'found' as const,
+            record: owner.activeWalletSession,
+            operationCredential: owner.operationCredential,
+          }),
         },
         readWalletAuthenticationState: () => ({
           kind: 'authenticated',
-          walletId: projection.walletId,
+          walletId: owner.authority.walletId,
           authMethod: 'passkey',
         }),
         readUnlockedEd25519ExportRootCapabilityV1: readCapability,
@@ -204,4 +235,74 @@ test('an export_keys owner request requires a matching unexpired export-root cap
       throw new Error(`${label}: ${String(error)}`);
     });
   }
+});
+
+test('owner continuation re-resolves and uses the selected exact method credential', async () => {
+  const owner = await exactOwnerFixture('exact-owner-continuation', Date.now() + 60_000);
+  const fixture = buildR103DeviceLinkFixture();
+  let authorizationHeader: string | undefined;
+  const authorities = stopBeforeHttp(owner, {
+    http: {
+      kind: 'http_transport',
+      request: async (request) => {
+        authorizationHeader = request.headers?.authorization;
+        return { ok: true, value: { status: 204, body: null } };
+      },
+    },
+    walletSessions: {
+      readExactWithOperationCredential: async () => ({
+        kind: 'found' as const,
+        record: owner.activeWalletSession,
+        operationCredential: owner.operationCredential,
+      }),
+    },
+  });
+
+  await expect(
+    authorities.ownerRequest.requestOwnerV1({
+      method: 'GET',
+      canonicalPath: '/wallet/device-linking/v1/session/source-contribution-preparation',
+      authentication: {
+        kind: 'link_session_authenticated_request_v1',
+        source: {
+          kind: 'wallet_session',
+          walletSessionId: owner.operationCredential.walletSessionId,
+          authorizationId: owner.activeWalletSession.authorizationId,
+        },
+        proofDigestB64u: fixture.packageSetDigestB64u,
+      },
+    }),
+  ).resolves.toEqual({ status: 204, body: null });
+  expect(authorizationHeader).toBe(`Bearer ${owner.operationCredential.token}`);
+});
+
+test('owner continuation rejects a stale exact session identity before HTTP', async () => {
+  const owner = await exactOwnerFixture('exact-owner-current', Date.now() + 60_000);
+  const stale = await exactOwnerFixture('exact-owner-stale', Date.now() + 60_000);
+  const fixture = buildR103DeviceLinkFixture();
+  const authorities = stopBeforeHttp(owner, {
+    walletSessions: {
+      readExactWithOperationCredential: async () => ({
+        kind: 'found' as const,
+        record: owner.activeWalletSession,
+        operationCredential: owner.operationCredential,
+      }),
+    },
+  });
+
+  await expect(
+    authorities.ownerRequest.requestOwnerV1({
+      method: 'GET',
+      canonicalPath: '/wallet/device-linking/v1/session/source-contribution-preparation',
+      authentication: {
+        kind: 'link_session_authenticated_request_v1',
+        source: {
+          kind: 'wallet_session',
+          walletSessionId: stale.operationCredential.walletSessionId,
+          authorizationId: stale.activeWalletSession.authorizationId,
+        },
+        proofDigestB64u: fixture.packageSetDigestB64u,
+      },
+    }),
+  ).rejects.toThrow('Owner Wallet Session identity changed after authorization');
 });

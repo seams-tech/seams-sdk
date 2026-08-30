@@ -16,6 +16,13 @@ import {
 import { parseWalletAuthMethodId } from '../../packages/shared-ts/src/utils/domainIds';
 import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
+import {
+  parsePrincipalId,
+  parseTenantId,
+  type TenantId,
+} from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import { buildExactWalletSessionAuthorizationFixture } from './helpers/exactWalletSessionAuthorization.fixtures';
 
 /**
  * Refactor 109C Phase 0: exact method revocation between two SIBLINGS on ONE
@@ -44,6 +51,7 @@ const PASSKEY_METHOD_ID = 'wallet-auth-method:sibling-passkey';
 const EMAIL_METHOD_ID = 'wallet-auth-method:sibling-email';
 const RP_ID = 'sibling.example.test';
 const EMAIL_HASH_HEX = 'a'.repeat(64);
+type SiblingDatabase = Parameters<typeof insertSignerWallet>[0]['database'];
 
 function required<T>(
   result: { ok: true; value: T } | { ok: false; error: { message: string } },
@@ -105,7 +113,71 @@ async function seedAuthorityWithBothSiblings(
       walletAuthMethodId: EMAIL_METHOD_ID,
     }),
   );
-  return { walletId, envelopes };
+  return { walletId, authority: founding.authority, envelopes };
+}
+
+async function seedExactSiblingWalletSessions(input: {
+  readonly database: SiblingDatabase;
+  readonly authority: Awaited<ReturnType<typeof seedAuthorityWithBothSiblings>>['authority'];
+}) {
+  const tenantId = required(parseTenantId(SCOPE.orgId));
+  const principalId = required(parsePrincipalId('principal:r109c-sibling-revocation'));
+  const authorizationStore = new CloudflareD1AuthorizationStore({
+    database: input.database,
+    namespace: SCOPE.namespace,
+    walletSignerScope: SCOPE,
+  });
+  const passkey = buildExactWalletSessionAuthorizationFixture({
+    label: 'r109c-passkey',
+    tenantId,
+    principalId,
+    authority: input.authority,
+    walletAuthMethodId: required(parseWalletAuthMethodId(PASSKEY_METHOD_ID)),
+    issuedAtMs: 3_000,
+    expiresAtMs: 10_000,
+    remainingUses: 3,
+  });
+  await authorizationStore.putWalletSessionAuthorizationV2(passkey);
+  const email = buildExactWalletSessionAuthorizationFixture({
+    label: 'r109c-email',
+    tenantId,
+    principalId,
+    authority: input.authority,
+    walletAuthMethodId: required(parseWalletAuthMethodId(EMAIL_METHOD_ID)),
+    issuedAtMs: 3_000,
+    expiresAtMs: 10_000,
+    remainingUses: 3,
+  });
+  await authorizationStore.putWalletSessionAuthorizationV2(email);
+  return { authorizationStore, tenantId };
+}
+
+async function readExactSiblingWalletSessions(input: {
+  readonly database: SiblingDatabase;
+  readonly tenantId: TenantId;
+}) {
+  return await input.database
+    .prepare(
+      `SELECT session.wallet_auth_method_id,
+              session.retired_at_ms,
+              quota.remaining_uses,
+              quota.lifecycle_kind
+         FROM wallet_session_authorizations_v2 AS session
+         JOIN authorization_wallet_session_quotas AS quota
+           ON quota.namespace = session.namespace
+          AND quota.tenant_id = session.tenant_id
+          AND quota.quota_id = session.quota_id
+        WHERE session.namespace = ?
+          AND session.tenant_id = ?
+        ORDER BY session.wallet_auth_method_id`,
+    )
+    .bind(SCOPE.namespace, input.tenantId)
+    .all<{
+      readonly wallet_auth_method_id: string;
+      readonly retired_at_ms: number | null;
+      readonly remaining_uses: number;
+      readonly lifecycle_kind: string;
+    }>();
 }
 
 function revocationCommand(input: {
@@ -158,6 +230,67 @@ test('a Passkey sibling revokes the Email OTP method on its own authority', asyn
     );
     expect(emailEnvelope?.lifecycle.state).toBe('revoked');
     expect(passkeyEnvelope?.lifecycle.state).toBe('active');
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('method revocation retires only its exact V2 sessions and exhausts their quotas', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const { walletId, authority } = await seedAuthorityWithBothSiblings(database);
+    const exact = await seedExactSiblingWalletSessions({ database, authority });
+    const service = createCloudflareD1RouterApiAuthService({ database, ...SCOPE });
+
+    const revoked = await service.walletAuthMethods.revokeWalletAuthMethod(
+      revocationCommand({
+        walletId,
+        revokeMethodId: EMAIL_METHOD_ID,
+        verifiedSourceMethodId: PASSKEY_METHOD_ID,
+      }),
+    );
+    expect(revoked, JSON.stringify(revoked)).toMatchObject({ ok: true });
+
+    expect(
+      (await readExactSiblingWalletSessions({ database, tenantId: exact.tenantId })).results,
+    ).toEqual([
+      {
+        wallet_auth_method_id: EMAIL_METHOD_ID,
+        retired_at_ms: 5_000,
+        remaining_uses: 0,
+        lifecycle_kind: 'exhausted',
+      },
+      {
+        wallet_auth_method_id: PASSKEY_METHOD_ID,
+        retired_at_ms: null,
+        remaining_uses: 3,
+        lifecycle_kind: 'active',
+      },
+    ]);
+
+    await exact.authorizationStore.revokeReusableWalletSessionsForAuthMethod({
+      tenantId: exact.tenantId,
+      walletId,
+      walletAuthMethodId: required(parseWalletAuthMethodId(EMAIL_METHOD_ID)),
+      nowMs: 6_000,
+    });
+    expect(
+      (await readExactSiblingWalletSessions({ database, tenantId: exact.tenantId })).results,
+    ).toEqual([
+      {
+        wallet_auth_method_id: EMAIL_METHOD_ID,
+        retired_at_ms: 5_000,
+        remaining_uses: 0,
+        lifecycle_kind: 'exhausted',
+      },
+      {
+        wallet_auth_method_id: PASSKEY_METHOD_ID,
+        retired_at_ms: null,
+        remaining_uses: 3,
+        lifecycle_kind: 'active',
+      },
+    ]);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

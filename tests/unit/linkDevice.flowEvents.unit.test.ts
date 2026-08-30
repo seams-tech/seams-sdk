@@ -18,7 +18,6 @@ import type {
   LinkSessionTransportEventV1,
 } from '../../packages/shared-ts/src/device-linking';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
-import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '../../packages/shared-ts/src/device-linking/requestProof';
 
 function unsupportedPort(name: string): never {
@@ -169,7 +168,8 @@ function createPorts(
           handle: { kind: 'device_linking_key_material_handle_v1', handleId: 'test-key-material' },
           linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
           devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-          emailOtpReleasePublicKey65B64u: base64UrlEncode(new Uint8Array(65).fill(4)),
+          deliveryRecipientPublicKey65B64u:
+            'BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU',
         };
       },
       async openEmailOtpFactorReleaseV1() {

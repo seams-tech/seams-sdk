@@ -42,7 +42,10 @@ import type {
 import { d1ChangedRows } from '../../../../storage/d1Sql';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import { linkedDeviceEmailOtpDescriptorCredentialIdV1 } from '../../../../core/deviceLinking/linkedDeviceEmailOtpGrant';
-import type { DeviceLinkingTargetCredentialProviderV1 } from '../../../../router/transport/fetch/routes/deviceLinking';
+import type {
+  DeviceLinkingTargetCredentialProviderV1,
+  LinkedDeviceTargetPreparationResultV1,
+} from '../../../../router/transport/fetch/routes/deviceLinking';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import {
   buildVerifiedTargetFactorV1,
@@ -229,6 +232,7 @@ export type LinkedDeviceTargetPlannerV1 = {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
     readonly expectedOrigin: string;
+    readonly deliveryRecipientPublicKey65B64u: string;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceTargetPreparationV1>;
 };
@@ -406,13 +410,31 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       readonly approval: LinkedDeviceApprovalV1;
       readonly requestedAtMs: number;
     } & (
-      | { readonly access: 'create_or_replay'; readonly expectedOrigin: string }
-      | { readonly access: 'replay_only'; readonly expectedOrigin?: never }
+      | {
+          readonly access: 'create_or_replay';
+          readonly expectedOrigin: string;
+          readonly deliveryRecipientPublicKey65B64u: string;
+        }
+      | {
+          readonly access: 'replay_only';
+          readonly expectedOrigin?: never;
+          readonly deliveryRecipientPublicKey65B64u?: never;
+        }
     ),
-  ): Promise<LinkedDeviceTargetPreparationV1> {
+  ): Promise<LinkedDeviceTargetPreparationResultV1> {
     const persisted = await this.readV1(input.session.linkSessionId);
     if (persisted) {
       assertPreparationMatchesSession(persisted.preparation, input.session, input.approval);
+      if (
+        input.access === 'create_or_replay' &&
+        input.deliveryRecipientPublicKey65B64u !==
+          persisted.preparation.deliveryRecipientPublicKey65B64u
+      ) {
+        return {
+          kind: 'conflict',
+          message: 'linked-device target preparation recipient conflicts with its durable replay',
+        };
+      }
       return persisted.preparation;
     }
     if (input.session.state.state !== 'awaiting_target_factor') {

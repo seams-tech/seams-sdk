@@ -10,15 +10,17 @@ import { toAccountId } from '@/core/types/accountIds';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBindings';
 import {
-  activeWalletSessionToken,
+  activeHostedWalletSessionOperationCredential,
   clearHostedWalletSessions,
+  recordAdoptedWalletIframeParentOrigin,
   redeemHostedWalletSeamsSession,
 } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import type { WalletAuthenticationRestoreAuth } from '@/SeamsWeb/signingSurface/ports';
 
 const RELAY_URL = 'https://relay.example.test';
 const WALLET_ORIGIN = 'https://wallet.example.test';
-const HOST_WALLET_SESSION_TOKEN = 'wst_host-origin-token';
+const APP_ORIGIN = 'https://app.example.test';
+const HOST_WALLET_SESSION_TOKEN = `wsh_${'h'.repeat(43)}`;
 
 /**
  * Seeds the wallet host's own opaque Wallet Session the way a real hosted handoff does:
@@ -31,19 +33,22 @@ async function seedHostedWalletSession(): Promise<void> {
       JSON.stringify({
         ok: true,
         walletSessionId: 'wallet-session-1',
-        walletSessionToken: HOST_WALLET_SESSION_TOKEN,
-        curve: 'ecdsa',
+        operationCredential: {
+          kind: 'opaque_hosted_wallet_session_operation_credential_v1',
+          token: HOST_WALLET_SESSION_TOKEN,
+          walletSessionId: 'wallet-session-1',
+        },
         expiresAtMs: Date.now() + 60_000,
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   try {
+    recordAdoptedWalletIframeParentOrigin(APP_ORIGIN);
     await redeemHostedWalletSeamsSession(
       {
         exchangeCode: 'exchange-1',
         nonce: 'nonce-1',
-        curve: 'ecdsa',
-        appOrigin: 'https://app.example.test',
+        appOrigin: APP_ORIGIN,
         walletOrigin: WALLET_ORIGIN,
         relayUrl: RELAY_URL,
       },
@@ -316,52 +321,21 @@ test.describe('wallet iframe auth handlers', () => {
 
     try {
       await seedHostedWalletSession();
-      expect(activeWalletSessionToken('ecdsa', RELAY_URL)).toBe(HOST_WALLET_SESSION_TOKEN);
+      expect(activeHostedWalletSessionOperationCredential(RELAY_URL)).toEqual({
+        kind: 'opaque_hosted_wallet_session_operation_credential_v1',
+        token: HOST_WALLET_SESSION_TOKEN,
+        walletSessionId: 'wallet-session-1',
+      });
 
       const handlers = createAuthWalletIframeHandlers(deps);
       await handlers.PM_LOCK!({ type: 'PM_LOCK', requestId: 'lock-hosted' });
 
-      expect(activeWalletSessionToken('ecdsa', RELAY_URL)).toBeUndefined();
+      expect(activeHostedWalletSessionOperationCredential(RELAY_URL)).toBeUndefined();
     } finally {
       clearHostedWalletSessions();
       if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
       else Reflect.set(globalThis, 'window', originalWindow);
     }
-  });
-
-  test('acknowledges host lock before linked-device cleanup completes', async () => {
-    let releaseCleanup!: () => void;
-    let cleanupCompleted = false;
-    const cleanup = new Promise<void>((resolve) => {
-      releaseCleanup = resolve;
-    });
-    const posted: ChildToParentEnvelope[] = [];
-    const deps = createDeps({
-      currentWalletId: 'harbor-current',
-      posted,
-      onGetWalletSession: (walletId) => loggedInWalletSession(walletId || 'anonymous'),
-      onLock: async () => {
-        await cleanup;
-        cleanupCompleted = true;
-      },
-    });
-    const handlers = createAuthWalletIframeHandlers(deps);
-
-    const handlerPromise = handlers.PM_LOCK!({
-      type: 'PM_LOCK',
-      requestId: 'lock-before-cleanup',
-    });
-    await expect.poll(() => posted.length).toBe(1);
-    expect(posted[0]).toMatchObject({
-      type: 'PM_RESULT',
-      requestId: 'lock-before-cleanup',
-      payload: { ok: true },
-    });
-    expect(cleanupCompleted).toBe(false);
-
-    releaseCleanup();
-    await handlerPromise;
-    await expect.poll(() => cleanupCompleted).toBe(true);
   });
 
   test('passes unscoped wallet-session reads through when host current wallet is cold', async () => {

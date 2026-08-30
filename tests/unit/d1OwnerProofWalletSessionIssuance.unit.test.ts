@@ -7,10 +7,17 @@ import {
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
 import { buildVerifiedWalletSessionPasskeyFactorResult } from '../../packages/wallet-server/src/authorization/factorEvidence';
-import { parseVerifiedOwnerProofId } from '../../packages/wallet-server/src/authorization/domain';
+import {
+  buildActiveWalletSessionQuota,
+  buildWalletSessionAuthorization,
+  parseVerifiedOwnerProofId,
+} from '../../packages/wallet-server/src/authorization/domain';
 import {
   parseAuthFactorId,
+  parseMpcWalletSigningQuotaId,
   parseReusableWalletSessionMintId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
@@ -95,6 +102,74 @@ function ownerWalletSessionBinding(input: {
   return parsed;
 }
 
+async function seedLegacyWalletSession(input: {
+  readonly database: Parameters<typeof applyD1MigrationFiles>[0];
+  readonly namespace: string;
+  readonly session: ReturnType<typeof buildWalletSessionAuthorization>;
+  readonly quota: ReturnType<typeof buildActiveWalletSessionQuota>;
+}): Promise<{
+  readonly session: ReturnType<typeof buildWalletSessionAuthorization>;
+  readonly quota: ReturnType<typeof buildActiveWalletSessionQuota>;
+}> {
+  await input.database
+    .prepare(
+      `INSERT INTO authorization_wallet_session_quotas (
+         namespace,
+         tenant_id,
+         quota_id,
+         wallet_session_id,
+         principal_id,
+         remaining_uses,
+         lifecycle_kind,
+         expires_at_ms
+       ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.quota.tenantId,
+      input.quota.quotaId,
+      input.quota.walletSessionId,
+      input.quota.principalId,
+      input.quota.remainingUses,
+      input.quota.expiresAtMs,
+    )
+    .run();
+  await input.database
+    .prepare(
+      `INSERT INTO reusable_wallet_sessions (
+         namespace,
+         tenant_id,
+         authorization_id,
+         wallet_session_id,
+         principal_id,
+         wallet_id,
+         authority_digest,
+         wallet_auth_method_id,
+         mint_id,
+         quota_id,
+         lifecycle_kind,
+         created_at_ms,
+         expires_at_ms
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+    )
+    .bind(
+      input.namespace,
+      input.session.tenantId,
+      input.session.authorizationId,
+      input.session.walletSessionId,
+      input.session.principalId,
+      input.session.walletId,
+      input.session.authority.authorityDigest,
+      input.session.authority.walletAuthMethodId,
+      input.session.mintId,
+      input.session.quotaId,
+      input.session.createdAtMs,
+      input.session.expiresAtMs,
+    )
+    .run();
+  return { session: input.session, quota: input.quota };
+}
+
 test('one owner proof mints both curve tokens for one Wallet Session and rejects another scope', async () => {
   const temporary = createTemporaryD1Database();
   try {
@@ -165,15 +240,31 @@ test('one owner proof mints both curve tokens for one Wallet Session and rejects
         expiresAtMs: fixture.session.expiresAtMs - 1,
       }),
     });
-    const session = await service.issueReusableWalletSession({
-      tenantId: fixture.session.tenantId,
-      principalId: fixture.session.principalId,
-      walletId,
-      authority: fixture.authorityRef,
-      mintId: required(parseReusableWalletSessionMintId('unlock:owner-proof-multi-curve')),
-      remainingUses: 3,
-      issuedAtMs: fixture.session.createdAtMs + 1,
-      expiresAtMs: fixture.session.expiresAtMs,
+    const session = await seedLegacyWalletSession({
+      database: temporary.database,
+      namespace,
+      session: buildWalletSessionAuthorization({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletId,
+        authority: fixture.authorityRef,
+        mintId: required(parseReusableWalletSessionMintId('unlock:owner-proof-multi-curve')),
+        authorizationId: required(
+          parseWalletSessionAuthorizationId('authorization:owner-proof-multi-curve'),
+        ),
+        walletSessionId: required(parseWalletSessionId('wallet-session:owner-proof-multi-curve')),
+        quotaId: required(parseMpcWalletSigningQuotaId('quota:owner-proof-multi-curve')),
+        createdAtMs: fixture.session.createdAtMs + 1,
+        expiresAtMs: fixture.session.expiresAtMs,
+      }),
+      quota: buildActiveWalletSessionQuota({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletSessionId: required(parseWalletSessionId('wallet-session:owner-proof-multi-curve')),
+        quotaId: required(parseMpcWalletSigningQuotaId('quota:owner-proof-multi-curve')),
+        remainingUses: 3,
+        expiresAtMs: fixture.session.expiresAtMs,
+      }),
     });
     const common = {
       proof,
@@ -239,15 +330,48 @@ test('one owner proof mints both curve tokens for one Wallet Session and rejects
         .first<{ readonly count?: unknown }>(),
     ).resolves.toMatchObject({ count: 2 });
 
-    const otherSession = await service.issueReusableWalletSession({
-      tenantId: fixture.session.tenantId,
-      principalId: fixture.session.principalId,
-      walletId,
-      authority: fixture.authorityRef,
-      mintId: required(parseReusableWalletSessionMintId('unlock:owner-proof-other-scope')),
-      remainingUses: 3,
-      issuedAtMs: fixture.session.createdAtMs + 3,
-      expiresAtMs: fixture.session.expiresAtMs,
+    await temporary.database.batch([
+      temporary.database
+        .prepare(
+          `UPDATE authorization_wallet_session_quotas
+              SET remaining_uses = 0,
+                  lifecycle_kind = 'exhausted'
+            WHERE namespace = ? AND tenant_id = ? AND quota_id = ?`,
+        )
+        .bind(namespace, session.session.tenantId, session.quota.quotaId),
+      temporary.database
+        .prepare(
+          `UPDATE reusable_wallet_sessions
+              SET lifecycle_kind = 'superseded'
+            WHERE namespace = ? AND tenant_id = ? AND wallet_session_id = ?`,
+        )
+        .bind(namespace, session.session.tenantId, session.session.walletSessionId),
+    ]);
+    const otherSession = await seedLegacyWalletSession({
+      database: temporary.database,
+      namespace,
+      session: buildWalletSessionAuthorization({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletId,
+        authority: fixture.authorityRef,
+        mintId: required(parseReusableWalletSessionMintId('unlock:owner-proof-other-scope')),
+        authorizationId: required(
+          parseWalletSessionAuthorizationId('authorization:owner-proof-other-scope'),
+        ),
+        walletSessionId: required(parseWalletSessionId('wallet-session:owner-proof-other-scope')),
+        quotaId: required(parseMpcWalletSigningQuotaId('quota:owner-proof-other-scope')),
+        createdAtMs: fixture.session.createdAtMs + 3,
+        expiresAtMs: fixture.session.expiresAtMs,
+      }),
+      quota: buildActiveWalletSessionQuota({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletSessionId: required(parseWalletSessionId('wallet-session:owner-proof-other-scope')),
+        quotaId: required(parseMpcWalletSigningQuotaId('quota:owner-proof-other-scope')),
+        remainingUses: 3,
+        expiresAtMs: fixture.session.expiresAtMs,
+      }),
     });
     const otherEd25519Binding = ownerWalletSessionBinding({
       fixture,

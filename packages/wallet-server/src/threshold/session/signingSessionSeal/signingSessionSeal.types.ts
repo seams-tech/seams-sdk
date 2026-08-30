@@ -1,7 +1,5 @@
 import type { SigningSessionSealProtocol } from '@shared/utils/signingSessionSeal';
 import type { NormalizedLogger } from '../../../core/logger';
-import type { ThresholdEd25519AuthorityScope } from '../../../core/types';
-import type { EcdsaKeyHandle } from '../../../core/keyMaterialBrands';
 
 export type SigningSessionSealRouteHeaders = Record<string, string | string[] | undefined>;
 
@@ -45,7 +43,7 @@ type SigningSessionSealRouteSuccessBase = {
 };
 
 export type SigningSessionSealRouteResult =
-  SigningSessionSealRouteSuccessBase
+  | SigningSessionSealRouteSuccessBase
   | {
       ok: false;
       code: string;
@@ -109,29 +107,20 @@ type SigningSessionSealAuthorizationSessionRecordBase = {
   expiresAtMs: number;
 };
 
-type SigningSessionSealOwnerThresholdSessionRecordBase =
+type SigningSessionSealExactThresholdSessionRecordBase =
   SigningSessionSealAuthorizationSessionRecordBase & {
-    kind: 'owner_threshold_session';
+    kind: 'exact_wallet_session_operation_credential';
     thresholdSessionId: string;
-    relayerKeyId: string;
-    participantIds: readonly number[];
-    signingRootId?: string;
-    signingRootVersion?: string;
-    remainingUses?: never;
   };
 
 export type SigningSessionSealEcdsaThresholdSessionRecord =
-  SigningSessionSealOwnerThresholdSessionRecordBase & {
+  SigningSessionSealExactThresholdSessionRecordBase & {
     curve: 'ecdsa';
-    keyHandle: EcdsaKeyHandle;
-    authorityScope?: never;
   };
 
 export type SigningSessionSealEd25519ThresholdSessionRecord =
-  SigningSessionSealOwnerThresholdSessionRecordBase & {
+  SigningSessionSealExactThresholdSessionRecordBase & {
     curve: 'ed25519';
-    authorityScope: ThresholdEd25519AuthorityScope;
-    keyHandle?: never;
   };
 
 export type SigningSessionSealThresholdSessionRecord =

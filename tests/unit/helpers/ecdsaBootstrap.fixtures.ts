@@ -19,6 +19,15 @@ import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWalletId,
+} from '@shared/utils/domainIds';
+import {
+  parseActiveWalletSessionV1,
+  parseWalletSessionOperationCredentialV1,
+} from '@shared/device-linking/parsers';
 
 function requireBootstrapAuthorizationId<T>(result: { ok: true; value: T } | { ok: false }): T {
   if (!result.ok) throw new Error('ecdsa bootstrap fixture authorization id is invalid');
@@ -43,7 +52,10 @@ import {
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  routerAbMpcMaterialActivationRefFromWire,
+  routerAbMpcMaterialActivationRefToWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import { testEcdsaChainTarget } from './ecdsaChainTarget.fixtures';
 
 const VALID_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -329,6 +341,36 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   const walletSessionToken = toFixtureWalletSessionToken(
     String(args.walletSessionToken || `opaque-wallet-session-token:ecdsa:${sessionId}`).trim(),
   );
+  const activeWalletSession = parseActiveWalletSessionV1({
+    kind: 'active_wallet_session_v1',
+    walletId: requireBootstrapAuthorizationId(parseWalletId(args.nearAccountId)),
+    authorityId: requireBootstrapAuthorizationId(
+      parseWalletAuthorityId(`authority:ecdsa-bootstrap:${sessionId}`),
+    ),
+    authMethodId: requireBootstrapAuthorizationId(
+      parseWalletAuthMethodId(`auth-method:ecdsa-bootstrap:${sessionId}`),
+    ),
+    authorizationId,
+    quotaId,
+    authorityDigestB64u: VALID_ECDSA_SHARE32_B64U,
+    authorityRevocationEpoch: 0,
+    capabilitySubjects: [
+      {
+        kind: 'sign',
+        keyFamily: 'ecdsa_secp256k1',
+        materialActivation: routerAbMpcMaterialActivationRefFromWire(
+          ecdsaRoleLocalReadyRecord.publicFacts.publicCapability.material_activation,
+        ),
+      },
+    ],
+    issuedAtMs: Math.max(1, expiresAtMs - 60_000),
+    expiresAtMs,
+  });
+  const operationCredential = parseWalletSessionOperationCredentialV1({
+    kind: 'opaque_wallet_session_operation_credential_v1',
+    token: walletSessionToken,
+    walletSessionId,
+  });
 
   return {
     thresholdEcdsaKeyRef: {
@@ -386,6 +428,8 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       expiresAtMs,
       remainingUses: args.remainingUses ?? 5,
       runtimePolicyScope,
+      walletSession: activeWalletSession,
+      operationCredential,
       walletSessionToken,
       clientVerifyingShareB64u,
     },
@@ -459,7 +503,8 @@ export function createEcdsaSessionActivationFixture(args: {
         quota_id: bootstrap.session.quotaId,
         expires_at_ms: bootstrap.session.expiresAtMs,
         remaining_uses: bootstrap.session.remainingUses,
-        wallet_session_token: walletSessionToken,
+        wallet_session: bootstrap.session.walletSession,
+        operation_credential: bootstrap.session.operationCredential,
       },
       normal_signing: normalSigning,
     }),
@@ -491,7 +536,8 @@ export function fixtureEcdsaRoleLocalReadyRecordFromBootstrap(
 
 function toFixtureWalletSessionToken(token: string): string {
   if (!token) throw new Error('ECDSA bootstrap fixture requires a Wallet Session token');
-  return token;
+  if (/^wst_[A-Za-z0-9_-]{43}$/.test(token)) return token;
+  return `wst_${Buffer.from(token).toString('base64url').padEnd(43, 'A').slice(0, 43)}`;
 }
 
 /** Converts a bootstrap fixture carrying an inline role-local ready-state blob

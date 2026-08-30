@@ -1,8 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  exactSessionStateFromWalletSession,
-  parseWalletSessionFromBoundary,
-} from '@/SeamsWeb/walletIframe/shared/exactSessionState';
+import { parseWalletSessionFromBoundary } from '@/SeamsWeb/walletIframe/shared/exactSessionState';
 import { isWalletSessionReadyForUi } from '@/react/context/walletSessionReadiness';
 import {
   activeWalletSessionFixture,
@@ -53,19 +50,6 @@ test.describe('superseded reusable Wallet Session', () => {
     expect(() => parseWalletSessionFromBoundary(withRetiredReason)).toThrow(
       'Invalid Wallet Session reason is invalid',
     );
-  });
-
-  test('leaves the wallet unlocked rather than logging it out', () => {
-    const state = exactSessionStateFromWalletSession(
-      supersededWalletSessionFixture({ walletId: 'superseded-wallet' }),
-    );
-
-    // `wallet_locked` here would log a user out of a wallet that is still
-    // theirs; the reason is what tells the host to re-resolve.
-    expect(state).toMatchObject({
-      kind: 'wallet_unlocked_without_signing_session',
-      reason: 'superseded',
-    });
   });
 
   test('keeps authenticated wallet UI available while authorization is stale', () => {

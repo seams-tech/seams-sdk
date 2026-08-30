@@ -3,8 +3,12 @@ import type {
   ChildToParentEnvelope,
   ParentToChildEnvelope,
   PMSetConfigPayload,
+  WalletIframeProtocolVersionMismatchDetails,
 } from '../shared/messages';
-import { WALLET_PROTOCOL_VERSION } from '../shared/messages';
+import {
+  WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH,
+  WALLET_PROTOCOL_VERSION,
+} from '../shared/messages';
 import type { SeamsConfigsInput } from '@/core/types/seams';
 import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
 import { isObject } from '@shared/utils/validation';
@@ -34,6 +38,36 @@ export type WalletHostRuntimeKind = RuntimeWalletHostRoute['kind'];
 export type WalletHostEntryOptions = {
   supportedRuntimeRouteKinds?: ReadonlySet<WalletHostRuntimeKind>;
 };
+
+function connectProtocolVersionFromBoundary(data: unknown): string | null {
+  if (!isObject(data) || data.type !== 'CONNECT' || !isObject(data.payload)) return null;
+  return typeof data.payload.protocolVersion === 'string' ? data.payload.protocolVersion : null;
+}
+
+function rejectProtocolVersionMismatch(
+  port: MessagePort,
+  receivedProtocolVersion: string | null,
+): boolean {
+  if (receivedProtocolVersion === WALLET_PROTOCOL_VERSION) return false;
+  const details: WalletIframeProtocolVersionMismatchDetails = {
+    expectedProtocolVersion: WALLET_PROTOCOL_VERSION,
+    receivedProtocolVersion,
+  };
+  try {
+    port.postMessage({
+      type: 'ERROR',
+      payload: {
+        code: WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH,
+        message: `Wallet iframe protocol version mismatch: expected ${WALLET_PROTOCOL_VERSION}, received ${receivedProtocolVersion ?? 'missing'}`,
+        details,
+      },
+    } satisfies ChildToParentEnvelope);
+  } catch {}
+  try {
+    port.close();
+  } catch {}
+  return true;
+}
 
 function routeIsSupported(
   route: RuntimeWalletHostRoute,
@@ -224,6 +258,7 @@ export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
     try {
       if ((e as MessageEvent).source !== window.parent) return;
     } catch {}
+    if (rejectProtocolVersionMismatch(ports[0], connectProtocolVersionFromBoundary(data))) return;
     if (typeof e.origin === 'string' && e.origin.length && e.origin !== 'null') {
       state.parentOrigin = e.origin;
     }

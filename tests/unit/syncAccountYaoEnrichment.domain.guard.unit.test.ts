@@ -11,20 +11,20 @@ import {
   type ThresholdEd25519SessionId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
+import { base58Encode } from '../../packages/shared-ts/src/utils/base58';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
 } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import { WALLET_SESSION_CLIENT_CAPABILITY_V1 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { createCloudflareRouter } from '../../packages/wallet-server/src/router/cloudflare/runtime/createCloudflareRouter';
 import type { SessionAdapter } from '../../packages/wallet-server/src/router/framework/routerApi';
-import {
-  mintRouterAbEd25519YaoWalletSessionV1,
-  type RouterAbEd25519YaoProductRegistrationRuntimeV1,
-  type RouterAbEd25519YaoWalletSessionMintInputV1,
-  type RouterAbEd25519YaoWalletSessionMintResultV1,
-} from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+import type { RouterAbEd25519YaoWalletSessionMintInputV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../packages/wallet-server/src/core/registrationContracts';
 import type {
   RouterAbEd25519YaoActiveCapabilityDescriptorV1,
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,
@@ -54,9 +54,10 @@ import {
   createTemporaryD1Database,
   listD1MigrationFiles,
 } from '../helpers/sqliteD1';
+import { seedFoundingPasskeyAuthority } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import { FixtureRouterAbEcdsaStrictRegistrationPort } from '../helpers/routerAbSigningRuntimeTestUtils';
-import { StaticWalletSessionAdapter } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
 import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
+import { parsePasskeyEd25519YaoSyncResponseV1 } from '../../packages/wallet/src/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
 
 const WALLET_ID = 'wallet-sync-1';
 const NEAR_ACCOUNT_ID = 'wallet-sync-1.testnet';
@@ -64,7 +65,7 @@ const NEAR_SIGNING_KEY_ID = 'ed25519ks_sync_1';
 const SIGNING_WORKER_ID = 'signing-worker-sync-1';
 const RP_ID = 'wallet.example.test';
 const ORIGIN = `https://${RP_ID}`;
-const CREDENTIAL_ID = 'credential-sync-1';
+const CREDENTIAL_ID = base64UrlEncode(new Uint8Array(32).fill(36));
 const PARTICIPANT_IDS = [11, 22] as const;
 
 type SyncVerificationInput = Parameters<RouterApiWebAuthnService['verifyWebAuthnSyncAccount']>[0];
@@ -89,12 +90,12 @@ function activeCapabilityFixture(
     kind: 'router_ab_ed25519_yao_active_capability_v1',
     materialActivation: {
       kind: 'mpc_material_activation_ref',
-      activation_id: 'sync-account-material-activation-1',
-      capability: 'sync-account-capability-1',
-      material_owner: WALLET_ID,
-      key_binding: 'sync-account-key-1',
-      lifecycle_binding: 'sync-account-lifecycle-1',
-      signing_worker: SIGNING_WORKER_ID,
+      activation_id: 'activation:management-founding-source',
+      capability: 'capability:management-founding-source',
+      material_owner: 'owner:management-founding-source',
+      key_binding: 'key:management-founding-source',
+      lifecycle_binding: 'lifecycle:management-founding-source',
+      signing_worker: 'worker:management-founding-source',
     },
     activeCapabilityBinding: bytes32(41),
     registeredPublicKey: bytes32(42),
@@ -149,7 +150,7 @@ function verifiedEd25519WalletFixture(): SyncVerificationResult {
     },
     rpId: RP_ID,
     signerSlot: 3,
-    publicKey: 'ed25519:sync-public-key',
+    publicKey: `ed25519:${base58Encode(new Uint8Array(32).fill(42))}`,
     credentialIdB64u: CREDENTIAL_ID,
     credentialPublicKeyB64u: 'credential-public-key-sync-1',
     thresholdEd25519: {
@@ -244,8 +245,6 @@ class RecordingYaoProductRuntime implements RouterAbEd25519YaoProductRegistratio
   readonly signingWorkerId = SIGNING_WORKER_ID;
   readonly lookupCalls: RouterAbEd25519YaoActiveCapabilityLookupV1[] = [];
   readonly mintCalls: RouterAbEd25519YaoWalletSessionMintInputV1[] = [];
-  private readonly session = new StaticWalletSessionAdapter();
-
   constructor(private readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1) {}
 
   bindVerifiedIntent(
@@ -301,13 +300,9 @@ class RecordingYaoProductRuntime implements RouterAbEd25519YaoProductRegistratio
 
   async mintWalletSession(
     input: RouterAbEd25519YaoWalletSessionMintInputV1,
-  ): Promise<RouterAbEd25519YaoWalletSessionMintResultV1> {
+  ): Promise<WalletRegistrationEd25519YaoBootstrapSession> {
     this.mintCalls.push(input);
-    return await mintRouterAbEd25519YaoWalletSessionV1({
-      session: this.session,
-      signingWorkerId: SIGNING_WORKER_ID,
-      sessionInput: input,
-    });
+    throw new Error('sync-account must issue the exact Wallet Session directly');
   }
 }
 
@@ -363,6 +358,7 @@ function syncAccountVerifyRequest(): Request {
     },
     body: JSON.stringify({
       challengeId: 'sync-challenge-1',
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       webauthn_authentication: {
         id: CREDENTIAL_ID,
         type: 'public-key',
@@ -380,6 +376,7 @@ function syncAccountVerifyRequestWithObsoleteSessionPolicy(): Request {
     },
     body: JSON.stringify({
       challengeId: 'sync-challenge-1',
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       webauthn_authentication: {
         id: CREDENTIAL_ID,
         type: 'public-key',
@@ -411,6 +408,19 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
   const temporary = createTemporaryD1Database();
   try {
     await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    await seedFoundingPasskeyAuthority({
+      database: temporary.database,
+      namespace: 'sync-account-yao-test',
+      orgId: 'org-active',
+      projectId: 'project-active',
+      envId: 'env-active',
+      identity: {
+        walletId: WALLET_ID,
+        authorityId: 'wallet-authority:sync-account',
+        walletAuthMethodId: 'wallet-auth-method:sync-account',
+        rpId: RP_ID,
+      },
+    });
     const baseService = createBaseService(temporary.database);
     const webAuthn = new RecordingSyncAccountWebAuthnService(
       baseService.webAuthn,
@@ -428,6 +438,7 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
     expect(webAuthn.verificationCalls).toEqual([
       {
         challengeId: 'sync-challenge-1',
+        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
         webauthn_authentication: {
           id: CREDENTIAL_ID,
           type: 'public-key',
@@ -447,47 +458,62 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
         participantIds: PARTICIPANT_IDS,
       },
     ]);
-    expect(runtime.mintCalls).toHaveLength(1);
-    const mintCall = runtime.mintCalls[0];
-    expect(mintCall).toMatchObject({
-      kind: 'verified_wallet_unlock_v1',
-      walletId: walletIdFromString(WALLET_ID),
-      nearAccountId: NEAR_ACCOUNT_ID,
-      nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-      authority: buildPasskeyWalletAuthAuthority({
-        walletId: WALLET_ID,
-        rpId: RP_ID,
-        credentialIdB64u: CREDENTIAL_ID,
-      }),
-      thresholdSessionId: 'active-threshold-session-2',
-      participantIds: PARTICIPANT_IDS,
-      remainingUses: 3,
-      runtimePolicyScope: {
-        orgId: 'org-active',
-        projectId: 'project-active',
-        envId: 'env-active',
-        signingRootVersion: 'root-active-v2',
+    expect(runtime.mintCalls).toEqual([]);
+    const expectedAuthorityRef = await walletAuthAuthorityRef({
+      authority: {
+        ...buildPasskeyWalletAuthAuthority({
+          walletId: WALLET_ID,
+          rpId: RP_ID,
+          credentialIdB64u: CREDENTIAL_ID,
+        }),
+        bindingId: parseFixtureWalletAuthMethodId('wallet-auth-method:sync-account'),
       },
     });
-    expect(String(mintCall?.walletSessionId)).not.toBe(String(mintCall?.thresholdSessionId));
-    const expectedAuthorityRef = await walletAuthAuthorityRef({
-      authority: buildPasskeyWalletAuthAuthority({
-        walletId: WALLET_ID,
-        rpId: RP_ID,
-        credentialIdB64u: CREDENTIAL_ID,
-      }),
-    });
     const responseBody = await response.json();
+    const parsed = parsePasskeyEd25519YaoSyncResponseV1(responseBody);
+    expect(parsed.walletSession.walletId).toBe(walletIdFromString(WALLET_ID));
+    expect(parsed.walletSession.authMethodId).toBe(
+      parseFixtureWalletAuthMethodId('wallet-auth-method:sync-account'),
+    );
+    expect(parsed.walletSession.authorityId).toBe(
+      parseFixtureWalletAuthorityId('wallet-authority:sync-account'),
+    );
+    expect(parsed.operationCredential.walletSessionId).toBe(parsed.session.walletSessionId);
+    expect(parsed.session.quotaId).toBe(responseBody.thresholdEd25519.session.quotaId);
+    expect(parsed.session.expiresAtMs).toBe(parsed.walletSession.expiresAtMs);
     expect(responseBody).toMatchObject({
       ok: true,
       verified: true,
       thresholdEd25519: {
         session: {
-          thresholdSessionId: mintCall?.thresholdSessionId,
-          walletSessionId: mintCall?.walletSessionId,
-          quotaId: mintCall?.quotaId,
+          thresholdSessionId: 'active-threshold-session-2',
+          quotaId: expect.stringMatching(/^wsq_/),
+          expiresAtMs: expect.any(Number),
           remainingUses: 3,
+          runtimePolicyScope: activeCapabilityFixture().runtimePolicyScope,
+          routerAbNormalSigning: {
+            kind: 'router_ab_ed25519_normal_signing_v1',
+            signingWorkerId: SIGNING_WORKER_ID,
+          },
         },
+      },
+      walletSession: {
+        kind: 'active_wallet_session_v1',
+        walletId: WALLET_ID,
+        authorityId: 'wallet-authority:sync-account',
+        authMethodId: 'wallet-auth-method:sync-account',
+        authorizationId: expect.stringMatching(/^wlt_/),
+        authorityRevocationEpoch: 0,
+        issuedAtMs: expect.any(Number),
+        expiresAtMs: expect.any(Number),
+        capabilitySubjects: expect.arrayContaining([
+          expect.objectContaining({ kind: 'sign', keyFamily: 'ed25519' }),
+        ]),
+      },
+      operationCredential: {
+        kind: 'opaque_wallet_session_operation_credential_v1',
+        token: expect.stringMatching(/^wst_[A-Za-z0-9_-]{43}$/),
+        walletSessionId: expect.stringMatching(/^wls_/),
       },
       ed25519YaoRecovery: {
         kind: 'router_ab_ed25519_yao_sync_recovery_v1',
@@ -495,6 +521,20 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
         capability: activeCapabilityFixture(),
       },
     });
+    expect(responseBody.thresholdEd25519.session).not.toHaveProperty('walletSessionToken');
+    expect(responseBody.thresholdEd25519.session).not.toHaveProperty('sessionKind');
+
+    const replayResponse = await router(syncAccountVerifyRequest());
+    expect(replayResponse.status).toBe(409);
+    const replayBody = await replayResponse.json();
+    expect(replayBody).toMatchObject({
+      ok: false,
+      code: 'already_committed',
+      kind: 'already_committed',
+      walletId: WALLET_ID,
+      next: 'unlock_exact_method',
+    });
+    expect(replayBody).not.toHaveProperty('walletSessionToken');
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
@@ -503,6 +543,20 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
 async function syncAccountFailsClosedWithoutYaoRuntime(): Promise<void> {
   const temporary = createTemporaryD1Database();
   try {
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    await seedFoundingPasskeyAuthority({
+      database: temporary.database,
+      namespace: 'sync-account-yao-test',
+      orgId: 'org-active',
+      projectId: 'project-active',
+      envId: 'env-active',
+      identity: {
+        walletId: WALLET_ID,
+        authorityId: 'wallet-authority:sync-account',
+        walletAuthMethodId: 'wallet-auth-method:sync-account',
+        rpId: RP_ID,
+      },
+    });
     const baseService = createBaseService(temporary.database);
     const webAuthn = new RecordingSyncAccountWebAuthnService(
       baseService.webAuthn,
@@ -529,6 +583,20 @@ async function syncAccountFailsClosedWithoutYaoRuntime(): Promise<void> {
 async function syncAccountRejectsCapabilityForAnotherNearAccount(): Promise<void> {
   const temporary = createTemporaryD1Database();
   try {
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    await seedFoundingPasskeyAuthority({
+      database: temporary.database,
+      namespace: 'sync-account-yao-test',
+      orgId: 'org-active',
+      projectId: 'project-active',
+      envId: 'env-active',
+      identity: {
+        walletId: WALLET_ID,
+        authorityId: 'wallet-authority:sync-account',
+        walletAuthMethodId: 'wallet-auth-method:sync-account',
+        rpId: RP_ID,
+      },
+    });
     const baseService = createBaseService(temporary.database);
     const webAuthn = new RecordingSyncAccountWebAuthnService(
       baseService.webAuthn,
@@ -553,6 +621,55 @@ async function syncAccountRejectsCapabilityForAnotherNearAccount(): Promise<void
     });
     expect(runtime.mintCalls).toEqual([]);
     expect(unexpectedSession.signJwtCalls).toBe(0);
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+}
+
+async function syncAccountRejectsCapabilityMaterialActivationMismatch(): Promise<void> {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    await seedFoundingPasskeyAuthority({
+      database: temporary.database,
+      namespace: 'sync-account-yao-test',
+      orgId: 'org-active',
+      projectId: 'project-active',
+      envId: 'env-active',
+      identity: {
+        walletId: WALLET_ID,
+        authorityId: 'wallet-authority:sync-account',
+        walletAuthMethodId: 'wallet-auth-method:sync-account',
+        rpId: RP_ID,
+      },
+    });
+    const baseService = createBaseService(temporary.database);
+    const webAuthn = new RecordingSyncAccountWebAuthnService(
+      baseService.webAuthn,
+      verifiedEd25519WalletFixture(),
+    );
+    const activeCapability = activeCapabilityFixture();
+    const runtime = new RecordingYaoProductRuntime({
+      ...activeCapability,
+      materialActivation: {
+        ...activeCapability.materialActivation,
+        activation_id: 'activation:wrong-material',
+      },
+    });
+    const router = createCloudflareRouter(replaceWebAuthnService(baseService, webAuthn), {
+      routerAbEd25519YaoProduct: runtime,
+    });
+
+    const response = await router(syncAccountVerifyRequest());
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      ok: false,
+      code: 'capability_conflict',
+      message:
+        'Active Ed25519 Yao capability does not match the wallet authority material activation',
+    });
+    expect(runtime.mintCalls).toEqual([]);
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
@@ -593,6 +710,10 @@ test(
 test(
   'sync-account rejects an active capability projected to another NEAR account',
   syncAccountRejectsCapabilityForAnotherNearAccount,
+);
+test(
+  'sync-account rejects an active capability with mismatched material activation',
+  syncAccountRejectsCapabilityMaterialActivationMismatch,
 );
 test(
   'sync-account rejects the obsolete threshold session-policy input at the route boundary',

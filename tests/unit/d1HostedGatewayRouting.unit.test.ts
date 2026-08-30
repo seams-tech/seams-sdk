@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
 import type { FetchHandler } from '../../packages/wallet-server/src/router/cloudflare/runtime/cloudflare.types';
+import { localHostedWalletOrigins } from '../../packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker';
 import {
   dispatchHostedGatewayRequest,
+  readStagingHostedWalletOrigins,
   stagingSigningSessionSealOptions,
 } from '../../packages/wallet-console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker';
 
@@ -48,4 +50,19 @@ test('hosted gateway reuses one signing-session seal runtime per isolate', () =>
 
   expect(first).toBeDefined();
   expect(second).toBe(first);
+});
+
+test('staging hosted-wallet origins use their own required binding', () => {
+  expect(
+    readStagingHostedWalletOrigins({
+      HOSTED_WALLET_ORIGINS: 'https://wallet-a.example.test, https://wallet-b.example.test',
+    }),
+  ).toEqual(['https://wallet-a.example.test', 'https://wallet-b.example.test']);
+  expect(() => readStagingHostedWalletOrigins({})).toThrow('HOSTED_WALLET_ORIGINS is required');
+});
+
+test('local hosted-wallet origins contain only the configured wallet deployment', () => {
+  expect(localHostedWalletOrigins()).toEqual(['https://localhost:4002']);
+  expect(localHostedWalletOrigins()).not.toContain('https://localhost:4101');
+  expect(localHostedWalletOrigins()).not.toContain('http://localhost:4001');
 });

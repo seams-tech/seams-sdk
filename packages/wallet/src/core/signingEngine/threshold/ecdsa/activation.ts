@@ -98,6 +98,8 @@ export type ThresholdEcdsaSessionBootstrapResult = {
     expiresAtMs: number;
     remainingUses: number;
     runtimePolicyScope: ThresholdRuntimePolicyScope;
+    walletSession: import('@shared/device-linking/contracts').ActiveWalletSessionV1;
+    operationCredential: import('@shared/device-linking/contracts').WalletSessionOperationCredentialV1;
     walletSessionToken: string;
     clientVerifyingShareB64u: string;
   };
@@ -462,6 +464,8 @@ async function activateEcdsaSessionByPurpose(
     expiresAtMs,
     remainingUses,
     runtimePolicyScope: bootstrap.runtimePolicyScope,
+    walletSession: bootstrap.walletSession,
+    operationCredential: bootstrap.operationCredential,
     walletSessionToken,
     clientVerifyingShareB64u,
   };

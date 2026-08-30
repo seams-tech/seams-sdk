@@ -1,4 +1,10 @@
-import type { ChildToParentEnvelope } from '../../shared/messages';
+import {
+  WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH,
+  type ChildToParentEnvelope,
+  type WalletIframeConnectMessage,
+  type WalletProtocolVersion,
+} from '../../shared/messages';
+import { isObject } from '@shared/utils/validation';
 import { isIframeLoaded, trackIframeLoad } from './iframe-transport-dom';
 
 export type HandshakeScheduler = {
@@ -29,7 +35,7 @@ export class WalletIframeReadyTimeoutError extends Error {
 }
 
 export class WalletIframeProtocolVersionMismatchError extends Error {
-  readonly code = 'WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH';
+  readonly code = WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH;
   readonly expectedProtocolVersion: string;
   readonly receivedProtocolVersion: string | null;
 
@@ -46,8 +52,8 @@ export class WalletIframeProtocolVersionMismatchError extends Error {
 function protocolVersionFromReady(data: ChildToParentEnvelope): string | null {
   if (data.type !== 'READY') return null;
   const payload = data.payload;
-  if (!payload || typeof payload !== 'object') return null;
-  const protocolVersion = (payload as { protocolVersion?: unknown }).protocolVersion;
+  if (!isObject(payload)) return null;
+  const protocolVersion = payload.protocolVersion;
   return typeof protocolVersion === 'string' ? protocolVersion : null;
 }
 
@@ -55,6 +61,24 @@ function createProtocolVersionMismatchError(args: {
   expectedProtocolVersion: string;
   data: ChildToParentEnvelope;
 }): WalletIframeProtocolVersionMismatchError | null {
+  if (args.data.type === 'ERROR') {
+    const payload = args.data.payload;
+    if (payload?.code !== WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH) return null;
+    const details = payload.details;
+    const expectedProtocolVersion =
+      isObject(details) && typeof details.expectedProtocolVersion === 'string'
+        ? details.expectedProtocolVersion
+        : args.expectedProtocolVersion;
+    const receivedProtocolVersion =
+      isObject(details) && typeof details.receivedProtocolVersion === 'string'
+        ? details.receivedProtocolVersion
+        : null;
+    return new WalletIframeProtocolVersionMismatchError({
+      expectedProtocolVersion,
+      receivedProtocolVersion,
+    });
+  }
+  if (args.data.type !== 'READY') return null;
   const receivedProtocolVersion = protocolVersionFromReady(args.data);
   if (receivedProtocolVersion === args.expectedProtocolVersion) return null;
   return new WalletIframeProtocolVersionMismatchError({
@@ -163,9 +187,7 @@ type HandshakeOptions = {
   connectTimeoutMs: number;
   walletOrigin: string;
   walletServiceUrl: URL;
-  connectType: string;
-  readyType: string;
-  expectedProtocolVersion: string;
+  expectedProtocolVersion: WalletProtocolVersion;
   getTargetOrigin: (attempt: number) => string;
   onAttempt?: (attempt: number, elapsedMs: number) => void;
   scheduler?: HandshakeScheduler;
@@ -222,7 +244,7 @@ export async function performHandshake(opts: HandshakeOptions): Promise<MessageP
 
     port1.onmessage = (e: MessageEvent<ChildToParentEnvelope>) => {
       const data = e.data;
-      if (data.type === opts.readyType) {
+      if (data.type === 'READY' || data.type === 'ERROR') {
         const mismatch = createProtocolVersionMismatchError({
           expectedProtocolVersion: opts.expectedProtocolVersion,
           data,
@@ -250,7 +272,10 @@ export async function performHandshake(opts: HandshakeOptions): Promise<MessageP
     const targetOrigin = opts.getTargetOrigin(attempt);
     warnedNullOrigin = postConnectMessage(
       cw,
-      { type: opts.connectType },
+      {
+        type: 'CONNECT',
+        payload: { protocolVersion: opts.expectedProtocolVersion },
+      },
       port2,
       targetOrigin,
       warnedNullOrigin,
@@ -278,7 +303,7 @@ export async function performHandshake(opts: HandshakeOptions): Promise<MessageP
 
 function postConnectMessage(
   cw: Window,
-  data: unknown,
+  data: WalletIframeConnectMessage,
   port2: MessagePort,
   targetOrigin: string,
   warnedNullOrigin: boolean,

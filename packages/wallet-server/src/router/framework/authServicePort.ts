@@ -87,13 +87,45 @@ import type {
 } from '../../core/registrationContracts';
 import type { WalletAuthMethodRevocationProof } from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
-import type { IssuedWalletSessionAuthorizationV2 } from '../../authorization/domain';
+import type {
+  DirectV2IssueResult,
+  IssuedWalletSessionAuthorizationV2,
+} from '../../authorization/domain';
+import type { IssueDirectWalletSessionAuthorizationV2Input } from '../../authorization/service';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 
 export type WalletAuthMethodManagementSubject = Readonly<{
   kind: 'wallet_auth_method_management';
   walletId: WalletId;
 }>;
+
+export type WalletUnlockIssuanceRejectionCode =
+  | 'unauthorized'
+  | 'invalid_body'
+  | 'invalid_state'
+  | 'not_found'
+  | 'tenant_scope_mismatch'
+  | 'provider_identity_mismatch'
+  | 'internal'
+  | 'protocol_mismatch';
+
+export function parseWalletUnlockIssuanceRejectionCode(
+  value: unknown,
+): WalletUnlockIssuanceRejectionCode {
+  switch (value) {
+    case 'unauthorized':
+    case 'invalid_body':
+    case 'invalid_state':
+    case 'not_found':
+    case 'tenant_scope_mismatch':
+    case 'provider_identity_mismatch':
+    case 'internal':
+    case 'protocol_mismatch':
+      return value;
+    default:
+      return 'internal';
+  }
+}
 
 export type WalletUnlockPasskeyAuthorityResolution =
   | {
@@ -104,7 +136,11 @@ export type WalletUnlockPasskeyAuthorityResolution =
         { readonly kind: 'passkey'; readonly status: 'active' }
       >;
     }
-  | { readonly kind: 'rejected'; readonly code: string; readonly message: string };
+  | {
+      readonly kind: 'rejected';
+      readonly code: WalletUnlockIssuanceRejectionCode;
+      readonly message: string;
+    };
 
 export type WalletUnlockEmailOtpAuthorityResolution =
   | {
@@ -116,7 +152,11 @@ export type WalletUnlockEmailOtpAuthorityResolution =
         { readonly kind: 'email_otp'; readonly status: 'active' }
       >;
     }
-  | { readonly kind: 'rejected'; readonly code: string; readonly message: string };
+  | {
+      readonly kind: 'rejected';
+      readonly code: WalletUnlockIssuanceRejectionCode;
+      readonly message: string;
+    };
 
 export type WalletUnlockPasskeySessionResolution =
   | {
@@ -126,12 +166,21 @@ export type WalletUnlockPasskeySessionResolution =
       readonly operationCredential: WalletSessionOperationCredentialV1;
     }
   | {
+      readonly kind: 'already_committed';
+      readonly authorityProvenanceKind: 'device_link' | 'wallet_recovery';
+      readonly committed: Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }>;
+    }
+  | {
       readonly kind: 'wallet_registration';
       readonly authorityProvenanceKind?: never;
       readonly walletSession?: never;
       readonly operationCredential?: never;
     }
-  | { readonly kind: 'rejected'; readonly code: string; readonly message: string };
+  | {
+      readonly kind: 'rejected';
+      readonly code: WalletUnlockIssuanceRejectionCode;
+      readonly message: string;
+    };
 
 export type RouterApiWalletSessionAuthorizationV2AdmissionContext = {
   readonly authorization: IssuedWalletSessionAuthorizationV2;
@@ -139,6 +188,14 @@ export type RouterApiWalletSessionAuthorizationV2AdmissionContext = {
   readonly authMethod: WalletAuthMethodRecordV2;
   readonly retiredAtMs: number | null;
 };
+
+export type RouterApiHostedWalletSessionAuthorizationV2AdmissionContext =
+  RouterApiWalletSessionAuthorizationV2AdmissionContext & {
+    readonly hostedCredentialId: HostedWalletSessionCredentialId;
+    readonly appOrigin: SessionOrigin;
+    readonly walletOrigin: SessionOrigin;
+    readonly expiresAtMs: number;
+  };
 
 export type ActiveWalletSessionAuthorityResolution =
   | {
@@ -249,10 +306,11 @@ import type {
   AuthorizedOperation,
   AuthorizedOperationInput,
   HostedWalletSeamsSessionExchangeCode,
-  HostedWalletSeamsSessionExchangeDelivery,
   HostedWalletSeamsSessionExchangeNonce,
-  RedeemHostedWalletSeamsSessionExchangeResult,
-  ReusableWalletSessionStatus,
+  HostedWalletSeamsSessionExchangeDeliveryV2,
+  RedeemHostedWalletSeamsSessionExchangeV2Result,
+  HostedWalletSessionCredentialId,
+  ExactWalletSessionStatusV2,
   SessionOrigin,
   VerifiedAuthorizationEvidenceSet,
   VerifiedOwnerProof,
@@ -262,15 +320,17 @@ import type {
   VerifiedOwnerProofInput,
 } from '../../authorization/factorEvidence';
 import type {
-  IssueReusableWalletSessionInput,
-  IssuedReusableWalletSession,
   IssuedOpaqueWalletSessionToken,
   OpaqueWalletSessionCurve,
   OpaqueOwnerWalletSessionBinding,
   ResolvedOpaqueWalletSessionToken,
   EcdsaMaterialActivationScope,
 } from '../../authorization/service';
-import type { PrincipalId, TenantId } from '@shared/authorization/capabilityKinds';
+import type {
+  PrincipalId,
+  TenantId,
+  WalletSessionClientCapabilityV1,
+} from '@shared/authorization/capabilityKinds';
 
 export type EmailOtpChallengeDelivery =
   | {
@@ -1328,6 +1388,7 @@ export interface RouterApiWalletUnlockService {
     readonly rpId: WebAuthnRpId;
     readonly credentialIdB64u: WebAuthnCredentialIdB64u;
     readonly verifiedChallengeId: string;
+    readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
   }): Promise<WalletUnlockPasskeySessionResolution>;
   issueWalletSessionForEmailOtpUnlock(input: {
     readonly walletId: WalletId;
@@ -1335,6 +1396,7 @@ export interface RouterApiWalletUnlockService {
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly providerUserId: string;
     readonly verifiedChallengeId: string;
+    readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
   }): Promise<WalletUnlockPasskeySessionResolution>;
 }
 
@@ -1517,14 +1579,9 @@ export interface RouterApiAuthorizedOperationService {
 
 export interface RouterApiAuthorizationSessionService {
   readonly tenantId: TenantId;
-  issueReusableWalletSession(
-    input: IssueReusableWalletSessionInput,
-  ): Promise<IssuedReusableWalletSession>;
-  issueWalletSessionAuthorizationV2FromReusableSession(input: {
-    readonly reusableWalletSession: IssuedReusableWalletSession;
-    readonly authority: ActiveWalletAuthorityV1;
-    readonly walletAuthMethodId: WalletAuthMethodId;
-  }): Promise<IssuedWalletSessionAuthorizationV2>;
+  issueDirectWalletSessionAuthorizationV2(
+    input: IssueDirectWalletSessionAuthorizationV2Input,
+  ): Promise<DirectV2IssueResult>;
   issueOpaqueWalletSessionToken(input: {
     readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
     readonly tenantId: TenantId;
@@ -1543,36 +1600,37 @@ export interface RouterApiAuthorizationSessionService {
     readonly nowMs: number;
   }): Promise<ResolvedOpaqueWalletSessionToken | null>;
   /** Reads the opaque V2 operation credential and its active authority records. */
-  readonly readWalletSessionAuthorizationV2ByOperationCredential?: (input: {
+  readonly readWalletSessionAuthorizationV2ByOperationCredential: (input: {
     readonly tenantId: TenantId;
     readonly token: string;
     readonly nowMs: number;
   }) => Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null>;
-  readReusableWalletSessionStatus(input: {
+  /** Reads the exact digest-free authorization and quota status lifecycle. */
+  readonly readExactWalletSessionStatusByOperationCredential: (input: {
     readonly tenantId: TenantId;
-    readonly principalId: PrincipalId;
-    readonly walletSessionId: ReusableWalletSessionStatus['walletSessionId'];
-    readonly quotaId: ReusableWalletSessionStatus['quotaId'];
+    readonly token: string;
     readonly nowMs: number;
-  }): Promise<ReusableWalletSessionStatus>;
+  }) => Promise<ExactWalletSessionStatusV2>;
   mintHostedWalletSeamsSessionExchange(input: {
-    readonly tenantId: TenantId;
-    readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
+    readonly authorization: IssuedWalletSessionAuthorizationV2;
     readonly appOrigin: SessionOrigin;
     readonly walletOrigin: SessionOrigin;
-    readonly curve: OpaqueWalletSessionCurve;
-    readonly binding: Readonly<Record<string, unknown>>;
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
-  }): Promise<HostedWalletSeamsSessionExchangeDelivery>;
+  }): Promise<HostedWalletSeamsSessionExchangeDeliveryV2>;
   redeemHostedWalletSeamsSessionExchange(input: {
     readonly exchangeCode: HostedWalletSeamsSessionExchangeCode;
     readonly nonce: HostedWalletSeamsSessionExchangeNonce;
     readonly appOrigin: SessionOrigin;
     readonly walletOrigin: SessionOrigin;
-    readonly curve: OpaqueWalletSessionCurve;
     readonly redeemedAtMs: number;
-  }): Promise<RedeemHostedWalletSeamsSessionExchangeResult>;
+  }): Promise<RedeemHostedWalletSeamsSessionExchangeV2Result>;
+  readHostedWalletSessionOperationCredentialV2(input: {
+    readonly tenantId: TenantId;
+    readonly token: string;
+    readonly requestOrigin: SessionOrigin;
+    readonly nowMs: number;
+  }): Promise<RouterApiHostedWalletSessionAuthorizationV2AdmissionContext | null>;
 }
 
 export function routerApiWalletRegistrationRouteService(

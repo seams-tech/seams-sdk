@@ -54,6 +54,11 @@ import {
   type WalletSessionOperationCredentialV1,
 } from '@shared/device-linking';
 import {
+  parseWalletSessionAlreadyCommittedResponseV1,
+  parseWalletUnlockAlreadyCommittedResponseV1,
+  type WalletSessionCommittedIdentityV1,
+} from '@shared/authorization';
+import {
   parseThresholdEd25519SessionId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
@@ -274,25 +279,39 @@ export type PasskeyWalletUnlockInput =
   | PasskeyWalletUnlockInputWithoutEcdsaActivation
   | PasskeyWalletUnlockInputWithEcdsaActivation;
 
-type WalletUnlockFailure = {
+type WalletUnlockAlreadyCommittedFailure = {
   success: false;
+  kind: 'already_committed';
+  code: 'already_committed';
+  message: string;
+  next: 'unlock_exact_method';
+  committed: WalletSessionCommittedIdentityV1;
   sessionUserId?: never;
   sessionExpiresAt?: never;
   ecdsaSession?: never;
   ed25519Session?: never;
   walletCustody?: never;
-  error: string;
-};
-
-type WalletUnlockSuccessCore = {
-  success: true;
-  ed25519Session: PasskeyWalletUnlockEd25519Session | null;
-  sessionUserId?: string;
-  sessionExpiresAt?: string;
   error?: never;
 };
 
-export type PasskeyWalletUnlockEd25519Session = {
+type WalletUnlockFailure =
+  | {
+      success: false;
+      kind?: never;
+      code?: never;
+      message?: never;
+      next?: never;
+      committed?: never;
+      sessionUserId?: never;
+      sessionExpiresAt?: never;
+      ecdsaSession?: never;
+      ed25519Session?: never;
+      walletCustody?: never;
+      error: string;
+    }
+  | WalletUnlockAlreadyCommittedFailure;
+
+type PasskeyWalletUnlockEd25519SessionBase = {
   readonly walletId: string;
   readonly nearAccountId: string;
   readonly nearEd25519SigningKeyId: string;
@@ -306,7 +325,24 @@ export type PasskeyWalletUnlockEd25519Session = {
   readonly remainingUses: number;
   readonly runtimePolicyScope: RuntimePolicyScope;
   readonly routerAbNormalSigning: RouterAbEd25519NormalSigningState;
-  readonly walletSessionToken: string;
+};
+
+export type PasskeyWalletUnlockEd25519Session =
+  | (PasskeyWalletUnlockEd25519SessionBase & {
+      readonly sessionKind: 'issued_wallet_session_v1';
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+    })
+  | (PasskeyWalletUnlockEd25519SessionBase & {
+      readonly sessionKind: 'reused_wallet_session_v2';
+      readonly operationCredential?: never;
+    });
+
+type WalletUnlockSuccessCore = {
+  success: true;
+  ed25519Session: PasskeyWalletUnlockEd25519Session | null;
+  sessionUserId?: string;
+  sessionExpiresAt?: string;
+  error?: never;
 };
 
 export type PasskeySessionCustodyUnlockV1 = {
@@ -519,8 +555,49 @@ function parsePasskeySessionEcdsaCustodyContinuity(
   return { kind: 'wallet_custody_ecdsa_sync_continuity_v1', signers };
 }
 
+type PasskeyWalletUnlockEd25519SessionCredential =
+  | {
+      readonly sessionKind: 'issued_wallet_session_v1';
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+    }
+  | {
+      readonly sessionKind: 'reused_wallet_session_v2';
+      readonly operationCredential?: never;
+    };
+
+/**
+ * Resolves the response branch and validates the exact credential supplied by
+ * the branch. A reused response has no new credential of its own.
+ */
+function parseEd25519SessionCredential(input: {
+  readonly raw: Record<string, unknown>;
+  readonly walletSessionId: WalletSessionId;
+  readonly unlockCredential: unknown;
+}): PasskeyWalletUnlockEd25519SessionCredential {
+  const sessionKind = input.raw.sessionKind;
+  if (sessionKind === 'issued_wallet_session_v1') {
+    const issued = parseWalletSessionOperationCredentialV1(input.raw.operationCredential);
+    if (issued.walletSessionId !== input.walletSessionId) {
+      throw new Error('Wallet unlock Ed25519 credential does not identify its session');
+    }
+    return { sessionKind, operationCredential: issued };
+  }
+  if (sessionKind !== 'reused_wallet_session_v2') {
+    throw new Error('Wallet unlock returned an unsupported Ed25519 session kind');
+  }
+  if (input.raw.operationCredential !== undefined) {
+    throw new Error('Reused Ed25519 Wallet Session must not carry its own credential');
+  }
+  const reused = parseWalletSessionOperationCredentialV1(input.unlockCredential);
+  if (reused.walletSessionId !== input.walletSessionId) {
+    throw new Error('Wallet unlock Ed25519 session reuses another Wallet Session');
+  }
+  return { sessionKind };
+}
+
 function parsePasskeyWalletUnlockEd25519Session(
   raw: unknown,
+  unlockCredential: unknown,
 ): PasskeyWalletUnlockEd25519Session | null {
   if (raw === null) return null;
   if (!isObject(raw)) throw new Error('Wallet unlock returned invalid Ed25519 session data');
@@ -533,10 +610,6 @@ function parsePasskeyWalletUnlockEd25519Session(
   const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
   const routerAbNormalSigning = requireRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
   const participantIds = raw.participantIds;
-  const walletSessionToken = requireTrimmedString(
-    raw.walletSessionToken,
-    'ed25519Session.walletSessionToken',
-  );
   if (
     !thresholdSessionId.ok ||
     !authorizationId.ok ||
@@ -555,7 +628,12 @@ function parsePasskeyWalletUnlockEd25519Session(
   ) {
     throw new Error('Wallet unlock returned invalid Ed25519 session lifecycle');
   }
-  return {
+  const credential = parseEd25519SessionCredential({
+    raw,
+    walletSessionId: walletSessionId.value,
+    unlockCredential,
+  });
+  const base: PasskeyWalletUnlockEd25519SessionBase = {
     walletId: requireTrimmedString(raw.walletId, 'ed25519Session.walletId'),
     nearAccountId: requireTrimmedString(raw.nearAccountId, 'ed25519Session.nearAccountId'),
     nearEd25519SigningKeyId: requireTrimmedString(
@@ -572,7 +650,26 @@ function parsePasskeyWalletUnlockEd25519Session(
     remainingUses,
     runtimePolicyScope,
     routerAbNormalSigning,
-    walletSessionToken,
+  };
+  return { ...base, ...credential };
+}
+
+function parseWalletUnlockAlreadyCommittedFailure(
+  data: Record<string, unknown>,
+): WalletUnlockAlreadyCommittedFailure | null {
+  /* Unlock verification has one outer flat response and one nested Yao
+     provisioning response; both are current exact-method contracts. */
+  const response =
+    parseWalletUnlockAlreadyCommittedResponseV1(data) ??
+    parseWalletSessionAlreadyCommittedResponseV1(data);
+  if (!response) return null;
+  return {
+    success: false,
+    kind: 'already_committed',
+    code: response.code,
+    message: response.message,
+    next: response.next,
+    committed: response.committed,
   };
 }
 
@@ -617,12 +714,16 @@ export async function verifyPasskeyWalletUnlock(
     const dataJson: unknown = await response.json().catch(() => ({}));
     const data: Record<string, unknown> = isObject(dataJson) ? dataJson : {};
     if (!response.ok) {
+      const alreadyCommitted = parseWalletUnlockAlreadyCommittedFailure(data);
+      if (alreadyCommitted) return alreadyCommitted;
       return {
         success: false,
         error: typeof data.message === 'string' ? data.message : `HTTP ${response.status}`,
       };
     }
     if (data.ok !== true) {
+      const alreadyCommitted = parseWalletUnlockAlreadyCommittedFailure(data);
+      if (alreadyCommitted) return alreadyCommitted;
       return {
         success: false,
         error:
@@ -631,7 +732,10 @@ export async function verifyPasskeyWalletUnlock(
     }
     const requestedEcdsaActivation =
       input.type === 'passkey_assertion' && input.ecdsaSessionPolicy !== undefined;
-    const ed25519Session = parsePasskeyWalletUnlockEd25519Session(data.ed25519Session);
+    const ed25519Session = parsePasskeyWalletUnlockEd25519Session(
+      data.ed25519Session,
+      data.operationCredential,
+    );
     if (input.ed25519SessionRequest.kind === 'requested' && !ed25519Session) {
       throw new Error('Wallet unlock omitted the requested Ed25519 Wallet Session');
     }
@@ -701,7 +805,21 @@ export type LinkedDevicePasskeyWalletSessionUnlockInput = {
 export type LinkedDevicePasskeyWalletSessionUnlockResult =
   | {
       readonly success: false;
+      readonly kind?: never;
+      readonly code?: never;
+      readonly message?: never;
+      readonly next?: never;
+      readonly committed?: never;
       readonly error: string;
+    }
+  | {
+      readonly success: false;
+      readonly kind: 'already_committed';
+      readonly code: 'already_committed';
+      readonly message: string;
+      readonly next: 'unlock_exact_method';
+      readonly committed: WalletSessionCommittedIdentityV1;
+      readonly error?: never;
     }
   | {
       readonly success: true;
@@ -738,6 +856,8 @@ export async function verifyLinkedDevicePasskeyWalletSession(
     const dataJson: unknown = await response.json().catch(() => ({}));
     const data: Record<string, unknown> = isObject(dataJson) ? dataJson : {};
     if (!response.ok || data.ok !== true) {
+      const alreadyCommitted = parseWalletUnlockAlreadyCommittedFailure(data);
+      if (alreadyCommitted) return alreadyCommitted;
       return {
         success: false,
         error:
@@ -752,7 +872,10 @@ export async function verifyLinkedDevicePasskeyWalletSession(
     if (data.ecdsaSession !== undefined && data.ecdsaSession !== null) {
       throw new Error('Linked passkey unlock returned an ECDSA activation');
     }
-    const ed25519Session = parsePasskeyWalletUnlockEd25519Session(data.ed25519Session);
+    const ed25519Session = parsePasskeyWalletUnlockEd25519Session(
+      data.ed25519Session,
+      data.operationCredential,
+    );
     if (input.ed25519SessionRequest.kind === 'requested' && !ed25519Session) {
       throw new Error('Linked passkey unlock omitted the requested Ed25519 Wallet Session');
     }

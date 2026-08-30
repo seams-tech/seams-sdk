@@ -38,17 +38,77 @@ import type { SigningEnginePorts } from './shared';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import type { DurableRecordStore } from '@/core/platform';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
+import type { ExactEcdsaWalletSessionAuthorizationResolver } from '../../session/material/ecdsaSigningCapability';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
+import { IndexedDBManager } from '@/core/indexedDB';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  resolveExactWalletAuthAuthority,
+  type OwnerLaneScopeStores,
+} from '../../session/identity/ownerLaneScope';
+import {
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import { readEmailOtpProviderSubjectForWalletV1 } from '../../threshold/ed25519/yaoPublicCapabilityReferences';
 
 export type EcdsaExportArtifactStorePorts = {
   exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
 };
 
-type WarmSigningAuthorizationResolver = (
-  walletId: import('../../interfaces/ecdsaChainTarget').WalletId,
-) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
+async function resolveActiveWalletAuthorityForLoginPrefill(args: {
+  walletId: import('../../interfaces/ecdsaChainTarget').WalletId;
+  authority: WalletAuthAuthorityRef;
+}) {
+  const resolved = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
+  if (resolved.kind !== 'resolved') return null;
+  const { selection, authMethod, authority } = resolved;
+  if (
+    selection.lockState !== 'unlocked' ||
+    selection.walletId !== args.walletId ||
+    selection.walletAuthMethodId !== args.authority.walletAuthMethodId ||
+    authMethod.walletId !== args.walletId ||
+    authMethod.walletAuthMethodId !== args.authority.walletAuthMethodId ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    authMethod.status !== 'active' ||
+    authority.walletId !== args.walletId ||
+    authority.state !== 'active'
+  ) {
+    return null;
+  }
+  const factorAuthority = await resolveExactWalletAuthAuthority({
+    authMethod,
+    stores: activeWalletAuthorityFactorStores,
+  });
+  const factorAuthorityRef = await walletAuthAuthorityRef({ authority: factorAuthority });
+  if (
+    factorAuthorityRef.walletId !== args.authority.walletId ||
+    factorAuthorityRef.walletAuthMethodId !== args.authority.walletAuthMethodId ||
+    factorAuthorityRef.authorityDigest !== args.authority.authorityDigest
+  ) {
+    return null;
+  }
+  return {
+    walletId: authority.walletId,
+    authorityId: authority.authorityId,
+    walletAuthMethodId: authMethod.walletAuthMethodId,
+    authorityDigestB64u: authority.authorityDigestB64u,
+    authorityRevocationEpoch: authority.revocationEpoch,
+  };
+}
+
+const activeWalletAuthorityFactorStores: OwnerLaneScopeStores = {
+  getWalletAuthMethodV2: IndexedDBManager.getWalletAuthMethodV2.bind(IndexedDBManager),
+  listWalletAuthMethodsForWallet:
+    IndexedDBManager.listWalletAuthMethodsForWallet.bind(IndexedDBManager),
+  getWalletPasskeyAuthenticator:
+    IndexedDBManager.getWalletPasskeyAuthenticator.bind(IndexedDBManager),
+  readEmailOtpProviderSubjectForWallet: readEmailOtpProviderSubjectForWalletV1.bind(
+    null,
+    IndexedDBManager,
+  ),
+};
 
 type WarmSigningEd25519AuthorizationResolver = (
   walletId: import('../../interfaces/ecdsaChainTarget').WalletId,
@@ -62,7 +122,7 @@ type WarmSigningPortsArgs = {
   ) => Promise<WarmSessionStatusResult>;
   signingSessionSeal: SeamsConfigsReadonly['signing']['sessionSeal'];
   ecdsaExportArtifacts: EcdsaExportArtifactStorePorts;
-  resolveActiveEcdsaWalletSessionAuthorization?: WarmSigningAuthorizationResolver;
+  resolveActiveEcdsaWalletSessionAuthorization?: ExactEcdsaWalletSessionAuthorizationResolver;
   resolveActiveEd25519WalletSessionAuthorization?: WarmSigningEd25519AuthorizationResolver;
 };
 
@@ -145,8 +205,7 @@ export function createPasskeyPublicDeps(args: {
           touchIdPrompt: args.touchIdPrompt,
           touchConfirm: args.passkeyMpcSession,
           defaultRelayerUrl: args.seamsWebConfigs.network.relayer?.url || '',
-          getSignerWorkerContext: () =>
-            args.walletSessionActivationDeps.getSignerWorkerContext(),
+          getSignerWorkerContext: () => args.walletSessionActivationDeps.getSignerWorkerContext(),
         },
         provisionArgs,
       ),
@@ -214,8 +273,14 @@ export function createWarmCapabilitiesPublicDeps(args: {
       ),
     getWalletSessionStatus: (statusArgs) =>
       args.signingSessionCoordinator.getAvailableStatus(statusArgs),
-    routerAbEcdsaDerivationPresignaturePoolPolicy: args.seamsWebConfigs.signing.routerAbEcdsaDerivation.presignaturePool,
+    routerAbEcdsaDerivationPresignaturePoolPolicy:
+      args.seamsWebConfigs.signing.routerAbEcdsaDerivation.presignaturePool,
     getSignerWorkerContext: () => args.walletSessionActivationDeps.getSignerWorkerContext(),
+    resolveActiveWalletAuthority: resolveActiveWalletAuthorityForLoginPrefill,
+    readExactWalletSessionWithOperationCredential:
+      walletSessionAuthorizations.readExactWithOperationCredential.bind(
+        walletSessionAuthorizations,
+      ),
     resolveClientSigningMaterialSource: createEcdsaLoginPrefillClientSigningMaterialSource,
   };
 }

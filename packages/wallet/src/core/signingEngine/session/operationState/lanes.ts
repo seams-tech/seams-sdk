@@ -16,7 +16,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type {
   SelectedEcdsaSigningSessionPlanningLane,
   SelectedSigningSessionPlanningLane,
@@ -52,7 +52,7 @@ type BaseEcdsaSigningLaneInput = CommonSigningLaneInput & {
   materialActivation: MpcMaterialActivationRef;
   keyHandle: string;
   walletId: WalletId;
-  authorization: ActiveEvmFamilyWalletSessionAuthorization;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
 };
 export type NearTransactionSigningLane = SelectedEd25519Lane & SelectedSigningSessionPlanningLane;
 export type EcdsaTransactionSigningLane = SelectedEcdsaLane & SelectedSigningSessionPlanningLane;

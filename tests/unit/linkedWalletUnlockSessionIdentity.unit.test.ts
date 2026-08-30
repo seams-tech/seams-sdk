@@ -3,6 +3,7 @@ import {
   buildActiveWalletSessionQuota,
   buildWalletSessionAuthorizationV2,
   buildWalletSessionCapabilitySubjectsV1,
+  type DirectV2IssueResult,
   type IssuedWalletSessionAuthorizationV2,
 } from '../../packages/wallet-server/src/authorization/domain';
 import { buildVerifiedOwnerProof } from '../../packages/wallet-server/src/authorization/factorEvidence';
@@ -10,13 +11,18 @@ import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../pac
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../packages/wallet-server/src/core/registrationContracts';
 import {
   handleWalletUnlockVerifyRoute,
+  walletUnlockAlreadyCommittedRouteResponse,
   type WalletUnlockCapabilityContext,
 } from '../../packages/wallet-server/src/router/domains/walletUnlock/walletUnlockRouteHandlers';
-import type { RouterApiWalletUnlockService } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import {
+  parseWalletUnlockIssuanceRejectionCode,
+  type RouterApiWalletUnlockService,
+} from '../../packages/wallet-server/src/router/framework/authServicePort';
 import {
   parsePrincipalId,
   parseReusableWalletSessionMintId,
   parseTenantId,
+  WALLET_SESSION_CLIENT_CAPABILITY_V1,
 } from '@shared/authorization/capabilityKinds';
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
@@ -66,6 +72,22 @@ function buildLinkedWalletSession(
   };
 }
 
+function buildAlreadyCommittedUnlockResult(
+  session: IssuedWalletSessionAuthorizationV2,
+): Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }> {
+  return {
+    kind: 'already_committed',
+    walletId: session.session.walletId,
+    authorityId: session.session.authorityId,
+    walletAuthMethodId: session.session.walletAuthMethodId,
+    mintId: session.session.mintId,
+    authorizationId: session.session.authorizationId,
+    walletSessionId: session.session.walletSessionId,
+    quotaId: session.session.quotaId,
+    next: 'unlock_exact_method',
+  };
+}
+
 function buildCapability(
   fixture: Awaited<ReturnType<typeof buildLinkedDeviceUnlockRuntimeFixture>>,
 ): RouterAbEd25519YaoActiveCapabilityDescriptorV1 {
@@ -108,8 +130,7 @@ function buildEd25519Session(
 ): WalletRegistrationEd25519YaoBootstrapSession {
   const runtimePolicyScope = fixture.ed25519Session.runtimePolicyScope;
   return {
-    sessionKind: 'opaque',
-    walletSessionToken: fixture.ed25519Session.walletSessionToken,
+    sessionKind: 'reused_wallet_session_v2',
     walletId: fixture.walletId,
     nearAccountId: fixture.ed25519Session.nearAccountId,
     nearEd25519SigningKeyId: fixture.ed25519Session.nearEd25519SigningKeyId,
@@ -131,6 +152,13 @@ function buildEd25519Session(
 test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity', async () => {
   const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
   const linkedWalletSession = buildLinkedWalletSession(fixture);
+  let sessionResolution: Awaited<
+    ReturnType<RouterApiWalletUnlockService['issueWalletSessionForPasskeyUnlock']>
+  > = {
+    kind: 'active_authority',
+    walletSession: linkedWalletSession,
+    operationCredential: fixture.operationCredential,
+  };
   const provisioningRequests: Parameters<
     Extract<
       WalletUnlockCapabilityContext,
@@ -172,11 +200,7 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     resolveEmailOtpAuthorityForUnlock: async () => {
       throw new Error('Email OTP is outside this Passkey test');
     },
-    issueWalletSessionForPasskeyUnlock: async () => ({
-      kind: 'active_authority',
-      walletSession: linkedWalletSession,
-      operationCredential: fixture.operationCredential,
-    }),
+    issueWalletSessionForPasskeyUnlock: async () => sessionResolution,
     issueWalletSessionForEmailOtpUnlock: async () => {
       throw new Error('Email OTP is outside this Passkey test');
     },
@@ -196,13 +220,7 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     },
   };
 
-  const response = await handleWalletUnlockVerifyRoute({
-    body: {
-      unlockBackend: 'passkey',
-      challengeId: 'challenge:linked-runtime',
-      webauthn_authentication: {},
-      ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
-    },
+  const routeDependencies = {
     origin: 'https://wallet.example.test',
     service,
     resolveEmailOtpCustody: async () => {
@@ -214,11 +232,59 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     emitRouterApiWebhook: async () => {},
     emitEmailOtpWebhook: async () => {},
     capabilityContext,
-    ecdsaSession: { kind: 'no_ecdsa_session' },
+    ecdsaSession: { kind: 'no_ecdsa_session' as const },
     tenantId: required(parseTenantId('tenant:linked-runtime')),
     buildVerifiedOwnerProof,
     resolveEmailOtpAuthority: async () => {
       throw new Error('Email OTP is outside this Passkey test');
+    },
+  } satisfies Omit<Parameters<typeof handleWalletUnlockVerifyRoute>[0], 'body'>;
+
+  const missingCapabilityResponse = await handleWalletUnlockVerifyRoute({
+    ...routeDependencies,
+    body: {
+      unlockBackend: 'passkey',
+      challengeId: 'challenge:linked-runtime',
+      webauthn_authentication: {},
+      ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
+    },
+  });
+  expect(missingCapabilityResponse).toEqual({
+    status: 400,
+    body: {
+      ok: false,
+      code: 'invalid_body',
+      message: 'walletSessionClientCapability is required',
+    },
+  });
+
+  const invalidCapabilityResponse = await handleWalletUnlockVerifyRoute({
+    ...routeDependencies,
+    body: {
+      unlockBackend: 'passkey',
+      challengeId: 'challenge:linked-runtime',
+      walletSessionClientCapability: 'direct_exact_response_future_record_tolerant_v2',
+      webauthn_authentication: {},
+      ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
+    },
+  });
+  expect(invalidCapabilityResponse).toEqual({
+    status: 400,
+    body: {
+      ok: false,
+      code: 'invalid_body',
+      message: 'walletSessionClientCapability must be direct_exact_response_future_record_tolerant',
+    },
+  });
+
+  const response = await handleWalletUnlockVerifyRoute({
+    ...routeDependencies,
+    body: {
+      unlockBackend: 'passkey',
+      challengeId: 'challenge:linked-runtime',
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
+      webauthn_authentication: {},
+      ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
     },
   });
 
@@ -235,9 +301,103 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     remainingUses: linkedWalletSession.quota.remainingUses,
   });
   expect(response.body.ed25519Session).toMatchObject({
-    walletSessionToken: fixture.ed25519Session.walletSessionToken,
+    sessionKind: 'reused_wallet_session_v2',
     authorizationId: linkedWalletSession.session.authorizationId,
     walletSessionId: linkedWalletSession.session.walletSessionId,
     quotaId: linkedWalletSession.session.quotaId,
   });
+  /* The reused branch never carries a second credential: the unlock response
+     already delivered the one that admits this exact Wallet Session. */
+  expect(response.body.ed25519Session).not.toHaveProperty('operationCredential');
+  expect(response.body.ed25519Session).not.toHaveProperty('walletSessionToken');
+  expect(response.body.operationCredential).toEqual(fixture.operationCredential);
+
+  sessionResolution = {
+    kind: 'already_committed',
+    authorityProvenanceKind: 'device_link',
+    committed: buildAlreadyCommittedUnlockResult(linkedWalletSession),
+  };
+  const replay = await handleWalletUnlockVerifyRoute({
+    ...routeDependencies,
+    body: {
+      unlockBackend: 'passkey',
+      challengeId: 'challenge:linked-runtime',
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
+      webauthn_authentication: {},
+      ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
+    },
+  });
+
+  expect(replay).toMatchObject({
+    status: 409,
+    body: {
+      ok: false,
+      unlocked: false,
+      code: 'already_committed',
+      kind: 'already_committed',
+      next: 'unlock_exact_method',
+      walletSessionId: linkedWalletSession.session.walletSessionId,
+      quotaId: linkedWalletSession.session.quotaId,
+    },
+  });
+  expect(replay.body.operationCredential).toBeUndefined();
+  expect(provisioningRequests).toHaveLength(1);
+
+  sessionResolution = {
+    kind: 'rejected',
+    code: 'invalid_body',
+    message: 'verified Email OTP authority identity is required',
+  };
+  const invalidBodyRejection = await handleWalletUnlockVerifyRoute({
+    ...routeDependencies,
+    body: {
+      unlockBackend: 'passkey',
+      challengeId: 'challenge:linked-runtime',
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
+      webauthn_authentication: {},
+      ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
+    },
+  });
+  expect(invalidBodyRejection).toEqual({
+    status: 403,
+    body: {
+      ok: false,
+      code: 'invalid_body',
+      message: 'verified Email OTP authority identity is required',
+    },
+  });
+});
+
+test('wallet unlock issuance preserves invalid_body rejection codes', () => {
+  expect(parseWalletUnlockIssuanceRejectionCode('invalid_body')).toBe('invalid_body');
+});
+
+test('Email OTP already-committed unlock response is credential-free and retryable', async () => {
+  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  const committed = buildAlreadyCommittedUnlockResult(buildLinkedWalletSession(fixture));
+  const response = walletUnlockAlreadyCommittedRouteResponse({
+    unlockBackend: 'email_otp',
+    committed,
+  });
+
+  expect(response).toMatchObject({
+    status: 409,
+    body: {
+      ok: false,
+      unlocked: false,
+      unlockBackend: 'email_otp',
+      code: 'already_committed',
+      kind: 'already_committed',
+      next: 'unlock_exact_method',
+      walletId: committed.walletId,
+      authorityId: committed.authorityId,
+      walletAuthMethodId: committed.walletAuthMethodId,
+      mintId: committed.mintId,
+      authorizationId: committed.authorizationId,
+      walletSessionId: committed.walletSessionId,
+      quotaId: committed.quotaId,
+    },
+  });
+  expect(response.body.operationCredential).toBeUndefined();
+  expect(response.body.walletSession).toBeUndefined();
 });

@@ -119,6 +119,7 @@ export interface CloudflareD1GatewayBaseEnv
   readonly RELAY_SESSION_ISSUER?: string;
   readonly RELAY_SESSION_AUDIENCE?: string;
   readonly RELAY_CORS_ORIGINS?: string;
+  readonly HOSTED_WALLET_ORIGINS?: string;
   readonly RELAYER_ACCOUNT_ID?: string;
   readonly RELAYER_PUBLIC_KEY?: string;
   readonly RELAYER_PRIVATE_KEY?: string;
@@ -187,6 +188,12 @@ type CloudflareD1RouterApiStagingEnv = CloudflareD1GatewayBaseEnv &
     readonly CONSOLE_SESSION_AUDIENCE: string;
   };
 
+export function readStagingHostedWalletOrigins(
+  env: Pick<CloudflareD1GatewayBaseEnv, 'HOSTED_WALLET_ORIGINS'>,
+): string[] {
+  return readCsvList(requireEnvString(env, 'HOSTED_WALLET_ORIGINS'));
+}
+
 export interface CloudflareD1GatewayEnv extends CloudflareD1GatewayBaseEnv {
   readonly WALLET_CONSOLE: WalletConsoleServiceBinding;
 }
@@ -231,6 +238,7 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'wallet_auth_methods',
   'reusable_wallet_sessions',
   'opaque_wallet_session_tokens',
+  'registration_replay_opaque_wallet_session_tokens_v1',
   'verified_wallet_operation_evidence_sets',
   'verified_owner_proof_consumptions',
   'hosted_wallet_session_exchange_codes',
@@ -493,6 +501,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     healthz: true,
     readyz: true,
     corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS),
+    hostedWalletOrigins: readStagingHostedWalletOrigins(env),
     session,
     sessionCookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
     routerAbPublicKeyset: requireStagingRouterAbPublicKeyset(env),
@@ -586,6 +595,7 @@ export async function createSplitGatewayRouterHandler(
     healthz: true,
     readyz: true,
     corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS),
+    hostedWalletOrigins: readStagingHostedWalletOrigins(env),
     session,
     sessionCookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
     routerAbPublicKeyset: requireStagingRouterAbPublicKeyset(env),
@@ -1114,7 +1124,6 @@ export function createStagingRecoveryRequestScopedDependencies(env: CloudflareD1
 } {
   const scope = stagingTenantScope(env);
   const store = createStagingYaoPartitionedStateStore(env);
-  const session = stagingSessionAdapter(env);
   return {
     store,
     backend: createStagingEd25519YaoBackend(env),
@@ -1124,7 +1133,10 @@ export function createStagingRecoveryRequestScopedDependencies(env: CloudflareD1
       return {
         authorizationSessions: service.authorizationSessions,
         preparedRecoveryAdmission: service.passkeyCustody,
-        session,
+        resolveEd25519MaterialActivation:
+          service.walletRegistration.resolveEd25519MaterialActivation.bind(
+            service.walletRegistration,
+          ),
       };
     }),
     capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({

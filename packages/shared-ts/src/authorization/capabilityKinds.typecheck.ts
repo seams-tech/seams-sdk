@@ -5,6 +5,7 @@ import {
   AUTHORIZATION_EVIDENCE_KINDS,
   NEAR_ED25519_MPC_OPERATION_KINDS,
   VAULT_OPERATION_KINDS,
+  WALLET_SESSION_CLIENT_CAPABILITY_V1,
   buildEvmEcdsaMpcOperationRef,
   buildAuthorizationEvidenceRequirement,
   buildNearEd25519MpcOperationRef,
@@ -15,6 +16,7 @@ import {
   type AuthorizationEvidenceRequirement,
   type AuthorizationGrantRef,
   type WalletSessionAuthorizationId,
+  type WalletSessionClientCapabilityV1,
   type AuthorizedOperationId,
   type EcdsaAuthorizationSessionId,
 } from './capabilityKinds';
@@ -48,6 +50,15 @@ void canonicalRequirement;
 
 const authFactorKinds = [AUTH_FACTOR_KINDS.passkey, AUTH_FACTOR_KINDS.emailOtp] as const;
 void authFactorKinds;
+
+const walletSessionClientCapability: WalletSessionClientCapabilityV1 =
+  WALLET_SESSION_CLIENT_CAPABILITY_V1;
+void walletSessionClientCapability;
+
+// @ts-expect-error The client capability is a closed, exact literal.
+const unsupportedWalletSessionClientCapability: WalletSessionClientCapabilityV1 =
+  'direct_exact_response_future_record_tolerant_v2';
+void unsupportedWalletSessionClientCapability;
 
 // @ts-expect-error A vault capability cannot carry a NEAR operation.
 const invalidVaultOperation: CapabilityOperationRef = {

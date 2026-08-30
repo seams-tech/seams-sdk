@@ -14,9 +14,12 @@
 import type {
   ActivateEcdsaWorkV2,
   RespondEcdsaRegistrationWorkV2,
+  WalletRegistrationCommittedInstallationProjectionV1,
   WalletRegistrationActivateRequestV2,
   WalletRegistrationRespondRequestV2,
+  WalletRegistrationSessionCommitReceiptV2,
 } from './threeRouteRegistrationContracts';
+import { WALLET_SESSION_CLIENT_CAPABILITY_V1 } from '@shared/authorization/capabilityKinds';
 
 declare const signedSetup: WalletRegistrationRespondRequestV2['signedSetup'];
 declare const webauthnRegistration: Extract<
@@ -37,7 +40,12 @@ const RESPOND_BASE = {
   signedSetup,
   webauthn_registration: webauthnRegistration,
 } as const;
-const ACTIVATE_BASE = { registrationCeremonyId: 'wrc_1', signedSetup, idempotencyKey } as const;
+const ACTIVATE_BASE = {
+  registrationCeremonyId: 'wrc_1',
+  signedSetup,
+  idempotencyKey,
+  walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
+} as const;
 
 /* --- valid shapes compile --- */
 
@@ -116,6 +124,42 @@ const emailOtpActivateWithoutEnrollment: WalletRegistrationActivateRequestV2 = {
   ecdsa: activateEcdsa,
 };
 
+type EcdsaReadyReceipt = Extract<
+  WalletRegistrationSessionCommitReceiptV2,
+  { readonly committed: { readonly kind: 'ecdsa_ready' } }
+>;
+type EcdsaReadyCommit = EcdsaReadyReceipt['committed'];
+type MixedEcdsaReadyCommit = Extract<
+  EcdsaReadyCommit,
+  { readonly nearProvisioning: { readonly status: 'near_pending' } }
+>;
+
+declare const receiptEcdsa: EcdsaReadyCommit['ecdsa'];
+declare const receiptSession: EcdsaReadyCommit['session'];
+declare const committedInstallation: WalletRegistrationCommittedInstallationProjectionV1;
+declare const mixedCommit: MixedEcdsaReadyCommit;
+
+const requiredInstallation: WalletRegistrationCommittedInstallationProjectionV1 =
+  mixedCommit.installation;
+
+const missingCommittedInstallation = {
+  kind: 'ecdsa_ready' as const,
+  ecdsa: receiptEcdsa,
+  session: receiptSession,
+  nearProvisioning: { status: 'near_pending' } as const,
+};
+// @ts-expect-error Mixed ECDSA receipts require their committed installation projection.
+const rejectedMissingInstallation: EcdsaReadyCommit = missingCommittedInstallation;
+
+const invalidEcdsaOnlyProjection = {
+  kind: 'ecdsa_ready' as const,
+  ecdsa: receiptEcdsa,
+  session: receiptSession,
+  installation: committedInstallation,
+};
+// @ts-expect-error ECDSA-only receipts cannot carry a mixed installation projection.
+const rejectedEcdsaOnlyProjection: EcdsaReadyCommit = invalidEcdsaOnlyProjection;
+
 export type {
   WalletRegistrationActivateRequestV2 as _ActivateRequest,
   WalletRegistrationRespondRequestV2 as _RespondRequest,
@@ -131,4 +175,7 @@ export const _threeRouteRequestFixtures = [
   ecdsaActivateWithoutEcdsa,
   passkeyActivateWithEnrollment,
   emailOtpActivateWithoutEnrollment,
+  requiredInstallation,
+  rejectedMissingInstallation,
+  rejectedEcdsaOnlyProjection,
 ] as const;

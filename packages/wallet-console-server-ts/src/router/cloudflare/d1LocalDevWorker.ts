@@ -576,6 +576,11 @@ const LOCAL_ROUTER_API_CORS_ORIGINS = Object.freeze([
   'http://127.0.0.1:8787',
   'http://localhost:8787',
 ]);
+const LOCAL_HOSTED_WALLET_ORIGINS = Object.freeze(['https://localhost:4002']);
+
+export function localHostedWalletOrigins(): string[] {
+  return [...LOCAL_HOSTED_WALLET_ORIGINS];
+}
 const CONSOLE_READY_TABLES = Object.freeze([
   'organizations',
   'projects',
@@ -633,6 +638,7 @@ const SIGNER_READY_TABLES = Object.freeze([
   'identity_links',
   'reusable_wallet_sessions',
   'opaque_wallet_session_tokens',
+  'registration_replay_opaque_wallet_session_tokens_v1',
   'verified_wallet_operation_evidence_sets',
   'verified_owner_proof_consumptions',
   'hosted_wallet_session_exchange_codes',
@@ -1116,7 +1122,10 @@ async function createLocalRouterApiHandler(
       return {
         authorizationSessions: routerApiService.authorizationSessions,
         preparedRecoveryAdmission: routerApiService.passkeyCustody,
-        session,
+        resolveEd25519MaterialActivation:
+          routerApiService.walletRegistration.resolveEd25519MaterialActivation.bind(
+            routerApiService.walletRegistration,
+          ),
       };
     },
   );
@@ -1146,6 +1155,7 @@ async function createLocalRouterApiHandler(
     healthz: true,
     readyz: true,
     corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
+    hostedWalletOrigins: localHostedWalletOrigins(),
     ...(routerAbPublicKeyset ? { routerAbPublicKeyset } : {}),
     session,
     ...(ed25519Yao.kind === 'enabled' ? { routerAbEd25519YaoProduct: ed25519Yao.runtime } : {}),

@@ -17,7 +17,10 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
-import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import {
+  createThresholdEcdsaBootstrapFixture,
+  thresholdEcdsaBootstrapPublicFactsFixture,
+} from './helpers/ecdsaBootstrap.fixtures';
 
 const WALLET_ID = toWalletId('alice.testnet');
 const RP_ID = 'wallet.example.test';
@@ -139,11 +142,7 @@ function publicCapabilityFor(active: ActiveEcdsaSignerRecord) {
     ethereumAddress: active.walletKey.keyFacts.thresholdOwnerAddress,
     clientVerifyingShareB64u: PUBLIC_KEY_33_B64U,
   });
-  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
-  if (binding?.materialKind !== 'role_local_ready_state_blob') {
-    throw new Error('expected role-local fixture public facts');
-  }
-  return binding.ecdsaRoleLocalReadyRecord.publicFacts.publicCapability;
+  return thresholdEcdsaBootstrapPublicFactsFixture(bootstrap).publicCapability;
 }
 
 test.describe('unlock ECDSA warm-up planner', () => {

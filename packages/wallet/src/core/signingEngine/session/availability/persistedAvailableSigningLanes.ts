@@ -123,8 +123,8 @@ function canonicalEcdsaLaneFromCapability(args: {
           resolvedKey,
           state: 'ready',
           authorization,
-          remainingUses: authorization.status.remainingUses,
-          expiresAtMs: authorization.status.expiresAtMs,
+          remainingUses: authorization.runtime.remainingUses,
+          expiresAtMs: authorization.runtime.expiresAtMs,
         }
       : { ...base, auth, resolvedKey, state: 'deferred' };
   }
@@ -139,8 +139,8 @@ function canonicalEcdsaLaneFromCapability(args: {
         auth,
         state: 'ready',
         authorization,
-        remainingUses: authorization.status.remainingUses,
-        expiresAtMs: authorization.status.expiresAtMs,
+        remainingUses: authorization.runtime.remainingUses,
+        expiresAtMs: authorization.runtime.expiresAtMs,
       }
     : { ...base, auth, state: 'deferred' };
 }

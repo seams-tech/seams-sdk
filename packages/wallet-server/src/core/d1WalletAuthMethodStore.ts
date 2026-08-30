@@ -936,7 +936,13 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore, WalletAut
             AND lifecycle_kind = 'active'`,
       )
       .bind(this.scope.namespace, this.scope.orgId, parsed.walletId, authMethodId);
-    return [update, guard, deleteTokens, exhaustQuotas, supersedeSessions];
+    return [
+      update,
+      guard,
+      deleteTokens,
+      exhaustQuotas,
+      supersedeSessions,
+    ];
   }
 
   preparePasskeyRevocationStatements(input: {
@@ -1360,7 +1366,13 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore, WalletAut
             AND lifecycle_kind = 'active'`,
       )
       .bind(this.scope.namespace, this.scope.orgId, String(expected.walletId), authMethodId);
-    return [update, guard, deleteTokens, exhaustQuotas, supersedeSessions];
+    return [
+      update,
+      guard,
+      deleteTokens,
+      exhaustQuotas,
+      supersedeSessions,
+    ];
   }
 
   async readByIdV2(input: {

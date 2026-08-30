@@ -4,6 +4,7 @@ import type {
   LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV5,
+  LinkedDeviceTargetPreparationRequestV1,
 } from '@shared/device-linking';
 import {
   parseActivateInstalledAuthorityResultV1,
@@ -20,6 +21,7 @@ import {
   parseLinkSessionTransportEventV1,
   parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkedDeviceTargetPreparationV1,
+  parseLinkedDeviceTargetPreparationRequestV1,
 } from '@shared/device-linking';
 import {
   computeLinkedDevicePublicKeyDigestV1,
@@ -155,13 +157,20 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
       });
       return parseLinkedDeviceApprovalDeliveryV1(response.body).approval;
     },
-    getTargetPreparationV1: async ({ linkSessionId }) => {
+    getTargetPreparationV1: async ({ linkSessionId, deliveryRecipientPublicKey65B64u }) => {
+      const request: LinkedDeviceTargetPreparationRequestV1 =
+        parseLinkedDeviceTargetPreparationRequestV1({
+          kind: 'linked_device_target_preparation_request_v1',
+          linkSessionId,
+          deliveryRecipientPublicKey65B64u,
+        });
       const response = await requestDeviceV1({
         options,
         baseUrl,
-        method: 'GET',
+        method: 'POST',
         canonicalPath: sessionActionPath(linkSessionId, 'target-preparation'),
         linkSessionId,
+        body: request,
       });
       return parseLinkedDeviceTargetPreparationV1(response.body);
     },

@@ -13,6 +13,7 @@ import type {
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkedDeviceTargetPreparationV1,
+  LinkedDeviceTargetPreparationRequestV1,
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
   LinkedDeviceEd25519SourceContributionPreparationV1,
   LinkedDeviceEd25519SourceContributionV1,
@@ -108,6 +109,7 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   }): Promise<LinkedDeviceApprovalV1>;
   getTargetPreparationV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
+    readonly deliveryRecipientPublicKey65B64u: LinkedDeviceTargetPreparationRequestV1['deliveryRecipientPublicKey65B64u'];
   }): Promise<LinkedDeviceTargetPreparationV1>;
   startTargetEmailOtpChallengeV1(input: {
     readonly request: LinkedDeviceEmailOtpChallengeStartRequestV1;
@@ -236,8 +238,8 @@ export type DeviceLinkingKeyMaterialBundleV1 = {
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   /** Ed25519 device identity public key; the private key remains in the worker. */
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
-  /** Public P-256 recipient for an Email OTP factor release. */
-  readonly emailOtpReleasePublicKey65B64u: string;
+  /** Public P-256 recipient retained by the target worker for delivery. */
+  readonly deliveryRecipientPublicKey65B64u: string;
 };
 
 export type DeviceLinkingEmailOtpFactorReleaseInputV1 = {

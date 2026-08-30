@@ -46,8 +46,16 @@ import {
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
+  parseActiveWalletSessionV1,
+  parseWalletSessionOperationCredentialV1,
+  type ActiveWalletSessionV1,
+  type WalletSessionOperationCredentialV1,
+} from '@shared/device-linking';
+import {
   parseEd25519YaoRecoveryCapabilityV1,
+  type ParsedExactYaoRecoverySessionV1,
   type ParsedYaoRecoveryCapabilityV1,
+  type ParsedYaoRecoverySessionBaseV1,
   type ParsedYaoRecoverySessionV1,
 } from '@/core/signingEngine/session/passkey/ed25519YaoRecoveryCapability';
 import {
@@ -57,9 +65,15 @@ import {
 export type { ParsedYaoRecoveryCapabilityV1 } from '@/core/signingEngine/session/passkey/ed25519YaoRecoveryCapability';
 export { parseEd25519YaoRecoveryCapabilityV1 } from '@/core/signingEngine/session/passkey/ed25519YaoRecoveryCapability';
 
-export type { ParsedYaoRecoverySessionV1 } from '@/core/signingEngine/session/passkey/ed25519YaoRecoveryCapability';
+export type {
+  ParsedExactYaoRecoverySessionV1,
+  ParsedYaoRecoverySessionBaseV1,
+  ParsedYaoRecoverySessionV1,
+} from '@/core/signingEngine/session/passkey/ed25519YaoRecoveryCapability';
 
-export type ParsedPasskeyEd25519YaoRecoveryDescriptorV1 = {
+export type ParsedPasskeyEd25519YaoRecoveryDescriptorV1<
+  TSession extends ParsedYaoRecoverySessionBaseV1 = ParsedYaoRecoverySessionV1,
+> = {
   readonly authority: WalletAuthAuthorityRef;
   readonly walletId: WalletId;
   readonly nearAccountId: AccountId;
@@ -68,7 +82,7 @@ export type ParsedPasskeyEd25519YaoRecoveryDescriptorV1 = {
   readonly operationalPublicKey: string;
   readonly relayerKeyId: string;
   readonly credentialIdB64u: string;
-  readonly session: ParsedYaoRecoverySessionV1;
+  readonly session: TSession;
   readonly capability: ParsedYaoRecoveryCapabilityV1;
 };
 
@@ -83,7 +97,9 @@ function requireThresholdEd25519SessionId(
   return parsed.value;
 }
 
-export type ParsedPasskeyEd25519YaoSyncResponseV1 = ParsedPasskeyEd25519YaoRecoveryDescriptorV1 & {
+export type ParsedPasskeyEd25519YaoSyncResponseV1 = ParsedPasskeyEd25519YaoRecoveryDescriptorV1<
+  ParsedExactYaoRecoverySessionV1
+> & {
   readonly walletAuthMethodId: WalletAuthMethodId;
   readonly walletAuthorityId: WalletAuthorityId;
   readonly foundingAuthority: ActiveWalletAuthorityV1;
@@ -93,6 +109,8 @@ export type ParsedPasskeyEd25519YaoSyncResponseV1 = ParsedPasskeyEd25519YaoRecov
   >;
   readonly keyVersion: string;
   readonly credentialPublicKeyB64u: string;
+  readonly walletSession: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
   readonly walletCustody: {
     readonly envelope: PasskeyCustodyEnvelopeRecord;
     readonly storeVersion: string;
@@ -100,7 +118,7 @@ export type ParsedPasskeyEd25519YaoSyncResponseV1 = ParsedPasskeyEd25519YaoRecov
 };
 
 export type PasskeyEd25519YaoRecoveryResultV1<
-  TParsed extends ParsedPasskeyEd25519YaoRecoveryDescriptorV1 =
+  TParsed extends ParsedPasskeyEd25519YaoRecoveryDescriptorV1<ParsedYaoRecoverySessionBaseV1> =
     ParsedPasskeyEd25519YaoSyncResponseV1,
 > = {
   readonly activeClient: RouterAbEd25519YaoActiveClientV1;
@@ -166,6 +184,17 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
   return value;
 }
 
+type Ed25519SignWalletCapabilitySubjectV1 = Extract<
+  ActiveWalletSessionV1['capabilitySubjects'][number],
+  { readonly kind: 'sign' }
+> & { readonly keyFamily: 'ed25519' };
+
+function isEd25519SignWalletCapabilitySubject(
+  subject: ActiveWalletSessionV1['capabilitySubjects'][number],
+): subject is Ed25519SignWalletCapabilitySubjectV1 {
+  return subject.kind === 'sign' && subject.keyFamily === 'ed25519';
+}
+
 function parseRecoverySession(
   raw: Record<string, unknown>,
   participantIds: readonly [number, number],
@@ -209,6 +238,80 @@ function parseRecoverySession(
   };
 }
 
+function parseExactRecoverySession(
+  raw: Record<string, unknown>,
+  participantIds: readonly [number, number],
+  identity: {
+    readonly walletId: string;
+    readonly nearAccountId: string;
+    readonly nearEd25519SigningKeyId: string;
+  },
+  walletSession: ActiveWalletSessionV1,
+  operationCredential: WalletSessionOperationCredentialV1,
+  expected: {
+    readonly walletAuthorityId: WalletAuthorityId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly authorityDigestB64u: string;
+    readonly authorityRevocationEpoch: number;
+    readonly materialActivation: MpcMaterialActivationRef;
+  },
+): ParsedExactYaoRecoverySessionV1 {
+  if ('sessionKind' in raw || 'walletSessionToken' in raw) {
+    throw new Error('sync-account signer bootstrap must not carry a Wallet Session bearer');
+  }
+  if (
+    requireString(raw.walletId, 'session.walletId') !== identity.walletId ||
+    requireString(raw.nearAccountId, 'session.nearAccountId') !== identity.nearAccountId ||
+    requireString(raw.nearEd25519SigningKeyId, 'session.nearEd25519SigningKeyId') !==
+      identity.nearEd25519SigningKeyId
+  ) {
+    throw new Error('Yao recovery session identity does not match the verified passkey');
+  }
+  const runtimePolicyRecord = requireRecord(raw.runtimePolicyScope, 'session.runtimePolicyScope');
+  const runtimePolicyScope = normalizeRuntimePolicyScope(runtimePolicyRecord);
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
+  if (!routerAbNormalSigning) throw new Error('Yao recovery session signing state is invalid');
+  const walletSessionId = parseWalletSessionId(raw.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(raw.quotaId);
+  if (!walletSessionId.ok || !quotaId.ok) {
+    throw new Error('Yao recovery Wallet Session identity is invalid');
+  }
+  const expiresAtMs = requirePositiveInteger(raw.expiresAtMs, 'session.expiresAtMs');
+  const remainingUses = requirePositiveInteger(raw.remainingUses, 'session.remainingUses');
+  const ed25519SignSubject = walletSession.capabilitySubjects.find(
+    isEd25519SignWalletCapabilitySubject,
+  );
+  if (
+    walletSession.walletId !== identity.walletId ||
+    walletSession.authorityId !== expected.walletAuthorityId ||
+    walletSession.authMethodId !== expected.walletAuthMethodId ||
+    walletSession.authorityDigestB64u !== expected.authorityDigestB64u ||
+    walletSession.authorityRevocationEpoch !== expected.authorityRevocationEpoch ||
+    walletSession.expiresAtMs !== expiresAtMs ||
+    operationCredential.walletSessionId !== walletSessionId.value ||
+    !ed25519SignSubject ||
+    !mpcMaterialActivationRefsEqual(
+      ed25519SignSubject.materialActivation,
+      expected.materialActivation,
+    )
+  ) {
+    throw new Error('Yao recovery session does not match the exact Wallet Session');
+  }
+  return {
+    thresholdSessionId: requireString(raw.thresholdSessionId, 'session.thresholdSessionId'),
+    authorizationId: walletSession.authorizationId,
+    walletSessionId: operationCredential.walletSessionId,
+    quotaId: quotaId.value,
+    expiresAtMs,
+    remainingUses,
+    runtimePolicyScope,
+    participantIds,
+    routerAbNormalSigning,
+    walletSession,
+    operationCredential,
+  };
+}
+
 function sameRuntimePolicyScope(
   left: ReturnType<typeof normalizeRuntimePolicyScope>,
   right: ReturnType<typeof normalizeRuntimePolicyScope>,
@@ -222,7 +325,7 @@ function sameRuntimePolicyScope(
 }
 
 function assertEd25519YaoRecoveryDescriptorStableIdentity(
-  parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1,
+  parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1<ParsedYaoRecoverySessionBaseV1>,
 ): void {
   const capability = parsed.capability;
   const session = parsed.session;
@@ -249,7 +352,7 @@ function assertEd25519YaoRecoveryDescriptorStableIdentity(
 }
 
 export function assertEd25519YaoRecoveryDescriptorContinuity(
-  parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1,
+  parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1<ParsedYaoRecoverySessionBaseV1>,
 ): void {
   assertEd25519YaoRecoveryDescriptorStableIdentity(parsed);
   if (parsed.capability.lifecycle.thresholdSessionId !== parsed.session.thresholdSessionId) {
@@ -258,7 +361,7 @@ export function assertEd25519YaoRecoveryDescriptorContinuity(
 }
 
 export function assertEd25519YaoWarmRecoveryDescriptorStableMaterialContinuity(
-  parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1,
+  parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1<ParsedYaoRecoverySessionBaseV1>,
   expectedMaterialActivation: MpcMaterialActivationRef,
 ): void {
   assertEd25519YaoRecoveryDescriptorStableIdentity(parsed);
@@ -270,6 +373,14 @@ export function assertEd25519YaoWarmRecoveryDescriptorStableMaterialContinuity(
   ) {
     throw new Error('Yao warm recovery response does not preserve exact material activation');
   }
+}
+
+function walletSessionTokenForSigning(
+  session: ParsedYaoRecoverySessionV1 | ParsedExactYaoRecoverySessionV1,
+): string {
+  return 'operationCredential' in session
+    ? session.operationCredential.token
+    : session.walletSessionToken;
 }
 
 export function parsePasskeyEd25519YaoSyncResponseV1(
@@ -321,6 +432,11 @@ export function parsePasskeyEd25519YaoSyncResponseV1(
   if (custody.kind !== 'wallet_custody_sync_bootstrap_v1') {
     throw new Error('walletCustody kind is invalid');
   }
+  const capability = parseEd25519YaoRecoveryCapabilityV1(recovery.capability);
+  const walletSession = parseActiveWalletSessionV1(response.walletSession);
+  const operationCredential = parseWalletSessionOperationCredentialV1(
+    response.operationCredential,
+  );
   const parsed: ParsedPasskeyEd25519YaoSyncResponseV1 = {
     authority,
     walletAuthMethodId: walletAuthMethodId.value,
@@ -339,7 +455,7 @@ export function parsePasskeyEd25519YaoSyncResponseV1(
       response.credentialPublicKeyB64u,
       'credentialPublicKeyB64u',
     ),
-    session: parseRecoverySession(
+    session: parseExactRecoverySession(
       requireRecord(threshold.session, 'thresholdEd25519.session'),
       participantIds,
       {
@@ -347,8 +463,19 @@ export function parsePasskeyEd25519YaoSyncResponseV1(
         nearAccountId: String(nearAccountId),
         nearEd25519SigningKeyId,
       },
+      walletSession,
+      operationCredential,
+      {
+        walletAuthorityId: walletAuthorityId.value,
+        walletAuthMethodId: walletAuthMethodId.value,
+        authorityDigestB64u: foundingAuthority.value.authorityDigestB64u,
+        authorityRevocationEpoch: foundingAuthority.value.revocationEpoch,
+        materialActivation: capability.materialActivation,
+      },
     ),
-    capability: parseEd25519YaoRecoveryCapabilityV1(recovery.capability),
+    capability,
+    walletSession,
+    operationCredential,
     walletCustody: {
       envelope: parsePasskeyCustodyEnvelopeRecord(custody.envelope),
       storeVersion: requireString(custody.storeVersion, 'walletCustody.storeVersion'),
@@ -359,7 +486,9 @@ export function parsePasskeyEd25519YaoSyncResponseV1(
 }
 
 export function buildRecoveredWalletSessionState(input: {
-  readonly parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1;
+  readonly parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1<
+    ParsedYaoRecoverySessionV1 | ParsedExactYaoRecoverySessionV1
+  >;
   readonly relayerUrl: string;
   readonly rpId: string;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
@@ -381,7 +510,7 @@ export function buildRecoveredWalletSessionState(input: {
     signingRootId: signingRoot.signingRootId,
     signingRootVersion: String(signingRoot.signingRootVersion || ''),
     routerAbNormalSigning: session.routerAbNormalSigning,
-    walletSessionToken: session.walletSessionToken,
+    walletSessionToken: walletSessionTokenForSigning(session),
     nowMs: Math.min(Date.now(), session.expiresAtMs - 1),
   });
   if (!signingWalletSession.ok) {

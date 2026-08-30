@@ -1,9 +1,14 @@
 import { expect, test } from '@playwright/test';
+import { alphabetizeStringify } from '../../packages/shared-ts/src/utils/digests';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/wallet-server/src/core/ThresholdService/evmCryptoWasm';
+import type { WalletRegistrationActivateResponseV2 } from '../../packages/wallet-server/src/core/threeRouteRegistrationContracts';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { projectRegistrationEstablishedSessionV2 } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/walletRegistrationSessionCommitReceipt';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import { WALLET_SESSION_CLIENT_CAPABILITY_V1 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { implicitNearAccountProvisioning } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { parseRegistrationEstablishedSessionResultV2 } from '../../packages/shared-ts/src/utils/registrationEstablishedSession';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   buildFixtureRouterAbEcdsaStrictRegistrationRequest,
@@ -21,6 +26,91 @@ import {
   requireParsedDomainId,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 
+type RegistrationTestDatabase = ReturnType<typeof createTemporaryD1Database>['database'];
+
+type RegistrationJournalScope = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+};
+
+const PERSISTED_REGISTRATION_CREDENTIAL_FIELDS = [
+  'walletSessionToken',
+  'primaryOperationCredential',
+  'childOperationCredential',
+  'operationCredential',
+  'clientRootProof',
+  'passkeyBootstrapAuthorization',
+  'response',
+] as const;
+
+async function readRegistrationJournalRecord(input: {
+  readonly database: RegistrationTestDatabase;
+  readonly scope: RegistrationJournalScope;
+  readonly recordKey: string;
+}): Promise<unknown> {
+  const row = await input.database
+    .prepare(
+      `SELECT record_json
+         FROM router_ab_yao_versioned_json_records
+        WHERE namespace = ?1
+          AND org_id = ?2
+          AND project_id = ?3
+          AND env_id = ?4
+          AND record_key = ?5`,
+    )
+    .bind(
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      input.recordKey,
+    )
+    .first<{ readonly record_json?: unknown }>();
+  if (typeof row?.record_json !== 'string') {
+    throw new Error(`registration journal row is missing: ${input.recordKey}`);
+  }
+  return JSON.parse(row.record_json);
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function collectObjectFieldNames(value: unknown, fieldNames: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const entry of value) collectObjectFieldNames(entry, fieldNames);
+    return;
+  }
+  if (!isRecordValue(value)) return;
+  for (const [key, child] of Object.entries(value)) {
+    fieldNames.add(key);
+    collectObjectFieldNames(child, fieldNames);
+  }
+}
+
+function expectCredentialFreeRegistrationJournal(
+  raw: unknown,
+  operation: 'registration_activate' | 'near_provisioning',
+  ephemeralBearer: string,
+): void {
+  if (!isRecordValue(raw) || !isRecordValue(raw.receipt)) {
+    throw new Error('registration journal row is not a completion receipt');
+  }
+  expect(raw.kind).toBe('router_ab_ed25519_yao_registration_side_effect_completion_v2');
+  expect(raw.operation).toBe(operation);
+  expect(raw.receipt.kind).toBe('wallet_registration_session_commit_receipt_v2');
+  expect(raw.receipt.operation).toBe(operation);
+
+  const fieldNames = new Set<string>();
+  collectObjectFieldNames(raw, fieldNames);
+  for (const field of PERSISTED_REGISTRATION_CREDENTIAL_FIELDS) {
+    expect(fieldNames.has(field), `persisted registration field: ${field}`).toBe(false);
+  }
+  expect(JSON.stringify(raw)).not.toContain(ephemeralBearer);
+}
+
 /**
  * Refactor 94C. `/wallets/register/activate` folds activation and
  * finalization into one irreversible step behind a single Gateway operation
@@ -29,10 +119,11 @@ import {
  * Previously three records guarded this one commit: the activation branch CAS,
  * finalize's side-effect journal, and finalize's separate replay cache. The
  * operation row is now the only one — its claim is the activation claim and
- * its completion record holds the exact terminal bytes. These tests pin the
- * properties that made the other two records seem necessary: identical retry
- * returns stored bytes without repeating custody, and a conflicting retry
- * fails before any custody effect.
+ * its completion record holds the committed credential-free projection and
+ * request fingerprint. These tests pin the properties that made the other
+ * two records seem necessary: identical retries return that stable projection
+ * with fresh bounded bearers without repeating custody, and a conflicting
+ * retry fails before any custody effect.
  */
 
 const SCOPE = {
@@ -72,6 +163,56 @@ function fakeGatewaySigner() {
       return payload ? ({ valid: true, payload } as const) : ({ valid: false } as const);
     },
   };
+}
+
+type EcdsaActivateSuccess = Extract<
+  WalletRegistrationActivateResponseV2,
+  { readonly ok: true; readonly kind: 'evm_family_ecdsa' }
+>;
+
+function requireEcdsaActivateSuccess(
+  response: WalletRegistrationActivateResponseV2,
+): EcdsaActivateSuccess {
+  if (!response.ok || response.kind !== 'evm_family_ecdsa') {
+    throw new Error('expected an ECDSA activation success');
+  }
+  return response;
+}
+
+function stableRegistrationCommitIdentity(response: EcdsaActivateSuccess): string {
+  const { registrationEstablishedSession, ...committed } = response;
+  const projection =
+    registrationEstablishedSession.kind === 'issued'
+      ? projectRegistrationEstablishedSessionV2(registrationEstablishedSession.session)
+      : registrationEstablishedSession.session;
+  const { expiresAtMs: ignoredSessionExpiry, ...stableProjection } = projection;
+  void ignoredSessionExpiry;
+  return alphabetizeStringify({ committed, session: stableProjection });
+}
+
+function requireIssuedRegistrationSession(response: EcdsaActivateSuccess) {
+  if (response.registrationEstablishedSession.kind !== 'issued') {
+    throw new Error('expected the first registration response to issue its Wallet Session');
+  }
+  return response.registrationEstablishedSession.session;
+}
+
+function requireCommittedRegistrationProjection(response: EcdsaActivateSuccess) {
+  if (response.registrationEstablishedSession.kind !== 'already_committed') {
+    throw new Error('expected the replay to return a committed Wallet Session projection');
+  }
+  return response.registrationEstablishedSession;
+}
+
+function clonedRecord(value: unknown): Record<string, unknown> {
+  const clone: unknown = JSON.parse(JSON.stringify(value));
+  if (!isRecordValue(clone)) throw new Error('expected a record clone');
+  return clone;
+}
+
+function changedOpaqueId(value: string): string {
+  const replacement = value.endsWith('A') ? 'B' : 'A';
+  return `${value.slice(0, -1)}${replacement}`;
 }
 
 /** Counts custody-affecting Router calls so a replay that skips them is visible. */
@@ -160,6 +301,7 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
     registrationCeremonyId: setup.registrationCeremonyId,
     signedSetup: setup.signedSetup,
     idempotencyKey: 'activate-key-1',
+    walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
     planKind: 'evm_family_ecdsa',
     session: signer,
     ecdsa: {
@@ -167,6 +309,7 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
       activationRequestDigestB64u: base64UrlEncode(new Uint8Array(32)),
       clientActivation: fixtureRouterAbEcdsaActivationFacts(),
     },
+    walletCustodyCommit: buildWalletCustodyCommitPayloadFixture({ walletId: setup.walletId }),
     verifier: signer,
     minter: signer,
   };
@@ -178,7 +321,10 @@ test('a conflicting activate retry is refused before any custody effect', async 
   try {
     await applySignerMigrations(database);
     const strictRegistration = new CountingStrictRegistrationPort();
-    const { service, activateRequest } = await respondedCeremony(database, strictRegistration);
+    const { service, setup, activateRequest } = await respondedCeremony(
+      database,
+      strictRegistration,
+    );
 
     const first = await service.walletRegistration.activateWalletRegistration(
       activateRequest as never,
@@ -208,12 +354,12 @@ test('a conflicting activate retry is refused before any custody effect', async 
   }
 });
 
-test('an identical activate retry returns the stored terminal bytes without repeating custody', async () => {
+test('identical activate retries return one credential-free committed projection', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
     const strictRegistration = new CountingStrictRegistrationPort();
-    const { service, activateRequest, thresholdStore } = await respondedCeremony(
+    const { service, setup, activateRequest, thresholdStore } = await respondedCeremony(
       database,
       strictRegistration,
     );
@@ -221,32 +367,191 @@ test('an identical activate retry returns the stored terminal bytes without repe
     const first = await service.walletRegistration.activateWalletRegistration(
       activateRequest as never,
     );
-    if (!first.ok) throw new Error(`first activate: ${first.code}: ${first.message}`);
-    expect(first.appSessionJwt).toEqual(expect.any(String));
+    const firstSuccess = requireEcdsaActivateSuccess(first);
+    const firstSession = requireIssuedRegistrationSession(firstSuccess);
     const custodyCallsAfterFirst = strictRegistration.activateCalls;
+
+    const completion = await readRegistrationJournalRecord({
+      database,
+      scope: SCOPE,
+      recordKey: `wallet-registration-activate:registration-activate:${setup.registrationCeremonyId}:${activateRequest.idempotencyKey}`,
+    });
+    expectCredentialFreeRegistrationJournal(
+      completion,
+      'registration_activate',
+      firstSession.operationCredential.token,
+    );
+    if (!isRecordValue(completion) || !isRecordValue(completion.receipt)) {
+      throw new Error('activation completion receipt is missing');
+    }
+    const requestFingerprint = completion.requestFingerprint;
+    const receipt = completion.receipt;
+    if (typeof requestFingerprint !== 'string' || !isRecordValue(receipt.committed)) {
+      throw new Error('activation completion identity is missing');
+    }
+    if (!isRecordValue(receipt.committed.session)) {
+      throw new Error('activation completion session projection is missing');
+    }
+    expect(completion.receipt.operationFingerprint).toBe(completion.requestFingerprint);
+    expect(receipt.committed.session.expiresAtMs).toBe(
+      firstSession.expiresAtMs,
+    );
 
     const replayed = await service.walletRegistration.activateWalletRegistration(
       activateRequest as never,
     );
+    const replayedSuccess = requireEcdsaActivateSuccess(replayed);
+    const replayedProjection = requireCommittedRegistrationProjection(replayedSuccess);
+    const replayedAgain = await service.walletRegistration.activateWalletRegistration(
+      activateRequest as never,
+    );
+    const replayedAgainSuccess = requireEcdsaActivateSuccess(replayedAgain);
+    const replayedAgainProjection = requireCommittedRegistrationProjection(replayedAgainSuccess);
 
-    /* The replay is the stored completion record itself, not a
-       reconstruction: same wallet, same keys, same authority. Compared by
-       value rather than by serialized string — the record round-trips through
-       the store's JSON encoding, so property order is the encoder's business
-       and pinning it here would assert an implementation detail. */
-    expect(replayed).toEqual(first);
-    expect(replayed.ok && replayed.appSessionJwt).toBe(first.appSessionJwt);
-    /* And no repeated custody effect. */
+    /* The receipt owns the committed identity. Replay carries no bearer and
+       names the exact-method unlock required to obtain a successor. */
+    expect(stableRegistrationCommitIdentity(replayedSuccess)).toBe(
+      stableRegistrationCommitIdentity(firstSuccess),
+    );
+    expect(stableRegistrationCommitIdentity(replayedAgainSuccess)).toBe(
+      stableRegistrationCommitIdentity(firstSuccess),
+    );
+    expect(replayedProjection.next).toBe('unlock_exact_method');
+    expect(replayedProjection.session).toEqual(
+      projectRegistrationEstablishedSessionV2(firstSession),
+    );
+    expect(replayedAgainProjection.session).toEqual(replayedProjection.session);
+    expect('operationCredential' in replayedProjection).toBe(false);
+
+    const parentRows = await database
+      .prepare(
+        `SELECT session.retired_at_ms AS session_retired_at_ms,
+                quota.lifecycle_kind AS quota_lifecycle_kind,
+                quota.remaining_uses AS quota_remaining_uses
+           FROM wallet_session_authorizations_v2 AS session
+           JOIN authorization_wallet_session_quotas AS quota
+             ON quota.namespace = session.namespace
+            AND quota.tenant_id = session.tenant_id
+            AND quota.quota_id = session.quota_id
+          WHERE session.namespace = ?1
+            AND session.tenant_id = ?2
+            AND session.wallet_session_id = ?3`,
+      )
+      .bind(
+        SCOPE.namespace,
+        service.authorizationSessions.tenantId,
+        firstSession.walletSessionId,
+      )
+      .first<{
+        readonly session_retired_at_ms?: unknown;
+        readonly quota_lifecycle_kind?: unknown;
+        readonly quota_remaining_uses?: unknown;
+      }>();
+    expect(parentRows).toMatchObject({
+      session_retired_at_ms: null,
+      quota_lifecycle_kind: 'active',
+    });
+    expect(Number(parentRows?.quota_remaining_uses)).toBe(3);
+
+    /* No repeated custody effect. */
     expect(strictRegistration.activateCalls).toBe(custodyCallsAfterFirst);
     /* Both legs merged: the commit half's wallet keys plus the activation
        half's receipt and bootstrap. Returning only the commit half would
        leave the client unable to bring the wallet online. */
-    expect(first.ecdsa.walletKeys.length).toBeGreaterThan(0);
-    expect(first.ecdsa.activation).toBeTruthy();
-    expect(first.ecdsa.bootstrap).toBeTruthy();
-    expect(replayed.ok && replayed.ecdsa.activation).toBeTruthy();
+    expect(firstSuccess.ecdsa.walletKeys.length).toBeGreaterThan(0);
+    expect(firstSuccess.ecdsa.activation).toBeTruthy();
+    expect(firstSuccess.ecdsa.bootstrap).toBeTruthy();
+    expect(replayedSuccess.ecdsa.activation).toBeTruthy();
     expect(thresholdStore.objectNames).toEqual([]);
-    expect(replayed.ok && replayed.ecdsa.bootstrap).toBeTruthy();
+    expect(replayedSuccess.ecdsa.bootstrap).toBeTruthy();
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('V2 registration parser rejects mismatched identity, signing capability, material, and family', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const { service, activateRequest } = await respondedCeremony(
+      database,
+      new CountingStrictRegistrationPort(),
+    );
+    const activated = await service.walletRegistration.activateWalletRegistration(
+      activateRequest as never,
+    );
+    const success = requireEcdsaActivateSuccess(activated);
+    const issued = requireIssuedRegistrationSession(success);
+
+    const mismatchedIdentity = clonedRecord(success.registrationEstablishedSession);
+    const mismatchedIdentitySession = clonedRecord(mismatchedIdentity.session);
+    const mismatchedWalletSession = clonedRecord(mismatchedIdentitySession.walletSession);
+    if (typeof mismatchedWalletSession.authorizationId !== 'string') {
+      throw new Error('fixture Wallet Session authorization id is missing');
+    }
+    mismatchedWalletSession.authorizationId = changedOpaqueId(
+      mismatchedWalletSession.authorizationId,
+    );
+    mismatchedIdentitySession.walletSession = mismatchedWalletSession;
+    mismatchedIdentity.session = mismatchedIdentitySession;
+    expect(parseRegistrationEstablishedSessionResultV2(mismatchedIdentity)).toBeNull();
+
+    const exportOnly = clonedRecord(success.registrationEstablishedSession);
+    const exportOnlySession = clonedRecord(exportOnly.session);
+    const exportOnlyWalletSession = clonedRecord(exportOnlySession.walletSession);
+    if (!Array.isArray(exportOnlyWalletSession.capabilitySubjects)) {
+      throw new Error('fixture capability subjects are missing');
+    }
+    const signingIndex = exportOnlyWalletSession.capabilitySubjects.findIndex(
+      (subject) => isRecordValue(subject) && subject.kind === 'sign',
+    );
+    if (signingIndex < 0) throw new Error('fixture signing capability is missing');
+    exportOnlyWalletSession.capabilitySubjects = exportOnlyWalletSession.capabilitySubjects.map(
+      (subject, index) =>
+        index === signingIndex && isRecordValue(subject)
+          ? { ...subject, kind: 'export_keys' }
+          : subject,
+    );
+    exportOnlySession.walletSession = exportOnlyWalletSession;
+    exportOnly.session = exportOnlySession;
+    expect(parseRegistrationEstablishedSessionResultV2(exportOnly)).toBeNull();
+
+    const mismatchedMaterial = clonedRecord(success.registrationEstablishedSession);
+    const mismatchedMaterialSession = clonedRecord(mismatchedMaterial.session);
+    const mismatchedTokens = clonedRecord(mismatchedMaterialSession.tokens);
+    const mismatchedEcdsa = clonedRecord(mismatchedTokens.ecdsa);
+    const mismatchedActivation = clonedRecord(mismatchedEcdsa.materialActivation);
+    if (typeof mismatchedActivation.activationId !== 'string') {
+      throw new Error('fixture material activation id is missing');
+    }
+    mismatchedActivation.activationId = changedOpaqueId(mismatchedActivation.activationId);
+    mismatchedEcdsa.materialActivation = mismatchedActivation;
+    mismatchedTokens.ecdsa = mismatchedEcdsa;
+    mismatchedMaterialSession.tokens = mismatchedTokens;
+    mismatchedMaterial.session = mismatchedMaterialSession;
+    expect(parseRegistrationEstablishedSessionResultV2(mismatchedMaterial)).toBeNull();
+
+    const extraFamily = clonedRecord(success.registrationEstablishedSession);
+    const extraFamilySession = clonedRecord(extraFamily.session);
+    const extraFamilyWalletSession = clonedRecord(extraFamilySession.walletSession);
+    if (!Array.isArray(extraFamilyWalletSession.capabilitySubjects)) {
+      throw new Error('fixture capability subjects are missing');
+    }
+    const existingSigningSubject = extraFamilyWalletSession.capabilitySubjects.find(
+      (subject) => isRecordValue(subject) && subject.kind === 'sign',
+    );
+    if (!isRecordValue(existingSigningSubject)) {
+      throw new Error('fixture signing capability is missing');
+    }
+    extraFamilyWalletSession.capabilitySubjects = [
+      ...extraFamilyWalletSession.capabilitySubjects,
+      { ...existingSigningSubject, keyFamily: 'ed25519' },
+    ];
+    extraFamilySession.walletSession = extraFamilyWalletSession;
+    extraFamily.session = extraFamilySession;
+    expect(parseRegistrationEstablishedSessionResultV2(extraFamily)).toBeNull();
+
+    expect(issued.operationCredential.token).toMatch(/^wst_/);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -301,6 +606,7 @@ test('activate refuses a ceremony whose authority proof is not yet verified', as
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'activate-unverified',
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       ecdsa: { clientActivation: fixtureRouterAbEcdsaActivationFacts() },
       verifier: signer,
       minter: signer,
@@ -435,6 +741,8 @@ function derivingYaoRuntime(capture?: {
   registrationBearerToken: string | null;
   /** The session the deferred leg must present to claim the Yao result. */
   activationSessionId?: readonly number[] | null;
+  /** The public identity the deferred custody join must bind to. */
+  registeredPublicKeyB64u?: string | null;
 }) {
   let delegate: Awaited<ReturnType<typeof createActivatedFinalizeYaoRuntimeFixture>> | null = null;
   const runtime = {
@@ -450,7 +758,12 @@ function derivingYaoRuntime(capture?: {
       delegate = await createActivatedFinalizeYaoRuntimeFixture({
         admissionRequest: input.admissionRequest,
       });
-      if (capture) capture.activationSessionId = delegate.activationResult.binding.session_id;
+      if (capture) {
+        capture.activationSessionId = delegate.activationResult.binding.session_id;
+        capture.registeredPublicKeyB64u = base64UrlEncode(
+          Uint8Array.from(delegate.activationResult.public_receipt.registered_public_key),
+        );
+      }
       return { ok: true as const, value: delegate.admissionReceipt };
     },
     async consumeActivated(request: never) {
@@ -478,7 +791,11 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-ed25519' },
     });
     const signer = fakeGatewaySigner();
-    const yaoCredential = { registrationBearerToken: null as string | null };
+    const yaoCredential = {
+      registrationBearerToken: null as string | null,
+      activationSessionId: null as readonly number[] | null,
+      registeredPublicKeyB64u: null as string | null,
+    };
     const service = createCloudflareD1RouterApiAuthService({
       database: database as never,
       ...ED_SCOPE,
@@ -533,6 +850,7 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'ed25519-e2e-activate',
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       planKind: 'near_ed25519',
       session: signer,
       verifier: signer,
@@ -552,6 +870,58 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       activateRequest as never,
     );
     expect(replayed).toEqual(activated);
+
+    if (!yaoCredential.activationSessionId || !yaoCredential.registeredPublicKeyB64u) {
+      throw new Error('Yao activation result is missing its deferred provisioning identity');
+    }
+    const custodyJoinFixture = buildWalletCustodyCommitPayloadFixture({
+      walletId: setup.walletId,
+      keySet: 'near_ed25519_v1',
+    });
+    const provisioned = await service.walletRegistration.completeWalletRegistrationNearProvisioning(
+      {
+        registrationCeremonyId: setup.registrationCeremonyId,
+        signedSetup: setup.signedSetup,
+        idempotencyKey: 'ed25519-e2e-provisioning',
+        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
+        ed25519: {
+          activationReference: {
+            lifecycle_id: setup.registrationCeremonyId,
+            session_id: yaoCredential.activationSessionId,
+          },
+        },
+        walletCustodyCommit: {
+          walletId: custodyJoinFixture.walletId,
+          keySet: custodyJoinFixture.keySet,
+          keyManifestDigestB64u: custodyJoinFixture.keyManifestDigestB64u,
+          registeredPublicKeyB64u: yaoCredential.registeredPublicKeyB64u,
+        },
+        verifier: signer,
+        session: signer,
+      } as never,
+    );
+    if (!provisioned.ok) {
+      throw new Error(`near provisioning: ${provisioned.code}: ${provisioned.message}`);
+    }
+    expect(provisioned.nearProvisioning).toEqual({ status: 'near_ready' });
+
+    const provisioningCompletion = await readRegistrationJournalRecord({
+      database,
+      scope: ED_SCOPE,
+      recordKey: `wallet-registration-near-provisioning:near-provisioning:${setup.registrationCeremonyId}:ed25519-e2e-provisioning`,
+    });
+    if (provisioned.registrationEstablishedSession.kind !== 'issued') {
+      throw new Error('deferred provisioning did not issue a Wallet Session');
+    }
+    const provisioningTokens = provisioned.registrationEstablishedSession.session.tokens;
+    if (provisioningTokens.kind !== 'near_ed25519') {
+      throw new Error('deferred provisioning did not issue a NEAR session');
+    }
+    expectCredentialFreeRegistrationJournal(
+      provisioningCompletion,
+      'near_provisioning',
+      setup.signedSetup,
+    );
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -652,6 +1022,7 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'ed25519-otp-activate',
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       planKind: 'near_ed25519',
       emailOtpEnrollment: {
         enrollmentSealKeyVersion: 'seal-v1',
@@ -829,6 +1200,7 @@ test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not a
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'ed25519-custody-activate',
+      walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
       planKind: 'near_ed25519',
       session: signer,
       verifier: signer,
@@ -852,6 +1224,7 @@ test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not a
         registrationCeremonyId: setup.registrationCeremonyId,
         signedSetup: setup.signedSetup,
         idempotencyKey: 'ed25519-custody-provisioning',
+        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
         ed25519: {
           activationReference: {
             lifecycle_id: setup.registrationCeremonyId,

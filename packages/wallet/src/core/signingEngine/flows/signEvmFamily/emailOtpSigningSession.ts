@@ -12,8 +12,10 @@ import {
 import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 import type { ExactEcdsaSealedRuntime } from '../../session/material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
-import { resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
-import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  resolveExactEmailOtpEcdsaSigningSessionAuthority,
+  type EmailOtpEcdsaSigningSessionAuthority,
+} from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 import {
   mpcMaterialActivationRefsEqual,
   type MpcMaterialActivationRef,
@@ -48,7 +50,6 @@ import type {
   EmailOtpEcdsaProviderIdentity,
   EmailOtpThresholdEcdsaLoginResult,
 } from '../../session/emailOtp/ecdsaLogin';
-import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 import type { EmailOtpAuthoritySelector } from '../../workerManager/workerTypes';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { EcdsaCommittedLane } from './ecdsaSelection';
@@ -321,19 +322,13 @@ export async function resolveEmailOtpEcdsaSigningSessionAuth(args: {
       expectedCurve: 'ecdsa',
     });
   }
-  const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(args.walletId);
-  if (authorizationRead.kind !== 'found') {
-    throwEmailOtpSigningSessionAuthStateError({
-      kind: 'auth_lane_missing',
-      source: 'evm_signing_refresh',
-      expectedCurve: 'ecdsa',
-    });
-  }
-  const authorityResolution = resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime({
+  const authority = await resolveExactEmailOtpEcdsaSigningSessionAuthority({
+    walletId: args.walletId,
+    chainTarget: args.chainTarget,
+    manifest: resolved.manifest,
     runtime: resolved.runtime,
-    authorization: authorizationRead.projection,
   });
-  if (authorityResolution.kind !== 'ready') {
+  if (!authority) {
     throwEmailOtpSigningSessionAuthStateError({
       kind: 'auth_lane_missing',
       source: 'evm_signing_refresh',
@@ -343,7 +338,7 @@ export async function resolveEmailOtpEcdsaSigningSessionAuth(args: {
   return {
     manifest: resolved.manifest,
     runtime: resolved.runtime,
-    authority: authorityResolution.authority,
+    authority,
   };
 }
 
@@ -381,9 +376,7 @@ async function resolveFencedEmailOtpSigningSessionAuth(input: {
   activationBeforeRefresh: MpcMaterialActivationRef;
   phase: 'before use' | 'during refresh';
 }): ReturnType<EmailOtpEcdsaSigningSessionDeps['resolveSigningSessionAuth']> {
-  let current: Awaited<
-    ReturnType<EmailOtpEcdsaSigningSessionDeps['resolveSigningSessionAuth']>
-  >;
+  let current: Awaited<ReturnType<EmailOtpEcdsaSigningSessionDeps['resolveSigningSessionAuth']>>;
   try {
     current = await input.deps.resolveSigningSessionAuth({
       walletId: input.args.walletSession.walletId,

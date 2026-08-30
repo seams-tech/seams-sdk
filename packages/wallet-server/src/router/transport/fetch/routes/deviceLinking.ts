@@ -39,6 +39,7 @@ import {
   parseLinkedDeviceSessionTransportRequestV1,
   parseLinkedDeviceTargetCredentialRegistrationV1,
   parseLinkedDeviceTargetPreparationV1,
+  parseLinkedDeviceTargetPreparationRequestV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
 import {
@@ -136,10 +137,18 @@ export type DeviceLinkingTargetCredentialProviderV1 = {
       readonly approval: LinkedDeviceApprovalV1;
       readonly requestedAtMs: number;
     } & (
-      | { readonly access: 'create_or_replay'; readonly expectedOrigin: string }
-      | { readonly access: 'replay_only'; readonly expectedOrigin?: never }
+      | {
+          readonly access: 'create_or_replay';
+          readonly expectedOrigin: string;
+          readonly deliveryRecipientPublicKey65B64u: string;
+        }
+      | {
+          readonly access: 'replay_only';
+          readonly expectedOrigin?: never;
+          readonly deliveryRecipientPublicKey65B64u?: never;
+        }
     ),
-  ): Promise<LinkedDeviceTargetPreparationV1>;
+  ): Promise<LinkedDeviceTargetPreparationResultV1>;
   registerTargetCredentialV1(input: {
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
     readonly preparation: LinkedDeviceTargetPreparationV1;
@@ -161,6 +170,10 @@ export type DeviceLinkingTargetCredentialProviderV1 = {
     readonly requestedAtMs: number;
   }): Promise<VerifiedLinkInputV1>;
 };
+
+export type LinkedDeviceTargetPreparationResultV1 =
+  | LinkedDeviceTargetPreparationV1
+  | { readonly kind: 'conflict'; readonly message: string };
 
 export type DeviceLinkingEmailOtpTargetFactorProviderV1 = {
   resolveBaseFactorSelectionV1(input: {
@@ -531,17 +544,33 @@ async function handleTargetPreparation(
   const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
-  if (ctx.method !== 'GET') return methodNotAllowedResponse();
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const origin = await authenticateTargetPasskeyOriginV1(ctx, TARGET_PREPARATION_ROUTE_ID);
   if (!origin.ok) return origin.response;
+  const request = parseBoundary(() =>
+    parseLinkedDeviceTargetPreparationRequestV1(authenticated.body),
+  );
+  if (request.linkSessionId !== authenticated.linkSessionId) {
+    return invalidInputResponse('link session id does not match route');
+  }
   const approval = requireApproval(authenticated.session);
   const rawPreparation = await readTargetPreparation(
     service,
     authenticated.session,
     approval,
-    { access: 'create_or_replay', expectedOrigin: origin.expectedOrigin },
+    {
+      access: 'create_or_replay',
+      expectedOrigin: origin.expectedOrigin,
+      deliveryRecipientPublicKey65B64u: request.deliveryRecipientPublicKey65B64u,
+    },
     nowMs,
   );
+  if (rawPreparation.kind === 'conflict') {
+    return json(
+      { ok: false, code: 'conflict', message: rawPreparation.message },
+      { status: 409 },
+    );
+  }
   const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
   return json(preparation, { status: 200 });
 }
@@ -1107,6 +1136,7 @@ function activeWalletSessionWireV1(issued: D1IssuedWalletSessionV1): ActiveWalle
     authorityId: session.authorityId,
     authMethodId: session.walletAuthMethodId,
     authorizationId: session.authorizationId,
+    quotaId: issued.quota.quotaId,
     authorityDigestB64u: session.authorityDigestB64u,
     authorityRevocationEpoch: session.authorityRevocationEpoch,
     capabilitySubjects: [first, ...capabilitySubjects.slice(1)],
@@ -1370,10 +1400,14 @@ function readTargetPreparation(
   session: LinkedDeviceSessionRecordV1,
   approval: LinkedDeviceApprovalV1,
   access:
-    | { readonly access: 'create_or_replay'; readonly expectedOrigin: string }
+    | {
+        readonly access: 'create_or_replay';
+        readonly expectedOrigin: string;
+        readonly deliveryRecipientPublicKey65B64u: string;
+      }
     | { readonly access: 'replay_only' },
   nowMs: number,
-): Promise<LinkedDeviceTargetPreparationV1> {
+): Promise<LinkedDeviceTargetPreparationResultV1> {
   return service.targetCredential.getTargetPreparationV1({
     session,
     approval,

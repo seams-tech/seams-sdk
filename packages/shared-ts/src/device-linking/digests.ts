@@ -326,6 +326,10 @@ export function encodeLinkedDeviceTargetPreparationV1(
     text(value.walletId, 'walletId'),
     text(value.enrollmentId, 'enrollmentId'),
     text(value.deviceId, 'deviceId'),
+    lp32(
+      rawPublicKey(value.deliveryRecipientPublicKey65B64u, 'deliveryRecipientPublicKey65B64u'),
+      'deliveryRecipientPublicKey65B64u',
+    ),
     text(value.walletAuthMethodId, 'walletAuthMethodId'),
     lp32(encodeEd25519ExportRootPreparation(value.ed25519ExportRoot), 'ed25519ExportRoot'),
     lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),

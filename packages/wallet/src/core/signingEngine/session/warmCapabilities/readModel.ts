@@ -1,5 +1,5 @@
 import { laneCandidateStateFromRuntimePolicy } from '../identity/laneIdentity';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type {
   SigningSessionRetention,
   SigningSessionStatus,
@@ -23,10 +23,7 @@ import {
 } from '../identity/laneIdentity';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
-import {
-  walletSessionTokenForCurve,
-  type ActiveWalletSessionAuthorizationProjection,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { type ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type WarmSessionReadPortsInput =
   | Partial<
@@ -235,7 +232,7 @@ export function deriveEd25519CapabilityState(args: {
 
 export function deriveEcdsaCapabilityState(args: {
   runtime: NonNullable<WarmSessionEcdsaCapabilityState['runtime']>;
-  auth: ActiveEvmFamilyWalletSessionAuthorization | null;
+  auth: ExactEvmFamilyWalletSessionAuthorization | null;
   prfClaim: WarmSessionPrfClaim | null;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext | null;
 }): WarmSessionEcdsaCapabilityState['state'] {
@@ -317,13 +314,11 @@ export function toSigningSessionStatus(args: {
  * seal against and the transport is withheld rather than emitted unauthorized. */
 export function resolveEcdsaSealTransport(args: {
   runtime: NonNullable<WarmSessionEcdsaCapabilityState['runtime']>;
-  auth: ActiveEvmFamilyWalletSessionAuthorization | null;
+  auth: ExactEvmFamilyWalletSessionAuthorization | null;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   groupId?: string;
 }): EcdsaSealTransportAuthMaterial | null {
-  const walletSessionToken = args.auth
-    ? walletSessionTokenForCurve(args.auth.projection, 'ecdsa')
-    : null;
+  const walletSessionToken = args.auth?.operationCredential.token || null;
   if (!walletSessionToken) return null;
   const relayerUrl = String(args.runtime.relayerUrl || '').trim();
   if (!relayerUrl) return null;

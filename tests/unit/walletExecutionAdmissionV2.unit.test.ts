@@ -4,6 +4,7 @@ import {
   buildNearEd25519MpcOperationRef,
   EVM_ECDSA_MPC_OPERATION_KINDS,
   NEAR_ED25519_MPC_OPERATION_KINDS,
+  parseAuthFactorId,
   parseAuthorizationAuditEventId,
   parseAuthorizedOperationId,
   parseCapabilityId,
@@ -45,8 +46,14 @@ import {
   buildActiveWalletSessionQuota,
   buildWalletSessionCapabilitySubjectsV1,
   buildAuthorizedOperation,
+  parseSessionOrigin,
+  parseVerifiedOwnerProofId,
   type WalletSessionAuthorizationV2,
 } from '../../packages/wallet-server/src/authorization/domain';
+import {
+  buildVerifiedOwnerProof,
+  buildVerifiedWalletSessionPasskeyFactorResult,
+} from '../../packages/wallet-server/src/authorization/factorEvidence';
 import {
   buildCapabilityOperationEnvelope,
   type CapabilityOperationEnvelope,
@@ -62,9 +69,12 @@ import {
   type WalletSessionAuthorizationV2RequestedOperation,
 } from '../../packages/wallet-server/src/router/domains/signingOperations/walletExecutionAdmission';
 import {
+  resolveWalletSessionOperationCredentialAdmission,
   validateRouterAbEd25519WalletSessionTokenInputs,
   validateRouterAbEcdsaDerivationWalletSessionInputs,
 } from '../../packages/wallet-server/src/router/auth/commonRouterUtils';
+import { authorizeStrictEcdsaSessionActivationFromOperationCredential } from '../../packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa';
+import { authenticateDeviceLinkingOwnerWalletSessionRequestV1 } from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceLinkingOwnerAuthorization';
 import type {
   RouterApiAuthorizedOperationService,
   RouterApiAuthorizationSessionService,
@@ -82,6 +92,7 @@ import {
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 type SignerFamily = 'ed25519' | 'ecdsa_secp256k1' | 'both';
 
@@ -293,29 +304,28 @@ async function unsupportedAuthorizedOperationOperation(): Promise<never> {
 
 class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessionService {
   readonly tenantId: WalletSessionAuthorizationV2['tenantId'];
+  legacyReads = 0;
 
-  constructor(private readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext) {
+  constructor(
+    private readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext,
+    private readonly expectedToken: string | null = null,
+  ) {
     this.tenantId = context.authorization.session.tenantId;
   }
 
-  readonly readWalletSessionAuthorizationV2ByOperationCredential = async () => {
-    return this.context;
+  readonly readWalletSessionAuthorizationV2ByOperationCredential = async (input: {
+    readonly token: string;
+  }) => {
+    return this.expectedToken === null || input.token === this.expectedToken ? this.context : null;
   };
-
-  async issueReusableWalletSession(): Promise<never> {
-    return await unsupportedAuthorizationSessionOperation();
-  }
 
   async issueOpaqueWalletSessionToken(): Promise<never> {
     return await unsupportedAuthorizationSessionOperation();
   }
 
   async resolveOpaqueWalletSessionToken(): Promise<null> {
+    this.legacyReads += 1;
     return null;
-  }
-
-  async readReusableWalletSessionStatus(): Promise<never> {
-    return await unsupportedAuthorizationSessionOperation();
   }
 
   async mintHostedWalletSeamsSessionExchange(): Promise<never> {
@@ -362,6 +372,73 @@ class WalletAuthorizedOperationFixture implements RouterApiAuthorizedOperationSe
     return await unsupportedAuthorizedOperationOperation();
   }
 }
+
+test('device-link owner approval requires the exact V2 operation credential', async () => {
+  const authority = await buildAuthority('both', 'device-link-owner');
+  const authMethod = buildAuthMethod(authority, 'device-link-owner', 'active');
+  const session = buildSession({
+    authority,
+    authMethodId: authMethod.walletAuthMethodId,
+    label: 'device-link-owner',
+    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
+    authorityDigestB64u: authority.authorityDigestB64u,
+    authorityRevocationEpoch: authority.revocationEpoch,
+    expiresAtMs: 10_000,
+  });
+  const quota = buildActiveWalletSessionQuota({
+    tenantId: session.tenantId,
+    principalId: session.principalId,
+    walletSessionId: session.walletSessionId,
+    quotaId: session.quotaId,
+    remainingUses: 3,
+    expiresAtMs: session.expiresAtMs,
+  });
+  const context: RouterApiWalletSessionAuthorizationV2AdmissionContext = {
+    authorization: { session, quota },
+    authority,
+    authMethod,
+    retiredAtMs: null,
+  };
+  const request = new Request('https://wallet.example.test/wallet/device-linking/v1/claim', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer exact-device-link-owner',
+      'content-type': 'application/json',
+    },
+    body: '{}',
+  });
+  const authenticated = await authenticateDeviceLinkingOwnerWalletSessionRequestV1({
+    request,
+    method: 'POST',
+    pathname: '/wallet/device-linking/v1/claim',
+    bodyDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(21))),
+    requestedAtMs: 500,
+    authorizationSessions: new WalletSessionAuthorizationV2Fixture(
+      context,
+      'exact-device-link-owner',
+    ),
+    nowV1: () => 500,
+  });
+  expect(authenticated.kind).toBe('authorized');
+  if (authenticated.kind !== 'authorized') throw new Error(authenticated.message);
+  expect(authenticated.owner.walletSessionId).toBe(session.walletSessionId);
+  expect(authenticated.owner.authorizationId).toBe(session.authorizationId);
+
+  const missingExact = await authenticateDeviceLinkingOwnerWalletSessionRequestV1({
+    request,
+    method: 'POST',
+    pathname: '/wallet/device-linking/v1/claim',
+    bodyDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(21))),
+    requestedAtMs: 500,
+    authorizationSessions: new WalletSessionAuthorizationV2Fixture(context, 'different-token'),
+    nowV1: () => 500,
+  });
+  expect(missingExact).toEqual({
+    kind: 'denied',
+    code: 'unauthorized',
+    message: 'An exact owner Wallet Session is required',
+  });
+});
 
 class Ed25519MaterialActivationFixture {
   readonly runtimePolicyScope: RuntimePolicyScope = {
@@ -710,6 +787,106 @@ test('admits exact Ed25519 and ECDSA Wallet Session V2 provenance', async () => 
   expect(ecdsaAdmission.operationKind).toBe(EVM_ECDSA_MPC_OPERATION_KINDS.exportKey);
   expect(edAdmission.walletKeyId).toBe(authority.signerActivations.ed25519.signer.walletKeyId);
   expect(ecdsaAdmission.walletKeyId).toBe(authority.signerActivations.ecdsa.signer.walletKeyId);
+
+  const operationCredentialService = new WalletSessionAuthorizationV2Fixture(
+    buildAdmissionContext({ authority, authMethod, session }),
+    'wst_shared-primary-credential',
+  );
+  const [edOperationAdmission, ecdsaOperationAdmission] = await Promise.all([
+    resolveWalletSessionOperationCredentialAdmission({
+      authorizationSessions: operationCredentialService,
+      token: 'wst_shared-primary-credential',
+      nowMs: 500,
+      operation: {
+        keyFamily: 'ed25519',
+        operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
+      },
+    }),
+    resolveWalletSessionOperationCredentialAdmission({
+      authorizationSessions: operationCredentialService,
+      token: 'wst_shared-primary-credential',
+      nowMs: 500,
+      operation: {
+        keyFamily: 'ecdsa_secp256k1',
+        operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
+      },
+    }),
+  ]);
+  if (edOperationAdmission.kind !== 'admitted' || ecdsaOperationAdmission.kind !== 'admitted') {
+    throw new Error('shared primary Wallet Session credential was not admitted for both signers');
+  }
+  expect(edOperationAdmission.admission.curve).toBe('ed25519');
+  expect(ecdsaOperationAdmission.admission.curve).toBe('ecdsa');
+  expect(edOperationAdmission.admission.context.authorization.session.authorizationId).toBe(
+    ecdsaOperationAdmission.admission.context.authorization.session.authorizationId,
+  );
+  expect(edOperationAdmission.admission.context.authorization.session.walletSessionId).toBe(
+    ecdsaOperationAdmission.admission.context.authorization.session.walletSessionId,
+  );
+});
+
+test('authorizes ECDSA activation from the shared exact operation credential', async () => {
+  const authority = await buildAuthority('both', 'activation');
+  const authMethod = buildAuthMethod(authority, 'activation', 'active');
+  const session = buildSession({
+    authority,
+    authMethodId: authMethod.walletAuthMethodId,
+    label: 'activation',
+    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
+    authorityDigestB64u: authority.authorityDigestB64u,
+    authorityRevocationEpoch: authority.revocationEpoch,
+    expiresAtMs: Date.now() + 60_000,
+  });
+  const operationCredentialService = new WalletSessionAuthorizationV2Fixture(
+    buildAdmissionContext({ authority, authMethod, session }),
+    'wst_shared-activation-credential',
+  );
+  const authorityRef = parseWalletAuthAuthorityRef({
+    kind: 'wallet_auth_authority_ref',
+    walletId: authority.walletId,
+    authorityDigest: session.authorityDigestB64u,
+    walletAuthMethodId: authMethod.walletAuthMethodId,
+  });
+  if (!authorityRef) throw new Error('exact activation authority reference is invalid');
+  const proof = await buildVerifiedOwnerProof({
+    purpose: 'wallet_session',
+    proofId: parseVerifiedOwnerProofId('proof:ecdsa-activation'),
+    factor: buildVerifiedWalletSessionPasskeyFactorResult({
+      tenantId: session.tenantId,
+      principalId: session.principalId,
+      walletId: session.walletId,
+      authorityRef,
+      requestOrigin: parseSessionOrigin('https://wallet.example.test'),
+      audience: parseSessionOrigin('https://wallet.example.test'),
+      factorId: required(parseAuthFactorId('factor:ecdsa-activation')),
+      verifiedAtMs: 400,
+      expiresAtMs: 900,
+      credentialIdB64u: authMethod.credentialIdB64u,
+      assertionDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(28))),
+    }),
+  });
+  const operationCredential = {
+    kind: 'opaque_wallet_session_operation_credential_v1' as const,
+    token: 'wst_shared-activation-credential',
+    walletSessionId: session.walletSessionId,
+  };
+
+  const admission = await authorizeStrictEcdsaSessionActivationFromOperationCredential({
+    authorizationSessions: operationCredentialService,
+    walletId: String(session.walletId),
+    operationCredential,
+    proof,
+  });
+
+  if (!admission.ok) throw new Error('shared exact operation credential was refused');
+  expect(admission.kind).toBe('reuse_wallet_session_operation_credential_v1');
+  expect(admission.admission.curve).toBe('ecdsa');
+  expect(admission.admission.context.authorization.session.authorizationId).toBe(
+    session.authorizationId,
+  );
+  expect(admission.admission.context.authorization.session.walletSessionId).toBe(
+    operationCredential.walletSessionId,
+  );
 });
 
 test('rejects provenance drift, retirement, expiry, subject drift, and missing signer family', async () => {
@@ -966,10 +1143,7 @@ test('ordinary ECDSA V2 admission rejects exact normal-signing scope drift befor
     authority.walletId,
     'normal-scope',
   );
-  const materialResolver = new EcdsaMaterialActivationFixture(
-    materialActivation,
-    normalSigning,
-  );
+  const materialResolver = new EcdsaMaterialActivationFixture(materialActivation, normalSigning);
   const authorizationSessions = new WalletSessionAuthorizationV2Fixture(
     buildAdmissionContext({ authority, authMethod, session }),
   );
@@ -1129,6 +1303,53 @@ test('ordinary Ed25519 admission consumes exact V2 credentials and rejects activ
     code: 'wallet_session_scope_mismatch',
     message: expect.any(String),
   });
+});
+
+test('ordinary signing validators reject missing exact state without V1 token fallback', async () => {
+  const authority = await buildAuthority('both', 'exact-only-validator');
+  const authMethod = buildAuthMethod(authority, 'exact-only-validator', 'active');
+  const session = buildSession({
+    authority,
+    authMethodId: authMethod.walletAuthMethodId,
+    label: 'exact-only-validator',
+    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
+    authorityDigestB64u: authority.authorityDigestB64u,
+    authorityRevocationEpoch: authority.revocationEpoch,
+    expiresAtMs: 1_000,
+  });
+  const service = new WalletSessionAuthorizationV2Fixture(
+    buildAdmissionContext({ authority, authMethod, session }),
+    'different-exact-credential',
+  );
+
+  const [ed25519, ecdsa] = await Promise.all([
+    validateRouterAbEd25519WalletSessionTokenInputs({
+      body: {},
+      headers: { authorization: 'Bearer retired-v1-token' },
+      authorizationSessions: service,
+      nowMs: () => 500,
+      operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
+    }),
+    validateRouterAbEcdsaDerivationWalletSessionInputs({
+      body: {},
+      headers: { authorization: 'Bearer retired-v1-token' },
+      authorizationSessions: service,
+      nowMs: () => 500,
+      operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
+    }),
+  ]);
+
+  expect(ed25519).toEqual({
+    ok: false,
+    code: 'wallet_session_invalid',
+    message: expect.any(String),
+  });
+  expect(ecdsa).toEqual({
+    ok: false,
+    code: 'wallet_session_invalid',
+    message: expect.any(String),
+  });
+  expect(service.legacyReads).toBe(0);
 });
 
 test('strict Ed25519 V2 finalize admits the exact receipt operation and rejects drift', async () => {

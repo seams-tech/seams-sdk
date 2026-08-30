@@ -859,7 +859,10 @@ export function parseHostedAuthMenuOutcome(value: unknown): HostedAuthMenuOutcom
   }
 }
 
-export const WALLET_PROTOCOL_VERSION = '1.0.0' as const;
+export const WALLET_PROTOCOL_VERSION = '2.0.0' as const;
+
+export const WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH =
+  'WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH' as const;
 
 export type WalletProtocolVersion = typeof WALLET_PROTOCOL_VERSION;
 
@@ -954,10 +957,21 @@ export interface RpcEnvelope<T extends string = string, P = unknown> {
   };
 }
 
+export type WalletIframeConnectMessage = RpcEnvelope<'CONNECT', ConnectPayload>;
+
 // ===== Payloads =====
 
 export interface ReadyPayload {
   protocolVersion: WalletProtocolVersion;
+}
+
+export interface ConnectPayload {
+  protocolVersion: WalletProtocolVersion;
+}
+
+export interface WalletIframeProtocolVersionMismatchDetails {
+  expectedProtocolVersion: string;
+  receivedProtocolVersion: string | null;
 }
 
 export interface PreferencesChangedPayload {
@@ -977,13 +991,106 @@ export interface PMCancelPayload {
   requestId?: string; // when omitted, host may attempt best-effort global cancel (close UIs)
 }
 
-export interface PMRedeemHostedWalletSeamsSessionPayload {
-  exchangeCode: string;
-  nonce: string;
-  curve: 'ecdsa' | 'ed25519';
-  appOrigin: string;
-  walletOrigin: string;
-  relayUrl: string;
+declare const hostedWalletExchangeCodeBrand: unique symbol;
+declare const hostedWalletExchangeNonceBrand: unique symbol;
+
+export type HostedWalletExchangeCode = string & {
+  readonly [hostedWalletExchangeCodeBrand]: true;
+};
+
+export type HostedWalletExchangeNonce = string & {
+  readonly [hostedWalletExchangeNonceBrand]: true;
+};
+
+export type PMRedeemHostedWalletSeamsSessionPayload = {
+  readonly exchangeCode: HostedWalletExchangeCode;
+  readonly nonce: HostedWalletExchangeNonce;
+  readonly appOrigin: string;
+  readonly walletOrigin: string;
+  readonly relayUrl: string;
+};
+
+const HOSTED_WALLET_REDEMPTION_PAYLOAD_FIELDS = [
+  'exchangeCode',
+  'nonce',
+  'appOrigin',
+  'walletOrigin',
+  'relayUrl',
+] as const;
+
+function compactHostedWalletExchangeValue<T extends string>(
+  value: unknown,
+  label: string,
+): T {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > 512 ||
+    value.trim() !== value ||
+    // eslint-disable-next-line no-control-regex
+    /[\s\u0000-\u001f\u007f]/.test(value)
+  ) {
+    throw new Error(`${label} must be a compact opaque identifier`);
+  }
+  return value as T;
+}
+
+function canonicalHostedWalletOrigin(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) {
+    throw new Error(`${label} must be a canonical HTTP origin`);
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${label} must be a canonical HTTP origin`);
+  }
+  if (
+    (url.protocol !== 'https:' && url.protocol !== 'http:') ||
+    url.origin !== value ||
+    url.pathname !== '/' ||
+    url.search !== '' ||
+    url.hash !== ''
+  ) {
+    throw new Error(`${label} must be a canonical HTTP origin`);
+  }
+  return url.origin;
+}
+
+export function parsePMRedeemHostedWalletSeamsSessionPayload(
+  value: unknown,
+): PMRedeemHostedWalletSeamsSessionPayload {
+  if (!isPlainObject(value)) {
+    throw new Error('hosted-wallet redemption payload must be an exact object');
+  }
+  if (Object.keys(value).length !== HOSTED_WALLET_REDEMPTION_PAYLOAD_FIELDS.length) {
+    throw new Error('hosted-wallet redemption payload fields are invalid');
+  }
+  for (const field of HOSTED_WALLET_REDEMPTION_PAYLOAD_FIELDS) {
+    if (!Object.hasOwn(value, field)) {
+      throw new Error('hosted-wallet redemption payload fields are invalid');
+    }
+  }
+  return {
+    exchangeCode: compactHostedWalletExchangeValue<HostedWalletExchangeCode>(
+      value.exchangeCode,
+      'exchangeCode',
+    ),
+    nonce: compactHostedWalletExchangeValue<HostedWalletExchangeNonce>(value.nonce, 'nonce'),
+    appOrigin: canonicalHostedWalletOrigin(value.appOrigin, 'appOrigin'),
+    walletOrigin: canonicalHostedWalletOrigin(value.walletOrigin, 'walletOrigin'),
+    relayUrl: compactHostedWalletExchangeValue(value.relayUrl, 'relayUrl'),
+  };
+}
+
+export function buildPMRedeemHostedWalletSeamsSessionPayload(input: {
+  readonly exchangeCode: unknown;
+  readonly nonce: unknown;
+  readonly appOrigin: unknown;
+  readonly walletOrigin: unknown;
+  readonly relayUrl: unknown;
+}): PMRedeemHostedWalletSeamsSessionPayload {
+  return parsePMRedeemHostedWalletSeamsSessionPayload(input);
 }
 
 type PMEmailOtpChallengeRegistrationAuthMethod = Omit<

@@ -847,31 +847,6 @@ export class CloudflareD1WalletCustodyCommitStore {
     return method?.kind === 'passkey' ? method : null;
   }
 
-  async hasActiveWalletSessionsForAuthMethod(input: {
-    readonly walletId: WalletId;
-    readonly walletAuthMethodId: string;
-  }): Promise<boolean> {
-    const row = await this.database
-      .prepare(
-        `SELECT 1
-           FROM reusable_wallet_sessions
-          WHERE namespace = ?
-            AND tenant_id = ?
-            AND wallet_id = ?
-            AND wallet_auth_method_id = ?
-            AND lifecycle_kind = 'active'
-          LIMIT 1`,
-      )
-      .bind(
-        this.scope.namespace,
-        this.scope.orgId,
-        String(input.walletId),
-        input.walletAuthMethodId,
-      )
-      .first<{ readonly one?: unknown }>();
-    return row !== null;
-  }
-
   /**
    * Reads the wallet's backup acknowledgement, if any.
    *

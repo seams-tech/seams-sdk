@@ -8,11 +8,14 @@ import type {
 import {
   walletSessionAuthorizations,
   walletSessionAuthorizationIdForCurve,
-  walletSessionThresholdSessionIdForCurve,
   walletSessionTokenForCurve,
+  type ActiveWalletSessionV1,
   type ActiveWalletSessionAuthorizationProjection,
+  type WalletSessionOperationCredentialV1,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { IndexedDBManager } from '@/core/indexedDB';
 import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
+import { resolveWalletAuthorityOperation } from '@/core/signingEngine/session/authority';
 import {
   buildRouterAbEd25519SigningWalletSession,
   type RouterAbEd25519SigningWalletSession,
@@ -21,6 +24,10 @@ import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget'
 import type { AccountId } from '@/core/types/accountIds';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import {
+  mpcMaterialActivationRefsEqual,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 import {
   ed25519SealedRuntimeAuthorityRef,
   type ExactEd25519SealedSessionRuntime,
@@ -256,17 +263,29 @@ export function nearEd25519YaoOperationMaterialFacts(
   };
 }
 
-export function authorizeRouterAbEd25519WalletSessionState(args: {
+function hasExactEd25519SigningSubject(args: {
+  authorization: ActiveWalletSessionV1;
+  materialActivation: MpcMaterialActivationRef;
+}): boolean {
+  return args.authorization.capabilitySubjects.some(
+    (subject) =>
+      subject.kind === 'sign' &&
+      subject.keyFamily === 'ed25519' &&
+      mpcMaterialActivationRefsEqual(subject.materialActivation, args.materialActivation),
+  );
+}
+
+function authorizeRouterAbEd25519WalletSessionState(args: {
   state: ResolvedRouterAbEd25519WalletSessionState;
-  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorization: ActiveWalletSessionV1;
+  operationCredential: WalletSessionOperationCredentialV1;
+  materialActivation: MpcMaterialActivationRef;
   nowMs: number;
 }): AuthorizedRouterAbEd25519WalletSessionState | null {
   const state = args.state;
   const authorization = args.authorization;
   const walletId = state.signingLane.identity.signer.account.wallet.walletId;
-  const walletSessionToken = state.signingWalletSession.auth.walletSessionToken;
-  const authorizationId = walletSessionAuthorizationIdForCurve(authorization, 'ed25519');
-  const thresholdSessionId = walletSessionThresholdSessionIdForCurve(authorization, 'ed25519');
+  const walletSessionToken = args.operationCredential.token;
   const signer = state.signingLane.identity.signer;
   const effectiveExpiresAtMs = Math.min(
     state.signingWalletSession.expiresAtMs,
@@ -274,16 +293,14 @@ export function authorizeRouterAbEd25519WalletSessionState(args: {
   );
   if (
     !walletSessionToken ||
-    !authorizationId ||
-    !thresholdSessionId ||
+    !hasExactEd25519SigningSubject({
+      authorization,
+      materialActivation: args.materialActivation,
+    }) ||
     authorization.walletId !== walletId ||
-    authorization.authority.walletId !== walletId ||
-    authorization.authority.authorityDigest !== state.authority.authorityDigest ||
-    authorization.authMethod !== signingLaneAuthMethod(state.signingLane.auth) ||
-    authorization.walletSessionId !== state.walletSessionId ||
-    authorization.quotaId !== state.quotaId ||
-    authorizationId !== state.signingWalletSession.authorizationId ||
-    thresholdSessionId !== state.thresholdSessionId ||
+    authorization.authMethodId !== state.authority.walletAuthMethodId ||
+    args.operationCredential.walletSessionId !== state.walletSessionId ||
+    authorization.authorizationId !== state.signingWalletSession.authorizationId ||
     effectiveExpiresAtMs <= args.nowMs ||
     !Number.isSafeInteger(effectiveExpiresAtMs)
   ) {
@@ -323,6 +340,7 @@ export function authorizeRouterAbEd25519WalletSessionState(args: {
       return {
         ...rebound,
         walletSessionAuthorization: authorization,
+        walletSessionOperationCredential: args.operationCredential,
       };
     }
     case 'email_otp': {
@@ -339,6 +357,7 @@ export function authorizeRouterAbEd25519WalletSessionState(args: {
       return {
         ...rebound,
         walletSessionAuthorization: authorization,
+        walletSessionOperationCredential: args.operationCredential,
       };
     }
     default:
@@ -354,12 +373,96 @@ export async function resolveActiveAuthorizedRouterAbEd25519WalletSessionState(a
   state: ResolvedRouterAbEd25519WalletSessionState;
   nowMs: number;
 }): Promise<AuthorizedRouterAbEd25519WalletSessionState | null> {
+  return resolveActiveAuthorizedRouterAbEd25519WalletSessionStateWithResolver(args, {
+    resolveSelectedWalletAuthority:
+      IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
+    readExactWithOperationCredential:
+      walletSessionAuthorizations.readExactWithOperationCredential.bind(
+        walletSessionAuthorizations,
+      ),
+  });
+}
+
+export type RouterAbEd25519WalletSessionAuthorizationResolver = {
+  readonly resolveSelectedWalletAuthority: typeof IndexedDBManager.resolveSelectedWalletAuthority;
+  readonly readExactWithOperationCredential: typeof walletSessionAuthorizations.readExactWithOperationCredential;
+};
+
+export async function resolveActiveAuthorizedRouterAbEd25519WalletSessionStateWithResolver(
+  args: {
+    state: ResolvedRouterAbEd25519WalletSessionState;
+    nowMs: number;
+  },
+  resolver: RouterAbEd25519WalletSessionAuthorizationResolver,
+): Promise<AuthorizedRouterAbEd25519WalletSessionState | null> {
   const walletId = args.state.signingLane.identity.signer.account.wallet.walletId;
-  const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(walletId);
+  let selected: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
+  try {
+    selected = await resolver.resolveSelectedWalletAuthority(String(walletId));
+  } catch {
+    return null;
+  }
+  if (selected.kind !== 'resolved') return null;
+  const { selection, authMethod, authority } = selected;
+  if (
+    selection.lockState !== 'unlocked' ||
+    selection.walletId !== walletId ||
+    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    authMethod.status !== 'active' ||
+    authMethod.walletId !== walletId ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    authMethod.walletAuthMethodId !== args.state.authority.walletAuthMethodId ||
+    authMethod.kind !== signingLaneAuthMethod(args.state.signingLane.auth) ||
+    authority.state !== 'active' ||
+    authority.walletId !== walletId
+  ) {
+    return null;
+  }
+  let operation: Awaited<ReturnType<typeof resolveWalletAuthorityOperation>>;
+  try {
+    operation = await resolveWalletAuthorityOperation({
+      selected: { authMethod, authority },
+      operation: { kind: 'near_sign', operation: 'sign', keyFamily: 'ed25519' },
+    });
+  } catch {
+    return null;
+  }
+  if (
+    operation.kind !== 'resolved' ||
+    operation.value.walletId !== walletId ||
+    operation.value.authorityId !== authority.authorityId ||
+    operation.value.authMethodId !== authMethod.walletAuthMethodId
+  ) {
+    return null;
+  }
+  let authorizationRead: Awaited<
+    ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
+  >;
+  try {
+    authorizationRead = await resolver.readExactWithOperationCredential({
+      walletId,
+      authorityId: authority.authorityId,
+      authMethodId: authMethod.walletAuthMethodId,
+    });
+  } catch {
+    return null;
+  }
   if (authorizationRead.kind !== 'found') return null;
+  if (
+    authorizationRead.record.walletId !== walletId ||
+    authorizationRead.record.authorityId !== authority.authorityId ||
+    authorizationRead.record.authMethodId !== authMethod.walletAuthMethodId ||
+    authorizationRead.record.authorityDigestB64u !== authority.authorityDigestB64u ||
+    authorizationRead.record.authorityRevocationEpoch !== authority.revocationEpoch ||
+    authorizationRead.record.expiresAtMs <= args.nowMs
+  ) {
+    return null;
+  }
   return authorizeRouterAbEd25519WalletSessionState({
     state: args.state,
-    authorization: authorizationRead.projection,
+    authorization: authorizationRead.record,
+    operationCredential: authorizationRead.operationCredential,
+    materialActivation: operation.value.materialActivation,
     nowMs: args.nowMs,
   });
 }

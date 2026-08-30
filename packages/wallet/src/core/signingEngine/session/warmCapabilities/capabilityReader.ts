@@ -3,17 +3,14 @@ import {
   createWarmSessionCapabilityReaderCore,
   type WarmSessionCapabilityReaderSeal,
 } from './capabilityReaderCore';
-import {
-  createWarmSessionStatusReader,
-  type WarmSessionStatusReaderDeps,
-} from './statusReader';
+import { createWarmSessionStatusReader, type WarmSessionStatusReaderDeps } from './statusReader';
 import {
   normalizeWarmSessionReadPorts,
   type WarmSessionReadPorts,
   type WarmSessionReadPortsInput,
 } from './readModel';
 import type { WarmSessionCapabilityReader } from './types';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ExactEcdsaWalletSessionAuthorizationResolver } from '../material/ecdsaSigningCapability';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
@@ -53,12 +50,10 @@ export type WarmSessionCapabilityReaderFactoryDeps = Omit<
 > & {
   touchConfirm: WarmSessionCapabilityReaderTouchConfirmInput;
   signingSessionSeal: WarmSessionCapabilityReaderSealInput;
-  getEmailOtpWarmSessionStatus: (
-    (target: EmailOtpWarmMaterialTarget) => Promise<WarmSessionStatusResult>
-  ) | null;
-  resolveActiveEcdsaWalletSessionAuthorization?: (
-    walletId: WalletId,
-  ) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
+  getEmailOtpWarmSessionStatus:
+    | ((target: EmailOtpWarmMaterialTarget) => Promise<WarmSessionStatusResult>)
+    | null;
+  resolveActiveEcdsaWalletSessionAuthorization?: ExactEcdsaWalletSessionAuthorizationResolver;
   resolveActiveEd25519WalletSessionAuthorization?: (
     walletId: WalletId,
   ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
@@ -79,7 +74,10 @@ function unavailableEmailOtpWarmSessionStatus(): WarmSessionStatusResult {
 }
 
 export function normalizeWarmCapabilityReaderPorts(
-  deps: Pick<WarmSessionCapabilityReaderFactoryDeps, 'touchConfirm' | 'getEmailOtpWarmSessionStatus'>,
+  deps: Pick<
+    WarmSessionCapabilityReaderFactoryDeps,
+    'touchConfirm' | 'getEmailOtpWarmSessionStatus'
+  >,
 ): WarmCapabilityReaderPorts {
   const touchConfirm = normalizeWarmSessionReadPorts(deps.touchConfirm);
   const getEmailOtpWarmSessionStatus = deps.getEmailOtpWarmSessionStatus;

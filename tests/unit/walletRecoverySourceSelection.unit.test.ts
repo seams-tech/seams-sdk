@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test';
 import {
-  parseWalletAuthorityBindingDigest,
   parseWalletAuthorityId,
   parseWalletId,
 } from '../../packages/shared-ts/src/utils/domainIds';
@@ -16,30 +15,39 @@ import {
   buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture,
   buildActiveMethodBoundPasskeyCustodyEnvelopeFixture,
 } from './helpers/passkeyCustodyEnvelope.fixtures';
+import {
+  buildLinkedDeviceManagementAuthorityFixture,
+  fullOwnerPermissionsForManagementFixture,
+} from './helpers/linkedDeviceManagement.fixtures';
 
 const WALLET_ID = parseWalletId('alice.testnet');
-const AUTHORITY_DIGEST = parseWalletAuthorityBindingDigest('A'.repeat(43));
 
-if (!WALLET_ID.ok || !AUTHORITY_DIGEST.ok) {
+if (!WALLET_ID.ok) {
   throw new Error('recovery continuity selection fixture identities are invalid');
 }
 
-function authoritySelection(input: {
+async function authoritySelection(input: {
   readonly authorityId: string;
-  readonly provenanceKind: WalletRecoveryAuthoritySelection['provenanceKind'];
-}): WalletRecoveryAuthoritySelection {
+  readonly provenanceKind: WalletRecoveryAuthoritySelection['provenance']['kind'];
+}): Promise<WalletRecoveryAuthoritySelection> {
   const authorityId = parseWalletAuthorityId(input.authorityId);
   if (!authorityId.ok) throw new Error('recovery continuity authority fixture is invalid');
-  return {
-    walletId: WALLET_ID.value,
-    authorityId: authorityId.value,
-    authorityDigestB64u: AUTHORITY_DIGEST.value,
-    state: 'active',
-    provenanceKind: input.provenanceKind,
-  };
+  const label = input.authorityId.replace(/[^a-zA-Z0-9_-]/g, '-');
+  const fixture = await buildLinkedDeviceManagementAuthorityFixture({
+    label,
+    permissions: fullOwnerPermissionsForManagementFixture(),
+    provenance: input.provenanceKind,
+    identity: {
+      walletId: 'alice.testnet',
+      authorityId: String(authorityId.value),
+      walletAuthMethodId: `wallet-auth-method:${label}`,
+      rpId: 'old.example.localhost',
+    },
+  });
+  return fixture.authority;
 }
 
-test('selects an exact active envelope independently of the target RP', () => {
+test('selects an exact active envelope independently of the target RP', async () => {
   const emailMethod = activeRecoveryEmailOtpMethodFixture({
     walletAuthMethodId: 'wallet-auth-method:email-registration',
     createdAtMs: 200,
@@ -70,7 +78,7 @@ test('selects an exact active envelope independently of the target RP', () => {
         walletAuthMethodId: 'wallet-auth-method:passkey-linked',
       }),
     ],
-    authorities: [
+    authorities: await Promise.all([
       authoritySelection({
         authorityId: 'wallet-authority:recovery-email-sibling',
         provenanceKind: 'wallet_registration',
@@ -79,14 +87,14 @@ test('selects an exact active envelope independently of the target RP', () => {
         authorityId: 'wallet-authority:recovery-source',
         provenanceKind: 'device_link',
       }),
-    ],
+    ]),
   });
 
   expect(selected?.method.walletAuthMethodId).toBe('wallet-auth-method:email-registration');
   expect(selected?.envelope.factor.kind).toBe('email_otp');
 });
 
-test('prefers a target-family method after provenance ranking', () => {
+test('prefers a target-family method after provenance ranking', async () => {
   const emailMethod = activeRecoveryEmailOtpMethodFixture({
     walletAuthMethodId: 'wallet-auth-method:email-linked',
     createdAtMs: 1,
@@ -117,7 +125,7 @@ test('prefers a target-family method after provenance ranking', () => {
         walletAuthMethodId: 'wallet-auth-method:passkey-linked',
       }),
     ],
-    authorities: [
+    authorities: await Promise.all([
       authoritySelection({
         authorityId: 'wallet-authority:recovery-email-sibling',
         provenanceKind: 'device_link',
@@ -126,13 +134,13 @@ test('prefers a target-family method after provenance ranking', () => {
         authorityId: 'wallet-authority:recovery-source',
         provenanceKind: 'device_link',
       }),
-    ],
+    ]),
   });
 
   expect(selected?.method.walletAuthMethodId).toBe('wallet-auth-method:passkey-linked');
 });
 
-test('uses method id as the deterministic tie-breaker', () => {
+test('uses method id as the deterministic tie-breaker', async () => {
   const earlierId = activeRecoveryPasskeyMethodFixture({
     walletAuthMethodId: 'wallet-auth-method:a',
     credentialIdB64u: 'credential-a',
@@ -161,18 +169,18 @@ test('uses method id as the deterministic tie-breaker', () => {
       envelopeFor('credential-b', 'wallet-auth-method:b', 'passkey-envelope:b'),
       envelopeFor('credential-a', 'wallet-auth-method:a', 'passkey-envelope:a'),
     ],
-    authorities: [
+    authorities: await Promise.all([
       authoritySelection({
         authorityId: 'wallet-authority:recovery-source',
         provenanceKind: 'wallet_registration',
       }),
-    ],
+    ]),
   });
 
   expect(selected?.method.walletAuthMethodId).toBe('wallet-auth-method:a');
 });
 
-test('ignores methods without one exact active method-bound custody envelope', () => {
+test('ignores methods without one exact active method-bound custody envelope', async () => {
   const method = activeRecoveryPasskeyMethodFixture({
     walletAuthMethodId: 'wallet-auth-method:source',
     credentialIdB64u: 'source-credential',
@@ -192,12 +200,12 @@ test('ignores methods without one exact active method-bound custody envelope', (
         walletAuthMethodId: 'wallet-auth-method:other',
       }),
     ],
-    authorities: [
+    authorities: await Promise.all([
       authoritySelection({
         authorityId: 'wallet-authority:recovery-source',
         provenanceKind: 'wallet_registration',
       }),
-    ],
+    ]),
   });
 
   expect(selected).toBeUndefined();

@@ -8,7 +8,7 @@ import {
   ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
 import {
-  resolveOpaqueOwnerWalletSessionAdmission,
+  resolveWalletSessionOperationCredentialAdmission,
   resolveThresholdRuntimePolicyScope,
 } from '../../../auth/commonRouterUtils';
 import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
@@ -37,7 +37,10 @@ import {
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { isPlainObject } from '@shared/utils/validation';
-import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  routerAbMpcMaterialActivationRefToWire,
+  sameRouterAbMpcMaterialActivationRef,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   parseAuthorizationAuditEventId,
@@ -51,6 +54,7 @@ import {
   parseAuthorizationEvidenceSetId,
   parsePrincipalId,
   parseTenantId,
+  EVM_ECDSA_MPC_OPERATION_KINDS,
 } from '@shared/authorization/capabilityKinds';
 import {
   buildCapabilityOperationEnvelope,
@@ -102,7 +106,9 @@ import {
 import { sealEmailOtpFactorSecretForWorker } from '../../../domains/emailOtp/emailOtpRouteHandlers';
 import type { RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse } from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
 import type {
+  RouterApiAuthorizationSessionService,
   RouterApiEmailOtpRouteService,
+  RouterApiWalletRegistrationService,
   RouterApiWalletAuthMethodService,
 } from '../../../framework/authServicePort';
 import {
@@ -503,81 +509,142 @@ type ReusedEcdsaWalletSessionResult =
     }
   | { readonly ok: false; readonly response: Response };
 
-async function resolveReusedEcdsaWalletSession(input: {
-  readonly ctx: FetchRouterApiContext;
-  readonly request: RouterAbEd25519YaoSessionRouteCommandV1;
+function reusedEcdsaWalletSessionFailure(
+  code: string,
+  message: string,
+  status: number,
+): Extract<ReusedEcdsaWalletSessionResult, { readonly ok: false }> {
+  return {
+    ok: false,
+    response: json({ ok: false, code, message }, { status }),
+  };
+}
+
+export async function resolveReusedEcdsaWalletSession(input: {
+  readonly authorizationSessions: RouterApiAuthorizationSessionService;
+  readonly walletRegistration: Pick<
+    RouterApiWalletRegistrationService,
+    'resolveEcdsaMaterialActivation'
+  >;
+  readonly headers: Headers;
+  readonly runtimePolicyScope: RouterAbEd25519YaoSessionRouteCommandV1['sessionPolicy']['runtimePolicyScope'];
   readonly authority: PasskeyWalletAuthAuthority;
 }): Promise<ReusedEcdsaWalletSessionResult> {
-  const token = extractBearerCredential(input.ctx.request.headers);
+  const token = extractBearerCredential(input.headers);
   if (!token) {
-    return {
-      ok: false,
-      response: json(
-        {
-          ok: false,
-          code: 'unauthorized',
-          message: 'Existing ECDSA Wallet Session authorization is required',
-        },
-        { status: 401 },
-      ),
-    };
+    return reusedEcdsaWalletSessionFailure(
+      'unauthorized',
+      'Existing ECDSA Wallet Session authorization is required',
+      401,
+    );
   }
-  const admission = await resolveOpaqueOwnerWalletSessionAdmission({
-    authorizationSessions: input.ctx.service.authorizationSessions,
-    token,
-    curve: 'ecdsa',
-    nowMs: Date.now(),
-  });
-  const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
+  const nowMs = Date.now();
+  let resolution: Awaited<ReturnType<typeof resolveWalletSessionOperationCredentialAdmission>>;
+  try {
+    resolution = await resolveWalletSessionOperationCredentialAdmission({
+      authorizationSessions: input.authorizationSessions,
+      token,
+      nowMs,
+      operation: {
+        keyFamily: 'ecdsa_secp256k1',
+        operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
+      },
+    });
+  } catch {
+    return reusedEcdsaWalletSessionFailure(
+      'wallet_session_unavailable',
+      'Existing ECDSA Wallet Session is unavailable',
+      503,
+    );
+  }
+  if (resolution.kind === 'not_found') {
+    return reusedEcdsaWalletSessionFailure(
+      'wallet_session_invalid',
+      'Existing ECDSA Wallet Session is invalid',
+      401,
+    );
+  }
+  const admission = resolution.kind === 'admitted' ? resolution.admission : null;
+  const context = admission?.context;
+  const authMethod = context?.authMethod;
+  const session = context?.authorization.session;
   if (
     !admission ||
-    admission.binding.walletId !== input.authority.walletId ||
-    String(admission.resolved.authorization.authorityDigest) !==
-      String(authorityRef.authorityDigest) ||
-    alphabetizeStringify(admission.binding.runtimePolicyScope) !==
-      alphabetizeStringify(input.request.sessionPolicy.runtimePolicyScope)
+    admission.curve !== 'ecdsa' ||
+    !context ||
+    !session ||
+    !authMethod ||
+    authMethod.kind !== 'passkey' ||
+    String(session.walletId) !== String(input.authority.walletId) ||
+    authMethod.walletAuthMethodId !== input.authority.bindingId ||
+    authMethod.credentialIdB64u !== input.authority.factor.credentialIdB64u ||
+    authMethod.rpId !== input.authority.verifier.rpId
   ) {
-    return {
-      ok: false,
-      response: json(
-        {
-          ok: false,
-          code: 'scope_mismatch',
-          message: 'ECDSA Wallet Session does not match the requested Ed25519 signing lane',
-        },
-        { status: 403 },
-      ),
-    };
+    return reusedEcdsaWalletSessionFailure(
+      'scope_mismatch',
+      'ECDSA Wallet Session does not match the requested Ed25519 signing lane',
+      403,
+    );
   }
-  const authorization = admission.resolved.authorization;
-  const status = await input.ctx.service.authorizationSessions.readReusableWalletSessionStatus({
-    tenantId: authorization.tenantId,
-    principalId: authorization.principalId,
-    walletSessionId: authorization.walletSessionId,
-    quotaId: authorization.quotaId,
-    nowMs: Date.now(),
-  });
-  if (status.kind !== 'active') {
-    return {
-      ok: false,
-      response: json(
-        {
-          ok: false,
-          code: 'wallet_session_invalid',
-          message: 'Existing ECDSA Wallet Session is no longer active',
-        },
-        { status: 401 },
-      ),
-    };
+  const materialActivation = routerAbMpcMaterialActivationRefToWire(
+    admission.admission.materialActivation,
+  );
+  let activeMaterial: Awaited<
+    ReturnType<RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation']>
+  >;
+  try {
+    activeMaterial = await input.walletRegistration.resolveEcdsaMaterialActivation({
+      walletId: String(session.walletId),
+      materialActivation,
+    });
+  } catch {
+    return reusedEcdsaWalletSessionFailure(
+      'wallet_session_unavailable',
+      'Existing ECDSA Wallet Session material is unavailable',
+      503,
+    );
   }
+  if (!activeMaterial.ok) {
+    return activeMaterial.code === 'internal'
+      ? reusedEcdsaWalletSessionFailure(
+          'wallet_session_unavailable',
+          'Existing ECDSA Wallet Session material is unavailable',
+          503,
+        )
+      : reusedEcdsaWalletSessionFailure(
+          'scope_mismatch',
+          'Existing ECDSA Wallet Session material is not active',
+          403,
+        );
+  }
+  const normalSigning = activeMaterial.routerAbEcdsaDerivationNormalSigning;
+  if (
+    normalSigning.scope.wallet_id !== String(session.walletId) ||
+    normalSigning.scope.public_identity.threshold_public_key33_b64u !==
+      admission.admission.signer.thresholdPublicKey33B64u ||
+    !sameRouterAbMpcMaterialActivationRef(activeMaterial.materialActivation, materialActivation) ||
+    !sameRouterAbMpcMaterialActivationRef(
+      normalSigning.scope.material_activation,
+      materialActivation,
+    ) ||
+    alphabetizeStringify(activeMaterial.runtimePolicyScope) !==
+      alphabetizeStringify(input.runtimePolicyScope)
+  ) {
+    return reusedEcdsaWalletSessionFailure(
+      'scope_mismatch',
+      'ECDSA Wallet Session does not match the requested Ed25519 signing lane',
+      403,
+    );
+  }
+  const quota = context.authorization.quota;
   return {
     ok: true,
     existingWalletSession: {
-      authorizationId: authorization.authorizationId,
-      walletSessionId: authorization.walletSessionId,
-      quotaId: authorization.quotaId,
-      expiresAtMs: status.expiresAtMs,
-      remainingUses: status.remainingUses,
+      authorizationId: session.authorizationId,
+      walletSessionId: session.walletSessionId,
+      quotaId: session.quotaId,
+      expiresAtMs: quota.expiresAtMs,
+      remainingUses: quota.remainingUses,
     },
   };
 }
@@ -1839,11 +1906,7 @@ async function proxyEd25519OwnerLaneExecution(input: {
   }
   const laneAuthorization =
     input.authorization.kind === 'operation_step_up'
-      ? {
-          kind: 'authority_ref' as const,
-          authorityRef: input.authorization.session.walletAuthAuthorityRef,
-          authSource: input.authorization.session.authSource,
-        }
+      ? input.authorization.session.laneAuthorization
       : {
           kind: 'wallet_auth_method' as const,
           walletAuthMethodId: input.authorization.validated.walletSessionAuth.walletAuthMethodId,
@@ -2298,8 +2361,10 @@ export async function handleThresholdEd25519(ctx: FetchRouterApiContext): Promis
           break;
         case 'reuse_ecdsa_wallet_session': {
           const reused = await resolveReusedEcdsaWalletSession({
-            ctx,
-            request: b,
+            authorizationSessions: ctx.service.authorizationSessions,
+            walletRegistration: ctx.service.walletRegistration,
+            headers: ctx.request.headers,
+            runtimePolicyScope: b.sessionPolicy.runtimePolicyScope,
             authority,
           });
           if (!reused.ok) return reused.response;

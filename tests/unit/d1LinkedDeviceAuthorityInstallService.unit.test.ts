@@ -97,7 +97,9 @@ type HarnessOptions = {
   readonly deviceId?: string;
   readonly authorizationService?: Pick<
     AuthorizationService,
-    'prepareWalletSessionAuthorizationV2' | 'issueWalletSessionAuthorizationV2'
+    | 'prepareWalletSessionAuthorizationV2'
+    | 'issueWalletSessionAuthorizationV2'
+    | 'issueWalletSessionAuthorizationV2OperationCredential'
   >;
   readonly authorizationStore?: D1LinkedDeviceAuthorityInstallServiceOptionsV1['authorizationStore'];
   readonly materialActivation?: D1LinkedDeviceAuthorityInstallServiceOptionsV1['materialActivation'];
@@ -552,6 +554,8 @@ async function buildHarness(
     linkSessionId: fixture.payload.linkSessionId,
     enrollmentId: fixture.approval.enrollmentId,
     targetDeviceId: parseDeviceId(String(fixture.approval.deviceId)).value,
+    deliveryRecipientPublicKey65B64u:
+      'BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU',
     sourceAuthority: {
       authority: source.authority,
       authMethodId: source.authMethod.walletAuthMethodId,
@@ -567,6 +571,7 @@ async function buildHarness(
     },
     permissions: buildSigningOnlyPermissionsV1(),
     signerManifest: targetManifest,
+    emailOtpEnrollment: null,
     ed25519ExportRootPackage: null,
     sourceContribution: [sourceContribution],
     ordinarySignerMaterialRecipientRequests: [
@@ -620,6 +625,7 @@ async function buildHarness(
     authorizationService: options.authorizationService ?? {
       prepareWalletSessionAuthorizationV2: unsupportedAuthorizationOperation,
       issueWalletSessionAuthorizationV2: unsupportedAuthorizationOperation,
+      issueWalletSessionAuthorizationV2OperationCredential: unsupportedAuthorizationOperation,
     },
     authorizationStore: options.authorizationStore ?? {
       prepareWalletSessionAuthorizationV2Statements: unsupportedAuthorizationStatements,

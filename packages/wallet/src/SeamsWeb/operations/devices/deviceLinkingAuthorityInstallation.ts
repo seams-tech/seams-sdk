@@ -13,10 +13,13 @@ import type { LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { encodeWalletSignerActivationSetV1 } from '@shared/authorization/walletAuthority';
 import type {
   LocalAuthorityActivationFinalizationInputV1,
+  ProfileAuthenticatorRecord,
+  UpsertProfileInput,
   WalletAuthorityExportRootRecordV1,
   WalletAuthoritySignerMaterialRecordV1,
 } from '@/core/indexedDB';
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
+import { base64UrlDecode } from '@shared/utils/base64';
 import type {
   DeviceLinkingAuthorityActivationTransportPortV1,
   DeviceLinkingKeyMaterialHandleV1,
@@ -101,6 +104,46 @@ export type DeviceLinkingAuthorityActivationFlowInputV1 = {
   readonly nowMs: () => number;
 };
 
+type LocalAuthorityProfileProjectionV1 = {
+  readonly profile: UpsertProfileInput;
+  readonly authenticator: ProfileAuthenticatorRecord | null;
+};
+
+function localAuthorityProfileProjectionV1(
+  authMethod: CommittedAuthorityPackagesV1['authMethod'],
+): LocalAuthorityProfileProjectionV1 {
+  const profileId = String(authMethod.walletId);
+  switch (authMethod.kind) {
+    case 'passkey': {
+      const credentialId = String(authMethod.credentialIdB64u);
+      return {
+        profile: {
+          profileId,
+          defaultSignerSlot: 1,
+          passkeyCredential: { id: credentialId, rawId: credentialId },
+        },
+        authenticator: {
+          profileId,
+          signerSlot: 1,
+          credentialId,
+          credentialPublicKey: base64UrlDecode(authMethod.credentialPublicKeyB64u),
+          registered: new Date(authMethod.createdAtMs).toISOString(),
+          syncedAt: new Date(authMethod.updatedAtMs).toISOString(),
+        },
+      };
+    }
+    case 'email_otp':
+      return {
+        profile: { profileId, defaultSignerSlot: 1 },
+        authenticator: null,
+      };
+    default: {
+      const _exhaustive: never = authMethod;
+      throw new Error(`Unsupported linked-device auth method: ${String(_exhaustive)}`);
+    }
+  }
+}
+
 export function createDeviceLinkingAuthorityInstallationPortV1(
   options: DeviceLinkingAuthorityInstallationAssemblyOptionsV1,
 ): DeviceLinkingAuthorityInstallationPortV1 {
@@ -154,6 +197,7 @@ export async function installLocalAuthorityV1(input: {
     resealedExportRoot: input.resealedExportRoot,
   });
   assertSealedAuthorityRecordsMatchCommitted({ committed: input.committed, sealed });
+  const localProfileProjection = localAuthorityProfileProjectionV1(input.committed.authMethod);
   const installedAtMs = input.nowMs();
   if (!Number.isSafeInteger(installedAtMs) || installedAtMs <= 0) {
     throw new Error('local authority installation clock is invalid');
@@ -173,6 +217,8 @@ export async function installLocalAuthorityV1(input: {
   const result = await input.indexedDB.installLocalAuthority({
     authority: input.committed.authority,
     authMethod: input.committed.authMethod,
+    profile: localProfileProjection.profile,
+    authenticator: localProfileProjection.authenticator,
     signerMaterials: sealed.signerMaterials,
     exportRoot: sealed.exportRoot,
     receipt,
