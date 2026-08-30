@@ -2812,7 +2812,7 @@ export class CloudflareD1WalletRegistrationService {
         readonly walletSessionCredential: RouterAbEd25519YaoWalletSessionCredentialV1;
       };
       switch (request.walletSessionIdentity.kind) {
-        case 'issue_wallet_session_v1': {
+        case 'new_wallet_session': {
           const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
           const issuedRemainingUses = Math.min(
             DEFAULT_WALLET_SESSION_REMAINING_USES,

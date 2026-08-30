@@ -574,7 +574,7 @@ async function provisionEmailOtpEd25519YaoCapability(input: {
             expiresAtMs: input.linkedWalletSession.session.expiresAtMs,
             remainingUses: input.linkedWalletSession.quota.remainingUses,
           }
-        : { kind: 'issue_wallet_session_v1' },
+        : { kind: 'new_wallet_session' },
     },
     input.authorization.proof,
   );
@@ -656,7 +656,7 @@ async function provisionPasskeyEd25519YaoSession(input: {
           expiresAtMs: input.linkedWalletSession.session.expiresAtMs,
           remainingUses: input.linkedWalletSession.quota.remainingUses,
         }
-      : { kind: 'issue_wallet_session_v1' },
+      : { kind: 'new_wallet_session' },
   });
   if (!provisioned.ok) {
     return { ok: false, response: walletUnlockEd25519SessionFailureResponse(provisioned) };
