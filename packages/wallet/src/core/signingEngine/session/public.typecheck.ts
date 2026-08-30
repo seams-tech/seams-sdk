@@ -13,11 +13,13 @@ import {
   type EmailOtpAuthUse,
 } from './identity/laneIdentity';
 import type { ExactEd25519SigningLaneIdentity } from './identity/exactSigningLaneIdentity';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 
 declare const walletId: WalletId;
 declare const routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 declare const rpId: WebAuthnRpId;
 declare const exactEd25519LaneIdentity: ExactEd25519SigningLaneIdentity;
+declare const exactOperationCredential: WalletSessionOperationCredentialV1;
 const passkeyWalletAuthAuthority = buildPasskeyWalletAuthAuthority({
   walletId,
   rpId,
@@ -51,7 +53,7 @@ void invalidConsumedSingleUseEmailOtpAuthUse;
 const connectEmailOtpEd25519SessionArgs: ConnectEd25519SessionArgs = {
   kind: 'exact_ed25519_provisioning',
   laneIdentity: exactEd25519LaneIdentity,
-  existingWalletSessionToken: 'wst_test',
+  operationCredential: exactOperationCredential,
   relayerKeyId: 'router-key-1',
   routerAbNormalSigning,
   participantIds: [1, 2],

@@ -18,10 +18,7 @@ import type {
   MpcWalletSigningQuotaId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import {
-  parseWalletSessionOperationCredentialV1,
-  type WalletSessionOperationCredentialV1,
-} from '@shared/device-linking';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 
@@ -154,7 +151,7 @@ type ResolvedEd25519ProvisionCredential =
 function resolveEd25519ProvisionOperationCredential(args: {
   connected: ConnectedEd25519Session;
   protocol: ResolvedEd25519ProvisionProtocol;
-  existingWalletSessionToken: string | undefined;
+  existingOperationCredential: WalletSessionOperationCredentialV1 | undefined;
 }): ResolvedEd25519ProvisionCredential {
   switch (args.connected.sessionKind) {
     case 'issued_exact_wallet_session':
@@ -170,7 +167,7 @@ function resolveEd25519ProvisionOperationCredential(args: {
         operationCredential: args.connected.operationCredential,
       };
     case 'already_committed_exact_wallet_session': {
-      if (args.protocol.kind !== 'exact' || !args.existingWalletSessionToken) {
+      if (args.protocol.kind !== 'exact' || !args.existingOperationCredential) {
         return {
           ok: false,
           code: 'unlock_exact_method',
@@ -178,21 +175,7 @@ function resolveEd25519ProvisionOperationCredential(args: {
             'Threshold Ed25519 session reuse returned no credential; exact-method unlock is required',
         };
       }
-      let operationCredential: WalletSessionOperationCredentialV1;
-      try {
-        operationCredential = parseWalletSessionOperationCredentialV1({
-          kind: 'opaque_wallet_session_operation_credential_v1',
-          token: args.existingWalletSessionToken,
-          walletSessionId: args.connected.walletSessionId,
-        });
-      } catch {
-        return {
-          ok: false,
-          code: 'unlock_exact_method',
-          message:
-            'Threshold Ed25519 session reuse requires the exact credential for the selected session',
-        };
-      }
+      const operationCredential = args.existingOperationCredential;
       if (operationCredential.walletSessionId !== args.connected.walletSessionId) {
         return {
           ok: false,
@@ -216,6 +199,16 @@ export async function provisionThresholdEd25519Session(
   args: ProvisionWarmEd25519CapabilityArgs,
 ): Promise<ProvisionWarmEd25519CapabilityResult> {
   const protocol = resolveEd25519ProvisionProtocol(args);
+  if (
+    args.kind === 'exact_ed25519_provisioning' &&
+    args.operationCredential.walletSessionId !== args.laneIdentity.walletSessionId
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Threshold Ed25519 exact credential identifies another Wallet Session',
+    };
+  }
   const nearAccountId = toAccountId(protocol.nearAccountId);
   const relayerUrl = String(args.relayerUrl || deps.defaultRelayerUrl || '').trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
@@ -245,7 +238,7 @@ export async function provisionThresholdEd25519Session(
     remainingUses: args.remainingUses,
     workerCtx,
     ...(args.kind === 'exact_ed25519_provisioning'
-      ? { existingWalletSessionToken: args.existingWalletSessionToken }
+      ? { existingOperationCredential: args.operationCredential }
       : {}),
   });
   if (!connected.ok) {
@@ -293,8 +286,8 @@ export async function provisionThresholdEd25519Session(
   const credentialResolution = resolveEd25519ProvisionOperationCredential({
     connected,
     protocol,
-    existingWalletSessionToken:
-      args.kind === 'exact_ed25519_provisioning' ? args.existingWalletSessionToken : undefined,
+    existingOperationCredential:
+      args.kind === 'exact_ed25519_provisioning' ? args.operationCredential : undefined,
   });
   if (!credentialResolution.ok) return credentialResolution;
   const { operationCredential } = credentialResolution;

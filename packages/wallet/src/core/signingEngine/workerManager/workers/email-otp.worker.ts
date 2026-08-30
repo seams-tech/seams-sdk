@@ -945,12 +945,16 @@ function readOptionalString(value: unknown): string | undefined {
 }
 
 function readEmailOtpAuthoritySelector(value: unknown): EmailOtpAuthoritySelector {
-  if (!value || typeof value !== 'object') {
+  const selector = workerPayloadObject(value);
+  if (!selector) {
     throw new Error('Email OTP authority selector is required');
   }
-  const selector = value as { readonly kind?: unknown; readonly walletAuthMethodId?: unknown };
-  if (selector.kind === 'wallet') return { kind: 'wallet' };
+  if (selector.kind === 'wallet') {
+    rejectUnknownEmailOtpYaoFields(selector, ['kind'], 'authoritySelector');
+    return { kind: 'wallet' };
+  }
   if (selector.kind === 'wallet_auth_method') {
+    rejectUnknownEmailOtpYaoFields(selector, ['kind', 'walletAuthMethodId'], 'authoritySelector');
     return {
       kind: 'wallet_auth_method',
       walletAuthMethodId: readString(selector.walletAuthMethodId, 'walletAuthMethodId'),
@@ -968,9 +972,59 @@ function emailOtpAuthoritySelectorBody(selector: EmailOtpAuthoritySelector): {
 }
 
 function readRoutePlan(value: unknown, label: string): EmailOtpRoutePlan {
+  const record = workerPayloadObject(value);
+  if (!record) throw new Error(`${label} requires Email OTP routePlan`);
+  const routeFamily = readString(record.routeFamily, `${label}.routePlan.routeFamily`);
+  switch (routeFamily) {
+    case 'login':
+    case 'registration':
+      rejectUnknownEmailOtpYaoFields(record, ['routeFamily', 'operation'], `${label}.routePlan`);
+      break;
+    case 'signing_session':
+      rejectUnknownEmailOtpYaoFields(
+        record,
+        ['routeFamily', 'operation', 'authLane'],
+        `${label}.routePlan`,
+      );
+      parseEmailOtpWorkerAuthLane(record.authLane, label);
+      break;
+    default:
+      throw new Error(`${label}.routePlan.routeFamily is invalid`);
+  }
   const plan = normalizeEmailOtpRoutePlan(value);
   if (!plan) throw new Error(`${label} requires Email OTP routePlan`);
   return plan;
+}
+
+function parseEmailOtpWorkerAuthLane(value: unknown, label: string): void {
+  const lane = workerPayloadObject(value);
+  if (!lane) throw new Error(`${label}.routePlan.authLane is required`);
+  if (lane.kind !== 'signing_session') {
+    throw new Error(`${label}.routePlan.authLane.kind is invalid`);
+  }
+  const curve = readString(lane.curve, `${label}.routePlan.authLane.curve`);
+  switch (curve) {
+    case 'ed25519':
+      rejectUnknownEmailOtpYaoFields(
+        lane,
+        ['kind', 'operationCredential', 'curve'],
+        `${label}.routePlan.authLane`,
+      );
+      parseWalletSessionOperationCredentialV1(lane.operationCredential);
+      return;
+    case 'ecdsa':
+      rejectUnknownEmailOtpYaoFields(
+        lane,
+        ['kind', 'operationCredential', 'thresholdSessionId', 'curve', 'chainTarget'],
+        `${label}.routePlan.authLane`,
+      );
+      parseWalletSessionOperationCredentialV1(lane.operationCredential);
+      readString(lane.thresholdSessionId, `${label}.routePlan.authLane.thresholdSessionId`);
+      parseWorkerChainTarget(lane.chainTarget);
+      return;
+    default:
+      throw new Error(`${label}.routePlan.authLane.curve is invalid`);
+  }
 }
 
 type EmailOtpEd25519SessionMaterialRequest = Extract<
@@ -1100,6 +1154,11 @@ function assertEmailOtpChallengeAction(args: {
 function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTransport | null {
   const transport = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!transport) return null;
+  rejectUnknownEmailOtpYaoFields(
+    transport,
+    ['relayerUrl', 'operationCredential', 'signingSessionSealKeyVersion', 'groupId'],
+    'signingSessionSealTransport',
+  );
   const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
   if (!relayerUrl) return null;
   let operationCredential: WalletSessionOperationCredentialV1;
@@ -5304,6 +5363,21 @@ function parseOptionalWorkerRuntimePolicyScope(
 function parseWorkerChainTarget(value: unknown): ThresholdEcdsaChainTarget {
   const obj = workerPayloadObject(value);
   if (!obj) throw new Error('Email OTP worker request requires chainTarget');
+  const kind = readString(obj.kind, 'chainTarget.kind');
+  switch (kind) {
+    case 'tempo':
+      rejectUnknownEmailOtpYaoFields(obj, ['kind', 'chainId', 'networkSlug'], 'chainTarget');
+      break;
+    case 'evm':
+      rejectUnknownEmailOtpYaoFields(
+        obj,
+        ['kind', 'namespace', 'chainId', 'networkSlug'],
+        'chainTarget',
+      );
+      break;
+    default:
+      throw new Error('Email OTP worker request chainTarget.kind is invalid');
+  }
   return thresholdEcdsaChainTargetFromRequest(obj);
 }
 
@@ -5333,6 +5407,18 @@ function parseOptionalWorkerEcdsaSessionHandleBinding(
     'ecdsaSessionHandleBinding.action',
   );
   if (action === 'wallet_registration_ecdsa_prepare') {
+    rejectUnknownEmailOtpYaoFields(
+      obj,
+      [
+        'evmFamilySigningKeySlotId',
+        'authSubjectId',
+        'action',
+        'operation',
+        'keyScope',
+        'chainTarget',
+      ],
+      'ecdsaSessionHandleBinding',
+    );
     const operation = parseEmailOtpWorkerHandleOperation(obj.operation);
     if (operation !== 'registration') {
       throw new Error(
@@ -5362,6 +5448,11 @@ function parseOptionalWorkerEcdsaSessionHandleBinding(
   if (action !== 'threshold_ecdsa_bootstrap') {
     throw new Error(`Unsupported Email OTP ECDSA session handle binding action: ${action}`);
   }
+  rejectUnknownEmailOtpYaoFields(
+    obj,
+    ['authSubjectId', 'action', 'operation', 'keyHandle', 'chainTarget'],
+    'ecdsaSessionHandleBinding',
+  );
   const operation = parseEmailOtpWorkerHandleOperation(obj.operation);
   const common = {
     authSubjectId: readString(obj.authSubjectId, 'ecdsaSessionHandleBinding.authSubjectId'),
@@ -5406,6 +5497,7 @@ function parseWorkerWalletRegistrationEcdsaPrepareHandleRequest(
   const kind = readString(obj.kind, 'ecdsaSessionHandle.kind');
   switch (kind) {
     case 'requested': {
+      rejectUnknownEmailOtpYaoFields(obj, ['kind', 'bindings'], 'ecdsaSessionHandle');
       if (!Array.isArray(obj.bindings) || obj.bindings.length === 0) {
         throw new Error(
           'Email OTP registration enrollment material requires wallet-registration ECDSA handle bindings',
@@ -5430,9 +5522,7 @@ function parseWorkerWalletRegistrationEcdsaPrepareHandleRequest(
       return { kind: 'requested', bindings: [first, ...bindings.slice(1)] };
     }
     case 'not_requested':
-      if ('bindings' in obj) {
-        throw new Error('Email OTP unrequested ECDSA handle request forbids bindings');
-      }
+      rejectUnknownEmailOtpYaoFields(obj, ['kind'], 'ecdsaSessionHandle');
       return { kind: 'not_requested' };
     default:
       throw new Error(`Unsupported Email OTP registration ECDSA handle request kind: ${kind}`);
@@ -5449,6 +5539,7 @@ function parseWorkerWalletRegistrationEcdsaPrepareHandleResult(
   const kind = readString(obj.kind, 'emailOtpSessionHandle.kind');
   switch (kind) {
     case 'available':
+      rejectUnknownEmailOtpYaoFields(obj, ['kind', 'handles'], 'emailOtpSessionHandle');
       if (!Array.isArray(obj.handles) || obj.handles.length === 0) {
         throw new Error('Email OTP registration ECDSA handle result requires handles');
       }
@@ -5467,9 +5558,7 @@ function parseWorkerWalletRegistrationEcdsaPrepareHandleResult(
         };
       }
     case 'not_requested':
-      if ('handles' in obj) {
-        throw new Error('Email OTP unrequested ECDSA handle result forbids handles');
-      }
+      rejectUnknownEmailOtpYaoFields(obj, ['kind'], 'emailOtpSessionHandle');
       return { kind: 'not_requested' };
     default:
       throw new Error(`Unsupported Email OTP registration ECDSA handle result kind: ${kind}`);
@@ -5491,6 +5580,20 @@ function parseWorkerIssuedEmailOtpSessionHandle(
   if (action !== 'threshold_ecdsa_bootstrap') {
     throw new Error(`Unsupported Email OTP worker handle action: ${action}`);
   }
+  rejectUnknownEmailOtpYaoFields(
+    obj,
+    [
+      'kind',
+      'sessionId',
+      'walletId',
+      'authSubjectId',
+      'action',
+      'operation',
+      'keyHandle',
+      'chainTarget',
+    ],
+    'emailOtpSessionHandle',
+  );
   const operation = parseEmailOtpWorkerHandleOperation(obj.operation);
   const common = {
     kind: 'email_otp_worker_session_handle_v1' as const,
@@ -5530,6 +5633,21 @@ function parseWorkerIssuedWalletRegistrationEcdsaPrepareSessionHandle(
   if (action !== 'wallet_registration_ecdsa_prepare') {
     throw new Error(`Unsupported Email OTP worker handle action: ${action}`);
   }
+  rejectUnknownEmailOtpYaoFields(
+    obj,
+    [
+      'kind',
+      'sessionId',
+      'walletId',
+      'evmFamilySigningKeySlotId',
+      'authSubjectId',
+      'action',
+      'operation',
+      'keyScope',
+      'chainTarget',
+    ],
+    'emailOtpSessionHandle',
+  );
   const operation = parseEmailOtpWorkerHandleOperation(obj.operation);
   if (operation !== 'registration') {
     throw new Error(
@@ -5573,6 +5691,11 @@ function parseWorkerSealTransport(value: unknown): {
 } {
   const obj = workerPayloadObject(value);
   if (!obj) throw new Error('Email OTP worker request requires transport');
+  rejectUnknownEmailOtpYaoFields(
+    obj,
+    ['relayerUrl', 'operationCredential', 'signingSessionSealKeyVersion', 'groupId'],
+    'transport',
+  );
   const operationCredential = parseWalletSessionOperationCredentialV1(obj.operationCredential);
   return {
     relayerUrl: readString(obj.relayerUrl, 'transport.relayerUrl'),
@@ -5945,6 +6068,7 @@ function parseEmailOtpPasskeyRegistrationSummary(
   if (!value || value.kind !== 'webauthn_add_auth_method_registration_v1') {
     throw new Error('Email OTP passkey linking requires registration options');
   }
+  rejectUnknownEmailOtpYaoFields(value, ['kind', 'rpId'], 'registration');
   const rpId = parseWebAuthnRpId(readString(value.rpId, 'registration.rpId'));
   if (!rpId.ok) throw new Error(rpId.error.message);
   return { kind: 'webauthn_add_auth_method_registration_v1', rpId: rpId.value };
@@ -5968,12 +6092,25 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
   const type = normalizeOptionalTrimmedString(obj.type);
   const payload = workerPayloadObject(obj.payload);
   if (!id || !type || !payload) return null;
+  rejectUnknownEmailOtpYaoFields(obj, ['id', 'type', 'payload'], 'Email OTP worker request');
 
   switch (type) {
     case 'prewarmEmailOtpRegistrationCrypto':
       rejectUnknownEmailOtpYaoFields(payload, [], type);
       return { id, type, payload: {} };
     case 'requestEmailOtpChallenge':
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        [
+          'relayUrl',
+          'walletId',
+          'walletAuthMethodId',
+          'routePlan',
+          'otpChannel',
+          'operationFingerprintDigest',
+        ],
+        type,
+      );
       return {
         id,
         type,
@@ -5997,6 +6134,11 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         },
       };
     case 'requestEmailOtpEnrollmentChallenge':
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        ['relayUrl', 'walletId', 'routePlan', 'otpChannel'],
+        type,
+      );
       return {
         id,
         type,
@@ -6055,6 +6197,20 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         },
       };
     case 'prepareEmailOtpRegistrationEnrollmentMaterial': {
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        [
+          'relayUrl',
+          'walletId',
+          'userId',
+          'groupId',
+          'routePlan',
+          'otpChannel',
+          'clientSecret32',
+          'ecdsaSessionHandle',
+        ],
+        type,
+      );
       const handleRequest = parseWorkerWalletRegistrationEcdsaPrepareHandleRequest(
         payload.ecdsaSessionHandle,
       );
@@ -6113,10 +6269,20 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         },
       };
     case 'prepareEmailOtpPasskeyCustodyLink': {
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        ['relayUrl', 'walletId', 'userId', 'groupId', 'routePlan', 'verification'],
+        type,
+      );
       const verification = workerPayloadObject(payload.verification);
       if (!verification || verification.kind !== 'otp') {
         throw new Error('Email OTP passkey linking requires OTP verification');
       }
+      rejectUnknownEmailOtpYaoFields(
+        verification,
+        ['kind', 'challengeId', 'otpCode'],
+        `${type}.verification`,
+      );
       return {
         id,
         type,
@@ -6135,6 +6301,17 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
       };
     }
     case 'completeEmailOtpPasskeyCustodyLink':
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        [
+          'pendingHandleId',
+          'existingEnvelope',
+          'walletAuthMethodId',
+          'registration',
+          'registrationCredential',
+        ],
+        type,
+      );
       return {
         id,
         type,
@@ -6150,6 +6327,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         },
       };
     case 'discardEmailOtpPasskeyCustodyLink':
+      rejectUnknownEmailOtpYaoFields(payload, ['pendingHandleId'], type);
       return {
         id,
         type,
@@ -6158,10 +6336,28 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         },
       };
     case 'rotateEmailOtpWalletRecoverySet': {
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        [
+          'relayUrl',
+          'walletId',
+          'userId',
+          'groupId',
+          'routePlan',
+          'verification',
+          'recoveryCodesJson',
+        ],
+        type,
+      );
       const verification = workerPayloadObject(payload.verification);
       if (!verification || verification.kind !== 'otp') {
         throw new Error('Email OTP recovery rotation requires OTP verification');
       }
+      rejectUnknownEmailOtpYaoFields(
+        verification,
+        ['kind', 'challengeId', 'otpCode'],
+        `${type}.verification`,
+      );
       return {
         id,
         type,
@@ -6181,6 +6377,21 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
       };
     }
     case 'loginWithEmailOtpWallet':
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        [
+          'relayUrl',
+          'walletId',
+          'authoritySelector',
+          'userId',
+          'groupId',
+          'routePlan',
+          'otpChannel',
+          'verification',
+          'material',
+        ],
+        type,
+      );
       return {
         id,
         type,
@@ -6300,12 +6511,14 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
     }
     case 'getEmailOtpWarmSessionStatus':
     case 'clearEmailOtpWarmSessionMaterial':
+      rejectUnknownEmailOtpYaoFields(payload, ['target'], type);
       return {
         id,
         type,
         payload: { target: parseEmailOtpWarmMaterialTarget(payload.target) },
       };
     case 'consumeEmailOtpWarmSessionUses':
+      rejectUnknownEmailOtpYaoFields(payload, ['target', 'uses'], type);
       return {
         id,
         type,
@@ -6317,6 +6530,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         },
       };
     case 'sealEmailOtpWarmSessionMaterial':
+      rejectUnknownEmailOtpYaoFields(payload, ['target', 'transport'], type);
       return {
         id,
         type,
@@ -6326,8 +6540,18 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         },
       };
     case 'rehydrateEmailOtpEcdsaWarmSessionMaterial': {
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        ['target', 'sealedSecretB64u', 'remainingUses', 'expiresAtMs', 'transport', 'restore'],
+        type,
+      );
       const restore = workerPayloadObject(payload.restore);
       if (!restore) throw new Error('Email OTP ECDSA rehydrate requires restore payload');
+      rejectUnknownEmailOtpYaoFields(
+        restore,
+        ['thresholdSessionId', 'walletId', 'keyHandle', 'chainTarget', 'authSubjectId'],
+        `${type}.restore`,
+      );
       const target = parseEmailOtpWarmMaterialTarget(payload.target);
       if (target.kind !== 'ecdsa') {
         throw new Error('Email OTP ECDSA rehydrate requires an ECDSA target');
@@ -6412,9 +6636,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           ),
           displayDigest: readString(payload.displayDigest, 'displayDigest'),
           proof: parseEmailOtpOperationStepUpProof(payload.proof),
-          operationCredential: parseWalletSessionOperationCredentialV1(
-            payload.operationCredential,
-          ),
+          operationCredential: parseWalletSessionOperationCredentialV1(payload.operationCredential),
         },
       };
     }
@@ -6479,9 +6701,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
             payload.expectedThresholdSessionId,
             'expectedThresholdSessionId',
           ),
-          operationCredential: parseWalletSessionOperationCredentialV1(
-            payload.operationCredential,
-          ),
+          operationCredential: parseWalletSessionOperationCredentialV1(payload.operationCredential),
           ecdsa: {
             sessionHandleBinding: { ...ecdsaBinding, operation: 'wallet_unlock' },
             runtimePolicyScope: parseWorkerRuntimePolicyScope(

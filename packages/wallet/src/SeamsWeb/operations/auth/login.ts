@@ -1661,12 +1661,12 @@ function resolveLoginWarmEd25519ProvisioningIdentity(args: {
       if (args.ecdsaMint) {
         return {
           kind: 'exact_ed25519_provisioning' as const,
-          existingWalletSessionToken: args.ecdsaMint.operationCredential.token,
+          operationCredential: args.ecdsaMint.operationCredential,
           laneIdentity: loginEd25519ExactProvisionLaneIdentity({
             walletBinding: args.walletBinding,
             signerSlot: args.signerSlot,
             thresholdSessionId: args.mintPlan.thresholdSessionId,
-            walletSessionId: args.ecdsaMint.walletSessionId,
+            walletSessionId: args.ecdsaMint.operationCredential.walletSessionId,
             quotaId: args.ecdsaMint.quotaId,
             authority: args.authority,
           }),
@@ -1688,12 +1688,12 @@ function resolveLoginWarmEd25519ProvisioningIdentity(args: {
       }
       return {
         kind: 'exact_ed25519_provisioning' as const,
-        existingWalletSessionToken: args.ecdsaMint.operationCredential.token,
+        operationCredential: args.ecdsaMint.operationCredential,
         laneIdentity: loginEd25519ExactProvisionLaneIdentity({
           walletBinding: args.walletBinding,
           signerSlot: args.signerSlot,
           thresholdSessionId: args.mintPlan.thresholdSessionId,
-          walletSessionId: args.ecdsaMint.walletSessionId,
+          walletSessionId: args.ecdsaMint.operationCredential.walletSessionId,
           quotaId: args.ecdsaMint.quotaId,
           authority: args.authority,
         }),
@@ -5138,7 +5138,6 @@ type ThresholdEcdsaAuthorizedEd25519Mint = {
   operationCredential: WalletSessionOperationCredentialV1;
   passkeyPrfFirstB64u: string;
   passkeyCredentialIdB64u: string;
-  walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
 };
 
@@ -6087,7 +6086,6 @@ async function primeThresholdLoginWarmSigners(args: {
             operationCredential,
             passkeyPrfFirstB64u,
             passkeyCredentialIdB64u,
-            walletSessionId: bootstrap.session.walletSessionId,
             quotaId: bootstrap.session.quotaId,
           };
         };

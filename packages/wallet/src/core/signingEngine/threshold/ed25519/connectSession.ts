@@ -132,7 +132,7 @@ export async function connectEd25519Session(args: {
   remainingUses?: number;
   auth?: Ed25519WalletSessionMintAuthorization;
   workerCtx?: WorkerOperationContext;
-  existingWalletSessionToken?: string;
+  existingOperationCredential?: WalletSessionOperationCredentialV1;
 }): Promise<ConnectEd25519SessionResult> {
   const passkeyAuthority = passkeyAuthorityFromEd25519SessionPolicyAuthority(args.authority);
   const passkeyRpId = passkeyAuthority ? String(passkeyAuthority.verifier.rpId || '').trim() : '';
@@ -197,8 +197,8 @@ export async function connectEd25519Session(args: {
     auth,
     projectEnvironmentId: args.runtimeScopeBootstrap?.projectEnvironmentId,
     publishableKey: args.runtimeScopeBootstrap?.publishableKey,
-    ...(args.existingWalletSessionToken
-      ? { existingWalletSessionToken: args.existingWalletSessionToken }
+    ...(args.existingOperationCredential
+      ? { existingOperationCredential: args.existingOperationCredential }
       : {}),
   });
   if (!minted.ok) {

@@ -920,7 +920,10 @@ function parseWalletRegistrationSessionCommitReceiptCommitted(
     const ecdsa = parseWalletRegistrationSessionCommitEcdsa(record.ecdsa, receipt);
     const session = parseRegistrationEstablishedSessionProjectionV2(record.session);
     if (!ecdsa || !session || session.tokens.kind !== 'evm_family_ecdsa') return null;
-    const nearProvisioning = parseNearPendingProjection(record.nearProvisioning);
+    const nearProvisioning =
+      record.nearProvisioning === undefined
+        ? undefined
+        : parseNearPendingProjection(record.nearProvisioning);
     if (record.nearProvisioning !== undefined && !nearProvisioning) return null;
     const installation =
       record.installation === undefined

@@ -21,6 +21,17 @@ declare const exactProvisionFields: Omit<
   | 'signerSlot'
   | 'sessionId'
 >;
+declare const exactProvisionWithoutCredentialFields: Omit<
+  ExactWarmEd25519CapabilityProvisionArgs,
+  | 'kind'
+  | 'laneIdentity'
+  | 'operationCredential'
+  | 'walletId'
+  | 'nearAccountId'
+  | 'nearEd25519SigningKeyId'
+  | 'signerSlot'
+  | 'sessionId'
+>;
 
 const _freshProvisionOk: FreshWarmEd25519CapabilityProvisionArgs = freshProvision;
 const _exactProvisionOk: ExactWarmEd25519CapabilityProvisionArgs = exactProvision;
@@ -36,6 +47,21 @@ const _freshProvisionWithSessionId: FreshWarmEd25519CapabilityProvisionArgs = {
 const _exactProvisionMissingLaneIdentity: ExactWarmEd25519CapabilityProvisionArgs = {
   kind: 'exact_ed25519_provisioning',
   ...exactProvisionFields,
+};
+
+// @ts-expect-error exact Ed25519 provisioning requires the complete operation credential
+const _exactProvisionMissingCredential: ExactWarmEd25519CapabilityProvisionArgs = {
+  kind: 'exact_ed25519_provisioning',
+  laneIdentity: exactLaneIdentity,
+  ...exactProvisionWithoutCredentialFields,
+};
+
+const _exactProvisionWithDetachedToken: ExactWarmEd25519CapabilityProvisionArgs = {
+  kind: 'exact_ed25519_provisioning',
+  laneIdentity: exactLaneIdentity,
+  ...exactProvisionFields,
+  // @ts-expect-error exact Ed25519 provisioning cannot carry a detached token
+  existingWalletSessionToken: 'wst_detached',
 };
 
 const _exactProvisionWithSessionId: ExactWarmEd25519CapabilityProvisionArgs = {

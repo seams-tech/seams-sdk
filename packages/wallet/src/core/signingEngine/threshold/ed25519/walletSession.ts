@@ -196,7 +196,7 @@ export async function mintEd25519WalletSession(args: {
   auth: Ed25519WalletSessionMintAuthorization;
   projectEnvironmentId?: string;
   publishableKey?: string;
-  existingWalletSessionToken?: string;
+  existingOperationCredential?: WalletSessionOperationCredentialV1;
 }): Promise<Ed25519WalletSessionMintResult> {
   const relayerUrl = stripTrailingSlashes(toTrimmedString(args.relayerUrl));
   if (!relayerUrl) {
@@ -223,11 +223,11 @@ export async function mintEd25519WalletSession(args: {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   try {
     const url = `${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`;
-    const existingWalletSessionToken = String(args.existingWalletSessionToken || '').trim();
+    const existingOperationCredential = args.existingOperationCredential;
     const publishableKey = String(args.publishableKey || '').trim() || undefined;
-    const bearerToken = existingWalletSessionToken || publishableKey;
+    const bearerToken = existingOperationCredential?.token || publishableKey;
     const projectEnvironmentId =
-      !existingWalletSessionToken && publishableKey
+      !existingOperationCredential && publishableKey
         ? String(args.projectEnvironmentId || '').trim() || undefined
         : undefined;
     timeoutId = setTimeout(
@@ -351,11 +351,18 @@ export async function mintEd25519WalletSession(args: {
         message: 'Wallet Session mint returned an invalid session branch',
       };
     }
-    if (!existingWalletSessionToken) {
+    if (!existingOperationCredential) {
       return {
         ok: false,
         code: 'invalid_response',
         message: 'Reused Wallet Session mint requires the credential the caller already holds',
+      };
+    }
+    if (existingOperationCredential.walletSessionId !== walletSessionId.value) {
+      return {
+        ok: false,
+        code: 'invalid_response',
+        message: 'Reused Wallet Session mint returned another lifecycle identity',
       };
     }
     return { ...base, sessionKind: data.sessionKind };

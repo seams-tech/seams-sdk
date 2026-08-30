@@ -430,7 +430,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       runtimePolicyScope,
       walletSession: activeWalletSession,
       operationCredential,
-      walletSessionToken,
       clientVerifyingShareB64u,
     },
   };
@@ -467,7 +466,7 @@ export function createEcdsaSessionActivationFixture(args: {
   });
   const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
   const runtimePolicyScope = bootstrap.session.runtimePolicyScope;
-  const walletSessionToken = bootstrap.session.walletSessionToken;
+  const walletSessionToken = bootstrap.session.operationCredential.token;
   const normalSigning = bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning;
   if (
     !binding ||
