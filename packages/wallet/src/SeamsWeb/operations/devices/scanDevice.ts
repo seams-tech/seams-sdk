@@ -246,8 +246,10 @@ export async function scanAndLinkDevice(
     await options.afterCall?.(true, result);
     return result;
   } catch (error: unknown) {
-    await cancelClaimedSessionAfterOwnerAbortV1(ports.transport, claimedSessionCancellation);
-    registerCancellation?.(null);
+    if (claimedSessionCancellation) {
+      await cancelClaimedSessionAfterOwnerAbortV1(ports.transport, claimedSessionCancellation);
+      registerCancellation?.(null);
+    }
     const failure = classifyFailure(error);
     emitScannerEvent(options.onEvent, parsedQrData, {
       phase: LinkDeviceEventPhase.FAILED,

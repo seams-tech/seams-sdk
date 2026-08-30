@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { scanAndLinkDevice } from '@/SeamsWeb/operations/devices/scanDevice';
+import {
+  scanAndLinkDevice,
+  type Device1OwnerLinkCancellationV1,
+} from '@/SeamsWeb/operations/devices/scanDevice';
 import type { Device1LinkingFlowPortsV1 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
 import { buildLinkedDeviceSessionClaimV1 } from '@shared/device-linking/parsers';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
@@ -65,6 +68,72 @@ test('does not submit owner approval after terminal Email OTP target resolution'
     'no_active_email_otp_base_factor',
   );
   expect(ownerApprovalCalls).toBe(0);
+});
+
+test('retains owner cancellation identity after approval-side source failure', async () => {
+  const nowMs = Date.now();
+  const fixture = buildR103DeviceLinkFixture({
+    linkSessionId: 'link-session:owner-cancel-retained',
+    issuedAtMs: nowMs - 1_000,
+    expiresAtMs: nowMs + 60_000,
+  });
+  const authentication = {
+    kind: 'link_session_authenticated_request_v1' as const,
+    source: fixture.approval.ownerAuthorization,
+    proofDigestB64u: fixture.packageSetDigestB64u,
+  };
+  const claim = buildLinkedDeviceSessionClaimV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    walletId: fixture.approval.walletId,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+    devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+    targetFactor: fixture.payload.targetFactor,
+    sessionRevision: 4,
+    claimedAtMs: nowMs,
+    claimExpiresAtMs: nowMs + 60_000,
+  });
+  const registrations: Array<Device1OwnerLinkCancellationV1 | null> = [];
+  const ports = {
+    ownerAuthorization: {
+      authenticateOwnerForLinkingV1: async () => ({
+        authentication,
+        walletId: fixture.approval.walletId,
+        ownerAuthorization: fixture.approval.ownerAuthorization,
+        sourceSignerManifest: fixture.sourceSignerManifest,
+        expiresAtMs: nowMs + 60_000,
+        exportRootRequirement: 'not_required' as const,
+      }),
+    },
+    transport: {
+      claimSessionV1: async () => claim,
+      recordOwnerApprovalV1: async () => ({
+        outcome: 'pending' as const,
+        state: {
+          state: 'awaiting_target_factor' as const,
+          deviceId: claim.deviceId,
+        },
+      }),
+      getSourceContributionPreparationV1: async () => {
+        throw new Error('source preparation unavailable');
+      },
+    },
+    sourceContribution: {},
+    ed25519ExportRoot: {},
+  } as unknown as Device1LinkingFlowPortsV1;
+
+  await expect(
+    scanAndLinkDevice(undefined, fixture.payload, {}, ports, (cancellation) => {
+      registrations.push(cancellation);
+    }),
+  ).rejects.toThrow('source preparation unavailable');
+
+  expect(registrations).toHaveLength(1);
+  expect(registrations[0]).toMatchObject({
+    linkSessionId: claim.linkSessionId,
+    expectedRevision: claim.sessionRevision,
+    authentication,
+  });
 });
 
 test('releases the wallet iframe foreground surface while device 1 waits', async () => {

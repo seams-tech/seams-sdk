@@ -678,7 +678,8 @@ export class LinkDeviceFlow {
             break;
           case 'claimed':
           case 'awaiting_target_factor':
-          case 'awaiting_source_contribution': {
+          case 'awaiting_source_contribution':
+          case 'provisioning': {
             const identity = await this.resolveLinkIdentityV1(session.linkSessionId);
             await authenticatedTransport.cancelSessionV1({
               request: buildLinkedDeviceSessionCancelClaimedRequestV1({
@@ -695,7 +696,6 @@ export class LinkDeviceFlow {
             };
             break;
           }
-          case 'provisioning':
           case 'authority_pending_local_install':
             break;
           case 'active':
@@ -2171,7 +2171,9 @@ export class LinkDeviceFlow {
     if (!transport) return;
     switch (event.state.state) {
       case 'claimed':
-      case 'awaiting_target_factor': {
+      case 'awaiting_target_factor':
+      case 'awaiting_source_contribution':
+      case 'provisioning': {
         const cancelledAtMs = Date.now();
         const identity = await this.resolveLinkIdentityV1(event.linkSessionId);
         await transport.cancelSessionV1({
@@ -2192,8 +2194,6 @@ export class LinkDeviceFlow {
         return;
       }
       case 'displaying_qr':
-      case 'awaiting_source_contribution':
-      case 'provisioning':
       case 'authority_pending_local_install':
       case 'active':
       case 'expired':
@@ -2258,7 +2258,6 @@ export class LinkDeviceFlow {
 
   private hasCommittedDeliveryState(): boolean {
     return (
-      this.targetCredentialRegistrationResult !== null ||
       this.committedAuthorityPackages !== null ||
       (this.keyMaterialHandle !== null &&
         (this.session?.state.state === 'authority_pending_local_install' ||
