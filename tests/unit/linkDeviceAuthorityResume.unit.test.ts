@@ -17,6 +17,7 @@ import type {
   DeviceLinkingAuthorityActivationTransportPortV1,
   DeviceLinkingAuthorityInstallationPortV1,
   DeviceLinkingDeliveryResumePortV1,
+  DeviceLinkingKeyMaterialPortV1,
   DeviceLinkingWalletSessionAcknowledgementReplayPortV1,
 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
 import type { LocalAuthorityActivationFinalAckV1 } from '@shared/device-linking';
@@ -39,6 +40,7 @@ function activationInput(
   fixture: ResumeFixture,
   transport: DeviceLinkingAuthorityActivationTransportPortV1,
   installation: DeviceLinkingAuthorityInstallationPortV1,
+  openWalletSessionCredentialDeliveryV1?: DeviceLinkingKeyMaterialPortV1['openWalletSessionCredentialDeliveryV1'],
 ): DeviceLinkingAuthorityActivationFlowInputV1 {
   return {
     ...fixture.inputBase,
@@ -49,9 +51,8 @@ function activationInput(
       async createBootstrapKeyMaterialV1() {
         throw new Error('bootstrap key material is outside this continuation test');
       },
-      async openWalletSessionCredentialDeliveryV1() {
-        return fixture.operationCredential;
-      },
+      openWalletSessionCredentialDeliveryV1:
+        openWalletSessionCredentialDeliveryV1 ?? (async () => fixture.operationCredential),
       async discardKeyMaterialV1() {
         return undefined;
       },
@@ -59,8 +60,7 @@ function activationInput(
         throw new Error('device-session signing is outside this continuation test');
       },
     },
-    deliveryRecipientPublicKey65B64u:
-      fixture.active.sealedDelivery.aad.recipientPublicKey65B64u,
+    deliveryRecipientPublicKey65B64u: fixture.active.sealedDelivery.aad.recipientPublicKey65B64u,
   };
 }
 
@@ -81,9 +81,7 @@ test.describe('linked-device committed delivery continuation', () => {
     const persisted = await page.evaluate(
       async ({ paths, fixture }) => {
         const { UnifiedIndexedDBManager } = await import(paths.indexedDB);
-        const { createDeviceLinkingAuthorityInstallationPortV1 } = await import(
-          paths.installation
-        );
+        const { createDeviceLinkingAuthorityInstallationPortV1 } = await import(paths.installation);
         const indexedDB = new UnifiedIndexedDBManager();
         indexedDB.getLocalAuthorityInstallationReceipt = async () => null;
 
@@ -313,9 +311,7 @@ test.describe('linked-device committed delivery continuation', () => {
     expect(installAttempts).toBe(2);
     expect(activationAttempts).toBe(2);
     expect(finalizationAttempts).toBe(1);
-    expect(persistedResume?.packageSetDigestB64u).toBe(
-      fixture.committed.packageSetDigestB64u,
-    );
+    expect(persistedResume?.packageSetDigestB64u).toBe(fixture.committed.packageSetDigestB64u);
   });
 
   test('replays the retained receipt after an interruption during local finalization', async () => {
@@ -389,6 +385,78 @@ test.describe('linked-device committed delivery continuation', () => {
     // activation helper returns the decrypted credential.
     expect(acknowledgementAttempts).toBe(0);
     expect(persistedResume).not.toBeNull();
+  });
+
+  test('persists acknowledgement intent after delivery validation and before credential decrypt', async () => {
+    const fixture = await buildResumeFixture('pre-decrypt-intent');
+    const stages: string[] = [];
+    let acknowledgement: LocalAuthorityActivationFinalAckV1 | null = null;
+    const installation: DeviceLinkingAuthorityInstallationPortV1 = {
+      async persistCommittedDeliveryResumeV1() {},
+      async readCommittedDeliveryResumeV1() {
+        return null;
+      },
+      async clearCommittedDeliveryResumeV1() {},
+      async persistPendingActivationAcknowledgementV1(input) {
+        stages.push('acknowledgement_persisted');
+        acknowledgement = input.acknowledgement;
+      },
+      async readPendingActivationAcknowledgementV1() {
+        return acknowledgement;
+      },
+      async clearPendingActivationAcknowledgementV1() {},
+      async readLocalAuthorityInstallationReceiptV1() {
+        return fixture.receipt;
+      },
+      async installLocalAuthorityV1() {
+        return fixture.receipt;
+      },
+      async publishLocalAuthorityActivationV1() {
+        stages.push('authority_published');
+      },
+      async finalizeLocalAuthorityActivationV1() {
+        throw new Error('finalization must not run without a decrypted credential');
+      },
+    };
+    const transport: DeviceLinkingAuthorityActivationTransportPortV1 = {
+      async receiveCommittedAuthorityPackagesV1() {
+        return fixture.committed;
+      },
+      async activateInstalledAuthorityV1() {
+        return fixture.active;
+      },
+      async acknowledgeLocalAuthorityActivationV1() {
+        throw new Error('acknowledgement transport is outside authority activation');
+      },
+    };
+    const openDelivery: DeviceLinkingKeyMaterialPortV1['openWalletSessionCredentialDeliveryV1'] =
+      async () => {
+        stages.push('credential_decrypt');
+        expect(acknowledgement).not.toBeNull();
+        throw new Error('recipient handle lost before decrypt');
+      };
+
+    await expect(
+      activateLinkedAuthorityV1(activationInput(fixture, transport, installation, openDelivery)),
+    ).rejects.toThrow('recipient handle lost before decrypt');
+    expect(stages).toEqual([
+      'authority_published',
+      'acknowledgement_persisted',
+      'credential_decrypt',
+    ]);
+    expect(acknowledgement).toEqual({
+      kind: 'local_authority_activation_final_ack_v1',
+      linkSessionId: fixture.inputBase.linkSessionId,
+      authorityId: fixture.active.authority.authorityId,
+      packageSetDigestB64u: fixture.committed.packageSetDigestB64u,
+      authorizationId: fixture.active.sealedDelivery.aad.authorizationId,
+      walletSessionId: fixture.active.sealedDelivery.aad.walletSessionId,
+      credentialDigestB64u: fixture.active.sealedDelivery.aad.credentialDigestB64u,
+      installationReceiptDigestB64u: await computeWalletSessionInstallationReceiptDigestB64u(
+        fixture.receipt,
+      ),
+      acknowledgedAtMs: fixture.inputBase.nowMs(),
+    });
   });
 
   test('replays a durable acknowledgement after recipient-handle loss and page reload', async () => {

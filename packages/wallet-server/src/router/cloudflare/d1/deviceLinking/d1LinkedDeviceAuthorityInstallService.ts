@@ -197,8 +197,7 @@ export type D1LinkedDeviceAuthorityInstallServiceOptionsV1 = {
   readonly materialActivation: OrdinaryInactiveSignerMaterialActivationPortV1;
   readonly authorizationService: Pick<
     AuthorizationService,
-    | 'prepareWalletSessionAuthorizationV2'
-    | 'readWalletSessionAuthorizationV2ByMint'
+    'prepareWalletSessionAuthorizationV2' | 'readWalletSessionAuthorizationV2ByMint'
   >;
   readonly authorizationStore: {
     prepareDirectWalletSessionAuthorizationV2Statements(
@@ -1027,8 +1026,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     );
     if (cleanupReceipt.expiresAtMs <= nowMs) return null;
     const storedAck =
-      row.acknowledgement_receipt_json === null ||
-      row.acknowledgement_receipt_json === undefined
+      row.acknowledgement_receipt_json === null || row.acknowledgement_receipt_json === undefined
         ? null
         : parseLocalAuthorityActivationFinalAckV1(
             parseD1JsonColumn(row.acknowledgement_receipt_json),
@@ -1074,12 +1072,13 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     }
     const providedSession =
       input.authentication.kind === 'live' ? input.authentication.session : null;
-    const session = providedSession || input.authentication.kind === 'exact_wallet_session'
-      ? await this.options.sessionService.getSessionV1({
-          linkSessionId: providedSession?.linkSessionId ?? acknowledgement.linkSessionId,
-          nowMs,
-        })
-      : null;
+    const session =
+      providedSession || input.authentication.kind === 'exact_wallet_session'
+        ? await this.options.sessionService.getSessionV1({
+            linkSessionId: providedSession?.linkSessionId ?? acknowledgement.linkSessionId,
+            nowMs,
+          })
+        : null;
     if (providedSession && session && session.revision !== providedSession.revision) {
       throw new Error('active authority acknowledgement session is stale');
     }
@@ -1207,9 +1206,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       input.authentication.walletId !== stored.walletId ||
       input.authentication.authorityId !== stored.authorityId ||
       input.authentication.walletAuthMethodId !== stored.authMethodId ||
-      input.authentication.principalId !== expectedPrincipalId ||
-      input.authentication.authorizationId !== input.acknowledgement.authorizationId ||
-      input.authentication.walletSessionId !== input.acknowledgement.walletSessionId
+      input.authentication.principalId !== expectedPrincipalId
     ) {
       throw new LinkedDeviceActivationIntegrityErrorV1(
         'exact Wallet Session acknowledgement identity does not match the installation',
@@ -1262,19 +1259,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         'active authority acknowledgement has no active authority records',
       );
     }
-    const committedWalletSession = await this.readCommittedWalletSession(
-      authority,
-      authMethod,
-      stored.activatedAtMs,
-    );
-    if (
-      input.acknowledgement.authorizationId !== committedWalletSession.session.authorizationId ||
-      input.acknowledgement.walletSessionId !== committedWalletSession.session.walletSessionId ||
-      input.acknowledgement.credentialDigestB64u !==
-        committedWalletSession.primaryOperationCredentialDigestB64u
-    ) {
-      throw new Error('active authority acknowledgement Wallet Session identity does not match');
-    }
     const receipt = buildInstallationReceiptFromStoredInstallation(stored);
     const installationReceiptDigestB64u =
       await computeWalletSessionInstallationReceiptDigestB64u(receipt);
@@ -1299,23 +1283,25 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         'active authority acknowledgement credential delivery is missing',
       );
     }
-    await this.assertCredentialDeliveryMatchesCommittedSession({
+    await this.assertCredentialDeliveryMatchesStoredInstallation({
       stored,
       receipt,
-      walletSession: committedWalletSession,
       delivery,
     });
-    if (delivery.aad.credentialDigestB64u !== input.acknowledgement.credentialDigestB64u) {
+    if (
+      delivery.aad.authorizationId !== input.acknowledgement.authorizationId ||
+      delivery.aad.walletSessionId !== input.acknowledgement.walletSessionId ||
+      delivery.aad.credentialDigestB64u !== input.acknowledgement.credentialDigestB64u
+    ) {
       throw new LinkedDeviceActivationIntegrityErrorV1(
-        'active authority acknowledgement credential delivery identity does not match the commit',
+        'active authority acknowledgement Wallet Session identity does not match the delivery',
       );
     }
-    const authExpiresAtMs = Math.min(
-      input.session.qrPayload.expiresAtMs,
-      delivery.aad.expiresAtMs,
-      committedWalletSession.session.expiresAtMs,
-    );
-    if (input.acknowledgement.acknowledgedAtMs >= authExpiresAtMs) {
+    const authExpiresAtMs = Math.min(input.session.qrPayload.expiresAtMs, delivery.aad.expiresAtMs);
+    if (
+      input.acknowledgement.acknowledgedAtMs >= authExpiresAtMs ||
+      input.nowMs >= authExpiresAtMs
+    ) {
       throw new Error('active authority acknowledgement is expired');
     }
     const cleanupReceipt: LinkedDeviceActivationCleanupReceiptV1 = {
@@ -1345,6 +1331,42 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     };
   }
 
+  private async assertCredentialDeliveryMatchesStoredInstallation(input: {
+    readonly stored: StoredInstallationRow;
+    readonly receipt: LocalAuthorityInstallationReceiptV1;
+    readonly delivery: LinkedDeviceWalletSessionCredentialDeliveryV1;
+  }): Promise<void> {
+    const recipientPublicKey65B64u = input.stored.deliveryRecipientPublicKey65B64u;
+    const aad = input.delivery.aad;
+    const expectedPrincipalId = requireParsed(
+      parsePrincipalId(`linked-device:${String(input.stored.deviceId)}`),
+      'principalId',
+    );
+    const installationReceiptDigestB64u = await computeWalletSessionInstallationReceiptDigestB64u(
+      input.receipt,
+    );
+    if (
+      !recipientPublicKey65B64u ||
+      aad.namespace !== this.options.scope.namespace ||
+      aad.orgId !== this.options.scope.orgId ||
+      aad.projectId !== this.options.scope.projectId ||
+      aad.envId !== this.options.scope.envId ||
+      aad.linkSessionId !== input.stored.linkSessionId ||
+      aad.tenantId !== this.options.tenantId ||
+      aad.principalId !== expectedPrincipalId ||
+      aad.walletId !== input.stored.walletId ||
+      aad.authorityId !== input.stored.authorityId ||
+      aad.walletAuthMethodId !== input.stored.authMethodId ||
+      aad.recipientPublicKey65B64u !== recipientPublicKey65B64u ||
+      input.delivery.installationReceiptDigestB64u !== installationReceiptDigestB64u
+    ) {
+      throw new LinkedDeviceActivationIntegrityErrorV1(
+        'linked-device Wallet Session credential delivery identity is inconsistent with its commit',
+      );
+    }
+    await assertLinkedDeviceWalletSessionCredentialDeliveryIntegrityV1(input.delivery);
+  }
+
   private async assertCredentialDeliveryMatchesCommittedSession(input: {
     readonly stored: StoredInstallationRow;
     readonly receipt: LocalAuthorityInstallationReceiptV1;
@@ -1353,37 +1375,23 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     };
     readonly delivery: LinkedDeviceWalletSessionCredentialDeliveryV1;
   }): Promise<void> {
-    const recipientPublicKey65B64u = input.stored.deliveryRecipientPublicKey65B64u;
+    await this.assertCredentialDeliveryMatchesStoredInstallation(input);
     const session = input.walletSession.session;
     const aad = input.delivery.aad;
-    const installationReceiptDigestB64u =
-      await computeWalletSessionInstallationReceiptDigestB64u(input.receipt);
     if (
-      !recipientPublicKey65B64u ||
-      aad.namespace !== this.options.scope.namespace ||
-      aad.orgId !== this.options.scope.orgId ||
-      aad.projectId !== this.options.scope.projectId ||
-      aad.envId !== this.options.scope.envId ||
-      aad.linkSessionId !== input.stored.linkSessionId ||
       aad.tenantId !== session.tenantId ||
       aad.principalId !== session.principalId ||
-      aad.walletId !== input.stored.walletId ||
-      aad.authorityId !== input.stored.authorityId ||
-      aad.walletAuthMethodId !== input.stored.authMethodId ||
       aad.authorizationId !== session.authorizationId ||
       aad.walletSessionId !== session.walletSessionId ||
       aad.quotaId !== input.walletSession.quota.quotaId ||
       aad.credentialDigestB64u !== input.walletSession.primaryOperationCredentialDigestB64u ||
-      aad.recipientPublicKey65B64u !== recipientPublicKey65B64u ||
       aad.issuedAtMs !== session.createdAtMs ||
-      aad.expiresAtMs !== session.expiresAtMs ||
-      input.delivery.installationReceiptDigestB64u !== installationReceiptDigestB64u
+      aad.expiresAtMs !== session.expiresAtMs
     ) {
       throw new LinkedDeviceActivationIntegrityErrorV1(
         'linked-device Wallet Session credential delivery identity is inconsistent with its commit',
       );
     }
-    await assertLinkedDeviceWalletSessionCredentialDeliveryIntegrityV1(input.delivery);
   }
 
   private buildCredentialDeliveryAcknowledgementStatement(input: {
@@ -1712,16 +1720,15 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     const prepared = await this.options.authorizationService.prepareWalletSessionAuthorizationV2(
       this.buildWalletSessionAuthorizationInput(authority, authMethod, issuedAtMs),
     );
-    const committed = await this.options.authorizationService.readWalletSessionAuthorizationV2ByMint(
-      {
+    const committed =
+      await this.options.authorizationService.readWalletSessionAuthorizationV2ByMint({
         tenantId: prepared.session.tenantId,
         principalId: prepared.session.principalId,
         walletId: prepared.session.walletId,
         authorityId: prepared.session.authorityId,
         walletAuthMethodId: prepared.session.walletAuthMethodId,
         mintId: prepared.session.mintId,
-      },
-    );
+      });
     if (!committed || committed.retiredAtMs !== null) {
       throw new LinkedDeviceActivationIntegrityErrorV1(
         'linked-device Wallet Session authorization is not active',
@@ -3505,8 +3512,7 @@ async function sealLinkedDeviceWalletSessionCredentialV1(input: {
       return {
         kind: 'linked_device_wallet_session_credential_delivery_v1',
         aad,
-        aadDigestB64u:
-          await computeLinkedDeviceWalletSessionCredentialDeliveryAadDigestB64u(aad),
+        aadDigestB64u: await computeLinkedDeviceWalletSessionCredentialDeliveryAadDigestB64u(aad),
         recipientBindingDigestB64u: await digestJson({
           domain: 'seams/linked-device/delivery-recipient/v1',
           recipientPublicKey65B64u: recipientPublicKey,
