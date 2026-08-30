@@ -6,8 +6,22 @@ import type { WalletRegistrationActivateResponseV2 } from '../../packages/wallet
 import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { projectRegistrationEstablishedSessionV2 } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/walletRegistrationSessionCommitReceipt';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseAuthFactorId,
+  parsePrincipalId,
+  parseTenantId,
+  parseWalletSessionMintId,
+} from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { implicitNearAccountProvisioning } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseRegistrationEstablishedSessionResultV2 } from '../../packages/shared-ts/src/utils/registrationEstablishedSession';
+import { buildVerifiedWalletSessionPasskeyFactorResult } from '../../packages/wallet-server/src/authorization/factorEvidence';
+import { parseVerifiedOwnerProofId } from '../../packages/wallet-server/src/authorization/domain';
+import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import {
+  buildPasskeyWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   buildFixtureRouterAbEcdsaStrictRegistrationRequest,
@@ -21,6 +35,8 @@ import { buildWalletCustodyCommitPayloadFixture } from './helpers/passkeyCustody
 import {
   applySignerMigrations,
   createWebAuthnRegistrationCredential,
+  insertWalletAuthMethod,
+  readWalletAuthMethodRecord,
   RecordingDurableObjectNamespace,
   requireParsedDomainId,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
@@ -793,7 +809,7 @@ function derivingYaoRuntime(capture?: {
   });
 }
 
-test('Ed25519-only registers end to end: pending wallet now, signer when Yao resolves', async () => {
+test('Ed25519-only registration replay unlocks an exact successor and retires its predecessor', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -965,6 +981,187 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       replayedProvisioning.registrationEstablishedSession,
       issuedProvisioningSession.operationCredential.token,
     );
+
+    /* A lost registration response leaves only this committed projection. The
+       exact-method unlock must mint a successor directly, retiring the
+       unreachable registration credential's session and quota in the same
+       transaction. */
+    const authority = replayedProvisioning.authority;
+    if (!isPasskeyWalletAuthAuthority(authority)) {
+      throw new Error('Ed25519-only passkey registration returned a non-passkey authority');
+    }
+    expect(String(replayedProvisioning.foundingAuthMethod.walletAuthMethodId)).toBe(
+      String(authority.bindingId),
+    );
+    const siblingAuthority = buildPasskeyWalletAuthAuthority({
+      walletId: authority.walletId,
+      rpId,
+      credentialIdB64u: 'registration-sibling-credential',
+    });
+    await insertWalletAuthMethod({
+      database,
+      ...ED_SCOPE,
+      record: {
+        kind: 'passkey',
+        walletAuthMethodId: String(siblingAuthority.bindingId),
+        walletAuthorityId: String(replayedProvisioning.foundingAuthority.authorityId),
+        walletId: String(authority.walletId),
+        rpId: String(rpId),
+        credentialIdB64u: String(siblingAuthority.factor.credentialIdB64u),
+        credentialPublicKeyB64u: 'registration-sibling-public-key',
+        counter: 0,
+        createdAtMs: Date.now(),
+        updatedAtMs: Date.now(),
+      },
+    });
+    const siblingMethodBefore = await readWalletAuthMethodRecord({
+      database,
+      ...ED_SCOPE,
+      walletAuthMethodId: String(siblingAuthority.bindingId),
+    });
+    const tenantId = requireParsedDomainId(parseTenantId(ED_SCOPE.orgId));
+    const principalId = requireParsedDomainId(parsePrincipalId(String(authority.walletId)));
+    const siblingMintId = requireParsedDomainId(
+      parseWalletSessionMintId('wallet-mint:registration-sibling'),
+    );
+    const siblingIssuedAtMs = Date.now();
+    const sibling = await service.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
+      tenantId,
+      principalId,
+      walletId: authority.walletId,
+      authority: replayedProvisioning.foundingAuthority,
+      walletAuthMethodId: siblingAuthority.bindingId,
+      mintId: siblingMintId,
+      remainingUses: 7,
+      issuedAtMs: siblingIssuedAtMs,
+      expiresAtMs: siblingIssuedAtMs + 300_000,
+    });
+    if (sibling.kind !== 'issued') {
+      throw new Error('sibling Wallet Session fixture did not issue');
+    }
+    const siblingAuthorizationBefore =
+      await service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId,
+        token: sibling.operationCredential.token,
+        nowMs: siblingIssuedAtMs,
+      });
+    expect(siblingAuthorizationBefore).not.toBeNull();
+
+    const unlockChallengeId = 'unlock:registration-replay-successor';
+    const unlockVerifiedAtMs = Date.now();
+    const unlockProof = await service.authorizedOperations.buildVerifiedOwnerProof({
+      purpose: 'wallet_session',
+      proofId: parseVerifiedOwnerProofId(`owner-proof:${unlockChallengeId}`),
+      factor: buildVerifiedWalletSessionPasskeyFactorResult({
+        tenantId,
+        principalId,
+        walletId: authority.walletId,
+        authorityRef: await walletAuthAuthorityRef({ authority }),
+        requestOrigin: 'https://wallet.example.test',
+        audience: 'https://wallet.example.test',
+        factorId: requireParsedDomainId(
+          parseAuthFactorId(`passkey:${authority.factor.credentialIdB64u}`),
+        ),
+        credentialIdB64u: authority.factor.credentialIdB64u,
+        assertionDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(9))),
+        verifiedAtMs: unlockVerifiedAtMs,
+        expiresAtMs: unlockVerifiedAtMs + 300_000,
+      }),
+    });
+    const unlocked = await service.walletRegistration.provisionEd25519YaoWalletSession({
+      walletId: String(authority.walletId),
+      signerSlot: replayedProvisioning.ed25519.signerSlot,
+      remainingUses: 1,
+      verifiedChallengeId: unlockChallengeId,
+      authority,
+      walletSessionIdentity: { kind: 'new_wallet_session' },
+      proof: unlockProof,
+    } as never);
+    expect(unlocked, JSON.stringify(unlocked)).toMatchObject({
+      ok: true,
+      session: {
+        sessionKind: 'issued_exact_wallet_session',
+        walletId: authority.walletId,
+        remainingUses: 1,
+      },
+    });
+    if (!unlocked.ok) throw new Error(unlocked.message);
+    if (unlocked.session.sessionKind !== 'issued_exact_wallet_session') {
+      throw new Error('exact-method unlock did not issue a successor Wallet Session');
+    }
+    expect(unlocked.session.operationCredential.walletSessionId).toBe(
+      unlocked.session.walletSessionId,
+    );
+    expect(unlocked.session.walletSessionId).not.toBe(issuedProvisioningSession.walletSessionId);
+    expect(unlocked.session.walletSessionId).not.toBe(sibling.session.walletSessionId);
+
+    const predecessorState = await database
+      .prepare(
+        `SELECT session.wallet_auth_method_id, session.retired_at_ms,
+                quota.remaining_uses, quota.lifecycle_kind
+           FROM wallet_session_authorizations_v2 AS session
+           JOIN authorization_wallet_session_quotas AS quota
+             ON quota.namespace = session.namespace
+            AND quota.tenant_id = session.tenant_id
+            AND quota.quota_id = session.quota_id
+          WHERE session.namespace = ?
+            AND session.tenant_id = ?
+            AND session.wallet_session_id = ?`,
+      )
+      .bind(ED_SCOPE.namespace, tenantId, String(issuedProvisioningSession.walletSessionId))
+      .first<{
+        readonly wallet_auth_method_id: string;
+        readonly retired_at_ms: number | null;
+        readonly remaining_uses: number;
+        readonly lifecycle_kind: string;
+      }>();
+    expect(predecessorState).toMatchObject({
+      wallet_auth_method_id: String(authority.bindingId),
+      retired_at_ms: expect.any(Number),
+      remaining_uses: 0,
+      lifecycle_kind: 'exhausted',
+    });
+
+    const successorState = await database
+      .prepare(
+        `SELECT session.wallet_auth_method_id, session.retired_at_ms,
+                quota.remaining_uses, quota.lifecycle_kind
+           FROM wallet_session_authorizations_v2 AS session
+           JOIN authorization_wallet_session_quotas AS quota
+             ON quota.namespace = session.namespace
+            AND quota.tenant_id = session.tenant_id
+            AND quota.quota_id = session.quota_id
+          WHERE session.namespace = ?
+            AND session.tenant_id = ?
+            AND session.wallet_session_id = ?`,
+      )
+      .bind(ED_SCOPE.namespace, tenantId, String(unlocked.session.walletSessionId))
+      .first<{
+        readonly wallet_auth_method_id: string;
+        readonly retired_at_ms: number | null;
+        readonly remaining_uses: number;
+        readonly lifecycle_kind: string;
+      }>();
+    expect(successorState).toEqual({
+      wallet_auth_method_id: String(authority.bindingId),
+      retired_at_ms: null,
+      remaining_uses: 1,
+      lifecycle_kind: 'active',
+    });
+
+    const siblingAuthorizationAfter =
+      await service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId,
+        token: sibling.operationCredential.token,
+        nowMs: siblingIssuedAtMs,
+      });
+    const siblingMethodAfter = await readWalletAuthMethodRecord({
+      database,
+      ...ED_SCOPE,
+      walletAuthMethodId: String(siblingAuthority.bindingId),
+    });
+    expect(siblingAuthorizationAfter).toEqual(siblingAuthorizationBefore);
+    expect(siblingMethodAfter).toEqual(siblingMethodBefore);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
