@@ -4800,6 +4800,19 @@ function passkeyWalletUnlockInput(args: {
   };
 }
 
+export function bindPasskeyEcdsaSessionPolicyToUnlockChallenge(
+  policy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
+  challengeId: string,
+): RouterAbEcdsaPostRegistrationSessionActivationPolicyV1 {
+  return {
+    ...policy,
+    session_policy: {
+      ...policy.session_policy,
+      wallet_session_mint_id: requireThresholdLoginWalletSessionMintId(challengeId),
+    },
+  };
+}
+
 async function completePasskeyWalletUnlock(
   args: CompletePasskeyWalletUnlockArgs,
 ): Promise<CompletedPasskeyWalletUnlock> {
@@ -4833,6 +4846,12 @@ async function completePasskeyWalletUnlock(
   if (!challengeId || !challengeB64u) {
     throw new Error('wallet/unlock/challenge returned invalid challenge');
   }
+  const activation = args.activation
+    ? {
+        ...args.activation,
+        policy: bindPasskeyEcdsaSessionPolicyToUnlockChallenge(args.activation.policy, challengeId),
+      }
+    : null;
 
   const credentialIds = resolveLoginPasskeyPromptCredentialIds({
     authenticators: args.authenticators,
@@ -4858,7 +4877,7 @@ async function completePasskeyWalletUnlock(
     }),
     expectedOrigin,
     walletIdentity: args.walletIdentity,
-    activation: args.activation,
+    activation,
   });
   const result = await verifyPasskeyWalletUnlock(args.relayUrl, unlockInput);
   if (!result.success) {
@@ -4868,26 +4887,21 @@ async function completePasskeyWalletUnlock(
     throw new Error('Passkey wallet unlock omitted wallet custody continuity');
   }
   if (
-    args.activation &&
+    activation &&
     (!result.ecdsaSession || !result.ecdsaActivationReceipt || !result.ecdsaCustody)
   ) {
     throw new Error('Passkey wallet unlock omitted the requested ECDSA activation');
   }
-  if (
-    args.activation &&
-    result.ecdsaSession &&
-    result.ecdsaActivationReceipt &&
-    result.ecdsaCustody
-  ) {
+  if (activation && result.ecdsaSession && result.ecdsaActivationReceipt && result.ecdsaCustody) {
     assertPasskeyEcdsaExchangeContinuity({
       walletId: String(args.walletIdentity.walletId),
-      prepared: args.activation,
+      prepared: activation,
       response: result.ecdsaSession,
       activationReceipt: result.ecdsaActivationReceipt,
       continuity: result.ecdsaCustody,
     });
   }
-  if (args.activation?.requiresCustodyRejoin) {
+  if (activation?.requiresCustodyRejoin) {
     if (!('ecdsaCustody' in result) || !result.ecdsaCustody) {
       throw new Error('Passkey wallet unlock omitted ECDSA custody rejoin continuity');
     }
@@ -4913,9 +4927,9 @@ async function completePasskeyWalletUnlock(
   return {
     credential,
     activation:
-      args.activation && result.ecdsaSession
+      activation && result.ecdsaSession
         ? {
-            ...args.activation,
+            ...activation,
             response: result.ecdsaSession,
             activationReceipt: result.ecdsaActivationReceipt,
             continuity: result.ecdsaCustody,

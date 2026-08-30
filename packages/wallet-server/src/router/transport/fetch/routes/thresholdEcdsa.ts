@@ -117,6 +117,7 @@ import {
 } from '../../../../authorization/factorEvidence';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { resolveWalletAuthMethodIdForAuthority } from '../../../../core/signingLanes/WalletExecutionLaneProjection';
 
 async function verifyActiveEcdsaOperationStepUpAuthority(
   walletAuthMethods: RouterApiWalletAuthMethodService,
@@ -2816,6 +2817,12 @@ export async function authorizeStrictEcdsaSessionActivationFromOperationCredenti
   }
   const admission = resolution.admission;
   const session = admission.context.authorization.session;
+  const proofWalletAuthMethodId = await resolveWalletAuthMethodIdForAuthority({
+    walletId: session.walletId,
+    authorityRef: input.proof.authority,
+    authSource: input.proof.authSource,
+    authMethods: [admission.context.authMethod],
+  });
   if (
     String(session.walletId) !== input.walletId ||
     input.operationCredential.walletSessionId !== session.walletSessionId ||
@@ -2824,7 +2831,7 @@ export async function authorizeStrictEcdsaSessionActivationFromOperationCredenti
     input.proof.walletId !== session.walletId ||
     input.proof.authority.walletId !== session.walletId ||
     input.proof.authority.walletAuthMethodId !== session.walletAuthMethodId ||
-    String(input.proof.authority.authorityDigest) !== String(session.authorityDigestB64u)
+    proofWalletAuthMethodId !== session.walletAuthMethodId
   ) {
     return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
   }
