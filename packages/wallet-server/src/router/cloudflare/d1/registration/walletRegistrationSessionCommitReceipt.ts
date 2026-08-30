@@ -39,7 +39,7 @@ export type WalletRegistrationNearProvisioningFinalizeResponse =
 
 export type RegistrationCommitExecution<T> =
   | { readonly kind: 'unissued'; readonly response: T }
-  | { readonly kind: 'legacy'; readonly response: T }
+  | { readonly kind: 'replayed'; readonly response: T }
   | {
       readonly kind: 'near_pending';
       readonly response: T;
@@ -64,8 +64,8 @@ export function unissuedRegistrationCommit<T>(response: T): RegistrationCommitEx
   return { kind: 'unissued', response };
 }
 
-export function legacyRegistrationCommit<T>(response: T): RegistrationCommitExecution<T> {
-  return { kind: 'legacy', response };
+export function replayedRegistrationCommit<T>(response: T): RegistrationCommitExecution<T> {
+  return { kind: 'replayed', response };
 }
 
 export function projectRegistrationEstablishedSessionV2(
@@ -121,7 +121,7 @@ export function projectWalletRegistrationSessionCommitReceiptV2(input: {
       committed: { kind: 'error', error: response },
     };
   }
-  if (input.execution.kind === 'unissued' || input.execution.kind === 'legacy') {
+  if (input.execution.kind === 'unissued' || input.execution.kind === 'replayed') {
     throw new Error('Registration commit receipt requires an issued or pending response');
   }
   const expectedOrigin = input.execution.expectedOrigin;

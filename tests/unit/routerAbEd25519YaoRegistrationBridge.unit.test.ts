@@ -18,8 +18,7 @@ import {
   type RouterAbEd25519YaoRegistrationSideEffectCompletionV1,
   type RouterAbEd25519YaoRegistrationSideEffectRecordV2,
   type RouterAbEd25519YaoRegistrationSideEffectStoreV2,
-  type RouterAbEd25519YaoRegistrationSideEffectWritableRecordV2,
-  parseRouterAbEd25519YaoRegistrationSideEffectRecordV2WithLegacy,
+  parseRouterAbEd25519YaoRegistrationSideEffectRecordV2,
 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
 import type {
   VersionedJsonRecordPutResult,
@@ -63,15 +62,13 @@ type CredentialFreeStoreRecord = {
   readonly version: number;
   readonly value: RouterAbEd25519YaoRegistrationSideEffectRecordV2<
     CredentialFreeReceipt,
-    PreparedMarker,
-    CredentialBearingResponse
+    PreparedMarker
   >;
 };
 
 class CredentialFreeRegistrationStore implements RouterAbEd25519YaoRegistrationSideEffectStoreV2<
   CredentialFreeReceipt,
-  PreparedMarker,
-  CredentialBearingResponse
+  PreparedMarker
 > {
   readonly records = new Map<string, CredentialFreeStoreRecord>();
 
@@ -94,10 +91,7 @@ class CredentialFreeRegistrationStore implements RouterAbEd25519YaoRegistrationS
 
   async put(
     key: string,
-    value: RouterAbEd25519YaoRegistrationSideEffectWritableRecordV2<
-      CredentialFreeReceipt,
-      PreparedMarker
-    >,
+    value: RouterAbEd25519YaoRegistrationSideEffectRecordV2<CredentialFreeReceipt, PreparedMarker>,
     expectedVersion: string | null,
   ): Promise<VersionedJsonRecordPutResult> {
     const current = this.records.get(key);
@@ -310,7 +304,6 @@ test.describe('registration side-effect persistence bridge', () => {
       },
       projectReceipt: projectCredentialFreeTestReceipt,
       replay: replayProbe.replay.bind(replayProbe),
-      adaptLegacyResponse: (response: CredentialBearingResponse) => response,
     };
 
     await expect(
@@ -369,9 +362,9 @@ test.describe('registration side-effect persistence bridge', () => {
     expect(replayProbe.calls).toBe(1);
   });
 
-  test('reads a strict legacy completion row during the compatibility drain', async () => {
+  test('refuses a retired credential-bearing completion row instead of replaying it', async () => {
     const prepared = { kind: 'prepared_test_effect' } as const;
-    const rawLegacy = {
+    const retiredRow = {
       kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
       operation: 'registration_activate',
       requestFingerprint: REQUEST_FINGERPRINT,
@@ -381,76 +374,28 @@ test.describe('registration side-effect persistence bridge', () => {
       prepared,
       response: {
         ok: true,
-        committedIdentity: 'legacy-committed-identity',
-        walletSessionToken: 'legacy-persisted-token',
+        committedIdentity: 'retired-committed-identity',
+        walletSessionToken: 'retired-persisted-token',
       },
     };
-    const parsed = parseRouterAbEd25519YaoRegistrationSideEffectRecordV2WithLegacy(rawLegacy, {
-      operation: 'registration_activate',
-      parsePrepared: (value) =>
-        value &&
-        typeof value === 'object' &&
-        (value as { kind?: unknown }).kind === 'prepared_test_effect'
-          ? { kind: 'prepared_test_effect' }
-          : null,
-      parseReceipt: () => null,
-      parseLegacyResponse: (value) => {
-        if (!value || typeof value !== 'object') return null;
-        const response = value as {
-          ok?: unknown;
-          committedIdentity?: unknown;
-          walletSessionToken?: unknown;
-        };
-        return response.ok === true &&
-          typeof response.committedIdentity === 'string' &&
-          typeof response.walletSessionToken === 'string'
-          ? {
-              ok: true,
-              committedIdentity: response.committedIdentity,
-              walletSessionToken: response.walletSessionToken,
-            }
-          : null;
-      },
-    });
-    expect(parsed?.kind).toBe('router_ab_ed25519_yao_registration_side_effect_completion_v1');
-    if (!parsed || parsed.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1') {
-      throw new Error('legacy completion did not parse');
-    }
-    const store = new CredentialFreeRegistrationStore();
-    store.records.set('registration-activate:legacy-drain', {
-      version: 1,
-      value: parsed,
-    });
-    const input = {
-      kind: 'prepared_resumable' as const,
-      operation: 'registration_activate' as const,
-      key: 'registration-activate:legacy-drain',
-      requestFingerprint: REQUEST_FINGERPRINT,
-      resumeAfterMs: 1,
-      nowMs: fixedNow,
-      prepare: prepareTestEffect,
-      derivePreparedArtifactFingerprint: deriveTestPreparedArtifactFingerprint,
-      execute: async (): Promise<CredentialBearingResponse> => {
-        throw new Error('legacy completion must not execute');
-      },
-      projectReceipt: projectCredentialFreeTestReceipt,
-      replay: replayCredentialFreeTestReceipt,
-      adaptLegacyResponse: (response: CredentialBearingResponse) => response,
-    };
-    await expect(
-      runRouterAbEd25519YaoRegistrationSideEffectV2<
-        CredentialBearingResponse,
-        CredentialFreeReceipt,
-        PreparedMarker
-      >(store, input),
-    ).resolves.toEqual({
-      kind: 'exact_replay',
-      value: {
-        ok: true,
-        committedIdentity: 'legacy-committed-identity',
-        walletSessionToken: 'legacy-persisted-token',
-      },
-    });
+
+    expect(
+      parseRouterAbEd25519YaoRegistrationSideEffectRecordV2<CredentialFreeReceipt, PreparedMarker>(
+        retiredRow,
+        {
+          operation: 'registration_activate',
+          parsePrepared: (value) =>
+            value &&
+            typeof value === 'object' &&
+            (value as { kind?: unknown }).kind === 'prepared_test_effect'
+              ? { kind: 'prepared_test_effect' }
+              : null,
+          parseReceipt: () => {
+            throw new Error('a retired completion row has no receipt to parse');
+          },
+        },
+      ),
+    ).toBeNull();
   });
 
   test('parses the activation pending receipt with exact credential-free keys', async () => {

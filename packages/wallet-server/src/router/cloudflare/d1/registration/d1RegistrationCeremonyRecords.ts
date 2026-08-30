@@ -105,7 +105,6 @@ import type {
   WalletRegistrationEcdsaWalletKey,
   WalletRegistrationFinalizeAuthMethod,
   WalletRegistrationFinalizeResponse,
-  WalletRegistrationRouteDiagnostics,
   WalletEd25519YaoSignerPublicResult,
   WalletRegistrationEd25519YaoPublicResult,
   WalletAddSignerFinalizeResponse,
@@ -769,76 +768,6 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
   return response;
 }
 
-function parseWalletRegistrationRouteTimingName(
-  raw: unknown,
-): WalletRegistrationRouteDiagnostics['entries'][number]['name'] | null {
-  switch (raw) {
-    case 'registrationIntentLoadMs':
-    case 'registrationIntentDigestMs':
-    case 'registrationIntentConsumeMs':
-    case 'registrationAttemptGateMs':
-    case 'registrationPreparationPersistMs':
-    case 'registrationPreparationLoadMs':
-    case 'registrationPreparationConsumeMs':
-    case 'registrationPreparationScopeCheckMs':
-    case 'registrationAuthorityVerifyMs':
-    case 'registrationEcdsaPrepareMs':
-    case 'registrationCeremonyPersistMs':
-    case 'registerPrepareTotalMs':
-    case 'registerStartTotalMs':
-    case 'registrationEcdsaRespondMs':
-    case 'registrationFinalizeReplayLoadMs':
-    case 'registrationCeremonyLoadMs':
-    case 'registrationEcdsaBootstrapVerifyMs':
-    case 'sponsoredNearAccountCreateMs':
-    case 'registrationKeygenMs':
-    case 'registrationEmailOtpEnrollmentPlanMs':
-    case 'relaySessionMintMs':
-    case 'relayGoogleEmailOtpActivationPlanMs':
-    case 'relayPersistenceMs':
-    case 'registrationFinalizeReplayCacheMs':
-    case 'registerFinalizeTotalMs':
-      return raw;
-    default:
-      return null;
-  }
-}
-
-function parseWalletRegistrationRouteDiagnostics(
-  raw: unknown,
-): WalletRegistrationRouteDiagnostics | null {
-  const record = toRecordValue(raw);
-  if (
-    !record ||
-    record.kind !== 'wallet_registration_route_diagnostics_v1' ||
-    record.route !== 'wallets_register_finalize' ||
-    !Array.isArray(record.entries) ||
-    !hasExactKeys(record, ['kind', 'route', 'entries'])
-  ) {
-    return null;
-  }
-  const entries: WalletRegistrationRouteDiagnostics['entries'] = [];
-  for (const rawEntry of record.entries) {
-    const entry = toRecordValue(rawEntry);
-    const name = parseWalletRegistrationRouteTimingName(entry?.name);
-    if (
-      !entry ||
-      !hasExactKeys(entry, ['name', 'durationMs']) ||
-      !name ||
-      typeof entry.durationMs !== 'number' ||
-      entry.durationMs < 0
-    ) {
-      return null;
-    }
-    entries.push({ name, durationMs: entry.durationMs });
-  }
-  return {
-    kind: 'wallet_registration_route_diagnostics_v1',
-    route: 'wallets_register_finalize',
-    entries,
-  };
-}
-
 function hasExactKeys(record: Record<string, unknown>, expected: readonly string[]): boolean {
   const actual = Object.keys(record);
   return actual.length === expected.length && expected.every((key) => actual.includes(key));
@@ -1016,29 +945,6 @@ function hasStrictStoredWalletRegistrationPreparedContext(raw: unknown): boolean
     );
   }
   return ecdsa.kind === 'evm_family_ecdsa_absent' && hasExactKeys(ecdsa, ['kind']);
-}
-
-export function parseD1WalletRegistrationFinalizeTerminalResponse(
-  raw: unknown,
-): WalletRegistrationFinalizeResponse | null {
-  const record = toRecordValue(raw);
-  if (!record || typeof record.ok !== 'boolean') return null;
-  if (!record.ok) {
-    const code = toOptionalTrimmedString(record.code);
-    const message = toOptionalTrimmedString(record.message);
-    if (!code || !message) return null;
-    if (record.retryAfterMs === undefined) return { ok: false, code, message };
-    if (!Number.isSafeInteger(record.retryAfterMs) || Number(record.retryAfterMs) < 0) return null;
-    return { ok: false, code, message, retryAfterMs: Number(record.retryAfterMs) };
-  }
-  const success = parseD1WalletRegistrationFinalizeReplayResponse(record);
-  if (!success) return null;
-  if (record.registrationDiagnostics === undefined) return success;
-  const registrationDiagnostics = parseWalletRegistrationRouteDiagnostics(
-    record.registrationDiagnostics,
-  );
-  if (!registrationDiagnostics) return null;
-  return { ...success, registrationDiagnostics };
 }
 
 function registrationNearProvisioningMatchesResolution(
