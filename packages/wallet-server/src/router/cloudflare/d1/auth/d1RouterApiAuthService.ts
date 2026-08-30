@@ -2045,7 +2045,7 @@ async function issueWalletSessionForActiveAuthority(input: {
     return {
       kind: 'rejected',
       code: 'invalid_state',
-      message: 'Linked-device Wallet Session identity is invalid',
+      message: 'Wallet Session identity is invalid',
     };
   }
 
@@ -2068,13 +2068,6 @@ async function issueWalletSessionForActiveAuthority(input: {
         (deviceLinked ? LINKED_DEVICE_WALLET_SESSION_TTL_MS : DEFAULT_WALLET_SESSION_TTL_MS),
     });
     const authorityProvenanceKind = input.resolved.authority.provenance.kind;
-    if (authorityProvenanceKind === 'wallet_registration') {
-      return {
-        kind: 'rejected',
-        code: 'invalid_state',
-        message: 'Founding authority entered additive Wallet Session issuance',
-      };
-    }
     if (directIssue.kind === 'already_committed') {
       return {
         kind: 'already_committed',
@@ -2165,7 +2158,12 @@ async function issueWalletSessionForEmailOtpUnlock(input: {
     };
   }
   if (resolved.authority.provenance.kind === 'wallet_registration') {
-    return { kind: 'wallet_registration' };
+    switch (input.request.requestedCapabilities.kind) {
+      case 'wallet_session':
+        break;
+      case 'ed25519_yao':
+        return { kind: 'wallet_registration' };
+    }
   }
   return await issueWalletSessionForActiveAuthority({
     resolved,
