@@ -584,9 +584,24 @@ Required shaping work:
       The current tree has 40 executable uses across 18 production consumer
       files: 37 direct reads and three bound ports. The generated current list
       below controls the conversion work.
-- [ ] Record the final V2 issue, persistence, read, admission, retirement, and
+- [x] Record the final V2 issue, persistence, read, admission, retirement, and
       replay APIs that remain after deletion so the closure search distinguishes
       the intended exact surface from a missed legacy replacement.
+
+Final exact survivor API inventory:
+
+| Responsibility | Surviving API |
+|---|---|
+| Direct issue | `AuthorizationService.issueDirectWalletSessionAuthorizationV2` |
+| Server persistence | `D1AuthorizationStore.commitDirectWalletSessionAuthorizationV2` |
+| Same-mint replay | `readWalletSessionAuthorizationV2ByMint` returning the committed exact identity without plaintext credential recovery |
+| Credential admission | `readWalletSessionAuthorizationV2ByOperationCredential` and `readExactWalletSessionStatusByOperationCredential` |
+| Authorized-operation admission and replay | `admitAuthorizedOperation` and `completeAuthorizedOperation` |
+| Method retirement | `retireWalletSessionAuthorizationsForAuthMethod` |
+| Authority retirement | `prepareRetireWalletSessionAuthorizationsV2ForAuthority` inside the owning authority CAS |
+| Browser install and same-method replacement | `writeExactWithOperationCredential` through `replaceExactActive` |
+| Browser exact read | `readExactWithOperationCredential` and `readExactActiveForWallet` |
+| Browser lock retirement | `retireExactActiveForWallet` |
 
 Behavior-neutral extraction, legacy deletion, and behavior changes should use
 coherent commits where practical. An extraction that touches more than five
