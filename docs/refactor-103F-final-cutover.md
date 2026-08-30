@@ -1699,17 +1699,23 @@ Remaining causal baseline work:
       `tests/unit/walletSessionStatusExactAdmission.unit.test.ts` proves the
       wire projection each one publishes.
 - [x] Authorized-operation full-scope claim and exact replay tests.
-- [ ] Hosted nominal-type, disjoint-prefix, issue/redeem/use Origin,
+- [x] Hosted nominal-type, disjoint-prefix, issue/redeem/use Origin,
       iframe-parent Origin, authoritative wallet-origin, quota, parent lifecycle,
-      and primary-preservation tests.
+      and primary-preservation tests. The origin suites cover issue, redeem,
+      child use, iframe adoption, and authoritative wallet-origin binding;
+      `tests/unit/d1WalletSessionAuthMethodProvenance.unit.test.ts` covers
+      disjoint credential families, shared quota, parent expiry, exact parent
+      resolution, primary preservation, and replacement cleanup.
 - [x] Authority/material-promotion tests covering stable identities, all
       affected server snapshots, all same-authority browser records, and lost
       response readback.
 - [x] Host/iframe protocol-skew tests in both directions with removed fields
       rejected.
 - [x] Targeted IndexedDB cleanup test proving unrelated stores survive.
-- [ ] Wallet-bootstrap test covering empty, exact, legacy, malformed, and future
-      storage without a blank shell.
+- [x] Wallet-bootstrap test covering empty, exact, legacy, malformed, and future
+      storage without a blank shell. The focused initialization matrix in
+      `tests/unit/walletSessionOperationCredential.unit.test.ts` proves the
+      explicit result and preservation/quarantine behavior for all five states.
 - [x] Exact method- and authority-revocation transaction tests.
 - [ ] Additive recovery tests for both targets and source inventories, strict
       committed projections, interruption after promotion, local publication,
