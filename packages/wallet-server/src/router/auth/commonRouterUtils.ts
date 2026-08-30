@@ -204,7 +204,7 @@ export async function resolveWalletSessionAdministrationAdmission(input: {
   };
 }
 
-export type ThresholdEd25519SessionTokenInputs =
+export type ThresholdEd25519SessionInputs =
   | {
       readonly ok: true;
       readonly kind: 'wallet_session_operation_credential_v1';
@@ -217,7 +217,7 @@ export type ThresholdEd25519SessionTokenInputs =
     }
   | AuthorizeErr;
 
-export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
+export async function validateRouterAbEd25519WalletSessionInputs(input: {
   body: unknown;
   headers: Record<string, string | string[] | undefined>;
   authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
@@ -226,7 +226,7 @@ export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
     WalletSessionAuthorizationV2RequestedOperation,
     { readonly keyFamily: 'ed25519' }
   >['operationKind'];
-}): Promise<ThresholdEd25519SessionTokenInputs> {
+}): Promise<ThresholdEd25519SessionInputs> {
   const authorizationSessions = input.authorizationSessions;
   if (!authorizationSessions) {
     return {

@@ -2,7 +2,7 @@ import type { ActiveOwnerWalletExecutionLaneProjection } from '../../../../core/
 import type { RouterApiWalletRegistrationService } from '../../../framework/authServicePort';
 import {
   validateRouterAbEcdsaDerivationWalletSessionInputs,
-  validateRouterAbEd25519WalletSessionTokenInputs,
+  validateRouterAbEd25519WalletSessionInputs,
 } from '../../../auth/commonRouterUtils';
 import {
   walletSessionFailureStatus,
@@ -224,7 +224,7 @@ export async function handleOwnerWalletExecutionLanePreflight(
   let walletIdRaw: string;
   let authorization: OwnerLaneAuthorization;
   if (request.curve === 'ed25519') {
-    const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
+    const validated = await validateRouterAbEd25519WalletSessionInputs({
       body: request,
       headers,
       authorizationSessions: ctx.service.authorizationSessions,
