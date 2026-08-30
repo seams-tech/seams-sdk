@@ -578,7 +578,7 @@ Required shaping work:
       `walletRegistration.ts`.
 - [ ] Extract linked local-install and acknowledgement state-machine code when
       I6 changes those paths.
-- [ ] Extract exact-session reader logic from `login.ts` and
+- [x] Extract exact-session reader logic from `login.ts` and
       `BrowserSigningSurface.ts` as I8 converts their callers.
 - [x] Regenerate the exact `readActiveForWallet` consumer inventory before I8.
       The current tree has 40 executable uses across 18 production consumer
