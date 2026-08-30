@@ -1039,7 +1039,9 @@ Primary files:
       preserving immutable `0018` ownership of
       `linked_device_authority_installations` and its
       `target_factor_verified_at_ms >= 0` constraint.
-- [ ] Verify signing, export, account menus, and inventory immediately after
+- [x] Verify the linked Passkey exact method exposes account-menu inventory and
+      NEAR plus EVM-family signing-ready state immediately after linking.
+- [ ] Verify export and the remaining factor combinations immediately after
       linking without a lock/unlock cycle.
 
 Primary files:
@@ -1742,7 +1744,7 @@ Remaining causal baseline work:
 - [ ] Local prerequisite transaction tests covering crash atomicity,
       invisibility, receipt replay, both retryable pending reasons, and terminal
       cleanup that preserves pre-existing records.
-- [ ] Migration-owned linked-install schema parity test after runtime DDL
+- [x] Migration-owned linked-install schema parity test after runtime DDL
       deletion.
 - [x] Exact-record type/parser fixtures for required fields and
       session/credential coupling.
