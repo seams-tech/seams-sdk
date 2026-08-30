@@ -8,6 +8,10 @@ import {
   WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
 import { resumePendingNearRegistrations } from '@/SeamsWeb/operations/registration/pendingRegistrationRecovery';
+import {
+  resumePendingWalletRecoveries,
+  type WalletRecoveryResumeResult,
+} from '@/SeamsWeb/operations/recovery/walletRecoveryCommit';
 import { addPasskeyWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import { revokeWalletAuthMethodOperation } from '@/SeamsWeb/operations/authMethods/revokeAuthMethod';
 import { addEmailOtpWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/emailOtp/addEmailOtp';
@@ -798,6 +802,32 @@ function deliverNearProvisioningStateChanged(
   if (event.event === 'registration.near_provisioning_changed') listener(event);
 }
 
+function reportWalletRecoveryStartupResult(result: WalletRecoveryResumeResult): void {
+  switch (result.kind) {
+    case 'completed':
+      return;
+    case 'pending':
+      console.warn(
+        '[SeamsWeb] pending wallet recovery replay remains pending:',
+        result.recoveryOperationId,
+        result.failure,
+      );
+      return;
+    case 'discarded':
+      console.warn(
+        '[SeamsWeb] pending wallet recovery was refused and discarded:',
+        result.recoveryOperationId,
+      );
+      return;
+    case 'corrupt':
+      console.warn(
+        '[SeamsWeb] pending wallet recovery replay record is corrupt:',
+        result.recoveryOperationId,
+      );
+      return;
+  }
+}
+
 type SeamsWebDeviceDomain = {
   readonly domain: DevicesCapabilityDomainMethods;
   readonly resumePendingAcknowledgementsV1: () => Promise<void>;
@@ -1308,10 +1338,10 @@ export class SeamsWeb {
   }
 
   private async resumePendingRegistrationOnStartup(): Promise<void> {
+    if (IndexedDBManager.isDisabled()) return;
+    const relayerUrl = String(this.configs.network.relayer?.url || '').trim();
+    if (!relayerUrl) return;
     try {
-      if (IndexedDBManager.isDisabled()) return;
-      const relayerUrl = String(this.configs.network.relayer?.url || '').trim();
-      if (!relayerUrl) return;
       const results = await resumePendingNearRegistrations({ relayerUrl });
       for (const result of results) {
         if (result.kind === 'failed') {
@@ -1325,6 +1355,17 @@ export class SeamsWeb {
     } catch (error: unknown) {
       console.warn(
         '[SeamsWeb] pending registration startup replay failed:',
+        error instanceof Error ? error.message : String(error || 'unknown error'),
+      );
+    }
+    try {
+      const recoveryResults = await resumePendingWalletRecoveries({
+        relayUrl: relayerUrl,
+      });
+      for (const result of recoveryResults) reportWalletRecoveryStartupResult(result);
+    } catch (error: unknown) {
+      console.warn(
+        '[SeamsWeb] pending wallet recovery startup replay failed:',
         error instanceof Error ? error.message : String(error || 'unknown error'),
       );
     }

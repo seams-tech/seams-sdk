@@ -28,7 +28,10 @@ import type {
   WalletSignerLookup,
 } from './passkeyClientDB.types';
 import type { PendingWalletRegistrationCommitV1 } from './pendingWalletRegistrationCommit';
-import type { PendingWalletRecoveryCommitV1 } from './pendingWalletRecoveryCommit';
+import type {
+  PendingWalletRecoveryCommitV1,
+  PendingWalletRecoveryPromotionAdvanceInputV1,
+} from './pendingWalletRecoveryCommit';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ActivateAccountSignerInput as AccountSignerLifecycleInput,
@@ -202,6 +205,12 @@ export class UnifiedIndexedDBManager {
 
   async putPendingWalletRecoveryCommit(record: PendingWalletRecoveryCommitV1): Promise<void> {
     return this.seamsWalletRepositories.putPendingWalletRecoveryCommit(record);
+  }
+
+  async advancePendingWalletRecoveryCommit(
+    input: PendingWalletRecoveryPromotionAdvanceInputV1,
+  ): Promise<Extract<PendingWalletRecoveryCommitV1, { readonly stage: 'server_promoted' }>> {
+    return this.seamsWalletRepositories.advancePendingWalletRecoveryCommit(input);
   }
 
   async getPendingWalletRecoveryCommit(
