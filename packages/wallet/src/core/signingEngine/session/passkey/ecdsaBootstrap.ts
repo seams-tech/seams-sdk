@@ -38,10 +38,7 @@ import {
 } from '../identity/evmFamilyEcdsaIdentity';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaBootstrapSignerAuth } from '../warmCapabilities/ecdsaBootstrapPersistence';
-import type {
-  RouterAbEcdsaDerivationPublicCapabilityV1,
-  RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { EcdsaPreauthorizedSessionActivation } from '../../threshold/ecdsa/postRegistrationSessionActivation';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -150,7 +147,7 @@ export type PasskeyPreauthorizedEcdsaBootstrapRequest = EcdsaBootstrapExactReque
   PasskeyCredentialBootstrapAuth & {
     kind: 'passkey_preauthorized_ecdsa_bootstrap';
     authorizationAuthority: WalletAuthAuthorityRef;
-    sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+    sessionActivation: EcdsaPreauthorizedSessionActivation;
     routeAuth?: never;
     emailOtpAuthContext?: never;
   };
