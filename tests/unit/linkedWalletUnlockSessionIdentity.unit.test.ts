@@ -341,6 +341,44 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
   expect(response.body.ed25519Session).not.toHaveProperty('walletSessionToken');
   expect(response.body.operationCredential).toEqual(fixture.operationCredential);
 
+  const deviceLinkEcdsaActivationFixture = createEcdsaSessionActivationFixture({
+    walletId: String(fixture.walletId),
+    chain: 'tempo',
+    sessionId: 'linked-device-ecdsa-policy',
+  });
+  const deviceLinkEcdsaSession: WalletUnlockEcdsaSessionContext = {
+    kind: 'provision_first_ecdsa_session',
+    walletId: String(fixture.walletId),
+    policy: parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1({
+      kind: 'router_ab_ecdsa_post_registration_session_activation_policy_v1',
+      key_handle: 'ecdsa-key:linked-device-ecdsa-policy',
+      session_policy: deviceLinkEcdsaActivationFixture.request.session_policy,
+    }),
+    provisionWalletSession: async () => {
+      throw new Error('device-link ECDSA issuance must be rejected before provisioning');
+    },
+  };
+  const deviceLinkEcdsaRejection = await handleWalletUnlockVerifyRoute({
+    ...routeDependencies,
+    ecdsaSession: deviceLinkEcdsaSession,
+    body: {
+      unlockBackend: 'passkey',
+      challengeId: 'challenge:linked-device-ecdsa-policy',
+      webauthn_authentication: {},
+      ed25519SessionRequest: { kind: 'not_requested' },
+    },
+  });
+
+  expect(deviceLinkEcdsaRejection).toEqual({
+    status: 400,
+    body: {
+      ok: false,
+      code: 'invalid_body',
+      message: 'ecdsaSessionPolicy is not supported for device-linked wallet unlock',
+    },
+  });
+  expect(sessionIssueCount).toBe(1);
+
   sessionResolution = { kind: 'wallet_registration' };
   const foundingRegistration = await handleWalletUnlockVerifyRoute({
     ...routeDependencies,

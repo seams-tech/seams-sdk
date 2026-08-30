@@ -136,6 +136,14 @@ export function parseWalletUnlockRequestedCapabilitiesRequest(
     raw.requestedCapabilities,
   );
   if ('ok' in requestedCapabilities) return requestedCapabilities;
+  if (
+    requestedCapabilities.kind === EMAIL_OTP_WALLET_SESSION_REQUESTED_CAPABILITIES_KIND &&
+    raw.ecdsaSessionPolicy !== undefined
+  ) {
+    return invalidWalletUnlockRequestedCapabilitiesRequest(
+      'requestedCapabilities.wallet_session cannot include ecdsaSessionPolicy',
+    );
+  }
   return {
     ok: true,
     request: {
