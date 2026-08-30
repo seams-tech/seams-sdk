@@ -1243,7 +1243,7 @@ Primary files:
 - [ ] Update R115 recovery contracts only where R103F changes Wallet Session
       representation.
 - [x] Update `packages/wallet/README.md`.
-- [ ] Correct R103E, R107, and R109D completion records that imply the final
+- [x] Correct R103E, R107, and R109D completion records that imply the final
       cutover already landed.
 
 ## Schema migrations
