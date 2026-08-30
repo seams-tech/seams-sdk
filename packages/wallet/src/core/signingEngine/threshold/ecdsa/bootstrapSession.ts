@@ -102,7 +102,6 @@ type BootstrapEcdsaSessionSuccessCommon = {
   signingRootVersion: string;
   walletSession: ActiveWalletSessionV1;
   operationCredential: WalletSessionOperationCredentialV1;
-  walletSessionToken: string;
   roleLocalActivation: ExistingEcdsaRoleLocalActivation;
   routerAbEcdsaDerivationNormalSigning: Awaited<
     ReturnType<typeof activateStrictEcdsaPostRegistrationSession>
@@ -185,7 +184,6 @@ async function bootstrapStrictExistingEcdsaSession(
     signingRootVersion: String(args.key.signingRootVersion),
     walletSession: strict.sessionActivation.session.wallet_session,
     operationCredential: strict.sessionActivation.session.operation_credential,
-    walletSessionToken: strict.sessionActivation.session.operation_credential.token,
     roleLocalActivation: strict.roleLocalActivation,
     routerAbEcdsaDerivationNormalSigning: strict.sessionActivation.normal_signing,
   };

@@ -100,7 +100,6 @@ export type ThresholdEcdsaSessionBootstrapResult = {
     runtimePolicyScope: ThresholdRuntimePolicyScope;
     walletSession: import('@shared/device-linking/contracts').ActiveWalletSessionV1;
     operationCredential: import('@shared/device-linking/contracts').WalletSessionOperationCredentialV1;
-    walletSessionToken: string;
     clientVerifyingShareB64u: string;
   };
 };
@@ -410,10 +409,6 @@ async function activateEcdsaSessionByPurpose(
   if (!thresholdSessionId) {
     throw new Error('threshold-ecdsa bootstrap returned empty thresholdSessionId');
   }
-  const walletSessionToken = String(bootstrap.walletSessionToken || '').trim();
-  if (!walletSessionToken) {
-    throw new Error('threshold-ecdsa bootstrap returned empty Wallet Session token');
-  }
   const expiresAtMs = Number(bootstrap.expiresAtMs);
   if (!Number.isFinite(expiresAtMs)) {
     throw new Error('threshold-ecdsa bootstrap returned invalid expiresAtMs');
@@ -469,7 +464,6 @@ async function activateEcdsaSessionByPurpose(
     runtimePolicyScope: bootstrap.runtimePolicyScope,
     walletSession: bootstrap.walletSession,
     operationCredential: bootstrap.operationCredential,
-    walletSessionToken,
     clientVerifyingShareB64u,
   };
 
