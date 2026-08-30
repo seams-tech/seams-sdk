@@ -670,17 +670,19 @@ Primary files:
       fabrication.
 - [x] Persist `PendingWalletRegistrationCommitV1` before the terminal request
       and keep it invisible to normal discovery.
-- [ ] Make the pending record sufficient for reload by retaining the exact
-      Passkey publication facts and recoverable ECDSA local-finalization state;
-      validate both against the credential-free committed projection before
-      publication.
+- [x] Make the pending record sufficient for Passkey and Email OTP Ed25519
+      reload by retaining the exact publication facts and validating them
+      against the credential-free committed projection before publication.
+- [ ] Retain recoverable ECDSA local-finalization state in the pending record
+      and validate it against the committed projection before publication.
 - [x] Change final registration replay to credential-free committed projection
       plus `unlock_exact_method`.
 - [x] Validate Passkey Ed25519 deferred-NEAR replay against the pending record
       and atomically publish profile, authenticator, authority, method,
       signer/account state, selection, and an issued V6 Wallet Session.
-- [ ] Extend reload replay and atomic publication to Email OTP registration and
-      ECDSA-only or mixed registration finalization.
+- [x] Extend reload replay and atomic publication to Email OTP registration.
+- [ ] Extend reload replay and atomic publication to ECDSA-only or mixed
+      registration finalization.
 - [x] Implement the nine-store publication primitive: re-read the exact pending
       row in-transaction, validate Passkey/Email OTP and founding identities,
       roll back all local state on failure, and retain mixed activation pending
@@ -698,10 +700,13 @@ Primary files:
 - [x] Consume the credential-free projection for Passkey Ed25519 deferred-NEAR
       recovery. Retain the pending row until exact-method unlock installs V6,
       then let idempotent replay remove the completed journal.
-- [ ] Consume that projection for the remaining final pending-commit recovery.
-      Email OTP and ECDSA/mixed recovery must validate the receipt, prepared
-      fingerprint, authority set, provisioning plan, and already-finalized
-      ECDSA state before local publication.
+- [x] Consume that projection for Email OTP pending-commit recovery, validating
+      the receipt, founding authority/method identities, and provisioning plan
+      before atomic local publication.
+- [ ] Consume that projection for ECDSA-only and mixed pending-commit recovery,
+      validating the receipt, prepared fingerprint, authority set,
+      provisioning plan, and already-finalized ECDSA state before local
+      publication.
 - [x] Delete the old-client replay adapter, its V1 bearer reconstruction, and
       every adapter-only resolver and test.
 - [x] Drop `registration_replay_opaque_wallet_session_tokens_v1` in migration
