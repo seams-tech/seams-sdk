@@ -2,10 +2,12 @@
 
 Date created: August 21, 2026
 
-Status: complete. Core operating-path acceptance and post-acceptance cleanup
-closed August 25, 2026.
-R103E is the sole Refactor 103 plan. It consolidates the retained working
-behavior from the earlier Refactor 103 series before R109C and R109D expand
+Status: complete for the R103E device-linking operating-path acceptance and
+post-acceptance cleanup, which closed August 25, 2026. The final exact Wallet
+Session cutover and legacy admission cleanup are [R103F](refactor-103F-final-cutover.md)
+ownership; this record does not certify that later cutover.
+R103E is the device-linking Refactor 103 plan. It consolidates the retained
+working behavior from the earlier Refactor 103 series before R109C and R109D expand
 the supported authentication combinations. The obsolete 103, 103B, 103C,
 and 103D plans and the separate 103E inventory were removed after their
 controlling contracts were folded into this document and
@@ -20,7 +22,7 @@ not complete a behavioral item.
 
 ### Verified checkpoints
 
-- [x] R103E is the sole active Refactor 103 plan; retained linked-device
+- [x] R103E is the device-linking Refactor 103 plan; retained linked-device
   product and metadata behavior is recorded in `docs/intended-behaviours.md`,
   and obsolete plans and duplicate inventory are removed.
 - [x] Family-specific authority types, builders, negative type fixtures, and
@@ -2358,8 +2360,9 @@ every granted ordinary operation.
 ### Phase 4 — Delete superseded paths
 
 - delete every path listed in **Delete during the cutover**;
-- keep this document as the sole Refactor 103 implementation plan and update
-  R109C and R109D to use this model;
+- keep this document as the device-linking Refactor 103 implementation plan;
+  R103F owns the final exact Wallet Session cutover, while R109C and R109D use
+  this model;
 - delete obsolete fixtures, mocked success transitions, and source guards;
 - compare device-linking source and type counts with the pre-R103E baseline.
 
@@ -2562,10 +2565,11 @@ inventory symptom.
     negative type fixtures and four focused regression tests. Require the Phase
     6 exit criteria before reconciling docs and counts; add no source-text
     guards or legacy compatibility branches.
-11. **Reconcile docs and counts.** Keep R103E as the sole Refactor 103 plan,
-    keep durable product behavior in `docs/intended-behaviours.md`, and update
-    R109C/R109D to consume the authority/auth-method seam. Confirm production
-    source and exported type counts decreased from the baseline.
+11. **Reconcile docs and counts.** Keep R103E as the device-linking Refactor
+    103 plan; R103F owns the final exact Wallet Session cutover. Keep durable
+    product behavior in `docs/intended-behaviours.md`, and update R109C/R109D
+    to consume the authority/auth-method seam. Confirm production source and
+    exported type counts decreased from the baseline.
 
 Checkpoint commits should separate: shared contract, server lifecycle,
 browser persistence/unlock, orchestration, ordinary operations, test updates,
