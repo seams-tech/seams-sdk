@@ -2293,6 +2293,7 @@ async function commitDeferredEd25519Registration(args: {
           });
     const stored = await IndexedDBManager.publishPendingWalletRegistrationCommit({
       pending: nearProvisioningPending,
+      ecdsaContinuity: [],
       authority: finalized.authority,
       foundingAuthority: {
         authority: finalized.foundingAuthority,
@@ -3419,6 +3420,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     });
     const stored = await IndexedDBManager.publishPendingWalletRegistrationCommit({
       pending: nearProvisioningPending,
+      ecdsaContinuity: [],
       authority: finalized.authority,
       foundingAuthority: {
         authority: finalized.foundingAuthority,
@@ -3854,6 +3856,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
     });
     const stored = await IndexedDBManager.publishPendingWalletRegistrationCommit({
       pending: nearProvisioningPending,
+      ecdsaContinuity: [],
       authority: finalized.authority,
       foundingAuthority: {
         authority: finalized.foundingAuthority,
