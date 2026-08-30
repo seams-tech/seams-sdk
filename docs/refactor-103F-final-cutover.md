@@ -2,7 +2,7 @@
 
 Date created: August 26, 2026
 
-Status: implementation plan
+Status: implementation in progress
 
 ## Purpose
 
@@ -376,7 +376,7 @@ when their boundary reaches its final state.
 
 ## Critical boundary designs
 
-### Registration receipt and persisted-credential remediation
+### Registration receipt and cutover cleanup
 
 Before the terminal registration request, the client persists one invisible
 `PendingWalletRegistrationCommitV1` with ceremony and idempotency identity,
@@ -410,6 +410,11 @@ credential-free receipt when their committed projection is complete; rows that
 cannot support replay are deleted. Unknown shapes abort the migration fixture.
 Tests prove that no completion row, receipt parser, log, or response replay
 contains a primary or hosted credential.
+
+There is no runtime remediation service. Commit `56da13e67` deleted the
+obsolete remediation module, fixtures, and tests after migration `0034` became
+the only owner of historical completion-row cleanup. Commit `1be9916c6` then
+deleted the terminal-response replay parser and `adaptLegacyResponse` path.
 
 ### Device-link credential delivery and cleanup
 
@@ -774,11 +779,11 @@ Primary files:
 - `packages/wallet-server/src/core/threeRouteRegistrationContracts.ts`
 - `packages/shared-ts/src/utils/registrationEstablishedSession.ts`
 
-Remaining issuer symbols include `RegistrationEstablishedSessionIssuerAuthorizationService`,
-`issueSyncAccountBootstrapV1`, `handleStrictEcdsaSessionActivation`, the
-budget-refresh and linked-activation `issue_wallet_session_v1` branches, and
-`mintRouterAbEd25519YaoWalletSessionV1`. The legacy registration grant issuer
-and both credential-bearing registration replay functions are deleted.
+The legacy registration grant issuer, `mintRouterAbEd25519YaoWalletSessionV1`,
+and both credential-bearing registration replay functions are deleted. The
+remaining registration, sync, activation, budget-refresh, and linked-activation
+entrypoints all delegate issuance to the direct exact V2 issuer recorded in the
+survivor inventory above.
 
 ### I3 — Exact operation admission and runtime binding (B4, B5)
 
@@ -905,9 +910,9 @@ Primary files:
 - a new forward signer-D1 migration; applied `0001_signer_d1_initial.sql`
   remains unchanged.
 
-Live status/source symbols include `readAndValidateWalletSessionStatusAuthorization`,
-`handleReusableWalletSessionStatus`, `readReusableWalletSessionStatus`, and
-`isAuthorizedOperationSourceActive`.
+Final status/source symbols are `handleExactWalletSessionStatus`,
+`readExactWalletSessionStatusByOperationCredential`, and the exact-only
+`isAuthorizedOperationSourceActive` implementation.
 
 ### I5 — Revocation, recovery, and custody (B7, B13)
 
@@ -943,17 +948,25 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
       linked unlock.
 - [x] Make recovered Email OTP unlock require the exact locally installed active
       authority and method; fail closed on absence or mismatch.
-- [ ] Add a resumable local recovery commit that survives interruption after
-      server promotion without persisting recovery code, factor secret, custody
-      seed, or signer root in plaintext.
-- [ ] Replace the in-memory-only `promoted_pending_continuity` gap with that
-      durable commit before converting recovery consumers.
+- [x] Add the strict encrypted `PendingWalletRecoveryCommitV1` boundary,
+      repository operations, and atomic publication transaction for Passkey and
+      Google Email OTP. `tests/unit/pendingWalletRecoveryCommit.unit.test.ts`
+      proves parsing, secret rejection, exact projection binding, rollback, and
+      successful publication for both branches.
+- [ ] Wire `WalletRecoveryCoordinator` to persist
+      `awaiting_server_promotion` before finalization, advance the same record to
+      `server_promoted` from the committed projection, and remove the current
+      in-memory-only `promoted_pending_continuity` gap.
 - [ ] Publish recovery authority, method, selection, profile, authenticator,
-      account, and signer continuity atomically before `ready_for_sign_in`.
-- [ ] Make replay read the same additive server commit and resume local
-      installation without another recovery code.
-- [x] Keep wallet lock local to browser record/runtime disposal; remote
-      retirement follows explicit server lifecycle transitions.
+      account, and signer continuity through the existing pending-commit
+      transaction before `ready_for_sign_in`.
+- [ ] On startup, list pending recovery commits, replay the same additive server
+      commit or retained locator tombstone, resume local installation without
+      another recovery code, and delete the pending row after publication.
+- [x] Keep wallet lock local to browser record/runtime disposal. Server
+      retirement is produced only by same-method replacement, exact-method
+      revocation, and authority revocation; no explicit session-retirement
+      producer exists.
 
 Primary files:
 
@@ -1480,8 +1493,13 @@ exact admission contexts. No V1 request or persistence resolver remains.
       errors and the closure search enumerate remaining callers.
 - [x] Quarantine V3/V4/V5 rows during bootstrap and install while preserving
       future versions and unrelated stores.
-- [ ] Complete the recipient-bound linked delivery and acknowledgement state
-      machine, including local pending prerequisites and recipient-loss recovery.
+- [x] Complete recipient-bound linked delivery, local pending prerequisites,
+      durable acknowledgement replay, cleanup receipts, and post-link exact
+      installation. The D1 install-service, bootstrap replay, and linked unlock
+      tests cover the committed path through cleanup.
+- [ ] Recover a missing recipient handle or expired delivery through the durable
+      local install and normal exact-method unlock, without resealing or
+      relinking.
 - [ ] Close the post-promotion recovery crash window with resumable local
       continuity and normal exact login.
 - [x] Reconcile all affected browser records after material promotion.
@@ -1495,18 +1513,39 @@ resume without creating a second authority or ceremony.
 
 ### Phase 4 — Delete V1 and verify the cutover
 
+HEAD reconciliation on 2026-08-30:
+
+- `56da13e67` and `1be9916c6` delete the runtime registration remediation and
+  legacy terminal replay paths.
+- `457072bea`, `389aa4bb1`, and `aa197c294` remove the stale operation-admission
+  discriminator, Email OTP session-reuse branch, and status auth wrapper. The
+  shared generic route-auth token types still have production consumers, so the
+  final type/vocabulary deletion stays open.
+- `c0f8d2d46` proves credential-free registration replay creates an exact
+  successor and retires its same-method predecessor.
+- `112514e78` proves the linked Passkey install, inventory, and signing-ready
+  path. Recipient loss, expiry, and the remaining factor combinations stay
+  open.
+- `d21cc81c5` makes the current recovery auth-method branches exhaustive. The
+  coordinator still does not consume `PendingWalletRecoveryCommitV1`, so
+  durable recovery continuity stays open.
+
 - [x] Delete the registration adapter and temporary client capability.
 - [x] Delete every V1 request and persistence resolver. The closure-ledger
       searches for reusable issuers/status readers, opaque-token resolvers,
       bridge issuers, legacy mint helpers, and registration token projections
       return no production matches; only immutable migration history remains.
 - [x] Apply the enforcement/deletion migration and update table manifests.
-- [ ] Delete remaining V1 stores, ports, services, parsers, types, browser
-      records, fixtures, guards, and obsolete documentation.
+- [ ] Delete the remaining generic legacy route-auth vocabulary in
+      `packages/shared-ts/src/utils/sessionTokens.ts`: `OpaqueWalletSessionToken`,
+      `OpaqueWalletSessionAuth`, `WalletSessionRouteAuth`, and
+      `requireOpaqueWalletSessionToken`. Narrow their ECDSA, step-up, worker,
+      and relayer consumers directly to `WalletSessionOperationCredentialV1`.
 - [ ] Review extracted modules for forwarding-only wrappers, cycles, duplicate
       validators, compatibility re-exports, and single-caller helpers; inline or
       delete them unless they preserve a clear domain boundary.
-- [ ] Run the closure ledger and focused acceptance matrix.
+- [ ] Run the expanded closure ledger after the route-auth vocabulary deletion.
+- [ ] Run the focused acceptance matrix.
 
 Exit: repository code and schema contain only the exact Wallet Session model,
 and the closure ledger plus acceptance matrix pass.
@@ -1585,6 +1624,12 @@ Remaining causal baseline work:
 - [x] `tests/unit/d1WalletSessionAuthMethodProvenance.unit.test.ts`
 - [x] `tests/unit/linkedDeviceManagement.unit.test.ts`
 - [x] `tests/unit/walletSessionAuthorizationStatus.unit.test.ts`
+- [x] `tests/unit/pendingWalletRecoveryCommit.unit.test.ts`, proving the strict
+      encrypted boundary and atomic local publication primitive for both
+      recovery targets; coordinator integration remains open in I5
+- [x] `tests/unit/linkedDeviceUnlockRuntime.unit.test.ts`, proving the linked
+      Passkey exact inventory, NEAR and EVM-family signing readiness, exact V6
+      install identity, and export-lane readiness before another unlock
 - [x] `tests/unit/walletSessionStatusExactAdmission.unit.test.ts`, proving the
       exact quota projection, tuple mismatch, fail-closed absence, and zero V1
       credential/status reads
@@ -1810,9 +1855,11 @@ Remaining causal baseline work:
 - [x] Update Router A/B Wallet Session claim fixture helpers.
 - [x] Delete stale inline JWT-shaped Wallet Session fixtures found by closure
       searches. The remaining signing, funding, export, and presignature tests use
-      the final opaque operation-credential bearer shape; the obsolete mock
-      `mintWalletSession` producer was deleted. Negative persistence fixtures that
-      deliberately prove `walletSessionJwt` rejection remain as hostile inputs.
+      the final opaque operation-credential bearer shape. No production
+      `mintWalletSession` producer remains; the sole exact-name match is a
+      negative test double that throws if sync-account enrichment calls the
+      retired path. Negative persistence fixtures that deliberately prove
+      `walletSessionJwt` rejection remain as hostile inputs.
 
 ### Acceptance matrix
 
@@ -1877,11 +1924,24 @@ issueWalletSessionAuthorizationV2OperationCredential" \
 
 rg -n "walletSessionClientCapability|\
 direct_exact_response_future_record_tolerant" packages apps
+
+rg -n "OpaqueWalletSessionToken|OpaqueWalletSessionAuth|\
+WalletSessionRouteAuth|requireOpaqueWalletSessionToken" packages apps
+
+rg -n "d1RegistrationCredentialRemediation|\
+parseD1WalletRegistrationFinalizeTerminalResponse|adaptLegacyResponse" \
+  packages tests
 ```
 
 The singular Router A/B `reusable_wallet_session` discriminator and the applied
 `consume_reusable_wallet_session` quota discriminator remain frozen protocol
 vocabulary. Console-session JWT types also remain.
+
+At HEAD, the historical table/API, replay-adapter, browser-record, legacy-mint,
+registration-remediation, and client-capability searches are clean outside
+immutable migrations and the documented frozen vocabulary. The added generic
+route-auth search still has production matches in the shared token helper and
+its ECDSA/step-up consumers, so code closure remains open.
 
 Database closure is proved on clean and current-history migration fixtures. The
 final exact-session boundary retains
