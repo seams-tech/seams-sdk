@@ -486,14 +486,11 @@ export async function buildPendingWalletRegistrationPublicationFixture(
         walletId,
         walletAuthMethodId,
       },
-      walletSessionPublication:
-        keyFamilies === 'mixed'
-          ? { kind: 'credential_free_projection' }
-          : {
-              kind: 'issued',
-              walletSession: projectActiveWalletSession(issuedSession),
-              operationCredential,
-            },
+      walletSessionPublication: {
+        kind: 'issued',
+        walletSession: projectActiveWalletSession(issuedSession),
+        operationCredential,
+      },
       registration,
     },
   };

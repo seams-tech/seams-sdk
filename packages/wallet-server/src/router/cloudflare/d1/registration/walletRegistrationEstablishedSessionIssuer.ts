@@ -321,14 +321,16 @@ function projectDirectRegistrationSession(
   authorization: IssuedWalletSessionAuthorizationV2,
   tokens: RegistrationEstablishedSessionProjectionTokensV2,
 ): RegistrationEstablishedSessionProjectionV2 {
+  const walletSession = activeWalletSessionFromAuthorization(authorization);
   return {
     kind: 'registration_established_wallet_session_projection_v2',
-    walletId: authorization.session.walletId,
-    authorizationId: authorization.session.authorizationId,
+    walletId: walletSession.walletId,
+    authorizationId: walletSession.authorizationId,
     walletSessionId: authorization.session.walletSessionId,
-    quotaId: authorization.quota.quotaId,
-    expiresAtMs: authorization.session.expiresAtMs,
+    quotaId: walletSession.quotaId,
+    expiresAtMs: walletSession.expiresAtMs,
     remainingUses: authorization.quota.remainingUses,
+    walletSession,
     tokens,
   };
 }
@@ -369,7 +371,7 @@ function ecdsaRegistrationSessionTokens(input: {
 function ed25519RegistrationSessionTokens(input: {
   readonly authorization: IssuedWalletSessionAuthorizationV2['session'];
   readonly publicResult: WalletRegistrationEd25519YaoPublicResult;
-}): RegistrationEstablishedSessionProjectionTokensV2 {
+}): Extract<RegistrationEstablishedSessionProjectionTokensV2, { readonly kind: 'near_ed25519' }> {
   const thresholdSessionId = parseThresholdEd25519SessionId(input.publicResult.thresholdSessionId);
   if (!thresholdSessionId.ok) throw new Error(thresholdSessionId.error.message);
   const nearAccount = parseImplicitNearAccountId(input.publicResult.nearAccountId);
@@ -394,6 +396,41 @@ function ed25519RegistrationSessionTokens(input: {
       routerAbNormalSigning: input.publicResult.routerAbNormalSigning,
     },
   };
+}
+
+export type Ed25519RegistrationSessionPredecessor =
+  | { readonly kind: 'ed25519_only' }
+  | {
+      readonly kind: 'mixed';
+      readonly ecdsa: Extract<
+        RegistrationEstablishedSessionProjectionTokensV2,
+        { readonly kind: 'evm_family_ecdsa' }
+      >['ecdsa'];
+    };
+
+function completeEd25519RegistrationSessionTokens(input: {
+  readonly ed25519: Extract<
+    RegistrationEstablishedSessionProjectionTokensV2,
+    { readonly kind: 'near_ed25519' }
+  >['ed25519'];
+  readonly predecessor: Ed25519RegistrationSessionPredecessor;
+}): RegistrationEstablishedSessionProjectionTokensV2 {
+  switch (input.predecessor.kind) {
+    case 'ed25519_only':
+      return { kind: 'near_ed25519', ed25519: input.ed25519 };
+    case 'mixed':
+      return {
+        kind: 'near_ed25519_and_evm_family_ecdsa',
+        ecdsa: input.predecessor.ecdsa,
+        ed25519: input.ed25519,
+      };
+    default:
+      return assertNeverEd25519RegistrationSessionPredecessor(input.predecessor);
+  }
+}
+
+function assertNeverEd25519RegistrationSessionPredecessor(value: never): never {
+  throw new Error(`Unsupported Ed25519 registration predecessor: ${String(value)}`);
 }
 
 function directRegistrationResultFromIssue(input: {
@@ -546,6 +583,7 @@ export async function issueDirectRegistrationEstablishedEd25519Session(
     readonly expiresAtMs: number;
     readonly remainingUses: number;
     readonly publicResult: WalletRegistrationEd25519YaoPublicResult;
+    readonly predecessor: Ed25519RegistrationSessionPredecessor;
     readonly keyManifestDigestB64u: DigestB64u;
     readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
   },
@@ -609,9 +647,13 @@ export async function issueDirectRegistrationEstablishedEd25519Session(
     default:
       return assertNeverDirectRegistrationIssue(directIssue);
   }
-  const tokens = ed25519RegistrationSessionTokens({
+  const ed25519Tokens = ed25519RegistrationSessionTokens({
     authorization: authorization.session,
     publicResult: input.publicResult,
+  });
+  const tokens = completeEd25519RegistrationSessionTokens({
+    ed25519: ed25519Tokens.ed25519,
+    predecessor: input.predecessor,
   });
   return directRegistrationResultFromIssue({ directIssue, authorization, tokens });
 }
@@ -638,7 +680,10 @@ export function replayDirectRegistrationEstablishedEd25519Session(
     { readonly committed: { readonly kind: 'near_ready' } }
   >,
 ): RegistrationEstablishedSessionResultV2 {
-  if (receipt.committed.session.tokens.kind !== 'near_ed25519') {
+  if (
+    receipt.committed.session.tokens.kind !== 'near_ed25519' &&
+    receipt.committed.session.tokens.kind !== 'near_ed25519_and_evm_family_ecdsa'
+  ) {
     throw new Error('Registration NEAR receipt contains a different session branch');
   }
   return {

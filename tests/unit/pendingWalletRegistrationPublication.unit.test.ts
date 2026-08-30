@@ -613,72 +613,77 @@ test.describe('pending registration publication', () => {
     });
   });
 
-  test('deletes credential-free pending state after an exact session is later installed', async ({
+  test('credential-free publication promotes the canonical session and preserves its credential', async ({
     page,
   }) => {
     const fixture = await buildMixedActivationPublicationFixture();
-    const sessionSource = await buildPasskeyNearProvisioningPublicationFixture();
     const result = await page.evaluate(
-      async ({ paths, input: publicationInput, sourceInput }) => {
+      async ({ paths, input: publicationInput }) => {
         const {
           UnifiedIndexedDBManager,
           SeamsWalletDBManager,
-          buildActiveWalletSessionV1,
           createSeamsTestWalletDbName,
+          buildActiveWalletSessionV1,
           toStoredExactWalletSessionAuthorizationRowV6,
         } = await import(paths.indexedDB);
         const { SEAMS_WALLET_STORES } = await import(paths.schemaNames);
-        if (sourceInput.walletSessionPublication.kind !== 'issued') {
-          throw new Error('session source fixture must issue a Wallet Session');
+        if (publicationInput.walletSessionPublication.kind !== 'issued') {
+          throw new Error('mixed publication fixture must issue a Wallet Session');
         }
+        const issued = publicationInput.walletSessionPublication;
+        const credentialFreeInput = {
+          ...publicationInput,
+          walletSessionPublication: {
+            kind: 'credential_free_projection' as const,
+            walletSession: issued.walletSession,
+          },
+        };
         const seamsWalletDB = new SeamsWalletDBManager();
         seamsWalletDB.setDbName(
           createSeamsTestWalletDbName(`pending-publication-${crypto.randomUUID()}`),
         );
         const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        await db.putPendingWalletRegistrationCommit(publicationInput.pending);
-        await db.publishPendingWalletRegistrationCommit(publicationInput);
-        const pendingAfterProjection = await db.getPendingWalletRegistrationCommit(
-          publicationInput.request,
-        );
-        const session = buildActiveWalletSessionV1({
-          ...sourceInput.walletSessionPublication.walletSession,
-          walletId: publicationInput.pending.walletId,
-          authorityId: publicationInput.foundingAuthority.authority.authorityId,
-          authMethodId: publicationInput.pending.walletAuthMethodId,
-        });
-        const operationCredential = {
-          ...sourceInput.walletSessionPublication.operationCredential,
-          walletSessionId: 'wallet-session:r103f-credential-free-retry',
-        };
         const database = await seamsWalletDB.getDB();
+        const staleDigest = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)))
+          .replaceAll('+', '-')
+          .replaceAll('/', '_')
+          .replace(/=+$/, '');
+        const staleSession = buildActiveWalletSessionV1({
+          ...issued.walletSession,
+          authorityDigestB64u: staleDigest,
+        });
         await database.put(
           SEAMS_WALLET_STORES.walletSessionAuthorizations,
-          toStoredExactWalletSessionAuthorizationRowV6(session, operationCredential),
+          toStoredExactWalletSessionAuthorizationRowV6(staleSession, issued.operationCredential),
         );
-        await db.publishPendingWalletRegistrationCommit(publicationInput);
-        const pendingAfterSession = await db.getPendingWalletRegistrationCommit(
-          publicationInput.request,
-        );
-        const sessionRows = await database.getAll(SEAMS_WALLET_STORES.walletSessionAuthorizations);
+        await db.putPendingWalletRegistrationCommit(publicationInput.pending);
+        await db.publishPendingWalletRegistrationCommit(credentialFreeInput);
+        const pending = await db.getPendingWalletRegistrationCommit(publicationInput.request);
+        const sessionRows = (await database.getAll(
+          SEAMS_WALLET_STORES.walletSessionAuthorizations,
+        )) as Array<{
+          readonly record?: unknown;
+          readonly operation_credential?: { readonly token?: string };
+        }>;
         seamsWalletDB.close();
         return {
-          pendingAfterProjection: pendingAfterProjection !== null,
-          pendingAfterSession: pendingAfterSession !== null,
+          pending: pending !== null,
           sessionCount: sessionRows.length,
+          session: sessionRows[0]?.record,
+          token: sessionRows[0]?.operation_credential?.token,
+          expectedSession: issued.walletSession,
+          expectedToken: issued.operationCredential.token,
         };
       },
       {
         paths: IMPORT_PATHS,
         input: fixture.input,
-        sourceInput: sessionSource.input,
       },
     );
 
-    expect(result).toEqual({
-      pendingAfterProjection: true,
-      pendingAfterSession: false,
-      sessionCount: 1,
-    });
+    expect(result.pending).toBe(false);
+    expect(result.sessionCount).toBe(1);
+    expect(result.session).toMatchObject(result.expectedSession);
+    expect(result.token).toBe(result.expectedToken);
   });
 });

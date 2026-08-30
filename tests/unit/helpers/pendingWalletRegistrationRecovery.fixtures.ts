@@ -159,6 +159,7 @@ async function buildRecoveryFixture(
       quotaId: issued.session.quotaId,
       expiresAtMs: issued.session.expiresAtMs,
       remainingUses: issued.quota.remainingUses,
+      walletSession: projectActiveWalletSession(issued),
       tokens,
     },
     next: 'unlock_exact_method',

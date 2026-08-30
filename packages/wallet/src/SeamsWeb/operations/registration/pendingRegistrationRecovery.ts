@@ -355,7 +355,10 @@ function publicationInputFromPending(
             operationCredential:
               finalized.registrationEstablishedSession.session.operationCredential,
           }
-        : { kind: 'credential_free_projection' },
+        : {
+            kind: 'credential_free_projection',
+            walletSession: finalized.registrationEstablishedSession.session.walletSession,
+          },
     registration,
   };
 }
