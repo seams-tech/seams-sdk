@@ -87,6 +87,7 @@ import {
 } from '@shared/device-linking';
 import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { parseEmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/challengeDelivery';
+import { bindEmailOtpEcdsaSessionPolicyToUnlockChallenge } from '@/core/signingEngine/session/emailOtp/ecdsaUnlockChallengeBinding';
 import {
   parseEmailOtpUnlockEd25519Identity,
   parseEmailOtpUnlockEd25519Selection,
@@ -3379,6 +3380,10 @@ async function completeEmailOtpUnlockFromSecret32(args: {
     const requestedCapabilities = buildEmailOtpRequestedCapabilities({
       material: args.material,
     });
+    const ecdsaSessionPolicy =
+      args.material.kind === 'ecdsa' || args.material.kind === 'wallet_unlock_capabilities'
+        ? bindEmailOtpEcdsaSessionPolicyToUnlockChallenge(args.material, unlockChallengeId)
+        : null;
     const verified = await postEmailOtpJson({
       relayUrl: readString(args.relayUrl, 'relayUrl'),
       route: '/wallet/unlock/verify',
@@ -3393,11 +3398,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           publicKey: clientUnlockPublicKeyB64u,
           signature: unlockSignatureB64u,
         },
-        ...(args.material.kind === 'ecdsa' && args.material.ecdsaSessionPolicy
-          ? { ecdsaSessionPolicy: args.material.ecdsaSessionPolicy }
-          : args.material.kind === 'wallet_unlock_capabilities'
-            ? { ecdsaSessionPolicy: args.material.ecdsa.sessionPolicy }
-            : {}),
+        ...(ecdsaSessionPolicy ? { ecdsaSessionPolicy } : {}),
         requestedCapabilities,
       },
     });
