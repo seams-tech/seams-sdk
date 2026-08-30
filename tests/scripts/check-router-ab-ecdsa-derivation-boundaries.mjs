@@ -450,7 +450,7 @@ const retiredVocabularyGuardPaths = new Set([
   'tests/scripts/check-key-export-boundaries.mjs',
   'tests/scripts/check-route-lifecycle-domain-boundaries.mjs',
   'tests/scripts/check-router-ab-ecdsa-derivation-boundaries.mjs',
-  'tests/scripts/check-router-ab-server-wallet-session-claim-boundaries.mjs',
+  'tests/scripts/check-router-ab-private-service-boundaries.mjs',
   'tools/ed25519-yao-generator/tests/lifecycle_vectors.rs',
 ]);
 

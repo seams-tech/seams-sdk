@@ -57,14 +57,13 @@ const sessionIdBoundaryRoots = [
 const classifiedSessionIdPublicSurfaceFiles = {
   'apps/seams-site/src/flows/demo/hooks/useDemoSigningSession.ts':
     'rename_later_agent_b_signing_or_wasm',
-  'packages/wallet-server/src/authorization/domain.ts':
-    'keep_app_device_or_recovery_session',
-  'packages/wallet-server/src/authorization/service.ts':
-    'keep_app_device_or_recovery_session',
+  'packages/wallet-server/src/authorization/domain.ts': 'keep_app_device_or_recovery_session',
+  'packages/wallet-server/src/authorization/service.ts': 'keep_app_device_or_recovery_session',
   'packages/wallet-server/src/core/RegistrationCeremonyStore.ts':
     'keep_ed25519_yao_protocol_session',
   'packages/wallet-server/src/core/types.ts': 'rename_later_agent_b_signing_or_wasm',
-  'packages/wallet-server/src/router/framework/authServicePort.ts': 'keep_app_device_or_recovery_session',
+  'packages/wallet-server/src/router/framework/authServicePort.ts':
+    'keep_app_device_or_recovery_session',
   'packages/wallet-server/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExport.ts':
     'keep_ed25519_yao_protocol_session',
   'packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery.ts':
@@ -73,8 +72,7 @@ const classifiedSessionIdPublicSurfaceFiles = {
     'keep_ed25519_yao_protocol_session',
   'packages/wallet-server/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration.ts':
     'rename_later_agent_b_signing_or_wasm',
-  'packages/wallet/src/SeamsWeb/signingSurface/ports.ts':
-    'rename_later_agent_b_signing_or_wasm',
+  'packages/wallet/src/SeamsWeb/signingSurface/ports.ts': 'rename_later_agent_b_signing_or_wasm',
   'packages/wallet/src/core/platform/generated/signerCoreCommands.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/wallet/src/core/platform/ports.ts': 'rename_later_agent_b_signing_or_wasm',
@@ -166,8 +164,7 @@ const classifiedSessionIdPublicSurfaceFiles = {
 };
 const classifiedSessionIdBoundaryFiles = {
   'apps/docs/src/concepts/security-model.md': 'keep_secureconfirm_session',
-  'crates/signer-core/src/commands/ecdsa_bootstrap.rs':
-    'rename_later_agent_b_signing_or_wasm',
+  'crates/signer-core/src/commands/ecdsa_bootstrap.rs': 'rename_later_agent_b_signing_or_wasm',
   'wasm/near_signer/src/handlers/handle_sign_delegate_action.rs':
     'rename_later_agent_b_signing_or_wasm',
   'wasm/near_signer/src/handlers/handle_sign_nep413_message.rs':
@@ -261,13 +258,13 @@ function listBoundaryFiles(relativePath) {
 }
 
 function activeSourceFiles() {
-  return sourceRoots.flatMap((root) => listSourceFiles(root)).filter((file) => !selfPaths.has(file));
+  return sourceRoots
+    .flatMap((root) => listSourceFiles(root))
+    .filter((file) => !selfPaths.has(file));
 }
 
 function activeProductionSourceFiles() {
-  return sourceRoots
-    .filter((root) => root !== 'tests')
-    .flatMap((root) => listSourceFiles(root));
+  return sourceRoots.filter((root) => root !== 'tests').flatMap((root) => listSourceFiles(root));
 }
 
 function publicSurfaceFiles() {
@@ -286,7 +283,10 @@ function sourceContainsSessionIdMarker(source) {
 
 function hasExportModifier(node) {
   if (!ts.canHaveModifiers(node)) return false;
-  return ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) === true;
+  return (
+    ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ===
+    true
+  );
 }
 
 function propertyNameText(name) {
@@ -357,6 +357,22 @@ function checkProductionSourcesAvoidRetiredWalletSessionMarkers() {
   );
 }
 
+function checkRouterAbSessionIssuerAvoidsRetiredClaimBuilders() {
+  const relativePath = 'packages/wallet-server/src/router/auth/commonRouterUtils.ts';
+  const source = readSource(relativePath);
+  const offenders = [];
+  for (const marker of [
+    'extraClaims',
+    'allowedSessionKinds',
+    'WalletSessionJwtKind',
+    'signWalletSessionJwt',
+    'isEcdsaWalletSessionJwtKind',
+  ]) {
+    if (source.includes(marker)) offenders.push(`${relativePath} contains ${marker}`);
+  }
+  assertNoViolations('Router A/B session issuer does not use retired claim builders', offenders);
+}
+
 function checkDocsAvoidOldSigningGrantNames() {
   assertNoViolations(
     'current docs do not present the old signing-grant names as live terminology',
@@ -372,7 +388,10 @@ function checkActiveSigningPathsAvoidThresholdSessionAuthTokenNaming() {
       offenders.push(`${file} contains thresholdSessionAuthToken`);
     }
   }
-  assertNoViolations('active signing paths do not use threshold-session auth token naming', offenders);
+  assertNoViolations(
+    'active signing paths do not use threshold-session auth token naming',
+    offenders,
+  );
 }
 
 function checkExportedSessionIdPublicSurfacesAreClassified() {
@@ -392,11 +411,15 @@ function checkBoundarySessionIdMarkersAreClassified() {
     if (classifiedSessionIdBoundaryFiles[file]) continue;
     offenders.push(`${file} contains an unclassified sessionId/session_id marker`);
   }
-  assertNoViolations('non-package sessionId boundary files have explicit classifications', offenders);
+  assertNoViolations(
+    'non-package sessionId boundary files have explicit classifications',
+    offenders,
+  );
 }
 
 checkActiveSourcesAvoidOldSigningGrantNames();
 checkProductionSourcesAvoidRetiredWalletSessionMarkers();
+checkRouterAbSessionIssuerAvoidsRetiredClaimBuilders();
 checkDocsAvoidOldSigningGrantNames();
 checkActiveSigningPathsAvoidThresholdSessionAuthTokenNaming();
 checkExportedSessionIdPublicSurfacesAreClassified();
