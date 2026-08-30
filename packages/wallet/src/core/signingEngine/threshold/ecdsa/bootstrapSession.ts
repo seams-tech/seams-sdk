@@ -11,13 +11,13 @@ import type {
   EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaActivationLanePolicy,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
-import type {
-  RouterAbEcdsaDerivationPublicCapabilityV1,
-  RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
+  adoptStrictEcdsaCredentialFreePostRegistrationSession,
   adoptStrictEcdsaPostRegistrationSession,
   activateStrictEcdsaPostRegistrationSession,
+  isEcdsaCredentialFreeSessionActivationAuthorization,
+  type EcdsaPreauthorizedSessionActivation,
   type ExistingEcdsaRoleLocalActivation,
 } from './postRegistrationSessionActivation';
 import { bytesToHex } from '../../chains/evm/bytes';
@@ -63,7 +63,7 @@ type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaExactSessionArgsBase &
         sessionActivation?: never;
       }
     | {
-        sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        sessionActivation: EcdsaPreauthorizedSessionActivation;
         bootstrapAuth?: never;
       }
   );
@@ -137,10 +137,15 @@ async function bootstrapStrictExistingEcdsaSession(
     runtimePolicyScope,
   };
   const strict = args.sessionActivation
-    ? await adoptStrictEcdsaPostRegistrationSession({
-        ...strictInput,
-        sessionActivation: args.sessionActivation,
-      })
+    ? isEcdsaCredentialFreeSessionActivationAuthorization(args.sessionActivation)
+      ? await adoptStrictEcdsaCredentialFreePostRegistrationSession({
+          ...strictInput,
+          sessionActivation: args.sessionActivation,
+        })
+      : await adoptStrictEcdsaPostRegistrationSession({
+          ...strictInput,
+          sessionActivation: args.sessionActivation,
+        })
     : await activateStrictEcdsaPostRegistrationSession({
         ...strictInput,
         walletSessionMintId: requireFreshWalletSessionMintId(),
@@ -149,6 +154,30 @@ async function bootstrapStrictExistingEcdsaSession(
       });
   const capability = strict.sessionActivation.public_capability;
   const publicIdentity = capability.public_identity;
+  const session =
+    'authorization' in strict
+      ? {
+          thresholdSessionId: strict.sessionActivation.session.threshold_session_id,
+          authorizationSessionId: strict.sessionActivation.session.authorization_session_id,
+          authorizationId: strict.sessionActivation.session.authorization_id,
+          walletSessionId: strict.sessionActivation.session.wallet_session_id,
+          quotaId: strict.sessionActivation.session.quota_id,
+          expiresAtMs: strict.sessionActivation.session.expires_at_ms,
+          remainingUses: strict.sessionActivation.session.remaining_uses,
+          walletSession: strict.authorization.record,
+          operationCredential: strict.authorization.operationCredential,
+        }
+      : {
+          thresholdSessionId: strict.sessionActivation.session.threshold_session_id,
+          authorizationSessionId: strict.sessionActivation.session.authorization_session_id,
+          authorizationId: strict.sessionActivation.session.authorization_id,
+          walletSessionId: strict.sessionActivation.session.wallet_session_id,
+          quotaId: strict.sessionActivation.session.quota_id,
+          expiresAtMs: strict.sessionActivation.session.expires_at_ms,
+          remainingUses: strict.sessionActivation.session.remaining_uses,
+          walletSession: strict.sessionActivation.session.wallet_session,
+          operationCredential: strict.sessionActivation.session.operation_credential,
+        };
   const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
     walletId: String(args.key.walletId),
     signingRootId: args.key.signingRootId,
@@ -172,18 +201,18 @@ async function bootstrapStrictExistingEcdsaSession(
     relayerShareRetryCounter: publicIdentity.server_share_retry_counter,
     participantIds: args.key.participantIds.map(Number),
     chainId: args.lanePolicy.chainTarget.chainId,
-    thresholdSessionId: strict.sessionActivation.session.threshold_session_id,
-    authorizationSessionId: strict.sessionActivation.session.authorization_session_id,
-    authorizationId: strict.sessionActivation.session.authorization_id,
-    walletSessionId: strict.sessionActivation.session.wallet_session_id,
-    quotaId: strict.sessionActivation.session.quota_id,
-    expiresAtMs: strict.sessionActivation.session.expires_at_ms,
-    remainingUses: strict.sessionActivation.session.remaining_uses,
+    thresholdSessionId: session.thresholdSessionId,
+    authorizationSessionId: session.authorizationSessionId,
+    authorizationId: session.authorizationId,
+    walletSessionId: session.walletSessionId,
+    quotaId: session.quotaId,
+    expiresAtMs: session.expiresAtMs,
+    remainingUses: session.remainingUses,
     runtimePolicyScope,
     signingRootId: String(args.key.signingRootId),
     signingRootVersion: String(args.key.signingRootVersion),
-    walletSession: strict.sessionActivation.session.wallet_session,
-    operationCredential: strict.sessionActivation.session.operation_credential,
+    walletSession: session.walletSession,
+    operationCredential: session.operationCredential,
     roleLocalActivation: strict.roleLocalActivation,
     routerAbEcdsaDerivationNormalSigning: strict.sessionActivation.normal_signing,
   };
