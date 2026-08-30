@@ -1188,13 +1188,7 @@ function resolveTargetEnrollment(input: {
   readonly enrollment: Awaited<ReturnType<CloudflareD1EmailOtpEnrollmentStore['readEnrollment']>>;
   readonly orgId: string;
   readonly identity: GoogleIdentity;
-  readonly anchor: {
-    readonly envelope: {
-      readonly kind: 'passkey' | 'email_otp';
-      readonly enrollmentId?: string;
-      readonly enrollmentSealKeyVersion?: string;
-    };
-  };
+  readonly anchor: Pick<WebAuthnRecoveryContinuityAnchorRecord, 'envelope'>;
 }): WalletRecoveryGoogleEmailOtpTargetEnrollmentV1 | GoogleRecoveryFailure {
   if (input.enrollment) {
     if (

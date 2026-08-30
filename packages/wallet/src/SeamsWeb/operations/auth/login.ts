@@ -7213,7 +7213,7 @@ async function resolveCanonicalThresholdEcdsaWarmSessionContext(
    * name the method being unlocked, or it warms the sibling's lane and the
    * Wallet Session is minted against a credential the user is not presenting.
    */
-  authMethod?: 'passkey' | 'email_otp',
+  authMethod?: WalletAuthMethod,
 ): Promise<CanonicalThresholdEcdsaWarmSessionContext> {
   const configuredTargets = listConfiguredThresholdEcdsaPublicationTargets(
     context.configs.network.chains,
@@ -7391,7 +7391,7 @@ async function resolveThresholdEcdsaLoginMetadata(
 async function readAvailableSigningLanesForUi(
   context: WalletSessionWebContext,
   walletId: WalletId,
-  authMethod?: 'passkey' | 'email_otp',
+  authMethod?: WalletAuthMethod,
 ): Promise<AvailableSigningLanes | null> {
   return await context.signingEngine.readPersistedAvailableSigningLanes({
     walletId,
