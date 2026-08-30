@@ -839,6 +839,28 @@ async function buildEd25519VerifiedStepUpOperationFixture(input: {
   });
 }
 
+function verifiedStepUpAuthorizedOperationReceiptFixture(
+  operation: AuthorizedOperation,
+  session: WalletSessionAuthorizationV2,
+): Record<string, unknown> {
+  if (operation.authorization.kind !== 'verified_step_up') {
+    throw new Error('Ed25519 step-up fixture operation has the wrong authorization');
+  }
+  return {
+    kind: 'verified_step_up_authorized_operation_v1',
+    authorization_session_id: String(session.authorizationId),
+    evidence_set_digest: String(operation.authorization.evidenceSetDigest),
+    authorized_operation_id: String(operation.authorizedOperationId),
+    operation_id: String(operation.operation.operationId),
+    capability_kind: 'near_ed25519_mpc_signing',
+    operation_kind: operation.operation.operation.operationKind,
+    lane_digest_b64u: String(operation.operation.digests.laneDigest),
+    intent_digest_b64u: String(operation.operation.digests.intentDigest),
+    display_digest_b64u: String(operation.operation.digests.displayDigest),
+    operation_fingerprint_digest: String(operation.operationFingerprintDigest),
+  };
+}
+
 function authorizedOperationReceiptFixture(
   operation: AuthorizedOperation,
 ): Record<string, unknown> {
@@ -1792,6 +1814,101 @@ test('Ed25519 operation step-up admits a matching exhausted Wallet Session candi
   expect(authorizedOperations.readCalls).toBe(1);
   expect(authorizedOperations.admitCalls).toBe(1);
   expect(authorizationSessions.statusReads).toBe(0);
+
+  const finalizeBody = {
+    scope: body.scope,
+    expires_at_ms: session.expiresAtMs - 1_000,
+    authorized_operation: verifiedStepUpAuthorizedOperationReceiptFixture(
+      authorizedOperation,
+      session,
+    ),
+    prepare_binding: {
+      intent_digest: { bytes: new Array<number>(32).fill(11) },
+    },
+  };
+  const finalized = await authorizeRouterAbEd25519NormalSigningRoute({
+    body: finalizeBody,
+    rawBody: finalizeBody,
+    headers: {
+      authorization: 'Bearer exhausted-near-step-up-token',
+      origin: 'https://wallet.example.test',
+    },
+    session: null,
+    authorizedOperations,
+    authorizationSessions,
+    admissionAdapter: null,
+    resolveEd25519MaterialActivation:
+      materialResolver.resolveEd25519MaterialActivation.bind(materialResolver),
+    phase: 'finalize',
+  });
+  expect(finalized).toMatchObject({
+    ok: true,
+    kind: 'operation_step_up',
+    phase: 'finalize',
+    session: { sessionId: String(session.authorizationId) },
+  });
+
+  const driftedReceiptBody = {
+    ...finalizeBody,
+    authorized_operation: {
+      ...finalizeBody.authorized_operation,
+      kind: 'reusable_wallet_session_authorized_operation_v1',
+    },
+  };
+  const driftedReceipt = await authorizeRouterAbEd25519NormalSigningRoute({
+    body: driftedReceiptBody,
+    rawBody: driftedReceiptBody,
+    headers: {
+      authorization: 'Bearer exhausted-near-step-up-token',
+      origin: 'https://wallet.example.test',
+    },
+    session: null,
+    authorizedOperations,
+    authorizationSessions,
+    admissionAdapter: null,
+    resolveEd25519MaterialActivation:
+      materialResolver.resolveEd25519MaterialActivation.bind(materialResolver),
+    phase: 'finalize',
+  });
+  expect(driftedReceipt).toMatchObject({
+    ok: false,
+    result: {
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Ed25519 verified step-up authorized operation is required',
+      },
+    },
+  });
+
+  const missingReceiptBody = { ...finalizeBody, authorized_operation: undefined };
+  const missingReceipt = await authorizeRouterAbEd25519NormalSigningRoute({
+    body: missingReceiptBody,
+    rawBody: missingReceiptBody,
+    headers: {
+      authorization: 'Bearer exhausted-near-step-up-token',
+      origin: 'https://wallet.example.test',
+    },
+    session: null,
+    authorizedOperations,
+    authorizationSessions,
+    admissionAdapter: null,
+    resolveEd25519MaterialActivation:
+      materialResolver.resolveEd25519MaterialActivation.bind(materialResolver),
+    phase: 'finalize',
+  });
+  expect(missingReceipt).toMatchObject({
+    ok: false,
+    result: {
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Ed25519 verified step-up authorized operation is required',
+      },
+    },
+  });
 
   const unpreclaimedBody = await buildEd25519OperationStepUpPrepareRequestFixture({
     walletId: authority.walletId,

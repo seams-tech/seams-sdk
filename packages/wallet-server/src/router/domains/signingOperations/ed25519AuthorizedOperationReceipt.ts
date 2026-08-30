@@ -19,6 +19,24 @@ export type Ed25519ReusableAuthorizedOperationReceipt = {
   readonly operation_fingerprint_digest: string;
 };
 
+export type Ed25519VerifiedStepUpAuthorizedOperationReceipt = {
+  readonly kind: 'verified_step_up_authorized_operation_v1';
+  readonly authorization_session_id: string;
+  readonly evidence_set_digest: string;
+  readonly authorized_operation_id: string;
+  readonly operation_id: string;
+  readonly capability_kind: 'near_ed25519_mpc_signing';
+  readonly operation_kind: Ed25519OperationKind;
+  readonly lane_digest_b64u: string;
+  readonly intent_digest_b64u: string;
+  readonly display_digest_b64u: string;
+  readonly operation_fingerprint_digest: string;
+};
+
+export type Ed25519AuthorizedOperationReceipt =
+  | Ed25519ReusableAuthorizedOperationReceipt
+  | Ed25519VerifiedStepUpAuthorizedOperationReceipt;
+
 export function requireEd25519OperationKind(value: unknown): Ed25519OperationKind {
   if (
     value !== 'near.sign_transaction' &&
@@ -92,6 +110,58 @@ export function parseEd25519ReusableAuthorizedOperationReceipt(
   parseCapabilityOperationFingerprintDigest(fingerprint);
   return {
     kind: 'reusable_wallet_session_authorized_operation_v1',
+    authorized_operation_id: requireAuthorizedOperationReceiptString(
+      record,
+      'authorized_operation_id',
+    ),
+    operation_id: requireAuthorizedOperationReceiptString(record, 'operation_id'),
+    capability_kind: 'near_ed25519_mpc_signing',
+    operation_kind: operationKind,
+    lane_digest_b64u: laneDigest,
+    intent_digest_b64u: intentDigest,
+    display_digest_b64u: displayDigest,
+    operation_fingerprint_digest: fingerprint,
+  };
+}
+
+export function parseEd25519VerifiedStepUpAuthorizedOperationReceipt(
+  value: unknown,
+): Ed25519VerifiedStepUpAuthorizedOperationReceipt {
+  const record = isPlainObject(value) ? value : null;
+  if (!record || record.kind !== 'verified_step_up_authorized_operation_v1') {
+    throw new Error('Ed25519 verified step-up authorized operation is required');
+  }
+  requireExactAuthorizedOperationReceiptFields(record, [
+    'authorization_session_id',
+    'evidence_set_digest',
+  ]);
+  const capabilityKind = requireAuthorizedOperationReceiptString(record, 'capability_kind');
+  if (capabilityKind !== 'near_ed25519_mpc_signing') {
+    throw new Error('authorized_operation.capability_kind is invalid');
+  }
+  const operationKind = requireEd25519OperationKind(
+    requireAuthorizedOperationReceiptString(record, 'operation_kind'),
+  );
+  const evidenceSetDigest = requireAuthorizedOperationReceiptString(record, 'evidence_set_digest');
+  parseDigestB64u(evidenceSetDigest);
+  const laneDigest = requireAuthorizedOperationReceiptString(record, 'lane_digest_b64u');
+  const intentDigest = requireAuthorizedOperationReceiptString(record, 'intent_digest_b64u');
+  const displayDigest = requireAuthorizedOperationReceiptString(record, 'display_digest_b64u');
+  parseDigestB64u(laneDigest);
+  parseDigestB64u(intentDigest);
+  parseDigestB64u(displayDigest);
+  const fingerprint = requireAuthorizedOperationReceiptString(
+    record,
+    'operation_fingerprint_digest',
+  );
+  parseCapabilityOperationFingerprintDigest(fingerprint);
+  return {
+    kind: 'verified_step_up_authorized_operation_v1',
+    authorization_session_id: requireAuthorizedOperationReceiptString(
+      record,
+      'authorization_session_id',
+    ),
+    evidence_set_digest: evidenceSetDigest,
     authorized_operation_id: requireAuthorizedOperationReceiptString(
       record,
       'authorized_operation_id',
