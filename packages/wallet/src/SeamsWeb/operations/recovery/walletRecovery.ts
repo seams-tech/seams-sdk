@@ -64,6 +64,10 @@ const RECOVERY_PREPARE_RETRY_TTL_MS = 5 * 60 * 1000;
 // ECDSA-only registration establishes its wallet-scoped passkey at slot 1.
 const ECDSA_ONLY_WALLET_SIGNER_SLOT = 1;
 
+function assertNever(value: never): never {
+  throw new Error(`Unhandled wallet recovery branch: ${String(value)}`);
+}
+
 export type WalletRecoveryPreparedHandle = {
   readonly kind: 'prepared';
   readonly recoveryOperationId: string;
@@ -475,6 +479,20 @@ function emailOtpManifestRecoveredOperation(
     replacement: current.replacement,
     recovered,
   };
+}
+
+function manifestRecoveredOperationFromRecovered(
+  current: Extract<RecoveryOperation, { stage: 'credential_created' | 'email_otp_verified' }>,
+  recovered: RecoveredWalletCustodyManifestV1,
+): Extract<RecoveryOperation, { stage: 'manifest_recovered' }> {
+  switch (current.stage) {
+    case 'credential_created':
+      return passkeyManifestRecoveredOperation(current, recovered);
+    case 'email_otp_verified':
+      return emailOtpManifestRecoveredOperation(current, recovered);
+    default:
+      return assertNever(current);
+  }
 }
 
 function passkeyPromotedPendingContinuityOperation(
@@ -1288,10 +1306,7 @@ export class WalletRecoveryCoordinator {
             ? current.replacement.factorSecret
             : current.replacement.factor.factorSecret,
         );
-        current =
-          current.stage === 'credential_created'
-            ? passkeyManifestRecoveredOperation(current, recovered)
-            : emailOtpManifestRecoveredOperation(current, recovered);
+        current = manifestRecoveredOperationFromRecovered(current, recovered);
         this.#operations.set(current.recoveryOperationId, current);
       }
 

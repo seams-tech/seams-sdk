@@ -39,7 +39,10 @@ import {
   type WalletSignerActivationSetV1,
 } from '@shared/authorization/walletAuthority';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import {
+  parsePasskeyCustodyEnvelopeRecord,
+  type PasskeyCustodyEnvelopeRecord,
+} from '@shared/passkey-custody';
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
@@ -128,6 +131,34 @@ import {
   type ActiveWalletSessionV1,
 } from './walletSessionAuthorizationStore';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled wallet auth method branch: ${String(value)}`);
+}
+
+function exportRootEnvelopeMatchesAuthMethod(
+  authMethod: WalletAuthMethodRecordV2,
+  envelope: PasskeyCustodyEnvelopeRecord,
+): boolean {
+  if (envelope.binding.kind !== 'ed25519_yao_client_root_v1') {
+    return false;
+  }
+  switch (authMethod.kind) {
+    case 'passkey':
+      return (
+        envelope.factor.kind === 'passkey' &&
+        envelope.factor.rpId === authMethod.rpId &&
+        envelope.factor.credentialIdB64u === authMethod.credentialIdB64u &&
+        envelope.binding.targetFactor.kind === 'passkey_prf'
+      );
+    case 'email_otp':
+      return (
+        envelope.factor.kind === 'email_otp' && envelope.binding.targetFactor.kind === 'email_otp'
+      );
+    default:
+      return assertNever(authMethod);
+  }
+}
 
 type AppStateRow<T = unknown> = {
   key: string;
@@ -2476,13 +2507,7 @@ function parseLocalAuthorityInstallationInput(
         authority.principal.kind !== 'owner_device' ||
         String(exportRoot.envelope.binding.deviceId) !== String(authority.principal.deviceId) ||
         exportRoot.envelope.lifecycle.state !== 'active' ||
-        (authMethod.kind === 'passkey'
-          ? exportRoot.envelope.factor.kind !== 'passkey' ||
-            exportRoot.envelope.factor.rpId !== authMethod.rpId ||
-            exportRoot.envelope.factor.credentialIdB64u !== authMethod.credentialIdB64u ||
-            exportRoot.envelope.binding.targetFactor.kind !== 'passkey_prf'
-          : exportRoot.envelope.factor.kind !== 'email_otp' ||
-            exportRoot.envelope.binding.targetFactor.kind !== 'email_otp')
+        !exportRootEnvelopeMatchesAuthMethod(authMethod, exportRoot.envelope)
       ) {
         throw new Error('export root does not match the Ed25519 authority activation');
       }
@@ -4389,13 +4414,7 @@ export class SeamsWalletRepositories {
         String(row.record.envelope.binding.deviceId) !==
           String(authority.record.principal.deviceId) ||
         row.record.envelope.lifecycle.state !== 'active' ||
-        (authMethod.record.kind === 'passkey'
-          ? row.record.envelope.factor.kind !== 'passkey' ||
-            row.record.envelope.factor.rpId !== authMethod.record.rpId ||
-            row.record.envelope.factor.credentialIdB64u !== authMethod.record.credentialIdB64u ||
-            row.record.envelope.binding.targetFactor.kind !== 'passkey_prf'
-          : row.record.envelope.factor.kind !== 'email_otp' ||
-            row.record.envelope.binding.targetFactor.kind !== 'email_otp')
+        !exportRootEnvelopeMatchesAuthMethod(authMethod.record, row.record.envelope)
       ) {
         return { kind: 'integrity_error', reason: 'selected authority export root is invalid' };
       }
