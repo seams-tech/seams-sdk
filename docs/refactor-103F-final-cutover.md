@@ -984,7 +984,7 @@ Primary files:
       decrypt.
 - [x] Commit authorization, quota, credential digest, authority/method
       activation, and one complete sealed-delivery row in the activation CAS.
-- [ ] Add exact composite foreign keys to the linked installation and V2
+- [x] Add exact composite foreign keys to the linked installation and V2
       authorization plus unique full-scope link and digest identities.
 - [x] Bind canonical AAD to tenant scope, link, wallet, authority, method,
       authorization, Wallet Session, quota, credential digest, recipient, issue
@@ -1014,7 +1014,10 @@ Primary files:
 - [x] Persist pending acknowledgement intent locally and provide an idempotent
       replay helper that clears the intent together with the local
       delivery-resume record after cleanup completes.
-- [ ] Invoke pending acknowledgement replay from the production bootstrap path.
+- [x] Invoke pending acknowledgement replay from the production bootstrap path.
+      The wallet host reads the exact persisted V6 tuple, retries through the
+      Wallet Session bearer-only acknowledgement transport, and leaves the
+      durable intent untouched while the exact session is unavailable.
 - [ ] Recover recipient-handle loss or delivery expiry through durable local
       install plus exact-method unlock, without resealing or relinking.
 - [ ] Preserve interactive cancellation across `claimed`,
@@ -1641,7 +1644,9 @@ Remaining causal baseline work:
 - [x] `tests/unit/deviceLinkingRoutes.unit.test.ts`, rerun after exact-only
       source and owner authorization across claim, approval, target credential,
       cancellation, and source-contribution routes
-- [x] `tests/unit/linkDeviceAuthorityResume.unit.test.ts`
+- [x] `tests/unit/linkDeviceAuthorityResume.unit.test.ts`, including production
+      bootstrap deferral without V6 and replay once the exact credential is
+      available
 - [x] `tests/unit/authMenuPasskeyContinuation.unit.test.ts`, preserving the
       terminal retry state when the other device cancels
 - [x] `tests/unit/emailOtpEcdsaSigningRefreshRuntimeScope.unit.test.ts`
