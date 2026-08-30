@@ -1205,7 +1205,7 @@ Primary persistence files:
       directions without retaining a message adapter.
 - [x] Replace `ActiveWalletSessionV1` plus separately transported credentials
       with the identity-coupled exact browser boundary type.
-- [ ] Delete `registration_established_wallet_session_v1`,
+- [x] Delete `registration_established_wallet_session_v1`,
       `RegistrationEstablishedSessionTokens`, and `walletSessionTokenForCurve`.
 - [x] Delete `ActiveWalletSession` aliases that do not denote the exact
       projection.
