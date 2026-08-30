@@ -34,7 +34,6 @@
     "unit/sealedSessionStore.unit.test.ts",
     "unit/signingSessionSeal.shared.unit.test.ts",
     "unit/thresholdEcdsa.bootstrapPersistence.unit.test.ts",
-    "unit/thresholdEcdsa.persistedRecords.unit.test.ts",
     "unit/thresholdSessionClaims.unit.test.ts",
     "unit/userHandle.parse.test.ts",
     "unit/warmSessionEcdsaProvisioning.unit.test.ts",
