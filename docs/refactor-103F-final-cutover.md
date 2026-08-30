@@ -1229,14 +1229,14 @@ Primary files:
 
 ### I10 — Documentation and source guards (B16)
 
-- [ ] Retire or replace
+- [x] Retire or replace
       `tests/scripts/check-router-ab-server-wallet-session-claim-boundaries.mjs`.
 - [x] Update `tests/scripts/check-wallet-session-vocabulary-boundaries.mjs` to
       forbid V1 tables, `not_v2`, V3 client records, and opaque fallback while
       allowing frozen reusable-operation discriminators.
 - [ ] Prefer the type fixtures, behavior tests, and closure searches in this
       plan over new source-text guards.
-- [ ] Update `docs/threshold-ecdsa/ecdsa-threshold-signing.md`.
+- [x] Update `docs/threshold-ecdsa/ecdsa-threshold-signing.md`.
 - [x] Update `docs/auth-gating-routes.md`.
 - [ ] Update `docs/intended-behaviours.md` and registration contracts for
       credential-free lost-response replay.
