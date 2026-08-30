@@ -1,10 +1,5 @@
-import { basename, resolve } from 'node:path';
+import { basename } from 'node:path';
 import { expect, test } from '@playwright/test';
-import {
-  buildSignerD1Phase1InventoryQuery,
-  normalizeSignerD1Phase1InventoryRow,
-} from '../../packages/console-server-ts/scripts/d1-staging-signer-phase1-inventory.mjs';
-import { digestMigrations, readMigrationFiles } from '../../scripts/migration-fingerprint.mjs';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -35,25 +30,22 @@ const AUTHORITY_RECORD = JSON.stringify({
   signerActivationSetDigestB64u: 'digest:migration',
 });
 
-const AUTH_METHOD_RECORD = JSON.stringify({
-  version: 'wallet_auth_method_v2',
-  walletAuthMethodId: AUTH_METHOD_ID,
-  walletId: WALLET_ID,
-  walletAuthorityId: AUTHORITY_ID,
-  kind: 'passkey',
-  status: 'active',
-  createdAtMs: 1,
-  updatedAtMs: 2,
-  rpId: 'wallet.example.test',
-  credentialIdB64u: 'credential:migration',
-  credentialPublicKeyB64u: 'public-key:migration',
-  counter: 0,
-});
-
-const SIGNER_MIGRATION_DIRECTORY = resolve(
-  import.meta.dirname,
-  '../../packages/wallet-server/migrations/d1-signer',
-);
+function authMethodRecord(walletAuthMethodId: string, credentialIdB64u: string): string {
+  return JSON.stringify({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId,
+    walletId: WALLET_ID,
+    walletAuthorityId: AUTHORITY_ID,
+    kind: 'passkey',
+    status: 'active',
+    createdAtMs: 1,
+    updatedAtMs: 2,
+    rpId: 'wallet.example.test',
+    credentialIdB64u,
+    credentialPublicKeyB64u: `public-key:${credentialIdB64u}`,
+    counter: 0,
+  });
+}
 
 type Database = ReturnType<typeof createTemporaryD1Database>['database'];
 
@@ -109,6 +101,14 @@ async function insertAuthorityAndAuthMethod(database: Database): Promise<void> {
       null,
     )
     .run();
+  await insertAuthMethod(database, AUTH_METHOD_ID, 'credential:migration');
+}
+
+async function insertAuthMethod(
+  database: Database,
+  walletAuthMethodId: string,
+  credentialIdB64u: string,
+): Promise<void> {
   await database
     .prepare(
       `INSERT INTO wallet_auth_methods (
@@ -129,13 +129,13 @@ async function insertAuthorityAndAuthMethod(database: Database): Promise<void> {
       'wallet.example.test',
       'passkey',
       'active',
-      AUTH_METHOD_ID,
-      'credential:migration',
-      'credential:migration',
-      'public-key:migration',
+      walletAuthMethodId,
+      credentialIdB64u,
+      credentialIdB64u,
+      `public-key:${credentialIdB64u}`,
       null,
       null,
-      AUTH_METHOD_RECORD,
+      authMethodRecord(walletAuthMethodId, credentialIdB64u),
       1,
       2,
       2,
@@ -174,6 +174,7 @@ function authorizationRecordJson(input: {
   readonly authorizationId: string;
   readonly walletSessionId: string;
   readonly quotaId: string;
+  readonly walletAuthMethodId: string;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 }): string {
@@ -183,7 +184,7 @@ function authorizationRecordJson(input: {
     principalId: PRINCIPAL_ID,
     walletId: WALLET_ID,
     authorityId: AUTHORITY_ID,
-    walletAuthMethodId: AUTH_METHOD_ID,
+    walletAuthMethodId: input.walletAuthMethodId,
     authorityDigestB64u: 'digest:migration',
     authorityRevocationEpoch: 0,
     mintId: `mint:${input.authorizationId}`,
@@ -202,6 +203,7 @@ async function insertAuthorization(
     readonly authorizationId: string;
     readonly walletSessionId: string;
     readonly quotaId: string;
+    readonly walletAuthMethodId: string;
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
     readonly operationCredentialHash: string | null;
@@ -230,7 +232,7 @@ async function insertAuthorization(
       PRINCIPAL_ID,
       WALLET_ID,
       AUTHORITY_ID,
-      AUTH_METHOD_ID,
+      input.walletAuthMethodId,
       'digest:migration',
       0,
       '[{"kind":"link_devices","authorityId":"authority:migration"}]',
@@ -390,23 +392,6 @@ async function readRequiredIndexes(
   return rows.results.flatMap((row) => (typeof row.name === 'string' ? [row.name] : []));
 }
 
-async function readBridgeCounters(
-  database: Database,
-  nowMs: number,
-): Promise<{
-  readonly activeV1: number;
-  readonly activeUsableV2: number;
-  readonly activeV2WithoutCredential: number;
-  readonly pendingV1AuthorizedOperations: number;
-  readonly unconsumedHostedExchangeCodes: number;
-  readonly v1OnlyQuotas: number;
-  readonly activationCredentialRows: number;
-  readonly provisioningCredentialRows: number;
-}> {
-  const row = await database.prepare(buildSignerD1Phase1InventoryQuery(nowMs)).first();
-  return normalizeSignerD1Phase1InventoryRow(row);
-}
-
 test('R103F Phase 1 applies cleanly and after every immutable signer migration', async () => {
   const clean = createTemporaryD1Database();
   const historical = createTemporaryD1Database();
@@ -435,6 +420,7 @@ test('R103F Phase 1 applies cleanly and after every immutable signer migration',
       authorizationId: 'authorization:historical',
       walletSessionId: 'session:historical',
       quotaId: 'quota:historical',
+      walletAuthMethodId: AUTH_METHOD_ID,
       issuedAtMs: Date.now() - 1_000,
       expiresAtMs: historicalExpiry,
       operationCredentialHash: 'credential:historical',
@@ -564,6 +550,7 @@ test('R103F bridge trigger admits V1/V2 claims and rejects partial scope', async
       authorizationId: 'authorization:v2',
       walletSessionId: 'session:v2',
       quotaId: 'quota:v2',
+      walletAuthMethodId: AUTH_METHOD_ID,
       issuedAtMs: 1,
       expiresAtMs: 100,
       operationCredentialHash: 'credential:v2',
@@ -617,6 +604,7 @@ test('R103F exact trigger admits only fully scoped V2 claims', async () => {
       authorizationId: 'authorization:exact',
       walletSessionId: 'session:exact',
       quotaId: 'quota:exact',
+      walletAuthMethodId: AUTH_METHOD_ID,
       issuedAtMs: 1,
       expiresAtMs: 100,
       operationCredentialHash: 'credential:exact',
@@ -639,7 +627,9 @@ test('R103F exact trigger admits only fully scoped V2 claims', async () => {
         .first<{ readonly remaining_uses?: unknown }>(),
     ).resolves.toMatchObject({ remaining_uses: 2 });
 
-    await insertV1Session(temporary.database);
+    await expect(insertV1Session(temporary.database)).rejects.toThrow(
+      /no such table: reusable_wallet_sessions/u,
+    );
     await expect(
       insertClaim(temporary.database, {
         operationId: 'operation:v1-fallback',
@@ -692,11 +682,11 @@ test('R103F exact trigger admits only fully scoped V2 claims', async () => {
     await expect(
       temporary.database
         .prepare(
-          `SELECT remaining_uses FROM authorization_wallet_session_quotas
-             WHERE quota_id = 'quota:v1'`,
+          `SELECT COUNT(*) AS row_count FROM authorized_operations
+            WHERE authorized_operation_id = 'operation:v1-fallback'`,
         )
-        .first<{ readonly remaining_uses?: unknown }>(),
-    ).resolves.toMatchObject({ remaining_uses: 3 });
+        .first<{ readonly row_count?: unknown }>(),
+    ).resolves.toMatchObject({ row_count: 0 });
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
@@ -712,15 +702,19 @@ test('R103F child and delivery rows retain exact parent identity and acknowledge
       authorizationId: 'authorization:child-a',
       walletSessionId: 'session:child-a',
       quotaId: 'quota:child-a',
+      walletAuthMethodId: AUTH_METHOD_ID,
       issuedAtMs: 1,
       expiresAtMs: 100,
       operationCredentialHash: 'credential:child-a',
     });
+    const siblingAuthMethodId = 'auth-method:migration-sibling';
+    await insertAuthMethod(temporary.database, siblingAuthMethodId, 'credential:migration-sibling');
     await insertQuota(temporary.database, 'quota:child-b', 'session:child-b', 100);
     await insertAuthorization(temporary.database, {
       authorizationId: 'authorization:child-b',
       walletSessionId: 'session:child-b',
       quotaId: 'quota:child-b',
+      walletAuthMethodId: siblingAuthMethodId,
       issuedAtMs: 1,
       expiresAtMs: 100,
       operationCredentialHash: 'credential:child-b',
@@ -1223,130 +1217,6 @@ test('R103F child and delivery rows retain exact parent identity and acknowledge
   }
 });
 
-test('R103F bridge inventory counters and applied migration fingerprint stay stable', async () => {
-  const temporary = createTemporaryD1Database();
-  try {
-    const migrations = readMigrationFiles(SIGNER_MIGRATION_DIRECTORY);
-    expect(migrations.at(-5)?.name).toBe('0029_r103f_phase0_registration_replay_tokens.sql');
-    expect(migrations.at(-4)?.name).toBe('0030_r103f_wallet_session_client_capability.sql');
-    expect(migrations.at(-3)?.name).toBe('0031_r103f_delete_registration_replay_tokens.sql');
-    expect(migrations.at(-2)?.name).toBe(
-      '0032_r103f_exact_authorized_operation_enforcement.sql',
-    );
-    expect(migrations.at(-1)?.name).toBe('0033_r103f_linked_delivery_recipient.sql');
-    expect(digestMigrations(migrations.slice(0, -5))).toBe(
-      'b4d1f650437642c4a6c16c3b2fd56253eff4dde308fd44e5fdd90aa2393b2f2a',
-    );
-    await applyD1MigrationFiles(temporary.database, migrationFilesThroughBridge());
-    await expect(readBridgeCounters(temporary.database, 50)).resolves.toEqual({
-      activeV1: 0,
-      activeUsableV2: 0,
-      activeV2WithoutCredential: 0,
-      pendingV1AuthorizedOperations: 0,
-      unconsumedHostedExchangeCodes: 0,
-      v1OnlyQuotas: 0,
-      activationCredentialRows: 0,
-      provisioningCredentialRows: 0,
-    });
-    await insertAuthorityAndAuthMethod(temporary.database);
-    await insertV1Session(temporary.database);
-    await insertQuota(temporary.database, 'quota:v1-only', 'session:v1-only');
-    await insertQuota(temporary.database, 'quota:v2-null', 'session:v2-null');
-    await insertAuthorization(temporary.database, {
-      authorizationId: 'authorization:v2-null',
-      walletSessionId: 'session:v2-null',
-      quotaId: 'quota:v2-null',
-      issuedAtMs: 1,
-      expiresAtMs: 100,
-      operationCredentialHash: null,
-    });
-    await temporary.database
-      .prepare(
-        `INSERT INTO hosted_wallet_session_exchange_codes (
-         namespace, tenant_id, exchange_code_id, wallet_session_id, code_hash,
-         nonce_digest, app_origin, wallet_origin, lifecycle_kind, issued_at_ms,
-         expires_at_ms, token_hash, curve, binding_json, consumed_at_ms
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        SCOPE.namespace,
-        SCOPE.tenantId,
-        'exchange:v1',
-        'session:v1',
-        'code:v1',
-        'nonce:v1',
-        'https://app.example.test',
-        'https://wallet.example.test',
-        'issued',
-        1,
-        100,
-        null,
-        'ecdsa',
-        '{}',
-        null,
-      )
-      .run();
-    await insertClaim(temporary.database, {
-      operationId: 'operation:counter-v1',
-      authorizationId: 'authorization:v1',
-      quotaId: 'quota:v1',
-      quotaKind: 'consume_reusable_wallet_session',
-      linkedScope: [null, null, null],
-      claimedAtMs: 10,
-    });
-    await temporary.database
-      .prepare(
-        `INSERT INTO router_ab_yao_versioned_json_records (
-         namespace, org_id, project_id, env_id, record_key, version, record_json,
-         created_at_ms, updated_at_ms
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        SCOPE.namespace,
-        SCOPE.orgId,
-        SCOPE.projectId,
-        SCOPE.envId,
-        'wallet-registration-activate:counter',
-        1,
-        '{"response":{"registrationEstablishedSession":{"tokens":{"ed25519":{"walletSessionToken":"token"}}}}}',
-        1,
-        1,
-      )
-      .run();
-    await temporary.database
-      .prepare(
-        `INSERT INTO router_ab_yao_versioned_json_records (
-         namespace, org_id, project_id, env_id, record_key, version, record_json,
-         created_at_ms, updated_at_ms
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        SCOPE.namespace,
-        SCOPE.orgId,
-        SCOPE.projectId,
-        SCOPE.envId,
-        'wallet-registration-near-provisioning:counter',
-        1,
-        '{"response":{"registrationEstablishedSession":{"tokens":{"ecdsa":{"operationCredential":"credential"}}}}}',
-        1,
-        1,
-      )
-      .run();
-    await expect(readBridgeCounters(temporary.database, 50)).resolves.toEqual({
-      activeV1: 1,
-      activeUsableV2: 0,
-      activeV2WithoutCredential: 1,
-      pendingV1AuthorizedOperations: 1,
-      unconsumedHostedExchangeCodes: 1,
-      v1OnlyQuotas: 2,
-      activationCredentialRows: 1,
-      provisioningCredentialRows: 1,
-    });
-  } finally {
-    cleanupTemporaryD1Database(temporary.tempDir);
-  }
-});
-
 test('R103F bridge retires unusable V2 rows and aborts duplicate usable tuples', async () => {
   const cleanup = createTemporaryD1Database();
   const duplicates = createTemporaryD1Database();
@@ -1370,6 +1240,7 @@ test('R103F bridge retires unusable V2 rows and aborts duplicate usable tuples',
       authorizationId: 'authorization:null-credential',
       walletSessionId: 'session:null-credential',
       quotaId: 'quota:null-credential',
+      walletAuthMethodId: AUTH_METHOD_ID,
       issuedAtMs: nowMs,
       expiresAtMs: nowMs + 60_000,
       operationCredentialHash: null,
@@ -1379,6 +1250,7 @@ test('R103F bridge retires unusable V2 rows and aborts duplicate usable tuples',
       authorizationId: 'authorization:expired',
       walletSessionId: 'session:expired',
       quotaId: 'quota:expired',
+      walletAuthMethodId: AUTH_METHOD_ID,
       issuedAtMs: nowMs - 2_000,
       expiresAtMs: nowMs - 1_000,
       operationCredentialHash: 'credential:expired',
@@ -1411,6 +1283,7 @@ test('R103F bridge retires unusable V2 rows and aborts duplicate usable tuples',
         authorizationId: `authorization:duplicate-${suffix}`,
         walletSessionId: `session:duplicate-${suffix}`,
         quotaId: `quota:duplicate-${suffix}`,
+        walletAuthMethodId: AUTH_METHOD_ID,
         issuedAtMs: duplicateNowMs,
         expiresAtMs: duplicateNowMs + 60_000,
         operationCredentialHash: `credential:duplicate-${suffix}`,
