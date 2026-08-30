@@ -4093,12 +4093,21 @@ export class BrowserSigningSurface {
     }
 
     const { selection, authMethod, authority, signerMaterials } = selected;
-    const authMethodMatches =
-      auth.kind === WALLET_AUTH_METHODS.passkey
-        ? authMethod.kind === WALLET_AUTH_METHODS.passkey &&
+    let authMethodMatches: boolean;
+    switch (auth.kind) {
+      case WALLET_AUTH_METHODS.passkey:
+        authMethodMatches =
+          authMethod.kind === WALLET_AUTH_METHODS.passkey &&
           String(authMethod.rpId) === String(auth.rpId) &&
-          authMethod.credentialIdB64u === auth.credentialIdB64u
-        : authMethod.kind === WALLET_AUTH_METHODS.emailOtp;
+          authMethod.credentialIdB64u === auth.credentialIdB64u;
+        break;
+      case WALLET_AUTH_METHODS.emailOtp:
+        authMethodMatches = authMethod.kind === WALLET_AUTH_METHODS.emailOtp;
+        break;
+      default:
+        auth satisfies never;
+        throw new Error('[SigningEngine][near] unsupported Ed25519 material authority');
+    }
     if (
       selection.lockState !== 'unlocked' ||
       authority.state !== 'active' ||
@@ -4180,16 +4189,26 @@ export class BrowserSigningSurface {
       const targetBinding = linkedMaterial.publicFacts.targetBinding;
       const targetLifecycle = targetBinding.lifecycle;
       const targetFactor = linkedMaterial.targetFactor;
-      const targetFactorMatches =
-        auth.kind === WALLET_AUTH_METHODS.passkey
-          ? targetFactor.kind === WALLET_AUTH_METHODS.passkey &&
+      let targetFactorMatches: boolean;
+      switch (auth.kind) {
+        case WALLET_AUTH_METHODS.passkey:
+          targetFactorMatches =
+            targetFactor.kind === WALLET_AUTH_METHODS.passkey &&
             targetFactor.walletAuthMethodId === authMethod.walletAuthMethodId &&
             String(targetFactor.rpId) === String(auth.rpId) &&
-            targetFactor.credentialIdB64u === auth.credentialIdB64u
-          : targetFactor.kind === WALLET_AUTH_METHODS.emailOtp &&
+            targetFactor.credentialIdB64u === auth.credentialIdB64u;
+          break;
+        case WALLET_AUTH_METHODS.emailOtp:
+          targetFactorMatches =
+            targetFactor.kind === WALLET_AUTH_METHODS.emailOtp &&
             authMethod.kind === WALLET_AUTH_METHODS.emailOtp &&
             targetFactor.walletAuthMethodId === authMethod.walletAuthMethodId &&
             targetFactor.emailHashHex === authMethod.emailHashHex;
+          break;
+        default:
+          auth satisfies never;
+          throw new Error('[SigningEngine][near] unsupported Ed25519 material authority');
+      }
       if (
         application.wallet_id !== String(context.input.walletId) ||
         application.near_ed25519_signing_key_id !== String(signer.nearEd25519SigningKeyId) ||

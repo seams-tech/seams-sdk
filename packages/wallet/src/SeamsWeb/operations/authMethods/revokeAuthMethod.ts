@@ -34,6 +34,7 @@ import { revokeWalletAuthMethod as revokeWalletAuthMethodRoute } from '@/core/rp
 import { requestEmailOtpChallenge } from './emailOtp/challenge';
 import { WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { WalletAuthMethodRevocationProof } from '@shared/utils/registrationIntent';
+import { WALLET_AUTH_METHODS, type WalletAuthMethod } from '@shared/utils/signerDomain';
 import type { RegistrationWebContext } from '@/SeamsWeb/signingSurface/types';
 
 export type RevokeAuthMethodResult = {
@@ -186,22 +187,36 @@ async function revokeAuthMethodInternal(args: {
      with a code against a challenge the server bound to the same fingerprint,
      which is why the binding digest comes back from the challenge rather than
      being computed here. */
-  const sourceProof =
-    allowCredentials.length > 0
-      ? await passkeySourceProof({
-          context: args.context,
-          walletId: args.walletId,
-          rpId: parsedRpId.value,
-          operationFingerprintDigest: String(operationFingerprintDigest),
-          allowCredentials,
-        })
-      : await emailOtpSourceProof({
-          context: args.context,
-          relayerUrl,
-          walletId: args.walletId,
-          targetWalletAuthMethodId: args.walletAuthMethodId,
-          operationFingerprintDigest: String(operationFingerprintDigest),
-        });
+  let sourceAuthMethod: WalletAuthMethod;
+  if (allowCredentials.length > 0) {
+    sourceAuthMethod = WALLET_AUTH_METHODS.passkey;
+  } else {
+    sourceAuthMethod = WALLET_AUTH_METHODS.emailOtp;
+  }
+  let sourceProof: WalletAuthMethodRevocationProof;
+  switch (sourceAuthMethod) {
+    case WALLET_AUTH_METHODS.passkey:
+      sourceProof = await passkeySourceProof({
+        context: args.context,
+        walletId: args.walletId,
+        rpId: parsedRpId.value,
+        operationFingerprintDigest: String(operationFingerprintDigest),
+        allowCredentials,
+      });
+      break;
+    case WALLET_AUTH_METHODS.emailOtp:
+      sourceProof = await emailOtpSourceProof({
+        context: args.context,
+        relayerUrl,
+        walletId: args.walletId,
+        targetWalletAuthMethodId: args.walletAuthMethodId,
+        operationFingerprintDigest: String(operationFingerprintDigest),
+      });
+      break;
+    default:
+      sourceAuthMethod satisfies never;
+      throw new Error('registration.revokeAuthMethod encountered an unsupported source method');
+  }
   const response = await revokeWalletAuthMethodRoute({
     relayerUrl,
     walletId: args.walletId,

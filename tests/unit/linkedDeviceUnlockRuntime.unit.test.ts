@@ -4,6 +4,7 @@ import {
   resolveLinkedDevicePasskeyAuthoritySelection,
   resolveLinkedDeviceUnlockSubjectSet,
   unlockLinkedDevicePasskey,
+  activateLinkedDeviceSignerRuntimesAfterLink,
 } from '@/SeamsWeb/operations/auth/login';
 import { loginAccountOptions } from '@/SeamsWeb/walletIframe/host/auth-menu/account-options';
 import { BrowserSigningSurface } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
@@ -36,7 +37,16 @@ import {
 } from '@/core/signingEngine/session/material/linkedEcdsaHolderRuntime';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { base64UrlEncode } from '@shared/utils/base64';
+import { readAvailableSigningLanes } from '@/core/signingEngine/session/availability/availableSigningLanes';
+import { resolveExactKeyExportLane } from '@/core/signingEngine/flows/recovery/exportLaneSelection';
+import {
+  buildActiveNearEd25519WalletSessionAuthorization,
+  type ActiveNearEd25519WalletSessionStatus,
+} from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
+import { buildExactPasskeyOwnerLaneScope } from '@/core/signingEngine/session/identity/ownerLaneScope';
+import { base58Encode } from '@shared/utils/base58';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import { deriveImplicitNearAccountIdFromEd25519PublicKey } from '@shared/utils/near';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   buildLinkedDeviceEd25519YaoCapabilityLaneFixture,
@@ -432,6 +442,208 @@ test('linked V2 install exposes exact inventory and unlock installs live owners 
     Reflect.set(IndexedDBManager, 'getAppState', originalGetAppState);
     Reflect.set(IndexedDBManager, 'listWalletSelections', originalListWalletSelections);
     walletSessionAuthorizations.writeExact = originalWriteExact;
+    walletSessionAuthorizations.writeExactWithOperationCredential =
+      originalWriteExactWithOperationCredential;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('linked V2 post-link activation resolves the exact export lane before any unlock', async () => {
+  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  const activeClients = new Ed25519YaoActiveClientRegistry();
+  const storedHandles: string[] = [];
+  const disposedHandles: string[] = [];
+  const workerContext = createWorkerContext({ storedHandles, disposedHandles });
+  const importedClients: FakeLinkedYaoClient[] = [];
+  const originalInitializeBundled = RouterAbEd25519YaoClientV1.initializeBundled;
+  const originalResolveSelectedWalletAuthority = IndexedDBManager.resolveSelectedWalletAuthority;
+  const originalIsDisabled = IndexedDBManager.isDisabled;
+  const originalGetAppState = IndexedDBManager.getAppState;
+  const originalSetAppState = IndexedDBManager.setAppState;
+  const originalWriteExactWithOperationCredential =
+    walletSessionAuthorizations.writeExactWithOperationCredential;
+  const originalFetch = globalThis.fetch;
+  const unlockedSelections: unknown[] = [];
+  const walletId = toWalletId(String(fixture.walletId));
+  const ed25519Material = fixture.signerMaterials.find(
+    (material) => material.keyFamily === 'ed25519',
+  );
+  if (!ed25519Material || ed25519Material.keyFamily !== 'ed25519') {
+    throw new Error('linked runtime fixture is missing Ed25519 material');
+  }
+  const nearAccountId = deriveImplicitNearAccountIdFromEd25519PublicKey(
+    `ed25519:${base58Encode(new Uint8Array(ed25519Material.publicFacts.activationReceipt.registered_public_key))}`,
+  );
+  const identity = {
+    ...linkedRuntimeIdentity(fixture),
+    nearAccountId: toAccountId(nearAccountId),
+  };
+  const appState = new Map<string, unknown>();
+  const publicCapabilityStore = new IndexedDbEd25519YaoPublicCapabilityReferenceStore({
+    isDisabled: () => false,
+    getAppState: async <T>(key: string) => appState.get(key) as T | undefined,
+    setAppState: async <T>(key: string, value: T) => {
+      appState.set(key, value);
+    },
+  });
+
+  Reflect.set(RouterAbEd25519YaoClientV1, 'initializeBundled', async () => ({
+    importLinkedMaterial: (input: {
+      readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+    }) => {
+      const client = fakeLinkedYaoClient(input.metadata);
+      importedClients.push(client);
+      return client;
+    },
+  }));
+  IndexedDBManager.resolveSelectedWalletAuthority = async () => ({
+    kind: 'resolved' as const,
+    selection: fixture.selection,
+    authMethod: fixture.authMethod,
+    authority: fixture.authority,
+    signerMaterials: fixture.signerMaterials,
+    exportRoot: null,
+  });
+  Reflect.set(IndexedDBManager, 'isDisabled', () => false);
+  Reflect.set(
+    IndexedDBManager,
+    'getAppState',
+    async <T>(key: string): Promise<T | undefined> => appState.get(key) as T | undefined,
+  );
+  Reflect.set(IndexedDBManager, 'setAppState', async <T>(key: string, value: T) => {
+    appState.set(key, value);
+  });
+  walletSessionAuthorizations.writeExactWithOperationCredential = async (input) => input.record;
+  globalThis.fetch = async (input) => {
+    const path = new URL(String(input)).pathname;
+    if (path.endsWith('/router-ab/ed25519/yao/recovery/bootstrap')) {
+      return new Response(
+        JSON.stringify({
+          kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
+          walletId: String(fixture.walletId),
+          nearAccountId,
+          nearEd25519SigningKeyId: fixture.ed25519Session.nearEd25519SigningKeyId,
+          signingWorkerId: fixture.ed25519Session.relayerKeyId,
+          thresholdSessionId: String(fixture.ed25519Session.thresholdSessionId),
+          walletSessionId: String(fixture.ed25519Session.walletSessionId),
+          quotaId: String(fixture.ed25519Session.quotaId),
+          thresholdExpiresAtMs: fixture.ed25519Session.expiresAtMs,
+          runtimePolicyScope: fixture.ed25519Session.runtimePolicyScope,
+          routerAbNormalSigning: fixture.ed25519Session.routerAbNormalSigning,
+          participantIds: fixture.ed25519Session.participantIds,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    throw new Error(`unexpected post-link activation request: ${path}`);
+  };
+
+  const signingEngine = {
+    getSignerWorkerContext: () => workerContext,
+    activateVerifiedNearEd25519YaoMaterial: async (material: NearEd25519YaoOperationMaterial) => {
+      return await activeClients.activate(material);
+    },
+    markWalletSelectionUnlocked: async (input: unknown) => {
+      unlockedSelections.push(input);
+    },
+  } as unknown as LoginWebContext['signingEngine'];
+  const context = {
+    signingEngine,
+    nearClient: new MinimalNearClient('https://rpc.testnet.near.org'),
+    configs: buildConfigsFromEnv({
+      relayer: { url: 'https://relay.example.test' },
+      iframeWallet: { walletOrigin: 'https://wallet.example.test' },
+    }),
+    theme: 'dark' as const,
+  } as LoginWebContext;
+  const factorSecret32 = base64UrlDecode(
+    fixture.credential.clientExtensionResults.prf?.results.first || '',
+  );
+
+  try {
+    await activateLinkedDeviceSignerRuntimesAfterLink({
+      context,
+      factor: { kind: 'passkey', walletId },
+      walletSession: fixture.activeWalletSession,
+      operationCredential: fixture.operationCredential,
+      factorSecret32,
+    });
+
+    const status: ActiveNearEd25519WalletSessionStatus = {
+      status: 'active',
+      walletSessionId: fixture.operationCredential.walletSessionId,
+      quotaId: fixture.activeWalletSession.quotaId,
+      remainingUses: 10,
+      expiresAtMs: fixture.activeWalletSession.expiresAtMs,
+      quotaLifecycle: 'active',
+      authorization: fixture.activeWalletSession,
+    };
+    const authorization = buildActiveNearEd25519WalletSessionAuthorization({
+      selectedAuthority: fixture.authority,
+      selectedAuthMethod: fixture.authMethod,
+      selectedFactorAuthority: fixture.factorAuthority,
+      session: fixture.activeWalletSession,
+      operationCredential: fixture.operationCredential,
+      status,
+      nowMs: Date.now(),
+    });
+    const available = await readAvailableSigningLanes(
+      {
+        walletId,
+        ecdsaChainTargets: [],
+        ownerScope: buildExactPasskeyOwnerLaneScope({
+          authMethod: fixture.authMethod,
+          signerSlot: 1,
+        }),
+      },
+      {
+        listSealedRecordsForWallet: async () => [],
+        listPublicCapabilityReferences: () => publicCapabilityStore.listLanes(),
+        isPublicCapabilityActive: () => true,
+        readActiveWalletSessionAuthorization: async () => ({
+          kind: 'found',
+          authorization,
+        }),
+      },
+    );
+    expect(available.lanes.ed25519.near).toMatchObject({
+      source: 'public_capability_reference',
+      state: 'ready',
+      authorizationState: 'authorized',
+      auth: { kind: 'passkey' },
+    });
+
+    const resolved = await resolveExactKeyExportLane(
+      {
+        readOwnerScopedAvailableSigningLanesForTargets: async () => available,
+      },
+      {
+        kind: 'ed25519',
+        walletSession: {
+          walletId,
+          walletSessionUserId: String(fixture.operationCredential.walletSessionId),
+        },
+        nearAccount: { kind: 'implicit', accountId: toAccountId(nearAccountId) },
+      },
+    );
+    expect(resolved).toMatchObject({
+      kind: 'ed25519',
+      materialActivation: fixture.authority.signerActivations.ed25519?.materialActivation,
+    });
+    expect(unlockedSelections).toEqual([
+      { walletId, walletAuthMethodId: fixture.authMethod.walletAuthMethodId },
+    ]);
+    expect(activeClients.resolve(identity)).not.toBeNull();
+    expect(importedClients).toHaveLength(1);
+  } finally {
+    factorSecret32.fill(0);
+    clearLinkedEcdsaHolderRuntimesV1();
+    activeClients.dispose();
+    Reflect.set(RouterAbEd25519YaoClientV1, 'initializeBundled', originalInitializeBundled);
+    IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelectedWalletAuthority;
+    Reflect.set(IndexedDBManager, 'isDisabled', originalIsDisabled);
+    Reflect.set(IndexedDBManager, 'getAppState', originalGetAppState);
+    Reflect.set(IndexedDBManager, 'setAppState', originalSetAppState);
     walletSessionAuthorizations.writeExactWithOperationCredential =
       originalWriteExactWithOperationCredential;
     globalThis.fetch = originalFetch;

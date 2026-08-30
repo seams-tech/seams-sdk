@@ -361,16 +361,25 @@ function pendingNearProvisioningRequest(
   relayerUrl: string,
   pending: PendingNearProvisioningCommit,
 ): Parameters<typeof completeWalletRegistrationNearProvisioning>[0] {
+  let auth: Parameters<typeof completeWalletRegistrationNearProvisioning>[0]['auth'];
+  switch (pending.auth.kind) {
+    case 'passkey':
+      auth = { kind: 'passkey' };
+      break;
+    case 'email_otp':
+      auth = { kind: 'email_otp', enrollment: pending.auth.enrollment };
+      break;
+    default:
+      pending.auth satisfies never;
+      throw new Error('pending registration has an unsupported auth method');
+  }
   return {
     relayerUrl,
     registrationCeremonyId: pending.registrationCeremonyId,
     signedSetup: pending.signedSetup,
     idempotencyKey: pending.idempotencyKey,
     ed25519: { activationReference: pending.localMaterial.ed25519.activationReference },
-    auth:
-      pending.auth.kind === 'passkey'
-        ? { kind: 'passkey' }
-        : { kind: 'email_otp', enrollment: pending.auth.enrollment },
+    auth,
     walletCustodyCommit: pending.localMaterial.custodyCommit,
   };
 }
