@@ -1659,8 +1659,10 @@ Remaining causal baseline work:
       issuers, resolvers, fixtures, and migration-era manifests.
 - [x] Contract update proving Route 3, service comments, and staging assertions
       no longer promise byte-identical credential-bearing replay.
-- [ ] `already_committed` replay test proving no credential fabrication and
-      successor exact unlock retirement.
+- [x] `already_committed` replay test proving no credential fabrication and
+      successor exact unlock retirement. The Ed25519 Route 4 proof in
+      `tests/unit/walletRegistrationActivateRoute.unit.test.ts` also verifies
+      predecessor quota exhaustion and sibling-method preservation.
 - [ ] Lost founding-registration response contracts for Passkey and Email OTP
       across page or worker termination.
 - [x] Mint tests proving same-mint identity replay and fresh-mint replacement.
