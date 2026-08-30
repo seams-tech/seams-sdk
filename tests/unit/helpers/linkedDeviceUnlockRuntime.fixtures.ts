@@ -46,7 +46,9 @@ import {
   type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
 import {
+  buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
+  type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
@@ -69,6 +71,7 @@ import { parseEcdsaThresholdKeyId } from '../../../packages/wallet/src/core/sign
 import { sealWalletAuthorityLinkedSignerMaterialV1 } from '../../../packages/wallet/src/core/indexedDB/linkedAuthoritySignerMaterial';
 import { toRpId } from '../../../packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { Ed25519YaoPublicCapabilityLaneReferenceV1 } from '../../../packages/wallet/src/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
+import type { ActiveNearEd25519WalletSessionStatus } from '../../../packages/wallet/src/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
 import type { PasskeyWalletUnlockEd25519Session } from '../../../packages/wallet/src/core/rpcClients/near/rpcCalls';
 import type { WebAuthnAuthenticationCredential } from '../../../packages/wallet/src/core/types/webauthn';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
@@ -229,6 +232,8 @@ function buildEcdsaReceipt(
   WalletAuthorityLinkedSignerMaterialRecordV1,
   { readonly keyFamily: 'ecdsa_secp256k1' }
 >['publicFacts']['activationReceipt'] {
+  const thresholdPublicKey33B64u = secpPublicKey(41);
+  const thresholdEthereumAddress20B64u = base64UrlEncode(new Uint8Array(20).fill(0x11));
   const sourceActivation = buildMpcMaterialActivationRefFixture(
     'linked-runtime-source',
     'wallet:linked-runtime-source',
@@ -242,8 +247,8 @@ function buildEcdsaReceipt(
       activation: sourceActivation,
       clientPublicKey33B64u: secpPublicKey(71),
       relayerPublicKey33B64u: secpPublicKey(72),
-      thresholdPublicKey33B64u: secpPublicKey(73),
-      thresholdEthereumAddress20B64u: base64UrlEncode(new Uint8Array(bytes(20, 74))),
+      thresholdPublicKey33B64u,
+      thresholdEthereumAddress20B64u,
     },
     target: {
       activation: materialActivation,
@@ -254,10 +259,10 @@ function buildEcdsaReceipt(
     },
     targetClientPublicKey33B64u: secpPublicKey(78),
   };
-  const sourceNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1 = {
+  const normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1 = {
     kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
     scope: {
-      wallet_id: 'wallet:linked-runtime-source',
+      wallet_id: 'wallet:linked-runtime',
       ecdsa_threshold_key_id: 'ecdsa-threshold-key:linked-runtime',
       signing_root_id: 'signing-root:linked-runtime-source',
       signing_root_version: 'v1',
@@ -266,14 +271,14 @@ function buildEcdsaReceipt(
         context_binding_b64u: base64UrlEncode(new Uint8Array(bytes(32, 80))),
         derivation_client_share_public_key33_b64u: sourceBinding.source.clientPublicKey33B64u,
         server_public_key33_b64u: sourceBinding.source.relayerPublicKey33B64u,
-        threshold_public_key33_b64u: sourceBinding.source.thresholdPublicKey33B64u,
-        ethereum_address20_b64u: sourceBinding.source.thresholdEthereumAddress20B64u,
+        threshold_public_key33_b64u: thresholdPublicKey33B64u,
+        ethereum_address20_b64u: thresholdEthereumAddress20B64u,
         client_share_retry_counter: 0,
         server_share_retry_counter: 0,
       },
-      material_activation: routerAbMpcMaterialActivationRefToWire(sourceActivation),
+      material_activation: routerAbMpcMaterialActivationRefToWire(materialActivation),
       signing_worker: {
-        server_id: 'worker:linked-runtime-source',
+        server_id: String(materialActivation.signingWorker),
         key_epoch: 'epoch:linked-runtime',
         recipient_encryption_key: base64UrlEncode(new Uint8Array(bytes(32, 81))),
       },
@@ -287,12 +292,12 @@ function buildEcdsaReceipt(
       applicationBindingDigestB64u: digest(79),
       clientShareRetryCounter: 0,
       ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('ecdsa-threshold-key:linked-runtime'),
-      sourceNormalSigning,
+      sourceNormalSigning: normalSigning,
     },
     targetRelayerPublicKey33B64u: sourceBinding.source.relayerPublicKey33B64u,
-    thresholdPublicKey33B64u: sourceBinding.source.thresholdPublicKey33B64u,
-    thresholdEthereumAddress20B64u: sourceBinding.source.thresholdEthereumAddress20B64u,
-    normalSigning: sourceNormalSigning,
+    thresholdPublicKey33B64u,
+    thresholdEthereumAddress20B64u,
+    normalSigning,
   };
 }
 
@@ -394,6 +399,37 @@ export type LinkedDeviceUnlockRuntimeFixture = {
   readonly credential: WebAuthnAuthenticationCredential;
 };
 
+export type LinkedDeviceEmailOtpUnlockRuntimeFixture = Omit<
+  LinkedDeviceUnlockRuntimeFixture,
+  | 'authMethod'
+  | 'factorAuthority'
+  | 'selection'
+  | 'signerMaterials'
+  | 'activeWalletSession'
+  | 'credential'
+> & {
+  readonly authMethod: Extract<
+    WalletAuthMethodRecordV2,
+    { readonly kind: 'email_otp'; readonly status: 'active' }
+  >;
+  readonly factorAuthority: EmailOtpWalletAuthAuthority;
+  readonly selection: {
+    readonly kind: 'wallet_selection_v1';
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly lockGeneration: number;
+    readonly lockState: 'unlocked';
+    readonly updatedAtMs: number;
+  };
+  readonly signerMaterials: readonly WalletAuthorityLinkedSignerMaterialRecordV1[];
+  readonly activeWalletSession: ActiveWalletSessionV1;
+  readonly providerIdentity: {
+    readonly provider: 'email';
+    readonly providerSubjectId: string;
+  };
+  readonly factorSecret32: Uint8Array;
+};
+
 export function buildLinkedDeviceEd25519YaoCapabilityLaneFixture(
   fixture: LinkedDeviceUnlockRuntimeFixture,
 ): Ed25519YaoPublicCapabilityLaneReferenceV1 {
@@ -414,6 +450,20 @@ export function buildLinkedDeviceEd25519YaoCapabilityLaneFixture(
       fixture.ed25519Session.nearEd25519SigningKeyId,
     ),
     signerSlot: 1,
+  };
+}
+
+export function buildLinkedDeviceActiveNearSessionStatusFixture(
+  fixture: Pick<LinkedDeviceUnlockRuntimeFixture, 'activeWalletSession' | 'operationCredential'>,
+): ActiveNearEd25519WalletSessionStatus {
+  return {
+    status: 'active',
+    walletSessionId: fixture.operationCredential.walletSessionId,
+    quotaId: fixture.activeWalletSession.quotaId,
+    remainingUses: 10,
+    expiresAtMs: fixture.activeWalletSession.expiresAtMs,
+    quotaLifecycle: 'active',
+    authorization: fixture.activeWalletSession,
   };
 }
 
@@ -449,9 +499,8 @@ export async function buildLinkedDeviceUnlockRuntimeFixture(): Promise<LinkedDev
       ecdsa: materialActivationEcdsa,
     },
   });
-  const signerActivationSetDigestB64u = await computeWalletSignerActivationSetDigestB64u(
-    signerActivations,
-  );
+  const signerActivationSetDigestB64u =
+    await computeWalletSignerActivationSetDigestB64u(signerActivations);
   const authorityDraft = {
     kind: 'wallet_authority_v1',
     authorityId,
@@ -495,12 +544,7 @@ export async function buildLinkedDeviceUnlockRuntimeFixture(): Promise<LinkedDev
   if (authMethod.kind !== 'passkey' || authMethod.status !== 'active') {
     throw new Error('linked runtime auth-method fixture has the wrong branch');
   }
-  const targetFactor = buildTargetFactor(
-    walletAuthMethodId,
-    rpId,
-    credentialId,
-    digest(13),
-  );
+  const targetFactor = buildTargetFactor(walletAuthMethodId, rpId, credentialId, digest(13));
   const factorSecret = new Uint8Array(bytes(32, 101));
   const signerMaterials = [
     await sealSignerMaterial({
@@ -634,5 +678,103 @@ export async function buildLinkedDeviceUnlockRuntimeFixture(): Promise<LinkedDev
         prf: { results: { first: factorSecretB64u, second: undefined } },
       },
     },
+  };
+}
+
+export async function buildLinkedDeviceEmailOtpUnlockRuntimeFixture(): Promise<LinkedDeviceEmailOtpUnlockRuntimeFixture> {
+  const passkeyFixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  const runtimeFixture = {
+    walletId: passkeyFixture.walletId,
+    authority: passkeyFixture.authority,
+    operationCredential: passkeyFixture.operationCredential,
+    ed25519Session: passkeyFixture.ed25519Session,
+  };
+  const emailHashHex = 'a'.repeat(64);
+  const providerIdentity = {
+    provider: 'email' as const,
+    providerSubjectId: 'linked-runtime@example.test',
+  };
+  const factorAuthority = buildEmailOtpWalletAuthAuthority({
+    walletId: passkeyFixture.walletId,
+    provider: providerIdentity.provider,
+    providerUserId: providerIdentity.providerSubjectId,
+    emailHashHex,
+  });
+  const authMethod = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: factorAuthority.bindingId,
+    walletId: passkeyFixture.walletId,
+    walletAuthorityId: passkeyFixture.authority.authorityId,
+    kind: 'email_otp',
+    status: 'active',
+    emailHashHex,
+    registrationAuthorityId: providerIdentity.providerSubjectId,
+    createdAtMs: 100,
+    updatedAtMs: 200,
+    activatedAtMs: 200,
+  });
+  if (authMethod.kind !== 'email_otp' || authMethod.status !== 'active') {
+    throw new Error('linked Email OTP runtime auth-method fixture has the wrong branch');
+  }
+  const targetFactor: WalletAuthorityLinkedMaterialTargetFactorV1 = {
+    kind: 'email_otp',
+    walletAuthMethodId: authMethod.walletAuthMethodId,
+    verificationDigestB64u: digest(14),
+    emailHashHex,
+    registrationAuthorityId: authMethod.registrationAuthorityId,
+  };
+  const factorSecret32 = new Uint8Array(bytes(32, 101));
+  const signerMaterials = await Promise.all(
+    passkeyFixture.signerMaterials.map(async (material) => {
+      if (material.keyFamily === 'ed25519') {
+        return await sealSignerMaterial({
+          walletId: passkeyFixture.walletId,
+          authorityId: passkeyFixture.authority.authorityId,
+          walletAuthMethodId: authMethod.walletAuthMethodId,
+          packageSetDigestB64u: material.packageSetDigestB64u,
+          targetFactor,
+          materialActivation: material.materialActivation,
+          keyFamily: 'ed25519',
+          publicFacts: material.publicFacts,
+          factorSecret: factorSecret32,
+        });
+      }
+      return await sealSignerMaterial({
+        walletId: passkeyFixture.walletId,
+        authorityId: passkeyFixture.authority.authorityId,
+        walletAuthMethodId: authMethod.walletAuthMethodId,
+        packageSetDigestB64u: material.packageSetDigestB64u,
+        targetFactor,
+        materialActivation: material.materialActivation,
+        keyFamily: 'ecdsa_secp256k1',
+        publicFacts: material.publicFacts,
+        factorSecret: factorSecret32,
+      });
+    }),
+  );
+  const activeWalletSession = buildLinkedDeviceActiveWalletSessionFixture({
+    source: passkeyFixture.activeWalletSession,
+    authMethodId: authMethod.walletAuthMethodId,
+    authorizationId: passkeyFixture.activeWalletSession.authorizationId,
+    quotaId: passkeyFixture.activeWalletSession.quotaId,
+    authorityDigestB64u: passkeyFixture.authority.authorityDigestB64u,
+    authorityRevocationEpoch: passkeyFixture.authority.revocationEpoch,
+  });
+  return {
+    ...runtimeFixture,
+    authMethod,
+    factorAuthority,
+    selection: {
+      kind: 'wallet_selection_v1',
+      walletId: passkeyFixture.walletId,
+      walletAuthMethodId: authMethod.walletAuthMethodId,
+      lockGeneration: 0,
+      lockState: 'unlocked',
+      updatedAtMs: 200,
+    },
+    signerMaterials,
+    activeWalletSession,
+    providerIdentity,
+    factorSecret32,
   };
 }
