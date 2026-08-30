@@ -108,9 +108,7 @@ function ecdsaInventoryInputFor(args: {
       walletRegistration: args.authService,
       authService: args.authService,
       session: args.session,
-      ...(args.authorizationSessions
-        ? { authorizationSessions: args.authorizationSessions }
-        : {}),
+      ...(args.authorizationSessions ? { authorizationSessions: args.authorizationSessions } : {}),
     },
   } as unknown as Parameters<typeof handleRouterApiWalletEcdsaKeyFactsInventory>[0];
 }
@@ -1251,7 +1249,7 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
-  test('ECDSA key-facts inventory rejects opaque authorization without a bearer token', async () => {
+  test('ECDSA key-facts inventory rejects an operation credential reference without a bearer token', async () => {
     let inventoryCalled = false;
     const response = await handleRouterApiWalletEcdsaKeyFactsInventory(
       ecdsaInventoryInputFor({
@@ -1264,8 +1262,8 @@ test.describe('wallet registration route boundaries', () => {
             },
           ],
           auth: {
-            kind: 'opaque_wallet_session',
-            curve: 'ecdsa_secp256k1',
+            kind: 'opaque_wallet_session_operation_credential_v1',
+            walletSessionId: 'wallet-session:relay-boundary',
           },
         },
         authService: {

@@ -4,6 +4,7 @@ import type {
   EvmFamilyEcdsaKeyIdentity,
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type { WalletSessionRouteAuth } from '@shared/utils/sessionTokens';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
@@ -19,6 +20,7 @@ declare const key: EvmFamilyEcdsaKeyIdentity;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 declare const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+declare const operationCredential: WalletSessionOperationCredentialV1;
 declare const walletSessionRouteAuth: WalletSessionRouteAuth;
 declare const emailOtpWorkerHandle: Extract<
   EmailOtpWorkerIssuedSessionHandle,
@@ -52,7 +54,7 @@ void buildEcdsaSessionProvisionPlan({
   requestId: 'request-1',
   provisionSecretSource: passkeySecret,
   activationMaterial: { kind: 'session_record' },
-  walletSessionRouteAuth,
+  operationCredential,
 });
 
 void buildEcdsaSessionProvisionPlan({

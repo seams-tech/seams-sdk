@@ -1655,8 +1655,11 @@ Remaining causal baseline work:
 - [ ] Registration cutover-migration tests for both prefixes: known-shape
       credential-free rewrite or deletion, unrelated-row preservation, and
       unknown/unmappable abort.
-- [ ] Delete compatibility-adapter and adapter-table tests with their production
-      issuers, resolvers, fixtures, and migration-era manifests.
+- [x] Delete compatibility-adapter and adapter-table behavior tests with their
+      production issuers, resolvers, fixtures, and runtime manifests. The
+      immutable creation migration, explicit drop migration, negative source
+      guard, and final schema-deletion proof remain as migration history rather
+      than compatibility code.
 - [x] Contract update proving Route 3, service comments, and staging assertions
       no longer promise byte-identical credential-bearing replay.
 - [x] `already_committed` replay test proving no credential fabrication and
@@ -1687,8 +1690,13 @@ Remaining causal baseline work:
       session/credential coupling.
 - [x] `replaceExactActive` test covering same-method retirement, sibling
       preservation, and late V3/V4/V5 writes.
-- [ ] Exact-reader tests with two active sibling methods across signing, export,
-      funding, refresh, management, readiness, and source claims.
+- [x] Exact-reader tests with two active sibling methods across signing, export,
+      funding, refresh, management, readiness, and source claims. Focused
+      funding, readiness, and source-claim isolation lives in
+      `walletRegistrationNearFundingAdmission.unit.test.ts`,
+      `signingSessionReadiness.exactSession.unit.test.ts`, and
+      `addAuthMethodSourceClaim.unit.test.ts`; committed signing, export,
+      refresh, and management proofs complete the matrix.
 - [x] Bootstrap quarantine test for observed V3/V4/V5 rows.
 - [x] Shared-IndexedDB tests for future-row preservation, terminal
       `upgrade_required`, legacy-row quarantine, and final-reader containment;
