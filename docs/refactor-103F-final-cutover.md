@@ -740,7 +740,11 @@ Convert every current issuer:
       callers use the exact Ed25519 session projector;
 - [x] Delete `issueRouterAbEd25519OpaqueWalletSessionToken` and every direct
       caller; and
-- [ ] recovery or device-link issuers found by the final searches.
+- [x] Recovery finalization remains credential-free and recovered authorities
+      receive sessions only through normal exact-method direct-V2 unlock;
+      device-link activation persists its exact primary credential digest in
+      the owning authority-activation CAS. Final issuer searches find no V1
+      recovery or device-link issuer.
 
 Primary files:
 
