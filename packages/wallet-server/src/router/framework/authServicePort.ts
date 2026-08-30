@@ -1366,6 +1366,13 @@ export interface RouterApiWalletUnlockService {
   verifyWebAuthnLogin(
     input: RouterApiMethodTypes['verifyWebAuthnLogin']['input'],
   ): Promise<RouterApiMethodTypes['verifyWebAuthnLogin']['result']>;
+  resolveActivePasskeyAuthorityForUnlock(input: {
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly walletAuthorityId: WalletAuthorityId;
+    readonly rpId: WebAuthnRpId;
+    readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  }): Promise<WalletUnlockPasskeyAuthorityResolution>;
   resolveEmailOtpAuthorityForUnlock(input: {
     readonly walletId: WalletId;
     readonly orgId: string;

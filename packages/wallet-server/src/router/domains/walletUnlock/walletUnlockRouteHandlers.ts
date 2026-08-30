@@ -607,6 +607,58 @@ type PasskeyEd25519SessionProvisionResult =
   | { readonly ok: true; readonly session: WalletRegistrationEd25519YaoBootstrapSession | null }
   | { readonly ok: false; readonly response: WalletUnlockRouteResponse };
 
+type WalletUnlockPasskeyAuthorityResolution = Awaited<
+  ReturnType<RouterApiWalletUnlockService['resolveActivePasskeyAuthorityForUnlock']>
+>;
+
+type ActiveWalletUnlockPasskeyAuthorityResolution = Extract<
+  WalletUnlockPasskeyAuthorityResolution,
+  { readonly kind: 'active_authority' }
+>;
+
+type WalletUnlockPasskeySessionPlan =
+  | {
+      readonly kind: 'rejected';
+      readonly authorityResolution: Extract<
+        WalletUnlockPasskeyAuthorityResolution,
+        { readonly kind: 'rejected' }
+      >;
+    }
+  | {
+      readonly kind: 'wallet_registration';
+      readonly authorityResolution: ActiveWalletUnlockPasskeyAuthorityResolution;
+    }
+  | {
+      readonly kind: 'skip_preissuance_for_ecdsa_recovery';
+      readonly authorityResolution: ActiveWalletUnlockPasskeyAuthorityResolution;
+    }
+  | {
+      readonly kind: 'preissue_wallet_session';
+      readonly authorityResolution: ActiveWalletUnlockPasskeyAuthorityResolution;
+    };
+
+function planWalletUnlockPasskeySession(input: {
+  readonly authorityResolution: WalletUnlockPasskeyAuthorityResolution;
+  readonly ed25519SessionRequest: PasskeyEd25519SessionRequest;
+  readonly ecdsaSession: WalletUnlockEcdsaSessionContext;
+}): WalletUnlockPasskeySessionPlan {
+  const authorityResolution = input.authorityResolution;
+  if (authorityResolution.kind === 'rejected') {
+    return { kind: 'rejected', authorityResolution };
+  }
+  if (authorityResolution.authority.provenance.kind === 'wallet_registration') {
+    return { kind: 'wallet_registration', authorityResolution };
+  }
+  if (
+    authorityResolution.authority.provenance.kind === 'wallet_recovery' &&
+    input.ed25519SessionRequest.kind === 'not_requested' &&
+    input.ecdsaSession.kind === 'provision_first_ecdsa_session'
+  ) {
+    return { kind: 'skip_preissuance_for_ecdsa_recovery', authorityResolution };
+  }
+  return { kind: 'preissue_wallet_session', authorityResolution };
+}
+
 function parsePasskeyEd25519SessionRequest(value: unknown): PasskeyEd25519SessionRequest {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('ed25519SessionRequest is required');
@@ -1159,40 +1211,15 @@ export async function handleWalletUnlockVerifyRoute(input: {
     let activeWalletSession: IssuedWalletSessionAuthorizationV2 | null = null;
     let activeOperationCredential: WalletSessionOperationCredentialV1 | null = null;
     let passkeyCustodyRequired = false;
+    let authorityResolution: WalletUnlockPasskeyAuthorityResolution;
     try {
-      const authorityResolution = await input.service.issueWalletSessionForPasskeyUnlock({
+      authorityResolution = await input.service.resolveActivePasskeyAuthorityForUnlock({
         walletId: walletId.value,
         walletAuthMethodId: walletAuthMethodId.value,
         walletAuthorityId: walletAuthorityId.value,
         rpId: rpId.value,
         credentialIdB64u: credentialIdB64u.value,
-        verifiedChallengeId: challengeId,
       });
-      switch (authorityResolution.kind) {
-        case 'active_authority':
-          activeWalletSession = authorityResolution.walletSession;
-          activeOperationCredential = authorityResolution.operationCredential;
-          passkeyCustodyRequired =
-            authorityResolution.authorityProvenanceKind === 'wallet_recovery';
-          break;
-        case 'already_committed':
-          return walletUnlockAlreadyCommittedRouteResponse({
-            unlockBackend,
-            committed: authorityResolution.committed,
-          });
-        case 'wallet_registration':
-          passkeyCustodyRequired = true;
-          break;
-        case 'rejected':
-          return {
-            status: walletUnlockIssuanceRejectionStatus(authorityResolution),
-            body: {
-              ok: false,
-              code: authorityResolution.code,
-              message: authorityResolution.message,
-            },
-          };
-      }
     } catch (error: unknown) {
       return {
         status: 500,
@@ -1202,6 +1229,79 @@ export async function handleWalletUnlockVerifyRoute(input: {
           message: error instanceof Error ? error.message : 'Passkey authority resolution failed',
         },
       };
+    }
+    const sessionPlan = planWalletUnlockPasskeySession({
+      authorityResolution,
+      ed25519SessionRequest,
+      ecdsaSession: input.ecdsaSession,
+    });
+    switch (sessionPlan.kind) {
+      case 'rejected':
+        return {
+          status: walletUnlockIssuanceRejectionStatus(sessionPlan.authorityResolution),
+          body: {
+            ok: false,
+            code: sessionPlan.authorityResolution.code,
+            message: sessionPlan.authorityResolution.message,
+          },
+        };
+      case 'wallet_registration':
+        passkeyCustodyRequired = true;
+        break;
+      case 'skip_preissuance_for_ecdsa_recovery':
+        passkeyCustodyRequired = true;
+        break;
+      case 'preissue_wallet_session': {
+        let sessionResolution: Awaited<
+          ReturnType<RouterApiWalletUnlockService['issueWalletSessionForPasskeyUnlock']>
+        >;
+        try {
+          sessionResolution = await input.service.issueWalletSessionForPasskeyUnlock({
+            walletId: walletId.value,
+            walletAuthMethodId: walletAuthMethodId.value,
+            walletAuthorityId: walletAuthorityId.value,
+            rpId: rpId.value,
+            credentialIdB64u: credentialIdB64u.value,
+            verifiedChallengeId: challengeId,
+          });
+        } catch (error: unknown) {
+          return {
+            status: 500,
+            body: {
+              ok: false,
+              code: 'internal',
+              message:
+                error instanceof Error ? error.message : 'Passkey Wallet Session issuance failed',
+            },
+          };
+        }
+        switch (sessionResolution.kind) {
+          case 'active_authority':
+            activeWalletSession = sessionResolution.walletSession;
+            activeOperationCredential = sessionResolution.operationCredential;
+            passkeyCustodyRequired =
+              sessionResolution.authorityProvenanceKind === 'wallet_recovery';
+            break;
+          case 'already_committed':
+            return walletUnlockAlreadyCommittedRouteResponse({
+              unlockBackend,
+              committed: sessionResolution.committed,
+            });
+          case 'wallet_registration':
+            passkeyCustodyRequired = true;
+            break;
+          case 'rejected':
+            return {
+              status: walletUnlockIssuanceRejectionStatus(sessionResolution),
+              body: {
+                ok: false,
+                code: sessionResolution.code,
+                message: sessionResolution.message,
+              },
+            };
+        }
+        break;
+      }
     }
 
     let passkeyCustody: WalletUnlockPasskeyCustodyProjectionV1 | null = null;

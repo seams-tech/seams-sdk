@@ -13,6 +13,8 @@ import {
   handleWalletUnlockVerifyRoute,
   walletUnlockAlreadyCommittedRouteResponse,
   type WalletUnlockCapabilityContext,
+  type WalletUnlockEcdsaAuthorization,
+  type WalletUnlockEcdsaSessionContext,
 } from '../../packages/wallet-server/src/router/domains/walletUnlock/walletUnlockRouteHandlers';
 import {
   parseWalletUnlockIssuanceRejectionCode,
@@ -23,9 +25,14 @@ import {
   parseWalletSessionMintId,
   parseTenantId,
 } from '@shared/authorization/capabilityKinds';
+import { createEcdsaSessionActivationFixture } from './helpers/ecdsaBootstrap.fixtures';
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
-import { buildLinkedDeviceUnlockRuntimeFixture } from './helpers/linkedDeviceUnlockRuntime.fixtures';
+import {
+  buildLinkedDeviceUnlockRuntimeFixture,
+  buildWalletRecoveryAuthorityFixture,
+} from './helpers/linkedDeviceUnlockRuntime.fixtures';
+import { parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { buildActiveMethodBoundPasskeyCustodyEnvelopeFixture } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 function required<T>(
@@ -201,9 +208,18 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     ReturnType<RouterApiWalletUnlockService['issueWalletSessionForPasskeyUnlock']>
   > = {
     kind: 'active_authority',
+    authorityProvenanceKind: 'device_link',
     walletSession: linkedWalletSession,
     operationCredential: fixture.operationCredential,
   };
+  let authorityResolution: Awaited<
+    ReturnType<RouterApiWalletUnlockService['resolveActivePasskeyAuthorityForUnlock']>
+  > = {
+    kind: 'active_authority',
+    authority: fixture.authority,
+    authMethod: fixture.authMethod,
+  };
+  let sessionIssueCount = 0;
   const provisioningRequests: Parameters<
     Extract<
       WalletUnlockCapabilityContext,
@@ -243,10 +259,14 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
         participantIds: fixture.ed25519Session.participantIds,
       },
     }),
+    resolveActivePasskeyAuthorityForUnlock: async () => authorityResolution,
     resolveEmailOtpAuthorityForUnlock: async () => {
       throw new Error('Email OTP is outside this Passkey test');
     },
-    issueWalletSessionForPasskeyUnlock: async () => sessionResolution,
+    issueWalletSessionForPasskeyUnlock: async () => {
+      sessionIssueCount += 1;
+      return sessionResolution;
+    },
     issueWalletSessionForEmailOtpUnlock: async () => {
       throw new Error('Email OTP is outside this Passkey test');
     },
@@ -393,6 +413,55 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
       code: 'invalid_body',
       message: 'verified Email OTP authority identity is required',
     },
+  });
+
+  const issueCountBeforeEcdsaRecovery = sessionIssueCount;
+  authorityResolution = {
+    kind: 'active_authority',
+    authority: await buildWalletRecoveryAuthorityFixture(fixture),
+    authMethod: fixture.authMethod,
+  };
+  const ecdsaAuthorizationRequests: WalletUnlockEcdsaAuthorization[] = [];
+  const ecdsaActivationFixture = createEcdsaSessionActivationFixture({
+    walletId: String(fixture.walletId),
+    chain: 'tempo',
+    sessionId: 'passkey-recovery-ecdsa-only',
+  });
+  const ecdsaRecoverySession: WalletUnlockEcdsaSessionContext = {
+    kind: 'provision_first_ecdsa_session',
+    walletId: String(fixture.walletId),
+    policy: parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1({
+      kind: 'router_ab_ecdsa_post_registration_session_activation_policy_v1',
+      key_handle: 'ecdsa-key:passkey-recovery-ecdsa-only',
+      session_policy: ecdsaActivationFixture.request.session_policy,
+    }),
+    provisionWalletSession: async (authorization) => {
+      ecdsaAuthorizationRequests.push(authorization);
+      return {
+        ok: false,
+        status: 409,
+        code: 'direct_ecdsa_attempted',
+        message: 'direct ECDSA issuance reached',
+      };
+    },
+  };
+  const ecdsaOnlyRecovery = await handleWalletUnlockVerifyRoute({
+    ...routeDependencies,
+    ecdsaSession: ecdsaRecoverySession,
+    body: {
+      unlockBackend: 'passkey',
+      challengeId: 'challenge:passkey-recovery-ecdsa-only',
+      webauthn_authentication: {},
+      ed25519SessionRequest: { kind: 'not_requested' },
+    },
+  });
+
+  expect(ecdsaOnlyRecovery.status).toBe(409);
+  expect(sessionIssueCount).toBe(issueCountBeforeEcdsaRecovery);
+  expect(ecdsaAuthorizationRequests).toHaveLength(1);
+  expect(ecdsaAuthorizationRequests[0]).toEqual({
+    kind: 'verified_wallet_unlock',
+    proof: expect.any(Object),
   });
 });
 
