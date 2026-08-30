@@ -353,8 +353,6 @@ export async function ed25519AuthorizationIdentityMatchesRuntime(args: {
     return (
       expected.walletId === authorization.selectedAuthority.walletId &&
       expected.walletAuthMethodId === authorization.selectedAuthMethod.walletAuthMethodId &&
-      String(expected.authorityDigest) ===
-        String(authorization.selectedAuthority.authorityDigestB64u) &&
       expected.walletId === selectedFactorRef.walletId &&
       expected.walletAuthMethodId === selectedFactorRef.walletAuthMethodId &&
       expected.authorityDigest === selectedFactorRef.authorityDigest
