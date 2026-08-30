@@ -21,6 +21,10 @@ type RecoveryCodeStatusRequest = Extract<
   { type: 'PM_GET_WALLET_RECOVERY_CODE_STATUS' }
 >;
 type RegisterWalletRequest = Extract<ParentToChildEnvelope, { type: 'PM_REGISTER_WALLET' }>;
+type ResumePendingEcdsaRegistrationRequest = Extract<
+  ParentToChildEnvelope,
+  { type: 'PM_RESUME_PENDING_ECDSA_REGISTRATION' }
+>;
 
 const RELAY_URL = 'https://relay.example.test';
 const APP_ORIGIN = 'https://app.example.test';
@@ -168,6 +172,59 @@ test.describe('wallet iframe Email OTP recovery-code RPC', () => {
         payload: redemptionRequest(),
       } satisfies ParentToChildEnvelope).kind,
     ).toBe('email_otp');
+  });
+
+  test('routes and forwards pending ECDSA registration recovery to the NEAR runtime', async () => {
+    const payload: NonNullable<ResumePendingEcdsaRegistrationRequest['payload']> = {
+      walletId: 'alice.testnet',
+      registrationCeremonyId: 'registration-ceremony-1',
+      exactMethod: {
+        kind: 'email_otp',
+        challengeId: 'challenge-1',
+        otpCode: '123456',
+      },
+    };
+    const request: ResumePendingEcdsaRegistrationRequest = {
+      type: 'PM_RESUME_PENDING_ECDSA_REGISTRATION',
+      requestId: 'resume-1',
+      payload,
+    };
+    const calls: unknown[] = [];
+    const result = {
+      kind: 'published' as const,
+      registrationCeremonyId: payload.registrationCeremonyId,
+      walletId: payload.walletId,
+      sessionResult: 'already_committed' as const,
+    };
+    const route = routeWalletHostRequest(request);
+    expect(route.kind).toBe('near');
+    expect(route.type).toBe(request.type);
+
+    const posts: ChildToParentEnvelope[] = [];
+    const handlers = createWalletIframeHandlers(
+      handlerDeps({
+        posts,
+        seamsWeb: {
+          registration: {
+            resumePendingEcdsaRegistration: async (args: unknown) => {
+              calls.push(args);
+              return result;
+            },
+          },
+        },
+      }),
+    );
+
+    await handlers.PM_RESUME_PENDING_ECDSA_REGISTRATION!(request);
+
+    expect(calls).toEqual([payload]);
+    expect(posts).toEqual([
+      {
+        type: 'PM_RESULT',
+        requestId: request.requestId,
+        payload: { ok: true, result },
+      },
+    ]);
   });
 
   test('redeems one-time authority in the wallet origin and never accepts a posted wallet session token', async () => {

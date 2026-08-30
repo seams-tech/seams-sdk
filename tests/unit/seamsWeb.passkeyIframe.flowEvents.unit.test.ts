@@ -27,7 +27,7 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
     adoptedPort.postMessage({ type: 'PROGRESS', requestId, payload });
   };
 
-  const postResult = (requestId, result) => {
+  const postResultFromPasskeyStub = (requestId, result) => {
     pendingRequests.delete(requestId);
     adoptedPort.postMessage({ type: 'PM_RESULT', requestId, payload: { ok: true, result } });
   };
@@ -45,7 +45,7 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
       const requestId = data.requestId;
 
       if (data.type === 'PM_GET_WALLET_SESSION') {
-        postResult(requestId, {
+        postResultFromPasskeyStub(requestId, {
           login: {
             isLoggedIn: true,
             nearAccountId: accountId,
@@ -60,15 +60,15 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
         return;
       }
       if (data.type === 'PM_PREFETCH_BLOCKHEIGHT') {
-        postResult(requestId, null);
+        postResultFromPasskeyStub(requestId, null);
         return;
       }
       if (data.type === 'PM_GET_CONFIRMATION_CONFIG') {
-        postResult(requestId, { behavior: 'requireClick', uiMode: 'modal' });
+        postResultFromPasskeyStub(requestId, { behavior: 'requireClick', uiMode: 'modal' });
         return;
       }
       if (data.type === 'PM_GET_RECENT_UNLOCKS') {
-        postResult(requestId, []);
+        postResultFromPasskeyStub(requestId, []);
         return;
       }
 
@@ -102,7 +102,7 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
           duration_ms: 42,
           trace_id: '0123456789abcdef0123456789abcdef',
         });
-        postResult(requestId, {
+        postResultFromPasskeyStub(requestId, {
           success: true,
           walletId,
           nearAccountId: accountId,
@@ -113,6 +113,17 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
             : [],
           walletKind: wallet && wallet.kind,
           walletIdFromPayload: wallet && wallet.walletId ? wallet.walletId : null,
+        });
+        return;
+      }
+
+      if (data.type === 'PM_RESUME_PENDING_ECDSA_REGISTRATION') {
+        const payload = data.payload || {};
+        postResultFromPasskeyStub(requestId, {
+          kind: 'published',
+          registrationCeremonyId: payload.registrationCeremonyId,
+          walletId: payload.walletId,
+          sessionResult: 'already_committed',
         });
         return;
       }
@@ -134,7 +145,7 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
           eventBase(requestId, 'unlock', 'unlock.session.ready', 6, 'succeeded', 'Wallet session ready'),
           eventBase(requestId, 'unlock', 'unlock.completed', 7, 'succeeded', 'Wallet unlocked'),
         ].forEach((payload) => postProgress(requestId, payload));
-        postResult(requestId, {
+        postResultFromPasskeyStub(requestId, {
           success: true,
           loggedInNearAccountId: accountId,
           nearAccountId: accountId,
@@ -313,7 +324,49 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
         null,
         null,
         null,
+        null,
       ],
+    });
+  });
+
+  test('forwards pending ECDSA registration recovery through the wallet iframe', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
+        const { SeamsWeb } = mod as any;
+        const pm = new SeamsWeb({
+          relayer: { url: 'https://relay.example' },
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+          },
+        });
+
+        const resumedRegistration = await pm.registration.resumePendingEcdsaRegistration({
+          walletId: 'frost-orchid-k7p9m2',
+          registrationCeremonyId: 'registration-ceremony-1',
+          exactMethod: {
+            kind: 'passkey',
+            expectedOrigin: walletOrigin,
+          },
+        });
+
+        return {
+          kind: (resumedRegistration as any).kind,
+          registrationCeremonyId: (resumedRegistration as any).registrationCeremonyId,
+          walletId: (resumedRegistration as any).walletId,
+        };
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
+
+    expect(result).toEqual({
+      kind: 'published',
+      registrationCeremonyId: 'registration-ceremony-1',
+      walletId: 'frost-orchid-k7p9m2',
     });
   });
 });

@@ -163,6 +163,7 @@ import type {
   AddPasskeyResult,
   AddEmailOtpResult,
   RevokeAuthMethodResult,
+  ResumePendingEcdsaRegistrationResult,
   WalletRecoveryRotationOutcome,
 } from '@/SeamsWeb/publicApi/types';
 import type {
@@ -2665,6 +2666,16 @@ export class WalletIframeRouter {
     const state = parseNearProvisioningState(response.result);
     if (!state) throw new Error('[WalletIframeRouter] Invalid NEAR provisioning state response');
     return state;
+  }
+
+  async resumePendingEcdsaRegistration(
+    args: Parameters<RegistrationCapability['resumePendingEcdsaRegistration']>[0],
+  ): Promise<ResumePendingEcdsaRegistrationResult> {
+    const response = await this.post<ResumePendingEcdsaRegistrationResult>({
+      type: 'PM_RESUME_PENDING_ECDSA_REGISTRATION',
+      payload: args,
+    });
+    return response.result;
   }
 
   async addWalletSigner(

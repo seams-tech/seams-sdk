@@ -7,7 +7,10 @@ import {
   registerWallet as registerWalletWithUnifiedCeremony,
   WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
-import { resumePendingNearRegistrations } from '@/SeamsWeb/operations/registration/pendingRegistrationRecovery';
+import {
+  resumePendingNearRegistrations,
+  resumePendingEcdsaRegistrationFromStoredCommit,
+} from '@/SeamsWeb/operations/registration/pendingRegistrationRecovery';
 import {
   resumePendingWalletRecoveries,
   type WalletRecoveryResumeResult,
@@ -1192,6 +1195,8 @@ export class SeamsWeb {
           await this.beginGoogleEmailOtpWalletAuthDomain(args),
       },
       registration: {
+        resumePendingEcdsaRegistration: async (args) =>
+          await this.resumePendingEcdsaRegistrationDomain(args),
         getNearProvisioningState: async (args) => await this.getNearProvisioningStateDomain(args),
         onNearProvisioningStateChanged: (listener) =>
           subscribeToSeamsWebLifecycleEvents(
@@ -1569,6 +1574,22 @@ export class SeamsWeb {
     const live = readNearProvisioningState(walletId);
     if (live) return live;
     return await this.getContext().signingEngine.getWalletNearProvisioningState(walletId);
+  }
+
+  private async resumePendingEcdsaRegistrationDomain(
+    args: Parameters<RegistrationCapability['resumePendingEcdsaRegistration']>[0],
+  ): ReturnType<RegistrationCapability['resumePendingEcdsaRegistration']> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(String(args.walletId));
+      return await router.resumePendingEcdsaRegistration(args);
+    }
+    const relayerUrl = String(this.configs.network.relayer?.url || '').trim();
+    if (!relayerUrl) throw new Error('pending ECDSA registration recovery requires a relayer URL');
+    return await resumePendingEcdsaRegistrationFromStoredCommit({
+      relayerUrl,
+      request: args,
+      signingSurface: this.signingEngine,
+    });
   }
 
   private async registerWalletSignerDomain(

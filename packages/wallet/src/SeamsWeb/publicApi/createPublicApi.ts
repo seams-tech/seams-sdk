@@ -71,6 +71,7 @@ export interface WalletIframeControlCapability {
 }
 
 export type RegistrationCapabilityDomainMethods = {
+  resumePendingEcdsaRegistration: RegistrationCapability['resumePendingEcdsaRegistration'];
   getNearProvisioningState: RegistrationCapability['getNearProvisioningState'];
   onNearProvisioningStateChanged: RegistrationCapability['onNearProvisioningStateChanged'];
   addWalletSigner: RegistrationCapability['addWalletSigner'];
@@ -179,6 +180,7 @@ export function createPublicApi(deps: {
     }),
     auth,
     registration: {
+      resumePendingEcdsaRegistration: deps.registration.resumePendingEcdsaRegistration,
       getNearProvisioningState: deps.registration.getNearProvisioningState,
       onNearProvisioningStateChanged: deps.registration.onNearProvisioningStateChanged,
       awaitNearReady: async (args) =>
