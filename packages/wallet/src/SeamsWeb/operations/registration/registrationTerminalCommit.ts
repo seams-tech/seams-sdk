@@ -300,7 +300,7 @@ export function buildRegistrationPersistencePlan(args: {
   };
 }
 
-type PendingRegistrationCommitBuilderInput = {
+type PendingRegistrationCommitBuilderCommonInput = {
   registrationCeremonyId: string;
   idempotencyKey: string;
   walletId: string;
@@ -322,19 +322,54 @@ type PendingRegistrationCommitBuilderInput = {
       };
   createdAtMs: number;
   updatedAtMs: number;
-} & (
+};
+
+type PendingRegistrationCommitBuilderInput = PendingRegistrationCommitBuilderCommonInput & (
   | {
       operation: 'registration_activate';
-      localMaterial: PendingWalletRegistrationLocalMaterialV1;
-    }
-  | {
-      operation: 'near_provisioning';
+      signerPlanKind: 'near_ed25519';
       localMaterial: Extract<
         PendingWalletRegistrationLocalMaterialV1,
         { readonly keyFamilies: readonly ['ed25519'] }
       >;
     }
+  | {
+      operation: 'registration_activate';
+      signerPlanKind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa';
+      localMaterial: Extract<
+        PendingWalletRegistrationLocalMaterialV1,
+        { readonly keyFamilies: readonly ['ecdsa_secp256k1'] }
+      >;
+    }
+  | {
+      operation: 'registration_activate';
+      signerPlanKind: 'near_ed25519_and_evm_family_ecdsa';
+      localMaterial: Extract<
+        PendingWalletRegistrationLocalMaterialV1,
+        { readonly keyFamilies: readonly ['ed25519', 'ecdsa_secp256k1'] }
+      >;
+    }
+  | {
+      operation: 'near_provisioning';
+      signerPlanKind: 'near_ed25519' | 'near_ed25519_and_evm_family_ecdsa';
+      localMaterial: Extract<
+        PendingWalletRegistrationLocalMaterialV1,
+        { readonly keyFamilies: readonly ['ed25519'] }
+      >;
+  }
 );
+
+function isEcdsaOnlyPendingLocalMaterial(
+  localMaterial: PendingWalletRegistrationLocalMaterialV1,
+): localMaterial is Extract<
+  PendingWalletRegistrationLocalMaterialV1,
+  { readonly keyFamilies: readonly ['ecdsa_secp256k1'] }
+> {
+  return (
+    localMaterial.keyFamilies.length === 1 &&
+    localMaterial.keyFamilies[0] === 'ecdsa_secp256k1'
+  );
+}
 
 export function buildPendingRegistrationCommit(
   args: PendingRegistrationCommitBuilderInput,
@@ -358,15 +393,47 @@ export function buildPendingRegistrationCommit(
     updatedAtMs: args.updatedAtMs,
   };
   if (args.operation === 'registration_activate') {
+    if (args.signerPlanKind === 'near_ed25519') {
+      return buildPendingWalletRegistrationCommitV1({
+        ...common,
+        operation: args.operation,
+        signerPlanKind: args.signerPlanKind,
+        localMaterial: args.localMaterial,
+      });
+    }
+    if (args.signerPlanKind === 'evm_family_ecdsa') {
+      return buildPendingWalletRegistrationCommitV1({
+        ...common,
+        operation: args.operation,
+        signerPlanKind: args.signerPlanKind,
+        localMaterial: args.localMaterial,
+      });
+    }
+    if (isEcdsaOnlyPendingLocalMaterial(args.localMaterial)) {
+      return buildPendingWalletRegistrationCommitV1({
+        ...common,
+        operation: args.operation,
+        signerPlanKind: args.signerPlanKind,
+        localMaterial: args.localMaterial,
+      });
+    }
     return buildPendingWalletRegistrationCommitV1({
       ...common,
       operation: args.operation,
+      signerPlanKind: args.signerPlanKind,
       localMaterial: args.localMaterial,
     });
+  }
+  if (
+    args.signerPlanKind !== 'near_ed25519' &&
+    args.signerPlanKind !== 'near_ed25519_and_evm_family_ecdsa'
+  ) {
+    throw new Error('near provisioning requires a NEAR signer plan');
   }
   return buildPendingWalletRegistrationCommitV1({
     ...common,
     operation: args.operation,
+    signerPlanKind: args.signerPlanKind,
     localMaterial: args.localMaterial,
   });
 }

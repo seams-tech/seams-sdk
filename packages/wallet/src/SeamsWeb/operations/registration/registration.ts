@@ -1568,7 +1568,7 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
   confirmRecoveryCodesBackedUp: (recoveryCodes: readonly string[]) => Promise<void>;
   /** Durable local recovery point written immediately before Route 3. */
   persistPendingCommit: (input: {
-    readonly localMaterial: PendingWalletRegistrationLocalMaterialV1;
+    readonly localMaterial: PendingEcdsaRegistrationLocalMaterial;
     readonly emailOtpEnrollment: WalletRegistrationEmailOtpEnrollmentMaterial | null;
   }) => Promise<void>;
   startDeferredNearCustody: (input: {
@@ -1955,6 +1955,11 @@ type PendingRegistrationCommitInput = WithoutPendingCommitTimestamps<
   Parameters<typeof buildPendingRegistrationCommit>[0]
 >;
 
+type PendingEcdsaRegistrationLocalMaterial = Extract<
+  PendingWalletRegistrationLocalMaterialV1,
+  { readonly keyFamilies: readonly ['ecdsa_secp256k1'] }
+>;
+
 async function persistPendingRegistrationCommit(
   input: PendingRegistrationCommitInput,
 ): Promise<PendingWalletRegistrationCommitV1> {
@@ -2166,6 +2171,7 @@ async function commitDeferredEd25519Registration(args: {
     });
     const nearProvisioningPending = await persistPendingRegistrationCommit({
       operation: 'near_provisioning',
+      signerPlanKind: 'near_ed25519_and_evm_family_ecdsa',
       registrationCeremonyId: args.registrationCeremonyId,
       idempotencyKey: nearProvisioningIdempotencyKey,
       walletId: String(args.walletId),
@@ -2803,6 +2809,7 @@ async function registerEcdsaOrMixedWallet(
           persistPendingCommit: async ({ localMaterial, emailOtpEnrollment }) => {
             await persistPendingRegistrationCommit({
               operation: 'registration_activate',
+              signerPlanKind: args.kind,
               registrationCeremonyId: setup.registrationCeremonyId,
               idempotencyKey: finalizeIdempotencyKey,
               walletId: String(walletId),
@@ -3239,6 +3246,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     }
     await persistPendingRegistrationCommit({
       operation: 'registration_activate',
+      signerPlanKind: 'near_ed25519',
       registrationCeremonyId: setup.registrationCeremonyId,
       idempotencyKey: finalizeIdempotencyKey,
       walletId: String(walletId),
@@ -3285,6 +3293,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     });
     const nearProvisioningPending = await persistPendingRegistrationCommit({
       operation: 'near_provisioning',
+      signerPlanKind: 'near_ed25519',
       registrationCeremonyId: setup.registrationCeremonyId,
       idempotencyKey: nearProvisioningIdempotencyKey,
       walletId: String(walletId),
@@ -3676,6 +3685,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
     }
     await persistPendingRegistrationCommit({
       operation: 'registration_activate',
+      signerPlanKind: 'near_ed25519',
       registrationCeremonyId: setup.registrationCeremonyId,
       idempotencyKey: finalizeIdempotencyKey,
       walletId: String(intent.walletId),
@@ -3720,6 +3730,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
     });
     const nearProvisioningPending = await persistPendingRegistrationCommit({
       operation: 'near_provisioning',
+      signerPlanKind: 'near_ed25519',
       registrationCeremonyId: setup.registrationCeremonyId,
       idempotencyKey: nearProvisioningIdempotencyKey,
       walletId: String(intent.walletId),
