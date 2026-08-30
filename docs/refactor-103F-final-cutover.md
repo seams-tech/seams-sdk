@@ -574,15 +574,18 @@ extraction seams:
 
 Required shaping work:
 
-- [ ] Move pending registration construction, committed-projection parsing,
-      local promotion, and exact session persistence behind one client terminal-
-      commit seam; keep public orchestration entrypoints in `registration.ts`.
+- [x] Keep terminal registration responsibilities behind narrow client seams:
+      construction and publication in `registrationTerminalCommit.ts`, strict
+      untrusted-response parsing in `walletRegistrationTerminalResponse.ts`,
+      and reload replay in `pendingRegistrationRecovery.ts`. Public
+      orchestration entrypoints remain in `registration.ts`.
 - [x] Isolate the direct server issuer and credential-free receipt from
       `d1WalletRegistrationService.ts`.
 - [x] Isolate the terminal registration response parser from
       `walletRegistration.ts`.
-- [ ] Extract linked local-install and acknowledgement state-machine code when
-      I6 changes those paths.
+- [x] Extract linked local installation, acknowledgement replay, and bootstrap
+      composition into `deviceLinkingAuthorityInstallation.ts`,
+      `deviceLinkingResume.ts`, and `deviceLinkingComposition.ts`.
 - [x] Extract exact-session reader logic from `login.ts` and
       `BrowserSigningSurface.ts` as I8 converts their callers.
 - [x] Regenerate the exact `readActiveForWallet` consumer inventory before I8.
@@ -1044,8 +1047,10 @@ Primary files:
       authenticate cleanup after live-link deletion, its replay window, and
       whether exact-method unlock may mint the required recovery authority;
       implementation and loss-path tests follow that decision.
-- [ ] Recover recipient-handle loss or delivery expiry through durable local
-      install plus exact-method unlock, without resealing or relinking.
+- [ ] Recover pre-decryption ECDH recipient-private-handle loss or sealed-
+      delivery expiry through durable local install plus exact-method unlock,
+      without resealing or relinking. Existing acknowledgement replay covers
+      interruption only after credential installation.
 - [x] Preserve interactive cancellation across `claimed`,
       `awaiting_target_factor`, `awaiting_source_contribution`, and
       `provisioning`. Device 1 retains its owner-authenticated cancellation
@@ -1506,12 +1511,10 @@ exact admission contexts. No V1 request or persistence resolver remains.
       durable acknowledgement replay, cleanup receipts, and post-link exact
       installation. The D1 install-service, bootstrap replay, and linked unlock
       tests cover the committed path through cleanup.
-- [ ] Recover a missing recipient handle or expired delivery through the durable
-      local install and normal exact-method unlock, without resealing or
-      relinking.
-- [ ] Connect the completed recovery pending-record and publication primitives
-      through browser orchestration, closing the post-promotion crash window
-      and reaching normal exact login.
+
+The remaining Phase 3 code is owned by the canonical I6 pre-decryption
+recipient/delivery recovery task and the I5 browser recovery-coordinator task.
+
 - [x] Reconcile all affected browser records after material promotion.
 - [x] Bump the host/iframe protocol and remove reusable-session message fields.
 - [x] Rename `ReusableWalletSessionMintId` to `WalletSessionMintId` without an
@@ -1610,14 +1613,15 @@ Completed prerequisite evidence:
 
 Remaining causal baseline work:
 
-- [ ] Run `tests/e2e/linked-device.operating-path.test.ts`. No green composed-run
-      result is assumed. Record prerequisites, command, current result, and
-      failure classification. `8a7096d18` already makes every cross-factor case
-      assert its genuine single-method source inventory, including
-      Passkey-only to first-Email enrollment. Use
-      `pnpm test:linked-device` for managed state; use
-      `pnpm test:linked-device:external` only for an intentionally composed
-      external stack and label that evidence separately.
+Run `tests/e2e/linked-device.operating-path.test.ts` under the canonical linked-
+device acceptance-matrix item below. No green composed-run result is assumed.
+Record prerequisites, command, current result, and failure classification.
+`8a7096d18` already makes every cross-factor case assert its genuine single-
+method source inventory, including Passkey-only to first-Email enrollment. Use
+`pnpm test:linked-device` for managed state; use
+`pnpm test:linked-device:external` only for an intentionally composed external
+stack and label that evidence separately.
+
 - [x] Rerun `tests/unit/authMenuPasskeyContinuation.unit.test.ts` before using it
       as evidence. Earlier evidence was 13 of 17. Classify the account-sync
       wallet-ID expectation, the Email target callback-publication fixture, and
@@ -1631,12 +1635,14 @@ Remaining causal baseline work:
       `tests/unit/passkeyCustodyRouteService.unit.test.ts` so it implements the
       current `listWalletCredentialActivity` boundary before using its
       challenge-replay result as R103F evidence.
-- [ ] Run both current R115 recovery contracts with the isolated intended
-      runner before changing recovery consumers. Use `pnpm test:intended` for
-      a fresh managed D1 root and Vite cache per case, and
-      `pnpm test:intended:external` only for a labeled composed-stack run. Add
-      the post-promotion, pre-local-publication interruption only as part of the
-      R103F change.
+
+Run the two R115 recovery contracts through their individual acceptance-matrix
+items below before changing recovery consumers. Use `pnpm test:intended` for a
+fresh managed D1 root and Vite cache per case, and
+`pnpm test:intended:external` only for a labeled composed-stack run. Add the
+post-promotion, pre-local-publication interruption only as part of the R103F
+change.
+
 - [ ] Exercise real-browser Passkey and configured Google recovery activation
       in every supported browser before removing any target-ready user action.
       In-process tests cannot prove transient browser activation survives the
@@ -1782,13 +1788,12 @@ Remaining causal baseline work:
 - [ ] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/passkey.recovery.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/google-email-otp.recovery.contract.test.ts`
-- [ ] `tests/e2e/intended-behaviours/refactor93-staging-cohort.staging.test.ts`
-      registration replay assertion
 - [x] `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts`
 - [ ] `tests/e2e/linked-device.operating-path.test.ts` for all four genuine
-      source/target factor combinations
+      source/target factor combinations, including the remaining immediate
+      post-link factor combinations from I6.
 
 #### Required targeted additions and updates
 
@@ -1820,8 +1825,11 @@ Remaining causal baseline work:
       field and rejecting synthesized identities.
 - [x] Linked activation tests proving digest, credential, recipient, ciphertext,
       and session stability on replay.
-- [ ] Linked loss tests for response loss, failed exact-record write, recipient
-      loss, delivery expiry, acknowledgement loss, and acknowledged cleanup.
+- [x] Linked loss tests for response replay, interrupted local installation and
+      finalization, acknowledgement replay, activation rollback/convergence,
+      and acknowledged cleanup.
+- [ ] Linked loss tests for pre-decryption recipient-private-handle loss,
+      delivery expiry, and the selected post-live-session recovery proof.
 - [x] Linked recipient/AAD binding and cross-session stale acknowledgement
       tests.
 - [ ] Crash injection after delivery tombstone, ciphertext removal, allocation
@@ -1829,9 +1837,11 @@ Remaining causal baseline work:
 - [ ] After the acknowledgement-recovery product-security policy is selected,
       add the route proof for the chosen durable authentication path after
       live-session deletion and ensure it avoids early `not_found`.
-- [ ] Local prerequisite transaction tests covering crash atomicity,
-      invisibility, receipt replay, both retryable pending reasons, and terminal
-      cleanup that preserves pre-existing records.
+- [x] Local prerequisite tests covering pending-state invisibility, rollback,
+      prerequisite projection, receipt replay, and interrupted finalization.
+- [ ] Local prerequisite tests covering real multi-store crash atomicity,
+      `wallet_session_issuance_pending`, and terminal cleanup that preserves
+      pre-existing records.
 - [x] Migration-owned linked-install schema parity test after runtime DDL
       deletion.
 - [x] Exact-record type/parser fixtures for required fields and
@@ -1948,10 +1958,14 @@ rg -n "registration_established_wallet_session_v1|\
 RegistrationEstablishedSessionTokens|walletSessionTokenForCurve" \
   packages apps
 
-rg -n "operation_credential_hash =|\
+rg -n "\\boperation_credential_hash\\s*=|\
 putWalletSessionAuthorizationV2OperationCredential|\
 issueWalletSessionAuthorizationV2OperationCredential" \
   packages/wallet-server/src
+
+rg -n "issueWalletSessionAuthorizationV2|\
+putWalletSessionAuthorizationV2|\
+prepareWalletSessionAuthorizationV2Statements" packages apps
 
 rg -n "walletSessionClientCapability|\
 direct_exact_response_future_record_tolerant" packages apps
