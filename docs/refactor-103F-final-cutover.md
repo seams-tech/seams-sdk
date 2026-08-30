@@ -1808,12 +1808,14 @@ change.
       source/target factor combinations, including the remaining immediate
       post-link factor combinations from I6.
 
-Acceptance checkpoint on 2026-08-30: `passkey.unlock`, `email-otp.unlock`, and
-the first `passkey.recovery` case reached the same production regression during
-deferred NEAR readiness: direct-V2 same-mint replay rejected the committed
-session after its authority projection had legitimately gained the Ed25519
-capability. These items remain unchecked until the replay boundary is corrected
-and the isolated cases pass.
+Acceptance checkpoint on 2026-08-30: the direct-V2 same-mint authority-
+promotion regression is fixed. Fresh isolated `passkey.unlock` and
+`email-otp.unlock` runs now stop during the SDK build before browser assertions:
+the combined Ed25519 plus ECDSA unlock returns the intended credential-free
+ECDSA activation and one exact Wallet Session authorization, while
+`ecdsaLogin.ts` still requires the retired credential-bearing activation shape.
+The unlock and recovery items remain unchecked until that consumer boundary is
+converted and every isolated case passes.
 
 #### Required targeted additions and updates
 
