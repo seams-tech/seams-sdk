@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   buildAuthorizationGrantRef,
+  buildEvmEcdsaMpcOperationRef,
   buildNearEd25519MpcOperationRef,
   EVM_ECDSA_MPC_OPERATION_KINDS,
   NEAR_ED25519_MPC_OPERATION_KINDS,
@@ -520,18 +521,21 @@ class Ed25519MaterialActivationFixture {
 }
 
 class EcdsaMaterialActivationFixture {
-  readonly runtimePolicyScope: RuntimePolicyScope = {
-    orgId: 'org:admission',
-    projectId: 'project:admission',
-    envId: 'env:admission',
-    signingRootVersion: 'root:admission',
-  };
+  readonly runtimePolicyScope: RuntimePolicyScope;
   calls = 0;
 
   constructor(
     private readonly materialActivation: RouterAbMpcMaterialActivationRefWire,
     private readonly normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1,
-  ) {}
+    runtimePolicyScope: RuntimePolicyScope = {
+      orgId: 'org:admission',
+      projectId: 'project:admission',
+      envId: 'env:admission',
+      signingRootVersion: 'root:admission',
+    },
+  ) {
+    this.runtimePolicyScope = runtimePolicyScope;
+  }
 
   async resolveEcdsaMaterialActivation(
     _input: Parameters<RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation']>[0],
@@ -645,6 +649,10 @@ function buildEcdsaNormalSigningStateFixture(
   materialActivation: RouterAbMpcMaterialActivationRefWire,
   walletId: WalletId,
   label: string,
+  signerIdentity?: {
+    readonly thresholdPublicKey33B64u: string;
+    readonly ethereumAddress20B64u: string;
+  },
 ): RouterAbEcdsaDerivationNormalSigningStateV1 {
   return {
     kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
@@ -666,10 +674,11 @@ function buildEcdsaNormalSigningStateFixture(
         server_public_key33_b64u: base64UrlEncode(
           new Uint8Array([2, ...new Uint8Array(32).fill(24)]),
         ),
-        threshold_public_key33_b64u: base64UrlEncode(
-          new Uint8Array([2, ...new Uint8Array(32).fill(25)]),
-        ),
-        ethereum_address20_b64u: base64UrlEncode(new Uint8Array(20).fill(26)),
+        threshold_public_key33_b64u:
+          signerIdentity?.thresholdPublicKey33B64u ??
+          base64UrlEncode(new Uint8Array([2, ...new Uint8Array(32).fill(25)])),
+        ethereum_address20_b64u:
+          signerIdentity?.ethereumAddress20B64u ?? base64UrlEncode(new Uint8Array(20).fill(26)),
         client_share_retry_counter: 0,
         server_share_retry_counter: 0,
       },
@@ -689,6 +698,9 @@ function buildEcdsaNormalSigningRequestFixture(input: {
   readonly normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
   readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   readonly label: string;
+  readonly authorization?:
+    | { readonly kind: 'reusable_wallet_session'; readonly wallet_session_id: string }
+    | { readonly kind: 'operation_step_up' };
 }): ReturnType<typeof buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1> {
   const signingDigest32 = new Uint8Array(32).fill(11);
   return buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
@@ -700,15 +712,56 @@ function buildEcdsaNormalSigningRequestFixture(input: {
       intent_digest_b64u: base64UrlEncode(signingDigest32),
       display_digest_b64u: base64UrlEncode(new Uint8Array(32).fill(12)),
     },
-    authorization: {
-      kind: 'reusable_wallet_session',
-      wallet_session_id: String(input.session.walletSessionId),
-    },
+    authorization:
+      input.authorization ??
+      ({
+        kind: 'reusable_wallet_session',
+        wallet_session_id: String(input.session.walletSessionId),
+      } as const),
     materialActivation: input.materialActivation,
     clientPresignatureId: `presignature:admission-${input.label}`,
     expiresAtMs: Date.now() + 30_000,
     signingDigest32,
     clientRerandomizationCommitment32: new Uint8Array(32).fill(13),
+  });
+}
+
+function ecdsaAddress20B64u(address: string): string {
+  return base64UrlEncode(Uint8Array.from(Buffer.from(address.slice(2), 'hex')));
+}
+
+async function buildEcdsaVerifiedStepUpOperationFixture(input: {
+  readonly session: WalletSessionAuthorizationV2;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  readonly body: ReturnType<typeof buildEcdsaNormalSigningRequestFixture>;
+}): Promise<AuthorizedOperation> {
+  const operation = buildCapabilityOperationEnvelope({
+    tenantId: input.session.tenantId,
+    principalId: input.session.principalId,
+    capabilityId: required(parseCapabilityId(input.materialActivation.capability)),
+    operationId: required(parseCapabilityOperationId(input.body.operation_id)),
+    operation: buildEvmEcdsaMpcOperationRef(EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction),
+    digests: {
+      laneDigest: parseDigestB64u(input.body.operation_digests.lane_digest_b64u),
+      intentDigest: parseDigestB64u(input.body.operation_digests.intent_digest_b64u),
+      displayDigest: parseDigestB64u(input.body.operation_digests.display_digest_b64u),
+    },
+  });
+  return await buildAuthorizedOperation({
+    tenantId: input.session.tenantId,
+    authorizedOperationId: required(
+      parseAuthorizedOperationId(`ecdsa-step-up-authorized-operation:${input.body.operation_id}`),
+    ),
+    auditEventId: required(
+      parseAuthorizationAuditEventId(`ecdsa-step-up-audit:${input.body.operation_id}`),
+    ),
+    operation,
+    authorization: {
+      kind: 'verified_step_up',
+      evidenceSetDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(13))),
+    },
+    quota: { kind: 'quota_neutral' },
+    claimedAtMs: Date.now(),
   });
 }
 
@@ -1950,4 +2003,110 @@ test('Ed25519 operation step-up admits a matching exhausted Wallet Session candi
   });
   expect(unpreclaimedAuthorizedOperations.readCalls).toBe(1);
   expect(unpreclaimedAuthorizedOperations.admitCalls).toBe(0);
+});
+
+test('ECDSA operation step-up admits a matching exhausted Wallet Session candidate', async () => {
+  const authority = await buildAuthority('ecdsa_secp256k1', 'ecdsa-exhausted-step-up');
+  const authMethod = buildAuthMethod(authority, 'ecdsa-exhausted-step-up', 'active');
+  const session = buildSession({
+    authority,
+    authMethodId: authMethod.walletAuthMethodId,
+    label: 'ecdsa-exhausted-step-up',
+    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
+    authorityDigestB64u: authority.authorityDigestB64u,
+    authorityRevocationEpoch: authority.revocationEpoch,
+    expiresAtMs: Date.now() + 60_000,
+  });
+  const candidate: RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext = {
+    status: {
+      kind: 'exhausted',
+      session,
+      quota: buildExactWalletSessionQuotaProjectionV1({
+        lifecycle: 'exhausted',
+        tenantId: session.tenantId,
+        principalId: session.principalId,
+        walletSessionId: session.walletSessionId,
+        quotaId: session.quotaId,
+        remainingUses: 0,
+        expiresAtMs: session.expiresAtMs,
+      }),
+    },
+    authority,
+    authMethod,
+    retiredAtMs: null,
+  };
+  const ecdsaActivation = authority.signerActivations.ecdsa;
+  if (!ecdsaActivation) throw new Error('ECDSA exhausted-session fixture is missing its signer');
+  const materialActivation = routerAbMpcMaterialActivationRefToWire(
+    ecdsaActivation.materialActivation,
+  );
+  const normalSigning = buildEcdsaNormalSigningStateFixture(
+    materialActivation,
+    authority.walletId,
+    'ecdsa-exhausted-step-up',
+    {
+      thresholdPublicKey33B64u: ecdsaActivation.signer.thresholdPublicKey33B64u,
+      ethereumAddress20B64u: ecdsaAddress20B64u(ecdsaActivation.signer.evmAddress),
+    },
+  );
+  const materialResolver = new EcdsaMaterialActivationFixture(materialActivation, normalSigning, {
+    orgId: String(session.tenantId),
+    projectId: 'project:admission-ecdsa-exhausted-step-up',
+    envId: 'env:admission-ecdsa-exhausted-step-up',
+    signingRootVersion: 'root:admission-ecdsa-exhausted-step-up',
+  });
+  const body = buildEcdsaNormalSigningRequestFixture({
+    session,
+    normalSigning,
+    materialActivation,
+    label: 'ecdsa-exhausted-step-up',
+    authorization: { kind: 'operation_step_up' },
+  });
+  const authorizedOperation = await buildEcdsaVerifiedStepUpOperationFixture({
+    session,
+    materialActivation,
+    body,
+  });
+  const authorizedOperations = new WalletAuthorizedOperationFixture(authorizedOperation);
+  const authorizationSessions = new WalletSessionAuthorizationV2Fixture(
+    buildAdmissionContext({ authority, authMethod, session }),
+    'exhausted-ecdsa-step-up-token',
+    candidate,
+    true,
+  );
+  const admissionAdapter = new AllowingNormalSigningAdmission();
+
+  const admitted = await authorizeRouterAbEcdsaDerivationNormalSigningRoute({
+    body,
+    rawBody: body,
+    headers: {
+      authorization: 'Bearer exhausted-ecdsa-step-up-token',
+      origin: 'https://wallet.example.test',
+    },
+    session: null,
+    authorizedOperations,
+    authorizationSessions,
+    admissionAdapter,
+    resolveEcdsaMaterialActivation:
+      materialResolver.resolveEcdsaMaterialActivation.bind(materialResolver),
+    phase: 'prepare',
+  });
+
+  expect(admitted).toMatchObject({
+    ok: true,
+    kind: 'operation_step_up',
+    phase: 'prepare',
+    admissionKind: 'operation_in_progress',
+  });
+  if (!admitted.ok || admitted.kind !== 'operation_step_up') {
+    throw new Error('ECDSA exhausted candidate was not admitted');
+  }
+  expect(admitted.session.sessionId).toBe(String(session.authorizationId));
+  expect(admitted.operation.authorization.kind).toBe('verified_step_up');
+  expect(admitted.operation.quota.kind).toBe('quota_neutral');
+  expect(admitted.operation.authorizedOperationId).toBe(authorizedOperation.authorizedOperationId);
+  expect(authorizedOperations.readCalls).toBe(1);
+  expect(authorizedOperations.admitCalls).toBe(1);
+  expect(authorizationSessions.statusReads).toBe(0);
+  expect(admissionAdapter.calls).toBe(1);
 });
