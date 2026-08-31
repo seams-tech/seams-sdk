@@ -182,6 +182,7 @@ export type CloudflareD1RouterApiAuthService = Omit<RouterApiServiceBag, 'thresh
   readonly executeSignedDelegate: (
     input: ExecuteSignedDelegateRequest,
   ) => Promise<ExecuteSignedDelegateResult>;
+  readonly linkedDeviceEd25519AuthorityReader?: LinkedDeviceEd25519AuthorityReader;
 };
 
 type ScopedD1Prepare = (sql: string, values: readonly unknown[]) => D1PreparedStatementLike;
@@ -2559,5 +2560,8 @@ export function createCloudflareD1RouterApiAuthService(
     ...(assembly.deviceLinkingOwnerAuthorization === undefined
       ? {}
       : { deviceLinkingOwnerAuthorization: assembly.deviceLinkingOwnerAuthorization }),
+    ...(assembly.linkedDeviceEd25519AuthorityReader === undefined
+      ? {}
+      : { linkedDeviceEd25519AuthorityReader: assembly.linkedDeviceEd25519AuthorityReader }),
   };
 }

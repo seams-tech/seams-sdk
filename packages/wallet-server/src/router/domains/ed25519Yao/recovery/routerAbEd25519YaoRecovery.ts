@@ -19,6 +19,7 @@ import {
   type RouterAbEd25519YaoActivationResultV1,
   type RouterAbEd25519YaoApplicationBindingFactsV1,
   type RouterAbEd25519YaoBytes32V1,
+  type RouterAbEd25519YaoCeremonyBindingV1,
   type RouterAbEd25519YaoRecoveryActivationReceiptV1,
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
@@ -52,6 +53,7 @@ import type { RouterApiWalletSessionAuthorizationV2AdmissionContext } from '../.
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../../core/WalletStore';
 import {
   parseThresholdEd25519SessionId,
+  type MpcMaterialActivationRef,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import {
@@ -768,6 +770,118 @@ function exactRuntimePolicyScope(left: RuntimePolicyScope, right: RuntimePolicyS
   );
 }
 
+/**
+ * The linked-authority projection fields the warm bootstrap needs. Structural
+ * on purpose: the concrete projection lives with the platform install service,
+ * and this domain only reads the identity, binding, and receipt facts.
+ */
+export type WarmBootstrapLinkedEd25519AuthorityProjectionV1 = {
+  readonly walletId: string;
+  readonly authorityId: string;
+  readonly walletAuthMethodId: string;
+  readonly linkSessionId: string;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly targetBinding: RouterAbEd25519YaoCeremonyBindingV1;
+  readonly applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
+  readonly participantIds: readonly [number, number];
+  readonly activationReceipt: {
+    readonly registered_public_key: readonly number[];
+    readonly material_activation: RouterAbMpcMaterialActivationRefWire;
+  };
+};
+
+export type WarmBootstrapLinkedEd25519AuthorityReaderV1 = {
+  readInstalledEd25519AuthorityByMaterialActivationV1(input: {
+    readonly walletId: RouterApiWalletSessionAuthorizationV2AdmissionContext['authority']['walletId'];
+    readonly materialActivation: MpcMaterialActivationRef;
+  }): Promise<WarmBootstrapLinkedEd25519AuthorityProjectionV1 | null>;
+};
+
+function sameEd25519PublicKeyBytes(left: readonly number[], right: readonly number[]): boolean {
+  return (
+    left.length === 32 && right.length === 32 && left.every((byte, index) => byte === right[index])
+  );
+}
+
+/**
+ * A linked device shares the wallet's one identity-scoped capability but holds
+ * its own lane material, so the descriptor it may bootstrap against must name
+ * the linked activation and threshold session from the installed authority
+ * projection rather than the founding values the shared descriptor carries.
+ * This is the warm-bootstrap counterpart of the wallet-session issuance
+ * override in the registration service; without it, no linked authority can
+ * satisfy the exact-session predicates below.
+ */
+async function resolveWarmBootstrapCapabilityForAuthority(input: {
+  readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
+  readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
+  readonly linkedAuthorities?: WarmBootstrapLinkedEd25519AuthorityReaderV1 | null;
+}): Promise<RouterAbEd25519YaoActiveCapabilityDescriptorV1 | null> {
+  const authority = input.context.authority;
+  if (authority.provenance.kind !== 'device_link') return input.capability;
+  const activation = authority.signerActivations.ed25519;
+  const reader = input.linkedAuthorities;
+  if (!activation || !reader) return null;
+  const projection = await reader.readInstalledEd25519AuthorityByMaterialActivationV1({
+    walletId: authority.walletId,
+    materialActivation: activation.materialActivation,
+  });
+  if (!projection) return null;
+  const authorityActivationWire = routerAbMpcMaterialActivationRefToWire(
+    activation.materialActivation,
+  );
+  const projectionMaterialWire = routerAbMpcMaterialActivationRefToWire(
+    projection.materialActivation,
+  );
+  const descriptor = input.capability;
+  const targetBinding = projection.targetBinding;
+  const targetLifecycle = targetBinding.lifecycle;
+  const targetSessionId = parseThresholdEd25519SessionId(targetLifecycle.session_id);
+  if (
+    !targetSessionId.ok ||
+    projection.walletId !== String(authority.walletId) ||
+    projection.authorityId !== String(authority.authorityId) ||
+    projection.walletAuthMethodId !== String(input.context.authMethod.walletAuthMethodId) ||
+    projection.linkSessionId !== String(authority.provenance.linkSessionId) ||
+    !sameRouterAbMpcMaterialActivationRef(projectionMaterialWire, authorityActivationWire) ||
+    projection.applicationBinding.wallet_id !== descriptor.applicationBinding.wallet_id ||
+    projection.applicationBinding.near_ed25519_signing_key_id !==
+      descriptor.applicationBinding.near_ed25519_signing_key_id ||
+    projection.applicationBinding.signing_root_id !==
+      descriptor.applicationBinding.signing_root_id ||
+    projection.applicationBinding.key_creation_signer_slot !==
+      descriptor.applicationBinding.key_creation_signer_slot ||
+    projection.participantIds[0] !== descriptor.participantIds[0] ||
+    projection.participantIds[1] !== descriptor.participantIds[1] ||
+    targetBinding.operation !== 'registration' ||
+    targetLifecycle.work_kind !== 'registration_prepare' ||
+    targetLifecycle.primitive_request_kind !== 'registration' ||
+    targetLifecycle.account_id !== descriptor.lifecycle.accountId ||
+    targetLifecycle.root_share_epoch !== descriptor.lifecycle.rootShareEpoch ||
+    targetLifecycle.signer_set_id !== descriptor.lifecycle.signerSetId ||
+    targetLifecycle.selected_server_id !== descriptor.lifecycle.signingWorkerId ||
+    !sameRouterAbMpcMaterialActivationRef(
+      targetBinding.material_activation,
+      projectionMaterialWire,
+    ) ||
+    !sameRouterAbMpcMaterialActivationRef(
+      projection.activationReceipt.material_activation,
+      projectionMaterialWire,
+    ) ||
+    !sameEd25519PublicKeyBytes(
+      projection.activationReceipt.registered_public_key,
+      descriptor.registeredPublicKey,
+    )
+  ) {
+    return null;
+  }
+  return {
+    ...descriptor,
+    materialActivation: projectionMaterialWire,
+    lifecycle: { ...descriptor.lifecycle, thresholdSessionId: targetSessionId.value },
+  };
+}
+
 export function warmBootstrapCapabilityMatchesStableIdentity(input: {
   readonly request: RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1;
   readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
@@ -834,20 +948,26 @@ export async function buildWarmRecoveryBootstrapResponse(input: {
     { readonly ok: true }
   >['authorization'];
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
+  readonly linkedAuthorities?: WarmBootstrapLinkedEd25519AuthorityReaderV1 | null;
 }): Promise<RouterAbEd25519YaoWarmRecoveryBootstrapV1 | null> {
   if (input.authorization.kind === 'wallet_recovery') return null;
   const context = input.authorization.context;
+  const capability = await resolveWarmBootstrapCapabilityForAuthority({
+    context,
+    capability: input.capability,
+    linkedAuthorities: input.linkedAuthorities ?? null,
+  });
+  if (!capability) return null;
   if (
     !warmBootstrapCapabilityMatchesStableIdentity({
       request: input.request,
       context,
-      capability: input.capability,
+      capability,
     })
   ) {
     return null;
   }
   const session = context.authorization.session;
-  const capability = input.capability;
   return {
     kind: 'router_ab_ed25519_yao_v2_session_bootstrap_v1',
     walletId: String(session.walletId),
@@ -2531,6 +2651,9 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
     private readonly service: RouterAbEd25519YaoRecoveryService,
     private readonly capabilities: RouterAbEd25519YaoActiveCapabilityResolverV1,
     private readonly authorization: RouterAbEd25519YaoRecoveryAuthorizationAdapter,
+    private readonly linkedAuthorities:
+      | (() => WarmBootstrapLinkedEd25519AuthorityReaderV1 | null)
+      | null = null,
   ) {}
 
   async handleFetchRoute(input: RouterApiFetchRouteExtensionInput): Promise<Response> {
@@ -2605,6 +2728,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       request: parsed.value,
       authorization: authorization.authorization,
       capability: activeCapability.capability,
+      linkedAuthorities: this.linkedAuthorities?.() ?? null,
     });
     if (!response) {
       return json(
@@ -2706,6 +2830,7 @@ export function createRouterAbEd25519YaoRecoveryModule(input: {
     RouterAbEd25519YaoActiveCapabilityResolverV1;
   readonly capabilities?: RouterAbEd25519YaoActiveCapabilityResolverV1;
   readonly authorization: RouterAbEd25519YaoRecoveryAuthorizationAdapter;
+  readonly linkedAuthorities?: (() => WarmBootstrapLinkedEd25519AuthorityReaderV1 | null) | null;
 }): RouterApiModule {
   return createRouterApiModule({
     id: 'router_ab_ed25519_yao_recovery',
@@ -2714,6 +2839,7 @@ export function createRouterAbEd25519YaoRecoveryModule(input: {
         input.service,
         input.capabilities ?? input.service,
         input.authorization,
+        input.linkedAuthorities ?? null,
       ),
     ],
   });

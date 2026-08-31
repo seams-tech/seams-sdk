@@ -91,6 +91,7 @@ import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@se
 import { RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter } from '@seams/wallet-server/cloud-host';
 import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
+import type { WarmBootstrapLinkedEd25519AuthorityReaderV1 } from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
 import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
@@ -1122,6 +1123,7 @@ export function createStagingRecoveryRequestScopedDependencies(env: CloudflareD1
   readonly authorization: RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter;
   readonly capabilityPersistence: CloudflareD1RouterAbEd25519YaoCapabilityPersistence;
   readonly capabilities: RouterAbEd25519YaoProductRegistrationRuntimeV1;
+  readonly linkedAuthorities: WarmBootstrapLinkedEd25519AuthorityReaderV1;
 } {
   const scope = stagingTenantScope(env);
   const store = createStagingYaoPartitionedStateStore(env);
@@ -1147,6 +1149,19 @@ export function createStagingRecoveryRequestScopedDependencies(env: CloudflareD1
       ensureSchema: false,
     }),
     capabilities: createStagingYaoRequestScopedRuntime(env),
+    /* Warm bootstraps for device-linked authorities need the installed linked
+       projection; built on first use the same way the authorization adapter
+       builds its composition. */
+    linkedAuthorities: {
+      async readInstalledEd25519AuthorityByMaterialActivationV1(input) {
+        const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
+        const { service } = await createStagingRouterApiAuthComposition(env, scope, yaoRuntime);
+        const reader = service.linkedDeviceEd25519AuthorityReader;
+        return reader
+          ? await reader.readInstalledEd25519AuthorityByMaterialActivationV1(input)
+          : null;
+      },
+    },
   };
 }
 
