@@ -243,7 +243,8 @@ test.describe('R103 authenticated linked-device browser transport', () => {
           handle: { kind: 'device_linking_key_material_handle_v1', handleId: 'worker-slot-r103' },
           linkPublicKeyB64u: deviceLinkFixture.payload.linkPublicKeyB64u,
           devicePublicKeyB64u: deviceLinkFixture.payload.devicePublicKeyB64u,
-          deliveryRecipientPublicKey65B64u: fixture.active.sealedDelivery.aad.recipientPublicKey65B64u,
+          deliveryRecipientPublicKey65B64u:
+            fixture.active.sealedDelivery.aad.recipientPublicKey65B64u,
         };
       },
       async discardKeyMaterialV1() {},
@@ -275,8 +276,9 @@ test.describe('R103 authenticated linked-device browser transport', () => {
       credentialDigestB64u: await computeWalletSessionOperationCredentialDigestB64u(
         fixture.operationCredential,
       ),
-      installationReceiptDigestB64u:
-        await computeWalletSessionInstallationReceiptDigestB64u(fixture.receipt),
+      installationReceiptDigestB64u: await computeWalletSessionInstallationReceiptDigestB64u(
+        fixture.receipt,
+      ),
       acknowledgedAtMs: 2_000,
     };
 
