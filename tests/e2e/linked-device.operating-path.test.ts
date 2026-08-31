@@ -4209,7 +4209,14 @@ async function setupLinkedOwnerPair(
     expect(inventoryBeforeReload.enrollmentId).toBe(activation.enrollmentId);
     expect(inventoryBeforeReload.revocationEpoch).toBe(activation.revocationEpoch);
     await ownerPage.reload({ waitUntil: 'domcontentloaded' });
+    /* Same choreography as the email owner-pair setup: let the restore settle
+       before locking, then boot a fresh page into the locked state so the
+       unlock surface is not racing an in-flight pre-lock restore. */
+    await ownerPage
+      .locator('.w3a-profile-button-morphable')
+      .waitFor({ state: 'visible', timeout: 120_000 });
     await lockWallet(ownerPage);
+    await ownerPage.reload({ waitUntil: 'domcontentloaded' });
     if (sourceFactor === 'passkey') {
       await unlockLinkedPasskeyWallet(ownerPage, ownerDiagnostics, profile);
     } else {
