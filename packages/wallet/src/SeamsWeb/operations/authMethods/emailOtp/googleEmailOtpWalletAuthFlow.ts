@@ -143,6 +143,7 @@ export type GoogleEmailOtpWalletAuthDeps = {
     walletAuthMethodId: string;
     email: string;
     providerSubjectId: string;
+    provider?: 'google' | 'email';
     challengeId: string;
     otpCode: string;
     relayUrl: string;
@@ -926,6 +927,11 @@ function createGoogleEmailOtpWalletLoginFlow(
             walletAuthMethodId: args.state.linkedEmailOtpSelection.walletAuthMethodId,
             email: args.state.emailHint,
             providerSubjectId: args.state.providerSubject,
+            /* The linked method being unlocked is the address-verified Email
+               enrollment installed by device linking, whatever provider
+               performed this login; its authority scope is anchored to the
+               email factor. */
+            provider: 'email',
             challengeId: args.challenge.challengeId,
             otpCode,
             relayUrl: relayerUrlFromInput({ deps, input: args.input }),
