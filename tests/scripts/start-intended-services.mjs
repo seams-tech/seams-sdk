@@ -96,7 +96,11 @@ const requiredSiteModuleGraphArtifacts = [
   'packages/wallet/dist/esm/react/index.js',
   'packages/wallet/dist/esm/react/styles/styles.css',
 ];
-await main().catch(failStartup);
+if (isMainModule()) await main().catch(failStartup);
+
+function isMainModule() {
+  return process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+}
 
 async function main() {
   assertLocalIntendedUrls();
@@ -785,19 +789,24 @@ async function failStartup(error) {
 async function shutdown(exitCode) {
   if (shutdownStarted) return;
   shutdownStarted = true;
-  await closeWebServerReadyServer();
-  const ownedDescendantPids = collectManagedDescendantPids();
-  for (const entry of [...managedChildren].reverse()) {
-    stopChild(entry);
+  try {
+    closeWebServerReadyServer();
+    const ownedDescendantPids = collectManagedDescendantPids();
+    for (const entry of [...managedChildren].reverse()) {
+      stopChild(entry);
+    }
+    terminateProcesses(ownedDescendantPids, 'SIGTERM');
+    await delay(1_500);
+    for (const entry of [...managedChildren].reverse()) {
+      forceStopChild(entry);
+    }
+    terminateProcesses(ownedDescendantPids, 'SIGKILL');
+  } catch (error) {
+    reportShutdownError('unexpected cleanup failure', error);
+  } finally {
+    releaseIntendedServicesLock();
+    process.exit(exitCode);
   }
-  terminateProcesses(ownedDescendantPids, 'SIGTERM');
-  await delay(1_500);
-  for (const entry of [...managedChildren].reverse()) {
-    forceStopChild(entry);
-  }
-  terminateProcesses(ownedDescendantPids, 'SIGKILL');
-  releaseIntendedServicesLock();
-  process.exit(exitCode);
 }
 
 async function acquireIntendedServicesLock() {
@@ -861,7 +870,11 @@ function isProcessRunning(pid) {
 
 function releaseIntendedServicesLock() {
   if (!ownsIntendedServicesLock) return;
-  rmSync(intendedServicesLockPath, { recursive: true, force: true });
+  try {
+    rmSync(intendedServicesLockPath, { recursive: true, force: true });
+  } catch (error) {
+    reportShutdownError('could not release the intended-services lock', error);
+  }
   ownsIntendedServicesLock = false;
 }
 
@@ -890,7 +903,29 @@ function killChild(child, signal, killAsGroup) {
     }
     child.kill(signal);
   } catch (error) {
-    if (error?.code !== 'ESRCH') throw error;
+    if (killAsGroup && error?.code === 'EPERM') {
+      killChildDirectly(child, signal);
+      return;
+    }
+    if (error?.code !== 'ESRCH') {
+      reportShutdownError(
+        `could not send ${signal} to managed process ${String(child.pid)}`,
+        error,
+      );
+    }
+  }
+}
+
+function killChildDirectly(child, signal) {
+  try {
+    child.kill(signal);
+  } catch (error) {
+    if (error?.code !== 'ESRCH') {
+      reportShutdownError(
+        `could not send ${signal} directly to managed process ${String(child.pid)}`,
+        error,
+      );
+    }
   }
 }
 
@@ -936,9 +971,16 @@ function terminateProcesses(pids, signal) {
     try {
       process.kill(pid, signal);
     } catch (error) {
-      if (error?.code !== 'ESRCH') throw error;
+      if (error?.code !== 'ESRCH') {
+        reportShutdownError(`could not send ${signal} to descendant ${String(pid)}`, error);
+      }
     }
   }
+}
+
+function reportShutdownError(action, error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[intended-services] teardown warning: ${action}: ${message}`);
 }
 
 function collectManagedProcessLeaks() {
@@ -1021,20 +1063,15 @@ function isDocsVitepressCommand(command) {
 }
 
 function closeWebServerReadyServer() {
-  return new Promise(resolveCloseWebServerReadyServer);
-}
-
-function resolveCloseWebServerReadyServer(resolve) {
-  if (!webServerReadyServer) {
-    resolve();
-    return;
+  if (!webServerReadyServer) return;
+  const server = webServerReadyServer;
+  webServerReadyServer = undefined;
+  try {
+    server.close();
+    server.closeAllConnections();
+  } catch (error) {
+    reportShutdownError('could not close the Playwright readiness server', error);
   }
-  webServerReadyServer.close(finishCloseWebServerReadyServer(resolve));
 }
 
-function finishCloseWebServerReadyServer(resolve) {
-  return function finishClose() {
-    webServerReadyServer = undefined;
-    resolve();
-  };
-}
+export { killChild, terminateProcesses };
