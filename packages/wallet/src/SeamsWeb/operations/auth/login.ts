@@ -2097,6 +2097,26 @@ async function assertPasskeyUnlockRuntimePostconditions(args: {
   });
 }
 
+async function markPasskeyLoginSelectionUnlocked(args: {
+  context: LoginWebContext;
+  walletIdentity: ResolvedLoginWalletIdentity;
+  credential: WebAuthnAuthenticationCredential;
+}): Promise<void> {
+  const credentialIdB64u = passkeyCredentialIdB64uFromAuthentication(args.credential);
+  if (!credentialIdB64u) {
+    throw new Error('[login] successful Passkey unlock omitted its credential identity');
+  }
+  const authority = await exactPasskeyWalletAuthAuthorityRefForCredential({
+    walletId: args.walletIdentity.walletId,
+    rpId: args.context.signingEngine.getRpId(),
+    credentialIdB64u,
+  });
+  await args.context.signingEngine.markWalletSelectionUnlocked({
+    walletId: args.walletIdentity.walletId,
+    walletAuthMethodId: authority.walletAuthMethodId,
+  });
+}
+
 function buildNearLoginUnlockAccountSubject(args: {
   userData: ClientUserData | null;
   walletId: WalletId;
@@ -4277,20 +4297,6 @@ async function unlockInternal(
           });
         }
       }
-      const authenticatedCredentialIdB64u =
-        passkeyCredentialIdB64uFromAuthentication(loginCredential);
-      if (!authenticatedCredentialIdB64u) {
-        throw new Error('[login] successful Passkey unlock omitted its credential identity');
-      }
-      const authenticatedAuthority = await exactPasskeyWalletAuthAuthorityRefForCredential({
-        walletId: walletIdentity.walletId,
-        rpId: signingEngine.getRpId(),
-        credentialIdB64u: authenticatedCredentialIdB64u,
-      });
-      await signingEngine.markWalletSelectionUnlocked({
-        walletId: walletIdentity.walletId,
-        walletAuthMethodId: authenticatedAuthority.walletAuthMethodId,
-      });
     };
 
     // Nonce recovery is best-effort; stale lane leases should not fail login.
@@ -4365,6 +4371,15 @@ async function unlockInternal(
       localWarmupRouteAuthorization = resolveLoginWarmupRouteAuthorization();
     }
 
+    if (!loginCredential) {
+      throw new Error('[login] successful Passkey unlock omitted its credential');
+    }
+    await markPasskeyLoginSelectionUnlocked({
+      context,
+      walletIdentity,
+      credential: loginCredential,
+    });
+
     // Warm threshold sessions with the authorization established above.
     if (requireThresholdWarmup) {
       const authMethodBinding = await readThresholdWarmupAuthMethodBinding({
@@ -4409,7 +4424,6 @@ async function unlockInternal(
         });
       }
     }
-
     await persistSuccessfulLoginState(baseSignerSlot);
     void recoverNonceLanesAfterUnlock();
 
