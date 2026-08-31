@@ -12,7 +12,7 @@ import {
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
-import { resolveWalletAuthorityOperation } from '@/core/signingEngine/session/authority';
+import { resolveWalletAuthorityOperation } from '@/core/signingEngine/session/public.ts';
 import {
   buildRouterAbEd25519SigningWalletSession,
   type RouterAbEd25519SigningWalletSession,
