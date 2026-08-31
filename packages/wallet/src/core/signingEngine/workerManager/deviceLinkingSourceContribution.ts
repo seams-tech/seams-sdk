@@ -1,4 +1,5 @@
 import type {
+  LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceEd25519SourceContributionPreparationV1,
   LinkedDeviceEcdsaSourceContributionPreparationV1,
   LinkedDeviceEcdsaSourceContributionV1,
@@ -9,18 +10,19 @@ import type { MpcMaterialActivationRef, WalletKeyId } from '@shared/utils/domain
 import { mpcMaterialActivationRefsEqual, parseWalletKeyId } from '@shared/utils/domainIds';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { base64UrlEncode } from '@shared/utils/base64';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseEcdsaThresholdKeyId } from '../session/keyMaterialBrands';
 import { deriveRouterAbEd25519YaoApplicationBindingDigestV1 } from '@shared/utils/routerAbEd25519Yao';
 import type { ActiveEcdsaCapabilityManifest } from '../session/material/ecdsaCapabilityManifest';
 import { prepareLinkedDeviceEcdsaSourceContributionWasm } from '../threshold/crypto/ecdsaDerivationClientWasm';
 import { openEd25519YaoLaneWorkerSourceFromUnlockedCapabilityV1 } from '../threshold/crypto/ed25519YaoLaneWasm';
 import type { WorkerOperationContext } from './executeWorkerOperation';
-import type {
-  DeviceLinkingEd25519SourceContributionPortV1,
-  DeviceLinkingSourceContributionPortV1,
-} from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
-import type { LinkSessionAuthenticationV1 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
+
+export type DeviceLinkingSourceRequestAuthenticationV1 = {
+  readonly kind: 'link_session_authenticated_request_v1';
+  readonly source: LinkedDeviceOwnerAuthorizationSourceV1;
+  readonly proofDigestB64u: DigestB64u;
+};
 
 export type DeviceLinkingEcdsaSourceContributionMetadataV1 = {
   readonly walletKeyId: WalletKeyId;
@@ -97,7 +99,7 @@ function walletKeyIdForActiveManifestV1(manifest: ActiveEcdsaCapabilityManifest)
 
 export type DeviceLinkingSourceContributionPortFactoryInputV1 = {
   readonly workerContext: WorkerOperationContext;
-  readonly ed25519: DeviceLinkingEd25519SourceContributionPortV1;
+  readonly ed25519: ReturnType<typeof createDeviceLinkingEd25519SourceContributionPortV1>;
   readonly readEcdsaMetadataV1: DeviceLinkingEcdsaSourceContributionMetadataReaderV1;
 };
 
@@ -108,13 +110,13 @@ export type DeviceLinkingEd25519SourceContributionPortFactoryInputV1 = {
     readonly sourceBinding: LinkedDeviceEd25519SourceContributionPreparationV1['sourceBinding'];
     readonly targetRequestJson: string;
     readonly participantIds: readonly [number, number];
-    readonly authentication: LinkSessionAuthenticationV1;
+    readonly authentication: DeviceLinkingSourceRequestAuthenticationV1;
   }) => Promise<unknown>;
 };
 
 export function createDeviceLinkingEd25519SourceContributionPortV1(
   input: DeviceLinkingEd25519SourceContributionPortFactoryInputV1,
-): DeviceLinkingEd25519SourceContributionPortV1 {
+) {
   return {
     produceSourceContributionV1: async ({ preparation, capability, authentication }) => {
       const source = await openEd25519YaoLaneWorkerSourceFromUnlockedCapabilityV1({
@@ -176,7 +178,7 @@ export function createDeviceLinkingEd25519SourceContributionPortV1(
 
 export function createDeviceLinkingSourceContributionPortV1(
   input: DeviceLinkingSourceContributionPortFactoryInputV1,
-): DeviceLinkingSourceContributionPortV1 {
+) {
   return {
     ed25519: input.ed25519,
     ecdsa: {

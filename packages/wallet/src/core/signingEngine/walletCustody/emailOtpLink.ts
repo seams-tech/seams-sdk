@@ -35,9 +35,18 @@ import {
   type AddAuthMethodAuth,
   type WalletAddAuthMethodAuthority,
 } from '@/core/rpcClients/relayer/walletRegistration';
-import type { RegistrationWebContext } from '@/SeamsWeb/signingSurface/types';
 import type { WalletCustodyCeremonyTransportPort } from './ceremonyStepRunner';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
+  PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult,
+} from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
+
+export type EmailOtpCustodyEnrollmentPreparationPort = {
+  prepareEmailOtpRegistrationEnrollmentMaterialInternal(
+    args: PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
+  ): Promise<PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult>;
+};
 
 function requireResealedEnvelope(value: unknown): {
   readonly nonceB64u: EnvelopeNonceB64u;
@@ -65,7 +74,9 @@ function requireResealedEnvelope(value: unknown): {
 
 /** Complete add-email-code custody linking from the browser boundary. */
 export async function linkWalletEmailOtpCustody(input: {
-  readonly context: RegistrationWebContext;
+  readonly context: {
+    readonly signingEngine: EmailOtpCustodyEnrollmentPreparationPort;
+  };
   readonly relayerUrl: string;
   readonly walletId: Parameters<typeof startWalletAddAuthMethod>[0]['walletId'];
   readonly addAuthMethodIntentGrant: Parameters<
@@ -106,11 +117,7 @@ export async function linkWalletEmailOtpCustody(input: {
   /* Copied before the preparer runs: it seals and then zeroes what it is given,
      and this same secret has to seal the envelope afterwards. */
   const replacementFactorSecret = clientSecret32.slice();
-  let enrollment: Awaited<
-    ReturnType<
-      RegistrationWebContext['signingEngine']['prepareEmailOtpRegistrationEnrollmentMaterialInternal']
-    >
-  >;
+  let enrollment: PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult;
   try {
     enrollment =
       await input.context.signingEngine.prepareEmailOtpRegistrationEnrollmentMaterialInternal({
