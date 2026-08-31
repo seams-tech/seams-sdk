@@ -2015,25 +2015,39 @@ class IntendedPageController {
     const url = emailOtpDevOutboxUrl({
       relayerUrl: requireRelayerUrl(this.seams.configs.network.relayer?.url),
     });
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        idToken,
-        walletId,
-        ...(lookup.kind === 'challenge' ? { challengeId: lookup.challengeId } : {}),
-        /* Only alongside the exact challenge. The route refuses a named subject
-           without one, so the fallback lookup stays on the token's identity. */
-        ...(lookup.kind === 'challenge' && intendedEmailOtpChallengeSubjectOverride
-          ? { challengeSubjectId: intendedEmailOtpChallengeSubjectOverride }
-          : {}),
-      }),
-    });
-    const json = await response.json();
-    const outbox = parseEmailOtpOutboxSuccess(json);
-    return outbox.otpCode;
+    const readOutbox = async (challengeSubjectId: string | null): Promise<string> => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          idToken,
+          walletId,
+          ...(lookup.kind === 'challenge' ? { challengeId: lookup.challengeId } : {}),
+          /* Only alongside the exact challenge. The route refuses a named
+             subject without one, so the fallback lookup stays on the token's
+             identity. */
+          ...(lookup.kind === 'challenge' && challengeSubjectId
+            ? { challengeSubjectId }
+            : {}),
+        }),
+      });
+      const json = await response.json();
+      return parseEmailOtpOutboxSuccess(json).otpCode;
+    };
+    if (lookup.kind === 'challenge' && intendedEmailOtpChallengeSubjectOverride) {
+      /* The override names the derived address an added Email OTP method
+         challenges under. A method that reuses the founding Google enrollment
+         (a recovery-installed method) challenges under the Google subject, so
+         the same lookup falls back to the token's identity. */
+      try {
+        return await readOutbox(intendedEmailOtpChallengeSubjectOverride);
+      } catch {
+        return await readOutbox(null);
+      }
+    }
+    return await readOutbox(null);
   };
 
   private async signTempoTransactionWithPublicSdk(): Promise<TempoSigningResultSummary> {
