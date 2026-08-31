@@ -74,6 +74,7 @@ import {
   type ActiveWalletAuthorityEcdsaRuntimeV1,
 } from '../../session/material/activeWalletAuthorityEcdsaRuntime';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { ExactWalletSessionReadPorts } from '../../session/identity/exactWalletSessionCredential';
 
 type ExportedKeySchemes = Array<'secp256k1'>;
 type EcdsaExportArtifact = {
@@ -83,6 +84,7 @@ type EcdsaExportArtifact = {
 };
 
 export type EcdsaExportFlowDeps = {
+  activeWalletAuthorityEcdsaRuntimeReadPorts: ExactWalletSessionReadPorts;
   sessionStore: EcdsaExportSessionStoreDeps;
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'initialize' | 'requestUserConfirmation'>;
   theme?: ThemeMode;
@@ -274,6 +276,7 @@ async function prepareAndShowEcdsaExportArtifact(
             throw new Error('[SigningEngine][ecdsa-export] active runtime is missing');
           }
           await assertActiveWalletAuthorityEcdsaRuntimeStillActive({
+            ports: deps.activeWalletAuthorityEcdsaRuntimeReadPorts,
             expectedRuntime: activeRuntime,
           });
         } else if (args.exportLane.authMethod === 'email_otp') {
@@ -512,12 +515,16 @@ function assertActiveWalletAuthorityEcdsaRuntimeIdentity(args: {
 }
 
 async function resolveFreshActiveWalletAuthorityEcdsaRuntime(args: {
+  readonly ports: ExactWalletSessionReadPorts;
   readonly expectedRuntime: ActiveWalletAuthorityEcdsaRuntimeV1;
 }): Promise<ActiveWalletAuthorityEcdsaRuntimeV1> {
   const resolution = await resolveActiveWalletAuthorityEcdsaRuntimeV1({
-    walletId: args.expectedRuntime.walletId,
-    requiredCapability: 'export_keys',
-    materialActivation: args.expectedRuntime.materialActivation,
+    ports: args.ports,
+    input: {
+      walletId: args.expectedRuntime.walletId,
+      requiredCapability: 'export_keys',
+      materialActivation: args.expectedRuntime.materialActivation,
+    },
   });
   if (resolution.kind !== 'resolved') {
     throw new Error(
@@ -532,6 +539,7 @@ async function resolveFreshActiveWalletAuthorityEcdsaRuntime(args: {
 }
 
 async function assertActiveWalletAuthorityEcdsaRuntimeStillActive(args: {
+  readonly ports: ExactWalletSessionReadPorts;
   readonly expectedRuntime: ActiveWalletAuthorityEcdsaRuntimeV1;
 }): Promise<void> {
   await resolveFreshActiveWalletAuthorityEcdsaRuntime(args);
@@ -799,6 +807,7 @@ async function prepareActiveWalletAuthorityPasskeyEcdsaExport(args: {
     },
   );
   const runtime = await resolveFreshActiveWalletAuthorityEcdsaRuntime({
+    ports: args.deps.activeWalletAuthorityEcdsaRuntimeReadPorts,
     expectedRuntime: args.material.runtime,
   });
   if (!isPasskeyWalletAuthAuthority(runtime.factorAuthority)) {
@@ -870,6 +879,7 @@ async function prepareActiveWalletAuthorityEmailOtpEcdsaExport(args: {
     },
   );
   const runtime = await resolveFreshActiveWalletAuthorityEcdsaRuntime({
+    ports: args.deps.activeWalletAuthorityEcdsaRuntimeReadPorts,
     expectedRuntime: args.material.runtime,
   });
   if (!isEmailOtpWalletAuthAuthority(runtime.factorAuthority)) {
@@ -966,6 +976,7 @@ export async function exportThresholdEcdsaKeyWithActiveWalletAuthority(
     onEvent: args.onEvent,
     prepareArtifact: async () => {
       const runtime = await resolveFreshActiveWalletAuthorityEcdsaRuntime({
+        ports: deps.activeWalletAuthorityEcdsaRuntimeReadPorts,
         expectedRuntime: prepared.runtime,
       });
       return await exportActiveWalletAuthorityEcdsaHolderKey(

@@ -131,6 +131,13 @@ test('active Wallet Authority V2 ECDSA runtime projects to a deferred lane candi
   const originalReadExactWithOperationCredential =
     walletSessionAuthorizations.readExactWithOperationCredential;
   const originalGetWalletPasskeyAuthenticator = IndexedDBManager.getWalletPasskeyAuthenticator;
+  const runtimeReadPorts = {
+    resolveSelectedWalletAuthority: (walletId: string) =>
+      IndexedDBManager.resolveSelectedWalletAuthority(walletId),
+    readExactWithOperationCredential: (
+      input: Parameters<typeof walletSessionAuthorizations.readExactWithOperationCredential>[0],
+    ) => walletSessionAuthorizations.readExactWithOperationCredential(input),
+  };
   const chainTarget = {
     kind: 'evm' as const,
     namespace: 'eip155' as const,
@@ -168,8 +175,11 @@ test('active Wallet Authority V2 ECDSA runtime projects to a deferred lane candi
 
   try {
     const resolved = await resolveActiveWalletAuthorityEcdsaRuntimeV1({
-      walletId: fixture.walletId,
-      chainTarget,
+      ports: runtimeReadPorts,
+      input: {
+        walletId: fixture.walletId,
+        chainTarget,
+      },
     });
     expect(resolved.kind).toBe('resolved');
     if (resolved.kind !== 'resolved' || !resolved.lane) throw new Error('runtime did not resolve');
@@ -229,8 +239,11 @@ test('active Wallet Authority V2 ECDSA runtime projects to a deferred lane candi
       exportRoot: null,
     });
     const absentMaterial = await resolveActiveWalletAuthorityEcdsaRuntimeV1({
-      walletId: fixture.walletId,
-      chainTarget,
+      ports: runtimeReadPorts,
+      input: {
+        walletId: fixture.walletId,
+        chainTarget,
+      },
     });
     expect(absentMaterial).toMatchObject({
       kind: 'blocked',
@@ -251,8 +264,11 @@ test('active Wallet Authority V2 ECDSA runtime projects to a deferred lane candi
       'worker:linked-runtime',
     );
     const activationMismatch = await resolveActiveWalletAuthorityEcdsaRuntimeV1({
-      walletId: fixture.walletId,
-      materialActivation: mismatchedActivation,
+      ports: runtimeReadPorts,
+      input: {
+        walletId: fixture.walletId,
+        materialActivation: mismatchedActivation,
+      },
     });
     expect(activationMismatch).toMatchObject({
       kind: 'blocked',
@@ -271,7 +287,8 @@ test('active Wallet Authority V2 ECDSA runtime projects to a deferred lane candi
       exportRoot: null,
     });
     const authMethodMismatch = await resolveActiveWalletAuthorityEcdsaRuntimeV1({
-      walletId: fixture.walletId,
+      ports: runtimeReadPorts,
+      input: { walletId: fixture.walletId },
     });
     expect(authMethodMismatch).toMatchObject({
       kind: 'blocked',

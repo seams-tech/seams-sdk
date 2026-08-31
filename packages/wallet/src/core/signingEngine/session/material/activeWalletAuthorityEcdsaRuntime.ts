@@ -1,6 +1,4 @@
-import { IndexedDBManager } from '@/core/indexedDB';
 import {
-  walletSessionAuthorizations,
   type ActiveWalletSessionV1,
   type WalletSessionOperationCredentialV1,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -64,6 +62,7 @@ import {
 import { bytesToHex } from '@/core/signingEngine/chains/evm/bytes';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { computeEcdsaDerivationRoleLocalRelayerKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import type { ExactWalletSessionReadPorts } from '../identity/exactWalletSessionCredential';
 
 type ActiveWalletAuthorityEcdsaAuth =
   | {
@@ -221,7 +220,7 @@ function activeAuthorityEcdsaActivation(
 }
 
 function exactAuthorityResolution(
-  value: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>,
+  value: Awaited<ReturnType<ExactWalletSessionReadPorts['resolveSelectedWalletAuthority']>>,
 ): ResolvedSelectedWalletAuthority | ActiveWalletAuthorityEcdsaRuntimeResolution {
   if (value.kind !== 'resolved') {
     switch (value.kind) {
@@ -558,22 +557,28 @@ function projectActiveRuntime(args: {
 }
 
 export async function resolveActiveWalletAuthorityEcdsaRuntimeV1(
-  args: ResolveActiveWalletAuthorityEcdsaRuntimeV1Input,
+  args: {
+    readonly input: ResolveActiveWalletAuthorityEcdsaRuntimeV1Input;
+    readonly ports: ExactWalletSessionReadPorts;
+  },
 ): Promise<ActiveWalletAuthorityEcdsaRuntimeResolution> {
-  const requiredCapability = args.requiredCapability || 'sign';
-  const nowMs = Math.floor(Number(args.nowMs) || Date.now());
+  const { input, ports } = args;
+  const requiredCapability = input.requiredCapability || 'sign';
+  const nowMs = Math.floor(Number(input.nowMs) || Date.now());
   let walletId: WalletId;
   try {
-    walletId = toWalletId(args.walletId);
+    walletId = toWalletId(input.walletId);
   } catch (error: unknown) {
     return blocked(
       'invalid_selected_authority',
       error instanceof Error ? error.message : String(error),
     );
   }
-  let selectedResult: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
+  let selectedResult: Awaited<
+    ReturnType<ExactWalletSessionReadPorts['resolveSelectedWalletAuthority']>
+  >;
   try {
-    selectedResult = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+    selectedResult = await ports.resolveSelectedWalletAuthority(String(walletId));
   } catch (error: unknown) {
     return blocked(
       'persistence_unavailable',
@@ -587,8 +592,8 @@ export async function resolveActiveWalletAuthorityEcdsaRuntimeV1(
   const signer = ecdsaActivation.ecdsa.signer;
   const materialActivation = ecdsaActivation.ecdsa.materialActivation;
   if (
-    args.materialActivation &&
-    !mpcMaterialActivationRefsEqual(args.materialActivation, materialActivation)
+    input.materialActivation &&
+    !mpcMaterialActivationRefsEqual(input.materialActivation, materialActivation)
   ) {
     return blocked('authority_identity_mismatch');
   }
@@ -623,10 +628,10 @@ export async function resolveActiveWalletAuthorityEcdsaRuntimeV1(
   });
   if (!holderRuntime) return blocked('holder_runtime_identity_mismatch');
   let sessionWithCredential: Awaited<
-    ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
+    ReturnType<ExactWalletSessionReadPorts['readExactWithOperationCredential']>
   >;
   try {
-    sessionWithCredential = await walletSessionAuthorizations.readExactWithOperationCredential({
+    sessionWithCredential = await ports.readExactWithOperationCredential({
       walletId,
       authorityId: selected.authority.authorityId,
       authMethodId: selected.authMethod.walletAuthMethodId,
@@ -677,6 +682,6 @@ export async function resolveActiveWalletAuthorityEcdsaRuntimeV1(
   return {
     kind: 'resolved',
     runtime,
-    lane: projectActiveRuntime({ runtime, chainTarget: args.chainTarget }),
+    lane: projectActiveRuntime({ runtime, chainTarget: input.chainTarget }),
   };
 }

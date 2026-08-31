@@ -1232,6 +1232,14 @@ export function createBrowserSigningSurfaceEnginePorts(
     readAvailableSigningLanesForSigning: async (readArgs) =>
       readPersistedAvailableSigningLanesForSigningOperation(
         {
+          activeWalletAuthorityEcdsaRuntimeReadPorts: {
+            resolveSelectedWalletAuthority:
+              IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
+            readExactWithOperationCredential:
+              walletSessionAuthorizations.readExactWithOperationCredential.bind(
+                walletSessionAuthorizations,
+              ),
+          },
           ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityReferences,
           isEd25519YaoPublicCapabilityActive: (reference) => {
             switch (reference.auth.kind) {
