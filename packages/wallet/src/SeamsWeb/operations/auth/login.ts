@@ -6542,8 +6542,11 @@ export async function getWalletSession(
   let authentication: WalletAuthenticationState = { kind: 'signed_out' };
   switch (restoredAuthenticationRead.kind) {
     case 'authenticated':
-      authentication = restoredAuthenticationRead.state;
-      context.signingEngine.setWalletAuthenticated(authentication);
+      if (
+        await setRestoredWalletAuthenticationIfUnlocked(context, restoredAuthenticationRead.state)
+      ) {
+        authentication = restoredAuthenticationRead.state;
+      }
       break;
     case 'missing':
       break;
@@ -6558,6 +6561,34 @@ export async function getWalletSession(
     capabilityProjection,
     nonceDiagnostics: readWalletSessionNonceDiagnostics(context, appIdentity.nearAccountId),
   };
+}
+
+/**
+ * A restore read races the user's lock: the read observes an unlocked
+ * selection, the lock lands while its network validation runs, and the stale
+ * result would re-authenticate a wallet the user just locked. Re-checking the
+ * durable lock right before the runtime write keeps the lock decisive over
+ * any in-flight restore.
+ */
+async function setRestoredWalletAuthenticationIfUnlocked(
+  context: {
+    readonly signingEngine: Pick<
+      WalletSessionWebContext['signingEngine'],
+      'setWalletAuthenticated'
+    >;
+  },
+  state: Extract<WalletAuthenticationState, { readonly kind: 'authenticated' }>,
+): Promise<boolean> {
+  let lockedOut = false;
+  try {
+    const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(state.walletId));
+    lockedOut = selected.kind !== 'resolved' || selected.selection.lockState !== 'unlocked';
+  } catch {
+    lockedOut = true;
+  }
+  if (lockedOut) return false;
+  context.signingEngine.setWalletAuthenticated(state);
+  return true;
 }
 
 async function buildCapabilityUnresolvableWalletSession(args: {
@@ -6575,8 +6606,11 @@ async function buildCapabilityUnresolvableWalletSession(args: {
   let authentication: WalletAuthenticationState = { kind: 'signed_out' };
   switch (exactAuthenticationRead.kind) {
     case 'authenticated':
-      authentication = exactAuthenticationRead.state;
-      args.context.signingEngine.setWalletAuthenticated(authentication);
+      if (
+        await setRestoredWalletAuthenticationIfUnlocked(args.context, exactAuthenticationRead.state)
+      ) {
+        authentication = exactAuthenticationRead.state;
+      }
       break;
     case 'missing':
       break;
