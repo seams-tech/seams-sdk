@@ -5654,6 +5654,7 @@ function parseRecoveryRequestIdentity(
       `Recovery finalization request kind ${String(body.kind)} does not equal ${capture.kind}`,
     );
   }
+  assertCredentialFreeRecoveryReplayBody(capture, body);
   const requestedWalletId = optionalRecoveryRequestString(body, 'walletId');
   if (requestedWalletId !== null && requestedWalletId !== capture.walletId) {
     throw new Error('Recovery finalization request changed its wallet identity');
@@ -5685,6 +5686,37 @@ function parseRecoveryRequestIdentity(
     targetWalletAuthMethodId,
     replacementId: optionalRecoveryRequestString(body, 'replacementId'),
   };
+}
+
+function assertCredentialFreeRecoveryReplayBody(
+  capture: RecoveryRequestCapture,
+  body: Record<string, unknown>,
+): void {
+  if (capture.kind !== 'replay') return;
+  const expectedFields =
+    capture.target === 'passkey'
+      ? [
+          'kind',
+          'walletId',
+          'reservationId',
+          'recoveryOperationId',
+          'targetDeviceId',
+          'targetAuthorityId',
+          'targetWalletAuthMethodId',
+          'replacementId',
+          'replacementEnvelope',
+        ]
+      : ['kind', 'recoveryOperationId', 'reservationId', 'replacementEnvelope'];
+  const actualFields = Object.keys(body).sort();
+  const sortedExpectedFields = expectedFields.slice().sort();
+  if (
+    actualFields.length !== sortedExpectedFields.length ||
+    actualFields.some((field, index) => field !== sortedExpectedFields[index])
+  ) {
+    throw new Error(
+      `${capture.target} recovery replay must be credential-free and use its exact request shape`,
+    );
+  }
 }
 
 function captureRecoveryRequest(capture: RecoveryRequestCapture, request: Request): void {
