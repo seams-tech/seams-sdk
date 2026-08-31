@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.playwright.json",
-  "include": ["e2e/intended-behaviours/**/*.ts"],
+  "include": ["e2e/intended-behaviours/**/*.ts", "e2e/linked-device.operating-path.test.ts"],
   "exclude": ["node_modules", "playwright-report", "test-results"]
 }
