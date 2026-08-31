@@ -1756,13 +1756,13 @@ function resolveLoginEd25519ProvisionScope(args: {
   };
 }
 
-type IssuedPasskeyUnlockEd25519Session = Extract<
+type PasskeyUnlockEd25519Connection = Omit<
   PasskeyWalletUnlockEd25519Session,
-  { readonly sessionKind: 'issued_exact_wallet_session' }
->;
-
-type PasskeyUnlockEd25519Connection = IssuedPasskeyUnlockEd25519Session & {
+  'sessionKind' | 'operationCredential'
+> & {
   readonly ok: true;
+  readonly sessionKind: PasskeyWalletUnlockEd25519Session['sessionKind'];
+  readonly operationCredential: WalletSessionOperationCredentialV1;
   readonly passkeyPrfFirstB64u: string;
   readonly code?: never;
   readonly message?: never;
@@ -1780,6 +1780,7 @@ function passkeyUnlockEd25519Connection(args: {
   readonly provisionScope: LoginEd25519ProvisionScope;
   readonly credential: WebAuthnAuthenticationCredential | undefined;
   readonly remainingUses: number;
+  readonly unlockAuthorization: ExactWalletSessionAuthorization | null;
 }): PasskeyUnlockEd25519Connection {
   const session = args.session;
   const custody = args.custody.ed25519;
@@ -1810,10 +1811,32 @@ function passkeyUnlockEd25519Connection(args: {
         throw new Error('[login] verified unlock returned a mismatched Ed25519 credential');
       }
       return { ok: true, ...session, passkeyPrfFirstB64u };
-    case 'already_committed_exact_wallet_session':
-      throw new Error(
-        '[login] verified unlock reused an Ed25519 Wallet Session; exact-method unlock is required',
-      );
+    case 'already_committed_exact_wallet_session': {
+      /* The pre-issued exact session was committed before verification, so its
+         credential arrives as the response's top-level Wallet Session
+         authorization rather than on the Ed25519 session record. */
+      const authorization = args.unlockAuthorization;
+      if (!authorization) {
+        throw new Error(
+          '[login] verified unlock reused an Ed25519 Wallet Session without its authorization',
+        );
+      }
+      if (
+        authorization.operationCredential.walletSessionId !== session.walletSessionId ||
+        authorization.record.walletId !== session.walletId ||
+        authorization.record.authorizationId !== session.authorizationId ||
+        authorization.record.quotaId !== session.quotaId ||
+        authorization.record.expiresAtMs !== session.expiresAtMs
+      ) {
+        throw new Error('[login] verified unlock reused a mismatched Ed25519 Wallet Session');
+      }
+      return {
+        ok: true,
+        ...session,
+        operationCredential: authorization.operationCredential,
+        passkeyPrfFirstB64u,
+      };
+    }
     default:
       return assertNeverLoginState(session);
   }
@@ -4028,6 +4051,7 @@ async function unlockInternal(
     let completedPasskeyExchangeEcdsaActivation: CompletedPasskeyExchangeEcdsaActivation | null =
       null;
     let completedPasskeyEd25519Session: PasskeyWalletUnlockEd25519Session | null = null;
+    let completedPasskeyWalletSessionAuthorization: ExactWalletSessionAuthorization | null = null;
     let completedPasskeySessionCustody: PasskeySessionCustodyUnlockV1 | null = null;
     let localWarmupRouteAuthorization = resolveLoginWarmupRouteAuthorization();
     let warmupPhase: ThresholdLoginWarmupPhaseResult | null = null;
@@ -4246,6 +4270,7 @@ async function unlockInternal(
         routeAuthorization: warmupInput.routeAuthorization,
         passkeyExchangeEcdsaActivation: passkeyExchangeEcdsaActivationForWarmup,
         passkeyUnlockEd25519Session: completedPasskeyEd25519Session,
+        passkeyUnlockWalletSessionAuthorization: completedPasskeyWalletSessionAuthorization,
       });
 
       // Successful provisioning has already sealed and activated the exact Ed25519 session.
@@ -4391,6 +4416,8 @@ async function unlockInternal(
       loginCredential = completedUnlock.credential;
       completedPasskeyExchangeEcdsaActivation = completedUnlock.activation;
       completedPasskeyEd25519Session = completedUnlock.result.ed25519Session;
+      completedPasskeyWalletSessionAuthorization =
+        completedUnlock.result.walletSessionAuthorization ?? null;
       completedPasskeySessionCustody = completedUnlock.custody;
       await rememberPasskeySessionCustodyForExport({
         walletId: String(walletIdentity.walletId),
@@ -5975,6 +6002,7 @@ async function primeThresholdLoginWarmSigners(args: {
   routeAuthorization: LoginWarmupRouteAuthorization;
   passkeyExchangeEcdsaActivation: CompletedPasskeyExchangeEcdsaActivation | null;
   passkeyUnlockEd25519Session: PasskeyWalletUnlockEd25519Session | null;
+  passkeyUnlockWalletSessionAuthorization: ExactWalletSessionAuthorization | null;
 }): Promise<ThresholdLoginWarmupResult> {
   const signersToWarm = buildThresholdLoginWarmSignerSelection(args.signersToWarm);
   const credential =
@@ -6107,6 +6135,7 @@ async function primeThresholdLoginWarmSigners(args: {
               provisionScope,
               credential,
               remainingUses: unlockRemainingUses,
+              unlockAuthorization: args.passkeyUnlockWalletSessionAuthorization,
             });
             break;
           default:
