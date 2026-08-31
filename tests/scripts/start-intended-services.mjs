@@ -124,8 +124,6 @@ async function main() {
   prepareD1LocalWranglerRuntimeConfig();
   applyD1LocalMigrations();
 
-  const site = startSite();
-  await waitForHttpOk(siteViteUrl, 'site Vite', 120_000);
   startCaddy();
   const router = startRouter();
   await waitForHttpOk(`${routerUrl}/healthz`, 'router healthz', 180_000);
@@ -133,6 +131,8 @@ async function main() {
   await waitForHttpOk(`${routerUrl}/console/readyz`, 'console readyz', 180_000);
   seedLocalConsole();
 
+  const site = startSite();
+  await waitForHttpOk(siteViteUrl, 'site Vite', 120_000);
   const consoleApp = startConsole();
   await waitForHttpOk(appUrl, 'site', 120_000);
   await waitForHttpOk(consoleStaticUrl, 'console frontend', 120_000);
