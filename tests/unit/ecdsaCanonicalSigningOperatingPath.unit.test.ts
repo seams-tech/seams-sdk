@@ -11,12 +11,16 @@ import {
   ecdsaOperationDigestSetFixture,
   ecdsaOperationStepUpAuthorizationFixture,
   evmFamilyThresholdEcdsaOperationFixture,
+  evmFamilyThresholdEcdsaStepUpRuntimeFixture,
   hydratedEcdsaSigningMaterialFixture,
   installEcdsaNormalSigningEndpointFixture,
   RecordingEcdsaRehydrationWorker,
   type EcdsaFixtureFactor,
 } from './helpers/ecdsaOperationStepUp.fixtures';
-import { canonicalEvmFamilyEcdsaSigningCapabilityFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
+import {
+  canonicalEvmFamilyEcdsaSigningCapabilityFixture,
+  walletSessionRefFixture,
+} from './helpers/ecdsaCapabilityManifest.fixtures';
 import {
   buildEmailOtpInactiveEcdsaMaterialRecordFixture,
   buildPasskeyInactiveEcdsaMaterialRecordFixture,
@@ -38,6 +42,23 @@ import {
   EcdsaOnlineClientRequestType,
   EcdsaPresignClientRequestType,
 } from '@/core/signingEngine/workerManager/workerTypes';
+import { prepareEvmFamilyEcdsaSigningSession } from '@/core/signingEngine/flows/signEvmFamily/preparedSigning';
+import { resolveEvmFamilyTransactionStepUp } from '@/core/signingEngine/flows/signEvmFamily/authPlanning';
+import {
+  SigningOperationIntent,
+  SigningSessionIds,
+} from '@/core/signingEngine/session/operationState/types';
+import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
+import {
+  AVAILABLE_LANES_TEMPO_TARGET,
+  AVAILABLE_LANES_WALLET_ID,
+  canonicalEcdsaAvailableLane,
+  canonicalEcdsaOwnerLaneScopeFixture,
+  readAvailableLanesFixture,
+} from './helpers/availableSigningLanes.fixtures';
+import type { EmailOtpEcdsaChallengeAuthority } from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
+import { requireEvmFamilyStepUpAuth } from '@/core/signingEngine/flows/signEvmFamily/requireEvmFamilyStepUpAuth';
+import { buildEvmFamilyWarmSessionStepUpAuthorization } from '@/core/signingEngine/flows/signEvmFamily/stepUpAuthorization';
 
 // The canonical normal-signing path at its two boundaries -- hydration and
 // operation step-up. Manifest plus exact durable runtime facts resolve the material,
@@ -157,6 +178,140 @@ for (const factor of ['passkey', 'email_otp'] as const) {
     expect(resolution.material.walletSessionJwt).toBeUndefined();
   });
 }
+
+test('post-registration Email OTP Tempo preparation preserves direct capability authorization', async () => {
+  const record = canonicalEcdsaAvailableLane({
+    walletId: AVAILABLE_LANES_WALLET_ID,
+    chainTarget: AVAILABLE_LANES_TEMPO_TARGET,
+    thresholdOwnerAddress: `0x${'31'.repeat(20)}`,
+    authMethod: 'email_otp',
+    ecdsaThresholdKeyId: 'post-registration-email-otp',
+    runtimeKind: 'direct_capability',
+  });
+  const authorization = record.authorization;
+  if (!authorization) throw new Error('direct Email OTP fixture requires authorization');
+  const availableLanes = await readAvailableLanesFixture({
+    walletId: AVAILABLE_LANES_WALLET_ID,
+    ecdsaChainTargets: [AVAILABLE_LANES_TEMPO_TARGET],
+    canonicalEcdsaLanes: [record],
+  });
+  const operationId = SigningSessionIds.signingOperation('post-registration-email-otp-tempo');
+  const prepared = await prepareEvmFamilyEcdsaSigningSession({
+    deps: {
+      resolveOwnerLaneScope: async () => canonicalEcdsaOwnerLaneScopeFixture(record),
+      readAvailableSigningLanesForSigning: async () => availableLanes,
+      resolveDurableEmailOtpEcdsaSigningSessionAuthority: async () => authorization,
+      resolveCanonicalEcdsaSigningCapability: async () => record.capability,
+      walletSignerStore: {
+        getActiveWalletSignerForChainTarget: async () => null,
+        listActiveWalletSigners: async () => [],
+      },
+    },
+    walletSession: walletSessionRefFixture(AVAILABLE_LANES_WALLET_ID),
+    signingTarget: AVAILABLE_LANES_TEMPO_TARGET,
+    signingOperation: {
+      operationId,
+      intent: SigningOperationIntent.TransactionSign,
+    },
+    diagnostics: {},
+    signingSessionCoordinator: new SigningSessionCoordinator({}),
+  });
+
+  expect(prepared.kind).toBe('authorized');
+  if (prepared.kind !== 'authorized') throw new Error('expected direct authorized preparation');
+  const committed = prepared.selection.committedLane;
+  expect(committed.authorization).toBe(authorization);
+  expect(committed.authorization.session).toBe(authorization.session);
+  expect(committed.authorization.operationCredential).toBe(authorization.operationCredential);
+  expect(committed.authorization.runtime).toBe(authorization.runtime);
+  expect(committed.authorization.runtime.kind).toBe('exact_ecdsa_direct_capability_runtime_v1');
+  expect(committed.authorization.runtime.sealedRecord).toBeUndefined();
+  expect(committed.authLane).toBeUndefined();
+  expect(committed.lane.materialActivation).toEqual(record.materialActivation);
+
+  const challengeAuthorities: EmailOtpEcdsaChallengeAuthority[] = [];
+  const operationFingerprintDigest = operationDigests.intentDigest;
+  const admission = await resolveEvmFamilyTransactionStepUp({
+    confirmedDeps: {
+      requestEmailOtpTransactionSigningChallenge: async (args) => {
+        challengeAuthorities.push(args.authority);
+        return {
+          challengeId: 'post-registration-direct-capability',
+          emailHint: 'a***@example.test',
+          delivery: {
+            kind: 'provider',
+            status: 'sent',
+            emailHint: 'a***@example.test',
+          },
+        };
+      },
+    },
+    walletSession: walletSessionRefFixture(AVAILABLE_LANES_WALLET_ID),
+    chain: 'tempo',
+    chainTarget: AVAILABLE_LANES_TEMPO_TARGET,
+    accountAuth: prepared.accountAuth,
+    operationFingerprintDigest,
+    senderSignatureAlgorithm: 'secp256k1',
+    ecdsaAuthorization: 'reusable_wallet_session',
+    preparedOperation: prepared.preparedOperation,
+  });
+  expect(admission.signingAuthPlan.kind).toBe('warmSession');
+  if (
+    admission.signingAuthPlan.kind !== 'warmSession' ||
+    admission.signingAuthPlan.curve !== 'ecdsa'
+  ) {
+    throw new Error('expected exact ECDSA warm authorization');
+  }
+  expect(admission.signingAuthPlan.authorization).toBe(authorization);
+  expect(admission.signingAuthPlan.authorization.session).toBe(authorization.session);
+  expect(admission.signingAuthPlan.authorization.operationCredential).toBe(
+    authorization.operationCredential,
+  );
+  expect(admission.signingAuthPlan.authorization.runtime).toBe(authorization.runtime);
+  expect(admission.signingAuthPlan.materialActivation).toEqual(record.materialActivation);
+  expect('thresholdSessionId' in admission.signingAuthPlan).toBe(false);
+  expect(admission.emailOtpSigning).toBeUndefined();
+  expect(challengeAuthorities).toHaveLength(0);
+
+  const preparedAdmission = await requireEvmFamilyStepUpAuth({
+    thresholdEcdsaStepUp: {
+      kind: 'required',
+      authPlan: {
+        kind: 'planned',
+        signingAuthPlan: admission.signingAuthPlan,
+      },
+      operation: {
+        intent: prepared.transactionOperation.intent,
+        authPlan: admission.signingAuthPlan,
+      },
+      runtime: evmFamilyThresholdEcdsaStepUpRuntimeFixture({
+        reusableAuthorization: { kind: 'active' },
+      }),
+    },
+    hasThresholdEcdsaRequest: true,
+    needsWebAuthn: false,
+    requiredSignatureUses: 1,
+    explicitAuthErrorLabel: 'Tempo',
+  });
+  expect(preparedAdmission.kind).toBe('warm_session');
+  if (preparedAdmission.kind !== 'warm_session') {
+    throw new Error('expected ECDSA warm-session admission');
+  }
+  expect(preparedAdmission.confirmationAuthPayload.signingAuthPlan).toBe(
+    admission.signingAuthPlan,
+  );
+  expect(
+    'thresholdSessionId' in preparedAdmission.confirmationAuthPayload.signingAuthPlan,
+  ).toBe(false);
+
+  const stepUpAuthorization = buildEvmFamilyWarmSessionStepUpAuthorization({
+    signingAuthPlan: preparedAdmission.confirmationAuthPayload.signingAuthPlan,
+  });
+  expect(stepUpAuthorization.authorization).toBe(authorization);
+  expect(stepUpAuthorization.materialActivation).toBe(admission.signingAuthPlan.materialActivation);
+  expect(stepUpAuthorization.materialActivation).toEqual(record.materialActivation);
+  expect('thresholdSessionId' in stepUpAuthorization).toBe(false);
+});
 
 test('inactive ECDSA hydration binds the worker and signs the exact authorized operation', async () => {
   clearAllRouterAbEcdsaDerivationClientPresignatures();

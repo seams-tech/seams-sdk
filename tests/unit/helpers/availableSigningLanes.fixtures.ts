@@ -12,6 +12,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
 import {
+  buildExactEcdsaDirectCapabilityRuntime,
   buildExactEvmFamilyWalletSessionAuthorization,
   type CanonicalEvmFamilyEcdsaSigningCapability,
   type ExactEvmFamilyWalletSessionAuthorization,
@@ -78,7 +79,10 @@ import {
   type ActiveNearEd25519WalletSessionStatus,
   type ExactNearEd25519WalletSessionAuthorization,
 } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
-import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
+import type {
+  ExactEcdsaCapabilityRuntime,
+  ExactEcdsaSealedRuntime,
+} from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import type { OwnerLaneScope } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import { projectActiveWalletSession } from '../../../packages/wallet-server/src/authorization/domain';
 import { buildExactWalletSessionAuthorizationFixture } from './exactWalletSessionAuthorization.fixtures';
@@ -413,6 +417,7 @@ function availableLaneEcdsaAuthorization(args: {
   authMethod: 'email_otp' | 'passkey';
   remainingUses: number;
   expiresAtMs: number;
+  runtimeKind: 'sealed_session' | 'direct_capability';
 }): ExactEvmFamilyWalletSessionAuthorization {
   const walletId = args.capability.manifest.signer.walletId;
   const authorityId = requireAvailableLaneId(
@@ -531,9 +536,6 @@ function availableLaneEcdsaAuthorization(args: {
     token: `wst_${'B'.repeat(43)}`,
     walletSessionId: issued.session.walletSessionId,
   });
-  const thresholdSessionId = requireAvailableLaneId(
-    parseThresholdEcdsaSessionId(`available-lane-threshold-ecdsa:${args.identitySeed}`),
-  );
   const durable = args.capability.manifest.durableMaterial;
   const participantIds = requireTwoParticipantIds(args.publicFacts.participantIds);
   const roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef({
@@ -542,32 +544,63 @@ function availableLaneEcdsaAuthorization(args: {
     bindingDigest: durable.bindingDigest,
     materialActivation: durable.materialActivation,
   });
-  const runtime = buildAvailableLaneEcdsaRuntime({
-    common: {
-      kind: 'exact_ecdsa_sealed_runtime_v1' as const,
-      walletId,
-      chainTarget: args.chainTarget,
-      materialActivation: durable.materialActivation,
-      normalSigning: durable.routerAbEcdsaDerivationNormalSigning,
-      relayerUrl: 'https://relay.example.test',
-      relayerKeyId: String(durable.roleLocalBinding.relayerKeyId),
-      clientVerifyingPublicKey33B64u: durable.roleLocalBinding.clientVerifyingPublicKey33B64u,
-      participantIds,
-      ecdsaThresholdKeyId: String(args.key.ecdsaThresholdKeyId),
-      thresholdEcdsaPublicKeyB64u: String(args.publicFacts.publicKeyB64u),
-      keyHandle: String(args.publicFacts.keyHandle),
-      runtimePolicyScope: durable.runtimePolicyScope,
-      roleLocalMaterialRef,
-      expiresAtMs: args.expiresAtMs,
-      remainingUses: args.remainingUses,
-      sealedRecord: {
-        storeKey: `available-lane-ecdsa:${args.identitySeed}`,
-        thresholdSessionId,
-        authMethod: args.authMethod,
-      },
-    },
-    authBinding,
-  });
+  const capabilityRuntime: ExactEcdsaCapabilityRuntime = {
+    kind: 'exact_ecdsa_capability_runtime_v1',
+    walletId,
+    chainTarget: args.chainTarget,
+    materialActivation: durable.materialActivation,
+    normalSigning: durable.routerAbEcdsaDerivationNormalSigning,
+    relayerUrl: 'https://relay.example.test',
+    relayerKeyId: String(durable.roleLocalBinding.relayerKeyId),
+    clientVerifyingPublicKey33B64u: durable.roleLocalBinding.clientVerifyingPublicKey33B64u,
+    participantIds,
+    ecdsaThresholdKeyId: String(args.key.ecdsaThresholdKeyId),
+    thresholdEcdsaPublicKeyB64u: String(args.publicFacts.publicKeyB64u),
+    keyHandle: String(args.publicFacts.keyHandle),
+    runtimePolicyScope: durable.runtimePolicyScope,
+    roleLocalMaterialRef,
+  };
+  const runtime =
+    args.runtimeKind === 'direct_capability'
+      ? buildExactEcdsaDirectCapabilityRuntime({
+          runtime: capabilityRuntime,
+          authority: factorAuthority,
+          status: {
+            status: 'active',
+            walletSessionId: operationCredential.walletSessionId,
+            quotaId: session.quotaId,
+            expiresAtMs: args.expiresAtMs,
+            remainingUses: args.remainingUses,
+          },
+        })
+      : buildAvailableLaneEcdsaRuntime({
+          common: {
+            kind: 'exact_ecdsa_sealed_runtime_v1' as const,
+            walletId,
+            chainTarget: args.chainTarget,
+            materialActivation: durable.materialActivation,
+            normalSigning: durable.routerAbEcdsaDerivationNormalSigning,
+            relayerUrl: 'https://relay.example.test',
+            relayerKeyId: String(durable.roleLocalBinding.relayerKeyId),
+            clientVerifyingPublicKey33B64u: durable.roleLocalBinding.clientVerifyingPublicKey33B64u,
+            participantIds,
+            ecdsaThresholdKeyId: String(args.key.ecdsaThresholdKeyId),
+            thresholdEcdsaPublicKeyB64u: String(args.publicFacts.publicKeyB64u),
+            keyHandle: String(args.publicFacts.keyHandle),
+            runtimePolicyScope: durable.runtimePolicyScope,
+            roleLocalMaterialRef,
+            expiresAtMs: args.expiresAtMs,
+            remainingUses: args.remainingUses,
+            sealedRecord: {
+              storeKey: `available-lane-ecdsa:${args.identitySeed}`,
+              thresholdSessionId: requireAvailableLaneId(
+                parseThresholdEcdsaSessionId(`available-lane-threshold-ecdsa:${args.identitySeed}`),
+              ),
+              authMethod: args.authMethod,
+            },
+          },
+          authBinding,
+        });
   return buildExactEvmFamilyWalletSessionAuthorization({
     capability: args.capability,
     selected: {
@@ -603,6 +636,7 @@ export function canonicalEcdsaAvailableLane(args: {
   remainingUses?: number;
   expiresAtMs?: number;
   updatedAtMs?: number;
+  runtimeKind?: 'sealed_session' | 'direct_capability';
 }): Extract<ConcreteAvailableEcdsaSigningLane, { source: 'canonical_capability' }> {
   const keyId = args.ecdsaThresholdKeyId || 'shared-ecdsa-key';
   const walletId = args.walletId || AVAILABLE_LANES_WALLET_ID;
@@ -662,6 +696,7 @@ export function canonicalEcdsaAvailableLane(args: {
     authMethod,
     remainingUses: args.remainingUses ?? 3,
     expiresAtMs: args.expiresAtMs ?? AVAILABLE_LANES_EXPIRES_AT_MS,
+    runtimeKind: args.runtimeKind ?? 'sealed_session',
   });
   const base = {
     capability,

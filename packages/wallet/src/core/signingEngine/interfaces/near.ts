@@ -57,7 +57,7 @@ export type NearPasskeyOperationStepUpPlan = {
 };
 
 export type NearEd25519WarmSessionStepUpAuthorization = WarmSessionStepUpAuthorization<
-  Extract<SigningAuthPlan, { kind: 'warmSession' }>
+  Extract<SigningAuthPlan, { kind: 'warmSession'; curve: 'ed25519' }>
 >;
 
 export type NearEd25519PasskeyStepUpAuthorization = PasskeyStepUpAuthorization<

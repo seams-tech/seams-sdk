@@ -167,32 +167,96 @@ function summarizeLaneCandidate(
 // Canonical candidate facts for an already-resolved lane. The lane identity
 // carries the exact signer binding and active authorization, so no record is
 // consulted; this replaces every record-derived candidate construction.
-// Sealed-record authority is the only form built: the durable resolver either
-// finds the exact authority or the selection has none.
+// The durable resolver returns the exact direct-capability or sealed-session
+// authorization; committing the lane preserves that operating mode.
 type EmailOtpSelectionAuthority = {
   kind: 'durable_authority_backed';
-  authorization: ExactEvmFamilyWalletSessionAuthorization;
+  authorization: ExactEmailOtpEvmFamilyWalletSessionAuthorization;
 };
 
-type EcdsaCommittedLaneAuthFacts<A extends WalletAuthAuthority> =
-  A extends EmailOtpWalletAuthAuthority
-    ? {
-        authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
-      }
-    : A extends PasskeyWalletAuthAuthority
-      ? {
-          authLane?: never;
-        }
-      : never;
+type ExactEmailOtpEvmFamilyWalletSessionAuthorization = Extract<
+  ExactEvmFamilyWalletSessionAuthorization,
+  { readonly selectedAuthMethod: { readonly kind: 'email_otp' } }
+>;
+
+type ExactDirectEmailOtpEvmFamilyWalletSessionAuthorization = Omit<
+  ExactEmailOtpEvmFamilyWalletSessionAuthorization,
+  'runtime'
+> & {
+  readonly runtime: Extract<
+    ExactEmailOtpEvmFamilyWalletSessionAuthorization['runtime'],
+    { readonly kind: 'exact_ecdsa_direct_capability_runtime_v1' }
+  >;
+};
+
+type ExactSealedEmailOtpEvmFamilyWalletSessionAuthorization = Omit<
+  ExactEmailOtpEvmFamilyWalletSessionAuthorization,
+  'runtime'
+> & {
+  readonly runtime: Extract<
+    ExactEmailOtpEvmFamilyWalletSessionAuthorization['runtime'],
+    { readonly kind: 'exact_ecdsa_sealed_runtime_v1' }
+  >;
+};
+
+export type EmailOtpEcdsaCommittedLane =
+  | {
+      lane: ResolvedEvmFamilyEcdsaSigningLane;
+      authority: EmailOtpWalletAuthAuthority;
+      authorization: ExactDirectEmailOtpEvmFamilyWalletSessionAuthorization;
+      authLane?: never;
+    }
+  | {
+      lane: ResolvedEvmFamilyEcdsaSigningLane;
+      authority: EmailOtpWalletAuthAuthority;
+      authorization: ExactSealedEmailOtpEvmFamilyWalletSessionAuthorization;
+      authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
+    };
+
+export type EmailOtpEcdsaDirectCapabilityCommittedLane = Extract<
+  EmailOtpEcdsaCommittedLane,
+  { authLane?: never }
+>;
+
+export type EmailOtpEcdsaSigningSessionCommittedLane = Extract<
+  EmailOtpEcdsaCommittedLane,
+  { authLane: EmailOtpSigningSessionAuthLane }
+>;
+
+type PasskeyEcdsaCommittedLane = {
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  authority: PasskeyWalletAuthAuthority;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
+  authLane?: never;
+};
 
 export type EcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAuthority> =
-  A extends WalletAuthAuthority
-    ? {
-        lane: ResolvedEvmFamilyEcdsaSigningLane;
-        authority: A;
-        authorization: ExactEvmFamilyWalletSessionAuthorization;
-      } & EcdsaCommittedLaneAuthFacts<A>
-    : never;
+  A extends EmailOtpWalletAuthAuthority
+    ? EmailOtpEcdsaCommittedLane
+    : A extends PasskeyWalletAuthAuthority
+      ? PasskeyEcdsaCommittedLane
+      : never;
+
+function isExactEmailOtpAuthorization(
+  authorization: ExactEvmFamilyWalletSessionAuthorization,
+): authorization is ExactEmailOtpEvmFamilyWalletSessionAuthorization {
+  return (
+    authorization.selectedAuthMethod.kind === 'email_otp' &&
+    authorization.runtime.authBinding.kind === 'email_otp'
+  );
+}
+
+function isExactDirectEmailOtpAuthorization(
+  authorization: ExactEmailOtpEvmFamilyWalletSessionAuthorization,
+): authorization is ExactDirectEmailOtpEvmFamilyWalletSessionAuthorization {
+  return authorization.runtime.kind === 'exact_ecdsa_direct_capability_runtime_v1';
+}
+
+function isExactSealedEmailOtpAuthorization(
+  authorization: ExactEmailOtpEvmFamilyWalletSessionAuthorization,
+): authorization is ExactSealedEmailOtpEvmFamilyWalletSessionAuthorization {
+  return authorization.runtime.kind === 'exact_ecdsa_sealed_runtime_v1';
+}
 
 type PasskeyEcdsaLaneCandidate = AuthorizedEcdsaLaneCandidate & {
   auth: Extract<EcdsaLaneCandidate['auth'], { kind: 'passkey' }>;
@@ -274,6 +338,7 @@ async function resolveEmailOtpAuthorityForSelection(args: {
     chain: args.lane.chainTarget.kind,
   });
   if (laneAuthority) {
+    if (!isExactEmailOtpAuthorization(laneAuthority)) return null;
     return {
       kind: 'durable_authority_backed',
       authorization: laneAuthority,
@@ -346,12 +411,7 @@ function commitEmailOtpEcdsaLaneForSelection(args: {
   authority: EmailOtpSelectionAuthority;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   candidate: AuthorizedEcdsaLaneCandidate;
-}): EcdsaCommittedLane {
-  const authLane = requireEmailOtpEcdsaSigningSessionAuthLane({
-    authority: args.authority,
-    lane: args.lane,
-    candidate: args.candidate,
-  });
+}): EmailOtpEcdsaCommittedLane {
   const authorization = args.authority.authorization;
   if (authorization.runtime.authBinding.kind !== 'email_otp') {
     throw new Error('[SigningEngine][ecdsa] Email OTP authority runtime binding is invalid');
@@ -363,15 +423,26 @@ function commitEmailOtpEcdsaLaneForSelection(args: {
     candidate: args.candidate,
     context: 'Email OTP',
   });
-  const common = {
-    lane: args.lane,
-    authority,
-    authLane,
-    authorization,
-  };
-  return {
-    ...common,
-  };
+  if (isExactDirectEmailOtpAuthorization(authorization)) {
+    return {
+      lane: args.lane,
+      authority,
+      authorization,
+    };
+  }
+  if (isExactSealedEmailOtpAuthorization(authorization)) {
+    return {
+      lane: args.lane,
+      authority,
+      authorization,
+      authLane: requireEmailOtpEcdsaSigningSessionAuthLane({
+        authority: args.authority,
+        lane: args.lane,
+        candidate: args.candidate,
+      }),
+    };
+  }
+  throw new Error('[SigningEngine][ecdsa] Email OTP authorization runtime is unsupported');
 }
 
 export async function resolveEvmFamilyEcdsaSigningSelection(args: {

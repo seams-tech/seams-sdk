@@ -79,7 +79,7 @@ type EvmFamilyPreparedStepUpAuthBase = {
 export type EvmFamilyWarmSessionStepUpAuth = EvmFamilyPreparedStepUpAuthBase & {
   kind: 'warm_session';
   confirmationAuthPayload: {
-    signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
+    signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession'; curve: 'ecdsa' }>;
   };
 };
 
@@ -171,7 +171,7 @@ export async function requireEvmFamilyStepUpAuth(args: {
     },
   });
   if (prepared.method === 'warm_session') {
-    if (!signingAuthPlan || !isWarmSessionSigningAuthPlan(signingAuthPlan)) {
+    if (!signingAuthPlan || !isEcdsaWarmSessionSigningAuthPlan(signingAuthPlan)) {
       throw new Error('[chains] warm-session step-up requires an existing warm-session plan');
     }
     return {
@@ -230,17 +230,28 @@ function stepUpPolicyFromSigningAuthPlan(
   // takes the selected same-method lane.
   if (reusableAuthorization.kind === 'absent') return { kind: 'use_selected_lane' };
   if (signingAuthPlan && isWarmSessionSigningAuthPlan(signingAuthPlan)) {
+    if (signingAuthPlan.curve !== 'ecdsa') {
+      throw new Error('[chains] EVM-family warm-session step-up requires an ECDSA auth plan');
+    }
     return {
       kind: 'reuse_warm_session',
       authorization: {
         method: signingAuthPlan.method,
-        thresholdSessionId: signingAuthPlan.thresholdSessionId,
+        curve: 'ecdsa',
+        materialActivation: signingAuthPlan.materialActivation,
+        authorization: signingAuthPlan.authorization,
         expiresAtMs: signingAuthPlan.expiresAtMs,
         remainingUses: signingAuthPlan.remainingUses,
       },
     };
   }
   return { kind: 'use_selected_lane' };
+}
+
+function isEcdsaWarmSessionSigningAuthPlan(
+  plan: SigningAuthPlan,
+): plan is Extract<SigningAuthPlan, { kind: 'warmSession'; curve: 'ecdsa' }> {
+  return isWarmSessionSigningAuthPlan(plan) && plan.curve === 'ecdsa';
 }
 
 // The confirmation plan must describe the method actually being prepared. An
