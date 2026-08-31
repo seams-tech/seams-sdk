@@ -821,6 +821,72 @@ export function parseWalletRecoveryDurablePayload(raw: unknown): WalletRecoveryD
   };
 }
 
+/**
+ * Projects a parsed payload back onto the serialized wire shape the parser
+ * accepts. Parsing enriches the key sets with manifest-derived facts (the
+ * NEAR material binding, threshold session, and runtime scope; the ECDSA
+ * manifest entry), so serializing the parsed record directly produces fields
+ * the exact-field parser rejects on the next decrypt. The projection is
+ * validated by the parser before it is returned, so an encrypt-time failure
+ * surfaces immediately instead of stranding an undecodable journal record.
+ */
+export function walletRecoveryDurablePayloadWireForm(
+  payload: WalletRecoveryDurablePayloadV1,
+): Record<string, unknown> {
+  const nearKeySets = payload.nearKeySets.map((keySet) => ({
+    kind: keySet.kind,
+    keySetId: keySet.keySetId,
+    applicationBindingDigestB64u: keySet.binding.applicationBindingDigestB64u,
+    registeredPublicKeyB64u: keySet.binding.registeredPublicKeyB64u,
+    participantIds: keySet.binding.participantIds,
+    stateEpoch: keySet.binding.stateEpoch,
+    signingWorkerVerifyingShareB64u: keySet.binding.signingWorkerVerifyingShareB64u,
+    materialActivation: keySet.materialActivation,
+    sealed: keySet.sealed,
+  }));
+  const ecdsaKeySets = payload.ecdsaKeySets.map((keySet) => ({
+    kind: keySet.kind,
+    keySetId: keySet.entry.keySetId,
+    possessionProof: keySet.possessionProof,
+    readyStateBlobB64u: keySet.readyStateBlobB64u,
+    publicFacts: keySet.publicFacts,
+  }));
+  const common = {
+    kind: payload.kind,
+    version: payload.version,
+    recoveryOperationId: String(payload.recoveryOperationId),
+    walletId: String(payload.walletId),
+    reservationId: String(payload.reservationId),
+    targetDeviceId: String(payload.targetDeviceId),
+    targetAuthorityId: String(payload.targetAuthorityId),
+    targetWalletAuthMethodId: String(payload.targetWalletAuthMethodId),
+    replacementEnvelope: payload.replacementEnvelope,
+    keyManifest: payload.keyManifest,
+    nearKeySets,
+    ecdsaKeySets,
+  };
+  const wire = isDurablePasskeyPayload(payload)
+    ? {
+        ...common,
+        target: payload.target,
+        replacementId: payload.replacementId,
+        challengeId: payload.challengeId,
+        registration: payload.registration,
+      }
+    : {
+        ...common,
+        target: payload.target,
+        providerSubject: payload.providerSubject,
+        verifiedEmail: payload.verifiedEmail,
+        emailHashHex: payload.emailHashHex,
+        registrationAuthorityId: payload.registrationAuthorityId,
+        replacementId: payload.replacementId,
+        enrollment: payload.enrollment,
+      };
+  parseWalletRecoveryDurablePayload(wire);
+  return wire;
+}
+
 export async function validateWalletRecoveryDurablePayloadBindings(
   payload: WalletRecoveryDurablePayloadV1,
 ): Promise<void> {

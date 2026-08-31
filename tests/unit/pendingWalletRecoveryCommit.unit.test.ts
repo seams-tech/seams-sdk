@@ -35,6 +35,7 @@ const IMPORT_PATHS = {
   pending: sdkEsmPath('core/indexedDB/pendingWalletRecoveryCommit.js'),
   ecdsa: sdkEsmPath('core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.js'),
   journal: sdkEsmPath('SeamsWeb/operations/recovery/walletRecoveryJournal.js'),
+  durable: sdkEsmPath('SeamsWeb/operations/recovery/walletRecoveryDurablePayload.js'),
   finalize: sdkEsmPath('core/rpcClients/relayer/walletRecoveryFinalize.js'),
   commit: sdkEsmPath('SeamsWeb/operations/recovery/walletRecoveryCommit.js'),
   seamsWeb: sdkEsmPath('SeamsWeb/index.js'),
@@ -683,6 +684,60 @@ test('deletes a definite server refusal from either pending recovery stage', asy
     promotedResult: [{ kind: 'discarded', recoveryOperationId: projection.recoveryOperationId }],
     promotedRemaining: null,
   });
+});
+
+test('a parsed durable payload round-trips through journal encryption', async ({ page }) => {
+  const { projection } = await passkeyProjectionFixture({
+    label: 'pending-recovery-roundtrip',
+    walletId: 'client-fixture',
+    authorityId: 'authority:pending-recovery-roundtrip',
+    rpId: 'wallet.pending-recovery.example',
+    credentialIdB64u: 'Y3JlZGVudGlhbC1wZW5kaW5nLXJvdW5kdHJpcA',
+    walletAuthMethodId:
+      'passkey:wallet.pending-recovery.example:Y3JlZGVudGlhbC1wZW5kaW5nLXJvdW5kdHJpcA',
+  });
+  const payload = await startupRecoveryPayloadFixture(projection);
+  await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+  /* Parsing enriches the key sets with manifest-derived facts, so the journal
+     must serialize the wire projection rather than the parsed record - the
+     resume path otherwise reports every awaiting record as corrupt. */
+  const result = await page.evaluate(
+    async ({ paths, payload, projection }) => {
+      const { encryptWalletRecoveryDurablePayload, decryptWalletRecoveryDurablePayload } =
+        await import(paths.journal);
+      const { parseWalletRecoveryDurablePayload } = await import(paths.durable);
+      const { buildPendingWalletRecoveryCommitV1 } = await import(paths.pending);
+      const parsed = parseWalletRecoveryDurablePayload(payload);
+      const localMaterial = await encryptWalletRecoveryDurablePayload(parsed);
+      const awaiting = await buildPendingWalletRecoveryCommitV1({
+        kind: 'pending_wallet_recovery_commit_v1',
+        version: 1,
+        stage: 'awaiting_server_promotion',
+        recoveryOperationId: projection.recoveryOperationId,
+        walletId: projection.walletId,
+        reservationId: payload.reservationId,
+        targetDeviceId: projection.targetDeviceId,
+        targetAuthorityId: projection.targetAuthorityId,
+        targetWalletAuthMethodId: projection.targetWalletAuthMethodId,
+        target: {
+          kind: 'passkey',
+          rpId: projection.target.rpId,
+          credentialIdB64u: projection.target.credentialIdB64u,
+        },
+        localMaterial,
+        createdAtMs: 1,
+        updatedAtMs: 1,
+      });
+      const decrypted = await decryptWalletRecoveryDurablePayload(awaiting);
+      return {
+        recoveryOperationId: String(decrypted.recoveryOperationId),
+        ecdsaKeySetIds: decrypted.ecdsaKeySets.map((keySet) => String(keySet.entry.keySetId)),
+      };
+    },
+    { paths: IMPORT_PATHS, payload, projection },
+  );
+  expect(result.recoveryOperationId).toBe(projection.recoveryOperationId);
+  expect(result.ecdsaKeySetIds).toHaveLength(1);
 });
 
 test('SeamsWeb startup resumes a valid server-promoted recovery row after reload', async ({
