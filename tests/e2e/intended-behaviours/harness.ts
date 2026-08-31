@@ -2636,7 +2636,14 @@ export class IntendedBehaviourHarness {
   private async resetBrowserStorage(): Promise<void> {
     await this.context.clearCookies();
     await this.page.goto(this.config.appUrl, { waitUntil: 'domcontentloaded' });
-    await this.page.evaluate(clearBrowserStorage);
+    try {
+      await this.page.evaluate(clearBrowserStorage);
+    } catch {
+      /* The app can still be settling a late navigation right after
+         domcontentloaded, which destroys the evaluation context. */
+      await this.page.waitForLoadState('load');
+      await this.page.evaluate(clearBrowserStorage);
+    }
     if (this.config.signingSessionDebug) {
       await this.page.evaluate(() => {
         localStorage.setItem('seams:debug:signing-session', '1');
