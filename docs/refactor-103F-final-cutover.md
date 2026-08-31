@@ -690,7 +690,7 @@ Primary files:
       The strict boundary now persists and parses the activation journal,
       verified client-activation facts, activation-request digest, and exact
       auth-method identity, then returns them in the typed unlock continuation.
-- [ ] Complete ECDSA-only registration recovery orchestration: unlock the exact
+- [x] Complete ECDSA-only registration recovery orchestration: unlock the exact
       method, validate the retained finalization facts against the committed
       projection, and publish through the existing atomic local transaction.
 - [ ] Complete mixed registration recovery orchestration: publish the recovered
