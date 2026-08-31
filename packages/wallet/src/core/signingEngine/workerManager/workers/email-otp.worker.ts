@@ -3746,7 +3746,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
             rawWalletSession: verified.walletSession,
             rawOperationCredential: verified.operationCredential,
             walletId,
-            providerSubjectId: userId,
+            providerSubjectId: args.material.ed25519Yao.providerSubject,
             verifiedAuthorityProjection,
             activation: requireEmailOtpWorkerCredentialFreeEcdsaSessionResponse(
               walletUnlockEcdsaSession,
