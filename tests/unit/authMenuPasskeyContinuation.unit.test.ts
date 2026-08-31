@@ -161,14 +161,16 @@ function contextForPreparedAccountSync(calls: unknown[]): SeamsWebContext {
 }
 
 test.describe('hosted auth-menu passkey continuation', () => {
-  test('uses verified account sync when a recent local wallet has no readable capability subject', async () => {
+  test('prepares exact wallet sync without reading local capability state', async () => {
     const originalFetch = globalThis.fetch;
     const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
     const originalResolveSelectedWalletAuthority = IndexedDBManager.resolveSelectedWalletAuthority;
     const walletId = 'river-garden-2fprg7';
     const resolvedWalletIds: string[] = [];
-    globalThis.fetch = async () =>
-      new Response(
+    let optionsRequestBody: unknown = null;
+    globalThis.fetch = async (_input, init) => {
+      optionsRequestBody = JSON.parse(String(init?.body));
+      return new Response(
         JSON.stringify({
           ok: true,
           challengeId: 'sync-challenge-local-repair',
@@ -185,6 +187,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
+    };
     IndexedDBManager.listActiveWalletSigners = async () => {
       throw new Error('local capability projection is unavailable');
     };
@@ -213,14 +216,18 @@ test.describe('hosted auth-menu passkey continuation', () => {
       expect(prepared).toMatchObject({
         kind: 'hosted_passkey_account_sync_prepared_v1',
         challenge: {
-          walletId: null,
+          walletId,
           syncOptions: {
             challengeId: 'sync-challenge-local-repair',
             credentialIds: ['credential-local-repair'],
           },
         },
       });
-      expect(resolvedWalletIds).toEqual([walletId, walletId]);
+      expect(resolvedWalletIds).toEqual([]);
+      expect(optionsRequestBody).toEqual({
+        rp_id: 'wallet.example.test',
+        account_id: walletId,
+      });
       cancelHostedPasskeyPreparation(prepared);
     } finally {
       IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
