@@ -729,8 +729,18 @@ test.describe('pending registration publication', () => {
           toStoredExactWalletSessionAuthorizationRowV6(staleSession, issued.operationCredential),
         );
         await db.putPendingWalletRegistrationCommit(publicationInput.pending);
-        await db.publishPendingWalletRegistrationCommit(credentialFreeInput);
-        const pending = await db.getPendingWalletRegistrationCommit(publicationInput.request);
+        await db.publishPendingWalletRegistrationCommitAndRetain(credentialFreeInput);
+        const pendingAfterPublication = await db.getPendingWalletRegistrationCommit(
+          publicationInput.request,
+        );
+        /* The caller may be interrupted while durable side effects finish. */
+        const pendingBeforeTerminalDelete = await db.getPendingWalletRegistrationCommit(
+          publicationInput.request,
+        );
+        await db.deletePendingWalletRegistrationCommit(publicationInput.request);
+        const pendingAfterDelete = await db.getPendingWalletRegistrationCommit(
+          publicationInput.request,
+        );
         const sessionRows = (await database.getAll(
           SEAMS_WALLET_STORES.walletSessionAuthorizations,
         )) as Array<{
@@ -739,7 +749,9 @@ test.describe('pending registration publication', () => {
         }>;
         seamsWalletDB.close();
         return {
-          pending: pending !== null,
+          pendingAfterPublication: pendingAfterPublication !== null,
+          pendingBeforeTerminalDelete: pendingBeforeTerminalDelete !== null,
+          pendingAfterDelete: pendingAfterDelete !== null,
           sessionCount: sessionRows.length,
           session: sessionRows[0]?.record,
           token: sessionRows[0]?.operation_credential?.token,
@@ -753,7 +765,9 @@ test.describe('pending registration publication', () => {
       },
     );
 
-    expect(result.pending).toBe(false);
+    expect(result.pendingAfterPublication).toBe(true);
+    expect(result.pendingBeforeTerminalDelete).toBe(true);
+    expect(result.pendingAfterDelete).toBe(false);
     expect(result.sessionCount).toBe(1);
     expect(result.session).toMatchObject(result.expectedSession);
     expect(result.token).toBe(result.expectedToken);

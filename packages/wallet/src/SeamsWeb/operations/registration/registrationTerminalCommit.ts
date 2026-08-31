@@ -19,6 +19,7 @@ import type {
   WalletEmailOtpEnrollmentMaterialV1,
   WalletId,
 } from '@shared/utils/registrationIntent';
+import type { WalletCustodyCeremonyCommitPayload } from '@shared/passkey-custody';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type { RegistrationWebContext } from '@/SeamsWeb/signingSurface/types';
@@ -53,7 +54,7 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { RegistrationTimingRecorder, assertNever, roundDurationMs } from './registrationTiming';
 import {
-  buildPendingWalletRegistrationCommitV1,
+  parsePendingWalletRegistrationCommitV1,
   type PendingWalletRegistrationCommitAuthV1,
   type PendingWalletRegistrationCommitV1,
   type PendingWalletRegistrationLocalMaterialV1,
@@ -324,51 +325,70 @@ type PendingRegistrationCommitBuilderCommonInput = {
   updatedAtMs: number;
 };
 
-type PendingRegistrationCommitBuilderInput = PendingRegistrationCommitBuilderCommonInput & (
-  | {
-      operation: 'registration_activate';
-      signerPlanKind: 'near_ed25519';
-      localMaterial: Extract<
-        PendingWalletRegistrationLocalMaterialV1,
-        { readonly keyFamilies: readonly ['ed25519'] }
-      >;
-    }
-  | {
-      operation: 'registration_activate';
-      signerPlanKind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa';
-      localMaterial: Extract<
-        PendingWalletRegistrationLocalMaterialV1,
-        { readonly keyFamilies: readonly ['ecdsa_secp256k1'] }
-      >;
-    }
-  | {
-      operation: 'registration_activate';
-      signerPlanKind: 'near_ed25519_and_evm_family_ecdsa';
-      localMaterial: Extract<
-        PendingWalletRegistrationLocalMaterialV1,
-        { readonly keyFamilies: readonly ['ed25519', 'ecdsa_secp256k1'] }
-      >;
-    }
-  | {
-      operation: 'near_provisioning';
-      signerPlanKind: 'near_ed25519' | 'near_ed25519_and_evm_family_ecdsa';
-      localMaterial: Extract<
-        PendingWalletRegistrationLocalMaterialV1,
-        { readonly keyFamilies: readonly ['ed25519'] }
-      >;
-  }
-);
+type PendingRegistrationEcdsaLocalMaterialInput = Omit<
+  Extract<
+    PendingWalletRegistrationLocalMaterialV1,
+    { readonly keyFamilies: readonly ['ecdsa_secp256k1'] }
+  >,
+  'custodyCommit'
+> & {
+  readonly custodyCommit: WalletCustodyCeremonyCommitPayload;
+};
 
-function isEcdsaOnlyPendingLocalMaterial(
-  localMaterial: PendingWalletRegistrationLocalMaterialV1,
-): localMaterial is Extract<
-  PendingWalletRegistrationLocalMaterialV1,
-  { readonly keyFamilies: readonly ['ecdsa_secp256k1'] }
-> {
-  return (
-    localMaterial.keyFamilies.length === 1 &&
-    localMaterial.keyFamilies[0] === 'ecdsa_secp256k1'
+type PendingRegistrationEd25519LocalMaterialInput = Omit<
+  Extract<PendingWalletRegistrationLocalMaterialV1, { readonly keyFamilies: readonly ['ed25519'] }>,
+  'custodyCommit'
+> & {
+  readonly custodyCommit: WalletCustodyCeremonyCommitPayload;
+};
+
+type PendingRegistrationMixedLocalMaterialInput = Omit<
+  Extract<
+    PendingWalletRegistrationLocalMaterialV1,
+    { readonly keyFamilies: readonly ['ed25519', 'ecdsa_secp256k1'] }
+  >,
+  'custodyCommit' | 'ed25519'
+> & {
+  readonly custodyCommit: WalletCustodyCeremonyCommitPayload;
+  readonly ed25519: Omit<
+    Extract<
+      PendingWalletRegistrationLocalMaterialV1,
+      { readonly keyFamilies: readonly ['ed25519', 'ecdsa_secp256k1'] }
+    >['ed25519'],
+    'custodyCommit'
+  > & {
+    readonly custodyCommit: WalletCustodyCeremonyCommitPayload;
+  };
+};
+
+type PendingRegistrationCommitBuilderInput = PendingRegistrationCommitBuilderCommonInput &
+  (
+    | {
+        operation: 'registration_activate';
+        signerPlanKind: 'near_ed25519';
+        localMaterial: PendingRegistrationEd25519LocalMaterialInput;
+      }
+    | {
+        operation: 'registration_activate';
+        signerPlanKind: 'evm_family_ecdsa';
+        localMaterial: PendingRegistrationEcdsaLocalMaterialInput;
+      }
+    | {
+        operation: 'registration_activate';
+        signerPlanKind: 'near_ed25519_and_evm_family_ecdsa';
+        localMaterial: PendingRegistrationMixedLocalMaterialInput;
+      }
+    | {
+        operation: 'near_provisioning';
+        signerPlanKind: 'near_ed25519' | 'near_ed25519_and_evm_family_ecdsa';
+        localMaterial: PendingRegistrationEd25519LocalMaterialInput;
+      }
   );
+
+function buildValidatedPendingRegistrationCommit(raw: unknown): PendingWalletRegistrationCommitV1 {
+  const parsed = parsePendingWalletRegistrationCommitV1(raw);
+  if (!parsed) throw new Error('pending wallet registration commit is invalid');
+  return parsed;
 }
 
 export function buildPendingRegistrationCommit(
@@ -394,7 +414,7 @@ export function buildPendingRegistrationCommit(
   };
   if (args.operation === 'registration_activate') {
     if (args.signerPlanKind === 'near_ed25519') {
-      return buildPendingWalletRegistrationCommitV1({
+      return buildValidatedPendingRegistrationCommit({
         ...common,
         operation: args.operation,
         signerPlanKind: args.signerPlanKind,
@@ -402,22 +422,14 @@ export function buildPendingRegistrationCommit(
       });
     }
     if (args.signerPlanKind === 'evm_family_ecdsa') {
-      return buildPendingWalletRegistrationCommitV1({
+      return buildValidatedPendingRegistrationCommit({
         ...common,
         operation: args.operation,
         signerPlanKind: args.signerPlanKind,
         localMaterial: args.localMaterial,
       });
     }
-    if (isEcdsaOnlyPendingLocalMaterial(args.localMaterial)) {
-      return buildPendingWalletRegistrationCommitV1({
-        ...common,
-        operation: args.operation,
-        signerPlanKind: args.signerPlanKind,
-        localMaterial: args.localMaterial,
-      });
-    }
-    return buildPendingWalletRegistrationCommitV1({
+    return buildValidatedPendingRegistrationCommit({
       ...common,
       operation: args.operation,
       signerPlanKind: args.signerPlanKind,
@@ -430,7 +442,7 @@ export function buildPendingRegistrationCommit(
   ) {
     throw new Error('near provisioning requires a NEAR signer plan');
   }
-  return buildPendingWalletRegistrationCommitV1({
+  return buildValidatedPendingRegistrationCommit({
     ...common,
     operation: args.operation,
     signerPlanKind: args.signerPlanKind,
@@ -506,7 +518,7 @@ function requireCanonicalRegistrationString(value: string, label: string): strin
   return value;
 }
 
-async function finalizeRegistrationEcdsaSessions(args: {
+export async function finalizeRegistrationEcdsaSessions(args: {
   context: RegistrationWebContext;
   relayerUrl: string;
   registrationTiming: RegistrationTimingRecorder;

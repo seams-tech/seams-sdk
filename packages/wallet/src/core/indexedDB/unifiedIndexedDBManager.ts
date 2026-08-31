@@ -580,6 +580,12 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.publishPendingWalletRegistrationCommit(input);
   }
 
+  async publishPendingWalletRegistrationCommitAndRetain(
+    input: PublishPendingWalletRegistrationCommitInputV1,
+  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+    return this.seamsWalletRepositories.publishPendingWalletRegistrationCommitAndRetain(input);
+  }
+
   async publishPendingWalletRecoveryCommit(
     input: PublishPendingWalletRecoveryCommitInputV1,
   ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
