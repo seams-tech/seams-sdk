@@ -251,6 +251,20 @@ function isWalletRecoveryCommitPromotion(
   return value.kind === 'passkey' || value.kind === 'google_email_otp';
 }
 
+async function resumeAwaitingCommit(input: {
+  readonly relayUrl: string;
+  readonly payload: WalletRecoveryDurablePayloadV1;
+  readonly fetchImpl?: typeof fetch;
+}): Promise<WalletRecoveryCommitPromotion | WalletRecoveryAttemptFailure> {
+  // A lost response can leave this row awaiting even after the server commit;
+  // probe the credential-free replay before resending the one-shot finalization.
+  const replay = await replayPromotedCommit(input);
+  if (isWalletRecoveryCommitPromotion(replay) || replay.kind !== 'refused') {
+    return replay;
+  }
+  return await finalizeAwaitingCommit(input);
+}
+
 function passkeyAuthority(
   payload: WalletRecoveryDurablePasskeyPayload,
   projection: Extract<PromotedProjection, { readonly kind: 'passkey' }>,
@@ -539,7 +553,7 @@ export async function resumePendingWalletRecoveries(input: {
       const payload = await decryptWalletRecoveryDurablePayload(record);
       const promotion =
         record.stage === 'awaiting_server_promotion'
-          ? await finalizeAwaitingCommit({
+          ? await resumeAwaitingCommit({
               relayUrl: input.relayUrl,
               payload,
               fetchImpl: input.fetchImpl,
