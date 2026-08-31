@@ -29,6 +29,7 @@ export type EmailOtpEcdsaWarmSessionRestore = {
 export async function requestSealEmailOtpWarmSessionMaterial(args: {
   workerCtx: WorkerOperationContext;
   target: EmailOtpWarmMaterialTarget;
+  authorizationThresholdSessionId: string;
   transport: EmailOtpWarmSessionTransport;
 }): Promise<SignerWorkerOperationResult<'emailOtp', 'sealEmailOtpWarmSessionMaterial'>> {
   return await args.workerCtx.requestWorkerOperation({
@@ -38,7 +39,10 @@ export async function requestSealEmailOtpWarmSessionMaterial(args: {
       timeoutMs: 30_000,
       payload: {
         target: args.target,
-        transport: args.transport,
+        transport: {
+          ...args.transport,
+          authorizationThresholdSessionId: args.authorizationThresholdSessionId,
+        },
       },
     },
   });
@@ -93,6 +97,7 @@ export async function requestClearEmailOtpWarmSessionMaterial(args: {
 export async function requestRehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
   workerCtx: WorkerOperationContext;
   target: Extract<EmailOtpWarmMaterialTarget, { kind: 'ecdsa' }>;
+  authorizationThresholdSessionId: string;
   sealedSecretB64u: string;
   remainingUses: number;
   expiresAtMs: number;
@@ -109,7 +114,10 @@ export async function requestRehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
         sealedSecretB64u: args.sealedSecretB64u,
         remainingUses: args.remainingUses,
         expiresAtMs: args.expiresAtMs,
-        transport: args.transport,
+        transport: {
+          ...args.transport,
+          authorizationThresholdSessionId: args.authorizationThresholdSessionId,
+        },
         restore: args.restore,
       },
     },

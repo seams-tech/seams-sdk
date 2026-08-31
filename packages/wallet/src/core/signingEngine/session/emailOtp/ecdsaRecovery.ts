@@ -38,7 +38,10 @@ import {
 import { parseEmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import { buildEmailOtpRecoveredKeyActivation } from './ecdsaLogin';
 import type { ThresholdEcdsaActivationRequest } from '../passkey/ecdsaSessionProvision';
-import type { ResolvedEmailOtpExistingEcdsaKey } from './ecdsaPublication';
+import {
+  emailOtpEcdsaSealAuthorizationThresholdSessionId,
+  type ResolvedEmailOtpExistingEcdsaKey,
+} from './ecdsaPublication';
 import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
 import type {
   ActiveEcdsaCapabilityRuntimeResolver,
@@ -427,9 +430,13 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
   }
   const expectedMaterialActivation = materialActivation;
   const thresholdSessionId = restoreSource.authorization.runtime.sealedRecord.thresholdSessionId;
+  const authorizationThresholdSessionId = emailOtpEcdsaSealAuthorizationThresholdSessionId(
+    sealedRecord.routerAbEcdsaDerivationNormalSigning,
+  );
   const restored = await requestRehydrateEmailOtpEcdsaWarmSessionMaterial({
     workerCtx,
     target: { kind: 'ecdsa', thresholdSessionId },
+    authorizationThresholdSessionId,
     sealedSecretB64u: sealedRecord.sealedSecretB64u,
     remainingUses: sealedRecord.remainingUses,
     expiresAtMs: sealedRecord.expiresAtMs,
