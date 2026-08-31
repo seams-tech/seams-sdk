@@ -2188,8 +2188,10 @@ type LocalAuthoritySnapshot = {
   readonly signerActivations: unknown;
   readonly localInstallPackageSetDigestB64u: string | null;
   readonly installedRecordSetDigestB64u: string | null;
+  /* An active session row must exist, but its authorization identity is
+     minted fresh by every exact unlock; only the authority claims it carries
+     are durable and comparable across a reload-and-unlock. */
   readonly session: {
-    readonly authorizationId: string;
     readonly authorityDigestB64u: string;
     readonly authorityRevocationEpoch: number;
   } | null;
@@ -2356,7 +2358,6 @@ async function readWalletAuthoritySnapshotInBrowser(walletId: string): Promise<u
         String(session.authorizationId || '').trim() &&
         String(session.authorityDigestB64u || '').trim()
           ? {
-              authorizationId: String(session.authorizationId),
               authorityDigestB64u: String(session.authorityDigestB64u),
               authorityRevocationEpoch: Number(session.authorityRevocationEpoch),
             }
@@ -2399,11 +2400,6 @@ function parseLocalAuthoritySnapshot(raw: unknown): LocalAuthoritySnapshot | nul
   let session: LocalAuthoritySnapshot['session'] = null;
   if (sessionRecord !== null) {
     const sessionValue = requireRecord(sessionRecord, 'local authority snapshot.session');
-    const authorizationId = requireStringField(
-      sessionValue,
-      'authorizationId',
-      'local authority snapshot.session',
-    );
     const sessionDigest = requireStringField(
       sessionValue,
       'authorityDigestB64u',
@@ -2414,7 +2410,6 @@ function parseLocalAuthoritySnapshot(raw: unknown): LocalAuthoritySnapshot | nul
       throw new Error('local authority snapshot.session.authorityRevocationEpoch is invalid');
     }
     session = {
-      authorizationId,
       authorityDigestB64u: sessionDigest,
       authorityRevocationEpoch: sessionEpoch,
     };
