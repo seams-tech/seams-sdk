@@ -1816,6 +1816,16 @@ export class IntendedBehaviourHarness {
       await fillHostedRecoveryCode(this.page, recoveryCode, 'passkey');
       await firstFinalizationRequest;
       await firstFinalizationResponse;
+      if (!finalizeFailure.injected) {
+        throw new Error('Passkey recovery did not reach the injected finalization response loss');
+      }
+      /* The conceal route keeps blocking duplicate submissions while the
+         journal check runs, so a straggling confirm click cannot commit the
+         finalization the runtime-reset replay is expected to deliver. */
+      await this.waitForPendingWalletRecoveryCommit(
+        requireCapturedRecoveryRequest(finalizationCapture),
+        'present',
+      );
     } finally {
       await this.page.unroute(
         `**${ROUTER_AB_WALLET_RECOVERY_FINALIZE_PATH}`,
@@ -1823,11 +1833,7 @@ export class IntendedBehaviourHarness {
       );
       this.page.off('request', captureFinalizationRequest);
     }
-    if (!finalizeFailure.injected) {
-      throw new Error('Passkey recovery did not reach the injected finalization response loss');
-    }
     const finalization = requireCapturedRecoveryRequest(finalizationCapture);
-    await this.waitForPendingWalletRecoveryCommit(finalization, 'present');
     await this.resumeCommittedRecoveryAfterRuntimeReset(finalization);
     await this.unlockPasskeyWallet();
     await this.signTempoTransaction('post_unlock');
@@ -1910,6 +1916,16 @@ export class IntendedBehaviourHarness {
         intervalMs: 250,
       });
       await firstFinalizationResponse;
+      if (!finalizeFailure.injected) {
+        throw new Error('Google recovery did not reach the injected finalization response loss');
+      }
+      /* The conceal route keeps blocking duplicate submissions while the
+         journal check runs, so a straggling confirm click cannot commit the
+         finalization the runtime-reset replay is expected to deliver. */
+      await this.waitForPendingWalletRecoveryCommit(
+        requireCapturedRecoveryRequest(finalizationCapture),
+        'present',
+      );
     } finally {
       await this.page.unroute(
         `**${ROUTER_AB_WALLET_RECOVERY_GOOGLE_EMAIL_OTP_FINALIZE_PATH}`,
@@ -1917,11 +1933,7 @@ export class IntendedBehaviourHarness {
       );
       this.page.off('request', captureFinalizationRequest);
     }
-    if (!finalizeFailure.injected) {
-      throw new Error('Google recovery did not reach the injected finalization response loss');
-    }
     const finalization = requireCapturedRecoveryRequest(finalizationCapture);
-    await this.waitForPendingWalletRecoveryCommit(finalization, 'present');
     await this.resumeCommittedRecoveryAfterRuntimeReset(finalization);
     await this.unlockPasskeyWallet();
     await this.signTempoTransaction('post_unlock');
@@ -5869,15 +5881,23 @@ async function concealFirstRecoveryFinalizationResponse(
   failure: RecoveryFinalizeFailure,
   route: Route,
 ): Promise<void> {
+  /* The lost-response contract needs exactly one committed finalization.
+     The flag flips before the server round-trip so a concurrent or
+     straggling duplicate submission is refused without reaching the server
+     instead of committing the operation the replay is expected to find. */
   if (failure.injected) {
-    await route.continue();
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, code: 'response_lost' }),
+    });
     return;
   }
+  failure.injected = true;
   const committed = await route.fetch();
   if (committed.status() !== 200) {
     throw new Error(`Recovery finalization failed before response loss: ${committed.status()}`);
   }
-  failure.injected = true;
   await route.fulfill({
     status: 503,
     contentType: 'application/json',
