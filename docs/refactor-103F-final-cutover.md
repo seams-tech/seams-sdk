@@ -468,9 +468,10 @@ receipt digest. A missing or conflicting receipt fails closed. The completed
 receipt remains until the acknowledgement replay window elapses.
 
 Interruption after credential installation resumes the durable local authority
-installation and runs exact-method unlock. Pre-decryption recipient-handle
-loss and sealed-delivery expiry remain open recovery cases; neither path may
-reseal the committed credential or start a second link.
+installation and runs exact-method unlock. The pre-decryption recipient-handle-
+loss and sealed-delivery-expiry paths are implemented and covered by focused
+proofs; composed linked-device operating-path acceptance remains open. Neither
+path may reseal the committed credential or start a second link.
 
 ### Shared IndexedDB and SDK/iframe boundaries
 
@@ -1366,7 +1367,15 @@ Applied migrations remain immutable. Relevant historical files include:
 - `0030_r103f_wallet_session_client_capability.sql`;
 - `0031_r103f_delete_registration_replay_tokens.sql`;
 - `0032_r103f_exact_authorized_operation_enforcement.sql`; and
-- `0033_r103f_linked_delivery_recipient.sql`.
+- `0033_r103f_linked_delivery_recipient.sql`;
+- `0034_r103f_exact_wallet_session_cutover.sql` — final enforcement and deletion
+  cutover: validates the remaining registration journal inventory, removes V1
+  ownership surfaces, and rebuilds the V2 aggregate so every active row has an
+  exact primary credential digest; and
+- `0035_r103f_linked_delivery_acknowledgement_cleanup_window.sql` — rebuilds the
+  linked-delivery lifecycle so an exact-method successor can authorize
+  acknowledgement cleanup after original delivery/session expiry while the
+  original delivery expiry remains durable identity.
 
 `linked_device_wallet_session_authorizations` and
 `linked_device_wallet_session_quotas` were already dropped by immutable `0015`;
@@ -1374,15 +1383,15 @@ R103F adds no second deletion task for them. Migration `0026` rebuilds
 `wallet_authorities` and recreates the `0024` trigger, so the additive bridge
 migration replaces the post-`0026` definition.
 
-At the current checkpoint migrations through `0033` are landed. The next file
-number, currently `0034` if still free, is allocated only after reconciling
-landed and pending migrations from concurrent workstreams and is rechecked after
-each rebase. Applied files are never renamed to resolve an allocation race.
+At the current checkpoint migrations through `0035` are landed. Migration `0034`
+owns the final enforcement and deletion cutover; migration `0035` owns the
+bounded, acknowledgement-anchored linked-delivery cleanup window. Applied files
+remain immutable and are never renamed.
 
 Migrations `0029` and `0030` record temporary implementation paths that the
 final cutover removes: replay-adapter storage and client-capability metadata.
-They remain immutable history. The enforcement migration drops or rebuilds
-their schema surfaces and may receive a non-contiguous file number.
+They remain immutable history; migration `0034` removes or rebuilds their schema
+surfaces.
 
 ### Temporary registration replay adapter migration
 
@@ -1531,9 +1540,13 @@ exact admission contexts. No V1 request or persistence resolver remains.
       tests cover the committed path through cleanup.
 
 The durable I5 browser recovery coordinator landed in `6064a28ea` and its
-completion evidence was recorded in `a01e8ee26`. The remaining Phase 3
-registration code is the split I2 ECDSA-only and mixed recovery orchestration
-described above.
+completion evidence was recorded in `a01e8ee26`. The split I2 ECDSA-only and
+mixed registration recovery orchestration is complete: `f2ae08269` implements
+exact-method unlock, committed-projection validation, and atomic publication for
+ECDSA-only registrations; `b336af895` establishes mixed ECDSA/NEAR publication
+ordering; and `e04f5768f` resumes mixed registration after reload while
+retaining the deferred-NEAR leg. The focused registration-recovery proof set
+passes 26/26; composed operating-path acceptance remains open.
 
 - [x] Reconcile all affected browser records after material promotion.
 - [x] Bump the host/iframe protocol and remove reusable-session message fields.
@@ -1560,8 +1573,9 @@ HEAD reconciliation on 2026-08-30:
 - `112514e78` proves the linked Passkey install, inventory, and signing-ready
   path. `7d7834854` adds the corresponding Email OTP target proof and establishes
   that the four source/target combinations reduce to those two installed target
-  outcomes. Recipient loss, expiry, and the composed operating-path run stay
-  open.
+  outcomes. The recipient-loss and sealed-delivery-expiry implementations and
+  focused proofs are complete (`9b11abf4c7`, `2db02c9fe4`, `065fbf37a`,
+  `610cab787`); composed linked-device operating-path acceptance remains open.
 - `502fd8601` proves acknowledgement cleanup is one atomic D1 batch: a
   pre-commit failure preserves the active session, allocation, issued delivery,
   and ciphertext, while post-commit response loss converges through replay.
@@ -1573,9 +1587,11 @@ HEAD reconciliation on 2026-08-30:
   only after success; `a01e8ee26` records that I5 closure evidence.
 - `e97083adb` durably retains the ECDSA activation journal, verified client
   activation, request digest, and exact auth-method identity for registration
-  replay. ECDSA-only exact unlock, committed-projection validation, and atomic
-  publication remain one I2 task; mixed registration additionally retains and
-  completes its deferred-NEAR leg.
+  replay. `f2ae08269` completes ECDSA-only exact unlock, committed-projection
+  validation, and atomic publication; `b336af895` establishes mixed registration
+  publication ordering; and `e04f5768f` resumes mixed registration after reload
+  while retaining and completing its deferred-NEAR leg. The focused
+  registration-recovery proof set passes 26/26.
 - `188412a3a` authorizes an exact active registration session against durable
   Passkey or Email OTP ECDSA capability state, and `eebb4217c` removes the
   caller-supplied Email OTP runtime-policy scope so the exact durable runtime
