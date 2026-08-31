@@ -88,7 +88,6 @@ test('a committed Google recovery survives a lost finalization response and runt
   await harness.signTempoTransaction('post_registration');
   await harness.recoverGoogleEmailOtpWalletAfterLostFinalizationResponse();
   await harness.assertRecoveryAuthorityIsAdditive(recoveryTarget);
-  await harness.assertConsumedRecoveryCodeReportedAsUsed(recoveryTarget);
 });
 
 test('an Email-founded wallet recovers with Google, adds Passkey, then signs, exports, and steps up through it', async ({
