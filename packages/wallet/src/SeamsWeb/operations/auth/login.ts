@@ -3049,18 +3049,18 @@ function linkedDeviceEd25519SessionFromEmailOtpBootstrap(args: {
   readonly providerIdentity: LinkedDeviceEmailOtpProviderIdentity;
 }): LinkedDeviceEd25519RuntimeSession {
   const session = args.session;
+  /* The provider flavor is server-derived from the enrollment's principal
+     shape (a fresh address-verified target is 'email'; a target reusing the
+     founding Google enrollment stays 'google'), and the client holds no
+     durable record of it. The provider subject is the identity anchor, so the
+     binding pins kind and subject and accepts either flavor. */
   if (
     session.authorityScope.kind !== 'email_otp' ||
-    session.authorityScope.provider !== args.providerIdentity.provider ||
     String(session.authorityScope.providerUserId) !==
       String(args.providerIdentity.providerSubjectId)
   ) {
     const mismatches = [
       ...(session.authorityScope.kind !== 'email_otp' ? ['scope.kind'] : []),
-      ...(session.authorityScope.kind === 'email_otp' &&
-      session.authorityScope.provider !== args.providerIdentity.provider
-        ? ['scope.provider']
-        : []),
       ...(session.authorityScope.kind === 'email_otp' &&
       String(session.authorityScope.providerUserId) !==
         String(args.providerIdentity.providerSubjectId)
@@ -3441,7 +3441,7 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
   readonly relayUrl: string;
 }): Promise<void> {
   const providerIdentity: LinkedDeviceEmailOtpProviderIdentity = {
-    provider: args.provider || 'email',
+    provider: args.provider || 'google',
     providerSubjectId: args.providerSubjectId,
   };
   const resolution = await resolveLinkedDeviceEmailOtpAuthoritySelection({
@@ -3477,6 +3477,20 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
     workerCtx: args.context.signingEngine.getSignerWorkerContext(),
   });
   const factorSecret32: Uint8Array | null = unlocked.factorSecret32;
+  /* The enrollment's provider flavor is server-derived (a fresh
+     address-verified target is 'email'; a target reusing the founding Google
+     enrollment stays 'google') and is not recorded locally, so the pre-unlock
+     identity is a hint. Every binding built after the unlock adopts the
+     authenticated scope's flavor so lane and authority addressing matches
+     what installation wrote. */
+  const authenticatedScope = unlocked.ed25519Activation.bootstrap?.session.authorityScope ?? null;
+  const effectiveProviderIdentity: LinkedDeviceEmailOtpProviderIdentity =
+    authenticatedScope && authenticatedScope.kind === 'email_otp'
+      ? {
+          provider: authenticatedScope.provider,
+          providerSubjectId: providerIdentity.providerSubjectId,
+        }
+      : providerIdentity;
   let openedMaterials:
     | readonly [LinkedDevicePasskeyOpenedMaterial, ...LinkedDevicePasskeyOpenedMaterial[]]
     | null = null;
@@ -3500,7 +3514,7 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
         context: args.context,
         selection,
         unlocked,
-        providerIdentity,
+        providerIdentity: effectiveProviderIdentity,
         emailHashHex: args.emailHashHex,
       });
       ownedActiveClientHandle = null;
@@ -3565,7 +3579,7 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
         selection,
         factorAuthority: await walletAuthAuthorityForLinkedDeviceMethod({
           selection,
-          providerIdentity,
+          providerIdentity: effectiveProviderIdentity,
         }),
         material: ecdsaMaterial,
       });
@@ -3576,7 +3590,7 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
       const ed25519Session = linkedDeviceEd25519SessionFromEmailOtpBootstrap({
         session: unlocked.ed25519Activation.bootstrap.session,
         operationCredential: unlocked.operationCredential,
-        providerIdentity,
+        providerIdentity: effectiveProviderIdentity,
       });
       if (ed25519Session.walletSessionId !== unlocked.operationCredential.walletSessionId) {
         throw new Error('[login] linked Email OTP Ed25519 session credential mismatch');
@@ -3587,7 +3601,7 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
         session: ed25519Session,
         material: ed25519Material,
         relayerUrl: relayUrl,
-        providerIdentity,
+        providerIdentity: effectiveProviderIdentity,
       });
     } else if (ecdsaMaterial) {
       loginResult = {
