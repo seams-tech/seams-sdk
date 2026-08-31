@@ -1836,7 +1836,9 @@ iframe-to-host boundary.
 - [x] `tests/e2e/intended-behaviours/passkey.unlock.contract.test.ts`, including
       immediate unlock, exhausted-session page refresh with fresh NEAR/Tempo/Arc
       step-up, and empty-storage cold sync with exact V2 Ed25519 rejoin
-- [ ] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts`
+- [x] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts` passed after
+      binding the exact Ed25519 Wallet Session to the Email OTP provider subject
+      carried by the combined unlock request (`3475d60a8`).
 - [ ] `tests/e2e/intended-behaviours/passkey.recovery.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/google-email-otp.recovery.contract.test.ts`
 - [x] `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts`
