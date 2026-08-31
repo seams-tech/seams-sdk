@@ -12,8 +12,7 @@ import {
   type ExactEvmFamilyWalletSessionAuthorization,
 } from '../material/ecdsaSigningCapability';
 import { buildPersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
-import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { IndexedDBManager } from '@/core/indexedDB';
+import type { WalletSessionAuthorizationExactOperationCredentialReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   resolveExactWalletAuthAuthority,
   type ActiveWalletAuthMethodV2,
@@ -21,7 +20,6 @@ import {
 } from '../identity/ownerLaneScope';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
-import { readEmailOtpProviderSubjectForWalletV1 } from '../../threshold/ed25519/yaoPublicCapabilityReferences';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -47,30 +45,16 @@ function isExactSelectedWalletAuthority(
   );
 }
 
-async function getEmailOtpSigningSessionWalletAuthMethod(walletAuthMethodId: string) {
-  return await IndexedDBManager.getWalletAuthMethodV2(walletAuthMethodId);
-}
-
-async function listEmailOtpSigningSessionWalletAuthMethods(walletId: string) {
-  return await IndexedDBManager.listWalletAuthMethodsForWallet(walletId);
-}
-
-async function getEmailOtpSigningSessionPasskeyAuthenticator(args: {
-  readonly walletId: string;
-  readonly credentialId: string;
-}) {
-  return await IndexedDBManager.getWalletPasskeyAuthenticator(args);
-}
-
-async function readEmailOtpSigningSessionProviderSubject(walletId: string) {
-  return await readEmailOtpProviderSubjectForWalletV1(IndexedDBManager, walletId);
-}
-
-const emailOtpSigningSessionFactorStores: OwnerLaneScopeStores = {
-  getWalletAuthMethodV2: getEmailOtpSigningSessionWalletAuthMethod,
-  listWalletAuthMethodsForWallet: listEmailOtpSigningSessionWalletAuthMethods,
-  getWalletPasskeyAuthenticator: getEmailOtpSigningSessionPasskeyAuthenticator,
-  readEmailOtpProviderSubjectForWallet: readEmailOtpSigningSessionProviderSubject,
+export type EmailOtpEcdsaSigningSessionAuthorityPorts = {
+  readonly factorStores: OwnerLaneScopeStores;
+  readonly resolveSelectedWalletAuthority: (
+    walletId: string,
+  ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
+  readonly readExactWalletSessionAuthorization: (input: {
+    walletId: WalletId;
+    authorityId: ActiveWalletAuthorityV1['authorityId'];
+    authMethodId: ActiveWalletAuthMethodV2['walletAuthMethodId'];
+  }) => Promise<WalletSessionAuthorizationExactOperationCredentialReadResult>;
 };
 
 export function emailOtpEcdsaSigningSessionAuthLane(
@@ -99,12 +83,15 @@ export function emailOtpEcdsaSigningSessionAuthLane(
  * OTP authority. The selected authority and exact Wallet Session record must
  * reproduce that tuple before the signing-session lane can be built.
  */
-export async function resolveExactEmailOtpEcdsaSigningSessionAuthority(args: {
-  readonly walletId: WalletId;
-  readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly manifest: ActiveEcdsaCapabilityManifest;
-  readonly runtime: ExactEcdsaSealedRuntime;
-}): Promise<ExactEvmFamilyWalletSessionAuthorization | null> {
+export async function resolveExactEmailOtpEcdsaSigningSessionAuthority(
+  ports: EmailOtpEcdsaSigningSessionAuthorityPorts,
+  args: {
+    readonly walletId: WalletId;
+    readonly chainTarget: ThresholdEcdsaChainTarget;
+    readonly manifest: ActiveEcdsaCapabilityManifest;
+    readonly runtime: ExactEcdsaSealedRuntime;
+  },
+): Promise<ExactEvmFamilyWalletSessionAuthorization | null> {
   if (
     args.runtime.kind !== 'exact_ecdsa_sealed_runtime_v1' ||
     args.runtime.walletId !== args.walletId ||
@@ -137,9 +124,9 @@ export async function resolveExactEmailOtpEcdsaSigningSessionAuthority(args: {
     return null;
   }
 
-  let selected: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
+  let selected: ResolveSelectedWalletAuthorityResultV1;
   try {
-    selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
+    selected = await ports.resolveSelectedWalletAuthority(String(args.walletId));
   } catch {
     return null;
   }
@@ -171,7 +158,7 @@ export async function resolveExactEmailOtpEcdsaSigningSessionAuthority(args: {
   try {
     selectedFactorAuthority = await resolveExactWalletAuthAuthority({
       authMethod,
-      stores: emailOtpSigningSessionFactorStores,
+      stores: ports.factorStores,
     });
   } catch {
     return null;
@@ -182,11 +169,9 @@ export async function resolveExactEmailOtpEcdsaSigningSessionAuthority(args: {
     return null;
   }
 
-  let authorizationRead: Awaited<
-    ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
-  >;
+  let authorizationRead: Awaited<ReturnType<typeof ports.readExactWalletSessionAuthorization>>;
   try {
-    authorizationRead = await walletSessionAuthorizations.readExactWithOperationCredential({
+    authorizationRead = await ports.readExactWalletSessionAuthorization({
       walletId: args.walletId,
       authorityId: authority.authorityId,
       authMethodId: authMethod.walletAuthMethodId,
