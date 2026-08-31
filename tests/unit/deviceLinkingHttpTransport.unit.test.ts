@@ -407,4 +407,53 @@ test.describe('R103 authenticated linked-device browser transport', () => {
     expect(maxInFlight).toBe(1);
     expect(events).toHaveLength(2);
   });
+
+  test('close resolves only after the in-flight poll settles', async () => {
+    const fixture = buildR103DeviceLinkFixture();
+    let requests = 0;
+    let inFlight = 0;
+    const http: HttpTransport = {
+      async request() {
+        requests += 1;
+        inFlight += 1;
+        await new Promise((resolve) => setTimeout(resolve, requests === 1 ? 0 : 25));
+        inFlight -= 1;
+        return { ok: true, value: { status: 200, body: responseBody(fixture) } };
+      },
+    };
+    const keyMaterial: DeviceLinkingKeyMaterialPortV1 = {
+      async createBootstrapKeyMaterialV1() {
+        throw new Error('bootstrap is outside this transport test');
+      },
+      async discardKeyMaterialV1() {},
+      async signDeviceSessionRequestV1() {
+        return { signatureB64u: base64UrlEncode(new Uint8Array(64).fill(9)) };
+      },
+    };
+    const transport = createDeviceLinkingAuthenticatedSessionTransportV1({
+      http,
+      relayerUrl: 'https://relay.example.test',
+      publishableKey: 'pk_test_registration_origin',
+      projectEnvironmentId: 'project:dev',
+      keyMaterial,
+      keyMaterialHandle: {
+        kind: 'device_linking_key_material_handle_v1',
+        handleId: 'worker-slot-r103',
+      },
+      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+      nowMs: () => 2_000,
+      pollIntervalMs: 1,
+    });
+    const subscription = await transport.subscribeSessionV1({
+      linkSessionId: fixture.payload.linkSessionId,
+      onEvent: () => undefined,
+    });
+    // Wait for the second poll's request to be in flight, then close mid-read.
+    await expect.poll(() => requests, { timeout: 1_000 }).toBeGreaterThanOrEqual(2);
+    await subscription.close();
+    expect(inFlight).toBe(0);
+    const requestsAtClose = requests;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(requests).toBe(requestsAtClose);
+  });
 });

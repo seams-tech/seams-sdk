@@ -2048,6 +2048,11 @@ export class LinkDeviceFlow {
     await this.ports.authorityInstallation.persistPendingActivationAcknowledgementV1({
       acknowledgement,
     });
+    /* The acknowledgement commits the server's cleanup batch, which deletes
+       the link session. The poller must already be closed by then, or its next
+       tick reads the deleted session as a spurious not_found. The durable
+       pending acknowledgement above keeps replay possible without it. */
+    await this.closeSessionSubscriptionV1();
     await this.requireAuthenticatedTransport().acknowledgeLocalAuthorityActivationV1({
       acknowledgement,
     });
@@ -2300,6 +2305,7 @@ export class LinkDeviceFlow {
     ) {
       throw new Error('pending linked-device acknowledgement identity is inconsistent');
     }
+    await this.closeSessionSubscriptionV1();
     await this.requireAuthenticatedTransport().acknowledgeLocalAuthorityActivationV1({
       acknowledgement: pending,
     });
@@ -2387,6 +2393,13 @@ export class LinkDeviceFlow {
       this.ordinarySignerMaterialRecipientPreparation = null;
       this.committedAuthorityPackages = null;
     }
+  }
+
+  private async closeSessionSubscriptionV1(): Promise<void> {
+    const subscription = this.subscription;
+    if (!subscription) return;
+    await subscription.close();
+    if (this.subscription === subscription) this.subscription = null;
   }
 
   private async cleanupCompletedLocalResources(): Promise<void> {
