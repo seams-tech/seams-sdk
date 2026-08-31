@@ -1755,9 +1755,20 @@ async function unlockLinkedPasskeyWallet(
   const wallet = await walletFrame(page);
   const unlock = wallet.getByRole('button', { name: 'Sign in with Passkey', exact: true });
   const switchToLogin = wallet.locator('button[data-auth-menu-mode="login"]');
-  await unlock.or(switchToLogin).first().waitFor({ state: 'visible', timeout: 30_000 });
-  if (await switchToLogin.isVisible()) await switchToLogin.click();
-  await unlock.waitFor({ state: 'visible', timeout: 30_000 });
+  /* The menu re-renders while the post-reload restore settles, so a one-shot
+     visible-then-click sequence can race a view swap; drive it like lockWallet
+     does, retrying until the unlock control itself is clickable. */
+  const unlockDeadline = Date.now() + 60_000;
+  for (;;) {
+    if (await unlock.isVisible().catch(() => false)) break;
+    if (await switchToLogin.isVisible().catch(() => false)) {
+      await switchToLogin.click({ timeout: 5_000 }).catch(() => undefined);
+    }
+    if (Date.now() >= unlockDeadline) {
+      throw new Error('Passkey unlock surface did not appear after reload');
+    }
+    await page.waitForTimeout(250);
+  }
   await unlock.click();
   try {
     await page
