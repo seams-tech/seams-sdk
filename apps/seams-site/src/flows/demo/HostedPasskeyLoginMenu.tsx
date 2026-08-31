@@ -153,10 +153,8 @@ function handleHostedAuthMenuOutcome(
       console.error('[SeamsAuthMenu]', new Error(outcomeMessage(outcome)));
       toast.error(outcomeMessage(outcome), { id: 'login' });
       return;
-    default: {
-      const exhaustive: never = outcome;
-      throw new Error(`Unknown hosted auth-menu outcome: ${JSON.stringify(exhaustive)}`);
-    }
+    default:
+      throw new Error(`Unknown hosted auth-menu outcome: ${JSON.stringify(outcome)}`);
   }
 }
 
