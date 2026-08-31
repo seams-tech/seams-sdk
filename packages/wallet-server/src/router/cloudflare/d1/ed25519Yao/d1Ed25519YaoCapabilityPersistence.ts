@@ -475,6 +475,9 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
       createdAtMs: input.previous.createdAtMs,
       expiresAtMs: input.previous.expiresAtMs,
     });
+    /* Stored record_json is not byte-stable (SQL-side json_set promotions
+       reserialize it), so the guard pins the projected authority state the
+       replacement supersedes instead of comparing raw record bytes. */
     return this.database
       .prepare(
         `UPDATE wallet_session_authorizations_v2
@@ -487,7 +490,8 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
             AND env_id = ?
             AND authorization_id = ?
             AND authority_id = ?
-            AND record_json = ?
+            AND authority_digest_b64u = ?
+            AND authority_revocation_epoch = ?
             AND retired_at_ms IS NULL`,
       )
       .bind(
@@ -500,7 +504,8 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
         this.scope.envId,
         String(next.authorizationId),
         String(next.authorityId),
-        JSON.stringify(input.previous),
+        String(input.previous.authorityDigestB64u),
+        input.previous.authorityRevocationEpoch,
       );
   }
 
