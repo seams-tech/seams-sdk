@@ -1124,7 +1124,7 @@ export async function registerPreparedHostedPasskeyRegistration(args: {
  * forever. Deriving the key from the ceremony and activation reference makes
  * every retry the same consumer, so takeover resume works instead.
  */
-async function deriveNearProvisioningIdempotencyKey(input: {
+export async function deriveNearProvisioningIdempotencyKey(input: {
   readonly registrationCeremonyId: string;
   readonly activationReference: {
     readonly lifecycle_id: string;

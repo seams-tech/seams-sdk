@@ -99,7 +99,7 @@ export type CommittedEcdsaRegistrationResponse = Extract<
 
 export type PendingEcdsaRegistrationUnlockInput = {
   readonly relayerUrl: string;
-  readonly pending: PendingEcdsaOnlyRegistrationCommit;
+  readonly pending: PendingEcdsaRegistrationCommit;
   readonly response: CommittedEcdsaRegistrationResponse;
   readonly walletKeys: readonly [
     WalletRegistrationEcdsaWalletKey,
@@ -150,7 +150,7 @@ export function requireEcdsaProjection(
 
 export function pendingEcdsaActivateRequest(
   relayerUrl: string,
-  pending: PendingEcdsaOnlyRegistrationCommit,
+  pending: PendingEcdsaRegistrationCommit,
 ): Parameters<typeof activateWalletRegistration>[0] {
   const common = {
     relayerUrl,
@@ -196,10 +196,6 @@ function assertProjectionMatchesPending(
 ): void {
   const session = response.registrationEstablishedSession.session;
   const projection = requireEcdsaProjection(response);
-  const expectedTokenKind =
-    pending.signerPlanKind === 'near_ed25519_and_evm_family_ecdsa'
-      ? 'near_ed25519_and_evm_family_ecdsa'
-      : 'evm_family_ecdsa';
   assertCanonical(
     [
       response.walletId,
@@ -221,7 +217,7 @@ function assertProjectionMatchesPending(
       pending.walletId,
       pending.walletId,
       pending.walletAuthMethodId,
-      expectedTokenKind,
+      'evm_family_ecdsa',
       walletKey.keyHandle,
       response.ecdsa.bootstrap.thresholdSessionId,
       response.ecdsa.bootstrap.expiresAtMs,
@@ -380,7 +376,7 @@ function assertProjectionEcdsaFacts(response: CommittedEcdsaRegistrationResponse
 }
 
 export async function requireCommittedEcdsaRegistrationResponse(args: {
-  readonly pending: PendingEcdsaOnlyRegistrationCommit;
+  readonly pending: PendingEcdsaRegistrationCommit;
   readonly response: WalletRegistrationActivateResponseV2;
 }): Promise<CommittedEcdsaRegistrationResponse> {
   const response = args.response;
@@ -396,8 +392,12 @@ export async function requireCommittedEcdsaRegistrationResponse(args: {
   await assertAuthMatchesPending(args.pending, response);
   assertActivationFacts(args.pending, response, walletKey);
   assertProjectionEcdsaFacts(response);
-  if (response.nearProvisioning !== undefined) {
-    throw new Error('ECDSA-only registration unexpectedly has deferred NEAR provisioning');
+  if (args.pending.signerPlanKind === 'evm_family_ecdsa') {
+    if (response.nearProvisioning !== undefined) {
+      throw new Error('ECDSA-only registration unexpectedly has deferred NEAR provisioning');
+    }
+  } else if (response.nearProvisioning?.status !== 'near_pending') {
+    throw new Error('mixed registration did not retain deferred NEAR provisioning');
   }
   return response;
 }

@@ -23,7 +23,7 @@ import {
   requireResponseWalletKeys,
   requireEcdsaProjection,
   type CommittedEcdsaRegistrationResponse,
-  type PendingEcdsaOnlyRegistrationCommit,
+  type PendingEcdsaRegistrationCommit,
   type PendingEcdsaRegistrationRecoveryPorts,
   type PendingEcdsaRegistrationUnlockInput,
   type PendingEcdsaRegistrationUnlockMaterial,
@@ -33,7 +33,7 @@ import {
 
 type PendingEcdsaRecoveryCommon = {
   readonly relayerUrl: string;
-  readonly pending: PendingEcdsaOnlyRegistrationCommit;
+  readonly pending: PendingEcdsaRegistrationCommit;
   readonly signingSurface: PendingRegistrationRecoverySigningSurface;
   readonly ports: PendingEcdsaRegistrationRecoveryPorts;
 };
@@ -73,7 +73,7 @@ function nonEmptyChainTargets(
 }
 
 async function prepareEcdsaRegistrationPublication(args: {
-  readonly pending: PendingEcdsaOnlyRegistrationCommit;
+  readonly pending: PendingEcdsaRegistrationCommit;
   readonly response: CommittedEcdsaRegistrationResponse;
   readonly walletKeys: readonly StoreWalletEcdsaWalletKey[];
 }): Promise<StoreWalletRegistrationPublicationInputV1> {
@@ -111,7 +111,7 @@ async function prepareEcdsaRegistrationPublication(args: {
 }
 
 function publicationInput(args: {
-  readonly pending: PendingEcdsaOnlyRegistrationCommit;
+  readonly pending: PendingEcdsaRegistrationCommit;
   readonly response: CommittedEcdsaRegistrationResponse;
   readonly registration: StoreWalletRegistrationPublicationInputV1;
   readonly session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
