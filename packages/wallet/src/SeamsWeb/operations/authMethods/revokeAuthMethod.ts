@@ -18,6 +18,7 @@ import {
   computeWalletAuthMethodRevokeOperationFingerprintV1,
   walletIdFromString,
   type WalletId,
+  type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
 import {
   parseWalletAuthMethodId,
@@ -36,6 +37,7 @@ import { WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION } from '@shared/utils/email
 import type { WalletAuthMethodRevocationProof } from '@shared/utils/registrationIntent';
 import { WALLET_AUTH_METHODS, type WalletAuthMethod } from '@shared/utils/signerDomain';
 import type { RegistrationWebContext } from '@/SeamsWeb/signingSurface/types';
+import type { ProfileAuthenticatorRecord } from '@/core/indexedDB';
 
 export type RevokeAuthMethodResult = {
   readonly ok: true;
@@ -45,7 +47,8 @@ export type RevokeAuthMethodResult = {
 };
 
 /**
- * Every local passkey credential except the one being revoked.
+ * Every local passkey credential backed by an active V2 method except the one
+ * being revoked.
  *
  * Offering the target would let a credential authorize its own removal, which
  * the server refuses anyway - but refusing it here means the prompt never asks
@@ -58,15 +61,27 @@ function webAuthnTransportsFromRaw(value: unknown): AuthenticatorTransport[] {
   );
 }
 
-async function passkeySourceCredentials(args: {
+export function passkeySourceCredentialsForActiveMethods(args: {
   readonly walletId: WalletId;
+  readonly authenticators: readonly ProfileAuthenticatorRecord[];
+  readonly authMethods: readonly WalletAuthMethodRecordV2[];
   readonly excludeCredentialIdB64u: string | null;
-}): Promise<WebAuthnAllowCredential[]> {
-  const authenticators = await IndexedDBManager.listProfileAuthenticators(String(args.walletId));
+}): WebAuthnAllowCredential[] {
+  const activeCredentialIds = new Set<string>();
+  for (const method of args.authMethods) {
+    if (
+      method.kind === 'passkey' &&
+      method.status === 'active' &&
+      method.walletId === args.walletId
+    ) {
+      activeCredentialIds.add(method.credentialIdB64u);
+    }
+  }
+
   const allowCredentials: WebAuthnAllowCredential[] = [];
-  for (const record of authenticators) {
+  for (const record of args.authenticators) {
     const id = String(record.credentialId || '').trim();
-    if (!id || id === args.excludeCredentialIdB64u) continue;
+    if (!id || id === args.excludeCredentialIdB64u || !activeCredentialIds.has(id)) continue;
     allowCredentials.push({
       id,
       type: 'public-key',
@@ -74,6 +89,22 @@ async function passkeySourceCredentials(args: {
     });
   }
   return allowCredentials;
+}
+
+async function passkeySourceCredentials(args: {
+  readonly walletId: WalletId;
+  readonly excludeCredentialIdB64u: string | null;
+}): Promise<WebAuthnAllowCredential[]> {
+  const [authenticators, authMethods] = await Promise.all([
+    IndexedDBManager.listProfileAuthenticators(String(args.walletId)),
+    IndexedDBManager.listWalletAuthMethodsV2ForWallet(String(args.walletId)),
+  ]);
+  return passkeySourceCredentialsForActiveMethods({
+    walletId: args.walletId,
+    authenticators,
+    authMethods,
+    excludeCredentialIdB64u: args.excludeCredentialIdB64u,
+  });
 }
 
 async function passkeySourceProof(args: {
