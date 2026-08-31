@@ -1935,7 +1935,15 @@ export class IntendedBehaviourHarness {
     }
     const finalization = requireCapturedRecoveryRequest(finalizationCapture);
     await this.resumeCommittedRecoveryAfterRuntimeReset(finalization);
-    await this.unlockPasskeyWallet();
+    /* This device re-established custody through the Google Email OTP
+       recovery, so the recovered method - not the founding passkey - is the
+       factor that unlocks here. The Passkey mirror case covers the
+       passkey-bound custody path. */
+    if (!finalization.targetWalletAuthMethodId) {
+      throw new Error('Google recovery finalization omitted its target auth method');
+    }
+    this.addedWalletAuthMethodId = finalization.targetWalletAuthMethodId;
+    await this.unlockWithAddedEmailOtp();
     await this.signTempoTransaction('post_unlock');
     await this.signNearTransaction('post_unlock');
     await this.assertConsumedRecoveryCodeReportedAsUsed('google_email_otp');
