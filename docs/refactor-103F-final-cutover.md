@@ -1839,8 +1839,26 @@ iframe-to-host boundary.
 - [x] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts` passed after
       binding the exact Ed25519 Wallet Session to the Email OTP provider subject
       carried by the combined unlock request (`3475d60a8`).
-- [ ] `tests/e2e/intended-behaviours/passkey.recovery.contract.test.ts`
+- [ ] `tests/e2e/intended-behaviours/passkey.recovery.contract.test.ts` — cases
+      1-5 (all three origins, failed finalization, lost-response replay) pass
+      after seven production fixes: the passkey unlock accepting the
+      already-committed exact session with its top-level authorization
+      (`527b5cb14`), the D1 `json_set` REAL rendering that made the recovery
+      promotion's session-projection byte-CAS unmatchable — source sessions now
+      re-projected onto the advanced authority digest (`134cea429`), recovery
+      finalization made single-flight per operation (`77fd79b2a`), and the
+      durable resume journal encrypting the wire projection instead of the
+      parse-enriched record that could never decrypt (`f582b8a1d`). The two
+      "recovers, adds a method, then operates" composites still fail: after
+      recovery+add, two active ECDSA capability pointers name different sibling
+      methods and the intended page's R109C one-exact-method check refuses the
+      mixed projection ("Wallet session capability projections disagree on auth
+      method") — same surface as the in-flight Passkey→Email OTP addition work.
 - [ ] `tests/e2e/intended-behaviours/google-email-otp.recovery.contract.test.ts`
+      — cases 1-5 pass (reuse report, all three origins, lost-response replay
+      unlocking through the recovery-installed method). The two "recovers with
+      Google, adds Passkey" composites fail on the identical mixed-projection
+      defect described above.
 - [x] `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`
 - [x] `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts` passed
