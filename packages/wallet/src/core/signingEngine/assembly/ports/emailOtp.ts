@@ -2,6 +2,15 @@ import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinat
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
+import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
+import type { ExactWalletSessionReadPorts } from '../../session/identity/exactWalletSessionCredential';
+
+export const browserExactWalletSessionReadPorts: ExactWalletSessionReadPorts = {
+  resolveSelectedWalletAuthority:
+    IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
+  readExactWithOperationCredential:
+    walletSessionAuthorizations.readExactWithOperationCredential.bind(walletSessionAuthorizations),
+};
 
 export function createEmailOtpWarmSessionStatusReader(
   args: CreateSigningEnginePortsArgs,
@@ -24,6 +33,7 @@ export function createSigningSessionCoordinatorPort(args: {
 }): SigningSessionCoordinator {
   const { createArgs, getEmailOtpWarmSessionStatus } = args;
   return new SigningSessionCoordinator({
+    exactWalletSessionReadPorts: browserExactWalletSessionReadPorts,
     getStatus: createArgs.getWalletSessionStatus,
     touchConfirm: createArgs.passkeyMpcSession,
     getEmailOtpWarmSessionStatus: (thresholdSessionId) =>

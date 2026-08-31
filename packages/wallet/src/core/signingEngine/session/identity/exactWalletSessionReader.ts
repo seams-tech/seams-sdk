@@ -1,5 +1,4 @@
 import type { WalletAuthenticationState } from '@/core/types/seams';
-import { IndexedDBManager } from '@/core/indexedDB';
 import {
   walletSessionAuthorizations,
   WalletSessionAuthorizationUpgradeRequiredError,
@@ -10,6 +9,7 @@ import {
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { WalletAuthMethodId, WalletAuthorityId } from '@shared/utils/domainIds';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ExactWalletSessionReadPorts } from './exactWalletSessionCredential';
 
 export type ExactWalletSessionAuthenticationReadResult =
   | {
@@ -50,10 +50,12 @@ function exactWalletSessionMatchesAuthorityScope(args: {
   );
 }
 
-export async function readExactWalletSessionAuthentication(
-  walletId: WalletId,
-): Promise<ExactWalletSessionAuthenticationReadResult> {
-  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+export async function readExactWalletSessionAuthentication(args: {
+  readonly walletId: WalletId;
+  readonly ports: ExactWalletSessionReadPorts;
+}): Promise<ExactWalletSessionAuthenticationReadResult> {
+  const { walletId, ports } = args;
+  const selected = await ports.resolveSelectedWalletAuthority(String(walletId));
   if (selected.kind !== 'resolved') return { kind: 'missing' };
   const { selection, authMethod, authority } = selected;
   if (
@@ -68,7 +70,7 @@ export async function readExactWalletSessionAuthentication(
   ) {
     return { kind: 'missing' };
   }
-  const exact = await walletSessionAuthorizations.readExactWithOperationCredential({
+  const exact = await ports.readExactWithOperationCredential({
     walletId,
     authorityId: authority.authorityId,
     authMethodId: authMethod.walletAuthMethodId,
