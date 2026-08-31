@@ -34,6 +34,8 @@ export class EmailOtpEcdsaLifecycleRuntime {
         request: ThresholdEcdsaEmailOtpExportActivationRequest,
       ) => Promise<EmailOtpEcdsaExplicitExportBootstrapResult>;
       runtimeConfig: EmailOtpRuntimeConfig;
+      ownerLaneScopeStores: EmailOtpWalletSessionCoordinatorDeps['ownerLaneScopeStores'];
+      resolveSelectedWalletAuthority: EmailOtpWalletSessionCoordinatorDeps['resolveSelectedWalletAuthority'];
       resolveCurrentEcdsaCapabilityRuntime: EmailOtpWalletSessionCoordinatorDeps['resolveCurrentEcdsaCapabilityRuntime'];
       publicationPorts: () => EmailOtpEcdsaPublicationPorts;
     },
@@ -63,6 +65,8 @@ export class EmailOtpEcdsaLifecycleRuntime {
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
       requireSigningSessionSealGroupId: () =>
         this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
+      ownerLaneScopeStores: this.ports.ownerLaneScopeStores,
+      resolveSelectedWalletAuthority: this.ports.resolveSelectedWalletAuthority,
       resolveCurrentEcdsaCapabilityRuntime: this.ports.resolveCurrentEcdsaCapabilityRuntime,
       publicationPorts: this.ports.publicationPorts(),
     });
@@ -82,6 +86,8 @@ export class EmailOtpEcdsaLifecycleRuntime {
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
       requireSigningSessionSealGroupId: () =>
         this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
+      ownerLaneScopeStores: this.ports.ownerLaneScopeStores,
+      resolveSelectedWalletAuthority: this.ports.resolveSelectedWalletAuthority,
       resolveCurrentEcdsaCapabilityRuntime: this.ports.resolveCurrentEcdsaCapabilityRuntime,
       publicationPorts: this.ports.publicationPorts(),
     });

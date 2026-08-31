@@ -28,6 +28,7 @@ import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { WalletAuthorityId, WalletAuthMethodId } from '@shared/utils/domainIds';
 import type { EmailOtpWalletCustodyEd25519MaterialRequest } from '../../workerManager/workerTypes';
 import type { ImportWalletCustodyEcdsaContinuityInput } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import type { OwnerLaneScopeStores } from '../identity/ownerLaneScope';
 
 export type EmailOtpCoordinatorRuntimePorts = {
   configs: SeamsConfigsReadonly;
@@ -37,6 +38,7 @@ export type EmailOtpCoordinatorRuntimePorts = {
   resolveSelectedWalletAuthority: (
     walletId: string,
   ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
+  ownerLaneScopeStores: OwnerLaneScopeStores;
   readExactWalletSessionAuthorization: (input: {
     walletId: WalletId;
     authorityId: WalletAuthorityId;

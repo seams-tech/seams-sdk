@@ -63,6 +63,13 @@ export function createStepUpRuntime(args: {
     restoreWalletCustodyEcdsaContinuity: args.restoreWalletCustodyEcdsaContinuity,
     resolveSelectedWalletAuthority:
       IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
+    ownerLaneScopeStores: {
+      getWalletAuthMethodV2: IndexedDBManager.getWalletAuthMethodV2.bind(IndexedDBManager),
+      listWalletAuthMethodsForWallet:
+        IndexedDBManager.listWalletAuthMethodsForWallet.bind(IndexedDBManager),
+      getWalletPasskeyAuthenticator:
+        IndexedDBManager.getWalletPasskeyAuthenticator.bind(IndexedDBManager),
+    },
     readExactWalletSessionAuthorization:
       walletSessionAuthorizations.readExactWithOperationCredential.bind(
         walletSessionAuthorizations,
