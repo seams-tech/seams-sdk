@@ -1465,10 +1465,12 @@ impl CompletedRoleA<ExportStream> {
 }
 
 impl CompletedRoleA<LaneMaterializationStream> {
+    #[cfg(any(feature = "phase9-role-benchmark", feature = "local-protocol"))]
     pub(super) fn holder_commitment(&self) -> [u8; 32] {
         self.role.holder_commitment()
     }
 
+    #[cfg(any(feature = "phase9-role-benchmark", feature = "local-protocol"))]
     pub(super) fn signing_worker_commitment(&self) -> [u8; 32] {
         self.role.signing_worker_commitment()
     }
@@ -1884,10 +1886,12 @@ impl CompletedRoleB<ExportStream> {
 }
 
 impl CompletedRoleB<LaneMaterializationStream> {
+    #[cfg(any(feature = "phase9-role-benchmark", feature = "local-protocol"))]
     pub(super) fn holder_commitment(&self) -> [u8; 32] {
         self.role.holder_commitment()
     }
 
+    #[cfg(any(feature = "phase9-role-benchmark", feature = "local-protocol"))]
     pub(super) fn signing_worker_commitment(&self) -> [u8; 32] {
         self.role.signing_worker_commitment()
     }

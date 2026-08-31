@@ -202,6 +202,31 @@ async fn handle_strict_deriver_fetch_v1(
         Err(err) => return cloudflare_protocol_error_response_v1(err),
     };
 
+    #[cfg(debug_assertions)]
+    if path == CLOUDFLARE_TENANT_ROOT_ROLE_D1_INTEGRATION_PATH
+        && cloudflare_tenant_root_role_d1_integration_enabled_v1(&env)
+    {
+        let integration_request: CloudflareTenantRootRoleD1IntegrationRequestV1 =
+            match parse_strict_deriver_json_v1(
+                &mut request,
+                format!("Router A/B strict {label} tenant-root role-store integration"),
+            )
+            .await?
+            {
+                Ok(parsed) => parsed,
+                Err(response) => return Ok(response),
+            };
+        return match run_cloudflare_tenant_root_role_d1_integration_v1(&env, integration_request)
+            .await
+        {
+            Ok(receipt) => Response::from_json(&receipt),
+            Err(err) => Response::error(
+                format!("tenant-root role-store integration failed: {err}"),
+                500,
+            ),
+        };
+    }
+
     #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
     if path == CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH {
         return match handle_cloudflare_ed25519_yao_deriver_a_prepare_pair_v1(request, &env).await {

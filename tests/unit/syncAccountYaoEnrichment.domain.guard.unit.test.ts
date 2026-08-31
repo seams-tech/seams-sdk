@@ -264,12 +264,6 @@ class RecordingYaoProductRuntime implements RouterAbEd25519YaoProductRegistratio
     throw new Error('registration activation is outside sync-account enrichment');
   }
 
-  replayActivatedRegistration(): ReturnType<
-    RouterAbEd25519YaoProductRegistrationRuntimeV1['replayActivatedRegistration']
-  > {
-    throw new Error('registration replay is outside sync-account enrichment');
-  }
-
   installRegistrationFinalizeCapability(
     _input: Parameters<
       RouterAbEd25519YaoProductRegistrationRuntimeV1['installRegistrationFinalizeCapability']
@@ -316,13 +310,10 @@ function replaceWebAuthnService(
     emailOtp: service.emailOtp,
     webAuthn,
     identity: service.identity,
-    sessionVersions: service.sessionVersions,
-    sessionExchanges: service.sessionExchanges,
     authorizationSessions: service.authorizationSessions,
     authorizedOperations: service.authorizedOperations,
     thresholdRuntime: service.thresholdRuntime,
     nearFunding: service.nearFunding,
-    recovery: service.recovery,
     router: service.router,
     passkeyCustody: {
       ...service.passkeyCustody,
@@ -521,7 +512,7 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
     expect(responseBody.thresholdEd25519.session).not.toHaveProperty('sessionKind');
 
     const replayResponse = await router(syncAccountVerifyRequest());
-    expect(replayResponse.status).toBe(409);
+    expect(replayResponse.status, await replayResponse.clone().text()).toBe(409);
     const replayBody = await replayResponse.json();
     expect(replayBody).toMatchObject({
       ok: false,

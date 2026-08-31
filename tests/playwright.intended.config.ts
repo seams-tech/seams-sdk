@@ -10,7 +10,7 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const intendedEnvFilePath = path.join(repoRoot, '.env.local');
-const intendedFileEnv = readEnvFile(intendedEnvFilePath);
+const intendedFileEnv: Record<string, string | undefined> = readEnvFile(intendedEnvFilePath);
 dotenv.config({ path: intendedEnvFilePath, override: false });
 
 const intendedGoogleClientId = resolveGoogleClientId({

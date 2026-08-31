@@ -24,9 +24,10 @@ pub use ed25519_role_targets::{
 };
 pub use error::{ThresholdPrfError, ThresholdPrfResult};
 pub use prf::{
-    combine_verified_partials, evaluate_partial, evaluate_partial_with_dleq_proof,
-    verify_partial_dleq_proof, PrfDleqProof, PrfOutput32, PrfPartial, PrfPartialProofBundle,
-    PrfPartialWire, SigningRootShareCommitment,
+    combine_verified_partials, combine_verified_partials_bound_to_digest, evaluate_partial,
+    evaluate_partial_with_dleq_proof, evaluate_partial_with_dleq_proof_bound_to_digest,
+    verify_partial_dleq_proof, verify_partial_dleq_proof_bound_to_digest, PrfDleqProof,
+    PrfOutput32, PrfPartial, PrfPartialProofBundle, PrfPartialWire, SigningRootShareCommitment,
 };
 pub use refresh::{
     apply_two_party_root_share_refresh, generate_two_party_root_share, prove_root_share_knowledge,

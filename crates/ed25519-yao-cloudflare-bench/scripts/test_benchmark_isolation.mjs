@@ -60,10 +60,10 @@ function run() {
   const result = evaluateIsolation(snapshot);
   assert.equal(result.status, "pass");
   assert.equal(result.production_reachable, false);
-  assert.equal(result.authorized_core_dependents, 5);
+  assert.equal(result.authorized_core_dependents, 6);
   assert.equal(result.benchmark_dependents, 0);
   assert.equal(result.product_references, 0);
-  assert.equal(result.benchmark_wrangler_configs, 19);
+  assert.equal(result.benchmark_wrangler_configs, 21);
   assert.equal(result.production_routes, 0);
 
   assertMutationRejected(snapshot, addProductReference);

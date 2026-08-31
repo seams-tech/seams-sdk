@@ -9,6 +9,15 @@
     feature = "deriver-b-cross-account",
     test
 ))]
+#[cfg_attr(
+    any(
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        feature = "deriver-b-cross-account"
+    ),
+    allow(dead_code, unused_imports)
+)]
 mod r120_preface;
 
 #[cfg(any(
@@ -168,6 +177,15 @@ compile_error!("a Worker build requires exactly one Deriver A or Deriver B trans
     feature = "deriver-b-same-account-websocket",
     test
 ))]
+#[cfg_attr(
+    any(
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        feature = "deriver-b-cross-account"
+    ),
+    allow(dead_code, unused_imports)
+)]
 mod adapter {
     #[cfg(any(
         feature = "deriver-a",
@@ -194,18 +212,28 @@ mod adapter {
     use std::task::{Context, Poll};
 
     use bytes::Bytes;
+    #[cfg(all(
+        test,
+        not(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))
+    ))]
+    use ed25519_yao::phase9_role_benchmark::Activation128KiBDeriverA;
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     use ed25519_yao::phase9_role_benchmark::{
         activation_artifact_identity, export_artifact_identity,
-        lane_materialization_artifact_identity, BenchmarkRoleError, DirectionalEofEvidence,
-        DirectionalWireDecoder, DirectionalWireEncoder, RelayEvent, RelayInstruction, RelayStep,
-        StreamMetrics, WireByteLedger, WireDirection, WireMessage, WireMessageKind,
-        YaoArtifactIdentity,
+        lane_materialization_artifact_identity, YaoArtifactIdentity,
     };
     #[cfg(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
-        feature = "deriver-a-same-account-websocket",
-        test
+        feature = "deriver-a-same-account-websocket"
     ))]
     use ed25519_yao::phase9_role_benchmark::{
         Activation128KiBDeriverA, Export128KiBDeriverA, LaneMaterialization128KiBDeriverA,
@@ -241,6 +269,11 @@ mod adapter {
     ))]
     use ed25519_yao::phase9_role_benchmark::{
         ActivationDeriverBInputs, ExportDeriverBInputs, LaneDeriverBInputs,
+    };
+    use ed25519_yao::phase9_role_benchmark::{
+        BenchmarkRoleError, DirectionalEofEvidence, DirectionalWireDecoder, DirectionalWireEncoder,
+        RelayEvent, RelayInstruction, RelayStep, StreamMetrics, WireByteLedger, WireDirection,
+        WireMessage, WireMessageKind,
     };
     #[cfg(any(
         feature = "deriver-a",
@@ -462,8 +495,7 @@ mod adapter {
         feature = "deriver-a-cross-account",
         feature = "deriver-b-cross-account",
         feature = "deriver-a-same-account-websocket",
-        feature = "deriver-b-same-account-websocket",
-        test
+        feature = "deriver-b-same-account-websocket"
     ))]
     const WEBSOCKET_DIRECTION_EOF: &[u8] = b"YAOEOF01A";
     #[cfg(all(feature = "deriver-a", not(feature = "deriver-a-same-account-rpc")))]
@@ -517,6 +549,7 @@ mod adapter {
         "rust-wasm-copy-zeroized-js-view-overwritten-platform-copies-uncontrolled";
 
     /// Same-build profile selected for one Phase 0 benchmark ceremony.
+    #[allow(dead_code)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(super) enum R120BenchmarkProfile {
         /// Existing Yao benchmark path without the PRF preface.
@@ -526,6 +559,7 @@ mod adapter {
     }
 
     /// Fixed Yao ceremony selected by the Phase 0 benchmark.
+    #[allow(dead_code)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(super) enum BenchmarkCeremony {
         /// Wallet material activation.
@@ -536,6 +570,7 @@ mod adapter {
         LaneMaterialization,
     }
 
+    #[allow(dead_code)]
     impl BenchmarkCeremony {
         pub(super) const fn as_str(self) -> &'static str {
             match self {
@@ -553,6 +588,11 @@ mod adapter {
             }
         }
 
+        #[cfg(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
         pub(super) const fn yao_artifact_identity(self) -> YaoArtifactIdentity {
             match self {
                 Self::Activation => activation_artifact_identity(),
@@ -571,6 +611,7 @@ mod adapter {
         }
     }
 
+    #[allow(dead_code)]
     impl R120BenchmarkProfile {
         pub(super) const fn as_str(self) -> &'static str {
             match self {
@@ -589,6 +630,11 @@ mod adapter {
     }
 
     /// Fixed Phase 0 preface accounting kept outside the Yao wire ledger.
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub(super) struct R120PrefaceMetrics {
         wall_ms: f64,
@@ -598,6 +644,11 @@ mod adapter {
         proof_bundle_flights: u64,
     }
 
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     impl R120PrefaceMetrics {
         const fn current() -> Self {
             Self {
@@ -838,6 +889,7 @@ mod adapter {
     ))]
     const CEREMONY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
+    #[allow(dead_code)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(super) enum AdapterError {
         Role,
@@ -2651,6 +2703,7 @@ mod adapter {
             self.url.as_str()
         }
 
+        #[cfg(feature = "deriver-a-cross-account")]
         fn url(&self) -> &url::Url {
             &self.url
         }
@@ -2679,6 +2732,13 @@ mod adapter {
     }
 
     /// Exact identity carried by the benchmark WebSocket subprotocol.
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(super) struct WebSocketProtocolBinding {
         /// Deployment shared by the two benchmark roles.
@@ -3580,6 +3640,7 @@ mod adapter {
         feature = "deriver-a-cross-account",
         feature = "deriver-a-same-account-websocket"
     ))]
+    #[allow(clippy::too_many_arguments)]
     async fn run_deriver_a<T: YaoDuplexTransport>(
         mut transport: T,
         mut role: BenchmarkDeriverA,
@@ -3676,6 +3737,8 @@ mod adapter {
         profile: R120BenchmarkProfile,
         ceremony: BenchmarkCeremony,
     ) -> Result<DeriverABenchmarkCompletion, AdapterError> {
+        #[cfg(feature = "deriver-a")]
+        let _ = (profile, ceremony);
         #[cfg(feature = "deriver-a")]
         let controller = worker::AbortController::default();
         #[cfg(any(

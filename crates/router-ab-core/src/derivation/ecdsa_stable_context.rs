@@ -2,8 +2,12 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::de::Error as DeError;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha2::{Digest, Sha256};
 
-use super::{RouterAbDerivationError, RouterAbDerivationErrorCode, RouterAbDerivationResult};
+use super::{
+    RouterAbDerivationError, RouterAbDerivationErrorCode, RouterAbDerivationResult,
+    TenantRootProtocolDigestV1,
+};
 
 const ECDSA_STABLE_CONTEXT_DOMAIN_V1: &[u8] = b"router-ab-ecdsa-derivation/context/v1";
 const ECDSA_STABLE_CONTEXT_SCHEME_ID_V1: &str = "router-ab-ecdsa-derivation-v1";
@@ -55,6 +59,13 @@ impl StableTenantDerivationContextV2 {
             bytes.extend_from_slice(&participant_id.to_be_bytes());
         }
         bytes
+    }
+
+    /// Returns the digest of the exact bytes supplied to threshold-PRF.
+    pub fn digest(&self) -> TenantRootProtocolDigestV1 {
+        TenantRootProtocolDigestV1::from_bytes(
+            Sha256::digest(self.canonical_context_bytes()).into(),
+        )
     }
 }
 

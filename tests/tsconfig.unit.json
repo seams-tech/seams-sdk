@@ -33,11 +33,15 @@
     "unit/walletSessionFailure.structuredRetry.unit.test.ts",
     "unit/sealedSessionStore.unit.test.ts",
     "unit/signingSessionSeal.shared.unit.test.ts",
+    "unit/tenantRootIdentityResolution.unit.test.ts",
+    "unit/tenantRootEcdsaWalletSessionComposition.unit.test.ts",
     "unit/thresholdEcdsa.bootstrapPersistence.unit.test.ts",
     "unit/thresholdSessionClaims.unit.test.ts",
     "unit/userHandle.parse.test.ts",
     "unit/warmSessionEcdsaProvisioning.unit.test.ts",
-    "unit/warmSessionTransitions.unit.test.ts"
+    "unit/warmSessionTransitions.unit.test.ts",
+    "typecheck/tenant-root-identity-resolution.typecheck.ts",
+    "typecheck/tenant-root-ecdsa-wallet-session-composition.typecheck.ts"
   ],
   "exclude": ["node_modules", "playwright-report", "test-results"]
 }

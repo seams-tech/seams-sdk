@@ -142,7 +142,7 @@ fn request_fixture(
                 MpcMaterialActivationRefV1::new(
                     format!("activation-{label}"),
                     format!("capability-{label}"),
-                    format!("wallet-{label}"),
+                    format!("{label}-account"),
                     format!("key-{label}"),
                     format!("{label}-session"),
                     "signing-worker-local",

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { readFile, readdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Miniflare } from 'miniflare';
@@ -11,12 +12,11 @@ const internalAuthHeader = 'x-router-ab-internal-service-auth';
 const internalAuthSecret = 'private-d1-integration-auth';
 const roleD1Binding = 'DERIVER_ROLE_PRIVATE_DB';
 const signingWorkerD1Binding = 'SIGNING_WORKER_PRIVATE_DB';
-const roleSchemaPath = join(packageRoot, 'migrations/deriver-a/0001_role_private_storage.sql');
-const signingWorkerSchemaPath = join(
-  packageRoot,
-  'migrations/signing-worker/0001_private_storage.sql',
-);
+const deriverAMigrationsPath = join(packageRoot, 'migrations/deriver-a');
+const deriverBMigrationsPath = join(packageRoot, 'migrations/deriver-b');
+const signingWorkerMigrationsPath = join(packageRoot, 'migrations/signing-worker');
 let capturedSigningWorkerDelivery;
+const tenantRootRoleIntegrationPath = '/router-ab/deriver/tenant-root-role-d1/integration';
 
 function loadFixture() {
   const output = execFileSync(
@@ -50,7 +50,10 @@ function strictWorker(name, role, bindings) {
 
 function deriverAWorker(fixture) {
   return {
-    ...strictWorker('deriver-a', 'deriver-a', fixture.deriver_a_env),
+    ...strictWorker('deriver-a', 'deriver-a', {
+      ...fixture.deriver_a_env,
+      ROUTER_AB_TENANT_ROOT_ROLE_D1_INTEGRATION: 'enabled',
+    }),
     d1Databases: { [roleD1Binding]: 'deriver-a-private-d1' },
     serviceBindings: { DERIVER_B: 'deriver-b' },
   };
@@ -58,7 +61,10 @@ function deriverAWorker(fixture) {
 
 function deriverBWorker(fixture) {
   return {
-    ...strictWorker('deriver-b', 'deriver-b', fixture.deriver_b_env),
+    ...strictWorker('deriver-b', 'deriver-b', {
+      ...fixture.deriver_b_env,
+      ROUTER_AB_TENANT_ROOT_ROLE_D1_INTEGRATION: 'enabled',
+    }),
     d1Databases: { [roleD1Binding]: 'deriver-b-private-d1' },
     serviceBindings: { DERIVER_A: 'deriver-a' },
   };
@@ -94,14 +100,19 @@ async function captureSigningWorkerDelivery(request, miniflare) {
   return worker.fetch(request);
 }
 
-async function applySchema(miniflare, binding, workerName, schemaPath) {
+async function applyMigrations(miniflare, binding, workerName, migrationsPath) {
   const database = await miniflare.getD1Database(binding, workerName);
-  const statements = (await readFile(schemaPath, 'utf8'))
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter(Boolean)
-    .map((statement) => database.prepare(statement));
-  await database.batch(statements);
+  const migrationFiles = (await readdir(migrationsPath))
+    .filter((file) => file.endsWith('.sql'))
+    .sort();
+  for (const migrationFile of migrationFiles) {
+    const statements = (await readFile(join(migrationsPath, migrationFile), 'utf8'))
+      .split(';')
+      .map((statement) => statement.trim())
+      .filter(Boolean)
+      .map((statement) => database.prepare(statement));
+    await database.batch(statements);
+  }
   return database;
 }
 
@@ -130,6 +141,131 @@ async function postWorkerJson(worker, path, body) {
   return worker.fetch(`https://private.test${path}`, authenticatedJsonRequest(body));
 }
 
+async function testTenantRootRoleSchema(database, expectedRole) {
+  const tableInfo = await database.prepare('PRAGMA table_info(tenant_root_role_shares)').all();
+  assert.deepEqual(
+    tableInfo.results.map((column) => column.name),
+    [
+      'tenant_identity_digest_hex',
+      'custody_lineage_b64u',
+      'tenant_root_share_epoch',
+      'role',
+      'lifecycle',
+      'ciphertext_json',
+      'revision',
+      'created_at_ms',
+      'updated_at_ms',
+    ],
+    'role-private tenant-root D1 must expose metadata and one outer ciphertext only',
+  );
+
+  await assert.rejects(
+    database
+      .prepare(
+        `INSERT INTO tenant_root_role_shares (
+           tenant_identity_digest_hex, custody_lineage_b64u, tenant_root_share_epoch,
+           role, lifecycle, ciphertext_json, revision, created_at_ms, updated_at_ms
+         ) VALUES (?, ?, 1, ?, 'pending', '{}', 1, 10, 10)`,
+      )
+      .bind(
+        'a'.repeat(64),
+        'A'.repeat(22),
+        expectedRole === 'deriver_a' ? 'deriver_b' : 'deriver_a',
+      )
+      .run(),
+    'each Deriver database must reject the other role',
+  );
+
+  const replayTableInfo = await database
+    .prepare('PRAGMA table_info(tenant_root_command_replays)')
+    .all();
+  assert.deepEqual(
+    replayTableInfo.results.map((column) => column.name),
+    [
+      'replay_key_digest_hex',
+      'tenant_identity_digest_hex',
+      'custody_lineage_b64u',
+      'session_id_hex',
+      'nonce_hex',
+      'role',
+      'command_digest_hex',
+      'status',
+      'receipt_b64u',
+      'receipt_digest_hex',
+      'reserved_at_ms',
+      'terminal_at_ms',
+    ],
+    'role-private command replay D1 must expose only public binding and receipt fields',
+  );
+  await assert.rejects(
+    database
+      .prepare(
+        `INSERT INTO tenant_root_command_replays (
+           replay_key_digest_hex, tenant_identity_digest_hex, custody_lineage_b64u,
+           session_id_hex, nonce_hex, role, command_digest_hex, status, reserved_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', 10)`,
+      )
+      .bind(
+        'a'.repeat(64),
+        'b'.repeat(64),
+        'A'.repeat(22),
+        'c'.repeat(32),
+        'd'.repeat(64),
+        expectedRole === 'deriver_a' ? 'deriver_b' : 'deriver_a',
+        'e'.repeat(64),
+      )
+      .run(),
+    'each Deriver command-replay table must reject the other role',
+  );
+}
+
+async function runTenantRootRoleLifecycle(worker, expectedRole) {
+  const response = await postWorkerJson(worker, tenantRootRoleIntegrationPath, {
+    kind: 'run_lifecycle',
+  });
+  const bytes = await expectOk(response, `${expectedRole} Rust role-store lifecycle`);
+  const receipt = JSON.parse(bytes.toString('utf8'));
+  const commandReceiptDigestHex = createHash('sha256')
+    .update('{"kind":"r120_role_command_completed"}')
+    .digest('hex');
+  assert.deepEqual(receipt, {
+    role: expectedRole,
+    retiredEpoch: 1,
+    retiredRevision: 3,
+    activeEpoch: 2,
+    activeRevision: 2,
+    cleanupEpoch: 3,
+    commandReceiptDigestHex,
+  });
+}
+
+async function testTenantRootRoleStoreAdapter(topology, databases) {
+  const deriverA = await topology.getWorker('deriver-a');
+  const deriverB = await topology.getWorker('deriver-b');
+  await runTenantRootRoleLifecycle(deriverA, 'deriver_a');
+  await runTenantRootRoleLifecycle(deriverB, 'deriver_b');
+
+  const activeA = await databases.deriverA
+    .prepare(
+      `SELECT tenant_identity_digest_hex, custody_lineage_b64u, ciphertext_json
+       FROM tenant_root_role_shares WHERE role = 'deriver_a' AND lifecycle = 'active'`,
+    )
+    .first();
+  const activeB = await databases.deriverB
+    .prepare(
+      `SELECT tenant_identity_digest_hex, custody_lineage_b64u, ciphertext_json
+       FROM tenant_root_role_shares WHERE role = 'deriver_b' AND lifecycle = 'active'`,
+    )
+    .first();
+  assert.equal(activeA.tenant_identity_digest_hex, activeB.tenant_identity_digest_hex);
+  assert.equal(activeA.custody_lineage_b64u, activeB.custody_lineage_b64u);
+  assert.notEqual(
+    activeA.ciphertext_json,
+    activeB.ciphertext_json,
+    'Deriver A and B must independently encrypt their shares for the same tenant root',
+  );
+}
+
 async function testRolePrivateD1RetryAndConvergence(topology, fixture, databases) {
   const deriverA = await topology.getWorker('deriver-a');
   const deriverB = await topology.getWorker('deriver-b');
@@ -147,10 +283,18 @@ async function testRolePrivateD1RetryAndConvergence(topology, fixture, databases
   );
   assert.deepEqual(retryA, firstA, 'identical role retry must return the exact receipt bytes');
 
-  const aRows = await databases.deriverA.prepare('SELECT COUNT(*) AS count FROM yao_pair_sessions').first();
-  const bRowsBefore = await databases.deriverB.prepare('SELECT COUNT(*) AS count FROM yao_pair_sessions').first();
+  const aRows = await databases.deriverA
+    .prepare('SELECT COUNT(*) AS count FROM yao_pair_sessions')
+    .first();
+  const bRowsBefore = await databases.deriverB
+    .prepare('SELECT COUNT(*) AS count FROM yao_pair_sessions')
+    .first();
   assert.equal(aRows.count, 1, 'Deriver A must commit one private-D1 role row');
-  assert.equal(bRowsBefore.count, 0, 'Deriver B must remain incomplete during the partial response');
+  assert.equal(
+    bRowsBefore.count,
+    0,
+    'Deriver B must remain incomplete during the partial response',
+  );
 
   const firstB = await expectOk(
     await postWorkerJson(deriverB, prepareBPath, request.prepare_b),
@@ -167,11 +311,7 @@ async function testRolePrivateD1RetryAndConvergence(topology, fixture, databases
   assert.deepEqual(retryB, firstB, 'Deriver B retry must return the exact receipt bytes');
   assert.deepEqual(convergedA, firstA, 'partial-role convergence must preserve Deriver A result');
 
-  const conflict = await postWorkerJson(
-    deriverA,
-    prepareAPath,
-    request.conflicting_prepare_a,
-  );
+  const conflict = await postWorkerJson(deriverA, prepareAPath, request.conflicting_prepare_a);
   const conflictBody = await responseBytes(conflict);
   assert.equal(conflict.status, 409, conflictBody.toString('utf8'));
   assert.equal(
@@ -214,11 +354,11 @@ async function testConcurrentActivationAndLostResponse(fixture, delivery) {
   });
   try {
     await miniflare.ready;
-    const database = await applySchema(
+    const database = await applyMigrations(
       miniflare,
       signingWorkerD1Binding,
       'concurrent-signing-worker',
-      signingWorkerSchemaPath,
+      signingWorkerMigrationsPath,
     );
     const worker = await miniflare.getWorker('concurrent-signing-worker');
     const [firstResponse, concurrentResponse] = await Promise.all([
@@ -264,14 +404,17 @@ async function main() {
   try {
     await topology.ready;
     const databases = {
-      deriverA: await applySchema(topology, roleD1Binding, 'deriver-a', roleSchemaPath),
-      deriverB: await applySchema(topology, roleD1Binding, 'deriver-b', roleSchemaPath),
+      deriverA: await applyMigrations(topology, roleD1Binding, 'deriver-a', deriverAMigrationsPath),
+      deriverB: await applyMigrations(topology, roleD1Binding, 'deriver-b', deriverBMigrationsPath),
     };
-    await applySchema(
+    await testTenantRootRoleSchema(databases.deriverA, 'deriver_a');
+    await testTenantRootRoleSchema(databases.deriverB, 'deriver_b');
+    await testTenantRootRoleStoreAdapter(topology, databases);
+    await applyMigrations(
       topology,
       signingWorkerD1Binding,
       'fixture-signing-worker',
-      signingWorkerSchemaPath,
+      signingWorkerMigrationsPath,
     );
     await testRolePrivateD1RetryAndConvergence(topology, fixture, databases);
     const delivery = await captureValidActivationDelivery(topology, fixture);

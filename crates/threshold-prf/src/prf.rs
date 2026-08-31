@@ -20,6 +20,7 @@ const INPUT_DOMAIN: &[u8] = b"threshold-prf/input";
 const OUTPUT_DOMAIN: &[u8] = b"threshold-prf/output";
 const PARTIAL_CONTEXT_DOMAIN: &[u8] = b"threshold-prf/partial-context";
 const DLEQ_DOMAIN: &[u8] = b"threshold-prf/dleq";
+const DLEQ_BOUND_DOMAIN_V1: &[u8] = b"threshold-prf/dleq-bound/v1";
 const PRF_PARTIAL_WIRE_LEN: usize = 66;
 const SIGNING_ROOT_SHARE_COMMITMENT_WIRE_LEN: usize = 34;
 const PRF_DLEQ_PROOF_WIRE_LEN: usize = 64;
@@ -427,7 +428,48 @@ where
     let context_tag = partial_context_tag(context)?;
     let partial = evaluate_partial_with_input(share, context_tag, &input_point);
     let commitment = SigningRootShareCommitment::from_share(share);
-    let proof = prove_partial_dleq(share, &commitment, &partial, context, &input_point, rng)?;
+    let proof = prove_partial_dleq(
+        share,
+        &commitment,
+        &partial,
+        context,
+        &input_point,
+        DleqProofBinding::Legacy,
+        rng,
+    )?;
+    Ok(PrfPartialProofBundle {
+        partial,
+        commitment,
+        proof,
+    })
+}
+
+/// Evaluates one canonical partial and binds its DLEQ proof to an external digest.
+///
+/// The digest affects only the proof challenge. PRF input and output remain
+/// determined solely by `context`.
+pub fn evaluate_partial_with_dleq_proof_bound_to_digest<R>(
+    share: &SigningRootShare,
+    context: &PrfContext,
+    proof_binding_digest: &[u8; 32],
+    rng: &mut R,
+) -> ThresholdPrfResult<PrfPartialProofBundle>
+where
+    R: RngCore + CryptoRng,
+{
+    let input_point = hash_to_group(context)?;
+    let context_tag = partial_context_tag(context)?;
+    let partial = evaluate_partial_with_input(share, context_tag, &input_point);
+    let commitment = SigningRootShareCommitment::from_share(share);
+    let proof = prove_partial_dleq(
+        share,
+        &commitment,
+        &partial,
+        context,
+        &input_point,
+        DleqProofBinding::Digest(proof_binding_digest),
+        rng,
+    )?;
     Ok(PrfPartialProofBundle {
         partial,
         commitment,
@@ -442,7 +484,30 @@ pub fn verify_partial_dleq_proof(
     context: &PrfContext,
     proof: &PrfDleqProof,
 ) -> ThresholdPrfResult<()> {
-    verify_generic_partial_dleq_proof(commitment, partial, context, proof)
+    verify_generic_partial_dleq_proof(
+        commitment,
+        partial,
+        context,
+        proof,
+        DleqProofBinding::Legacy,
+    )
+}
+
+/// Verifies a DLEQ proof against the exact external digest used by its producer.
+pub fn verify_partial_dleq_proof_bound_to_digest(
+    commitment: &SigningRootShareCommitment,
+    partial: &PrfPartial,
+    context: &PrfContext,
+    proof_binding_digest: &[u8; 32],
+    proof: &PrfDleqProof,
+) -> ThresholdPrfResult<()> {
+    verify_generic_partial_dleq_proof(
+        commitment,
+        partial,
+        context,
+        proof,
+        DleqProofBinding::Digest(proof_binding_digest),
+    )
 }
 
 fn verify_generic_partial_dleq_proof(
@@ -450,6 +515,7 @@ fn verify_generic_partial_dleq_proof(
     partial: &PrfPartial,
     context: &PrfContext,
     proof: &PrfDleqProof,
+    proof_binding: DleqProofBinding<'_>,
 ) -> ThresholdPrfResult<()> {
     if commitment.id != partial.id {
         return Err(ThresholdPrfError::InvalidDleqProof);
@@ -460,16 +526,14 @@ fn verify_generic_partial_dleq_proof(
     let nonce_g =
         (proof.response * RISTRETTO_BASEPOINT_POINT) - (proof.challenge * commitment.point);
     let nonce_p = (proof.response * input_point) - (proof.challenge * partial.point);
-    let expected_challenge = dleq_challenge(
-        context,
-        &expected_context_tag,
-        partial.id,
-        &input_point,
-        &commitment.point,
-        &partial.point,
-        &nonce_g,
-        &nonce_p,
-    )?;
+    let statement = DleqStatement {
+        context_tag: &expected_context_tag,
+        share_id: partial.id,
+        input_point: &input_point,
+        commitment_point: &commitment.point,
+        partial_point: &partial.point,
+    };
+    let expected_challenge = dleq_challenge(context, statement, &nonce_g, &nonce_p, proof_binding)?;
     if bool::from(proof.challenge.ct_eq(&expected_challenge)) {
         Ok(())
     } else {
@@ -484,6 +548,31 @@ pub fn combine_verified_partials(
 ) -> ThresholdPrfResult<PrfOutput32> {
     for bundle in bundles.values() {
         verify_partial_dleq_proof(&bundle.commitment, &bundle.partial, context, &bundle.proof)?;
+    }
+
+    let partials = bundles
+        .values()
+        .iter()
+        .map(|bundle| bundle.partial.clone())
+        .collect();
+    let partial_set = ValidatedThresholdSet::from_partials(*bundles.policy(), partials)?;
+    combine_partials(&partial_set, context)
+}
+
+/// Verifies a threshold set against one external digest and combines its partials.
+pub fn combine_verified_partials_bound_to_digest(
+    bundles: &ValidatedThresholdSet<PrfPartialProofBundle>,
+    context: &PrfContext,
+    proof_binding_digest: &[u8; 32],
+) -> ThresholdPrfResult<PrfOutput32> {
+    for bundle in bundles.values() {
+        verify_partial_dleq_proof_bound_to_digest(
+            &bundle.commitment,
+            &bundle.partial,
+            context,
+            proof_binding_digest,
+            &bundle.proof,
+        )?;
     }
 
     let partials = bundles
@@ -583,6 +672,7 @@ fn prove_partial_dleq<R>(
     partial: &PrfPartial,
     context: &PrfContext,
     input_point: &RistrettoPoint,
+    proof_binding: DleqProofBinding<'_>,
     rng: &mut R,
 ) -> ThresholdPrfResult<PrfDleqProof>
 where
@@ -595,16 +685,14 @@ where
     let blind = random_nonzero_dleq_nonce(rng);
     let nonce_g = *blind * RISTRETTO_BASEPOINT_POINT;
     let nonce_p = *blind * *input_point;
-    let challenge = dleq_challenge(
-        context,
-        partial.context_tag(),
-        partial.id,
+    let statement = DleqStatement {
+        context_tag: partial.context_tag(),
+        share_id: partial.id,
         input_point,
-        &commitment.point,
-        &partial.point,
-        &nonce_g,
-        &nonce_p,
-    )?;
+        commitment_point: &commitment.point,
+        partial_point: &partial.point,
+    };
+    let challenge = dleq_challenge(context, statement, &nonce_g, &nonce_p, proof_binding)?;
     let response = *blind + (challenge * share.value);
     Ok(PrfDleqProof {
         challenge,
@@ -626,24 +714,13 @@ where
 
 fn dleq_challenge(
     context: &PrfContext,
-    context_tag: &[u8; 32],
-    share_id: ThresholdShareId,
-    input_point: &RistrettoPoint,
-    commitment_point: &RistrettoPoint,
-    partial_point: &RistrettoPoint,
+    statement: DleqStatement<'_>,
     nonce_g: &RistrettoPoint,
     nonce_p: &RistrettoPoint,
+    proof_binding: DleqProofBinding<'_>,
 ) -> ThresholdPrfResult<Scalar> {
-    let transcript = encode_dleq_challenge_transcript(
-        context,
-        context_tag,
-        share_id,
-        input_point,
-        commitment_point,
-        partial_point,
-        nonce_g,
-        nonce_p,
-    )?;
+    let transcript =
+        encode_dleq_challenge_transcript(context, statement, nonce_g, nonce_p, proof_binding)?;
     let digest = Sha512::digest(transcript);
     let mut wide = [0u8; 64];
     wide.copy_from_slice(&digest);
@@ -652,27 +729,46 @@ fn dleq_challenge(
 
 fn encode_dleq_challenge_transcript(
     context: &PrfContext,
-    context_tag: &[u8; 32],
-    share_id: ThresholdShareId,
-    input_point: &RistrettoPoint,
-    commitment_point: &RistrettoPoint,
-    partial_point: &RistrettoPoint,
+    statement: DleqStatement<'_>,
     nonce_g: &RistrettoPoint,
     nonce_p: &RistrettoPoint,
+    proof_binding: DleqProofBinding<'_>,
 ) -> ThresholdPrfResult<Vec<u8>> {
     let mut transcript = Vec::new();
-    push_len16(&mut transcript, DLEQ_DOMAIN)?;
+    let domain = match proof_binding {
+        DleqProofBinding::Legacy => DLEQ_DOMAIN,
+        DleqProofBinding::Digest(_) => DLEQ_BOUND_DOMAIN_V1,
+    };
+    push_len16(&mut transcript, domain)?;
     push_len16(&mut transcript, context.suite_id.as_bytes())?;
     push_len16(&mut transcript, context.purpose.as_bytes())?;
-    transcript.extend_from_slice(context_tag);
-    transcript.extend_from_slice(&share_id.get().get().to_be_bytes());
+    transcript.extend_from_slice(statement.context_tag);
+    if let DleqProofBinding::Digest(digest) = proof_binding {
+        transcript.extend_from_slice(digest);
+    }
+    transcript.extend_from_slice(&statement.share_id.get().get().to_be_bytes());
     transcript.extend_from_slice(RISTRETTO_BASEPOINT_POINT.compress().as_bytes());
-    transcript.extend_from_slice(input_point.compress().as_bytes());
-    transcript.extend_from_slice(commitment_point.compress().as_bytes());
-    transcript.extend_from_slice(partial_point.compress().as_bytes());
+    transcript.extend_from_slice(statement.input_point.compress().as_bytes());
+    transcript.extend_from_slice(statement.commitment_point.compress().as_bytes());
+    transcript.extend_from_slice(statement.partial_point.compress().as_bytes());
     transcript.extend_from_slice(nonce_g.compress().as_bytes());
     transcript.extend_from_slice(nonce_p.compress().as_bytes());
     Ok(transcript)
+}
+
+#[derive(Clone, Copy)]
+enum DleqProofBinding<'a> {
+    Legacy,
+    Digest(&'a [u8; 32]),
+}
+
+#[derive(Clone, Copy)]
+struct DleqStatement<'a> {
+    context_tag: &'a [u8; 32],
+    share_id: ThresholdShareId,
+    input_point: &'a RistrettoPoint,
+    commitment_point: &'a RistrettoPoint,
+    partial_point: &'a RistrettoPoint,
 }
 
 fn encode_transcript(
@@ -777,16 +873,20 @@ mod tests {
         let partial_point = Scalar::from(3u64) * RISTRETTO_BASEPOINT_POINT;
         let nonce_g = Scalar::from(4u64) * RISTRETTO_BASEPOINT_POINT;
         let nonce_p = Scalar::from(5u64) * RISTRETTO_BASEPOINT_POINT;
+        let statement = DleqStatement {
+            context_tag: &context_tag,
+            share_id,
+            input_point: &input_point,
+            commitment_point: &commitment_point,
+            partial_point: &partial_point,
+        };
 
         let transcript = encode_dleq_challenge_transcript(
             &context,
-            &context_tag,
-            share_id,
-            &input_point,
-            &commitment_point,
-            &partial_point,
+            statement,
             &nonce_g,
             &nonce_p,
+            DleqProofBinding::Legacy,
         )
         .unwrap();
 
@@ -804,6 +904,30 @@ mod tests {
         append_point(&mut expected, &nonce_p);
 
         assert_eq!(transcript, expected);
+
+        let binding_digest = [0x22; 32];
+        let bound_transcript = encode_dleq_challenge_transcript(
+            &context,
+            statement,
+            &nonce_g,
+            &nonce_p,
+            DleqProofBinding::Digest(&binding_digest),
+        )
+        .unwrap();
+        let mut bound_expected = Vec::new();
+        bound_expected.extend_from_slice(b"\x00\x1bthreshold-prf/dleq-bound/v1");
+        bound_expected.extend_from_slice(b"\x00\x21threshold-prf/ristretto255-sha512");
+        bound_expected.extend_from_slice(b"\x00\x26router-ab-ecdsa-derivation/y-server/v1");
+        bound_expected.extend_from_slice(&context_tag);
+        bound_expected.extend_from_slice(&binding_digest);
+        bound_expected.extend_from_slice(&2u16.to_be_bytes());
+        append_point(&mut bound_expected, &RISTRETTO_BASEPOINT_POINT);
+        append_point(&mut bound_expected, &input_point);
+        append_point(&mut bound_expected, &commitment_point);
+        append_point(&mut bound_expected, &partial_point);
+        append_point(&mut bound_expected, &nonce_g);
+        append_point(&mut bound_expected, &nonce_p);
+        assert_eq!(bound_transcript, bound_expected);
     }
 
     #[test]

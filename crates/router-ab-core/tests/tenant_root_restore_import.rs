@@ -1,21 +1,19 @@
-use curve25519_dalek::scalar::Scalar;
 use ed25519_dalek::SigningKey;
 use rand_chacha_09::ChaCha20Rng;
 use rand_core_09::SeedableRng;
 use router_ab_core::{
     seal_tenant_root_recovery_package_v1, sign_tenant_root_recovery_manifest_v1,
     verify_and_open_tenant_root_recovery_role_package_v1, ExpectedTenantRootRestoreImportV1,
-    TenantRootCustodyLineageId, TenantRootIdentityV1, TenantRootRecoveryDescriptorV1,
-    TenantRootRecoveryRecipientKeypairV1, TenantRootRecoverySetId,
-    TenantRootRecoveryTrustedVerifyingKeysV1, TenantRootRestoreDestinationFingerprintV1,
-    TenantRootRestoreImportEnvelopeV1, TenantRootRestoreImportKeypairV1,
-    TenantRootRestoreImportPublicKeyV1, TenantRootRestoreSessionIdV1,
-    VerifiedTenantRootRecoveryRoleShareV1,
+    TenantRootCustodyLineageId, TenantRootRecoveryTrustedVerifyingKeysV1,
+    TenantRootRestoreDestinationFingerprintV1, TenantRootRestoreImportEnvelopeV1,
+    TenantRootRestoreImportKeypairV1, TenantRootRestoreImportPublicKeyV1,
+    TenantRootRestoreSessionIdV1, VerifiedTenantRootRecoveryRoleShareV1,
 };
-use threshold_prf::{
-    SigningRootShare, SigningRootShareCommitment, SigningRootShareWire, TwoPartyDeriverRole,
-    TwoPartyRootShareCommitments,
-};
+use threshold_prf::{SigningRootShareCommitment, TwoPartyDeriverRole};
+
+mod support;
+
+use support::verified_recovery_artifact_fixture;
 
 fn signing_key(seed: u8) -> SigningKey {
     SigningKey::from_bytes(&[seed; 32])
@@ -25,48 +23,22 @@ fn hpke_rng(seed: u8) -> ChaCha20Rng {
     ChaCha20Rng::from_seed([seed; 32])
 }
 
-fn fixed_share(role: TwoPartyDeriverRole, value: u64) -> SigningRootShare {
-    SigningRootShare::from_canonical_bytes(role.share_id(), Scalar::from(value).to_bytes())
-        .expect("fixed root share")
-}
-
 fn verified_source_share() -> VerifiedTenantRootRecoveryRoleShareV1 {
-    let share_a = fixed_share(TwoPartyDeriverRole::DeriverA, 12);
-    let share_b = fixed_share(TwoPartyDeriverRole::DeriverB, 19);
-    let commitments = TwoPartyRootShareCommitments::from_shares(&share_a, &share_b).unwrap();
-    let recipient_a = TenantRootRecoveryRecipientKeypairV1::derive_from_ikm([0xa1; 32]).unwrap();
-    let recipient_b = TenantRootRecoveryRecipientKeypairV1::derive_from_ikm([0xb1; 32]).unwrap();
-    let descriptor = TenantRootRecoveryDescriptorV1::new(
-        TenantRootIdentityV1::new("org-1", "project-2", "production", "root-main", "v3").unwrap(),
-        TenantRootCustodyLineageId::from_bytes([0x31; 16]).unwrap(),
-        TenantRootRecoverySetId::from_bytes([0x41; 16]).unwrap(),
-        "2026-08-29T10:20:30.123Z",
-        commitments.root(),
-        recipient_a.public_key(),
-        recipient_b.public_key(),
-        commitments.deriver_a(),
-        commitments.deriver_b(),
-        "deriver-a-signing-key-7",
-        "deriver-b-signing-key-9",
-    )
-    .unwrap();
-    let signing_a = signing_key(0x51);
-    let signing_b = signing_key(0x61);
+    let fixture = verified_recovery_artifact_fixture();
+    let descriptor = fixture.descriptor;
     let control = signing_key(0x91);
     let package_a = seal_tenant_root_recovery_package_v1(
         &descriptor,
-        TwoPartyDeriverRole::DeriverA,
-        &SigningRootShareWire::from_share(&share_a),
+        &fixture.verified_a,
         &mut hpke_rng(0x71),
-        &signing_a.to_bytes(),
+        &fixture.signing_a.to_bytes(),
     )
     .unwrap();
     let package_b = seal_tenant_root_recovery_package_v1(
         &descriptor,
-        TwoPartyDeriverRole::DeriverB,
-        &SigningRootShareWire::from_share(&share_b),
+        &fixture.verified_b,
         &mut hpke_rng(0x81),
-        &signing_b.to_bytes(),
+        &fixture.signing_b.to_bytes(),
     )
     .unwrap();
     let manifest = sign_tenant_root_recovery_manifest_v1(
@@ -82,10 +54,10 @@ fn verified_source_share() -> VerifiedTenantRootRecoveryRoleShareV1 {
     verify_and_open_tenant_root_recovery_role_package_v1(
         &manifest,
         &package_a,
-        &recipient_a,
+        &fixture.recipient_a,
         &TenantRootRecoveryTrustedVerifyingKeysV1 {
-            deriver_a: signing_a.verifying_key().to_bytes(),
-            deriver_b: signing_b.verifying_key().to_bytes(),
+            deriver_a: fixture.signing_a.verifying_key().to_bytes(),
+            deriver_b: fixture.signing_b.verifying_key().to_bytes(),
             control_plane: control.verifying_key().to_bytes(),
         },
     )
@@ -123,7 +95,7 @@ fn verified_source_share_reseals_and_opens_at_the_destination_role() {
     assert_eq!(&bytes[..8], b"SEAMSRI1");
     assert_eq!(
         hex::encode(envelope.digest().unwrap()),
-        "947b656411a2b2f34abc495a3ba837a6024b7d4c594fadd232a0308a785c65e1"
+        "dacf4cac52eb2617a3b5c72438f946c193291c02312389bc399725290dde342b"
     );
     let decoded = TenantRootRestoreImportEnvelopeV1::decode(&bytes).unwrap();
     assert_eq!(decoded, envelope);

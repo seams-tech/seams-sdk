@@ -1343,11 +1343,15 @@ dependencies = [
  "curve25519-dalek",
  "ed25519-dalek",
  "hex",
+ "hmac 0.12.1",
+ "hpke-ng",
  "rand_core 0.6.4",
+ "rand_core 0.9.5",
  "router-ab-ecdsa-client-protocol",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "subtle",
  "threshold-prf",
  "zeroize",
 ]
@@ -1790,7 +1794,6 @@ version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
  "rand_core 0.6.4",
- "router-ab-ecdsa-client-protocol",
  "sha2 0.10.9",
  "subtle",
  "zeroize",

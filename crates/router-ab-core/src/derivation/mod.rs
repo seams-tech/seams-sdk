@@ -16,9 +16,16 @@ mod material;
 mod scope;
 mod signer_plaintext;
 mod tenant_root;
+mod tenant_root_command_replay;
+mod tenant_root_custody_binding;
+mod tenant_root_deletion_lifecycle;
+mod tenant_root_lifecycle;
+mod tenant_root_managed_backup;
+mod tenant_root_managed_restore_lifecycle;
 mod tenant_root_protocol;
 mod tenant_root_recovery_artifacts;
 mod tenant_root_recovery_recipient_proof;
+mod tenant_root_recovery_reshare;
 mod tenant_root_refresh_transport;
 mod tenant_root_restore_import;
 mod transcript;
@@ -32,19 +39,25 @@ pub use self::diagnostics::redacted_diagnostic;
 pub use self::ecdsa_stable_context::StableTenantDerivationContextV2;
 pub use self::ecdsa_threshold_prf::{
     plan_mpc_prf_combine_v1, plan_mpc_prf_partial_verification_v1, plan_mpc_prf_purpose_binding_v1,
-    MpcPrfCombinePlanV1, MpcPrfCombinerInputV1, MpcPrfDleqProofWireV1, MpcPrfOutputPurposeV1,
-    MpcPrfOutputRequestV1, MpcPrfPartialBindingV1, MpcPrfPartialProofBundleV1,
-    MpcPrfPartialVerificationInputV1, MpcPrfPartialVerificationPlanV1, MpcPrfPartialWireV1,
-    MpcPrfPurposeBindingPlanV1, MpcPrfShareCommitmentWireV1, MpcPrfSignerPartialInputV1,
-    MpcPrfSignerPartialV1, MpcPrfVerifiedPartialV1, MPC_PRF_COMMITMENT_WIRE_V1_LEN,
-    MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN, MPC_PRF_PARTIAL_WIRE_V1_LEN,
+    plan_mpc_prf_stable_purpose_binding_v2, MpcPrfCombinePlanV1, MpcPrfCombinerInputV1,
+    MpcPrfDleqProofWireV1, MpcPrfOutputPurposeV1, MpcPrfOutputRequestV1, MpcPrfPartialBindingV1,
+    MpcPrfPartialProofBundleV1, MpcPrfPartialVerificationInputV1, MpcPrfPartialVerificationPlanV1,
+    MpcPrfPartialWireV1, MpcPrfPurposeBindingPlanV1, MpcPrfShareCommitmentWireV1,
+    MpcPrfSignerPartialInputV1, MpcPrfSignerPartialV1, MpcPrfStablePurposeBindingPlanV2,
+    MpcPrfVerifiedPartialV1, MPC_PRF_COMMITMENT_WIRE_V1_LEN, MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN,
+    MPC_PRF_PARTIAL_WIRE_V1_LEN,
 };
 pub use self::ecdsa_threshold_prf_backend::{
     combine_mpc_prf_batch_outputs_with_threshold_backend_v1,
     combine_mpc_prf_proof_bundles_with_threshold_backend_v1,
+    combine_mpc_prf_stable_proof_bundles_with_threshold_backend_v2,
     evaluate_mpc_prf_signer_output_batch_with_threshold_backend_v1,
     evaluate_mpc_prf_signer_partial_with_threshold_backend_v1,
-    verify_mpc_prf_partial_with_threshold_backend_v1, MpcPrfSigningRootShareWireV1,
+    evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2,
+    verify_mpc_prf_partial_with_threshold_backend_v1,
+    verify_mpc_prf_stable_partial_with_threshold_backend_v2, MpcPrfSigningRootShareWireV1,
+    MpcPrfStablePartialProofBundleV2, MpcPrfStableThresholdCombineInputV2,
+    MpcPrfStableThresholdCombinedOutputV2, MpcPrfStableThresholdSignerInputV2,
     MpcPrfThresholdBatchCombineInputV1, MpcPrfThresholdBatchCombinedOutputV1,
     MpcPrfThresholdCombineInputV1, MpcPrfThresholdCombinedOutputV1,
     MpcPrfThresholdSignerBatchInputV1, MpcPrfThresholdSignerBatchOutputV1,
@@ -67,6 +80,12 @@ pub use self::tenant_root::{
     TenantRootCustodyLineageId, TenantRootIdentityDigestV1, TenantRootIdentityV1,
     TenantRootShareEpoch,
 };
+pub use self::tenant_root_command_replay::*;
+pub use self::tenant_root_custody_binding::*;
+pub use self::tenant_root_deletion_lifecycle::*;
+pub use self::tenant_root_lifecycle::*;
+pub use self::tenant_root_managed_backup::*;
+pub use self::tenant_root_managed_restore_lifecycle::*;
 pub use self::tenant_root_protocol::{
     verify_tenant_root_creation_evidence_v1, verify_tenant_root_refresh_evidence_v1,
     TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1,
@@ -95,13 +114,23 @@ pub use self::tenant_root_recovery_recipient_proof::{
     TenantRootRecoveryRecipientProofEnvelopeV1, TenantRootRecoveryRecipientProofSecretV1,
     TENANT_ROOT_RECOVERY_RECIPIENT_PROOF_MAX_BYTES,
 };
+pub use self::tenant_root_recovery_reshare::{
+    PendingTenantRootRecoveryShareV1, TenantRootRecoveryReshareContextV1,
+    TenantRootRecoveryReshareHpkeKeypairV1, TenantRootRecoveryReshareHpkePublicKeyV1,
+    TenantRootRecoveryShareInstallationEvidenceV1, TenantRootSignedRecoveryReshareCommitmentV1,
+    TenantRootSignedRecoveryReshareContributionV1,
+    TenantRootSignedRecoveryShareInstallationEvidenceV1,
+    VerifiedTenantRootRecoveryReshareCommitmentV1, VerifiedTenantRootRecoveryReshareContributionV1,
+    VerifiedTenantRootRecoveryResharePairV1, VerifiedTenantRootRecoveryShareV1,
+};
 pub use self::tenant_root_refresh_transport::{
     open_tenant_root_refresh_contribution_v1, seal_tenant_root_refresh_contribution_v1,
     TenantRootEncryptedRefreshContributionV1, TenantRootRefreshCommitmentTranscriptV1,
     TenantRootRefreshContributionAadDigestV1, TenantRootRefreshContributionAadV1,
     TenantRootRefreshHpkeKeypairV1, TenantRootRefreshHpkePublicKeyV1,
     TenantRootSignedRefreshCommitmentV1, TenantRootSignedRefreshContributionV1,
-    TenantRootSignedShareInstallationEvidenceV1, VerifiedTenantRootRefreshCommitmentV1,
+    TenantRootSignedShareInstallationEvidenceV1, VerifiedTenantRootRefreshCommitmentPairV1,
+    VerifiedTenantRootRefreshCommitmentV1,
 };
 pub use self::tenant_root_restore_import::{
     ExpectedTenantRootRestoreImportV1, ImportedTenantRootRecoveryRoleShareV1,

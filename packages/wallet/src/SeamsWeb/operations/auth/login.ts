@@ -121,7 +121,6 @@ import {
   verifyPasskeyWalletUnlock,
   verifyLinkedDevicePasskeyWalletSession,
   type LinkedDevicePasskeyWalletSessionUnlockInput,
-  type PasskeyWalletUnlockEcdsaSessionActivation,
   type PasskeySessionEcdsaCustodyContinuityV1,
   type PasskeySessionCustodyUnlockV1,
   type PasskeyWalletUnlockInput,
@@ -167,11 +166,10 @@ import {
 } from '@/core/indexedDB/linkedAuthoritySignerMaterial';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
-import type { ExactWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import {
-  isEcdsaCredentialFreeSessionActivationAuthorization,
-  type EcdsaPreauthorizedSessionActivation,
-} from '@/core/signingEngine/threshold/ecdsa/postRegistrationSessionActivation';
+  exactWalletSessionAuthorityIdentity,
+  type ExactWalletSessionAuthorityIdentity,
+} from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
 import {
   nearEd25519SigningKeyIdFromString,
@@ -230,8 +228,13 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
+  RouterAbEcdsaCredentialFreeSessionActivationResponseV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  isEcdsaCredentialFreeSessionActivationAuthorization,
+  type EcdsaPreauthorizedSessionActivation,
+} from '@/core/signingEngine/threshold/ecdsa/postRegistrationSessionActivation';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaSessionLanePolicy,
@@ -689,6 +692,52 @@ async function exactPasskeyWalletAuthAuthorityRefForCredential(args: {
       bindingId: record.walletAuthMethodId,
     },
   });
+}
+
+type ExactSelectedPasskeyWalletAuthorities = {
+  readonly materialAuthority: WalletAuthAuthorityRef;
+  readonly walletSessionAuthority: WalletAuthAuthorityRef;
+  readonly walletSessionAuthorityIdentity: ExactWalletSessionAuthorityIdentity;
+};
+
+async function exactSelectedPasskeyWalletAuthoritiesForCredential(args: {
+  readonly walletId: WalletId;
+  readonly rpId: string;
+  readonly credentialIdB64u: string;
+}): Promise<ExactSelectedPasskeyWalletAuthorities> {
+  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
+  if (
+    selected.kind !== 'resolved' ||
+    selected.selection.walletId !== args.walletId ||
+    selected.selection.walletAuthMethodId !== selected.authMethod.walletAuthMethodId ||
+    selected.authMethod.kind !== 'passkey' ||
+    selected.authMethod.status !== 'active' ||
+    selected.authMethod.walletId !== args.walletId ||
+    selected.authMethod.walletAuthorityId !== selected.authority.authorityId ||
+    String(selected.authMethod.rpId) !== args.rpId ||
+    String(selected.authMethod.credentialIdB64u) !== args.credentialIdB64u ||
+    selected.authority.state !== 'active' ||
+    selected.authority.walletId !== args.walletId
+  ) {
+    throw new Error('[login] passkey unlock requires one exact selected active authority');
+  }
+  const walletSessionAuthority = parseWalletAuthAuthorityRef({
+    kind: 'wallet_auth_authority_ref',
+    walletId: selected.authority.walletId,
+    authorityDigest: selected.authority.authorityDigestB64u,
+    walletAuthMethodId: selected.authMethod.walletAuthMethodId,
+  });
+  if (!walletSessionAuthority) {
+    throw new Error('[login] selected passkey Wallet Session authority is invalid');
+  }
+  return {
+    materialAuthority: await walletAuthAuthorityRefForSelectedPasskeyMethod(selected.authMethod),
+    walletSessionAuthority,
+    walletSessionAuthorityIdentity: exactWalletSessionAuthorityIdentity({
+      authority: selected.authority,
+      walletAuthMethodId: selected.authMethod.walletAuthMethodId,
+    }),
+  };
 }
 
 function walletAuthAuthorityForSelectedPasskeyMethod(
@@ -1756,12 +1805,7 @@ function resolveLoginEd25519ProvisionScope(args: {
   };
 }
 
-type IssuedPasskeyUnlockEd25519Session = Extract<
-  PasskeyWalletUnlockEd25519Session,
-  { readonly sessionKind: 'issued_exact_wallet_session' }
->;
-
-type PasskeyUnlockEd25519Connection = IssuedPasskeyUnlockEd25519Session & {
+type PasskeyUnlockEd25519Connection = PasskeyWalletUnlockEd25519Session & {
   readonly ok: true;
   readonly passkeyPrfFirstB64u: string;
   readonly code?: never;
@@ -1804,19 +1848,10 @@ function passkeyUnlockEd25519Connection(args: {
   ) {
     throw new Error('[login] verified unlock returned an invalid Ed25519 Wallet Session');
   }
-  switch (session.sessionKind) {
-    case 'issued_exact_wallet_session':
-      if (session.operationCredential.walletSessionId !== session.walletSessionId) {
-        throw new Error('[login] verified unlock returned a mismatched Ed25519 credential');
-      }
-      return { ok: true, ...session, passkeyPrfFirstB64u };
-    case 'already_committed_exact_wallet_session':
-      throw new Error(
-        '[login] verified unlock reused an Ed25519 Wallet Session; exact-method unlock is required',
-      );
-    default:
-      return assertNeverLoginState(session);
+  if (session.operationCredential.walletSessionId !== session.walletSessionId) {
+    throw new Error('[login] verified unlock returned a mismatched Ed25519 credential');
   }
+  return { ok: true, ...session, passkeyPrfFirstB64u };
 }
 
 function resolveLoginNoServerSessionPasskeyCredentialPlan(args: {
@@ -4566,18 +4601,22 @@ type PreparedPasskeyExchangeEcdsaActivation = {
 };
 
 type CompletedPasskeyExchangeEcdsaActivation = PreparedPasskeyExchangeEcdsaActivation & {
-  readonly response: PasskeyWalletUnlockEcdsaSessionActivation;
-  readonly sessionActivation: EcdsaPreauthorizedSessionActivation;
+  readonly response: EcdsaPreauthorizedSessionActivation;
   readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
   readonly continuity: PasskeySessionEcdsaCustodyContinuityV1;
+  readonly authorizationAuthority: WalletAuthAuthorityRef;
+  readonly authorizationIdentity: ExactWalletSessionAuthorityIdentity;
+  readonly materialAuthority: WalletAuthAuthorityRef;
 };
 
-function thresholdSessionIdFromPasskeyEcdsaActivation(
-  activation: EcdsaPreauthorizedSessionActivation,
-): ThresholdEcdsaSessionId {
-  return isEcdsaCredentialFreeSessionActivationAuthorization(activation)
-    ? activation.activation.session.threshold_session_id
-    : activation.session.threshold_session_id;
+function passkeyEcdsaActivationResponse(
+  response: EcdsaPreauthorizedSessionActivation,
+):
+  | RouterAbEcdsaPostRegistrationSessionActivationResponseV1
+  | RouterAbEcdsaCredentialFreeSessionActivationResponseV1 {
+  return isEcdsaCredentialFreeSessionActivationAuthorization(response)
+    ? response.activation
+    : response;
 }
 
 function resolveUnlockEcdsaKeyFactsInventoryAuthority(args: {
@@ -4588,22 +4627,17 @@ function resolveUnlockEcdsaKeyFactsInventoryAuthority(args: {
 }): LoginEcdsaKeyFactsInventoryAuthority | null {
   if (!args.wantsEcdsaWarmup) return null;
   if (args.completedActivation) {
+    if (isEcdsaCredentialFreeSessionActivationAuthorization(args.completedActivation.response)) {
+      return {
+        kind: 'wallet_session_operation_credential_v1',
+        operationCredential: args.completedActivation.response.authorization.operationCredential,
+      };
+    }
     let operationCredential: WalletSessionOperationCredentialV1;
     try {
-      const sessionActivation = args.completedActivation.sessionActivation;
-      if (isEcdsaCredentialFreeSessionActivationAuthorization(sessionActivation)) {
-        operationCredential = parseWalletSessionOperationCredentialV1(
-          sessionActivation.authorization.operationCredential,
-        );
-      } else {
-        const response = args.completedActivation.response;
-        if (response.kind !== 'router_ab_ecdsa_post_registration_session_activated_v1') {
-          throw new Error('completed ECDSA unlock activation branch is invalid');
-        }
-        operationCredential = parseWalletSessionOperationCredentialV1(
-          response.session.operation_credential,
-        );
-      }
+      operationCredential = parseWalletSessionOperationCredentialV1(
+        args.completedActivation.response.session.operation_credential,
+      );
     } catch {
       throw new Error(
         '[login] completed ECDSA unlock omitted a valid Wallet Session operation credential',
@@ -4643,10 +4677,15 @@ function sameCanonicalEcdsaValue(left: unknown, right: unknown): boolean {
 function assertPasskeyEcdsaExchangeContinuity(args: {
   readonly walletId: string;
   readonly prepared: PreparedPasskeyExchangeEcdsaActivation;
-  readonly response: PasskeyWalletUnlockEcdsaSessionActivation;
+  readonly response: EcdsaPreauthorizedSessionActivation;
   readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
   readonly continuity: PasskeySessionEcdsaCustodyContinuityV1;
+  readonly authorizationIdentity: ExactWalletSessionAuthorityIdentity;
 }): void {
+  const response = passkeyEcdsaActivationResponse(args.response);
+  const authorization = isEcdsaCredentialFreeSessionActivationAuthorization(args.response)
+    ? args.response.authorization.record
+    : args.response.session.wallet_session;
   const signer = args.continuity.signers.find(
     (candidate) => thresholdEcdsaChainTargetKey(candidate.chainTarget) === args.prepared.targetKey,
   );
@@ -4656,17 +4695,23 @@ function assertPasskeyEcdsaExchangeContinuity(args: {
   const capability = signer.walletKey.publicCapability;
   const receipt = signer.activationReceipt;
   const activation = receipt.ecdsa_activation;
-  const normalScope = args.response.normal_signing.scope;
+  const normalScope = response.normal_signing.scope;
   if (
+    String(authorization.walletId) !== args.walletId ||
+    authorization.authorityId !== args.authorizationIdentity.authorityId ||
+    authorization.authMethodId !== args.authorizationIdentity.walletAuthMethodId ||
+    authorization.authorityDigestB64u !== args.authorizationIdentity.authorityDigestB64u ||
+    authorization.authorityRevocationEpoch !==
+      args.authorizationIdentity.authorityRevocationEpoch ||
     signer.walletKey.walletId !== args.walletId ||
     signer.walletKey.keyHandle !== args.prepared.policy.key_handle ||
-    args.response.session.threshold_session_id !==
+    response.session.threshold_session_id !==
       args.prepared.policy.session_policy.threshold_session_id ||
     !sameCanonicalEcdsaValue(
       signer.runtimePolicyScope,
       args.prepared.policy.session_policy.runtime_policy_scope,
     ) ||
-    !sameCanonicalEcdsaValue(args.response.public_capability, capability) ||
+    !sameCanonicalEcdsaValue(response.public_capability, capability) ||
     !sameCanonicalEcdsaValue(args.activationReceipt, receipt) ||
     !sameCanonicalEcdsaValue(capability.context, activation.context) ||
     !sameCanonicalEcdsaValue(capability.public_identity, activation.public_identity) ||
@@ -4821,15 +4866,30 @@ function passkeyWalletUnlockInput(args: {
   activation: PreparedPasskeyExchangeEcdsaActivation | null;
 }): PasskeyWalletUnlockInput {
   if (args.activation) {
-    return {
-      type: 'passkey_assertion' as const,
-      challengeId: args.challengeId,
-      walletId: String(args.walletIdentity.walletId),
-      webauthn_authentication: args.credential,
-      ed25519SessionRequest: args.ed25519SessionRequest,
-      expected_origin: args.expectedOrigin,
-      ecdsaSessionPolicy: args.activation.policy,
-    };
+    switch (args.ed25519SessionRequest.kind) {
+      case 'requested':
+        return {
+          type: 'passkey_assertion',
+          challengeId: args.challengeId,
+          walletId: String(args.walletIdentity.walletId),
+          webauthn_authentication: args.credential,
+          ed25519SessionRequest: args.ed25519SessionRequest,
+          expected_origin: args.expectedOrigin,
+          ecdsaSessionPolicy: args.activation.policy,
+        };
+      case 'not_requested':
+        return {
+          type: 'passkey_assertion',
+          challengeId: args.challengeId,
+          walletId: String(args.walletIdentity.walletId),
+          webauthn_authentication: args.credential,
+          ed25519SessionRequest: args.ed25519SessionRequest,
+          expected_origin: args.expectedOrigin,
+          ecdsaSessionPolicy: args.activation.policy,
+        };
+      default:
+        return assertNeverLoginState(args.ed25519SessionRequest);
+    }
   }
 
   return {
@@ -4933,74 +4993,26 @@ async function completePasskeyWalletUnlock(
   ) {
     throw new Error('Passkey wallet unlock omitted the requested ECDSA activation');
   }
-  let passkeySessionAuthority: WalletAuthAuthorityRef | null = null;
-  let sessionActivation: EcdsaPreauthorizedSessionActivation | null = null;
-  let walletSessionAuthorizationToPersist: ExactWalletSessionAuthorization | null = null;
-  if (
-    activation &&
-    result.ecdsaSession &&
-    result.ecdsaActivationReceipt &&
-    result.ecdsaCustody &&
-    result.ecdsaSession.kind === 'router_ab_ecdsa_credential_free_session_activated_v1'
-  ) {
-    const walletSessionAuthorization = result.walletSessionAuthorization;
-    if (!walletSessionAuthorization) {
-      throw new Error('Passkey credential-free activation omitted exact Wallet Session authority');
-    }
-    const credentialIdB64u = passkeyCredentialIdB64uFromAuthentication(credential);
-    if (!credentialIdB64u) {
-      throw new Error('Passkey Wallet Session adoption requires WebAuthn credential identity');
-    }
-    const authMethod = await exactPasskeyWalletAuthMethodForCredential({
-      walletId: args.walletIdentity.walletId,
-      rpId: args.rpId,
-      credentialIdB64u,
-    });
-    passkeySessionAuthority = await walletAuthAuthorityRef({
-      authority: {
-        walletId: authMethod.walletId,
-        factor: {
-          kind: 'passkey',
-          credentialIdB64u: authMethod.credentialIdB64u,
-        },
-        verifier: {
-          kind: 'webauthn',
-          rpId: authMethod.rpId,
-        },
-        bindingId: authMethod.walletAuthMethodId,
-      },
-    });
-    if (
-      walletSessionAuthorization.record.walletId !== args.walletIdentity.walletId ||
-      walletSessionAuthorization.record.authMethodId !== authMethod.walletAuthMethodId ||
-      walletSessionAuthorization.record.authorityId !== authMethod.walletAuthorityId ||
-      passkeySessionAuthority.walletId !== args.walletIdentity.walletId
-    ) {
-      throw new Error('Passkey Wallet Session authorization changed auth-method identity');
-    }
-    sessionActivation = {
-      kind: 'credential_free_ecdsa_session_activation_authorization_v1',
-      activation: result.ecdsaSession,
-      authorization: walletSessionAuthorization,
-    };
-    walletSessionAuthorizationToPersist = walletSessionAuthorization;
-  }
+  const credentialIdB64u = passkeyCredentialIdB64uFromAuthentication(credential);
+  const activationAuthorities = activation
+    ? await exactSelectedPasskeyWalletAuthoritiesForCredential({
+        walletId: args.walletIdentity.walletId,
+        rpId: args.rpId,
+        credentialIdB64u,
+      })
+    : null;
   if (activation && result.ecdsaSession && result.ecdsaActivationReceipt && result.ecdsaCustody) {
+    if (!activationAuthorities) {
+      throw new Error('Passkey ECDSA activation omitted its exact authorization authority');
+    }
     assertPasskeyEcdsaExchangeContinuity({
       walletId: String(args.walletIdentity.walletId),
       prepared: activation,
       response: result.ecdsaSession,
       activationReceipt: result.ecdsaActivationReceipt,
       continuity: result.ecdsaCustody,
+      authorizationIdentity: activationAuthorities.walletSessionAuthorityIdentity,
     });
-    if (result.ecdsaSession.kind === 'router_ab_ecdsa_post_registration_session_activated_v1') {
-      sessionActivation = result.ecdsaSession;
-    }
-  }
-  if (walletSessionAuthorizationToPersist) {
-    await walletSessionAuthorizations.writeExactWithOperationCredential(
-      walletSessionAuthorizationToPersist,
-    );
   }
   if (activation?.requiresCustodyRejoin) {
     if (!('ecdsaCustody' in result) || !result.ecdsaCustody) {
@@ -5010,33 +5022,30 @@ async function completePasskeyWalletUnlock(
     if (!passkeyPrfFirstB64u) {
       throw new Error('Passkey ECDSA custody rejoin requires WebAuthn PRF.first');
     }
-    const credentialIdB64u = passkeyCredentialIdB64uFromAuthentication(credential);
-    const authority =
-      passkeySessionAuthority ??
-      (await exactPasskeyWalletAuthAuthorityRefForCredential({
-        walletId: args.walletIdentity.walletId,
-        rpId: args.rpId,
-        credentialIdB64u,
-      }));
+    if (!activationAuthorities) {
+      throw new Error('Passkey ECDSA custody rejoin omitted its exact authorization authority');
+    }
     await restorePasskeyEcdsaCustodyLogin({
       signingEngine: args.context.signingEngine,
       walletId: String(args.walletIdentity.walletId),
       custody: result.walletCustody,
       continuity: result.ecdsaCustody,
-      authority,
+      authority: activationAuthorities.materialAuthority,
       passkeyPrfFirstB64u,
     });
   }
   return {
     credential,
     activation:
-      activation && result.ecdsaSession && sessionActivation
+      activation && result.ecdsaSession && activationAuthorities
         ? {
             ...activation,
             response: result.ecdsaSession,
-            sessionActivation,
             activationReceipt: result.ecdsaActivationReceipt,
             continuity: result.ecdsaCustody,
+            authorizationAuthority: activationAuthorities.walletSessionAuthority,
+            authorizationIdentity: activationAuthorities.walletSessionAuthorityIdentity,
+            materialAuthority: activationAuthorities.materialAuthority,
           }
         : null,
     custody: result.walletCustody,
@@ -6251,9 +6260,12 @@ async function primeThresholdLoginWarmSigners(args: {
               ? exchangeActivation
               : null;
           const preauthorizedActivation =
-            matchingExchangeActivation?.sessionActivation || reusedMaterialActivation || null;
-          const thresholdSessionId = preauthorizedActivation
-            ? thresholdSessionIdFromPasskeyEcdsaActivation(preauthorizedActivation)
+            matchingExchangeActivation?.response || reusedMaterialActivation || null;
+          const activationResponse = preauthorizedActivation
+            ? passkeyEcdsaActivationResponse(preauthorizedActivation)
+            : null;
+          const thresholdSessionId = activationResponse
+            ? activationResponse.session.threshold_session_id
             : resolveThresholdLoginWarmEcdsaThresholdSessionId({
                 sharedState: ecdsaThresholdSessionState,
               });
@@ -6277,7 +6289,12 @@ async function primeThresholdLoginWarmSigners(args: {
           if (!localPasskeyCredentialIdB64u) {
             throw new Error('[login] ECDSA role-local activation requires passkey identity');
           }
-          const authorizationAuthority = existingRoleLocalMaterial.authority;
+          const selectedAuthorities = await exactSelectedPasskeyWalletAuthoritiesForCredential({
+            walletId: args.walletIdentity.walletId,
+            rpId: args.context.signingEngine.getRpId(),
+            credentialIdB64u: localPasskeyCredentialIdB64u,
+          });
+          const authorizationAuthority = selectedAuthorities.walletSessionAuthority;
           if (preauthorizedActivation) {
             if (matchingExchangeActivation) consumedPasskeyExchangeActivation = true;
             return await bootstrapLoginEcdsaSession({
@@ -6293,6 +6310,7 @@ async function primeThresholdLoginWarmSigners(args: {
                 publicCapability,
                 existingRoleLocalMaterial,
                 authorizationAuthority,
+                authorizationIdentity: selectedAuthorities.walletSessionAuthorityIdentity,
                 passkeyCredentialIdB64u: localPasskeyCredentialIdB64u,
                 sessionActivation: preauthorizedActivation,
               },

@@ -1379,8 +1379,8 @@ mod tests {
         LaneCustodySealV1, LaneHolderSigningMaterialV1,
     };
     use signer_core::passkey_custody::{
-        PasskeyCustodyEnvelopeBindingV1, PasskeyCustodySecretBindingV1,
-        WalletCustodyEnvelopeFactorV1,
+        PasskeyCustodyEnvelopeBindingV1, PasskeyCustodyEnvelopeOwnershipV1,
+        PasskeyCustodySecretBindingV1, WalletCustodyEnvelopeFactorV1,
     };
 
     #[test]
@@ -1396,6 +1396,9 @@ mod tests {
             envelope_revision: 1,
             binding: PasskeyCustodySecretBindingV1::WalletCustodySeed {
                 derivation_scheme: "wallet_seed_parallel_hkdf_sha256_v1".to_owned(),
+            },
+            ownership: PasskeyCustodyEnvelopeOwnershipV1::MethodBound {
+                wallet_auth_method_id: "wallet-auth-method-1".to_owned(),
             },
         };
         assert!(LaneCustodySealV1::from_factor(
@@ -1431,6 +1434,9 @@ mod tests {
                 near_ed25519_signing_key_id: "near-key-1".to_owned(),
                 registered_public_key_b64u: b64([9_u8; 32]),
                 participant_binding_digest_b64u: b64([10_u8; 32]),
+            },
+            ownership: PasskeyCustodyEnvelopeOwnershipV1::MethodBound {
+                wallet_auth_method_id: "wallet-auth-method-1".to_owned(),
             },
         };
         let custody = LaneCustodySealV1::from_factor(

@@ -23,7 +23,14 @@ const CORE_SOURCE = join(REPOSITORY_ROOT, 'crates/ed25519-yao/src/passive.rs');
 const OT_SOURCE = join(REPOSITORY_ROOT, 'crates/ed25519-yao/src/passive/ot.rs');
 const WASM_TARGET = 'wasm32-unknown-unknown';
 const WORKER_WASM = 'ed25519_yao_cloudflare_bench.wasm';
-const SENDER_ACCEPT_SYMBOL = /SenderAwaitExtension.*6accept/;
+const SENDER_ACCEPT_SYMBOLS = Object.freeze([
+  Object.freeze({ family: 'activation', pattern: /SenderAwaitExtension.*18ActivationOtFamily.*6accept/ }),
+  Object.freeze({ family: 'export', pattern: /SenderAwaitExtension.*14ExportOtFamily.*6accept/ }),
+  Object.freeze({
+    family: 'lane-materialization',
+    pattern: /SenderAwaitExtension.*27LaneMaterializationOtFamily.*6accept/,
+  }),
+]);
 const SECRET_BIT_PREFIX =
   String.raw`i32\.load8_u[\s\S]{0,500}?i32\.shr_u[\s\S]{0,200}?` +
   String.raw`i32\.const\s+1[\s\S]{0,100}?i32\.and`;
@@ -355,6 +362,21 @@ function symbolNames(symbolTable, pattern) {
   return matches;
 }
 
+function senderAcceptSymbols(symbolTable, feature, requireSender) {
+  const matches = [];
+  for (const specification of SENDER_ACCEPT_SYMBOLS) {
+    const familyMatches = symbolNames(symbolTable, specification.pattern);
+    const expected = requireSender ? 1 : 0;
+    if (familyMatches.length !== expected) {
+      fail(
+        `${feature} Worker WASM must contain exactly ${String(expected)} ${specification.family} IKNP sender accept symbol(s), found ${String(familyMatches.length)}`,
+      );
+    }
+    matches.push(...familyMatches);
+  }
+  return matches;
+}
+
 function countMatches(text, pattern) {
   pattern.lastIndex = 0;
   return [...text.matchAll(pattern)].length;
@@ -405,15 +427,9 @@ function inspectWorkerWasm(llvmObjdump, wasm, feature, requireSender) {
   const disassembly = runCapturedThroughFile(llvmObjdump, ['-d', wasm]);
   assertNoSecretBitBranch(disassembly, `${feature} Worker WASM`);
 
-  const senderSymbols = symbolNames(symbolTable, SENDER_ACCEPT_SYMBOL);
-  if (requireSender && senderSymbols.length !== 1) {
-    fail(`${feature} Worker WASM must contain exactly one IKNP sender accept symbol`);
-  }
-  if (!requireSender && senderSymbols.length !== 0) {
-    fail(`${feature} Worker WASM unexpectedly contains an IKNP sender accept symbol`);
-  }
-  if (senderSymbols.length === 1) {
-    const sender = runCaptured(llvmObjdump, [`--disassemble-symbols=${senderSymbols[0]}`, wasm]);
+  const senderSymbols = senderAcceptSymbols(symbolTable, feature, requireSender);
+  for (const senderSymbol of senderSymbols) {
+    const sender = runCaptured(llvmObjdump, [`--disassemble-symbols=${senderSymbol}`, wasm]);
     assertNoSecretBitBranch(sender, `${feature} IKNP sender`);
     const maskCount = countMatches(sender, SECRET_BIT_MASK);
     if (maskCount !== 1) {

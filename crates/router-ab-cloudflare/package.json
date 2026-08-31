@@ -14,7 +14,7 @@
     "dry-run:signing-worker": "wrangler deploy --dry-run --config wrangler.signing-worker.toml --outdir bundled/signing-worker --metafile bundled/signing-worker/metafile.json",
     "measure:strict-workers": "node ./scripts/measure-strict-workers.mjs",
     "measure:startup-latencies": "node ./scripts/measure-startup-latencies.mjs",
-    "test:private-d1": "pnpm run build:router && pnpm run build:deriver-a && pnpm run build:deriver-b && pnpm run build:signing-worker && node ./scripts/test-private-d1.mjs",
+    "test:private-d1": "ROUTER_AB_WORKER_BUILD_PROFILE=dev pnpm run build:router && ROUTER_AB_WORKER_BUILD_PROFILE=dev pnpm run build:deriver-a && ROUTER_AB_WORKER_BUILD_PROFILE=dev pnpm run build:deriver-b && ROUTER_AB_WORKER_BUILD_PROFILE=dev pnpm run build:signing-worker && node ./scripts/test-private-d1.mjs",
     "test:wasm-vectors": "bash -lc 'if [ -z \"${CC_wasm32_unknown_unknown:-}\" ] && [ -x /opt/homebrew/opt/llvm/bin/clang ]; then export CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang; fi; wasm-pack test --node . --features strict-worker-router-entrypoint --test wasm_vector_adapters'"
   },
   "devDependencies": {

@@ -81,7 +81,7 @@ test('add-signer start parser rejects a branch substituted by the relayer', () =
         ok: true,
         addSignerCeremonyId: 'add-signer-parser-ceremony',
         intent: expectedIntent,
-        authorizationKind: 'app_session',
+        authorizationKind: 'webauthn_assertion',
         kind: 'evm_family_ecdsa',
         ecdsa: { kind: 'evm_family_ecdsa_keygen', targets: [] },
       },

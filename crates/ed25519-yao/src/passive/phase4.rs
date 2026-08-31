@@ -20,15 +20,17 @@ use super::ot::OtError;
     feature = "local-protocol"
 ))]
 use super::ot::OtSessionId;
+#[cfg(any(test, feature = "phase9-role-benchmark", feature = "local-protocol"))]
+use super::roles::LaneSessionBinding;
 use super::roles::{
-    ActivationSessionBinding, ExportSessionBinding, LaneSessionBinding, RoleBoundaryError,
-    TranscriptDigest32,
+    ActivationSessionBinding, ExportSessionBinding, RoleBoundaryError, TranscriptDigest32,
 };
 use super::runtime::CircuitRunError;
 use super::{EvaluatorWire, Garbler, GarblerWire, SessionDomain, WireValue, LABEL_BYTES};
 
 const ACTIVATION_FAMILY_TAG: u8 = 0x93;
 const EXPORT_FAMILY_TAG: u8 = 0x94;
+#[cfg(any(test, feature = "phase9-role-benchmark", feature = "local-protocol"))]
 const LANE_MATERIALIZATION_FAMILY_TAG: u8 = 0x95;
 const TRANSCRIPT_START_DOMAIN: &[u8] = b"seams:ed25519-yao:phase4:transcript-start:v1";
 #[cfg(any(
@@ -179,6 +181,7 @@ pub(super) fn export_transcript_start(
     )
 }
 
+#[cfg(any(test, feature = "phase9-role-benchmark", feature = "local-protocol"))]
 pub(super) fn lane_materialization_transcript_start(
     binding: LaneSessionBinding,
 ) -> Result<TranscriptDigest32, Phase4CeremonyError> {
@@ -261,12 +264,7 @@ pub(super) fn export_ot_session(
     )
 }
 
-#[cfg(any(
-    test,
-    feature = "passive-benchmark",
-    feature = "phase9-role-benchmark",
-    feature = "local-protocol"
-))]
+#[cfg(any(test, feature = "phase9-role-benchmark", feature = "local-protocol"))]
 pub(super) fn lane_materialization_ot_session(
     binding: LaneSessionBinding,
 ) -> Result<OtSessionId, Phase4CeremonyError> {

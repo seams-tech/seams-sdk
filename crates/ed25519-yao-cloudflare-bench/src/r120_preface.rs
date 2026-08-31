@@ -100,25 +100,40 @@ pub(crate) struct DeriverAToBProofBundle(#[zeroize] [u8; WIRE_LEN]);
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub(crate) struct DeriverBToAProofBundle(#[zeroize] [u8; WIRE_LEN]);
 
-macro_rules! impl_wire_bundle {
-    ($name:ident) => {
-        impl $name {
-            /// Returns the exact encrypted wire bytes.
-            pub(crate) fn as_bytes(&self) -> &[u8; WIRE_LEN] {
-                &self.0
-            }
+impl DeriverAToBProofBundle {
+    /// Returns the exact encrypted wire bytes.
+    pub(crate) fn as_bytes(&self) -> &[u8; WIRE_LEN] {
+        &self.0
+    }
 
-            /// Parses one exact encrypted wire bundle.
-            pub(crate) fn decode(bytes: &[u8]) -> Result<Self, PrefaceError> {
-                let bytes = bytes.try_into().map_err(|_| PrefaceError::InvalidWire)?;
-                Ok(Self(bytes))
-            }
-        }
-    };
+    /// Parses one exact encrypted wire bundle.
+    #[cfg(any(
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
+    ))]
+    pub(crate) fn decode(bytes: &[u8]) -> Result<Self, PrefaceError> {
+        let bytes = bytes.try_into().map_err(|_| PrefaceError::InvalidWire)?;
+        Ok(Self(bytes))
+    }
 }
 
-impl_wire_bundle!(DeriverAToBProofBundle);
-impl_wire_bundle!(DeriverBToAProofBundle);
+impl DeriverBToAProofBundle {
+    /// Returns the exact encrypted wire bytes.
+    pub(crate) fn as_bytes(&self) -> &[u8; WIRE_LEN] {
+        &self.0
+    }
+
+    /// Parses one exact encrypted wire bundle.
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
+    pub(crate) fn decode(bytes: &[u8]) -> Result<Self, PrefaceError> {
+        let bytes = bytes.try_into().map_err(|_| PrefaceError::InvalidWire)?;
+        Ok(Self(bytes))
+    }
+}
 
 /// Deriver A state after producing its single outbound proof bundle.
 pub(crate) struct PreparedDeriverA {

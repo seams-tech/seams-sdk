@@ -35,7 +35,6 @@ const PHASE9C_COMPLETED_CHECKS = Object.freeze([
   'Client-owned activation and export WASM boundary',
   'SDK Router boundary guard',
   'public Ed25519 export boundary guard',
-  'managed product contract boundary guard',
   'SDK Yao local TypeScript gate',
   'SDK Router, WASM Client, wallet lifecycle, and process gates',
   'public local-product registration, NEAR readiness, signing, and export gates',
@@ -717,12 +716,12 @@ function validateLocalCommandEvidence(evidence) {
   const validation = requiredObject(evidence.validation, 'validation');
   requireExact(validation.command, 'npm run validate:local-readiness', 'validation.command');
   requireExact(validation.result, 'pass', 'validation.result');
-  requireExact(validation.rust_unit_tests, 18, 'validation.rust_unit_tests');
-  requireExact(validation.source_guard_tests, 12, 'validation.source_guard_tests');
+  requireExact(validation.rust_unit_tests, 25, 'validation.rust_unit_tests');
+  requireExact(validation.source_guard_tests, 13, 'validation.source_guard_tests');
   requireExact(validation.normal_role_artifacts, 4, 'validation.normal_role_artifacts');
   requireExact(validation.fault_artifacts, 9, 'validation.fault_artifacts');
   requireExact(validation.wrangler_dry_run_artifacts, 4, 'validation.wrangler_dry_run_artifacts');
-  requireExact(validation.core_passive_rust_tests, 100, 'validation.core_passive_rust_tests');
+  requireExact(validation.core_passive_rust_tests, 104, 'validation.core_passive_rust_tests');
   requireExact(validation.independent_python_tests, 186, 'validation.independent_python_tests');
   requireExact(
     validation.deterministic_differential_cases,
@@ -739,17 +738,17 @@ function validateLocalCommandEvidence(evidence) {
   requireExact(validation.wasm_stream_modes, 2, 'validation.wasm_stream_modes');
   requireExact(
     validation.formal_parity_production_rust_tests,
-    82,
+    84,
     'validation.formal_parity_production_rust_tests',
   );
   requireExact(
     validation.formal_parity_generator_rust_tests,
-    418,
+    420,
     'validation.formal_parity_generator_rust_tests',
   );
   requireExact(
     validation.formal_parity_circuit_rust_tests,
-    25,
+    26,
     'validation.formal_parity_circuit_rust_tests',
   );
   requireExact(
@@ -806,7 +805,7 @@ function validateIsolationEvidence(evidence) {
       isolation.authorized_core_dependents,
       'benchmark_isolation.authorized_core_dependents',
     ),
-    5,
+    6,
     'benchmark_isolation.authorized_core_dependents',
   );
   requireExact(
@@ -830,7 +829,7 @@ function validateIsolationEvidence(evidence) {
       isolation.benchmark_wrangler_configs,
       'benchmark_isolation.benchmark_wrangler_configs',
     ),
-    19,
+    21,
     'benchmark_isolation.benchmark_wrangler_configs',
   );
   requireExact(

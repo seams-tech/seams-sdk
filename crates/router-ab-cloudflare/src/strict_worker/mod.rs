@@ -154,6 +154,19 @@ use crate::{
     cloudflare_private_service_auth_error_response_v1,
     require_cloudflare_internal_service_auth_request_v1, CLOUDFLARE_INTERNAL_PREWARM_PATH,
 };
+#[cfg(all(
+    debug_assertions,
+    any(
+        feature = "strict-worker-deriver-a-entrypoint",
+        feature = "strict-worker-deriver-b-entrypoint"
+    )
+))]
+use crate::{
+    cloudflare_tenant_root_role_d1_integration_enabled_v1,
+    run_cloudflare_tenant_root_role_d1_integration_v1,
+    CloudflareTenantRootRoleD1IntegrationRequestV1,
+    CLOUDFLARE_TENANT_ROOT_ROLE_D1_INTEGRATION_PATH,
+};
 #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
 use crate::{
     handle_cloudflare_ed25519_yao_deriver_a_burn_pair_v1,

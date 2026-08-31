@@ -19,6 +19,7 @@ use super::x25519_canonical::is_canonical_nonzero_x25519_encoding;
 use super::{
     RouterAbDerivationError, RouterAbDerivationErrorCode, RouterAbDerivationResult,
     TenantRootCustodyLineageId, TenantRootIdentityDigestV1, TenantRootIdentityV1,
+    VerifiedTenantRootRecoveryResharePairV1, VerifiedTenantRootRecoveryShareV1,
 };
 
 const TENANT_ROOT_RECOVERY_SET_ID_BYTES: usize = 16;
@@ -417,6 +418,27 @@ pub struct TenantRootRecoveryDescriptorV1 {
 }
 
 impl TenantRootRecoveryDescriptorV1 {
+    /// Builds a descriptor only from a verified dedicated recovery resharing.
+    pub fn from_verified_reshare(
+        verified: &VerifiedTenantRootRecoveryResharePairV1,
+        creation_time: impl Into<String>,
+    ) -> RouterAbDerivationResult<Self> {
+        let context = verified.context();
+        Self::new(
+            context.identity().clone(),
+            context.source_custody_lineage(),
+            context.recovery_set_id(),
+            creation_time,
+            verified.stable_root_commitment(),
+            context.recovery_recipient_public_key(TwoPartyDeriverRole::DeriverA),
+            context.recovery_recipient_public_key(TwoPartyDeriverRole::DeriverB),
+            verified.commitment(TwoPartyDeriverRole::DeriverA),
+            verified.commitment(TwoPartyDeriverRole::DeriverB),
+            context.signing_key_id(TwoPartyDeriverRole::DeriverA),
+            context.signing_key_id(TwoPartyDeriverRole::DeriverB),
+        )
+    }
+
     /// Creates one exact descriptor and checks stable-root commitment continuity.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -787,17 +809,32 @@ impl fmt::Debug for TenantRootRecoveryPackageV1 {
 }
 
 impl TenantRootRecoveryPackageV1 {
-    /// Seals exactly one role-local 34-byte share wire into a signed package.
+    /// Seals one role-local share proven to come from a dedicated recovery resharing.
     pub fn seal<R>(
         descriptor: &TenantRootRecoveryDescriptorV1,
-        role: TwoPartyDeriverRole,
-        share_wire: &SigningRootShareWire,
+        verified_share: &VerifiedTenantRootRecoveryShareV1,
         rng: &mut R,
         deriver_signing_key_bytes: &[u8; 32],
     ) -> RouterAbDerivationResult<Self>
     where
         R: RngCore + CryptoRng,
     {
+        let role = verified_share.role();
+        if descriptor.identity_digest != verified_share.tenant_root_identity_digest()
+            || descriptor.source_custody_lineage != verified_share.source_custody_lineage()
+            || descriptor.recovery_set_id != verified_share.recovery_set_id()
+            || descriptor.stable_root_commitment != verified_share.stable_root_commitment()
+            || descriptor.role(role).recipient_fingerprint != verified_share.recipient_fingerprint()
+            || descriptor.role(role).recovery_share_commitment
+                != verified_share.recovery_share_commitment()
+            || descriptor.role(role).deriver_signing_key_id
+                != verified_share.deriver_signing_key_id()
+        {
+            return Err(verification_failed(
+                "tenant root verified recovery share does not match descriptor",
+            ));
+        }
+        let share_wire = verified_share.share_wire();
         let share = share_wire
             .to_share()
             .map_err(|_| malformed("tenant root recovery share wire is invalid"))?;
@@ -816,9 +853,11 @@ impl TenantRootRecoveryPackageV1 {
             ));
         }
         descriptor.validate()?;
-        if SigningRootShareCommitment::from_share(&share)
-            != descriptor.role(role).recovery_share_commitment
-        {
+        if !bool::from(
+            SigningRootShareCommitment::from_share(&share)
+                .to_bytes()
+                .ct_eq(&descriptor.role(role).recovery_share_commitment.to_bytes()),
+        ) {
             return Err(verification_failed(
                 "tenant root recovery share does not match descriptor commitment",
             ));
@@ -1490,15 +1529,14 @@ impl Serialize for TenantRootRecoveryManifestV1 {
 /// Encrypts one role's recovery share and signs the package.
 pub fn seal_tenant_root_recovery_package_v1<R>(
     descriptor: &TenantRootRecoveryDescriptorV1,
-    role: TwoPartyDeriverRole,
-    share_wire: &SigningRootShareWire,
+    verified_share: &VerifiedTenantRootRecoveryShareV1,
     rng: &mut R,
     deriver_signing_key_bytes: &[u8; 32],
 ) -> RouterAbDerivationResult<TenantRootRecoveryPackageV1>
 where
     R: RngCore + CryptoRng,
 {
-    TenantRootRecoveryPackageV1::seal(descriptor, role, share_wire, rng, deriver_signing_key_bytes)
+    TenantRootRecoveryPackageV1::seal(descriptor, verified_share, rng, deriver_signing_key_bytes)
 }
 
 /// Verifies one role package against its signed manifest before opening its secret share.

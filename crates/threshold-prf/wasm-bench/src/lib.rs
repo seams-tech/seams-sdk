@@ -512,13 +512,15 @@ fn run_r120_tenant_root_outer_protocol_vector() -> Result<(), RouterAbDerivation
         r120_verified_refresh_commitment(context.clone(), &coefficient_a, &signing_a)?;
     let commitment_b =
         r120_verified_refresh_commitment(context.clone(), &coefficient_b, &signing_b)?;
-    let aad_a_to_b = TenantRootRefreshContributionAadV1::new(
-        commitment_a,
+    let commitment_pair =
+        router_ab_core::VerifiedTenantRootRefreshCommitmentPairV1::new(commitment_a, commitment_b)?;
+    let aad_a_to_b = TenantRootRefreshContributionAadV1::deriver_a_to_b(
+        &commitment_pair,
         "deriver-b-hpke-key-8",
         hpke_b.public_key(),
     )?;
-    let aad_b_to_a = TenantRootRefreshContributionAadV1::new(
-        commitment_b,
+    let aad_b_to_a = TenantRootRefreshContributionAadV1::deriver_b_to_a(
+        &commitment_pair,
         "deriver-a-hpke-key-8",
         hpke_a.public_key(),
     )?;

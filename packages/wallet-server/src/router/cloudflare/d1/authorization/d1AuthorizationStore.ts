@@ -92,7 +92,7 @@ export type D1AuthorizationStoreOptions = {
 
 type DirectV2CommitMode =
   | { readonly kind: 'strict' }
-  | { readonly kind: 'validated_registration_authority_projection' };
+  | { readonly kind: 'replayable' };
 
 const ECDSA_SIGNER_MATCH = `
   EXISTS (
@@ -1177,13 +1177,13 @@ export class CloudflareD1AuthorizationStore
     });
   }
 
-  /** A promoted registration replay accepts the committed winner after an insert race. */
-  async commitDirectRegistrationPromotedWalletSessionAuthorizationV2(input: {
+  /** The service validates the committed winner against its caller-specific replay contract. */
+  async commitDirectReplayableWalletSessionAuthorizationV2(input: {
     readonly persisted: PersistedActiveWalletSessionAuthorizationV2;
   }): Promise<DirectV2CommitResult> {
     return await this.commitDirectWalletSessionAuthorizationV2WithMode({
       persisted: input.persisted,
-      mode: { kind: 'validated_registration_authority_projection' },
+      mode: { kind: 'replayable' },
     });
   }
 
@@ -1224,7 +1224,7 @@ export class CloudflareD1AuthorizationStore
       switch (mode.kind) {
         case 'strict':
           break;
-        case 'validated_registration_authority_projection':
+        case 'replayable':
           return { kind: 'already_committed', committed };
         default:
           return assertNeverDirectV2CommitMode(mode);

@@ -2,6 +2,7 @@ use core::fmt;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use threshold_prf::PrfPurpose;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::derivation::context::{DerivationContext, RootShareEpoch};
@@ -10,6 +11,7 @@ use crate::derivation::error::{
 };
 use crate::derivation::material::{OpenedShareKind, PublicDigest32, Role};
 use crate::derivation::transcript::{transcript_digest_v1, TranscriptBinding};
+use crate::derivation::{StableTenantDerivationContextV2, TenantRootCustodyBindingV1};
 
 const MPC_PRF_CONTEXT_BYTES_VERSION_V1: &[u8] = b"router-ab-derivation/mpc-prf/context-bytes/v1";
 const MPC_PRF_CONTEXT_DIGEST_VERSION_V1: &[u8] = b"router-ab-derivation/mpc-prf/context-digest/v1";
@@ -53,6 +55,75 @@ impl MpcPrfOutputPurposeV1 {
             Self::RouterAbXServerBase => "router-ab/x_server_base/v1",
         }
     }
+}
+
+/// Pre-activation plan for stable tenant-root threshold-PRF evaluation.
+///
+/// The stable context bytes and custody binding digest are deliberately kept
+/// as separate values. The former is the PRF input; the latter authenticates
+/// the epoch-bound custody record outside that input.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MpcPrfStablePurposeBindingPlanV2 {
+    purpose: PrfPurpose,
+    stable_context_digest: crate::derivation::TenantRootProtocolDigestV1,
+    custody_binding_digest: crate::derivation::TenantRootProtocolDigestV1,
+    threshold_prf_context_bytes: Vec<u8>,
+}
+
+impl MpcPrfStablePurposeBindingPlanV2 {
+    /// Returns the typed threshold-PRF purpose.
+    pub fn purpose(&self) -> &PrfPurpose {
+        &self.purpose
+    }
+
+    /// Returns the digest of the exact stable PRF context bytes.
+    pub const fn stable_context_digest(&self) -> crate::derivation::TenantRootProtocolDigestV1 {
+        self.stable_context_digest
+    }
+
+    /// Returns the digest of the independently authenticated custody binding.
+    pub const fn custody_binding_digest(&self) -> crate::derivation::TenantRootProtocolDigestV1 {
+        self.custody_binding_digest
+    }
+
+    /// Returns the exact bytes supplied to threshold-PRF.
+    pub fn threshold_prf_context_bytes(&self) -> &[u8] {
+        &self.threshold_prf_context_bytes
+    }
+}
+
+/// Plans stable tenant-root threshold-PRF input without wiring a runtime path.
+pub fn plan_mpc_prf_stable_purpose_binding_v2(
+    stable_context: &StableTenantDerivationContextV2,
+    custody_binding: &TenantRootCustodyBindingV1,
+    purpose: PrfPurpose,
+) -> RouterAbDerivationResult<MpcPrfStablePurposeBindingPlanV2> {
+    if matches!(
+        &purpose,
+        PrfPurpose::Ed25519DeriverAContributionRoot | PrfPurpose::Ed25519DeriverBContributionRoot
+    ) {
+        return Err(RouterAbDerivationError::new(
+            RouterAbDerivationErrorCode::MalformedInput,
+            "stable tenant PRF purpose must be an ECDSA Router/A/B purpose",
+        ));
+    }
+    custody_binding.validate()?;
+    let stable_context_digest = stable_context.digest();
+    if custody_binding.stable_context_digest() != stable_context_digest {
+        return Err(RouterAbDerivationError::new(
+            RouterAbDerivationErrorCode::TranscriptMismatch,
+            "tenant-root custody binding does not match stable derivation context",
+        ));
+    }
+    let threshold_prf_context_bytes = stable_context.canonical_context_bytes();
+    let custody_binding_digest = custody_binding.digest()?;
+
+    Ok(MpcPrfStablePurposeBindingPlanV2 {
+        purpose,
+        stable_context_digest,
+        custody_binding_digest,
+        threshold_prf_context_bytes,
+    })
 }
 
 /// Purpose-binding plan for calling the fixed ECDSA threshold PRF.

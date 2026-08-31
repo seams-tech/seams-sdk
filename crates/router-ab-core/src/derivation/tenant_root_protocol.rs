@@ -1,4 +1,5 @@
 use rand_core::{CryptoRng, RngCore};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use threshold_prf::{
     verify_root_share_knowledge, verify_two_party_root_share_refresh, RootShareKnowledgeProof,
@@ -267,6 +268,33 @@ impl TenantRootCeremonyContextV1 {
         self.epochs
     }
 
+    /// Returns the server-resolved tenant-root identity digest.
+    pub const fn identity_digest(&self) -> TenantRootIdentityDigestV1 {
+        self.identity_digest
+    }
+
+    /// Returns the deployment-local custody lineage.
+    pub const fn custody_lineage(&self) -> TenantRootCustodyLineageId {
+        self.custody_lineage
+    }
+
+    /// Returns the ceremony issue time.
+    pub const fn issued_at_ms(&self) -> u64 {
+        self.issued_at_ms
+    }
+
+    /// Returns the ceremony expiry.
+    pub const fn expires_at_ms(&self) -> u64 {
+        self.expires_at_ms
+    }
+
+    /// Returns a public digest of the exact ceremony context.
+    pub fn digest(&self) -> RouterAbDerivationResult<TenantRootProtocolDigestV1> {
+        Ok(TenantRootProtocolDigestV1(
+            Sha256::digest(self.canonical_bytes()?).into(),
+        ))
+    }
+
     /// Returns the source role's exact signing-key identifier.
     pub fn signing_key_id(&self, role: TwoPartyDeriverRole) -> &str {
         match role {
@@ -364,6 +392,11 @@ impl VerifiedTenantRootShareInstallationEvidenceV1 {
     const fn evidence(&self) -> &TenantRootShareInstallationEvidenceV1 {
         &self.evidence
     }
+
+    /// Returns the authenticated role's exact public installation transcript.
+    pub const fn transcript(&self) -> &TenantRootShareInstallationTranscriptV1 {
+        self.evidence.transcript()
+    }
 }
 
 impl TenantRootShareInstallationEvidenceV1 {
@@ -399,10 +432,15 @@ impl TenantRootShareInstallationEvidenceV1 {
 }
 
 /// Public digest for one exact tenant-root protocol transcript.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TenantRootProtocolDigestV1([u8; 32]);
 
 impl TenantRootProtocolDigestV1 {
+    /// Parses exact public digest bytes.
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
     /// Returns the exact digest bytes.
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0

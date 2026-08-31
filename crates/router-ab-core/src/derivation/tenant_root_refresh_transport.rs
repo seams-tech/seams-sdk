@@ -21,6 +21,7 @@ const REFRESH_COMMITMENT_DOMAIN_V1: &[u8] = b"tenant_root_refresh_commitment_v1"
 const REFRESH_CONTRIBUTION_AAD_DOMAIN_V1: &[u8] = b"tenant_root_refresh_contribution_aad_v1";
 const REFRESH_CONTRIBUTION_ENVELOPE_DOMAIN_V1: &[u8] =
     b"tenant_root_refresh_contribution_envelope_v1";
+const SIGNED_REFRESH_CONTRIBUTION_DOMAIN_V1: &[u8] = b"tenant_root_signed_refresh_contribution_v1";
 const SHARE_INSTALLATION_EVIDENCE_DOMAIN_V1: &[u8] = b"tenant_root_share_installation_evidence_v1";
 const ROLE_AUTHENTICATION_DOMAIN_V1: &[u8] = b"tenant_root_role_authentication_v1";
 const REFRESH_CONTRIBUTION_HPKE_INFO_V1: &[u8] =
@@ -29,6 +30,8 @@ const HPKE_KEY_LEN: usize = 32;
 const HPKE_TAG_LEN: usize = 16;
 const REFRESH_CONTRIBUTION_CIPHERTEXT_LEN: usize =
     RootShareRefreshContributionWire::LEN + HPKE_TAG_LEN;
+const MAX_REFRESH_CONTRIBUTION_WIRE_BYTES_V1: usize = 4 * 1024;
+const MAX_ROLE_KEY_ID_BYTES_V1: usize = 1024;
 
 type TenantRootRefreshHpkeV1 = Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>;
 
@@ -139,6 +142,45 @@ impl VerifiedTenantRootRefreshCommitmentV1 {
     }
 }
 
+/// Both role-authenticated commitments required before either contribution is sealed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedTenantRootRefreshCommitmentPairV1 {
+    deriver_a: VerifiedTenantRootRefreshCommitmentV1,
+    deriver_b: VerifiedTenantRootRefreshCommitmentV1,
+}
+
+impl VerifiedTenantRootRefreshCommitmentPairV1 {
+    /// Creates the fixed A/B commit barrier for one exact refresh ceremony.
+    pub fn new(
+        deriver_a: VerifiedTenantRootRefreshCommitmentV1,
+        deriver_b: VerifiedTenantRootRefreshCommitmentV1,
+    ) -> RouterAbDerivationResult<Self> {
+        if deriver_a.transcript().source() != TwoPartyDeriverRole::DeriverA
+            || deriver_b.transcript().source() != TwoPartyDeriverRole::DeriverB
+        {
+            return Err(malformed(
+                "tenant-root refresh commitment pair has invalid role ordering",
+            ));
+        }
+        if deriver_a.transcript().context() != deriver_b.transcript().context() {
+            return Err(malformed(
+                "tenant-root refresh commitment pair has mismatched ceremony contexts",
+            ));
+        }
+        Ok(Self {
+            deriver_a,
+            deriver_b,
+        })
+    }
+
+    fn commitment_for(&self, source: TwoPartyDeriverRole) -> VerifiedTenantRootRefreshCommitmentV1 {
+        match source {
+            TwoPartyDeriverRole::DeriverA => self.deriver_a.clone(),
+            TwoPartyDeriverRole::DeriverB => self.deriver_b.clone(),
+        }
+    }
+}
+
 /// Exact authenticated data for one recipient-specific encrypted refresh contribution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TenantRootRefreshContributionAadV1 {
@@ -148,14 +190,42 @@ pub struct TenantRootRefreshContributionAadV1 {
 }
 
 impl TenantRootRefreshContributionAadV1 {
-    /// Binds a verified source commitment to the peer role's exact HPKE recipient.
-    pub fn new(
-        verified_commitment: VerifiedTenantRootRefreshCommitmentV1,
+    /// Builds Deriver A's contribution to Deriver B after the two-role commit barrier.
+    pub fn deriver_a_to_b(
+        verified_commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
+        recipient_key_id: impl Into<String>,
+        recipient_public_key: TenantRootRefreshHpkePublicKeyV1,
+    ) -> RouterAbDerivationResult<Self> {
+        Self::new(
+            verified_commitments,
+            TwoPartyDeriverRole::DeriverA,
+            recipient_key_id,
+            recipient_public_key,
+        )
+    }
+
+    /// Builds Deriver B's contribution to Deriver A after the two-role commit barrier.
+    pub fn deriver_b_to_a(
+        verified_commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
+        recipient_key_id: impl Into<String>,
+        recipient_public_key: TenantRootRefreshHpkePublicKeyV1,
+    ) -> RouterAbDerivationResult<Self> {
+        Self::new(
+            verified_commitments,
+            TwoPartyDeriverRole::DeriverB,
+            recipient_key_id,
+            recipient_public_key,
+        )
+    }
+
+    fn new(
+        verified_commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
+        source: TwoPartyDeriverRole,
         recipient_key_id: impl Into<String>,
         recipient_public_key: TenantRootRefreshHpkePublicKeyV1,
     ) -> RouterAbDerivationResult<Self> {
         let aad = Self {
-            verified_commitment,
+            verified_commitment: verified_commitments.commitment_for(source),
             recipient_key_id: recipient_key_id.into(),
             recipient_public_key,
         };
@@ -357,6 +427,69 @@ impl TenantRootEncryptedRefreshContributionV1 {
         Ok(bytes)
     }
 
+    /// Parses the exact canonical encrypted contribution wire.
+    pub fn decode_canonical_bytes(bytes: &[u8]) -> RouterAbDerivationResult<Self> {
+        if bytes.is_empty() || bytes.len() > MAX_REFRESH_CONTRIBUTION_WIRE_BYTES_V1 {
+            return Err(malformed(
+                "tenant-root encrypted refresh contribution wire length is invalid",
+            ));
+        }
+        let mut decoder = RefreshWireDecoderV1::new(bytes);
+        decoder.require_field(REFRESH_CONTRIBUTION_ENVELOPE_DOMAIN_V1)?;
+        let source = decoder.role()?;
+        let recipient = decoder.role()?;
+        if source == recipient {
+            return Err(malformed(
+                "tenant-root encrypted refresh contribution roles must be distinct",
+            ));
+        }
+        let aad_digest = TenantRootRefreshContributionAadDigestV1(
+            decoder.fixed_field::<32>("tenant-root refresh AAD digest")?,
+        );
+        let coefficient_commitment =
+            RootShareRefreshCoefficientCommitment::from_bytes(decoder.fixed_field::<{
+                RootShareRefreshCoefficientCommitment::LEN
+            }>(
+                "tenant-root refresh coefficient commitment",
+            )?)
+            .map_err(|_| malformed("tenant-root refresh coefficient commitment is invalid"))?;
+        if coefficient_commitment.source() != source {
+            return Err(malformed(
+                "tenant-root refresh coefficient commitment source is invalid",
+            ));
+        }
+        let recipient_key_id = decoder.text_field(
+            "tenant-root refresh recipient key id",
+            MAX_ROLE_KEY_ID_BYTES_V1,
+        )?;
+        require_key_id("tenant-root refresh recipient key id", &recipient_key_id)?;
+        let recipient_public_key = TenantRootRefreshHpkePublicKeyV1::from_bytes(
+            decoder.fixed_field::<HPKE_KEY_LEN>("tenant-root refresh recipient public key")?,
+        )?;
+        let encapsulated_key =
+            decoder.fixed_field::<HPKE_KEY_LEN>("tenant-root refresh encapsulated key")?;
+        if !is_canonical_nonzero_x25519_encoding(&encapsulated_key)
+            || DhKemX25519HkdfSha256::enc_from_bytes(&encapsulated_key).is_err()
+        {
+            return Err(malformed(
+                "tenant-root refresh HPKE encapsulated key is invalid",
+            ));
+        }
+        let ciphertext = decoder
+            .fixed_field::<REFRESH_CONTRIBUTION_CIPHERTEXT_LEN>("tenant-root refresh ciphertext")?;
+        decoder.finish()?;
+        Ok(Self {
+            source,
+            recipient,
+            aad_digest,
+            coefficient_commitment,
+            recipient_key_id,
+            recipient_public_key,
+            encapsulated_key,
+            ciphertext,
+        })
+    }
+
     /// Returns the source role.
     pub const fn source(&self) -> TwoPartyDeriverRole {
         self.source
@@ -527,6 +660,57 @@ impl TenantRootSignedRefreshContributionV1 {
         open_tenant_root_refresh_contribution_v1(aad, &self.envelope, recipient)
     }
 
+    /// Returns the exact signed encrypted-contribution wire bytes.
+    pub fn canonical_bytes(&self) -> RouterAbDerivationResult<Vec<u8>> {
+        let mut bytes = Vec::new();
+        push_len32(&mut bytes, SIGNED_REFRESH_CONTRIBUTION_DOMAIN_V1)?;
+        push_len32(&mut bytes, &self.envelope.canonical_bytes()?)?;
+        push_role(&mut bytes, self.authentication.role)?;
+        push_len32(&mut bytes, self.authentication.signing_key_id.as_bytes())?;
+        push_len32(&mut bytes, &self.authentication.signature)?;
+        if bytes.len() > MAX_REFRESH_CONTRIBUTION_WIRE_BYTES_V1 {
+            return Err(malformed(
+                "tenant-root signed refresh contribution wire is too long",
+            ));
+        }
+        Ok(bytes)
+    }
+
+    /// Parses one exact signed encrypted contribution before verification.
+    pub fn decode_canonical_bytes(bytes: &[u8]) -> RouterAbDerivationResult<Self> {
+        if bytes.is_empty() || bytes.len() > MAX_REFRESH_CONTRIBUTION_WIRE_BYTES_V1 {
+            return Err(malformed(
+                "tenant-root signed refresh contribution wire length is invalid",
+            ));
+        }
+        let mut decoder = RefreshWireDecoderV1::new(bytes);
+        decoder.require_field(SIGNED_REFRESH_CONTRIBUTION_DOMAIN_V1)?;
+        let envelope = TenantRootEncryptedRefreshContributionV1::decode_canonical_bytes(
+            decoder.field("tenant-root encrypted refresh contribution")?,
+        )?;
+        let role = decoder.role()?;
+        if role != envelope.source() {
+            return Err(malformed(
+                "tenant-root signed refresh contribution authentication role is invalid",
+            ));
+        }
+        let signing_key_id = decoder.text_field(
+            "tenant-root refresh role signing key id",
+            MAX_ROLE_KEY_ID_BYTES_V1,
+        )?;
+        require_key_id("tenant-root refresh role signing key id", &signing_key_id)?;
+        let signature = decoder.fixed_field::<64>("tenant-root refresh role signature")?;
+        decoder.finish()?;
+        Ok(Self {
+            envelope,
+            authentication: TenantRootRoleAuthenticationV1 {
+                role,
+                signing_key_id,
+                signature,
+            },
+        })
+    }
+
     /// Returns the encrypted envelope.
     pub const fn envelope(&self) -> &TenantRootEncryptedRefreshContributionV1 {
         &self.envelope
@@ -681,8 +865,99 @@ fn require_key_id(field: &'static str, value: &str) -> RouterAbDerivationResult<
             format!("{field} is required"),
         ));
     }
-    u32::try_from(value.len()).map_err(|_| malformed("tenant-root protocol key id is too long"))?;
+    if value.len() > MAX_ROLE_KEY_ID_BYTES_V1 {
+        return Err(malformed("tenant-root protocol key id is too long"));
+    }
     Ok(())
+}
+
+struct RefreshWireDecoderV1<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> RefreshWireDecoderV1<'a> {
+    const fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn field(&mut self, name: &'static str) -> RouterAbDerivationResult<&'a [u8]> {
+        let length_end = self
+            .offset
+            .checked_add(4)
+            .ok_or_else(|| malformed("tenant-root refresh wire offset overflow"))?;
+        let length_bytes = self
+            .bytes
+            .get(self.offset..length_end)
+            .ok_or_else(|| malformed("tenant-root refresh wire field length is truncated"))?;
+        let length = u32::from_be_bytes(
+            length_bytes
+                .try_into()
+                .expect("fixed four-byte refresh wire field length"),
+        ) as usize;
+        let value_end = length_end
+            .checked_add(length)
+            .ok_or_else(|| malformed("tenant-root refresh wire field length overflows"))?;
+        let value = self
+            .bytes
+            .get(length_end..value_end)
+            .ok_or_else(|| malformed("tenant-root refresh wire field is truncated"))?;
+        self.offset = value_end;
+        if value.is_empty() {
+            return Err(RouterAbDerivationError::new(
+                RouterAbDerivationErrorCode::EmptyField,
+                format!("{name} is required"),
+            ));
+        }
+        Ok(value)
+    }
+
+    fn require_field(&mut self, expected: &[u8]) -> RouterAbDerivationResult<()> {
+        if self.field("tenant-root refresh wire domain")? != expected {
+            return Err(malformed("tenant-root refresh wire domain is invalid"));
+        }
+        Ok(())
+    }
+
+    fn fixed_field<const N: usize>(
+        &mut self,
+        name: &'static str,
+    ) -> RouterAbDerivationResult<[u8; N]> {
+        self.field(name)?
+            .try_into()
+            .map_err(|_| malformed("tenant-root refresh wire fixed field length is invalid"))
+    }
+
+    fn text_field(
+        &mut self,
+        name: &'static str,
+        max_bytes: usize,
+    ) -> RouterAbDerivationResult<String> {
+        let bytes = self.field(name)?;
+        if bytes.len() > max_bytes {
+            return Err(malformed("tenant-root refresh wire text field is too long"));
+        }
+        core::str::from_utf8(bytes)
+            .map(str::to_owned)
+            .map_err(|_| malformed("tenant-root refresh wire text field is invalid UTF-8"))
+    }
+
+    fn role(&mut self) -> RouterAbDerivationResult<TwoPartyDeriverRole> {
+        let label = self.field("tenant-root refresh role")?;
+        let share_id = self.fixed_field::<2>("tenant-root refresh role share id")?;
+        match (label, u16::from_be_bytes(share_id)) {
+            (b"deriver_a", 1) => Ok(TwoPartyDeriverRole::DeriverA),
+            (b"deriver_b", 2) => Ok(TwoPartyDeriverRole::DeriverB),
+            _ => Err(malformed("tenant-root refresh role encoding is invalid")),
+        }
+    }
+
+    fn finish(self) -> RouterAbDerivationResult<()> {
+        if self.offset != self.bytes.len() {
+            return Err(malformed("tenant-root refresh wire has trailing bytes"));
+        }
+        Ok(())
+    }
 }
 
 fn push_role(out: &mut Vec<u8>, role: TwoPartyDeriverRole) -> RouterAbDerivationResult<()> {

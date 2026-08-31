@@ -1,20 +1,20 @@
-use curve25519_dalek::scalar::Scalar;
 use ed25519_dalek::SigningKey;
 use rand_chacha_09::ChaCha20Rng;
 use rand_core_09::SeedableRng;
 use router_ab_core::{
     decode_tenant_root_recovery_manifest_v1, decode_tenant_root_recovery_package_v1,
     seal_tenant_root_recovery_package_v1, sign_tenant_root_recovery_manifest_v1,
-    verify_and_open_tenant_root_recovery_role_package_v1, TenantRootCustodyLineageId,
-    TenantRootIdentityV1, TenantRootRecoveryDescriptorV1, TenantRootRecoveryManifestV1,
-    TenantRootRecoveryPackageV1, TenantRootRecoveryRecipientKeypairV1,
-    TenantRootRecoveryRecipientPublicKeyV1, TenantRootRecoverySetId,
-    TenantRootRecoveryTrustedVerifyingKeysV1,
+    verify_and_open_tenant_root_recovery_role_package_v1, TenantRootRecoveryDescriptorV1,
+    TenantRootRecoveryManifestV1, TenantRootRecoveryPackageV1,
+    TenantRootRecoveryRecipientKeypairV1, TenantRootRecoveryRecipientPublicKeyV1,
+    TenantRootRecoverySetId, TenantRootRecoveryTrustedVerifyingKeysV1,
 };
 use sha2::{Digest, Sha256};
-use threshold_prf::{
-    SigningRootShare, SigningRootShareWire, TwoPartyDeriverRole, TwoPartyRootShareCommitments,
-};
+use threshold_prf::{SigningRootShareWire, TwoPartyDeriverRole};
+
+mod support;
+
+use support::verified_recovery_artifact_fixture;
 
 fn signing_key(seed: u8) -> SigningKey {
     SigningKey::from_bytes(&[seed; 32])
@@ -24,37 +24,8 @@ fn hpke_rng(seed: u8) -> ChaCha20Rng {
     ChaCha20Rng::from_seed([seed; 32])
 }
 
-fn fixed_share(role: TwoPartyDeriverRole, scalar: u64) -> SigningRootShare {
-    SigningRootShare::from_canonical_bytes(role.share_id(), Scalar::from(scalar).to_bytes())
-        .expect("fixed non-zero root share")
-}
-
 fn descriptor() -> TenantRootRecoveryDescriptorV1 {
-    let share_a = fixed_share(TwoPartyDeriverRole::DeriverA, 12);
-    let share_b = fixed_share(TwoPartyDeriverRole::DeriverB, 19);
-    let commitments = TwoPartyRootShareCommitments::from_shares(&share_a, &share_b)
-        .expect("fixed root commitments");
-    let recipient_a = TenantRootRecoveryRecipientKeypairV1::derive_from_ikm([0xa1; 32])
-        .expect("recipient A keypair")
-        .public_key();
-    let recipient_b = TenantRootRecoveryRecipientKeypairV1::derive_from_ikm([0xb1; 32])
-        .expect("recipient B keypair")
-        .public_key();
-    TenantRootRecoveryDescriptorV1::new(
-        TenantRootIdentityV1::new("org-1", "project-2", "production", "root-main", "v3")
-            .expect("tenant identity"),
-        TenantRootCustodyLineageId::from_bytes([0x31; 16]).expect("lineage"),
-        TenantRootRecoverySetId::from_bytes([0x41; 16]).expect("recovery set id"),
-        "2026-08-29T10:20:30.123Z",
-        commitments.root(),
-        recipient_a,
-        recipient_b,
-        commitments.deriver_a(),
-        commitments.deriver_b(),
-        "deriver-a-signing-key-7",
-        "deriver-b-signing-key-9",
-    )
-    .expect("descriptor")
+    verified_recovery_artifact_fixture().descriptor
 }
 
 fn packages() -> (
@@ -66,39 +37,30 @@ fn packages() -> (
     SigningKey,
     SigningKey,
 ) {
-    let descriptor = descriptor();
-    let share_a = fixed_share(TwoPartyDeriverRole::DeriverA, 12);
-    let share_b = fixed_share(TwoPartyDeriverRole::DeriverB, 19);
-    let recipient_a = TenantRootRecoveryRecipientKeypairV1::derive_from_ikm([0xa1; 32])
-        .expect("recipient A keypair");
-    let recipient_b = TenantRootRecoveryRecipientKeypairV1::derive_from_ikm([0xb1; 32])
-        .expect("recipient B keypair");
-    let signing_a = signing_key(0x51);
-    let signing_b = signing_key(0x61);
+    let fixture = verified_recovery_artifact_fixture();
+    let descriptor = fixture.descriptor;
     let package_a = seal_tenant_root_recovery_package_v1(
         &descriptor,
-        TwoPartyDeriverRole::DeriverA,
-        &SigningRootShareWire::from_share(&share_a),
+        &fixture.verified_a,
         &mut hpke_rng(0x71),
-        &signing_a.to_bytes(),
+        &fixture.signing_a.to_bytes(),
     )
     .expect("package A");
     let package_b = seal_tenant_root_recovery_package_v1(
         &descriptor,
-        TwoPartyDeriverRole::DeriverB,
-        &SigningRootShareWire::from_share(&share_b),
+        &fixture.verified_b,
         &mut hpke_rng(0x81),
-        &signing_b.to_bytes(),
+        &fixture.signing_b.to_bytes(),
     )
     .expect("package B");
     (
         descriptor,
         package_a,
         package_b,
-        recipient_a,
-        recipient_b,
-        signing_a,
-        signing_b,
+        fixture.recipient_a,
+        fixture.recipient_b,
+        fixture.signing_a,
+        fixture.signing_b,
     )
 }
 
@@ -144,7 +106,7 @@ fn descriptor_canonical_json_round_trips_and_binds_commitments() {
     );
     assert_eq!(
         hex::encode(descriptor.digest().unwrap().into_bytes()),
-        "fa7ce17af0ab83613be3ca8db1ee59722f031f94c4ef6076cb64526fa4557d15",
+        "58f5870bfa350a66c84606b748e942de68832b8bd952663a553d680e53e293cb",
     );
 
     let mut unknown = canonical.clone();
@@ -173,11 +135,11 @@ fn role_packages_are_deterministic_signed_encrypted_and_recipient_bound() {
     let package_a_bytes = package_a.to_bytes().unwrap();
     assert_eq!(
         hex::encode(package_a.digest().unwrap().into_bytes()),
-        "6e382fac077f97a6dda5a9d1a6705f075caa23b096e19353eb0feefb72d17e6f",
+        "02297cf527c929e185917658ed20af1232c676a60aa6dcf420023a57274aa118",
     );
     assert_eq!(
         hex::encode(package_b.digest().unwrap().into_bytes()),
-        "f5845fbce7e3d8e8757d84279447863e23b3aeb68ccc937c576e61e98f468f81",
+        "5061ecafc86d8058b206ae8da00c8219cb0053c9dd2068a919546f41a21a10fb",
     );
     assert_eq!(&package_a_bytes[..8], b"SEAMSRB1");
     assert_eq!(package_a.ciphertext_len(), SigningRootShareWire::LEN + 16);
@@ -237,47 +199,8 @@ fn role_packages_are_deterministic_signed_encrypted_and_recipient_bound() {
 }
 
 #[test]
-fn package_role_substitution_and_strict_binary_bounds_fail_closed() {
-    let (descriptor, package_a, _, _, _, signing_a, _) = packages();
-    let share_b = fixed_share(TwoPartyDeriverRole::DeriverB, 19);
-    assert!(seal_tenant_root_recovery_package_v1(
-        &descriptor,
-        TwoPartyDeriverRole::DeriverA,
-        &SigningRootShareWire::from_share(&share_b),
-        &mut hpke_rng(0x71),
-        &signing_a.to_bytes(),
-    )
-    .is_err());
-
-    let mut zero_share_bytes = [0_u8; SigningRootShareWire::LEN];
-    zero_share_bytes[..2].copy_from_slice(
-        &TwoPartyDeriverRole::DeriverA
-            .share_id()
-            .get()
-            .get()
-            .to_be_bytes(),
-    );
-    let zero_share = SigningRootShareWire::decode(zero_share_bytes)
-        .expect("generic wire permits a zero scalar at this boundary");
-    assert!(seal_tenant_root_recovery_package_v1(
-        &descriptor,
-        TwoPartyDeriverRole::DeriverA,
-        &zero_share,
-        &mut hpke_rng(0x71),
-        &signing_a.to_bytes(),
-    )
-    .is_err());
-
-    let wrong_share_a = fixed_share(TwoPartyDeriverRole::DeriverA, 13);
-    assert!(seal_tenant_root_recovery_package_v1(
-        &descriptor,
-        TwoPartyDeriverRole::DeriverA,
-        &SigningRootShareWire::from_share(&wrong_share_a),
-        &mut hpke_rng(0x71),
-        &signing_a.to_bytes(),
-    )
-    .is_err());
-
+fn strict_binary_bounds_fail_closed() {
+    let (_, package_a, _, _, _, _, _) = packages();
     let mut truncated = package_a.to_bytes().unwrap();
     truncated.pop();
     assert!(decode_tenant_root_recovery_package_v1(&truncated).is_err());
@@ -322,7 +245,7 @@ fn signed_manifest_binds_both_packages_and_requires_external_trust() {
     let canonical = manifest.canonical_json().unwrap();
     assert_eq!(
         hex::encode(manifest.digest().unwrap()),
-        "5ce0ceb8957871eb399f21a0f6b2f01b8343b6278a7a2d7b7d587a042036b979",
+        "6a2d4119db1eb6973c9a524947357e0697aeb3038de759c156f555aec3735da3",
     );
     let decoded = decode_tenant_root_recovery_manifest_v1(&canonical).unwrap();
     assert_eq!(decoded, manifest);

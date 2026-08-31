@@ -67,6 +67,10 @@ pub use ordinary_inactive_signer_material::{
     CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_PATH,
     CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_SOURCE_PRESERVING_PATH,
 };
+#[cfg(feature = "workers-rs")]
+mod tenant_root_role_d1;
+#[cfg(feature = "workers-rs")]
+pub use tenant_root_role_d1::*;
 mod router;
 pub use router::*;
 

@@ -69,7 +69,12 @@ const AUTHORIZED_CORE_DEPENDENCIES = Object.freeze([
   Object.freeze({
     manifest: "crates/ed25519-yao-cloudflare-bench/Cargo.toml",
     kind: "normal",
-    features: "phase9-role-benchmark",
+    features: "local-protocol,phase9-role-benchmark",
+  }),
+  Object.freeze({
+    manifest: "crates/ed25519-yao/formal-verification/tasks/Cargo.toml",
+    kind: "normal",
+    features: "local-protocol",
   }),
   Object.freeze({
     manifest: "crates/ed25519-yao/formal-verification/verus/Cargo.toml",
@@ -329,7 +334,7 @@ function requireAuthorizedDependencies(records) {
 }
 
 function requireWranglerIsolation(configs) {
-  if (configs.length !== 19) {
+  if (configs.length !== 21) {
     fail("YAOS_ISOLATION_WRANGLER_SET", "wranglerConfigs");
   }
   for (const config of configs) {

@@ -20,6 +20,7 @@ import {
   buildLocalYaoExistingWalletFixture,
   buildLocalYaoRegistrationFixture,
   callLocalYaoWorker,
+  createLocalYaoEmailOtpExportAuthorization,
   createLocalYaoWorkerEnv,
   exportExecuteFromAdmission,
   localYaoOrigin,
@@ -161,7 +162,7 @@ test.describe('local D1 Ed25519 Yao request reconstruction', () => {
       });
       expect(bootstrap.status, await bootstrap.clone().text()).toBe(200);
       await expect(bootstrap.json()).resolves.toMatchObject({
-        kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
+        kind: 'router_ab_ed25519_yao_v2_session_bootstrap_v1',
         walletId: recovery.capability.admissionRequest.application_binding.wallet_id,
       });
 
@@ -170,6 +171,7 @@ test.describe('local D1 Ed25519 Yao request reconstruction', () => {
         path: ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
         body: recovery.recoveryAdmission,
         grant: recovery.token,
+        recoveryChallengeId: recovery.recoveryChallengeId,
       });
       expect(admission.status, await admission.clone().text()).toBe(200);
       const admissionBody = await admission.json();
@@ -229,10 +231,18 @@ test.describe('local D1 Ed25519 Yao request reconstruction', () => {
         signerDatabase: fixture.signer.database,
         lifecycleId: 'export-local-replay-1',
       });
+      const authorization = await createLocalYaoEmailOtpExportAuthorization({
+        env: fixture.env,
+        signerDatabase: fixture.signer.database,
+        token: existing.token,
+        walletId: existing.capability.admissionRequest.application_binding.wallet_id,
+        providerSubjectId: existing.emailOtp.providerSubjectId,
+        walletAuthMethodId: existing.emailOtp.walletAuthMethodId,
+      });
       const admission = await callLocalYaoWorker({
         env: fixture.env,
         path: ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
-        body: existing.exportAdmission,
+        body: { protocol: existing.exportProtocol, authorization },
         grant: existing.token,
         origin: localYaoOrigin(),
       });
