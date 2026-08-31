@@ -225,6 +225,7 @@ import {
 import {
   activateEmailOtpWalletAfterUnlock,
   persistVerifiedEmailOtpAuthorityAfterUnlock,
+  walletAuthAuthorityRefForVerifiedEmailOtpUnlock,
   type EmailOtpWalletPostUnlockActivation,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/walletActivation';
 import type {
@@ -2745,7 +2746,13 @@ export class SeamsWeb {
         timingStartedAtMs,
       );
       timingStartedAtMs = nowMs();
-      const ownerAuthority = exactEmailOtpAuthorityRefFromLoginResult(result);
+      const ownerAuthority = await walletAuthAuthorityRefForVerifiedEmailOtpUnlock({
+        walletId: String(walletId),
+        walletAuthMethodId: String(args.walletAuthMethodId),
+        providerSubject: args.providerIdentity.providerSubjectId,
+        emailHashHex,
+        projection: result.recovery.verifiedAuthorityProjection,
+      });
       const runtimeInventory = await assertWalletRuntimePostconditions({
         source: 'wallet_unlock',
         walletId,
