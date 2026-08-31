@@ -1758,18 +1758,22 @@ async function unlockLinkedPasskeyWallet(
   /* The menu re-renders while the post-reload restore settles, so a one-shot
      visible-then-click sequence can race a view swap; drive it like lockWallet
      does, retrying until the unlock control itself is clickable. */
-  const unlockDeadline = Date.now() + 60_000;
+  const unlockDeadline = Date.now() + 90_000;
   for (;;) {
-    if (await unlock.isVisible().catch(() => false)) break;
-    if (await switchToLogin.isVisible().catch(() => false)) {
+    if (await unlock.isVisible().catch(() => false)) {
+      const clicked = await unlock
+        .click({ timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (clicked) break;
+    } else if (await switchToLogin.isVisible().catch(() => false)) {
       await switchToLogin.click({ timeout: 5_000 }).catch(() => undefined);
     }
     if (Date.now() >= unlockDeadline) {
-      throw new Error('Passkey unlock surface did not appear after reload');
+      throw new Error('Passkey unlock surface did not accept a click after reload');
     }
     await page.waitForTimeout(250);
   }
-  await unlock.click();
   try {
     await page
       .getByRole('tab', { name: profile === 'ed25519' ? 'NEAR' : 'Tempo', exact: true })
