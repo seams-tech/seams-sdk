@@ -2388,10 +2388,8 @@ export class SeamsWeb {
     challengeId: string;
     otpCode: string;
     relayUrl: string;
-    /* A linked Email method is verified by address, so its authority scope is
-       anchored to the email factor regardless of which provider performed the
-       login. Callers that ever unlock a Google-anchored linked enrollment must
-       say so explicitly. */
+    /* The enrollment's provider flavor is server-derived and not pinned by
+       the unlock binding; this hint only shapes the client's authority ref. */
     provider?: 'google' | 'email';
   }): Promise<void> {
     /* The wallet's stores live in the iframe when one is in use, so this has to
@@ -2418,7 +2416,7 @@ export class SeamsWeb {
       emailHashHex,
       walletAuthMethodId: args.walletAuthMethodId,
       providerSubjectId: args.providerSubjectId,
-      provider: args.provider || 'email',
+      provider: args.provider || 'google',
       challengeId: args.challengeId,
       otpCode: args.otpCode,
       relayUrl: args.relayUrl,
