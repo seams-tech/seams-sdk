@@ -25,6 +25,7 @@ import {
   walletSessionRefFromSession,
 } from '@seams/wallet/advanced';
 import { FRONTEND_CONFIG } from '@/config';
+import { resolveEmailOtpRegistrationSession } from './registrationSession';
 
 type IntendedActionName =
   | 'registerPasskeyWallet'
@@ -1932,8 +1933,17 @@ class IntendedPageController {
     const nearProvisioning = await this.seams.registration.getNearProvisioningState({
       walletId: completed.value.walletId,
     });
+    const session = await resolveEmailOtpRegistrationSession({
+      walletId: completed.value.walletId,
+      completedSession: completed.value.session,
+      nearProvisioning,
+      auth: this.seams.auth,
+    });
     return assertEmailOtpRegistrationCompleted({
-      completed: completed.value,
+      completed: {
+        ...completed.value,
+        session,
+      },
       initialWalletId,
       ecdsaTargetProfile: effectiveEcdsaProfile,
       nearProvisioning,
