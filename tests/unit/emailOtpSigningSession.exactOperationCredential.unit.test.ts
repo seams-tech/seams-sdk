@@ -1,9 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { IndexedDBManager } from '@/core/indexedDB';
-import {
-  walletSessionAuthorizations,
-  type WalletSessionAuthorizationExactOperationCredentialReadResult,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { type WalletSessionAuthorizationExactOperationCredentialReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   emailOtpEcdsaSigningSessionAuthLane,
   resolveExactEmailOtpEcdsaSigningSessionAuthority,
@@ -61,6 +57,14 @@ class ExactSessionReadHarness {
       },
     ];
   }
+
+  async getWalletAuthMethodV2() {
+    return this.authorization.selectedAuthMethod;
+  }
+
+  async getWalletPasskeyAuthenticator() {
+    return null;
+  }
 }
 
 test('Email OTP signing-session refresh resolves the selected exact primary credential', async () => {
@@ -84,53 +88,46 @@ test('Email OTP signing-session refresh resolves the selected exact primary cred
     label: 'signing-session-exact',
   });
   const harness = new ExactSessionReadHarness(authorization);
-  const originalResolveSelectedWalletAuthority = IndexedDBManager.resolveSelectedWalletAuthority;
-  const originalListWalletAuthMethodsForWallet = IndexedDBManager.listWalletAuthMethodsForWallet;
-  const originalReadExact = walletSessionAuthorizations.readExactWithOperationCredential;
-  IndexedDBManager.resolveSelectedWalletAuthority =
-    harness.resolveSelectedWalletAuthority.bind(harness);
-  IndexedDBManager.listWalletAuthMethodsForWallet =
-    harness.listWalletAuthMethodsForWallet.bind(harness);
-  walletSessionAuthorizations.readExactWithOperationCredential =
-    harness.readExactWithOperationCredential.bind(harness);
+  const ports = {
+    factorStores: {
+      getWalletAuthMethodV2: harness.getWalletAuthMethodV2.bind(harness),
+      listWalletAuthMethodsForWallet: harness.listWalletAuthMethodsForWallet.bind(harness),
+      getWalletPasskeyAuthenticator: harness.getWalletPasskeyAuthenticator.bind(harness),
+    },
+    resolveSelectedWalletAuthority: harness.resolveSelectedWalletAuthority.bind(harness),
+    readExactWalletSessionAuthorization: harness.readExactWithOperationCredential.bind(harness),
+  };
+  const resolved = await resolveExactEmailOtpEcdsaSigningSessionAuthority(ports, {
+    walletId: capability.manifest.signer.walletId,
+    chainTarget: sealedRecord.ecdsaRestore.chainTarget,
+    manifest: capability.manifest,
+    runtime,
+  });
+  expect(resolved).toMatchObject({
+    kind: 'exact_evm_family_wallet_session_authorization_v1',
+    selectedAuthority: authorization.selectedAuthority,
+    selectedAuthMethod: authorization.selectedAuthMethod,
+    session: authorization.session,
+    operationCredential: authorization.operationCredential,
+    runtime,
+  });
+  if (!resolved) throw new Error('exact Email OTP authorization fixture did not resolve');
+  expect(emailOtpEcdsaSigningSessionAuthLane(resolved)).toEqual({
+    kind: 'signing_session',
+    curve: 'ecdsa',
+    operationCredential: authorization.operationCredential,
+    thresholdSessionId: runtime.sealedRecord.thresholdSessionId,
+    chainTarget: runtime.chainTarget,
+  });
+  expect(harness.exactReadCalled).toBe(true);
 
-  try {
-    const resolved = await resolveExactEmailOtpEcdsaSigningSessionAuthority({
+  harness.read = { kind: 'missing' };
+  await expect(
+    resolveExactEmailOtpEcdsaSigningSessionAuthority(ports, {
       walletId: capability.manifest.signer.walletId,
       chainTarget: sealedRecord.ecdsaRestore.chainTarget,
       manifest: capability.manifest,
       runtime,
-    });
-    expect(resolved).toMatchObject({
-      kind: 'exact_evm_family_wallet_session_authorization_v1',
-      selectedAuthority: authorization.selectedAuthority,
-      selectedAuthMethod: authorization.selectedAuthMethod,
-      session: authorization.session,
-      operationCredential: authorization.operationCredential,
-      runtime,
-    });
-    if (!resolved) throw new Error('exact Email OTP authorization fixture did not resolve');
-    expect(emailOtpEcdsaSigningSessionAuthLane(resolved)).toEqual({
-      kind: 'signing_session',
-      curve: 'ecdsa',
-      operationCredential: authorization.operationCredential,
-      thresholdSessionId: runtime.sealedRecord.thresholdSessionId,
-      chainTarget: runtime.chainTarget,
-    });
-    expect(harness.exactReadCalled).toBe(true);
-
-    harness.read = { kind: 'missing' };
-    await expect(
-      resolveExactEmailOtpEcdsaSigningSessionAuthority({
-        walletId: capability.manifest.signer.walletId,
-        chainTarget: sealedRecord.ecdsaRestore.chainTarget,
-        manifest: capability.manifest,
-        runtime,
-      }),
-    ).resolves.toBeNull();
-  } finally {
-    IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelectedWalletAuthority;
-    IndexedDBManager.listWalletAuthMethodsForWallet = originalListWalletAuthMethodsForWallet;
-    walletSessionAuthorizations.readExactWithOperationCredential = originalReadExact;
-  }
+    }),
+  ).resolves.toBeNull();
 });

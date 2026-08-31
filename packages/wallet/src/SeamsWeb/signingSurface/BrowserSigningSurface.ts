@@ -2630,6 +2630,15 @@ export class BrowserSigningSurface {
     this.emailOtpPublicDeps = {
       relayerUrl: this.seamsWebConfigs.network.relayer?.url || '',
       groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+      signingSessionAuthorityPorts: {
+        factorStores: browserSigningSurfaceExactWalletAuthMethodStore,
+        resolveSelectedWalletAuthority:
+          IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
+        readExactWalletSessionAuthorization:
+          walletSessionAuthorizations.readExactWithOperationCredential.bind(
+            walletSessionAuthorizations,
+          ),
+      },
       getSignerWorkerContext: () =>
         this.enginePorts.walletSessionActivationDeps.getSignerWorkerContext(),
       withThresholdEcdsaSigningQueue: (queueArgs) =>

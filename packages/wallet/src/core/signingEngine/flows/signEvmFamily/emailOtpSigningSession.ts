@@ -15,6 +15,7 @@ import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsa
 import {
   emailOtpEcdsaSigningSessionAuthLane,
   resolveExactEmailOtpEcdsaSigningSessionAuthority,
+  type EmailOtpEcdsaSigningSessionAuthorityPorts,
 } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 import type { ExactEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 import {
@@ -65,7 +66,10 @@ type WalletSessionEmailOtpChallengeArgs = Extract<
 >;
 
 export type EmailOtpEcdsaSigningSessionDeps = {
-  resolveSigningSessionAuth: typeof resolveEmailOtpEcdsaSigningSessionAuth;
+  resolveSigningSessionAuth: (args: {
+    walletId: WalletId;
+    chainTarget: ThresholdEcdsaChainTarget;
+  }) => ReturnType<typeof resolveEmailOtpEcdsaSigningSessionAuth>;
   withThresholdEcdsaSigningQueue: <T>(args: {
     queueKey: string;
     walletId: WalletId;
@@ -301,10 +305,13 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
  * must land on the same material activation it started from, so the caller
  * checks that before and after; nothing here invokes Yao recovery or device
  * linking. */
-export async function resolveEmailOtpEcdsaSigningSessionAuth(args: {
-  walletId: WalletId;
-  chainTarget: ThresholdEcdsaChainTarget;
-}): Promise<{
+export async function resolveEmailOtpEcdsaSigningSessionAuth(
+  args: {
+    walletId: WalletId;
+    chainTarget: ThresholdEcdsaChainTarget;
+  },
+  authorityPorts: EmailOtpEcdsaSigningSessionAuthorityPorts,
+): Promise<{
   manifest: ActiveEcdsaCapabilityManifest;
   runtime: ExactEcdsaSealedRuntime;
   authority: ExactEvmFamilyWalletSessionAuthorization;
@@ -320,7 +327,7 @@ export async function resolveEmailOtpEcdsaSigningSessionAuth(args: {
       expectedCurve: 'ecdsa',
     });
   }
-  const authority = await resolveExactEmailOtpEcdsaSigningSessionAuthority({
+  const authority = await resolveExactEmailOtpEcdsaSigningSessionAuthority(authorityPorts, {
     walletId: args.walletId,
     chainTarget: args.chainTarget,
     manifest: resolved.manifest,
