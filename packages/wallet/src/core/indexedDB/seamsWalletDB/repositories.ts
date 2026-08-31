@@ -6058,6 +6058,19 @@ export class SeamsWalletRepositories {
   async publishPendingWalletRegistrationCommit(
     input: PublishPendingWalletRegistrationCommitInputV1,
   ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+    return await this.publishPendingWalletRegistrationCommitWithDisposition(input, true);
+  }
+
+  async publishPendingWalletRegistrationCommitAndRetain(
+    input: PublishPendingWalletRegistrationCommitInputV1,
+  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+    return await this.publishPendingWalletRegistrationCommitWithDisposition(input, false);
+  }
+
+  private async publishPendingWalletRegistrationCommitWithDisposition(
+    input: PublishPendingWalletRegistrationCommitInputV1,
+    deletePending: boolean,
+  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
     const pending = buildPendingWalletRegistrationCommitV1(input.pending);
     const authority = parseWalletAuthAuthority(input.authority);
     if (!authority) {
@@ -6092,6 +6105,7 @@ export class SeamsWalletRepositories {
         registration: input.registration,
         ecdsaContinuity: input.ecdsaContinuity,
         walletSessionPublication: input.walletSessionPublication,
+        deletePending,
       }),
     );
   }
@@ -6144,6 +6158,7 @@ export class SeamsWalletRepositories {
       readonly registration: StoreWalletRegistrationPublicationInputV1;
       readonly ecdsaContinuity: readonly PreparedImportedWalletCustodyEcdsaContinuity[];
       readonly walletSessionPublication: WalletRegistrationSessionPublicationV1;
+      readonly deletePending: boolean;
     },
     ctx: SeamsWalletTransactionContext,
   ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
@@ -6209,9 +6224,10 @@ export class SeamsWalletRepositories {
       await persistPreparedImportedWalletCustodyEcdsaContinuityInTransaction(ctx, continuity);
     }
     const shouldDeletePending =
-      input.walletSessionPublication.kind === 'issued'
+      input.deletePending &&
+      (input.walletSessionPublication.kind === 'issued'
         ? shouldDeletePublishedPendingWalletRegistrationCommit(input.pending)
-        : credentialFreeSessionReconciled;
+        : credentialFreeSessionReconciled);
     if (shouldDeletePending) {
       await ctx.store(SEAMS_WALLET_STORES.appState).delete(pendingKey);
     }

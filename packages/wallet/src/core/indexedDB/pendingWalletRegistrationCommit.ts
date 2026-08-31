@@ -88,6 +88,25 @@ type PendingWalletRegistrationEd25519LocalMaterialV1 = {
   readonly metadata: PendingWalletRegistrationEd25519MetadataV1;
 };
 
+type PendingWalletRegistrationMixedEd25519LocalMaterialV1 =
+  PendingWalletRegistrationEd25519LocalMaterialV1 & {
+    readonly custodyCommit: PendingWalletRegistrationNearCustodyCommitV1;
+  };
+
+type PendingWalletRegistrationCustodyCommitV1 =
+  | (WalletCustodyCeremonyCommitPayload & { readonly keySet: 'near_ed25519_v1' })
+  | (WalletCustodyCeremonyCommitPayload & { readonly keySet: 'evm_family_ecdsa_v1' });
+
+type PendingWalletRegistrationNearCustodyCommitV1 = Extract<
+  PendingWalletRegistrationCustodyCommitV1,
+  { readonly keySet: 'near_ed25519_v1' }
+>;
+
+type PendingWalletRegistrationEcdsaCustodyCommitV1 = Extract<
+  PendingWalletRegistrationCustodyCommitV1,
+  { readonly keySet: 'evm_family_ecdsa_v1' }
+>;
+
 export type PendingWalletRegistrationEd25519MetadataV1 = {
   readonly materialActivation: MpcMaterialActivationRef;
   readonly registeredPublicKeyB64u: string;
@@ -102,22 +121,22 @@ export type PendingWalletRegistrationEd25519MetadataV1 = {
 export type PendingWalletRegistrationLocalMaterialV1 =
   | {
       readonly keyFamilies: readonly ['ecdsa_secp256k1'];
-      readonly custodyCommit: WalletCustodyCeremonyCommitPayload;
+      readonly custodyCommit: PendingWalletRegistrationEcdsaCustodyCommitV1;
       readonly ecdsa: PendingWalletRegistrationEcdsaReplayV1;
       readonly ed25519?: never;
       readonly activationReference?: never;
     }
   | {
       readonly keyFamilies: readonly ['ed25519'];
-      readonly custodyCommit: WalletCustodyCeremonyCommitPayload;
+      readonly custodyCommit: PendingWalletRegistrationNearCustodyCommitV1;
       readonly ed25519: PendingWalletRegistrationEd25519LocalMaterialV1;
       readonly ecdsa?: never;
       readonly activationReference?: never;
     }
   | {
       readonly keyFamilies: readonly ['ed25519', 'ecdsa_secp256k1'];
-      readonly custodyCommit: WalletCustodyCeremonyCommitPayload;
-      readonly ed25519: PendingWalletRegistrationEd25519LocalMaterialV1;
+      readonly custodyCommit: PendingWalletRegistrationEcdsaCustodyCommitV1;
+      readonly ed25519: PendingWalletRegistrationMixedEd25519LocalMaterialV1;
       readonly ecdsa: PendingWalletRegistrationEcdsaReplayV1;
       readonly activationReference?: never;
     };
@@ -152,7 +171,7 @@ export type PendingWalletRegistrationCommitV1 =
     })
   | (PendingWalletRegistrationCommitCommonV1 & {
       readonly operation: 'registration_activate';
-      readonly signerPlanKind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa';
+      readonly signerPlanKind: 'evm_family_ecdsa';
       readonly localMaterial: Extract<
         PendingWalletRegistrationLocalMaterialV1,
         { readonly keyFamilies: readonly ['ecdsa_secp256k1'] }
@@ -335,6 +354,12 @@ export function parsePendingWalletRegistrationCommitV1(
   ) {
     return null;
   }
+  if (
+    isMixedLocalMaterial(localMaterial) &&
+    localMaterial.ed25519.custodyCommit.walletId !== walletId.value
+  ) {
+    return null;
+  }
   const common = {
     kind: 'pending_wallet_registration_commit_v1' as const,
     registrationCeremonyId,
@@ -356,9 +381,6 @@ export function parsePendingWalletRegistrationCommitV1(
       return isEcdsaOnlyLocalMaterial(localMaterial)
         ? { ...common, operation, signerPlanKind, localMaterial }
         : null;
-    }
-    if (isEcdsaOnlyLocalMaterial(localMaterial)) {
-      return { ...common, operation, signerPlanKind, localMaterial };
     }
     if (isMixedLocalMaterial(localMaterial)) {
       return { ...common, operation, signerPlanKind, localMaterial };
@@ -534,7 +556,7 @@ function parsePendingLocalMaterial(raw: unknown): PendingWalletRegistrationLocal
     if (!hasExactKeys(raw, ['keyFamilies', 'custodyCommit', 'ecdsa'])) return null;
     const custodyCommit = parseCustodyCommit(raw.custodyCommit);
     const ecdsa = parseEcdsaLocalMaterial(raw.ecdsa);
-    return custodyCommit && custodyCommit.keySet === 'evm_family_ecdsa_v1' && ecdsa
+    return custodyCommit && isCustodyCommitForKeySet(custodyCommit, 'evm_family_ecdsa_v1') && ecdsa
       ? { keyFamilies: ['ecdsa_secp256k1'], custodyCommit, ecdsa }
       : null;
   }
@@ -545,7 +567,7 @@ function parsePendingLocalMaterial(raw: unknown): PendingWalletRegistrationLocal
   ) {
     const custodyCommit = parseCustodyCommit(raw.custodyCommit);
     const ed25519 = parseEd25519LocalMaterial(raw.ed25519);
-    return custodyCommit && custodyCommit.keySet === 'near_ed25519_v1' && ed25519
+    return custodyCommit && isCustodyCommitForKeySet(custodyCommit, 'near_ed25519_v1') && ed25519
       ? { keyFamilies: ['ed25519'], custodyCommit, ed25519 }
       : null;
   }
@@ -556,9 +578,12 @@ function parsePendingLocalMaterial(raw: unknown): PendingWalletRegistrationLocal
     hasExactKeys(raw, ['keyFamilies', 'custodyCommit', 'ed25519', 'ecdsa'])
   ) {
     const custodyCommit = parseCustodyCommit(raw.custodyCommit);
-    const ed25519 = parseEd25519LocalMaterial(raw.ed25519);
+    const ed25519 = parseMixedEd25519LocalMaterial(raw.ed25519);
     const ecdsa = parseEcdsaLocalMaterial(raw.ecdsa);
-    return custodyCommit && custodyCommit.keySet === 'evm_family_ecdsa_v1' && ed25519 && ecdsa
+    return custodyCommit &&
+      isCustodyCommitForKeySet(custodyCommit, 'evm_family_ecdsa_v1') &&
+      ed25519 &&
+      ecdsa
       ? { keyFamilies: ['ed25519', 'ecdsa_secp256k1'], custodyCommit, ed25519, ecdsa }
       : null;
   }
@@ -580,7 +605,9 @@ function isEcdsaOnlyLocalMaterial(
   PendingWalletRegistrationLocalMaterialV1,
   { readonly keyFamilies: readonly ['ecdsa_secp256k1'] }
 > {
-  return localMaterial.keyFamilies.length === 1 && localMaterial.keyFamilies[0] === 'ecdsa_secp256k1';
+  return (
+    localMaterial.keyFamilies.length === 1 && localMaterial.keyFamilies[0] === 'ecdsa_secp256k1'
+  );
 }
 
 function isMixedLocalMaterial(
@@ -601,6 +628,25 @@ function parseEd25519LocalMaterial(
 ): PendingWalletRegistrationEd25519LocalMaterialV1 | null {
   if (!isRecord(raw) || hasForbiddenCredentialField(raw)) return null;
   if (!hasExactKeys(raw, ['activationReference', 'localMaterial', 'metadata'])) return null;
+  return parseEd25519LocalMaterialValues(raw);
+}
+
+function parseMixedEd25519LocalMaterial(
+  raw: unknown,
+): PendingWalletRegistrationMixedEd25519LocalMaterialV1 | null {
+  if (!isRecord(raw) || hasForbiddenCredentialField(raw)) return null;
+  if (!hasExactKeys(raw, ['custodyCommit', 'activationReference', 'localMaterial', 'metadata'])) {
+    return null;
+  }
+  const custodyCommit = parseCustodyCommit(raw.custodyCommit);
+  if (!custodyCommit || !isCustodyCommitForKeySet(custodyCommit, 'near_ed25519_v1')) return null;
+  const ed25519 = parseEd25519LocalMaterialValues(raw);
+  return ed25519 ? { ...ed25519, custodyCommit } : null;
+}
+
+function parseEd25519LocalMaterialValues(
+  raw: Record<string, unknown>,
+): PendingWalletRegistrationEd25519LocalMaterialV1 | null {
   const activationReference = parseActivationReference(raw.activationReference);
   if (!isRecord(raw.localMaterial) || hasForbiddenCredentialField(raw.localMaterial)) return null;
   if (!hasExactKeys(raw.localMaterial, ['b64u', 'nonceB64u', 'applicationBindingDigestB64u'])) {
@@ -817,6 +863,13 @@ function parseCustodyCommit(raw: unknown): WalletCustodyCeremonyCommitPayload | 
     ...(clientRootPublicKey33B64u ? { clientRootPublicKey33B64u } : {}),
     ...(ecdsaPublicFacts ? { ecdsaPublicFacts } : {}),
   };
+}
+
+function isCustodyCommitForKeySet<K extends 'near_ed25519_v1' | 'evm_family_ecdsa_v1'>(
+  custodyCommit: WalletCustodyCeremonyCommitPayload,
+  keySet: K,
+): custodyCommit is Extract<PendingWalletRegistrationCustodyCommitV1, { readonly keySet: K }> {
+  return custodyCommit.keySet === keySet;
 }
 
 function parseEstablishedCustody(raw: unknown): EstablishedCustodyRecordsPayload | null {

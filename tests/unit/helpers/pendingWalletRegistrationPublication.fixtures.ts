@@ -13,6 +13,7 @@ import {
 import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
 import { buildExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 import { parseEd25519PublicKeyB64u } from '@shared/passkey-custody/primitives';
+import type { WalletCustodyCeremonyCommitPayload } from '@shared/passkey-custody';
 import { parseCorrelationId, parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
 import {
@@ -46,6 +47,8 @@ import type {
   ProfileAuthenticatorRecord,
   LocalWalletAuthMethodRecord,
 } from '@/core/indexedDB/passkeyClientDB.types';
+import type { JoinedWalletCustodyNearEd25519KeySetV1 } from '@/SeamsWeb/signingSurface/ports';
+import type { WalletCustodyCacheEnvelopeV1 } from '@/core/signingEngine/walletCustody/openCustodyCache';
 import type { KeyMaterialRecord } from '@/core/indexedDB/keyMaterial.types';
 import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerLifecycle';
 import {
@@ -75,6 +78,12 @@ import { ecdsaCapabilityActivationFixture } from './ecdsaCapabilityManifest.fixt
 import { buildExactWalletSessionAuthorizationFixture } from './exactWalletSessionAuthorization.fixtures';
 import { projectActiveWalletSession } from '../../../packages/wallet-server/src/authorization/domain';
 import { fixtureRouterAbEcdsaActivationFacts } from '../../helpers/routerAbSigningRuntimeTestUtils';
+import {
+  buildFixtureEd25519YaoRegistrationAdmissionReceipt,
+  buildFixtureEd25519YaoRegistrationAdmissionRequest,
+  ed25519YaoFixtureBytes,
+} from '../../helpers/ed25519YaoAdmissionFixtures';
+import { routerAbMpcMaterialActivationRefFromWire } from '../../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 
 function unwrap<T>(result: { ok: true; value: T } | { ok: false; error: { message: string } }): T {
   if (!result.ok) throw new Error(result.error.message);
@@ -83,6 +92,75 @@ function unwrap<T>(result: { ok: true; value: T } | { ok: false; error: { messag
 
 function digest(fill: number) {
   return parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(fill)));
+}
+
+export function buildDeferredNearCustodyWorkFixture(args: {
+  readonly lifecycleId?: string;
+  readonly walletId?: string;
+} = {}): {
+  readonly joined: JoinedWalletCustodyNearEd25519KeySetV1;
+  readonly envelope: WalletCustodyCacheEnvelopeV1;
+  readonly commitPayload: WalletCustodyCeremonyCommitPayload;
+  readonly factorSecret32: ArrayBuffer;
+} {
+  const lifecycleId = args.lifecycleId ?? 'wrc_test';
+  const walletId = args.walletId ?? 'alice.testnet';
+  const admissionRequest = buildFixtureEd25519YaoRegistrationAdmissionRequest({
+    lifecycleId,
+    walletId,
+    signerSlot: 1,
+  });
+  const admissionReceipt = buildFixtureEd25519YaoRegistrationAdmissionReceipt({
+    lifecycleId,
+    walletId,
+  });
+  const materialActivation = routerAbMpcMaterialActivationRefFromWire(
+    admissionRequest.scope.material_activation,
+  );
+  const joined: JoinedWalletCustodyNearEd25519KeySetV1 = {
+    commitPayload: buildWalletCustodyCommitPayloadFixture({
+      walletId,
+      keySet: 'near_ed25519_v1',
+      origin: 'join',
+    }),
+    activationReference: {
+      kind: 'router_ab_ed25519_yao_activation_reference_v1',
+      lifecycle_id: admissionReceipt.binding.lifecycle.lifecycle_id,
+      session_id: admissionReceipt.binding.session_id,
+    },
+    metadata: {
+      kind: 'router_ab_ed25519_yao_active_client_v1',
+      scope: admissionRequest.scope,
+      applicationBinding: admissionRequest.application_binding,
+      participantIds: admissionRequest.participant_ids,
+      registeredPublicKey: Uint8Array.from(ed25519YaoFixtureBytes(161)),
+      signingWorkerVerifyingShare: Uint8Array.from(ed25519YaoFixtureBytes(193)),
+      stateEpoch: 1n,
+      transcript: Uint8Array.from(ed25519YaoFixtureBytes(225)),
+      activeCapabilityBinding: ed25519YaoFixtureBytes(3),
+      materialActivation,
+    },
+    localMaterial: {
+      b64u: base64UrlEncode(new Uint8Array(32).fill(7)),
+      nonceB64u: base64UrlEncode(new Uint8Array(12).fill(8)),
+      applicationBindingDigestB64u: base64UrlEncode(new Uint8Array(32).fill(9)),
+    },
+  };
+  return {
+    joined,
+    envelope: {
+      bindingJson: '{}',
+      nonceB64u: base64UrlEncode(new Uint8Array(12).fill(10)),
+      ciphertextB64u: base64UrlEncode(new Uint8Array(32).fill(11)),
+      aadHashB64u: base64UrlEncode(new Uint8Array(32).fill(12)),
+      ciphertextDigestB64u: base64UrlEncode(new Uint8Array(32).fill(13)),
+    },
+    commitPayload: buildWalletCustodyCommitPayloadFixture({
+      walletId,
+      keySet: 'evm_family_ecdsa_v1',
+    }),
+    factorSecret32: new ArrayBuffer(32),
+  };
 }
 
 function buildSignerActivation(walletId: string): {
@@ -217,6 +295,16 @@ type ActiveWalletAuthMethodRecordV2 = Extract<
   WalletAuthMethodRecordV2,
   { readonly status: 'active' }
 >;
+
+type PendingWalletRegistrationNearCustodyCommit = Extract<
+  PendingWalletRegistrationCommitV1['localMaterial'],
+  { readonly keyFamilies: readonly ['ed25519'] }
+>['custodyCommit'];
+
+type PendingWalletRegistrationEcdsaCustodyCommit = Extract<
+  PendingWalletRegistrationCommitV1['localMaterial'],
+  { readonly keyFamilies: readonly ['ecdsa_secp256k1'] }
+>['custodyCommit'];
 
 export async function buildPendingWalletRegistrationPublicationFixture(
   options: PublicationFixtureVariant,
@@ -365,12 +453,22 @@ export async function buildPendingWalletRegistrationPublicationFixture(
     authenticators = [];
   }
 
-  const localMaterialBase = {
-    custodyCommit: buildWalletCustodyCommitPayloadFixture({
+  const nearCustodyCommit: PendingWalletRegistrationNearCustodyCommit = {
+    ...buildWalletCustodyCommitPayloadFixture({
       walletId: String(walletId),
-      keySet: keyFamilies === 'ed25519' ? 'near_ed25519_v1' : 'evm_family_ecdsa_v1',
       origin: 'join',
     }),
+    keySet: 'near_ed25519_v1',
+  };
+  const ecdsaCustodyCommit: PendingWalletRegistrationEcdsaCustodyCommit = {
+    ...buildWalletCustodyCommitPayloadFixture({
+      walletId: String(walletId),
+      keySet: 'evm_family_ecdsa_v1',
+      origin: 'join',
+    }),
+    keySet: 'evm_family_ecdsa_v1',
+  };
+  const localMaterialBase = {
     ed25519: {
       activationReference: {
         kind: 'router_ab_ed25519_yao_activation_reference_v1' as const,
@@ -399,6 +497,7 @@ export async function buildPendingWalletRegistrationPublicationFixture(
     { readonly keyFamilies: readonly ['ed25519'] }
   > = {
     keyFamilies: ['ed25519'] as const,
+    custodyCommit: nearCustodyCommit,
     ...localMaterialBase,
   };
   const ecdsaLocalMaterial: Extract<
@@ -406,7 +505,7 @@ export async function buildPendingWalletRegistrationPublicationFixture(
     { readonly keyFamilies: readonly ['ecdsa_secp256k1'] }
   > = {
     keyFamilies: ['ecdsa_secp256k1'] as const,
-    custodyCommit: localMaterialBase.custodyCommit,
+    custodyCommit: ecdsaCustodyCommit,
     ecdsa: {
       activationJournalId: parseCorrelationId('correlation:r103f-publication'),
       clientActivation: fixtureRouterAbEcdsaActivationFacts(),
@@ -418,8 +517,11 @@ export async function buildPendingWalletRegistrationPublicationFixture(
     { readonly keyFamilies: readonly ['ed25519', 'ecdsa_secp256k1'] }
   > = {
     keyFamilies: ['ed25519', 'ecdsa_secp256k1'] as const,
-    custodyCommit: localMaterialBase.custodyCommit,
-    ed25519: localMaterialBase.ed25519,
+    custodyCommit: ecdsaCustodyCommit,
+    ed25519: {
+      ...localMaterialBase.ed25519,
+      custodyCommit: nearCustodyCommit,
+    },
     ecdsa: {
       activationJournalId: parseCorrelationId('correlation:r103f-publication'),
       clientActivation: fixtureRouterAbEcdsaActivationFacts(),
