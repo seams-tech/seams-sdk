@@ -4,7 +4,7 @@ import { PASSKEY_PRF_KEK_VERSION_V1 } from '@shared/passkey-custody';
 import type { CurrentEd25519SealedSessionRecord } from '../../packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   requirePasskeyEd25519RestoreAuthorization,
-  resolvePasskeyEd25519YaoExportContextWithRuntimeV1,
+  resolvePasskeyEd25519YaoExportContextV1,
 } from '../../packages/wallet/src/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import {
   type WalletAuthAuthority,
@@ -164,7 +164,7 @@ async function resolveRecord(
   subjectThresholdSessionId = THRESHOLD_SESSION_ID,
 ) {
   let recoveryBootstrapCalls = 0;
-  const result = await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
+  const result = await resolvePasskeyEd25519YaoExportContextV1(
     {
       subject: {
         kind: 'owner_sealed_runtime',
@@ -341,7 +341,7 @@ test('warm recovery accepts a renewed Wallet Session credential with the owner c
     readonly authorityId: string;
     readonly authMethodId: string;
   } | null = null;
-  const resolved = await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
+  const resolved = await resolvePasskeyEd25519YaoExportContextV1(
     {
       subject: {
         kind: 'owner_sealed_runtime',
@@ -415,7 +415,7 @@ test('warm recovery fails closed when the selected exact Wallet Session is unava
     thresholdSessionId: THRESHOLD_SESSION_ID,
   });
   let recoveryBootstrapCalls = 0;
-  const result = await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
+  const result = await resolvePasskeyEd25519YaoExportContextV1(
     {
       subject: {
         kind: 'owner_sealed_runtime',
@@ -495,7 +495,7 @@ test('warm recovery rejects identity, material, and extra-field substitutions', 
 
   for (const substitution of substitutions) {
     await expect(
-      resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
+      resolvePasskeyEd25519YaoExportContextV1(
         {
           subject: {
             kind: 'owner_sealed_runtime',
