@@ -26,6 +26,7 @@ import type { EmailOtpTransactionSigningChallenge } from './publicTypes';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 export type { EmailOtpEcdsaExportArtifact } from './exportRecovery';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
@@ -65,8 +66,7 @@ export type RequestEmailOtpChallengeArgs =
       authLane?: never;
       operationFingerprintDigest?: never;
       routeAuth?: never;
-    }
-  ;
+    };
 
 export type RequestEmailOtpExportChallengeArgs = RequestEmailOtpChallengeArgs;
 
@@ -94,6 +94,9 @@ export class EmailOtpExportRecoveryRuntime {
       getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
       requireRelayUrl: () => string;
       requireSigningSessionSealGroupId: () => string;
+      resolveSelectedWalletAuthority: (
+        walletId: string,
+      ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
       prepareEcdsaExportCapability: (
         args: PrepareEmailOtpEcdsaExportCapabilityArgs,
       ) => Promise<EmailOtpThresholdEcdsaExportPreparation>;
@@ -152,6 +155,7 @@ export class EmailOtpExportRecoveryRuntime {
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
       requireRelayUrl: this.ports.requireRelayUrl,
       requireSigningSessionSealGroupId: this.ports.requireSigningSessionSealGroupId,
+      resolveSelectedWalletAuthority: this.ports.resolveSelectedWalletAuthority,
       buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
     };
   }
@@ -161,6 +165,7 @@ export class EmailOtpExportRecoveryRuntime {
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
       requireRelayUrl: this.ports.requireRelayUrl,
       requireSigningSessionSealGroupId: this.ports.requireSigningSessionSealGroupId,
+      resolveSelectedWalletAuthority: this.ports.resolveSelectedWalletAuthority,
       buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
     };
   }

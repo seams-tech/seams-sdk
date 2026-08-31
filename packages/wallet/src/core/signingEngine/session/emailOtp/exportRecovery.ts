@@ -1,5 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
-import { IndexedDBManager } from '@/core/indexedDB';
+import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import { type VerifiedEcdsaPublicFacts } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type {
   ThresholdEcdsaChainTarget,
@@ -63,6 +63,9 @@ type EmailOtpWorkerPorts = {
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
   requireRelayUrl: () => string;
   requireSigningSessionSealGroupId: () => string;
+  resolveSelectedWalletAuthority: (
+    walletId: string,
+  ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
   buildSigningSessionRoutePlan: (args: {
     authLane: EmailOtpSigningSessionAuthLane;
     operation: EmailOtpSigningSessionChallengeOperation;
@@ -74,9 +77,10 @@ type EmailOtpChallengeAuthoritySelection =
   | { readonly kind: 'canonical' };
 
 async function resolveEmailOtpChallengeAuthoritySelection(
+  ports: Pick<EmailOtpWorkerPorts, 'resolveSelectedWalletAuthority'>,
   walletId: WalletId,
 ): Promise<EmailOtpChallengeAuthoritySelection> {
-  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+  const selected = await ports.resolveSelectedWalletAuthority(String(walletId));
   if (selected.kind === 'missing_selection') return { kind: 'canonical' };
   if (selected.kind !== 'resolved') {
     throw new Error(`Email OTP challenge authority selection is unavailable: ${selected.kind}`);
@@ -121,7 +125,10 @@ function requireProvidedEmailOtpSigningSessionAuthLane(args: {
 // the exact material activation. The record supplies transport only, so the
 // check is that the route auth was derived from this very record's material.
 async function requestEmailOtpChallengeWithRoutePlan(
-  ports: Pick<EmailOtpWorkerPorts, 'getSignerWorkerContext' | 'requireRelayUrl'>,
+  ports: Pick<
+    EmailOtpWorkerPorts,
+    'getSignerWorkerContext' | 'requireRelayUrl' | 'resolveSelectedWalletAuthority'
+  >,
   args:
     | {
         kind: 'wallet_session';
@@ -143,7 +150,7 @@ async function requestEmailOtpChallengeWithRoutePlan(
   if (!workerCtx) {
     throw new Error('Email OTP signing requires the dedicated emailOtp worker');
   }
-  const authoritySelection = await resolveEmailOtpChallengeAuthoritySelection(walletId);
+  const authoritySelection = await resolveEmailOtpChallengeAuthoritySelection(ports, walletId);
   const response = await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
