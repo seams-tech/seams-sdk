@@ -49,7 +49,7 @@ import type {
 type EmailOtpEd25519LaneAuth = Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>;
 type ExactEmailOtpWalletSessionStatus = Extract<
   ExactWalletSessionStatus,
-  { readonly status: 'active' }
+  { readonly status: 'active' | 'exhausted' }
 >;
 
 export type EmailOtpEd25519YaoRecoveredCapabilityActivationV1 =
@@ -530,6 +530,13 @@ function assertExactEmailOtpExportAuthorization(args: {
   const record = authorization.record;
   const operationCredential = authorization.operationCredential;
   const status = authorization.status;
+  const quotaIsExact =
+    (status.status === 'active' &&
+      status.quotaLifecycle === 'active' &&
+      status.remainingUses > 0) ||
+    (status.status === 'exhausted' &&
+      status.quotaLifecycle === 'exhausted' &&
+      status.remainingUses === 0);
   if (
     selectedAuthority.state !== 'active' ||
     selectedAuthority.walletId !== args.subject.signer.account.wallet.walletId ||
@@ -545,8 +552,7 @@ function assertExactEmailOtpExportAuthorization(args: {
     record.authMethodId !== selectedAuthMethod.walletAuthMethodId ||
     String(record.authorityDigestB64u) !== String(selectedAuthority.authorityDigestB64u) ||
     record.authorityRevocationEpoch !== selectedAuthority.revocationEpoch ||
-    status.quotaLifecycle !== 'active' ||
-    status.remainingUses <= 0 ||
+    !quotaIsExact ||
     status.walletSessionId !== operationCredential.walletSessionId ||
     status.quotaId !== record.quotaId ||
     !activeWalletSessionV1RecordsEqual(status.authorization, record) ||
@@ -718,6 +724,11 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
         material,
       })
     : null;
+  if (exactAuthorization.status.status === 'exhausted' && !activeCapability) {
+    throw new Error(
+      '[SigningEngine][ed25519-export] exhausted Email OTP authorization requires a warm exact capability',
+    );
+  }
   const rootResolution = input.resolveEd25519YaoClientRootEnvelope
     ? await input.resolveEd25519YaoClientRootEnvelope({
         subject: input.subject,

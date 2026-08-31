@@ -32,6 +32,10 @@ import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
+import {
+  buildEmailOtpEd25519SealedSessionRecordFixture,
+  buildEmailOtpEd25519YaoActiveClientMetadataFixture,
+} from './helpers/sealedSigningSession.fixtures';
 
 const WALLET_ID = toWalletId('email-otp-export-refresh-wallet');
 const NEAR_ACCOUNT_ID = toAccountId('email-otp-export-refresh.testnet');
@@ -151,6 +155,19 @@ async function durableAuthorization(): Promise<ExactWalletSessionAuthorizationFo
   };
 }
 
+async function exhaustedDurableAuthorization(): Promise<ExactWalletSessionAuthorizationForEd25519ExportV1> {
+  const authorization = await durableAuthorization();
+  return {
+    ...authorization,
+    status: {
+      ...authorization.status,
+      status: 'exhausted',
+      remainingUses: 0,
+      quotaLifecycle: 'exhausted',
+    },
+  };
+}
+
 function buildLaneIdentity() {
   const parsedNearAccountId = parseNamedNearAccountId(NEAR_ACCOUNT_ID);
   if (!parsedNearAccountId.ok) throw new Error(parsedNearAccountId.message);
@@ -167,6 +184,39 @@ function buildLaneIdentity() {
     auth: { kind: 'email_otp', providerSubjectId: PROVIDER_SUBJECT_ID },
     thresholdSessionId: THRESHOLD_SESSION_ID,
   });
+}
+
+function warmEd25519OperationMaterial() {
+  const record = buildEmailOtpEd25519SealedSessionRecordFixture({
+    walletId: String(WALLET_ID),
+    nearAccountId: String(NEAR_ACCOUNT_ID),
+    nearEd25519SigningKeyId: String(NEAR_SIGNING_KEY_ID),
+    thresholdSessionId: String(THRESHOLD_SESSION_ID),
+    materialActivation: MATERIAL_ACTIVATION,
+  });
+  const metadata = buildEmailOtpEd25519YaoActiveClientMetadataFixture(record);
+  return {
+    activeClient: {
+      createSigningShare: async () => {
+        throw new Error('warm export fixture does not sign');
+      },
+      metadata: () => metadata,
+      status: () => ({ kind: 'active' as const }),
+      dispose: () => {},
+    },
+    facts: {
+      thresholdSessionId: THRESHOLD_SESSION_ID,
+      signer: buildLaneIdentity().signer,
+      signingRootId: 'project-email-otp-export-refresh:test',
+      signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1' as const,
+        signingWorkerId: metadata.scope.signing_worker_id,
+      },
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+      relayerUrl: 'https://relay.example.test',
+    },
+  };
 }
 
 class EmailOtpEd25519ExportRefreshHarness {
@@ -419,4 +469,24 @@ test('page-refresh Email OTP Ed25519 export resolves durable context without pas
   expect(harness.exportCalls).toBe(1);
   expect(harness.viewerLoadingBeforeExport).toBe(true);
   expect(harness.exportedCapability).toEqual(CAPABILITY);
+});
+
+test('warm Email OTP Ed25519 export accepts the exact exhausted session identity', async () => {
+  const authorization = await exhaustedDurableAuthorization();
+  const result = await resolveWalletCustodyEd25519ExportContextV1({
+    subject: buildLaneIdentity(),
+    expectedMaterialActivation: MATERIAL_ACTIVATION,
+    readExactWalletSessionAuthorization: async () => ({
+      kind: 'found',
+      authorization,
+    }),
+    resolveActiveCapability: () => warmEd25519OperationMaterial(),
+    loadWalletCustodyMaterial: async () => ({ kind: 'absent' }),
+    relayerUrl: 'https://relay.example.test',
+    fetch: async () => new Response(null, { status: 500 }),
+    activateRecoveredCapability: async () => {},
+  });
+
+  expect(result.authorization.status.status).toBe('exhausted');
+  expect(result.material.kind).toBe('active_capability');
 });

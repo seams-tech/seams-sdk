@@ -916,14 +916,12 @@ async function resolveExactEmailOtpEd25519ActivationAuthorization(args: {
 function unavailableEmailOtpExportAuthorizationFromStatus(
   status: Exclude<
     Awaited<ReturnType<ReturnType<typeof createRelayerExactWalletSessionStatusPort>['read']>>,
-    { readonly status: 'active' }
+    { readonly status: 'active' | 'exhausted' }
   >,
 ): EmailOtpEd25519ExportAuthorizationReadResultV1 {
   switch (status.status) {
     case 'missing':
       return { kind: 'missing' };
-    case 'exhausted':
-      return { kind: 'exhausted' };
     case 'expired':
       return { kind: 'expired' };
     case 'superseded':
@@ -1012,7 +1010,7 @@ async function readExactEmailOtpEd25519ExportAuthorization(args: {
   } catch {
     return { kind: 'persistence_unavailable' };
   }
-  if (status.status !== 'active') {
+  if (status.status !== 'active' && status.status !== 'exhausted') {
     return unavailableEmailOtpExportAuthorizationFromStatus(status);
   }
   return {
