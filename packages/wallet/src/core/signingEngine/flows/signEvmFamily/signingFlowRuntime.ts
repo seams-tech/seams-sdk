@@ -16,14 +16,20 @@ import {
 } from './readySecp256k1Material';
 import { resolveExactEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
-import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  walletAuthAuthorityRef,
+  type WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetsEqual,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
 import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
@@ -45,10 +51,7 @@ import type {
   ExactEvmFamilyWalletSessionAuthorization,
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../../session/material/ecdsaSigningCapability';
-import {
-  authorizeEvmFamilyEcdsaSigningCapability,
-  exactEcdsaWalletSessionRuntimesMatch,
-} from '../../session/material/ecdsaSigningCapability';
+import { exactEcdsaWalletSessionRuntimesMatch } from '../../session/material/ecdsaSigningCapability';
 import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
 import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
 import {
@@ -57,6 +60,11 @@ import {
   type ActiveWalletAuthorityEcdsaRuntimeV1,
 } from '../../session/material/activeWalletAuthorityEcdsaRuntime';
 import type { TransactionSigningIntent } from '../../session/operationState/transactionState';
+import type { ExactWalletSessionReadPorts } from '../../session/identity/exactWalletSessionCredential';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '@shared/device-linking/contracts';
 
 export type ActiveWalletAuthorityEvmFamilyFlowRuntime = {
   readonly runtime: ActiveWalletAuthorityEcdsaRuntimeV1;
@@ -90,6 +98,111 @@ function signerAuthMethodForWalletAuthority(authority: WalletAuthAuthority): Sig
       authority.factor satisfies never;
       throw new Error('[SigningEngine] unsupported wallet authorization factor');
   }
+}
+
+function capabilityMatchesOperationScope(args: {
+  readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
+  readonly scope: {
+    readonly walletId: WalletId;
+    readonly chainTarget: ThresholdEcdsaChainTarget;
+    readonly materialActivation: EvmFamilyEcdsaMaterialActivation;
+  };
+}): boolean {
+  const manifest = args.capability.manifest;
+  return (
+    manifest.signer.walletId === args.scope.walletId &&
+    mpcMaterialActivationRefsEqual(
+      manifest.activation.materialActivation,
+      args.scope.materialActivation,
+    ) &&
+    manifest.signer.scope.targetMemberships.some((target) =>
+      thresholdEcdsaChainTargetsEqual(target, args.scope.chainTarget),
+    )
+  );
+}
+
+function sessionAuthorizesCanonicalEcdsaCapability(args: {
+  readonly session: ActiveWalletSessionV1;
+  readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
+}): boolean {
+  const materialActivation = args.capability.manifest.activation.materialActivation;
+  const matches = args.session.capabilitySubjects.filter(
+    (subject) =>
+      subject.kind === 'sign' &&
+      subject.keyFamily === 'ecdsa_secp256k1' &&
+      mpcMaterialActivationRefsEqual(subject.materialActivation, materialActivation),
+  );
+  return matches.length === 1;
+}
+
+export async function resolveExactEcdsaOperationStepUpCredential(args: {
+  readonly ports: ExactWalletSessionReadPorts;
+  readonly scope: {
+    readonly walletId: WalletId;
+    readonly chainTarget: ThresholdEcdsaChainTarget;
+    readonly materialActivation: EvmFamilyEcdsaMaterialActivation;
+  };
+  readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
+}): Promise<WalletSessionOperationCredentialV1> {
+  if (!capabilityMatchesOperationScope(args)) {
+    throw new Error('[SigningEngine] exact ECDSA Wallet Session material changed');
+  }
+  const ports = args.ports;
+  const selected = await ports.resolveSelectedWalletAuthority(String(args.scope.walletId));
+  if (
+    selected.kind !== 'resolved' ||
+    selected.selection.lockState !== 'unlocked' ||
+    selected.selection.walletId !== args.scope.walletId ||
+    selected.authMethod.status !== 'active' ||
+    selected.authMethod.walletId !== args.scope.walletId ||
+    selected.selection.walletAuthMethodId !== selected.authMethod.walletAuthMethodId ||
+    selected.authority.state !== 'active' ||
+    selected.authority.walletId !== args.scope.walletId ||
+    selected.authMethod.walletAuthorityId !== selected.authority.authorityId
+  ) {
+    throw new Error('[SigningEngine] exact ECDSA Wallet Session is unavailable');
+  }
+  const capabilityAuthority = await walletAuthAuthorityRef({
+    authority: args.capability.authority,
+  });
+  const manifestAuthority = args.capability.manifest.signer.authority;
+  const selectedActivation = selected.authority.signerActivations.ecdsa;
+  if (
+    capabilityAuthority.walletId !== manifestAuthority.walletId ||
+    capabilityAuthority.walletAuthMethodId !== manifestAuthority.walletAuthMethodId ||
+    capabilityAuthority.authorityDigest !== manifestAuthority.authorityDigest ||
+    manifestAuthority.walletId !== selected.authority.walletId ||
+    manifestAuthority.walletAuthMethodId !== selected.authMethod.walletAuthMethodId ||
+    !selectedActivation ||
+    !mpcMaterialActivationRefsEqual(
+      selectedActivation.materialActivation,
+      args.scope.materialActivation,
+    )
+  ) {
+    throw new Error('[SigningEngine] exact ECDSA Wallet Session material changed');
+  }
+  const read = await ports.readExactWithOperationCredential({
+    walletId: args.scope.walletId,
+    authorityId: selected.authority.authorityId,
+    authMethodId: selected.authMethod.walletAuthMethodId,
+  });
+  if (read.kind !== 'found') {
+    throw new Error('[SigningEngine] exact ECDSA Wallet Session is unavailable');
+  }
+  const session = read.record;
+  if (
+    session.walletId !== args.scope.walletId ||
+    session.authorityId !== selected.authority.authorityId ||
+    session.authMethodId !== selected.authMethod.walletAuthMethodId ||
+    session.authorityDigestB64u !== selected.authority.authorityDigestB64u ||
+    session.authorityRevocationEpoch !== selected.authority.revocationEpoch ||
+    session.expiresAtMs <= Date.now() ||
+    !read.operationCredential.token.trim() ||
+    !sessionAuthorizesCanonicalEcdsaCapability({ session, capability: args.capability })
+  ) {
+    throw new Error('[SigningEngine] exact ECDSA Wallet Session is unavailable');
+  }
+  return read.operationCredential;
 }
 
 async function runSerializedEcdsaMaterialUse<T>(
@@ -415,26 +528,10 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               args.onAuthSideEffectStarted?.(
                 authorization.kind === 'passkey' ? 'passkey_reauth' : 'email_otp_challenge',
               );
-              const nowMs = Date.now();
-              const currentAuthorization =
-                await args.deps.resolveActiveEcdsaWalletSessionAuthorization(
-                  exactOperationCredentialScope,
-                );
-              if (!currentAuthorization) {
-                throw new Error('[SigningEngine] exact ECDSA Wallet Session is unavailable');
-              }
-              if (
-                !mpcMaterialActivationRefsEqual(
-                  currentAuthorization.runtime.materialActivation,
-                  exactOperationCredentialScope.materialActivation,
-                )
-              ) {
-                throw new Error('[SigningEngine] exact ECDSA Wallet Session material changed');
-              }
-              const authorized = authorizeEvmFamilyEcdsaSigningCapability({
+              const operationCredential = await resolveExactEcdsaOperationStepUpCredential({
+                ports: args.deps.activeWalletAuthorityEcdsaRuntimeReadPorts,
+                scope: exactOperationCredentialScope,
                 capability,
-                authorization: currentAuthorization,
-                nowMs,
               });
               return await authorizeEvmFamilyEcdsaOperationStepUp({
                 relayerUrl,
@@ -442,7 +539,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
                 authorization,
                 prepared,
                 material,
-                walletSessionToken: authorized.authorization.operationCredential.token,
+                walletSessionToken: operationCredential.token,
               });
             },
           },
