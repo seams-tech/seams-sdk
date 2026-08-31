@@ -773,6 +773,8 @@ test.describe('device-linking key worker', () => {
       enrollmentId: linkedDeviceEnrollmentId,
       deviceId,
       targetPreparationDigestB64u,
+      targetEmail: 'linked-device-worker@example.com',
+      enrollment: { kind: 'existing_enrollment' as const },
       baseWalletAuthMethodId,
       emailHashHex: 'ab'.repeat(32),
       registrationAuthorityId: 'registration-authority-email-otp-worker',
