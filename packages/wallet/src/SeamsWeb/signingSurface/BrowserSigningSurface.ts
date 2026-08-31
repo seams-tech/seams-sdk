@@ -453,7 +453,11 @@ import type {
   RouterAbEd25519YaoCeremonyBindingV1,
   RouterAbEd25519YaoActivationKeysetV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import { readPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
+import {
+  configurePasskeyCustodySessionCachePersistence,
+  readPasskeyCustodySessionEnvelope,
+  type PasskeyCustodySessionCachePersistencePort,
+} from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCustody/joinCustodyWire';
 import {
@@ -2435,6 +2439,26 @@ function assertNeverSdkLifecycleEventName(value: never): never {
   throw new Error(`Unsupported SDK lifecycle event: ${String(value)}`);
 }
 
+async function readBrowserPasskeyCustodySessionCache(
+  key: string,
+): Promise<unknown | undefined> {
+  if (IndexedDBManager.isDisabled()) return undefined;
+  return await IndexedDBManager.getAppState<unknown>(key);
+}
+
+async function writeBrowserPasskeyCustodySessionCache(
+  key: string,
+  value: unknown,
+): Promise<void> {
+  if (IndexedDBManager.isDisabled()) return;
+  await IndexedDBManager.setAppState(key, value);
+}
+
+const browserPasskeyCustodySessionCachePersistence: PasskeyCustodySessionCachePersistencePort = {
+  readCacheEntry: readBrowserPasskeyCustodySessionCache,
+  writeCacheEntry: writeBrowserPasskeyCustodySessionCache,
+};
+
 export class BrowserSigningSurface {
   // Kept as fields for low-level tests that intentionally access internals.
   private readonly touchConfirm: UiConfirmRuntimeBridgePort;
@@ -2507,6 +2531,9 @@ export class BrowserSigningSurface {
     nearClient: NearClient,
     deps: BrowserSigningSurfaceConstructorDeps,
   ) {
+    configurePasskeyCustodySessionCachePersistence(
+      browserPasskeyCustodySessionCachePersistence,
+    );
     this.seamsWebConfigs = seamsWebConfigs;
     this.ed25519YaoPublicCapabilityReferences = deps.ed25519YaoPublicCapabilityReferences;
     this.appearance = seamsWebConfigs.ui.appearance;
