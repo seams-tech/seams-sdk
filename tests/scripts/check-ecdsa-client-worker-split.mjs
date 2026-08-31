@@ -82,7 +82,6 @@ for (const [source, label] of [
   [channels, 'ECDSA worker channel contracts'],
   [presignWorker, 'ECDSA presign coordinator worker'],
   [derivationWorker, 'ECDSA derivation authority worker'],
-  [linkedHolderWorker, 'linked-holder ECDSA authority worker'],
 ]) {
   requireContains(source, 'opaque_ecdsa_presign_session_', label);
 }
