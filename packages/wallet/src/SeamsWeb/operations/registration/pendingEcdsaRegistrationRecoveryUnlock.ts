@@ -32,7 +32,7 @@ import {
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
 import type {
   CommittedEcdsaRegistrationResponse,
-  PendingEcdsaOnlyRegistrationCommit,
+  PendingEcdsaRegistrationCommit,
   PendingEcdsaRegistrationUnlockInput,
   PendingEcdsaRegistrationUnlockMaterial,
   PendingRegistrationExactMethod,
@@ -124,7 +124,7 @@ function exactPasskeyAllowCredential(
   };
 }
 function assertIssuedEcdsaSessionMatchesRegistration(args: {
-  readonly pending: PendingEcdsaOnlyRegistrationCommit;
+  readonly pending: PendingEcdsaRegistrationCommit;
   readonly response: CommittedEcdsaRegistrationResponse;
   readonly session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
   readonly walletKey: WalletRegistrationEcdsaWalletKey;
@@ -148,7 +148,7 @@ function assertIssuedEcdsaSessionMatchesRegistration(args: {
   }
 }
 function assertCustodyContinuityMatchesRegistration(args: {
-  readonly pending: PendingEcdsaOnlyRegistrationCommit;
+  readonly pending: PendingEcdsaRegistrationCommit;
   readonly response: CommittedEcdsaRegistrationResponse;
   readonly walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
   readonly signers: readonly PasskeySessionEcdsaCustodySignerV1[];
@@ -185,7 +185,7 @@ function zeroizeArrayBuffer(buffer: ArrayBuffer): void {
 }
 async function unlockWithPasskey(args: {
   readonly relayerUrl: string;
-  readonly pending: PendingEcdsaOnlyRegistrationCommit;
+  readonly pending: PendingEcdsaRegistrationCommit;
   readonly response: CommittedEcdsaRegistrationResponse;
   readonly walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
   readonly exactMethod: Extract<PendingRegistrationExactMethod, { readonly kind: 'passkey' }>;
@@ -279,7 +279,7 @@ async function unlockWithPasskey(args: {
 }
 async function unlockWithEmailOtp(args: {
   readonly relayerUrl: string;
-  readonly pending: PendingEcdsaOnlyRegistrationCommit;
+  readonly pending: PendingEcdsaRegistrationCommit;
   readonly response: CommittedEcdsaRegistrationResponse;
   readonly walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
   readonly exactMethod: Extract<PendingRegistrationExactMethod, { readonly kind: 'email_otp' }>;
