@@ -1843,7 +1843,9 @@ iframe-to-host boundary.
 - [ ] `tests/e2e/intended-behaviours/google-email-otp.recovery.contract.test.ts`
 - [x] `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`
-- [ ] `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts`
+- [x] `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts` passed
+      after revoked V1 authenticators were filtered through the exact active V2
+      Passkey method inventory (`0fa6ab231`).
 - [ ] `tests/e2e/linked-device.operating-path.test.ts` for all four genuine
       source/target factor combinations, including the remaining immediate
       post-link factor combinations from I6.
