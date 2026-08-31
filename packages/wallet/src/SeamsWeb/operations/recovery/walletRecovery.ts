@@ -519,6 +519,7 @@ export class WalletRecoveryCoordinator {
   constructor(private readonly rpc: WalletRecoveryCoordinatorRpc | null = null) {}
 
   readonly #operations = new Map<string, RecoveryOperation>();
+  readonly #finalizations = new Map<string, Promise<WalletRecoveryFinalizeCoordinatorResult>>();
   readonly #credentialPrompts = new Map<string, AbortController>();
   readonly #pendingPrepareReservations = new Map<
     string,
@@ -851,6 +852,26 @@ export class WalletRecoveryCoordinator {
   }
 
   async finalize(input: {
+    readonly context: WalletRecoveryWebContext;
+    readonly operation:
+      | WalletRecoveryCredentialCreatedHandle
+      | WalletRecoveryEmailOtpVerifiedHandle;
+  }): Promise<WalletRecoveryFinalizeCoordinatorResult> {
+    /* Finalization is single-flight per operation: a repeated confirm
+       submission joins the in-flight attempt instead of racing a duplicate
+       finalize request that could commit server-side while the visible
+       attempt reports response loss. */
+    const finalizationKey = String(input.operation.recoveryOperationId);
+    const inFlight = this.#finalizations.get(finalizationKey);
+    if (inFlight) return inFlight;
+    const attempt = this.#finalizeOnce(input).finally(() => {
+      this.#finalizations.delete(finalizationKey);
+    });
+    this.#finalizations.set(finalizationKey, attempt);
+    return attempt;
+  }
+
+  async #finalizeOnce(input: {
     readonly context: WalletRecoveryWebContext;
     readonly operation:
       | WalletRecoveryCredentialCreatedHandle
