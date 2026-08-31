@@ -693,7 +693,7 @@ Primary files:
 - [x] Complete ECDSA-only registration recovery orchestration: unlock the exact
       method, validate the retained finalization facts against the committed
       projection, and publish through the existing atomic local transaction.
-- [ ] Complete mixed registration recovery orchestration: publish the recovered
+- [x] Complete mixed registration recovery orchestration: publish the recovered
       ECDSA continuity and exact session while retaining the deferred-NEAR leg,
       then replay NEAR provisioning and remove the pending state only after
       terminal publication.
