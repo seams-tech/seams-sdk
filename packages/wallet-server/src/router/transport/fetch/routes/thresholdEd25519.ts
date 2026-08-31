@@ -148,18 +148,37 @@ async function resolveActiveEd25519OperationStepUpAuthority(
   }
 }
 
-type AcceptedEd25519WalletSessionAuthorization = Extract<
-  Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
-  {
-    readonly ok: true;
-    readonly kind: 'wallet_session_operation_credential_v1';
-  }
+type AcceptedEd25519WalletSessionAuthorization =
+  | Extract<
+      Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
+      {
+        readonly ok: true;
+        readonly kind: 'wallet_session_operation_credential_v1';
+      }
+    >
+  | Extract<
+      Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
+      {
+        readonly ok: true;
+        readonly kind: 'wallet_session_operation_credential_exhausted_candidate_v1';
+      }
+    >;
+
+type AcceptedEd25519ActiveWalletSessionAuthorization = Extract<
+  AcceptedEd25519WalletSessionAuthorization,
+  { readonly kind: 'wallet_session_operation_credential_v1' }
 >;
+
+function ed25519ReusableWalletSession(authorization: AcceptedEd25519WalletSessionAuthorization) {
+  return authorization.kind === 'wallet_session_operation_credential_v1'
+    ? authorization.validated.admission.context.authorization.session
+    : authorization.candidate.status.session;
+}
 
 function ed25519ReusableWalletSessionIdentity(
   authorization: AcceptedEd25519WalletSessionAuthorization,
 ) {
-  const session = authorization.validated.admission.context.authorization.session;
+  const session = ed25519ReusableWalletSession(authorization);
   return {
     tenantId: session.tenantId,
     principalId: session.principalId,
@@ -172,7 +191,7 @@ function ed25519ReusableWalletSessionIdentity(
 function buildEd25519GatewayOwnerWalletSessionBinding(
   authorization: AcceptedEd25519WalletSessionAuthorization,
 ) {
-  const session = authorization.validated.admission.context.authorization.session;
+  const session = ed25519ReusableWalletSession(authorization);
   const runtimePolicyScope = authorization.activeMaterial.runtimePolicyScope;
   return {
     kind: 'gateway_owner_wallet_session' as const,
@@ -549,7 +568,7 @@ function digestWireB64u(value: unknown, label: string): string {
 async function authorizeEd25519ReusableWalletSessionOperation(input: {
   ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
-  authorization: AcceptedEd25519WalletSessionAuthorization;
+  authorization: AcceptedEd25519ActiveWalletSessionAuthorization;
 }): Promise<
   | {
       readonly ok: true;
@@ -1603,7 +1622,10 @@ async function proxyEd25519OwnerLaneExecution(input: {
   readonly authorization: AcceptedEd25519NormalSigningAuthorization;
   readonly authorizedOperation: AuthorizedOperation;
 }): Promise<Response> {
-  if (input.authorization.kind === 'wallet_session_operation_credential_v1') {
+  if (
+    input.authorization.kind === 'wallet_session_operation_credential_v1' ||
+    input.authorization.kind === 'wallet_session_operation_credential_exhausted_candidate_v1'
+  ) {
     return await proxyNormalSigningRequestToMpcRouter({
       request: input.ctx.request,
       proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
@@ -1778,6 +1800,16 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
     return requireCompletedEd25519OperationResponse(completed);
   }
   if (input.phase === 'prepare') {
+    if (authorization.kind !== 'wallet_session_operation_credential_v1') {
+      return json(
+        {
+          ok: false,
+          code: 'wallet_session_scope_mismatch',
+          message: 'An exhausted Wallet Session cannot prepare a new Ed25519 operation',
+        },
+        { status: 403 },
+      );
+    }
     const authorized = await authorizeEd25519ReusableWalletSessionOperation({
       ctx: input.ctx,
       body: input.body,

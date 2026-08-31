@@ -1771,6 +1771,91 @@ test('strict Ed25519 V2 finalize admits the exact receipt operation and rejects 
   expect(admissionAdapter.calls).toBe(1);
 });
 
+test('Ed25519 finalize admits the exact authorized operation after Wallet Session exhaustion', async () => {
+  const authority = await buildAuthority('ed25519', 'near-exhausted-finalize');
+  const authMethod = buildAuthMethod(authority, 'near-exhausted-finalize', 'active');
+  const session = buildSession({
+    authority,
+    authMethodId: authMethod.walletAuthMethodId,
+    label: 'near-exhausted-finalize',
+    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
+    authorityDigestB64u: authority.authorityDigestB64u,
+    authorityRevocationEpoch: authority.revocationEpoch,
+    expiresAtMs: Date.now() + 60_000,
+  });
+  const candidate: RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext = {
+    status: {
+      kind: 'exhausted',
+      session,
+      quota: buildExactWalletSessionQuotaProjectionV1({
+        lifecycle: 'exhausted',
+        tenantId: session.tenantId,
+        principalId: session.principalId,
+        walletSessionId: session.walletSessionId,
+        quotaId: session.quotaId,
+        remainingUses: 0,
+        expiresAtMs: session.expiresAtMs,
+      }),
+    },
+    authority,
+    authMethod,
+    retiredAtMs: null,
+  };
+  const materialActivation = routerAbMpcMaterialActivationRefToWire(
+    authority.signerActivations.ed25519.materialActivation,
+  );
+  const authorizedOperation = await buildEd25519AuthorizedOperationFixture({
+    session,
+    materialActivation,
+  });
+  const authorizedOperations = new WalletAuthorizedOperationFixture(authorizedOperation);
+  const authorizationSessions = new WalletSessionAuthorizationV2Fixture(
+    buildAdmissionContext({ authority, authMethod, session }),
+    'exhausted-near-finalize-token',
+    candidate,
+    true,
+  );
+  const materialResolver = new Ed25519MaterialActivationFixture(
+    materialActivation,
+    buildEd25519ExportIdentityFixture(materialActivation, authority.walletId),
+  );
+  const admissionAdapter = new AllowingNormalSigningAdmission();
+  const body = ed25519V2FinalizeBodyFixture({
+    session,
+    materialActivation,
+    receipt: authorizedOperationReceiptFixture(authorizedOperation),
+    expiresAtMs: Date.now() + 30_000,
+  });
+
+  const admitted = await authorizeRouterAbEd25519NormalSigningRoute({
+    body,
+    rawBody: body,
+    headers: { authorization: 'Bearer exhausted-near-finalize-token' },
+    session: null,
+    authorizedOperations,
+    authorizationSessions,
+    admissionAdapter,
+    resolveEd25519MaterialActivation:
+      materialResolver.resolveEd25519MaterialActivation.bind(materialResolver),
+    phase: 'finalize',
+  });
+
+  expect(admitted).toMatchObject({
+    ok: true,
+    kind: 'wallet_session_operation_credential_exhausted_candidate_v1',
+  });
+  if (
+    !admitted.ok ||
+    admitted.kind !== 'wallet_session_operation_credential_exhausted_candidate_v1'
+  ) {
+    throw new Error('exhausted Ed25519 finalize candidate was not admitted');
+  }
+  expect(admitted.candidate.status.session.walletSessionId).toBe(session.walletSessionId);
+  expect(admitted.candidate.status.session.authorizationId).toBe(session.authorizationId);
+  expect(admitted.admission.requestId).toBe(body.scope.request_id);
+  expect(admissionAdapter.calls).toBe(1);
+});
+
 test('Ed25519 operation step-up admits a matching exhausted Wallet Session candidate', async () => {
   const authority = await buildAuthority('ed25519', 'near-exhausted-step-up');
   const authMethod = buildAuthMethod(authority, 'near-exhausted-step-up', 'active');
