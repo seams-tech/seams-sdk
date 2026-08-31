@@ -26,10 +26,7 @@ import {
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { computeThresholdEd25519DelegateSigningDigestWasm } from '../../chains/near/nearSignerWasm';
 import { resolveNearSigningMaterials } from './shared/signingMaterials';
-import {
-  resolveActiveAuthorizedRouterAbEd25519WalletSessionState,
-  type AuthorizedRouterAbEd25519WalletSessionState,
-} from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
+import type { AuthorizedRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { buildNearDelegateSigningPayloads } from '../../chains/near/payloads';
 import {
   buildNearSigningSessionAuthPlan,
@@ -614,10 +611,12 @@ export async function runNearDelegateActionSigning({
             thresholdSessionId: canonicalThresholdSessionId,
             activeClient: resolvedMaterial.resolved.material.activeClient,
             walletSessionState: requireAuthorizedNearDelegateWalletSessionState(
-              await resolveActiveAuthorizedRouterAbEd25519WalletSessionState({
-                state: resolvedMaterial.resolved.walletSessionState,
-                nowMs: Date.now(),
-              }),
+              await signingSessionCoordinator.resolveActiveAuthorizedRouterAbEd25519WalletSessionState(
+                {
+                  state: resolvedMaterial.resolved.walletSessionState,
+                  nowMs: Date.now(),
+                },
+              ),
             ),
             walletId: commandSubject.walletSession.walletId,
             thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,

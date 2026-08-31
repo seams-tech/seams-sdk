@@ -6,13 +6,15 @@ import type {
   NearResolvedEd25519SigningSessionState,
 } from '@/core/signingEngine/interfaces/near';
 import {
-  walletSessionAuthorizations,
   type ActiveWalletSessionV1,
   type WalletSessionOperationCredentialV1,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { IndexedDBManager } from '@/core/indexedDB';
 import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
-import { resolveWalletAuthorityOperation } from '@/core/signingEngine/session/public.ts';
+import {
+  requiredSigningSubjectForExactSigningLane,
+  resolveExactWalletSessionOperationCredential,
+  type ExactWalletSessionReadPorts,
+} from '@/core/signingEngine/session/identity/exactWalletSessionCredential';
 import {
   buildRouterAbEd25519SigningWalletSession,
   type RouterAbEd25519SigningWalletSession,
@@ -381,97 +383,33 @@ function assertNeverSigningLaneAuth(value: never): never {
 export async function resolveActiveAuthorizedRouterAbEd25519WalletSessionState(args: {
   state: ResolvedRouterAbEd25519WalletSessionState;
   nowMs: number;
+  ports: ExactWalletSessionReadPorts;
 }): Promise<AuthorizedRouterAbEd25519WalletSessionState | null> {
-  return resolveActiveAuthorizedRouterAbEd25519WalletSessionStateWithResolver(args, {
-    resolveSelectedWalletAuthority:
-      IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
-    readExactWithOperationCredential:
-      walletSessionAuthorizations.readExactWithOperationCredential.bind(
-        walletSessionAuthorizations,
-      ),
-  });
-}
-
-export type RouterAbEd25519WalletSessionAuthorizationResolver = {
-  readonly resolveSelectedWalletAuthority: typeof IndexedDBManager.resolveSelectedWalletAuthority;
-  readonly readExactWithOperationCredential: typeof walletSessionAuthorizations.readExactWithOperationCredential;
-};
-
-export async function resolveActiveAuthorizedRouterAbEd25519WalletSessionStateWithResolver(
-  args: {
-    state: ResolvedRouterAbEd25519WalletSessionState;
-    nowMs: number;
-  },
-  resolver: RouterAbEd25519WalletSessionAuthorizationResolver,
-): Promise<AuthorizedRouterAbEd25519WalletSessionState | null> {
   const walletId = args.state.signingLane.identity.signer.account.wallet.walletId;
-  let selected: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
-  try {
-    selected = await resolver.resolveSelectedWalletAuthority(String(walletId));
-  } catch {
-    return null;
-  }
-  if (selected.kind !== 'resolved') return null;
-  const { selection, authMethod, authority } = selected;
-  if (
-    selection.lockState !== 'unlocked' ||
-    selection.walletId !== walletId ||
-    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
-    authMethod.status !== 'active' ||
-    authMethod.walletId !== walletId ||
-    authMethod.walletAuthorityId !== authority.authorityId ||
-    authMethod.walletAuthMethodId !== args.state.authority.walletAuthMethodId ||
-    authMethod.kind !== signingLaneAuthMethod(args.state.signingLane.auth) ||
-    authority.state !== 'active' ||
-    authority.walletId !== walletId
-  ) {
-    return null;
-  }
-  let operation: Awaited<ReturnType<typeof resolveWalletAuthorityOperation>>;
-  try {
-    operation = await resolveWalletAuthorityOperation({
-      selected: { authMethod, authority },
-      operation: { kind: 'near_sign', operation: 'sign', keyFamily: 'ed25519' },
-    });
-  } catch {
-    return null;
-  }
-  if (
-    operation.kind !== 'resolved' ||
-    operation.value.walletId !== walletId ||
-    operation.value.authorityId !== authority.authorityId ||
-    operation.value.authMethodId !== authMethod.walletAuthMethodId
-  ) {
-    return null;
-  }
-  let authorizationRead: Awaited<
-    ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
-  >;
-  try {
-    authorizationRead = await resolver.readExactWithOperationCredential({
+  const credential = await resolveExactWalletSessionOperationCredential({
+    ports: args.ports,
+    input: {
       walletId,
-      authorityId: authority.authorityId,
-      authMethodId: authMethod.walletAuthMethodId,
-    });
-  } catch {
-    return null;
-  }
-  if (authorizationRead.kind !== 'found') return null;
+      authMethod: signingLaneAuthMethod(args.state.signingLane.auth),
+      walletSessionId: args.state.walletSessionId,
+      quotaId: args.state.quotaId,
+      requiredSigningSubject: requiredSigningSubjectForExactSigningLane(
+        args.state.signingLane.identity,
+      ),
+      expiry: { kind: 'unexpired', nowMs: args.nowMs },
+    },
+  });
   if (
-    authorizationRead.record.walletId !== walletId ||
-    authorizationRead.record.authorityId !== authority.authorityId ||
-    authorizationRead.record.authMethodId !== authMethod.walletAuthMethodId ||
-    authorizationRead.record.authorityDigestB64u !== authority.authorityDigestB64u ||
-    authorizationRead.record.authorityRevocationEpoch !== authority.revocationEpoch ||
-    authorizationRead.record.expiresAtMs <= args.nowMs
+    credential.kind !== 'resolved' ||
+    credential.resolved.authMethod.walletAuthMethodId !== args.state.authority.walletAuthMethodId
   ) {
     return null;
   }
   return authorizeRouterAbEd25519WalletSessionState({
     state: args.state,
-    authorization: authorizationRead.record,
-    operationCredential: authorizationRead.operationCredential,
-    materialActivation: operation.value.materialActivation,
+    authorization: credential.resolved.session,
+    operationCredential: credential.resolved.operationCredential,
+    materialActivation: credential.resolved.materialActivation,
     nowMs: args.nowMs,
   });
 }

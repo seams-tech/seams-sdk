@@ -36,7 +36,6 @@ import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAc
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { resolveNearSigningMaterials } from './shared/signingMaterials';
 import {
-  resolveActiveAuthorizedRouterAbEd25519WalletSessionState,
   type AuthorizedRouterAbEd25519WalletSessionState,
   type ResolvedRouterAbEd25519WalletSessionState,
 } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
@@ -258,16 +257,18 @@ export function emitNearSigningConfirmationProgress(
   emitNearSigningEvent(args.onEvent, args.nearAccountId, { ...event, authMethod });
 }
 
-async function requireActiveAuthorizedWalletSessionState(
-  state: ResolvedRouterAbEd25519WalletSessionState | null,
-) {
-  if (!state) {
+async function requireActiveAuthorizedWalletSessionState(args: {
+  state: ResolvedRouterAbEd25519WalletSessionState | null;
+  coordinator: SigningSessionCoordinator;
+}): Promise<AuthorizedRouterAbEd25519WalletSessionState> {
+  if (!args.state) {
     throw new Error('[SigningEngine][near] reusable Wallet Session state is unavailable');
   }
-  const authorized = await resolveActiveAuthorizedRouterAbEd25519WalletSessionState({
-    state,
-    nowMs: Date.now(),
-  });
+  const authorized =
+    await args.coordinator.resolveActiveAuthorizedRouterAbEd25519WalletSessionState({
+      state: args.state,
+      nowMs: Date.now(),
+    });
   if (!authorized) {
     throw new Error('[SigningEngine][near] reusable Wallet Session authorization is unavailable');
   }
@@ -1108,7 +1109,10 @@ async function runAuthorizedNearTransactionWithActionsSigning({
             ctx,
             thresholdSessionId: canonicalThresholdSessionId,
             activeClient: yaoClient,
-            walletSessionState: await requireActiveAuthorizedWalletSessionState(walletSessionState),
+            walletSessionState: await requireActiveAuthorizedWalletSessionState({
+              state: walletSessionState,
+              coordinator: sessionCoordinator,
+            }),
             thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
             walletId: commandSubject.walletSession.walletId,
             nearAccountId,

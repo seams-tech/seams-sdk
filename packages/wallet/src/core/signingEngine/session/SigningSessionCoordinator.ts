@@ -69,6 +69,11 @@ import {
   resolveExactWalletSessionOperationCredential,
   type ExactWalletSessionReadPorts,
 } from './identity/exactWalletSessionCredential';
+import {
+  resolveActiveAuthorizedRouterAbEd25519WalletSessionState,
+  type AuthorizedRouterAbEd25519WalletSessionState,
+  type ResolvedRouterAbEd25519WalletSessionState,
+} from './warmCapabilities/routerAbEd25519WalletSessionState';
 
 export type { SigningSessionReadiness };
 
@@ -235,6 +240,17 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     });
     this.operationIdBindings = new SigningOperationIdBindingRegistry();
     this.walletSessionStatusReader = deps.getStatus;
+  }
+
+  async resolveActiveAuthorizedRouterAbEd25519WalletSessionState(args: {
+    readonly state: ResolvedRouterAbEd25519WalletSessionState;
+    readonly nowMs: number;
+  }): Promise<AuthorizedRouterAbEd25519WalletSessionState | null> {
+    return await resolveActiveAuthorizedRouterAbEd25519WalletSessionState({
+      state: args.state,
+      nowMs: args.nowMs,
+      ports: this.exactWalletSessionReadPorts,
+    });
   }
 
   subscribeLifecycle(listener: SdkLifecycleEventListener): SigningSessionLifecycleSubscription {
