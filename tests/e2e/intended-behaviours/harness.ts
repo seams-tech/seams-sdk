@@ -6,6 +6,7 @@ import {
   type CDPSession,
   type Frame,
   type FrameLocator,
+  type Locator,
   type Page,
   type Request,
   type Response,
@@ -651,6 +652,12 @@ type WalletIframeAutoConfirmTimingKey =
   | 'firstClickDispatchMs'
   | 'firstClickDurationMs'
   | 'totalMs';
+
+type WalletIframeConfirmationFingerprint = {
+  readonly intendedAction: string;
+  readonly controlIdentity: string;
+  readonly stateIdentity: string | null;
+};
 
 type NearSignedTransactionParts = {
   unsignedTransactionBytes: Uint8Array;
@@ -5919,7 +5926,7 @@ async function fillWalletIframeEmailOtpIfAvailable(
   recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstOtpInputVisibleMs');
   let otpIdentity: { challengeId: string; walletId: string | null } | null = null;
   try {
-    otpIdentity = await input.evaluate(readWalletIframeEmailOtpIdentity);
+    otpIdentity = (await input.evaluate(readWalletIframeConfirmationState)).otpIdentity;
   } catch (error) {
     if (opts?.diagnostics) {
       opts.diagnostics.lastOtpError = `challenge probe failed: ${compactUnknownErrorForDiagnostics(error)}`;
@@ -5984,12 +5991,15 @@ function compactUnknownErrorForDiagnostics(error: unknown): string {
   return text.replace(/\s+/g, ' ').slice(0, 300);
 }
 
-function readWalletIframeEmailOtpIdentity(
-  anchor: Element,
-): { challengeId: string; walletId: string | null } | null {
+function readWalletIframeConfirmationState(anchor: Element): {
+  otpIdentity: { challengeId: string; walletId: string | null } | null;
+  requestIdentity: string | null;
+  controlIdentity: string;
+} {
   const challengeId = String(anchor.getAttribute('data-email-otp-challenge-id') || '').trim();
   const walletId = String(anchor.getAttribute('data-email-otp-wallet-id') || '').trim();
-  if (challengeId) return { challengeId, walletId: walletId || null };
+  let otpIdentity = challengeId ? { challengeId, walletId: walletId || null } : null;
+  let requestIdentity: string | null = null;
 
   const roots: Array<Document | ShadowRoot> = [anchor.ownerDocument];
   for (let rootIndex = 0; rootIndex < roots.length; rootIndex += 1) {
@@ -5997,13 +6007,72 @@ function readWalletIframeEmailOtpIdentity(
     for (const element of elements) {
       const promptElement = element as HTMLElement & {
         emailOtpPrompt?: { challengeId?: unknown };
+        intentDigest?: unknown;
+        requestId?: unknown;
       };
-      const promptChallengeId = String(promptElement.emailOtpPrompt?.challengeId || '').trim();
-      if (promptChallengeId) return { challengeId: promptChallengeId, walletId: null };
+      if (!otpIdentity) {
+        const promptChallengeId = String(promptElement.emailOtpPrompt?.challengeId || '').trim();
+        if (promptChallengeId) {
+          otpIdentity = { challengeId: promptChallengeId, walletId: null };
+        }
+      }
+      if (!requestIdentity) {
+        const intentDigest = String(promptElement.intentDigest || '').trim();
+        const requestId = String(promptElement.requestId || '').trim();
+        requestIdentity = intentDigest || requestId || null;
+      }
       if (element.shadowRoot) roots.push(element.shadowRoot);
     }
   }
-  return null;
+  return {
+    otpIdentity,
+    requestIdentity,
+    controlIdentity: JSON.stringify({
+      tagName: anchor.tagName.toLowerCase(),
+      id: anchor.id,
+      className: anchor.getAttribute('class') || '',
+      name: anchor.getAttribute('name') || '',
+      ariaLabel: anchor.getAttribute('aria-label') || '',
+      text: String(anchor.textContent || '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+      registrationActivation: anchor.getAttribute('data-seams-registration-activation-start'),
+      authMenuPrimary: anchor.getAttribute('data-auth-menu-primary'),
+      authMenuProvider: anchor.getAttribute('data-auth-menu-provider'),
+    }),
+  };
+}
+
+async function readWalletIframeConfirmationFingerprint(
+  control: Locator,
+  intendedAction: string | null,
+): Promise<WalletIframeConfirmationFingerprint> {
+  const state = await control.evaluate(readWalletIframeConfirmationState);
+  return {
+    intendedAction: intendedAction || '',
+    controlIdentity: state.controlIdentity,
+    stateIdentity: state.otpIdentity
+      ? `email-otp:${state.otpIdentity.challengeId}`
+      : state.requestIdentity,
+  };
+}
+
+function walletIframeConfirmationAlreadyDispatched(
+  dispatched: readonly WalletIframeConfirmationFingerprint[],
+  current: WalletIframeConfirmationFingerprint,
+): boolean {
+  return dispatched.some((previous) => {
+    if (
+      previous.intendedAction !== current.intendedAction ||
+      previous.controlIdentity !== current.controlIdentity
+    ) {
+      return false;
+    }
+    if (previous.stateIdentity && current.stateIdentity) {
+      return previous.stateIdentity === current.stateIdentity;
+    }
+    return true;
+  });
 }
 
 async function readIntendedEmailOtpCodeFromPage(
@@ -6022,6 +6091,7 @@ async function readIntendedEmailOtpCodeFromPage(
 
 async function clickWalletIframeConfirm(
   page: Page,
+  dispatchedConfirmations: WalletIframeConfirmationFingerprint[],
   opts?: {
     timeoutMs?: number;
     diagnostics?: WalletIframeAutoConfirmDiagnostics;
@@ -6065,7 +6135,12 @@ async function clickWalletIframeConfirm(
         googleVisible = false;
       }
       if (googleVisible) {
+        const fingerprint = await readWalletIframeConfirmationFingerprint(google, intendedAction);
+        if (walletIframeConfirmationAlreadyDispatched(dispatchedConfirmations, fingerprint)) {
+          return false;
+        }
         await google.click({ timeout: timeoutMs });
+        dispatchedConfirmations.push(fingerprint);
         if (opts?.diagnostics) {
           opts.diagnostics.clicked = true;
         }
@@ -6121,8 +6196,13 @@ async function clickWalletIframeConfirm(
       .first();
     await confirmBtn.waitFor({ state: 'visible', timeout: timeoutMs });
     recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstButtonVisibleMs');
+    const fingerprint = await readWalletIframeConfirmationFingerprint(confirmBtn, intendedAction);
+    if (walletIframeConfirmationAlreadyDispatched(dispatchedConfirmations, fingerprint)) {
+      return false;
+    }
     const clickStartedAtMs = Date.now();
     await confirmBtn.click({ timeout: timeoutMs });
+    dispatchedConfirmations.push(fingerprint);
     if (opts?.diagnostics) {
       opts.diagnostics.clicked = true;
     }
@@ -6265,6 +6345,7 @@ async function runWalletIframeAutoConfirmLoop(args: {
   isDone: () => boolean;
 }): Promise<void> {
   const deadline = Date.now() + args.timeoutMs;
+  const dispatchedConfirmations: WalletIframeConfirmationFingerprint[] = [];
   while (!args.isDone() && Date.now() < deadline) {
     const recoveryCodes = await acknowledgeWalletRecoveryCodeBackup(args.page, args.diagnostics);
     if (recoveryCodes) {
@@ -6275,7 +6356,7 @@ async function runWalletIframeAutoConfirmLoop(args: {
       }
       continue;
     }
-    const clicked = await clickWalletIframeConfirm(args.page, {
+    const clicked = await clickWalletIframeConfirm(args.page, dispatchedConfirmations, {
       timeoutMs: Math.min(500, args.intervalMs),
       diagnostics: args.diagnostics,
       diagnosticsStartedAtMs: args.startedAtMs,
