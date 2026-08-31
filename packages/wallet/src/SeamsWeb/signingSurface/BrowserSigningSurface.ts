@@ -496,7 +496,6 @@ import {
   resolveBrowserNearEd25519PasskeyAuthorityForMaterial,
   readBrowserExactNearEd25519WalletSessionAuthorization,
   resolveBrowserActiveNearEd25519WalletSessionAuthorization,
-  resolveExactWalletAuthAuthority,
   type BrowserSigningSurfaceEnginePorts,
 } from '../assembly/browserSigningSurfaceAssembly';
 import type { BrowserSigningSurfaceConstructorDeps } from '../assembly/browserSigningSurfacePorts';
@@ -692,16 +691,18 @@ function exactEmailOtpAuthorityRef(args: {
 }
 
 async function resolveExactEmailOtpFactorAuthority(args: {
-  readonly authorityRef: WalletAuthAuthorityRef;
+  readonly authMethod: Extract<ActiveWalletAuthMethodV2, { readonly kind: 'email_otp' }>;
   readonly emailHashHex: string;
   readonly providerSubject: string;
 }): Promise<EmailOtpWalletAuthAuthority> {
-  const factorAuthority = await resolveExactWalletAuthAuthority(
-    args.authorityRef,
-    browserSigningSurfaceExactWalletAuthMethodStore,
-  );
+  const factorAuthority = await resolveExactWalletAuthAuthorityFromActiveMethod({
+    authMethod: args.authMethod,
+    stores: browserSigningSurfaceExactWalletAuthMethodStore,
+  });
   if (
     !isEmailOtpWalletAuthAuthority(factorAuthority) ||
+    factorAuthority.walletId !== args.authMethod.walletId ||
+    factorAuthority.bindingId !== args.authMethod.walletAuthMethodId ||
     factorAuthority.verifier.emailHashHex !== args.emailHashHex ||
     factorAuthority.factor.providerUserId !== args.providerSubject
   ) {
@@ -782,19 +783,11 @@ export async function resolveBrowserNearEd25519EmailOtpAuthorityForMaterial(args
   }
 
   try {
-    const factorAuthority = await resolveExactWalletAuthAuthorityFromActiveMethod({
+    const factorAuthority = await resolveExactEmailOtpFactorAuthority({
       authMethod,
-      stores: browserSigningSurfaceExactWalletAuthMethodStore,
+      emailHashHex: authMethod.emailHashHex,
+      providerSubject: args.identity.auth.providerSubjectId,
     });
-    if (
-      !isEmailOtpWalletAuthAuthority(factorAuthority) ||
-      factorAuthority.walletId !== args.walletId ||
-      factorAuthority.bindingId !== authMethod.walletAuthMethodId ||
-      factorAuthority.verifier.emailHashHex !== authMethod.emailHashHex ||
-      factorAuthority.factor.providerUserId !== args.identity.auth.providerSubjectId
-    ) {
-      return null;
-    }
     const factorAuthorityRef = await walletAuthAuthorityRef({ authority: factorAuthority });
     if (
       factorAuthorityRef.walletId !== args.walletId ||
@@ -891,7 +884,7 @@ async function resolveExactEmailOtpEd25519ActivationAuthorization(args: {
     throw new Error('[SigningEngine][near] verified Email OTP activation authority changed');
   }
   await resolveExactEmailOtpFactorAuthority({
-    authorityRef,
+    authMethod: method,
     emailHashHex: args.emailHashHex,
     providerSubject: args.providerSubject,
   });
@@ -977,15 +970,10 @@ async function readExactEmailOtpEd25519ExportAuthorization(args: {
   ) {
     return { kind: 'corrupt' };
   }
-  const authorityRef = exactEmailOtpAuthorityRef({
-    walletId,
-    walletAuthMethodId: authMethod.walletAuthMethodId,
-    authorityDigestB64u: authority.authorityDigestB64u,
-  });
   let factorAuthority: EmailOtpWalletAuthAuthority;
   try {
     factorAuthority = await resolveExactEmailOtpFactorAuthority({
-      authorityRef,
+      authMethod,
       emailHashHex: authMethod.emailHashHex,
       providerSubject: args.subject.auth.providerSubjectId,
     });
