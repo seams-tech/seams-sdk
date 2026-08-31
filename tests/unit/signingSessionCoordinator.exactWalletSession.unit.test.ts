@@ -1,6 +1,4 @@
 import { expect, test } from '@playwright/test';
-import { configureIndexedDB, IndexedDBManager } from '@/core/indexedDB';
-import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { toAccountId } from '@/core/types/accountIds';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { requireAuthoritativeExpiredWalletSessionAuthorizationBoundary } from '@/core/signingEngine/session/identity/clientSessionPersistenceState';
@@ -16,16 +14,43 @@ import type { SigningSessionStatusCheck } from '@/core/signingEngine/session/lif
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { parseWalletSessionId } from '@shared/authorization/capabilityKinds';
 import type { ActiveWalletSessionV1 } from '@shared/device-linking';
+import type { ExactWalletSessionReadPorts } from '@/core/signingEngine/session/identity/exactWalletSessionCredential';
 import {
   buildLinkedDeviceUnlockRuntimeFixture,
   type LinkedDeviceUnlockRuntimeFixture,
 } from './helpers/linkedDeviceUnlockRuntime.fixtures';
 
-configureIndexedDB({ mode: 'disabled' });
-
 type ExactSessionRead = Awaited<
-  ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
+  ReturnType<ExactWalletSessionReadPorts['readExactWithOperationCredential']>
 >;
+
+class FixtureExactWalletSessionReadPorts implements ExactWalletSessionReadPorts {
+  readonly #fixture: LinkedDeviceUnlockRuntimeFixture;
+  readonly #read: ExactSessionRead | Error;
+
+  constructor(fixture: LinkedDeviceUnlockRuntimeFixture, read: ExactSessionRead | Error) {
+    this.#fixture = fixture;
+    this.#read = read;
+  }
+
+  async resolveSelectedWalletAuthority() {
+    return {
+      kind: 'resolved' as const,
+      selection: this.#fixture.selection,
+      authMethod: this.#fixture.authMethod,
+      authority: this.#fixture.authority,
+      signerMaterials: this.#fixture.signerMaterials,
+      exportRoot: null,
+    };
+  }
+
+  async readExactWithOperationCredential(
+    _input: Parameters<ExactWalletSessionReadPorts['readExactWithOperationCredential']>[0],
+  ): Promise<ExactSessionRead> {
+    if (this.#read instanceof Error) throw this.#read;
+    return this.#read;
+  }
+}
 
 function laneForFixtureWithQuota(
   fixture: LinkedDeviceUnlockRuntimeFixture,
@@ -54,38 +79,17 @@ function laneForFixture(fixture: LinkedDeviceUnlockRuntimeFixture) {
   return laneForFixtureWithQuota(fixture, fixture.activeWalletSession.quotaId);
 }
 
-function installSelectedAuthority(fixture: LinkedDeviceUnlockRuntimeFixture): void {
-  IndexedDBManager.resolveSelectedWalletAuthority = async () => ({
-    kind: 'resolved',
-    selection: fixture.selection,
-    authMethod: fixture.authMethod,
-    authority: fixture.authority,
-    signerMaterials: fixture.signerMaterials,
-    exportRoot: null,
-  });
-}
-
-function installExactSessionRead(read: () => Promise<ExactSessionRead>): void {
-  walletSessionAuthorizations.readExactWithOperationCredential = async () => await read();
-}
-
-async function withStubbedExactWalletSessionState(run: () => Promise<void>): Promise<void> {
-  const originalResolveSelectedWalletAuthority = IndexedDBManager.resolveSelectedWalletAuthority;
-  const originalReadExact = walletSessionAuthorizations.readExactWithOperationCredential;
-  try {
-    await run();
-  } finally {
-    IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelectedWalletAuthority;
-    walletSessionAuthorizations.readExactWithOperationCredential = originalReadExact;
-  }
-}
-
 test.describe('SigningSessionCoordinator exact Wallet Session reads', () => {
   test('plans a warm Ed25519 session from the exact credential-bound session identity', async () => {
     const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
     const lane = laneForFixture(fixture);
     const statusChecks: SigningSessionStatusCheck[] = [];
     const coordinator = new SigningSessionCoordinator({
+      exactWalletSessionReadPorts: new FixtureExactWalletSessionReadPorts(fixture, {
+        kind: 'found',
+        record: fixture.activeWalletSession,
+        operationCredential: fixture.operationCredential,
+      }),
       getStatus: async (check) => {
         statusChecks.push(check);
         return {
@@ -97,79 +101,66 @@ test.describe('SigningSessionCoordinator exact Wallet Session reads', () => {
       },
     });
 
-    await withStubbedExactWalletSessionState(async () => {
-      installSelectedAuthority(fixture);
-      installExactSessionRead(async () => ({
-        kind: 'found',
-        record: fixture.activeWalletSession,
-        operationCredential: fixture.operationCredential,
-      }));
-
-      const resolved = await coordinator.resolveAuthPlanFromReadiness({
-        lane,
-        readiness: {
-          curve: 'ed25519',
-          status: 'ready',
-          thresholdSessionId: lane.thresholdSessionId,
-          remainingUses: 3,
-          expiresAtMs: Date.now() + 60_000,
-        },
+    const resolved = await coordinator.resolveAuthPlanFromReadiness({
+      lane,
+      readiness: {
+        curve: 'ed25519',
+        status: 'ready',
+        thresholdSessionId: lane.thresholdSessionId,
         remainingUses: 3,
         expiresAtMs: Date.now() + 60_000,
-        usesNeeded: 1,
-      });
-
-      expect(statusChecks).toHaveLength(1);
-      expect(statusChecks[0]?.authorization).toEqual({
-        walletSessionId: fixture.operationCredential.walletSessionId,
-        quotaId: lane.quotaId,
-      });
-      expect(resolved.signingSessionPlan.kind).toBe(SigningSessionPlanKind.WarmSession);
+      },
+      remainingUses: 3,
+      expiresAtMs: Date.now() + 60_000,
+      usesNeeded: 1,
     });
+
+    expect(statusChecks).toHaveLength(1);
+    expect(statusChecks[0]?.authorization).toEqual({
+      walletSessionId: fixture.operationCredential.walletSessionId,
+      quotaId: lane.quotaId,
+    });
+    expect(resolved.signingSessionPlan.kind).toBe(SigningSessionPlanKind.WarmSession);
   });
 
   test('requires reauthorization when the exact credential names another Wallet Session', async () => {
     const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
     const lane = laneForFixture(fixture);
     let statusReads = 0;
+    const siblingSessionId = parseWalletSessionId('wallet-session:sibling');
+    if (!siblingSessionId.ok) throw new Error('sibling Wallet Session id fixture is invalid');
     const coordinator = new SigningSessionCoordinator({
-      getStatus: async () => {
-        statusReads += 1;
-        return null;
-      },
-    });
-
-    await withStubbedExactWalletSessionState(async () => {
-      installSelectedAuthority(fixture);
-      const siblingSessionId = parseWalletSessionId('wallet-session:sibling');
-      if (!siblingSessionId.ok) throw new Error('sibling Wallet Session id fixture is invalid');
-      installExactSessionRead(async () => ({
+      exactWalletSessionReadPorts: new FixtureExactWalletSessionReadPorts(fixture, {
         kind: 'found',
         record: fixture.activeWalletSession,
         operationCredential: {
           ...fixture.operationCredential,
           walletSessionId: siblingSessionId.value,
         },
-      }));
+      }),
+      getStatus: async () => {
+        statusReads += 1;
+        return null;
+      },
+    });
 
-      const resolved = await coordinator.resolveAuthPlanFromReadiness({
-        lane,
-        readiness: {
-          curve: 'ed25519',
-          status: 'ready',
-          thresholdSessionId: lane.thresholdSessionId,
-          remainingUses: 3,
-          expiresAtMs: Date.now() + 60_000,
-        },
+    const resolved = await coordinator.resolveAuthPlanFromReadiness({
+      lane,
+      readiness: {
+        curve: 'ed25519',
+        status: 'ready',
+        thresholdSessionId: lane.thresholdSessionId,
         remainingUses: 3,
         expiresAtMs: Date.now() + 60_000,
-        usesNeeded: 1,
-      });
-
-      expect(statusReads).toBe(0);
-      expect(resolved.readiness.status).toBe('missing_session');
-      expect(resolved.signingSessionPlan.kind).toBe(SigningSessionPlanKind.PasskeyReauth);
+      },
+      remainingUses: 3,
+      expiresAtMs: Date.now() + 60_000,
+      usesNeeded: 1,
     });
+
+    expect(statusReads).toBe(0);
+    expect(resolved.readiness.status).toBe('missing_session');
+    expect(resolved.signingSessionPlan.kind).toBe(SigningSessionPlanKind.PasskeyReauth);
   });
 
   test('requires reauthorization when the lane names a sibling quota', async () => {
@@ -180,38 +171,34 @@ test.describe('SigningSessionCoordinator exact Wallet Session reads', () => {
     );
     let statusReads = 0;
     const coordinator = new SigningSessionCoordinator({
+      exactWalletSessionReadPorts: new FixtureExactWalletSessionReadPorts(fixture, {
+        kind: 'found',
+        record: fixture.activeWalletSession,
+        operationCredential: fixture.operationCredential,
+      }),
       getStatus: async () => {
         statusReads += 1;
         return null;
       },
     });
 
-    await withStubbedExactWalletSessionState(async () => {
-      installSelectedAuthority(fixture);
-      installExactSessionRead(async () => ({
-        kind: 'found',
-        record: fixture.activeWalletSession,
-        operationCredential: fixture.operationCredential,
-      }));
-
-      const resolved = await coordinator.resolveAuthPlanFromReadiness({
-        lane,
-        readiness: {
-          curve: 'ed25519',
-          status: 'ready',
-          thresholdSessionId: lane.thresholdSessionId,
-          remainingUses: 3,
-          expiresAtMs: Date.now() + 60_000,
-        },
+    const resolved = await coordinator.resolveAuthPlanFromReadiness({
+      lane,
+      readiness: {
+        curve: 'ed25519',
+        status: 'ready',
+        thresholdSessionId: lane.thresholdSessionId,
         remainingUses: 3,
         expiresAtMs: Date.now() + 60_000,
-        usesNeeded: 1,
-      });
-
-      expect(statusReads).toBe(0);
-      expect(resolved.readiness.status).toBe('missing_session');
-      expect(resolved.signingSessionPlan.kind).toBe(SigningSessionPlanKind.PasskeyReauth);
+      },
+      remainingUses: 3,
+      expiresAtMs: Date.now() + 60_000,
+      usesNeeded: 1,
     });
+
+    expect(statusReads).toBe(0);
+    expect(resolved.readiness.status).toBe('missing_session');
+    expect(resolved.signingSessionPlan.kind).toBe(SigningSessionPlanKind.PasskeyReauth);
   });
 
   test('fails closed to reauthorization when exact Wallet Session persistence is corrupt', async () => {
@@ -219,36 +206,33 @@ test.describe('SigningSessionCoordinator exact Wallet Session reads', () => {
     const lane = laneForFixture(fixture);
     let statusReads = 0;
     const coordinator = new SigningSessionCoordinator({
+      exactWalletSessionReadPorts: new FixtureExactWalletSessionReadPorts(
+        fixture,
+        new Error('Stored Wallet Session authorization v5 is corrupt'),
+      ),
       getStatus: async () => {
         statusReads += 1;
         return null;
       },
     });
 
-    await withStubbedExactWalletSessionState(async () => {
-      installSelectedAuthority(fixture);
-      installExactSessionRead(async () => {
-        throw new Error('Stored Wallet Session authorization v5 is corrupt');
-      });
-
-      const resolved = await coordinator.resolveAuthPlanFromReadiness({
-        lane,
-        readiness: {
-          curve: 'ed25519',
-          status: 'ready',
-          thresholdSessionId: lane.thresholdSessionId,
-          remainingUses: 3,
-          expiresAtMs: Date.now() + 60_000,
-        },
+    const resolved = await coordinator.resolveAuthPlanFromReadiness({
+      lane,
+      readiness: {
+        curve: 'ed25519',
+        status: 'ready',
+        thresholdSessionId: lane.thresholdSessionId,
         remainingUses: 3,
         expiresAtMs: Date.now() + 60_000,
-        usesNeeded: 1,
-      });
-
-      expect(statusReads).toBe(0);
-      expect(resolved.readiness.status).toBe('missing_session');
-      expect(resolved.signingSessionPlan.kind).toBe(SigningSessionPlanKind.PasskeyReauth);
+      },
+      remainingUses: 3,
+      expiresAtMs: Date.now() + 60_000,
+      usesNeeded: 1,
     });
+
+    expect(statusReads).toBe(0);
+    expect(resolved.readiness.status).toBe('missing_session');
+    expect(resolved.signingSessionPlan.kind).toBe(SigningSessionPlanKind.PasskeyReauth);
   });
 
   test('invalidates an expired Wallet Session through its exact operation credential', async () => {
@@ -261,6 +245,11 @@ test.describe('SigningSessionCoordinator exact Wallet Session reads', () => {
     };
     const clearedThresholdSessionIds: string[] = [];
     const coordinator = new SigningSessionCoordinator({
+      exactWalletSessionReadPorts: new FixtureExactWalletSessionReadPorts(fixture, {
+        kind: 'found',
+        record: expiredSession,
+        operationCredential: fixture.operationCredential,
+      }),
       touchConfirm: {
         clearVolatileWarmSessionMaterial: async (command) => {
           clearedThresholdSessionIds.push(String(command.scope.thresholdSessionId));
@@ -271,31 +260,22 @@ test.describe('SigningSessionCoordinator exact Wallet Session reads', () => {
       },
     });
 
-    await withStubbedExactWalletSessionState(async () => {
-      installSelectedAuthority(fixture);
-      installExactSessionRead(async () => ({
-        kind: 'found',
-        record: expiredSession,
-        operationCredential: fixture.operationCredential,
-      }));
-
-      const result = await coordinator.invalidateExpiredWalletSession({
-        state: requireAuthoritativeExpiredWalletSessionAuthorizationBoundary({
-          source: {
-            kind: 'ed25519',
-            laneIdentity: exactEd25519SigningLaneIdentityFromSelectedLane(lane),
-          },
-          expiresAtMs: expiredSession.expiresAtMs,
-          detectedAtMs,
-        }),
-        source: SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.serverRejection,
-      });
-
-      expect(result.kind).toBe('invalidated');
-      if (result.kind !== 'invalidated') throw new Error('expiry invalidation did not run');
-      expect(result.event.walletSessionId).toBe(fixture.operationCredential.walletSessionId);
-      expect(clearedThresholdSessionIds).toEqual([String(lane.thresholdSessionId)]);
+    const result = await coordinator.invalidateExpiredWalletSession({
+      state: requireAuthoritativeExpiredWalletSessionAuthorizationBoundary({
+        source: {
+          kind: 'ed25519',
+          laneIdentity: exactEd25519SigningLaneIdentityFromSelectedLane(lane),
+        },
+        expiresAtMs: expiredSession.expiresAtMs,
+        detectedAtMs,
+      }),
+      source: SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.serverRejection,
     });
+
+    expect(result.kind).toBe('invalidated');
+    if (result.kind !== 'invalidated') throw new Error('expiry invalidation did not run');
+    expect(result.event.walletSessionId).toBe(fixture.operationCredential.walletSessionId);
+    expect(clearedThresholdSessionIds).toEqual([String(lane.thresholdSessionId)]);
   });
 
   test('leaves warm material installed when no exact session authorizes the expiry claim', async () => {
@@ -304,6 +284,9 @@ test.describe('SigningSessionCoordinator exact Wallet Session reads', () => {
     const detectedAtMs = Date.now();
     const clearedThresholdSessionIds: string[] = [];
     const coordinator = new SigningSessionCoordinator({
+      exactWalletSessionReadPorts: new FixtureExactWalletSessionReadPorts(fixture, {
+        kind: 'missing',
+      }),
       touchConfirm: {
         clearVolatileWarmSessionMaterial: async (command) => {
           clearedThresholdSessionIds.push(String(command.scope.thresholdSessionId));
@@ -312,28 +295,23 @@ test.describe('SigningSessionCoordinator exact Wallet Session reads', () => {
       clearEmailOtpWarmSessionMaterial: async () => undefined,
     });
 
-    await withStubbedExactWalletSessionState(async () => {
-      installSelectedAuthority(fixture);
-      installExactSessionRead(async () => ({ kind: 'missing' }));
-
-      const result = await coordinator.invalidateExpiredWalletSession({
-        state: requireAuthoritativeExpiredWalletSessionAuthorizationBoundary({
-          source: {
-            kind: 'ed25519',
-            laneIdentity: exactEd25519SigningLaneIdentityFromSelectedLane(lane),
-          },
-          expiresAtMs: detectedAtMs - 60_000,
-          detectedAtMs,
-        }),
-        source: SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.serverRejection,
-      });
-
-      expect(result).toEqual({
-        kind: 'unavailable',
-        failures: ['wallet_session_authorization'],
-        event: null,
-      });
-      expect(clearedThresholdSessionIds).toEqual([]);
+    const result = await coordinator.invalidateExpiredWalletSession({
+      state: requireAuthoritativeExpiredWalletSessionAuthorizationBoundary({
+        source: {
+          kind: 'ed25519',
+          laneIdentity: exactEd25519SigningLaneIdentityFromSelectedLane(lane),
+        },
+        expiresAtMs: detectedAtMs - 60_000,
+        detectedAtMs,
+      }),
+      source: SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.serverRejection,
     });
+
+    expect(result).toEqual({
+      kind: 'unavailable',
+      failures: ['wallet_session_authorization'],
+      event: null,
+    });
+    expect(clearedThresholdSessionIds).toEqual([]);
   });
 });

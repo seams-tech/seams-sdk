@@ -16,10 +16,9 @@
  * than a fixed rule.
  */
 
-import { IndexedDBManager } from '@/core/indexedDB';
 import {
-  walletSessionAuthorizations,
   type ActiveWalletSessionV1,
+  type WalletSessionAuthorizationRepository,
   type WalletSessionOperationCredentialV1,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
@@ -99,6 +98,13 @@ export type ResolveExactWalletSessionCredentialInput = {
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly requiredSigningSubject: RequiredExactWalletSessionSigningSubject;
   readonly expiry: ExactWalletSessionExpiryRequirement;
+};
+
+export type ExactWalletSessionReadPorts = {
+  readonly resolveSelectedWalletAuthority: (
+    walletId: string,
+  ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
+  readonly readExactWithOperationCredential: WalletSessionAuthorizationRepository['readExactWithOperationCredential'];
 };
 
 type SelectedExactWalletAuthority = {
@@ -186,12 +192,14 @@ export function requiredSigningSubjectForExactSigningLane(
   return { keyFamily: 'ed25519' };
 }
 
-export async function resolveExactWalletSessionOperationCredential(
-  input: ResolveExactWalletSessionCredentialInput,
-): Promise<ExactWalletSessionCredentialResolution> {
+export async function resolveExactWalletSessionOperationCredential(args: {
+  readonly input: ResolveExactWalletSessionCredentialInput;
+  readonly ports: ExactWalletSessionReadPorts;
+}): Promise<ExactWalletSessionCredentialResolution> {
+  const { input, ports } = args;
   let selectedResult: ResolveSelectedWalletAuthorityResultV1;
   try {
-    selectedResult = await IndexedDBManager.resolveSelectedWalletAuthority(String(input.walletId));
+    selectedResult = await ports.resolveSelectedWalletAuthority(String(input.walletId));
   } catch {
     return unavailable('persistence_unavailable');
   }
@@ -217,11 +225,9 @@ export async function resolveExactWalletSessionOperationCredential(
     return unavailable('signer_material_mismatch');
   }
 
-  let read: Awaited<
-    ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
-  >;
+  let read: Awaited<ReturnType<ExactWalletSessionReadPorts['readExactWithOperationCredential']>>;
   try {
-    read = await walletSessionAuthorizations.readExactWithOperationCredential({
+    read = await ports.readExactWithOperationCredential({
       walletId: input.walletId,
       authorityId: selected.authority.authorityId,
       authMethodId: selected.authMethod.walletAuthMethodId,

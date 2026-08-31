@@ -210,6 +210,7 @@ import {
   readExactWalletSessionAuthentication,
   type ExactWalletSessionAuthenticationReadResult,
 } from '@/core/signingEngine/session/identity/exactWalletSessionReader';
+import { browserExactWalletSessionReadPorts } from '@/core/signingEngine/assembly/ports/emailOtp';
 import {
   unlockEmailOtpAuthorityWallet,
   type EmailOtpAuthorityWalletUnlockResult,
@@ -6403,9 +6404,10 @@ export async function getWalletSession(
     const parsedRequestedWalletId = parseWalletId(String(requestedWalletId));
     if (parsedRequestedWalletId.ok) {
       requestedWalletIdValue = parsedRequestedWalletId.value;
-      requestedAuthenticationRead = await readExactWalletSessionAuthentication(
-        parsedRequestedWalletId.value,
-      );
+      requestedAuthenticationRead = await readExactWalletSessionAuthentication({
+        walletId: parsedRequestedWalletId.value,
+        ports: browserExactWalletSessionReadPorts,
+      });
       if (requestedAuthenticationRead.kind === 'upgrade_required') {
         throw new WalletSessionAuthorizationUpgradeRequiredError(
           '[WalletSession] Wallet Session authorization requires a newer client',
@@ -6519,7 +6521,10 @@ export async function getWalletSession(
     requestedWalletIdValue &&
     String(requestedWalletIdValue) === String(readResolution.walletId)
       ? requestedAuthenticationRead
-      : await readExactWalletSessionAuthentication(readResolution.walletId);
+      : await readExactWalletSessionAuthentication({
+          walletId: readResolution.walletId,
+          ports: browserExactWalletSessionReadPorts,
+        });
   let authentication: WalletAuthenticationState = { kind: 'signed_out' };
   switch (restoredAuthenticationRead.kind) {
     case 'authenticated':
@@ -6548,7 +6553,10 @@ async function buildCapabilityUnresolvableWalletSession(args: {
 }): Promise<WalletSession> {
   const [appIdentity, exactAuthenticationRead] = await Promise.all([
     resolveWalletSessionAppIdentityForWallet(args.context, args.walletId),
-    readExactWalletSessionAuthentication(args.walletId),
+    readExactWalletSessionAuthentication({
+      walletId: args.walletId,
+      ports: browserExactWalletSessionReadPorts,
+    }),
   ]);
   let authentication: WalletAuthenticationState = { kind: 'signed_out' };
   switch (exactAuthenticationRead.kind) {

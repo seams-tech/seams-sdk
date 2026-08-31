@@ -67,6 +67,7 @@ import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsa
 import {
   requiredSigningSubjectForExactSigningLane,
   resolveExactWalletSessionOperationCredential,
+  type ExactWalletSessionReadPorts,
 } from './identity/exactWalletSessionCredential';
 
 export type { SigningSessionReadiness };
@@ -152,6 +153,7 @@ type WalletSessionStatusReadResult =
 
 export type SigningSessionCoordinatorDeps = WalletSessionReadinessDeps &
   ClientWalletSessionInvalidationReadinessDeps & {
+    exactWalletSessionReadPorts: ExactWalletSessionReadPorts;
     getStatus?: SigningSessionStatusReader;
     onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
   };
@@ -215,8 +217,10 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
   private readonly walletSessionExpiryInvalidator: ClientWalletSessionExpiryInvalidator;
   private readonly lifecycleListeners = new Set<SdkLifecycleEventListener>();
   private readonly walletSessionQuotaAdmissionRefreshQueues = new Map<string, Promise<unknown>>();
+  private readonly exactWalletSessionReadPorts: ExactWalletSessionReadPorts;
 
   constructor(deps: SigningSessionCoordinatorDeps) {
+    this.exactWalletSessionReadPorts = deps.exactWalletSessionReadPorts;
     this.onPlannerTrace = deps.onPlannerTrace;
     this.walletSessionDeps = deps;
     this.walletSessionState = {
@@ -249,12 +253,15 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     // the expired state must name the exact session installed for the selected
     // authority and auth method. A sibling method's session cannot stand in.
     const credential = await resolveExactWalletSessionOperationCredential({
-      walletId: args.state.walletId,
-      authMethod: args.state.authMethod,
-      walletSessionId: args.state.walletSessionId,
-      quotaId: args.state.quotaId,
-      requiredSigningSubject: requiredSigningSubjectForExactSigningLane(args.state.laneIdentity),
-      expiry: { kind: 'expired', nowMs: args.state.detectedAtMs },
+      ports: this.exactWalletSessionReadPorts,
+      input: {
+        walletId: args.state.walletId,
+        authMethod: args.state.authMethod,
+        walletSessionId: args.state.walletSessionId,
+        quotaId: args.state.quotaId,
+        requiredSigningSubject: requiredSigningSubjectForExactSigningLane(args.state.laneIdentity),
+        expiry: { kind: 'expired', nowMs: args.state.detectedAtMs },
+      },
     });
     if (credential.kind !== 'resolved') {
       return {
@@ -504,6 +511,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
       lane: input.lane,
       trustedStatusAuth: input.trustedStatusAuth,
       nowMs: Date.now(),
+      exactWalletSessionReadPorts: this.exactWalletSessionReadPorts,
     });
     const statusRead = await this.readWalletSessionStatus(sessionStatusCheck).catch(
       (): WalletSessionStatusReadResult =>
@@ -588,6 +596,7 @@ async function buildSessionStatusCheckForLane(args: {
   lane: SelectedEd25519SigningSessionPlanningLane;
   trustedStatusAuth?: WalletSessionStatusIdentity;
   nowMs: number;
+  exactWalletSessionReadPorts: ExactWalletSessionReadPorts;
 }): Promise<SigningSessionStatusCheck | null> {
   const owner = walletSessionStatusOwnerForLane(args.lane);
   if (args.trustedStatusAuth) {
@@ -603,12 +612,15 @@ async function buildSessionStatusCheckForLane(args: {
   // once the exact record for the selected authority and auth method proves it
   // is still active and still authorizes this lane's Ed25519 material.
   const credential = await resolveExactWalletSessionOperationCredential({
-    walletId: owner.walletId,
-    authMethod: signingLaneAuthMethod(args.lane.auth),
-    walletSessionId: args.lane.walletSessionId,
-    quotaId: args.lane.quotaId,
-    requiredSigningSubject: requiredSigningSubjectForExactSigningLane(args.lane.identity),
-    expiry: { kind: 'unexpired', nowMs: args.nowMs },
+    ports: args.exactWalletSessionReadPorts,
+    input: {
+      walletId: owner.walletId,
+      authMethod: signingLaneAuthMethod(args.lane.auth),
+      walletSessionId: args.lane.walletSessionId,
+      quotaId: args.lane.quotaId,
+      requiredSigningSubject: requiredSigningSubjectForExactSigningLane(args.lane.identity),
+      expiry: { kind: 'unexpired', nowMs: args.nowMs },
+    },
   });
   if (credential.kind !== 'resolved') return null;
   return buildWalletSessionStatusCheck({
