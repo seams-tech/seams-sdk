@@ -173,6 +173,7 @@ import {
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import { resolvePasskeyEd25519YaoExportContextV1 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import type {
+  PasskeyEd25519RecordRuntimePorts,
   PasskeyEd25519YaoExportContextResolutionV1,
   PasskeyEd25519YaoExportMaterialV1,
   PasskeyEd25519WarmRecoverySubject,
@@ -632,6 +633,40 @@ const browserSigningSurfaceExactWalletAuthMethodStore: OwnerLaneScopeStores = {
   getWalletPasskeyAuthenticator: noBrowserWalletPasskeyAuthenticator,
   readEmailOtpProviderSubjectForWallet: readBrowserEmailOtpProviderSubject,
 };
+
+async function resolveBrowserExactPasskeyWalletAuthAuthorityRef(args: {
+  readonly walletId: WalletId;
+  readonly rpId: string;
+  readonly credentialIdB64u: string;
+}): Promise<WalletAuthAuthorityRef | null> {
+  const records = await IndexedDBManager.listWalletAuthMethodsV2ForWallet(String(args.walletId));
+  const matches = records.filter(
+    (record) =>
+      record.kind === WALLET_AUTH_METHODS.passkey &&
+      record.status === 'active' &&
+      record.walletId === args.walletId &&
+      String(record.rpId) === args.rpId &&
+      String(record.credentialIdB64u) === args.credentialIdB64u,
+  );
+  const [record] = matches;
+  if (matches.length !== 1 || !record || record.kind !== WALLET_AUTH_METHODS.passkey) {
+    return null;
+  }
+  return await walletAuthAuthorityRef({
+    authority: {
+      walletId: record.walletId,
+      factor: {
+        kind: WALLET_AUTH_METHODS.passkey,
+        credentialIdB64u: record.credentialIdB64u,
+      },
+      verifier: {
+        kind: 'webauthn',
+        rpId: record.rpId,
+      },
+      bindingId: record.walletAuthMethodId,
+    },
+  });
+}
 
 function exactEmailOtpAuthorityRef(args: {
   readonly walletId: WalletId;
@@ -5231,7 +5266,17 @@ export class BrowserSigningSurface {
       relayerUrl,
       fetch: fetchWithGlobalThis,
     } as const;
-    return await resolvePasskeyEd25519YaoExportContextV1(input);
+    const recoveryRuntimePorts: PasskeyEd25519RecordRuntimePorts = {
+      readExactEd25519SealedSession,
+      readPasskeyCustodySessionEnvelope,
+      resolveSelectedWalletAuthority:
+        IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
+      readExactWalletSessionAuthorization:
+        walletSessionAuthorizations.readExactActiveForWallet.bind(walletSessionAuthorizations),
+      resolveExactPasskeyWalletAuthAuthorityRef: resolveBrowserExactPasskeyWalletAuthAuthorityRef,
+      nowMs: this.runtimePorts.clock.nowMs,
+    };
+    return await resolvePasskeyEd25519YaoExportContextV1(input, recoveryRuntimePorts);
   }
 
   private async resolveLinkedPasskeyEd25519YaoExportContext(
