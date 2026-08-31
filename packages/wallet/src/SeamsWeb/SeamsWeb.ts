@@ -2388,9 +2388,10 @@ export class SeamsWeb {
     challengeId: string;
     otpCode: string;
     relayUrl: string;
-    /* Google is the default because this began as that flow's dependency. An
-       Email method added to an existing authority is verified by address, and
-       the unlock underneath has always taken either. */
+    /* A linked Email method is verified by address, so its authority scope is
+       anchored to the email factor regardless of which provider performed the
+       login. Callers that ever unlock a Google-anchored linked enrollment must
+       say so explicitly. */
     provider?: 'google' | 'email';
   }): Promise<void> {
     /* The wallet's stores live in the iframe when one is in use, so this has to
@@ -2417,7 +2418,7 @@ export class SeamsWeb {
       emailHashHex,
       walletAuthMethodId: args.walletAuthMethodId,
       providerSubjectId: args.providerSubjectId,
-      provider: args.provider || 'google',
+      provider: args.provider || 'email',
       challengeId: args.challengeId,
       otpCode: args.otpCode,
       relayUrl: args.relayUrl,

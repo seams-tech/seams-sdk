@@ -3055,7 +3055,21 @@ function linkedDeviceEd25519SessionFromEmailOtpBootstrap(args: {
     String(session.authorityScope.providerUserId) !==
       String(args.providerIdentity.providerSubjectId)
   ) {
-    throw new Error('[login] linked Email OTP Ed25519 session authority mismatch');
+    const mismatches = [
+      ...(session.authorityScope.kind !== 'email_otp' ? ['scope.kind'] : []),
+      ...(session.authorityScope.kind === 'email_otp' &&
+      session.authorityScope.provider !== args.providerIdentity.provider
+        ? ['scope.provider']
+        : []),
+      ...(session.authorityScope.kind === 'email_otp' &&
+      String(session.authorityScope.providerUserId) !==
+        String(args.providerIdentity.providerSubjectId)
+        ? ['scope.providerUserId']
+        : []),
+    ];
+    throw new Error(
+      `[login] linked Email OTP Ed25519 session authority mismatch: ${mismatches.join(', ')}`,
+    );
   }
   const thresholdSessionId = parseThresholdEd25519SessionId(session.thresholdSessionId);
   const authorizationId = parseWalletSessionAuthorizationId(session.authorizationId);
@@ -3427,7 +3441,7 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
   readonly relayUrl: string;
 }): Promise<void> {
   const providerIdentity: LinkedDeviceEmailOtpProviderIdentity = {
-    provider: args.provider || 'google',
+    provider: args.provider || 'email',
     providerSubjectId: args.providerSubjectId,
   };
   const resolution = await resolveLinkedDeviceEmailOtpAuthoritySelection({
