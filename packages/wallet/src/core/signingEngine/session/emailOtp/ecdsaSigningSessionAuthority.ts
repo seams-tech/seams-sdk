@@ -26,6 +26,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ActiveEcdsaCapabilityRuntimeResolver } from '../material/activeEcdsaCapabilityRuntime';
 
 type ExactSelectedWalletAuthority = Extract<
   ResolveSelectedWalletAuthorityResultV1,
@@ -46,6 +47,7 @@ function isExactSelectedWalletAuthority(
 }
 
 export type EmailOtpEcdsaSigningSessionAuthorityPorts = {
+  readonly resolveActiveEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
   readonly factorStores: OwnerLaneScopeStores;
   readonly resolveSelectedWalletAuthority: (
     walletId: string,

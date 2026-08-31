@@ -22,7 +22,7 @@ import type { DurableRecordStore } from '@/core/platform';
 import { nearOperationStepUpPreparationPort } from '../flows/signNear/shared/operationStepUpPreparation';
 import { nearImplicitAccountFundingPort } from '../flows/signNear/shared/implicitAccountFundingPort';
 import type { ThresholdEcdsaSigningQueueByKey } from '../threshold/ecdsa/signingQueue';
-import { resolveActiveEcdsaCapabilityRuntime } from '../session/material/activeEcdsaCapabilityRuntime';
+import type { ActiveEcdsaCapabilityRuntimeResolver } from '../session/material/activeEcdsaCapabilityRuntime';
 
 export type ManagerAssembly = {
   touchIdPrompt: TouchIdPrompt;
@@ -43,6 +43,7 @@ export type ManagerAssemblyStores = {
 };
 
 export function createManagerAssembly(args: {
+  resolveActiveEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
   resolveOperationStepUpCredential: SignerWorkerManagerDeps['resolveOperationStepUpCredential'];
   stores: ManagerAssemblyStores;
   seamsWebConfigs: SeamsConfigsReadonly;
@@ -71,7 +72,7 @@ export function createManagerAssembly(args: {
   const passkeyMpcSession = createPasskeyMpcSessionManager({
     signingSessionPersistenceMode: args.seamsWebConfigs.signing.sessionPersistenceMode,
     thresholdEcdsaSigningQueueByKey: args.thresholdEcdsaSigningQueueByKey,
-    resolveCurrentEcdsaCapabilityRuntime: resolveActiveEcdsaCapabilityRuntime,
+    resolveCurrentEcdsaCapabilityRuntime: args.resolveActiveEcdsaCapabilityRuntime,
   });
   const touchConfirm = createUiConfirmManager(
     {},

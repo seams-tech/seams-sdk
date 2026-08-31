@@ -64,7 +64,8 @@ import { canonicalEvmFamilyEcdsaSigningCapabilityFixture } from './helpers/ecdsa
 import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
 import { buildEmailOtpEcdsaWalletSessionFixture } from './helpers/linkedDeviceManagement.fixtures';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
-import { resolveActiveEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
+import type { ActiveEcdsaCapabilityRuntimeResolver } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
+import { resolveBrowserActiveEcdsaCapabilityRuntime } from '@/SeamsWeb/assembly/browserSigningSurfaceAssembly';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import {
   withThresholdEcdsaSigningQueue,
@@ -827,7 +828,7 @@ function createCoordinator(overrides?: {
   listActiveEcdsaCapabilityManifestsForWallet?: () => Promise<
     readonly ActiveEcdsaCapabilityManifest[]
   >;
-  resolveCurrentEcdsaCapabilityRuntime?: typeof resolveActiveEcdsaCapabilityRuntime;
+  resolveCurrentEcdsaCapabilityRuntime?: ActiveEcdsaCapabilityRuntimeResolver;
 }) {
   const thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey = new Map();
   const workerCalls: any[] = [];
@@ -1049,7 +1050,7 @@ function createCoordinator(overrides?: {
         return [await emailOtpLoginManifestFixture({ runtimePolicyScope, keyHandle })];
       }),
     resolveCurrentEcdsaCapabilityRuntime:
-      overrides?.resolveCurrentEcdsaCapabilityRuntime || resolveActiveEcdsaCapabilityRuntime,
+      overrides?.resolveCurrentEcdsaCapabilityRuntime || resolveBrowserActiveEcdsaCapabilityRuntime,
     provisionThresholdEcdsaSession:
       overrides?.provisionThresholdEcdsaSession ||
       (async (request: any) => {

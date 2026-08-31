@@ -39,7 +39,10 @@ import type {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
-import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
+import type {
+  ActiveEcdsaCapabilityRuntimeResolution,
+  ActiveEcdsaCapabilityRuntimeResolver,
+} from '../../session/material/activeEcdsaCapabilityRuntime';
 import type { ActiveWalletAuthorityEcdsaRuntimeV1 } from '../../session/material/activeWalletAuthorityEcdsaRuntime';
 
 export type EcdsaExportMaterialAvailability =
@@ -84,6 +87,7 @@ export type ExactEcdsaExportLane =
     });
 
 export type EcdsaExportSessionStoreDeps = {
+  resolveActiveEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
   exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
   relayerUrl: string;
 };
@@ -376,7 +380,7 @@ function sealedEmailOtpExportMaterial(args: {
   deps: EcdsaExportSessionStoreDeps;
   exportLane: ExactEcdsaExportLane;
   resolution: Extract<
-    Awaited<ReturnType<typeof resolveActiveEcdsaCapabilityRuntime>>,
+    ActiveEcdsaCapabilityRuntimeResolution,
     { kind: 'resolved' }
   >;
 }): FreshEmailOtpEcdsaExportMaterial {
@@ -539,7 +543,7 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
   if (exportLane.authMethod !== 'email_otp') {
     throw new Error('[SigningEngine][ecdsa-export] fresh Email OTP export requires Email OTP lane');
   }
-  const resolution = await resolveActiveEcdsaCapabilityRuntime({
+  const resolution = await deps.resolveActiveEcdsaCapabilityRuntime({
     walletId: exportLane.key.walletId,
     chainTarget: exportLane.chainTarget,
   });
@@ -564,7 +568,7 @@ export async function resolveEcdsaExportMaterialForLane(
   if (exportLane.authMethod === 'email_otp') {
     return await resolveFreshEmailOtpEcdsaExportMaterialForLane(deps, exportLane);
   }
-  const resolution = await resolveActiveEcdsaCapabilityRuntime({
+  const resolution = await deps.resolveActiveEcdsaCapabilityRuntime({
     walletId: exportLane.key.walletId,
     chainTarget: exportLane.chainTarget,
   });

@@ -27,8 +27,10 @@ import type { Ed25519YaoExportFlowDeps } from '../../flows/recovery/ed25519YaoEx
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 import type { OwnerLaneScope } from '../../session/identity/signingLaneAuthBinding';
 import { browserExactWalletSessionReadPorts } from './emailOtp';
+import type { ActiveEcdsaCapabilityRuntimeResolver } from '../../session/material/activeEcdsaCapabilityRuntime';
 
 export function createRecoveryPublicDeps(args: {
+  resolveActiveEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
   seamsWebConfigs: CreateSigningEnginePortsArgs['seamsWebConfigs'];
   signerWorkerManager: CreateSigningEnginePortsArgs['signerWorkerManager'];
   getTheme: CreateSigningEnginePortsArgs['getTheme'];
@@ -120,6 +122,7 @@ export function createRecoveryPublicDeps(args: {
       activeWalletAuthorityEcdsaRuntimeReadPorts: browserExactWalletSessionReadPorts,
       sessionStore: {
         ...args.ecdsaSessions,
+        resolveActiveEcdsaCapabilityRuntime: args.resolveActiveEcdsaCapabilityRuntime,
         relayerUrl: String(args.relayerUrl).trim().replace(/\/+$/g, ''),
       },
       touchConfirm: args.touchConfirm,
