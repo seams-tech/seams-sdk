@@ -511,6 +511,7 @@ async function createPollingSubscriptionV1(input: {
   let lastRevision: number | null = null;
   let firstPoll = true;
   let retryAttempt = 0;
+  let inFlight: Promise<void> | null = null;
   const poll = async (): Promise<void> => {
     if (closed) return;
     try {
@@ -539,7 +540,9 @@ async function createPollingSubscriptionV1(input: {
       firstPoll = false;
       if (!closed) {
         timer = setTimeout(
-          () => void poll(),
+          () => {
+            inFlight = poll();
+          },
           nextLinkedDevicePollingDelayMsV1(
             input.options.pollIntervalMs,
             Math.max(0, retryAttempt - 1),
@@ -548,11 +551,15 @@ async function createPollingSubscriptionV1(input: {
       }
     }
   };
-  await poll();
+  await (inFlight = poll());
   return {
-    close: () => {
+    /* Awaiting the in-flight poll lets a caller sequence "stop polling" before
+       an action that invalidates the session server-side; a fire-and-forget
+       close would leave one read racing that action. */
+    close: async () => {
       closed = true;
       if (timer !== undefined) clearTimeout(timer);
+      await inFlight?.catch(() => undefined);
     },
   };
 }

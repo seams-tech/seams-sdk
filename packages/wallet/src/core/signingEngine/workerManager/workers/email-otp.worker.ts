@@ -3050,9 +3050,7 @@ function parseEmailOtpWalletUnlockBootstrapSession(
     return {
       ...session,
       sessionKind: 'issued_exact_wallet_session',
-      operationCredential: parseWalletSessionOperationCredentialV1(
-        sessionObj.operationCredential,
-      ),
+      operationCredential: parseWalletSessionOperationCredentialV1(sessionObj.operationCredential),
     };
   }
   if (sessionObj.sessionKind === 'already_committed_exact_wallet_session') {
@@ -3083,9 +3081,7 @@ async function parseEmailOtpWalletUnlockExactSessionAuthorization(args: {
       throw new Error('Email OTP unlock returned competing Wallet Session credentials');
     }
     record = parseActiveWalletSessionV1(args.rawWalletSession);
-    operationCredential = parseWalletSessionOperationCredentialV1(
-      args.rawOperationCredential,
-    );
+    operationCredential = parseWalletSessionOperationCredentialV1(args.rawOperationCredential);
   } else {
     if (args.ed25519Session.sessionKind !== 'issued_exact_wallet_session') {
       throw new Error('Email OTP unlock did not return its exact Wallet Session credential');
@@ -3113,31 +3109,70 @@ async function parseEmailOtpWalletUnlockExactSessionAuthorization(args: {
   const activationSession = args.activation.session;
   const authority = args.verifiedAuthorityProjection.authority;
   const authMethod = args.verifiedAuthorityProjection.authMethod;
-  if (
-    String(record.walletId) !== args.walletId ||
-    String(record.walletId) !== String(args.activation.public_capability.client_id) ||
-    record.walletId !== authority.walletId ||
-    record.walletId !== authMethod.walletId ||
-    record.authorityId !== authority.authorityId ||
-    record.authMethodId !== authMethod.walletAuthMethodId ||
-    record.authorityDigestB64u !== authority.authorityDigestB64u ||
-    record.authorityRevocationEpoch !== authority.revocationEpoch ||
-    args.ed25519Session.walletId !== record.walletId ||
-    args.ed25519Session.authorizationId !== record.authorizationId ||
-    args.ed25519Session.quotaId !== record.quotaId ||
-    args.ed25519Session.expiresAtMs !== record.expiresAtMs ||
-    args.ed25519Session.authorityScope.kind !== 'email_otp' ||
-    args.ed25519Session.authorityScope.providerUserId !== args.providerSubjectId ||
-    record.authorizationId !== activationSession.authorization_id ||
-    record.quotaId !== activationSession.quota_id ||
-    record.expiresAtMs !== activationSession.expires_at_ms ||
-    operationCredential.walletSessionId !== activationSession.wallet_session_id ||
-    operationCredential.walletSessionId !== args.ed25519Session.walletSessionId ||
-    args.ed25519Session.remainingUses !== activationSession.remaining_uses ||
-    !walletSessionHasEcdsaActivation({ record, activation: args.activation }) ||
-    !emailOtpWalletUnlockCapabilitySubjectsMatchAuthority(record, authority)
-  ) {
-    throw new Error('Email OTP unlock exact Wallet Session does not match ECDSA activation');
+  /* Named checks instead of one opaque disjunction: the throw reports which
+     bindings diverged, since each names a different producer pair (session
+     row, authority projection, Ed25519 session, ECDSA activation). */
+  const mismatches: string[] = [];
+  const expect = (holds: boolean, binding: string): void => {
+    if (!holds) mismatches.push(binding);
+  };
+  expect(String(record.walletId) === args.walletId, 'record.walletId=requested.walletId');
+  expect(
+    String(record.walletId) === String(args.activation.public_capability.client_id),
+    'record.walletId=activation.client_id',
+  );
+  expect(record.walletId === authority.walletId, 'record.walletId=authority.walletId');
+  expect(record.walletId === authMethod.walletId, 'record.walletId=authMethod.walletId');
+  expect(record.authorityId === authority.authorityId, 'record.authorityId');
+  expect(record.authMethodId === authMethod.walletAuthMethodId, 'record.authMethodId');
+  expect(record.authorityDigestB64u === authority.authorityDigestB64u, 'record.authorityDigest');
+  expect(
+    record.authorityRevocationEpoch === authority.revocationEpoch,
+    'record.authorityRevocationEpoch',
+  );
+  expect(args.ed25519Session.walletId === record.walletId, 'ed25519Session.walletId');
+  expect(
+    args.ed25519Session.authorizationId === record.authorizationId,
+    'ed25519Session.authorizationId',
+  );
+  expect(args.ed25519Session.quotaId === record.quotaId, 'ed25519Session.quotaId');
+  expect(args.ed25519Session.expiresAtMs === record.expiresAtMs, 'ed25519Session.expiresAtMs');
+  expect(args.ed25519Session.authorityScope.kind === 'email_otp', 'ed25519Session.scope.kind');
+  expect(
+    args.ed25519Session.authorityScope.kind === 'email_otp' &&
+      args.ed25519Session.authorityScope.providerUserId === args.providerSubjectId,
+    'ed25519Session.scope.providerUserId',
+  );
+  expect(
+    record.authorizationId === activationSession.authorization_id,
+    'activation.authorization_id',
+  );
+  expect(record.quotaId === activationSession.quota_id, 'activation.quota_id');
+  expect(record.expiresAtMs === activationSession.expires_at_ms, 'activation.expires_at_ms');
+  expect(
+    operationCredential.walletSessionId === activationSession.wallet_session_id,
+    'activation.wallet_session_id',
+  );
+  expect(
+    operationCredential.walletSessionId === args.ed25519Session.walletSessionId,
+    'ed25519Session.walletSessionId',
+  );
+  expect(
+    args.ed25519Session.remainingUses === activationSession.remaining_uses,
+    'activation.remaining_uses',
+  );
+  expect(
+    walletSessionHasEcdsaActivation({ record, activation: args.activation }),
+    'record.capabilitySubjects[ecdsa].materialActivation',
+  );
+  expect(
+    emailOtpWalletUnlockCapabilitySubjectsMatchAuthority(record, authority),
+    'record.capabilitySubjects=authority.signerActivations',
+  );
+  if (mismatches.length > 0) {
+    throw new Error(
+      `Email OTP unlock exact Wallet Session does not match ECDSA activation: ${mismatches.join(', ')}`,
+    );
   }
   return { record, operationCredential };
 }
@@ -3720,7 +3755,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
         ? parseEmailOtpEd25519YaoRecoveryBootstrap(
             verified.ed25519YaoCapability,
             verified.operationCredential,
-        )
+          )
         : null;
     const walletUnlockEd25519YaoSession =
       args.material.kind === 'wallet_unlock_capabilities'
@@ -3766,9 +3801,8 @@ async function completeEmailOtpUnlockFromSecret32(args: {
             walletId,
             providerSubjectId: args.material.ed25519Yao.providerSubject,
             verifiedAuthorityProjection,
-            activation: requireEmailOtpWorkerCredentialFreeEcdsaSessionResponse(
-              walletUnlockEcdsaSession,
-            ),
+            activation:
+              requireEmailOtpWorkerCredentialFreeEcdsaSessionResponse(walletUnlockEcdsaSession),
             ed25519Session: requireEmailOtpWalletUnlockBootstrapSession(
               walletUnlockEd25519YaoSession,
             ),
@@ -3825,9 +3859,8 @@ async function completeEmailOtpUnlockFromSecret32(args: {
             walletCustodyEnvelope: walletCustody.envelope,
             walletSessionAuthorization,
             ecdsa: {
-              session: requireEmailOtpWorkerCredentialFreeEcdsaSessionResponse(
-                walletUnlockEcdsaSession,
-              ),
+              session:
+                requireEmailOtpWorkerCredentialFreeEcdsaSessionResponse(walletUnlockEcdsaSession),
               custody: requireEmailOtpWorkerEcdsaCustodyRestore(ecdsaCustodyRestore),
             },
             ed25519Yao: {
@@ -3847,9 +3880,8 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           walletCustodyEnvelope: walletCustody.envelope,
           walletSessionAuthorization,
           ecdsa: {
-            session: requireEmailOtpWorkerCredentialFreeEcdsaSessionResponse(
-              walletUnlockEcdsaSession,
-            ),
+            session:
+              requireEmailOtpWorkerCredentialFreeEcdsaSessionResponse(walletUnlockEcdsaSession),
             custody: requireEmailOtpWorkerEcdsaCustodyRestore(ecdsaCustodyRestore),
           },
           ed25519Yao: {
