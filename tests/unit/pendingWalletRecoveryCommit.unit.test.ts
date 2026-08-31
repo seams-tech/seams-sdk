@@ -13,6 +13,7 @@ import {
 import { buildFullOwnerDelegatedWalletAuthorityV1 } from '../../packages/shared-ts/src/authorization/delegatedAuthority';
 import { buildWalletAuthMethodRecordV2 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseEmailOtpProviderUserId } from '../../packages/shared-ts/src/utils/domainIds';
+import { sha256HexUtf8 } from '../../packages/shared-ts/src/utils/digests';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import {
   buildPasskeyWalletAuthAuthority,
@@ -23,7 +24,10 @@ import {
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
 import { ecdsaCapabilityActivationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
-import { buildActiveMethodBoundPasskeyCustodyEnvelopeFixture } from './helpers/passkeyCustodyEnvelope.fixtures';
+import {
+  buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture,
+  buildActiveMethodBoundPasskeyCustodyEnvelopeFixture,
+} from './helpers/passkeyCustodyEnvelope.fixtures';
 import type { StoreWalletRegistrationPublicationInputV1 } from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/repositories';
 
 const IMPORT_PATHS = {
@@ -103,15 +107,16 @@ async function passkeyProjectionFixture(
   return { authority: fixture.authority, projection };
 }
 
-async function startupRecoveryPayloadFixture(
-  projection: Extract<WalletRecoveryCommittedProjectionV1, { readonly kind: 'passkey' }>,
-) {
-  const recoveryAuthority = buildPasskeyWalletAuthAuthority({
-    walletId: String(projection.walletId),
-    rpId: String(projection.target.rpId),
-    credentialIdB64u: String(projection.target.credentialIdB64u),
-  });
-  const authorityRef = await walletAuthAuthorityRef({ authority: recoveryAuthority });
+async function startupRecoveryPayloadParts(input: {
+  readonly projection: WalletRecoveryCommittedProjectionV1;
+  readonly authorityRef: Awaited<ReturnType<typeof walletAuthAuthorityRef>>;
+  readonly reservationId: string;
+  readonly replacementId: string;
+  readonly replacementEnvelope: ReturnType<
+    typeof buildActiveMethodBoundPasskeyCustodyEnvelopeFixture
+  >;
+}) {
+  const { projection, authorityRef, reservationId, replacementId, replacementEnvelope } = input;
   const ecdsa = ecdsaCapabilityActivationFixture({
     walletId: String(projection.walletId),
     authority: authorityRef,
@@ -122,8 +127,6 @@ async function startupRecoveryPayloadFixture(
   const keyHandle = String(facts.keyHandle);
   const keySetId = `evm_family_ecdsa:${keyHandle}` as const;
   const recordedKeyManifestDigestB64u = base64UrlEncode(new Uint8Array(32).fill(9));
-  const reservationId = 'reservation:pending-recovery-startup';
-  const replacementId = 'passkey-envelope:pending-recovery-startup';
   const possessionChallenge = {
     kind: 'wallet_recovery_ecdsa_possession_challenge_v1' as const,
     walletId: String(projection.walletId),
@@ -176,21 +179,13 @@ async function startupRecoveryPayloadFixture(
     relayerShareRetryCounter: publicCapability.public_identity.server_share_retry_counter,
   };
   return {
-    kind: 'wallet_recovery_durable_payload_v1' as const,
-    version: 1 as const,
     recoveryOperationId: String(projection.recoveryOperationId),
     walletId: projection.walletId,
     reservationId,
     targetDeviceId: projection.targetDeviceId,
     targetAuthorityId: projection.targetAuthorityId,
     targetWalletAuthMethodId: projection.targetWalletAuthMethodId,
-    replacementEnvelope: buildActiveMethodBoundPasskeyCustodyEnvelopeFixture({
-      walletId: String(projection.walletId),
-      envelopeId: replacementId,
-      rpId: String(projection.target.rpId),
-      credentialIdB64u: String(projection.target.credentialIdB64u),
-      walletAuthMethodId: String(projection.targetWalletAuthMethodId),
-    }),
+    replacementEnvelope,
     keyManifest: {
       version: 'wallet_recovery_preparation_key_manifest_v1' as const,
       walletId: String(projection.walletId),
@@ -210,8 +205,48 @@ async function startupRecoveryPayloadFixture(
         publicFacts,
       },
     ],
-    target: { kind: 'passkey' as const, rpId: projection.target.rpId },
+  };
+}
+
+async function startupRecoveryPayloadFixture(
+  projection: Extract<WalletRecoveryCommittedProjectionV1, { readonly kind: 'passkey' }>,
+) {
+  const recoveryAuthority = buildPasskeyWalletAuthAuthority({
+    walletId: String(projection.walletId),
+    rpId: String(projection.target.rpId),
+    credentialIdB64u: String(projection.target.credentialIdB64u),
+  });
+  const authorityRef = await walletAuthAuthorityRef({ authority: recoveryAuthority });
+  const replacementId = 'passkey-envelope:pending-recovery-startup';
+  const replacementEnvelope = buildActiveMethodBoundPasskeyCustodyEnvelopeFixture({
+    walletId: String(projection.walletId),
+    envelopeId: replacementId,
+    rpId: String(projection.target.rpId),
+    credentialIdB64u: String(projection.target.credentialIdB64u),
+    walletAuthMethodId: String(projection.targetWalletAuthMethodId),
+  });
+  const parts = await startupRecoveryPayloadParts({
+    projection,
+    authorityRef,
+    reservationId: 'reservation:pending-recovery-startup',
     replacementId,
+    replacementEnvelope,
+  });
+  return {
+    kind: 'wallet_recovery_durable_payload_v1' as const,
+    version: 1 as const,
+    recoveryOperationId: parts.recoveryOperationId,
+    walletId: parts.walletId,
+    reservationId: parts.reservationId,
+    targetDeviceId: parts.targetDeviceId,
+    targetAuthorityId: parts.targetAuthorityId,
+    targetWalletAuthMethodId: parts.targetWalletAuthMethodId,
+    replacementEnvelope: parts.replacementEnvelope,
+    keyManifest: parts.keyManifest,
+    nearKeySets: [],
+    ecdsaKeySets: parts.ecdsaKeySets,
+    target: { kind: 'passkey' as const, rpId: projection.target.rpId },
+    replacementId: parts.replacementId,
     challengeId: 'challenge:pending-recovery-startup',
     registration: {
       kind: 'wallet_recovery_redacted_registration_v1' as const,
@@ -228,6 +263,54 @@ async function startupRecoveryPayloadFixture(
   };
 }
 
+async function startupGoogleRecoveryPayloadFixture(
+  projection: Extract<WalletRecoveryCommittedProjectionV1, { readonly kind: 'google_email_otp' }>,
+  authAuthority: EmailOtpWalletAuthAuthority,
+  verifiedEmail: string,
+) {
+  const authorityRef = await walletAuthAuthorityRef({ authority: authAuthority });
+  const replacementId = 'email-otp-envelope:pending-recovery-google-startup';
+  const replacementEnvelope = buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture({
+    walletId: String(projection.walletId),
+    envelopeId: replacementId,
+    enrollmentId: projection.target.enrollment.enrollmentId,
+    enrollmentSealKeyVersion: projection.target.enrollment.enrollmentSealKeyVersion,
+    walletAuthMethodId: String(projection.targetWalletAuthMethodId),
+  });
+  const parts = await startupRecoveryPayloadParts({
+    projection,
+    authorityRef,
+    reservationId: 'reservation:pending-recovery-google-startup',
+    replacementId,
+    replacementEnvelope,
+  });
+  return {
+    kind: 'wallet_recovery_durable_payload_v1' as const,
+    version: 1 as const,
+    recoveryOperationId: parts.recoveryOperationId,
+    walletId: parts.walletId,
+    reservationId: parts.reservationId,
+    targetDeviceId: parts.targetDeviceId,
+    targetAuthorityId: parts.targetAuthorityId,
+    targetWalletAuthMethodId: parts.targetWalletAuthMethodId,
+    replacementEnvelope: parts.replacementEnvelope,
+    keyManifest: parts.keyManifest,
+    nearKeySets: [],
+    ecdsaKeySets: parts.ecdsaKeySets,
+    target: { kind: 'google_email_otp' as const },
+    providerSubject: projection.target.providerSubject,
+    verifiedEmail,
+    emailHashHex: projection.target.emailHashHex,
+    registrationAuthorityId: projection.target.registrationAuthorityId,
+    replacementId: parts.replacementId,
+    enrollment: {
+      kind: 'existing' as const,
+      enrollmentId: projection.target.enrollment.enrollmentId,
+      enrollmentSealKeyVersion: projection.target.enrollment.enrollmentSealKeyVersion,
+    },
+  };
+}
+
 async function emailProjectionFixture(): Promise<{
   readonly authority: Awaited<
     ReturnType<typeof buildLinkedDeviceManagementAuthorityFixture>
@@ -237,6 +320,7 @@ async function emailProjectionFixture(): Promise<{
     WalletRecoveryCommittedProjectionV1,
     { readonly kind: 'google_email_otp' }
   >;
+  readonly verifiedEmail: string;
 }> {
   const fixture = await buildLinkedDeviceManagementAuthorityFixture({
     label: 'pending-recovery-email',
@@ -252,7 +336,8 @@ async function emailProjectionFixture(): Promise<{
   if (fixture.authority.provenance.kind !== 'wallet_recovery') {
     throw new Error('Email OTP recovery fixture lost recovery provenance');
   }
-  const emailHashHex = 'c'.repeat(64);
+  const verifiedEmail = 'pending-recovery-email@example.test';
+  const emailHashHex = await sha256HexUtf8(verifiedEmail);
   const providerSubject = required(parseEmailOtpProviderUserId('google:pending-recovery-email'));
   const authAuthority = buildEmailOtpWalletAuthAuthority({
     walletId: fixture.authority.walletId,
@@ -292,7 +377,7 @@ async function emailProjectionFixture(): Promise<{
       enrollmentSealKeyVersion: 'email-otp-seal-v1',
     },
   });
-  return { authority: fixture.authority, authAuthority, projection };
+  return { authority: fixture.authority, authAuthority, projection, verifiedEmail };
 }
 
 async function buildPendingRecord(projection: WalletRecoveryCommittedProjectionV1, fill: number) {
@@ -729,6 +814,90 @@ test('SeamsWeb startup resumes a valid server-promoted recovery row after reload
     authMethod: true,
     ecdsaSubjectCount: 1,
   });
+});
+
+test('probes credential-free replay before retrying an awaiting Google recovery', async ({ page }) => {
+  const fixture = await emailProjectionFixture();
+  const payload = await startupGoogleRecoveryPayloadFixture(
+    fixture.projection,
+    fixture.authAuthority,
+    fixture.verifiedEmail,
+  );
+  const requestKinds: string[] = [];
+  await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+  await page.route('**/wallets/recovery/google-email-otp/finalize', async (route) => {
+    const body = route.request().postDataJSON() as { readonly kind?: unknown };
+    requestKinds.push(typeof body.kind === 'string' ? body.kind : 'missing');
+    await route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false }),
+    });
+  });
+  const result = await page.evaluate(
+    async ({ paths, payload }) => {
+      const {
+        IndexedDBManager,
+        SeamsWalletDBManager,
+        UnifiedIndexedDBManager,
+        createSeamsTestWalletDbName,
+        seamsWalletDB,
+      } = await import(paths.indexedDB);
+      const { resumePendingWalletRecoveries } = await import(paths.commit);
+      const { encryptWalletRecoveryDurablePayload } = await import(paths.journal);
+      const { buildPendingWalletRecoveryCommitV1 } = await import(paths.pending);
+      const dbName = createSeamsTestWalletDbName(`pending-recovery-google-${crypto.randomUUID()}`);
+      seamsWalletDB.setDbName(dbName);
+      const dbManager = new SeamsWalletDBManager();
+      dbManager.setDbName(dbName);
+      const db = new UnifiedIndexedDBManager({ seamsWalletDB: dbManager });
+      const localMaterial = await encryptWalletRecoveryDurablePayload(payload);
+      const awaiting = await buildPendingWalletRecoveryCommitV1({
+        kind: 'pending_wallet_recovery_commit_v1',
+        version: 1,
+        stage: 'awaiting_server_promotion',
+        recoveryOperationId: payload.recoveryOperationId,
+        walletId: payload.walletId,
+        reservationId: payload.reservationId,
+        targetDeviceId: payload.targetDeviceId,
+        targetAuthorityId: payload.targetAuthorityId,
+        targetWalletAuthMethodId: payload.targetWalletAuthMethodId,
+        target: {
+          kind: 'google_email_otp',
+          providerSubject: payload.providerSubject,
+          emailHashHex: payload.emailHashHex,
+          registrationAuthorityId: payload.registrationAuthorityId,
+          enrollment: {
+            kind: 'email_otp_enrollment_reference_v1' as const,
+            enrollmentId: payload.enrollment.enrollmentId,
+            enrollmentSealKeyVersion:
+              payload.enrollment.kind === 'existing'
+                ? payload.enrollment.enrollmentSealKeyVersion
+                : payload.enrollment.material.enrollmentSealKeyVersion,
+          },
+        },
+        localMaterial,
+        createdAtMs: 1,
+        updatedAtMs: 1,
+      });
+      await db.putPendingWalletRecoveryCommit(awaiting);
+      const resumeResult = await resumePendingWalletRecoveries({
+        relayUrl: 'https://relay.example.test',
+      });
+      return {
+        resumeResult,
+        remaining: await IndexedDBManager.getPendingWalletRecoveryCommit(
+          payload.recoveryOperationId,
+        ),
+      };
+    },
+    { paths: IMPORT_PATHS, payload },
+  );
+  expect(requestKinds).toEqual(['replay', 'finalize']);
+  expect(result.resumeResult).toEqual([
+    { kind: 'discarded', recoveryOperationId: payload.recoveryOperationId },
+  ]);
+  expect(result.remaining).toBeNull();
 });
 
 test.describe('atomic pending recovery publication', () => {

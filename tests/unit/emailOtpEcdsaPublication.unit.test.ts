@@ -7,9 +7,12 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEmailOtpEcdsaReadyPersistInput,
+  buildEmailOtpEcdsaSealBinding,
   emailOtpEcdsaPublicationChainTargets,
 } from '@/core/signingEngine/session/emailOtp/ecdsaPublication';
 import { buildEmailOtpAuthContextForCanonicalWallet } from '@/core/signingEngine/session/identity/laneIdentity';
+import { routerAbEcdsaDerivationActiveStateId } from '@shared/utils/routerAbEcdsaDerivation';
+import { makeRouterAbEcdsaDerivationNormalSigningStateFixture } from './helpers/ecdsaSessionRecordVariants.fixtures';
 
 const tempoTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
@@ -124,5 +127,24 @@ test.describe('Email OTP ECDSA publication targets', () => {
         workerSessionId: 'threshold-ecdsa-session-1',
       },
     });
+  });
+
+  test('added-method unlock seals the fresh warm material under its exact ECDSA authorization scope', () => {
+    const warmThresholdSessionId = 'threshold-ecdsa-login-fresh';
+    const normalSigning = makeRouterAbEcdsaDerivationNormalSigningStateFixture({
+      ecdsaThresholdKeyId: 'registration-lifecycle-key',
+      activationEpoch: 'added-email-otp-activation',
+    });
+
+    const binding = buildEmailOtpEcdsaSealBinding({
+      warmThresholdSessionId,
+      normalSigning,
+    });
+
+    expect(binding).toEqual({
+      warmMaterialTarget: { kind: 'ecdsa', thresholdSessionId: warmThresholdSessionId },
+      authorizationThresholdSessionId: routerAbEcdsaDerivationActiveStateId(normalSigning),
+    });
+    expect(binding.authorizationThresholdSessionId).not.toBe(warmThresholdSessionId);
   });
 });

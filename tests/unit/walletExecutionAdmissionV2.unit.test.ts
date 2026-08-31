@@ -562,10 +562,36 @@ class AllowingNormalSigningAdmission implements RouterAbNormalSigningAdmissionAd
   }
 }
 
+class ReusableNormalSigningAdmission implements RouterAbNormalSigningAdmissionAdapter {
+  calls = 0;
+  claims = 0;
+  private claimedRequestId: string | null = null;
+
+  async evaluatePolicy(
+    input: Parameters<RouterAbNormalSigningAdmissionAdapter['evaluatePolicy']>[0],
+  ): Promise<Awaited<ReturnType<RouterAbNormalSigningAdmissionAdapter['evaluatePolicy']>>> {
+    this.calls += 1;
+    if (input.phase === 'finalize') return { ok: true };
+    if (this.claimedRequestId === input.requestId) return { ok: true };
+    if (this.claimedRequestId !== null) {
+      return {
+        ok: false,
+        status: 429,
+        code: 'rate_limited',
+        message: 'Wallet Session quota is exhausted',
+      };
+    }
+    this.claimedRequestId = input.requestId;
+    this.claims += 1;
+    return { ok: true };
+  }
+}
+
 function buildAdmissionContext(input: {
   readonly authority: ActiveWalletAuthorityV1;
   readonly authMethod: WalletAuthMethodRecordV2;
   readonly session: WalletSessionAuthorizationV2;
+  readonly remainingUses?: number;
 }): RouterApiWalletSessionAuthorizationV2AdmissionContext {
   return {
     authorization: {
@@ -575,7 +601,7 @@ function buildAdmissionContext(input: {
         principalId: input.session.principalId,
         walletSessionId: input.session.walletSessionId,
         quotaId: input.session.quotaId,
-        remainingUses: 3,
+        remainingUses: input.remainingUses ?? 3,
         expiresAtMs: input.session.expiresAtMs,
       }),
     },
@@ -1769,6 +1795,220 @@ test('strict Ed25519 V2 finalize admits the exact receipt operation and rejects 
     },
   });
   expect(admissionAdapter.calls).toBe(1);
+});
+
+test('Ed25519 reusable admission resumes exact prepare and finalize after Wallet Session exhaustion', async () => {
+  const authority = await buildAuthority('ed25519', 'near-exhausted-finalize');
+  const authMethod = buildAuthMethod(authority, 'near-exhausted-finalize', 'active');
+  const session = buildSession({
+    authority,
+    authMethodId: authMethod.walletAuthMethodId,
+    label: 'near-exhausted-finalize',
+    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
+    authorityDigestB64u: authority.authorityDigestB64u,
+    authorityRevocationEpoch: authority.revocationEpoch,
+    expiresAtMs: Date.now() + 60_000,
+  });
+  const candidate: RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext = {
+    status: {
+      kind: 'exhausted',
+      session,
+      quota: buildExactWalletSessionQuotaProjectionV1({
+        lifecycle: 'exhausted',
+        tenantId: session.tenantId,
+        principalId: session.principalId,
+        walletSessionId: session.walletSessionId,
+        quotaId: session.quotaId,
+        remainingUses: 0,
+        expiresAtMs: session.expiresAtMs,
+      }),
+    },
+    authority,
+    authMethod,
+    retiredAtMs: null,
+  };
+  const materialActivation = routerAbMpcMaterialActivationRefToWire(
+    authority.signerActivations.ed25519.materialActivation,
+  );
+  const authorizedOperation = await buildEd25519AuthorizedOperationFixture({
+    session,
+    materialActivation,
+  });
+  const exactContext = buildAdmissionContext({
+    authority,
+    authMethod,
+    session,
+    remainingUses: 1,
+  });
+  const authorizedOperations = new WalletAuthorizedOperationFixture(authorizedOperation);
+  const authorizationSessions = new WalletSessionAuthorizationV2Fixture(
+    exactContext,
+    'exhausted-near-finalize-token',
+    candidate,
+  );
+  let activeReads = 0;
+  let exhaustedCandidateReads = 0;
+  const sessionPort = authorizationSessions as unknown as Pick<
+    RouterApiAuthorizationSessionService,
+    | 'readWalletSessionAuthorizationV2ByOperationCredential'
+    | 'readExhaustedWalletSessionAuthorizationV2CandidateByOperationCredential'
+  >;
+  sessionPort.readWalletSessionAuthorizationV2ByOperationCredential = async () => {
+    activeReads += 1;
+    if (activeReads === 1) return exactContext;
+    throw new Error('active Wallet Session quota is exhausted');
+  };
+  sessionPort.readExhaustedWalletSessionAuthorizationV2CandidateByOperationCredential =
+    async () => {
+      exhaustedCandidateReads += 1;
+      return candidate;
+    };
+  const materialResolver = new Ed25519MaterialActivationFixture(
+    materialActivation,
+    buildEd25519ExportIdentityFixture(materialActivation, authority.walletId),
+  );
+  const admissionAdapter = new ReusableNormalSigningAdmission();
+  const prepareBody = (
+    await buildRouterAbEd25519NearTransactionPrepareRequestV2({
+      scope: {
+        request_id: 'request:admission-ed25519-prepare',
+        account_id: String(session.walletId),
+        authorization: {
+          kind: 'reusable_wallet_session',
+          wallet_session_id: String(session.walletSessionId),
+        },
+        material_activation: materialActivation,
+        signing_worker_id: materialActivation.signing_worker,
+      },
+      expiresAtMs: Date.now() + 30_000,
+      operationId: 'operation:admission-ed25519',
+      operationFingerprint: `sha256:${base64UrlEncode(new Uint8Array(32).fill(10))}`,
+      displayDigestB64u: base64UrlEncode(new Uint8Array(32).fill(12)),
+      nearAccountId: 'alice.testnet',
+      nearNetworkId: 'testnet',
+      transactions: [{ receiverId: 'receiver.testnet', actionFingerprint: 'action' }],
+      unsignedTransactionBorshB64u: 'AQID',
+      expectedSigningDigestB64u: 'A5BYxvLAy0ksUzsKTRTvd8wPeKvMztUofYShogEc-4E',
+    })
+  ).request;
+
+  const prepared = await authorizeRouterAbEd25519NormalSigningRoute({
+    body: prepareBody,
+    rawBody: prepareBody,
+    headers: { authorization: 'Bearer exhausted-near-finalize-token' },
+    session: null,
+    authorizedOperations,
+    authorizationSessions,
+    admissionAdapter,
+    resolveEd25519MaterialActivation:
+      materialResolver.resolveEd25519MaterialActivation.bind(materialResolver),
+    phase: 'prepare',
+  });
+  expect(prepared).toMatchObject({
+    ok: true,
+    kind: 'wallet_session_operation_credential_v1',
+  });
+  expect(admissionAdapter.claims).toBe(1);
+  expect(activeReads).toBe(1);
+  expect(exhaustedCandidateReads).toBe(0);
+
+  const preparedAgain = await authorizeRouterAbEd25519NormalSigningRoute({
+    body: prepareBody,
+    rawBody: prepareBody,
+    headers: { authorization: 'Bearer exhausted-near-finalize-token' },
+    session: null,
+    authorizedOperations,
+    authorizationSessions,
+    admissionAdapter,
+    resolveEd25519MaterialActivation:
+      materialResolver.resolveEd25519MaterialActivation.bind(materialResolver),
+    phase: 'prepare',
+  });
+  expect(preparedAgain).toMatchObject({
+    ok: true,
+    kind: 'wallet_session_operation_credential_exhausted_candidate_v1',
+  });
+  expect(admissionAdapter.claims).toBe(1);
+  expect(activeReads).toBe(2);
+  expect(exhaustedCandidateReads).toBe(1);
+
+  const body = ed25519V2FinalizeBodyFixture({
+    session,
+    materialActivation,
+    receipt: authorizedOperationReceiptFixture(authorizedOperation),
+    expiresAtMs: Date.now() + 30_000,
+  });
+
+  const admitted = await authorizeRouterAbEd25519NormalSigningRoute({
+    body,
+    rawBody: body,
+    headers: { authorization: 'Bearer exhausted-near-finalize-token' },
+    session: null,
+    authorizedOperations,
+    authorizationSessions,
+    admissionAdapter,
+    resolveEd25519MaterialActivation:
+      materialResolver.resolveEd25519MaterialActivation.bind(materialResolver),
+    phase: 'finalize',
+  });
+
+  expect(admitted).toMatchObject({
+    ok: true,
+    kind: 'wallet_session_operation_credential_exhausted_candidate_v1',
+  });
+  if (
+    !admitted.ok ||
+    admitted.kind !== 'wallet_session_operation_credential_exhausted_candidate_v1'
+  ) {
+    throw new Error('exhausted Ed25519 finalize candidate was not admitted');
+  }
+  expect(admitted.candidate.status.session.walletSessionId).toBe(session.walletSessionId);
+  expect(admitted.candidate.status.session.authorizationId).toBe(session.authorizationId);
+  expect(admitted.admission.requestId).toBe(body.scope.request_id);
+  expect(admissionAdapter.calls).toBe(3);
+  expect(admissionAdapter.claims).toBe(1);
+  expect(activeReads).toBe(3);
+  expect(exhaustedCandidateReads).toBe(2);
+
+  const distinctPrepareBody = (
+    await buildRouterAbEd25519NearTransactionPrepareRequestV2({
+      scope: {
+        ...prepareBody.scope,
+        request_id: 'request:admission-ed25519-distinct',
+      },
+      expiresAtMs: prepareBody.expires_at_ms,
+      operationId: 'operation:admission-ed25519-distinct',
+      operationFingerprint: `sha256:${base64UrlEncode(new Uint8Array(32).fill(15))}`,
+      displayDigestB64u: base64UrlEncode(new Uint8Array(32).fill(16)),
+      nearAccountId: 'alice.testnet',
+      nearNetworkId: 'testnet',
+      transactions: [{ receiverId: 'receiver.testnet', actionFingerprint: 'different-action' }],
+      unsignedTransactionBorshB64u: 'AQID',
+      expectedSigningDigestB64u: 'A5BYxvLAy0ksUzsKTRTvd8wPeKvMztUofYShogEc-4E',
+    })
+  ).request;
+  const distinctPrepare = await authorizeRouterAbEd25519NormalSigningRoute({
+    body: distinctPrepareBody,
+    rawBody: distinctPrepareBody,
+    headers: { authorization: 'Bearer exhausted-near-finalize-token' },
+    session: null,
+    authorizedOperations,
+    authorizationSessions,
+    admissionAdapter,
+    resolveEd25519MaterialActivation:
+      materialResolver.resolveEd25519MaterialActivation.bind(materialResolver),
+    phase: 'prepare',
+  });
+  expect(distinctPrepare).toMatchObject({
+    ok: false,
+    result: {
+      status: 429,
+      body: { ok: false, code: 'rate_limited' },
+    },
+  });
+  expect(admissionAdapter.claims).toBe(1);
+  expect(activeReads).toBe(4);
+  expect(exhaustedCandidateReads).toBe(3);
 });
 
 test('Ed25519 operation step-up admits a matching exhausted Wallet Session candidate', async () => {

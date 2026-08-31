@@ -25,6 +25,7 @@ import {
   walletSessionRefFromSession,
 } from '@seams/wallet/advanced';
 import { FRONTEND_CONFIG } from '@/config';
+import { resolveEmailOtpRegistrationSession } from './registrationSession';
 
 type IntendedActionName =
   | 'registerPasskeyWallet'
@@ -49,6 +50,19 @@ type IntendedActionName =
   | 'signArcEvmTransaction'
   | 'exportEd25519Key'
   | 'exportEcdsaKey';
+
+type IntendedAuthMethodIdentity = {
+  readonly kind: 'passkey' | 'email_otp';
+  readonly walletAuthMethodId: string;
+};
+
+type IntendedRegistrationSignerKind = {
+  readonly kind: 'near_ed25519' | 'evm_family_ecdsa';
+};
+
+function isEvmFamilyEcdsaSigner(signer: IntendedRegistrationSignerKind): boolean {
+  return signer.kind === 'evm_family_ecdsa';
+}
 
 type IntendedLifecycleEvent = {
   index: number;
@@ -1238,7 +1252,7 @@ class IntendedPageController {
       /* With one method there is nothing to revoke from, whatever the session
          is doing - say that before asking about the session, so the refusal
          names the real reason rather than whichever check happened first. */
-      const methods = session.appIdentity.authMethods;
+      const methods: readonly IntendedAuthMethodIdentity[] = session.appIdentity.authMethods;
       if (methods.length <= 1) {
         throw new Error(
           `revoke needs exactly one sibling to remove, found ${Math.max(methods.length - 1, 0)}`,
@@ -1294,9 +1308,8 @@ class IntendedPageController {
       if (openSession.appIdentity.kind !== 'resolved') {
         throw new Error(`added email-code unlock identity is ${openSession.appIdentity.kind}`);
       }
-      const emailBindings = openSession.appIdentity.authMethods.filter(
-        (binding) => binding.kind === 'email_otp',
-      );
+      const methods: readonly IntendedAuthMethodIdentity[] = openSession.appIdentity.authMethods;
+      const emailBindings = methods.filter((binding) => binding.kind === 'email_otp');
       const [addedBinding, ...extraBindings] = emailBindings;
       if (!addedBinding || extraBindings.length > 0) {
         throw new Error(
@@ -1898,7 +1911,7 @@ class IntendedPageController {
        the wallet was never going to have. */
     const effectiveEcdsaProfile: IntendedEmailOtpEcdsaTargetProfile =
       signerSelection &&
-      !signerSelection.signers.some((signer) => signer.kind === 'evm_family_ecdsa')
+      !signerSelection.signers.some(isEvmFamilyEcdsaSigner)
         ? { kind: 'none', sdkTargets: { kind: 'none' }, chainTargets: [] }
         : this.emailOtpEcdsaTargetProfile;
     const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
@@ -1932,8 +1945,17 @@ class IntendedPageController {
     const nearProvisioning = await this.seams.registration.getNearProvisioningState({
       walletId: completed.value.walletId,
     });
+    const session = await resolveEmailOtpRegistrationSession({
+      walletId: completed.value.walletId,
+      completedSession: completed.value.session,
+      nearProvisioning,
+      auth: this.seams.auth,
+    });
     return assertEmailOtpRegistrationCompleted({
-      completed: completed.value,
+      completed: {
+        ...completed.value,
+        session,
+      },
       initialWalletId,
       ecdsaTargetProfile: effectiveEcdsaProfile,
       nearProvisioning,

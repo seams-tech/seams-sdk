@@ -22,7 +22,11 @@ import {
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import { type ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  routerAbEcdsaDerivationActiveStateId,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+  type RouterAbEcdsaDerivationPublicCapabilityV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import type { ExactWalletSessionAuthorization } from '../persistence/walletSessionAuthorizationProjection';
 import type { EmailOtpEcdsaReadyPersistInput } from '@/core/signingEngine/session/warmCapabilities/persistencePorts';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
@@ -354,6 +358,31 @@ export function buildEmailOtpEcdsaReadyPersistInput(args: {
   };
 }
 
+export function buildEmailOtpEcdsaSealBinding(args: {
+  warmThresholdSessionId: string;
+  normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+}): {
+  warmMaterialTarget: { kind: 'ecdsa'; thresholdSessionId: string };
+  authorizationThresholdSessionId: string;
+} {
+  const warmThresholdSessionId = String(args.warmThresholdSessionId).trim();
+  if (!warmThresholdSessionId) {
+    throw new Error('Email OTP sealed refresh requires a warm threshold session');
+  }
+  return {
+    warmMaterialTarget: { kind: 'ecdsa', thresholdSessionId: warmThresholdSessionId },
+    authorizationThresholdSessionId: emailOtpEcdsaSealAuthorizationThresholdSessionId(
+      args.normalSigning,
+    ),
+  };
+}
+
+export function emailOtpEcdsaSealAuthorizationThresholdSessionId(
+  normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1,
+): string {
+  return routerAbEcdsaDerivationActiveStateId(normalSigning);
+}
+
 export async function commitEmailOtpEcdsaPublicationBootstraps(
   args: {
     walletId: WalletId;
@@ -584,6 +613,10 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     throw new Error('Email OTP sealed refresh requires exact ECDSA key handle');
   }
   const expectedMaterialActivation = roleLocalMaterialRef.materialActivation;
+  const sealBinding = buildEmailOtpEcdsaSealBinding({
+    warmThresholdSessionId: emailOtpWorkerSessionId,
+    normalSigning: routerAbEcdsaDerivationNormalSigning,
+  });
   const exactAuthorityRef = await walletAuthAuthorityRef({
     authority: args.emailOtpAuthContext.authority,
   });
@@ -607,7 +640,8 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   const sealStartedAtMs = nowMs();
   const sealed = await requestSealEmailOtpWarmSessionMaterial({
     workerCtx,
-    target: { kind: 'ecdsa', thresholdSessionId: emailOtpWorkerSessionId },
+    target: sealBinding.warmMaterialTarget,
+    authorizationThresholdSessionId: sealBinding.authorizationThresholdSessionId,
     transport: {
       relayerUrl,
       operationCredential,

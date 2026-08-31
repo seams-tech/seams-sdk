@@ -1833,21 +1833,31 @@ iframe-to-host boundary.
       and NEAR signing after exact-session authority promotion (`d3d399aab`)
 - [x] `tests/e2e/intended-behaviours/email-otp.registration.benchmark.test.ts`
       passed its isolated benchmark runner (1/1 in 4.1 minutes).
-- [ ] `tests/e2e/intended-behaviours/passkey.unlock.contract.test.ts`
-- [ ] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts`
+- [x] `tests/e2e/intended-behaviours/passkey.unlock.contract.test.ts`, including
+      immediate unlock, exhausted-session page refresh with fresh NEAR/Tempo/Arc
+      step-up, and empty-storage cold sync with exact V2 Ed25519 rejoin
+- [x] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts` passed after
+      binding the exact Ed25519 Wallet Session to the Email OTP provider subject
+      carried by the combined unlock request (`3475d60a8`).
 - [ ] `tests/e2e/intended-behaviours/passkey.recovery.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/google-email-otp.recovery.contract.test.ts`
 - [x] `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts`
 - [ ] `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`
-- [ ] `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts`
+- [x] `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts` passed
+      after revoked V1 authenticators were filtered through the exact active V2
+      Passkey method inventory (`0fa6ab231`).
 - [ ] `tests/e2e/linked-device.operating-path.test.ts` for all four genuine
       source/target factor combinations, including the remaining immediate
       post-link factor combinations from I6.
 
-Acceptance checkpoint on 2026-08-31: the clean SDK build passes. The latest
-isolated `passkey.unlock` run reached the browser and exposed an exhausted-budget
-NEAR step-up bypass: signing completed without the required fresh Passkey proof.
-The remaining unlock, recovery, auth-method addition, and linked-device
+Acceptance checkpoint on 2026-08-31: the clean SDK build passes. The isolated
+Passkey cold-sync contract passed in 4.7 minutes after exact sync routing and V2
+Ed25519 recovery admission landed (`ed02eb9f5`, `5a895cf8c`). The composed local
+product matrix passed 8/8 in 4.9 minutes, including the exhausted-session
+page-refresh step-up path fixed by `9d4df8a65`, `a91a5fd8a`, and `affe85e83`.
+`a51c73bb6` additionally preserves the exact authorization tuple through
+execute/activate so activation selects only the exact active authority. The
+remaining Email OTP unlock, recovery, auth-method addition, and linked-device
 acceptance entries stay unchecked until their isolated or composed contract
 runs pass.
 

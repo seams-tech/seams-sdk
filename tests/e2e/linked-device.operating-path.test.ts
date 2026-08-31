@@ -29,6 +29,8 @@ import {
   parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkSessionStateV1,
   parseLinkedDeviceTargetPreparationV1,
+  type ActivateInstalledAuthorityResultV1,
+  type LinkedDeviceTargetPreparationV1,
 } from '@shared/device-linking';
 import { parseWalletAuthMethodId, parseWalletId } from '@shared/utils/domainIds';
 import {
@@ -130,6 +132,38 @@ function requireStringField(record: Record<string, unknown>, field: string, labe
   const value = String(record[field] || '').trim();
   if (!value) throw new Error(`${label}.${field} must be a non-empty string`);
   return value;
+}
+
+function requireActiveInstalledAuthorityResult(
+  result: ActivateInstalledAuthorityResultV1,
+): Extract<ActivateInstalledAuthorityResultV1, { readonly kind: 'active' }> {
+  switch (result.kind) {
+    case 'active':
+      return result;
+    case 'pending_local_install':
+      throw new Error(
+        `Linked-device authority activation is pending local install: ${result.reason.kind}`,
+      );
+    case 'integrity_error':
+      throw new Error(
+        `Linked-device authority activation failed integrity checks: ${result.reason.kind}`,
+      );
+    default:
+      return assertNeverLinkedDeviceResult(result);
+  }
+}
+
+function assertNeverLinkedDeviceResult(value: never): never {
+  throw new Error(`Unsupported linked-device result: ${String(value)}`);
+}
+
+function isPasskeyTargetPreparation(
+  preparation: LinkedDeviceTargetPreparationV1,
+): preparation is Extract<
+  LinkedDeviceTargetPreparationV1,
+  { readonly targetFactor: { readonly kind: 'passkey_prf' } }
+> {
+  return preparation.targetFactor.kind === 'passkey_prf';
 }
 
 function requireGoogleIdToken(): string {
@@ -2680,22 +2714,9 @@ async function exportOwnerKey(
     : null;
   await exportRow.click();
   if (emailOtp && exportChallenge) {
-    const challengeResponse = await exportChallenge;
-    const challengeBody = requireRecord(
-      await challengeResponse.json(),
-      'Email OTP export challenge response',
-    );
-    const challenge = requireRecord(
-      challengeBody.challenge,
-      'Email OTP export challenge response.challenge',
-    );
-    const challengeId = requireStringField(
-      challenge,
-      'challengeId',
-      'Email OTP export challenge response.challenge',
-    );
+    await exportChallenge;
     await Promise.all([
-      completeEmailOtpPromptsUntil({ page, ...emailOtp, challengeId, task: finishExport }),
+      completeEmailOtpPromptsUntil({ page, ...emailOtp, task: finishExport }),
       exportAuthorization,
     ]);
   } else {
@@ -3722,8 +3743,9 @@ async function setupEmailLinkedOwnerPair(
       });
     }
     const activationResponse = await linkedDeviceFailureMonitor.race(authorityActivation);
-    const activated = parseActivateInstalledAuthorityResultV1(await activationResponse.json());
-    expect(activated.kind).toBe('active');
+    const activated = requireActiveInstalledAuthorityResult(
+      parseActivateInstalledAuthorityResultV1(await activationResponse.json()),
+    );
     expect(activated.walletSession.walletId).toBe(publicIdentity.walletId);
     expect(String(activated.authority.authorityId)).toBe(String(committed.authority.authorityId));
     expect(String(activated.authMethod.walletAuthMethodId)).toBe(
@@ -4048,7 +4070,11 @@ async function setupLinkedOwnerPair(
     const preparationResponse = await linkedDeviceFailureMonitor.race(targetPreparation);
     const preparation = parseLinkedDeviceTargetPreparationV1(await preparationResponse.json());
     expect(preparation.walletId).toBe(publicIdentity.walletId);
-    expect(preparation.targetFactor.kind).toBe('passkey_prf');
+    if (!isPasskeyTargetPreparation(preparation)) {
+      throw new Error(
+        `Passkey linked-device preparation returned ${preparation.targetFactor.kind} target factor`,
+      );
+    }
     expect(preparation.passkeyCreationOptions.walletAuthMethodId).toBe(
       preparation.walletAuthMethodId,
     );
@@ -4116,8 +4142,9 @@ async function setupLinkedOwnerPair(
       });
     }
     const activationResponse = await linkedDeviceFailureMonitor.race(authorityActivation);
-    const activated = parseActivateInstalledAuthorityResultV1(await activationResponse.json());
-    expect(activated.kind).toBe('active');
+    const activated = requireActiveInstalledAuthorityResult(
+      parseActivateInstalledAuthorityResultV1(await activationResponse.json()),
+    );
     expect(activated.walletSession.walletId).toBe(publicIdentity.walletId);
     expect(String(activated.authority.authorityId)).toBe(String(committed.authority.authorityId));
     expect(String(activated.authMethod.walletAuthMethodId)).toBe(

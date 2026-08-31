@@ -376,6 +376,7 @@ type ExactEmailOtpEcdsaWarmSessionRestore = {
 
 type ExactEmailOtpEcdsaWarmSessionTransport = {
   relayerUrl: string;
+  authorizationThresholdSessionId: string;
   operationCredential: WalletSessionOperationCredentialV1;
   keyVersion?: string;
   groupId: string;
@@ -395,6 +396,7 @@ type ParseEmailOtpEcdsaWarmSessionRehydrateArgsResult =
 
 type SigningSessionSealTransport = {
   relayerUrl: string;
+  authorizationThresholdSessionId: string;
   operationCredential: WalletSessionOperationCredentialV1;
   keyVersion?: string;
   groupId?: string;
@@ -853,6 +855,10 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
       expiresAtMs: Math.max(0, Math.floor(Number(args.expiresAtMs) || 0)),
       transport: {
         relayerUrl: readString(args.transport.relayerUrl, 'relayerUrl'),
+        authorizationThresholdSessionId: readString(
+          args.transport.authorizationThresholdSessionId,
+          'authorizationThresholdSessionId',
+        ),
         operationCredential: args.transport.operationCredential,
         ...(args.transport.keyVersion ? { keyVersion: args.transport.keyVersion } : {}),
         groupId,
@@ -1167,11 +1173,20 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   if (!transport) return null;
   rejectUnknownEmailOtpYaoFields(
     transport,
-    ['relayerUrl', 'operationCredential', 'signingSessionSealKeyVersion', 'groupId'],
+    [
+      'relayerUrl',
+      'authorizationThresholdSessionId',
+      'operationCredential',
+      'signingSessionSealKeyVersion',
+      'groupId',
+    ],
     'signingSessionSealTransport',
   );
   const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
-  if (!relayerUrl) return null;
+  const authorizationThresholdSessionId = normalizeOptionalTrimmedString(
+    transport.authorizationThresholdSessionId,
+  );
+  if (!relayerUrl || !authorizationThresholdSessionId) return null;
   let operationCredential: WalletSessionOperationCredentialV1;
   try {
     operationCredential = parseWalletSessionOperationCredentialV1(transport.operationCredential);
@@ -1182,6 +1197,7 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   const groupId = normalizeOptionalNonEmptyString(transport.groupId);
   return {
     relayerUrl,
+    authorizationThresholdSessionId,
     operationCredential,
     ...(keyVersion ? { keyVersion } : {}),
     ...(groupId ? { groupId } : {}),
@@ -1611,6 +1627,7 @@ async function sealEmailOtpWarmSessionMaterial(args: {
   transport: SigningSessionSealTransport;
 }): Promise<EmailOtpWarmSessionSealResult> {
   const thresholdSessionId = args.target.thresholdSessionId;
+  const authorizationThresholdSessionId = args.transport.authorizationThresholdSessionId;
   const groupId = normalizeOptionalNonEmptyString(args.transport.groupId);
   if (!groupId) {
     return {
@@ -1633,7 +1650,7 @@ async function sealEmailOtpWarmSessionMaterial(args: {
   const payloadB64u = base64UrlEncode(secret32);
   const singleFlightKey = makeSigningSessionSealSingleFlightKey({
     operation: 'apply-server-seal',
-    thresholdSessionId,
+    thresholdSessionId: authorizationThresholdSessionId,
     materialIdentity:
       args.target.kind === 'ecdsa'
         ? args.target.thresholdSessionId
@@ -1660,7 +1677,7 @@ async function sealEmailOtpWarmSessionMaterial(args: {
         const applied = await callSigningSessionSealRoute({
           operation: 'apply-server-seal',
           transport: args.transport,
-          thresholdSessionId,
+          thresholdSessionId: authorizationThresholdSessionId,
           ciphertext: readString(clientEncryptedCiphertext, 'clientEncryptedCiphertext'),
           keyVersion: args.transport.keyVersion,
         });
@@ -1757,6 +1774,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
     restore,
   } = parsed.value;
   const thresholdSessionId = restore.thresholdSessionId;
+  const authorizationThresholdSessionId = transport.authorizationThresholdSessionId;
   if (localRemainingUses <= 0) {
     return { ok: false, code: 'exhausted', message: 'Email OTP signing-session seal exhausted' };
   }
@@ -1765,7 +1783,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
   }
   const singleFlightKey = makeSigningSessionSealSingleFlightKey({
     operation: 'remove-server-seal',
-    thresholdSessionId,
+    thresholdSessionId: authorizationThresholdSessionId,
     materialIdentity: thresholdSessionId,
     relayerUrl: transport.relayerUrl,
     keyVersion: transport.keyVersion,
@@ -1792,7 +1810,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
         const removed = await callSigningSessionSealRoute({
           operation: 'remove-server-seal',
           transport,
-          thresholdSessionId,
+          thresholdSessionId: authorizationThresholdSessionId,
           ciphertext: readString(clientEncryptedCiphertext, 'clientEncryptedCiphertext'),
           keyVersion: transport.keyVersion,
         });
@@ -3746,7 +3764,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
             rawWalletSession: verified.walletSession,
             rawOperationCredential: verified.operationCredential,
             walletId,
-            providerSubjectId: userId,
+            providerSubjectId: args.material.ed25519Yao.providerSubject,
             verifiedAuthorityProjection,
             activation: requireEmailOtpWorkerCredentialFreeEcdsaSessionResponse(
               walletUnlockEcdsaSession,
@@ -5994,6 +6012,7 @@ function parseWorkerParticipantIds(value: unknown): number[] | undefined {
 
 function parseWorkerSealTransport(value: unknown): {
   relayerUrl: string;
+  authorizationThresholdSessionId: string;
   operationCredential: WalletSessionOperationCredentialV1;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   groupId?: string;
@@ -6002,12 +6021,22 @@ function parseWorkerSealTransport(value: unknown): {
   if (!obj) throw new Error('Email OTP worker request requires transport');
   rejectUnknownEmailOtpYaoFields(
     obj,
-    ['relayerUrl', 'operationCredential', 'signingSessionSealKeyVersion', 'groupId'],
+    [
+      'relayerUrl',
+      'authorizationThresholdSessionId',
+      'operationCredential',
+      'signingSessionSealKeyVersion',
+      'groupId',
+    ],
     'transport',
   );
   const operationCredential = parseWalletSessionOperationCredentialV1(obj.operationCredential);
   return {
     relayerUrl: readString(obj.relayerUrl, 'transport.relayerUrl'),
+    authorizationThresholdSessionId: readString(
+      obj.authorizationThresholdSessionId,
+      'transport.authorizationThresholdSessionId',
+    ),
     operationCredential,
     ...(optionalWorkerString(obj.signingSessionSealKeyVersion)
       ? {

@@ -1861,13 +1861,10 @@ async function ownerAuthorityMatchesEd25519Lane(
 ): Promise<boolean> {
   const ownerAuthority = scope.auth.kind === 'email_otp' ? scope.ownerAuthority : undefined;
   if (!ownerAuthority) return true;
-  if (
-    lane.state === 'missing' ||
-    lane.authorizationState !== 'authorized' ||
-    lane.curve !== 'ed25519'
-  ) {
+  if (lane.state === 'missing' || lane.curve !== 'ed25519') {
     return false;
   }
+  if (lane.authorizationState === 'authorization_required') return true;
   try {
     const factorAuthorityRef = await walletAuthAuthorityRef({
       authority: lane.authorization.selectedFactorAuthority,

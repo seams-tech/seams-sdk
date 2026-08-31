@@ -148,18 +148,32 @@ async function resolveActiveEd25519OperationStepUpAuthority(
   }
 }
 
-type AcceptedEd25519WalletSessionAuthorization = Extract<
-  Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
-  {
-    readonly ok: true;
-    readonly kind: 'wallet_session_operation_credential_v1';
-  }
->;
+type AcceptedEd25519WalletSessionAuthorization =
+  | Extract<
+      Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
+      {
+        readonly ok: true;
+        readonly kind: 'wallet_session_operation_credential_v1';
+      }
+    >
+  | Extract<
+      Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
+      {
+        readonly ok: true;
+        readonly kind: 'wallet_session_operation_credential_exhausted_candidate_v1';
+      }
+    >;
+
+function ed25519ReusableWalletSession(authorization: AcceptedEd25519WalletSessionAuthorization) {
+  return authorization.kind === 'wallet_session_operation_credential_v1'
+    ? authorization.validated.admission.context.authorization.session
+    : authorization.candidate.status.session;
+}
 
 function ed25519ReusableWalletSessionIdentity(
   authorization: AcceptedEd25519WalletSessionAuthorization,
 ) {
-  const session = authorization.validated.admission.context.authorization.session;
+  const session = ed25519ReusableWalletSession(authorization);
   return {
     tenantId: session.tenantId,
     principalId: session.principalId,
@@ -172,7 +186,7 @@ function ed25519ReusableWalletSessionIdentity(
 function buildEd25519GatewayOwnerWalletSessionBinding(
   authorization: AcceptedEd25519WalletSessionAuthorization,
 ) {
-  const session = authorization.validated.admission.context.authorization.session;
+  const session = ed25519ReusableWalletSession(authorization);
   const runtimePolicyScope = authorization.activeMaterial.runtimePolicyScope;
   return {
     kind: 'gateway_owner_wallet_session' as const,
@@ -566,7 +580,7 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
     if (!operation.ok) throw new Error(operation.message);
     const intent = isPlainObject(input.body.intent) ? input.body.intent : null;
     if (!intent) throw new Error('Ed25519 normal-signing intent is required');
-    const session = input.authorization.validated.admission.context.authorization.session;
+    const session = ed25519ReusableWalletSession(input.authorization);
     const privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
       phase: 'prepare',
       body: input.body,
@@ -1603,7 +1617,10 @@ async function proxyEd25519OwnerLaneExecution(input: {
   readonly authorization: AcceptedEd25519NormalSigningAuthorization;
   readonly authorizedOperation: AuthorizedOperation;
 }): Promise<Response> {
-  if (input.authorization.kind === 'wallet_session_operation_credential_v1') {
+  if (
+    input.authorization.kind === 'wallet_session_operation_credential_v1' ||
+    input.authorization.kind === 'wallet_session_operation_credential_exhausted_candidate_v1'
+  ) {
     return await proxyNormalSigningRequestToMpcRouter({
       request: input.ctx.request,
       proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,

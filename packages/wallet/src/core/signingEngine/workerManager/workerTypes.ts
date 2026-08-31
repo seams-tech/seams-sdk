@@ -966,6 +966,7 @@ export interface EmailOtpWorkerOperationMap {
       target: EmailOtpWarmMaterialTarget;
       transport: {
         relayerUrl: string;
+        authorizationThresholdSessionId: string;
         operationCredential?: WalletSessionOperationCredentialV1;
         signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
         groupId?: string;
@@ -998,6 +999,7 @@ export interface EmailOtpWorkerOperationMap {
       expiresAtMs: number;
       transport: {
         relayerUrl: string;
+        authorizationThresholdSessionId: string;
         operationCredential?: WalletSessionOperationCredentialV1;
         signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
         groupId?: string;

@@ -423,4 +423,64 @@ test.describe('available signing lane curve isolation', () => {
       },
     });
   });
+
+  test('retains the exact Email OTP Ed25519 owner lane after session exhaustion', async ({
+    page,
+  }) => {
+    const record = buildEmailOtpEd25519SealedSessionRecordFixture({
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 0,
+    });
+    const authorization = buildEmailOtpExactEd25519AuthorizationFixture(record, {
+      remainingUses: 3,
+    });
+    const factorAuthorityRef = buildWalletAuthAuthorityRefForAuthorityFixture(
+      authorization.selectedFactorAuthority,
+    );
+    const result = await page.evaluate(
+      async ({ modulePath, record, authorization, factorAuthorityRef }) => {
+        const { readAvailableSigningLanes } = await import(modulePath);
+        const lanes = await readAvailableSigningLanes(
+          {
+            walletId: record.walletId,
+            ecdsaChainTargets: [],
+            ownerScope: {
+              auth: {
+                kind: 'email_otp',
+                providerSubjectId: record.ed25519Restore.providerSubjectId,
+              },
+              ownerAuthority: {
+                walletAuthMethodId: authorization.selectedAuthMethod.walletAuthMethodId,
+                authorityDigest: factorAuthorityRef.authorityDigest,
+              },
+            },
+          },
+          {
+            listSealedRecordsForWallet: async () => [record],
+            readActiveWalletSessionAuthorization: async () => ({ kind: 'missing' }),
+          },
+        );
+        const lane = lanes.lanes.ed25519.near;
+        return {
+          candidateCount: lanes.candidates.ed25519.near.length,
+          authorizationState: lane.authorizationState,
+          source: lane.source,
+          state: lane.state,
+        };
+      },
+      {
+        modulePath: AVAILABLE_SIGNING_LANES_PATH,
+        record,
+        authorization,
+        factorAuthorityRef,
+      },
+    );
+
+    expect(result).toEqual({
+      candidateCount: 1,
+      authorizationState: 'authorization_required',
+      source: 'durable_sealed_record',
+      state: 'deferred',
+    });
+  });
 });

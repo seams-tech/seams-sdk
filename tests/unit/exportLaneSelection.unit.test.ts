@@ -193,7 +193,7 @@ async function readEd25519LanesFixture(
   lanes: ConcreteAvailableEd25519SigningLane[],
   _args: unknown,
 ): Promise<AvailableSigningLanes> {
-  const canonicalLane = lanes.find((lane) => lane.authorizationState === 'authorized');
+  const canonicalLane = lanes[0];
   return {
     walletId: toWalletId(WALLET_ID),
     generation: 1,
@@ -409,6 +409,28 @@ test.describe('Ed25519 export lane selection', () => {
         materialActivation: lane.materialActivation,
       });
     }
+  });
+
+  test('keeps fresh Email OTP export available when exact session authorization is required', async () => {
+    const lane = deferredEd25519Lane({
+      auth: emailOtpSigningAuth(),
+      source: 'durable_sealed_record',
+    });
+
+    await expect(
+      resolveExactKeyExportLane(depsForEd25519([lane]), {
+        kind: 'ed25519',
+        walletSession: walletSessionRefFromSession({
+          walletId: WALLET_ID,
+          walletSessionUserId: WALLET_ID,
+        }),
+        nearAccount: NEAR_ACCOUNT,
+      }),
+    ).resolves.toEqual({
+      kind: 'ed25519',
+      laneIdentity: expectEd25519ExportMaterialIdentity(lane),
+      materialActivation: lane.materialActivation,
+    });
   });
 
   test('uses the canonical current activation when historical owner material remains', async () => {
@@ -713,11 +735,11 @@ test.describe('ECDSA export lane selection', () => {
     expect(selected.key.ecdsaThresholdKeyId).toBe('ecdsa-key-requested');
   });
 
-  test('rejects expired and ready ECDSA export lanes without auth ranking', async () => {
-    const staleLane = ecdsaLane({
+  test('rejects authorization-required and ready ECDSA export lanes without auth ranking', async () => {
+    const authorizationRequiredLane = authorizationRequiredCanonicalEcdsaAvailableLane({
       authMethod: 'passkey',
-      state: 'expired',
-      remainingUses: 1,
+      chainTarget: EVM_TARGET,
+      thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
       updatedAtMs: 1_800_000_001_000,
     });
     const readyDuplicateLane = ecdsaLane({
@@ -725,10 +747,10 @@ test.describe('ECDSA export lane selection', () => {
       updatedAtMs: 1_800_000_000_000,
     });
     await expect(
-      resolveEcdsaSessionForExport(depsFor([staleLane, readyDuplicateLane]), {
+      resolveEcdsaSessionForExport(depsFor([authorizationRequiredLane, readyDuplicateLane]), {
         walletId: WALLET_ID,
         signingTarget: EVM_TARGET,
-        laneIdentity: ecdsaLaneIdentity(staleLane),
+        laneIdentity: ecdsaLaneIdentity(authorizationRequiredLane),
       }),
     ).rejects.toThrow('exact lane selection failed: ambiguous_material');
   });
@@ -745,10 +767,10 @@ test.describe('ECDSA export lane selection', () => {
     expect(selected.laneIdentity.auth).toEqual(lane.auth);
   });
 
-  test('rejects active and expired duplicate ECDSA export lanes', async () => {
-    const expiredLane = ecdsaLane({
-      state: 'expired',
-      remainingUses: 1,
+  test('rejects authorized and authorization-required duplicate ECDSA export lanes', async () => {
+    const authorizationRequiredLane = authorizationRequiredCanonicalEcdsaAvailableLane({
+      chainTarget: EVM_TARGET,
+      thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
       updatedAtMs: 1_800_000_001_000,
     });
     const activeDuplicateLane = ecdsaLane({
@@ -757,10 +779,10 @@ test.describe('ECDSA export lane selection', () => {
       updatedAtMs: 1_800_000_000_000,
     });
     await expect(
-      resolveEcdsaSessionForExport(depsFor([expiredLane, activeDuplicateLane]), {
+      resolveEcdsaSessionForExport(depsFor([authorizationRequiredLane, activeDuplicateLane]), {
         walletId: WALLET_ID,
         signingTarget: EVM_TARGET,
-        laneIdentity: ecdsaLaneIdentity(expiredLane),
+        laneIdentity: ecdsaLaneIdentity(authorizationRequiredLane),
       }),
     ).rejects.toThrow('exact lane selection failed: ambiguous_material');
   });

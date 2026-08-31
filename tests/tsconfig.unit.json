@@ -19,6 +19,7 @@
     "unit/emailOtpWalletSessionCoordinator.unit.test.ts",
     "unit/evmFamilyEcdsaIdentity.unit.test.ts",
     "unit/evmFamilyStepUpProvisionPlan.unit.test.ts",
+    "unit/intendedEmailOtpRegistrationSession.unit.test.ts",
     "unit/intendedYaoFault.isolation.unit.test.ts",
     "unit/loginEcdsaInventoryProfileRepair.unit.test.ts",
     "unit/nearClient.test.ts",
