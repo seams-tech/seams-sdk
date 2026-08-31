@@ -7,7 +7,11 @@ import type {
   EmailOtpEcdsaSigningSessionDeps,
   EmailOtpEcdsaStepUpAuthority,
 } from './emailOtpSigningSession';
-import type { EcdsaCommittedLane } from './ecdsaSelection';
+import type {
+  EcdsaCommittedLane,
+  EmailOtpEcdsaDirectCapabilityCommittedLane,
+  EmailOtpEcdsaSigningSessionCommittedLane,
+} from './ecdsaSelection';
 import type { EmailOtpPublicDeps } from './emailOtpPublic';
 import { requestEmailOtpSigningSessionChallenge } from './emailOtpPublic';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
@@ -19,13 +23,22 @@ declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const ecdsaAuthLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
 declare const committedLane: EcdsaCommittedLane;
+declare const signingSessionCommittedLane: EmailOtpEcdsaSigningSessionCommittedLane;
+declare const directCapabilityCommittedLane: EmailOtpEcdsaDirectCapabilityCommittedLane;
 const invalidLiveStepUpWithPublicLane: EmailOtpEcdsaStepUpAuthority = {
   kind: 'live_session',
-  committedLane,
+  committedLane: signingSessionCommittedLane,
   // @ts-expect-error live authority cannot carry a second reauth lane.
   reauthLane: committedLane,
 };
 void invalidLiveStepUpWithPublicLane;
+
+const invalidLiveStepUpWithDirectCapability: EmailOtpEcdsaStepUpAuthority = {
+  kind: 'live_session',
+  // @ts-expect-error a direct capability cannot become a sealed signing-session lane.
+  committedLane: directCapabilityCommittedLane,
+};
+void invalidLiveStepUpWithDirectCapability;
 
 type WalletSessionSigningChallengeArgs = Parameters<
   EmailOtpEcdsaSigningSessionDeps['emailOtpSessions']['requestTransactionSigningChallenge']

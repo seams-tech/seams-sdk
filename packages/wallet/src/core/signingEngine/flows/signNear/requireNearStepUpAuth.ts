@@ -28,7 +28,7 @@ type NearPreparedStepUpAuthBase = {
 export type NearWarmSessionStepUpAuth = NearPreparedStepUpAuthBase & {
   kind: 'warm_session';
   confirmationAuthPayload: {
-    signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
+    signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession'; curve: 'ed25519' }>;
   };
 };
 
@@ -115,13 +115,13 @@ export async function requireNearStepUpAuth(args: {
 
   const signingAuthPlan = args.signingAuthPlan;
   if (prepared.method === 'warm_session') {
-    if (!isWarmSessionSigningAuthPlan(args.signingAuthPlan)) {
+    if (!isEd25519WarmSessionSigningAuthPlan(signingAuthPlan)) {
       throw new Error('[SigningEngine][near] warm-session step-up requires a warm-session plan');
     }
     return {
       kind: 'warm_session',
       confirmationAuthPayload: {
-        signingAuthPlan: args.signingAuthPlan,
+        signingAuthPlan,
       },
     };
   }
@@ -183,10 +183,14 @@ function requirePlannedPasskeyOperationStepUp(
 
 function stepUpPolicyFromSigningAuthPlan(signingAuthPlan: SigningAuthPlan): StepUpPolicy {
   if (isWarmSessionSigningAuthPlan(signingAuthPlan)) {
+    if (signingAuthPlan.curve !== 'ed25519') {
+      throw new Error('[SigningEngine][near] warm-session step-up requires an Ed25519 auth plan');
+    }
     return {
       kind: 'reuse_warm_session',
       authorization: {
         method: signingAuthPlan.method,
+        curve: 'ed25519',
         thresholdSessionId: signingAuthPlan.thresholdSessionId,
         expiresAtMs: signingAuthPlan.expiresAtMs,
         remainingUses: signingAuthPlan.remainingUses,
@@ -194,4 +198,10 @@ function stepUpPolicyFromSigningAuthPlan(signingAuthPlan: SigningAuthPlan): Step
     };
   }
   return { kind: 'use_selected_lane' };
+}
+
+function isEd25519WarmSessionSigningAuthPlan(
+  plan: SigningAuthPlan,
+): plan is Extract<SigningAuthPlan, { kind: 'warmSession'; curve: 'ed25519' }> {
+  return isWarmSessionSigningAuthPlan(plan) && plan.curve === 'ed25519';
 }

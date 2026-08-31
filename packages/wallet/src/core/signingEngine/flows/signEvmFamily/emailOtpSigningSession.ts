@@ -53,7 +53,7 @@ import type {
 } from '../../session/emailOtp/ecdsaLogin';
 import type { EmailOtpAuthoritySelector } from '../../workerManager/workerTypes';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
-import type { EcdsaCommittedLane } from './ecdsaSelection';
+import type { EmailOtpEcdsaSigningSessionCommittedLane } from './ecdsaSelection';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDelivery';
 import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
@@ -125,7 +125,7 @@ export type EmailOtpEcdsaCapabilityStepUpAuthority = {
 export type EmailOtpEcdsaStepUpAuthority =
   | {
       kind: 'live_session';
-      committedLane: EcdsaCommittedLane;
+      committedLane: EmailOtpEcdsaSigningSessionCommittedLane;
       reauthLane?: never;
       capabilityAuthority?: never;
       materialActivation?: never;
@@ -199,10 +199,7 @@ function emailOtpEcdsaChallengeAuthority(
 ): EmailOtpEcdsaChallengeAuthority {
   switch (authority.kind) {
     case 'live_session':
-      if (
-        authority.committedLane.authority.factor.kind !== 'email_otp' ||
-        !authority.committedLane.authLane
-      ) {
+      if (authority.committedLane.authority.factor.kind !== 'email_otp') {
         throw new Error('[SigningEngine][ecdsa] Email OTP challenge requires Email OTP authority');
       }
       return {
