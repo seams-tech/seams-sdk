@@ -2349,7 +2349,12 @@ export class SeamsWeb {
           authority.state !== 'active' ||
           authority.walletId !== foundingMethod.walletId ||
           authority.authorityId !== foundingMethod.walletAuthorityId ||
-          authority.provenance.kind !== 'wallet_registration'
+          /* Recovery installs an additive full-owner authority, so an Email
+             OTP sibling added to it unlocks exactly like one on the founding
+             authority. Linked-device authorities resolve through the linked
+             selection above instead. */
+          (authority.provenance.kind !== 'wallet_registration' &&
+            authority.provenance.kind !== 'wallet_recovery')
         ) {
           return { kind: 'none' };
         }
@@ -2361,7 +2366,7 @@ export class SeamsWeb {
         return {
           kind: 'selected',
           walletAuthMethodId: String(foundingMethod.walletAuthMethodId),
-          execution: 'ordinary',
+          execution: googleEmailOtpUnlockExecution(authority.provenance),
           keyFamilies: authority.signerActivations.keyFamilies,
         };
       }
