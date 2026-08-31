@@ -29,6 +29,7 @@ import {
   withThresholdEd25519CommitQueue,
   type ThresholdEd25519CommitQueueByKey,
 } from '@/core/signingEngine/threshold/ed25519/commitQueue';
+import { resolveBrowserActiveEcdsaCapabilityRuntime } from './browserSigningSurfaceAssembly';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { OwnerLaneScope } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 
@@ -126,6 +127,7 @@ export function createBrowserRecoveryPublicDeps(args: {
     readAuthorization: readExactWalletSessionAuthorization,
   });
   return createRecoveryPublicDeps({
+    resolveActiveEcdsaCapabilityRuntime: resolveBrowserActiveEcdsaCapabilityRuntime,
     seamsWebConfigs: args.seamsWebConfigs,
     signerWorkerManager: args.signerWorkerManager,
     getTheme: args.getTheme,

@@ -1,10 +1,6 @@
 import {
-  IndexedDbEcdsaCapabilityManifestStore,
-  type EcdsaCapabilitySelector,
-} from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
-import {
-  listExactSealedSessionsForWallet,
   type CurrentEcdsaSealedSessionRecord,
+  type listExactSealedSessionsForWallet,
 } from '../persistence/sealedSessionStore';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -17,16 +13,14 @@ import {
   type ExactEcdsaSealedRuntime,
   type ExactEcdsaSealedRuntimeResolution,
 } from './ecdsaSealedRuntime';
-import { IndexedDBManager } from '@/core/indexedDB';
 import type { ActiveEcdsaCapabilityManifest } from './ecdsaCapabilityManifest';
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
+import type { ExactWalletSessionReadPorts } from '../identity/exactWalletSessionCredential';
 
 // Async composition over the pure correlation in ecdsaSealedRuntime: select the
 // wallet's active capability for a chain target, read that wallet's exact
 // sealed records, and correlate the two halves. Kept separate so the
 // correlation itself stays synchronous and directly testable.
-
-const ecdsaCapabilityManifestStore = new IndexedDbEcdsaCapabilityManifestStore();
 
 export type ActiveEcdsaCapabilityRuntimeResolution =
   | {
@@ -58,6 +52,34 @@ export type ExactEcdsaCapabilityRuntimeResolution =
       readonly runtime?: never;
     };
 
+export type ActiveEcdsaCapabilityRuntimeReadPorts = Pick<
+  ExactWalletSessionReadPorts,
+  'resolveSelectedWalletAuthority'
+> & {
+  readonly listActiveEcdsaCapabilityManifestsForWallet: (
+    walletId: WalletId,
+  ) => Promise<readonly ActiveEcdsaCapabilityManifest[]>;
+  readonly listExactSealedSessionsForWallet: typeof listExactSealedSessionsForWallet;
+};
+
+export type ResolveActiveEcdsaCapabilityRuntimeInput = {
+  readonly walletId: WalletId;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+};
+
+export type ActiveEcdsaCapabilityRuntimeResolver = (
+  args: ResolveActiveEcdsaCapabilityRuntimeInput,
+) => Promise<ActiveEcdsaCapabilityRuntimeResolution>;
+
+export type ResolveActiveEcdsaCapabilityRuntimeForChainInput = {
+  readonly walletId: WalletId;
+  readonly chain: ThresholdEcdsaChainTarget['kind'];
+};
+
+export type ActiveEcdsaCapabilityRuntimeForChainResolver = (
+  args: ResolveActiveEcdsaCapabilityRuntimeForChainInput,
+) => Promise<ActiveEcdsaCapabilityRuntimeResolution>;
+
 function manifestCoversTarget(args: {
   readonly manifest: ActiveEcdsaCapabilityManifest;
   readonly chainTarget: ThresholdEcdsaChainTarget;
@@ -68,30 +90,18 @@ function manifestCoversTarget(args: {
 }
 
 async function listActiveManifestsForTarget(args: {
+  readonly ports: ActiveEcdsaCapabilityRuntimeReadPorts;
   readonly walletId: WalletId;
   readonly chainTarget: ThresholdEcdsaChainTarget;
 }): Promise<readonly ActiveEcdsaCapabilityManifest[]> {
-  const subjects = await ecdsaCapabilityManifestStore.listActiveWalletCapabilitySubjects(
-    args.walletId,
+  const manifests = await args.ports.listActiveEcdsaCapabilityManifestsForWallet(args.walletId);
+  return manifests.filter((manifest) =>
+    manifestCoversTarget({ manifest, chainTarget: args.chainTarget }),
   );
-  if (subjects.kind !== 'resolved') return [];
-  const manifests: ActiveEcdsaCapabilityManifest[] = [];
-  for (const subject of subjects.subjects) {
-    const selector: EcdsaCapabilitySelector = {
-      capability: subject.capability,
-      authority: subject.authority,
-    };
-    const lookup = await ecdsaCapabilityManifestStore.lookup(selector);
-    if (lookup.kind !== 'active') continue;
-    if (!manifestCoversTarget({ manifest: lookup.manifest, chainTarget: args.chainTarget })) {
-      continue;
-    }
-    manifests.push(lookup.manifest);
-  }
-  return manifests;
 }
 
 async function listSealedEcdsaRecordsForWallet(args: {
+  readonly ports: ActiveEcdsaCapabilityRuntimeReadPorts;
   readonly walletId: WalletId;
   readonly chainTarget: ThresholdEcdsaChainTarget;
   readonly authMethod?: SigningSessionSealAuthMethod;
@@ -101,7 +111,7 @@ async function listSealedEcdsaRecordsForWallet(args: {
     ? ([args.authMethod] as const)
     : (['passkey', 'email_otp'] as const);
   for (const authMethod of authMethods) {
-    const found = await listExactSealedSessionsForWallet({
+    const found = await args.ports.listExactSealedSessionsForWallet({
       walletId: String(args.walletId),
       filter: { authMethod, curve: 'ecdsa', chainTarget: args.chainTarget },
     }).catch(() => []);
@@ -169,10 +179,11 @@ function exactTwoPartyParticipantIds(value: readonly number[]): readonly [number
 }
 
 async function narrowToSelectedMethod(
+  ports: ActiveEcdsaCapabilityRuntimeReadPorts,
   walletId: WalletId,
   manifests: readonly ActiveEcdsaCapabilityManifest[],
 ): Promise<readonly ActiveEcdsaCapabilityManifest[]> {
-  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+  const selected = await ports.resolveSelectedWalletAuthority(String(walletId));
   if (selected.kind !== 'resolved') return manifests;
   const selectedMethodId = String(selected.authMethod.walletAuthMethodId);
   const matching = manifests.filter(
@@ -181,11 +192,11 @@ async function narrowToSelectedMethod(
   return matching.length > 0 ? matching : manifests;
 }
 
-export async function resolveActiveEcdsaCapabilityRuntime(args: {
-  readonly walletId: WalletId;
-  readonly chainTarget: ThresholdEcdsaChainTarget;
-}): Promise<ActiveEcdsaCapabilityRuntimeResolution> {
-  const all = await listActiveManifestsForTarget(args);
+export async function resolveActiveEcdsaCapabilityRuntime(
+  ports: ActiveEcdsaCapabilityRuntimeReadPorts,
+  args: ResolveActiveEcdsaCapabilityRuntimeInput,
+): Promise<ActiveEcdsaCapabilityRuntimeResolution> {
+  const all = await listActiveManifestsForTarget({ ports, ...args });
   if (all.length === 0) return { kind: 'blocked', reason: 'missing_capability' };
   /* R109C: several capabilities for one wallet and target used to mean the
      store had conflicting records, because a wallet had one auth method. Now
@@ -193,10 +204,10 @@ export async function resolveActiveEcdsaCapabilityRuntime(args: {
      activation, so the caller is not guessing - it is operating as the selected
      method, and that is the one whose projection to use. Two projections for
      the SAME method is still a conflict. */
-  const manifests = all.length > 1 ? await narrowToSelectedMethod(args.walletId, all) : all;
+  const manifests = all.length > 1 ? await narrowToSelectedMethod(ports, args.walletId, all) : all;
   if (manifests.length !== 1) return { kind: 'blocked', reason: 'exact_record_conflict' };
   const manifest = manifests[0]!;
-  const sealedRecords = await listSealedEcdsaRecordsForWallet(args);
+  const sealedRecords = await listSealedEcdsaRecordsForWallet({ ports, ...args });
   const resolution = resolveExactEcdsaSealedRuntime({
     manifest,
     walletId: args.walletId,
@@ -208,40 +219,39 @@ export async function resolveActiveEcdsaCapabilityRuntime(args: {
     : { kind: 'blocked', reason: resolution.reason };
 }
 
+export function createActiveEcdsaCapabilityRuntimeResolver(
+  ports: ActiveEcdsaCapabilityRuntimeReadPorts,
+): ActiveEcdsaCapabilityRuntimeResolver {
+  return resolveActiveEcdsaCapabilityRuntime.bind(null, ports);
+}
+
 /** Resolve by chain kind, taking the exact chain target from the manifest's own
  * target memberships. The warm-session envelope is keyed by kind (evm/tempo)
  * while correlation needs a full target, and the manifest is the authority on
  * which targets its capability covers. */
-export async function resolveActiveEcdsaCapabilityRuntimeForChain(args: {
-  readonly walletId: WalletId;
-  readonly chain: ThresholdEcdsaChainTarget['kind'];
-}): Promise<ActiveEcdsaCapabilityRuntimeResolution> {
-  const subjects = await ecdsaCapabilityManifestStore.listActiveWalletCapabilitySubjects(
-    args.walletId,
-  );
-  if (subjects.kind !== 'resolved') return { kind: 'blocked', reason: 'missing_capability' };
+export async function resolveActiveEcdsaCapabilityRuntimeForChain(
+  ports: ActiveEcdsaCapabilityRuntimeReadPorts,
+  args: ResolveActiveEcdsaCapabilityRuntimeForChainInput,
+): Promise<ActiveEcdsaCapabilityRuntimeResolution> {
+  const manifests = await ports.listActiveEcdsaCapabilityManifestsForWallet(args.walletId);
   const matches: Array<{
     manifest: ActiveEcdsaCapabilityManifest;
     chainTarget: ThresholdEcdsaChainTarget;
   }> = [];
-  for (const subject of subjects.subjects) {
-    const lookup = await ecdsaCapabilityManifestStore.lookup({
-      capability: subject.capability,
-      authority: subject.authority,
-    });
-    if (lookup.kind !== 'active') continue;
+  for (const manifest of manifests) {
     // Every concrete target of this kind counts. A manifest covering two
     // concrete targets of the same kind is ambiguous, not a reason to take the
     // first one.
-    for (const membership of lookup.manifest.signer.scope.targetMemberships) {
+    for (const membership of manifest.signer.scope.targetMemberships) {
       if (membership.kind !== args.chain) continue;
-      matches.push({ manifest: lookup.manifest, chainTarget: membership });
+      matches.push({ manifest, chainTarget: membership });
     }
   }
   if (matches.length === 0) return { kind: 'blocked', reason: 'missing_capability' };
   if (matches.length > 1) return { kind: 'blocked', reason: 'exact_record_conflict' };
   const match = matches[0]!;
   const sealedRecords = await listSealedEcdsaRecordsForWallet({
+    ports,
     walletId: args.walletId,
     chainTarget: match.chainTarget,
   });
@@ -254,4 +264,10 @@ export async function resolveActiveEcdsaCapabilityRuntimeForChain(args: {
   return resolution.kind === 'resolved'
     ? { kind: 'resolved', manifest: match.manifest, runtime: resolution.runtime }
     : { kind: 'blocked', reason: resolution.reason };
+}
+
+export function createActiveEcdsaCapabilityRuntimeForChainResolver(
+  ports: ActiveEcdsaCapabilityRuntimeReadPorts,
+): ActiveEcdsaCapabilityRuntimeForChainResolver {
+  return resolveActiveEcdsaCapabilityRuntimeForChain.bind(null, ports);
 }

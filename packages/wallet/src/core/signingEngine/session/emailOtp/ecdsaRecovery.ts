@@ -41,8 +41,8 @@ import type { ThresholdEcdsaActivationRequest } from '../passkey/ecdsaSessionPro
 import type { ResolvedEmailOtpExistingEcdsaKey } from './ecdsaPublication';
 import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
 import type {
+  ActiveEcdsaCapabilityRuntimeResolver,
   ActiveEcdsaCapabilityRuntimeResolution,
-  resolveActiveEcdsaCapabilityRuntime,
 } from '../material/activeEcdsaCapabilityRuntime';
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
@@ -106,7 +106,7 @@ export type EmailOtpEcdsaSealedRecoveryPorts = {
   }) => Promise<{
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
   }>;
-  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
+  resolveCurrentEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
 };
 
 export type EmailOtpEcdsaSealedRecoveryInput = EmailOtpEcdsaSealedRecoveryPorts &

@@ -20,7 +20,7 @@ import {
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import type { resolveActiveEcdsaCapabilityRuntime } from '../material/activeEcdsaCapabilityRuntime';
+import type { ActiveEcdsaCapabilityRuntimeResolver } from '../material/activeEcdsaCapabilityRuntime';
 import type {
   EcdsaExplicitExportOperationAuthorization,
   ThresholdEcdsaExplicitKeyExportActivationResult,
@@ -1183,7 +1183,7 @@ export type EmailOtpEcdsaLoginPorts = {
   ) => Promise<EmailOtpEcdsaExplicitExportBootstrapResult>;
   requireRelayUrl: () => string;
   requireSigningSessionSealGroupId: () => string;
-  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
+  resolveCurrentEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
   publicationPorts: EmailOtpEcdsaPublicationPorts;
 };
 
@@ -1282,7 +1282,7 @@ function buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(
 async function buildEmailOtpEcdsaSigningRefreshFacts(args: {
   committedLane: EcdsaCommittedLane;
   chainTarget: ThresholdEcdsaChainTarget;
-  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
+  resolveCurrentEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
 }): Promise<EmailOtpEcdsaSigningRefreshFacts> {
   const runtimeResolution = await args.resolveCurrentEcdsaCapabilityRuntime({
     walletId: toWalletId(args.committedLane.lane.identity.signer.walletId),
@@ -1316,7 +1316,7 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
   args: LoginEmailOtpEcdsaCapabilityForSigningArgs,
   ports: {
     requireRelayUrl: () => string;
-    resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
+    resolveCurrentEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
     loginWithEcdsaCapabilityInternal: (
       args: LoginEmailOtpEcdsaCapabilityArgs,
     ) => Promise<EmailOtpThresholdEcdsaLoginResult>;
