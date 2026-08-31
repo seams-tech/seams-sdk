@@ -66,7 +66,7 @@ import {
   buildWalletCustodyEd25519MaterialRecordV1,
   type WalletCustodyEd25519MaterialBindingV1,
   type WalletCustodySealedEd25519MaterialV1,
-} from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
+} from '@/core/indexedDB/walletCustodyEd25519MaterialRecord';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
