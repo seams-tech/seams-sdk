@@ -722,11 +722,11 @@ test.describe('ECDSA export lane selection', () => {
     expect(selected.key.ecdsaThresholdKeyId).toBe('ecdsa-key-requested');
   });
 
-  test('rejects stale and ready ECDSA export lanes without auth ranking', async () => {
-    const staleLane = ecdsaLane({
+  test('rejects authorization-required and ready ECDSA export lanes without auth ranking', async () => {
+    const authorizationRequiredLane = authorizationRequiredCanonicalEcdsaAvailableLane({
       authMethod: 'passkey',
-      state: 'exhausted',
-      remainingUses: 0,
+      chainTarget: EVM_TARGET,
+      thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
       updatedAtMs: 1_800_000_001_000,
     });
     const readyDuplicateLane = ecdsaLane({
@@ -734,10 +734,10 @@ test.describe('ECDSA export lane selection', () => {
       updatedAtMs: 1_800_000_000_000,
     });
     await expect(
-      resolveEcdsaSessionForExport(depsFor([staleLane, readyDuplicateLane]), {
+      resolveEcdsaSessionForExport(depsFor([authorizationRequiredLane, readyDuplicateLane]), {
         walletId: WALLET_ID,
         signingTarget: EVM_TARGET,
-        laneIdentity: ecdsaLaneIdentity(staleLane),
+        laneIdentity: ecdsaLaneIdentity(authorizationRequiredLane),
       }),
     ).rejects.toThrow('exact lane selection failed: ambiguous_material');
   });
@@ -754,10 +754,10 @@ test.describe('ECDSA export lane selection', () => {
     expect(selected.laneIdentity.auth).toEqual(lane.auth);
   });
 
-  test('rejects active and exhausted duplicate ECDSA export lanes', async () => {
-    const exhaustedLane = ecdsaLane({
-      state: 'exhausted',
-      remainingUses: 0,
+  test('rejects authorized and authorization-required duplicate ECDSA export lanes', async () => {
+    const authorizationRequiredLane = authorizationRequiredCanonicalEcdsaAvailableLane({
+      chainTarget: EVM_TARGET,
+      thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
       updatedAtMs: 1_800_000_001_000,
     });
     const activeDuplicateLane = ecdsaLane({
@@ -766,10 +766,10 @@ test.describe('ECDSA export lane selection', () => {
       updatedAtMs: 1_800_000_000_000,
     });
     await expect(
-      resolveEcdsaSessionForExport(depsFor([exhaustedLane, activeDuplicateLane]), {
+      resolveEcdsaSessionForExport(depsFor([authorizationRequiredLane, activeDuplicateLane]), {
         walletId: WALLET_ID,
         signingTarget: EVM_TARGET,
-        laneIdentity: ecdsaLaneIdentity(exhaustedLane),
+        laneIdentity: ecdsaLaneIdentity(authorizationRequiredLane),
       }),
     ).rejects.toThrow('exact lane selection failed: ambiguous_material');
   });
