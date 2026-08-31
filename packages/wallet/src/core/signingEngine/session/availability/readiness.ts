@@ -23,12 +23,10 @@ import {
   parseExactEd25519SealedSessionRuntime,
   type ExactEd25519SealedSessionRuntime,
 } from '../warmCapabilities/ed25519SealedSessionRuntime';
-import {
-  walletSessionAuthorizations,
-  type ActiveWalletSessionV1,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { IndexedDBManager } from '@/core/indexedDB';
-import { resolveWalletAuthorityOperation } from '../authority';
+import type { ActiveWalletSessionV1 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
+import { resolveWalletAuthorityOperation } from '../public.ts';
+import type { ExactWalletSessionReadPorts } from '../identity/exactWalletSessionCredential';
 import {
   normalizeWarmSessionReadPorts,
   readWarmSessionClaim,
@@ -81,6 +79,7 @@ export type WalletSessionStatusOverride = {
 };
 
 export type WalletSessionReadinessDeps = {
+  exactWalletSessionReadPorts: ExactWalletSessionReadPorts;
   listExactSealedSessionsForWallet?: typeof listExactSealedSessionsForWallet;
   touchConfirm?: Partial<
     Pick<
@@ -268,20 +267,12 @@ export async function discoverLanesForWallet(
   deps: WalletSessionReadinessDeps,
   walletId: WalletId,
 ): Promise<DiscoveredSigningSessionLane[]> {
-  return discoverLanesForWalletWithResolver(deps, walletId, {
-    resolveSelectedWalletAuthority:
-      IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
-    readExactWithOperationCredential:
-      walletSessionAuthorizations.readExactWithOperationCredential.bind(
-        walletSessionAuthorizations,
-      ),
-  });
+  return await discoverLanesForWalletWithExactAuthorization(
+    deps,
+    walletId,
+    deps.exactWalletSessionReadPorts,
+  );
 }
-
-export type SigningSessionReadinessExactAuthorizationResolver = {
-  readonly resolveSelectedWalletAuthority: typeof IndexedDBManager.resolveSelectedWalletAuthority;
-  readonly readExactWithOperationCredential: typeof walletSessionAuthorizations.readExactWithOperationCredential;
-};
 
 function exactEd25519SignSubjectMatches(
   authorization: ActiveWalletSessionV1,
@@ -298,7 +289,7 @@ function exactEd25519SignSubjectMatches(
 function selectedMethodMatchesRuntime(args: {
   runtime: ExactEd25519SealedSessionRuntime;
   authMethod: Extract<
-    Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>,
+    ResolveSelectedWalletAuthorityResultV1,
     { readonly kind: 'resolved' }
   >['authMethod'];
 }): boolean {
@@ -317,10 +308,10 @@ function selectedMethodMatchesRuntime(args: {
   }
 }
 
-export async function discoverLanesForWalletWithResolver(
+async function discoverLanesForWalletWithExactAuthorization(
   deps: WalletSessionReadinessDeps,
   walletId: WalletId,
-  resolver: SigningSessionReadinessExactAuthorizationResolver,
+  resolver: ExactWalletSessionReadPorts,
 ): Promise<DiscoveredSigningSessionLane[]> {
   const listSealed = deps.listExactSealedSessionsForWallet ?? listExactSealedSessionsForWallet;
   const records = (
@@ -335,7 +326,7 @@ export async function discoverLanesForWalletWithResolver(
       }),
     ])
   ).flat();
-  let selected: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
+  let selected: ResolveSelectedWalletAuthorityResultV1;
   try {
     selected = await resolver.resolveSelectedWalletAuthority(String(walletId));
   } catch {
@@ -373,7 +364,7 @@ export async function discoverLanesForWalletWithResolver(
     return [];
   }
   let authorizationRead: Awaited<
-    ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
+    ReturnType<ExactWalletSessionReadPorts['readExactWithOperationCredential']>
   >;
   try {
     authorizationRead = await resolver.readExactWithOperationCredential({
