@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test';
-import { IndexedDBManager } from '@/core/indexedDB';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { WalletSessionAuthorizationExactOperationCredentialReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
@@ -71,12 +70,12 @@ import {
   withThresholdEcdsaSigningQueue,
   type ThresholdEcdsaSigningQueueByKey,
 } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
+import type { OwnerLaneScopeStores } from '@/core/signingEngine/session/identity/ownerLaneScope';
 
 const TEST_SUBJECT_ID = toWalletId('alice.testnet');
 const TEST_SIGNING_SESSION_SEAL_KEY_VERSION = parseSigningSessionSealKeyVersion(
   'signing-session-seal-kek-test-r1',
 );
-const originalResolveSelectedWalletAuthority = IndexedDBManager.resolveSelectedWalletAuthority;
 type CanonicalEcdsaCapabilityFixture = Awaited<
   ReturnType<typeof canonicalEvmFamilyEcdsaSigningCapabilityFixture>
 >;
@@ -137,13 +136,23 @@ async function resolveMissingSelectedWalletAuthorityFixture(): Promise<ResolveSe
   return { kind: 'missing_selection' };
 }
 
-function installCanonicalAuthoritySelectionFixture(): void {
-  IndexedDBManager.resolveSelectedWalletAuthority = resolveMissingSelectedWalletAuthorityFixture;
+async function getMissingWalletAuthMethodFixture(): Promise<null> {
+  return null;
 }
 
-function restoreCanonicalAuthoritySelectionFixture(): void {
-  IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelectedWalletAuthority;
+async function listMissingWalletAuthMethodsFixture(): Promise<readonly []> {
+  return [];
 }
+
+async function getMissingWalletPasskeyAuthenticatorFixture(): Promise<null> {
+  return null;
+}
+
+const emptyOwnerLaneScopeStoresFixture: OwnerLaneScopeStores = {
+  getWalletAuthMethodV2: getMissingWalletAuthMethodFixture,
+  listWalletAuthMethodsForWallet: listMissingWalletAuthMethodsFixture,
+  getWalletPasskeyAuthenticator: getMissingWalletPasskeyAuthenticatorFixture,
+};
 
 function emailOtpEcdsaUnlockWorkerResult(call: any) {
   const fixture = createEcdsaSessionActivationFixture({
@@ -824,6 +833,7 @@ function createCoordinator(overrides?: {
   resolveSelectedWalletAuthority?: (
     walletId: string,
   ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
+  ownerLaneScopeStores?: OwnerLaneScopeStores;
   readExactWalletSessionAuthorization?: () => Promise<WalletSessionAuthorizationExactOperationCredentialReadResult>;
   listActiveEcdsaCapabilityManifestsForWallet?: () => Promise<
     readonly ActiveEcdsaCapabilityManifest[]
@@ -1013,6 +1023,7 @@ function createCoordinator(overrides?: {
     getSignerWorkerContext: () => worker as any,
     resolveSelectedWalletAuthority:
       overrides?.resolveSelectedWalletAuthority || resolveMissingSelectedWalletAuthorityFixture,
+    ownerLaneScopeStores: overrides?.ownerLaneScopeStores || emptyOwnerLaneScopeStoresFixture,
     loadWalletCustodyEd25519Material: absentWalletCustodyEd25519Material,
     restoreWalletCustodyEcdsaContinuity: noopRestoreWalletCustodyEcdsaContinuity,
     withThresholdEcdsaSigningQueue: (args) =>
@@ -1169,9 +1180,6 @@ async function emailOtpLoginManifestFixture(args: {
 }
 
 test.describe('EmailOtpWalletSessionCoordinator', () => {
-  test.beforeAll(installCanonicalAuthoritySelectionFixture);
-  test.afterAll(restoreCanonicalAuthoritySelectionFixture);
-
   test('normalizes warm-session status requests and maps worker failures', async () => {
     const invalid = createCoordinator();
     await expect(
