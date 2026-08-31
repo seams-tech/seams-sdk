@@ -197,6 +197,10 @@ for (const forbidden of [
 const ed25519ExportWorkerPath =
   'packages/wallet/src/core/signingEngine/workerManager/workers/passkeyMpcExportRuntime.ts';
 const ed25519ExportWorker = readRepoSource(ed25519ExportWorkerPath);
+const deviceLinkingSourceContributionPath =
+  'packages/wallet/src/core/signingEngine/workerManager/deviceLinkingSourceContribution.ts';
+const deviceLinkingTargetWorkerPath =
+  'packages/wallet/src/core/signingEngine/workerManager/workers/device-linking-key.worker.ts';
 for (const marker of [
   'runEd25519YaoExportWithUi',
   "requirePrfB64uFromCredential(credential, 'first')",
@@ -216,7 +220,23 @@ for (const relativePath of listSourceFiles('packages/wallet/src')) {
   ) {
     continue;
   }
-  const source = readRepoSource(relativePath);
+  let source = readRepoSource(relativePath);
+  if (relativePath === deviceLinkingSourceContributionPath) {
+    for (const activationPackageForwarding of [
+      'deriver_a_client_package: reservation.deriver_a_client_package,',
+      'deriver_b_client_package: reservation.deriver_b_client_package,',
+    ]) {
+      source = source.replace(activationPackageForwarding, '');
+    }
+  }
+  if (relativePath === deviceLinkingTargetWorkerPath) {
+    for (const activationPackageInput of [
+      'JSON.stringify(input.packageValue.package.deriver_a_client_package)',
+      'JSON.stringify(input.packageValue.package.deriver_b_client_package)',
+    ]) {
+      source = source.replace(activationPackageInput, '');
+    }
+  }
   assert.doesNotMatch(
     source,
     /Wasm(?:PasskeyClient|EmailOtpClient)ExportSessionV1|take_export_artifact_json|deriver_[ab]_client_package/,

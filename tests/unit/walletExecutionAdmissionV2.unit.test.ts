@@ -44,6 +44,7 @@ import {
 import {
   buildWalletSessionAuthorizationV2,
   buildActiveWalletSessionQuota,
+  buildExactWalletSessionQuotaProjectionV1,
   buildWalletSessionCapabilitySubjectsV1,
   buildAuthorizedOperation,
   parseSessionOrigin,
@@ -57,11 +58,13 @@ import {
 import {
   buildCapabilityOperationEnvelope,
   type CapabilityOperationEnvelope,
+  parseSigningOperationFingerprintDigest,
 } from '@shared/authorization/operationFingerprint';
 import type { AuthorizedOperation } from '../../packages/wallet-server/src/authorization/domain';
 import {
   authorizeRouterAbEcdsaDerivationNormalSigningRoute,
   authorizeRouterAbEd25519NormalSigningRoute,
+  buildRouterAbEd25519PrivateSigningWorkerBody,
   type RouterAbNormalSigningAdmissionAdapter,
 } from '../../packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
 import {
@@ -82,6 +85,7 @@ import type {
   RouterApiAuthorizedOperationService,
   RouterApiAuthorizationSessionService,
   RouterApiWalletSessionAuthorizationV2AdmissionContext,
+  RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext,
   RouterApiWalletRegistrationService,
 } from '../../packages/wallet-server/src/router/framework/authServicePort';
 import {
@@ -91,10 +95,12 @@ import {
 import type { RouterAbEd25519YaoExportAuthorizationIdentityV1 } from '@shared/utils/routerAbEd25519Yao';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
+  buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
   buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/wallet/src/core/rpcClients/relayer/routerAbNormalSigning';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/createFetchRouter';
@@ -328,6 +334,8 @@ class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessi
   constructor(
     private readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext,
     private readonly expectedToken: string | null = null,
+    private readonly exhaustedCandidate: RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext | null = null,
+    private readonly activeReadFailure = false,
   ) {
     this.tenantId = context.authorization.session.tenantId;
   }
@@ -335,7 +343,16 @@ class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessi
   readonly readWalletSessionAuthorizationV2ByOperationCredential = async (input: {
     readonly token: string;
   }) => {
+    if (this.activeReadFailure) throw new Error('active Wallet Session quota is exhausted');
     return this.expectedToken === null || input.token === this.expectedToken ? this.context : null;
+  };
+
+  readonly readExhaustedWalletSessionAuthorizationV2CandidateByOperationCredential = async (input: {
+    readonly token: string;
+  }) => {
+    return this.expectedToken === null || input.token === this.expectedToken
+      ? this.exhaustedCandidate
+      : null;
   };
 
   async readExactWalletSessionStatusByOperationCredential(): Promise<never> {
@@ -354,6 +371,8 @@ class WalletSessionAuthorizationV2Fixture implements RouterApiAuthorizationSessi
 
 class WalletAuthorizedOperationFixture implements RouterApiAuthorizedOperationService {
   readonly tenantId: WalletSessionAuthorizationV2['tenantId'];
+  readCalls = 0;
+  admitCalls = 0;
 
   constructor(private readonly operation: AuthorizedOperation) {
     this.tenantId = operation.tenantId;
@@ -375,12 +394,25 @@ class WalletAuthorizedOperationFixture implements RouterApiAuthorizedOperationSe
       : null;
   }
 
-  async readAuthorizedOperation(): Promise<never> {
-    return await unsupportedAuthorizedOperationOperation();
+  async readAuthorizedOperation(input: {
+    readonly operationFingerprintDigest: AuthorizedOperation['operationFingerprintDigest'];
+  }): Promise<AuthorizedOperation | null> {
+    this.readCalls += 1;
+    return input.operationFingerprintDigest === this.operation.operationFingerprintDigest
+      ? this.operation
+      : null;
   }
 
-  async admitAuthorizedOperation(): Promise<never> {
-    return await unsupportedAuthorizedOperationOperation();
+  async admitAuthorizedOperation(input: {
+    readonly operation: Parameters<
+      RouterApiAuthorizedOperationService['admitAuthorizedOperation']
+    >[0]['operation'];
+  }): Promise<{ readonly kind: 'operation_in_progress'; readonly operation: AuthorizedOperation }> {
+    this.admitCalls += 1;
+    return {
+      kind: 'operation_in_progress',
+      operation: this.operation,
+    };
   }
 
   async completeAuthorizedOperation(): Promise<never> {
@@ -456,17 +488,20 @@ test('device-link owner approval requires the exact V2 operation credential', as
 });
 
 class Ed25519MaterialActivationFixture {
-  readonly runtimePolicyScope: RuntimePolicyScope = {
-    orgId: 'org:admission',
-    projectId: 'project:admission',
-    envId: 'env:admission',
-    signingRootVersion: 'root:admission',
-  };
+  readonly runtimePolicyScope: RuntimePolicyScope;
 
   constructor(
     private readonly materialActivation: RouterAbMpcMaterialActivationRefWire,
     private readonly exportIdentity: RouterAbEd25519YaoExportAuthorizationIdentityV1,
-  ) {}
+    runtimePolicyScope: RuntimePolicyScope = {
+      orgId: 'org:admission',
+      projectId: 'project:admission',
+      envId: 'env:admission',
+      signingRootVersion: 'root:admission',
+    },
+  ) {
+    this.runtimePolicyScope = runtimePolicyScope;
+  }
 
   async resolveEd25519MaterialActivation(
     input: Parameters<RouterApiWalletRegistrationService['resolveEd25519MaterialActivation']>[0],
@@ -710,6 +745,120 @@ async function buildEd25519AuthorizedOperationFixture(input: {
     },
     claimedAtMs: Date.now(),
   });
+}
+
+async function buildEd25519OperationStepUpPrepareRequestFixture(input: {
+  readonly walletId: WalletId;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  readonly requestId: string;
+  readonly operationId: string;
+  readonly expiresAtMs: number;
+}) {
+  return (
+    await buildRouterAbEd25519NearTransactionPrepareRequestV2({
+      scope: {
+        request_id: input.requestId,
+        account_id: String(input.walletId),
+        authorization: { kind: 'operation_step_up' },
+        material_activation: input.materialActivation,
+        signing_worker_id: input.materialActivation.signing_worker,
+      },
+      expiresAtMs: input.expiresAtMs,
+      operationId: input.operationId,
+      operationFingerprint: `sha256:${base64UrlEncode(new Uint8Array(32).fill(10))}`,
+      displayDigestB64u: base64UrlEncode(new Uint8Array(32).fill(12)),
+      nearAccountId: 'alice.testnet',
+      nearNetworkId: 'testnet',
+      transactions: [{ receiverId: 'receiver.testnet', actionFingerprint: 'action' }],
+      unsignedTransactionBorshB64u: 'AQID',
+      expectedSigningDigestB64u: 'A5BYxvLAy0ksUzsKTRTvd8wPeKvMztUofYShogEc-4E',
+    })
+  ).request;
+}
+
+async function buildEd25519VerifiedStepUpOperationFixture(input: {
+  readonly session: WalletSessionAuthorizationV2;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  readonly body: Awaited<ReturnType<typeof buildEd25519OperationStepUpPrepareRequestFixture>>;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+}): Promise<AuthorizedOperation> {
+  const privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
+    phase: 'prepare',
+    body: input.body,
+    authorization: {
+      kind: 'operation_step_up',
+      session: {
+        tenantId: input.session.tenantId,
+        principalId: input.session.principalId,
+        sessionId: String(input.session.authorizationId),
+        walletId: String(input.session.walletId),
+        runtimePolicyScope: input.runtimePolicyScope,
+        laneAuthorization: {
+          kind: 'wallet_auth_method',
+          walletAuthMethodId: input.session.walletAuthMethodId,
+        },
+      },
+    },
+    headers: { origin: 'https://wallet.example.test' },
+  });
+  if (!('admission_candidate' in privateBody)) {
+    throw new Error('Ed25519 step-up fixture admission candidate is missing');
+  }
+  const operationId = required(parseCapabilityOperationId(input.body.intent.operation_id));
+  const operation = buildCapabilityOperationEnvelope({
+    tenantId: input.session.tenantId,
+    principalId: input.session.principalId,
+    capabilityId: required(parseCapabilityId(input.materialActivation.capability)),
+    operationId,
+    operation: buildNearEd25519MpcOperationRef(NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction),
+    digests: {
+      laneDigest: parseSigningOperationFingerprintDigest(input.body.intent.operation_fingerprint),
+      intentDigest: parseDigestB64u(
+        base64UrlEncode(Uint8Array.from(privateBody.admission_candidate.intent_digest.bytes)),
+      ),
+      displayDigest: parseDigestB64u(
+        base64UrlEncode(Uint8Array.from(input.body.display_digest.bytes)),
+      ),
+    },
+  });
+  return await buildAuthorizedOperation({
+    tenantId: input.session.tenantId,
+    authorizedOperationId: required(
+      parseAuthorizedOperationId(`normal-signing-operation:${input.body.scope.request_id}`),
+    ),
+    auditEventId: required(
+      parseAuthorizationAuditEventId(`normal-signing-audit:${input.body.scope.request_id}`),
+    ),
+    operation,
+    authorization: {
+      kind: 'verified_step_up',
+      evidenceSetDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(13))),
+    },
+    quota: { kind: 'quota_neutral' },
+    claimedAtMs: Date.now(),
+  });
+}
+
+function verifiedStepUpAuthorizedOperationReceiptFixture(
+  operation: AuthorizedOperation,
+  session: WalletSessionAuthorizationV2,
+): Record<string, unknown> {
+  if (operation.authorization.kind !== 'verified_step_up') {
+    throw new Error('Ed25519 step-up fixture operation has the wrong authorization');
+  }
+  return {
+    kind: 'verified_step_up_authorized_operation_v1',
+    authorization_session_id: String(session.authorizationId),
+    evidence_set_digest: String(operation.authorization.evidenceSetDigest),
+    authorized_operation_id: String(operation.authorizedOperationId),
+    operation_id: String(operation.operation.operationId),
+    capability_kind: 'near_ed25519_mpc_signing',
+    operation_kind: operation.operation.operation.operationKind,
+    lane_digest_b64u: String(operation.operation.digests.laneDigest),
+    intent_digest_b64u: String(operation.operation.digests.intentDigest),
+    display_digest_b64u: String(operation.operation.digests.displayDigest),
+    operation_fingerprint_digest: String(operation.operationFingerprintDigest),
+  };
 }
 
 function authorizedOperationReceiptFixture(
@@ -1567,4 +1716,238 @@ test('strict Ed25519 V2 finalize admits the exact receipt operation and rejects 
     },
   });
   expect(admissionAdapter.calls).toBe(1);
+});
+
+test('Ed25519 operation step-up admits a matching exhausted Wallet Session candidate', async () => {
+  const authority = await buildAuthority('ed25519', 'near-exhausted-step-up');
+  const authMethod = buildAuthMethod(authority, 'near-exhausted-step-up', 'active');
+  const session = buildSession({
+    authority,
+    authMethodId: authMethod.walletAuthMethodId,
+    label: 'near-exhausted-step-up',
+    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
+    authorityDigestB64u: authority.authorityDigestB64u,
+    authorityRevocationEpoch: authority.revocationEpoch,
+    expiresAtMs: Date.now() + 60_000,
+  });
+  const candidate: RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext = {
+    status: {
+      kind: 'exhausted',
+      session,
+      quota: buildExactWalletSessionQuotaProjectionV1({
+        lifecycle: 'exhausted',
+        tenantId: session.tenantId,
+        principalId: session.principalId,
+        walletSessionId: session.walletSessionId,
+        quotaId: session.quotaId,
+        remainingUses: 0,
+        expiresAtMs: session.expiresAtMs,
+      }),
+    },
+    authority,
+    authMethod,
+    retiredAtMs: null,
+  };
+  const materialActivation = routerAbMpcMaterialActivationRefToWire(
+    authority.signerActivations.ed25519.materialActivation,
+  );
+  const materialResolver = new Ed25519MaterialActivationFixture(
+    materialActivation,
+    buildEd25519ExportIdentityFixture(materialActivation, authority.walletId),
+    {
+      orgId: String(session.tenantId),
+      projectId: 'project:admission-near-exhausted-step-up',
+      envId: 'env:admission-near-exhausted-step-up',
+      signingRootVersion: 'root:admission-near-exhausted-step-up',
+    },
+  );
+  const body = await buildEd25519OperationStepUpPrepareRequestFixture({
+    walletId: authority.walletId,
+    materialActivation,
+    requestId: 'near-exhausted-step-up',
+    operationId: 'operation:near-exhausted-step-up',
+    expiresAtMs: session.expiresAtMs - 1_000,
+  });
+  const authorizedOperation = await buildEd25519VerifiedStepUpOperationFixture({
+    session,
+    materialActivation,
+    body,
+    runtimePolicyScope: materialResolver.runtimePolicyScope,
+  });
+  const authorizedOperations = new WalletAuthorizedOperationFixture(authorizedOperation);
+  const authorizationSessions = new WalletSessionAuthorizationV2Fixture(
+    buildAdmissionContext({ authority, authMethod, session }),
+    'exhausted-near-step-up-token',
+    candidate,
+    true,
+  );
+
+  const admitted = await authorizeRouterAbEd25519NormalSigningRoute({
+    body,
+    rawBody: body,
+    headers: {
+      authorization: 'Bearer exhausted-near-step-up-token',
+      origin: 'https://wallet.example.test',
+    },
+    session: null,
+    authorizedOperations,
+    authorizationSessions,
+    admissionAdapter: null,
+    resolveEd25519MaterialActivation:
+      materialResolver.resolveEd25519MaterialActivation.bind(materialResolver),
+    phase: 'prepare',
+  });
+
+  expect(admitted).toMatchObject({
+    ok: true,
+    kind: 'operation_step_up',
+    phase: 'prepare',
+    admissionKind: 'operation_in_progress',
+  });
+  if (!admitted.ok || admitted.kind !== 'operation_step_up') {
+    throw new Error('exhausted candidate was not admitted');
+  }
+  expect(admitted.session.sessionId).toBe(String(session.authorizationId));
+  expect(admitted.operation.authorization.kind).toBe('verified_step_up');
+  expect(admitted.operation.quota.kind).toBe('quota_neutral');
+  expect(admitted.operation.authorizedOperationId).toBe(authorizedOperation.authorizedOperationId);
+  expect(authorizedOperations.readCalls).toBe(1);
+  expect(authorizedOperations.admitCalls).toBe(1);
+  expect(authorizationSessions.statusReads).toBe(0);
+
+  const finalizeBody = {
+    scope: body.scope,
+    expires_at_ms: session.expiresAtMs - 1_000,
+    authorized_operation: verifiedStepUpAuthorizedOperationReceiptFixture(
+      authorizedOperation,
+      session,
+    ),
+    prepare_binding: {
+      intent_digest: { bytes: new Array<number>(32).fill(11) },
+    },
+  };
+  const finalized = await authorizeRouterAbEd25519NormalSigningRoute({
+    body: finalizeBody,
+    rawBody: finalizeBody,
+    headers: {
+      authorization: 'Bearer exhausted-near-step-up-token',
+      origin: 'https://wallet.example.test',
+    },
+    session: null,
+    authorizedOperations,
+    authorizationSessions,
+    admissionAdapter: null,
+    resolveEd25519MaterialActivation:
+      materialResolver.resolveEd25519MaterialActivation.bind(materialResolver),
+    phase: 'finalize',
+  });
+  expect(finalized).toMatchObject({
+    ok: true,
+    kind: 'operation_step_up',
+    phase: 'finalize',
+    session: { sessionId: String(session.authorizationId) },
+  });
+
+  const driftedReceiptBody = {
+    ...finalizeBody,
+    authorized_operation: {
+      ...finalizeBody.authorized_operation,
+      kind: 'reusable_wallet_session_authorized_operation_v1',
+    },
+  };
+  const driftedReceipt = await authorizeRouterAbEd25519NormalSigningRoute({
+    body: driftedReceiptBody,
+    rawBody: driftedReceiptBody,
+    headers: {
+      authorization: 'Bearer exhausted-near-step-up-token',
+      origin: 'https://wallet.example.test',
+    },
+    session: null,
+    authorizedOperations,
+    authorizationSessions,
+    admissionAdapter: null,
+    resolveEd25519MaterialActivation:
+      materialResolver.resolveEd25519MaterialActivation.bind(materialResolver),
+    phase: 'finalize',
+  });
+  expect(driftedReceipt).toMatchObject({
+    ok: false,
+    result: {
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Ed25519 verified step-up authorized operation is required',
+      },
+    },
+  });
+
+  const missingReceiptBody = { ...finalizeBody, authorized_operation: undefined };
+  const missingReceipt = await authorizeRouterAbEd25519NormalSigningRoute({
+    body: missingReceiptBody,
+    rawBody: missingReceiptBody,
+    headers: {
+      authorization: 'Bearer exhausted-near-step-up-token',
+      origin: 'https://wallet.example.test',
+    },
+    session: null,
+    authorizedOperations,
+    authorizationSessions,
+    admissionAdapter: null,
+    resolveEd25519MaterialActivation:
+      materialResolver.resolveEd25519MaterialActivation.bind(materialResolver),
+    phase: 'finalize',
+  });
+  expect(missingReceipt).toMatchObject({
+    ok: false,
+    result: {
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Ed25519 verified step-up authorized operation is required',
+      },
+    },
+  });
+
+  const unpreclaimedBody = await buildEd25519OperationStepUpPrepareRequestFixture({
+    walletId: authority.walletId,
+    materialActivation,
+    requestId: 'unpreclaimed-near-exhausted-step-up',
+    operationId: 'operation:unpreclaimed-near-exhausted-step-up',
+    expiresAtMs: session.expiresAtMs - 1_000,
+  });
+  const unpreclaimedOperation = await buildEd25519VerifiedStepUpOperationFixture({
+    session,
+    materialActivation,
+    body: unpreclaimedBody,
+    runtimePolicyScope: materialResolver.runtimePolicyScope,
+  });
+  const unpreclaimedAuthorizedOperations = new WalletAuthorizedOperationFixture(
+    unpreclaimedOperation,
+  );
+  const missingPreclaim = await authorizeRouterAbEd25519NormalSigningRoute({
+    body,
+    rawBody: body,
+    headers: {
+      authorization: 'Bearer exhausted-near-step-up-token',
+      origin: 'https://wallet.example.test',
+    },
+    session: null,
+    authorizedOperations: unpreclaimedAuthorizedOperations,
+    authorizationSessions,
+    admissionAdapter: null,
+    resolveEd25519MaterialActivation:
+      materialResolver.resolveEd25519MaterialActivation.bind(materialResolver),
+    phase: 'prepare',
+  });
+  expect(missingPreclaim).toMatchObject({
+    ok: false,
+    result: {
+      status: 409,
+      body: { ok: false, code: 'authorized_operation_missing' },
+    },
+  });
+  expect(unpreclaimedAuthorizedOperations.readCalls).toBe(1);
+  expect(unpreclaimedAuthorizedOperations.admitCalls).toBe(0);
 });

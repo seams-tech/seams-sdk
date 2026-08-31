@@ -47,6 +47,7 @@ import type {
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { OwnerLaneScope } from '../session/identity/signingLaneAuthBinding';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { ExactWalletSessionReadPorts } from '../session/identity/exactWalletSessionCredential';
 
 export type EvmFamilyChain = 'tempo' | 'evm';
 
@@ -127,6 +128,7 @@ export type PasskeyEcdsaSigningLookupArgs = EcdsaSigningLookupArgs & {
 };
 
 export type EvmFamilySigningDeps = DurableEmailOtpEcdsaSigningSessionAuthorityResolver & {
+  activeWalletAuthorityEcdsaRuntimeReadPorts: ExactWalletSessionReadPorts;
   resolveOwnerLaneScope: (walletId: WalletId) => Promise<OwnerLaneScope>;
   resolveCanonicalEcdsaSigningCapability: (args: {
     walletId: WalletId;

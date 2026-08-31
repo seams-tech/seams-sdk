@@ -82,7 +82,7 @@ import {
   type DeviceLinkingOrdinaryTargetFactorBindingV1,
   type DeviceLinkingOrdinarySignerMaterialReservationPreparationV1,
   type SealedLocalAuthorityMaterialSetV1,
-} from '@/SeamsWeb/operations/devices/deviceLinkingOrdinaryMaterialWorker';
+} from '../deviceLinkingPorts';
 
 /**
  * The worker is the only owner of these key objects. The browser receives

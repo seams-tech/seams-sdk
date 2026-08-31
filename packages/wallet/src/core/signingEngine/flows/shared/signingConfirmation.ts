@@ -132,7 +132,7 @@ export function signingAuthPlanFromSigningSessionPlan(args: {
   plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
   accountId: string;
   intent: SigningOperationIntent;
-  curve?: 'ed25519' | 'ecdsa';
+  curve: 'ed25519' | 'ecdsa';
   expiresAtMs?: number;
   remainingUses?: number;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
@@ -149,13 +149,33 @@ export function signingAuthPlanFromSigningSessionPlan(args: {
         '[SigningEngine] warm signing-session auth plan requires positive expiresAtMs and remainingUses',
       );
     }
+    if (args.curve === 'ed25519') {
+      if (plan.keyRef.curve !== 'ed25519') {
+        throw new Error('[SigningEngine] Ed25519 warm plan requires an Ed25519 key ref');
+      }
+      return {
+        kind: SigningAuthPlanKind.WarmSession,
+        method: signingLaneAuthMethod(plan.lane.auth),
+        accountId: args.accountId,
+        intent: args.intent,
+        curve: 'ed25519',
+        thresholdSessionId: String(plan.keyRef.thresholdSessionId),
+        retention: plan.lane.retention,
+        expiresAtMs,
+        remainingUses,
+      };
+    }
+    if (plan.keyRef.curve !== 'ecdsa') {
+      throw new Error('[SigningEngine] ECDSA warm plan requires an ECDSA key ref');
+    }
     return {
       kind: SigningAuthPlanKind.WarmSession,
       method: signingLaneAuthMethod(plan.lane.auth),
       accountId: args.accountId,
       intent: args.intent,
-      ...(args.curve ? { curve: args.curve } : {}),
-      thresholdSessionId: String(plan.keyRef.thresholdSessionId),
+      curve: 'ecdsa',
+      materialActivation: plan.keyRef.materialActivation,
+      authorization: plan.keyRef.authorization,
       retention: plan.lane.retention,
       expiresAtMs,
       remainingUses,

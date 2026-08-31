@@ -121,15 +121,19 @@ function requireEvmFamilyRelayerUrl(deps: EvmFamilySigningDeps): string {
 }
 
 async function resolveCurrentActiveWalletAuthorityRuntime(args: {
+  readonly deps: EvmFamilySigningDeps;
   readonly prepared: ActiveWalletAuthorityEcdsaRuntimeV1;
   readonly signer: ReturnType<typeof requireEvmFamilyEcdsaSigner>;
 }): Promise<ActiveWalletAuthorityEcdsaRuntimeV1> {
   const current = await resolveActiveWalletAuthorityEcdsaRuntimeV1({
-    walletId: args.signer.walletId,
-    chainTarget: args.signer.chainTarget,
-    requiredCapability: 'sign',
-    materialActivation: args.signer.materialActivation,
-    nowMs: Date.now(),
+    ports: args.deps.activeWalletAuthorityEcdsaRuntimeReadPorts,
+    input: {
+      walletId: args.signer.walletId,
+      chainTarget: args.signer.chainTarget,
+      requiredCapability: 'sign',
+      materialActivation: args.signer.materialActivation,
+      nowMs: Date.now(),
+    },
   });
   if (current.kind !== 'resolved') {
     throw new Error(`[SigningEngine] active Wallet Authority ECDSA runtime is ${current.reason}`);
@@ -479,6 +483,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               },
               async () => {
                 const runtime = await resolveCurrentActiveWalletAuthorityRuntime({
+                  deps: args.deps,
                   prepared: activeWalletAuthority.runtime,
                   signer: resolvedSigner,
                 });

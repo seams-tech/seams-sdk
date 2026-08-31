@@ -4,7 +4,18 @@ import {
   type PasskeyCustodySecretBinding,
   type PasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
-import { IndexedDBManager } from '@/core/indexedDB';
+
+export type PasskeyCustodySessionCachePersistencePort = {
+  readonly readCacheEntry: (key: string) => Promise<unknown | undefined>;
+  readonly writeCacheEntry: (key: string, value: unknown) => Promise<void>;
+};
+
+type PasskeyCustodySessionCachePersistenceState =
+  | { readonly kind: 'unconfigured' }
+  | {
+      readonly kind: 'configured';
+      readonly persistence: PasskeyCustodySessionCachePersistencePort;
+    };
 
 type PasskeyCustodySessionKey = `${string}:${string}`;
 type Ed25519YaoClientRootEnvelopeKey = string;
@@ -17,6 +28,10 @@ const ED25519_YAO_CLIENT_ROOT_ENVELOPE_CACHE_KIND =
   'ed25519_yao_client_root_envelope_cache_v1' as const;
 const MAX_CACHED_PASSKEY_CUSTODY_ENVELOPES = 32;
 const MAX_CACHED_ED25519_YAO_CLIENT_ROOT_ENVELOPES = 32;
+
+let persistenceState: PasskeyCustodySessionCachePersistenceState = {
+  kind: 'unconfigured',
+};
 
 type PasskeyCustodyEnvelopeCacheV1 = {
   readonly kind: typeof PASSKEY_CUSTODY_ENVELOPE_CACHE_KIND;
@@ -73,6 +88,27 @@ const activeEd25519YaoClientRootEnvelopes = new Map<
   Ed25519YaoClientRootEnvelopeKey,
   Ed25519YaoClientRootEnvelopeRecordV1
 >();
+
+function assertNeverPersistenceState(value: never): never {
+  throw new Error(`unknown passkey custody session cache persistence state: ${String(value)}`);
+}
+
+function requirePersistence(): PasskeyCustodySessionCachePersistencePort {
+  switch (persistenceState.kind) {
+    case 'configured':
+      return persistenceState.persistence;
+    case 'unconfigured':
+      throw new Error('passkey custody session cache persistence is not configured');
+    default:
+      return assertNeverPersistenceState(persistenceState);
+  }
+}
+
+export function configurePasskeyCustodySessionCachePersistence(
+  persistence: PasskeyCustodySessionCachePersistencePort,
+): void {
+  persistenceState = { kind: 'configured', persistence };
+}
 
 function sessionKey(walletId: string, credentialIdB64u: string): PasskeyCustodySessionKey {
   const wallet = String(walletId || '').trim();
@@ -132,15 +168,13 @@ function parseEnvelopeCache(value: unknown): PasskeyCustodyEnvelopeCacheV1 {
 }
 
 async function readEnvelopeCache(): Promise<PasskeyCustodyEnvelopeCacheV1> {
-  if (IndexedDBManager.isDisabled()) return emptyEnvelopeCache();
   return parseEnvelopeCache(
-    await IndexedDBManager.getAppState<unknown>(PASSKEY_CUSTODY_ENVELOPE_CACHE_KEY),
+    await requirePersistence().readCacheEntry(PASSKEY_CUSTODY_ENVELOPE_CACHE_KEY),
   );
 }
 
 async function writeEnvelopeCache(cache: PasskeyCustodyEnvelopeCacheV1): Promise<void> {
-  if (IndexedDBManager.isDisabled()) return;
-  await IndexedDBManager.setAppState(PASSKEY_CUSTODY_ENVELOPE_CACHE_KEY, cache);
+  await requirePersistence().writeCacheEntry(PASSKEY_CUSTODY_ENVELOPE_CACHE_KEY, cache);
 }
 
 export function isEd25519YaoClientRootEnvelopeRecordV1(
@@ -184,17 +218,15 @@ function parseEd25519YaoClientRootEnvelopeCache(
 }
 
 async function readEd25519YaoClientRootEnvelopeCache(): Promise<Ed25519YaoClientRootEnvelopeCacheV1> {
-  if (IndexedDBManager.isDisabled()) return emptyEd25519YaoClientRootEnvelopeCache();
   return parseEd25519YaoClientRootEnvelopeCache(
-    await IndexedDBManager.getAppState<unknown>(ED25519_YAO_CLIENT_ROOT_ENVELOPE_CACHE_KEY),
+    await requirePersistence().readCacheEntry(ED25519_YAO_CLIENT_ROOT_ENVELOPE_CACHE_KEY),
   );
 }
 
 async function writeEd25519YaoClientRootEnvelopeCache(
   cache: Ed25519YaoClientRootEnvelopeCacheV1,
 ): Promise<void> {
-  if (IndexedDBManager.isDisabled()) return;
-  await IndexedDBManager.setAppState(ED25519_YAO_CLIENT_ROOT_ENVELOPE_CACHE_KEY, cache);
+  await requirePersistence().writeCacheEntry(ED25519_YAO_CLIENT_ROOT_ENVELOPE_CACHE_KEY, cache);
 }
 
 function rootEnvelopeMatchesIdentity(

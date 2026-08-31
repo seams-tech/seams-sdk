@@ -103,7 +103,11 @@ function findWalletRegistrationOriginViolations() {
   if (!/class\s+WalletOriginWebAuthnUnavailableError/.test(fallback)) {
     violations.push(`${fallbackPath} lacks the typed wallet-origin registration error`);
   }
-  if (!/if \(kind === 'create'\)[\s\S]{0,500}WalletOriginWebAuthnUnavailableError/.test(fallback)) {
+  if (
+    !/if \(kind === 'create'(?:\s*&&[\s\S]{0,180})?\)[\s\S]{0,500}WalletOriginWebAuthnUnavailableError/.test(
+      fallback,
+    )
+  ) {
     violations.push(`${fallbackPath} does not stop CREATE before parent fallback handling`);
   }
 
@@ -118,10 +122,8 @@ function findWalletRegistrationOriginViolations() {
 
   const hostEntryPath = 'packages/wallet/src/SeamsWeb/walletIframe/host/index.ts';
   const hostEntry = readRepoFile(hostEntryPath);
-  const configPreload = hostEntry.indexOf('await preloadWalletHostRegistrationSurface()');
-  const configReady = hostEntry.indexOf("post({ type: 'PONG', requestId })", configPreload);
-  if (configPreload < 0 || configReady < configPreload) {
-    violations.push(`${hostEntryPath} does not preload registration UI before config readiness`);
+  if (/preloadWalletHostRegistrationSurface/.test(hostEntry)) {
+    violations.push(`${hostEntryPath} eagerly preloads registration UI on the boot path`);
   }
   if (
     /openRegistrationPreparationIfNeeded|openWalletHostRegistrationPreparation|preparationHandle/.test(
@@ -129,6 +131,17 @@ function findWalletRegistrationOriginViolations() {
     )
   ) {
     violations.push(`${hostEntryPath} mounts an obsolete duplicate registration shell`);
+  }
+
+  const authMenuPath =
+    'packages/wallet/src/SeamsWeb/walletIframe/host/auth-menu/controller.ts';
+  const authMenu = readRepoFile(authMenuPath);
+  if (
+    !/session\.mount\(\)[\s\S]{0,180}await yieldAfterAuthMenuMount\(\)[\s\S]{0,180}if \(args\.request\.initialMode === 'register'\)[\s\S]{0,180}preloadWalletHostRegistrationSurface\(\)/.test(
+      authMenu,
+    )
+  ) {
+    violations.push(`${authMenuPath} does not preload registration UI after mounting register mode`);
   }
 
   const preloadPath =

@@ -19,7 +19,7 @@ export type {
 } from '@/core/signingEngine/interfaces/near';
 
 export function buildNearEd25519WarmSessionStepUpAuthorization(
-  signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>,
+  signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession'; curve: 'ed25519' }>,
 ): NearEd25519WarmSessionStepUpAuthorization {
   return {
     kind: 'warm_session',

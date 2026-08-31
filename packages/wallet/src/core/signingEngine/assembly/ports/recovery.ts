@@ -26,6 +26,7 @@ import type { EcdsaExportFlowDeps } from '../../flows/recovery/ecdsaExportFlow';
 import type { Ed25519YaoExportFlowDeps } from '../../flows/recovery/ed25519YaoExportFlow';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 import type { OwnerLaneScope } from '../../session/identity/signingLaneAuthBinding';
+import { browserExactWalletSessionReadPorts } from './emailOtp';
 
 export function createRecoveryPublicDeps(args: {
   seamsWebConfigs: CreateSigningEnginePortsArgs['seamsWebConfigs'];
@@ -88,6 +89,7 @@ export function createRecoveryPublicDeps(args: {
       readPersistedAvailableSigningLanesForTargets: (availableLanesArgs) =>
         readPersistedAvailableSigningLanesForTargets(
           {
+            activeWalletAuthorityEcdsaRuntimeReadPorts: browserExactWalletSessionReadPorts,
             ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
             isEd25519YaoPublicCapabilityActive: args.isEd25519YaoPublicCapabilityActive,
             readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
@@ -101,6 +103,7 @@ export function createRecoveryPublicDeps(args: {
       readOwnerScopedAvailableSigningLanesForTargets: async (availableLanesArgs) =>
         await readOwnerScopedAvailableSigningLanes(
           {
+            activeWalletAuthorityEcdsaRuntimeReadPorts: browserExactWalletSessionReadPorts,
             ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
             isEd25519YaoPublicCapabilityActive: args.isEd25519YaoPublicCapabilityActive,
             readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
@@ -114,6 +117,7 @@ export function createRecoveryPublicDeps(args: {
         ),
     },
     ecdsa: {
+      activeWalletAuthorityEcdsaRuntimeReadPorts: browserExactWalletSessionReadPorts,
       sessionStore: {
         ...args.ecdsaSessions,
         relayerUrl: String(args.relayerUrl).trim().replace(/\/+$/g, ''),

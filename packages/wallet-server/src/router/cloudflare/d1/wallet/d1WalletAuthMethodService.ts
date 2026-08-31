@@ -647,6 +647,20 @@ export class CloudflareD1WalletAuthMethodService {
          proving the addition rather than the target being added. Both are
          bound to this intent's digest, which is what the ceremony checks. */
       if (!isEmailOtpAddAuthMethodIntent(stored.intent)) {
+        /* R109C admission, here rather than only at start: this is the last
+           hop before a code leaves the building. A repeat Passkey addition
+           must not issue the source Email challenge first. */
+        const activeOnAuthority = await this.activeMethodsOnIntentAuthority({
+          walletId: input.walletId,
+          intent: stored.intent,
+        });
+        if (activeOnAuthority.some((method) => method.kind === 'passkey')) {
+          return {
+            ok: false,
+            code: 'already_configured',
+            message: 'Wallet authority already has an active passkey auth method',
+          };
+        }
         return await this.createAddAuthMethodEmailOtpSourceChallenge({
           walletId: input.walletId,
           orgId: stored.orgId || this.orgId,

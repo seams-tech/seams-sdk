@@ -46,6 +46,8 @@ const allowedEcdsaClientCeremonyWasmExports = new Set([
   'routerabecdsaclientceremonyv1_explicit_export_request_digest_b64u',
   'routerabecdsaclientceremonyv1_new',
   'routerabecdsaclientceremonyv1_finalize_explicit_export',
+  'routerabecdsaclientceremonyv1_fromRecipientPrivateKey',
+  'routerabecdsaclientceremonyv1_open_committed_role_envelopes',
   'routerabecdsaclientceremonyv1_public_key',
   'routerabecdsaclientceremonyv1_registration_binding',
   'routerabecdsaclientceremonyv1_verify_encrypted_proof_bundles',
@@ -66,6 +68,29 @@ const allowedEcdsaRoleLocalPresignWasmExports = new Set([
   'ecdsarolelocalpresignsessionv1_compute_signature_share',
   'ecdsarolelocalpresignsessionv1_stage',
   'ecdsarolelocalpresignsessionv1_start_presign',
+]);
+
+const allowedEcdsaLinkedHolderWasmExports = new Set([
+  '__wbg_ecdsalinkedholdermaterialv1_free',
+  'ecdsalinkedholdermaterialv1_build_ordinary_export_request',
+  'ecdsalinkedholdermaterialv1_finalize_ordinary_export',
+  'ecdsalinkedholdermaterialv1_new',
+  'ecdsalinkedholdermaterialv1_ordinary_export_request_digest_b64u',
+  'ecdsalinkedholdermaterialv1_start_presign',
+]);
+
+const allowedEcdsaOrdinaryClientMaterialWasmExports = new Set([
+  '__wbg_wasmordinaryecdsaclientmaterialv1_free',
+  'wasmordinaryecdsaclientmaterialv1_activation_id',
+  'wasmordinaryecdsaclientmaterialv1_destroy',
+  'wasmordinaryecdsaclientmaterialv1_take_client_material',
+  'wasmordinaryecdsaclientmaterialv1_transcript',
+]);
+
+const allowedLinkedDeviceSourceContributionWasmExports = new Set([
+  '__wbg_linkeddeviceecdsasourcecontributionsessionv1_free',
+  'linkeddeviceecdsasourcecontributionsessionv1_new',
+  'linkeddeviceecdsasourcecontributionsessionv1_prepare',
 ]);
 
 const requiredEcdsaClientCeremonyTypeMethods = [
@@ -896,6 +921,9 @@ function checkGeneratedEcdsaDerivationClientArtifactSurface() {
       !allowedEcdsaClientCeremonyWasmExports.has(entry.name) &&
       !allowedEcdsaLaneHolderWasmExports.has(entry.name) &&
       !allowedEcdsaRoleLocalPresignWasmExports.has(entry.name) &&
+      !allowedEcdsaLinkedHolderWasmExports.has(entry.name) &&
+      !allowedEcdsaOrdinaryClientMaterialWasmExports.has(entry.name) &&
+      !allowedLinkedDeviceSourceContributionWasmExports.has(entry.name) &&
       !isAllowedWasmBindgenRuntimeExport(entry.name)
     ) {
       unexpectedExports.push(`${entry.name}:${entry.kind}`);
@@ -924,6 +952,24 @@ function checkGeneratedEcdsaDerivationClientArtifactSurface() {
     );
   }
   for (const requiredExport of allowedEcdsaRoleLocalPresignWasmExports) {
+    assert.ok(
+      namedWasmExports.includes(requiredExport),
+      `generated ECDSA derivation client WASM is missing ${requiredExport}`,
+    );
+  }
+  for (const requiredExport of allowedEcdsaLinkedHolderWasmExports) {
+    assert.ok(
+      namedWasmExports.includes(requiredExport),
+      `generated ECDSA derivation client WASM is missing ${requiredExport}`,
+    );
+  }
+  for (const requiredExport of allowedEcdsaOrdinaryClientMaterialWasmExports) {
+    assert.ok(
+      namedWasmExports.includes(requiredExport),
+      `generated ECDSA derivation client WASM is missing ${requiredExport}`,
+    );
+  }
+  for (const requiredExport of allowedLinkedDeviceSourceContributionWasmExports) {
     assert.ok(
       namedWasmExports.includes(requiredExport),
       `generated ECDSA derivation client WASM is missing ${requiredExport}`,

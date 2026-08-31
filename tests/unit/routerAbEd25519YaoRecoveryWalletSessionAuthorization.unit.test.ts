@@ -264,6 +264,10 @@ class AuthorizationSessionsFixture implements RouterApiAuthorizationSessionServi
     return this.exactContext;
   }
 
+  async readExhaustedWalletSessionAuthorizationV2CandidateByOperationCredential(): Promise<null> {
+    return null;
+  }
+
   async readLinkedDeviceWalletSessionAuthorization(): Promise<never> {
     return await unsupportedAuthorizationSessionOperation();
   }

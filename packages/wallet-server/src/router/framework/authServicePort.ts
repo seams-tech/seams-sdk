@@ -26,7 +26,10 @@ import type {
   WebAuthnCredentialIdB64u,
   WebAuthnRpId,
 } from '@shared/utils/domainIds';
-import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import type {
+  ActiveWalletAuthorityV1,
+  WalletAuthorityProvenanceV1,
+} from '@shared/authorization/walletAuthority';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbEd25519YaoExportAuthorizationIdentityV1 } from '@shared/utils/routerAbEd25519Yao';
@@ -156,16 +159,20 @@ export type WalletUnlockEmailOtpAuthorityResolution =
       readonly message: string;
     };
 
+export type WalletUnlockEmailOtpSessionRequest =
+  | { readonly kind: 'wallet_session' }
+  | { readonly kind: 'ed25519_yao' };
+
 export type WalletUnlockPasskeySessionResolution =
   | {
       readonly kind: 'active_authority';
-      readonly authorityProvenanceKind: 'device_link' | 'wallet_recovery';
+      readonly authorityProvenanceKind: WalletAuthorityProvenanceV1['kind'];
       readonly walletSession: IssuedWalletSessionAuthorizationV2;
       readonly operationCredential: WalletSessionOperationCredentialV1;
     }
   | {
       readonly kind: 'already_committed';
-      readonly authorityProvenanceKind: 'device_link' | 'wallet_recovery';
+      readonly authorityProvenanceKind: WalletAuthorityProvenanceV1['kind'];
       readonly committed: Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }>;
     }
   | {
@@ -185,6 +192,14 @@ export type RouterApiWalletSessionAuthorizationV2AdmissionContext = {
   readonly authority: ActiveWalletAuthorityV1;
   readonly authMethod: WalletAuthMethodRecordV2;
   readonly retiredAtMs: number | null;
+};
+
+/** Exact exhausted status retained before authorized-operation admission. */
+export type RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext = {
+  readonly status: ExactWalletSessionStatusV2 & { readonly kind: 'exhausted' };
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+  readonly retiredAtMs: null;
 };
 
 export type RouterApiHostedWalletSessionAuthorizationV2AdmissionContext =
@@ -318,10 +333,7 @@ import type {
   VerifiedOwnerProofInput,
 } from '../../authorization/factorEvidence';
 import type { EcdsaMaterialActivationScope } from '../../authorization/service';
-import type {
-  PrincipalId,
-  TenantId,
-} from '@shared/authorization/capabilityKinds';
+import type { PrincipalId, TenantId } from '@shared/authorization/capabilityKinds';
 
 export type EmailOtpChallengeDelivery =
   | {
@@ -1366,6 +1378,13 @@ export interface RouterApiWalletUnlockService {
   verifyWebAuthnLogin(
     input: RouterApiMethodTypes['verifyWebAuthnLogin']['input'],
   ): Promise<RouterApiMethodTypes['verifyWebAuthnLogin']['result']>;
+  resolveActivePasskeyAuthorityForUnlock(input: {
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly walletAuthorityId: WalletAuthorityId;
+    readonly rpId: WebAuthnRpId;
+    readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  }): Promise<WalletUnlockPasskeyAuthorityResolution>;
   resolveEmailOtpAuthorityForUnlock(input: {
     readonly walletId: WalletId;
     readonly orgId: string;
@@ -1386,6 +1405,7 @@ export interface RouterApiWalletUnlockService {
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly providerUserId: string;
     readonly verifiedChallengeId: string;
+    readonly requestedCapabilities: WalletUnlockEmailOtpSessionRequest;
   }): Promise<WalletUnlockPasskeySessionResolution>;
 }
 
@@ -1577,6 +1597,12 @@ export interface RouterApiAuthorizationSessionService {
     readonly token: string;
     readonly nowMs: number;
   }) => Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null>;
+  /** Reads the exact active authority for an already-admitted exhausted operation. */
+  readonly readExhaustedWalletSessionAuthorizationV2CandidateByOperationCredential: (input: {
+    readonly tenantId: TenantId;
+    readonly token: string;
+    readonly nowMs: number;
+  }) => Promise<RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext | null>;
   /** Reads the exact digest-free authorization and quota status lifecycle. */
   readonly readExactWalletSessionStatusByOperationCredential: (input: {
     readonly tenantId: TenantId;

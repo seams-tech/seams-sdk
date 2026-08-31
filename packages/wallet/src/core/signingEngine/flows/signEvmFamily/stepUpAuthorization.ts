@@ -10,7 +10,7 @@ import type {
 } from '@/core/signingEngine/stepUpConfirmation/types';
 
 export type EvmFamilyEcdsaWarmSessionStepUpAuthorization = WarmSessionStepUpAuthorization<
-  Extract<SigningAuthPlan, { kind: 'warmSession' }>
+  Extract<SigningAuthPlan, { kind: 'warmSession'; curve: 'ecdsa' }>
 >;
 
 export type EvmFamilyEcdsaEmailOtpStepUpAuthorization = EmailOtpStepUpAuthorization<
@@ -27,12 +27,13 @@ export type EvmFamilyEcdsaStepUpAuthorization =
   | EvmFamilyEcdsaPasskeyStepUpAuthorization;
 
 export function buildEvmFamilyWarmSessionStepUpAuthorization(args: {
-  signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
+  signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession'; curve: 'ecdsa' }>;
 }): EvmFamilyEcdsaWarmSessionStepUpAuthorization {
   return {
     kind: 'warm_session',
     signingAuthPlan: args.signingAuthPlan,
-    thresholdSessionId: args.signingAuthPlan.thresholdSessionId,
+    materialActivation: args.signingAuthPlan.materialActivation,
+    authorization: args.signingAuthPlan.authorization,
     expiresAtMs: args.signingAuthPlan.expiresAtMs,
     remainingUses: args.signingAuthPlan.remainingUses,
   };

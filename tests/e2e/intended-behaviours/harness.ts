@@ -4,6 +4,7 @@ import {
   type APIRequestContext,
   type BrowserContext,
   type CDPSession,
+  type Frame,
   type FrameLocator,
   type Page,
   type Request,
@@ -27,6 +28,7 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -201,6 +203,63 @@ const ROUTER_AB_WALLET_RECOVERY_PREPARE_PATH = '/wallets/recovery/prepare';
 const ROUTER_AB_WALLET_RECOVERY_FINALIZE_PATH = '/wallets/recovery/finalize';
 const ROUTER_AB_WALLET_RECOVERY_GOOGLE_EMAIL_OTP_FINALIZE_PATH =
   '/wallets/recovery/google-email-otp/finalize';
+
+type PendingWalletRecoveryCommitIdentity = {
+  readonly walletId: string;
+  readonly recoveryOperationId: string;
+  readonly stage: string;
+};
+
+function intendedIndexedDbModulePath(appUrl: string): string {
+  const configured = String(process.env.W3A_REPO_ROOT || '').trim();
+  const cwd = process.cwd();
+  const repoRoot =
+    configured || (existsSync(path.join(cwd, 'packages/wallet')) ? cwd : path.resolve(cwd, '..'));
+  return `${new URL(appUrl).origin}/@fs/${path.join(
+    repoRoot,
+    'packages/wallet/dist/esm/core/indexedDB/index.js',
+  )}`;
+}
+
+async function readPendingWalletRecoveryCommitIdentitiesInBrowser(input: {
+  readonly modulePath: string;
+}): Promise<readonly PendingWalletRecoveryCommitIdentity[]> {
+  const { IndexedDBManager } = await import(input.modulePath);
+  const records: readonly {
+    readonly walletId: unknown;
+    readonly recoveryOperationId: unknown;
+    readonly stage: unknown;
+  }[] = await IndexedDBManager.listPendingWalletRecoveryCommits();
+  return records.map((record) => ({
+    walletId: String(record.walletId),
+    recoveryOperationId: String(record.recoveryOperationId),
+    stage: String(record.stage),
+  }));
+}
+
+type RecoveryRequestKind = 'finalize' | 'replay';
+
+type RecoveryRequestIdentity = {
+  readonly kind: RecoveryRequestKind;
+  readonly path: string;
+  readonly target: IntendedRecoveryTargetKind;
+  readonly walletId: string;
+  readonly recoveryOperationId: string;
+  readonly reservationId: string;
+  readonly targetDeviceId: string | null;
+  readonly targetAuthorityId: string | null;
+  readonly targetWalletAuthMethodId: string | null;
+  readonly replacementId: string | null;
+};
+
+type RecoveryRequestCapture = {
+  readonly kind: RecoveryRequestKind;
+  readonly path: string;
+  readonly target: IntendedRecoveryTargetKind;
+  readonly walletId: string;
+  request: RecoveryRequestIdentity | null;
+  error: string | null;
+};
 
 type IntendedHarnessConfig = {
   appUrl: string;
@@ -1719,6 +1778,57 @@ export class IntendedBehaviourHarness {
     this.recordService('failed finalization left the admitted recovery code reusable');
   }
 
+  async recoverPasskeyWalletAfterLostFinalizationResponse(): Promise<void> {
+    this.recordStage('recover_passkey_wallet_after_lost_finalization_response');
+    const action = recoveryActionForTarget('passkey');
+    const { registration, recoveryCode } = await this.beginFreshBrowserRecovery({ action });
+    const finalizeFailure: RecoveryFinalizeFailure = { injected: false };
+    const finalizationCapture = createRecoveryRequestCapture({
+      kind: 'finalize',
+      path: ROUTER_AB_WALLET_RECOVERY_FINALIZE_PATH,
+      target: 'passkey',
+      walletId: registration.walletId,
+    });
+    const captureFinalizationRequest = captureRecoveryRequest.bind(null, finalizationCapture);
+    const concealFirstFinalization = concealFirstRecoveryFinalizationResponse.bind(
+      null,
+      finalizeFailure,
+    );
+    this.page.on('request', captureFinalizationRequest);
+    await this.page.route(`**${ROUTER_AB_WALLET_RECOVERY_FINALIZE_PATH}`, concealFirstFinalization);
+    const firstFinalizationRequest = this.page.waitForRequest(
+      (request) => isRecoveryFinalizationRequest(request, ROUTER_AB_WALLET_RECOVERY_FINALIZE_PATH),
+      { timeout: 120_000 },
+    );
+    const firstFinalizationResponse = this.page.waitForResponse(
+      (response) =>
+        isRecoveryFinalizationResponse(response, ROUTER_AB_WALLET_RECOVERY_FINALIZE_PATH, 503),
+      { timeout: 120_000 },
+    );
+    try {
+      await fillHostedRecoveryCode(this.page, recoveryCode, 'passkey');
+      await firstFinalizationRequest;
+      await firstFinalizationResponse;
+    } finally {
+      await this.page.unroute(
+        `**${ROUTER_AB_WALLET_RECOVERY_FINALIZE_PATH}`,
+        concealFirstFinalization,
+      );
+      this.page.off('request', captureFinalizationRequest);
+    }
+    if (!finalizeFailure.injected) {
+      throw new Error('Passkey recovery did not reach the injected finalization response loss');
+    }
+    const finalization = requireCapturedRecoveryRequest(finalizationCapture);
+    await this.waitForPendingWalletRecoveryCommit(finalization, 'present');
+    await this.resumeCommittedRecoveryAfterRuntimeReset(finalization);
+    await this.unlockPasskeyWallet();
+    await this.signTempoTransaction('post_unlock');
+    await this.signNearTransaction('post_unlock');
+    await this.assertConsumedRecoveryCodeReportedAsUsed();
+    this.recordService('Passkey recovery replayed its committed finalization after response loss');
+  }
+
   async recoverGoogleEmailOtpWalletFromFreshBrowser(): Promise<void> {
     this.recordStage('recover_google_email_otp_wallet_from_fresh_browser');
     requireUsableIntendedGoogleIdToken(this.config);
@@ -1753,40 +1863,63 @@ export class IntendedBehaviourHarness {
     const action = recoveryActionForTarget('google_email_otp');
     const { registration, recoveryCode } = await this.beginFreshBrowserRecovery({ action });
     const finalizeFailure: RecoveryFinalizeFailure = { injected: false };
+    const finalizationCapture = createRecoveryRequestCapture({
+      kind: 'finalize',
+      path: ROUTER_AB_WALLET_RECOVERY_GOOGLE_EMAIL_OTP_FINALIZE_PATH,
+      target: 'google_email_otp',
+      walletId: registration.walletId,
+    });
+    const captureFinalizationRequest = captureRecoveryRequest.bind(null, finalizationCapture);
     const concealFirstFinalization = concealFirstRecoveryFinalizationResponse.bind(
       null,
       finalizeFailure,
     );
+    this.page.on('request', captureFinalizationRequest);
     await this.page.route(
       `**${ROUTER_AB_WALLET_RECOVERY_GOOGLE_EMAIL_OTP_FINALIZE_PATH}`,
       concealFirstFinalization,
     );
-    let snapshot: IntendedPageSnapshot;
-    const diagnostics: WalletIframeAutoConfirmDiagnostics = { attempts: 0, clicked: false };
+    const firstFinalizationRequest = this.page.waitForRequest(
+      (request) =>
+        isRecoveryFinalizationRequest(
+          request,
+          ROUTER_AB_WALLET_RECOVERY_GOOGLE_EMAIL_OTP_FINALIZE_PATH,
+        ),
+      { timeout: 120_000 },
+    );
+    const firstFinalizationResponse = this.page.waitForResponse(
+      (response) =>
+        isRecoveryFinalizationResponse(
+          response,
+          ROUTER_AB_WALLET_RECOVERY_GOOGLE_EMAIL_OTP_FINALIZE_PATH,
+          503,
+        ),
+      { timeout: 120_000 },
+    );
     try {
       await fillHostedRecoveryCode(this.page, recoveryCode, 'google_email_otp');
-      snapshot = await autoConfirmWalletIframeUntil(
-        this.page,
-        this.waitForIntendedPageActionCompletion(action.name, 'success'),
-        { timeoutMs: 120_000, intervalMs: 250, diagnostics },
-      );
+      await autoConfirmWalletIframeUntil(this.page, firstFinalizationRequest, {
+        timeoutMs: 120_000,
+        intervalMs: 250,
+      });
+      await firstFinalizationResponse;
     } finally {
       await this.page.unroute(
         `**${ROUTER_AB_WALLET_RECOVERY_GOOGLE_EMAIL_OTP_FINALIZE_PATH}`,
         concealFirstFinalization,
       );
+      this.page.off('request', captureFinalizationRequest);
     }
     if (!finalizeFailure.injected) {
       throw new Error('Google recovery did not reach the injected finalization response loss');
     }
-    this.latestPageSnapshot = snapshot;
-    this.latestWalletIframeAutoConfirmDiagnostics = diagnostics;
-    const result = requireGoogleEmailOtpRecoveryResult(snapshot, this.walletId);
-    this.assertRecoveryCodeConsumption(result);
-    await this.assertRecoveredWalletLoggedIn(registration.walletId);
-    this.emailOtpVerificationCount += 1;
-    this.operatingAuthFamily = 'email_otp';
-    this.currentWarmSigningStage = 'post_unlock';
+    const finalization = requireCapturedRecoveryRequest(finalizationCapture);
+    await this.waitForPendingWalletRecoveryCommit(finalization, 'present');
+    await this.resumeCommittedRecoveryAfterRuntimeReset(finalization);
+    await this.unlockPasskeyWallet();
+    await this.signTempoTransaction('post_unlock');
+    await this.signNearTransaction('post_unlock');
+    await this.assertConsumedRecoveryCodeReportedAsUsed('google_email_otp');
     this.recordService('Google recovery replayed its committed finalization after response loss');
   }
 
@@ -1913,6 +2046,86 @@ export class IntendedBehaviourHarness {
     await this.page.getByTestId(input.action.buttonTestId).click();
     await this.waitForIntendedPageActionStarted(input.action.name);
     return { registration, recoveryCode };
+  }
+
+  private async resumeCommittedRecoveryAfterRuntimeReset(
+    finalization: RecoveryRequestIdentity,
+  ): Promise<void> {
+    const replayCapture = createRecoveryRequestCapture({
+      kind: 'replay',
+      path: finalization.path,
+      target: finalization.target,
+      walletId: finalization.walletId,
+    });
+    const captureReplayRequest = captureRecoveryRequest.bind(null, replayCapture);
+    const replayGate = new RecoveryReplayGate();
+    const holdReplay = holdRecoveryReplayUntilReleased.bind(null, replayGate);
+    const routePattern = `**${finalization.path}`;
+    const replayRequest = this.page.waitForRequest(
+      (request) => isRecoveryFinalizationRequest(request, finalization.path),
+      { timeout: 120_000 },
+    );
+    const replayResponse = this.page.waitForResponse(
+      (response) => isRecoveryFinalizationResponse(response, finalization.path),
+      { timeout: 120_000 },
+    );
+    this.page.on('request', captureReplayRequest);
+    await this.page.route(routePattern, holdReplay);
+    try {
+      await this.resetRuntimeOnlyState();
+      await this.ensureIntendedPageOpen();
+      const pageRoot = this.page.getByTestId('intended-e2e-page');
+      await expect(pageRoot).toHaveAttribute('data-login-state', 'logged_out');
+      await expect(pageRoot).toHaveAttribute('data-login-wallet-id', '');
+      await replayRequest;
+      const replay = requireCapturedRecoveryRequest(replayCapture);
+      assertRecoveryReplayMatchesFinalization(finalization, replay);
+      await this.waitForPendingWalletRecoveryCommit(finalization, 'present');
+      replayGate.release();
+      const response = await replayResponse;
+      if (response.status() !== 200) {
+        throw new Error(`Durable recovery resume returned HTTP ${response.status()}`);
+      }
+    } finally {
+      replayGate.release();
+      await this.page.unroute(routePattern, holdReplay);
+      this.page.off('request', captureReplayRequest);
+    }
+    await this.waitForPendingWalletRecoveryCommit(finalization, 'absent');
+    this.recordService('durable recovery resume published local continuity after runtime reset');
+  }
+
+  private async waitForPendingWalletRecoveryCommit(
+    finalization: RecoveryRequestIdentity,
+    expectation: 'present' | 'absent',
+  ): Promise<void> {
+    const modulePath = intendedIndexedDbModulePath(this.config.appUrl);
+    const frame = await walletServiceFrame(this.page, this.config.walletOrigin);
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline) {
+      const pending = await frame.evaluate(readPendingWalletRecoveryCommitIdentitiesInBrowser, {
+        modulePath,
+      });
+      const matching = pending.filter(
+        (record) =>
+          record.walletId === finalization.walletId &&
+          record.recoveryOperationId === finalization.recoveryOperationId,
+      );
+      const matchesExpectation =
+        expectation === 'present'
+          ? matching.length === 1 && matching[0]?.stage === 'awaiting_server_promotion'
+          : matching.length === 0;
+      if (matchesExpectation) {
+        this.recordService(
+          `durable recovery journal ${expectation} for wallet=${finalization.walletId} operation=${finalization.recoveryOperationId}`,
+        );
+        return;
+      }
+      await this.page.waitForTimeout(250);
+    }
+    throw new Error(
+      `Durable recovery journal did not become ${expectation} for wallet=${finalization.walletId} operation=${finalization.recoveryOperationId}`,
+    );
   }
 
   private assertRecoveryCodeConsumption(
@@ -5351,6 +5564,20 @@ async function hostedAuthMenuFrame(page: Page): Promise<FrameLocator> {
   return iframe.contentFrame();
 }
 
+async function walletServiceFrame(page: Page, walletOrigin: string): Promise<Frame> {
+  const iframe = page.locator('iframe[src*="/wallet-service"]').last();
+  await iframe.waitFor({ state: 'attached', timeout: 30_000 });
+  const iframeHandle = await iframe.elementHandle();
+  if (!iframeHandle) throw new Error('Wallet service iframe is unavailable');
+  const frame = await iframeHandle.contentFrame();
+  if (!frame) throw new Error('Wallet service frame is unavailable');
+  const expectedOrigin = new URL(walletOrigin).origin;
+  if (new URL(frame.url()).origin !== expectedOrigin) {
+    throw new Error('Wallet service frame origin changed');
+  }
+  return frame;
+}
+
 function recoveryActionForTarget(target: IntendedRecoveryTargetKind): IntendedRecoveryAction {
   switch (target) {
     case 'passkey':
@@ -5376,6 +5603,154 @@ function isSuccessfulRecoveryPrepareResponse(response: Response): boolean {
     new URL(response.url()).pathname === ROUTER_AB_WALLET_RECOVERY_PREPARE_PATH &&
     response.status() === 200
   );
+}
+
+function isRecoveryFinalizationRequest(request: Request, path: string): boolean {
+  return request.method() === 'POST' && new URL(request.url()).pathname === path;
+}
+
+function isRecoveryFinalizationResponse(
+  response: Response,
+  path: string,
+  status?: number,
+): boolean {
+  return (
+    isRecoveryFinalizationRequest(response.request(), path) &&
+    (status === undefined || response.status() === status)
+  );
+}
+
+function createRecoveryRequestCapture(input: {
+  readonly kind: RecoveryRequestKind;
+  readonly path: string;
+  readonly target: IntendedRecoveryTargetKind;
+  readonly walletId: string;
+}): RecoveryRequestCapture {
+  return {
+    ...input,
+    request: null,
+    error: null,
+  };
+}
+
+function optionalRecoveryRequestString(
+  body: Record<string, unknown>,
+  field: string,
+): string | null {
+  const raw = body[field];
+  return raw === undefined ? null : requireString(raw, `recovery ${field}`);
+}
+
+function parseRecoveryRequestIdentity(
+  capture: RecoveryRequestCapture,
+  request: Request,
+): RecoveryRequestIdentity {
+  const body = requireRecord(
+    request.postDataJSON(),
+    `${capture.kind} recovery finalization request body`,
+  );
+  if (body.kind !== capture.kind) {
+    throw new Error(
+      `Recovery finalization request kind ${String(body.kind)} does not equal ${capture.kind}`,
+    );
+  }
+  const requestedWalletId = optionalRecoveryRequestString(body, 'walletId');
+  if (requestedWalletId !== null && requestedWalletId !== capture.walletId) {
+    throw new Error('Recovery finalization request changed its wallet identity');
+  }
+  if (capture.target === 'passkey' && requestedWalletId === null) {
+    throw new Error('Passkey recovery finalization request omitted walletId');
+  }
+  const targetDeviceId = optionalRecoveryRequestString(body, 'targetDeviceId');
+  const targetAuthorityId = optionalRecoveryRequestString(body, 'targetAuthorityId');
+  const targetWalletAuthMethodId = optionalRecoveryRequestString(body, 'targetWalletAuthMethodId');
+  if (
+    capture.target === 'passkey' &&
+    (targetDeviceId === null || targetAuthorityId === null || targetWalletAuthMethodId === null)
+  ) {
+    throw new Error('Passkey recovery finalization request omitted target identity');
+  }
+  return {
+    kind: capture.kind,
+    path: capture.path,
+    target: capture.target,
+    walletId: requestedWalletId ?? capture.walletId,
+    recoveryOperationId: requireString(
+      body.recoveryOperationId,
+      'recovery finalization request recoveryOperationId',
+    ),
+    reservationId: requireString(body.reservationId, 'recovery finalization request reservationId'),
+    targetDeviceId,
+    targetAuthorityId,
+    targetWalletAuthMethodId,
+    replacementId: optionalRecoveryRequestString(body, 'replacementId'),
+  };
+}
+
+function captureRecoveryRequest(capture: RecoveryRequestCapture, request: Request): void {
+  if (!isRecoveryFinalizationRequest(request, capture.path) || capture.request || capture.error) {
+    return;
+  }
+  try {
+    capture.request = parseRecoveryRequestIdentity(capture, request);
+  } catch (error) {
+    capture.error = error instanceof Error ? error.message : String(error);
+  }
+}
+
+function requireCapturedRecoveryRequest(capture: RecoveryRequestCapture): RecoveryRequestIdentity {
+  if (capture.error) throw new Error(capture.error);
+  if (!capture.request) {
+    throw new Error(`No exact ${capture.kind} recovery finalization request was captured`);
+  }
+  return capture.request;
+}
+
+function assertRecoveryReplayMatchesFinalization(
+  finalization: RecoveryRequestIdentity,
+  replay: RecoveryRequestIdentity,
+): void {
+  const fields: readonly (keyof RecoveryRequestIdentity)[] = [
+    'path',
+    'target',
+    'walletId',
+    'recoveryOperationId',
+    'reservationId',
+    'targetDeviceId',
+    'targetAuthorityId',
+    'targetWalletAuthMethodId',
+    'replacementId',
+  ];
+  for (const field of fields) {
+    if (finalization[field] !== replay[field]) {
+      throw new Error(`Recovery replay changed ${field}`);
+    }
+  }
+}
+
+class RecoveryReplayGate {
+  readonly released: Promise<void>;
+  private resolveRelease: (() => void) | null = null;
+
+  constructor() {
+    this.released = new Promise<void>((resolve) => {
+      this.resolveRelease = resolve;
+    });
+  }
+
+  release(): void {
+    const resolve = this.resolveRelease;
+    this.resolveRelease = null;
+    resolve?.();
+  }
+}
+
+async function holdRecoveryReplayUntilReleased(
+  gate: RecoveryReplayGate,
+  route: Route,
+): Promise<void> {
+  await gate.released;
+  await route.continue();
 }
 
 async function fillHostedRecoveryCode(
@@ -5457,9 +5832,7 @@ async function concealFirstRecoveryFinalizationResponse(
   }
   const committed = await route.fetch();
   if (committed.status() !== 200) {
-    throw new Error(
-      `Google recovery finalization failed before response loss: ${committed.status()}`,
-    );
+    throw new Error(`Recovery finalization failed before response loss: ${committed.status()}`);
   }
   failure.injected = true;
   await route.fulfill({
@@ -5670,7 +6043,7 @@ async function clickWalletIframeConfirm(
 
     if (intendedAction === 'unlockPasskeyWallet') {
       const primary = frame.locator('[data-auth-menu-primary]').first();
-      const primaryEnabled = await primary.isEnabled().catch(() => false);
+      const primaryEnabled = await primary.isEnabled({ timeout: timeoutMs }).catch(() => false);
       if (!primaryEnabled) {
         const walletId = await page.getByTestId('intended-e2e-page').getAttribute('data-wallet-id');
         if (!walletId) {

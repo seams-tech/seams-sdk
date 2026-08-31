@@ -136,6 +136,16 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(deps, req.requestId, result);
     },
 
+    PM_RESUME_PENDING_ECDSA_REGISTRATION: async (
+      req: Req<'PM_RESUME_PENDING_ECDSA_REGISTRATION'>,
+    ) => {
+      const pm = deps.getSeamsWeb();
+      if (deps.respondIfCancelled(req.requestId)) return;
+      const result = await pm.registration.resumePendingEcdsaRegistration(req.payload!);
+      if (deps.respondIfCancelled(req.requestId)) return;
+      respondOkResult(deps, req.requestId, result);
+    },
+
     PM_ADD_WALLET_SIGNER: async (req: Req<'PM_ADD_WALLET_SIGNER'>) => {
       const pm = deps.getSeamsWeb();
       const payload = req.payload!;

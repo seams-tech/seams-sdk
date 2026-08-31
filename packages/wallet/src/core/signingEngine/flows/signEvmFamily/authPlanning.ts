@@ -29,7 +29,11 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
-import type { ReadyEvmFamilyEcdsaSigningSelection } from './ecdsaSelection';
+import type {
+  EcdsaCommittedLane,
+  EmailOtpEcdsaCommittedLane,
+  ReadyEvmFamilyEcdsaSigningSelection,
+} from './ecdsaSelection';
 import type {
   EvmFamilyChain,
   EvmFamilyLifecycleEventCallback,
@@ -46,21 +50,41 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
   }) => Promise<EmailOtpTransactionSigningChallenge>;
 };
 
-function emailOtpStepUpAuthority(
-  selection: ReadyEvmFamilyEcdsaSigningSelection,
-): EmailOtpEcdsaStepUpAuthority {
-  if (!isEmailOtpWalletAuthAuthority(selection.committedLane.authority)) {
-    throw new Error('[SigningEngine][ecdsa] Email OTP step-up requires Email OTP authority');
-  }
-  return { kind: 'live_session', committedLane: selection.committedLane };
+function isEmailOtpEcdsaCommittedLane(
+  committedLane: EcdsaCommittedLane,
+): committedLane is EmailOtpEcdsaCommittedLane {
+  return isEmailOtpWalletAuthAuthority(committedLane.authority);
 }
 
-function emailOtpStepUpAuthorityForSelection(
-  selection: ReadyEvmFamilyEcdsaSigningSelection | undefined,
-): EmailOtpEcdsaStepUpAuthority | undefined {
-  if (!selection) return undefined;
-  return isEmailOtpWalletAuthAuthority(selection.committedLane.authority)
-    ? emailOtpStepUpAuthority(selection)
+function emailOtpStepUpAuthority(args: {
+  selection: ReadyEvmFamilyEcdsaSigningSelection;
+  operationFingerprintDigest: DigestB64u;
+}): EmailOtpEcdsaStepUpAuthority {
+  const committedLane = args.selection.committedLane;
+  if (!isEmailOtpEcdsaCommittedLane(committedLane)) {
+    throw new Error('[SigningEngine][ecdsa] Email OTP step-up requires Email OTP authority');
+  }
+  if (committedLane.authLane) {
+    return { kind: 'live_session', committedLane };
+  }
+  return {
+    kind: 'capability_step_up',
+    capabilityAuthority: committedLane.authority,
+    materialActivation: committedLane.authorization.runtime.materialActivation,
+    operationFingerprint: `sha256:${String(args.operationFingerprintDigest)}`,
+  };
+}
+
+function emailOtpStepUpAuthorityForSelection(args: {
+  selection: ReadyEvmFamilyEcdsaSigningSelection | undefined;
+  operationFingerprintDigest: DigestB64u;
+}): EmailOtpEcdsaStepUpAuthority | undefined {
+  if (!args.selection) return undefined;
+  return isEmailOtpWalletAuthAuthority(args.selection.committedLane.authority)
+    ? emailOtpStepUpAuthority({
+        selection: args.selection,
+        operationFingerprintDigest: args.operationFingerprintDigest,
+      })
     : undefined;
 }
 
@@ -148,7 +172,10 @@ export async function resolveEvmFamilyTransactionStepUp(
     capabilityStepUpAuthority ??
     (preparedEcdsaLane &&
     signingLaneAuthMethod(preparedEcdsaLane.auth) === SIGNER_AUTH_METHODS.emailOtp
-      ? emailOtpStepUpAuthorityForSelection(preparedSelection)
+      ? emailOtpStepUpAuthorityForSelection({
+          selection: preparedSelection,
+          operationFingerprintDigest: args.operationFingerprintDigest,
+        })
       : undefined);
   const emailOtpAuthBridge = emailOtpAuthority
     ? createEmailOtpEcdsaTransactionSigningBridge({

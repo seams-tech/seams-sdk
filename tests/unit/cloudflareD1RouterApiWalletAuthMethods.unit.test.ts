@@ -56,7 +56,11 @@ import {
 } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { computeWalletAddSignerEcdsaActivationRequestDigestB64u } from '../../packages/shared-ts/src/utils/walletAddSignerActivation';
 import type { ActiveWalletAuthorityV1 } from '../../packages/shared-ts/src/authorization/walletAuthority';
-import { extendFixtureAuthorityWithEcdsaSigner } from './helpers/linkedDeviceManagement.fixtures';
+import {
+  buildLinkedDeviceManagementAuthorityFixture,
+  extendFixtureAuthorityWithEcdsaSigner,
+  fullOwnerPermissionsForManagementFixture,
+} from './helpers/linkedDeviceManagement.fixtures';
 import {
   RecordingDurableObjectNamespace,
   requireSingleEcdsaPrepare,
@@ -65,6 +69,7 @@ import {
   hexBytes,
   applySignerMigrations,
   insertSignerWallet,
+  insertEmailOtpEnrollment,
   insertWalletAuthMethod,
   seedFoundingPasskeyAuthority,
   readWalletAuthMethodRecord,
@@ -641,6 +646,143 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       });
     expect(siblingAuthMethodAfter).toEqual(siblingAuthMethodBefore);
     expect(siblingAuthorizationAfter).toEqual(siblingAuthorizationBefore);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Email OTP source repeat admission returns before issuing a source challenge', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const walletId = walletIdFromString('add-auth-repeat-wallet.testnet');
+    const targetRpId = requiredDomainValue(
+      parseWebAuthnRpId('repeat-target.example.com'),
+      'repeat target rpId',
+    );
+    const founding = await buildLinkedDeviceManagementAuthorityFixture({
+      label: 'add-auth-repeat-email-source',
+      permissions: fullOwnerPermissionsForManagementFixture(),
+      provenance: 'wallet_registration',
+      identity: {
+        walletId: String(walletId),
+        authorityId: 'wallet-authority:add-auth-repeat',
+        walletAuthMethodId: 'wallet-auth-method:add-auth-repeat-email-source',
+        rpId: 'repeat-source.example.com',
+      },
+    });
+    await insertSignerWallet({ database, ...scope, walletId });
+    await insertWalletAuthMethod({
+      database,
+      ...scope,
+      record: {
+        kind: 'email_otp',
+        walletAuthMethodId: String(founding.authMethod.walletAuthMethodId),
+        walletAuthorityId: String(founding.authMethod.walletAuthorityId),
+        walletId: String(walletId),
+        emailHashHex: 'ab'.repeat(32),
+        registrationAuthorityId: 'challenge:add-auth-repeat-source',
+        createdAtMs: 100,
+        updatedAtMs: 200,
+      },
+    });
+    await insertWalletAuthMethod({
+      database,
+      ...scope,
+      record: {
+        kind: 'passkey',
+        walletAuthMethodId: 'wallet-auth-method:add-auth-repeat-existing-passkey',
+        walletAuthorityId: String(founding.authMethod.walletAuthorityId),
+        walletId: String(walletId),
+        rpId: String(targetRpId),
+        credentialIdB64u: base64UrlEncode(new Uint8Array(32).fill(42)),
+        credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(65).fill(43)),
+        counter: 0,
+        createdAtMs: 100,
+        updatedAtMs: 200,
+      },
+    });
+    await insertEmailOtpEnrollment({
+      database,
+      ...scope,
+      walletId: String(walletId),
+      providerUserId: 'google:add-auth-repeat-source',
+      verifiedEmail: 'repeat.source@example.test',
+    });
+
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      ...scope,
+      emailOtpDeliveryMode: 'dev_d1_outbox',
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+    const intent = await service.walletAuthMethods.createAddAuthMethodIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      command: {
+        subject: {
+          kind: 'wallet_auth_method_management',
+          walletId,
+        },
+        authMethod: { kind: 'passkey', rpId: targetRpId },
+        caller: {
+          caller: 'same_device_addition',
+          source: {
+            walletAuthorityId: founding.authority.authorityId,
+            walletAuthMethodId: founding.authMethod.walletAuthMethodId,
+            walletSessionId: String(founding.issuedSession.session.walletSessionId),
+            authorityDigestB64u: String(founding.authority.authorityDigestB64u),
+            revocationEpoch: founding.authority.revocationEpoch,
+          },
+        },
+      },
+    });
+    expect(intent.ok, JSON.stringify(intent)).toBe(true);
+    if (!intent.ok) throw new Error(intent.message);
+
+    const challengeCountBefore = await database
+      .prepare(
+        `SELECT COUNT(*) AS count
+           FROM email_otp_challenges
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?`,
+      )
+      .bind(scope.namespace, scope.orgId, scope.projectId, scope.envId)
+      .first<{ readonly count?: unknown }>();
+    const result = await service.walletAuthMethods.createAddAuthMethodEmailOtpChallenge({
+      walletId,
+      addAuthMethodIntentGrant: intent.addAuthMethodIntentGrant,
+      addAuthMethodIntentDigestB64u: intent.addAuthMethodIntentDigestB64u,
+    });
+    expect(result).toEqual({
+      ok: false,
+      code: 'already_configured',
+      message: 'Wallet authority already has an active passkey auth method',
+    });
+    const challengeCountAfter = await database
+      .prepare(
+        `SELECT COUNT(*) AS count
+           FROM email_otp_challenges
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?`,
+      )
+      .bind(scope.namespace, scope.orgId, scope.projectId, scope.envId)
+      .first<{ readonly count?: unknown }>();
+    expect(Number(challengeCountAfter?.count ?? 0)).toBe(
+      Number(challengeCountBefore?.count ?? 0),
+    );
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

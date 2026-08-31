@@ -54,6 +54,7 @@ import {
 } from '../../../framework/authServicePort';
 import type {
   DirectV2IssueResult,
+  ExactWalletSessionStatusV2,
   IssuedWalletSessionAuthorizationV2,
 } from '../../../../authorization/domain';
 import { AuthorizationService } from '../../../../authorization/service';
@@ -2048,7 +2049,7 @@ async function issueWalletSessionForActiveAuthority(input: {
     return {
       kind: 'rejected',
       code: 'invalid_state',
-      message: 'Linked-device Wallet Session identity is invalid',
+      message: 'Wallet Session identity is invalid',
     };
   }
 
@@ -2071,13 +2072,6 @@ async function issueWalletSessionForActiveAuthority(input: {
         (deviceLinked ? LINKED_DEVICE_WALLET_SESSION_TTL_MS : DEFAULT_WALLET_SESSION_TTL_MS),
     });
     const authorityProvenanceKind = input.resolved.authority.provenance.kind;
-    if (authorityProvenanceKind === 'wallet_registration') {
-      return {
-        kind: 'rejected',
-        code: 'invalid_state',
-        message: 'Founding authority entered additive Wallet Session issuance',
-      };
-    }
     if (directIssue.kind === 'already_committed') {
       return {
         kind: 'already_committed',
@@ -2168,7 +2162,12 @@ async function issueWalletSessionForEmailOtpUnlock(input: {
     };
   }
   if (resolved.authority.provenance.kind === 'wallet_registration') {
-    return { kind: 'wallet_registration' };
+    switch (input.request.requestedCapabilities.kind) {
+      case 'wallet_session':
+        break;
+      case 'ed25519_yao':
+        return { kind: 'wallet_registration' };
+    }
   }
   return await issueWalletSessionForActiveAuthority({
     resolved,
@@ -2199,6 +2198,10 @@ function createD1WalletUnlockRouteService(
     verifyWebAuthnLogin: assembly.webAuthnAuthService.verifyWebAuthnLogin.bind(
       assembly.webAuthnAuthService,
     ),
+    resolveActivePasskeyAuthorityForUnlock:
+      assembly.walletAuthMethods.resolveActivePasskeyAuthorityForUnlock.bind(
+        assembly.walletAuthMethods,
+      ),
     resolveEmailOtpAuthorityForUnlock: (request) =>
       resolveEmailOtpAuthorityForUnlock({
         walletAuthMethods: assembly.walletAuthMethods,
@@ -2340,6 +2343,12 @@ function createD1IdentityRouteService(
   };
 }
 
+function isExhaustedWalletSessionStatus(
+  status: ExactWalletSessionStatusV2,
+): status is ExactWalletSessionStatusV2 & { readonly kind: 'exhausted' } {
+  return status.kind === 'exhausted';
+}
+
 function createD1AuthorizationSessionRouteService(
   assembly: D1AuthorizationSessionRouteServiceAssembly,
 ): RouterApiServiceBag['authorizationSessions'] {
@@ -2375,6 +2384,37 @@ function createD1AuthorizationSessionRouteService(
       }
       return {
         authorization,
+        authority,
+        authMethod,
+        retiredAtMs: null,
+      };
+    },
+    readExhaustedWalletSessionAuthorizationV2CandidateByOperationCredential: async (input) => {
+      const status =
+        await assembly.authorizationService.readExactWalletSessionStatusByOperationCredential(
+          input,
+        );
+      if (!isExhaustedWalletSessionStatus(status)) return null;
+      const authority = await assembly.walletAuthorityStore.readById(status.session.authorityId);
+      const authMethod = await assembly.walletAuthMethodStore.readByIdV2({
+        walletAuthMethodId: status.session.walletAuthMethodId,
+      });
+      if (
+        !authority ||
+        authority.state !== 'active' ||
+        !authMethod ||
+        authMethod.status !== 'active' ||
+        authority.walletId !== status.session.walletId ||
+        authority.authorityDigestB64u !== status.session.authorityDigestB64u ||
+        authority.revocationEpoch !== status.session.authorityRevocationEpoch ||
+        authMethod.walletId !== status.session.walletId ||
+        authMethod.walletAuthorityId !== status.session.authorityId ||
+        authMethod.walletAuthMethodId !== status.session.walletAuthMethodId
+      ) {
+        return null;
+      }
+      return {
+        status,
         authority,
         authMethod,
         retiredAtMs: null,

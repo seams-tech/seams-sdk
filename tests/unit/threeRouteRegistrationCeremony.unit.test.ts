@@ -7,15 +7,16 @@ import {
   type PendingWalletRegistrationCommitV1,
 } from '../../packages/wallet/src/core/indexedDB/pendingWalletRegistrationCommit';
 import { buildFixtureRespondEd25519DeferredWork } from '../helpers/ed25519YaoAdmissionFixtures';
+import { parseCorrelationId } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { initialEcdsaCapabilityActivationFixture } from './helpers/initialEcdsaCapabilityActivation.fixtures';
+import { buildDeferredNearCustodyWorkFixture } from './helpers/pendingWalletRegistrationPublication.fixtures';
 
 /**
  * Refactor 94C. The three-route ceremony's ordering contract.
  *
- * The whole point of deferring NEAR is that registration stops waiting on it.
- * That guarantee lives in the ceremony's ordering — deferred work is handed to
- * the caller as soon as respond returns it, before activate runs, and is never
- * awaited.
+ * The mixed user flow remains deferred after the ECDSA commit. The custody join
+ * itself completes before Route 3 so both custody branches can be journaled in
+ * one registration_activate row and replayed after a response loss.
  *
  * The mixed arm's admission records come from the shared factory, which builds
  * them through the production parsers — hand-written literals were rejected
@@ -95,7 +96,7 @@ function stubSigningEngine(
     },
     persistInitialCanonicalEcdsaActivation: async () => ({
       ok: true,
-      journalId: activation.input.journalId,
+      journalId: parseCorrelationId('wrc_test'),
     }),
     finalizeRouterAbEcdsaRegistrationActivation: async () => ({
       roleLocalMaterial: {},
@@ -113,7 +114,7 @@ async function ceremonyArgs(overrides: Record<string, unknown> = {}) {
     relayerUrl: RELAYER,
     registrationCeremonyId: 'wrc_test',
     signedSetup: 'signed-setup',
-    signerPlan: 'near_ed25519_and_evm_family_ecdsa',
+    signerPlanKind: 'near_ed25519_and_evm_family_ecdsa',
     ecdsaPrepare: {
       kind: 'evm_family_ecdsa_keygen',
       chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
@@ -139,7 +140,7 @@ async function ceremonyArgs(overrides: Record<string, unknown> = {}) {
     registrationTiming: null,
     confirmRecoveryCodesBackedUp: async () => undefined,
     persistPendingCommit: async () => undefined,
-    startDeferredNearCustody: async () => ({}),
+    startDeferredNearCustody: async () => buildDeferredNearCustodyWorkFixture(),
     ...overrides,
   } as never;
 }
@@ -171,7 +172,7 @@ const MIXED_RESPOND = {
   ed25519: buildFixtureRespondEd25519DeferredWork({ lifecycleId: 'wrc_test' }),
 };
 
-test('a mixed plan starts the NEAR custody join before activate is called', async () => {
+test('a mixed plan journals both custody branches before activate is called', async () => {
   const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
   const callsAtStart: string[] = [];
   let pendingCommitPersistedBeforeActivate = false;
@@ -183,6 +184,7 @@ test('a mixed plan starts the NEAR custody join before activate is called', asyn
           expect(routes.calls).toEqual(['respond']);
           const pending = buildPendingRegistrationCommit({
             operation: 'registration_activate',
+            signerPlanKind: 'near_ed25519_and_evm_family_ecdsa',
             registrationCeremonyId: 'wrc_test',
             idempotencyKey: 'idem-1',
             walletId: String(input.localMaterial.custodyCommit.walletId),
@@ -205,7 +207,7 @@ test('a mixed plan starts the NEAR custody join before activate is called', asyn
         },
         startDeferredNearCustody: () => {
           callsAtStart.push(...routes.calls);
-          return Promise.resolve({});
+          return Promise.resolve(buildDeferredNearCustodyWorkFixture());
         },
       }),
     ).catch(() => undefined);
@@ -214,15 +216,35 @@ test('a mixed plan starts the NEAR custody join before activate is called', asyn
   }
   expect(callsAtStart).toEqual(['respond']);
   expect(pendingCommitPersistedBeforeActivate).toBe(true);
-  expect(persistedPending?.localMaterial).toEqual({
-    keyFamilies: ['ecdsa_secp256k1'],
+  expect(persistedPending?.localMaterial).toMatchObject({
+    keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
     custodyCommit: {
       walletId: 'alice.testnet',
       keySet: 'evm_family_ecdsa_v1',
       keyManifestDigestB64u: FIXTURE_DIGEST32_B64U,
     },
+    ed25519: {
+      custodyCommit: {
+        walletId: 'alice.testnet',
+        keySet: 'near_ed25519_v1',
+      },
+      activationReference: {
+        kind: 'router_ab_ed25519_yao_activation_reference_v1',
+        lifecycle_id: 'wrc_test',
+        session_id: expect.any(Array),
+      },
+      localMaterial: {
+        b64u: expect.any(String),
+        nonceB64u: expect.any(String),
+        applicationBindingDigestB64u: expect.any(String),
+      },
+      metadata: expect.objectContaining({
+        nearEd25519SigningKeyId: 'ed25519ks_fixture',
+        signerSlot: 1,
+      }),
+    },
     ecdsa: {
-      activationJournalId: 'initial-ecdsa-registration-ceremony',
+      activationJournalId: 'wrc_test',
       clientActivation: expect.objectContaining({
         participantId: 1,
         clientShareRetryCounter: 0,
@@ -230,20 +252,6 @@ test('a mixed plan starts the NEAR custody join before activate is called', asyn
       activationRequestDigestB64u: expect.any(String),
     },
   });
-  expect(routes.calls).toContain('activate');
-});
-
-test('the ceremony never awaits the deferred NEAR custody join', async () => {
-  const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
-  try {
-    await runEcdsaEnabledThreeRouteRegistrationCeremony(
-      await ceremonyArgs({
-        startDeferredNearCustody: () => new Promise(() => {}),
-      }),
-    ).catch(() => undefined);
-  } finally {
-    routes.restore();
-  }
   expect(routes.calls).toContain('activate');
 });
 
@@ -255,7 +263,7 @@ test('a mixed plan starts NEAR with its deferred admission and established envel
       await ceremonyArgs({
         startDeferredNearCustody: (input: unknown) => {
           started = input;
-          return Promise.resolve({});
+          return Promise.resolve(buildDeferredNearCustodyWorkFixture());
         },
       }),
     ).catch(() => undefined);

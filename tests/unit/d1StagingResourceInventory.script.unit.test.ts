@@ -101,11 +101,19 @@ test('D1 staging resource inventory records config-derived resource IDs', async 
       binding: 'CONSOLE_DB',
       databaseName: 'seams-console-staging-nrt',
       databaseId: '11111111-1111-4111-8111-111111111111',
-      migrationsDir: 'migrations/d1-console',
+      migrationsDir: '../wallet-console-server-ts/migrations/d1-console',
     },
   ]);
   expect(plan.resources.consoleWorker.durableObjects).toEqual([]);
-  expect(plan.resources.gatewayWorker.d1Databases).toHaveLength(2);
+  expect(plan.resources.gatewayWorker.d1Databases).toEqual([
+    {
+      binding: 'SIGNER_DB',
+      databaseName: 'seams-signer-staging-nrt',
+      databaseId: '22222222-2222-4222-8222-222222222222',
+      migrationsDir:
+        '../wallet-console-server-ts/node_modules/@seams/wallet-server/migrations/d1-signer',
+    },
+  ]);
   expect(plan.resources.gatewayWorker.durableObjects).toEqual([]);
   expect(plan.resources.gatewayWorker.durableObjectMigrations).toEqual([]);
 });

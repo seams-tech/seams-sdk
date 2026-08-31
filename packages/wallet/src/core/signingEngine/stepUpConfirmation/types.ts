@@ -14,6 +14,8 @@ import type { NonceLeaseRef } from '../interfaces/nonceLease';
 import type { WalletSessionFailure } from '../session/lifecycle/walletSessionFailure';
 import type { NearOperationStepUpPreparationRef } from '../interfaces/operationStepUpPreparation';
 import type { ActiveWalletAuthorityEcdsaSigningAuthPlan } from '../session/material/activeWalletAuthorityEcdsaRuntime';
+import type { ExactEvmFamilyWalletSessionAuthorization } from '../session/material/ecdsaSigningCapability';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 export interface UserConfirmProgressEvent {
   requestId: string;
@@ -145,18 +147,36 @@ export interface EmailOtpConfirmPrompt {
     | void;
 }
 
+type WarmSessionSigningAuthPlanBase = {
+  kind: typeof SigningAuthPlanKind.WarmSession;
+  method: SignerAuthMethod;
+  accountId: string;
+  intent: WalletAuthIntent;
+  retention?: SigningSessionRetention | null;
+  expiresAtMs: number;
+  remainingUses: number;
+};
+
+export type Ed25519WarmSessionSigningAuthPlan = WarmSessionSigningAuthPlanBase & {
+  curve: Extract<WalletAuthCurve, 'ed25519'>;
+  thresholdSessionId: string;
+  materialActivation?: never;
+  authorization?: never;
+};
+
+export type EcdsaWarmSessionSigningAuthPlan = WarmSessionSigningAuthPlanBase & {
+  curve: Extract<WalletAuthCurve, 'ecdsa'>;
+  materialActivation: MpcMaterialActivationRef;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
+  thresholdSessionId?: never;
+};
+
+export type WarmSessionSigningAuthPlan =
+  | Ed25519WarmSessionSigningAuthPlan
+  | EcdsaWarmSessionSigningAuthPlan;
+
 export type SigningAuthPlan =
-  | {
-      kind: typeof SigningAuthPlanKind.WarmSession;
-      method: SignerAuthMethod;
-      accountId: string;
-      intent: WalletAuthIntent;
-      curve?: WalletAuthCurve;
-      thresholdSessionId: string;
-      retention?: SigningSessionRetention | null;
-      expiresAtMs: number;
-      remainingUses: number;
-    }
+  | WarmSessionSigningAuthPlan
   | ActiveWalletAuthorityEcdsaSigningAuthPlan
   | {
       kind: typeof SigningAuthPlanKind.PasskeyReauth;
@@ -234,12 +254,29 @@ export type PasskeyPromptPlan = {
   body?: string;
 };
 
-export type StepUpWarmSessionAuthorization = {
+type StepUpWarmSessionAuthorizationBase = {
   method: SignerAuthMethod;
-  thresholdSessionId: string;
   expiresAtMs: number;
   remainingUses: number;
 };
+
+export type Ed25519StepUpWarmSessionAuthorization = StepUpWarmSessionAuthorizationBase & {
+  curve: 'ed25519';
+  thresholdSessionId: string;
+  materialActivation?: never;
+  authorization?: never;
+};
+
+export type EcdsaStepUpWarmSessionAuthorization = StepUpWarmSessionAuthorizationBase & {
+  curve: 'ecdsa';
+  materialActivation: MpcMaterialActivationRef;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
+  thresholdSessionId?: never;
+};
+
+export type StepUpWarmSessionAuthorization =
+  | Ed25519StepUpWarmSessionAuthorization
+  | EcdsaStepUpWarmSessionAuthorization;
 
 export type StepUpPolicy =
   | {
@@ -277,17 +314,28 @@ export type StepUpAuthorizationResult<TPasskeyAuthorization, TEmailOtpAuthorizat
     };
 
 export type WarmSessionStepUpAuthorization<
-  TSigningAuthPlan extends Extract<
-    SigningAuthPlan,
-    { kind: typeof SigningAuthPlanKind.WarmSession }
-  >,
-> = {
-  kind: 'warm_session';
-  signingAuthPlan: TSigningAuthPlan;
-  thresholdSessionId: string;
-  expiresAtMs: number;
-  remainingUses: number;
-};
+  TSigningAuthPlan extends WarmSessionSigningAuthPlan,
+> = TSigningAuthPlan extends Ed25519WarmSessionSigningAuthPlan
+  ? {
+      kind: 'warm_session';
+      signingAuthPlan: TSigningAuthPlan;
+      thresholdSessionId: string;
+      expiresAtMs: number;
+      remainingUses: number;
+      materialActivation?: never;
+      authorization?: never;
+    }
+  : TSigningAuthPlan extends EcdsaWarmSessionSigningAuthPlan
+    ? {
+        kind: 'warm_session';
+        signingAuthPlan: TSigningAuthPlan;
+        materialActivation: MpcMaterialActivationRef;
+        authorization: ExactEvmFamilyWalletSessionAuthorization;
+        thresholdSessionId?: never;
+        expiresAtMs: number;
+        remainingUses: number;
+      }
+    : never;
 
 export type PasskeyStepUpAuthorization<
   TSigningAuthPlan extends Extract<

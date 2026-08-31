@@ -65,4 +65,22 @@ test.describe('wallet unlock requested capabilities boundary', () => {
     });
     expect(unknownKind.ok).toBe(false);
   });
+
+  test('rejects wallet_session with an ECDSA session policy at the request boundary', () => {
+    const parsed = parseWalletUnlockRequestedCapabilitiesRequest({
+      ...BASE_BODY,
+      requestedCapabilities: { kind: EMAIL_OTP_WALLET_SESSION_REQUESTED_CAPABILITIES_KIND },
+      ecdsaSessionPolicy: { kind: 'test-policy' },
+    });
+
+    expect(parsed).toEqual({
+      ok: false,
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_body',
+        message: 'requestedCapabilities.wallet_session cannot include ecdsaSessionPolicy',
+      },
+    });
+  });
 });

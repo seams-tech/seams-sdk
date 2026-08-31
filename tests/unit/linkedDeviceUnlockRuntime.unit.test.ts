@@ -859,8 +859,13 @@ test('linked Email OTP target is immediately usable for both source-factor combi
     });
     const chainTarget = testEcdsaChainTarget('tempo');
     const ecdsaRuntime = await resolveActiveWalletAuthorityEcdsaRuntimeV1({
-      walletId,
-      chainTarget,
+      ports: {
+        resolveSelectedWalletAuthority: (selectedWalletId) =>
+          IndexedDBManager.resolveSelectedWalletAuthority(selectedWalletId),
+        readExactWithOperationCredential: (input) =>
+          walletSessionAuthorizations.readExactWithOperationCredential(input),
+      },
+      input: { walletId, chainTarget },
     });
     expect(ecdsaRuntime.kind).toBe('resolved');
     if (ecdsaRuntime.kind !== 'resolved' || !ecdsaRuntime.lane) {

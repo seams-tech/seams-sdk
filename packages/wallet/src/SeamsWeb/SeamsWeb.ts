@@ -7,7 +7,14 @@ import {
   registerWallet as registerWalletWithUnifiedCeremony,
   WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
-import { resumePendingNearRegistrations } from '@/SeamsWeb/operations/registration/pendingRegistrationRecovery';
+import {
+  resumePendingNearRegistrations,
+  resumePendingEcdsaRegistrationFromStoredCommit,
+} from '@/SeamsWeb/operations/registration/pendingRegistrationRecovery';
+import {
+  resumePendingWalletRecoveries,
+  type WalletRecoveryResumeResult,
+} from '@/SeamsWeb/operations/recovery/walletRecoveryCommit';
 import { addPasskeyWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import { revokeWalletAuthMethodOperation } from '@/SeamsWeb/operations/authMethods/revokeAuthMethod';
 import { addEmailOtpWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/emailOtp/addEmailOtp';
@@ -798,10 +805,40 @@ function deliverNearProvisioningStateChanged(
   if (event.event === 'registration.near_provisioning_changed') listener(event);
 }
 
+function reportWalletRecoveryStartupResult(result: WalletRecoveryResumeResult): void {
+  switch (result.kind) {
+    case 'completed':
+      return;
+    case 'pending':
+      console.warn(
+        '[SeamsWeb] pending wallet recovery replay remains pending:',
+        result.recoveryOperationId,
+        result.failure,
+      );
+      return;
+    case 'discarded':
+      console.warn(
+        '[SeamsWeb] pending wallet recovery was refused and discarded:',
+        result.recoveryOperationId,
+      );
+      return;
+    case 'corrupt':
+      console.warn(
+        '[SeamsWeb] pending wallet recovery replay record is corrupt:',
+        result.recoveryOperationId,
+      );
+      return;
+  }
+}
+
 type SeamsWebDeviceDomain = {
   readonly domain: DevicesCapabilityDomainMethods;
   readonly resumePendingAcknowledgementsV1: () => Promise<void>;
   readonly dispose: () => void;
+};
+
+type SeamsWebContextWithDeviceLinkingResumeV1 = SeamsWebContext & {
+  readonly resumePendingAcknowledgementsV1: () => void;
 };
 
 export function resolveSeamsWebDeviceDomainModeV1(mode: SeamsWebRuntimeMode): 'direct' | 'iframe' {
@@ -881,9 +918,7 @@ function noopDeviceLinkingDisposeV1(): void {}
 
 async function noopDeviceLinkingAcknowledgementResumeV1(): Promise<void> {}
 
-function resumeDeviceLinkingAcknowledgementsInBackgroundV1(
-  resume: () => Promise<void>,
-): void {
+function resumeDeviceLinkingAcknowledgementsInBackgroundV1(resume: () => Promise<void>): void {
   void resume().catch(reportDeviceLinkingAcknowledgementResumeFailureV1);
 }
 
@@ -1073,6 +1108,7 @@ export class SeamsWeb {
   readonly evm: EvmSignerCapability;
   private readonly walletIframeControls: WalletIframeControlCapability;
   private readonly deviceLinkingDispose: () => void;
+  private readonly resumePendingAcknowledgementsV1: () => Promise<void>;
   private emailOtpUnlockPrewarmRecord: EmailOtpUnlockPrewarmRecord = { kind: 'none' };
 
   constructor(
@@ -1131,6 +1167,7 @@ export class SeamsWeb {
             walletIframe: this.walletIframe,
           });
     this.deviceLinkingDispose = deviceDomain.dispose;
+    this.resumePendingAcknowledgementsV1 = deviceDomain.resumePendingAcknowledgementsV1;
     this.lifecycleEventSource = resolveSeamsWebLifecycleEventSource({
       mode: resolveSeamsWebRuntimeMode(internalOptions),
       signingEngine: this.signingEngine,
@@ -1158,6 +1195,8 @@ export class SeamsWeb {
           await this.beginGoogleEmailOtpWalletAuthDomain(args),
       },
       registration: {
+        resumePendingEcdsaRegistration: async (args) =>
+          await this.resumePendingEcdsaRegistrationDomain(args),
         getNearProvisioningState: async (args) => await this.getNearProvisioningStateDomain(args),
         onNearProvisioningStateChanged: (listener) =>
           subscribeToSeamsWebLifecycleEvents(
@@ -1204,9 +1243,7 @@ export class SeamsWeb {
     this.evm = publicApi.evm;
 
     void this.resumePendingRegistrationOnStartup();
-    resumeDeviceLinkingAcknowledgementsInBackgroundV1(
-      deviceDomain.resumePendingAcknowledgementsV1,
-    );
+    resumeDeviceLinkingAcknowledgementsInBackgroundV1(deviceDomain.resumePendingAcknowledgementsV1);
 
     // UserConfirm worker initializes automatically in the constructor
   }
@@ -1290,20 +1327,26 @@ export class SeamsWeb {
     return this.walletIframeControls.onWalletIframePreferencesChanged(listener);
   }
 
-  getContext(): SeamsWebContext {
+  getContext(): SeamsWebContextWithDeviceLinkingResumeV1 {
     return {
       signingEngine: this.signingEngine,
       nearClient: this.nearClient,
       configs: this.configs,
       theme: this.theme,
+      resumePendingAcknowledgementsV1:
+        this.resumePendingAcknowledgementsAfterExactUnlockV1.bind(this),
     };
   }
 
+  private resumePendingAcknowledgementsAfterExactUnlockV1(): void {
+    resumeDeviceLinkingAcknowledgementsInBackgroundV1(this.resumePendingAcknowledgementsV1);
+  }
+
   private async resumePendingRegistrationOnStartup(): Promise<void> {
+    if (IndexedDBManager.isDisabled()) return;
+    const relayerUrl = String(this.configs.network.relayer?.url || '').trim();
+    if (!relayerUrl) return;
     try {
-      if (IndexedDBManager.isDisabled()) return;
-      const relayerUrl = String(this.configs.network.relayer?.url || '').trim();
-      if (!relayerUrl) return;
       const results = await resumePendingNearRegistrations({ relayerUrl });
       for (const result of results) {
         if (result.kind === 'failed') {
@@ -1317,6 +1360,17 @@ export class SeamsWeb {
     } catch (error: unknown) {
       console.warn(
         '[SeamsWeb] pending registration startup replay failed:',
+        error instanceof Error ? error.message : String(error || 'unknown error'),
+      );
+    }
+    try {
+      const recoveryResults = await resumePendingWalletRecoveries({
+        relayUrl: relayerUrl,
+      });
+      for (const result of recoveryResults) reportWalletRecoveryStartupResult(result);
+    } catch (error: unknown) {
+      console.warn(
+        '[SeamsWeb] pending wallet recovery startup replay failed:',
         error instanceof Error ? error.message : String(error || 'unknown error'),
       );
     }
@@ -1520,6 +1574,22 @@ export class SeamsWeb {
     const live = readNearProvisioningState(walletId);
     if (live) return live;
     return await this.getContext().signingEngine.getWalletNearProvisioningState(walletId);
+  }
+
+  private async resumePendingEcdsaRegistrationDomain(
+    args: Parameters<RegistrationCapability['resumePendingEcdsaRegistration']>[0],
+  ): ReturnType<RegistrationCapability['resumePendingEcdsaRegistration']> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(String(args.walletId));
+      return await router.resumePendingEcdsaRegistration(args);
+    }
+    const relayerUrl = String(this.configs.network.relayer?.url || '').trim();
+    if (!relayerUrl) throw new Error('pending ECDSA registration recovery requires a relayer URL');
+    return await resumePendingEcdsaRegistrationFromStoredCommit({
+      relayerUrl,
+      request: args,
+      signingSurface: this.signingEngine,
+    });
   }
 
   private async registerWalletSignerDomain(
@@ -2336,6 +2406,7 @@ export class SeamsWeb {
         otpCode: args.otpCode,
         relayUrl: args.relayUrl,
       });
+      this.resumePendingAcknowledgementsAfterExactUnlockV1();
       return;
     }
     const emailHashHex = await this.emailOtpEmailHashHex(args.email);
@@ -2350,6 +2421,7 @@ export class SeamsWeb {
       otpCode: args.otpCode,
       relayUrl: args.relayUrl,
     });
+    this.resumePendingAcknowledgementsAfterExactUnlockV1();
   }
 
   private async prewarmEmailOtpYaoDomain(): Promise<void> {

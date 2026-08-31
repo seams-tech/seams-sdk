@@ -530,6 +530,7 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
       walletId: WALLET_ID,
       next: 'unlock_exact_method',
     });
+    expect(replayBody).not.toHaveProperty('operationCredential');
     expect(replayBody).not.toHaveProperty('walletSessionToken');
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);

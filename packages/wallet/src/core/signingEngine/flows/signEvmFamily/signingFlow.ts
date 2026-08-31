@@ -191,6 +191,25 @@ export type ResolveEcdsaSigningMaterialPlan = () => Promise<EcdsaSigningMaterial
 
 export type RunEcdsaMaterialUse = <T>(task: () => Promise<T>) => Promise<T>;
 
+function warmSessionClaimedProgressData(
+  plan: Extract<SigningAuthPlan, { kind: 'warmSession' }>,
+): Record<string, unknown> {
+  if (plan.curve === 'ed25519') {
+    return {
+      curve: plan.curve,
+      thresholdSessionId: plan.thresholdSessionId,
+      expiresAtMs: plan.expiresAtMs,
+      remainingUses: plan.remainingUses,
+    };
+  }
+  return {
+    curve: plan.curve,
+    materialActivationId: String(plan.materialActivation.activationId),
+    expiresAtMs: plan.expiresAtMs,
+    remainingUses: plan.remainingUses,
+  };
+}
+
 function hydratedMaterialFromSource(
   source: EcdsaSigningMaterialSource,
 ): HydratedEcdsaSignerMaterial {
@@ -798,11 +817,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
               authorityId: String(confirmationAuthPlan.authorityId),
               authMethodId: String(confirmationAuthPlan.authMethodId),
             }
-          : {
-              thresholdSessionId: confirmationAuthPlan.thresholdSessionId,
-              expiresAtMs: confirmationAuthPlan.expiresAtMs,
-              remainingUses: confirmationAuthPlan.remainingUses,
-            },
+          : warmSessionClaimedProgressData(confirmationAuthPlan),
       });
       notifyAuthSideEffectStarted('auth_confirmed');
       emitProgress({
@@ -853,11 +868,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
               authorityId: String(confirmationAuthPlan.authorityId),
               authMethodId: String(confirmationAuthPlan.authMethodId),
             }
-          : {
-              thresholdSessionId: confirmationAuthPlan.thresholdSessionId,
-              expiresAtMs: confirmationAuthPlan.expiresAtMs,
-              remainingUses: confirmationAuthPlan.remainingUses,
-            },
+          : warmSessionClaimedProgressData(confirmationAuthPlan),
       });
     }
     const confirmationRequestBase = {

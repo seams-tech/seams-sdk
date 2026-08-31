@@ -5,6 +5,8 @@ import {
   parsePendingWalletRegistrationCommitAppStateRow,
   toPendingWalletRegistrationCommitAppStateRow,
   toPendingWalletRegistrationCommitStorageRow,
+  type PendingWalletRegistrationCommitV1,
+  type PendingWalletRegistrationLocalMaterialV1,
 } from '../../packages/wallet/src/core/indexedDB/pendingWalletRegistrationCommit';
 import { fixtureRouterAbEcdsaActivationFacts } from '../helpers/routerAbSigningRuntimeTestUtils';
 import { base64UrlEncode } from '@shared/utils/base64';
@@ -20,6 +22,8 @@ const custodyCommit = {
   keySet: 'near_ed25519_v1',
   keyManifestDigestB64u: 'manifest-digest',
 };
+
+const nearCustodyCommit = { ...custodyCommit };
 
 const activationReference = {
   kind: 'router_ab_ed25519_yao_activation_reference_v1',
@@ -56,6 +60,7 @@ function pendingRecord(overrides: Record<string, unknown> = {}): Record<string, 
   return {
     kind: 'pending_wallet_registration_commit_v1',
     operation: 'registration_activate',
+    signerPlanKind: 'near_ed25519',
     registrationCeremonyId: 'registration-ceremony-pending',
     idempotencyKey: 'wallet-registration-finalize:pending',
     walletId: custodyCommit.walletId,
@@ -86,6 +91,7 @@ test('pending registration parser accepts activation and deferred NEAR records',
   const activation = parsePendingWalletRegistrationCommitV1(pendingRecord());
   expect(activation).not.toBeNull();
   expect(activation?.operation).toBe('registration_activate');
+  expect(activation?.signerPlanKind).toBe('near_ed25519');
 
   const nearProvisioning = parsePendingWalletRegistrationCommitV1(
     pendingRecord({
@@ -186,6 +192,7 @@ test('pending registration parser requires complete Ed25519 publication metadata
 test('pending registration parser keeps ECDSA and mixed local-material branches distinct', () => {
   const ecdsa = parsePendingWalletRegistrationCommitV1(
     pendingRecord({
+      signerPlanKind: 'evm_family_ecdsa',
       localMaterial: {
         keyFamilies: ['ecdsa_secp256k1'],
         custodyCommit: { ...custodyCommit, keySet: 'evm_family_ecdsa_v1' },
@@ -194,13 +201,17 @@ test('pending registration parser keeps ECDSA and mixed local-material branches 
     }),
   );
   expect(ecdsa?.localMaterial.keyFamilies).toEqual(['ecdsa_secp256k1']);
+  expect(ecdsa?.signerPlanKind).toBe('evm_family_ecdsa');
+  if (!ecdsa) throw new Error('ECDSA pending fixture did not parse');
 
   const mixed = parsePendingWalletRegistrationCommitV1(
     pendingRecord({
+      signerPlanKind: 'near_ed25519_and_evm_family_ecdsa',
       localMaterial: {
         keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
         custodyCommit: { ...custodyCommit, keySet: 'evm_family_ecdsa_v1' },
         ed25519: {
+          custodyCommit: nearCustodyCommit,
           activationReference,
           localMaterial: ed25519LocalMaterial,
           metadata: ed25519Metadata,
@@ -210,6 +221,33 @@ test('pending registration parser keeps ECDSA and mixed local-material branches 
     }),
   );
   expect(mixed?.localMaterial.keyFamilies).toEqual(['ed25519', 'ecdsa_secp256k1']);
+  expect(mixed?.signerPlanKind).toBe('near_ed25519_and_evm_family_ecdsa');
+
+  expect(
+    parsePendingWalletRegistrationCommitV1(
+      pendingRecord({
+        signerPlanKind: 'near_ed25519_and_evm_family_ecdsa',
+        localMaterial: ecdsa.localMaterial,
+      }),
+    ),
+  ).toBeNull();
+  expect(
+    parsePendingWalletRegistrationCommitV1(
+      pendingRecord({
+        signerPlanKind: 'near_ed25519_and_evm_family_ecdsa',
+        localMaterial: {
+          keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
+          custodyCommit: { ...custodyCommit, keySet: 'evm_family_ecdsa_v1' },
+          ed25519: {
+            activationReference,
+            localMaterial: ed25519LocalMaterial,
+            metadata: ed25519Metadata,
+          },
+          ecdsa: ecdsaReplay,
+        },
+      }),
+    ),
+  ).toBeNull();
 
   expect(
     parsePendingWalletRegistrationCommitV1(
@@ -223,6 +261,47 @@ test('pending registration parser keeps ECDSA and mixed local-material branches 
     ),
   ).toBeNull();
 });
+
+type MixedCommitForTypeCheck = Extract<
+  PendingWalletRegistrationCommitV1,
+  {
+    readonly operation: 'registration_activate';
+    readonly signerPlanKind: 'near_ed25519_and_evm_family_ecdsa';
+  }
+>;
+type EcdsaOnlyMaterialForTypeCheck = Extract<
+  PendingWalletRegistrationLocalMaterialV1,
+  { readonly keyFamilies: readonly ['ecdsa_secp256k1'] }
+>;
+
+function checkPendingRegistrationMixedTypeRelationships(
+  mixedCommit: MixedCommitForTypeCheck,
+  ecdsaOnlyMaterial: EcdsaOnlyMaterialForTypeCheck,
+): void {
+  // @ts-expect-error The mixed outer custody commit is ECDSA, while nested custody is NEAR.
+  const invalidCrossKeySet: typeof mixedCommit.localMaterial.ed25519.custodyCommit =
+    mixedCommit.localMaterial.custodyCommit;
+  void invalidCrossKeySet;
+
+  const invalidMixedCommit: typeof mixedCommit = {
+    ...mixedCommit,
+    // @ts-expect-error Mixed registration commits require both local key families.
+    localMaterial: ecdsaOnlyMaterial,
+  };
+  void invalidMixedCommit;
+
+  const invalidMixedMaterial: typeof mixedCommit.localMaterial = {
+    ...mixedCommit.localMaterial,
+    ed25519: {
+      ...mixedCommit.localMaterial.ed25519,
+      // @ts-expect-error Mixed local material requires the nested NEAR custody commit.
+      custodyCommit: undefined,
+    },
+  };
+  void invalidMixedMaterial;
+}
+
+void checkPendingRegistrationMixedTypeRelationships;
 
 test('pending registration storage rows round-trip without exposing credentials', () => {
   const parsed = parsePendingWalletRegistrationCommitV1(pendingRecord());

@@ -112,6 +112,44 @@ export type PendingWalletRecoveryCommitStorageRow = {
   readonly record: PendingWalletRecoveryCommitV1;
 };
 
+export type PendingWalletRecoveryPromotionAdvanceInputV1 = {
+  readonly awaiting: Extract<
+    PendingWalletRecoveryCommitV1,
+    { readonly stage: 'awaiting_server_promotion' }
+  >;
+  readonly promoted: Extract<
+    PendingWalletRecoveryCommitV1,
+    { readonly stage: 'server_promoted' }
+  >;
+};
+
+export function pendingWalletRecoveryCommitIdentityMatches(
+  left: PendingWalletRecoveryCommitV1,
+  right: PendingWalletRecoveryCommitV1,
+): boolean {
+  return (
+    left.recoveryOperationId === right.recoveryOperationId &&
+    left.walletId === right.walletId &&
+    left.reservationId === right.reservationId &&
+    left.targetDeviceId === right.targetDeviceId &&
+    left.targetAuthorityId === right.targetAuthorityId &&
+    left.targetWalletAuthMethodId === right.targetWalletAuthMethodId &&
+    left.target.kind === right.target.kind &&
+    (left.target.kind === 'passkey'
+      ? right.target.kind === 'passkey' &&
+        left.target.rpId === right.target.rpId &&
+        left.target.credentialIdB64u === right.target.credentialIdB64u
+      : right.target.kind === 'google_email_otp' &&
+        left.target.providerSubject === right.target.providerSubject &&
+        left.target.emailHashHex === right.target.emailHashHex &&
+        left.target.registrationAuthorityId === right.target.registrationAuthorityId &&
+        left.target.enrollment.enrollmentId === right.target.enrollment.enrollmentId &&
+        left.target.enrollment.enrollmentSealKeyVersion ===
+          right.target.enrollment.enrollmentSealKeyVersion) &&
+    left.createdAtMs === right.createdAtMs
+  );
+}
+
 export function pendingWalletRecoveryCommitAppStateKey(
   recoveryOperationId: WalletRecoveryOperationId,
 ): string {

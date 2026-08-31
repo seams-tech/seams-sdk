@@ -1,8 +1,5 @@
 import { assertPendingWalletRegistrationIdentity, IndexedDBManager } from '@/core/indexedDB';
-import type {
-  PendingWalletRegistrationCommitV1,
-  PendingWalletRegistrationLocalMaterialV1,
-} from '@/core/indexedDB';
+import type { PendingWalletRegistrationCommitV1 } from '@/core/indexedDB';
 import type {
   PublishPendingWalletRegistrationCommitInputV1,
   StoreWalletRegistrationPublicationInputV1,
@@ -18,42 +15,53 @@ import {
 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import {
   completeWalletRegistrationNearProvisioning,
+  activateWalletRegistration,
+  type WalletRegistrationActivateResponseV2,
   type WalletRegistrationNearProvisioningResponseV2,
 } from '@/core/rpcClients/relayer/walletRegistration';
 import {
   requireEd25519YaoRegistrationPublicResultMatches,
   requireEmailOtpEd25519YaoRegistrationPublicResultMatches,
 } from './registrationEd25519Yao';
+import { deriveNearProvisioningIdempotencyKey } from './registration';
 import { base58Encode } from '@shared/utils/base58';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { mpcMaterialActivationRefsEqual, type WalletId } from '@shared/utils/domainIds';
 import { toAccountId } from '@/core/types/accountIds';
-import type { RegistrationEstablishedSessionResultV2 } from '@shared/utils/registrationEstablishedSession';
+import type {
+  RegistrationEstablishedSessionProjectionV2,
+  RegistrationEstablishedSessionResultV2,
+} from '@shared/utils/registrationEstablishedSession';
 import { parseEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type {
+  PendingEcdsaRegistrationCommit,
+  PendingEcdsaOnlyRegistrationCommit,
+  PendingEcdsaRegistrationKeyFamilies,
+  PendingEcdsaRegistrationRecoveryPorts,
+  PendingMixedEcdsaRegistrationCommit,
+  PendingRegistrationExactMethod,
+  PendingRegistrationRecoverySigningSurface,
+} from './pendingEcdsaRegistrationRecoveryValidation';
+import {
+  assertCanonical,
+  isEcdsaRegistrationCommit,
+  isMixedEcdsaRegistrationCommit,
+  requireCommittedEcdsaRegistrationResponse,
+} from './pendingEcdsaRegistrationRecoveryValidation';
+import {
+  resumePendingEcdsaRegistration as resumePendingEcdsaRegistrationWithPorts,
+  type ResumePendingEcdsaRegistrationResult,
+} from './pendingEcdsaRegistrationRecovery';
+import { unlockPendingEcdsaRegistration } from './pendingEcdsaRegistrationRecoveryUnlock';
 
 export type PendingNearProvisioningCommit = Extract<
   PendingWalletRegistrationCommitV1,
   { readonly operation: 'near_provisioning' }
-> & {
-  readonly localMaterial: Extract<
-    PendingWalletRegistrationLocalMaterialV1,
-    { readonly keyFamilies: readonly ['ed25519'] }
-  >;
-};
+>;
 
-type PendingEcdsaRegistrationKeyFamilies =
-  | readonly ['ecdsa_secp256k1']
-  | readonly ['ed25519', 'ecdsa_secp256k1'];
-
-export type PendingEcdsaRegistrationCommit = Extract<
-  PendingWalletRegistrationCommitV1,
-  { readonly operation: 'registration_activate' }
-> & {
-  readonly localMaterial: Extract<
-    PendingWalletRegistrationLocalMaterialV1,
-    { readonly keyFamilies: PendingEcdsaRegistrationKeyFamilies }
-  >;
-};
+type PendingEd25519RegistrationCommit =
+  | PendingNearProvisioningCommit
+  | PendingMixedEcdsaRegistrationCommit;
 
 type FinalizedNearProvisioningResponse = Extract<
   WalletRegistrationNearProvisioningResponseV2,
@@ -114,10 +122,29 @@ async function completePendingWalletRegistrationNearProvisioning(
   return await completeWalletRegistrationNearProvisioning(input);
 }
 
+async function activatePendingWalletRegistration(
+  input: Parameters<typeof activateWalletRegistration>[0],
+): ReturnType<typeof activateWalletRegistration> {
+  return await activateWalletRegistration(input);
+}
+
 async function publishPendingWalletRegistrationCommit(
   input: PublishPendingWalletRegistrationCommitInputV1,
 ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
   return await IndexedDBManager.publishPendingWalletRegistrationCommit(input);
+}
+
+async function publishPendingWalletRegistrationCommitAndRetain(
+  input: PublishPendingWalletRegistrationCommitInputV1,
+): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+  return await IndexedDBManager.publishPendingWalletRegistrationCommitAndRetain(input);
+}
+
+async function deletePendingWalletRegistrationCommit(input: {
+  readonly registrationCeremonyId: string;
+  readonly operation: PendingWalletRegistrationCommitV1['operation'];
+}): Promise<void> {
+  await IndexedDBManager.deletePendingWalletRegistrationCommit(input);
 }
 
 function asError(error: unknown): Error {
@@ -129,28 +156,11 @@ function asError(error: unknown): Error {
 function isNearProvisioningEd25519Commit(
   pending: PendingWalletRegistrationCommitV1,
 ): pending is PendingNearProvisioningCommit {
-  return (
-    pending.operation === 'near_provisioning' &&
-    pending.localMaterial.keyFamilies.length === 1 &&
-    pending.localMaterial.keyFamilies[0] === 'ed25519'
-  );
-}
-
-function isEcdsaRegistrationCommit(
-  pending: PendingWalletRegistrationCommitV1,
-): pending is PendingEcdsaRegistrationCommit {
-  if (pending.operation !== 'registration_activate') return false;
-  return (
-    (pending.localMaterial.keyFamilies.length === 1 &&
-      pending.localMaterial.keyFamilies[0] === 'ecdsa_secp256k1') ||
-    (pending.localMaterial.keyFamilies.length === 2 &&
-      pending.localMaterial.keyFamilies[0] === 'ed25519' &&
-      pending.localMaterial.keyFamilies[1] === 'ecdsa_secp256k1')
-  );
+  return pending.operation === 'near_provisioning';
 }
 
 function pendingCustodyMaterial(
-  pending: PendingNearProvisioningCommit,
+  pending: PendingEd25519RegistrationCommit,
   finalized: FinalizedNearProvisioningResponse,
 ): LoadedWalletCustodyEd25519MaterialV1 {
   const metadata = pending.localMaterial.ed25519.metadata;
@@ -176,7 +186,7 @@ function pendingCustodyMaterial(
   };
 }
 
-function registeredPublicKeyFromPending(pending: PendingNearProvisioningCommit): string {
+function registeredPublicKeyFromPending(pending: PendingEd25519RegistrationCommit): string {
   const publicKey = base64UrlDecode(pending.localMaterial.ed25519.metadata.registeredPublicKeyB64u);
   if (publicKey.length !== 32) {
     throw new Error('pending registration has an invalid Ed25519 registered public key');
@@ -185,12 +195,15 @@ function registeredPublicKeyFromPending(pending: PendingNearProvisioningCommit):
 }
 
 function assertFinalizedSignerMatchesPending(
-  pending: PendingNearProvisioningCommit,
+  pending: PendingEd25519RegistrationCommit,
   finalized: FinalizedNearProvisioningResponse,
   clientPublicKey: string,
 ): void {
   const metadata = pending.localMaterial.ed25519.metadata;
-  const commit = pending.localMaterial.custodyCommit;
+  const commit =
+    pending.operation === 'near_provisioning'
+      ? pending.localMaterial.custodyCommit
+      : pending.localMaterial.ed25519.custodyCommit;
   if (pending.auth.kind === 'passkey') {
     const passkey = requireEd25519YaoRegistrationPublicResultMatches({
       clientPublicKey,
@@ -233,13 +246,17 @@ function assertFinalizedSignerMatchesPending(
   });
 }
 
-function assertRegistrationSessionMatchesPending(
-  pending: PendingNearProvisioningCommit,
+function assertEd25519SessionProjectionMatchesPending(
+  pending: PendingEd25519RegistrationCommit,
   finalized: FinalizedNearProvisioningResponse,
 ): void {
   const sessionResult = finalized.registrationEstablishedSession;
   const session = sessionResult.session;
-  const ed25519 = session.tokens.kind === 'near_ed25519' ? session.tokens.ed25519 : null;
+  const ed25519 =
+    session.tokens.kind === 'near_ed25519' ||
+    session.tokens.kind === 'near_ed25519_and_evm_family_ecdsa'
+      ? session.tokens.ed25519
+      : null;
   const metadata = pending.localMaterial.ed25519.metadata;
   if (
     session.walletId !== pending.walletId ||
@@ -251,6 +268,14 @@ function assertRegistrationSessionMatchesPending(
   ) {
     throw new Error('pending registration does not match the committed Wallet Session projection');
   }
+}
+
+function assertNearRegistrationSessionMatchesPending(
+  pending: PendingNearProvisioningCommit,
+  finalized: FinalizedNearProvisioningResponse,
+): void {
+  assertEd25519SessionProjectionMatchesPending(pending, finalized);
+  const sessionResult = finalized.registrationEstablishedSession;
   if (sessionResult.kind === 'issued') {
     if (
       sessionResult.session.walletSession.walletId !== pending.walletId ||
@@ -265,9 +290,67 @@ function assertRegistrationSessionMatchesPending(
   }
 }
 
-function requireFinalizedNearProvisioningResponse(
-  pending: PendingNearProvisioningCommit,
+function assertMixedRegistrationSessionMatchesPending(
+  pending: PendingMixedEcdsaRegistrationCommit,
+  finalized: FinalizedNearProvisioningResponse,
+  initialEcdsaProjection: RegistrationEstablishedSessionProjectionV2,
+): void {
+  assertEd25519SessionProjectionMatchesPending(pending, finalized);
+  const sessionResult = finalized.registrationEstablishedSession;
+  const session = sessionResult.session;
+  if (
+    sessionResult.kind !== 'already_committed' ||
+    sessionResult.next !== 'unlock_exact_method' ||
+    session.tokens.kind !== 'near_ed25519_and_evm_family_ecdsa' ||
+    initialEcdsaProjection.tokens.kind !== 'evm_family_ecdsa'
+  ) {
+    throw new Error('mixed registration replay did not return its committed session projection');
+  }
+  assertCanonical(
+    {
+      walletId: session.walletId,
+      authorizationId: session.authorizationId,
+      walletSessionId: session.walletSessionId,
+      quotaId: session.quotaId,
+      expiresAtMs: session.expiresAtMs,
+      remainingUses: session.remainingUses,
+      walletSessionIdentity: {
+        walletId: session.walletSession.walletId,
+        authorityId: session.walletSession.authorityId,
+        authMethodId: session.walletSession.authMethodId,
+        authorizationId: session.walletSession.authorizationId,
+        quotaId: session.walletSession.quotaId,
+        issuedAtMs: session.walletSession.issuedAtMs,
+        expiresAtMs: session.walletSession.expiresAtMs,
+      },
+      ecdsa: session.tokens.ecdsa,
+    },
+    {
+      walletId: initialEcdsaProjection.walletId,
+      authorizationId: initialEcdsaProjection.authorizationId,
+      walletSessionId: initialEcdsaProjection.walletSessionId,
+      quotaId: initialEcdsaProjection.quotaId,
+      expiresAtMs: initialEcdsaProjection.expiresAtMs,
+      remainingUses: initialEcdsaProjection.remainingUses,
+      walletSessionIdentity: {
+        walletId: initialEcdsaProjection.walletSession.walletId,
+        authorityId: initialEcdsaProjection.walletSession.authorityId,
+        authMethodId: initialEcdsaProjection.walletSession.authMethodId,
+        authorizationId: initialEcdsaProjection.walletSession.authorizationId,
+        quotaId: initialEcdsaProjection.walletSession.quotaId,
+        issuedAtMs: initialEcdsaProjection.walletSession.issuedAtMs,
+        expiresAtMs: initialEcdsaProjection.walletSession.expiresAtMs,
+      },
+      ecdsa: initialEcdsaProjection.tokens.ecdsa,
+    },
+    'mixed registration NEAR completion changed the committed ECDSA session',
+  );
+}
+
+function requireFinalizedEd25519Response(
+  pending: PendingEd25519RegistrationCommit,
   response: WalletRegistrationNearProvisioningResponseV2,
+  expectedCustodyStatus: 'committed' | 'joined',
 ): FinalizedNearProvisioningResponse {
   if (!response.ok || response.kind !== 'near_ed25519') {
     throw new Error(
@@ -276,17 +359,35 @@ function requireFinalizedNearProvisioningResponse(
         : `pending registration replay failed: ${response.code}`,
     );
   }
-  if (response.walletCustody?.status !== 'committed') {
-    throw new Error('pending registration replay did not commit wallet custody');
+  if (response.walletCustody?.status !== expectedCustodyStatus) {
+    throw new Error('pending registration replay did not commit the expected wallet custody');
   }
   const clientPublicKey = registeredPublicKeyFromPending(pending);
   assertFinalizedSignerMatchesPending(pending, response, clientPublicKey);
-  assertRegistrationSessionMatchesPending(pending, response);
   return response;
 }
 
-async function registrationProjectionFromPending(
+function requireFinalizedNearProvisioningResponse(
   pending: PendingNearProvisioningCommit,
+  response: WalletRegistrationNearProvisioningResponseV2,
+): FinalizedNearProvisioningResponse {
+  const finalized = requireFinalizedEd25519Response(pending, response, 'committed');
+  assertNearRegistrationSessionMatchesPending(pending, finalized);
+  return finalized;
+}
+
+function requireFinalizedMixedNearProvisioningResponse(
+  pending: PendingMixedEcdsaRegistrationCommit,
+  response: WalletRegistrationNearProvisioningResponseV2,
+  initialEcdsaProjection: RegistrationEstablishedSessionProjectionV2,
+): FinalizedNearProvisioningResponse {
+  const finalized = requireFinalizedEd25519Response(pending, response, 'joined');
+  assertMixedRegistrationSessionMatchesPending(pending, finalized, initialEcdsaProjection);
+  return finalized;
+}
+
+async function registrationProjectionFromPending(
+  pending: PendingEd25519RegistrationCommit,
   finalized: FinalizedNearProvisioningResponse,
 ): Promise<StoreWalletRegistrationPublicationInputV1> {
   const clientPublicKey = registeredPublicKeyFromPending(pending);
@@ -329,7 +430,7 @@ async function registrationProjectionFromPending(
 }
 
 function publicationInputFromPending(
-  pending: PendingNearProvisioningCommit,
+  pending: PendingEd25519RegistrationCommit,
   finalized: FinalizedNearProvisioningResponse,
   registration: StoreWalletRegistrationPublicationInputV1,
 ): PublishPendingWalletRegistrationCommitInputV1 {
@@ -347,6 +448,7 @@ function publicationInputFromPending(
       walletId: pending.walletId,
       walletAuthMethodId: pending.walletAuthMethodId,
     },
+    ecdsaContinuity: [],
     walletSessionPublication:
       finalized.registrationEstablishedSession.kind === 'issued'
         ? {
@@ -363,30 +465,50 @@ function publicationInputFromPending(
   };
 }
 
-function pendingNearProvisioningRequest(
-  relayerUrl: string,
-  pending: PendingNearProvisioningCommit,
-): Parameters<typeof completeWalletRegistrationNearProvisioning>[0] {
-  let auth: Parameters<typeof completeWalletRegistrationNearProvisioning>[0]['auth'];
+function pendingNearProvisioningAuth(
+  pending: PendingEd25519RegistrationCommit,
+): Parameters<typeof completeWalletRegistrationNearProvisioning>[0]['auth'] {
   switch (pending.auth.kind) {
     case 'passkey':
-      auth = { kind: 'passkey' };
-      break;
+      return { kind: 'passkey' };
     case 'email_otp':
-      auth = { kind: 'email_otp', enrollment: pending.auth.enrollment };
-      break;
+      return { kind: 'email_otp', enrollment: pending.auth.enrollment };
     default:
       pending.auth satisfies never;
       throw new Error('pending registration has an unsupported auth method');
   }
+}
+
+function pendingNearProvisioningRequest(
+  relayerUrl: string,
+  pending: PendingNearProvisioningCommit,
+): Parameters<typeof completeWalletRegistrationNearProvisioning>[0] {
   return {
     relayerUrl,
     registrationCeremonyId: pending.registrationCeremonyId,
     signedSetup: pending.signedSetup,
     idempotencyKey: pending.idempotencyKey,
     ed25519: { activationReference: pending.localMaterial.ed25519.activationReference },
-    auth,
+    auth: pendingNearProvisioningAuth(pending),
     walletCustodyCommit: pending.localMaterial.custodyCommit,
+  };
+}
+
+async function pendingMixedNearProvisioningRequest(
+  relayerUrl: string,
+  pending: PendingMixedEcdsaRegistrationCommit,
+): Promise<Parameters<typeof completeWalletRegistrationNearProvisioning>[0]> {
+  return {
+    relayerUrl,
+    registrationCeremonyId: pending.registrationCeremonyId,
+    signedSetup: pending.signedSetup,
+    idempotencyKey: await deriveNearProvisioningIdempotencyKey({
+      registrationCeremonyId: pending.registrationCeremonyId,
+      activationReference: pending.localMaterial.ed25519.activationReference,
+    }),
+    ed25519: { activationReference: pending.localMaterial.ed25519.activationReference },
+    auth: pendingNearProvisioningAuth(pending),
+    walletCustodyCommit: pending.localMaterial.ed25519.custodyCommit,
   };
 }
 
@@ -418,6 +540,127 @@ export async function replayPendingNearProvisioning(args: {
   };
 }
 
+export type PendingMixedRegistrationRecoveryPorts = Pick<
+  PendingEcdsaRegistrationRecoveryPorts,
+  'activateWalletRegistration' | 'unlockPendingEcdsaRegistration'
+> & {
+  readonly completeWalletRegistrationNearProvisioning: PendingRegistrationRecoveryPorts['completeWalletRegistrationNearProvisioning'];
+  readonly publishPendingWalletRegistrationCommitAndRetain: (
+    input: PublishPendingWalletRegistrationCommitInputV1,
+  ) => Promise<StoreWalletRegistrationFinalizeBatchResult>;
+  readonly deletePendingWalletRegistrationCommit: typeof deletePendingWalletRegistrationCommit;
+};
+
+type CapturedMixedActivation = {
+  value: Awaited<ReturnType<typeof requireCommittedEcdsaRegistrationResponse>> | null;
+};
+
+async function activateAndCaptureMixedRegistration(
+  base: {
+    readonly pending: PendingMixedEcdsaRegistrationCommit;
+    readonly ports: PendingMixedRegistrationRecoveryPorts;
+    readonly captured: CapturedMixedActivation;
+  },
+  input: Parameters<PendingEcdsaRegistrationRecoveryPorts['activateWalletRegistration']>[0],
+): Promise<WalletRegistrationActivateResponseV2> {
+  const response = await base.ports.activateWalletRegistration(input);
+  base.captured.value = await requireCommittedEcdsaRegistrationResponse({
+    pending: base.pending,
+    response,
+  });
+  return response;
+}
+
+async function retainMixedRegistrationPublication(
+  ports: PendingMixedRegistrationRecoveryPorts,
+  input: PublishPendingWalletRegistrationCommitInputV1,
+): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+  return await ports.publishPendingWalletRegistrationCommitAndRetain(input);
+}
+
+function requireCapturedMixedActivation(
+  captured: CapturedMixedActivation,
+): Awaited<ReturnType<typeof requireCommittedEcdsaRegistrationResponse>> {
+  if (captured.value === null) throw new Error('mixed registration did not replay Route 3');
+  return captured.value;
+}
+
+const defaultPendingMixedRegistrationRecoveryPorts: PendingMixedRegistrationRecoveryPorts = {
+  activateWalletRegistration: activatePendingWalletRegistration,
+  unlockPendingEcdsaRegistration,
+  completeWalletRegistrationNearProvisioning: completePendingWalletRegistrationNearProvisioning,
+  publishPendingWalletRegistrationCommitAndRetain,
+  deletePendingWalletRegistrationCommit,
+};
+
+export type PendingMixedRegistrationResumeInput = {
+  readonly relayerUrl: string;
+  readonly pending: PendingMixedEcdsaRegistrationCommit;
+  readonly exactMethod: PendingRegistrationExactMethod;
+  readonly signingSurface: PendingRegistrationRecoverySigningSurface;
+  readonly ports?: PendingMixedRegistrationRecoveryPorts;
+};
+
+export async function resumePendingMixedRegistration(
+  args: PendingMixedRegistrationResumeInput,
+): Promise<ResumePendingEcdsaRegistrationResult> {
+  const ports = args.ports ?? defaultPendingMixedRegistrationRecoveryPorts;
+  const captured: CapturedMixedActivation = { value: null };
+  const ecdsaPorts: PendingEcdsaRegistrationRecoveryPorts = {
+    activateWalletRegistration: activateAndCaptureMixedRegistration.bind(undefined, {
+      pending: args.pending,
+      ports,
+      captured,
+    }),
+    unlockPendingEcdsaRegistration: ports.unlockPendingEcdsaRegistration,
+    publishPendingWalletRegistrationCommit: retainMixedRegistrationPublication.bind(
+      undefined,
+      ports,
+    ),
+  };
+  let ecdsaResult: ResumePendingEcdsaRegistrationResult;
+  switch (args.exactMethod.kind) {
+    case 'passkey':
+      ecdsaResult = await resumePendingEcdsaRegistrationWithPorts({
+        relayerUrl: args.relayerUrl,
+        pending: args.pending,
+        signingSurface: args.signingSurface,
+        exactMethod: args.exactMethod,
+        ports: ecdsaPorts,
+      });
+      break;
+    case 'email_otp':
+      ecdsaResult = await resumePendingEcdsaRegistrationWithPorts({
+        relayerUrl: args.relayerUrl,
+        pending: args.pending,
+        signingSurface: args.signingSurface,
+        exactMethod: args.exactMethod,
+        ports: ecdsaPorts,
+      });
+      break;
+    default:
+      args.exactMethod satisfies never;
+      throw new Error('mixed registration has an unsupported exact method');
+  }
+  const activated = requireCapturedMixedActivation(captured);
+  const request = await pendingMixedNearProvisioningRequest(args.relayerUrl, args.pending);
+  const response = await ports.completeWalletRegistrationNearProvisioning(request);
+  const finalized = requireFinalizedMixedNearProvisioningResponse(
+    args.pending,
+    response,
+    activated.registrationEstablishedSession.session,
+  );
+  const registration = await registrationProjectionFromPending(args.pending, finalized);
+  await ports.publishPendingWalletRegistrationCommitAndRetain(
+    publicationInputFromPending(args.pending, finalized, registration),
+  );
+  await ports.deletePendingWalletRegistrationCommit({
+    registrationCeremonyId: args.pending.registrationCeremonyId,
+    operation: args.pending.operation,
+  });
+  return ecdsaResult;
+}
+
 export async function resumePendingNearRegistrations(args: {
   readonly relayerUrl: string;
   readonly ports?: PendingRegistrationRecoveryPorts;
@@ -426,7 +669,7 @@ export async function resumePendingNearRegistrations(args: {
   const pendingRows = await ports.listPendingWalletRegistrationCommits();
   const results: PendingRegistrationRecoveryResult[] = [];
   for (const pending of pendingRows) {
-    if (isEcdsaRegistrationCommit(pending)) {
+    if (isEcdsaRegistrationCommit(pending) || isMixedEcdsaRegistrationCommit(pending)) {
       results.push({
         kind: 'unlock_required',
         registrationCeremonyId: pending.registrationCeremonyId,
@@ -459,4 +702,93 @@ export async function resumePendingNearRegistrations(args: {
     }
   }
   return results;
+}
+
+export type {
+  PendingEcdsaRegistrationCommit,
+  PendingRegistrationExactMethod,
+  PendingRegistrationRecoverySigningSurface,
+} from './pendingEcdsaRegistrationRecoveryValidation';
+export { isEcdsaRegistrationCommit } from './pendingEcdsaRegistrationRecoveryValidation';
+export type { ResumePendingEcdsaRegistrationResult } from './pendingEcdsaRegistrationRecovery';
+
+const defaultPendingEcdsaRegistrationRecoveryPorts: PendingEcdsaRegistrationRecoveryPorts = {
+  activateWalletRegistration: activatePendingWalletRegistration,
+  publishPendingWalletRegistrationCommit,
+  unlockPendingEcdsaRegistration,
+};
+
+export type PendingEcdsaRegistrationResumeInput = {
+  readonly relayerUrl: string;
+  readonly pending: PendingEcdsaOnlyRegistrationCommit;
+  readonly exactMethod: PendingRegistrationExactMethod;
+  readonly signingSurface: PendingRegistrationRecoverySigningSurface;
+  readonly ports?: PendingEcdsaRegistrationRecoveryPorts;
+};
+
+export type PendingEcdsaRegistrationResumeRequest = {
+  readonly walletId: WalletId | string;
+  readonly registrationCeremonyId: string;
+  readonly exactMethod: PendingRegistrationExactMethod;
+};
+
+export async function resumePendingEcdsaRegistration(
+  args: PendingEcdsaRegistrationResumeInput,
+): Promise<ResumePendingEcdsaRegistrationResult> {
+  const ports = args.ports ?? defaultPendingEcdsaRegistrationRecoveryPorts;
+  switch (args.exactMethod.kind) {
+    case 'passkey':
+      return await resumePendingEcdsaRegistrationWithPorts({
+        relayerUrl: args.relayerUrl,
+        pending: args.pending,
+        signingSurface: args.signingSurface,
+        exactMethod: args.exactMethod,
+        ports,
+      });
+    case 'email_otp':
+      return await resumePendingEcdsaRegistrationWithPorts({
+        relayerUrl: args.relayerUrl,
+        pending: args.pending,
+        signingSurface: args.signingSurface,
+        exactMethod: args.exactMethod,
+        ports,
+      });
+    default:
+      args.exactMethod satisfies never;
+      throw new Error('pending ECDSA registration has an unsupported exact method');
+  }
+}
+
+export async function resumePendingEcdsaRegistrationFromStoredCommit(args: {
+  readonly relayerUrl: string;
+  readonly request: PendingEcdsaRegistrationResumeRequest;
+  readonly signingSurface: PendingRegistrationRecoverySigningSurface;
+}): Promise<ResumePendingEcdsaRegistrationResult> {
+  await IndexedDBManager.initialize();
+  const pending = (await IndexedDBManager.listPendingWalletRegistrationCommits()).find(
+    (candidate) =>
+      candidate.operation === 'registration_activate' &&
+      String(candidate.walletId) === String(args.request.walletId) &&
+      candidate.registrationCeremonyId === args.request.registrationCeremonyId,
+  );
+  if (!pending) {
+    throw new Error('pending ECDSA registration commit was not found');
+  }
+  if (isMixedEcdsaRegistrationCommit(pending)) {
+    return await resumePendingMixedRegistration({
+      relayerUrl: args.relayerUrl,
+      pending,
+      exactMethod: args.request.exactMethod,
+      signingSurface: args.signingSurface,
+    });
+  }
+  if (!isEcdsaRegistrationCommit(pending)) {
+    throw new Error('pending registration commit is not ECDSA-enabled');
+  }
+  return await resumePendingEcdsaRegistration({
+    relayerUrl: args.relayerUrl,
+    pending,
+    exactMethod: args.request.exactMethod,
+    signingSurface: args.signingSurface,
+  });
 }

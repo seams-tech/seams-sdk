@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import {
-  discoverLanesForWalletWithResolver,
-  type SigningSessionReadinessExactAuthorizationResolver,
+  discoverLanesForWallet,
   type WalletSessionReadinessDeps,
 } from '@/core/signingEngine/session/availability/readiness';
+import type { ExactWalletSessionReadPorts } from '@/core/signingEngine/session/identity/exactWalletSessionCredential';
 import type { WalletSessionAuthorizationExactOperationCredentialReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseMpcWalletSigningQuotaId,
@@ -21,7 +21,7 @@ import { buildPasskeyEd25519SealedSessionRecordFixture } from './helpers/sealedS
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 type SelectedAuthorityResult = Awaited<
-  ReturnType<SigningSessionReadinessExactAuthorizationResolver['resolveSelectedWalletAuthority']>
+  ReturnType<ExactWalletSessionReadPorts['resolveSelectedWalletAuthority']>
 >;
 
 function required<T>(
@@ -47,12 +47,10 @@ class SealedSessionListFixture {
   }
 }
 
-class ExactAuthorizationResolverFixture implements SigningSessionReadinessExactAuthorizationResolver {
+class ExactAuthorizationResolverFixture implements ExactWalletSessionReadPorts {
   readonly selectedWalletIds: string[] = [];
   readonly exactReads: Array<
-    Parameters<
-      SigningSessionReadinessExactAuthorizationResolver['readExactWithOperationCredential']
-    >[0]
+    Parameters<ExactWalletSessionReadPorts['readExactWithOperationCredential']>[0]
   > = [];
 
   constructor(
@@ -68,9 +66,7 @@ class ExactAuthorizationResolverFixture implements SigningSessionReadinessExactA
   }
 
   async readExactWithOperationCredential(
-    input: Parameters<
-      SigningSessionReadinessExactAuthorizationResolver['readExactWithOperationCredential']
-    >[0],
+    input: Parameters<ExactWalletSessionReadPorts['readExactWithOperationCredential']>[0],
   ): Promise<WalletSessionAuthorizationExactOperationCredentialReadResult> {
     this.exactReads.push(input);
     if (this.authorization instanceof Error) throw this.authorization;
@@ -110,7 +106,7 @@ async function buildReadinessHarness() {
     exportRoot: null,
   };
   const sealedSessions = new SealedSessionListFixture(sealed);
-  const deps: WalletSessionReadinessDeps = {
+  const deps: Omit<WalletSessionReadinessDeps, 'exactWalletSessionReadPorts'> = {
     listExactSealedSessionsForWallet: sealedSessions.list.bind(sealedSessions),
   };
   return { authorityFixture, deps, sealed, selected };
@@ -122,10 +118,9 @@ async function discoverWithAuthorization(
   selected: SelectedAuthorityResult = harness.selected,
 ) {
   const resolver = new ExactAuthorizationResolverFixture(selected, authorization);
-  const lanes = await discoverLanesForWalletWithResolver(
-    harness.deps,
+  const lanes = await discoverLanesForWallet(
+    { ...harness.deps, exactWalletSessionReadPorts: resolver },
     harness.authorityFixture.authority.walletId,
-    resolver,
   );
   return { lanes, resolver };
 }

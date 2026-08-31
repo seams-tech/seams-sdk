@@ -21,6 +21,8 @@ import type {
 } from './sealedRecovery/sealedRecovery.types';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 
+export { resolveWalletAuthorityOperation } from './authority';
+
 const EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT: DiscoverPersistedSessionsForWalletResult =
   {
     listed: 0,

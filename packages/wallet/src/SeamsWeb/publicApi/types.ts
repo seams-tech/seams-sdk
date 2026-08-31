@@ -104,6 +104,10 @@ import type {
 } from '@/core/rpcClients/relayer/walletRecoveryRotate';
 import type { WalletRecoveryRotationAuthorization } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
 import type { WalletRecoveryRotationOutcome } from '@/core/signingEngine/walletCustody/walletRecoveryRotation';
+import type {
+  PendingEcdsaRegistrationResumeRequest,
+  ResumePendingEcdsaRegistrationResult,
+} from '@/SeamsWeb/operations/registration/pendingRegistrationRecovery';
 export type {
   AddPasskeyAuthorization,
   AddPasskeyHooksOptions,
@@ -120,6 +124,10 @@ export type {
   WalletCustodyEmailOtpChallengeResult,
 } from '@/core/rpcClients/relayer/walletRecoveryRotate';
 export type { WalletRecoveryRotationAuthorization } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
+export type {
+  PendingEcdsaRegistrationResumeRequest,
+  ResumePendingEcdsaRegistrationResult,
+} from '@/SeamsWeb/operations/registration/pendingRegistrationRecovery';
 export type { WalletRecoveryRotationOutcome } from '@/core/signingEngine/walletCustody/walletRecoveryRotation';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type {
@@ -842,6 +850,9 @@ export interface AuthCapability {
 }
 
 export interface RegistrationCapability {
+  resumePendingEcdsaRegistration(
+    args: PendingEcdsaRegistrationResumeRequest,
+  ): Promise<ResumePendingEcdsaRegistrationResult>;
   getNearProvisioningState(args: {
     walletId: WalletId | string;
   }): Promise<NearProvisioningState | null>;

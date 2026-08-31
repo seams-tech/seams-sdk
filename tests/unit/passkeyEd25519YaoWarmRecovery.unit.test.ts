@@ -4,7 +4,7 @@ import { PASSKEY_PRF_KEK_VERSION_V1 } from '@shared/passkey-custody';
 import type { CurrentEd25519SealedSessionRecord } from '../../packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   requirePasskeyEd25519RestoreAuthorization,
-  resolvePasskeyEd25519YaoExportContextWithRuntimeV1,
+  resolvePasskeyEd25519YaoExportContextV1,
 } from '../../packages/wallet/src/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import {
   type WalletAuthAuthority,
@@ -164,7 +164,7 @@ async function resolveRecord(
   subjectThresholdSessionId = THRESHOLD_SESSION_ID,
 ) {
   let recoveryBootstrapCalls = 0;
-  const result = await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
+  const result = await resolvePasskeyEd25519YaoExportContextV1(
     {
       subject: {
         kind: 'owner_sealed_runtime',
@@ -200,16 +200,14 @@ async function warmBootstrapResponse(args: {
     WalletSessionAuthorizationExactActiveReadResult,
     { readonly kind: 'found' }
   >;
-  readonly walletAuthMethodId?: string;
   readonly capabilityThresholdSessionId: string;
   readonly capabilityAccountId?: string;
   readonly materialActivation?: MpcMaterialActivationRef;
   readonly responseThresholdSessionId?: string;
 }): Promise<Record<string, unknown>> {
   const restore = args.record.ed25519Restore;
-  const authority = exactPasskeyAuthorityForRecord(args.record, args.walletAuthMethodId);
   return {
-    kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
+    kind: 'router_ab_ed25519_yao_v2_session_bootstrap_v1',
     walletId: args.record.walletId,
     nearAccountId: restore.nearAccountId,
     nearEd25519SigningKeyId: restore.nearEd25519SigningKeyId,
@@ -220,9 +218,6 @@ async function warmBootstrapResponse(args: {
     signingWorkerId: restore.relayerKeyId,
     thresholdExpiresAtMs: args.authorization.record.expiresAtMs,
     participantIds: [...restore.participantIds],
-    authority,
-    authorityRef: exactPasskeyAuthorityRefForRecord(args.record, args.walletAuthMethodId),
-    authorityScope: { kind: 'passkey_rp', rpId: restore.rpId },
     runtimePolicyScope: restore.runtimePolicyScope,
     routerAbNormalSigning: restore.routerAbNormalSigning,
     capability: {
@@ -334,7 +329,6 @@ test('warm recovery accepts a renewed Wallet Session credential with the owner c
   const response = await warmBootstrapResponse({
     record,
     authorization,
-    walletAuthMethodId,
     capabilityThresholdSessionId: record.thresholdSessionIds.ed25519,
     responseThresholdSessionId: record.thresholdSessionIds.ed25519,
   });
@@ -347,7 +341,7 @@ test('warm recovery accepts a renewed Wallet Session credential with the owner c
     readonly authorityId: string;
     readonly authMethodId: string;
   } | null = null;
-  const resolved = await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
+  const resolved = await resolvePasskeyEd25519YaoExportContextV1(
     {
       subject: {
         kind: 'owner_sealed_runtime',
@@ -421,7 +415,7 @@ test('warm recovery fails closed when the selected exact Wallet Session is unava
     thresholdSessionId: THRESHOLD_SESSION_ID,
   });
   let recoveryBootstrapCalls = 0;
-  const result = await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
+  const result = await resolvePasskeyEd25519YaoExportContextV1(
     {
       subject: {
         kind: 'owner_sealed_runtime',
@@ -456,7 +450,7 @@ test('warm recovery fails closed when the selected exact Wallet Session is unava
   expect(recoveryBootstrapCalls).toBe(0);
 });
 
-test('warm recovery rejects identity and material substitutions', async () => {
+test('warm recovery rejects identity, material, and extra-field substitutions', async () => {
   const warm = await buildWarmFixture({
     label: 'substitution',
     recordExpiresAtMs: NOW_MS + 60_000,
@@ -470,7 +464,6 @@ test('warm recovery rejects identity and material substitutions', async () => {
       response: await warmBootstrapResponse({
         record,
         authorization,
-        walletAuthMethodId,
         capabilityThresholdSessionId: 'threshold-capability-original',
         capabilityAccountId: 'foreign-wallet',
       }),
@@ -480,7 +473,6 @@ test('warm recovery rejects identity and material substitutions', async () => {
       response: await warmBootstrapResponse({
         record,
         authorization,
-        walletAuthMethodId,
         capabilityThresholdSessionId: 'threshold-capability-original',
         materialActivation: buildMpcMaterialActivationRefFixture(
           'foreign-warm-material',
@@ -488,11 +480,22 @@ test('warm recovery rejects identity and material substitutions', async () => {
         ),
       }),
     },
+    {
+      label: 'extra-field',
+      response: {
+        ...(await warmBootstrapResponse({
+          record,
+          authorization,
+          capabilityThresholdSessionId: record.thresholdSessionIds.ed25519,
+        })),
+        authority: {},
+      },
+    },
   ];
 
   for (const substitution of substitutions) {
     await expect(
-      resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
+      resolvePasskeyEd25519YaoExportContextV1(
         {
           subject: {
             kind: 'owner_sealed_runtime',

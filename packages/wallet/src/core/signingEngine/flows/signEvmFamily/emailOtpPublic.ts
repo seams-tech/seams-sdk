@@ -30,10 +30,9 @@ import type {
   EmailOtpThresholdEcdsaLoginResult,
   LoginEmailOtpEcdsaCapabilityArgs,
 } from '../../session/emailOtp/ecdsaLogin';
-import {
-  type EmailOtpRoutePlan,
-} from '../../stepUpConfirmation/otpPrompt/authLane';
+import { type EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import { buildFreshEmailOtpRoutePlan } from '../../session/emailOtp/routePlan';
+import type { EmailOtpEcdsaSigningSessionAuthorityPorts } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 
 export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   walletSession: WalletSessionRef;
@@ -98,6 +97,7 @@ export type EmailOtpPublicDeps = {
   withThresholdEcdsaSigningQueue: Parameters<
     typeof refreshEmailOtpSigningSessionValue
   >[0]['withThresholdEcdsaSigningQueue'];
+  signingSessionAuthorityPorts: EmailOtpEcdsaSigningSessionAuthorityPorts;
   emailOtpSessions: {
     requestTransactionSigningChallenge: Parameters<
       typeof requestEmailOtpSigningSessionChallengeValue
@@ -170,7 +170,8 @@ export async function requestEmailOtpSigningSessionChallenge(
 ): Promise<{ challengeId: string; emailHint?: string }> {
   return await requestEmailOtpSigningSessionChallengeValue(
     {
-      resolveSigningSessionAuth: resolveEmailOtpEcdsaSigningSessionAuth,
+      resolveSigningSessionAuth: (args) =>
+        resolveEmailOtpEcdsaSigningSessionAuth(args, deps.signingSessionAuthorityPorts),
       withThresholdEcdsaSigningQueue: deps.withThresholdEcdsaSigningQueue,
       emailOtpSessions: {
         requestTransactionSigningChallenge: (challengeArgs) =>
@@ -207,7 +208,8 @@ export async function refreshEmailOtpSigningSession(
 ): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult> {
   const refreshed = await refreshEmailOtpSigningSessionValue(
     {
-      resolveSigningSessionAuth: resolveEmailOtpEcdsaSigningSessionAuth,
+      resolveSigningSessionAuth: (args) =>
+        resolveEmailOtpEcdsaSigningSessionAuth(args, deps.signingSessionAuthorityPorts),
       withThresholdEcdsaSigningQueue: deps.withThresholdEcdsaSigningQueue,
       emailOtpSessions: {
         requestTransactionSigningChallenge: (challengeArgs) =>
