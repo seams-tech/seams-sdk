@@ -185,7 +185,7 @@ async function readEd25519LanesFixture(
   lanes: ConcreteAvailableEd25519SigningLane[],
   _args: unknown,
 ): Promise<AvailableSigningLanes> {
-  const canonicalLane = lanes.find((lane) => lane.authorizationState === 'authorized');
+  const canonicalLane = lanes[0];
   return {
     walletId: toWalletId(WALLET_ID),
     generation: 1,
@@ -400,6 +400,28 @@ test.describe('Ed25519 export lane selection', () => {
         materialActivation: lane.materialActivation,
       });
     }
+  });
+
+  test('keeps fresh Email OTP export available when exact session authorization is required', async () => {
+    const lane = deferredEd25519Lane({
+      auth: emailOtpSigningAuth(),
+      source: 'durable_sealed_record',
+    });
+
+    await expect(
+      resolveExactKeyExportLane(depsForEd25519([lane]), {
+        kind: 'ed25519',
+        walletSession: walletSessionRefFromSession({
+          walletId: WALLET_ID,
+          walletSessionUserId: WALLET_ID,
+        }),
+        nearAccount: NEAR_ACCOUNT,
+      }),
+    ).resolves.toEqual({
+      kind: 'ed25519',
+      laneIdentity: expectEd25519ExportMaterialIdentity(lane),
+      materialActivation: lane.materialActivation,
+    });
   });
 
   test('uses the canonical current activation when historical owner material remains', async () => {

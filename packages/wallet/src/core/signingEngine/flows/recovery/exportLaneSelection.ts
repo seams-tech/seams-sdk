@@ -373,7 +373,6 @@ function isUsableEd25519ExportLane(args: {
   return (
     String(args.lane.walletId) === args.walletId &&
     String(args.lane.nearAccountId) === args.nearAccountId &&
-    args.lane.authorizationState === 'authorized' &&
     hasRecoverableSource
   );
 }
