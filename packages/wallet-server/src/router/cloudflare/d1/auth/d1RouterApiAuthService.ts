@@ -216,6 +216,7 @@ type LinkedDeviceEd25519AuthorityReader = Pick<
   D1LinkedDeviceAuthorityInstallServiceV1,
   | 'readInstalledEd25519AuthorityByIdentityV1'
   | 'readInstalledEd25519AuthorityByMaterialActivationV1'
+  | 'readInstalledEcdsaAuthorityByMaterialActivationV1'
 >;
 
 type LinkedDeviceEd25519AuthorityReaderSlot = {
@@ -1468,6 +1469,13 @@ function createCloudflareD1RouterApiAuthAssembly(
     ensureSchema: false,
   });
   const linkIdentity = linkD1Identity.bind(undefined, identityStore);
+  const linkedDeviceEd25519AuthorityReaderSlot: LinkedDeviceEd25519AuthorityReaderSlot = {
+    current: null,
+  };
+  const getLinkedDeviceEd25519AuthorityReader = linkedDeviceEd25519AuthorityReaderFromSlot.bind(
+    undefined,
+    linkedDeviceEd25519AuthorityReaderSlot,
+  );
   const authorizationStore = new CloudflareD1AuthorizationStore({
     database: options.database,
     namespace: options.namespace,
@@ -1477,6 +1485,7 @@ function createCloudflareD1RouterApiAuthAssembly(
       projectId: options.projectId,
       envId: options.envId,
     },
+    getLinkedDeviceAuthorityReader: getLinkedDeviceEd25519AuthorityReader,
   });
   const authorizationService = new AuthorizationService({
     policy: capabilityPolicyPort,
@@ -1635,9 +1644,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     },
   });
   const signedDelegateExecutor = new CloudflareD1SignedDelegateExecutor(options);
-  const linkedDeviceEd25519AuthorityReaderSlot: LinkedDeviceEd25519AuthorityReaderSlot = {
-    current: null,
-  };
   const walletRegistrations = new CloudflareD1WalletRegistrationService({
     authorizationService,
     authorizationTenantId: authorizationTenantId.value,
@@ -1652,10 +1658,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     walletRegistrationCommitStore,
     walletCustodyCommitStore,
     walletAuthMethods,
-    getLinkedDeviceEd25519AuthorityReader: linkedDeviceEd25519AuthorityReaderFromSlot.bind(
-      undefined,
-      linkedDeviceEd25519AuthorityReaderSlot,
-    ),
+    getLinkedDeviceEd25519AuthorityReader,
   });
   const walletAddSigners = new CloudflareD1WalletAddSignerService({
     getRegistrationCeremonyIntentStore,

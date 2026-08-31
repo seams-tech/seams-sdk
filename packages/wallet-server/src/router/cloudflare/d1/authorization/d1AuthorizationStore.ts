@@ -1,6 +1,7 @@
 import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
+  type MpcMaterialActivationRef,
   type WalletAuthorityId,
   type WalletAuthMethodId,
   type WalletId,
@@ -83,11 +84,36 @@ import type {
   D1ResultLike,
 } from '../../../../storage/tenantRoute';
 import { parseWalletId } from '@shared/utils/domainIds';
-import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  routerAbMpcMaterialActivationRefToWire,
+  sameRouterAbMpcMaterialActivationRef,
+} from '@shared/utils/routerAbNormalSigningIdentity';
+/**
+ * Linked-device lane material is installed on the linked authority projection
+ * rather than the wallet signer rows, so the exact-status material check needs
+ * this reader to recognize a linked session's capability subjects.
+ */
+export type D1AuthorizationLinkedAuthorityMaterialReader = {
+  readInstalledEd25519AuthorityByMaterialActivationV1(input: {
+    readonly walletId: WalletId;
+    readonly materialActivation: MpcMaterialActivationRef;
+  }): Promise<D1AuthorizationLinkedAuthorityMaterialProjection | null>;
+  readInstalledEcdsaAuthorityByMaterialActivationV1(input: {
+    readonly walletId: WalletId;
+    readonly materialActivation: MpcMaterialActivationRef;
+  }): Promise<D1AuthorizationLinkedAuthorityMaterialProjection | null>;
+};
+
+export type D1AuthorizationLinkedAuthorityMaterialProjection = {
+  readonly walletId: string;
+  readonly materialActivation: MpcMaterialActivationRef;
+};
+
 export type D1AuthorizationStoreOptions = {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
   readonly walletSignerScope: D1WalletStoreScope;
+  readonly getLinkedDeviceAuthorityReader?: () => D1AuthorizationLinkedAuthorityMaterialReader | null;
 };
 
 type DirectV2CommitMode =
@@ -256,8 +282,10 @@ export class CloudflareD1AuthorizationStore
   private readonly walletSignerScope: D1WalletStoreScope;
   private readonly walletAuthorityStore: D1WalletAuthorityStore;
   private readonly walletStore: D1WalletStore;
+  private readonly getLinkedDeviceAuthorityReader: () => D1AuthorizationLinkedAuthorityMaterialReader | null;
 
   constructor(options: D1AuthorizationStoreOptions) {
+    this.getLinkedDeviceAuthorityReader = options.getLinkedDeviceAuthorityReader ?? (() => null);
     this.database = options.database;
     this.namespace = requireOpaqueString(options.namespace, 'namespace');
     this.walletSignerScope = {
@@ -1264,11 +1292,7 @@ export class CloudflareD1AuthorizationStore
     D1PreparedStatementLike,
   ] {
     requireExactPersistedActiveWalletSessionAuthorizationV2(persisted);
-    const {
-      session,
-      quota,
-      primaryOperationCredentialDigestB64u,
-    } = persisted;
+    const { session, quota, primaryOperationCredentialDigestB64u } = persisted;
     const capabilitySubjectsJson = JSON.stringify(session.capabilitySubjects);
     const recordJson = JSON.stringify(session);
     if (!capabilitySubjectsJson || !recordJson) {
@@ -1889,7 +1913,14 @@ export class CloudflareD1AuthorizationStore
                   walletId: session.walletId,
                   materialActivation,
                 });
-          if (!signer) return false;
+          if (!signer) {
+            /* Linked-device lane material never joins the wallet signer rows;
+               it lives on the installed linked-authority projection. A subject
+               that resolves neither is genuinely unavailable. */
+            const linked = await this.readLinkedAuthorityMaterial(session.walletId, subject);
+            if (!linked) return false;
+            break;
+          }
           if (signer.walletId !== session.walletId) {
             throw new Error('Stored wallet signer material identity does not match the session');
           }
@@ -1903,6 +1934,40 @@ export class CloudflareD1AuthorizationStore
       }
     }
     return true;
+  }
+
+  private async readLinkedAuthorityMaterial(
+    walletId: WalletId,
+    subject: {
+      readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+      readonly materialActivation: MpcMaterialActivationRef;
+    },
+  ): Promise<D1AuthorizationLinkedAuthorityMaterialProjection | null> {
+    const reader = this.getLinkedDeviceAuthorityReader();
+    if (!reader) return null;
+    const projection =
+      subject.keyFamily === 'ed25519'
+        ? await reader.readInstalledEd25519AuthorityByMaterialActivationV1({
+            walletId,
+            materialActivation: subject.materialActivation,
+          })
+        : await reader.readInstalledEcdsaAuthorityByMaterialActivationV1({
+            walletId,
+            materialActivation: subject.materialActivation,
+          });
+    if (!projection) return null;
+    if (projection.walletId !== String(walletId)) {
+      throw new Error('Installed linked authority material identity does not match the session');
+    }
+    if (
+      !sameRouterAbMpcMaterialActivationRef(
+        routerAbMpcMaterialActivationRefToWire(projection.materialActivation),
+        routerAbMpcMaterialActivationRefToWire(subject.materialActivation),
+      )
+    ) {
+      throw new Error('Installed linked authority material does not match the session subject');
+    }
+    return projection;
   }
 
   private async readJoinedWalletSessionAuthorizationV2Row(input: {
