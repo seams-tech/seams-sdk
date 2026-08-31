@@ -1,17 +1,43 @@
 import { expect, test } from '@playwright/test';
 import {
+  resumePendingEcdsaRegistration,
   resumePendingNearRegistrations,
   type PendingRegistrationRecoveryPorts,
 } from '../../packages/wallet/src/SeamsWeb/operations/registration/pendingRegistrationRecovery';
+import {
+  pendingEcdsaActivateRequest,
+  type PendingEcdsaOnlyRegistrationCommit,
+  type PendingEcdsaRegistrationRecoveryPorts,
+  type PendingEcdsaRegistrationUnlockInput,
+  type PendingRegistrationRecoverySigningSurface,
+} from '../../packages/wallet/src/SeamsWeb/operations/registration/pendingEcdsaRegistrationRecoveryValidation';
+import { finalizeWalletRegistrationEcdsaSessions } from '../../packages/wallet/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
 import type { PublishPendingWalletRegistrationCommitInputV1 } from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/repositories';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   buildEcdsaActivationPublicationFixture,
   buildMixedActivationPublicationFixture,
 } from './helpers/pendingWalletRegistrationPublication.fixtures';
+import { buildPendingEcdsaRegistrationRecoveryFixture } from './helpers/pendingEcdsaRegistrationRecovery.fixtures';
 import {
   buildEmailOtpWalletRegistrationRecoveryFixture,
   buildPendingWalletRegistrationRecoveryFixture,
 } from './helpers/pendingWalletRegistrationRecovery.fixtures';
+
+const signingSurfaceForUnlockDispatch: PendingRegistrationRecoverySigningSurface = {
+  finalizeWalletRegistrationEcdsaSessions: async () => {
+    throw new Error('Email OTP dispatch test must stop at the unlock port');
+  },
+  rejoinWalletCustodyEvmFamilyKeySet: async () => {
+    throw new Error('Email OTP dispatch test must stop at the unlock port');
+  },
+  getAuthenticationCredentialsSerialized: async () => {
+    throw new Error('Email OTP dispatch test must stop at the unlock port');
+  },
+  getSignerWorkerContext: () => {
+    throw new Error('Email OTP dispatch test must stop at the unlock port');
+  },
+};
 
 test.describe('pending registration reload', () => {
   test('publishes a freshly issued session with the exact Route 4 request', async () => {
@@ -234,5 +260,147 @@ test.describe('pending registration reload', () => {
         reason: 'ecdsa_local_finalization',
       },
     ]);
+  });
+
+  test('replays ECDSA activation through unlock, continuity, and publication', async () => {
+    const fixture = await buildPendingEcdsaRegistrationRecoveryFixture();
+    const activationRequests: unknown[] = [];
+    const unlockInputs: PendingEcdsaRegistrationUnlockInput[] = [];
+    const finalizationInputs: unknown[] = [];
+    const publicationInputs: PublishPendingWalletRegistrationCommitInputV1[] = [];
+    let retainedPending: PendingEcdsaOnlyRegistrationCommit | null = fixture.pending;
+    const signingSurface: PendingRegistrationRecoverySigningSurface = {
+      finalizeWalletRegistrationEcdsaSessions: async (input) => {
+        finalizationInputs.push(input);
+        return await finalizeWalletRegistrationEcdsaSessions(input);
+      },
+      rejoinWalletCustodyEvmFamilyKeySet: async () => {
+        throw new Error('ECDSA recovery test should use the injected unlock port');
+      },
+      getAuthenticationCredentialsSerialized: async () => {
+        throw new Error('ECDSA recovery test should use the injected unlock port');
+      },
+      getSignerWorkerContext: () => {
+        throw new Error('ECDSA recovery test should use the injected unlock port');
+      },
+    };
+    const ports: PendingEcdsaRegistrationRecoveryPorts = {
+      activateWalletRegistration: async (request) => {
+        activationRequests.push(request);
+        return fixture.response;
+      },
+      unlockPendingEcdsaRegistration: async (input) => {
+        unlockInputs.push(input);
+        return fixture.unlock;
+      },
+      publishPendingWalletRegistrationCommit: async (publication) => {
+        publicationInputs.push(publication);
+        retainedPending = null;
+        return { signerActivations: [] };
+      },
+    };
+
+    const result = await resumePendingEcdsaRegistration({
+      relayerUrl: 'https://relayer.example.test',
+      pending: fixture.pending,
+      exactMethod: fixture.exactMethod,
+      signingSurface,
+      ports,
+    });
+
+    expect(result).toEqual({
+      kind: 'published',
+      registrationCeremonyId: fixture.pending.registrationCeremonyId,
+      walletId: fixture.response.walletId,
+      sessionResult: 'already_committed',
+    });
+    expect(activationRequests).toEqual([
+      pendingEcdsaActivateRequest('https://relayer.example.test', fixture.pending),
+    ]);
+    expect(unlockInputs).toHaveLength(1);
+    expect(unlockInputs[0]).toMatchObject({
+      relayerUrl: 'https://relayer.example.test',
+      pending: fixture.pending,
+      response: fixture.response,
+      walletKeys: fixture.response.ecdsa.walletKeys,
+      exactMethod: fixture.exactMethod,
+    });
+    expect(finalizationInputs).toHaveLength(1);
+    expect(finalizationInputs[0]).toMatchObject({
+      walletId: String(fixture.pending.walletId),
+      session: {
+        chainTargets: [fixture.response.ecdsa.walletKeys[0]?.chainTarget],
+        bootstrap: {
+          applicationBindingDigestB64u:
+            fixture.response.ecdsa.bootstrap.applicationBindingDigestB64u,
+        },
+        materialActivation: routerAbMpcMaterialActivationRefFromWire(
+          fixture.response.ecdsa.activation.ecdsa_activation.material_activation,
+        ),
+        clientPublicFacts: {
+          contextBinding32B64u: fixture.unlock.publicFacts.contextBinding32B64u,
+          derivationClientSharePublicKey33B64u:
+            fixture.unlock.publicFacts.derivationClientSharePublicKey33B64u,
+          clientVerifyingShareB64u: fixture.unlock.publicFacts.clientVerifyingShare33B64u,
+          relayerPublicKey33B64u: fixture.unlock.publicFacts.relayerPublicKey33B64u,
+          groupPublicKey33B64u: fixture.unlock.publicFacts.groupPublicKey33B64u,
+          ethereumAddress: fixture.unlock.publicFacts.ethereumAddress,
+        },
+        publicCapability: fixture.response.ecdsa.walletKeys[0]?.publicCapability,
+      },
+      walletKeys: fixture.response.ecdsa.walletKeys,
+    });
+    expect(publicationInputs).toHaveLength(1);
+    expect(publicationInputs[0]).toMatchObject({
+      pending: fixture.pending,
+      request: {
+        operation: 'registration_activate',
+        registrationCeremonyId: fixture.pending.registrationCeremonyId,
+        idempotencyKey: fixture.pending.idempotencyKey,
+        walletId: fixture.pending.walletId,
+        walletAuthMethodId: fixture.pending.walletAuthMethodId,
+      },
+      walletSessionPublication: {
+        kind: 'issued',
+        walletSession: fixture.unlock.session.session.wallet_session,
+        operationCredential: fixture.unlock.session.session.operation_credential,
+      },
+      ecdsaContinuity: [expect.any(Object)],
+    });
+    expect(publicationInputs[0]?.walletSessionPublication).not.toEqual(
+      fixture.response.registrationEstablishedSession.session,
+    );
+    expect(retainedPending).toBeNull();
+  });
+
+  test('passes an Email OTP exact method through the ECDSA unlock port', async () => {
+    const fixture = await buildPendingEcdsaRegistrationRecoveryFixture({ authKind: 'email_otp' });
+    let unlockInput: PendingEcdsaRegistrationUnlockInput | undefined;
+    const ports: PendingEcdsaRegistrationRecoveryPorts = {
+      activateWalletRegistration: async () => fixture.response,
+      unlockPendingEcdsaRegistration: async (input) => {
+        unlockInput = input;
+        throw new Error('Email OTP unlock port reached');
+      },
+      publishPendingWalletRegistrationCommit: async () => {
+        throw new Error('Email OTP dispatch test must stop at the unlock port');
+      },
+    };
+
+    await expect(
+      resumePendingEcdsaRegistration({
+        relayerUrl: 'https://relayer.example.test',
+        pending: fixture.pending,
+        exactMethod: fixture.exactMethod,
+        signingSurface: signingSurfaceForUnlockDispatch,
+        ports,
+      }),
+    ).rejects.toThrow('Email OTP unlock port reached');
+    expect(unlockInput).toMatchObject({
+      pending: fixture.pending,
+      response: fixture.response,
+      exactMethod: fixture.exactMethod,
+    });
+    expect(unlockInput?.pending.auth.kind).toBe('email_otp');
   });
 });
