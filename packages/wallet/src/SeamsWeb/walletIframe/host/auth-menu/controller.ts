@@ -101,8 +101,13 @@ class LazyHostedRecoveryPort implements HostedRecoveryPort {
     return await (await this.port()).verifyEmailOtp(operation, input);
   }
 
-  async finalize(operation: HostedRecoveryFinalizationOperation): Promise<
-    | { readonly kind: 'ready_for_sign_in'; readonly walletId: HostedRecoveryCredentialCreated['walletId'] }
+  async finalize(
+    operation: HostedRecoveryFinalizationOperation,
+  ): Promise<
+    | {
+        readonly kind: 'ready_for_sign_in';
+        readonly walletId: HostedRecoveryCredentialCreated['walletId'];
+      }
     | HostedRecoveryFailure
   > {
     return await (await this.port()).finalize(operation);
@@ -312,7 +317,7 @@ export class AuthMenuController {
     const selectedWalletId =
       walletId || passkeyRecentWalletId(localUnlocks) || localPasskey?.walletId || null;
     if (loginTarget.kind === 'wallet_sync') {
-      return await prepareHostedPasskeyLogin({
+      return await prepareHostedPasskeyAccountSync({
         context,
         walletId: String(loginTarget.walletId),
         authMenuSessionId,
