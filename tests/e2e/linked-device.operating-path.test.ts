@@ -1537,7 +1537,21 @@ async function authenticateEmailOtpInHostedMenu(
   const authenticated = input.page
     .getByRole('tab', { name: input.profile === 'ed25519' ? 'NEAR' : 'Tempo', exact: true })
     .waitFor({ state: 'visible', timeout: 180_000 });
-  await google.click();
+  /* The menu re-renders while wallet state settles and can detach the button
+     mid-click; an unbounded click then retries forever. Bound each attempt and
+     retry until one lands. */
+  const googleClickDeadline = Date.now() + 90_000;
+  for (;;) {
+    const clicked = await google
+      .click({ timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (clicked) break;
+    if (Date.now() >= googleClickDeadline) {
+      throw new Error('Google sign-in control did not accept a click');
+    }
+    await input.page.waitForTimeout(250);
+  }
   await completeEmailOtpPromptsUntil({
     page: input.page,
     context: input.context,
