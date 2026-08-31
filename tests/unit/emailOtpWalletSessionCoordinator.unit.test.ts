@@ -76,7 +76,6 @@ const TEST_SIGNING_SESSION_SEAL_KEY_VERSION = parseSigningSessionSealKeyVersion(
   'signing-session-seal-kek-test-r1',
 );
 const originalResolveSelectedWalletAuthority = IndexedDBManager.resolveSelectedWalletAuthority;
-
 type CanonicalEcdsaCapabilityFixture = Awaited<
   ReturnType<typeof canonicalEvmFamilyEcdsaSigningCapabilityFixture>
 >;
@@ -1277,6 +1276,30 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         },
       },
     });
+  });
+
+  test('requests challenges for the exact selected Email OTP method', async () => {
+    const exactAuthorization = await buildExactEmailOtpRestoreAuthorizationFixture({
+      label: 'challenge-selection',
+      capability: await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp', {
+        walletId: TEST_SUBJECT_ID,
+        chainTarget: TEMPO_CHAIN_TARGET,
+      }),
+      expiresAtMs: Date.now() + 60_000,
+    });
+    const { coordinator, workerCalls } = createCoordinator({
+      resolveSelectedWalletAuthority: async () => exactAuthorization.selected,
+    });
+
+    await coordinator.requestExportChallenge({
+      kind: 'wallet_login_challenge',
+      walletSession: TEST_WALLET_SESSION,
+      chain: TEMPO_CHAIN_TARGET.kind,
+    });
+
+    expect(workerCalls[0].request.payload.walletAuthMethodId).toBe(
+      String(exactAuthorization.selected.authMethod.walletAuthMethodId),
+    );
   });
 
   test('transaction challenges reject missing signing-session authority', async () => {
