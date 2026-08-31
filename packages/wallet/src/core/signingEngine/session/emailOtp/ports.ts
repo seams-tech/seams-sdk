@@ -2,7 +2,7 @@ import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
-import type { resolveActiveEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
+import type { ActiveEcdsaCapabilityRuntimeResolver } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type {
@@ -28,6 +28,7 @@ import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { WalletAuthorityId, WalletAuthMethodId } from '@shared/utils/domainIds';
 import type { EmailOtpWalletCustodyEd25519MaterialRequest } from '../../workerManager/workerTypes';
 import type { ImportWalletCustodyEcdsaContinuityInput } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import type { OwnerLaneScopeStores } from '../identity/ownerLaneScope';
 
 export type EmailOtpCoordinatorRuntimePorts = {
   configs: SeamsConfigsReadonly;
@@ -37,6 +38,7 @@ export type EmailOtpCoordinatorRuntimePorts = {
   resolveSelectedWalletAuthority: (
     walletId: string,
   ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
+  ownerLaneScopeStores: OwnerLaneScopeStores;
   readExactWalletSessionAuthorization: (input: {
     walletId: WalletId;
     authorityId: WalletAuthorityId;
@@ -78,7 +80,7 @@ export type EmailOtpEcdsaSessionPorts = {
   listActiveEcdsaCapabilityManifestsForWallet: (
     walletId: WalletId,
   ) => Promise<readonly ActiveEcdsaCapabilityManifest[]>;
-  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
+  resolveCurrentEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
 };
 
 export type EmailOtpSealedSessionStorePorts = {

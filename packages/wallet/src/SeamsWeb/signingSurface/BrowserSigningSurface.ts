@@ -491,6 +491,8 @@ import {
   createBrowserSigningSurfaceEnginePorts,
   listBrowserActiveEcdsaCapabilityManifestsForWallet,
   listBrowserEcdsaSigningCapabilitiesForWallet,
+  resolveBrowserActiveEcdsaCapabilityRuntime,
+  resolveBrowserActiveEcdsaCapabilityRuntimeForChain,
   resolveBrowserNearEd25519PasskeyAuthorityForMaterial,
   readBrowserExactNearEd25519WalletSessionAuthorization,
   resolveBrowserActiveNearEd25519WalletSessionAuthorization,
@@ -2553,6 +2555,7 @@ export class BrowserSigningSurface {
       loadEcdsaRoleLocalReadyRecordFromRuntimePorts.bind(null, runtimePortsForUiConfirm);
 
     const assembly = createManagerAssembly({
+      resolveActiveEcdsaCapabilityRuntime: resolveBrowserActiveEcdsaCapabilityRuntime,
       resolveOperationStepUpCredential: this.resolveOperationStepUpCredential.bind(this),
       stores: deps.managerStores,
       seamsWebConfigs: this.seamsWebConfigs,
@@ -2609,6 +2612,9 @@ export class BrowserSigningSurface {
     this.touchConfirm = stepUpRuntime.touchConfirm;
     this.passkeyMpcSession = stepUpRuntime.passkeyMpcSession;
     this.warmSigning = createWarmSigningPorts({
+      resolveActiveEcdsaCapabilityRuntime: resolveBrowserActiveEcdsaCapabilityRuntime,
+      resolveActiveEcdsaCapabilityRuntimeForChain:
+        resolveBrowserActiveEcdsaCapabilityRuntimeForChain,
       touchConfirm: this.touchConfirm,
       passkeyMpcSession: this.passkeyMpcSession,
       getEmailOtpWarmSessionStatus: (target) =>
@@ -2658,6 +2664,7 @@ export class BrowserSigningSurface {
       relayerUrl: this.seamsWebConfigs.network.relayer?.url || '',
       groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       signingSessionAuthorityPorts: {
+        resolveActiveEcdsaCapabilityRuntime: resolveBrowserActiveEcdsaCapabilityRuntime,
         factorStores: browserSigningSurfaceExactWalletAuthMethodStore,
         resolveSelectedWalletAuthority:
           IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),

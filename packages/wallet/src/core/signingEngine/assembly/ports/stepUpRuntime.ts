@@ -20,7 +20,7 @@ import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touch
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
+import type { ActiveEcdsaCapabilityRuntimeResolver } from '../../session/material/activeEcdsaCapabilityRuntime';
 import {
   withThresholdEcdsaSigningQueue,
   type ThresholdEcdsaSigningQueueByKey,
@@ -33,6 +33,7 @@ export type StepUpRuntime = {
 };
 
 export function createStepUpRuntime(args: {
+  resolveActiveEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
   seamsWebConfigs: SeamsConfigsReadonly;
   touchIdPrompt: TouchIdPrompt;
   signerWorkerManager: SignerWorkerManager;
@@ -62,6 +63,13 @@ export function createStepUpRuntime(args: {
     restoreWalletCustodyEcdsaContinuity: args.restoreWalletCustodyEcdsaContinuity,
     resolveSelectedWalletAuthority:
       IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
+    ownerLaneScopeStores: {
+      getWalletAuthMethodV2: IndexedDBManager.getWalletAuthMethodV2.bind(IndexedDBManager),
+      listWalletAuthMethodsForWallet:
+        IndexedDBManager.listWalletAuthMethodsForWallet.bind(IndexedDBManager),
+      getWalletPasskeyAuthenticator:
+        IndexedDBManager.getWalletPasskeyAuthenticator.bind(IndexedDBManager),
+    },
     readExactWalletSessionAuthorization:
       walletSessionAuthorizations.readExactWithOperationCredential.bind(
         walletSessionAuthorizations,
@@ -89,7 +97,7 @@ export function createStepUpRuntime(args: {
       ),
     listActiveEcdsaCapabilityManifestsForWallet: (walletId) =>
       args.listActiveEcdsaCapabilityManifestsForWallet(String(walletId)),
-    resolveCurrentEcdsaCapabilityRuntime: resolveActiveEcdsaCapabilityRuntime,
+    resolveCurrentEcdsaCapabilityRuntime: args.resolveActiveEcdsaCapabilityRuntime,
     writeExactSealedSession: args.sealedSessionStore.writeExactSealedSession,
     readExactSealedSession: args.sealedSessionStore.readExactSealedSession,
     listExactSealedSessionsForWallet: args.sealedSessionStore.listExactSealedSessionsForWallet,

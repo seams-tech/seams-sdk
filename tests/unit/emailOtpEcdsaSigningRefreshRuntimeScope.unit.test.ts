@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import {
-  resolveActiveEcdsaCapabilityRuntime,
+  type ActiveEcdsaCapabilityRuntimeResolver,
   type ActiveEcdsaCapabilityRuntimeResolution,
 } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
@@ -42,7 +42,7 @@ async function captureInternalLoginRequest(
 function fixtureRuntimeResolver(args: {
   manifest: ActiveEcdsaCapabilityManifest;
   record: CurrentEcdsaSealedSessionRecord;
-}): typeof resolveActiveEcdsaCapabilityRuntime {
+}): ActiveEcdsaCapabilityRuntimeResolver {
   return async ({ walletId, chainTarget }): Promise<ActiveEcdsaCapabilityRuntimeResolution> => {
     const resolution = resolveExactEcdsaSealedRuntime({
       manifest: args.manifest,

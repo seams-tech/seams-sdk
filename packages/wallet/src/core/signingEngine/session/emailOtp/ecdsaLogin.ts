@@ -9,7 +9,6 @@ import {
   type ThresholdEcdsaEmailOtpPendingSingleUseAuthContext,
   type ThresholdEcdsaEmailOtpSessionAuthContext,
 } from '@/core/signingEngine/session/identity/laneIdentity';
-import { IndexedDBManager } from '@/core/indexedDB';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -20,7 +19,7 @@ import {
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import type { resolveActiveEcdsaCapabilityRuntime } from '../material/activeEcdsaCapabilityRuntime';
+import type { ActiveEcdsaCapabilityRuntimeResolver } from '../material/activeEcdsaCapabilityRuntime';
 import type {
   EcdsaExplicitExportOperationAuthorization,
   ThresholdEcdsaExplicitKeyExportActivationResult,
@@ -147,6 +146,7 @@ import {
 } from '../identity/ownerLaneScope';
 import type { ImportWalletCustodyEcdsaContinuityInput } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import type { EmailOtpEcdsaCustodyContinuityV1 } from '../../workerManager/workerTypes';
+import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 
 type EmailOtpLoginSessionPolicy = {
   readonly ttlMs: number;
@@ -350,16 +350,6 @@ type EmailOtpAuthContextAuthoritySource =
       kind: 'canonical_boundary';
     };
 
-function emailOtpOwnerLaneScopeStores(): OwnerLaneScopeStores {
-  return {
-    getWalletAuthMethodV2: IndexedDBManager.getWalletAuthMethodV2.bind(IndexedDBManager),
-    listWalletAuthMethodsForWallet:
-      IndexedDBManager.listWalletAuthMethodsForWallet.bind(IndexedDBManager),
-    getWalletPasskeyAuthenticator:
-      IndexedDBManager.getWalletPasskeyAuthenticator.bind(IndexedDBManager),
-  };
-}
-
 /**
  * The active Email OTP method whose identity the caller is presenting.
  *
@@ -373,9 +363,11 @@ async function resolveEmailOtpAuthContextAuthorityFromActiveMethods(args: {
   emailHashHex: string;
   provider: EmailOtpProvider;
   providerUserId: string;
+  ownerLaneScopeStores: OwnerLaneScopeStores;
 }): Promise<EmailOtpAuthContextAuthoritySource> {
-  const stores = emailOtpOwnerLaneScopeStores();
-  const localMethods = await stores.listWalletAuthMethodsForWallet(String(args.walletId));
+  const localMethods = await args.ownerLaneScopeStores.listWalletAuthMethodsForWallet(
+    String(args.walletId),
+  );
   const matches: EmailOtpWalletAuthAuthority[] = [];
   for (const local of localMethods) {
     if (local.kind !== 'email_otp' || local.status !== 'active') continue;
@@ -437,6 +429,7 @@ async function resolveEmailOtpAuthContextAuthoritySource(args: {
   emailHashHex: string;
   provider: EmailOtpProvider;
   providerUserId: string;
+  authorityPorts: EmailOtpEcdsaLoginAuthorityPorts;
 }): Promise<EmailOtpAuthContextAuthoritySource> {
   if (args.authoritySelector.kind === 'wallet_auth_method') {
     return await resolveEmailOtpAuthContextAuthorityForExactMethod({
@@ -447,7 +440,7 @@ async function resolveEmailOtpAuthContextAuthoritySource(args: {
       providerUserId: args.providerUserId,
     });
   }
-  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
+  const selected = await args.authorityPorts.resolveSelectedWalletAuthority(String(args.walletId));
   if (selected.kind === 'missing_selection') return { kind: 'canonical_boundary' };
   if (selected.kind !== 'resolved') {
     throw new Error(`Email OTP authority selection is unavailable: ${selected.kind}`);
@@ -460,7 +453,13 @@ async function resolveEmailOtpAuthContextAuthoritySource(args: {
        synthesises an `email_otp:<wallet>:<hash>` binding id, which no record of
        the added method carries, and its capability manifest is then invisible.
        Ask the wallet's own active methods for the identity being presented. */
-    return await resolveEmailOtpAuthContextAuthorityFromActiveMethods(args);
+    return await resolveEmailOtpAuthContextAuthorityFromActiveMethods({
+      walletId: args.walletId,
+      emailHashHex: args.emailHashHex,
+      provider: args.provider,
+      providerUserId: args.providerUserId,
+      ownerLaneScopeStores: args.authorityPorts.ownerLaneScopeStores,
+    });
   }
   if (
     selected.authMethod.status !== 'active' ||
@@ -475,7 +474,7 @@ async function resolveEmailOtpAuthContextAuthoritySource(args: {
   const authMethodId = String(authMethod.walletAuthMethodId);
   const authority: WalletAuthAuthority = await resolveExactWalletAuthAuthority({
     authMethod,
-    stores: emailOtpOwnerLaneScopeStores(),
+    stores: args.authorityPorts.ownerLaneScopeStores,
   });
   if (!isEmailOtpWalletAuthAuthority(authority)) {
     throw new Error('Email OTP authority selected by the wallet session has the wrong factor');
@@ -1165,7 +1164,14 @@ async function provisionEmailOtpAdditionalExistingKeySessionForTarget(
   return await provisionEmailOtpExistingKeySessionForTarget(context, chainTarget);
 }
 
-export type EmailOtpEcdsaLoginPorts = {
+export type EmailOtpEcdsaLoginAuthorityPorts = {
+  ownerLaneScopeStores: OwnerLaneScopeStores;
+  resolveSelectedWalletAuthority: (
+    walletId: string,
+  ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
+};
+
+export type EmailOtpEcdsaLoginPorts = EmailOtpEcdsaLoginAuthorityPorts & {
   configs: SeamsConfigsReadonly;
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
   loadWalletCustodyEd25519Material: (args: {
@@ -1183,7 +1189,7 @@ export type EmailOtpEcdsaLoginPorts = {
   ) => Promise<EmailOtpEcdsaExplicitExportBootstrapResult>;
   requireRelayUrl: () => string;
   requireSigningSessionSealGroupId: () => string;
-  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
+  resolveCurrentEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
   publicationPorts: EmailOtpEcdsaPublicationPorts;
 };
 
@@ -1282,7 +1288,7 @@ function buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(
 async function buildEmailOtpEcdsaSigningRefreshFacts(args: {
   committedLane: EcdsaCommittedLane;
   chainTarget: ThresholdEcdsaChainTarget;
-  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
+  resolveCurrentEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
 }): Promise<EmailOtpEcdsaSigningRefreshFacts> {
   const runtimeResolution = await args.resolveCurrentEcdsaCapabilityRuntime({
     walletId: toWalletId(args.committedLane.lane.identity.signer.walletId),
@@ -1316,7 +1322,7 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
   args: LoginEmailOtpEcdsaCapabilityForSigningArgs,
   ports: {
     requireRelayUrl: () => string;
-    resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
+    resolveCurrentEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
     loginWithEcdsaCapabilityInternal: (
       args: LoginEmailOtpEcdsaCapabilityArgs,
     ) => Promise<EmailOtpThresholdEcdsaLoginResult>;
@@ -1427,6 +1433,7 @@ async function runEmailOtpEcdsaCapability(
     emailHashHex: args.emailHashHex,
     provider: emailOtpProviderIdentity.provider,
     providerUserId: emailOtpProviderIdentity.providerUserId,
+    authorityPorts: ports,
   });
   const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext =
     emailOtpAuthRetention === 'single_use'

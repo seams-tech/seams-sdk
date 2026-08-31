@@ -1,7 +1,7 @@
-import type { ActiveEcdsaCapabilityRuntimeResolution } from '../material/activeEcdsaCapabilityRuntime';
-import {
-  resolveActiveEcdsaCapabilityRuntime,
-  resolveActiveEcdsaCapabilityRuntimeForChain,
+import type {
+  ActiveEcdsaCapabilityRuntimeForChainResolver,
+  ActiveEcdsaCapabilityRuntimeResolution,
+  ActiveEcdsaCapabilityRuntimeResolver,
 } from '../material/activeEcdsaCapabilityRuntime';
 import { buildBaseEvmFamilyEcdsaKeyIdentity, toRpId } from '../identity/evmFamilyEcdsaIdentity';
 import { selectedEcdsaLane } from '../identity/laneIdentity';
@@ -70,6 +70,8 @@ export type WarmSessionCapabilityReaderSeal =
   | WarmSessionCapabilityReaderSealUnavailable;
 
 export type WarmSessionCapabilityReaderCoreDeps = {
+  resolveActiveEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
+  resolveActiveEcdsaCapabilityRuntimeForChain: ActiveEcdsaCapabilityRuntimeForChainResolver;
   statusReader: Pick<WarmSigningStatusReader, 'readEd25519WarmSessionClaim'>;
   signingSessionSeal: WarmSessionCapabilityReaderSeal;
   resolveActiveEcdsaWalletSessionAuthorization?: ExactEcdsaWalletSessionAuthorizationResolver;
@@ -342,11 +344,11 @@ export function createWarmSessionCapabilityReaderCore(
       await Promise.all([
         resolveExactEd25519SealedSessionRuntimeForWallet(normalizedWalletId),
         resolveEd25519AuthorizationForWallet(normalizedWalletId),
-        resolveActiveEcdsaCapabilityRuntimeForChain({
+        deps.resolveActiveEcdsaCapabilityRuntimeForChain({
           walletId: normalizedWalletId,
           chain: 'evm',
         }),
-        resolveActiveEcdsaCapabilityRuntimeForChain({
+        deps.resolveActiveEcdsaCapabilityRuntimeForChain({
           walletId: normalizedWalletId,
           chain: 'tempo',
         }),
@@ -400,7 +402,7 @@ export function createWarmSessionCapabilityReaderCore(
     lane: ExactEcdsaSigningLaneIdentity;
     authorization: ExactEvmFamilyWalletSessionAuthorization;
   }): Promise<WarmSessionEcdsaCapabilityState | null> {
-    const resolution = await resolveActiveEcdsaCapabilityRuntime({
+    const resolution = await deps.resolveActiveEcdsaCapabilityRuntime({
       walletId: args.lane.signer.walletId,
       chainTarget: args.lane.signer.chainTarget,
     });
@@ -427,7 +429,7 @@ export function createWarmSessionCapabilityReaderCore(
     lane: ExactEcdsaSigningLaneIdentity;
     authorization: ExactEvmFamilyWalletSessionAuthorization;
   }): Promise<EcdsaSealTransportAuthMaterial | null> {
-    const resolution = await resolveActiveEcdsaCapabilityRuntime({
+    const resolution = await deps.resolveActiveEcdsaCapabilityRuntime({
       walletId: args.lane.signer.walletId,
       chainTarget: args.lane.signer.chainTarget,
     });

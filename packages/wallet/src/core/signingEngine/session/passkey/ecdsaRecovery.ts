@@ -1,16 +1,14 @@
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { RestorePersistedSessionPurpose } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
-import {
-  type PasskeyEcdsaSealedRecoveryRecord,
-} from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
+import type { PasskeyEcdsaSealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import {
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  resolveActiveEcdsaCapabilityRuntime,
-  type ActiveEcdsaCapabilityRuntimeResolution,
+import type {
+  ActiveEcdsaCapabilityRuntimeResolver,
+  ActiveEcdsaCapabilityRuntimeResolution,
 } from '../material/activeEcdsaCapabilityRuntime';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import {
@@ -44,7 +42,7 @@ type PasskeyEcdsaRestoreRuntimeCheck =
 
 async function checkCurrentPasskeyEcdsaRuntime(args: {
   record: PasskeyEcdsaSealedRecoveryRecord;
-  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
+  resolveCurrentEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
 }): Promise<PasskeyEcdsaRestoreRuntimeCheck> {
   const resolution = await args.resolveCurrentEcdsaCapabilityRuntime({
     walletId: toWalletId(args.record.walletId),
@@ -88,7 +86,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   readWarmSessionStatusFromWorker: (
     thresholdSessionId: string,
   ) => Promise<WarmSessionStatusResult | null>;
-  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
+  resolveCurrentEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
   updatePersistedPolicy: (args: {
     expiresAtMs: number;
     remainingUses: number;

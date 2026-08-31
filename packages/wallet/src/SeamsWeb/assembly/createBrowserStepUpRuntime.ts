@@ -17,6 +17,7 @@ import type { createSigningEnginePorts } from '@/core/signingEngine/assembly/cre
 import { provisionEmailOtpEcdsaExplicitExportSession } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import type { ThresholdEcdsaSigningQueueByKey } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
+import { resolveBrowserActiveEcdsaCapabilityRuntime } from './browserSigningSurfaceAssembly';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 
@@ -45,6 +46,7 @@ export function createBrowserStepUpRuntime(args: {
   ) => Promise<readonly ActiveEcdsaCapabilityManifest[]>;
 }): StepUpRuntime {
   return createStepUpRuntime({
+    resolveActiveEcdsaCapabilityRuntime: resolveBrowserActiveEcdsaCapabilityRuntime,
     seamsWebConfigs: args.seamsWebConfigs,
     touchIdPrompt: args.touchIdPrompt,
     signerWorkerManager: args.signerWorkerManager,

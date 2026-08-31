@@ -1,9 +1,18 @@
 import { expect, test } from '@playwright/test';
-import { resolveActiveEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
+import {
+  resolveActiveEcdsaCapabilityRuntime,
+  type ActiveEcdsaCapabilityRuntimeReadPorts,
+} from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { ecdsaCapabilityHydrationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
+
+const missingCapabilityPorts: ActiveEcdsaCapabilityRuntimeReadPorts = {
+  listActiveEcdsaCapabilityManifestsForWallet: async () => [],
+  listExactSealedSessionsForWallet: async () => [],
+  resolveSelectedWalletAuthority: async () => ({ kind: 'missing_selection' }),
+};
 
 // Login warm-up used to fall back to a composite-record scan when the
 // configured target carried no persisted public capability, and threw when the
@@ -58,13 +67,13 @@ test.describe('login ECDSA public capability resolution', () => {
   });
 
   test('absent canonical capability blocks rather than falling back to a record scan', async () => {
-    // No manifest is persisted for this wallet in the unit environment, so the
-    // composed resolver reports missing_capability. Login maps that to the
-    // existing device-link-required outcome instead of scanning records.
-    const resolution = await resolveActiveEcdsaCapabilityRuntime({
-      walletId: toWalletId('no-manifest-wallet.testnet'),
-      chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
-    });
+    const resolution = await resolveActiveEcdsaCapabilityRuntime(
+      missingCapabilityPorts,
+      {
+        walletId: toWalletId('no-manifest-wallet.testnet'),
+        chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
+      },
+    );
     expect(resolution.kind).toBe('blocked');
     if (resolution.kind !== 'blocked') return;
     expect(resolution.reason).toBe('missing_capability');

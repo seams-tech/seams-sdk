@@ -14,6 +14,10 @@ import type { ExactEcdsaWalletSessionAuthorizationResolver } from '../material/e
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactNearEd25519WalletSessionAuthorization } from '../material/nearEd25519YaoSigningPreparation';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
+import type {
+  ActiveEcdsaCapabilityRuntimeForChainResolver,
+  ActiveEcdsaCapabilityRuntimeResolver,
+} from '../material/activeEcdsaCapabilityRuntime';
 
 export type WarmSessionCapabilityReaderSealInput = {
   groupId: string;
@@ -48,6 +52,8 @@ export type WarmSessionCapabilityReaderFactoryDeps = Omit<
   WarmSessionStatusReaderDeps,
   'getEmailOtpWarmSessionStatus' | 'touchConfirm'
 > & {
+  resolveActiveEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
+  resolveActiveEcdsaCapabilityRuntimeForChain: ActiveEcdsaCapabilityRuntimeForChainResolver;
   touchConfirm: WarmSessionCapabilityReaderTouchConfirmInput;
   signingSessionSeal: WarmSessionCapabilityReaderSealInput;
   getEmailOtpWarmSessionStatus:
@@ -57,12 +63,6 @@ export type WarmSessionCapabilityReaderFactoryDeps = Omit<
   resolveActiveEd25519WalletSessionAuthorization?: (
     walletId: WalletId,
   ) => Promise<ExactNearEd25519WalletSessionAuthorization | null>;
-};
-
-const UNCONFIGURED_WARM_SESSION_CAPABILITY_READER_DEPS: WarmSessionCapabilityReaderFactoryDeps = {
-  touchConfirm: null,
-  signingSessionSeal: null,
-  getEmailOtpWarmSessionStatus: null,
 };
 
 function unavailableEmailOtpWarmSessionStatus(): WarmSessionStatusResult {
@@ -124,7 +124,7 @@ export function normalizeWarmSessionCapabilityReaderSeal(
 }
 
 export function createWarmSessionCapabilityReader(
-  deps: WarmSessionCapabilityReaderFactoryDeps = UNCONFIGURED_WARM_SESSION_CAPABILITY_READER_DEPS,
+  deps: WarmSessionCapabilityReaderFactoryDeps,
 ): WarmSessionCapabilityReader {
   const ports = normalizeWarmCapabilityReaderPorts(deps);
   const statusReader = createWarmSessionStatusReader({
@@ -132,6 +132,9 @@ export function createWarmSessionCapabilityReader(
     getEmailOtpWarmSessionStatus: ports.getEmailOtpWarmSessionStatus,
   });
   return createWarmSessionCapabilityReaderCore({
+    resolveActiveEcdsaCapabilityRuntime: deps.resolveActiveEcdsaCapabilityRuntime,
+    resolveActiveEcdsaCapabilityRuntimeForChain:
+      deps.resolveActiveEcdsaCapabilityRuntimeForChain,
     statusReader,
     signingSessionSeal: normalizeWarmSessionCapabilityReaderSeal(deps.signingSessionSeal),
     ...(deps.resolveActiveEcdsaWalletSessionAuthorization

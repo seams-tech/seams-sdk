@@ -107,7 +107,7 @@ import {
   walletSessionAuthorizations,
   WalletSessionAuthorizationUpgradeRequiredError,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { resolveActiveEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
+import { resolveBrowserActiveEcdsaCapabilityRuntime } from '@/SeamsWeb/assembly/browserSigningSurfaceAssembly';
 import {
   getNearAccountProjection,
   resolveNearAccountProfileContinuity,
@@ -5361,7 +5361,7 @@ async function resolvePersistedEcdsaPublicCapabilityForLogin(args: {
     }
     return publicCapability;
   }
-  const resolved = await resolveActiveEcdsaCapabilityRuntime({
+  const resolved = await resolveBrowserActiveEcdsaCapabilityRuntime({
     walletId: args.walletId,
     chainTarget: args.chainTarget,
   });

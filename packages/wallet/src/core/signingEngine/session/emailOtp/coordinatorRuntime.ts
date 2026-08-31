@@ -76,6 +76,8 @@ export class EmailOtpWalletSessionRuntime {
       provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
       provisionEmailOtpEcdsaExplicitExportSession: deps.provisionEmailOtpEcdsaExplicitExportSession,
       runtimeConfig: this.runtimeConfig,
+      ownerLaneScopeStores: deps.ownerLaneScopeStores,
+      resolveSelectedWalletAuthority: deps.resolveSelectedWalletAuthority,
       resolveCurrentEcdsaCapabilityRuntime: deps.resolveCurrentEcdsaCapabilityRuntime,
       publicationPorts: () => this.sealedSessionRegistry.ecdsaPublicationPorts(),
     });

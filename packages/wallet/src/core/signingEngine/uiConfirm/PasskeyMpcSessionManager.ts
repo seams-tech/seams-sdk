@@ -74,7 +74,7 @@ import {
   withThresholdEcdsaSigningQueue,
   type ThresholdEcdsaSigningQueueByKey,
 } from '../threshold/ecdsa/signingQueue';
-import type { resolveActiveEcdsaCapabilityRuntime } from '../session/material/activeEcdsaCapabilityRuntime';
+import type { ActiveEcdsaCapabilityRuntimeResolver } from '../session/material/activeEcdsaCapabilityRuntime';
 
 type PendingPasskeyMpcSessionRequest = {
   id: string;
@@ -86,7 +86,7 @@ type PendingPasskeyMpcSessionRequest = {
 type PasskeyMpcSessionManagerDeps = {
   signingSessionPersistenceMode: 'none' | 'sealed_refresh_v1';
   thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
-  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
+  resolveCurrentEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
 };
 
 const PASSKEY_MPC_SESSION_TIMEOUT_MS = 60_000;

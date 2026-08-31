@@ -22,7 +22,7 @@ import {
 } from '@/SeamsWeb/operations/auth/login';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { LocalWalletAuthMethodRecordV2 } from '@/core/indexedDB/passkeyClientDB.types';
-import { resolveActiveEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
+import { resolveBrowserActiveEcdsaCapabilityRuntime } from '@/SeamsWeb/assembly/browserSigningSurfaceAssembly';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
   WalletAuthWebContext,
@@ -274,7 +274,7 @@ export async function prefillRouterAbEcdsaDerivationPresignaturePoolDomain(
   // typed skip, not a throw -- prefill is an optimisation, and failing it must
   // never fail the unlock that triggered it.
   const walletId = toWalletId(args.walletSession.walletId);
-  const resolved = await resolveActiveEcdsaCapabilityRuntime({
+  const resolved = await resolveBrowserActiveEcdsaCapabilityRuntime({
     walletId,
     chainTarget: args.chainTarget,
   });

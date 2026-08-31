@@ -7,11 +7,17 @@ import type {
 import type { WarmSessionCapabilityReaderSeal } from './capabilityReaderCore';
 import type { WarmSessionReadPorts } from './readModel';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
+import type {
+  ActiveEcdsaCapabilityRuntimeForChainResolver,
+  ActiveEcdsaCapabilityRuntimeResolver,
+} from '../material/activeEcdsaCapabilityRuntime';
 
 declare const touchConfirm: WarmSessionReadPorts;
 declare const getEmailOtpWarmSessionStatus: (
   target: EmailOtpWarmMaterialTarget,
 ) => Promise<WarmSessionStatusResult>;
+declare const resolveActiveEcdsaCapabilityRuntime: ActiveEcdsaCapabilityRuntimeResolver;
+declare const resolveActiveEcdsaCapabilityRuntimeForChain: ActiveEcdsaCapabilityRuntimeForChainResolver;
 
 const configuredPorts: WarmCapabilityReaderPortsConfigured = {
   runtimeStatus: 'configured',
@@ -43,6 +49,8 @@ const noRuntimeStatusPortsWithTouchConfirm: WarmCapabilityReaderPortsNoRuntimeSt
 void noRuntimeStatusPortsWithTouchConfirm;
 
 const factoryDeps: WarmSessionCapabilityReaderFactoryDeps = {
+  resolveActiveEcdsaCapabilityRuntime,
+  resolveActiveEcdsaCapabilityRuntimeForChain,
   touchConfirm,
   signingSessionSeal: {
     groupId: 'rfc2409-group2',
@@ -66,6 +74,8 @@ const factoryDepsWithoutEmailOtpStatus: WarmSessionCapabilityReaderFactoryDeps =
 void factoryDepsWithoutEmailOtpStatus;
 
 const factoryDepsWithNullPorts: WarmSessionCapabilityReaderFactoryDeps = {
+  resolveActiveEcdsaCapabilityRuntime,
+  resolveActiveEcdsaCapabilityRuntimeForChain,
   touchConfirm: null,
   signingSessionSeal: null,
   getEmailOtpWarmSessionStatus: null,

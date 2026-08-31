@@ -115,6 +115,8 @@ type WarmSigningEd25519AuthorizationResolver = (
 ) => Promise<ExactNearEd25519WalletSessionAuthorization | null>;
 
 type WarmSigningPortsArgs = {
+  resolveActiveEcdsaCapabilityRuntime: import('../../session/material/activeEcdsaCapabilityRuntime').ActiveEcdsaCapabilityRuntimeResolver;
+  resolveActiveEcdsaCapabilityRuntimeForChain: import('../../session/material/activeEcdsaCapabilityRuntime').ActiveEcdsaCapabilityRuntimeForChainResolver;
   touchConfirm: UiConfirmRuntimeBridgePort;
   passkeyMpcSession: PasskeyMpcSessionPort;
   getEmailOtpWarmSessionStatus: (
@@ -152,6 +154,9 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
     getEmailOtpWarmSessionStatus: args.getEmailOtpWarmSessionStatus,
   });
   const capabilityReader = createWarmSessionCapabilityReader({
+    resolveActiveEcdsaCapabilityRuntime: args.resolveActiveEcdsaCapabilityRuntime,
+    resolveActiveEcdsaCapabilityRuntimeForChain:
+      args.resolveActiveEcdsaCapabilityRuntimeForChain,
     touchConfirm: args.passkeyMpcSession,
     signingSessionSeal:
       args.signingSessionSeal.mode === 'sealed_refresh_v1'

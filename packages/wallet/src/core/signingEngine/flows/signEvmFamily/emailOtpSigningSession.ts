@@ -9,7 +9,6 @@ import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
 } from '../../session/operationState/trace';
-import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 import type { ExactEcdsaSealedRuntime } from '../../session/material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
 import {
@@ -316,7 +315,7 @@ export async function resolveEmailOtpEcdsaSigningSessionAuth(
   runtime: ExactEcdsaSealedRuntime;
   authority: ExactEvmFamilyWalletSessionAuthorization;
 }> {
-  const resolved = await resolveActiveEcdsaCapabilityRuntime({
+  const resolved = await authorityPorts.resolveActiveEcdsaCapabilityRuntime({
     walletId: args.walletId,
     chainTarget: args.chainTarget,
   });

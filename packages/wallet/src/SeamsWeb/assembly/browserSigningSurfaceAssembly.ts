@@ -104,14 +104,20 @@ import type { EcdsaCapabilityManifestLookup } from '@/core/indexedDB/seamsWallet
 import { readEmailOtpProviderSubjectForWalletV1 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import { readExactWalletSessionAuthorization } from './createBrowserRecoveryPublicDeps';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
-import { resolveExactEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
+import {
+  createActiveEcdsaCapabilityRuntimeForChainResolver,
+  createActiveEcdsaCapabilityRuntimeResolver,
+  resolveExactEcdsaCapabilityRuntime,
+  type ActiveEcdsaCapabilityRuntimeReadPorts,
+} from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 import {
   ed25519SealedRuntimeAuthorityRef,
   type ExactEd25519SealedSessionRuntime,
 } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
-import type {
-  CurrentEcdsaSealedSessionRecord,
-  CurrentSealedSessionRecord,
+import {
+  listExactSealedSessionsForWallet,
+  type CurrentEcdsaSealedSessionRecord,
+  type CurrentSealedSessionRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type { ActiveWalletSessionV1 } from '@shared/device-linking/contracts';
 
@@ -1081,6 +1087,22 @@ export async function listBrowserActiveEcdsaCapabilityManifestsForWallet(
   }
   return manifests;
 }
+
+export const browserActiveEcdsaCapabilityRuntimeReadPorts: ActiveEcdsaCapabilityRuntimeReadPorts = {
+  listActiveEcdsaCapabilityManifestsForWallet:
+    listBrowserActiveEcdsaCapabilityManifestsForWallet,
+  listExactSealedSessionsForWallet,
+  resolveSelectedWalletAuthority:
+    IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
+};
+
+export const resolveBrowserActiveEcdsaCapabilityRuntime =
+  createActiveEcdsaCapabilityRuntimeResolver(browserActiveEcdsaCapabilityRuntimeReadPorts);
+
+export const resolveBrowserActiveEcdsaCapabilityRuntimeForChain =
+  createActiveEcdsaCapabilityRuntimeForChainResolver(
+    browserActiveEcdsaCapabilityRuntimeReadPorts,
+  );
 
 async function requestEmailOtpEcdsaStepUpChallenge(args: {
   coordinator: EmailOtpWalletSessionCoordinator;
