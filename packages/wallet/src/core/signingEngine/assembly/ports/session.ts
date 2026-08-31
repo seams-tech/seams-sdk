@@ -9,6 +9,7 @@ import type {
 } from '../../uiConfirm/uiConfirm.types';
 import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
+import { browserExactWalletSessionReadPorts } from './emailOtp';
 
 export function createSessionPublicDeps(args: {
   seamsWebConfigs: SeamsConfigsReadonly;
@@ -29,6 +30,7 @@ export function createSessionPublicDeps(args: {
   };
   return {
     availableLanes: {
+      activeWalletAuthorityEcdsaRuntimeReadPorts: browserExactWalletSessionReadPorts,
       ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
       isEd25519YaoPublicCapabilityActive: args.isEd25519YaoPublicCapabilityActive,
       readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,

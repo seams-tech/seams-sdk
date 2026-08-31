@@ -28,8 +28,8 @@ import {
 import {
   resolveActiveWalletAuthorityEcdsaRuntimeV1,
   type ActiveWalletAuthorityEcdsaLaneProjectionV1,
-  type ResolveActiveWalletAuthorityEcdsaRuntimeV1Input,
 } from '../material/activeWalletAuthorityEcdsaRuntime';
+import type { ExactWalletSessionReadPorts } from '../identity/exactWalletSessionCredential';
 import type { NearEd25519WalletSessionAuthorizationReadResult } from '../material/nearEd25519YaoSigningPreparation';
 import type {
   Ed25519YaoPublicCapabilityLaneReferenceStorePort,
@@ -50,6 +50,7 @@ import {
 export type EcdsaLaneCapability = 'sign' | 'export_keys';
 
 export type PersistedAvailableSigningLanesDeps = {
+  activeWalletAuthorityEcdsaRuntimeReadPorts: ExactWalletSessionReadPorts;
   ed25519YaoPublicCapabilityLanes?: Ed25519YaoPublicCapabilityLaneReferenceStorePort;
   isEd25519YaoPublicCapabilityActive?: (
     reference: Ed25519YaoPublicCapabilityLaneReferenceV1,
@@ -62,11 +63,6 @@ export type PersistedAvailableSigningLanesDeps = {
     chainTargets: readonly ThresholdEcdsaChainTarget[];
     authMethod?: SignerAuthMethod;
   }) => Promise<readonly EvmFamilyEcdsaSigningCapabilityAvailability[]>;
-  resolveActiveWalletAuthorityEcdsaRuntimeV1?: (
-    args: ResolveActiveWalletAuthorityEcdsaRuntimeV1Input & {
-      readonly requiredCapability: EcdsaLaneCapability;
-    },
-  ) => ReturnType<typeof resolveActiveWalletAuthorityEcdsaRuntimeV1>;
 };
 
 function canonicalEcdsaLaneFromCapability(args: {
@@ -321,15 +317,15 @@ export async function readPersistedAvailableSigningLanesForTargets(
         walletId: recordWalletId,
         chainTargets,
       }) => {
-        const resolveRuntime =
-          deps.resolveActiveWalletAuthorityEcdsaRuntimeV1 ??
-          resolveActiveWalletAuthorityEcdsaRuntimeV1;
         const projections = await Promise.all(
           chainTargets.map(async (chainTarget) => {
-            const result = await resolveRuntime({
-              walletId: toWalletId(recordWalletId),
-              chainTarget,
-              requiredCapability: args.requiredEcdsaCapability,
+            const result = await resolveActiveWalletAuthorityEcdsaRuntimeV1({
+              ports: deps.activeWalletAuthorityEcdsaRuntimeReadPorts,
+              input: {
+                walletId: toWalletId(recordWalletId),
+                chainTarget,
+                requiredCapability: args.requiredEcdsaCapability,
+              },
             });
             return result.kind === 'resolved' && result.lane ? result.lane : null;
           }),

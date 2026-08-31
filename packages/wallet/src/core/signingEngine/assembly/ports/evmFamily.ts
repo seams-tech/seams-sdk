@@ -12,6 +12,7 @@ import {
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
+import { browserExactWalletSessionReadPorts } from './emailOtp';
 
 async function resolveDurableEmailOtpEcdsaAuthority(args: {
   lane: ExactEcdsaSigningLaneIdentity;
@@ -73,6 +74,7 @@ export function createEvmFamilySigningDeps(args: {
 }): EvmFamilySigningDeps {
   const { createArgs, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
   return {
+    activeWalletAuthorityEcdsaRuntimeReadPorts: browserExactWalletSessionReadPorts,
     resolveOwnerLaneScope: createArgs.resolveOwnerLaneScope,
     resolveCanonicalEcdsaSigningCapability: createArgs.resolveCanonicalEcdsaSigningCapability,
     resolveAuthorizedEcdsaSigningCapability: createArgs.resolveAuthorizedEcdsaSigningCapability,
