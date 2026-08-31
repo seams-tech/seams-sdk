@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
 import {
   buildPasskeyRouterAbEd25519WalletSessionState,
-  resolveActiveAuthorizedRouterAbEd25519WalletSessionStateWithResolver,
+  resolveActiveAuthorizedRouterAbEd25519WalletSessionState,
   type ResolvedRouterAbEd25519WalletSessionState,
-  type RouterAbEd25519WalletSessionAuthorizationResolver,
 } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
+import type { ExactWalletSessionReadPorts } from '@/core/signingEngine/session/identity/exactWalletSessionCredential';
 import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
@@ -27,7 +27,7 @@ import { buildPasskeyEd25519SealedSessionRecordFixture } from './helpers/sealedS
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 type SelectedAuthorityResult = Awaited<
-  ReturnType<RouterAbEd25519WalletSessionAuthorizationResolver['resolveSelectedWalletAuthority']>
+  ReturnType<ExactWalletSessionReadPorts['resolveSelectedWalletAuthority']>
 >;
 
 function requireWalletSessionId(value: string) {
@@ -36,12 +36,10 @@ function requireWalletSessionId(value: string) {
   return parsed.value;
 }
 
-class ExactSessionResolverFixture implements RouterAbEd25519WalletSessionAuthorizationResolver {
+class ExactSessionResolverFixture implements ExactWalletSessionReadPorts {
   readonly selectedWalletIds: string[] = [];
   readonly exactReads: Array<
-    Parameters<
-      RouterAbEd25519WalletSessionAuthorizationResolver['readExactWithOperationCredential']
-    >[0]
+    Parameters<ExactWalletSessionReadPorts['readExactWithOperationCredential']>[0]
   > = [];
 
   constructor(
@@ -55,9 +53,7 @@ class ExactSessionResolverFixture implements RouterAbEd25519WalletSessionAuthori
   }
 
   async readExactWithOperationCredential(
-    input: Parameters<
-      RouterAbEd25519WalletSessionAuthorizationResolver['readExactWithOperationCredential']
-    >[0],
+    input: Parameters<ExactWalletSessionReadPorts['readExactWithOperationCredential']>[0],
   ): Promise<WalletSessionAuthorizationExactOperationCredentialReadResult> {
     this.exactReads.push(input);
     if (this.exact instanceof Error) throw this.exact;
@@ -160,10 +156,11 @@ async function resolveWithExact(
   nowMs: number,
 ) {
   const resolver = new ExactSessionResolverFixture(selected, exact);
-  const result = await resolveActiveAuthorizedRouterAbEd25519WalletSessionStateWithResolver(
-    { state, nowMs },
-    resolver,
-  );
+  const result = await resolveActiveAuthorizedRouterAbEd25519WalletSessionState({
+    state,
+    nowMs,
+    ports: resolver,
+  });
   return { resolver, result };
 }
 

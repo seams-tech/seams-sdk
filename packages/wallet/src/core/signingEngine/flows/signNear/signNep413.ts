@@ -11,10 +11,7 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import { computeThresholdEd25519Nep413SigningDigestWasm } from '../../chains/near/nearSignerWasm';
 import { resolveNearSigningMaterials } from './shared/signingMaterials';
-import {
-  resolveActiveAuthorizedRouterAbEd25519WalletSessionState,
-  type AuthorizedRouterAbEd25519WalletSessionState,
-} from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
+import type { AuthorizedRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   buildNearSigningSessionAuthPlan,
   resolveNearSigningSessionAuthContext,
@@ -486,10 +483,12 @@ export async function signNep413Message({
             thresholdSessionId: canonicalThresholdSessionId,
             activeClient: preparedMaterial.resolved.material.activeClient,
             walletSessionState: requireAuthorizedNearNep413WalletSessionState(
-              await resolveActiveAuthorizedRouterAbEd25519WalletSessionState({
-                state: preparedMaterial.resolved.walletSessionState,
-                nowMs: Date.now(),
-              }),
+              await signingSessionCoordinator.resolveActiveAuthorizedRouterAbEd25519WalletSessionState(
+                {
+                  state: preparedMaterial.resolved.walletSessionState,
+                  nowMs: Date.now(),
+                },
+              ),
             ),
             walletId: commandSubject.walletSession.walletId,
             thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
