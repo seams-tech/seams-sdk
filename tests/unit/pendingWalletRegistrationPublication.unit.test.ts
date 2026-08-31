@@ -597,6 +597,71 @@ test.describe('pending registration publication', () => {
     });
   });
 
+  test('reopens atomically published ECDSA continuity through every exact lookup', async ({
+    page,
+  }) => {
+    const fixture = await buildEcdsaActivationPublicationFixture();
+    if (!fixture.ecdsaContinuityInput) {
+      throw new Error('ECDSA publication fixture must carry continuity preparation input');
+    }
+    const result = await page.evaluate(
+      async ({ paths, input: publicationInput, continuityInput }) => {
+        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+          await import(paths.indexedDB);
+        const { IndexedDbEcdsaCapabilityManifestStore, prepareWalletCustodyEcdsaContinuity } =
+          await import(paths.ecdsa);
+        const { SEAMS_WALLET_STORES } = await import(paths.schemaNames);
+        const continuity = await prepareWalletCustodyEcdsaContinuity(continuityInput);
+        const preparedPublication = { ...publicationInput, ecdsaContinuity: [continuity] };
+        const seamsWalletDB = new SeamsWalletDBManager();
+        seamsWalletDB.setDbName(
+          createSeamsTestWalletDbName(`pending-publication-ecdsa-reopen-${crypto.randomUUID()}`),
+        );
+        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+        const store = new IndexedDbEcdsaCapabilityManifestStore(seamsWalletDB);
+        await db.putPendingWalletRegistrationCommit(preparedPublication.pending);
+        await db.publishPendingWalletRegistrationCommit(preparedPublication);
+        const selector = {
+          capability: continuity.activeManifest.signer.capability,
+          authority: continuity.activeManifest.signer.authority,
+        };
+        const lookup = await store.lookup(selector);
+        const byActivation = await store.lookupByMaterialActivation({
+          walletId: preparedPublication.request.walletId,
+          materialActivation: continuity.roleLocalMaterialRef.materialActivation,
+          authority: selector.authority,
+        });
+        const byMaterialRef = await store.lookupByMaterialRef(continuity.roleLocalMaterialRef);
+        const opened = await store.openActiveMaterial(selector);
+        const database = await seamsWalletDB.getDB();
+        const manifestRows = (await database.getAll(
+          SEAMS_WALLET_STORES.ecdsaCapabilityManifests,
+        )) as Array<Record<string, unknown>>;
+        seamsWalletDB.close();
+        return {
+          lookup: lookup.kind,
+          byActivation: byActivation.kind,
+          byMaterialRef: byMaterialRef.kind,
+          opened: opened.kind,
+          manifestCount: manifestRows.length,
+        };
+      },
+      {
+        paths: IMPORT_PATHS,
+        input: fixture.input,
+        continuityInput: fixture.ecdsaContinuityInput,
+      },
+    );
+
+    expect(result).toEqual({
+      lookup: 'active',
+      byActivation: 'active',
+      byMaterialRef: 'active',
+      opened: 'active',
+      manifestCount: 1,
+    });
+  });
+
   test('rolls back ECDSA continuity and every registration projection on a late failure', async ({
     page,
   }) => {
@@ -640,8 +705,7 @@ test.describe('pending registration publication', () => {
               registrationCeremonyId: publicationInput.request.registrationCeremonyId,
               operation: publicationInput.request.operation,
             })) !== null,
-          ecdsaSubjectCount:
-            ecdsaSubjects.kind === 'resolved' ? ecdsaSubjects.subjects.length : -1,
+          ecdsaSubjectCount: ecdsaSubjects.kind === 'resolved' ? ecdsaSubjects.subjects.length : -1,
           profile: await db.getProfile(publicationInput.request.walletId),
           authMethod: await db.getWalletAuthMethodV2(publicationInput.request.walletAuthMethodId),
           authority: await db.getWalletAuthority(
@@ -665,6 +729,75 @@ test.describe('pending registration publication', () => {
       authority: null,
       authenticators: [],
       sessionCount: 0,
+    });
+  });
+
+  test('reuses the canonical ECDSA continuity during mixed registration publication', async ({
+    page,
+  }) => {
+    const fixture = await buildMixedActivationPublicationFixture();
+    if (!fixture.ecdsaContinuityInput) {
+      throw new Error('Mixed registration fixture must carry canonical continuity input');
+    }
+    const result = await page.evaluate(
+      async ({ paths, input: publicationInput, continuityInput }) => {
+        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+          await import(paths.indexedDB);
+        const { IndexedDbEcdsaCapabilityManifestStore, prepareWalletCustodyEcdsaContinuity } =
+          await import(paths.ecdsa);
+        const { SEAMS_WALLET_STORES } = await import(paths.schemaNames);
+        const seamsWalletDB = new SeamsWalletDBManager();
+        seamsWalletDB.setDbName(
+          createSeamsTestWalletDbName(`pending-publication-mixed-ecdsa-${crypto.randomUUID()}`),
+        );
+        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+        const store = new IndexedDbEcdsaCapabilityManifestStore(seamsWalletDB);
+        const continuity = await prepareWalletCustodyEcdsaContinuity(continuityInput);
+        await store.persistPreparedWalletCustodyEcdsaContinuity(continuity);
+        await db.putPendingWalletRegistrationCommit(publicationInput.pending);
+        await db.publishPendingWalletRegistrationCommit(publicationInput);
+
+        const selector = {
+          capability: continuity.activeManifest.signer.capability,
+          authority: continuity.activeManifest.signer.authority,
+        };
+        const byActivation = await store.lookupByMaterialActivation({
+          walletId: publicationInput.request.walletId,
+          materialActivation: continuity.roleLocalMaterialRef.materialActivation,
+          authority: selector.authority,
+        });
+        const subjects = await store.listActiveWalletCapabilitySubjects(
+          publicationInput.request.walletId,
+        );
+        const database = await seamsWalletDB.getDB();
+        const counts = {
+          manifests: (await database.getAll(SEAMS_WALLET_STORES.ecdsaCapabilityManifests)).length,
+          pointers: (await database.getAll(SEAMS_WALLET_STORES.ecdsaCurrentCapabilityManifests))
+            .length,
+          materials: (await database.getAll(SEAMS_WALLET_STORES.ecdsaRoleLocalMaterial)).length,
+          sealingKeys: (await database.getAll(SEAMS_WALLET_STORES.ecdsaMaterialSealingKeys)).length,
+        };
+        const pending = await db.getPendingWalletRegistrationCommit(publicationInput.request);
+        seamsWalletDB.close();
+        return {
+          byActivation: byActivation.kind,
+          subjectCount: subjects.kind === 'resolved' ? subjects.subjects.length : -1,
+          counts,
+          pending: pending !== null,
+        };
+      },
+      {
+        paths: IMPORT_PATHS,
+        input: fixture.input,
+        continuityInput: fixture.ecdsaContinuityInput,
+      },
+    );
+
+    expect(result).toEqual({
+      byActivation: 'active',
+      subjectCount: 1,
+      counts: { manifests: 1, pointers: 1, materials: 1, sealingKeys: 1 },
+      pending: true,
     });
   });
 

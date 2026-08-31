@@ -258,10 +258,6 @@ import {
 } from './registrationTerminalCommit';
 import type { PendingWalletRegistrationCommitV1 } from '@/core/indexedDB';
 import type { PendingWalletRegistrationEd25519MetadataV1 } from '@/core/indexedDB/pendingWalletRegistrationCommit';
-import {
-  prepareWalletCustodyEcdsaContinuity,
-  type PreparedImportedWalletCustodyEcdsaContinuity,
-} from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import { ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 } from '@shared/utils/routerAbEd25519Yao';
 // Re-exported so this module's public surface is unchanged by the move.
 export {
@@ -1569,9 +1565,7 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
   registrationTiming: RegistrationTimingRecorder | null;
   confirmRecoveryCodesBackedUp: (recoveryCodes: readonly string[]) => Promise<void>;
   /** Durable local recovery point written immediately before Route 3. */
-  persistPendingCommit: (
-    input: PendingRegistrationActivationPersistenceInput,
-  ) => Promise<void>;
+  persistPendingCommit: (input: PendingRegistrationActivationPersistenceInput) => Promise<void>;
   startDeferredNearCustody: (input: {
     deferredNear: WalletRegistrationRespondEd25519DeferredWork;
     establishedEvmCustodyCommit: Awaited<
@@ -1719,7 +1713,9 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
               keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
               custodyCommit: ecdsaCustodyCommit,
               ed25519: {
-                custodyCommit: walletCustodyCommitPayloadForWire(joinedNearCustody.joined.commitPayload),
+                custodyCommit: walletCustodyCommitPayloadForWire(
+                  joinedNearCustody.joined.commitPayload,
+                ),
                 activationReference: joinedNearCustody.joined.activationReference,
                 localMaterial: joinedNearCustody.joined.localMaterial,
                 metadata: pendingRegistrationEd25519MetadataFromJoined(joinedNearCustody.joined),
@@ -1993,10 +1989,7 @@ type PendingRegistrationActivationInput = Extract<
 
 type PendingRegistrationActivationPersistenceInput =
   | (Pick<
-      Extract<
-        PendingRegistrationActivationInput,
-        { readonly signerPlanKind: 'evm_family_ecdsa' }
-      >,
+      Extract<PendingRegistrationActivationInput, { readonly signerPlanKind: 'evm_family_ecdsa' }>,
       'signerPlanKind' | 'localMaterial'
     > & {
       readonly emailOtpEnrollment: WalletRegistrationEmailOtpEnrollmentMaterial | null;
@@ -2043,38 +2036,6 @@ function requireMixedRegistrationActivatePendingCommit(
     throw new Error('Mixed registration activation commit was not persisted');
   }
   return pending;
-}
-
-async function prepareRegistrationEcdsaContinuity(args: {
-  session: RegistrationEcdsaSession;
-  activated: Extract<WalletRegistrationActivateResponseV2, { ok: true; kind: 'evm_family_ecdsa' }>;
-  walletCustody: Awaited<
-    ReturnType<RegistrationWebContext['signingEngine']['establishWalletCustodyEvmFamilyKeySet']>
-  >;
-  walletKeys: Awaited<
-    ReturnType<RegistrationWebContext['signingEngine']['finalizeWalletRegistrationEcdsaSessions']>
-  >;
-}): Promise<PreparedImportedWalletCustodyEcdsaContinuity> {
-  const primaryWalletKey = args.walletKeys[0];
-  if (!primaryWalletKey) {
-    throw new Error('ECDSA registration continuity requires a primary wallet key');
-  }
-  return await prepareWalletCustodyEcdsaContinuity({
-    authority: args.session.authority,
-    chainTargets: args.session.chainTargets,
-    walletId: String(primaryWalletKey.walletId),
-    keyHandle: primaryWalletKey.keyHandle,
-    ecdsaThresholdKeyId: primaryWalletKey.ecdsaThresholdKeyId,
-    signingRootId: primaryWalletKey.signingRootId,
-    signingRootVersion: primaryWalletKey.signingRootVersion,
-    relayerKeyId: primaryWalletKey.relayerKeyId,
-    participantIds: primaryWalletKey.participantIds,
-    publicCapability: args.session.publicCapability,
-    activationReceipt: args.activated.ecdsa.activation,
-    runtimePolicyScope: args.session.clientBootstrap.runtimePolicyScope,
-    readyStateBlobB64u: args.walletCustody.localMaterial.readyStateBlobB64u,
-    publicFacts: args.walletCustody.localMaterial.publicFacts,
-  });
 }
 
 async function prepareRegistrationEcdsaPublication(args: {
@@ -2181,9 +2142,6 @@ async function publishMixedEcdsaRegistrationCommit(args: {
   pending: MixedRegistrationActivatePendingCommit;
   plan: RegistrationPersistencePlan;
   activated: Extract<WalletRegistrationActivateResponseV2, { ok: true; kind: 'evm_family_ecdsa' }>;
-  walletCustody: Awaited<
-    ReturnType<RegistrationWebContext['signingEngine']['establishWalletCustodyEvmFamilyKeySet']>
-  >;
 }): Promise<RegistrationEcdsaLocalWalletKeys> {
   const walletKeys = await finalizeRegistrationEcdsaSessions({
     context: args.context,
@@ -2194,12 +2152,6 @@ async function publishMixedEcdsaRegistrationCommit(args: {
   const registration = await prepareRegistrationEcdsaPublication({
     auth: args.plan.auth,
     walletId: args.plan.walletId,
-    walletKeys,
-  });
-  const continuity = await prepareRegistrationEcdsaContinuity({
-    session: args.plan.ecdsa.session,
-    activated: args.activated,
-    walletCustody: args.walletCustody,
     walletKeys,
   });
   const registrationSession = args.plan.ecdsa.session.registrationEstablishedSession;
@@ -2222,7 +2174,7 @@ async function publishMixedEcdsaRegistrationCommit(args: {
       walletSession: registrationSession.walletSession,
       operationCredential: registrationSession.operationCredential,
     },
-    ecdsaContinuity: [continuity],
+    ecdsaContinuity: [],
     registration,
   });
   return walletKeys;
@@ -2393,13 +2345,11 @@ function mixedRegistrationSessionFromDeferredResult(
   }
 }
 
-async function readMixedRegistrationActivatePendingCommit(
-  args: {
-    registrationCeremonyId: string;
-    walletId: WalletId;
-    walletAuthMethodId: string;
-  },
-): Promise<MixedRegistrationActivatePendingCommit> {
+async function readMixedRegistrationActivatePendingCommit(args: {
+  registrationCeremonyId: string;
+  walletId: WalletId;
+  walletAuthMethodId: string;
+}): Promise<MixedRegistrationActivatePendingCommit> {
   await IndexedDBManager.initialize();
   const pending = (await IndexedDBManager.listPendingWalletRegistrationCommits()).find(
     (candidate) =>
@@ -3213,7 +3163,6 @@ async function registerEcdsaOrMixedWallet(
         pending: requireMixedRegistrationActivatePendingCommit(persistedPendingCommit),
         plan: persistencePlan,
         activated: ceremony.activated,
-        walletCustody: ceremony.walletCustody,
       });
       registrationNearProvisioning = await markMixedNearProvisioningPending({
         context,

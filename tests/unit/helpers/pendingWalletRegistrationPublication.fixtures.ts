@@ -52,7 +52,7 @@ import type { WalletCustodyCacheEnvelopeV1 } from '@/core/signingEngine/walletCu
 import type { KeyMaterialRecord } from '@/core/indexedDB/keyMaterial.types';
 import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerLifecycle';
 import {
-  prepareImportedWalletCustodyEcdsaContinuity,
+  prepareWalletCustodyEcdsaContinuity,
   type PreparedImportedWalletCustodyEcdsaContinuity,
 } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import {
@@ -78,6 +78,7 @@ import { ecdsaCapabilityActivationFixture } from './ecdsaCapabilityManifest.fixt
 import { buildExactWalletSessionAuthorizationFixture } from './exactWalletSessionAuthorization.fixtures';
 import { projectActiveWalletSession } from '../../../packages/wallet-server/src/authorization/domain';
 import { fixtureRouterAbEcdsaActivationFacts } from '../../helpers/routerAbSigningRuntimeTestUtils';
+import { parseRouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   buildFixtureEd25519YaoRegistrationAdmissionReceipt,
   buildFixtureEd25519YaoRegistrationAdmissionRequest,
@@ -94,10 +95,12 @@ function digest(fill: number) {
   return parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(fill)));
 }
 
-export function buildDeferredNearCustodyWorkFixture(args: {
-  readonly lifecycleId?: string;
-  readonly walletId?: string;
-} = {}): {
+export function buildDeferredNearCustodyWorkFixture(
+  args: {
+    readonly lifecycleId?: string;
+    readonly walletId?: string;
+  } = {},
+): {
   readonly joined: JoinedWalletCustodyNearEd25519KeySetV1;
   readonly envelope: WalletCustodyCacheEnvelopeV1;
   readonly commitPayload: WalletCustodyCeremonyCommitPayload;
@@ -245,16 +248,48 @@ function buildSignerActivationSet(walletId: WalletId): WalletSignerActivationSet
 async function buildEcdsaContinuityFixture(args: {
   readonly walletId: WalletId;
   readonly authority: WalletAuthAuthority;
-}): Promise<PreparedImportedWalletCustodyEcdsaContinuity> {
+}): Promise<{
+  readonly input: Parameters<typeof prepareWalletCustodyEcdsaContinuity>[0];
+  readonly prepared: PreparedImportedWalletCustodyEcdsaContinuity;
+}> {
   const fixture = ecdsaCapabilityActivationFixture({
     walletId: walletIdFromString(String(args.walletId)),
     authority: buildWalletAuthAuthorityRefForAuthorityFixture(args.authority),
   });
-  return await prepareImportedWalletCustodyEcdsaContinuity({
-    activationBinding: fixture.prepareInput.activationBinding,
-    serverCommit: fixture.serverCommit,
-    ...fixture.sealInput,
-  });
+  const binding = fixture.prepareInput.activationBinding;
+  const roleFacts = fixture.sealInput.roleLocalPublicFacts;
+  const receipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(
+    fixture.serverCommit.protocolReceipt,
+  );
+  const input: Parameters<typeof prepareWalletCustodyEcdsaContinuity>[0] = {
+    authority: binding.signer.authority,
+    chainTargets: binding.signer.scope.targetMemberships,
+    walletId: String(binding.signer.walletId),
+    keyHandle: String(binding.roleLocalBinding.keyHandle),
+    ecdsaThresholdKeyId: String(binding.roleLocalBinding.ecdsaThresholdKeyId),
+    signingRootId: String(binding.signer.signingRootId),
+    signingRootVersion: String(binding.signer.signingRootVersion),
+    relayerKeyId: String(binding.roleLocalBinding.relayerKeyId),
+    participantIds: [1, 2],
+    publicCapability: roleFacts.publicCapability,
+    activationReceipt: receipt,
+    runtimePolicyScope: fixture.sealInput.runtimePolicyScope,
+    readyStateBlobB64u: fixture.sealInput.readyStateBlobB64u,
+    publicFacts: {
+      contextBinding32B64u: roleFacts.contextBinding32B64u,
+      derivationClientSharePublicKey33B64u: roleFacts.derivationClientSharePublicKey33B64u,
+      clientVerifyingShare33B64u: roleFacts.derivationClientSharePublicKey33B64u,
+      relayerPublicKey33B64u: roleFacts.relayerPublicKey33B64u,
+      groupPublicKey33B64u: roleFacts.groupPublicKey33B64u,
+      ethereumAddress: roleFacts.ethereumAddress,
+      clientShareRetryCounter: receipt.ecdsa_activation.public_identity.client_share_retry_counter,
+      relayerShareRetryCounter: receipt.ecdsa_activation.public_identity.server_share_retry_counter,
+    },
+  };
+  return {
+    input,
+    prepared: await prepareWalletCustodyEcdsaContinuity(input),
+  };
 }
 
 type PublicationFixtureVariant =
@@ -285,6 +320,7 @@ type PublicationFixtureVariant =
 
 export type PendingWalletRegistrationPublicationFixture = {
   readonly input: PublishPendingWalletRegistrationCommitInputV1;
+  readonly ecdsaContinuityInput: Parameters<typeof prepareWalletCustodyEcdsaContinuity>[0] | null;
   readonly walletId: string;
   readonly authorityId: string;
   readonly walletAuthMethodId: string;
@@ -594,20 +630,14 @@ export async function buildPendingWalletRegistrationPublicationFixture(
     token: `wst_${base64UrlEncode(new Uint8Array(32).fill(authKind === 'passkey' ? 29 : 30))}`,
     walletSessionId: issuedSession.session.walletSessionId,
   });
-  const ecdsaContinuity =
-    keyFamilies === 'ecdsa_secp256k1'
-      ? [
-          await buildEcdsaContinuityFixture({
-            walletId,
-            authority,
-          }),
-        ]
-      : [];
+  const ecdsaContinuityFixture =
+    keyFamilies === 'ed25519' ? null : await buildEcdsaContinuityFixture({ walletId, authority });
   return {
     walletId: String(walletId),
     authorityId: String(authorityId),
     walletAuthMethodId: String(walletAuthMethodId),
     profileId: String(walletId),
+    ecdsaContinuityInput: ecdsaContinuityFixture?.input ?? null,
     input: {
       pending,
       authority,
@@ -624,7 +654,10 @@ export async function buildPendingWalletRegistrationPublicationFixture(
         walletSession: projectActiveWalletSession(issuedSession),
         operationCredential,
       },
-      ecdsaContinuity,
+      ecdsaContinuity:
+        keyFamilies === 'ecdsa_secp256k1' && ecdsaContinuityFixture
+          ? [ecdsaContinuityFixture.prepared]
+          : [],
       registration,
     },
   };
@@ -710,6 +743,7 @@ export async function buildPasskeyNearProvisioningProductionPublicationFixture()
     authorityId: fixture.authorityId,
     walletAuthMethodId: fixture.walletAuthMethodId,
     profileId: fixture.profileId,
+    ecdsaContinuityInput: fixture.ecdsaContinuityInput,
     input: {
       pending: fixture.input.pending,
       authority: fixture.input.authority,
@@ -766,6 +800,7 @@ export async function buildEmailOtpNearProvisioningProductionPublicationFixture(
     authorityId: fixture.authorityId,
     walletAuthMethodId: fixture.walletAuthMethodId,
     profileId: fixture.profileId,
+    ecdsaContinuityInput: fixture.ecdsaContinuityInput,
     input: {
       pending: fixture.input.pending,
       authority: fixture.input.authority,
