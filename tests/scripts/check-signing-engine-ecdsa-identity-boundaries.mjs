@@ -1111,7 +1111,7 @@ function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
 
 function checkEcdsaDerivationWasmPackageExportsStayRoleLocal() {
   const clientDts = readRepoFile(
-    'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.d.ts',
+    'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.d.ts',
   );
   const serverDts = readRepoFile(
     'wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.d.ts',
