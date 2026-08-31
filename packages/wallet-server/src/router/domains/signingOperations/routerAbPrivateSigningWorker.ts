@@ -3430,10 +3430,8 @@ async function resolveRouterAbEd25519ExhaustedCandidateAuthorization(input: {
   readonly body: Record<string, unknown>;
   readonly headers: Record<string, string | string[] | undefined>;
   readonly scope: RouterAbEd25519NormalSigningScopeV2;
-  readonly operation: Extract<
-    RouterAbEd25519NormalSigningOperationForAdmission,
-    { readonly phase: 'finalize'; readonly authorizationKind: 'reusable_wallet_session' }
-  >;
+  readonly phase: RouterAbEd25519NormalSigningRoutePhase;
+  readonly operation: RouterAbEd25519ReusableWalletSessionOperation;
   readonly authorizedOperations: RouterApiAuthorizedOperationService | null | undefined;
   readonly authorizationSessions: RouterApiAuthorizationSessionService;
   readonly admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
@@ -3486,13 +3484,13 @@ async function resolveRouterAbEd25519ExhaustedCandidateAuthorization(input: {
         status: 403,
         code: 'wallet_session_scope_mismatch',
         message: 'Exact Wallet Session does not authorize this Ed25519 request',
-        phase: 'finalize',
+        phase: input.phase,
       }),
     };
   }
 
   const authorized = await authorizeRouterAbEd25519WalletSessionRequest({
-    phase: 'finalize',
+    phase: input.phase,
     body: input.body,
     scope: input.scope,
     operation: input.operation,
@@ -3603,18 +3601,18 @@ export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
     operationKind: operationForAdmission.operation.operationKind,
   });
   if (!validated.ok) {
+    const operation = operationForAdmission.operation;
     if (
       validated.code === 'wallet_session_unavailable' &&
       input.authorizationSessions &&
-      input.phase === 'finalize' &&
-      operationForAdmission.operation.phase === 'finalize' &&
-      operationForAdmission.operation.authorizationKind === 'reusable_wallet_session'
+      (operation.phase === 'prepare' || operation.authorizationKind === 'reusable_wallet_session')
     ) {
       const exhaustedCandidate = await resolveRouterAbEd25519ExhaustedCandidateAuthorization({
         body: input.body,
         headers: input.headers,
         scope,
-        operation: operationForAdmission.operation,
+        phase: input.phase,
+        operation,
         authorizedOperations: input.authorizedOperations,
         authorizationSessions: input.authorizationSessions,
         admissionAdapter: input.admissionAdapter,

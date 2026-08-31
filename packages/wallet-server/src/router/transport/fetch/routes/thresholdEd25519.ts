@@ -164,11 +164,6 @@ type AcceptedEd25519WalletSessionAuthorization =
       }
     >;
 
-type AcceptedEd25519ActiveWalletSessionAuthorization = Extract<
-  AcceptedEd25519WalletSessionAuthorization,
-  { readonly kind: 'wallet_session_operation_credential_v1' }
->;
-
 function ed25519ReusableWalletSession(authorization: AcceptedEd25519WalletSessionAuthorization) {
   return authorization.kind === 'wallet_session_operation_credential_v1'
     ? authorization.validated.admission.context.authorization.session
@@ -568,7 +563,7 @@ function digestWireB64u(value: unknown, label: string): string {
 async function authorizeEd25519ReusableWalletSessionOperation(input: {
   ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
-  authorization: AcceptedEd25519ActiveWalletSessionAuthorization;
+  authorization: AcceptedEd25519WalletSessionAuthorization;
 }): Promise<
   | {
       readonly ok: true;
@@ -585,7 +580,7 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
     if (!operation.ok) throw new Error(operation.message);
     const intent = isPlainObject(input.body.intent) ? input.body.intent : null;
     if (!intent) throw new Error('Ed25519 normal-signing intent is required');
-    const session = input.authorization.validated.admission.context.authorization.session;
+    const session = ed25519ReusableWalletSession(input.authorization);
     const privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
       phase: 'prepare',
       body: input.body,
@@ -1800,16 +1795,6 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
     return requireCompletedEd25519OperationResponse(completed);
   }
   if (input.phase === 'prepare') {
-    if (authorization.kind !== 'wallet_session_operation_credential_v1') {
-      return json(
-        {
-          ok: false,
-          code: 'wallet_session_scope_mismatch',
-          message: 'An exhausted Wallet Session cannot prepare a new Ed25519 operation',
-        },
-        { status: 403 },
-      );
-    }
     const authorized = await authorizeEd25519ReusableWalletSessionOperation({
       ctx: input.ctx,
       body: input.body,
