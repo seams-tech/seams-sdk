@@ -6238,9 +6238,12 @@ async function autoConfirmWalletIframeUntil<T>(
     startedAtMs,
     isDone: () => done,
   });
+  const loopFailure = new Promise<never>((_resolve, reject) => {
+    void loop.catch(reject);
+  });
 
   try {
-    return await task;
+    return await Promise.race([task, loopFailure]);
   } finally {
     done = true;
     if (diagnostics) {
@@ -6277,9 +6280,29 @@ async function runWalletIframeAutoConfirmLoop(args: {
       diagnostics: args.diagnostics,
       diagnosticsStartedAtMs: args.startedAtMs,
     });
+    const authMenuError = await readWalletIframeAuthMenuError(args.page);
+    if (authMenuError) {
+      throw new Error(`Wallet auth menu failed: ${authMenuError}`);
+    }
     if (clicked && args.stopAfterClick) return;
     if (args.retryDelayMs > 0) {
       await args.page.waitForTimeout(args.retryDelayMs);
     }
   }
+}
+
+async function readWalletIframeAuthMenuError(page: Page): Promise<string | null> {
+  const iframe = page.locator('iframe[allow*="publickey-credentials-get"]').last();
+  if (!(await iframe.isVisible().catch(() => false))) return null;
+  const surface = iframe.contentFrame().locator('seams-auth-menu-surface').first();
+  if ((await surface.count().catch(() => 0)) === 0) return null;
+  return await surface
+    .evaluate((element) => {
+      const authMenu = element as HTMLElement & {
+        viewModel?: { readonly error?: unknown };
+      };
+      const error = String(authMenu.viewModel?.error || '').trim();
+      return error || null;
+    })
+    .catch(() => null);
 }
