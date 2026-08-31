@@ -103,7 +103,11 @@ function findWalletRegistrationOriginViolations() {
   if (!/class\s+WalletOriginWebAuthnUnavailableError/.test(fallback)) {
     violations.push(`${fallbackPath} lacks the typed wallet-origin registration error`);
   }
-  if (!/if \(kind === 'create'\)[\s\S]{0,500}WalletOriginWebAuthnUnavailableError/.test(fallback)) {
+  if (
+    !/if \(kind === 'create'(?:\s*&&[\s\S]{0,180})?\)[\s\S]{0,500}WalletOriginWebAuthnUnavailableError/.test(
+      fallback,
+    )
+  ) {
     violations.push(`${fallbackPath} does not stop CREATE before parent fallback handling`);
   }
 
