@@ -179,7 +179,7 @@ const forbiddenSdkServerTsconfigPostgresPatterns = [
 ];
 const staleBillingCleanupValidationPatterns = [
   {
-    pattern: /\bserver\/src\b/,
+    pattern: /(^|[\s([`])server\/src\b/,
     message: 'references the old server/src tree instead of packages/wallet-server/src',
   },
   {
@@ -487,7 +487,7 @@ const staleGasAndSigningPoliciesDocPatterns = [
     message: 'references the old simple-threshold-signer absolute workspace path',
   },
   {
-    pattern: /\]\(.*\bserver\/src\//,
+    pattern: /\]\(.*(?<![\w-])server\/src\//,
     message: 'links to the old server/src tree instead of packages/wallet-server/src',
   },
   {
@@ -501,7 +501,7 @@ const stalePolicyEngineDocPatterns = [
     message: 'references the old simple-threshold-signer absolute workspace path',
   },
   {
-    pattern: /\]\(.*\bserver\/src\//,
+    pattern: /\]\(.*(?<![\w-])server\/src\//,
     message: 'links to the old server/src tree instead of packages/wallet-server/src',
   },
   {
@@ -543,7 +543,7 @@ const staleSponsorshipPolicyDocPatterns = [
     message: 'references the old simple-threshold-signer absolute workspace path',
   },
   {
-    pattern: /\]\(.*\bserver\/src\//,
+    pattern: /\]\(.*(?<![\w-])server\/src\//,
     message: 'links to the old server/src tree instead of packages/wallet-server/src',
   },
   {
@@ -553,7 +553,7 @@ const staleSponsorshipPolicyDocPatterns = [
 ];
 const staleObservabilityDocPatterns = [
   {
-    pattern: /\bserver\/src\b/,
+    pattern: /(?<![\w-])server\/src\b/,
     message: 'references the old server/src tree instead of packages/wallet-server/src',
   },
   {
@@ -583,13 +583,13 @@ const staleSaasFrontendDocPatterns = [
 const sharedD1HelperPath = 'packages/wallet-server/src/storage/d1Sql.ts';
 const sharedSqliteD1TestHelperPath = 'tests/helpers/sqliteD1.ts';
 const cloudflareD1ConsoleServicesPath =
-  'packages/console-server-ts/src/router/cloudflare/d1ConsoleServices.ts';
+  'packages/wallet-console-server-ts/src/router/cloudflare/d1ConsoleServices.ts';
 const cloudflareD1ConsoleStagingWorkerPath =
-  'packages/console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts';
+  'packages/wallet-console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts';
 const cloudflareD1LocalDevWorkerPath =
-  'packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts';
+  'packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts';
 const cloudflareD1RouterApiStagingWorkerPath =
-  'packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts';
+  'packages/wallet-console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts';
 const cloudflareD1RouterApiAuthServicePath =
   'packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService.ts';
 const cloudflareD1EmailOtpRecoveryServicePath =
@@ -621,7 +621,6 @@ const activeRouterApiTextPaths = [
   'apps/web-server/package.json',
   'apps/web-server/src/jwtSession.ts',
   'apps/web-server/scripts/ensure-bun.mjs',
-  'docs/chats/chat-6-voiceId.md',
   'docs/deployment/infra.md',
   'docs/refactor-90-modular-auth-capabilities-SPEC.md',
   'docs/auth-provider-integrations/auth0.md',
@@ -635,7 +634,7 @@ const activeRouterApiTextPaths = [
   'tests/README.md',
   'packages/wallet-server/src/core/routerAbSigning/createCloudflareDurableObjectRouterAbSigningRuntimes.ts',
   'packages/wallet-server/src/core/defaultConfigsServer.ts',
-  'packages/console-server-ts/src/router/cloudflare/d1ConsoleServices.ts',
+  'packages/wallet-console-server-ts/src/router/cloudflare/d1ConsoleServices.ts',
   'packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore.ts',
   'packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthConfig.ts',
   'docs/saas/bring-you-own-auth.md',
