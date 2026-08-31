@@ -1439,6 +1439,12 @@ async function completeVisibleEmailOtpPrompt(
 }
 
 function readEmailOtpPromptChallengeId(anchor: Element): string | null {
+  /* The auth-menu login prompt stamps the id on the input itself; confirmer
+     prompts carry it as a component property. */
+  const anchorChallengeId = String(
+    anchor.getAttribute('data-email-otp-challenge-id') || '',
+  ).trim();
+  if (anchorChallengeId) return anchorChallengeId;
   const roots: Array<Document | ShadowRoot> = [anchor.ownerDocument];
   for (let rootIndex = 0; rootIndex < roots.length; rootIndex += 1) {
     const root = roots[rootIndex];
@@ -1446,7 +1452,11 @@ function readEmailOtpPromptChallengeId(anchor: Element): string | null {
       const prompt = element as HTMLElement & {
         emailOtpPrompt?: { readonly challengeId?: unknown };
       };
-      const challengeId = String(prompt.emailOtpPrompt?.challengeId || '').trim();
+      const challengeId = String(
+        prompt.emailOtpPrompt?.challengeId ||
+          element.getAttribute('data-email-otp-challenge-id') ||
+          '',
+      ).trim();
       if (challengeId) return challengeId;
       if (element.shadowRoot) roots.push(element.shadowRoot);
     }
