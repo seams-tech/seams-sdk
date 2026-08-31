@@ -29,7 +29,7 @@ import { json, readJson } from '../../../framework/http';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
   buildWarmRecoveryBootstrapResponse,
-  recoveryAuthorityProjection,
+  recoveryAuthorizationBinding,
   type RouterAbEd25519YaoCapabilityPersistenceV1,
   type RouterAbEd25519YaoRecoveryActivationClaimV1,
   type RouterAbEd25519YaoRecoveryAdmissionClaimV1,
@@ -153,7 +153,10 @@ class RecoveryAdmissionRequestRun {
     });
     if (!authorized.ok) return { kind: 'rejected', value: authorized };
     const service = this.service(state);
-    const prepared = service.prepareAdmitRecovery(this.request);
+    const prepared = service.prepareAdmitRecovery(
+      this.request,
+      recoveryAuthorizationBinding(authorized.authorization),
+    );
     switch (prepared.kind) {
       case 'claimed':
         return { kind: 'claimed', state, claim: prepared.claim };
@@ -230,7 +233,10 @@ class RecoveryExecutionRequestRun {
     });
     if (!authorized.ok) return { kind: 'rejected', value: authorized };
     const service = this.service(state);
-    const prepared = service.prepareExecuteRecovery(this.request);
+    const prepared = service.prepareExecuteRecovery(
+      this.request,
+      recoveryAuthorizationBinding(authorized.authorization),
+    );
     switch (prepared.kind) {
       case 'claimed':
         return { kind: 'claimed', state, claim: prepared.claim };
@@ -308,7 +314,7 @@ class RecoveryActivationRequestRun {
     if (!authorized.ok) return { kind: 'rejected', value: authorized };
     const prepared = this.service(state).prepareActivateRecovery(
       this.request,
-      recoveryAuthorityProjection(authorized.authorization),
+      recoveryAuthorizationBinding(authorized.authorization),
     );
     switch (prepared.kind) {
       case 'claimed':

@@ -141,7 +141,17 @@ type ActiveEd25519MaterialResolution = Extract<
   { readonly ok: true }
 >;
 
-type ExactEd25519OperationCredentialResolution =
+type ExactEd25519OperationCredentialAdmissionResolution =
+  | {
+      readonly kind: 'authorized';
+      readonly admission: ExactEd25519OperationCredentialAdmission;
+    }
+  | {
+      readonly kind: 'rejected';
+      readonly result: RouterAbEd25519YaoRecoveryAuthorizationResult;
+    };
+
+type ExactEd25519OperationCredentialMaterialResolution =
   | {
       readonly kind: 'authorized';
       readonly admission: ExactEd25519OperationCredentialAdmission;
@@ -153,10 +163,10 @@ type ExactEd25519OperationCredentialResolution =
       readonly result: RouterAbEd25519YaoRecoveryAuthorizationResult;
     };
 
-async function resolveExactEd25519OperationCredential(input: {
+async function resolveExactEd25519OperationCredentialAdmission(input: {
   readonly request: Request;
   readonly services: RouterAbEd25519YaoRecoveryAuthorizationServicesV1;
-}): Promise<ExactEd25519OperationCredentialResolution> {
+}): Promise<ExactEd25519OperationCredentialAdmissionResolution> {
   const token = extractBearerCredential(input.request.headers);
   if (!token) {
     return {
@@ -209,7 +219,16 @@ async function resolveExactEd25519OperationCredential(input: {
       }),
     };
   }
-  const admission = resolution.admission;
+  return { kind: 'authorized', admission: resolution.admission };
+}
+
+async function resolveExactEd25519OperationCredentialMaterial(input: {
+  readonly request: Request;
+  readonly services: RouterAbEd25519YaoRecoveryAuthorizationServicesV1;
+}): Promise<ExactEd25519OperationCredentialMaterialResolution> {
+  const credential = await resolveExactEd25519OperationCredentialAdmission(input);
+  if (credential.kind === 'rejected') return credential;
+  const admission = credential.admission;
   const walletId = String(admission.context.authorization.session.walletId);
   const materialActivation = routerAbMpcMaterialActivationRefToWire(
     admission.admission.materialActivation,
@@ -290,7 +309,7 @@ async function authorizeV2RecoveryAdmission(input: {
   >;
   readonly services: RouterAbEd25519YaoRecoveryAuthorizationServicesV1;
 }): Promise<RouterAbEd25519YaoRecoveryAuthorizationResult> {
-  const resolved = await resolveExactEd25519OperationCredential({
+  const resolved = await resolveExactEd25519OperationCredentialMaterial({
     request: input.request.request,
     services: input.services,
   });
@@ -318,7 +337,7 @@ async function authorizeV2WarmBootstrap(input: {
   >;
   readonly services: RouterAbEd25519YaoRecoveryAuthorizationServicesV1;
 }): Promise<RouterAbEd25519YaoRecoveryAuthorizationResult> {
-  const resolved = await resolveExactEd25519OperationCredential({
+  const resolved = await resolveExactEd25519OperationCredentialMaterial({
     request: input.request.request,
     services: input.services,
   });
@@ -363,6 +382,52 @@ async function authorizeV2WarmBootstrap(input: {
   };
 }
 
+async function authorizeRecoveryContinuation(input: {
+  readonly request: Extract<
+    RouterAbEd25519YaoRecoveryAuthorizationInput,
+    { readonly kind: 'execute' | 'activate' }
+  >;
+  readonly services: RouterAbEd25519YaoRecoveryAuthorizationServicesV1;
+}): Promise<RouterAbEd25519YaoRecoveryAuthorizationResult> {
+  if (!extractBearerCredential(input.request.request.headers)) {
+    return {
+      ok: true,
+      authorization: {
+        kind: 'wallet_recovery',
+        walletId: input.request.body.binding.lifecycle.account_id,
+      },
+    };
+  }
+  const resolved = await resolveExactEd25519OperationCredentialAdmission({
+    request: input.request.request,
+    services: input.services,
+  });
+  if (resolved.kind === 'rejected') return resolved.result;
+  const context = resolved.admission.context;
+  const session = context.authorization.session;
+  const walletId = String(session.walletId);
+  if (
+    walletId !== input.request.body.binding.lifecycle.account_id ||
+    String(context.authority.walletId) !== walletId ||
+    String(context.authMethod.walletId) !== walletId ||
+    context.authority.authorityId !== session.authorityId ||
+    context.authMethod.walletAuthMethodId !== session.walletAuthMethodId
+  ) {
+    return authorizationFailure({
+      status: 403,
+      code: 'wallet_session_scope_mismatch',
+      message: walletSessionFailureMessage('wallet_session_scope_mismatch'),
+    });
+  }
+  return {
+    ok: true,
+    authorization: {
+      kind: 'wallet_session_v2',
+      context,
+    },
+  };
+}
+
 export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter implements RouterAbEd25519YaoRecoveryAuthorizationAdapter {
   constructor(
     private readonly resolveServices: () => Promise<RouterAbEd25519YaoRecoveryAuthorizationServicesV1>,
@@ -397,13 +462,7 @@ export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter impleme
       }
       case 'execute':
       case 'activate': {
-        return {
-          ok: true,
-          authorization: {
-            kind: 'wallet_recovery',
-            walletId: input.body.binding.lifecycle.account_id,
-          },
-        };
+        return await authorizeRecoveryContinuation({ request: input, services });
       }
     }
   }

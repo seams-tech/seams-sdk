@@ -669,9 +669,31 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
     }
   });
 
-  test('keeps execute and activate on the protocol receipt path despite a retired opaque bearer', async () => {
+  test('keeps challenge recovery execute and activate on the protocol receipt path', async () => {
     const admission = await admissionRequestFixture();
     const { services, reader } = authorizationServicesFixture(null);
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      async () => services,
+    );
+
+    for (const phase of ['execute', 'activate'] as const) {
+      await expect(
+        authorization.authorize(authorizationInput(phase, recoveryRequest(), admission)),
+      ).resolves.toEqual({
+        ok: true,
+        authorization: { kind: 'wallet_recovery', walletId: WALLET_ID },
+      });
+    }
+    expect(reader.calls).toHaveLength(0);
+  });
+
+  test('preserves exact Wallet Session authorization through execute and activate', async () => {
+    const admission = await admissionRequestFixture();
+    const exactContext = await exactAdmissionContextFixture();
+    const { services, reader, authorizationSessions } = authorizationServicesFixture(
+      null,
+      exactContext,
+    );
     const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
       async () => services,
     );
@@ -681,16 +703,17 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
         authorization.authorize(
           authorizationInput(
             phase,
-            recoveryRequest({ authorization: 'Bearer wst_retired-recovery-session' }),
+            recoveryRequest({ authorization: 'Bearer wst_exact-recovery-session' }),
             admission,
           ),
         ),
       ).resolves.toEqual({
         ok: true,
-        authorization: { kind: 'wallet_recovery', walletId: WALLET_ID },
+        authorization: { kind: 'wallet_session_v2', context: exactContext },
       });
     }
     expect(reader.calls).toHaveLength(0);
+    expect(authorizationSessions.exactReads).toBe(2);
   });
 
   test('authorizes warm recovery from the exact Ed25519 operation credential and active material', async () => {
