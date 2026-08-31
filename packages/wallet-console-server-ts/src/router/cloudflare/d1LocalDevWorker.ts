@@ -86,6 +86,7 @@ import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '@seams/w
 import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
+import type { WarmBootstrapLinkedEd25519AuthorityReaderV1 } from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
 import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/wallet-server/cloud-host';
 import { RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter } from '@seams/wallet-server/cloud-host';
@@ -1129,6 +1130,7 @@ async function createLocalRouterApiHandler(
           ),
       };
     },
+    () => routerApiService?.linkedDeviceEd25519AuthorityReader ?? null,
   );
   const ecdsaStrictPorts = localEcdsaStrictPorts(env, orgId);
   routerApiService = createLocalD1RouterApiAuthService(env, orgId, ed25519YaoComposition);
@@ -1226,6 +1228,7 @@ async function handleLocalYaoRequestScoped(
         authorization: dependencies.recoveryAuthorization,
         capabilityPersistence: dependencies.capabilityPersistence,
         capabilities: dependencies.capabilities,
+        linkedAuthorities: dependencies.linkedAuthorities(),
       });
     case ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1:
     case ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1:
@@ -1424,6 +1427,7 @@ type LocalEd25519YaoRequestScopedBaseDependencies = {
   readonly recoveryAuthorization: RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter;
   readonly capabilityPersistence: CloudflareD1RouterAbEd25519YaoCapabilityPersistence;
   readonly capabilities: RouterAbEd25519YaoProductRegistrationRuntimeV1;
+  readonly linkedAuthorities: () => WarmBootstrapLinkedEd25519AuthorityReaderV1 | null;
 };
 
 type LocalEd25519YaoRequestScopedDependencies = LocalEd25519YaoRequestScopedBaseDependencies & {
@@ -1437,6 +1441,7 @@ async function createLocalEd25519YaoProductComposition(
   resolveAuthorizationServices: ConstructorParameters<
     typeof RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter
   >[0],
+  resolveLinkedAuthorities: () => WarmBootstrapLinkedEd25519AuthorityReaderV1 | null,
 ): Promise<LocalEd25519YaoProductCompositionState> {
   const signingWorkerId =
     normalizeLocalString(env.SIGNING_WORKER_ID) ||
@@ -1503,6 +1508,7 @@ async function createLocalEd25519YaoProductComposition(
         ensureSchema: false,
       }),
       capabilities: runtime,
+      linkedAuthorities: resolveLinkedAuthorities,
     },
   };
 }
