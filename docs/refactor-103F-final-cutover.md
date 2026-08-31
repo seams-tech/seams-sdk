@@ -1846,9 +1846,16 @@ iframe-to-host boundary.
 - [x] `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts` passed
       after revoked V1 authenticators were filtered through the exact active V2
       Passkey method inventory (`0fa6ab231`).
-- [ ] `tests/e2e/linked-device.operating-path.test.ts` for all four genuine
+- [x] `tests/e2e/linked-device.operating-path.test.ts` for all four genuine
       source/target factor combinations, including the remaining immediate
-      post-link factor combinations from I6.
+      post-link factor combinations from I6. The composed combined-profile
+      matrix passed all four combinations after five production fixes: the
+      link-session poller closing before the final acknowledgement
+      (`a7a38f4d0`), the Ed25519 warm bootstrap and exact session status
+      resolving linked lane material through the installed authority
+      projection (`d18be3133`, `5e79e17ab`), a user lock staying decisive over
+      an in-flight session restore (`36edda394`), and the linked Email OTP
+      unlock binding to its provider subject (`f0b3acc4d`).
 
 Acceptance checkpoint on 2026-08-31: the clean SDK build passes. The isolated
 Passkey cold-sync contract passed in 4.7 minutes after exact sync routing and V2
