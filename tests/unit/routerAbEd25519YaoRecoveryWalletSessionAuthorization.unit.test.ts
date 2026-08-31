@@ -392,6 +392,32 @@ function activeEd25519MaterialFixture(
   };
 }
 
+async function exactWalletSessionAdmissionRequestFixture(
+  context: RouterApiWalletSessionAuthorizationV2AdmissionContext,
+): Promise<RouterAbEd25519YaoRecoveryAdmissionRequestV1> {
+  const activeMaterial = activeEd25519MaterialFixture(context);
+  const identity = activeMaterial.exportIdentity;
+  return requireParsed(
+    parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
+      scope: {
+        lifecycle_id: 'wallet-session-recovery-lifecycle-1',
+        root_share_epoch: identity.scope.root_share_epoch,
+        account_id: identity.scope.account_id,
+        threshold_session_id: identity.scope.threshold_session_id,
+        signer_set_id: identity.scope.signer_set_id,
+        signing_worker_id: identity.scope.signing_worker_id,
+        material_activation: materialActivation('replacement'),
+      },
+      active_material_activation: activeMaterial.materialActivation,
+      application_binding: identity.application_binding,
+      participant_ids: identity.participant_ids,
+      active_capability_binding: bytes(20),
+      replacement_capability_binding: bytes(21),
+      registered_public_key: identity.registered_public_key,
+    }),
+  );
+}
+
 function authorizationInput(
   phase: RouterAbEd25519YaoRecoveryAuthorizationInput['kind'],
   request: Request,
@@ -445,10 +471,36 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
     expect(reader.calls[0]?.nowMs).toBeGreaterThan(0);
   });
 
-  test('rejects admission without the durable challenge header', async () => {
+  test('rejects admission without a recovery challenge or exact operation credential', async () => {
     const admission = await admissionRequestFixture();
-    const { services, reader, authorizationSessions } = authorizationServicesFixture(
+    const { services, reader } = authorizationServicesFixture(
       await preparedAdmissionFixture(admission),
+    );
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      async () => services,
+    );
+
+    await expect(
+      authorization.authorize(authorizationInput('admit', recoveryRequest(), admission)),
+    ).resolves.toEqual({
+      ok: false,
+      status: 401,
+      code: 'wallet_recovery_challenge_missing',
+      message: 'wallet recovery admission is unavailable',
+    });
+    expect(reader.calls).toHaveLength(0);
+  });
+
+  test('admits cold rejoin from the exact Ed25519 operation credential', async () => {
+    const exactContext = await exactAdmissionContextFixture();
+    const admission = await exactWalletSessionAdmissionRequestFixture(exactContext);
+    const materialResolver = new Ed25519MaterialResolverFixture(
+      activeEd25519MaterialFixture(exactContext),
+    );
+    const { services, reader, authorizationSessions } = authorizationServicesFixture(
+      null,
+      exactContext,
+      materialResolver.resolve.bind(materialResolver),
     );
     const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
       async () => services,
@@ -458,17 +510,58 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
       authorization.authorize(
         authorizationInput(
           'admit',
-          recoveryRequest({ authorization: 'Bearer wst_retired-recovery-session' }),
+          recoveryRequest({ authorization: 'Bearer wst_exact-recovery-session' }),
           admission,
         ),
       ),
     ).resolves.toEqual({
-      ok: false,
-      status: 401,
-      code: 'wallet_recovery_challenge_missing',
-      message: 'wallet recovery admission is unavailable',
+      ok: true,
+      authorization: { kind: 'wallet_session_v2', context: exactContext },
     });
     expect(reader.calls).toHaveLength(0);
+    expect(authorizationSessions.exactReads).toBe(1);
+    expect(materialResolver.calls).toEqual([
+      {
+        walletId: WALLET_ID,
+        materialActivation: materialActivation('active'),
+      },
+    ]);
+  });
+
+  test('rejects an exact-session cold rejoin with substituted active material', async () => {
+    const exactContext = await exactAdmissionContextFixture();
+    const admission = await exactWalletSessionAdmissionRequestFixture(exactContext);
+    const substituted = requireParsed(
+      parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
+        ...admission,
+        active_material_activation: materialActivation('substituted-active'),
+      }),
+    );
+    const materialResolver = new Ed25519MaterialResolverFixture(
+      activeEd25519MaterialFixture(exactContext),
+    );
+    const { services } = authorizationServicesFixture(
+      null,
+      exactContext,
+      materialResolver.resolve.bind(materialResolver),
+    );
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      async () => services,
+    );
+
+    await expect(
+      authorization.authorize(
+        authorizationInput(
+          'admit',
+          recoveryRequest({ authorization: 'Bearer wst_exact-recovery-session' }),
+          substituted,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 403,
+      code: 'wallet_session_scope_mismatch',
+    });
   });
 
   test('rejects an unknown or spent durable challenge', async () => {
@@ -578,7 +671,7 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
 
   test('keeps execute and activate on the protocol receipt path despite a retired opaque bearer', async () => {
     const admission = await admissionRequestFixture();
-    const { services, reader, authorizationSessions } = authorizationServicesFixture(null);
+    const { services, reader } = authorizationServicesFixture(null);
     const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
       async () => services,
     );
@@ -715,8 +808,8 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
     ).resolves.toEqual({
       ok: false,
       status: 401,
-      code: 'wallet_recovery_challenge_missing',
-      message: 'wallet recovery admission is unavailable',
+      code: 'wallet_session_invalid',
+      message: 'Wallet Session is invalid',
     });
   });
 });
