@@ -5455,10 +5455,14 @@ function parseRecoveryAuthorityProjection(raw: unknown): RecoveryAuthorityProjec
   if (response.ok !== true) {
     throw new Error('recovery finalization response must report ok=true');
   }
-  const authority = requireRecord(response.authority, 'recovery authority projection');
+  const projection = requireRecord(response.projection, 'recovery committed projection');
+  if (projection.version !== 'wallet_recovery_committed_projection_v1') {
+    throw new Error('recovery finalization must return the committed projection envelope');
+  }
+  const authority = requireRecord(projection.authority, 'recovery authority projection');
   const principal = requireRecord(authority.principal, 'recovery authority principal');
   const provenance = requireRecord(authority.provenance, 'recovery authority provenance');
-  const authMethod = requireRecord(response.authMethod, 'recovery auth method projection');
+  const authMethod = requireRecord(projection.authMethod, 'recovery auth method projection');
   if (authority.state !== 'active') {
     throw new Error('recovery authority projection must be active');
   }
