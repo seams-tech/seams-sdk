@@ -105,7 +105,7 @@ export function prepareD1WalletSessionAuthorityProjectionStatements(input: {
               record_json = json_set(
                 record_json,
                 '$.authorityDigestB64u', ?,
-                '$.authorityRevocationEpoch', ?,
+                '$.authorityRevocationEpoch', json(?),
                 '$.capabilitySubjects', json(?)
               )
         WHERE namespace = ?
@@ -122,7 +122,10 @@ export function prepareD1WalletSessionAuthorityProjectionStatements(input: {
       input.projection.authorityRevocationEpoch,
       capabilitySubjectsJson,
       String(input.projection.authorityDigestB64u),
-      input.projection.authorityRevocationEpoch,
+      /* D1 binds JS numbers as REAL and json_set would render the epoch as a
+         float literal inside record_json; json(?) over the decimal string
+         keeps the stored JSON integer-typed. */
+      String(input.projection.authorityRevocationEpoch),
       capabilitySubjectsJson,
       ...scope,
       ...parentScope,

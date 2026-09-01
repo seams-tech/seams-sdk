@@ -1445,6 +1445,12 @@ async function completeVisibleEmailOtpPrompt(
 }
 
 function readEmailOtpPromptChallengeId(anchor: Element): string | null {
+  /* The auth-menu login prompt stamps the id on the input itself; confirmer
+     prompts carry it as a component property. */
+  const anchorChallengeId = String(
+    anchor.getAttribute('data-email-otp-challenge-id') || '',
+  ).trim();
+  if (anchorChallengeId) return anchorChallengeId;
   const roots: Array<Document | ShadowRoot> = [anchor.ownerDocument];
   for (let rootIndex = 0; rootIndex < roots.length; rootIndex += 1) {
     const root = roots[rootIndex];
@@ -1452,7 +1458,11 @@ function readEmailOtpPromptChallengeId(anchor: Element): string | null {
       const prompt = element as HTMLElement & {
         emailOtpPrompt?: { readonly challengeId?: unknown };
       };
-      const challengeId = String(prompt.emailOtpPrompt?.challengeId || '').trim();
+      const challengeId = String(
+        prompt.emailOtpPrompt?.challengeId ||
+          element.getAttribute('data-email-otp-challenge-id') ||
+          '',
+      ).trim();
       if (challengeId) return challengeId;
       if (element.shadowRoot) roots.push(element.shadowRoot);
     }
@@ -1533,7 +1543,21 @@ async function authenticateEmailOtpInHostedMenu(
   const authenticated = input.page
     .getByRole('tab', { name: input.profile === 'ed25519' ? 'NEAR' : 'Tempo', exact: true })
     .waitFor({ state: 'visible', timeout: 180_000 });
-  await google.click();
+  /* The menu re-renders while wallet state settles and can detach the button
+     mid-click; an unbounded click then retries forever. Bound each attempt and
+     retry until one lands. */
+  const googleClickDeadline = Date.now() + 90_000;
+  for (;;) {
+    const clicked = await google
+      .click({ timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (clicked) break;
+    if (Date.now() >= googleClickDeadline) {
+      throw new Error('Google sign-in control did not accept a click');
+    }
+    await input.page.waitForTimeout(250);
+  }
   await completeEmailOtpPromptsUntil({
     page: input.page,
     context: input.context,
@@ -1751,10 +1775,25 @@ async function unlockLinkedPasskeyWallet(
   const wallet = await walletFrame(page);
   const unlock = wallet.getByRole('button', { name: 'Sign in with Passkey', exact: true });
   const switchToLogin = wallet.locator('button[data-auth-menu-mode="login"]');
-  await unlock.or(switchToLogin).first().waitFor({ state: 'visible', timeout: 30_000 });
-  if (await switchToLogin.isVisible()) await switchToLogin.click();
-  await unlock.waitFor({ state: 'visible', timeout: 30_000 });
-  await unlock.click();
+  /* The menu re-renders while the post-reload restore settles, so a one-shot
+     visible-then-click sequence can race a view swap; drive it like lockWallet
+     does, retrying until the unlock control itself is clickable. */
+  const unlockDeadline = Date.now() + 90_000;
+  for (;;) {
+    if (await unlock.isVisible().catch(() => false)) {
+      const clicked = await unlock
+        .click({ timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (clicked) break;
+    } else if (await switchToLogin.isVisible().catch(() => false)) {
+      await switchToLogin.click({ timeout: 5_000 }).catch(() => undefined);
+    }
+    if (Date.now() >= unlockDeadline) {
+      throw new Error('Passkey unlock surface did not accept a click after reload');
+    }
+    await page.waitForTimeout(250);
+  }
   try {
     await page
       .getByRole('tab', { name: profile === 'ed25519' ? 'NEAR' : 'Tempo', exact: true })
@@ -2194,8 +2233,10 @@ type LocalAuthoritySnapshot = {
   readonly signerActivations: unknown;
   readonly localInstallPackageSetDigestB64u: string | null;
   readonly installedRecordSetDigestB64u: string | null;
+  /* An active session row must exist, but its authorization identity is
+     minted fresh by every exact unlock; only the authority claims it carries
+     are durable and comparable across a reload-and-unlock. */
   readonly session: {
-    readonly authorizationId: string;
     readonly authorityDigestB64u: string;
     readonly authorityRevocationEpoch: number;
   } | null;
@@ -2362,7 +2403,6 @@ async function readWalletAuthoritySnapshotInBrowser(walletId: string): Promise<u
         String(session.authorizationId || '').trim() &&
         String(session.authorityDigestB64u || '').trim()
           ? {
-              authorizationId: String(session.authorizationId),
               authorityDigestB64u: String(session.authorityDigestB64u),
               authorityRevocationEpoch: Number(session.authorityRevocationEpoch),
             }
@@ -2405,11 +2445,6 @@ function parseLocalAuthoritySnapshot(raw: unknown): LocalAuthoritySnapshot | nul
   let session: LocalAuthoritySnapshot['session'] = null;
   if (sessionRecord !== null) {
     const sessionValue = requireRecord(sessionRecord, 'local authority snapshot.session');
-    const authorizationId = requireStringField(
-      sessionValue,
-      'authorizationId',
-      'local authority snapshot.session',
-    );
     const sessionDigest = requireStringField(
       sessionValue,
       'authorityDigestB64u',
@@ -2420,7 +2455,6 @@ function parseLocalAuthoritySnapshot(raw: unknown): LocalAuthoritySnapshot | nul
       throw new Error('local authority snapshot.session.authorityRevocationEpoch is invalid');
     }
     session = {
-      authorizationId,
       authorityDigestB64u: sessionDigest,
       authorityRevocationEpoch: sessionEpoch,
     };
@@ -4211,7 +4245,14 @@ async function setupLinkedOwnerPair(
     expect(inventoryBeforeReload.enrollmentId).toBe(activation.enrollmentId);
     expect(inventoryBeforeReload.revocationEpoch).toBe(activation.revocationEpoch);
     await ownerPage.reload({ waitUntil: 'domcontentloaded' });
+    /* Same choreography as the email owner-pair setup: let the restore settle
+       before locking, then boot a fresh page into the locked state so the
+       unlock surface is not racing an in-flight pre-lock restore. */
+    await ownerPage
+      .locator('.w3a-profile-button-morphable')
+      .waitFor({ state: 'visible', timeout: 120_000 });
     await lockWallet(ownerPage);
+    await ownerPage.reload({ waitUntil: 'domcontentloaded' });
     if (sourceFactor === 'passkey') {
       await unlockLinkedPasskeyWallet(ownerPage, ownerDiagnostics, profile);
     } else {

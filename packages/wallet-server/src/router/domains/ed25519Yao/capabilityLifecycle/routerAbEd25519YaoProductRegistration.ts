@@ -64,6 +64,7 @@ import {
   type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1,
   type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1,
   type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1,
+  type WarmBootstrapLinkedEd25519AuthorityReaderV1,
 } from '../recovery/routerAbEd25519YaoRecovery';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../../core/WalletStore';
 import {
@@ -90,7 +91,10 @@ export type RouterAbEd25519YaoWalletSessionCredentialV1 =
       readonly kind: 'issued_exact_wallet_session';
       readonly operationCredential: WalletSessionOperationCredentialV1;
     }
-  | { readonly kind: 'already_committed_exact_wallet_session'; readonly operationCredential?: never };
+  | {
+      readonly kind: 'already_committed_exact_wallet_session';
+      readonly operationCredential?: never;
+    };
 
 type RouterAbEd25519YaoWalletSessionMintIdentityV1 = {
   readonly walletSessionCredential: RouterAbEd25519YaoWalletSessionCredentialV1;
@@ -181,6 +185,7 @@ export type RouterAbEd25519YaoProductRegistrationPortsV1 = {
   readonly recoveryAuthorization: RouterAbEd25519YaoRecoveryAuthorizationAdapter;
   readonly exportService: RouterAbEd25519YaoExportService;
   readonly exportAuthorization: RouterAbEd25519YaoExportAuthorizationAdapter;
+  readonly linkedAuthorities?: (() => WarmBootstrapLinkedEd25519AuthorityReaderV1 | null) | null;
 };
 
 export type RouterAbEd25519YaoProductRegistrationStateV1 = {
@@ -356,6 +361,7 @@ export function createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV
     service: input.recoveryService,
     capabilities: input.capabilities,
     authorization: input.recoveryAuthorization,
+    linkedAuthorities: input.linkedAuthorities ?? null,
   });
   const exportModule = createRouterAbEd25519YaoExportModule({
     service: input.exportService,

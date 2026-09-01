@@ -143,6 +143,7 @@ export type GoogleEmailOtpWalletAuthDeps = {
     walletAuthMethodId: string;
     email: string;
     providerSubjectId: string;
+    provider?: 'google' | 'email';
     challengeId: string;
     otpCode: string;
     relayUrl: string;

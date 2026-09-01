@@ -168,6 +168,7 @@ import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import {
   exactWalletSessionAuthorityIdentity,
+  type ExactWalletSessionAuthorization,
   type ExactWalletSessionAuthorityIdentity,
 } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
@@ -1805,8 +1806,13 @@ function resolveLoginEd25519ProvisionScope(args: {
   };
 }
 
-type PasskeyUnlockEd25519Connection = PasskeyWalletUnlockEd25519Session & {
+type PasskeyUnlockEd25519Connection = Omit<
+  PasskeyWalletUnlockEd25519Session,
+  'sessionKind' | 'operationCredential'
+> & {
   readonly ok: true;
+  readonly sessionKind: PasskeyWalletUnlockEd25519Session['sessionKind'];
+  readonly operationCredential: WalletSessionOperationCredentialV1;
   readonly passkeyPrfFirstB64u: string;
   readonly code?: never;
   readonly message?: never;
@@ -1824,6 +1830,7 @@ function passkeyUnlockEd25519Connection(args: {
   readonly provisionScope: LoginEd25519ProvisionScope;
   readonly credential: WebAuthnAuthenticationCredential | undefined;
   readonly remainingUses: number;
+  readonly unlockAuthorization: ExactWalletSessionAuthorization | null;
 }): PasskeyUnlockEd25519Connection {
   const session = args.session;
   const custody = args.custody.ed25519;
@@ -1848,10 +1855,41 @@ function passkeyUnlockEd25519Connection(args: {
   ) {
     throw new Error('[login] verified unlock returned an invalid Ed25519 Wallet Session');
   }
-  if (session.operationCredential.walletSessionId !== session.walletSessionId) {
-    throw new Error('[login] verified unlock returned a mismatched Ed25519 credential');
+  switch (session.sessionKind) {
+    case 'issued_exact_wallet_session':
+      if (session.operationCredential.walletSessionId !== session.walletSessionId) {
+        throw new Error('[login] verified unlock returned a mismatched Ed25519 credential');
+      }
+      return { ok: true, ...session, passkeyPrfFirstB64u };
+    case 'already_committed_exact_wallet_session': {
+      /* The pre-issued exact session was committed before verification, so its
+         credential arrives as the response's top-level Wallet Session
+         authorization rather than on the Ed25519 session record. */
+      const authorization = args.unlockAuthorization;
+      if (!authorization) {
+        throw new Error(
+          '[login] verified unlock reused an Ed25519 Wallet Session without its authorization',
+        );
+      }
+      if (
+        authorization.operationCredential.walletSessionId !== session.walletSessionId ||
+        authorization.record.walletId !== session.walletId ||
+        authorization.record.authorizationId !== session.authorizationId ||
+        authorization.record.quotaId !== session.quotaId ||
+        authorization.record.expiresAtMs !== session.expiresAtMs
+      ) {
+        throw new Error('[login] verified unlock reused a mismatched Ed25519 Wallet Session');
+      }
+      return {
+        ok: true,
+        ...session,
+        operationCredential: authorization.operationCredential,
+        passkeyPrfFirstB64u,
+      };
+    }
+    default:
+      return assertNeverLoginState(session);
   }
-  return { ok: true, ...session, passkeyPrfFirstB64u };
 }
 
 function resolveLoginNoServerSessionPasskeyCredentialPlan(args: {
@@ -3084,13 +3122,27 @@ function linkedDeviceEd25519SessionFromEmailOtpBootstrap(args: {
   readonly providerIdentity: LinkedDeviceEmailOtpProviderIdentity;
 }): LinkedDeviceEd25519RuntimeSession {
   const session = args.session;
+  /* The provider flavor is server-derived from the enrollment's principal
+     shape (a fresh address-verified target is 'email'; a target reusing the
+     founding Google enrollment stays 'google'), and the client holds no
+     durable record of it. The provider subject is the identity anchor, so the
+     binding pins kind and subject and accepts either flavor. */
   if (
     session.authorityScope.kind !== 'email_otp' ||
-    session.authorityScope.provider !== args.providerIdentity.provider ||
     String(session.authorityScope.providerUserId) !==
       String(args.providerIdentity.providerSubjectId)
   ) {
-    throw new Error('[login] linked Email OTP Ed25519 session authority mismatch');
+    const mismatches = [
+      ...(session.authorityScope.kind !== 'email_otp' ? ['scope.kind'] : []),
+      ...(session.authorityScope.kind === 'email_otp' &&
+      String(session.authorityScope.providerUserId) !==
+        String(args.providerIdentity.providerSubjectId)
+        ? ['scope.providerUserId']
+        : []),
+    ];
+    throw new Error(
+      `[login] linked Email OTP Ed25519 session authority mismatch: ${mismatches.join(', ')}`,
+    );
   }
   const thresholdSessionId = parseThresholdEd25519SessionId(session.thresholdSessionId);
   const authorizationId = parseWalletSessionAuthorizationId(session.authorizationId);
@@ -3498,6 +3550,20 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
     workerCtx: args.context.signingEngine.getSignerWorkerContext(),
   });
   const factorSecret32: Uint8Array | null = unlocked.factorSecret32;
+  /* The enrollment's provider flavor is server-derived (a fresh
+     address-verified target is 'email'; a target reusing the founding Google
+     enrollment stays 'google') and is not recorded locally, so the pre-unlock
+     identity is a hint. Every binding built after the unlock adopts the
+     authenticated scope's flavor so lane and authority addressing matches
+     what installation wrote. */
+  const authenticatedScope = unlocked.ed25519Activation.bootstrap?.session.authorityScope ?? null;
+  const effectiveProviderIdentity: LinkedDeviceEmailOtpProviderIdentity =
+    authenticatedScope && authenticatedScope.kind === 'email_otp'
+      ? {
+          provider: authenticatedScope.provider,
+          providerSubjectId: providerIdentity.providerSubjectId,
+        }
+      : providerIdentity;
   let openedMaterials:
     | readonly [LinkedDevicePasskeyOpenedMaterial, ...LinkedDevicePasskeyOpenedMaterial[]]
     | null = null;
@@ -3521,7 +3587,7 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
         context: args.context,
         selection,
         unlocked,
-        providerIdentity,
+        providerIdentity: effectiveProviderIdentity,
         emailHashHex: args.emailHashHex,
       });
       ownedActiveClientHandle = null;
@@ -3586,7 +3652,7 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
         selection,
         factorAuthority: await walletAuthAuthorityForLinkedDeviceMethod({
           selection,
-          providerIdentity,
+          providerIdentity: effectiveProviderIdentity,
         }),
         material: ecdsaMaterial,
       });
@@ -3597,7 +3663,7 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
       const ed25519Session = linkedDeviceEd25519SessionFromEmailOtpBootstrap({
         session: unlocked.ed25519Activation.bootstrap.session,
         operationCredential: unlocked.operationCredential,
-        providerIdentity,
+        providerIdentity: effectiveProviderIdentity,
       });
       if (ed25519Session.walletSessionId !== unlocked.operationCredential.walletSessionId) {
         throw new Error('[login] linked Email OTP Ed25519 session credential mismatch');
@@ -3608,7 +3674,7 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
         session: ed25519Session,
         material: ed25519Material,
         relayerUrl: relayUrl,
-        providerIdentity,
+        providerIdentity: effectiveProviderIdentity,
       });
     } else if (ecdsaMaterial) {
       loginResult = {
@@ -4035,6 +4101,7 @@ async function unlockInternal(
     let completedPasskeyExchangeEcdsaActivation: CompletedPasskeyExchangeEcdsaActivation | null =
       null;
     let completedPasskeyEd25519Session: PasskeyWalletUnlockEd25519Session | null = null;
+    let completedPasskeyWalletSessionAuthorization: ExactWalletSessionAuthorization | null = null;
     let completedPasskeySessionCustody: PasskeySessionCustodyUnlockV1 | null = null;
     let localWarmupRouteAuthorization = resolveLoginWarmupRouteAuthorization();
     let warmupPhase: ThresholdLoginWarmupPhaseResult | null = null;
@@ -4253,6 +4320,7 @@ async function unlockInternal(
         routeAuthorization: warmupInput.routeAuthorization,
         passkeyExchangeEcdsaActivation: passkeyExchangeEcdsaActivationForWarmup,
         passkeyUnlockEd25519Session: completedPasskeyEd25519Session,
+        passkeyUnlockWalletSessionAuthorization: completedPasskeyWalletSessionAuthorization,
       });
 
       // Successful provisioning has already sealed and activated the exact Ed25519 session.
@@ -4398,6 +4466,8 @@ async function unlockInternal(
       loginCredential = completedUnlock.credential;
       completedPasskeyExchangeEcdsaActivation = completedUnlock.activation;
       completedPasskeyEd25519Session = completedUnlock.result.ed25519Session;
+      completedPasskeyWalletSessionAuthorization =
+        completedUnlock.result.walletSessionAuthorization ?? null;
       completedPasskeySessionCustody = completedUnlock.custody;
       await rememberPasskeySessionCustodyForExport({
         walletId: String(walletIdentity.walletId),
@@ -5956,6 +6026,7 @@ async function primeThresholdLoginWarmSigners(args: {
   routeAuthorization: LoginWarmupRouteAuthorization;
   passkeyExchangeEcdsaActivation: CompletedPasskeyExchangeEcdsaActivation | null;
   passkeyUnlockEd25519Session: PasskeyWalletUnlockEd25519Session | null;
+  passkeyUnlockWalletSessionAuthorization: ExactWalletSessionAuthorization | null;
 }): Promise<ThresholdLoginWarmupResult> {
   const signersToWarm = buildThresholdLoginWarmSignerSelection(args.signersToWarm);
   const credential =
@@ -6088,6 +6159,7 @@ async function primeThresholdLoginWarmSigners(args: {
               provisionScope,
               credential,
               remainingUses: unlockRemainingUses,
+              unlockAuthorization: args.passkeyUnlockWalletSessionAuthorization,
             });
             break;
           default:
@@ -6541,13 +6613,6 @@ export async function getWalletSession(
     resolveWalletSessionAppIdentity(context, readResolution),
     readExactWalletSessionAvailableLanes(context, readResolution.walletId),
   ]);
-  const capabilityProjection = buildWalletSessionCapabilityProjection({
-    subjectSet: readResolution.subjectSet,
-    availableLanes,
-    configuredEcdsaTargets: listConfiguredThresholdEcdsaPublicationTargets(
-      context.configs.network.chains,
-    ).map((target) => target.chainTarget),
-  });
   const restoredAuthenticationRead =
     requestedAuthenticationRead &&
     requestedWalletIdValue &&
@@ -6560,8 +6625,11 @@ export async function getWalletSession(
   let authentication: WalletAuthenticationState = { kind: 'signed_out' };
   switch (restoredAuthenticationRead.kind) {
     case 'authenticated':
-      authentication = restoredAuthenticationRead.state;
-      context.signingEngine.setWalletAuthenticated(authentication);
+      if (
+        await setRestoredWalletAuthenticationIfUnlocked(context, restoredAuthenticationRead.state)
+      ) {
+        authentication = restoredAuthenticationRead.state;
+      }
       break;
     case 'missing':
       break;
@@ -6570,12 +6638,75 @@ export async function getWalletSession(
         '[WalletSession] Wallet Session authorization requires a newer client',
       );
   }
+  /* R109C: the session's capabilities belong to the method that opened it.
+     Sibling methods on one authority keep their own ECDSA continuity rows for
+     their own unlocks - a wallet that recovered and then added a method holds
+     one capability under each - so an authenticated read scopes the ECDSA
+     subjects to the authenticated method instead of projecting both. */
+  const capabilityProjection = buildWalletSessionCapabilityProjection({
+    subjectSet:
+      authentication.kind === 'authenticated' &&
+      restoredAuthenticationRead.kind === 'authenticated'
+        ? scopeSubjectSetToWalletAuthMethod(
+            readResolution.subjectSet,
+            restoredAuthenticationRead.walletAuthMethodId,
+          )
+        : readResolution.subjectSet,
+    availableLanes,
+    configuredEcdsaTargets: listConfiguredThresholdEcdsaPublicationTargets(
+      context.configs.network.chains,
+    ).map((target) => target.chainTarget),
+  });
   return {
     appIdentity,
     authentication,
     capabilityProjection,
     nonceDiagnostics: readWalletSessionNonceDiagnostics(context, appIdentity.nearAccountId),
   };
+}
+
+function scopeSubjectSetToWalletAuthMethod(
+  subjectSet: WalletUnlockSubjectSet,
+  walletAuthMethodId: WalletAuthMethodId,
+): WalletUnlockSubjectSet {
+  const subjects = subjectSet.subjects.filter(
+    (subject) =>
+      subject.kind !== 'evm_family_ecdsa_wallet' ||
+      String(subject.authority.walletAuthMethodId) === String(walletAuthMethodId),
+  );
+  const [first, ...rest] = subjects;
+  /* Fail open to the unscoped set: an authenticated method with no ECDSA
+     subject of its own (an Ed25519-only unlock) must not blank the projection. */
+  if (!first) return subjectSet;
+  return { ...subjectSet, subjects: [first, ...rest] };
+}
+
+/**
+ * A restore read races the user's lock: the read observes an unlocked
+ * selection, the lock lands while its network validation runs, and the stale
+ * result would re-authenticate a wallet the user just locked. Re-checking the
+ * durable lock right before the runtime write keeps the lock decisive over
+ * any in-flight restore.
+ */
+async function setRestoredWalletAuthenticationIfUnlocked(
+  context: {
+    readonly signingEngine: Pick<
+      WalletSessionWebContext['signingEngine'],
+      'setWalletAuthenticated'
+    >;
+  },
+  state: Extract<WalletAuthenticationState, { readonly kind: 'authenticated' }>,
+): Promise<boolean> {
+  let lockedOut = false;
+  try {
+    const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(state.walletId));
+    lockedOut = selected.kind !== 'resolved' || selected.selection.lockState !== 'unlocked';
+  } catch {
+    lockedOut = true;
+  }
+  if (lockedOut) return false;
+  context.signingEngine.setWalletAuthenticated(state);
+  return true;
 }
 
 async function buildCapabilityUnresolvableWalletSession(args: {
@@ -6593,8 +6724,11 @@ async function buildCapabilityUnresolvableWalletSession(args: {
   let authentication: WalletAuthenticationState = { kind: 'signed_out' };
   switch (exactAuthenticationRead.kind) {
     case 'authenticated':
-      authentication = exactAuthenticationRead.state;
-      args.context.signingEngine.setWalletAuthenticated(authentication);
+      if (
+        await setRestoredWalletAuthenticationIfUnlocked(args.context, exactAuthenticationRead.state)
+      ) {
+        authentication = exactAuthenticationRead.state;
+      }
       break;
     case 'missing':
       break;

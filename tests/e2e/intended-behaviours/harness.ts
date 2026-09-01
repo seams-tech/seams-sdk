@@ -1816,6 +1816,16 @@ export class IntendedBehaviourHarness {
       await fillHostedRecoveryCode(this.page, recoveryCode, 'passkey');
       await firstFinalizationRequest;
       await firstFinalizationResponse;
+      if (!finalizeFailure.injected) {
+        throw new Error('Passkey recovery did not reach the injected finalization response loss');
+      }
+      /* The conceal route keeps blocking duplicate submissions while the
+         journal check runs, so a straggling confirm click cannot commit the
+         finalization the runtime-reset replay is expected to deliver. */
+      await this.waitForPendingWalletRecoveryCommit(
+        requireCapturedRecoveryRequest(finalizationCapture),
+        'present',
+      );
     } finally {
       await this.page.unroute(
         `**${ROUTER_AB_WALLET_RECOVERY_FINALIZE_PATH}`,
@@ -1823,11 +1833,7 @@ export class IntendedBehaviourHarness {
       );
       this.page.off('request', captureFinalizationRequest);
     }
-    if (!finalizeFailure.injected) {
-      throw new Error('Passkey recovery did not reach the injected finalization response loss');
-    }
     const finalization = requireCapturedRecoveryRequest(finalizationCapture);
-    await this.waitForPendingWalletRecoveryCommit(finalization, 'present');
     await this.resumeCommittedRecoveryAfterRuntimeReset(finalization);
     await this.unlockPasskeyWallet();
     await this.signTempoTransaction('post_unlock');
@@ -1910,6 +1916,16 @@ export class IntendedBehaviourHarness {
         intervalMs: 250,
       });
       await firstFinalizationResponse;
+      if (!finalizeFailure.injected) {
+        throw new Error('Google recovery did not reach the injected finalization response loss');
+      }
+      /* The conceal route keeps blocking duplicate submissions while the
+         journal check runs, so a straggling confirm click cannot commit the
+         finalization the runtime-reset replay is expected to deliver. */
+      await this.waitForPendingWalletRecoveryCommit(
+        requireCapturedRecoveryRequest(finalizationCapture),
+        'present',
+      );
     } finally {
       await this.page.unroute(
         `**${ROUTER_AB_WALLET_RECOVERY_GOOGLE_EMAIL_OTP_FINALIZE_PATH}`,
@@ -1917,13 +1933,16 @@ export class IntendedBehaviourHarness {
       );
       this.page.off('request', captureFinalizationRequest);
     }
-    if (!finalizeFailure.injected) {
-      throw new Error('Google recovery did not reach the injected finalization response loss');
-    }
     const finalization = requireCapturedRecoveryRequest(finalizationCapture);
-    await this.waitForPendingWalletRecoveryCommit(finalization, 'present');
     await this.resumeCommittedRecoveryAfterRuntimeReset(finalization);
-    await this.unlockPasskeyWallet();
+    /* This device re-established custody through the Google Email OTP
+       recovery, so the recovered method - not the founding passkey - is the
+       factor that unlocks here. The Passkey mirror case covers the
+       passkey-bound custody path. The replayed finalization response carries
+       the committed projection naming the installed method. */
+    const projection = await this.waitForRecoveryAuthorityProjection();
+    this.addedWalletAuthMethodId = projection.authMethodWalletAuthMethodId;
+    await this.unlockWithAddedEmailOtp();
     await this.signTempoTransaction('post_unlock');
     await this.signNearTransaction('post_unlock');
     await this.assertConsumedRecoveryCodeReportedAsUsed('google_email_otp');
@@ -2617,7 +2636,14 @@ export class IntendedBehaviourHarness {
   private async resetBrowserStorage(): Promise<void> {
     await this.context.clearCookies();
     await this.page.goto(this.config.appUrl, { waitUntil: 'domcontentloaded' });
-    await this.page.evaluate(clearBrowserStorage);
+    try {
+      await this.page.evaluate(clearBrowserStorage);
+    } catch {
+      /* The app can still be settling a late navigation right after
+         domcontentloaded, which destroys the evaluation context. */
+      await this.page.waitForLoadState('load');
+      await this.page.evaluate(clearBrowserStorage);
+    }
     if (this.config.signingSessionDebug) {
       await this.page.evaluate(() => {
         localStorage.setItem('seams:debug:signing-session', '1');
@@ -5455,10 +5481,14 @@ function parseRecoveryAuthorityProjection(raw: unknown): RecoveryAuthorityProjec
   if (response.ok !== true) {
     throw new Error('recovery finalization response must report ok=true');
   }
-  const authority = requireRecord(response.authority, 'recovery authority projection');
+  const projection = requireRecord(response.projection, 'recovery committed projection');
+  if (projection.version !== 'wallet_recovery_committed_projection_v1') {
+    throw new Error('recovery finalization must return the committed projection envelope');
+  }
+  const authority = requireRecord(projection.authority, 'recovery authority projection');
   const principal = requireRecord(authority.principal, 'recovery authority principal');
   const provenance = requireRecord(authority.provenance, 'recovery authority provenance');
-  const authMethod = requireRecord(response.authMethod, 'recovery auth method projection');
+  const authMethod = requireRecord(projection.authMethod, 'recovery auth method projection');
   if (authority.state !== 'active') {
     throw new Error('recovery authority projection must be active');
   }
@@ -5865,15 +5895,23 @@ async function concealFirstRecoveryFinalizationResponse(
   failure: RecoveryFinalizeFailure,
   route: Route,
 ): Promise<void> {
+  /* The lost-response contract needs exactly one committed finalization.
+     The flag flips before the server round-trip so a concurrent or
+     straggling duplicate submission is refused without reaching the server
+     instead of committing the operation the replay is expected to find. */
   if (failure.injected) {
-    await route.continue();
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, code: 'response_lost' }),
+    });
     return;
   }
+  failure.injected = true;
   const committed = await route.fetch();
   if (committed.status() !== 200) {
     throw new Error(`Recovery finalization failed before response loss: ${committed.status()}`);
   }
-  failure.injected = true;
   await route.fulfill({
     status: 503,
     contentType: 'application/json',

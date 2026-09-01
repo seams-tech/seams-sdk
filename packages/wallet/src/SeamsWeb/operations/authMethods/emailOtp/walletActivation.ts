@@ -38,18 +38,41 @@ export async function persistVerifiedEmailOtpAuthorityAfterUnlock(args: {
         args.walletId,
         args.walletAuthMethodId,
       );
-      if (
-        local.kind !== 'resolved' ||
-        String(local.authority.authorityId) !== String(authority.authorityId) ||
-        String(local.authority.authorityDigestB64u) !== String(authority.authorityDigestB64u) ||
-        local.authMethod.kind !== 'email_otp' ||
-        local.authMethod.status !== 'active' ||
-        String(local.authMethod.walletAuthMethodId) !== String(authMethod.walletAuthMethodId) ||
-        String(local.authMethod.walletAuthorityId) !== String(authMethod.walletAuthorityId) ||
-        local.authMethod.emailHashHex !== authMethod.emailHashHex ||
-        local.authMethod.registrationAuthorityId !== authMethod.registrationAuthorityId
-      ) {
-        throw new Error('Verified recovered Email OTP authority is not installed on this device');
+      const mismatches =
+        local.kind !== 'resolved'
+          ? [`resolution:${local.kind}`]
+          : [
+              ...(String(local.authority.authorityId) !== String(authority.authorityId)
+                ? ['authorityId']
+                : []),
+              ...(String(local.authority.authorityDigestB64u) !==
+              String(authority.authorityDigestB64u)
+                ? ['authorityDigest']
+                : []),
+              ...(local.authMethod.kind !== 'email_otp' ? ['method.kind'] : []),
+              ...(local.authMethod.status !== 'active' ? ['method.status'] : []),
+              ...(String(local.authMethod.walletAuthMethodId) !==
+              String(authMethod.walletAuthMethodId)
+                ? ['method.id']
+                : []),
+              ...(String(local.authMethod.walletAuthorityId) !==
+              String(authMethod.walletAuthorityId)
+                ? ['method.authorityId']
+                : []),
+              ...(local.authMethod.kind === 'email_otp' &&
+              local.authMethod.emailHashHex !== authMethod.emailHashHex
+                ? ['method.emailHash']
+                : []),
+              /* No registrationAuthorityId equality: a sibling added to the
+                 recovered authority stores the provider identity there by the
+                 add projection's convention, while the server names the add
+                 challenge. The authority digest and method identity above
+                 already prove the local install. */
+            ];
+      if (mismatches.length > 0) {
+        throw new Error(
+          `Verified recovered Email OTP authority is not installed on this device: ${mismatches.join(', ')}`,
+        );
       }
       return;
     }

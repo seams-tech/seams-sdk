@@ -1,8 +1,5 @@
 import { alphabetizeStringify } from '@shared/utils/digests';
-import {
-  mpcMaterialActivationRefsEqual,
-  parseWalletId,
-} from '@shared/utils/domainIds';
+import { mpcMaterialActivationRefsEqual, parseWalletId } from '@shared/utils/domainIds';
 import {
   parseWalletAuthorityV1,
   replaceActiveWalletAuthorityEd25519MaterialActivationV1,
@@ -265,17 +262,11 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
             previousJson,
           ),
       ];
-      for (const authorityReplacement of authorityReplacements) {
-        statements.push(this.prepareAuthorityReplacementStatement(authorityReplacement));
-        for (const session of authorityReplacement.sessions) {
-          statements.push(
-            this.prepareSessionAuthorityProjectionReplacementStatement({
-              previous: session,
-              authority: authorityReplacement.next,
-            }),
-          );
-        }
-      }
+      /* The receipt insert must run directly after the guarded signer update:
+         its changes() guard reads the immediately preceding statement, and a
+         later authority or session replacement that legitimately matches zero
+         rows would otherwise skip the receipt while the signer row commits —
+         leaving a durable promotion the retry can no longer recognize. */
       statements.push(
         this.database
           .prepare(
@@ -305,6 +296,17 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
             now,
           ),
       );
+      for (const authorityReplacement of authorityReplacements) {
+        statements.push(this.prepareAuthorityReplacementStatement(authorityReplacement));
+        for (const session of authorityReplacement.sessions) {
+          statements.push(
+            this.prepareSessionAuthorityProjectionReplacementStatement({
+              previous: session,
+              authority: authorityReplacement.next,
+            }),
+          );
+        }
+      }
       const results = await this.database.batch<D1ResultLike>(statements);
       requireSuccessfulBatch(results, statements.length);
     } catch (error: unknown) {
@@ -473,6 +475,9 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
       createdAtMs: input.previous.createdAtMs,
       expiresAtMs: input.previous.expiresAtMs,
     });
+    /* Stored record_json is not byte-stable (SQL-side json_set promotions
+       reserialize it), so the guard pins the projected authority state the
+       replacement supersedes instead of comparing raw record bytes. */
     return this.database
       .prepare(
         `UPDATE wallet_session_authorizations_v2
@@ -485,7 +490,8 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
             AND env_id = ?
             AND authorization_id = ?
             AND authority_id = ?
-            AND record_json = ?
+            AND authority_digest_b64u = ?
+            AND authority_revocation_epoch = ?
             AND retired_at_ms IS NULL`,
       )
       .bind(
@@ -498,7 +504,8 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
         this.scope.envId,
         String(next.authorizationId),
         String(next.authorityId),
-        JSON.stringify(input.previous),
+        String(input.previous.authorityDigestB64u),
+        input.previous.authorityRevocationEpoch,
       );
   }
 
@@ -611,10 +618,7 @@ function matchReceipt(
     : 'conflict';
 }
 
-function requireSuccessfulBatch(
-  results: readonly D1ResultLike[],
-  expectedLength: number,
-): void {
+function requireSuccessfulBatch(results: readonly D1ResultLike[], expectedLength: number): void {
   if (results.length !== expectedLength || results.some((result) => result.success !== true)) {
     throw new Error('capability replacement D1 batch failed');
   }

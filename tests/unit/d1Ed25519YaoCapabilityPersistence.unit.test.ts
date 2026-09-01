@@ -159,9 +159,102 @@ test.describe('D1 Ed25519 Yao capability replacement receipts', () => {
       cleanupTemporaryD1Database(uncommitted.tempDir);
     }
   });
+
+  test('replaces dependent session projections whose stored JSON is not byte-stable', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      const fixture = buildRouterAbEd25519YaoCapabilityReplacementFixture();
+      const { walletStore, authorityFixture } = await seedWalletSignerWithAuthority(
+        temporary.database,
+      );
+      const session = authorityFixture.issuedSession.session;
+      /* SQL-side json_set promotions render the epoch as a REAL literal, so a
+         stored row is not byte-identical to JSON.stringify of its parsed
+         record. The projection replacement must still find it. */
+      const poisonedRecordJson = JSON.stringify(session).replace(
+        '"authorityRevocationEpoch":0,',
+        '"authorityRevocationEpoch":0.0,',
+      );
+      expect(poisonedRecordJson).not.toBe(JSON.stringify(session));
+      await temporary.database
+        .prepare(
+          `INSERT INTO wallet_session_authorizations_v2 (
+            namespace, org_id, project_id, env_id, tenant_id,
+            authorization_id, mint_id, wallet_session_id, quota_id, principal_id,
+            wallet_id, authority_id, wallet_auth_method_id,
+            authority_digest_b64u, authority_revocation_epoch,
+            capability_subjects_json, issued_at_ms, expires_at_ms,
+            retired_at_ms, record_json, operation_credential_hash
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+        )
+        .bind(
+          TEST_SCOPE.namespace,
+          TEST_SCOPE.orgId,
+          TEST_SCOPE.projectId,
+          TEST_SCOPE.envId,
+          String(session.tenantId),
+          String(session.authorizationId),
+          String(session.mintId),
+          String(session.walletSessionId),
+          String(session.quotaId),
+          String(session.principalId),
+          String(session.walletId),
+          String(session.authorityId),
+          String(session.walletAuthMethodId),
+          String(session.authorityDigestB64u),
+          session.authorityRevocationEpoch,
+          JSON.stringify(session.capabilitySubjects),
+          session.createdAtMs,
+          session.expiresAtMs,
+          poisonedRecordJson,
+          'digest-placeholder',
+        )
+        .run();
+
+      const persistence = createPersistence(temporary.database, walletStore);
+      await expect(
+        persistence.replaceActiveCapability({
+          operation: replacementOperation('session-projection'),
+          previous: fixture.previous,
+          next: fixture.next,
+        }),
+      ).resolves.toEqual({ ok: true, disposition: 'applied' });
+
+      const row = await temporary.database
+        .prepare(
+          `SELECT session.authority_digest_b64u AS session_digest,
+                  authority.authority_digest_b64u AS authority_digest,
+                  session.record_json AS record_json
+             FROM wallet_session_authorizations_v2 AS session
+             JOIN wallet_authorities AS authority
+               ON authority.authority_id = session.authority_id
+            WHERE session.authorization_id = ?`,
+        )
+        .bind(String(session.authorizationId))
+        .first<{ session_digest: string; authority_digest: string; record_json: string }>();
+      expect(row).toBeTruthy();
+      expect(row?.session_digest).toBe(row?.authority_digest);
+      expect(row?.session_digest).not.toBe(String(session.authorityDigestB64u));
+      const record = JSON.parse(String(row?.record_json)) as {
+        authorityDigestB64u: string;
+        authorityRevocationEpoch: number;
+      };
+      expect(record.authorityDigestB64u).toBe(row?.authority_digest);
+      expect(String(row?.record_json)).toContain('"authorityRevocationEpoch":0,');
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
 });
 
 async function seedWalletSigner(database: D1DatabaseLike): Promise<D1WalletStore> {
+  return (await seedWalletSignerWithAuthority(database)).walletStore;
+}
+
+async function seedWalletSignerWithAuthority(database: D1DatabaseLike): Promise<{
+  walletStore: D1WalletStore;
+  authorityFixture: Awaited<ReturnType<typeof buildLinkedDeviceManagementAuthorityFixture>>;
+}> {
   await applySignerMigrations(database);
   const fixture = buildRouterAbEd25519YaoCapabilityReplacementFixture();
   const walletId = walletIdFromString(fixture.walletId);
@@ -210,7 +303,7 @@ async function seedWalletSigner(database: D1DatabaseLike): Promise<D1WalletStore
     scope: TEST_SCOPE,
     authority: authorityFixture.authority,
   }).run();
-  return walletStore;
+  return { walletStore, authorityFixture };
 }
 
 function createPersistence(

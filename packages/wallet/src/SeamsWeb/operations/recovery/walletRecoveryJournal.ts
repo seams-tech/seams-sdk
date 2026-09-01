@@ -10,6 +10,7 @@ import {
   isDurablePasskeyPayload,
   parseWalletRecoveryDurablePayload,
   validateWalletRecoveryDurablePayloadBindings,
+  walletRecoveryDurablePayloadWireForm,
   WALLET_RECOVERY_DURABLE_PAYLOAD_VERSION,
   type WalletRecoveryDurablePayloadV1,
 } from './walletRecoveryDurablePayload';
@@ -80,7 +81,11 @@ export async function encryptWalletRecoveryDurablePayload(
   ]);
   if (!(key instanceof CryptoKey)) throw new Error('wallet recovery durable key generation failed');
   const iv = crypto.getRandomValues(new Uint8Array(WALLET_RECOVERY_DURABLE_AES_GCM_IV_BYTES));
-  const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+  /* The parsed payload is enriched with manifest-derived facts the decrypt
+     parser rejects; only the validated wire projection round-trips. */
+  const plaintext = new TextEncoder().encode(
+    JSON.stringify(walletRecoveryDurablePayloadWireForm(payload)),
+  );
   const ciphertext = new Uint8Array(
     await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv, additionalData: durablePayloadAad(payload) },

@@ -607,7 +607,12 @@ export async function resumePendingWalletRecoveries(input: {
         kind: 'completed',
         recoveryOperationId: String(record.recoveryOperationId),
       });
-    } catch {
+    } catch (error: unknown) {
+      console.warn(
+        '[SeamsWeb] pending wallet recovery replay failed before classification:',
+        String(record.recoveryOperationId),
+        error instanceof Error ? error.message : String(error || 'unknown error'),
+      );
       results.push({
         kind: 'corrupt',
         recoveryOperationId: String(record.recoveryOperationId),

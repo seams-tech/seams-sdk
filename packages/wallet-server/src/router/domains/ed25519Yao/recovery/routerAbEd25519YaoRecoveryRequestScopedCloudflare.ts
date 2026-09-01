@@ -42,8 +42,10 @@ import {
   type RouterAbEd25519YaoRecoveryServiceResult,
   type RouterAbEd25519YaoActiveCapabilityResolverV1,
   type RouterAbEd25519YaoWarmRecoveryBootstrapV1,
+  type WarmBootstrapLinkedEd25519AuthorityReaderV1,
 } from './routerAbEd25519YaoRecovery';
 import { warmBootstrapCapabilityMatchesStableIdentity } from './routerAbEd25519YaoRecovery';
+export type { WarmBootstrapLinkedEd25519AuthorityReaderV1 } from './routerAbEd25519YaoRecovery';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   parseThresholdEd25519SessionId,
@@ -124,6 +126,7 @@ export type RouterAbEd25519YaoRecoveryRequestScopedCloudflareInputV1 = {
   readonly authorization: RouterAbEd25519YaoRecoveryAuthorizationAdapter;
   readonly capabilityPersistence: RouterAbEd25519YaoCapabilityPersistenceV1;
   readonly capabilities: RouterAbEd25519YaoActiveCapabilityResolverV1;
+  readonly linkedAuthorities?: WarmBootstrapLinkedEd25519AuthorityReaderV1 | null;
 };
 
 type RecoveryRequestScopedContext = {
@@ -515,6 +518,7 @@ async function runWarmRecoveryBootstrapRequest(
     request,
     authorization: authorized.authorization,
     capability: activeCapability.capability,
+    linkedAuthorities: context.input.linkedAuthorities ?? null,
   });
   if (!response) {
     return json(
