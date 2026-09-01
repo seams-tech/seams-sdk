@@ -4,6 +4,15 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import {
+  defaultEnvFile,
+  describeUsableGoogleIdToken,
+  intendedIsolatedGoogleTokenMinimumTtlSeconds,
+  readEnvFile,
+  resolveGoogleClientId,
+  resolveGoogleIdToken,
+  resolveRepoPath,
+} from './intended-google-oidc-env.mjs';
 
 const testsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const listCasesOnly = process.argv.includes('--list-cases');
@@ -42,7 +51,17 @@ if (listCasesOnly) {
 }
 
 function runCase(testCase, index, total) {
-  runPnpmInherited(['run', 'ensure:intended-google-token'], childEnvironment);
+  runPnpmInherited(
+    [
+      'run',
+      'ensure:intended-google-token',
+      '--',
+      '--minimum-ttl',
+      String(intendedIsolatedGoogleTokenMinimumTtlSeconds),
+    ],
+    childEnvironment,
+  );
+  const googleIdToken = readIsolatedGoogleIdToken();
   const caseNumber = index + 1;
   const caseRoot = path.join(
     tmpdir(),
@@ -51,6 +70,7 @@ function runCase(testCase, index, total) {
   const viteCacheDir = path.join(caseRoot, 'vite-cache');
   const environment = {
     ...childEnvironment,
+    SEAMS_INTENDED_GOOGLE_ID_TOKEN: googleIdToken,
     SEAMS_INTENDED_ROUTER_AB_ROOT: caseRoot,
     SEAMS_INTENDED_SITE_VITE_CACHE_DIR: viteCacheDir,
     ...(index > 0 ? { SEAMS_INTENDED_SKIP_BUILD: '1' } : {}),
@@ -77,6 +97,27 @@ function runCase(testCase, index, total) {
   } finally {
     rmSync(caseRoot, { recursive: true, force: true });
   }
+}
+
+function readIsolatedGoogleIdToken() {
+  const envFilePath = resolveRepoPath(childEnvironment.SEAMS_INTENDED_ENV_FILE || defaultEnvFile);
+  const fileEnvironment = readEnvFile(envFilePath);
+  const clientId = resolveGoogleClientId({
+    processEnv: childEnvironment,
+    fileEnv: fileEnvironment,
+  });
+  const token = resolveGoogleIdToken({
+    fileToken: fileEnvironment.SEAMS_INTENDED_GOOGLE_ID_TOKEN,
+    clientId,
+    minimumTtlSeconds: intendedIsolatedGoogleTokenMinimumTtlSeconds,
+  });
+  const status = describeUsableGoogleIdToken({
+    token,
+    clientId,
+    minimumTtlSeconds: intendedIsolatedGoogleTokenMinimumTtlSeconds,
+  });
+  if (status.status === 'usable') return token;
+  throw new Error(`fresh intended Google ID token is ${status.reason}`);
 }
 
 function collectCases(suites, parentTitles = [], depth = 0) {
