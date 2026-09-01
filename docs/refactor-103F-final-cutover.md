@@ -1839,28 +1839,26 @@ iframe-to-host boundary.
 - [x] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts` passed after
       binding the exact Ed25519 Wallet Session to the Email OTP provider subject
       carried by the combined unlock request (`3475d60a8`).
-- [ ] `tests/e2e/intended-behaviours/passkey.recovery.contract.test.ts` — cases
-      1-5 (all three origins, failed finalization, lost-response replay) pass
-      after seven production fixes: the passkey unlock accepting the
-      already-committed exact session with its top-level authorization
-      (`527b5cb14`), the D1 `json_set` REAL rendering that made the recovery
-      promotion's session-projection byte-CAS unmatchable — source sessions now
-      re-projected onto the advanced authority digest (`134cea429`), recovery
-      finalization made single-flight per operation (`77fd79b2a`), and the
-      durable resume journal encrypting the wire projection instead of the
-      parse-enriched record that could never decrypt (`f582b8a1d`). The two
-      "recovers, adds a method, then operates" composites still fail: after
-      recovery+add, two active ECDSA capability pointers name different sibling
-      methods and the intended page's R109C one-exact-method check refuses the
-      mixed projection ("Wallet session capability projections disagree on auth
-      method") — same surface as the in-flight Passkey→Email OTP addition work.
-- [ ] `tests/e2e/intended-behaviours/google-email-otp.recovery.contract.test.ts`
-      — cases 1-5 pass (reuse report, all three origins, lost-response replay
-      unlocking through the recovery-installed method). The two "recovers with
-      Google, adds Passkey" composites fail on the identical mixed-projection
-      defect described above.
+- [x] `tests/e2e/intended-behaviours/passkey.recovery.contract.test.ts` — all
+      seven isolated cases pass. Cases 1-5 cover all three origins, failed
+      finalization, and lost-response replay. The two recovery-plus-addition
+      composites pass after capability projection was scoped to the
+      authenticated method (`abd0f8c5c`). The final Email-founded sibling case
+      also required the deferred Email OTP operation to use its material
+      identity (`0c264ebf0`) and the server step-up boundary to resolve the
+      exact Email method from the proof (`0c5450023`).
+- [x] `tests/e2e/intended-behaviours/google-email-otp.recovery.contract.test.ts`
+      — all seven isolated cases pass, including reuse reporting, all three
+      origins, lost-response replay, and both recovery-plus-Passkey composites.
+      The composite closure uses the authenticated-method capability projection
+      (`abd0f8c5c`) and wallet-scoped NEAR Passkey lookup (`6416bf447`).
 - [x] `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts`
-- [ ] `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`
+- [x] `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`
+      passed its isolated lifecycle (1/1 in 45.2 seconds), including reload,
+      exact Email OTP unlock, NEAR and Tempo signing, exhausted-session NEAR
+      step-up, and both key exports. The final export regression was fixed by
+      retaining a successful rehydrated Email OTP Ed25519 client for the next
+      authenticated operation (`708687f67`).
 - [x] `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts` passed
       after revoked V1 authenticators were filtered through the exact active V2
       Passkey method inventory (`0fa6ab231`).
@@ -1882,9 +1880,9 @@ product matrix passed 8/8 in 4.9 minutes, including the exhausted-session
 page-refresh step-up path fixed by `9d4df8a65`, `a91a5fd8a`, and `affe85e83`.
 `a51c73bb6` additionally preserves the exact authorization tuple through
 execute/activate so activation selects only the exact active authority. The
-remaining Email OTP unlock, recovery, auth-method addition, and linked-device
-acceptance entries stay unchecked until their isolated or composed contract
-runs pass.
+The remaining Email OTP unlock, recovery, auth-method addition, and
+linked-device acceptance entries all passed their isolated or composed
+contract runs.
 
 #### Required targeted additions and updates
 
