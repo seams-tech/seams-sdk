@@ -17,10 +17,8 @@ import {
 const testsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const listCasesOnly = process.argv.includes('--list-cases');
 const selectionArgs = process.argv.slice(2).filter((arg) => arg !== '--' && arg !== '--list-cases');
-const { SEAMS_INTENDED_GOOGLE_ID_TOKEN: _inheritedGoogleIdToken, ...processEnvironment } =
-  process.env;
 const childEnvironment = {
-  ...processEnvironment,
+  ...process.env,
   SEAMS_LINKED_DEVICE_E2E: '1',
 };
 
@@ -107,6 +105,7 @@ function readIsolatedGoogleIdToken() {
     fileEnv: fileEnvironment,
   });
   const token = resolveGoogleIdToken({
+    processToken: childEnvironment.SEAMS_INTENDED_GOOGLE_ID_TOKEN,
     fileToken: fileEnvironment.SEAMS_INTENDED_GOOGLE_ID_TOKEN,
     clientId,
     minimumTtlSeconds: intendedIsolatedGoogleTokenMinimumTtlSeconds,
