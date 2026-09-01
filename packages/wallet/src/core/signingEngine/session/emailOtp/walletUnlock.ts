@@ -68,6 +68,7 @@ export type EmailOtpEd25519YaoUnlockResult =
       activeClientHandle: string;
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
       ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
+      walletSessionAuthorization: ExactWalletSessionAuthorization;
       walletCustodyEd25519Material?: LoadedWalletCustodyEd25519MaterialV1;
       ed25519ExportRootCustody: Extract<
         EmailOtpWalletUnlockMaterialResult,
@@ -273,6 +274,7 @@ export async function unlockEmailOtpEd25519YaoCapability(
       activeClientHandle: result.activeClientHandle,
       metadata: result.metadata,
       ed25519YaoCapability: result.ed25519YaoCapability,
+      walletSessionAuthorization: result.walletSessionAuthorization,
       ...(result.walletCustodyEd25519Material
         ? { walletCustodyEd25519Material: result.walletCustodyEd25519Material }
         : {}),
@@ -359,6 +361,7 @@ export async function unlockEmailOtpWalletCapabilities(
             activeClientHandle: result.ed25519Yao.activeClientHandle,
             metadata: result.ed25519Yao.metadata,
             ed25519YaoCapability: result.ed25519Yao.bootstrap,
+            walletSessionAuthorization: result.walletSessionAuthorization,
             /* The same custody this combined result already owns above; the
                caller zeroizes that one buffer exactly once. */
             ed25519ExportRootCustody: result.ed25519ExportRootCustody,

@@ -31,11 +31,7 @@ import {
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
   parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import {
-  parseEmailOtpWalletAuthAuthority,
-  walletAuthAuthoritiesMatch,
-  type EmailOtpWalletAuthAuthority,
-} from '@shared/utils/walletAuthAuthority';
+import { type EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   normalizeRuntimePolicyScope,
   signingRootScopeFromRuntimePolicyScope,
@@ -281,16 +277,13 @@ async function readColdExportBootstrap(input: {
       'signingWorkerId',
       'thresholdExpiresAtMs',
       'participantIds',
-      'authority',
-      'authorityRef',
-      'authorityScope',
       'runtimePolicyScope',
       'routerAbNormalSigning',
       'capability',
     ],
     'Ed25519 export bootstrap',
   );
-  if (record.kind !== 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1') {
+  if (record.kind !== 'router_ab_ed25519_yao_v2_session_bootstrap_v1') {
     throw new Error('Ed25519 export bootstrap kind is invalid');
   }
   const walletId = requireString(record.walletId, 'bootstrap.walletId');
@@ -302,7 +295,7 @@ async function readColdExportBootstrap(input: {
   const thresholdSessionId = parseThresholdEd25519SessionId(record.thresholdSessionId);
   const walletSessionId = parseWalletSessionId(record.walletSessionId);
   const quotaId = parseMpcWalletSigningQuotaId(record.quotaId);
-  const authority = parseEmailOtpWalletAuthAuthority(record.authority);
+  const authority = input.authorization.factorAuthority;
   const runtimePolicyScope = normalizeRuntimePolicyScope(record.runtimePolicyScope);
   const signingRoot = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
@@ -319,10 +312,8 @@ async function readColdExportBootstrap(input: {
     !thresholdSessionId.ok ||
     !walletSessionId.ok ||
     !quotaId.ok ||
-    !authority ||
     !signingRoot ||
     !routerAbNormalSigning ||
-    !walletAuthAuthoritiesMatch(authority, input.authorization.factorAuthority) ||
     walletId !== String(signer.account.wallet.walletId) ||
     nearAccountId !== String(signer.account.nearAccountId) ||
     nearEd25519SigningKeyId !== String(signer.nearEd25519SigningKeyId) ||
@@ -371,6 +362,34 @@ async function readColdExportBootstrap(input: {
       capability,
     },
   };
+}
+
+export async function resolveEmailOtpEd25519OperationRecoveryBootstrapV1(input: {
+  readonly subject: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
+  readonly expectedMaterialActivation: MpcMaterialActivationRef;
+  readonly authorization: EmailOtpEd25519ExportAuthorizationReadResultV1;
+  readonly source: {
+    readonly signingWorkerId: string;
+    readonly participantIds: readonly [number, number];
+    readonly registeredPublicKeyB64u: string;
+  };
+  readonly relayerUrl: string;
+  readonly fetch: typeof fetch;
+}): Promise<EmailOtpEd25519YaoRecoveryBootstrapV1> {
+  const authorization = resolveExactEmailOtpExportAuthorization({
+    subject: input.subject,
+    expectedMaterialActivation: input.expectedMaterialActivation,
+    result: input.authorization,
+  });
+  const recovered = await readColdExportBootstrap({
+    subject: input.subject,
+    authorization,
+    source: input.source,
+    expectedMaterialActivation: input.expectedMaterialActivation,
+    relayerUrl: input.relayerUrl,
+    fetch: input.fetch,
+  });
+  return recovered.bootstrap;
 }
 
 async function readLinkedExportCapability(input: {
@@ -594,9 +613,7 @@ function resolveExactEmailOtpExportAuthorization(args: {
         '[SigningEngine][ed25519-export] exact Email OTP authorization persistence is unavailable',
       );
     case 'exhausted':
-      throw new Error(
-        '[SigningEngine][ed25519-export] exact Email OTP authorization is exhausted',
-      );
+      throw new Error('[SigningEngine][ed25519-export] exact Email OTP authorization is exhausted');
     case 'expired':
       throw new Error('[SigningEngine][ed25519-export] exact Email OTP authorization is expired');
     case 'superseded':
@@ -604,13 +621,9 @@ function resolveExactEmailOtpExportAuthorization(args: {
         '[SigningEngine][ed25519-export] exact Email OTP authorization is superseded',
       );
     case 'authority_unavailable':
-      throw new Error(
-        '[SigningEngine][ed25519-export] exact Email OTP authority is unavailable',
-      );
+      throw new Error('[SigningEngine][ed25519-export] exact Email OTP authority is unavailable');
     case 'method_unavailable':
-      throw new Error(
-        '[SigningEngine][ed25519-export] exact Email OTP method is unavailable',
-      );
+      throw new Error('[SigningEngine][ed25519-export] exact Email OTP method is unavailable');
     case 'capability_unavailable':
       throw new Error(
         '[SigningEngine][ed25519-export] exact Email OTP export capability is unavailable',
@@ -724,11 +737,6 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
         material,
       })
     : null;
-  if (exactAuthorization.status.status === 'exhausted' && !activeCapability) {
-    throw new Error(
-      '[SigningEngine][ed25519-export] exhausted Email OTP authorization requires a warm exact capability',
-    );
-  }
   const rootResolution = input.resolveEd25519YaoClientRootEnvelope
     ? await input.resolveEd25519YaoClientRootEnvelope({
         subject: input.subject,

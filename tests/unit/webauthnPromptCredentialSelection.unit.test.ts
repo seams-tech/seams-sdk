@@ -4,6 +4,8 @@ import {
   collectAuthenticationCredentialForWalletChallengeB64u,
   type WebAuthnAllowCredential,
 } from '../../packages/wallet/src/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
+import { activeRecoveryPasskeyMethodFixture } from './helpers/walletRecovery.fixtures';
+import { buildRevokedLinkedDeviceAuthMethodV1 } from './helpers/linkedDeviceManagement.fixtures';
 
 type Auth = { credentialId: string; signerSlot: number; transports: AuthenticatorTransport[] };
 
@@ -12,7 +14,13 @@ function selectionDb(args: {
   walletAuthenticators?: Auth[];
   walletId?: string;
 }) {
-  const walletId = args.walletId || 'wallet_gorp47';
+  const walletId = args.walletId || 'alice.testnet';
+  const currentMethod = activeRecoveryPasskeyMethodFixture({
+    walletAuthMethodId: 'wallet-auth-method:current',
+    credentialIdB64u: 'cred-current',
+    rpId: 'wallet.example.test',
+    createdAtMs: 1,
+  });
   return {
     resolveProfileAccountContext: async () => ({
       profileId: 'near-profile:gorp47.w3a-relayer.testnet',
@@ -27,6 +35,7 @@ function selectionDb(args: {
     },
     listWalletPasskeyAuthenticators: async (): Promise<Auth[]> =>
       args.walletAuthenticators || [],
+    listWalletAuthMethodsV2ForWallet: async () => [currentMethod],
     listAccountSigners: async () => [
       {
         signerAuthMethod: 'passkey',
@@ -120,7 +129,65 @@ test('wallet challenge prompt uses canonical wallet passkey directly', async () 
         };
       },
     },
-    walletId: 'wallet_gorp47',
+    walletId: 'alice.testnet',
+    challengeB64u: 'challenge',
+  });
+
+  expect(capturedAllowCredentials).toEqual([
+    { id: 'cred-current', type: 'public-key', transports: ['internal'] },
+  ]);
+});
+
+test('wallet challenge prompt excludes a revoked passkey projection', async () => {
+  let capturedAllowCredentials: WebAuthnAllowCredential[] | undefined;
+  const walletId = 'alice.testnet';
+  const currentMethod = activeRecoveryPasskeyMethodFixture({
+    walletAuthMethodId: 'wallet-auth-method:current',
+    credentialIdB64u: 'cred-current',
+    rpId: 'wallet.example.test',
+    createdAtMs: 2,
+  });
+  const retiredMethod = buildRevokedLinkedDeviceAuthMethodV1(
+    activeRecoveryPasskeyMethodFixture({
+      walletAuthMethodId: 'wallet-auth-method:retired',
+      credentialIdB64u: 'cred-retired',
+      rpId: 'wallet.example.test',
+      createdAtMs: 1,
+    }),
+    Date.now(),
+  );
+  const credentialStore = {
+    ...selectionDb({
+      walletId,
+      walletAuthenticators: [
+        { credentialId: 'cred-retired', signerSlot: 1, transports: ['internal'] },
+        { credentialId: 'cred-current', signerSlot: 2, transports: ['internal'] },
+      ],
+    }),
+    listWalletAuthMethodsV2ForWallet: async () => [retiredMethod, currentMethod],
+  };
+
+  await collectAuthenticationCredentialForWalletChallengeB64u({
+    credentialStore,
+    touchIdPrompt: {
+      getAuthenticationCredentialsSerializedForChallengeB64u: async ({ allowCredentials }) => {
+        capturedAllowCredentials = allowCredentials;
+        return {
+          id: 'cred-current',
+          rawId: 'cred-current',
+          type: 'public-key',
+          authenticatorAttachment: undefined,
+          response: {
+            clientDataJSON: 'client-data',
+            authenticatorData: 'auth-data',
+            signature: 'signature',
+            userHandle: undefined,
+          },
+          clientExtensionResults: { prf: { results: { first: undefined, second: undefined } } },
+        };
+      },
+    },
+    walletId,
     challengeB64u: 'challenge',
   });
 

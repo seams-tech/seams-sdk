@@ -4,6 +4,7 @@ import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
 import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WalletId } from '../../interfaces/ecdsaChainTarget';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 
 export type WebAuthnAllowCredential = {
   id: string;
@@ -28,6 +29,7 @@ export type WebAuthnCredentialStorePort<
   } | null>;
   listProfileAuthenticators: (profileId: string) => Promise<TAuth[]>;
   listWalletPasskeyAuthenticators: (walletId: string) => Promise<TAuth[]>;
+  listWalletAuthMethodsV2ForWallet: (walletId: string) => Promise<WalletAuthMethodRecordV2[]>;
   listAccountSigners: (args: {
     chainIdKey: string;
     accountAddress: string;
@@ -43,6 +45,31 @@ export type WebAuthnCredentialStorePort<
     wrongPasskeyError?: string;
   }>;
 };
+
+async function listActiveWalletPasskeyAuthenticators<
+  TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
+>(args: {
+  credentialStore: WebAuthnCredentialStorePort<TAuth>;
+  walletId: string;
+}): Promise<TAuth[]> {
+  const [authenticators, methods] = await Promise.all([
+    args.credentialStore.listWalletPasskeyAuthenticators(args.walletId),
+    args.credentialStore.listWalletAuthMethodsV2ForWallet(args.walletId),
+  ]);
+  const activeCredentialIds = new Set<string>();
+  for (const method of methods) {
+    if (
+      method.kind === 'passkey' &&
+      method.status === 'active' &&
+      String(method.walletId) === args.walletId
+    ) {
+      activeCredentialIds.add(method.credentialIdB64u);
+    }
+  }
+  return authenticators.filter((authenticator) =>
+    activeCredentialIds.has(authenticator.credentialId),
+  );
+}
 
 export type WebAuthnPromptPort = {
   getRpId: () => string;
@@ -99,7 +126,10 @@ async function resolveCanonicalWalletPasskeyContext<
     );
   }
   const walletId = walletIds[0];
-  const authenticators = await args.credentialStore.listWalletPasskeyAuthenticators(walletId);
+  const authenticators = await listActiveWalletPasskeyAuthenticators({
+    credentialStore: args.credentialStore,
+    walletId,
+  });
   return { walletId, authenticators };
 }
 
@@ -279,7 +309,10 @@ export async function collectAuthenticationCredentialForWalletChallengeB64u<
   includeSecondPrfOutput?: boolean;
 }): Promise<WebAuthnAuthenticationCredential> {
   const walletId = String(args.walletId || '').trim();
-  const authenticators = await args.credentialStore.listWalletPasskeyAuthenticators(walletId);
+  const authenticators = await listActiveWalletPasskeyAuthenticators({
+    credentialStore: args.credentialStore,
+    walletId,
+  });
   return await collectFromAuthenticators({
     credentialStore: args.credentialStore,
     touchIdPrompt: args.touchIdPrompt,

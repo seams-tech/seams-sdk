@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url';
 
 const testsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const listCasesOnly = process.argv.includes('--list-cases');
-const selectionArgs = process.argv
-  .slice(2)
-  .filter((arg) => arg !== '--' && arg !== '--list-cases');
+const selectionArgs = process.argv.slice(2).filter((arg) => arg !== '--' && arg !== '--list-cases');
+const { SEAMS_INTENDED_GOOGLE_ID_TOKEN: _inheritedGoogleIdToken, ...processEnvironment } =
+  process.env;
 const childEnvironment = {
-  ...process.env,
+  ...processEnvironment,
   SEAMS_LINKED_DEVICE_E2E: '1',
 };
 

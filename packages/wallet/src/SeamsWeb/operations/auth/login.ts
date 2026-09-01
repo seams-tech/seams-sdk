@@ -3458,13 +3458,12 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
   readonly emailHashHex: string;
   readonly walletAuthMethodId: string;
   readonly providerSubjectId: string;
-  readonly provider?: 'google' | 'email';
   readonly challengeId: string;
   readonly otpCode: string;
   readonly relayUrl: string;
 }): Promise<void> {
   const providerIdentity: LinkedDeviceEmailOtpProviderIdentity = {
-    provider: args.provider || 'google',
+    provider: args.providerSubjectId.startsWith('google:') ? 'google' : 'email',
     providerSubjectId: args.providerSubjectId,
   };
   const resolution = await resolveLinkedDeviceEmailOtpAuthoritySelection({
@@ -3500,20 +3499,10 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
     workerCtx: args.context.signingEngine.getSignerWorkerContext(),
   });
   const factorSecret32: Uint8Array | null = unlocked.factorSecret32;
-  /* The enrollment's provider flavor is server-derived (a fresh
-     address-verified target is 'email'; a target reusing the founding Google
-     enrollment stays 'google') and is not recorded locally, so the pre-unlock
-     identity is a hint. Every binding built after the unlock adopts the
-     authenticated scope's flavor so lane and authority addressing matches
-     what installation wrote. */
-  const authenticatedScope = unlocked.ed25519Activation.bootstrap?.session.authorityScope ?? null;
-  const effectiveProviderIdentity: LinkedDeviceEmailOtpProviderIdentity =
-    authenticatedScope && authenticatedScope.kind === 'email_otp'
-      ? {
-          provider: authenticatedScope.provider,
-          providerSubjectId: providerIdentity.providerSubjectId,
-        }
-      : providerIdentity;
+  /* The server derives this provider from the subject shape when it binds the
+     exact Email method. An Ed25519 bootstrap may retain an older provider label,
+     so it cannot redefine the factor authority used by ECDSA step-up. */
+  const effectiveProviderIdentity = providerIdentity;
   let openedMaterials:
     | readonly [LinkedDevicePasskeyOpenedMaterial, ...LinkedDevicePasskeyOpenedMaterial[]]
     | null = null;
@@ -4910,6 +4899,46 @@ function passkeyWalletUnlockInput(args: {
   };
 }
 
+async function validatePasskeyWalletSessionAuthorization(args: {
+  readonly walletIdentity: ResolvedLoginWalletIdentity;
+  readonly rpId: string;
+  readonly credential: WebAuthnAuthenticationCredential;
+  readonly authorization: ExactWalletSessionAuthorization;
+}): Promise<WalletAuthAuthorityRef> {
+  const credentialIdB64u = passkeyCredentialIdB64uFromAuthentication(args.credential);
+  if (!credentialIdB64u) {
+    throw new Error('Passkey Wallet Session adoption requires WebAuthn credential identity');
+  }
+  const authMethod = await exactPasskeyWalletAuthMethodForCredential({
+    walletId: args.walletIdentity.walletId,
+    rpId: args.rpId,
+    credentialIdB64u,
+  });
+  const authority = await walletAuthAuthorityRef({
+    authority: {
+      walletId: authMethod.walletId,
+      factor: {
+        kind: 'passkey',
+        credentialIdB64u: authMethod.credentialIdB64u,
+      },
+      verifier: {
+        kind: 'webauthn',
+        rpId: authMethod.rpId,
+      },
+      bindingId: authMethod.walletAuthMethodId,
+    },
+  });
+  if (
+    args.authorization.record.walletId !== args.walletIdentity.walletId ||
+    args.authorization.record.authMethodId !== authMethod.walletAuthMethodId ||
+    args.authorization.record.authorityId !== authMethod.walletAuthorityId ||
+    authority.walletId !== args.walletIdentity.walletId
+  ) {
+    throw new Error('Passkey Wallet Session authorization changed auth-method identity');
+  }
+  return authority;
+}
+
 export function bindPasskeyEcdsaSessionPolicyToUnlockChallenge(
   policy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   challengeId: string,
@@ -5002,9 +5031,16 @@ async function completePasskeyWalletUnlock(
   ) {
     throw new Error('Passkey wallet unlock omitted the requested ECDSA activation');
   }
-  let passkeySessionAuthority: WalletAuthAuthorityRef | null = null;
+  const walletSessionAuthorizationToPersist = result.walletSessionAuthorization ?? null;
+  const passkeySessionAuthority = walletSessionAuthorizationToPersist
+    ? await validatePasskeyWalletSessionAuthorization({
+        walletIdentity: args.walletIdentity,
+        rpId: args.rpId,
+        credential,
+        authorization: walletSessionAuthorizationToPersist,
+      })
+    : null;
   let sessionActivation: EcdsaPreauthorizedSessionActivation | null = null;
-  let walletSessionAuthorizationToPersist: ExactWalletSessionAuthorization | null = null;
   if (
     activation &&
     result.ecdsaSession &&
@@ -5016,43 +5052,14 @@ async function completePasskeyWalletUnlock(
     if (!walletSessionAuthorization) {
       throw new Error('Passkey credential-free activation omitted exact Wallet Session authority');
     }
-    const credentialIdB64u = passkeyCredentialIdB64uFromAuthentication(credential);
-    if (!credentialIdB64u) {
-      throw new Error('Passkey Wallet Session adoption requires WebAuthn credential identity');
-    }
-    const authMethod = await exactPasskeyWalletAuthMethodForCredential({
-      walletId: args.walletIdentity.walletId,
-      rpId: args.rpId,
-      credentialIdB64u,
-    });
-    passkeySessionAuthority = await walletAuthAuthorityRef({
-      authority: {
-        walletId: authMethod.walletId,
-        factor: {
-          kind: 'passkey',
-          credentialIdB64u: authMethod.credentialIdB64u,
-        },
-        verifier: {
-          kind: 'webauthn',
-          rpId: authMethod.rpId,
-        },
-        bindingId: authMethod.walletAuthMethodId,
-      },
-    });
-    if (
-      walletSessionAuthorization.record.walletId !== args.walletIdentity.walletId ||
-      walletSessionAuthorization.record.authMethodId !== authMethod.walletAuthMethodId ||
-      walletSessionAuthorization.record.authorityId !== authMethod.walletAuthorityId ||
-      passkeySessionAuthority.walletId !== args.walletIdentity.walletId
-    ) {
-      throw new Error('Passkey Wallet Session authorization changed auth-method identity');
+    if (!passkeySessionAuthority) {
+      throw new Error('Passkey credential-free activation omitted exact Passkey authority');
     }
     sessionActivation = {
       kind: 'credential_free_ecdsa_session_activation_authorization_v1',
       activation: result.ecdsaSession,
       authorization: walletSessionAuthorization,
     };
-    walletSessionAuthorizationToPersist = walletSessionAuthorization;
   }
   if (activation && result.ecdsaSession && result.ecdsaActivationReceipt && result.ecdsaCustody) {
     assertPasskeyEcdsaExchangeContinuity({
@@ -6612,8 +6619,7 @@ export async function getWalletSession(
      subjects to the authenticated method instead of projecting both. */
   const capabilityProjection = buildWalletSessionCapabilityProjection({
     subjectSet:
-      authentication.kind === 'authenticated' &&
-      restoredAuthenticationRead.kind === 'authenticated'
+      authentication.kind === 'authenticated' && restoredAuthenticationRead.kind === 'authenticated'
         ? scopeSubjectSetToWalletAuthMethod(
             readResolution.subjectSet,
             restoredAuthenticationRead.walletAuthMethodId,

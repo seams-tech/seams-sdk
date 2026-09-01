@@ -1191,7 +1191,7 @@ export class SeamsWeb {
         loginWithEmailOtpEcdsaCapability: async (args) =>
           await this.loginWithEmailOtpEcdsaCapabilityDomain(args),
         unlockAddedEmailOtpWallet: async (args) =>
-          await this.loginWithLinkedEmailOtpWalletDomain({ ...args, provider: 'email' }),
+          await this.loginWithLinkedEmailOtpWalletDomain(args),
         beginGoogleEmailOtpWalletAuth: async (args) =>
           await this.beginGoogleEmailOtpWalletAuthDomain(args),
       },
@@ -2393,9 +2393,6 @@ export class SeamsWeb {
     challengeId: string;
     otpCode: string;
     relayUrl: string;
-    /* The enrollment's provider flavor is server-derived and not pinned by
-       the unlock binding; this hint only shapes the client's authority ref. */
-    provider?: 'google' | 'email';
   }): Promise<void> {
     /* The wallet's stores live in the iframe when one is in use, so this has to
        cross the boundary like every other domain call rather than open a
@@ -2421,7 +2418,6 @@ export class SeamsWeb {
       emailHashHex,
       walletAuthMethodId: args.walletAuthMethodId,
       providerSubjectId: args.providerSubjectId,
-      provider: args.provider || 'google',
       challengeId: args.challengeId,
       otpCode: args.otpCode,
       relayUrl: args.relayUrl,

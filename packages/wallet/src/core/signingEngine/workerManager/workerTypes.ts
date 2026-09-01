@@ -335,8 +335,8 @@ export type EmailOtpWalletUnlockMaterialResult =
         readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
         readonly factorSecret32: Uint8Array;
       };
+      readonly walletSessionAuthorization: ExactWalletSessionAuthorization;
       readonly emailOtpSessionHandle?: never;
-      readonly walletSessionAuthorization?: never;
       readonly pendingFactorHandle?: never;
       readonly ed25519YaoRecovery?: never;
     }
@@ -628,6 +628,7 @@ export type EmailOtpEd25519YaoOperationMaterialRequest = {
   readonly expectedOperationalPublicKey: string;
   readonly expectedThresholdSessionId: ThresholdEd25519SessionId;
   readonly expectedMaterialActivation: MpcMaterialActivationRef;
+  readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryAugmentationV1;
   readonly walletCustodyEd25519Material: EmailOtpWalletCustodyEd25519MaterialRequest;
   readonly normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
