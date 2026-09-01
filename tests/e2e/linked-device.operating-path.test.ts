@@ -1455,22 +1455,25 @@ async function lockWallet(page: Page): Promise<void> {
   const switchToLogin = wallet.locator('button[data-auth-menu-mode="login"]');
   const profile = page.locator('.w3a-profile-button-morphable');
   const lockDeadline = Date.now() + 60_000;
-  while (
-    !(await lockedAuthSurface
-      .or(switchToLogin)
-      .first()
-      .isVisible()
-      .catch(() => false))
-  ) {
+  for (;;) {
     if (Date.now() >= lockDeadline) throw new Error('Wallet did not reach its locked auth surface');
-    if (await profile.isVisible().catch(() => false)) await lockActiveWallet(page);
+    if (await profile.isVisible().catch(() => false)) {
+      await lockActiveWallet(page);
+      continue;
+    }
+    if (await switchToLogin.isVisible().catch(() => false)) {
+      await switchToLogin.click({ timeout: 5_000 }).catch(() => undefined);
+      continue;
+    }
+    if (
+      await lockedAuthSurface
+        .first()
+        .isVisible()
+        .catch(() => false)
+    )
+      return;
     await page.waitForTimeout(250);
   }
-  if (await switchToLogin.isVisible()) await switchToLogin.click();
-  await lockedAuthSurface.first().waitFor({
-    state: 'visible',
-    timeout: 30_000,
-  });
 }
 
 async function readEmailOtpOutboxCode(input: {
@@ -2365,6 +2368,23 @@ type BrowserPasskeyRevocationResult = {
   readonly status: number;
 };
 
+type BrowserPasskeyRevocationProofInput = Pick<
+  BrowserPasskeyRevocationInput,
+  'actorCredentialIdB64u' | 'operationFingerprintDigestB64u' | 'rpId'
+>;
+
+type BrowserPasskeyRevocationSubmissionInput = Omit<
+  BrowserPasskeyRevocationInput,
+  'actorCredentialIdB64u'
+> & {
+  readonly credential: unknown;
+};
+
+type PreparedBrowserPasskeyRevocation = {
+  readonly page: Page;
+  readonly submission: BrowserPasskeyRevocationSubmissionInput;
+};
+
 type LinkedActivationSnapshot = {
   readonly linkSessionId: string;
   readonly enrollmentId: string;
@@ -2987,9 +3007,9 @@ async function assertImmediateLinkedWalletOperations(input: {
   }
 }
 
-async function revokeWalletAuthMethodInBrowser(
-  input: BrowserPasskeyRevocationInput,
-): Promise<BrowserPasskeyRevocationResult> {
+async function createWalletAuthMethodRevocationProofInBrowser(
+  input: BrowserPasskeyRevocationProofInput,
+): Promise<unknown> {
   const normalizedCredentialId = input.actorCredentialIdB64u.replace(/-/g, '+').replace(/_/g, '/');
   const paddedCredentialId = normalizedCredentialId.padEnd(
     normalizedCredentialId.length + ((4 - (normalizedCredentialId.length % 4)) % 4),
@@ -3029,13 +3049,19 @@ async function revokeWalletAuthMethodInBrowser(
   const serializableCredential = rawCredential as PublicKeyCredential & {
     toJSON(): unknown;
   };
+  return serializableCredential.toJSON();
+}
+
+async function submitWalletAuthMethodRevocationInBrowser(
+  input: BrowserPasskeyRevocationSubmissionInput,
+): Promise<BrowserPasskeyRevocationResult> {
   const response = await fetch(input.endpoint, {
     body: JSON.stringify({
       requestedAtMs: input.request.requestedAtMs,
       sourceProof: {
         kind: 'webauthn_assertion',
         rpId: input.rpId,
-        credential: serializableCredential.toJSON(),
+        credential: input.credential,
         expectedChallengeDigestB64u: input.operationFingerprintDigestB64u,
       },
       walletAuthMethodId: input.request.walletAuthMethodId,
@@ -3064,6 +3090,16 @@ async function attemptRevokeOwner(
   actor: OwnerCredentialSnapshot,
   target: WalletAuthMethodRevocationTarget,
 ): Promise<BrowserPasskeyRevocationResult> {
+  const prepared = await prepareOwnerRevocation(page, actor, target, target.walletAuthMethodId);
+  return await submitPreparedOwnerRevocation(prepared);
+}
+
+async function prepareOwnerRevocation(
+  page: Page,
+  actor: OwnerCredentialSnapshot,
+  target: WalletAuthMethodRevocationTarget,
+  requestedWalletAuthMethodId: unknown,
+): Promise<PreparedBrowserPasskeyRevocation> {
   if (
     actor.walletId !== target.walletId ||
     actor.rpId !== target.rpId ||
@@ -3084,18 +3120,34 @@ async function attemptRevokeOwner(
   });
   passkeyLinkedDeviceStage('auth-method revocation fingerprint computed');
   const endpoint = `${actor.routerOrigin}/wallets/${encodeURIComponent(actor.walletId)}/auth-methods/${encodeURIComponent(target.walletAuthMethodId)}/revoke`;
-  const result = await page.evaluate(revokeWalletAuthMethodInBrowser, {
+  const credential = await page.evaluate(createWalletAuthMethodRevocationProofInBrowser, {
     actorCredentialIdB64u: actor.credentialIdB64u,
-    endpoint,
     operationFingerprintDigestB64u,
     rpId: actor.rpId,
-    request: {
-      requestedAtMs,
-      walletAuthMethodId: target.walletAuthMethodId,
-      walletId: actor.walletId,
-    },
   });
-  return result;
+  return {
+    page,
+    submission: {
+      credential,
+      endpoint,
+      operationFingerprintDigestB64u,
+      rpId: actor.rpId,
+      request: {
+        requestedAtMs,
+        walletAuthMethodId: requestedWalletAuthMethodId,
+        walletId: actor.walletId,
+      },
+    },
+  };
+}
+
+async function submitPreparedOwnerRevocation(
+  prepared: PreparedBrowserPasskeyRevocation,
+): Promise<BrowserPasskeyRevocationResult> {
+  return await prepared.page.evaluate(
+    submitWalletAuthMethodRevocationInBrowser,
+    prepared.submission,
+  );
 }
 
 async function attemptRejectedRevocationTarget(
@@ -3114,10 +3166,14 @@ async function attemptRejectedRevocationTarget(
     targetWalletAuthMethodId: walletAuthMethodId.value,
     requestedAtMs,
   });
-  const endpoint = `${actor.routerOrigin}/wallets/${encodeURIComponent(actor.walletId)}/auth-methods/${encodeURIComponent(validTargetWalletAuthMethodId)}/revoke`;
-  return await page.evaluate(revokeWalletAuthMethodInBrowser, {
+  const credential = await page.evaluate(createWalletAuthMethodRevocationProofInBrowser, {
     actorCredentialIdB64u: actor.credentialIdB64u,
-    endpoint,
+    operationFingerprintDigestB64u,
+    rpId: actor.rpId,
+  });
+  return await page.evaluate(submitWalletAuthMethodRevocationInBrowser, {
+    credential,
+    endpoint: `${actor.routerOrigin}/wallets/${encodeURIComponent(actor.walletId)}/auth-methods/${encodeURIComponent(validTargetWalletAuthMethodId)}/revoke`,
     operationFingerprintDigestB64u,
     rpId: actor.rpId,
     request: {
@@ -3540,16 +3596,15 @@ async function revokeLinkedEmailDeviceFromUi(
 
 async function assertSeedlessLinkedDeviceCannotRevokeCustodyOwnerFromUi(input: {
   readonly page: Page;
-  readonly targetWalletAuthMethodId: string;
 }): Promise<void> {
   passkeyLinkedDeviceStage('Device 2 opening linked-device inventory');
   const dialog = await openLinkedDevicesDialog(input.page);
   passkeyLinkedDeviceStage('Device 2 linked-device inventory visible');
   const cards = dialog.locator('.w3a-linked-devices-modal-item');
   await expect(cards).toHaveCount(2, { timeout: 60_000 });
-  const originalDevice = cards.filter({ hasText: 'Original device' });
+  const originalDevice = dialog.locator('.w3a-linked-devices-modal-item[data-device-kind="owner"]');
   await expect(originalDevice).toHaveCount(1);
-  const remove = originalDevice.getByRole('button', { name: /^Remove Device 1\b/ });
+  const remove = originalDevice.getByRole('button', { name: /^Remove Device \d+\b/ });
   await expect(remove).toHaveCount(1, { timeout: 30_000 });
   await remove.click();
   passkeyLinkedDeviceStage('Device 2 original-device removal confirmation visible');
@@ -4941,7 +4996,6 @@ test('seedless Device 2 cannot revoke the final custody owner', async ({ browser
   try {
     await assertSeedlessLinkedDeviceCannotRevokeCustodyOwnerFromUi({
       page: pair.device2Page,
-      targetWalletAuthMethodId: pair.owner.walletAuthMethodId,
     });
     await linkedSigning(pair.ownerPage, pair.ownerDiagnostics);
     await linkedSigning(pair.device2Page, pair.device2Diagnostics);
@@ -4985,9 +5039,21 @@ test('competing revocations of the final two methods serialize to one survivor',
 }) => {
   const pair = await setupLinkedOwnerPair(browser);
   try {
+    const preparedOwnerRevocation = await prepareOwnerRevocation(
+      pair.ownerPage,
+      ownerCredentialSnapshot(pair.owner),
+      pair.device2,
+      pair.device2.walletAuthMethodId,
+    );
+    const preparedDevice2Revocation = await prepareOwnerRevocation(
+      pair.device2Page,
+      pair.device2,
+      ownerCredentialSnapshot(pair.owner),
+      pair.owner.walletAuthMethodId,
+    );
     const [ownerRevocation, device2Revocation] = await Promise.all([
-      attemptRevokeOwner(pair.ownerPage, ownerCredentialSnapshot(pair.owner), pair.device2),
-      attemptRevokeOwner(pair.device2Page, pair.device2, ownerCredentialSnapshot(pair.owner)),
+      submitPreparedOwnerRevocation(preparedOwnerRevocation),
+      submitPreparedOwnerRevocation(preparedDevice2Revocation),
     ]);
     const results = [ownerRevocation, device2Revocation];
     const successful = results.filter(isSuccessfulRevocation);

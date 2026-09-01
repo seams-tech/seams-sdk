@@ -133,14 +133,19 @@ export function resolveGoogleIdToken({
     minimumTtlSeconds,
     nowMs,
   });
-  if (inheritedStatus.status === 'usable') return inheritedToken;
-
   const envFileStatus = describeUsableGoogleIdToken({
     token: envFileToken,
     clientId,
     minimumTtlSeconds,
     nowMs,
   });
+
+  if (inheritedStatus.status === 'usable' && envFileStatus.status === 'usable') {
+    return Date.parse(envFileStatus.expiresAtIso) > Date.parse(inheritedStatus.expiresAtIso)
+      ? envFileToken
+      : inheritedToken;
+  }
+  if (inheritedStatus.status === 'usable') return inheritedToken;
   if (envFileStatus.status === 'usable') return envFileToken;
 
   return firstNonEmptyString([inheritedToken, envFileToken]);
