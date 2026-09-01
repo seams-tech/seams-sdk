@@ -603,7 +603,7 @@ function registrationPrepared(): Record<string, string> {
 }
 
 function registrationRecord(
-  kind: 'claim' | 'completionV1' | 'completionV2',
+  kind: 'claim' | 'completionV1' | 'historicalCompletionV1' | 'completionV2',
   operation: string,
 ): string {
   const prepared = registrationPrepared();
@@ -617,7 +617,7 @@ function registrationRecord(
       prepared,
     });
   }
-  if (kind === 'completionV1') {
+  if (kind === 'completionV1' || kind === 'historicalCompletionV1') {
     return JSON.stringify({
       kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
       operation,
@@ -625,7 +625,7 @@ function registrationRecord(
       preparedArtifactFingerprint: `artifact:${operation}`,
       claimedAtMs: 10,
       completedAtMs: 20,
-      prepared: { kind: prepared.kind },
+      prepared: kind === 'historicalCompletionV1' ? { kind: prepared.kind } : prepared,
       response: {
         registrationEstablishedSession: {
           tokens: { ed25519: { walletSessionToken: 'legacy-bearer' } },
@@ -734,6 +734,11 @@ async function seedCurrentHistory(database: Database): Promise<void> {
     database,
     'wallet-registration-activate:legacy',
     registrationRecord('completionV1', 'registration_activate'),
+  );
+  await insertRegistrationRecord(
+    database,
+    'wallet-registration-near-provisioning:historical-legacy',
+    registrationRecord('historicalCompletionV1', 'near_provisioning'),
   );
   await insertRegistrationRecord(
     database,
