@@ -37,8 +37,8 @@ test('isolated cases reserve the harness TTL for the complete case runtime', () 
   ).toMatchObject({ status: 'unusable', reason: 'expired or near expiry' });
 });
 
-test('fresh file token replaces a stale inherited token for an isolated case', () => {
-  const staleInheritedToken = tokenExpiringIn(defaultGoogleTokenMinimumTtlSeconds + 60);
+test('later-expiring file token replaces a usable inherited token for an isolated case', () => {
+  const staleInheritedToken = tokenExpiringIn(intendedIsolatedGoogleTokenMinimumTtlSeconds + 60);
   const freshFileToken = tokenExpiringIn(intendedIsolatedGoogleTokenMinimumTtlSeconds + 600);
 
   expect(
@@ -50,4 +50,17 @@ test('fresh file token replaces a stale inherited token for an isolated case', (
       nowMs: NOW_MS,
     }),
   ).toBe(freshFileToken);
+});
+
+test('isolated cases retain a usable token supplied only by the process environment', () => {
+  const processToken = tokenExpiringIn(intendedIsolatedGoogleTokenMinimumTtlSeconds + 600);
+
+  expect(
+    resolveGoogleIdToken({
+      processToken,
+      clientId: CLIENT_ID,
+      minimumTtlSeconds: intendedIsolatedGoogleTokenMinimumTtlSeconds,
+      nowMs: NOW_MS,
+    }),
+  ).toBe(processToken);
 });
