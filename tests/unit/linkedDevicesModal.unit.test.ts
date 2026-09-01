@@ -48,6 +48,7 @@ type DeviceFixture = {
     | {
         readonly kind: 'email_otp';
         readonly walletAuthMethodId: string;
+        readonly email: string;
       };
   readonly permission: {
     readonly kind: 'owner_equivalent_signing';
@@ -106,6 +107,7 @@ function emailOtpDeviceFixture(deviceId: string, state: DeviceState): DeviceFixt
     credential: {
       kind: 'email_otp',
       walletAuthMethodId: `email_otp:${WALLET_ID}:${'b'.repeat(64)}`,
+      email: 'owner@example.test',
     },
   };
 }
@@ -118,7 +120,7 @@ type OwnerDeviceFixture = {
   readonly lastActivityAtMs: number;
 };
 
-/** A founding owner passkey; created before every linked fixture so it sorts first. */
+/** A founding owner passkey; created before every linked fixture so it numbers as Device 1 and displays last. */
 function ownerDeviceFixture(label: string, nowMs = Date.now()): OwnerDeviceFixture {
   return {
     walletId: WALLET_ID,
@@ -149,6 +151,7 @@ function ownerEmailOtpDeviceFixture(nowMs = Date.now()): OwnerDeviceFixture {
     credential: {
       kind: 'email_otp',
       walletAuthMethodId: `email_otp:${WALLET_ID}:${'b'.repeat(64)}`,
+      email: 'owner@example.test',
     },
     createdAtMs: nowMs - 86_400_000,
     lastActivityAtMs: nowMs - 1_800_000,
@@ -362,6 +365,7 @@ test.describe('linked devices modal lifecycle', () => {
           backdropFilter: backdrop.backdropFilter,
           backdropAnimationDuration: backdrop.animationDuration,
           contentAnimationDuration: content.animationDuration,
+          contentBorderStyle: content.borderStyle,
           contentTransform: content.transform,
         };
       });
@@ -369,8 +373,9 @@ test.describe('linked devices modal lifecycle', () => {
       expect(styles).toEqual({
         backdropColor: 'rgba(0, 0, 0, 0.26)',
         backdropFilter: 'none',
-        backdropAnimationDuration: '0.12s',
-        contentAnimationDuration: '0.12s',
+        backdropAnimationDuration: '0.08s',
+        contentAnimationDuration: '0.08s',
+        contentBorderStyle: 'none',
         contentTransform: 'none',
       });
     }
@@ -408,6 +413,7 @@ test.describe('linked devices modal lifecycle', () => {
     const dialog = page.getByRole('dialog', { name: 'Authentication methods' });
     await expect(dialog.getByText('Passkey', { exact: true })).toBeVisible();
     await expect(dialog.getByText('Email OTP', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('owner@example.test')).toBeVisible();
     await expect(dialog.getByRole('heading', { name: 'Add Passkey' })).toHaveCount(0);
     await expect(dialog.getByRole('heading', { name: 'Add Email OTP' })).toHaveCount(0);
   });
@@ -426,13 +432,17 @@ test.describe('linked devices modal lifecycle', () => {
     });
 
     const dialog = page.getByRole('dialog', { name: 'Your devices' });
-    await expect(dialog.getByText('Device 1 · Phone passkey')).toBeVisible();
-    await expect(dialog.getByText('Device 2 · Email OTP')).toBeVisible();
-    await expect(dialog.getByText('Device 3 · Laptop passkey')).toBeVisible();
+    const names = dialog.locator('.w3a-linked-devices-modal-item-name');
+    await expect(names.filter({ hasText: 'Phone passkey' })).toBeVisible();
+    await expect(names.filter({ hasText: 'Email code' })).toBeVisible();
+    await expect(dialog.getByText('owner@example.test')).toBeVisible();
+    await expect(names.filter({ hasText: 'Laptop passkey' })).toBeVisible();
+    await expect(names.filter({ hasText: 'Old passkey' })).toHaveCount(0);
     await expect(
-      dialog.locator('.w3a-linked-devices-modal-item-name').filter({ hasText: 'Old passkey' }),
-    ).toHaveCount(0);
-    await expect(dialog.getByText('Can use this wallet', { exact: true })).toHaveCount(2);
+      dialog.locator('.w3a-linked-devices-modal-item[data-device-state="active"]'),
+    ).toHaveCount(2);
+    /* Healthy devices carry no chip; only interesting lifecycle states do. */
+    await expect(dialog.locator('.w3a-linked-devices-modal-standing')).toHaveCount(1);
     await expect(dialog.getByText('Paused', { exact: true })).toBeVisible();
     await expect(
       dialog.getByRole('button', { name: /Remove Device 1, Phone passkey/ }),
@@ -442,7 +452,7 @@ test.describe('linked devices modal lifecycle', () => {
     ).toBeVisible();
   });
 
-  test('lists the founding owner first and exposes exact sibling removal', async ({ page }) => {
+  test('lists the newest device first and exposes exact sibling removal', async ({ page }) => {
     await renderModal(page, {
       ownerDevices: [ownerDeviceFixture('Original passkey')],
       devices: [deviceFixture('device-linked', 'Linked passkey', 'active')],
@@ -450,10 +460,17 @@ test.describe('linked devices modal lifecycle', () => {
     });
 
     const dialog = page.getByRole('dialog', { name: 'Your devices' });
-    await expect(dialog.getByText('Device 1 · Original passkey')).toBeVisible();
-    await expect(dialog.getByText('Device 2 · Linked passkey')).toBeVisible();
-    await expect(dialog.getByText('Original device', { exact: true })).toBeVisible();
-    await expect(dialog.getByText('Can use this wallet', { exact: true })).toHaveCount(1);
+    const names = dialog.locator('.w3a-linked-devices-modal-item-name');
+    await expect(names.first()).toHaveText('Linked passkey');
+    await expect(names.nth(1)).toHaveText('Original passkey');
+    await expect(
+      dialog.locator('.w3a-linked-devices-modal-item[data-device-kind="owner"]'),
+    ).toHaveCount(1);
+    await expect(
+      dialog.locator(
+        '.w3a-linked-devices-modal-item[data-device-kind="linked"][data-device-state="active"]',
+      ),
+    ).toHaveCount(1);
     await expect(dialog.getByText(/These devices can use this wallet/)).toHaveCount(0);
     await expect(dialog.getByText(/manage it from that device/)).toHaveCount(0);
     await expect(
@@ -464,6 +481,32 @@ test.describe('linked devices modal lifecycle', () => {
     ).toBeVisible();
   });
 
+  test('marks the signed-in method and explains removal in plain language', async ({ page }) => {
+    const passkeyOwner = ownerDeviceFixture('Original passkey');
+    const emailOtpOwner = ownerEmailOtpDeviceFixture();
+    const ownerDevices = [passkeyOwner, emailOtpOwner];
+    await renderModal(page, {
+      ownerDevices,
+      devices: [],
+      revokeOutcomes: [],
+      session: selectedOwnerSessionFixture(ownerDevices, 'passkey'),
+    });
+
+    const dialog = page.getByRole('dialog', { name: 'Your devices' });
+    await expect(dialog.getByText('Anything listed here can unlock this wallet.')).toBeVisible();
+    await expect(dialog.getByText('In use now', { exact: true })).toHaveCount(1);
+    await expect(
+      dialog.getByText(
+        "You're signed in with this passkey. To remove it, sign in with your email code first.",
+      ),
+    ).toBeVisible();
+    /* The signed-in method offers no Remove button; the sibling does. */
+    await expect(
+      dialog.getByRole('button', { name: /Remove Device 1, Original passkey/ }),
+    ).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: /Remove Device 2, Email code/ })).toBeVisible();
+  });
+
   test('does not offer removal for the final wallet method', async ({ page }) => {
     await renderModal(page, {
       ownerDevices: [ownerDeviceFixture('Only passkey')],
@@ -472,7 +515,9 @@ test.describe('linked devices modal lifecycle', () => {
     });
 
     const dialog = page.getByRole('dialog', { name: 'Your devices' });
-    await expect(dialog.getByText('Device 1 · Only passkey')).toBeVisible();
+    await expect(
+      dialog.locator('.w3a-linked-devices-modal-item-name').filter({ hasText: 'Only passkey' }),
+    ).toBeVisible();
     await expect(dialog.getByRole('button', { name: /Remove Device 1/ })).toHaveCount(0);
   });
 
@@ -511,13 +556,13 @@ test.describe('linked devices modal lifecycle', () => {
         right: rect.right,
         top: rect.top,
         bottom: rect.bottom,
-        scrollable: element.scrollHeight > element.clientHeight,
+        overflowY: getComputedStyle(element).overflowY,
       };
     });
     expect(geometry.left).toBeGreaterThanOrEqual(0);
     expect(geometry.right).toBeLessThanOrEqual(320);
     expect(geometry.top).toBeGreaterThanOrEqual(0);
     expect(geometry.bottom).toBeLessThanOrEqual(280);
-    expect(geometry.scrollable).toBe(true);
+    expect(geometry.overflowY).toBe('auto');
   });
 });

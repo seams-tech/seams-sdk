@@ -6,12 +6,17 @@ import {
   type LinkedDeviceManagementRevocationSourceV1,
 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceManagement';
 import {
+  buildEmailOtpAuthMethodForManagementFixture,
   buildLinkedDeviceManagementAuthorityFixture,
   buildRevokedLinkedDeviceAuthMethodV1,
   buildRevokedLinkedDeviceAuthorityV1,
   fullOwnerPermissionsForManagementFixture,
   linkedDevicePermissionsForManagementFixture,
 } from './helpers/linkedDeviceManagement.fixtures';
+
+function unexpectedEmailOtpAddressLookup(): Promise<string | null> {
+  throw new Error('unexpected email OTP address lookup');
+}
 
 test('rejects a WalletAuthorityId in the exact-method revocation boundary', () => {
   expect(() =>
@@ -55,6 +60,7 @@ test('rejects a fresh proof from the target auth method itself', async () => {
     },
     credentials: {
       readPasskeyDeviceInfoV1: async () => unknownWebAuthnAuthenticatorDeviceInfo(),
+      readEmailOtpAddressV1: unexpectedEmailOtpAddressLookup,
     },
   });
 
@@ -85,8 +91,11 @@ test('lists active wallet authorities and hides non-linked owner records after s
     keyFamily: 'ecdsa_secp256k1',
     sourceAuthorityId: owner.authority.authorityId,
   });
+  const ownerEmailMethod = buildEmailOtpAuthMethodForManagementFixture(owner.authority, 'owner');
+  const targetEmailMethod = buildEmailOtpAuthMethodForManagementFixture(target.authority, 'target');
   const authorities = [owner.authority, target.authority];
-  const authMethods = [owner.authMethod, target.authMethod];
+  const authMethods = [owner.authMethod, ownerEmailMethod, target.authMethod, targetEmailMethod];
+  let emailAddressLookups = 0;
   const service = new LinkedDeviceManagementServiceV1({
     tenantId: owner.issuedSession.session.tenantId,
     authenticator: ownerSessionAuthenticator(owner),
@@ -111,6 +120,10 @@ test('lists active wallet authorities and hides non-linked owner records after s
     },
     credentials: {
       readPasskeyDeviceInfoV1: async () => unknownWebAuthnAuthenticatorDeviceInfo(),
+      readEmailOtpAddressV1: async () => {
+        emailAddressLookups += 1;
+        return 'Owner@example.test';
+      },
     },
   });
   const result = await service.listLinkedDevicesV1(
@@ -130,15 +143,36 @@ test('lists active wallet authorities and hides non-linked owner records after s
         deviceId: target.authority.principal.deviceId,
         walletId: target.authority.walletId,
         state: 'active',
+        credential: expect.objectContaining({ kind: 'passkey' }),
+      }),
+      expect.objectContaining({
+        deviceId: target.authority.principal.deviceId,
+        credential: {
+          kind: 'email_otp',
+          walletAuthMethodId: targetEmailMethod.walletAuthMethodId,
+          email: 'owner@example.test',
+        },
       }),
     ],
     ownerDevices: [
       expect.objectContaining({
         walletId: owner.authority.walletId,
+        credential: expect.objectContaining({ kind: 'passkey' }),
+      }),
+      expect.objectContaining({
+        walletId: owner.authority.walletId,
+        credential: {
+          kind: 'email_otp',
+          walletAuthMethodId: ownerEmailMethod.walletAuthMethodId,
+          email: 'owner@example.test',
+        },
       }),
     ],
     nextCursor: null,
   });
+  /* One wallet, one enrollment: four methods across two authorities must not
+     re-read the address per card. */
+  expect(emailAddressLookups).toBe(1);
 });
 
 test('revokes one exact linked auth method, fences sessions, and disables its ordinary refs', async () => {
@@ -199,6 +233,7 @@ test('revokes one exact linked auth method, fences sessions, and disables its or
     },
     credentials: {
       readPasskeyDeviceInfoV1: async () => unknownWebAuthnAuthenticatorDeviceInfo(),
+      readEmailOtpAddressV1: unexpectedEmailOtpAddressLookup,
     },
     materialDeactivation: {
       deactivateOrdinarySignerMaterialV1: async ({ keyFamily, materialActivation }) => {
@@ -294,6 +329,7 @@ test('replays a durable revocation and retries terminal material deactivation', 
     },
     credentials: {
       readPasskeyDeviceInfoV1: async () => unknownWebAuthnAuthenticatorDeviceInfo(),
+      readEmailOtpAddressV1: unexpectedEmailOtpAddressLookup,
     },
     materialDeactivation: {
       deactivateOrdinarySignerMaterialV1: async () => {

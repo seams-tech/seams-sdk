@@ -13,6 +13,10 @@ import { WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION } from '@shared/utils/email
 import type { WalletAuthMethodBinding } from '@shared/utils/walletCapabilityBindings';
 import { Theme, useTheme } from '../theme';
 import { useSeams } from '../../context';
+import { LaptopIcon } from './icons/LaptopIcon';
+import { LockIcon } from './icons/LockIcon';
+import { MailIcon } from './icons/MailIcon';
+import { SmartphoneIcon } from './icons/SmartphoneIcon';
 import './LinkedDevicesModal.css';
 
 export interface LinkedDevicesModalProps {
@@ -153,7 +157,7 @@ function viewId(view: WalletDeviceView): string {
     : String(view.device.deviceId);
 }
 
-/** The identifier a person can match against their other device. */
+/** Identifier used only in accessibility announcements — never rendered. */
 function viewDisplayId(view: WalletDeviceView): string {
   return view.kind === 'owner'
     ? String(view.owner.credential.credentialIdB64u ?? view.owner.credential.walletAuthMethodId)
@@ -161,7 +165,9 @@ function viewDisplayId(view: WalletDeviceView): string {
 }
 
 /**
- * Founding owners and linked enrollments in one numbered list, oldest first.
+ * Founding owners and linked enrollments in one numbered list, newest first.
+ * Device numbers still follow enrollment order (oldest = Device 1) so a
+ * device keeps its spoken number as newer ones are added.
  * Revoked devices are historical records, not devices the owner can manage.
  */
 function visibleWalletDevices(
@@ -178,7 +184,8 @@ function visibleWalletDevices(
         viewCreatedAtMs(left) - viewCreatedAtMs(right) || viewId(left).localeCompare(viewId(right)),
     )
     .map((view, index) => ({ view, deviceNumber: index + 1 }))
-    .filter(({ view }) => view.kind === 'owner' || view.device.state !== 'revoked');
+    .filter(({ view }) => view.kind === 'owner' || view.device.state !== 'revoked')
+    .reverse();
 }
 
 function isActiveWalletMethod(view: WalletDeviceView): boolean {
@@ -194,19 +201,19 @@ function canRemoveWalletMethod(
 }
 
 /**
- * Plain-language state for one device. The wire model carries five states and a
- * revocation epoch; a person only needs to know whether the device can still
- * reach the wallet right now. Founding owners in the list are active by
- * construction — the projection only serves active owner credentials.
+ * The one chip a row may carry. Silence is the healthy state: an active
+ * method shows nothing, the session's own method shows "In use now", and
+ * only genuinely interesting lifecycle states get a label.
  */
-function deviceStanding(view: WalletDeviceView): {
-  readonly label: string;
-  readonly tone: 'active' | 'pending' | 'off';
-} {
-  if (view.kind === 'owner') return { label: 'Original device', tone: 'active' };
+function standingChip(
+  view: WalletDeviceView,
+  isSelectedMethod: boolean,
+): { readonly label: string; readonly tone: 'active' | 'pending' | 'off' } | null {
+  if (isSelectedMethod) return { label: 'In use now', tone: 'active' };
+  if (view.kind === 'owner') return null;
   switch (view.device.state) {
     case 'active':
-      return { label: 'Can use this wallet', tone: 'active' };
+      return null;
     case 'provisioning':
       return { label: 'Finishing setup', tone: 'pending' };
     case 'suspended':
@@ -216,6 +223,11 @@ function deviceStanding(view: WalletDeviceView): {
     case 'revoked':
       return { label: 'Removed', tone: 'off' };
   }
+}
+
+/** Raw lifecycle state, exposed as a data attribute for tests and tooling. */
+function deviceStateAttr(view: WalletDeviceView): string {
+  return view.kind === 'owner' ? 'active' : view.device.state;
 }
 
 /** "today" / "yesterday" / a plain date — never a timestamp with seconds. */
@@ -239,34 +251,81 @@ function shortDisplayId(value: string): string {
   return value.length <= 12 ? value : `…${value.slice(-8)}`;
 }
 
-/**
- * The one description the card heading, the removal confirmation, and every
- * live announcement share. Credential labels repeat across cards — two platform
- * passkeys are both "Platform passkey" — so the stable ID suffix is what makes
- * a sentence name a single card rather than a category of them.
- */
+/** The row title: what the person recognizes, never the wire model. */
 function credentialDescription(credential: LinkedOwnerCredentialMetadataV1): string {
   switch (credential.kind) {
     case 'passkey':
       return credential.device.label;
     case 'email_otp':
-      return 'Email OTP';
+      return 'Email code';
   }
 }
 
-function credentialSecondaryDescription(
-  credential: LinkedOwnerCredentialMetadataV1,
-): string | null {
-  switch (credential.kind) {
-    case 'email_otp':
-      return null;
-    case 'passkey': {
-      const metadata = credential.device;
-      const provider = metadata.providerLabel ?? metadata.provider;
-      const sync = metadata.synced ? 'Synced passkey' : 'Passkey';
-      return provider ? `${provider} · ${sync}` : sync;
-    }
+/**
+ * One quiet metadata sentence per row, led by the device number — the same
+ * number the remove announcements speak, so a person can tell twins apart.
+ * Titles can repeat — two platform passkeys share a label — so when this
+ * row's title collides with another visible row, the created-at day is
+ * appended as a second human disambiguator.
+ */
+function deviceMetaLine(
+  view: WalletDeviceView,
+  deviceNumber: number,
+  titleCollides: boolean,
+  now: number,
+): string {
+  const credential = viewCredential(view);
+  const parts: string[] = [`Device ${deviceNumber}`];
+  if (credential.kind === 'passkey') {
+    parts.push(credential.device.synced ? 'Synced passkey' : 'Passkey');
+    const provider = credential.device.providerLabel ?? credential.device.provider;
+    if (provider) parts.push(provider);
+  } else {
+    parts.push(String(credential.email));
   }
+  if (titleCollides) parts.push(`Added ${friendlyDay(viewCreatedAtMs(view), now)}`);
+  parts.push(`Last used ${friendlyDay(viewLastActivityAtMs(view), now)}`);
+  return parts.join(' · ');
+}
+
+/** Icon for the row: what kind of thing holds this credential. */
+function credentialIcon(credential: LinkedOwnerCredentialMetadataV1): React.ReactElement {
+  if (credential.kind === 'email_otp') return <MailIcon size={20} strokeWidth={1.75} />;
+  return credential.device.os === 'ios' || credential.device.os === 'android' ? (
+    <SmartphoneIcon size={20} strokeWidth={1.75} />
+  ) : (
+    <LaptopIcon size={20} strokeWidth={1.75} />
+  );
+}
+
+/** "sign in with ___ first" — names the actual sibling instead of "the sibling method". */
+function siblingMethodName(siblings: readonly WalletDeviceView[]): string {
+  if (siblings.length === 1) {
+    const credential = viewCredential(siblings[0]);
+    return credential.kind === 'email_otp'
+      ? 'your email code'
+      : `your "${credential.device.label}" passkey`;
+  }
+  if (siblings.every((view) => viewCredential(view).kind === 'email_otp')) {
+    return 'your email code';
+  }
+  return 'another sign-in method';
+}
+
+function selectedMethodRemovalHint(
+  target: WalletDeviceView,
+  devices: readonly NumberedWalletDevice[],
+): string {
+  const targetMethodId = String(viewCredential(target).walletAuthMethodId);
+  const siblings = devices
+    .map(({ view }) => view)
+    .filter(
+      (view) =>
+        isActiveWalletMethod(view) &&
+        String(viewCredential(view).walletAuthMethodId) !== targetMethodId,
+    );
+  const self = viewCredential(target).kind === 'email_otp' ? 'your email code' : 'this passkey';
+  return `You're signed in with ${self}. To remove it, sign in with ${siblingMethodName(siblings)} first.`;
 }
 
 function deviceDescription(view: WalletDeviceView, deviceNumber: number): string {
@@ -316,9 +375,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   const [initialContentReady, setInitialContentReady] = React.useState(false);
   const [revokeState, setRevokeState] = React.useState<RevokeState>({ kind: 'idle' });
   const [announcement, setAnnouncement] = React.useState('');
-  /** Device IDs are identifiers, not secrets, but printing one in full by
-   * default buries the rest of the card. One card at a time may expand. */
-  const [expandedDeviceId, setExpandedDeviceId] = React.useState<string | null>(null);
   const loadSeq = React.useRef(0);
   const seamsRef = React.useRef(seams);
   const dialogRef = React.useRef<HTMLDivElement>(null);
@@ -407,7 +463,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       setInitialContentReady(false);
       setRevokeState({ kind: 'idle' });
       setAnnouncement('');
-      setExpandedDeviceId(null);
       return;
     }
     void loadDevices();
@@ -552,7 +607,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
         ) : null}
         <div
           ref={dialogRef}
-          className="w3a-linked-devices-modal-content"
+          className="w3a-linked-devices-modal-content w3a-linked-devices-inventory-content"
           hidden={!initialContentReady}
           role="dialog"
           aria-modal="true"
@@ -570,6 +625,9 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
           <h2 id="w3a-linked-devices-modal-title" className="w3a-linked-devices-modal-title">
             Your devices
           </h2>
+          <p className="w3a-linked-devices-modal-subtitle">
+            Anything listed here can unlock this wallet.
+          </p>
 
           <div className="w3a-linked-devices-modal-body">
             {loadState.kind === 'loading' || loadState.kind === 'idle' ? (
@@ -596,14 +654,18 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
             ) : null}
 
             {devices.length > 0 ? (
-              <ul className="w3a-linked-devices-modal-list">
+              <ul className="w3a-linked-devices-modal-list w3a-linked-devices-modal-list--grouped">
                 {devices.map(({ view, deviceNumber }) => {
                   const cardId = viewId(view);
-                  const displayId = viewDisplayId(view);
-                  const secondaryDescription = credentialSecondaryDescription(viewCredential(view));
-                  const standing = deviceStanding(view);
+                  const title = credentialDescription(viewCredential(view));
+                  const titleCollides = devices.some(
+                    (other) =>
+                      viewId(other.view) !== cardId &&
+                      credentialDescription(viewCredential(other.view)) === title,
+                  );
                   const walletAuthMethodId = String(viewCredential(view).walletAuthMethodId);
                   const isSelectedMethod = walletAuthMethodId === selectedWalletAuthMethodId;
+                  const chip = standingChip(view, isSelectedMethod);
                   const hasRemovableSibling = canRemoveWalletMethod(view, devices);
                   const confirming =
                     revokeState.kind === 'confirming' &&
@@ -616,137 +678,132 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                     revokeState.walletAuthMethodId === walletAuthMethodId;
                   const revocationInProgress =
                     revokeState.kind === 'working' || revokeState.kind === 'email_otp';
-                  const fullIdShown = expandedDeviceId === cardId;
+                  const showRemoveButton =
+                    hasRemovableSibling && !isSelectedMethod && !confirming && !awaitingEmailOtp;
                   return (
-                    <li key={cardId} className="w3a-linked-devices-modal-item">
-                      <div className="w3a-linked-devices-modal-item-main">
-                        <span className="w3a-linked-devices-modal-item-name">
-                          Device {deviceNumber} &middot;{' '}
-                          {credentialDescription(viewCredential(view))}
-                        </span>
-                        <span className={`w3a-linked-devices-modal-standing tone-${standing.tone}`}>
-                          {standing.label}
-                        </span>
-                      </div>
-                      <div className="w3a-linked-devices-modal-item-identity">
-                        {secondaryDescription ? <span>{secondaryDescription}</span> : null}
-                        {secondaryDescription ? <span aria-hidden="true">&middot;</span> : null}
-                        {isSelectedMethod ? <span>Current unlock method</span> : null}
-                        {isSelectedMethod ? <span aria-hidden="true">&middot;</span> : null}
-                        <span className="w3a-linked-devices-modal-device-id">
-                          ID {fullIdShown ? displayId : shortDisplayId(displayId)}
-                        </span>
-                        <button
-                          type="button"
-                          className="w3a-linked-devices-modal-disclosure"
-                          aria-expanded={fullIdShown}
-                          onClick={() => setExpandedDeviceId(fullIdShown ? null : cardId)}
-                        >
-                          {fullIdShown ? 'Hide full ID' : 'Show full ID'}
-                        </button>
-                      </div>
-                      <div className="w3a-linked-devices-modal-item-detail">
-                        Last used {friendlyDay(viewLastActivityAtMs(view), Date.now())}
-                      </div>
-                      {awaitingEmailOtp && revokeState.kind === 'email_otp' ? (
-                        <form
-                          className="w3a-linked-devices-modal-otp-form"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            void submitEmailOtpRevocation();
-                          }}
-                        >
-                          <label htmlFor={otpInputId}>Verification code</label>
-                          {revokeState.emailHint ? (
-                            <span className="w3a-linked-devices-modal-item-detail">
-                              Sent to {revokeState.emailHint}
+                    <li
+                      key={cardId}
+                      className="w3a-linked-devices-modal-item w3a-linked-devices-modal-item--row"
+                      data-device-kind={view.kind}
+                      data-device-state={deviceStateAttr(view)}
+                    >
+                      <span className="w3a-linked-devices-modal-item-icon" aria-hidden="true">
+                        {credentialIcon(viewCredential(view))}
+                      </span>
+                      <div className="w3a-linked-devices-modal-item-content">
+                        <div className="w3a-linked-devices-modal-item-main">
+                          <span className="w3a-linked-devices-modal-item-name">{title}</span>
+                          {chip ? (
+                            <span className={`w3a-linked-devices-modal-standing tone-${chip.tone}`}>
+                              {chip.label}
                             </span>
                           ) : null}
-                          <input
-                            ref={otpInputRef}
-                            id={otpInputId}
-                            className="w3a-linked-devices-modal-otp-input"
-                            type="text"
-                            inputMode="numeric"
-                            autoComplete="one-time-code"
-                            pattern="[0-9]*"
-                            maxLength={10}
-                            value={revokeState.otpCode}
-                            disabled={revokeState.submitting}
-                            aria-invalid={revokeState.error ? 'true' : undefined}
-                            aria-describedby={revokeState.error ? `${otpInputId}-error` : undefined}
-                            onChange={(event) =>
-                              setRevokeState({
-                                ...revokeState,
-                                otpCode: event.currentTarget.value,
-                                error: null,
-                              })
-                            }
-                          />
-                          {revokeState.error ? (
-                            <span
-                              id={`${otpInputId}-error`}
-                              className="w3a-linked-devices-modal-error"
-                              role="alert"
-                            >
-                              {revokeState.error}
-                            </span>
-                          ) : null}
-                          <div className="w3a-linked-devices-modal-confirm-actions">
-                            <button
-                              type="button"
-                              className="w3a-linked-devices-modal-secondary"
-                              disabled={revokeState.submitting}
-                              onClick={() => setRevokeState({ kind: 'idle' })}
-                            >
-                              Keep it
-                            </button>
-                            <button
-                              type="submit"
-                              className="w3a-linked-devices-modal-danger"
-                              disabled={revokeState.submitting}
-                            >
-                              {revokeState.submitting ? 'Removing…' : 'Verify and remove'}
-                            </button>
-                          </div>
-                        </form>
-                      ) : confirming ? (
-                        <div className="w3a-linked-devices-modal-confirm">
-                          <span>
-                            Remove {deviceDescription(view, deviceNumber)}? It will lose access
-                            right away.
-                          </span>
-                          <div className="w3a-linked-devices-modal-confirm-actions">
-                            <button
-                              type="button"
-                              className="w3a-linked-devices-modal-secondary"
-                              onClick={() => setRevokeState({ kind: 'idle' })}
-                            >
-                              Keep it
-                            </button>
-                            <button
-                              type="button"
-                              className="w3a-linked-devices-modal-danger"
-                              onClick={() => void revokeMethod(view, deviceNumber)}
-                            >
-                              Yes, remove
-                            </button>
-                          </div>
                         </div>
-                      ) : hasRemovableSibling && !isSelectedMethod ? (
+                        <div className="w3a-linked-devices-modal-item-detail">
+                          {deviceMetaLine(view, deviceNumber, titleCollides, Date.now())}
+                        </div>
+                        {isSelectedMethod && hasRemovableSibling ? (
+                          <div className="w3a-linked-devices-modal-hint">
+                            <LockIcon size={15} strokeWidth={1.75} />
+                            <span>{selectedMethodRemovalHint(view, devices)}</span>
+                          </div>
+                        ) : null}
+                        {awaitingEmailOtp && revokeState.kind === 'email_otp' ? (
+                          <form
+                            className="w3a-linked-devices-modal-otp-form"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              void submitEmailOtpRevocation();
+                            }}
+                          >
+                            <label htmlFor={otpInputId}>Verification code</label>
+                            {revokeState.emailHint ? (
+                              <span className="w3a-linked-devices-modal-item-detail">
+                                Sent to {revokeState.emailHint}
+                              </span>
+                            ) : null}
+                            <input
+                              ref={otpInputRef}
+                              id={otpInputId}
+                              className="w3a-linked-devices-modal-otp-input"
+                              type="text"
+                              inputMode="numeric"
+                              autoComplete="one-time-code"
+                              pattern="[0-9]*"
+                              maxLength={10}
+                              value={revokeState.otpCode}
+                              disabled={revokeState.submitting}
+                              aria-invalid={revokeState.error ? 'true' : undefined}
+                              aria-describedby={
+                                revokeState.error ? `${otpInputId}-error` : undefined
+                              }
+                              onChange={(event) =>
+                                setRevokeState({
+                                  ...revokeState,
+                                  otpCode: event.currentTarget.value,
+                                  error: null,
+                                })
+                              }
+                            />
+                            {revokeState.error ? (
+                              <span
+                                id={`${otpInputId}-error`}
+                                className="w3a-linked-devices-modal-error"
+                                role="alert"
+                              >
+                                {revokeState.error}
+                              </span>
+                            ) : null}
+                            <div className="w3a-linked-devices-modal-confirm-actions">
+                              <button
+                                type="button"
+                                className="w3a-linked-devices-modal-secondary"
+                                disabled={revokeState.submitting}
+                                onClick={() => setRevokeState({ kind: 'idle' })}
+                              >
+                                Keep it
+                              </button>
+                              <button
+                                type="submit"
+                                className="w3a-linked-devices-modal-danger"
+                                disabled={revokeState.submitting}
+                              >
+                                {revokeState.submitting ? 'Removing…' : 'Verify and remove'}
+                              </button>
+                            </div>
+                          </form>
+                        ) : confirming ? (
+                          <div className="w3a-linked-devices-modal-confirm">
+                            <span>Remove {title}? It will lose access right away.</span>
+                            <div className="w3a-linked-devices-modal-confirm-actions">
+                              <button
+                                type="button"
+                                className="w3a-linked-devices-modal-secondary"
+                                onClick={() => setRevokeState({ kind: 'idle' })}
+                              >
+                                Keep it
+                              </button>
+                              <button
+                                type="button"
+                                className="w3a-linked-devices-modal-danger"
+                                onClick={() => void revokeMethod(view, deviceNumber)}
+                              >
+                                Yes, remove
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                      {showRemoveButton ? (
                         <button
                           type="button"
-                          className="w3a-linked-devices-modal-secondary"
+                          className="w3a-linked-devices-modal-secondary w3a-linked-devices-modal-remove"
                           disabled={revocationInProgress}
                           aria-label={`Remove ${deviceDescription(view, deviceNumber)}`}
                           onClick={() => setRevokeState({ kind: 'confirming', walletAuthMethodId })}
                         >
                           {working ? 'Removing…' : 'Remove'}
                         </button>
-                      ) : hasRemovableSibling ? (
-                        <span className="w3a-linked-devices-modal-item-detail">
-                          Unlock with the sibling method to remove this one.
-                        </span>
                       ) : null}
                     </li>
                   );

@@ -176,15 +176,27 @@ const summary: LinkedDeviceSummaryV1 = {
 
 const emailOtpSummary: LinkedDeviceSummaryV1 = {
   ...summary,
-  credential: { kind: 'email_otp', walletAuthMethodId },
+  credential: { kind: 'email_otp', walletAuthMethodId, email: targetEmail },
 };
 
 const invalidEmailOtpSummary: LinkedDeviceSummaryV1 = {
   ...emailOtpSummary,
   // @ts-expect-error Email OTP summaries cannot carry WebAuthn metadata.
-  credential: { kind: 'email_otp', walletAuthMethodId, device: authenticatorDevice },
+  credential: {
+    kind: 'email_otp',
+    walletAuthMethodId,
+    email: targetEmail,
+    device: authenticatorDevice,
+  },
 };
 void invalidEmailOtpSummary;
+
+const emailOtpSummaryWithoutAddress: LinkedDeviceSummaryV1 = {
+  ...emailOtpSummary,
+  // @ts-expect-error Email OTP summaries name the verified address they represent.
+  credential: { kind: 'email_otp', walletAuthMethodId },
+};
+void emailOtpSummaryWithoutAddress;
 
 const invalidPasskeySummary: LinkedDeviceSummaryV1 = {
   ...summary,
