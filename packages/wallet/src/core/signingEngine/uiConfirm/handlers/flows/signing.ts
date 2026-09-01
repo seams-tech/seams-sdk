@@ -703,10 +703,10 @@ export async function handleTransactionSigningFlow(
     if (!challengeB64u) {
       throw new Error('Missing WebAuthn challenge digest for signing flow');
     }
-    const serializedCredential = await collectAuthenticationCredentialForChallengeB64u({
+    const serializedCredential = await collectAuthenticationCredentialForWalletChallengeB64u({
       credentialStore: ctx.webauthnCredentialStore,
       touchIdPrompt: ctx.touchIdPrompt,
-      nearAccountId,
+      walletId: request.payload.walletId,
       challengeB64u,
     });
 

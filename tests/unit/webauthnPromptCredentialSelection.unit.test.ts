@@ -25,6 +25,8 @@ function selectionDb(args: {
       if (profileId === walletId) return args.walletAuthenticators || [];
       return args.nearAuthenticators || [];
     },
+    listWalletPasskeyAuthenticators: async (): Promise<Auth[]> =>
+      args.walletAuthenticators || [],
     listAccountSigners: async () => [
       {
         signerAuthMethod: 'passkey',
