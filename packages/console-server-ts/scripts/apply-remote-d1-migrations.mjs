@@ -33,9 +33,11 @@ function main() {
     return;
   }
 
-  for (const migration of migrations) {
+  for (const [index, migration] of migrations.entries()) {
     if (applied.has(migration.name)) continue;
     applyMigration(options, migration);
+    // Keep source immutability verifiable when a later migration aborts.
+    writeMigrationFingerprint(options, digestMigrations(migrations.slice(0, index + 1)));
   }
 
   verifyAppliedMigrations(options, migrations);
