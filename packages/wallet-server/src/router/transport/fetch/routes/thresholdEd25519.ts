@@ -138,8 +138,9 @@ async function resolveActiveEd25519OperationStepUpAuthority(
       return verified.ok ? { ok: true as const, authority: proof.authority } : verified;
     }
     case 'email_otp':
-      return await walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+      return await walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedMethod({
         walletId: proof.authorityRef.walletId,
+        walletAuthMethodId: proof.authorityRef.walletAuthMethodId,
         providerUserId: proof.providerSubjectId,
       });
     default:
