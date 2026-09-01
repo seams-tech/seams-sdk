@@ -1561,7 +1561,10 @@ async function resolveLinkedPasskeyOwnerSignerSlot(args: {
 
 async function resolveExactEmailOtpPublicLaneReference(args: {
   store: Ed25519YaoPublicCapabilityReferenceStorePort;
-  laneIdentity: ExactEd25519SigningLaneIdentity;
+  /* A deferred operation step-up carries no Wallet Session yet, so the lane
+     reference resolves from the session-free identity triple both boundary
+     input forms share. */
+  laneIdentity: Pick<ExactEd25519SigningLaneIdentity, 'signer' | 'auth' | 'thresholdSessionId'>;
   materialActivation: MpcMaterialActivationRef;
 }): Promise<Ed25519YaoPublicCapabilityLaneReferenceV1> {
   const signer = args.laneIdentity.signer;
@@ -4827,8 +4830,12 @@ export class BrowserSigningSurface {
     context: PreparedNearEd25519YaoMaterialContext,
     preparation: NearEd25519YaoSigningPreparation,
   ): Promise<NearEmailOtpEd25519OperationStepUpCapabilityPreparation> {
-    const args = requireAuthorizedNearEd25519BoundaryInput(context.input);
-    if (args.auth.kind !== WALLET_AUTH_METHODS.emailOtp) {
+    /* Mirrors the Passkey step-up boundary: a deferred operation step-up
+       arrives as the session-free material identity because no Wallet
+       Session exists yet - the step-up itself mints one. Everything below
+       needs only the identity triple both input forms carry. */
+    const identity = nearEd25519MaterialIdentityFromBoundaryInput(context.input);
+    if (identity.auth.kind !== WALLET_AUTH_METHODS.emailOtp) {
       throw new Error('[SigningEngine][near] Passkey material cannot use Email OTP rehydration');
     }
     const expectedActivation = requireBoundNearEd25519YaoPreparationActivation({
@@ -4850,24 +4857,24 @@ export class BrowserSigningSurface {
       case 'rehydrate_material_activation': {
         const publicLane = await resolveExactEmailOtpPublicLaneReference({
           store: this.ed25519YaoPublicCapabilityReferences,
-          laneIdentity: args.laneIdentity,
+          laneIdentity: identity,
           materialActivation: expectedActivation,
         });
         const user = await this.getUserBySignerSlot(
-          args.nearAccountId,
-          args.laneIdentity.signer.signerSlot,
+          context.input.nearAccountId,
+          identity.signer.signerSlot,
         );
         if (
           !user ||
-          String(user.walletId) !== String(args.walletId) ||
-          String(user.nearAccountId) !== String(args.nearAccountId) ||
-          user.signerSlot !== args.laneIdentity.signer.signerSlot ||
+          String(user.walletId) !== String(context.input.walletId) ||
+          String(user.nearAccountId) !== String(context.input.nearAccountId) ||
+          user.signerSlot !== identity.signer.signerSlot ||
           user.authMethod !== WALLET_AUTH_METHODS.emailOtp
         ) {
           throw new Error('[SigningEngine][near] Email OTP signer record is unavailable');
         }
         const sealed = await this.loadEmailOtpWalletCustodyEd25519Material({
-          nearAccountId: String(args.nearAccountId),
+          nearAccountId: String(context.input.nearAccountId),
           signerSlot: user.signerSlot,
         });
         if (sealed.kind !== 'found') {
@@ -4878,8 +4885,8 @@ export class BrowserSigningSurface {
         )}`;
         if (
           registeredPublicKey !== user.operationalPublicKey ||
-          sealed.material.binding.walletId !== String(args.walletId) ||
-          sealed.material.binding.nearAccountId !== String(args.nearAccountId) ||
+          sealed.material.binding.walletId !== String(context.input.walletId) ||
+          sealed.material.binding.nearAccountId !== String(context.input.nearAccountId) ||
           sealed.material.binding.signerSlot !== user.signerSlot ||
           sealed.material.binding.signingWorkerId !== String(expectedActivation.signingWorker)
         ) {
@@ -4890,10 +4897,10 @@ export class BrowserSigningSurface {
           throw new Error('[SigningEngine][near] Email OTP recovery requires a relay URL');
         }
         const recoveryContext: EmailOtpEd25519OperationRecoveryContext = {
-          input: args,
+          input: context.input,
           materialActivation: expectedActivation,
           facts: emailOtpEd25519OperationMaterialFacts({
-            input: args,
+            input: context.input,
             publicLane,
             relayerUrl,
           }),
@@ -4935,26 +4942,26 @@ export class BrowserSigningSurface {
       expiresAtMs: number;
     };
   }> {
-    const args = requireAuthorizedNearEd25519BoundaryInput(context.input);
+    const identity = nearEd25519MaterialIdentityFromBoundaryInput(context.input);
     if (
-      args.auth.kind !== WALLET_AUTH_METHODS.emailOtp ||
-      request.proof.providerSubjectId !== args.auth.providerSubjectId
+      identity.auth.kind !== WALLET_AUTH_METHODS.emailOtp ||
+      request.proof.providerSubjectId !== identity.auth.providerSubjectId
     ) {
       throw new Error('[SigningEngine][near] Email OTP operation authority changed');
     }
     const operationCredential =
       await resolveExactNearEd25519WalletSessionOperationCredentialForStepUp({
-        walletId: args.walletId,
+        walletId: context.input.walletId,
         proof: request.proof,
       });
     const recovered = await requestRehydrateEmailOtpEd25519YaoOperationMaterial({
       workerCtx: this.signerWorkerManager.getContext(),
       payload: {
         relayUrl: context.facts.relayerUrl,
-        walletId: String(args.walletId),
+        walletId: String(context.input.walletId),
         orgId: context.publicLane.runtimePolicyScope.orgId,
-        providerSubjectId: args.auth.providerSubjectId,
-        nearAccountId: String(args.nearAccountId),
+        providerSubjectId: identity.auth.providerSubjectId,
+        nearAccountId: String(context.input.nearAccountId),
         signerSlot: context.publicLane.signerSlot,
         expectedOperationalPublicKey: context.operationalPublicKey,
         expectedThresholdSessionId: context.publicLane.thresholdSessionId,
@@ -4989,10 +4996,10 @@ export class BrowserSigningSurface {
     await this.activateEmailOtpEd25519CustodyCapabilityInternal({
       commitQueue: 'already_acquired',
       walletSession: {
-        walletId: args.walletId,
-        walletSessionUserId: String(args.walletId),
+        walletId: context.input.walletId,
+        walletSessionUserId: String(context.input.walletId),
       },
-      providerSubject: args.auth.providerSubjectId,
+      providerSubject: identity.auth.providerSubjectId,
       emailHashHex: context.emailHashHex,
       signerSlot: context.publicLane.signerSlot,
       expectedOperationalPublicKey: context.operationalPublicKey,
@@ -5002,8 +5009,8 @@ export class BrowserSigningSurface {
       metadata: recovered.metadata,
     });
     const active = this.enginePorts.ed25519YaoActiveClients.resolve({
-      walletId: args.walletId,
-      nearAccountId: args.nearAccountId,
+      walletId: context.input.walletId,
+      nearAccountId: context.input.nearAccountId,
       materialActivation: context.materialActivation,
     });
     if (!active) {
@@ -5011,7 +5018,7 @@ export class BrowserSigningSurface {
     }
     const material = validateExactNearEd25519YaoOperationMaterial({
       material: active,
-      input: args,
+      input: context.input,
       expectedActivation: context.materialActivation,
     });
     return {
