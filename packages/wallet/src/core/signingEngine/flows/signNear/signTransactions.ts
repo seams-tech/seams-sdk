@@ -596,8 +596,14 @@ async function runNearAuthorizationRequiredTransactionSigning(
     });
     await markNearNonceLeasesSigned(ctx, confirmation.readiness.nonceLeases);
     return signed;
-  } finally {
-    resolvedOperationStepUpMaterial.material.activeClient.dispose();
+  } catch (error) {
+    disposeOwnedNearOperationStepUpMaterial({
+      resolved: resolvedOperationStepUpMaterial,
+      owned:
+        operationStepUpMaterial.kind === 'passkey_sealed' ||
+        operationStepUpMaterial.kind === 'email_otp_sealed',
+    });
+    throw error;
   }
 }
 
