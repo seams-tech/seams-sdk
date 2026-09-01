@@ -625,7 +625,7 @@ function registrationRecord(
       preparedArtifactFingerprint: `artifact:${operation}`,
       claimedAtMs: 10,
       completedAtMs: 20,
-      prepared,
+      prepared: { kind: prepared.kind },
       response: {
         registrationEstablishedSession: {
           tokens: { ed25519: { walletSessionToken: 'legacy-bearer' } },

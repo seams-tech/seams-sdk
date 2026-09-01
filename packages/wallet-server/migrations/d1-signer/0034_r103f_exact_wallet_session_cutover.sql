@@ -90,20 +90,30 @@ SELECT 1
      AND json_extract(record.record_json, '$.completedAtMs')
        >= json_extract(record.record_json, '$.claimedAtMs')
      AND json_type(record.record_json, '$.prepared') = 'object'
-     AND (SELECT COUNT(*) FROM json_each(json_extract(record.record_json, '$.prepared'))) = 4
-     AND NOT EXISTS (
-       SELECT 1
-         FROM json_each(json_extract(record.record_json, '$.prepared')) AS field
-        WHERE field.key NOT IN ('kind', 'walletAuthorityId', 'deviceId', 'walletAuthMethodId')
-     )
      AND json_extract(record.record_json, '$.prepared.kind')
        = 'd1_wallet_registration_operation_prepared_v1'
-     AND json_type(record.record_json, '$.prepared.walletAuthorityId') = 'text'
-     AND length(trim(json_extract(record.record_json, '$.prepared.walletAuthorityId'))) > 0
-     AND json_type(record.record_json, '$.prepared.deviceId') = 'text'
-     AND length(trim(json_extract(record.record_json, '$.prepared.deviceId'))) > 0
-     AND json_type(record.record_json, '$.prepared.walletAuthMethodId') = 'text'
-     AND length(trim(json_extract(record.record_json, '$.prepared.walletAuthMethodId'))) > 0
+     -- Early V1 completions predate the prepared identity fields. Both exact
+     -- V1 forms are deleted below; live claims still require the final shape.
+     AND (
+       (
+         (SELECT COUNT(*) FROM json_each(json_extract(record.record_json, '$.prepared'))) = 1
+       )
+       OR
+       (
+         (SELECT COUNT(*) FROM json_each(json_extract(record.record_json, '$.prepared'))) = 4
+         AND NOT EXISTS (
+           SELECT 1
+             FROM json_each(json_extract(record.record_json, '$.prepared')) AS field
+            WHERE field.key NOT IN ('kind', 'walletAuthorityId', 'deviceId', 'walletAuthMethodId')
+         )
+         AND json_type(record.record_json, '$.prepared.walletAuthorityId') = 'text'
+         AND length(trim(json_extract(record.record_json, '$.prepared.walletAuthorityId'))) > 0
+         AND json_type(record.record_json, '$.prepared.deviceId') = 'text'
+         AND length(trim(json_extract(record.record_json, '$.prepared.deviceId'))) > 0
+         AND json_type(record.record_json, '$.prepared.walletAuthMethodId') = 'text'
+         AND length(trim(json_extract(record.record_json, '$.prepared.walletAuthMethodId'))) > 0
+       )
+     )
      AND json_type(record.record_json, '$.response') = 'object'
    )
    OR
