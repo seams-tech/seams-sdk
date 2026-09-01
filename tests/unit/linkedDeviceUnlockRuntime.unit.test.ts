@@ -4,6 +4,7 @@ import {
   resolveLinkedDevicePasskeyAuthoritySelection,
   resolveLinkedDeviceUnlockSubjectSet,
   unlockLinkedDevicePasskey,
+  unlockLinkedDeviceEmailOtpWallet,
   activateLinkedDeviceSignerRuntimesAfterLink,
 } from '@/SeamsWeb/operations/auth/login';
 import { loginAccountOptions } from '@/SeamsWeb/walletIframe/host/auth-menu/account-options';
@@ -15,6 +16,7 @@ import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/wall
 import { MinimalNearClient } from '@/core/rpcClients/near/NearClient';
 import type { NearEd25519YaoOperationMaterial } from '@/core/signingEngine/interfaces/near';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import type { EmailOtpAuthorityWalletUnlockResult } from '@/core/signingEngine/session/emailOtp/walletUnlock';
 import {
   EcdsaDerivationClientCustomRequestType,
   EcdsaDerivationClientCustomResponseType,
@@ -53,6 +55,7 @@ import {
 import { resolveActiveWalletAuthorityEcdsaRuntimeV1 } from '@/core/signingEngine/session/material/activeWalletAuthorityEcdsaRuntime';
 import { base58Encode } from '@shared/utils/base58';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import { parseActiveWalletSessionV1 } from '@shared/device-linking/parsers';
 import { deriveImplicitNearAccountIdFromEd25519PublicKey } from '@shared/utils/near';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
@@ -949,6 +952,152 @@ test('linked Email OTP target is immediately usable for both source-factor combi
     walletSessionAuthorizations.readExactWithOperationCredential =
       originalReadExactWithOperationCredential;
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('ECDSA-only linked Email OTP reload derives the email provider from a bare subject', async () => {
+  const fixture = await buildLinkedDeviceEmailOtpUnlockRuntimeFixture();
+  const ecdsaMaterial = fixture.signerMaterials.find(
+    (material) => material.keyFamily === 'ecdsa_secp256k1',
+  );
+  if (!ecdsaMaterial || ecdsaMaterial.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('linked Email OTP runtime fixture is missing ECDSA material');
+  }
+  const ecdsaActivation = fixture.authority.signerActivations.ecdsa;
+  if (!ecdsaActivation) {
+    throw new Error('linked Email OTP runtime fixture is missing ECDSA activation');
+  }
+  const ecdsaOnlyCapabilitySubjects = fixture.activeWalletSession.capabilitySubjects.filter(
+    (subject) =>
+      subject.kind === 'link_devices' ||
+      subject.kind === 'revoke_devices' ||
+      (subject.kind !== 'link_devices' &&
+        subject.kind !== 'revoke_devices' &&
+        subject.keyFamily === 'ecdsa_secp256k1'),
+  );
+  const ecdsaOnlyWalletSession = parseActiveWalletSessionV1({
+    ...fixture.activeWalletSession,
+    capabilitySubjects: ecdsaOnlyCapabilitySubjects,
+  });
+  const resolvedAuthority = {
+    kind: 'resolved' as const,
+    selection: fixture.selection,
+    authMethod: fixture.authMethod,
+    authority: fixture.authority,
+    signerMaterials: [ecdsaMaterial],
+    exportRoot: null,
+  };
+  const verifiedAuthorityProjection = {
+    kind: 'email_otp_verified_authority_projection_v1' as const,
+    authority: fixture.authority,
+    authMethod: fixture.authMethod,
+  };
+  const unlockResult: EmailOtpAuthorityWalletUnlockResult = {
+    kind: 'email_otp_authority_wallet_unlock_v1',
+    factorSecret32: fixture.factorSecret32.slice(),
+    walletSession: ecdsaOnlyWalletSession,
+    operationCredential: fixture.operationCredential,
+    verifiedAuthorityProjection,
+    walletCustodySeed: { kind: 'linked_device_seed_unavailable' },
+    ed25519Activation: { kind: 'ed25519_activation_absent' },
+  };
+  const storedHandles: string[] = [];
+  const disposedHandles: string[] = [];
+  const ecdsaWorkerContext = createWorkerContext({ storedHandles, disposedHandles });
+  let unlockPayload: unknown;
+  const workerContext = {
+    requestWorkerOperation: async ({
+      kind,
+      request,
+    }: {
+      readonly kind: string;
+      readonly request: { readonly type: unknown; readonly payload: unknown };
+    }): Promise<unknown> => {
+      if (kind === 'emailOtp') {
+        if (request.type !== 'unlockEmailOtpAuthorityWallet') {
+          throw new Error(`unexpected Email OTP worker request: ${String(request.type)}`);
+        }
+        unlockPayload = request.payload;
+        return unlockResult;
+      }
+      if (kind === 'ecdsaDerivationClient') {
+        return await ecdsaWorkerContext.requestWorkerOperation({
+          kind: 'ecdsaDerivationClient',
+          request: request as never,
+        });
+      }
+      throw new Error(`unexpected worker kind: ${kind}`);
+    },
+  } as unknown as WorkerOperationContext;
+  const originalResolveWalletAuthorityForMethod = IndexedDBManager.resolveWalletAuthorityForMethod;
+  const originalWriteExactWithOperationCredential =
+    walletSessionAuthorizations.writeExactWithOperationCredential;
+  const unlockedSelections: unknown[] = [];
+  const authenticatedStates: unknown[] = [];
+  IndexedDBManager.resolveWalletAuthorityForMethod = async () => resolvedAuthority;
+  walletSessionAuthorizations.writeExactWithOperationCredential = async (input) => input.record;
+  const context = {
+    signingEngine: {
+      getSignerWorkerContext: () => workerContext,
+      markWalletSelectionUnlocked: async (input: unknown) => {
+        unlockedSelections.push(input);
+      },
+      setWalletAuthenticated: (input: unknown) => {
+        authenticatedStates.push(input);
+      },
+      clearVolatileWarmSigningMaterial: async () => {},
+    },
+    nearClient: new MinimalNearClient('https://rpc.testnet.near.org'),
+    configs: buildConfigsFromEnv({
+      relayer: { url: 'https://relay.example.test' },
+      iframeWallet: { walletOrigin: 'https://wallet.example.test' },
+    }),
+    theme: 'dark' as const,
+  } as unknown as LoginWebContext;
+
+  try {
+    await unlockLinkedDeviceEmailOtpWallet({
+      context,
+      walletIdInput: String(fixture.walletId),
+      emailHashHex: fixture.authMethod.emailHashHex,
+      walletAuthMethodId: String(fixture.authMethod.walletAuthMethodId),
+      providerSubjectId: fixture.providerIdentity.providerSubjectId,
+      challengeId: 'challenge:reload',
+      otpCode: '123456',
+      relayUrl: 'https://relay.example.test',
+    });
+
+    expect(unlockPayload).toMatchObject({
+      walletId: String(fixture.walletId),
+      walletAuthMethodId: String(fixture.authMethod.walletAuthMethodId),
+      challengeId: 'challenge:reload',
+      otpCode: '123456',
+      ed25519: { kind: 'no_ed25519' },
+    });
+    expect(unlockedSelections).toEqual([
+      { walletId: fixture.walletId, walletAuthMethodId: fixture.authMethod.walletAuthMethodId },
+    ]);
+    expect(authenticatedStates).toEqual([
+      { kind: 'authenticated', walletId: fixture.walletId, authMethod: 'email_otp' },
+    ]);
+    const runtime = resolveLinkedEcdsaHolderRuntimeV1({
+      walletId: fixture.walletId,
+      materialActivation: ecdsaActivation.materialActivation,
+    });
+    expect(runtime).not.toBeNull();
+    expect(runtime?.factorAuthority).toMatchObject({
+      factor: {
+        kind: 'email_otp',
+        provider: 'email',
+        providerUserId: fixture.providerIdentity.providerSubjectId,
+      },
+    });
+  } finally {
+    clearLinkedEcdsaHolderRuntimesV1();
+    fixture.factorSecret32.fill(0);
+    IndexedDBManager.resolveWalletAuthorityForMethod = originalResolveWalletAuthorityForMethod;
+    walletSessionAuthorizations.writeExactWithOperationCredential =
+      originalWriteExactWithOperationCredential;
   }
 });
 

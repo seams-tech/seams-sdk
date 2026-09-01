@@ -2129,18 +2129,20 @@ async function greetingSigning(
   }
 }
 
-function resolveContextCloseTimeout(resolve: () => void): void {
-  globalThis.setTimeout(resolve, 5_000);
-}
+const contextCloseTimeoutMs = 5_000;
 
 async function closeBrowserContexts(
   ownerContext: BrowserContext,
   device2Context: BrowserContext,
 ): Promise<void> {
-  await Promise.race([
-    Promise.allSettled([ownerContext.close(), device2Context.close()]),
-    new Promise<void>(resolveContextCloseTimeout),
-  ]);
+  const startedAtMs = Date.now();
+  const results = await Promise.allSettled([ownerContext.close(), device2Context.close()]);
+  const elapsedMs = Date.now() - startedAtMs;
+  if (elapsedMs > contextCloseTimeoutMs) {
+    console.warn(
+      `[linked-device] Browser context close exceeded ${contextCloseTimeoutMs}ms; all close promises settled after ${elapsedMs}ms (${results.map(({ status }) => status).join(', ')})`,
+    );
+  }
 }
 
 type LinkedOwnerPair = {
