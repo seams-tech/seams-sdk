@@ -8,6 +8,9 @@ export const defaultGoogleProjectId = 'seams-501403';
 export const defaultGoogleClientId =
   '971053349716-2ck8cp6ucohvkd075aebdtv9jskla2b5.apps.googleusercontent.com';
 export const defaultGoogleTokenMinimumTtlSeconds = 20 * 60;
+export const intendedIsolatedCaseMaximumRuntimeSeconds = 30 * 60;
+export const intendedIsolatedGoogleTokenMinimumTtlSeconds =
+  defaultGoogleTokenMinimumTtlSeconds + intendedIsolatedCaseMaximumRuntimeSeconds;
 
 const defaultEnvFileHeader = [
   '# Canonical local environment for the Seams frontend, gateway, workers, and tests.',
@@ -154,8 +157,7 @@ function unquoteEnvValue(value) {
 
 function isQuotedEnvValue(value) {
   return (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
+    (value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))
   );
 }
 
