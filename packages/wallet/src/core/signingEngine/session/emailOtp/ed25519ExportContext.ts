@@ -446,7 +446,7 @@ async function readLinkedExportCapability(input: {
     ],
     'linked Ed25519 export bootstrap',
   );
-  if (record.kind !== 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1') {
+  if (record.kind !== 'router_ab_ed25519_yao_v2_session_bootstrap_v1') {
     throw new Error('linked Ed25519 export bootstrap kind is invalid');
   }
   const thresholdSessionId = parseThresholdEd25519SessionId(record.thresholdSessionId);

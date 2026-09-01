@@ -23,10 +23,7 @@ import { parseNamedNearAccountId } from '@shared/utils/near';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
-import {
-  buildEmailOtpWalletAuthAuthority,
-  walletAuthAuthorityRef,
-} from '@shared/utils/walletAuthAuthority';
+import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { base64UrlEncode } from '@shared/utils/base64';
@@ -397,7 +394,7 @@ test('cold Email OTP Ed25519 export authenticates with an exact credential witho
       );
       return new Response(
         JSON.stringify({
-          kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
+          kind: 'router_ab_ed25519_yao_v2_session_bootstrap_v1',
           walletId: String(WALLET_ID),
           nearAccountId: String(NEAR_ACCOUNT_ID),
           nearEd25519SigningKeyId: String(NEAR_SIGNING_KEY_ID),
@@ -408,22 +405,6 @@ test('cold Email OTP Ed25519 export authenticates with an exact credential witho
           signingWorkerId: CAPABILITY.lifecycle.signingWorkerId,
           thresholdExpiresAtMs: AUTHORIZATION_EXPIRES_AT_MS,
           participantIds: PARTICIPANT_IDS,
-          authority: {
-            ...(await buildEmailOtpWalletAuthAuthority({
-              walletId: WALLET_ID,
-              provider: 'google',
-              providerUserId: PROVIDER_SUBJECT_ID,
-              emailHashHex: EMAIL_HASH_HEX,
-            })),
-          },
-          authorityRef: await walletAuthAuthorityRef({
-            authority: authorization.factorAuthority,
-          }),
-          authorityScope: {
-            kind: 'email_otp',
-            provider: 'google',
-            providerUserId: PROVIDER_SUBJECT_ID,
-          },
           runtimePolicyScope: RUNTIME_POLICY_SCOPE,
           routerAbNormalSigning: {
             kind: 'router_ab_ed25519_normal_signing_v1',
