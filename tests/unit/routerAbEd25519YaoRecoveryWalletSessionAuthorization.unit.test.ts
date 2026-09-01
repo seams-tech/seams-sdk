@@ -29,7 +29,9 @@ import type { RouterApiAuthorizationSessionService } from '../../packages/wallet
 import type {
   RouterApiWalletRegistrationService,
   RouterApiWalletSessionAuthorizationV2AdmissionContext,
+  RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext,
 } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import { buildExactWalletSessionQuotaProjectionV1 } from '../../packages/wallet-server/src/authorization/domain';
 import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
@@ -252,20 +254,29 @@ async function unsupportedAuthorizationSessionOperation(): Promise<never> {
 class AuthorizationSessionsFixture implements RouterApiAuthorizationSessionService {
   readonly tenantId: RouterApiAuthorizationSessionService['tenantId'];
   exactReads = 0;
+  exhaustedReads = 0;
 
   constructor(
     private readonly exactContext: RouterApiWalletSessionAuthorizationV2AdmissionContext | null,
+    private readonly exhaustedCandidate: RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext | null = null,
   ) {
-    this.tenantId = exactContext?.authorization.session.tenantId ?? requireTenantId();
+    this.tenantId =
+      exactContext?.authorization.session.tenantId ??
+      exhaustedCandidate?.status.session.tenantId ??
+      requireTenantId();
   }
 
   async readWalletSessionAuthorizationV2ByOperationCredential(): Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null> {
     this.exactReads += 1;
+    if (this.exhaustedCandidate && !this.exactContext) {
+      throw new Error('active Wallet Session quota is exhausted');
+    }
     return this.exactContext;
   }
 
-  async readExhaustedWalletSessionAuthorizationV2CandidateByOperationCredential(): Promise<null> {
-    return null;
+  async readExhaustedWalletSessionAuthorizationV2CandidateByOperationCredential(): Promise<RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext | null> {
+    this.exhaustedReads += 1;
+    return this.exhaustedCandidate;
   }
 
   async readLinkedDeviceWalletSessionAuthorization(): Promise<never> {
@@ -312,13 +323,14 @@ function authorizationServicesFixture(
   prepared: PreparedEd25519RecoveryAdmissionV1 | null,
   exactContext: RouterApiWalletSessionAuthorizationV2AdmissionContext | null = null,
   resolveEd25519MaterialActivation: RouterApiWalletRegistrationService['resolveEd25519MaterialActivation'] = unsupportedEd25519MaterialResolution,
+  exhaustedCandidate: RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext | null = null,
 ): {
   readonly services: RouterAbEd25519YaoRecoveryAuthorizationServicesV1;
   readonly reader: PreparedAdmissionReaderFixture;
   readonly authorizationSessions: AuthorizationSessionsFixture;
 } {
   const reader = new PreparedAdmissionReaderFixture(prepared);
-  const authorizationSessions = new AuthorizationSessionsFixture(exactContext);
+  const authorizationSessions = new AuthorizationSessionsFixture(exactContext, exhaustedCandidate);
   const services = {
     authorizationSessions,
     preparedRecoveryAdmission: reader,
@@ -346,6 +358,30 @@ async function exactAdmissionContextFixture(): Promise<RouterApiWalletSessionAut
     authorization: exact.issuedSession,
     authority: exact.authority,
     authMethod: exact.authMethod,
+    retiredAtMs: null,
+  };
+}
+
+function exhaustedCandidateFixture(
+  context: RouterApiWalletSessionAuthorizationV2AdmissionContext,
+): RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext {
+  const session = context.authorization.session;
+  return {
+    status: {
+      kind: 'exhausted',
+      session,
+      quota: buildExactWalletSessionQuotaProjectionV1({
+        lifecycle: 'exhausted',
+        tenantId: session.tenantId,
+        principalId: session.principalId,
+        walletSessionId: session.walletSessionId,
+        quotaId: session.quotaId,
+        remainingUses: 0,
+        expiresAtMs: session.expiresAtMs,
+      }),
+    },
+    authority: context.authority,
+    authMethod: context.authMethod,
     retiredAtMs: null,
   };
 }
@@ -744,6 +780,48 @@ test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
       authorization: { kind: 'wallet_session_v2', context: exactContext },
     });
     expect(authorizationSessions.exactReads).toBe(1);
+    expect(materialResolver.calls).toEqual([
+      {
+        walletId: WALLET_ID,
+        materialActivation: materialActivation('active'),
+      },
+    ]);
+  });
+
+  test('authorizes warm recovery identity lookup from the exact exhausted Ed25519 session', async () => {
+    const admission = await admissionRequestFixture();
+    const exactContext = await exactAdmissionContextFixture();
+    const exhaustedCandidate = exhaustedCandidateFixture(exactContext);
+    const materialResolver = new Ed25519MaterialResolverFixture(
+      activeEd25519MaterialFixture(exactContext),
+    );
+    const { services, authorizationSessions } = authorizationServicesFixture(
+      null,
+      null,
+      materialResolver.resolve.bind(materialResolver),
+      exhaustedCandidate,
+    );
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      async () => services,
+    );
+
+    await expect(
+      authorization.authorize(
+        authorizationInput(
+          'bootstrap',
+          recoveryRequest({ authorization: 'Bearer wso_exhausted-warm-recovery' }),
+          admission,
+        ),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      authorization: {
+        kind: 'wallet_session_v2_exhausted_candidate',
+        context: exhaustedCandidate,
+      },
+    });
+    expect(authorizationSessions.exactReads).toBe(1);
+    expect(authorizationSessions.exhaustedReads).toBe(1);
     expect(materialResolver.calls).toEqual([
       {
         walletId: WALLET_ID,

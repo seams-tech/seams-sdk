@@ -120,7 +120,7 @@ type OwnerDeviceFixture = {
   readonly lastActivityAtMs: number;
 };
 
-/** A founding owner passkey; created before every linked fixture so it sorts first. */
+/** A founding owner passkey; created before every linked fixture so it numbers as Device 1 and displays last. */
 function ownerDeviceFixture(label: string, nowMs = Date.now()): OwnerDeviceFixture {
   return {
     walletId: WALLET_ID,
@@ -452,7 +452,7 @@ test.describe('linked devices modal lifecycle', () => {
     ).toBeVisible();
   });
 
-  test('lists the founding owner first and exposes exact sibling removal', async ({ page }) => {
+  test('lists the newest device first and exposes exact sibling removal', async ({ page }) => {
     await renderModal(page, {
       ownerDevices: [ownerDeviceFixture('Original passkey')],
       devices: [deviceFixture('device-linked', 'Linked passkey', 'active')],
@@ -461,8 +461,8 @@ test.describe('linked devices modal lifecycle', () => {
 
     const dialog = page.getByRole('dialog', { name: 'Your devices' });
     const names = dialog.locator('.w3a-linked-devices-modal-item-name');
-    await expect(names.first()).toHaveText('Original passkey');
-    await expect(names.nth(1)).toHaveText('Linked passkey');
+    await expect(names.first()).toHaveText('Linked passkey');
+    await expect(names.nth(1)).toHaveText('Original passkey');
     await expect(
       dialog.locator('.w3a-linked-devices-modal-item[data-device-kind="owner"]'),
     ).toHaveCount(1);
@@ -556,13 +556,13 @@ test.describe('linked devices modal lifecycle', () => {
         right: rect.right,
         top: rect.top,
         bottom: rect.bottom,
-        scrollable: element.scrollHeight > element.clientHeight,
+        overflowY: getComputedStyle(element).overflowY,
       };
     });
     expect(geometry.left).toBeGreaterThanOrEqual(0);
     expect(geometry.right).toBeLessThanOrEqual(320);
     expect(geometry.top).toBeGreaterThanOrEqual(0);
     expect(geometry.bottom).toBeLessThanOrEqual(280);
-    expect(geometry.scrollable).toBe(true);
+    expect(geometry.overflowY).toBe('auto');
   });
 });

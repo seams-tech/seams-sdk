@@ -374,6 +374,13 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
         }).catch(() => undefined);
         throw new Error('Email OTP Ed25519 export returned unexpected recovered material');
       }
+      if (args.exportContext.authorization.status.status === 'exhausted') {
+        await disposeWalletCustodyEd25519ActiveClientV1({
+          workerContext: workerCtx,
+          activeClientHandle: result.activeClientHandle,
+        });
+        return result;
+      }
       try {
         await args.exportContext.material.activateRecoveredCapability({
           activation: {

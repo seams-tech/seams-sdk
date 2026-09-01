@@ -49,7 +49,10 @@ import type {
   RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
 } from '../../../framework/routeExtensions';
-import type { RouterApiWalletSessionAuthorizationV2AdmissionContext } from '../../../framework/authServicePort';
+import type {
+  RouterApiWalletSessionAuthorizationV2AdmissionContext,
+  RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext,
+} from '../../../framework/authServicePort';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../../core/WalletStore';
 import {
   parseThresholdEd25519SessionId,
@@ -354,6 +357,10 @@ export type RouterAbEd25519YaoRecoveryAuthorizationResult =
             readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
           }
         | {
+            readonly kind: 'wallet_session_v2_exhausted_candidate';
+            readonly context: RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext;
+          }
+        | {
             readonly kind: 'wallet_recovery';
             readonly walletId: string;
           };
@@ -372,7 +379,10 @@ export function recoveryAuthorizationBinding(
   >['authorization'],
 ): RouterAbEd25519YaoRecoveryAuthorizationBindingV1 {
   if (authorization.kind === 'wallet_recovery') return authorization;
-  const session = authorization.context.authorization.session;
+  const session =
+    authorization.kind === 'wallet_session_v2'
+      ? authorization.context.authorization.session
+      : authorization.context.status.session;
   return {
     kind: 'wallet_session_v2',
     tenantId: session.tenantId,
@@ -385,6 +395,39 @@ export function recoveryAuthorizationBinding(
     walletSessionId: session.walletSessionId,
     quotaId: session.quotaId,
   };
+}
+
+type WarmBootstrapWalletSessionContext = {
+  readonly session: RouterApiWalletSessionAuthorizationV2AdmissionContext['authorization']['session'];
+  readonly quota:
+    | RouterApiWalletSessionAuthorizationV2AdmissionContext['authorization']['quota']
+    | RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext['status']['quota'];
+  readonly authority: RouterApiWalletSessionAuthorizationV2AdmissionContext['authority'];
+  readonly authMethod: RouterApiWalletSessionAuthorizationV2AdmissionContext['authMethod'];
+};
+
+function warmBootstrapWalletSessionContext(
+  authorization: Exclude<
+    Extract<RouterAbEd25519YaoRecoveryAuthorizationResult, { readonly ok: true }>['authorization'],
+    { readonly kind: 'wallet_recovery' }
+  >,
+): WarmBootstrapWalletSessionContext {
+  switch (authorization.kind) {
+    case 'wallet_session_v2':
+      return {
+        session: authorization.context.authorization.session,
+        quota: authorization.context.authorization.quota,
+        authority: authorization.context.authority,
+        authMethod: authorization.context.authMethod,
+      };
+    case 'wallet_session_v2_exhausted_candidate':
+      return {
+        session: authorization.context.status.session,
+        quota: authorization.context.status.quota,
+        authority: authorization.context.authority,
+        authMethod: authorization.context.authMethod,
+      };
+  }
 }
 
 export function recoveryAuthorityProjection(
@@ -792,7 +835,7 @@ export type WarmBootstrapLinkedEd25519AuthorityProjectionV1 = {
 
 export type WarmBootstrapLinkedEd25519AuthorityReaderV1 = {
   readInstalledEd25519AuthorityByMaterialActivationV1(input: {
-    readonly walletId: RouterApiWalletSessionAuthorizationV2AdmissionContext['authority']['walletId'];
+    readonly walletId: WarmBootstrapWalletSessionContext['authority']['walletId'];
     readonly materialActivation: MpcMaterialActivationRef;
   }): Promise<WarmBootstrapLinkedEd25519AuthorityProjectionV1 | null>;
 };
@@ -813,7 +856,7 @@ function sameEd25519PublicKeyBytes(left: readonly number[], right: readonly numb
  * satisfy the exact-session predicates below.
  */
 async function resolveWarmBootstrapCapabilityForAuthority(input: {
-  readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
+  readonly context: WarmBootstrapWalletSessionContext;
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
   readonly linkedAuthorities?: WarmBootstrapLinkedEd25519AuthorityReaderV1 | null;
 }): Promise<RouterAbEd25519YaoActiveCapabilityDescriptorV1 | null> {
@@ -884,11 +927,11 @@ async function resolveWarmBootstrapCapabilityForAuthority(input: {
 
 export function warmBootstrapCapabilityMatchesStableIdentity(input: {
   readonly request: RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1;
-  readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
+  readonly context: WarmBootstrapWalletSessionContext;
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
 }): boolean {
-  const session = input.context.authorization.session;
-  const quota = input.context.authorization.quota;
+  const session = input.context.session;
+  const quota = input.context.quota;
   const activation = input.context.authority.signerActivations.ed25519;
   const ed25519Subject = session.capabilitySubjects.find(
     (subject) => subject.kind === 'sign' && subject.keyFamily === 'ed25519',
@@ -951,7 +994,7 @@ export async function buildWarmRecoveryBootstrapResponse(input: {
   readonly linkedAuthorities?: WarmBootstrapLinkedEd25519AuthorityReaderV1 | null;
 }): Promise<RouterAbEd25519YaoWarmRecoveryBootstrapV1 | null> {
   if (input.authorization.kind === 'wallet_recovery') return null;
-  const context = input.authorization.context;
+  const context = warmBootstrapWalletSessionContext(input.authorization);
   const capability = await resolveWarmBootstrapCapabilityForAuthority({
     context,
     capability: input.capability,
@@ -967,7 +1010,7 @@ export async function buildWarmRecoveryBootstrapResponse(input: {
   ) {
     return null;
   }
-  const session = context.authorization.session;
+  const session = context.session;
   return {
     kind: 'router_ab_ed25519_yao_v2_session_bootstrap_v1',
     walletId: String(session.walletId),
@@ -976,7 +1019,7 @@ export async function buildWarmRecoveryBootstrapResponse(input: {
     signerSlot: capability.applicationBinding.key_creation_signer_slot,
     thresholdSessionId: capability.lifecycle.thresholdSessionId,
     walletSessionId: session.walletSessionId,
-    quotaId: context.authorization.quota.quotaId,
+    quotaId: context.quota.quotaId,
     signingWorkerId: capability.lifecycle.signingWorkerId,
     thresholdExpiresAtMs: session.expiresAtMs,
     participantIds: capability.participantIds,

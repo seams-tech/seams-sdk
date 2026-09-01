@@ -351,7 +351,10 @@ import {
 import { buildFreshEmailOtpRoutePlan } from '@/core/signingEngine/session/emailOtp/routePlan';
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
 import { activateWalletCustodyEd25519CapabilityV1 } from '@/core/signingEngine/walletCustody/activateEd25519Capability';
-import { disposeWalletCustodyEd25519ActiveClientV1 } from '@/core/signingEngine/walletCustody/ed25519ActiveClient';
+import {
+  disposeWalletCustodyEd25519ActiveClientV1,
+  WalletCustodyEd25519ActiveClientV1,
+} from '@/core/signingEngine/walletCustody/ed25519ActiveClient';
 import type { WalletCustodyCacheEnvelopeV1 } from '@/core/signingEngine/walletCustody/openCustodyCache';
 import {
   resolveWalletCustodyEd25519ProjectionV1,
@@ -399,6 +402,7 @@ import {
 import { generateSessionId } from '@/core/signingEngine/session/passkey/prfCache';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import {
+  resolveEmailOtpEd25519OperationRecoveryBootstrapV1,
   resolveWalletCustodyEd25519ExportContextV1,
   type EmailOtpEd25519ExportAuthorizationReadResultV1,
   type EmailOtpEd25519YaoRecoveredCapabilityActivationRequestV1,
@@ -875,19 +879,19 @@ async function resolveExactEmailOtpEd25519ActivationAuthorization(args: {
     walletAuthMethodId: method.walletAuthMethodId,
     authorityDigestB64u: authority.authorityDigestB64u,
   });
-  if (
-    args.verifiedAuthority &&
-    (args.verifiedAuthority.walletId !== authorityRef.walletId ||
-      args.verifiedAuthority.walletAuthMethodId !== authorityRef.walletAuthMethodId ||
-      args.verifiedAuthority.authorityDigest !== authorityRef.authorityDigest)
-  ) {
-    throw new Error('[SigningEngine][near] verified Email OTP activation authority changed');
-  }
-  await resolveExactEmailOtpFactorAuthority({
+  const factorAuthority = await resolveExactEmailOtpFactorAuthority({
     authMethod: method,
     emailHashHex: args.emailHashHex,
     providerSubject: args.providerSubject,
   });
+  const factorAuthorityRef = await walletAuthAuthorityRef({ authority: factorAuthority });
+  if (
+    args.verifiedAuthority &&
+    (args.verifiedAuthority.walletId !== factorAuthorityRef.walletId ||
+      args.verifiedAuthority.walletAuthMethodId !== factorAuthorityRef.walletAuthMethodId)
+  ) {
+    throw new Error('[SigningEngine][near] verified Email OTP activation authority changed');
+  }
   const exact = args.exactAuthorization;
   if (exact) {
     if (
@@ -2430,17 +2434,12 @@ function assertNeverSdkLifecycleEventName(value: never): never {
   throw new Error(`Unsupported SDK lifecycle event: ${String(value)}`);
 }
 
-async function readBrowserPasskeyCustodySessionCache(
-  key: string,
-): Promise<unknown | undefined> {
+async function readBrowserPasskeyCustodySessionCache(key: string): Promise<unknown | undefined> {
   if (IndexedDBManager.isDisabled()) return undefined;
   return await IndexedDBManager.getAppState<unknown>(key);
 }
 
-async function writeBrowserPasskeyCustodySessionCache(
-  key: string,
-  value: unknown,
-): Promise<void> {
+async function writeBrowserPasskeyCustodySessionCache(key: string, value: unknown): Promise<void> {
   if (IndexedDBManager.isDisabled()) return;
   await IndexedDBManager.setAppState(key, value);
 }
@@ -2522,9 +2521,7 @@ export class BrowserSigningSurface {
     nearClient: NearClient,
     deps: BrowserSigningSurfaceConstructorDeps,
   ) {
-    configurePasskeyCustodySessionCachePersistence(
-      browserPasskeyCustodySessionCachePersistence,
-    );
+    configurePasskeyCustodySessionCachePersistence(browserPasskeyCustodySessionCachePersistence);
     this.seamsWebConfigs = seamsWebConfigs;
     this.ed25519YaoPublicCapabilityReferences = deps.ed25519YaoPublicCapabilityReferences;
     this.appearance = seamsWebConfigs.ui.appearance;
@@ -4954,6 +4951,27 @@ export class BrowserSigningSurface {
         walletId: context.input.walletId,
         proof: request.proof,
       });
+    const operationSubject = {
+      kind: 'exact_ed25519_export_material' as const,
+      signer: identity.signer,
+      auth: identity.auth,
+      thresholdSessionId: identity.thresholdSessionId,
+    };
+    const bootstrap = await resolveEmailOtpEd25519OperationRecoveryBootstrapV1({
+      subject: operationSubject,
+      expectedMaterialActivation: context.materialActivation,
+      authorization: await this.readExactEmailOtpEd25519ExportAuthorization({
+        subject: operationSubject,
+        expectedMaterialActivation: context.materialActivation,
+      }),
+      source: {
+        signingWorkerId: context.sealedMaterial.binding.signingWorkerId,
+        participantIds: context.sealedMaterial.binding.participantIds,
+        registeredPublicKeyB64u: context.sealedMaterial.binding.registeredPublicKeyB64u,
+      },
+      relayerUrl: context.facts.relayerUrl,
+      fetch: globalThis.fetch.bind(globalThis),
+    });
     const recovered = await requestRehydrateEmailOtpEd25519YaoOperationMaterial({
       workerCtx: this.signerWorkerManager.getContext(),
       payload: {
@@ -4976,6 +4994,7 @@ export class BrowserSigningSurface {
           kind: 'found',
           material: context.sealedMaterial,
         },
+        bootstrap,
         normalSigningRequest: request.normalSigningRequest,
         displayDigest: request.displayDigest,
         proof: request.proof,
@@ -4993,34 +5012,25 @@ export class BrowserSigningSurface {
         throw error;
       }
     }
-    await this.activateEmailOtpEd25519CustodyCapabilityInternal({
-      commitQueue: 'already_acquired',
-      walletSession: {
-        walletId: context.input.walletId,
-        walletSessionUserId: String(context.input.walletId),
-      },
-      providerSubject: identity.auth.providerSubjectId,
-      emailHashHex: context.emailHashHex,
-      signerSlot: context.publicLane.signerSlot,
-      expectedOperationalPublicKey: context.operationalPublicKey,
-      expectedThresholdSessionId: String(context.publicLane.thresholdSessionId),
-      bootstrap: recovered.bootstrap,
-      activeClientHandle: recovered.activeClientHandle,
-      metadata: recovered.metadata,
-    });
-    const active = this.enginePorts.ed25519YaoActiveClients.resolve({
-      walletId: context.input.walletId,
-      nearAccountId: context.input.nearAccountId,
-      materialActivation: context.materialActivation,
-    });
-    if (!active) {
-      throw new Error('[SigningEngine][near] recovered Email OTP material is unavailable');
+    const activeClient = new WalletCustodyEd25519ActiveClientV1(
+      this.signerWorkerManager.getContext(),
+      recovered.activeClientHandle,
+      recovered.metadata,
+    );
+    let material: NearEd25519YaoOperationMaterial;
+    try {
+      material = validateExactNearEd25519YaoOperationMaterial({
+        material: {
+          activeClient,
+          facts: context.facts,
+        },
+        input: context.input,
+        expectedActivation: context.materialActivation,
+      });
+    } catch (error) {
+      activeClient.dispose();
+      throw error;
     }
-    const material = validateExactNearEd25519YaoOperationMaterial({
-      material: active,
-      input: context.input,
-      expectedActivation: context.materialActivation,
-    });
     return {
       material,
       issuedAuthorization: {
@@ -6693,6 +6703,10 @@ export class BrowserSigningSurface {
       if (unlock.walletCustodyEd25519Material) {
         await this.persistWalletCustodyEd25519Material(unlock.walletCustodyEd25519Material);
       }
+      await walletSessionAuthorizations.replaceExactActive({
+        active: unlock.walletSessionAuthorization.record,
+        operationCredential: unlock.walletSessionAuthorization.operationCredential,
+      });
       const signer = await this.activateEmailOtpEd25519CustodyCapabilityInternal({
         commitQueue: 'acquire',
         walletSession: args.walletSession,
@@ -6705,28 +6719,21 @@ export class BrowserSigningSurface {
         activeClientHandle: unlock.activeClientHandle,
         metadata: unlock.metadata,
         authority,
+        exactAuthorization: unlock.walletSessionAuthorization,
       });
-      const exactSession = exactWalletSessionWithOperationCredentialOrThrow(
-        await walletSessionAuthorizations.readExactWithOperationCredential({
-          walletId: args.walletSession.walletId,
-          authorityId: unlock.recovery.verifiedAuthorityProjection.authority.authorityId,
-          authMethodId: unlock.recovery.verifiedAuthorityProjection.authMethod.walletAuthMethodId,
-        }),
-        '[SigningEngine][ed25519] exact Wallet Session requires a newer client',
+      await establishUnlockedExportRootCapabilityWithWorkerV1(
+        this.walletCustodyCeremonyTransportV1(),
+        {
+          existingEnvelope: unlock.ed25519ExportRootCustody.existingEnvelope,
+          existingFactorSecret: unlock.ed25519ExportRootCustody.factorSecret32,
+          walletId: String(args.walletSession.walletId),
+          walletAuthMethodId: String(unlock.walletSessionAuthorization.record.authMethodId),
+          walletSessionId: String(
+            unlock.walletSessionAuthorization.operationCredential.walletSessionId,
+          ),
+          expiresAtMs: unlock.walletSessionAuthorization.record.expiresAtMs,
+        },
       );
-      if (exactSession) {
-        await establishUnlockedExportRootCapabilityWithWorkerV1(
-          this.walletCustodyCeremonyTransportV1(),
-          {
-            existingEnvelope: unlock.ed25519ExportRootCustody.existingEnvelope,
-            existingFactorSecret: unlock.ed25519ExportRootCustody.factorSecret32,
-            walletId: String(args.walletSession.walletId),
-            walletAuthMethodId: String(exactSession.record.authMethodId),
-            walletSessionId: String(exactSession.operationCredential.walletSessionId),
-            expiresAtMs: exactSession.record.expiresAtMs,
-          },
-        );
-      }
       return signer;
     } catch (error) {
       await disposeWalletCustodyEd25519ActiveClientV1({
