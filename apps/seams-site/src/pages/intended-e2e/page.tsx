@@ -3022,7 +3022,16 @@ function exactWalletAuthMethodIdFromSession(session: WalletSession): string {
             projectedWalletAuthMethodId !== null &&
             projectedWalletAuthMethodId !== walletAuthMethodId
           ) {
-            throw new Error('Wallet session capability projections disagree on auth method');
+            const listed = projection.capabilities
+              .map((entry) =>
+                entry.kind === 'evm_family_ecdsa'
+                  ? `${JSON.stringify(entry.subject.capability)}=>${String(entry.subject.authority.walletAuthMethodId)}`
+                  : entry.kind,
+              )
+              .join('; ');
+            throw new Error(
+              `Wallet session capability projections disagree on auth method: ${listed}`,
+            );
           }
           projectedWalletAuthMethodId = walletAuthMethodId;
           break;
