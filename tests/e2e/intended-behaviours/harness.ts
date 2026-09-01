@@ -2172,10 +2172,12 @@ export class IntendedBehaviourHarness {
     await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
       'data-login-state',
       'logged_in',
+      { timeout: 30_000 },
     );
     await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
       'data-login-wallet-id',
       expectedWalletId,
+      { timeout: 30_000 },
     );
   }
 
@@ -2235,9 +2237,7 @@ export class IntendedBehaviourHarness {
       'NEAR signing',
     );
     const traceStartIndex = this.trace.length;
-    const snapshot = await this.runIntendedPageAction('signNearTransaction', 'intended-sign-near', {
-      nearAccountId: registration.nearAccountId,
-    });
+    const snapshot = await this.runNearSigningPageAction(registration.nearAccountId);
     const result = requireNearSigningResult(snapshot, {
       walletId: this.walletId,
       nearAccountId: registration.nearAccountId,
@@ -2265,6 +2265,21 @@ export class IntendedBehaviourHarness {
       `near signing signature verified wallet=${result.walletId} near=${result.nearAccountId} bytes=${result.signedTransactionByteLength}`,
     );
     return summary;
+  }
+
+  private async runNearSigningPageAction(nearAccountId: string): Promise<IntendedPageSnapshot> {
+    try {
+      return await this.runIntendedPageAction('signNearTransaction', 'intended-sign-near', {
+        nearAccountId,
+      });
+    } catch (error) {
+      if (!isAutomatedSecureConfirmationCancellation(error)) throw error;
+      this.recordService('retrying transient automated NEAR secure-confirm cancellation');
+      await this.page.waitForTimeout(250);
+      return await this.runIntendedPageAction('signNearTransaction', 'intended-sign-near', {
+        nearAccountId,
+      });
+    }
   }
 
   async refreshPagePreservingWalletStorage(): Promise<void> {
@@ -2750,6 +2765,7 @@ export class IntendedBehaviourHarness {
         },
       );
       this.latestPageSnapshot = snapshot;
+      await waitForWalletIframeConfirmationSettlement(this.page, action);
       return snapshot;
     } catch (error) {
       this.latestWalletIframeAutoConfirmDiagnostics = diagnostics;
@@ -5947,7 +5963,7 @@ async function fillWalletIframeEmailOtpIfAvailable(
     diagnostics?: WalletIframeAutoConfirmDiagnostics;
     diagnosticsStartedAtMs?: number;
   },
-): Promise<boolean> {
+): Promise<'absent' | 'filled' | 'ready'> {
   const timeoutMs = Math.max(50, Math.floor(opts?.timeoutMs ?? 500));
   const input = frame
     .locator(
@@ -5958,9 +5974,9 @@ async function fillWalletIframeEmailOtpIfAvailable(
     .waitFor({ state: 'visible', timeout: timeoutMs })
     .then(() => true)
     .catch(() => false);
-  if (!visible) return false;
+  if (!visible) return 'absent';
   const currentValue = await input.inputValue().catch(() => '');
-  if (/^\d{6}$/.test(currentValue)) return true;
+  if (/^\d{6}$/.test(currentValue)) return 'ready';
   recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstOtpInputVisibleMs');
   let otpIdentity: { challengeId: string; walletId: string | null } | null = null;
   try {
@@ -5996,7 +6012,7 @@ async function fillWalletIframeEmailOtpIfAvailable(
     if (opts?.diagnostics) {
       opts.diagnostics.lastOtpError = compactUnknownErrorForDiagnostics(error);
     }
-    return false;
+    return 'absent';
   }
   if (!otpIdentity && opts?.diagnostics) {
     opts.diagnostics.otpChallengeMissing = true;
@@ -6008,7 +6024,7 @@ async function fillWalletIframeEmailOtpIfAvailable(
     if (opts?.diagnostics) {
       opts.diagnostics.lastOtpError = compactUnknownErrorForDiagnostics(error);
     }
-    return false;
+    return 'absent';
   }
   if (opts?.diagnostics) {
     opts.diagnostics.otpFilled = true;
@@ -6021,7 +6037,7 @@ async function fillWalletIframeEmailOtpIfAvailable(
       opts.diagnostics.clicked = true;
     }
   }
-  return true;
+  return 'filled';
 }
 
 function compactUnknownErrorForDiagnostics(error: unknown): string {
@@ -6127,6 +6143,90 @@ async function readIntendedEmailOtpCodeFromPage(
   return otpCode;
 }
 
+function intendedActionRequiresSecureConfirmation(action: string | null): boolean {
+  switch (action) {
+    case 'signNearTransaction':
+    case 'signTempoTransaction':
+    case 'signArcEvmTransaction':
+    case 'exportEd25519Key':
+    case 'exportEcdsaKey':
+      return true;
+    default:
+      return false;
+  }
+}
+
+function isAutomatedSecureConfirmationCancellation(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return (
+    message.includes('Request cancelled.') &&
+    message.includes('User cancelled secure confirm request')
+  );
+}
+
+function intendedActionRequiresConfirmationSettlement(action: string): boolean {
+  return (
+    action === 'signNearTransaction' ||
+    action === 'signTempoTransaction' ||
+    action === 'signArcEvmTransaction'
+  );
+}
+
+function walletIframeSecureConfirmationControl(frame: FrameLocator): Locator {
+  return frame
+    .locator('#w3a-confirm-portal button.btn-confirm, #w3a-confirm-portal button.confirm')
+    .last();
+}
+
+async function dispatchWalletIframeConfirmation(input: {
+  readonly control: Locator;
+  readonly intendedAction: string | null;
+  readonly timeoutMs: number;
+}): Promise<void> {
+  if (!intendedActionRequiresSecureConfirmation(input.intendedAction)) {
+    await input.control.click({ timeout: input.timeoutMs });
+    return;
+  }
+  await input.control.evaluate((element) => {
+    if (!(element instanceof HTMLButtonElement) || element.disabled) {
+      throw new Error('Secure confirmation control is not enabled');
+    }
+    element.click();
+  });
+}
+
+async function waitForWalletIframeConfirmationSettlement(
+  page: Page,
+  action: string,
+): Promise<void> {
+  if (!intendedActionRequiresConfirmationSettlement(action)) return;
+  const iframe = page.locator('iframe[allow*="publickey-credentials-get"]').last();
+  if ((await iframe.count()) === 0) return;
+  await walletIframeSecureConfirmationControl(iframe.contentFrame()).waitFor({
+    state: 'hidden',
+    timeout: 5_000,
+  });
+  await page.waitForTimeout(100);
+}
+
+async function resolveWalletIframeConfirmControl(input: {
+  readonly frame: FrameLocator;
+  readonly intendedAction: string | null;
+  readonly timeoutMs: number;
+}): Promise<Locator> {
+  const secureConfirm = walletIframeSecureConfirmationControl(input.frame);
+  if (intendedActionRequiresSecureConfirmation(input.intendedAction)) {
+    await secureConfirm.waitFor({ state: 'visible', timeout: input.timeoutMs });
+    return secureConfirm;
+  }
+  if (await secureConfirm.isVisible().catch(() => false)) {
+    return secureConfirm;
+  }
+  return input.frame
+    .locator('[data-seams-registration-activation-start="true"], [data-auth-menu-primary]')
+    .first();
+}
+
 async function clickWalletIframeConfirm(
   page: Page,
   dispatchedConfirmations: WalletIframeConfirmationFingerprint[],
@@ -6151,19 +6251,19 @@ async function clickWalletIframeConfirm(
     const frame = iframeEl.contentFrame();
     recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstFrameResolvedMs');
 
-    const otpFilled = await fillWalletIframeEmailOtpIfAvailable(page, frame, {
-      timeoutMs: Math.min(500, timeoutMs),
-      diagnostics: opts?.diagnostics,
-      diagnosticsStartedAtMs: opts?.diagnosticsStartedAtMs,
-    });
-    if (otpFilled) return true;
-
     let intendedAction: string | null = null;
     try {
       intendedAction = await page.getByTestId('intended-action-status').getAttribute('data-action');
     } catch {
       intendedAction = null;
     }
+
+    const otpState = await fillWalletIframeEmailOtpIfAvailable(page, frame, {
+      timeoutMs: Math.min(500, timeoutMs),
+      diagnostics: opts?.diagnostics,
+      diagnosticsStartedAtMs: opts?.diagnosticsStartedAtMs,
+    });
+    if (otpState === 'filled') return true;
     if (intendedAction === 'unlockEmailOtpWallet' || intendedAction === 'unlockWithAddedEmailOtp') {
       const google = frame.locator('[data-auth-menu-provider="google"]').first();
       let googleVisible = false;
@@ -6222,16 +6322,11 @@ async function clickWalletIframeConfirm(
       }
     }
 
-    const confirmBtn = frame
-      .locator(
-        [
-          '[data-seams-registration-activation-start="true"]',
-          '[data-auth-menu-primary]',
-          '#w3a-confirm-portal button.btn-confirm',
-          '#w3a-confirm-portal button.confirm',
-        ].join(', '),
-      )
-      .first();
+    const confirmBtn = await resolveWalletIframeConfirmControl({
+      frame,
+      intendedAction,
+      timeoutMs,
+    });
     await confirmBtn.waitFor({ state: 'visible', timeout: timeoutMs });
     recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstButtonVisibleMs');
     const fingerprint = await readWalletIframeConfirmationFingerprint(confirmBtn, intendedAction);
@@ -6239,7 +6334,11 @@ async function clickWalletIframeConfirm(
       return false;
     }
     const clickStartedAtMs = Date.now();
-    await confirmBtn.click({ timeout: timeoutMs });
+    await dispatchWalletIframeConfirmation({
+      control: confirmBtn,
+      intendedAction,
+      timeoutMs,
+    });
     dispatchedConfirmations.push(fingerprint);
     if (opts?.diagnostics) {
       opts.diagnostics.clicked = true;

@@ -10,6 +10,18 @@ export type EmailOtpRouteResponse = {
 
 const EMAIL_OTP_FACTOR_RELEASE_AAD_DOMAIN = 'seams/email-otp/factor-release/v1';
 
+function decodeEmailOtpFactorSecret32(value: string): Uint8Array {
+  const magnitude = base64UrlDecode(value);
+  if (magnitude.length === 0 || magnitude.length > 32) {
+    magnitude.fill(0);
+    throw new Error('Email OTP factor secret magnitude is invalid');
+  }
+  const factorSecret32 = new Uint8Array(32);
+  factorSecret32.set(magnitude, factorSecret32.length - magnitude.length);
+  magnitude.fill(0);
+  return factorSecret32;
+}
+
 function emailOtpFactorReleaseAad(input: {
   readonly walletId: string;
   readonly enrollmentId: string;
@@ -46,16 +58,12 @@ export async function sealEmailOtpFactorSecretForWorker(input: {
   let factorSecret32: Uint8Array;
   let workerPublicKey65: Uint8Array;
   try {
-    factorSecret32 = base64UrlDecode(input.factorSecret32B64u);
+    factorSecret32 = decodeEmailOtpFactorSecret32(input.factorSecret32B64u);
     workerPublicKey65 = base64UrlDecode(input.workerEphemeralPublicKey65B64u);
   } catch {
     return { ok: false, code: 'invalid_body', message: 'Email OTP factor release key is invalid' };
   }
-  if (
-    factorSecret32.length !== 32 ||
-    workerPublicKey65.length !== 65 ||
-    workerPublicKey65[0] !== 4
-  ) {
+  if (workerPublicKey65.length !== 65 || workerPublicKey65[0] !== 4) {
     factorSecret32.fill(0);
     return { ok: false, code: 'invalid_body', message: 'Email OTP factor release key is invalid' };
   }

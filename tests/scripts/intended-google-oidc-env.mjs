@@ -7,7 +7,7 @@ export const defaultEnvFile = '.env.local';
 export const defaultGoogleProjectId = 'seams-501403';
 export const defaultGoogleClientId =
   '971053349716-2ck8cp6ucohvkd075aebdtv9jskla2b5.apps.googleusercontent.com';
-export const defaultGoogleTokenMinimumTtlSeconds = 10 * 60;
+export const defaultGoogleTokenMinimumTtlSeconds = 20 * 60;
 
 const defaultEnvFileHeader = [
   '# Canonical local environment for the Seams frontend, gateway, workers, and tests.',

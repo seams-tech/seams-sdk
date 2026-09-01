@@ -24,6 +24,7 @@ import {
   sameRouterAbEcdsaDerivationNormalSigningScopeV1,
   type RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
+  type RouterAbEcdsaDerivationNormalSigningScopeV1,
   type RouterAbEcdsaOperationStepUpPreparationV1Wire,
   type RouterAbOwnerOperationAuthorizationDecisionV1Wire,
   type RouterAbPublicDigest32V1Wire,
@@ -3007,19 +3008,18 @@ export async function authenticateRouterAbWalletOperationStepUp(input: {
 
 export async function authenticateRouterAbEcdsaOperationStepUp(input: {
   readonly headers: Record<string, string | string[] | undefined>;
-  readonly request:
-    | RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire
-    | RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
+  readonly request: RouterAbEcdsaOperationStepUpAuthenticationRequest;
   readonly authorizedOperations: RouterApiAuthorizedOperationService | null | undefined;
   readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   readonly resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
 }): Promise<RouterAbExactOperationStepUpAuthenticationResult> {
+  const scope = routerAbEcdsaOperationStepUpScope(input.request);
   return await authenticateRouterAbWalletOperationStepUpIdentity({
     kind: 'wallet_session_operation_credential_v1',
     headers: input.headers,
     keyFamily: 'ecdsa_secp256k1',
     operationKind: 'evm.sign_transaction',
-    walletId: input.request.scope.wallet_id,
+    walletId: scope.wallet_id,
     materialOwner: input.request.material_activation.material_owner,
     materialActivation: input.request.material_activation,
     requestExpiresAtMs: input.request.expires_at_ms,
@@ -4007,6 +4007,16 @@ type RouterAbEcdsaOperationStepUpRequest =
   | RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire
   | RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
 
+type RouterAbEcdsaOperationStepUpAuthenticationRequest =
+  | RouterAbEcdsaOperationStepUpRequest
+  | RouterAbEcdsaOperationStepUpPreparationV1Wire;
+
+function routerAbEcdsaOperationStepUpScope(
+  request: RouterAbEcdsaOperationStepUpAuthenticationRequest,
+): RouterAbEcdsaDerivationNormalSigningScopeV1 {
+  return 'scope' in request ? request.scope : request.normal_signing_scope;
+}
+
 function parseRouterAbEcdsaOperationStepUpRequest(input: {
   readonly phase: 'prepare';
   readonly body: Record<string, unknown>;
@@ -4223,7 +4233,7 @@ type RouterAbEcdsaExhaustedCandidateOperationStepUpAuthentication =
 
 async function resolveRouterAbEcdsaExhaustedCandidateOperationStepUpAuthentication(input: {
   readonly headers: Record<string, string | string[] | undefined>;
-  readonly request: RouterAbEcdsaOperationStepUpRequest;
+  readonly request: RouterAbEcdsaOperationStepUpAuthenticationRequest;
   readonly authorizedOperations: RouterApiAuthorizedOperationService;
   readonly authorizationSessions: RouterApiAuthorizationSessionService;
   readonly resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
@@ -4265,6 +4275,7 @@ async function resolveRouterAbEcdsaExhaustedCandidateOperationStepUpAuthenticati
   if (!candidate) return null;
 
   const session = candidate.status.session;
+  const scope = routerAbEcdsaOperationStepUpScope(input.request);
   const admission = resolveWalletSessionAuthorizationV2Admission({
     authorization: session,
     authority: candidate.authority,
@@ -4291,8 +4302,8 @@ async function resolveRouterAbEcdsaExhaustedCandidateOperationStepUpAuthenticati
   );
   if (
     admission.operationKind !== 'evm.sign_transaction' ||
-    session.walletId.toString() !== input.request.scope.wallet_id ||
-    input.request.material_activation.material_owner !== input.request.scope.wallet_id ||
+    session.walletId.toString() !== scope.wallet_id ||
+    input.request.material_activation.material_owner !== scope.wallet_id ||
     !Number.isSafeInteger(input.request.expires_at_ms) ||
     input.request.expires_at_ms > session.expiresAtMs ||
     !sameRouterAbMpcMaterialActivationRef(
@@ -4311,7 +4322,7 @@ async function resolveRouterAbEcdsaExhaustedCandidateOperationStepUpAuthenticati
   >;
   try {
     activeMaterial = await input.resolveEcdsaMaterialActivation({
-      walletId: input.request.scope.wallet_id,
+      walletId: scope.wallet_id,
       materialActivation: admittedMaterialActivation,
     });
   } catch {
@@ -4338,7 +4349,7 @@ async function resolveRouterAbEcdsaExhaustedCandidateOperationStepUpAuthenticati
       normalSigning.scope.material_activation,
       admittedMaterialActivation,
     ) ||
-    normalSigning.scope.wallet_id !== input.request.scope.wallet_id ||
+    normalSigning.scope.wallet_id !== scope.wallet_id ||
     normalSigning.scope.public_identity.threshold_public_key33_b64u !==
       admission.signer.thresholdPublicKey33B64u ||
     normalSigning.scope.public_identity.ethereum_address20_b64u !==
@@ -4387,6 +4398,36 @@ async function resolveRouterAbEcdsaExhaustedCandidateOperationStepUpAuthenticati
     requestOrigin,
     expiresAtMs: session.expiresAtMs,
   };
+}
+
+export async function authenticateRouterAbEcdsaOperationStepUpWithExhaustedCandidate(input: {
+  readonly headers: Record<string, string | string[] | undefined>;
+  readonly request: RouterAbEcdsaOperationStepUpAuthenticationRequest;
+  readonly authorizedOperations: RouterApiAuthorizedOperationService | null | undefined;
+  readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
+  readonly resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
+}): Promise<
+  | RouterAbExactOperationStepUpAuthenticationResult
+  | RouterAbEcdsaExhaustedCandidateOperationStepUpAuthentication
+> {
+  const authenticated = await authenticateRouterAbEcdsaOperationStepUp(input);
+  if (
+    authenticated.ok ||
+    !input.authorizedOperations ||
+    !input.authorizationSessions ||
+    !isWalletSessionUnavailableStepUpError(authenticated.error)
+  ) {
+    return authenticated;
+  }
+  return (
+    (await resolveRouterAbEcdsaExhaustedCandidateOperationStepUpAuthentication({
+      headers: input.headers,
+      request: input.request,
+      authorizedOperations: input.authorizedOperations,
+      authorizationSessions: input.authorizationSessions,
+      resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
+    })) ?? authenticated
+  );
 }
 
 function validateRouterAbEcdsaOperationStepUpIdentity(input: {
@@ -4558,35 +4599,13 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
   if (request.authorization.kind !== 'operation_step_up') {
     return routerAbStepUpError(400, 'invalid_body', 'Operation step-up authority is required');
   }
-  let authenticated:
-    | RouterAbExactOperationStepUpAuthenticationResult
-    | RouterAbEcdsaExhaustedCandidateOperationStepUpAuthentication =
-    await authenticateRouterAbEcdsaOperationStepUp({
-      headers: input.headers,
-      request,
-      authorizedOperations: input.authorizedOperations,
-      authorizationSessions: input.authorizationSessions,
-      resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
-    });
-  if (
-    !authenticated.ok &&
-    input.authorizedOperations &&
-    input.authorizationSessions &&
-    isWalletSessionUnavailableStepUpError(authenticated.error)
-  ) {
-    const exhaustedCandidate =
-      await resolveRouterAbEcdsaExhaustedCandidateOperationStepUpAuthentication({
-        headers: input.headers,
-        request,
-        authorizedOperations: input.authorizedOperations,
-        authorizationSessions: input.authorizationSessions,
-        resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
-      });
-    if (exhaustedCandidate) {
-      if (!exhaustedCandidate.ok) return exhaustedCandidate.error;
-      authenticated = exhaustedCandidate;
-    }
-  }
+  const authenticated = await authenticateRouterAbEcdsaOperationStepUpWithExhaustedCandidate({
+    headers: input.headers,
+    request,
+    authorizedOperations: input.authorizedOperations,
+    authorizationSessions: input.authorizationSessions,
+    resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
+  });
   if (!authenticated.ok) return authenticated.error;
   const identityFailure = validateRouterAbEcdsaOperationStepUpIdentity({
     request,

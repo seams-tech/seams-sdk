@@ -249,6 +249,63 @@ test('Email OTP factor release encrypts the stored factor to the requesting work
   expect(decrypted).toEqual(factorSecret32);
 });
 
+test('Email OTP factor release restores leading zeroes stripped by Shamir integer encoding', async () => {
+  const factorSecret32 = new Uint8Array(32);
+  factorSecret32.set(new Uint8Array(31).fill(7), 1);
+  const workerKeyPair = (await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    ['deriveBits'],
+  )) as CryptoKeyPair;
+  const workerPublicKey65 = new Uint8Array(
+    await crypto.subtle.exportKey('raw', workerKeyPair.publicKey),
+  );
+
+  const response = await sealEmailOtpFactorSecretForWorker({
+    factorSecret32B64u: base64UrlEncode(factorSecret32.subarray(1)),
+    workerEphemeralPublicKey65B64u: base64UrlEncode(workerPublicKey65),
+    walletId: 'wallet-a',
+    enrollmentId: 'email_otp:wallet-a:google:provider-user',
+    enrollmentSealKeyVersion: 'seal-v1',
+    challengeId: 'challenge-1',
+  });
+
+  expect(response.ok).toBe(true);
+  if (!response.ok) throw new Error(response.message);
+  const serverPublicKey = await crypto.subtle.importKey(
+    'raw',
+    base64UrlDecode(response.serverEphemeralPublicKey65B64u),
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    [],
+  );
+  const sharedSecret = await crypto.subtle.deriveBits(
+    { name: 'ECDH', public: serverPublicKey },
+    workerKeyPair.privateKey,
+    256,
+  );
+  const decryptionKey = await crypto.subtle.importKey(
+    'raw',
+    sharedSecret,
+    { name: 'AES-GCM' },
+    false,
+    ['decrypt'],
+  );
+  const decrypted = new Uint8Array(
+    await crypto.subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: base64UrlDecode(response.nonce12B64u),
+        additionalData: factorReleaseAad(),
+        tagLength: 128,
+      },
+      decryptionKey,
+      base64UrlDecode(response.ciphertextB64u),
+    ),
+  );
+  expect(decrypted).toEqual(factorSecret32);
+});
+
 test('Wallet Session factor release admits the exact Email OTP method and Ed25519 subject', async () => {
   const admission = await exactEmailOtpAdmission({
     label: 'email-otp-factor-release-exact',

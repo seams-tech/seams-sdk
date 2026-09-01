@@ -75,7 +75,7 @@ Options:
   --service-account <email>  Service account to impersonate when refresh is needed.
   --client-id <client-id>    Google OIDC audience. Defaults to the local intended client id.
   --env-file <path>          Env file to read/update. Defaults to .env.local.
-  --minimum-ttl <seconds>    Refresh when token has less TTL. Defaults to 600.
+  --minimum-ttl <seconds>    Refresh when token has less TTL. Defaults to 1200.
   --help                     Show this help.
 
 Environment:

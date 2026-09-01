@@ -79,7 +79,13 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     optimizeDeps: walletDistRoot
       ? {
+          noDiscovery: true,
           include: [
+            'react',
+            'react/jsx-runtime',
+            'react/jsx-dev-runtime',
+            'react-dom',
+            'react-dom/client',
             '@seams/wallet',
             '@seams/wallet/advanced',
             '@seams/wallet/react',

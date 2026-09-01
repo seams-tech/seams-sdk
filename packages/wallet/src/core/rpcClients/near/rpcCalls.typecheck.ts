@@ -2,6 +2,7 @@ import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 import type { RouterAbEcdsaPostRegistrationSessionActivationPolicyV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   PasskeyWalletUnlockEd25519Session,
+  PasskeyWalletUnlockInputWithoutEcdsaActivation,
   PasskeyWalletUnlockInputWithEcdsaActivation,
 } from './rpcCalls';
 import { verifyPasskeyWalletUnlock } from './rpcCalls';
@@ -37,5 +38,18 @@ void activatedUnlock.then((result) => {
     } else {
       result.ecdsaSession.session.operation_credential.token satisfies string;
     }
+  }
+});
+
+const ed25519OnlyInput: PasskeyWalletUnlockInputWithoutEcdsaActivation = {
+  type: 'passkey_assertion',
+  challengeId: 'challenge-2',
+  webauthn_authentication: credential,
+  ed25519SessionRequest: { kind: 'requested', remainingUses: 2 },
+};
+
+void verifyPasskeyWalletUnlock('https://relay.example', ed25519OnlyInput).then((result) => {
+  if (result.success && result.ed25519Session) {
+    result.walletSessionAuthorization.operationCredential.walletSessionId satisfies string;
   }
 });

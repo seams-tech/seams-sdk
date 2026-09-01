@@ -33,6 +33,7 @@ import {
   type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
+  authenticateRouterAbEcdsaOperationStepUpWithExhaustedCandidate,
   authenticateRouterAbWalletOperationStepUpIdentity,
   authorizeRouterAbEcdsaDerivationNormalSigningRoute,
   admitRouterAbEcdsaReusableWalletSessionOperation,
@@ -1420,15 +1421,9 @@ async function authorizeEcdsaPoolFillOperationStepUp(input: {
       },
     };
   }
-  const authenticated = await authenticateRouterAbWalletOperationStepUpIdentity({
-    kind: 'wallet_session_operation_credential_v1',
+  const authenticated = await authenticateRouterAbEcdsaOperationStepUpWithExhaustedCandidate({
     headers: Object.fromEntries(input.ctx.request.headers.entries()),
-    keyFamily: 'ecdsa_secp256k1',
-    operationKind: input.operation.operation_kind,
-    walletId: input.operation.wallet_id,
-    materialOwner: input.operation.material_activation.material_owner,
-    materialActivation: input.operation.material_activation,
-    requestExpiresAtMs: input.operation.expires_at_ms,
+    request: input.operation,
     authorizedOperations: input.ctx.service.authorizedOperations,
     authorizationSessions: input.ctx.service.authorizationSessions,
     resolveEcdsaMaterialActivation:
