@@ -15,14 +15,19 @@ export type ExactWalletSessionAuthenticationReadResult =
   | {
       readonly kind: 'authenticated';
       readonly state: Extract<WalletAuthenticationState, { readonly kind: 'authenticated' }>;
+      /** The exact method that opened the session; the public state only
+          carries the method kind. */
+      readonly walletAuthMethodId: WalletAuthMethodId;
     }
   | {
       readonly kind: 'missing';
       readonly state?: never;
+      readonly walletAuthMethodId?: never;
     }
   | {
       readonly kind: 'upgrade_required';
       readonly state?: never;
+      readonly walletAuthMethodId?: never;
     };
 
 type ExactWalletSessionAuthorityScope = {
@@ -106,6 +111,7 @@ export async function readExactWalletSessionAuthentication(args: {
       walletId,
       authMethod: authMethod.kind,
     },
+    walletAuthMethodId: authMethod.walletAuthMethodId,
   };
 }
 

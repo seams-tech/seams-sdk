@@ -3003,7 +3003,7 @@ function exactWalletAuthMethodIdFromSession(session: WalletSession): string {
     throw new Error('Wallet session authentication identity differs from app identity');
   }
 
-  const projectedWalletAuthMethodIds = new Set<string>();
+  let projectedWalletAuthMethodId: string | null = null;
   const projection = session.capabilityProjection;
   if (projection.kind === 'resolved') {
     for (const capability of projection.capabilities) {
@@ -3015,7 +3015,22 @@ function exactWalletAuthMethodIdFromSession(session: WalletSession): string {
           if (!walletAuthMethodId) {
             throw new Error('ECDSA capability projection has no auth method identity');
           }
-          projectedWalletAuthMethodIds.add(walletAuthMethodId);
+          if (
+            projectedWalletAuthMethodId !== null &&
+            projectedWalletAuthMethodId !== walletAuthMethodId
+          ) {
+            const listed = projection.capabilities
+              .map((entry) =>
+                entry.kind === 'evm_family_ecdsa'
+                  ? `${JSON.stringify(entry.subject.capability)}=>${String(entry.subject.authority.walletAuthMethodId)}`
+                  : entry.kind,
+              )
+              .join('; ');
+            throw new Error(
+              `Wallet session capability projections disagree on auth method: ${listed}`,
+            );
+          }
+          projectedWalletAuthMethodId = walletAuthMethodId;
           break;
         }
         default:
@@ -3026,7 +3041,11 @@ function exactWalletAuthMethodIdFromSession(session: WalletSession): string {
 
   const matchingBindings = [];
   for (const binding of session.appIdentity.authMethods) {
-    if (binding.kind === authentication.authMethod) matchingBindings.push(binding);
+    const matchesProjectedIdentity =
+      projectedWalletAuthMethodId === null
+        ? binding.kind === authentication.authMethod
+        : String(binding.walletAuthMethodId) === projectedWalletAuthMethodId;
+    if (matchesProjectedIdentity) matchingBindings.push(binding);
   }
   if (matchingBindings.length !== 1) {
     throw new Error('Wallet session does not identify one exact authenticated auth method');
@@ -3034,12 +3053,6 @@ function exactWalletAuthMethodIdFromSession(session: WalletSession): string {
   const binding = matchingBindings[0];
   if (!binding || binding.kind !== authentication.authMethod) {
     throw new Error('Wallet session capability auth method differs from authentication method');
-  }
-  if (
-    projectedWalletAuthMethodIds.size > 0 &&
-    !projectedWalletAuthMethodIds.has(String(binding.walletAuthMethodId))
-  ) {
-    throw new Error('Wallet session capability projection omits the authenticated auth method');
   }
   return String(binding.walletAuthMethodId);
 }

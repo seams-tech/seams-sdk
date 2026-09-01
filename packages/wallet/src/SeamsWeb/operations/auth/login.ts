@@ -6580,13 +6580,6 @@ export async function getWalletSession(
     resolveWalletSessionAppIdentity(context, readResolution),
     readExactWalletSessionAvailableLanes(context, readResolution.walletId),
   ]);
-  const capabilityProjection = buildWalletSessionCapabilityProjection({
-    subjectSet: readResolution.subjectSet,
-    availableLanes,
-    configuredEcdsaTargets: listConfiguredThresholdEcdsaPublicationTargets(
-      context.configs.network.chains,
-    ).map((target) => target.chainTarget),
-  });
   const restoredAuthenticationRead =
     requestedAuthenticationRead &&
     requestedWalletIdValue &&
@@ -6612,12 +6605,47 @@ export async function getWalletSession(
         '[WalletSession] Wallet Session authorization requires a newer client',
       );
   }
+  /* R109C: the session's capabilities belong to the method that opened it.
+     Sibling methods on one authority keep their own ECDSA continuity rows for
+     their own unlocks - a wallet that recovered and then added a method holds
+     one capability under each - so an authenticated read scopes the ECDSA
+     subjects to the authenticated method instead of projecting both. */
+  const capabilityProjection = buildWalletSessionCapabilityProjection({
+    subjectSet:
+      authentication.kind === 'authenticated' &&
+      restoredAuthenticationRead.kind === 'authenticated'
+        ? scopeSubjectSetToWalletAuthMethod(
+            readResolution.subjectSet,
+            restoredAuthenticationRead.walletAuthMethodId,
+          )
+        : readResolution.subjectSet,
+    availableLanes,
+    configuredEcdsaTargets: listConfiguredThresholdEcdsaPublicationTargets(
+      context.configs.network.chains,
+    ).map((target) => target.chainTarget),
+  });
   return {
     appIdentity,
     authentication,
     capabilityProjection,
     nonceDiagnostics: readWalletSessionNonceDiagnostics(context, appIdentity.nearAccountId),
   };
+}
+
+function scopeSubjectSetToWalletAuthMethod(
+  subjectSet: WalletUnlockSubjectSet,
+  walletAuthMethodId: WalletAuthMethodId,
+): WalletUnlockSubjectSet {
+  const subjects = subjectSet.subjects.filter(
+    (subject) =>
+      subject.kind !== 'evm_family_ecdsa_wallet' ||
+      String(subject.authority.walletAuthMethodId) === String(walletAuthMethodId),
+  );
+  const [first, ...rest] = subjects;
+  /* Fail open to the unscoped set: an authenticated method with no ECDSA
+     subject of its own (an Ed25519-only unlock) must not blank the projection. */
+  if (!first) return subjectSet;
+  return { ...subjectSet, subjects: [first, ...rest] };
 }
 
 /**
