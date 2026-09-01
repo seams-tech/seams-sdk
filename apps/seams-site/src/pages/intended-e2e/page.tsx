@@ -1910,8 +1910,7 @@ class IntendedPageController {
        registering an Ed25519-only set makes the flow expect a threshold address
        the wallet was never going to have. */
     const effectiveEcdsaProfile: IntendedEmailOtpEcdsaTargetProfile =
-      signerSelection &&
-      !signerSelection.signers.some(isEvmFamilyEcdsaSigner)
+      signerSelection && !signerSelection.signers.some(isEvmFamilyEcdsaSigner)
         ? { kind: 'none', sdkTargets: { kind: 'none' }, chainTargets: [] }
         : this.emailOtpEcdsaTargetProfile;
     const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
@@ -2028,9 +2027,7 @@ class IntendedPageController {
           /* Only alongside the exact challenge. The route refuses a named
              subject without one, so the fallback lookup stays on the token's
              identity. */
-          ...(lookup.kind === 'challenge' && challengeSubjectId
-            ? { challengeSubjectId }
-            : {}),
+          ...(lookup.kind === 'challenge' && challengeSubjectId ? { challengeSubjectId } : {}),
         }),
       });
       const json = await response.json();
@@ -3006,7 +3003,7 @@ function exactWalletAuthMethodIdFromSession(session: WalletSession): string {
     throw new Error('Wallet session authentication identity differs from app identity');
   }
 
-  let projectedWalletAuthMethodId: string | null = null;
+  const projectedWalletAuthMethodIds = new Set<string>();
   const projection = session.capabilityProjection;
   if (projection.kind === 'resolved') {
     for (const capability of projection.capabilities) {
@@ -3018,13 +3015,7 @@ function exactWalletAuthMethodIdFromSession(session: WalletSession): string {
           if (!walletAuthMethodId) {
             throw new Error('ECDSA capability projection has no auth method identity');
           }
-          if (
-            projectedWalletAuthMethodId !== null &&
-            projectedWalletAuthMethodId !== walletAuthMethodId
-          ) {
-            throw new Error('Wallet session capability projections disagree on auth method');
-          }
-          projectedWalletAuthMethodId = walletAuthMethodId;
+          projectedWalletAuthMethodIds.add(walletAuthMethodId);
           break;
         }
         default:
@@ -3035,11 +3026,7 @@ function exactWalletAuthMethodIdFromSession(session: WalletSession): string {
 
   const matchingBindings = [];
   for (const binding of session.appIdentity.authMethods) {
-    const matchesProjectedIdentity =
-      projectedWalletAuthMethodId === null
-        ? binding.kind === authentication.authMethod
-        : String(binding.walletAuthMethodId) === projectedWalletAuthMethodId;
-    if (matchesProjectedIdentity) matchingBindings.push(binding);
+    if (binding.kind === authentication.authMethod) matchingBindings.push(binding);
   }
   if (matchingBindings.length !== 1) {
     throw new Error('Wallet session does not identify one exact authenticated auth method');
@@ -3047,6 +3034,12 @@ function exactWalletAuthMethodIdFromSession(session: WalletSession): string {
   const binding = matchingBindings[0];
   if (!binding || binding.kind !== authentication.authMethod) {
     throw new Error('Wallet session capability auth method differs from authentication method');
+  }
+  if (
+    projectedWalletAuthMethodIds.size > 0 &&
+    !projectedWalletAuthMethodIds.has(String(binding.walletAuthMethodId))
+  ) {
+    throw new Error('Wallet session capability projection omits the authenticated auth method');
   }
   return String(binding.walletAuthMethodId);
 }
