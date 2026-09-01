@@ -4,9 +4,16 @@ Created: June 11, 2026
 
 Rewritten: August 28, 2026
 
+R103F compatibility reviewed: August 29, 2026
+
+Ed25519 derivation architecture revised: August 29, 2026
+
 Status: proposed implementation plan. The refresh protocol is unimplemented.
-Production rollout is gated on refresh-invariant Ed25519 derivation and credible
-retired-share erasure.
+Production rollout is gated on a production-shaped Ed25519 role-targeted
+threshold-PRF latency prototype and credible retired-share erasure. Rust
+protocol, benchmark, Deriver-store, and lifecycle work may proceed while
+Refactor 103F is implemented. Shared wallet-server integration and production
+activation follow the R103F gates defined below.
 
 ## Outcome
 
@@ -26,11 +33,18 @@ After the new derivation profile is active, one tenant refresh:
   activation;
 - leaves normal signing available throughout the refresh.
 
+The Ed25519 candidate is acceptable only when its complete warm derivation
+ceremony adds no more than 10 ms at p95 relative to the baseline. The preface
+uses the A/B transport session already required by Yao, adds no additional
+connection or standalone readiness exchange, and never enters the
+normal-signing path.
+
 The scalar refresh is small and well understood. The overall refactor is
 moderate rather than trivial. Two parts carry most of the work:
 
-1. Ed25519 must derive from the refresh-invariant joined tenant root instead of
-   separately hashing the two role shares.
+1. Ed25519 must derive refresh-invariant, role-separated server contribution
+   roots without reconstructing the tenant root or moving HKDF-SHA-256 into the
+   Yao circuit.
 2. Retired shares must remain unrecoverable through Worker rollback, database
    history, backups, or retained wrapping keys.
 
@@ -50,6 +64,7 @@ These terms name different layers:
 | `TenantRootRecoverySetId`   | Identifier for one dedicated tenant-controlled A/B recovery sharing; it is metadata, never root or share material                                             |
 | Tenant recovery share       | One role's share from a tenant-controlled recovery set; it is separate from every operational epoch share                                                     |
 | `RootShareEpoch`            | Existing persisted epoch marker for durable ECDSA material; Refactor 120 does not repurpose or mutate it                                                      |
+| Ed25519 target PRF output    | One refresh-invariant 32-byte threshold-PRF output combined only by its target Deriver and consumed as that role's server-contribution KDF root                |
 | Role operational key        | A role-local KEK, HPKE key, peer-authentication key, or service credential                                                                                    |
 | Wallet custody seed         | The client-controlled secret derivation origin for owner signing roots                                                                                        |
 | Active wallet signing share | Already-provisioned client or SigningWorker material used for normal signing                                                                                  |
@@ -91,8 +106,10 @@ remain curve-specific lifecycle operations.
    joined root or both shares.
 9. Each role stores tenant shares only inside its private custody boundary.
    The shared Gateway and SigningWorker databases never store them.
-10. Ed25519 uses a joined-root Yao derivation profile. Raw role shares enter only
-    as protected circuit inputs, and the joined root remains on garbled wires.
+10. Ed25519 uses two fixed role-targeted threshold-PRF evaluations. Deriver A
+    combines only the A-target output and Deriver B combines only the B-target
+    output. Raw root shares and the joined root never enter Yao; the existing
+    contribution KDF remains role-local before the unchanged circuit.
 11. ECDSA threshold-PRF evaluation uses a stable derivation context and a
     separate epoch-bound custody transcript.
 12. The current derivation profile is replaced directly. Production code keeps
@@ -174,6 +191,105 @@ remain curve-specific lifecycle operations.
 38. One unavailable Deriver makes new derivation ceremonies unavailable for
     that tenant. Normal signing with already-active material continues. The
     service never substitutes a weaker one-role derivation path.
+39. Refactor 120 consumes Refactor 103F's final exact Wallet Session model.
+    R103F B4 exact operation admission and B5 exact material resolution remain
+    the only Wallet Session-to-runtime authorization path. Refactor 120 creates
+    no parallel admission or material-resolution API.
+40. The Gateway resolves `TenantRootIdentityV1` and the active
+    `TenantRootShareEpoch` from authenticated deployment configuration. For an
+    operation involving established material, `signingRootId` and
+    `signingRootVersion` must equal the values in the authoritative material
+    record resolved through R103F B5. `MpcMaterialActivationRef` remains an
+    opaque reference and does not gain root fields. A Wallet Session,
+    authorization, credential, or browser-record identifier never selects a
+    tenant root or epoch.
+41. Tenant-root custody metadata never enters
+    `WalletSessionAuthorizationV2`, either operation-credential family, the V6
+    browser record, `MpcMaterialActivationRef`, registration completion
+    receipts, or device-link activation and acknowledgement records. Root
+    refresh mutates none of those records.
+42. Refactor 120 adds root-custody schema only to the role-private Deriver stores
+    and tenant-root control plane. It adds no root share, root epoch, or root
+    lifecycle column to R103F's signer D1 schema. An unforeseen signer-D1 change
+    blocks implementation until this plan is amended against R103F's final
+    schema.
+43. Protocol versions remain boundary-local. Refactor 120 versions the Router
+    A/B derivation protocols, threshold-PRF purposes and payloads, pair-session
+    identity, and generated bindings it changes. The Yao circuit manifest,
+    schedule, digest, table stream, and circuit-cache identity remain unchanged
+    unless the preparation prototype disproves that boundary. Refactor 120 does
+    not reuse R103F's browser record version or bump `WALLET_PROTOCOL_VERSION`
+    unless the host/iframe message shape itself changes. R103F's frozen Router
+    A/B `reusable_wallet_session`, ECDSA export-share authorization, and
+    `consume_reusable_wallet_session` discriminators remain unchanged.
+44. Refactor 120 production activation begins only after R103F completes R5 and
+    every serving Wallet Session worker is exact-only. New derivation
+    ceremonies are fenced and every pre-cutover derivation session reaches a
+    terminal state before the first participating runtime changes. The R120
+    Gateway, Router, Deriver, WASM, SDK, and iframe revisions are then verified
+    before derivation resumes. Production never serves both derivation profiles.
+45. The cutover drains or retires every server-side registration or recovery
+    state that could still commit retired-profile derived material. An R103F
+    credential-free committed registration receipt already denotes an existing
+    wallet identity even when browser publication is incomplete; it enters the
+    decision-37 identity inventory. Delayed replay cannot make an identity that
+    the inventory retired active or usable after cutover.
+46. The role-targeted threshold-PRF preface is the preferred Ed25519 architecture
+    and remains a preparation-phase candidate until its production-shaped
+    benchmark passes. A joined-root Yao circuit is unapproved work. A failed
+    candidate gate stops Refactor 120 and requires an explicit plan amendment;
+    production never implements or serves both designs.
+47. The Ed25519 latency candidate uses no persistent PRF-output cache. It must
+    pass with one simultaneous bidirectional A/B proof-bundle flight over the
+    transport session already used by Yao, no additional connection or
+    preface-only readiness exchange, zero additional client-to-service round
+    trips, and no more than 10 ms added warm p95 end-to-end latency in any
+    measured derivation-ceremony cohort.
+
+## Refactor 103F Compatibility
+
+[Refactor 103F](./refactor-103F-final-cutover.md) changes authorization,
+session persistence, browser state, registration replay, device-link
+installation, and runtime material resolution. It deliberately leaves MPC
+cryptography unchanged. Refactor 120 owns the later derivation-profile change
+and treats R103F's final exact model as its integration baseline.
+
+The two refactors compose at one narrow boundary:
+
+```text
+operation credential
+  -> R103F B4 exact operation admission
+       -> R103F B5 exact MpcMaterialActivationRef
+            -> authoritative material record and runtime-policy scope
+
+authenticated deployment configuration
+  -> R120 TenantRootIdentityV1 + active TenantRootShareEpoch
+       -> derivation ceremony only
+```
+
+Normal signing uses R103F's exact material resolution and never loads a tenant
+derivation-root share. Ed25519 export resolves exact active material through B5
+before it independently resolves the R120 root binding required for derivation.
+Registration and recovery re-establishment use the server-resolved R120 root
+binding when they require new derivation. Whenever a ceremony also refers to
+established material, the stable signing-root identifiers from the root binding
+and B5-resolved material record must agree. The opaque
+`MpcMaterialActivationRef` is neither decoded as a root identity nor extended
+with root-custody fields.
+
+Implementation ownership is:
+
+| Surface | Concurrent owner | R120 rule |
+| --- | --- | --- |
+| Wallet Session authorization, credentials, signer-D1 schema, registration receipts, V6 browser records, host/iframe messages, and device-link activation/acknowledgement | R103F | Consume the final types and verify they remain unchanged |
+| Root algebra, ECDSA custody binding, Ed25519 role-targeted threshold-PRF prototype and protocol, Deriver A/B stores and migrations, tenant-root Durable Object, KMS/HSM adapters, and refresh lifecycle | R120 | May proceed concurrently after the R120 preparation gate |
+| `commonRouterUtils.ts`, threshold Ed25519/ECDSA routes, and `routerAbPrivateSigningWorker.ts` | R103F until its Phase 2 exit; R120 afterward | Freeze R103F B4/B5, rebase once, then add the narrow tenant-root integration without compatibility wrappers |
+| Registration and capability persistence, device-link services, shared public/session types, wallet-custody WASM fixtures, and shared test factories | R103F until its Phase 3 exit; R120 afterward | Consume R103F's final receipt, link, recovery, and browser contracts; change only an independently versioned R120 protocol shape |
+| Production rollout | R103F, then R120 | Complete R103F R5 before the R120 derivation-profile cutover |
+
+R103F's request and persistence bridges remain scoped to Wallet Session drain.
+They never translate a Refactor 120 root identity, epoch, protocol message, or
+derivation output. R120's no-dual-profile rule therefore remains intact.
 
 ## Frozen Core Contracts
 
@@ -339,7 +455,10 @@ for tenant A does not reveal tenant B's root. A full compromise of both Deriver
 roles can still expose every tenant that those roles serve.
 
 This refresh protects derivation-root custody. It does not refresh active client
-or SigningWorker signing shares.
+or SigningWorker signing shares. It also does not revoke a context-scoped
+Ed25519 target PRF output or server contribution that an attacker already
+observed. Compromise of derived wallet or lane material follows that material's
+own refresh, replacement, or migration response.
 
 ## Architecture
 
@@ -353,13 +472,27 @@ authenticated tenant
 stable tenant derivation root
   K_tenant = 2*A_tenant,epoch - B_tenant,epoch
   -> ECDSA threshold PRF
-  -> Ed25519 joined-root Yao
-  -> stable wallet server contributions
+  -> Ed25519 A-target threshold PRF -> Deriver A contribution root
+  -> Ed25519 B-target threshold PRF -> Deriver B contribution root
+       -> existing role-local contribution KDF
+            -> unchanged Ed25519 Yao
 ```
 
 The Gateway resolves the tenant-root identity from authenticated deployment
 configuration. The Router receives one verified tenant-root binding and exact
 active epoch. A browser request cannot provide or override either value.
+
+This resolver is separate from R103F B4 admission and B5 material resolution.
+Normal signing stops at the exact active material projection and does not call
+the tenant-root resolver. Ed25519 export first resolves its exact active
+material through B5, then independently resolves the authenticated tenant root
+required by its Yao derivation ceremony. Registration and recovery derivation
+routes resolve the authenticated tenant root directly. Whenever a derivation
+route also carries an established `MpcMaterialActivationRef`, it checks the
+stable `signingRootId` and `signingRootVersion` from its authoritative B5
+material record for equality before constructing the Router A/B request. No
+Wallet Session, authorization, or opaque material-reference identifier is
+accepted as a root lookup key.
 
 Each Deriver private store contains:
 
@@ -529,31 +662,148 @@ The current Ed25519 profile hashes each role share independently before the
 garbled circuit. Share refresh changes those hashes and therefore changes its
 derived output.
 
-The replacement profile freezes this function:
+The preferred replacement derives one target-specific root for each Deriver
+through the existing threshold-PRF algebra:
 
-1. admits A and B as protected scalar inputs;
-2. binds each input to the authenticated role, active epoch, and installed share
-   commitment;
-3. parses canonical Ristretto scalars and reconstructs `K = 2*A - B` only on
-   garbled wires;
-4. rejects zero K and serializes it to the canonical 32-byte scalar encoding;
-5. runs the existing `signer-core` Ed25519 Yao contribution KDF twice inside
-   the circuit using K as the derivation root, the existing stable application
-   context, `SERVER_SOURCE_TAG`, and the existing A or B role tag;
-6. preserves the existing HKDF-SHA-256 extract salt, expand-info domains, y
-   output, tau reduction, and recipient package shapes byte for byte;
-7. never decodes or returns K.
+```text
+R_A = ThresholdPrf(K, Ed25519DeriverAContributionRoot, stable_context)
+R_B = ThresholdPrf(K, Ed25519DeriverBContributionRoot, stable_context)
+
+server_contribution_A = ExistingEd25519ContributionKdf(R_A, role_A, stable_context)
+server_contribution_B = ExistingEd25519ContributionKdf(R_B, role_B, stable_context)
+```
+
+`R_A` and `R_B` are distinct because their fixed `PrfPurpose` variants are
+distinct. Both purposes use `Raw32` output and the exact existing
+`Ed25519YaoStableKeyDerivationContextV1` bytes. `RootShareEpoch`,
+`TenantRootShareEpoch`, custody lineage, session, retry, and transport metadata
+are excluded from the PRF context.
+
+One derivation ceremony performs this preface:
+
+1. The control plane admits one exact server-resolved stable context and current
+   tenant-root custody binding. Neither Deriver can request an arbitrary PRF
+   context from its peer.
+2. Deriver A evaluates its local A-target partial and one B-target partial.
+   Deriver B evaluates its local B-target partial and one A-target partial.
+3. A sends only its B-target partial, commitment, and DLEQ proof to B. B sends
+   only its A-target proof bundle to A. Both messages are recipient-encrypted,
+   role-authenticated, and bound to the exact tenant, lineage, active epoch,
+   stable-context digest, source role, target role, session, nonce, and expiry.
+4. The two messages travel simultaneously over the existing A/B session. A
+   reverse-direction target, duplicate target, caller-selected target, or
+   mismatched purpose fails before partial verification.
+5. A verifies B's A-target proof and combines it with A's local A-target partial.
+   B verifies A's B-target proof and combines it with B's local B-target partial.
+   Each combine requires the exact fixed 2-of-2 share IDs and current
+   commitments.
+6. Each target converts only its own `PrfOutput32` into a role-specific zeroizing
+   server-contribution-root capability and runs the existing `signer-core`
+   HKDF-SHA-256 contribution KDF locally.
+7. The role PRF output and intermediate root are never persisted, cached across
+   requests, logged, returned, or routed through the Router. They are zeroized
+   after the existing Yao role is constructed.
+8. Yao receives the same role-local server contribution shapes it receives
+   today. Raw root shares, threshold-PRF partials, PRF outputs, and the joined
+   tenant root never enter the circuit.
+9. Each role enters a typed local `preface_ready` state only after it verifies
+   the incoming proof, combines its target output, and constructs its existing
+   Yao role. An existing first Yao envelope may be buffered until the receiving
+   role reaches that state; it cannot be processed earlier. No standalone
+   readiness message or second preface flight is added. A failure or timeout
+   burns the pair session, zeroizes local outputs, and retries with a new
+   session, nonce, and DLEQ randomness.
+
+The Router may route encrypted proof bundles. It cannot open a partial or
+combine either target output. A has no B-target peer partial and B has no
+A-target peer partial, so neither role can calculate the other's output.
+
+The current `threshold-prf` DLEQ verifier maps every purpose through
+`EcdsaPrfPurposeV1`. Preparation must separate generic threshold-PRF proof
+verification from that ECDSA adapter and add the two explicit Ed25519 purposes.
+The Ed25519 protocol cannot reuse an ECDSA purpose label or accept a raw purpose
+string at any boundary.
 
 The required equivalence is between any two valid A/B sharings of the same K
-under this joined-root profile. It is not equivalence with the retired
-role-local-root profile. Pre-launch cutover regenerates its unreleased outputs.
+under this role-targeted profile. It is separate from the retired
+deployment-share-hash profile. Pre-launch cutover regenerates its unreleased
+outputs.
 
-The joined-root profile requires a new circuit manifest, protocol version,
-cache identity, vectors, formal checks, and explicit performance budget.
+The outer Ed25519 derivation protocol, target-specific payloads, pair-session
+identity, vectors, and generated server bindings change. The Yao circuit
+manifest, circuit digest, schedule, table bytes, input/output schemas, and
+circuit-cache identity remain byte-identical. Any prototype result requiring a
+circuit change stops the candidate and requires this plan to be amended.
 
 Production must use one authoritative profile. If existing production wallets
 depend on the role-local hashing profile, rollout requires one explicit
 pre-cutover migration. The implementation retains no dual derivation path.
+
+### Ed25519 architecture-selection latency prototype
+
+Existing threshold-PRF microbenchmarks are encouraging: the retained local
+baseline reports roughly 0.10 ms native and 0.21 ms Node/V8 for a one-runtime
+2-of-3 evaluation and combine, with DLEQ operations around 0.20 ms. Those
+figures measure local cryptography. They do not measure the role-separated A/B
+exchange, Worker scheduling, encryption, or composition with Yao. See the
+[threshold-PRF benchmark record](../crates/threshold-prf/docs/benchmarks.md).
+
+Preparation therefore builds one benchmark-only role-targeted PRF preface in
+the existing `ed25519-yao-cloudflare-bench` harness before production protocol
+work begins. The 10 ms limit applies to the complete current-versus-candidate
+warm p95 ceremony delta, including cryptography, encryption, Worker scheduling,
+and A/B transport. It is an absolute rejection ceiling for every measured
+topology and ceremony. The prototype:
+
+- runs the A-target and B-target directions simultaneously;
+- sends exactly one proof bundle in each direction;
+- reuses the A/B transport session required by the baseline Yao ceremony and
+  creates no additional HTTP request, WebSocket, connection handshake, or
+  preface-only readiness message;
+- uses current threshold-PRF partial evaluation, DLEQ verification, exact 2-of-2
+  combine, role encryption, and the existing local contribution KDF;
+- invokes the existing activation, export, and lane-materialization Yao
+  artifacts without modifying them;
+- uses no persistent output cache and adds no client-facing request;
+- exercises the same-account Service Binding and cross-account WebSocket
+  topologies already measured by the harness;
+- compares current and candidate paths from the same release build with the
+  same inputs, topology, warm/cold cohort, and Worker placement where observable.
+
+Every topology and ceremony cohort records at least 100 successful samples and
+reports:
+
+- end-to-end p50, p95, and p99 wall time;
+- the PRF-preface wall time and peer-exchange time separately;
+- added connection, HTTP request, WebSocket, and client-to-service round-trip
+  counts, all of which must remain zero; proof-bundle flights, which must equal
+  one; and standalone readiness-message flights, which must remain zero;
+- per-role CPU time, peak memory, and cold-start incidence;
+- proof-bundle and total protocol bytes by direction;
+- retry, timeout, and failure counts;
+- the exact Yao circuit, manifest, schedule, and table-stream digests.
+
+The candidate passes only when:
+
+1. direct-reference, exact 2-of-2 combine, old/new sharing, and final recipient
+   package vectors agree;
+2. A cannot combine `R_B`, B cannot combine `R_A`, and the Router cannot combine
+   either output;
+3. the Yao artifact digests and serialized circuit bytes equal the current
+   product byte for byte and runtime circuit synthesis remains zero;
+4. the preface adds at most 4 KiB total serialized internal traffic;
+5. warm p95 end-to-end wall time increases by no more than 10 ms in every
+   topology and ceremony cohort;
+6. warm p95 per-role CPU time increases by at most 5 ms, and peak memory
+   increases by at most 10%;
+7. every cohort retains at least 25% headroom below the selected Workers CPU,
+   memory, message-size, and duration limits.
+
+Passing evidence freezes the role-targeted threshold-PRF architecture and
+authorizes production protocol work. A failed correctness, separation,
+artifact, or resource gate stops Refactor 120. The joined-root HKDF-in-Yao design
+is not an automatic fallback and remains unimplemented until an amended plan is
+reviewed.
 
 ## Client Transparency
 
@@ -569,9 +819,17 @@ operation:
 - no wallet-key or lane reactivation;
 - no `MpcMaterialActivationRef` change.
 
+It also causes no R103F lifecycle mutation: no
+`WalletSessionAuthorizationV2`, operation credential, Wallet Session quota,
+registration completion receipt, device-link delivery or acknowledgement, V6
+browser record, hosted child credential, or host/iframe message changes.
+
 Clients may require a normal SDK release for the one-time protocol-profile
-cutover if current public wires expose derivation epochs. Every subsequent
-tenant refresh is entirely server-side.
+cutover if a boundary-local Router A/B or WASM protocol changes. That release is
+built on R103F's final SDK and V6 browser model. It does not imply an IndexedDB
+record-version or `WALLET_PROTOCOL_VERSION` change. Either version changes only
+when its own persisted or host/iframe shape changes. Every subsequent tenant
+refresh is entirely server-side.
 
 Registration and recovery re-establishment use the active epoch whenever they
 invoke server derivation. They derive identical wallet-key material because the
@@ -890,16 +1148,14 @@ Refresh jobs are tenant-scoped:
 - independent failure and audit receipts per tenant.
 
 A refresh for tenant A never fences tenant B. Fleet-wide refresh cost grows with
-tenant count, so scheduling must respect Yao capacity and role-store quotas.
+tenant count, so scheduling must respect fixed Ed25519 canary capacity,
+threshold-PRF proof capacity, key-provider quotas, and role-store quotas.
 
-The joined-root Yao release gate compares the same release build, circuit
-family, inputs, topology, and warm/cold cohort against the current product
-benchmark. Warm p95 wall time and peak memory may each increase by at most 25%,
-serialized protocol bytes by at most 10%, and runtime circuit synthesis remains
-zero. The first scheduler runs one tenant refresh at a time per deployment.
-Higher concurrency requires a separate measured capacity change and is not part
-of this refactor. Every measured cohort must have at least 100 successful
-samples and keep 25% headroom below the selected Workers CPU and memory limits.
+The Ed25519 architecture-selection prototype owns the derivation-ceremony
+resource gate. The refresh scheduler additionally measures the fixed ECDSA and
+Ed25519 continuity canaries under the selected release. The first scheduler runs
+one tenant refresh at a time per deployment. Higher concurrency requires a
+separate measured capacity change and is outside this refactor.
 
 ## Self-Hosted Wallets
 
@@ -962,17 +1218,21 @@ fixtures, provider evidence, and red tests before production logic begins.
 | Former gap | Resolution in this plan | Required preparation evidence |
 | --- | --- | --- |
 | Tenant identity | Five required server-resolved fields, one canonical byte encoding, and `TenantRootIdentityDigestV1` are frozen under **Root identity and custody lineage** | Rust canonical vectors, TS boundary fixtures, and caller-override route tests |
+| R103F composition | R103F B4/B5 remains the only Wallet Session admission and exact material-resolution path; R120 independently resolves root custody from authenticated deployment configuration | One composition fixture proving exact material/root-identity agreement and rejection of every Wallet Session, authorization, credential, browser, or request-body root override |
+| Shared-boundary ownership | R103F owns its signer-D1, browser, receipt, device-link, and shared route shapes through the named integration gates; R120 adds no signer-D1 root-custody schema | Reviewed file-ownership inventory, R103F Phase 2 API snapshot, and final-schema migration check |
+| Cutover ordering | R120 activation waits for R103F R5, fences new derivation, drains every pre-cutover derivation session and delayed registration/recovery commit path, verifies one exact R120 revision set, and then resumes derivation without a dual profile | Deployed-revision manifest, mixed-revision fail-closed test, derivation-fence and replay-drain drill, committed-receipt identity inventory, and before/after exact Wallet Session signing proof |
 | Deployment clone/custody identity | Random `TenantRootCustodyLineageId` separates source and restored custody histories without changing KDF input | Cross-lineage replay and mixed-receipt rejection vectors |
 | Root field and transcripts | Existing Ristretto255/SHA-512 scalar, share, commitment, proof, and HPKE primitives are reused with the exact transcript binding above | Creation and refresh vector corpus generated from Rust |
 | Stable ECDSA derivation | Existing stable key-context bytes remain the only stable context; both epoch types and ceremony metadata are custody-only | Same-root cross-epoch threshold-PRF vectors and Rust/backend parity |
-| Joined-root Ed25519 | The circuit reconstructs canonical K and runs the existing contribution KDF for both role tags | Circuit manifest, formal checks, cross-epoch vectors, and performance gate |
+| Role-targeted Ed25519 derivation | Two fixed threshold-PRF purposes yield separate A-target and B-target roots; each target combines only its output and runs the existing contribution KDF locally; root shares and PRF material stay outside Yao | Direct-reference and 2-of-2 vectors, target-separation and proof-substitution tests, recipient-package parity, and byte-identical Yao artifacts |
+| Ed25519 architecture selection | The role-targeted threshold-PRF preface must pass a production-shaped benchmark before production protocol work; the joined-root circuit remains unapproved | Same-build current/candidate Cloudflare benchmark artifact covering both topologies, three ceremonies, warm/cold cohorts, latency, CPU, memory, wire bytes, failures, and artifact digests |
 | Active epoch and locking | One lineage-scoped Durable Object owns revision, lock, activation, and crash recovery | Failure injection at every transition and matching-receipt reconstruction drill |
 | Online and managed-backup keys | `managed_healing_v1` requires independent external A/B versioned KMS/HSM authorities; Cloudflare-native custody uses `operational_rotation_v1` | Provider adapter qualification and destructive rollback drill |
 | Managed recovery | Restore is one-role, current-epoch-only, capability-bound, commitment-verified, and followed by refresh | Independent A and B loss drills plus control-plane-loss drill |
 | Tenant recovery | Dedicated stable recovery sharing and its product/CLI protocol are frozen by Refactor 121 | Source-offline restore and mixed-set/role rejection corpus |
 | Pre-launch cutover | All unreleased roots and derived material are regenerated; any externally relied-on identity blocks rollout for an explicit migration | Signed inventory proving zero externally relied-on legacy-profile identities |
 | One-role availability | Existing signing continues; every operation requiring derivation returns `tenant_derivation_temporarily_unavailable` | Intended-behaviour contract covering every named operation |
-| Yao resource budget | Relative p95, memory, wire, synthesis, sample-count, headroom, and initial concurrency gates are fixed under **Scheduling and Isolation** | Reproducible before/after release benchmark artifact |
+| Ed25519 PRF-preface resource budget | Exact circuit-artifact equality, one bidirectional proof-bundle flight on the existing A/B session, no new connection or standalone readiness exchange, a 4 KiB internal-wire cap, an absolute 10 ms warm-p95 ceremony-delta cap, CPU and memory caps, sample count, and Workers headroom are fixed under **Ed25519 architecture-selection latency prototype** | Reproducible before/after release benchmark artifact |
 | Root deletion | Forward-only deletion states, secret destruction scope, customer-copy limitation, and audit retention owner are fixed | A/B partial-failure and destructive staging drills |
 | Deployment claims | `managed_healing_v1` and `operational_rotation_v1` expose distinct, test-gated claims | Configuration type fixtures and dashboard copy tests |
 
@@ -994,11 +1254,11 @@ release evidence, and operational runbooks refer to the same claim.
 | R120-I05 | A successful refresh changes both role shares and preserves the public tenant-root commitment.                                                                                              |
 | R120-I06 | Stable ECDSA derivation bytes and threshold-PRF outputs exclude `RootShareEpoch` and `TenantRootShareEpoch` and remain identical across refresh.                                            |
 | R120-I07 | ECDSA custody transcripts, partials, routing, persistence AAD, and replay protection bind the exact tenant root identity and active epoch.                                                  |
-| R120-I08 | Ed25519 reconstructs and consumes the joined root only on protected Yao wires and produces identical server contributions across refresh.                                                   |
+| R120-I08 | Ed25519 derives separate A-target and B-target threshold-PRF outputs without reconstructing the joined root; each target output and final server contribution remain identical across operational-share refreshes. |
 | R120-I09 | Mixed, stale, future, substituted, replayed, expired, or role-swapped creation and refresh messages fail closed.                                                                            |
 | R120-I10 | Pre-activation failure preserves the old epoch; post-activation recovery moves forward and never reactivates the previous epoch.                                                            |
 | R120-I11 | Normal signing remains available and does not load tenant derivation-root shares.                                                                                                           |
-| R120-I12 | Refresh mutates no wallet, client, signer-package, public-key, address, or `MpcMaterialActivationRef` record.                                                                               |
+| R120-I12 | Refresh mutates no wallet, client, signer-package, public-key, address, `MpcMaterialActivationRef`, R103F exact authorization, operation credential, quota, receipt, device-link acknowledgement, or V6 browser record. |
 | R120-I13 | Refresh and root creation use approved CSPRNGs, canonical scalar decoding, nonzero checks where required, domain-separated transcripts, and constant-time secret-scalar operations.         |
 | R120-I14 | Tenant A's creation, refresh, failure, backup, restore, retirement, and deletion cannot read or mutate tenant B's state.                                                                    |
 | R120-I15 | Each current role share has one independently encrypted and authorized role-local backup, or the deployment explicitly accepts permanent loss of future derivation after share loss.        |
@@ -1009,6 +1269,14 @@ release evidence, and operational runbooks refer to the same claim.
 | R120-I20 | Independently created or device-linked deployments share no tenant root or role share. Explicit disaster recovery preserves the logical root under a new custody lineage and records every surviving source. |
 | R120-I21 | Tenant recovery packages contain one dedicated recovery sharing, remain separate by role, and bind the same stable public root commitment without copying an operational share.             |
 | R120-I22 | Operational refresh leaves tenant recovery packages usable and makes no healing claim after both shares or both recipient keys from one tenant recovery set are compromised.                |
+| R120-I23 | R103F B4/B5 remains the sole Wallet Session-to-runtime authorization path; R120 root resolution accepts only authenticated deployment configuration and never session, authorization, credential, browser, or diagnostic identity. |
+| R120-I24 | R120 production activation occurs only after R103F R5, with new derivation fenced, pre-cutover derivation sessions drained, and every participating revision matched to the one authoritative derivation profile. |
+| R120-I25 | An R103F committed registration receipt is included in the old-profile identity inventory even before browser publication, and no delayed registration or recovery replay can make retired-profile material active or usable after cutover. |
+| R120-I26 | An A-target proof bundle travels only B-to-A, a B-target proof bundle travels only A-to-B, and neither Deriver nor the Router can obtain the exact peer partial set needed to combine the other target's output. |
+| R120-I27 | Raw tenant-root shares, threshold-PRF partials and outputs, and the joined tenant root never enter Yao; the current Yao circuit manifest, digest, schedule, schemas, table bytes, and circuit-cache identity remain byte-identical. |
+| R120-I28 | Production Ed25519 protocol work begins only after the role-targeted threshold-PRF candidate passes the frozen correctness, separation, artifact, latency, CPU, memory, wire, and headroom gates. |
+| R120-I29 | Each role processes Yao only from its typed local `preface_ready` state; the existing first Yao envelope may wait for that state, no standalone readiness message or second preface flight exists, and preface failure or timeout burns the pair and zeroizes every role-local output before retry. |
+| R120-I30 | Root-share refresh makes no claim to revoke an already exposed context-scoped target PRF output, server contribution, or active wallet or lane share. |
 
 ### Boundary inventory
 
@@ -1019,10 +1287,12 @@ review confidence.
 
 | Boundary                              | Current locations to classify                                                                                                                                                                                                                                              | Type-system escape hatch or risk                                                                                                                                   |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| R103F exact admission and material resolution | `packages/wallet-server/src/router/auth/commonRouterUtils.ts`; both threshold routes; `routerAbPrivateSigningWorker.ts`; the final R103F B4/B5 resolver and capability-subject repository | A Wallet Session or authorization identifier can be mistaken for a threshold or tenant-root identity; R120 must consume the B5-resolved authoritative material record rather than reconstruct it |
+| R103F session, browser, and link state | signer-D1 Wallet Session migrations and stores; `d1WalletRegistrationService.ts`; device-link activation and acknowledgement stores; V6 browser persistence; host/iframe messages | Adding root epoch or custody metadata to an exact session, receipt, delivery, acknowledgement, browser record, or iframe message would couple transparent refresh to client lifecycle |
 | Authenticated tenant and root routing | `packages/shared-ts/src/threshold/signingRootScope.ts`; `packages/wallet-server/src/router/auth/commonRouterUtils.ts`; `packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthConfig.ts`; project-policy parsing in `crates/router-ab-cloudflare/src/lib.rs` | Independently normalized strings, optional request fields, JWT/policy JSON, and manually derived `projectId:envId` identifiers                                     |
 | ECDSA stable derivation               | `crates/router-ab-core/src/derivation/context.rs`, `ecdsa_threshold_prf.rs`, `ecdsa_threshold_prf_backend.rs`; `crates/threshold-prf`; `crates/router-ab-ecdsa-derivation`; `crates/router-ab-core/specs/ecdsa-threshold-prf.md`                                           | Canonical bytes, PRF purpose domains, scalar suites, and downstream derivation contexts compile after a semantically wrong field remains included                  |
 | ECDSA custody and protocol wires      | `crates/router-ab-core/src/protocol/ecdsa_threshold_prf_request.rs`, `payload.rs`, `output.rs`, `router_ab_ecdsa_derivation.rs`, `signer_plaintext.rs`; `crates/router-ab-ecdsa-client-protocol/src/registration.rs`, `post_registration.rs`, `recipient_proof.rs`         | Serde JSON, custom length-delimited encodings, plaintext/envelope duplication, and equality checks outside one shared type                                         |
-| Ed25519 joined-root derivation        | `crates/router-ab-cloudflare/src/ed25519_yao_lifecycle.rs`; `crates/signer-core/src/ed25519_yao_derivation.rs`; `crates/router-ab-core/src/protocol/ed25519_yao.rs`; `crates/router-ab-ed25519-yao-client`; `crates/router-ab-ed25519-yao-protocol`; `crates/ed25519-yao`  | Current deployment adapter independently hashes role-labelled share wires; signer-core KDF domains, circuit manifests, garbled inputs, and host adapters can drift |
+| Ed25519 role-targeted PRF preface     | `crates/threshold-prf/src/context.rs`, `prf.rs`; `crates/router-ab-ecdsa-client-protocol` public DLEQ verifier; `crates/router-ab-cloudflare/src/ed25519_yao_lifecycle.rs`; `crates/router-ab-ed25519-yao/src/product.rs`; `crates/signer-core/src/ed25519_yao_derivation.rs`; `crates/router-ab-core/src/protocol/ed25519_yao.rs`; `crates/ed25519-yao`; `crates/ed25519-yao-cloudflare-bench` | The generic threshold-PRF verifier currently maps through ECDSA-only purpose types; target role, stable PRF context, epoch-bound outer AAD, output ownership, local KDF provenance, pair-session identity, and unchanged circuit artifacts cross separate type and generation boundaries |
 | Rust/WASM/JavaScript                  | `wasm/router_ab_ecdsa_client/src/ceremony.rs`; `wasm/router_ab_ecdsa_signing_worker/src`; `wasm/wallet_custody_ceremony/src`; checked-in `wasm/*/pkg/*.d.ts`; generated Router A/B TypeScript bindings                                                                     | `serde_wasm_bindgen`, JSON strings, checked-in generated declarations, and separately regenerated WASM packages                                                    |
 | Shared TypeScript protocol            | `packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts`, `routerAbEd25519Yao.ts`, `domainIds.ts`; generated `routerAbEd25519YaoCore.ts`                                                                                                                                  | Manual exact-key parsers and builders duplicate Rust lifecycle and canonical-wire assumptions                                                                      |
 | Wallet-server orchestration           | `packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa.ts`; Ed25519 registration, recovery, export, and capability domains; D1 registration and capability persistence                                                                                   | Route bodies, database rows, and service results are parsed at separate boundaries; current checks sometimes equate root epoch with signing-root version           |
@@ -1031,7 +1301,7 @@ review confidence.
 | Control plane and coordination        | `crates/router-ab-cloudflare/src/router_coordinator.rs`, `durable_object/mod.rs`, `ecdsa_pool_lifecycle.rs`, `ed25519_yao_lifecycle.rs`                                                                                                                                    | Distributed compare-and-swap, lock, alarm, retry, and crash semantics are runtime behavior rather than static types                                                |
 | Deployment and secrets                | `crates/router-ab-cloudflare/src/env.rs`; both Wrangler files; deployment key generators; `scripts/deployment-targets.mjs`; environment examples; `docs/deployment`                                                                                                        | Binding names and deployment manifests are stringly typed; current per-role root share is one deployment-wide Secret                                               |
 | Local/dev parity                      | `crates/router-ab-dev/src/local_ecdsa_root_shares.rs`, local Router/worker coordinators, SQLite schema and seed scripts, strict local runtime config                                                                                                                       | Local fixtures can silently preserve the deployment-wide root model and mask Cloudflare-only failures                                                              |
-| Persistence consumers                 | wallet-server D1 migrations and stores; ECDSA capability manifests; Ed25519 local metadata; device-link source contributions; recovery key manifests                                                                                                                       | Epoch and signing-root metadata are copied into durable records that remain readable after the core type changes                                                   |
+| Persistence consumers                 | R103F final signer-D1 stores; ECDSA capability manifests; Ed25519 local metadata; device-link source contributions; recovery key manifests                                                                                                                               | Existing stable signing-root metadata must remain readable while `TenantRootShareEpoch` and custody lineage stay absent; these surfaces are verification-only unless the plan is amended after R103F |
 | Vectors, fixtures, and generation     | `crates/router-ab-core/fixtures`; Router A/B Rust tests; Yao formal-verification fixtures; `wasm/wallet_custody_ceremony/tests/wire_fixtures.rs`; shared TypeScript and top-level test helpers                                                                             | Generated JSON and hand-written fixtures compile independently, while stale snapshots can preserve retired semantics                                               |
 | Documentation and operational claims  | this plan; `docs/router-ab/protocol.md`; deployment and staging-custody docs; incident and rollback runbooks                                                                                                                                                               | Security language can overstate erasure, recovery independence, or client transparency without executable evidence                                                 |
 
@@ -1043,6 +1313,8 @@ TenantRootShareEpoch | tenant_root_share_epoch | tenantRootShareEpoch
 signingRootId | signing_root_id | signingRootVersion | signing_root_version
 DERIVER_A_ROOT_SHARE_WIRE_SECRET | DERIVER_B_ROOT_SHARE_WIRE_SECRET
 root_share_wire | root share | derivation-root/v1
+PrfPurpose | PrfOutput32 | EcdsaPrfPurposeV1 | server contribution root
+ed25519_yao | pair_digest | root_metadata_digest | circuit_digest
 ```
 
 Each hit is marked `stable derivation`, `custody binding`, `active signing`,
@@ -1062,14 +1334,16 @@ new owner for each claim.
 | Root algebra and transcripts | Creation and refresh equations; both shares change; public commitment continuity; malformed scalars; zero/identity cases; contribution, role, tenant, epoch, transcript, nonce, expiry, and replay substitution; abort and restart at every message                                                                    | New focused Rust tests in `crates/router-ab-core/tests`, plus property tests for field/scalar operations                                                           |
 | Constant-time and randomness | Approved OS/Worker CSPRNG boundary; unbiased scalar sampling; secret-independent scalar operations and comparisons                                                                                                                                                                                                     | Rust review plus the existing constant-time qualification track where applicable; add a targeted test or analysis only for newly introduced secret-scalar code     |
 | ECDSA stable output          | Byte-exact V2 stable context vectors; custody-binding vectors; old/new epoch output equality; mixed-epoch rejection; Rust protocol/backend parity                                                                                                                                                                      | Existing `ecdsa_threshold_prf*`, `ecdsa_derivation_protocol`, `protocol_boundaries`, and formal-verification owners in `crates/router-ab-core/tests`               |
-| Ed25519 joined-root output   | Exact interpolation and KDF vectors; old/new share-pair output equality; protected-input boundary; recipient package parity; circuit-manifest anti-drift                                                                                                                                                               | `cargo yao-fv all`, Router A/B Ed25519 Rust tests, pair-digest vectors, and Cloudflare WASM vector adapters                                                        |
+| Ed25519 role-targeted output | New A/B purpose vectors; direct-reference versus exact 2-of-2 output; old/new sharing equality; target outputs differ; source/target direction, proof, commitment, purpose, context, recipient, epoch, replay, and arbitrary-context rejection; each target lacks the other peer partial; typed local `preface_ready` gate with no standalone receipt; failure/timeout zeroization and pair burn; existing KDF and recipient-package parity; raw shares and PRF material absent from Yao; byte-identical circuit artifacts | `threshold-prf` and Router A/B Ed25519 Rust tests, pair-digest vectors, `cargo yao-fv all` anti-drift, and Cloudflare WASM vector adapters |
+| Ed25519 latency candidate   | Current versus role-targeted candidate under same-account and cross-account topologies for activation, export, and lane materialization; warm/cold p50/p95/p99, absolute warm-p95 delta, preface and exchange time, connection/request/message-flight counts, CPU, memory, directional wire bytes, failures, sample count, Workers headroom, and exact circuit-artifact digests | Benchmark-only changes in `crates/ed25519-yao-cloudflare-bench` plus one reviewed architecture-selection evidence record |
 | Cross-runtime wires          | Rust-to-TypeScript generated bindings; Rust/WASM/JS round trips; unknown/missing field rejection; canonical JSON and custom binary encoding parity                                                                                                                                                                     | `pnpm generate:router-ab-ed25519-yao-types`, relevant signer-core generation, WASM package builds, and wallet-custody wire fixtures                                |
 | Domain-state types           | Invalid lifecycle branches, broad spreads, direct object literals, missing role receipts, caller-selected identity, mixed current/next epochs, and activation from the wrong state fail to compile                                                                                                                     | Targeted `*.typecheck.ts` fixtures with `@ts-expect-error` in shared TypeScript, wallet-server, and top-level `tests/typecheck`                                    |
+| R103F composition            | Exact admission resolves the same `MpcMaterialActivationRef` before and after refresh; normal signing never loads a tenant root; Ed25519 export first resolves exact active material through B5 and then independently resolves the server root binding required by its derivation ceremony; no R120 custody field appears in R103F authorization, signer-D1, receipt, link, browser, or iframe shapes | Focused wallet-server composition tests, R103F B4/B5 type fixtures, signer-D1 schema inspection, and the authoritative client-transparency contract |
 | Role-private stores          | Tenant/role/epoch key uniqueness; encrypted-at-rest record shape; no cross-request plaintext cache; current/pending selection; CAS transitions; crash recovery; cross-tenant denial; stale-backup rejection                                                                                                              | New Rust Cloudflare D1 adapter tests and migration tests; local SQLite parity where it exercises the same contract                                                 |
 | Backup and restore           | Independent A/B key paths; exact AAD; managed current-epoch and tenant recovery namespaces; recovery reshare continuity; one-role restore; wrong-role and wrong-tenant denial; commitment verification; forward refresh; old managed-key destruction; tenant-copy non-revocation; provider and database rollback drill | New adapter integration tests plus an executable disaster-recovery runbook producing redacted receipts                                                             |
 | Server orchestration         | Server-resolved tenant identity; request override rejection; per-tenant fencing; concurrency; one-role failure; activation and retirement convergence; normal signing during every state                                                                                                                               | Cloudflare lifecycle tests and focused wallet-server route/unit tests                                                                                              |
 | Client transparency          | No WebAuthn prompt, SDK callback, IndexedDB mutation, signer-package fetch, wallet scan, or activation-reference change; public keys and addresses remain stable                                                                                                                                                       | One authoritative intended-behaviour contract backed by focused unit assertions at RPC/Worker boundaries                                                           |
-| Deployment cutover           | Deployment-wide root bindings absent; tenant stores and key providers present only in the owning role; local and Cloudflare config parity; no root material in Router or SigningWorker environments                                                                                                                    | `crates/router-ab-cloudflare/tests/bindings.rs`, secret-material boundary tests, deployment-target tests, strict local config tests, and deployment smoke evidence |
+| Deployment cutover           | R103F R5 complete; old-profile committed receipts inventoried; unfinished registration/recovery derivation paths drained or retired; deployment-wide root bindings absent; tenant stores and key providers present only in the owning role; derivation fenced until one R120 revision set passes preflight | R103F zero-state and committed-receipt inventory, delayed-replay rejection, `crates/router-ab-cloudflare/tests/bindings.rs`, secret-material boundary tests, mixed-revision rejection, deployment-target tests, strict local config tests, and deployment smoke evidence |
 | Erasure and security claims  | Old sessions drain before destruction; old online and backup ciphertext cannot be opened after key retirement; Worker, D1, secret, deployment, and disaster-recovery rollback cannot restore a usable old epoch; provider quota exhaustion never selects a shared fallback                                             | Destructive staging and quota drills against the selected provider; documentation claims are gated on their executable receipts                                    |
 | Multi-tenant operations      | Refresh, restore, failure, deletion, schedule jitter, quota exhaustion, and audit events for tenant A leave tenant B unchanged and available                                                                                                                                                                           | Cloudflare integration tests and bounded-concurrency scheduler tests                                                                                               |
 
@@ -1088,6 +1362,15 @@ valid test needing update, obsolete test or fixture, or environment failure.
 Frozen generated artifacts must include their regeneration command and an
 anti-drift check.
 
+Preparation, benchmark-only Ed25519 candidate work, Rust protocol work,
+role-private migrations, and tenant-root lifecycle work may proceed while R103F
+is active. Production Ed25519 protocol work waits for the candidate gate. R120
+changes to R103F-owned shared files wait for the R103F Phase 2 exit and a
+recorded B4/B5 API snapshot. Updates to final browser, device-link, iframe, and
+shared fixture surfaces wait for the R103F Phase 3 exit. The R120 branch rebases
+before either integration point; it does not preserve an interim R103F shape
+through a wrapper or compatibility union.
+
 ### Preparation exit gate
 
 - [ ] Materialize every specification-closure row as its named canonical
@@ -1095,17 +1378,52 @@ anti-drift check.
 - [ ] Assign every invariant to at least one authoritative test or executable
       operational check.
 - [ ] Classify every boundary-search hit and every generated artifact.
+- [ ] Classify every R103F overlap as R103F-owned unchanged state, an R120-owned
+      surface, or a shared integration point with one named merge gate.
 - [ ] Freeze byte-exact creation, refresh, ECDSA, Ed25519, backup, and lifecycle
       schemas and vectors.
-- [ ] Measure the joined-root Yao slice and accept explicit resource budgets.
+- [ ] Freeze the B4/B5 composition contract, signer-D1 no-change assertion,
+      boundary-local version map, derivation-fence procedure, and participating
+      revision manifest.
+- [ ] Implement the benchmark-only role-targeted threshold-PRF preface, run every
+      frozen cohort, and approve one signed architecture-selection record only
+      after all correctness, separation, artifact, latency, CPU, memory, wire,
+      and headroom gates pass.
+- [ ] Prove the selected candidate leaves every Yao circuit artifact byte-identical
+      and record the current artifact digests in the selection evidence.
 - [ ] Choose and exercise the online and backup key-destruction provider.
 - [ ] Inventory production identities and approve a pre-launch cutover with no
       dual production profile.
 - [ ] Approve the one-share-loss availability contract and restore quorum.
-- [ ] Stop the refactor if stable-output vectors, joined-root performance,
+- [ ] Stop the refactor if stable-output vectors, the Ed25519 candidate gate,
       recovery separation, or erasure evidence cannot meet the release gates.
 
 ## Implementation Plan
+
+### Phase 0: benchmark and freeze the Ed25519 architecture
+
+- [ ] Add a benchmark-only two-direction PRF preface to
+      `ed25519-yao-cloudflare-bench`; do not add production protocol variants or
+      compatibility paths.
+- [ ] Model B-to-A A-target delivery and A-to-B B-target delivery as exact,
+      simultaneous, recipient-encrypted messages.
+- [ ] Reuse the baseline Yao A/B transport session, add exactly one
+      bidirectional proof-bundle flight, and add no additional HTTP request,
+      WebSocket, connection handshake, preface-only readiness message, or
+      client round trip.
+- [ ] Run current and candidate activation, export, and lane-materialization
+      paths under the same-account and cross-account topologies with the frozen
+      warm/cold cohorts.
+- [ ] Reject the candidate if any warm p95 current-versus-candidate ceremony
+      delta exceeds 10 ms or if normal signing can invoke the preface.
+- [ ] Verify direct-reference and refreshed-share output equality, strict target
+      separation, existing contribution-KDF parity, recipient-package parity,
+      and byte-identical Yao artifacts.
+- [ ] Publish the raw benchmark artifact and signed architecture-selection
+      record with every acceptance calculation reproducible from measured data.
+- [ ] On success, freeze the two target purpose domains, message directions,
+      resource budget, and unchanged-circuit boundary. On failure, stop and
+      amend this plan before any joined-root circuit work.
 
 ### Phase 1: add per-tenant root custody
 
@@ -1117,10 +1435,15 @@ anti-drift check.
 - [ ] Add dedicated tenant recovery resharing, role encryption, and the signed
       public recovery manifest.
 - [ ] Map each authenticated tenant to one physical root pair.
+- [ ] Add one server-resolved tenant-root adapter keyed only by authenticated
+      deployment configuration; reject Wallet Session, authorization,
+      credential, browser, and diagnostics identifiers at that boundary.
 - [ ] Require current role-backup receipts, or the explicit accepted-loss branch,
       before initial activation.
 - [ ] Remove deployment-wide root-share Secret bindings after tenant roots are
       active.
+- [ ] Keep all root-custody rows out of signer D1 and preserve R103F's final
+      schema unchanged.
 - [ ] Reject caller-selected tenants, roots, roles, and epochs.
 
 ### Phase 2: implement ECDSA transparent refresh
@@ -1131,16 +1454,38 @@ anti-drift check.
       preserve existing durable `RootShareEpoch` values.
 - [ ] Add the contributory two-party zero-share refresh protocol.
 - [ ] Add root-continuity commitments and proof-of-installation.
+- [ ] After R103F Phase 2, integrate the stable root identity check with the
+      final B4/B5 material resolver without decoding
+      `MpcMaterialActivationRef` or reconstructing either identity from the
+      other.
 - [ ] Add mixed-epoch, replay, substitution, abort, and restart vectors.
 
 ### Phase 3: replace the Ed25519 derivation profile
 
-- [ ] Admit authenticated raw share scalars as protected Yao inputs.
-- [ ] Perform interpolation and server-contribution KDF inside the circuit.
-- [ ] Preserve the current recipient package outputs.
-- [ ] Version the circuit manifest, protocol, cache keys, and vectors.
-- [ ] Add cross-runtime and formal evidence.
-- [ ] Delete the role-local hash profile when the joined-root profile activates.
+- [ ] Add fixed A-target and B-target `PrfPurpose` variants with `Raw32` output;
+      accept no purpose string or target selector from a request.
+- [ ] Separate generic threshold-PRF DLEQ verification from the current
+      ECDSA-only public-purpose adapter and preserve the ECDSA wire contract.
+- [ ] Add exact source/target protocol types: B may send only an A-target bundle
+      to A, and A may send only a B-target bundle to B. Make the reverse
+      directions and mixed payload combinations unrepresentable.
+- [ ] Bind the stable PRF context separately from the epoch-bound custody,
+      recipient, session, nonce, expiry, and replay transcript.
+- [ ] Combine each output only inside its target Deriver, convert it through a
+      role-specific zeroizing capability, and run the existing contribution KDF
+      locally without persistent output caching.
+- [ ] Preserve current Yao role inputs, recipient package outputs, circuit
+      manifest, digest, schedule, schemas, table bytes, and circuit-cache
+      identity exactly.
+- [ ] Version the outer Ed25519 derivation protocol, pair-session identity,
+      proof-bundle payloads, generated server bindings, and vectors.
+- [ ] Add cross-runtime and formal evidence for purpose separation, fixed
+      direction, exact 2-of-2 combine, refresh invariance, arbitrary-context
+      denial, and unchanged Yao artifacts.
+- [ ] Regenerate only changed Router A/B server bindings from R103F's final
+      shared types; prove V6 browser, WASM/SDK, and host/iframe shapes unchanged.
+- [ ] Delete the deployment-share-hash Ed25519 root adapter when the
+      role-targeted profile activates.
 
 ### Phase 4: add lifecycle and operations
 
@@ -1157,6 +1502,19 @@ anti-drift check.
 
 ### Phase 5: release the client-transparent path
 
+- [ ] Confirm R103F R5 completion, zero legacy counters, exact-only serving
+      Wallet Session revisions, and the final SDK/iframe baseline.
+- [ ] Inventory every credential-free committed registration receipt as an
+      existing identity; drain or retire unfinished registration and recovery
+      states so a delayed replay cannot make retired-profile material active or
+      usable.
+- [ ] Fence new derivation ceremonies while preserving normal signing, wait for
+      every pre-cutover derivation session to reach a terminal state, deploy
+      every participating R120 revision, verify the revision manifest and both
+      curve canaries, then resume derivation.
+- [ ] Prove every old/new R120 revision mismatch fails closed and that rollback
+      is allowed only before the first new-profile derivation; later recovery
+      rolls forward.
 - [ ] Run refresh against tenants with Ed25519 and ECDSA wallets.
 - [ ] Prove no wallet enumeration or client mutation occurs.
 - [ ] Run multi-tenant concurrency, quota, and isolation tests.
@@ -1175,7 +1533,24 @@ The implementation is complete only when tests prove:
 - both root shares change after refresh;
 - `2*A - B` and `2*A' - B'` bind to the same public root commitment;
 - old and new shares produce identical ECDSA threshold-PRF outputs;
-- old and new shares produce identical Ed25519 contributions and public keys;
+- old and new shares produce identical A-target and B-target PRF outputs,
+  Ed25519 contributions, and public keys;
+- A receives only B's A-target peer bundle, B receives only A's B-target peer
+  bundle, and the Router receives no plaintext partial;
+- arbitrary PRF contexts, reverse target directions, mixed purposes, and
+  caller-selected target roles are rejected;
+- each role processes Yao only after entering its typed local `preface_ready`
+  state, with no standalone readiness message or second preface flight;
+- every preface failure or timeout burns the pair and zeroizes role-local
+  outputs;
+- raw tenant-root shares, PRF partials and outputs, and the joined root never
+  enter Yao;
+- current and selected-profile Yao circuit artifacts are byte-identical;
+- the production-shaped Ed25519 candidate benchmark passes every frozen resource
+  and headroom gate before production protocol work;
+- the candidate reuses the baseline A/B session, adds exactly one bidirectional
+  proof-bundle flight, adds no connection or client round trip, and increases
+  warm p95 end-to-end ceremony latency by at most 10 ms in every cohort;
 - changing only `TenantRootShareEpoch` leaves stable derivation bytes unchanged;
 - mixed current/next shares are rejected;
 - stale, future, substituted, and replayed epochs are rejected;
@@ -1184,8 +1559,16 @@ The implementation is complete only when tests prove:
 - restart from every lifecycle state converges to one defined branch;
 - no wallet record, signer package, client state, public key, address, or
   activation reference changes;
+- no R103F authorization, operation credential, quota, registration receipt,
+  device-link delivery or acknowledgement, V6 browser record, hosted child, or
+  host/iframe message changes;
+- no `TenantRootShareEpoch`, custody lineage, or root receipt appears in R103F
+  signer-D1 or client-facing shapes;
 - no client request, WebAuthn ceremony, or browser callback occurs;
 - normal signing succeeds throughout a refresh;
+- normal signing resolves R103F exact material without invoking the tenant-root
+  resolver; Ed25519 export resolves exact material first and then obtains its
+  independently server-resolved tenant-root binding;
 - A and B backups require independent decryption and authorization paths;
 - tenant recovery packages use a dedicated sharing, preserve the public root
   commitment, and remain usable across operational refreshes;
@@ -1194,7 +1577,11 @@ The implementation is complete only when tests prove:
 - retired operational and managed-backup shares cannot be recovered through
   supported rollback paths;
 - refreshing tenant A changes no state or availability for tenant B;
-- source and self-hosted destination roots refresh independently.
+- source and self-hosted destination roots refresh independently;
+- no delayed R103F registration or recovery replay can make retired-profile
+  material active or usable;
+- R120 activation cannot begin before R103F R5 or while an old Wallet Session
+  worker or mismatched R120 derivation revision can serve traffic.
 
 ## Definition of Done
 
@@ -1204,7 +1591,10 @@ Refactor 120 is complete when:
 2. No process or runtime holds both root shares.
 3. ECDSA stable derivation excludes `RootShareEpoch` and
    `TenantRootShareEpoch`.
-4. Ed25519 derives from the joined tenant root inside Yao.
+4. Ed25519 derives separate A-target and B-target roots through the threshold
+   PRF, combines each output only inside its target Deriver, runs the existing
+   contribution KDF role-locally, and leaves the Yao circuit artifacts
+   byte-identical.
 5. One server-side ceremony replaces both tenant root shares and advances the
    epoch while preserving the joined root.
 6. Existing wallet public keys, addresses, client state, signer packages, and
@@ -1226,6 +1616,22 @@ Refactor 120 is complete when:
 16. Root replacement remains an explicit wallet-migration operation.
 17. Documentation distinguishes active-epoch rotation from verified proactive
     compromise healing.
+18. R103F B4/B5 remains the sole Wallet Session admission and exact
+    material-resolution path, and all R103F session, signer-D1, browser,
+    receipt, and device-link state remains unchanged by refresh.
+19. Tenant-root identity and epoch resolve only from authenticated deployment
+    configuration and never from Wallet Session or client state.
+20. Production activation follows R103F R5 and one derivation-fenced,
+    revision-verified R120 cutover with no dual profile.
+21. Committed-but-not-yet-published R103F registrations enter the old-profile
+    identity inventory, and unfinished registration or recovery replay cannot
+    cross the profile cutover.
+22. The production-shaped role-targeted threshold-PRF prototype passes before
+    production Ed25519 protocol work begins. It reuses the baseline A/B session,
+    adds one bidirectional proof-bundle flight, adds no additional connection or
+    standalone readiness exchange, stays outside normal signing, and adds at
+    most 10 ms to warm p95 end-to-end latency in every measured ceremony cohort.
+    No joined-root circuit is shipped as a fallback.
 
 ## Non-Goals
 
@@ -1237,23 +1643,35 @@ Refactor 120 is complete when:
   combined backup object;
 - reconstructing a joined root in a Router, Gateway, SigningWorker, control
   plane, script, or operator process;
+- changing R103F Wallet Session authorization, operation credentials,
+  signer-D1 schema, V6 browser records, registration receipts, hosted
+  credentials, host/iframe protocol, or device-link acknowledgement lifecycle;
 - app-level migration or a deployment-portability package;
 - carrying root shares through cross-deployment device linking;
-- keeping the current role-local Ed25519 profile as a fallback;
+- keeping the deployment-share-hash Ed25519 profile or a joined-root circuit as
+  a runtime fallback;
+- moving raw tenant-root shares, threshold-PRF outputs, or HKDF-SHA-256 into Yao
+  under the selected role-targeted architecture;
 - claiming that share refresh repairs exposure of both shares from one
   recoverable epoch;
 - claiming cryptographic erasure without executable rollback evidence;
 
 ## Remaining Evidence Gates
 
-There are no open protocol or product-policy decisions in this plan. Phase 1
-still waits for the canonical schemas, vectors, type fixtures, boundary
+One deliberate architecture-selection gate remains before production coding:
+the role-targeted threshold-PRF preface must pass Phase 0. A passing record
+freezes that design. A failure stops Refactor 120 and reopens the Ed25519
+architecture through an explicit plan amendment; it does not authorize the
+joined-root circuit implicitly.
+
+Phase 1 also waits for the canonical schemas, vectors, type fixtures, boundary
 inventory, baseline classification, and red tests named by the preparation
 phase.
 
 Production activation additionally requires measured acceptance of the frozen
 resource budget, successful online-store, backup, restore, deletion, and erasure
-drills, and qualification of the selected A and B key providers. Those gates may
-reject an implementation or force the deployment into
-`operational_rotation_v1`; they do not reopen the root algebra, identity,
-lifecycle, or custody contracts.
+drills, qualification of the selected A and B key providers, R103F R5
+completion, a zero-legacy serving-revision check, and a successful fenced R120
+revision-manifest drill. Those gates may reject an implementation or force the
+deployment into `operational_rotation_v1`; they do not reopen the root algebra,
+identity, lifecycle, custody, or R103F composition contracts.

@@ -296,7 +296,7 @@ const LINKED_OWNER_PASSKEY_CREDENTIAL_FIELDS = [
   'credentialIdB64u',
   'device',
 ] as const;
-const LINKED_OWNER_EMAIL_OTP_CREDENTIAL_FIELDS = ['kind', 'walletAuthMethodId'] as const;
+const LINKED_OWNER_EMAIL_OTP_CREDENTIAL_FIELDS = ['kind', 'walletAuthMethodId', 'email'] as const;
 const LINKED_DEVICE_LIST_REQUEST_FIELDS = ['kind', 'walletId', 'limit', 'cursor'] as const;
 const OWNER_DEVICE_SUMMARY_FIELDS = [
   'walletId',
@@ -624,7 +624,11 @@ function parseApprovedTargetFactor(
     const enrollment = parseEmailOtpEnrollmentSelection(record.enrollment, `${label}.enrollment`);
     const targetEmail = parseTargetEmail(record.targetEmail, `${label}.targetEmail`);
     if (enrollment.kind === 'existing_enrollment') {
-      const exact = exactRecord(record, ['kind', 'targetEmail', 'enrollment', 'baseWalletAuthMethodId'], label);
+      const exact = exactRecord(
+        record,
+        ['kind', 'targetEmail', 'enrollment', 'baseWalletAuthMethodId'],
+        label,
+      );
       return {
         kind: 'email_otp',
         targetEmail,
@@ -697,6 +701,7 @@ function parseLinkedOwnerCredentialMetadata(
           exact.walletAuthMethodId,
           `${label}.walletAuthMethodId`,
         ),
+        email: parseTargetEmail(exact.email, `${label}.email`),
       };
     }
     default:
@@ -2696,19 +2701,18 @@ type BuildQrLinkedDeviceSessionPayloadV5Args = {
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly requestedPermission: DelegatedWalletAuthorityV1;
-} &
-  (
-    | {
-        readonly targetFactor: { readonly kind: 'passkey_prf' };
-        readonly targetEmail?: never;
-      }
-    | {
-        readonly targetFactor: { readonly kind: 'email_otp' };
-        readonly targetEmail: VerifiedEmailAddress;
-      }
-  ) & {
-  readonly issuedAtMs: number;
-  readonly expiresAtMs: number;
+} & (
+  | {
+      readonly targetFactor: { readonly kind: 'passkey_prf' };
+      readonly targetEmail?: never;
+    }
+  | {
+      readonly targetFactor: { readonly kind: 'email_otp' };
+      readonly targetEmail: VerifiedEmailAddress;
+    }
+) & {
+    readonly issuedAtMs: number;
+    readonly expiresAtMs: number;
   };
 
 export function buildQrLinkedDeviceSessionPayloadV5(
@@ -2751,10 +2755,7 @@ export function buildQrLinkedDeviceSessionPayloadV5(
       'QrLinkedDeviceSessionPayloadV5.requestedPermission',
     ),
     targetFactor,
-    targetEmail: parseTargetEmail(
-      args.targetEmail,
-      'QrLinkedDeviceSessionPayloadV5.targetEmail',
-    ),
+    targetEmail: parseTargetEmail(args.targetEmail, 'QrLinkedDeviceSessionPayloadV5.targetEmail'),
     issuedAtMs,
     expiresAtMs,
   };

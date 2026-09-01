@@ -90,7 +90,7 @@ export type LinkedDeviceApprovedTargetFactorV1 =
       readonly kind: 'passkey_prf';
       readonly baseWalletAuthMethodId?: never;
     }
-  | ({
+  | {
       readonly kind: 'email_otp';
       readonly targetEmail: VerifiedEmailAddress;
       readonly enrollment: Extract<
@@ -98,8 +98,8 @@ export type LinkedDeviceApprovedTargetFactorV1 =
         { readonly kind: 'existing_enrollment' }
       >;
       readonly baseWalletAuthMethodId: WalletAuthMethodId;
-    })
-  | ({
+    }
+  | {
       readonly kind: 'email_otp';
       readonly targetEmail: VerifiedEmailAddress;
       readonly enrollment: Extract<
@@ -107,7 +107,7 @@ export type LinkedDeviceApprovedTargetFactorV1 =
         { readonly kind: 'new_enrollment' }
       >;
       readonly baseWalletAuthMethodId?: never;
-    });
+    };
 
 export type LinkedDeviceEmailOtpBaseFactorChoiceV1 = {
   readonly baseWalletAuthMethodId: WalletAuthMethodId;
@@ -165,9 +165,9 @@ export type QrLinkedDeviceSessionPayloadV5 =
       readonly targetEmail?: never;
     })
   | (QrLinkedDeviceSessionPayloadBaseV5 & {
-  readonly targetFactor: { readonly kind: 'email_otp' };
-  readonly targetEmail: VerifiedEmailAddress;
-});
+      readonly targetFactor: { readonly kind: 'email_otp' };
+      readonly targetEmail: VerifiedEmailAddress;
+    });
 
 /** Authenticated Device 1 owner-authorization request. */
 export type LinkedDeviceOwnerAuthorizationRequestV1 = {
@@ -560,6 +560,13 @@ export type LinkedOwnerCredentialMetadataV1 =
   | {
       readonly kind: 'email_otp';
       readonly walletAuthMethodId: WalletAuthMethodId;
+      /**
+       * The verified address behind this factor. The management projection is
+       * served only to an authenticated owner session, and the owner already
+       * knows the address they enrolled — this exists so the settings surface
+       * can name the factor. Local persistence keeps only the email hash.
+       */
+      readonly email: VerifiedEmailAddress;
       readonly device?: never;
       readonly credentialIdB64u?: never;
     };
@@ -768,7 +775,7 @@ export type VerifiedTargetFactorV1 =
       readonly verificationDigestB64u: DigestB64u;
       readonly verifiedAtMs: number;
     }
-  | ({
+  | {
       readonly kind: 'verified_email_otp_target_v1';
       readonly authMethod: EmailOtpWalletAuthMethodDraftV1;
       readonly targetEmail: VerifiedEmailAddress;
@@ -780,8 +787,8 @@ export type VerifiedTargetFactorV1 =
       readonly providerUserId: string;
       readonly verificationDigestB64u: DigestB64u;
       readonly verifiedAtMs: number;
-    })
-  | ({
+    }
+  | {
       readonly kind: 'verified_email_otp_target_v1';
       readonly authMethod: EmailOtpWalletAuthMethodDraftV1;
       readonly targetEmail: VerifiedEmailAddress;
@@ -793,7 +800,7 @@ export type VerifiedTargetFactorV1 =
       readonly providerUserId: string;
       readonly verificationDigestB64u: DigestB64u;
       readonly verifiedAtMs: number;
-    });
+    };
 
 export type VerifiedLinkInputV1 = {
   readonly walletId: WalletId;
