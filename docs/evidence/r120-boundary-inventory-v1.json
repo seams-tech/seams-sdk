@@ -30,13 +30,13 @@
     "circuit_digest"
   ],
   "totalFiles": 943,
-  "totalHits": 18119,
-  "classificationDigestSha256": "eb957830818b972ed16fe88768d540f9c4eea781518e9ecfddee1cdacfa8ce1b",
+  "totalHits": 18159,
+  "classificationDigestSha256": "5139c067ce912c0ed420ed04fd8b1db5305e0f7bb731f9df4d9e93b9244b209b",
   "generatedArtifactDigestSha256": "f681b31eefbbc145b965523d81a960539eb9e59c3e116fa8897f35cf8fdc8ee4",
   "categorySummary": {
     "deployment": {
       "fileCount": 41,
-      "hitCount": 825
+      "hitCount": 828
     },
     "documentation": {
       "fileCount": 106,
@@ -60,7 +60,7 @@
     },
     "custody binding": {
       "fileCount": 37,
-      "hitCount": 5245
+      "hitCount": 5282
     },
     "stable derivation": {
       "fileCount": 18,
@@ -1485,16 +1485,16 @@
     {
       "path": "crates/router-ab-cloudflare/src/env.rs",
       "category": "deployment",
-      "hitCount": 189,
+      "hitCount": 192,
       "firstLine": 8,
-      "lastLine": 2791,
+      "lastLine": 2806,
       "terms": [
         "DERIVER_A_ROOT_SHARE_WIRE_SECRET",
         "DERIVER_B_ROOT_SHARE_WIRE_SECRET",
         "TenantRoot",
         "tenant_root"
       ],
-      "matchesDigestSha256": "0543cfa3b886235a12c90ec6b91c64afe1ec87ff9551120f93f2e04de6ad4bf8"
+      "matchesDigestSha256": "ba18d95444e72017733ddcb112b41ddcb44f19841368afd1bfcefdfeb16c6a6d"
     },
     {
       "path": "crates/router-ab-cloudflare/src/lib.rs",
@@ -1705,9 +1705,9 @@
     {
       "path": "crates/router-ab-cloudflare/src/tenant_root_role_runtime.rs",
       "category": "custody binding",
-      "hitCount": 132,
+      "hitCount": 169,
       "firstLine": 3,
-      "lastLine": 866,
+      "lastLine": 1188,
       "terms": [
         "RootShareEpoch",
         "TenantRoot",
@@ -1715,7 +1715,7 @@
         "pair_digest",
         "tenant_root"
       ],
-      "matchesDigestSha256": "699f5572a43a1754f9909eebd9aa1da3da2133e399ae239545bf5c3b2fca8d87"
+      "matchesDigestSha256": "827471745373dbc8df1d0d58981599f748e09f8daf12232e18484ae18d80bc24"
     },
     {
       "path": "crates/router-ab-cloudflare/tests/bindings.rs",
@@ -2141,14 +2141,14 @@
       "category": "custody binding",
       "hitCount": 128,
       "firstLine": 8,
-      "lastLine": 1126,
+      "lastLine": 1134,
       "terms": [
         "RootShareEpoch",
         "TenantRoot",
         "TenantRootShareEpoch",
         "tenant_root"
       ],
-      "matchesDigestSha256": "3461f4c3dbce032a2c0379ef98b8a5543852875180074dcb83ec0e977a682553"
+      "matchesDigestSha256": "4ee4f801eaf7df1321720202c4b41fbf3a1dd9ddeceb51ccd0093d9eddc34858"
     },
     {
       "path": "crates/router-ab-core/src/derivation/tenant_root_custody_binding.rs",

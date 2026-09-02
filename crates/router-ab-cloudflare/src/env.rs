@@ -1012,6 +1012,21 @@ impl CloudflareTenantRootCreationRoleSigningKeySelectionV1 {
 }
 
 /// Non-cloneable role-constrained signer produced from a trusted key selection.
+/// Builds a role signer directly, for tests that exercise the admission
+/// boundary without a full Env. Never compiled into a Worker.
+#[cfg(test)]
+pub(crate) fn test_support_tenant_root_creation_role_signer_v1(
+    role: TwoPartyDeriverRole,
+    signing_key_id: &str,
+    signing_key: SigningKey,
+) -> CloudflareTenantRootCreationRoleSignerV1 {
+    CloudflareTenantRootCreationRoleSignerV1 {
+        role,
+        signing_key_id: signing_key_id.to_owned(),
+        signing_key,
+    }
+}
+
 pub(crate) struct CloudflareTenantRootCreationRoleSignerV1 {
     role: TwoPartyDeriverRole,
     signing_key_id: String,

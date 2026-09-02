@@ -1012,6 +1012,14 @@ impl TenantRootRoleCreationCommandPackageV1 {
         Ok(package)
     }
 
+    /// Returns the issuer key id the packaged command names.
+    ///
+    /// A verifier uses this only to SELECT a trusted key from its own
+    /// configuration; the key itself is never taken from the package.
+    pub fn issuer_key_id(&self) -> &str {
+        self.command.issuer_key_id()
+    }
+
     /// Recovers the ceremony context the Started journal was opened with.
     ///
     /// The Started event retains the exact canonical context bytes, so this is
