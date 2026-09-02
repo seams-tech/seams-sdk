@@ -253,6 +253,7 @@ pnpm build:sdk
   - `lit-components/confirm-ui.host-and-inline.test.ts` modal continuity and modal/drawer confirm/cancel
   - `lit-components/confirm-ui.handle.test.ts` handle.update/close DOM asserts
   - `lit-components/drawer.events.test.ts` drawer event contract
+  - `lit-components/confirm-surface-resize.test.ts` wallet-iframe tree growth: host pinned to the target size, body fed from the box
 
 ## Fixes & Learnings
 

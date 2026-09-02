@@ -3,10 +3,12 @@ import { repeat } from 'lit/directives/repeat.js';
 import { LitElementWithProps } from '../LitElementWithProps';
 import {
   dispatchLitCopy,
+  dispatchLitTreeResizeBegin,
   dispatchLitTreeToggled,
   dispatchTxReviewCopy,
   dispatchTxReviewOpenLink,
   dispatchTxReviewToggleNode,
+  type LitTreeResizeDriver,
 } from '../../lit-events';
 import type { TreeNode } from './tx-tree-utils';
 import type { TxTreeStyles } from './tx-tree-themes';
@@ -17,6 +19,10 @@ import { ensureExternalStyles } from '../css/css-loader';
 import type { AppearanceConfig } from '@/core/types/seams';
 // Re-exported for co-located theme typing convenience.
 export type { TxTreeStyles } from './tx-tree-themes';
+
+// A host that claims a node's height motion and then never lands it must not
+// leave that node stuck half-open; well beyond any host box ease.
+const HOST_DRIVEN_RESIZE_SAFETY_MS = 1500;
 
 /**
  * TxTree
@@ -278,7 +284,11 @@ export class TxTree extends LitElementWithProps {
     details.open = true;
 
     requestAnimationFrame(() => {
-      const target = `${body.scrollHeight}px`;
+      const targetPx = body.scrollHeight;
+      if (this.beginHostDrivenResize(details, body, { open: true, deltaCssPx: targetPx })) {
+        return;
+      }
+      const target = `${targetPx}px`;
       // Drive animation via host CSS variable; avoid inline styles
       this.setCssVars({ '--w3a-tree__anim-target': target });
       // Activate transition to target height
@@ -308,13 +318,17 @@ export class TxTree extends LitElementWithProps {
 
   private animateClose(details: HTMLDetailsElement, body: HTMLElement) {
     this._animating.add(details);
-    const start = `${body.scrollHeight}px`;
+    const startPx = body.scrollHeight;
+    const start = `${startPx}px`;
     // Pin current height, then transition to 0 using classes
     this.setCssVars({ '--w3a-tree__anim-target': start });
     body.classList.add('anim-h');
     body.classList.add('anim-h-active');
     // Force reflow to ensure start height is applied
     void body.offsetHeight;
+    if (this.beginHostDrivenResize(details, body, { open: false, deltaCssPx: startPx })) {
+      return;
+    }
     requestAnimationFrame(() => {
       body.classList.remove('anim-h-active');
       let done = false;
@@ -335,6 +349,55 @@ export class TxTree extends LitElementWithProps {
       // Safety fallback in case transitionend doesn't fire
       window.setTimeout(() => cleanup(), 250);
     });
+  }
+
+  /**
+   * Offer the node's height motion to the host before animating it here.
+   *
+   * A wallet-iframe confirmer accepts: the parent window sizes its iframe to
+   * hug the card, so the box must grow before the body does or the card is
+   * clipped by an iframe still catching up (confirm-surface-resize.ts). The
+   * host then feeds the body height back frame by frame and calls finish().
+   * Nobody claiming means the caller runs the tree's own CSS transition.
+   */
+  private beginHostDrivenResize(
+    details: HTMLDetailsElement,
+    body: HTMLElement,
+    args: { open: boolean; deltaCssPx: number },
+  ): boolean {
+    const { open, deltaCssPx } = args;
+    const state: { driver: LitTreeResizeDriver | null; finished: boolean; safety: number | null } =
+      { driver: null, finished: false, safety: null };
+
+    const setHeightCssPx = (px: number) => {
+      if (state.finished) return;
+      const clamped = Number.isFinite(px) ? Math.min(Math.max(px, 0), deltaCssPx) : 0;
+      this.setCssVars({ '--w3a-tree__anim-target': `${clamped}px` });
+    };
+    const finish = () => {
+      if (state.finished) return;
+      state.finished = true;
+      if (state.safety !== null) window.clearTimeout(state.safety);
+      if (!open) details.open = false;
+      body.classList.remove('anim-h', 'anim-h-active', 'anim-h-driven');
+      this._animating.delete(details);
+      this.handleToggle({ nodeId: details.dataset.nodeId, open: details.open });
+    };
+    const claim = (): LitTreeResizeDriver | null => {
+      if (state.driver || state.finished) return null;
+      // Start where the body visually is now: collapsed for open, full for close.
+      this.setCssVars({ '--w3a-tree__anim-target': `${open ? 0 : deltaCssPx}px` });
+      body.classList.add('anim-h-driven', 'anim-h-active');
+      state.safety = window.setTimeout(() => {
+        setHeightCssPx(open ? deltaCssPx : 0);
+        finish();
+      }, HOST_DRIVEN_RESIZE_SAFETY_MS);
+      state.driver = { setHeightCssPx, finish };
+      return state.driver;
+    };
+
+    dispatchLitTreeResizeBegin(this, { nodeId: details.dataset.nodeId, open, deltaCssPx, claim });
+    return state.driver !== null;
   }
 
   protected getComponentPrefix(): string {
