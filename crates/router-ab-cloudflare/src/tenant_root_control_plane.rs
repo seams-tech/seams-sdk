@@ -18,6 +18,7 @@ use router_ab_core::{
     TenantRootSignedManagedBackupV1, TenantRootSignedProviderCanaryReceiptV1,
     TenantRootSignedShareInstallationEvidenceV1, VerifiedTenantRootCreationGrantV1,
     VerifiedTenantRootInitialCreationActivationEvidenceBundleV1,
+    VerifiedTenantRootRefreshSwapActivationEvidenceBundleV1,
     TENANT_ROOT_ACTIVATION_RECEIPT_MAX_BYTES_V1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
     TENANT_ROOT_PROVIDER_CANARY_RECEIPT_MAX_BYTES_V1,
 };
@@ -284,6 +285,27 @@ pub(crate) fn issue_tenant_root_initial_activation_receipt_v1(
     issuer_seed: &Zeroizing<[u8; 32]>,
 ) -> RouterAbProtocolResult<TenantRootSignedActivationReceiptV1> {
     TenantRootSignedActivationReceiptV1::sign_initial_creation(
+        bundle,
+        activated_at_ms,
+        authority_id,
+        issuer_key_id,
+        issuer_seed,
+    )
+    .map_err(derivation)
+}
+
+/// Signs a refresh-swap activation receipt from a fully verified evidence bundle.
+///
+/// The bundle owns the exact current/next pair and lifecycle revisions, so the
+/// issuer only supplies its local authority, signing key, and activation time.
+pub(crate) fn issue_tenant_root_refresh_activation_receipt_v1(
+    bundle: &VerifiedTenantRootRefreshSwapActivationEvidenceBundleV1,
+    activated_at_ms: u64,
+    authority_id: TenantRootControlPlaneAuthorityIdV1,
+    issuer_key_id: &str,
+    issuer_seed: &Zeroizing<[u8; 32]>,
+) -> RouterAbProtocolResult<TenantRootSignedActivationReceiptV1> {
+    TenantRootSignedActivationReceiptV1::sign_refresh_swap(
         bundle,
         activated_at_ms,
         authority_id,
@@ -1551,14 +1573,15 @@ mod tests {
     use rand_chacha::ChaCha20Rng;
     use rand_core_06::SeedableRng;
     use router_ab_core::{
-        TenantRootActivationReceiptTransitionV1, TenantRootCanaryCurveFamilyV1,
-        TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1, TenantRootCeremonySessionIdV1,
-        TenantRootCreationCapabilityNonceV1, TenantRootCreationCapabilityV1,
-        TenantRootCustodyLineageId, TenantRootEpochCommitmentsV1, TenantRootIdentityV1,
-        TenantRootManagedBackupBindingV1, TenantRootManagedBackupSealRequestV1,
-        TenantRootProviderCanaryReceiptBindingV1, TenantRootShareInstallationEvidenceV1,
-        TenantRootShareInstallationTranscriptV1, TenantRootSignedManagedBackupV1,
-        TenantRootSignedProviderCanaryReceiptV1, TenantRootSignedShareInstallationEvidenceV1,
+        TenantRootActivationReceiptBindingV1, TenantRootActivationReceiptTransitionV1,
+        TenantRootCanaryCurveFamilyV1, TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1,
+        TenantRootCeremonySessionIdV1, TenantRootCreationCapabilityNonceV1,
+        TenantRootCreationCapabilityV1, TenantRootCustodyLineageId, TenantRootEpochCommitmentsV1,
+        TenantRootIdentityV1, TenantRootManagedBackupBindingV1,
+        TenantRootManagedBackupSealRequestV1, TenantRootProviderCanaryReceiptBindingV1,
+        TenantRootShareInstallationEvidenceV1, TenantRootShareInstallationTranscriptV1,
+        TenantRootSignedManagedBackupV1, TenantRootSignedProviderCanaryReceiptV1,
+        TenantRootSignedShareInstallationEvidenceV1,
         VerifiedTenantRootInitialCreationActivationEvidenceBundleV1,
     };
     use std::collections::BTreeMap;
@@ -2270,6 +2293,34 @@ mod tests {
         .expect("context")
     }
 
+    fn refresh_activation_context() -> TenantRootCeremonyContextV1 {
+        let identity = TenantRootIdentityV1::new(
+            "activation-org",
+            "activation-project",
+            "production",
+            "root-main",
+            "v1",
+        )
+        .expect("identity");
+        let epochs = TenantRootCeremonyEpochsV1::refresh(
+            TenantRootShareEpoch::new(7).expect("current epoch"),
+            TenantRootShareEpoch::new(8).expect("next epoch"),
+        )
+        .expect("refresh epochs");
+        TenantRootCeremonyContextV1::new(
+            identity.digest().expect("identity digest"),
+            TenantRootCustodyLineageId::from_bytes([0x23; 16]).expect("lineage"),
+            epochs,
+            TenantRootCeremonySessionIdV1::from_bytes([0x64; 16]).expect("session"),
+            TenantRootCeremonyNonceV1::from_bytes([0x65; 32]).expect("nonce"),
+            CEREMONY_ISSUED_AT_MS,
+            CEREMONY_EXPIRES_AT_MS,
+            "deriver-a-signing-key-7",
+            "deriver-b-signing-key-9",
+        )
+        .expect("refresh context")
+    }
+
     fn activation_share(role: TwoPartyDeriverRole, scalar: u64) -> SigningRootShare {
         SigningRootShare::from_canonical_bytes(role.share_id(), Scalar::from(scalar).to_bytes())
             .expect("share")
@@ -2381,11 +2432,20 @@ mod tests {
         commitments: &TenantRootEpochCommitmentsV1,
         family: TenantRootCanaryCurveFamilyV1,
     ) -> router_ab_core::VerifiedTenantRootProviderCanaryReceiptV1 {
+        let (transition, target_epoch) = match context.epochs() {
+            TenantRootCeremonyEpochsV1::Create { next } => (
+                TenantRootActivationReceiptTransitionV1::InitialCreation,
+                next,
+            ),
+            TenantRootCeremonyEpochsV1::Refresh { next, .. } => {
+                (TenantRootActivationReceiptTransitionV1::RefreshSwap, next)
+            }
+        };
         let binding = TenantRootProviderCanaryReceiptBindingV1::new(
             context.identity_digest(),
             context.custody_lineage(),
-            TenantRootActivationReceiptTransitionV1::InitialCreation,
-            TenantRootShareEpoch::INITIAL,
+            transition,
+            target_epoch,
             commitments.clone(),
             family,
             format!("kms/tenant-root/{}/canary-v1", family.as_str()),
@@ -2450,6 +2510,65 @@ mod tests {
         .expect("verified initial activation evidence")
     }
 
+    fn refresh_activation_bundle() -> VerifiedTenantRootRefreshSwapActivationEvidenceBundleV1 {
+        refresh_activation_bundle_with_scalars(12, 19, 19, 33, 5, 6)
+    }
+
+    fn refresh_activation_bundle_with_scalars(
+        current_a_scalar: u64,
+        current_b_scalar: u64,
+        next_a_scalar: u64,
+        next_b_scalar: u64,
+        expected_control_plane_revision: u64,
+        result_control_plane_revision: u64,
+    ) -> VerifiedTenantRootRefreshSwapActivationEvidenceBundleV1 {
+        let context = refresh_activation_context();
+        let current_a = activation_share(TwoPartyDeriverRole::DeriverA, current_a_scalar);
+        let current_b = activation_share(TwoPartyDeriverRole::DeriverB, current_b_scalar);
+        let next_a = activation_share(TwoPartyDeriverRole::DeriverA, next_a_scalar);
+        let next_b = activation_share(TwoPartyDeriverRole::DeriverB, next_b_scalar);
+        let current_commitments = activation_commitments(&current_a, &current_b);
+        let installation_a = activation_installation(
+            context.clone(),
+            TwoPartyDeriverRole::DeriverA,
+            &next_a,
+            &next_b,
+            0x41,
+        );
+        let installation_b = activation_installation(
+            context.clone(),
+            TwoPartyDeriverRole::DeriverB,
+            &next_b,
+            &next_a,
+            0x42,
+        );
+        let next_commitments = activation_commitments(&next_a, &next_b);
+        let backup_a = activation_backup(&installation_a, &next_a, TwoPartyDeriverRole::DeriverA);
+        let backup_b = activation_backup(&installation_b, &next_b, TwoPartyDeriverRole::DeriverB);
+        let canary_ecdsa = activation_canary(
+            &context,
+            &next_commitments,
+            TenantRootCanaryCurveFamilyV1::Ecdsa,
+        );
+        let canary_ed25519 = activation_canary(
+            &context,
+            &next_commitments,
+            TenantRootCanaryCurveFamilyV1::Ed25519,
+        );
+        VerifiedTenantRootRefreshSwapActivationEvidenceBundleV1::from_verified_managed_backups(
+            &current_commitments,
+            installation_a,
+            installation_b,
+            backup_a,
+            backup_b,
+            canary_ecdsa,
+            canary_ed25519,
+            expected_control_plane_revision,
+            result_control_plane_revision,
+        )
+        .expect("verified refresh activation evidence")
+    }
+
     #[test]
     fn initial_activation_issuance_returns_the_exact_typed_receipt_wire() {
         let bundle = activation_bundle();
@@ -2489,6 +2608,68 @@ mod tests {
             .expect("response receipt bytes"),
             receipt_bytes
         );
+    }
+
+    #[test]
+    fn refresh_activation_issuance_binds_the_exact_pair_and_revision() {
+        let bundle = refresh_activation_bundle();
+        let activated_at_ms = CEREMONY_ISSUED_AT_MS + 20;
+        let receipt = issue_tenant_root_refresh_activation_receipt_v1(
+            &bundle,
+            activated_at_ms,
+            authority(),
+            ISSUER_KEY_ID,
+            &Zeroizing::new(ACTIVATION_ISSUER_SEED),
+        )
+        .expect("issued refresh activation receipt");
+        let issuer_verifying_key = SigningKey::from_bytes(&ACTIVATION_ISSUER_SEED)
+            .verifying_key()
+            .to_bytes();
+        let verified = receipt
+            .clone()
+            .verify_refresh_swap(
+                &bundle,
+                activated_at_ms,
+                authority(),
+                ISSUER_KEY_ID,
+                &issuer_verifying_key,
+            )
+            .expect("receipt verifies against the exact refresh bundle");
+        let TenantRootActivationReceiptBindingV1::RefreshSwap(binding) = verified.binding() else {
+            panic!("refresh issuer must produce a refresh-swap receipt")
+        };
+        assert_eq!(
+            binding.current_epoch(),
+            TenantRootShareEpoch::new(7).unwrap()
+        );
+        assert_eq!(binding.next_epoch(), TenantRootShareEpoch::new(8).unwrap());
+        assert_eq!(binding.expected_control_plane_revision(), 5);
+        assert_eq!(binding.result_control_plane_revision(), 6);
+        assert_eq!(binding.current_commitments(), bundle.current_commitments());
+        assert_eq!(binding.next_commitments(), bundle.next_commitments());
+
+        let wrong_pair = refresh_activation_bundle_with_scalars(13, 20, 20, 34, 5, 6);
+        assert!(receipt
+            .clone()
+            .verify_refresh_swap(
+                &wrong_pair,
+                activated_at_ms,
+                authority(),
+                ISSUER_KEY_ID,
+                &issuer_verifying_key,
+            )
+            .is_err());
+
+        let wrong_revision = refresh_activation_bundle_with_scalars(12, 19, 19, 33, 6, 7);
+        assert!(receipt
+            .verify_refresh_swap(
+                &wrong_revision,
+                activated_at_ms,
+                authority(),
+                ISSUER_KEY_ID,
+                &issuer_verifying_key,
+            )
+            .is_err());
     }
 
     #[test]
