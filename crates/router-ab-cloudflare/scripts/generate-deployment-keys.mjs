@@ -36,7 +36,10 @@ Options:
 This command generates deployment identity, operational-encryption,
 tenant-root control-plane issuer, and Deriver role creation signing keys. It
 does not generate
-DERIVER_A_ROOT_SHARE_WIRE_SECRET or DERIVER_B_ROOT_SHARE_WIRE_SECRET.
+DERIVER_A_ROOT_SHARE_WIRE_SECRET, DERIVER_B_ROOT_SHARE_WIRE_SECRET, or
+ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON: the
+tenant-root creation grant authority is external to the deployment, and a
+command that could mint it would defeat the separation it exists for.
 
 --apply does not place the tenant-root control-plane issuer values: it applies
 to one generic environment, and the issuer seed must reach only the
@@ -176,7 +179,13 @@ const output = {
   generatedAt: new Date().toISOString(),
   variables,
   secrets: showSecrets ? secrets : redactObject(secrets),
-  notGenerated: ['DERIVER_A_ROOT_SHARE_WIRE_SECRET', 'DERIVER_B_ROOT_SHARE_WIRE_SECRET'],
+  notGenerated: [
+    'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
+    'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
+    // Deliberately not generated here: the grant authority is external to the
+    // deployment, so this command must not be able to mint one.
+    'ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON',
+  ],
   notApplied: [...CONTROL_PLANE_OUTPUT_ONLY_VARIABLES, ...CONTROL_PLANE_OUTPUT_ONLY_SECRETS],
 };
 

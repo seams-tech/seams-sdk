@@ -69,6 +69,8 @@ const BACKEND_SMOKE_PATHS = Object.freeze([
   '/router-ab/ecdsa-derivation/healthz',
 ]);
 const PREFLIGHT_VARIABLE_ALIASES = Object.freeze({
+  ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON:
+    'TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON',
   ROUTER_AB_DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID:
     'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
   ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID:
@@ -827,6 +829,11 @@ function componentRuntimeRequirements(lane, component) {
       return [
         'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID',
         'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
+        // Genesis: the authorities this issuer accepts, and the public role
+        // signing key IDs it names in each ceremony it opens.
+        'TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON',
+        'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
+        'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
       ];
     case 'gateway':
     case 'wallet-runtime':
@@ -1268,6 +1275,12 @@ function deployTenantRootControlPlane(lane) {
     `TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID:${requireEnvironmentValue('TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID')}`,
     '--var',
     `TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:${requireEnvironmentValue('TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON')}`,
+    '--var',
+    `TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON:${requireEnvironmentValue('TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON')}`,
+    '--var',
+    `DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID:${requireEnvironmentValue('DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID')}`,
+    '--var',
+    `DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID:${requireEnvironmentValue('DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID')}`,
   );
   runRouterCommand(args);
 }

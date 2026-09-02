@@ -78,12 +78,18 @@ mod tenant_root_control_plane;
 mod tenant_root_cutover_lifecycle;
 mod tenant_root_operational_provider;
 #[cfg(feature = "workers-rs")]
-pub use tenant_root_control_plane::handle_cloudflare_tenant_root_control_plane_role_creation_command_v1;
+pub use tenant_root_control_plane::{
+    handle_cloudflare_tenant_root_control_plane_create_tenant_root_v1,
+    handle_cloudflare_tenant_root_control_plane_role_creation_command_v1,
+};
 #[cfg(any(feature = "workers-rs", test))]
 pub use tenant_root_control_plane::{
+    CloudflareTenantRootControlPlaneCreateTenantRootRequestV1,
+    CloudflareTenantRootControlPlaneCreateTenantRootResponseV1,
     CloudflareTenantRootControlPlaneRoleCreationCommandRequestV1,
     CloudflareTenantRootControlPlaneRoleCreationCommandResponseV1,
     CloudflareTenantRootControlPlaneRoleV1,
+    TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_REQUEST_MAX_BYTES_V1,
     TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_REQUEST_MAX_BYTES_V1,
 };
 #[allow(dead_code)]
@@ -110,8 +116,9 @@ mod env;
 pub use env::*;
 use env::{
     parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1,
-    DERIVER_A_FORBIDDEN_ENV_KEYS, DERIVER_B_FORBIDDEN_ENV_KEYS, ROUTER_FORBIDDEN_ENV_KEYS,
-    SIGNING_WORKER_FORBIDDEN_ENV_KEYS,
+    parse_cloudflare_tenant_root_creation_grant_authority_verifying_keys_v1,
+    read_cloudflare_tenant_root_creation_role_signing_key_id_v1, DERIVER_A_FORBIDDEN_ENV_KEYS,
+    DERIVER_B_FORBIDDEN_ENV_KEYS, ROUTER_FORBIDDEN_ENV_KEYS, SIGNING_WORKER_FORBIDDEN_ENV_KEYS,
 };
 mod validation;
 pub(crate) use validation::{
@@ -1884,6 +1891,12 @@ pub struct CloudflareTenantRootControlPlaneBindingsV1 {
     /// The issuer holds its own published set so it can prove at boot that its
     /// Secret derives the key registered under its active key ID.
     pub issuer_verifying_keys: CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
+    /// Authorities trusted to sign a tenant-root creation grant.
+    pub grant_authority_verifying_keys: CloudflareTenantRootCreationGrantAuthorityVerifyingKeysV1,
+    /// Public role signing key ID the issuer names for Deriver A.
+    pub deriver_a_signing_key_id: String,
+    /// Public role signing key ID the issuer names for Deriver B.
+    pub deriver_b_signing_key_id: String,
 }
 
 impl CloudflareTenantRootControlPlaneBindingsV1 {
@@ -1891,10 +1904,16 @@ impl CloudflareTenantRootControlPlaneBindingsV1 {
     pub fn new(
         issuer_signing_key: CloudflareTenantRootControlPlaneIssuerSigningKeyBindingV1,
         issuer_verifying_keys: CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
+        grant_authority_verifying_keys: CloudflareTenantRootCreationGrantAuthorityVerifyingKeysV1,
+        deriver_a_signing_key_id: String,
+        deriver_b_signing_key_id: String,
     ) -> RouterAbProtocolResult<Self> {
         let bindings = Self {
             issuer_signing_key,
             issuer_verifying_keys,
+            grant_authority_verifying_keys,
+            deriver_a_signing_key_id,
+            deriver_b_signing_key_id,
         };
         bindings.validate()?;
         Ok(bindings)
@@ -1907,6 +1926,24 @@ impl CloudflareTenantRootControlPlaneBindingsV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.issuer_signing_key.validate()?;
         self.issuer_verifying_keys.validate()?;
+        self.grant_authority_verifying_keys.validate()?;
+        // A grant authority key may never double as the issuer key: the issuer
+        // could then authorize the tenant creations it goes on to sign.
+        for (grant_key_id, grant_key) in self.grant_authority_verifying_keys.keys() {
+            if self
+                .issuer_verifying_keys
+                .keys()
+                .values()
+                .any(|issuer_key| issuer_key == grant_key)
+            {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                    format!(
+                        "tenant-root creation grant authority {grant_key_id} reuses a control-plane issuer key"
+                    ),
+                ));
+            }
+        }
         if self
             .issuer_verifying_keys
             .for_issuer_key_id(self.issuer_signing_key.signing_key_id())
@@ -13492,6 +13529,15 @@ pub fn parse_cloudflare_tenant_root_control_plane_bindings_v1(
             env,
         )?,
         parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(env)?,
+        parse_cloudflare_tenant_root_creation_grant_authority_verifying_keys_v1(env)?,
+        read_cloudflare_tenant_root_creation_role_signing_key_id_v1(
+            env,
+            threshold_prf::TwoPartyDeriverRole::DeriverA,
+        )?,
+        read_cloudflare_tenant_root_creation_role_signing_key_id_v1(
+            env,
+            threshold_prf::TwoPartyDeriverRole::DeriverB,
+        )?,
     )
 }
 

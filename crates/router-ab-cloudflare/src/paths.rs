@@ -16,6 +16,13 @@ pub const CLOUDFLARE_INTERNAL_PREWARM_PATH: &str = "/internal/prewarm";
 /// derived by the issuer from authoritative Durable Object state and its own
 /// local key configuration, so a caller cannot select authority, revision,
 /// session, nonce, time window, or signing key.
+/// Tenant-root control-plane genesis operation: open one tenant root.
+///
+/// Private, internal-service-authenticated. The request carries only a signed
+/// creation grant; the issuer verifies it against its own configured
+/// authorities and derives every ceremony field itself.
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_PRIVATE_REQUEST_PATH: &str =
+    "/tenant-root-control-plane/creation/v1/create";
 pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_PRIVATE_REQUEST_PATH: &str =
     "/tenant-root-control-plane/creation/v1/role-command";
 /// Public Router endpoint for normal signing through the active SigningWorker.

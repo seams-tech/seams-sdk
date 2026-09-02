@@ -2533,6 +2533,20 @@ static ISSUER_VERIFYING_KEYS_JSON: std::sync::LazyLock<String> = std::sync::Lazy
     )
 });
 
+/// Grant authorities the issuer trusts. Deliberately a different key from the
+/// issuer's own: the bindings reject reuse.
+static GRANT_AUTHORITY_VERIFYING_KEYS_JSON: std::sync::LazyLock<String> = std::sync::LazyLock::new(
+    || {
+        let verifying = SigningKey::from_bytes(&[0x71; 32])
+            .verifying_key()
+            .to_bytes();
+        let hex: String = verifying.iter().map(|byte| format!("{byte:02x}")).collect();
+        format!(
+            "{{\"keys\":[{{\"issuer_key_id\":\"provisioning-authority-v1\",\"verifying_key_hex\":\"{hex}\"}}]}}"
+        )
+    },
+);
+
 fn issuer_verifying_keys() -> CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1 {
     CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1::decode(&ISSUER_VERIFYING_KEYS_JSON)
         .expect("issuer verifying keys")
@@ -9346,6 +9360,18 @@ fn tenant_root_control_plane_env() -> CloudflareEnvMapV1 {
             TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
             ISSUER_VERIFYING_KEYS_JSON.to_string(),
         ),
+        (
+            router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON_ENV,
+            GRANT_AUTHORITY_VERIFYING_KEYS_JSON.to_string(),
+        ),
+        (
+            router_ab_cloudflare::DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
+            "deriver-a-signing-key-7".to_string(),
+        ),
+        (
+            router_ab_cloudflare::DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
+            "deriver-b-signing-key-9".to_string(),
+        ),
     ])
 }
 
@@ -9491,6 +9517,83 @@ fn control_plane_rejects_every_scalar_and_router_auth_config() {
     }
 }
 
+/// The issuer must not be able to authorize the creations it then signs.
+#[test]
+fn a_grant_authority_may_not_reuse_a_control_plane_issuer_key() {
+    let entries: Vec<(&str, String)> = tenant_root_control_plane_env()
+        .entries()
+        .iter()
+        .map(|(key, value)| {
+            let value = if key.as_str()
+                == router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON_ENV
+            {
+                // Publish the ISSUER's key as a grant authority.
+                ISSUER_VERIFYING_KEYS_JSON.to_string()
+            } else {
+                value.clone()
+            };
+            (
+                Box::leak(key.clone().into_boxed_str()) as &str,
+                value,
+            )
+        })
+        .collect();
+    let error = parse_cloudflare_worker_bindings_v1(
+        CloudflareWorkerRoleV1::TenantRootControlPlane,
+        &CloudflareEnvMapV1::new(entries),
+    )
+    .expect_err("a grant authority reusing an issuer key must fail closed");
+    assert_eq!(
+        error.code(),
+        RouterAbProtocolErrorCode::ForbiddenLocalBinding
+    );
+}
+
+/// The issuer names both roles' public signing key IDs, and never their Secrets.
+#[test]
+fn the_control_plane_holds_role_signing_key_ids_but_never_their_bindings() {
+    let bindings = parse_cloudflare_worker_bindings_v1(
+        CloudflareWorkerRoleV1::TenantRootControlPlane,
+        &tenant_root_control_plane_env(),
+    )
+    .expect("control-plane bindings");
+    let CloudflareWorkerBindingsV1::TenantRootControlPlane {
+        bindings: control_plane,
+    } = bindings
+    else {
+        panic!("expected control-plane bindings");
+    };
+    assert_eq!(
+        control_plane.deriver_a_signing_key_id,
+        "deriver-a-signing-key-7"
+    );
+    assert_eq!(
+        control_plane.deriver_b_signing_key_id,
+        "deriver-b-signing-key-9"
+    );
+
+    for binding in [
+        router_ab_cloudflare::DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_BINDING_ENV,
+        router_ab_cloudflare::DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_BINDING_ENV,
+    ] {
+        let mut entries: Vec<(String, String)> = tenant_root_control_plane_env()
+            .entries()
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        entries.push((binding.to_string(), "SOME_SECRET".to_string()));
+        assert_eq!(
+            parse_cloudflare_worker_bindings_v1(
+                CloudflareWorkerRoleV1::TenantRootControlPlane,
+                &CloudflareEnvMapV1::new(entries),
+            )
+            .expect_err("a role signing Secret binding must be refused")
+            .code(),
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding
+        );
+    }
+}
+
 #[test]
 fn control_plane_requires_its_active_issuer_key_id_to_be_published() {
     // Missing anchor: the issuer cannot boot without its own published set.
@@ -9502,6 +9605,18 @@ fn control_plane_requires_its_active_issuer_key_id_to_be_published() {
         (
             router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
             "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY".to_string(),
+        ),
+        (
+            router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON_ENV,
+            GRANT_AUTHORITY_VERIFYING_KEYS_JSON.to_string(),
+        ),
+        (
+            router_ab_cloudflare::DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
+            "deriver-a-signing-key-7".to_string(),
+        ),
+        (
+            router_ab_cloudflare::DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
+            "deriver-b-signing-key-9".to_string(),
         ),
     ];
     parse_cloudflare_worker_bindings_v1(
@@ -9516,8 +9631,21 @@ fn control_plane_requires_its_active_issuer_key_id_to_be_published() {
         TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
         ISSUER_VERIFYING_KEYS_JSON.to_string(),
     ));
-    let mut foreign = entries.clone();
-    foreign[0].1 = "control-plane-issuer-unpublished".to_string();
+    let set = |entries: &Vec<(&'static str, String)>, key: &str, value: &str| {
+        let mut next = entries.clone();
+        let slot = next
+            .iter_mut()
+            .find(|(name, _)| *name == key)
+            .expect("fixture entry");
+        slot.1 = value.to_string();
+        next
+    };
+
+    let foreign = set(
+        &entries,
+        router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID_ENV,
+        "control-plane-issuer-unpublished",
+    );
     let err = parse_cloudflare_worker_bindings_v1(
         CloudflareWorkerRoleV1::TenantRootControlPlane,
         &CloudflareEnvMapV1::new(foreign),
@@ -9529,8 +9657,11 @@ fn control_plane_requires_its_active_issuer_key_id_to_be_published() {
     );
 
     // A malformed anchor fails at boot, not at first verification.
-    let mut malformed = entries.clone();
-    malformed[2].1 = "{\"keys\":[]}".to_string();
+    let malformed = set(
+        &entries,
+        TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+        "{\"keys\":[]}",
+    );
     parse_cloudflare_worker_bindings_v1(
         CloudflareWorkerRoleV1::TenantRootControlPlane,
         &CloudflareEnvMapV1::new(malformed),

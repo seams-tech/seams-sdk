@@ -7,8 +7,11 @@
 //! request types name *what* to issue, never the bytes to sign.
 
 use router_ab_core::{
-    TenantRootCeremonyContextV1, TenantRootControlPlaneAuthorityIdV1, TenantRootCreationJournalV1,
-    TenantRootRoleCreationCommandPackageV1, TenantRootRoleCreationCommandV1,
+    TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1,
+    TenantRootCeremonySessionIdV1, TenantRootControlPlaneAuthorityIdV1,
+    TenantRootCreationCapabilityNonceV1, TenantRootCreationCapabilityV1,
+    TenantRootCreationJournalV1, TenantRootRoleCreationCommandPackageV1,
+    TenantRootRoleCreationCommandV1, VerifiedTenantRootCreationGrantV1,
     TENANT_ROOT_MAX_LIFETIME_MS_V1,
 };
 use serde::{Deserialize, Serialize};
@@ -64,6 +67,33 @@ pub struct CloudflareTenantRootControlPlaneRoleCreationCommandResponseV1 {
     pub issuer_key_id: String,
     pub role_creation_command_b64u: String,
     pub role_creation_command_package_b64u: String,
+}
+
+/// Maximum accepted request size for the genesis operation.
+pub const TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_REQUEST_MAX_BYTES_V1: usize = 32 * 1024;
+
+/// Router -> control plane: open a tenant root under a signed grant.
+///
+/// The grant is the entire caller-supplied surface. It is authorization, not
+/// instruction: the issuer reads a tenant and a lineage from it and derives
+/// everything else.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareTenantRootControlPlaneCreateTenantRootRequestV1 {
+    pub creation_grant_b64u: String,
+}
+
+/// Control plane -> Router: the persisted creation, public evidence only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareTenantRootControlPlaneCreateTenantRootResponseV1 {
+    pub identity_digest_b64u: String,
+    pub custody_lineage_b64u: String,
+    pub revision: u64,
+    pub journal_digest_b64u: String,
+    pub capability_digest_b64u: String,
+    /// True when this exact creation had already been persisted.
+    pub replayed: bool,
 }
 
 /// Public creation progress the issuer must respect before minting.
@@ -171,21 +201,124 @@ pub(crate) fn issue_tenant_root_role_creation_command_v1(
     Ok(IssuedTenantRootRoleCreationCommandV1 { command, package })
 }
 
+/// Ceremony material the issuer draws locally for one genesis operation.
+///
+/// Every field is issuer-generated. A caller cannot supply a session, a nonce,
+/// a window, or the expected role signers: choosing any of them would let a
+/// caller steer the ceremony that a later role command is bound to.
+pub(crate) struct TenantRootCreationCeremonyDrawV1 {
+    pub(crate) session_id: TenantRootCeremonySessionIdV1,
+    pub(crate) ceremony_nonce: TenantRootCeremonyNonceV1,
+    pub(crate) capability_nonce: TenantRootCreationCapabilityNonceV1,
+    pub(crate) now_ms: u64,
+    pub(crate) deriver_a_signing_key_id: String,
+    pub(crate) deriver_b_signing_key_id: String,
+}
+
+/// The Started journal and its issuer capability, ready to persist.
+#[derive(Debug)]
+pub(crate) struct AuthorizedTenantRootCreationV1 {
+    pub(crate) journal: TenantRootCreationJournalV1,
+    pub(crate) capability: TenantRootCreationCapabilityV1,
+}
+
+/// Opens one tenant-root creation from a verified grant.
+///
+/// The grant authorizes a tenant and a custody lineage and nothing else; the
+/// journal, ceremony context, window, and capability are constructed here from
+/// that authorization plus locally drawn material. The capability is signed over
+/// the journal the issuer just built, so it cannot attest a journal the issuer
+/// did not construct.
+pub(crate) fn authorize_tenant_root_creation_v1(
+    grant: &VerifiedTenantRootCreationGrantV1,
+    draw: &TenantRootCreationCeremonyDrawV1,
+    authority_id: TenantRootControlPlaneAuthorityIdV1,
+    active_issuer_key_id: &str,
+    issuer_seed: &Zeroizing<[u8; 32]>,
+) -> RouterAbProtocolResult<AuthorizedTenantRootCreationV1> {
+    // The grant's own window gates the operation: an expired authorization
+    // cannot open a ceremony, however fresh the issuer's clock is.
+    grant.require_fresh(draw.now_ms).map_err(|_| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ExpiredLocalRequest,
+            "tenant-root creation grant is outside its authorized window",
+        )
+    })?;
+    if draw.deriver_a_signing_key_id == draw.deriver_b_signing_key_id {
+        return Err(refused(
+            "tenant-root creation ceremony must name distinct role signers",
+        ));
+    }
+    let issued_at_ms = draw.now_ms;
+    // The ceremony never outlives the authorization that opened it.
+    let expires_at_ms = issued_at_ms
+        .saturating_add(TENANT_ROOT_MAX_LIFETIME_MS_V1)
+        .min(grant.expires_at_ms());
+    if expires_at_ms <= issued_at_ms {
+        return Err(refused(
+            "tenant-root creation grant leaves no room for a ceremony window",
+        ));
+    }
+    let context = TenantRootCeremonyContextV1::new(
+        grant.identity_digest(),
+        grant.custody_lineage(),
+        TenantRootCeremonyEpochsV1::create(),
+        draw.session_id,
+        draw.ceremony_nonce,
+        issued_at_ms,
+        expires_at_ms,
+        draw.deriver_a_signing_key_id.as_str(),
+        draw.deriver_b_signing_key_id.as_str(),
+    )
+    .map_err(derivation)?;
+    let journal = TenantRootCreationJournalV1::started(
+        grant.identity().clone(),
+        grant.custody_lineage(),
+        context,
+    )
+    .map_err(derivation)?;
+    let capability = TenantRootCreationCapabilityV1::sign(
+        journal.identity_digest(),
+        journal.custody_lineage(),
+        journal.digest().map_err(derivation)?,
+        authority_id,
+        draw.capability_nonce,
+        issued_at_ms,
+        expires_at_ms,
+        active_issuer_key_id,
+        issuer_seed,
+    )
+    .map_err(derivation)?;
+    Ok(AuthorizedTenantRootCreationV1 {
+        journal,
+        capability,
+    })
+}
+
 #[cfg(feature = "workers-rs")]
-pub use live::handle_cloudflare_tenant_root_control_plane_role_creation_command_v1;
+pub use live::{
+    handle_cloudflare_tenant_root_control_plane_create_tenant_root_v1,
+    handle_cloudflare_tenant_root_control_plane_role_creation_command_v1,
+};
 
 #[cfg(feature = "workers-rs")]
 mod live {
     use super::*;
     use crate::durable_object::tenant_root_creation::{
-        decode_canonical_base64url, tenant_root_creation_object_name_v1, validate_creation_record,
+        decode_canonical_base64url, execute_cloudflare_router_tenant_root_creation_journal_call_v1,
+        tenant_root_creation_object_name_v1, validate_creation_record,
+        CloudflareTenantRootCreationJournalOutcomeV1,
         CloudflareTenantRootCreationJournalReadRequestV1,
         CloudflareTenantRootCreationJournalRecordV1,
         CLOUDFLARE_TENANT_ROOT_CREATION_JOURNAL_READ_PATH,
     };
     use crate::env::decode_cloudflare_tenant_root_control_plane_issuer_signing_secret_v1;
     use crate::{encode_base64url_bytes_v1, CloudflareTenantRootControlPlaneRuntimeV1};
-    use router_ab_core::{TenantRootCustodyLineageId, TenantRootIdentityDigestV1};
+    use rand_core::RngCore;
+    use router_ab_core::{
+        TenantRootCreationGrantV1, TenantRootCustodyLineageId, TenantRootIdentityDigestV1,
+        TENANT_ROOT_CREATION_GRANT_MAX_BYTES_V1,
+    };
     use zeroize::Zeroize;
 
     const ROUTER_TENANT_ROOT_CREATION_DO_BINDING_V1: &str = "ROUTER_TENANT_ROOT_CREATION_DO";
@@ -199,14 +332,15 @@ mod live {
 
     /// Reads authoritative creation state from the Router-owned Durable Object
     /// through this Worker's own external binding.
-    async fn read_creation_state(
+    /// Derives the creation object's name and its authority id from a tenant.
+    ///
+    /// The authority id IS the Durable Object id: derived here from the identity
+    /// and lineage, never read from a request.
+    pub(crate) fn read_creation_object_binding(
         env: &worker::Env,
         identity_digest: TenantRootIdentityDigestV1,
         custody_lineage: TenantRootCustodyLineageId,
-    ) -> RouterAbProtocolResult<(
-        TenantRootControlPlaneAuthorityIdV1,
-        CloudflareTenantRootCreationJournalReadResponseV1,
-    )> {
+    ) -> RouterAbProtocolResult<(TenantRootControlPlaneAuthorityIdV1, String)> {
         let namespace = env
             .durable_object(ROUTER_TENANT_ROOT_CREATION_DO_BINDING_V1)
             .map_err(|error| {
@@ -224,13 +358,33 @@ mod live {
                 ))
             })?
             .to_string();
-        // The authority id IS the object id: derived here, never read from a request.
         let authority_id = TenantRootControlPlaneAuthorityIdV1::from_bytes(
             crate::durable_object::tenant_root_creation::decode_lower_hex_32(
                 "tenant-root creation Durable Object id",
                 &object_id,
             )?,
         );
+        Ok((authority_id, object_name))
+    }
+
+    async fn read_creation_state(
+        env: &worker::Env,
+        identity_digest: TenantRootIdentityDigestV1,
+        custody_lineage: TenantRootCustodyLineageId,
+    ) -> RouterAbProtocolResult<(
+        TenantRootControlPlaneAuthorityIdV1,
+        CloudflareTenantRootCreationJournalReadResponseV1,
+    )> {
+        let namespace = env
+            .durable_object(ROUTER_TENANT_ROOT_CREATION_DO_BINDING_V1)
+            .map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    format!("tenant-root creation Durable Object binding is unavailable: {error}"),
+                )
+            })?;
+        let (authority_id, object_name) =
+            read_creation_object_binding(env, identity_digest, custody_lineage)?;
         let stub = namespace.get_by_name(&object_name).map_err(|error| {
             local(format!(
                 "tenant-root creation Durable Object stub lookup failed: {error}"
@@ -387,6 +541,124 @@ mod live {
     fn refused_owned(message: String) -> RouterAbProtocolError {
         RouterAbProtocolError::new(RouterAbProtocolErrorCode::ForbiddenLocalBinding, message)
     }
+
+    /// Draws one ceremony's session, nonces, and expected role signers.
+    ///
+    /// Session and nonces come from the Worker CSPRNG, never from a request.
+    fn draw_creation_ceremony(
+        runtime: &CloudflareTenantRootControlPlaneRuntimeV1,
+        now_ms: u64,
+    ) -> RouterAbProtocolResult<TenantRootCreationCeremonyDrawV1> {
+        let mut rng = crate::CloudflareHpkeGetrandomRngV1;
+        let mut session = [0_u8; 16];
+        let mut ceremony_nonce = [0_u8; 32];
+        let mut capability_nonce = [0_u8; 32];
+        rng.fill_bytes(&mut session);
+        rng.fill_bytes(&mut ceremony_nonce);
+        rng.fill_bytes(&mut capability_nonce);
+        Ok(TenantRootCreationCeremonyDrawV1 {
+            session_id: TenantRootCeremonySessionIdV1::from_bytes(session).map_err(derivation)?,
+            ceremony_nonce: TenantRootCeremonyNonceV1::from_bytes(ceremony_nonce)
+                .map_err(derivation)?,
+            capability_nonce: TenantRootCreationCapabilityNonceV1::from_bytes(capability_nonce)
+                .map_err(derivation)?,
+            now_ms,
+            deriver_a_signing_key_id: runtime.bindings().deriver_a_signing_key_id.clone(),
+            deriver_b_signing_key_id: runtime.bindings().deriver_b_signing_key_id.clone(),
+        })
+    }
+
+    /// Loads the issuer signing seed for one operation.
+    fn load_issuer_seed(
+        env: &worker::Env,
+        runtime: &CloudflareTenantRootControlPlaneRuntimeV1,
+    ) -> RouterAbProtocolResult<Zeroizing<[u8; 32]>> {
+        let binding = &runtime.bindings().issuer_signing_key;
+        let secret = env.secret(binding.binding_name()).map_err(|error| {
+            crate::worker_binding_error(
+                crate::worker_binding_error_code(&error, binding.binding_name()),
+                binding.binding_name(),
+                "secret",
+                error,
+            )
+        })?;
+        let mut secret_value = secret.to_string();
+        let seed =
+            decode_cloudflare_tenant_root_control_plane_issuer_signing_secret_v1(&secret_value);
+        secret_value.zeroize();
+        seed
+    }
+
+    /// The genesis operation: open a tenant root under a signed grant.
+    ///
+    /// The grant is verified against the issuer's own configured authorities,
+    /// never against anything the request names. The authority id is derived
+    /// from the Durable Object binding, and the Durable Object independently
+    /// re-verifies the capability before persisting, so reaching this route
+    /// grants no ability to write state.
+    pub async fn handle_cloudflare_tenant_root_control_plane_create_tenant_root_v1(
+        request: CloudflareTenantRootControlPlaneCreateTenantRootRequestV1,
+        env: &worker::Env,
+        runtime: &CloudflareTenantRootControlPlaneRuntimeV1,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneCreateTenantRootResponseV1> {
+        let grant_bytes = decode_canonical_base64url(
+            "tenant-root creation grant",
+            &request.creation_grant_b64u,
+            TENANT_ROOT_CREATION_GRANT_MAX_BYTES_V1,
+            TENANT_ROOT_CREATION_GRANT_MAX_BYTES_V1 * 2,
+        )?;
+        let grant =
+            TenantRootCreationGrantV1::decode_canonical_bytes(&grant_bytes).map_err(derivation)?;
+        // The trusted key is selected by the grant's key id but supplied by the
+        // issuer's own configuration: an unlisted authority has no key here.
+        let grant_key_id = grant.grant_key_id().to_owned();
+        let Some(trusted_key) = runtime
+            .bindings()
+            .grant_authority_verifying_keys
+            .for_grant_key_id(&grant_key_id)
+        else {
+            return Err(refused(
+                "tenant-root creation grant authority is not trusted by this control plane",
+            ));
+        };
+        let verified = grant
+            .verify(&grant_key_id, trusted_key)
+            .map_err(derivation)?;
+
+        let now_ms = crate::cloudflare_now_unix_ms_v1()?;
+        let draw = draw_creation_ceremony(runtime, now_ms)?;
+        let (authority_id, _) = read_creation_object_binding(
+            env,
+            verified.identity_digest(),
+            verified.custody_lineage(),
+        )?;
+        let seed = load_issuer_seed(env, runtime)?;
+        let authorized = authorize_tenant_root_creation_v1(
+            &verified,
+            &draw,
+            authority_id,
+            runtime.bindings().issuer_signing_key.signing_key_id(),
+            &seed,
+        )?;
+
+        let persisted = execute_cloudflare_router_tenant_root_creation_journal_call_v1(
+            env,
+            &authorized.journal,
+            &authorized.capability,
+        )
+        .await?;
+        Ok(CloudflareTenantRootControlPlaneCreateTenantRootResponseV1 {
+            identity_digest_b64u: encode_base64url_bytes_v1(verified.identity_digest().as_bytes()),
+            custody_lineage_b64u: encode_base64url_bytes_v1(verified.custody_lineage().as_bytes()),
+            revision: persisted.revision,
+            journal_digest_b64u: persisted.journal_digest_b64u,
+            capability_digest_b64u: persisted.capability_digest_b64u,
+            replayed: matches!(
+                persisted.outcome,
+                CloudflareTenantRootCreationJournalOutcomeV1::Replay
+            ),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -503,6 +775,257 @@ mod tests {
             ISSUER_KEY_ID,
             issuer_seed,
         )
+    }
+
+    const GRANT_KEY_ID: &str = "provisioning-authority-v1";
+    const GRANT_SEED: [u8; 32] = [0x71; 32];
+
+    fn grant_verifying_key() -> [u8; 32] {
+        SigningKey::from_bytes(&GRANT_SEED)
+            .verifying_key()
+            .to_bytes()
+    }
+
+    fn signed_grant(
+        org: &str,
+        issued_at_ms: u64,
+        expires_at_ms: u64,
+    ) -> router_ab_core::TenantRootCreationGrantV1 {
+        router_ab_core::TenantRootCreationGrantV1::sign(
+            &TenantRootIdentityV1::new(org, "project-2", "production", "root-main", "v3")
+                .expect("identity"),
+            TenantRootCustodyLineageId::from_bytes([0x22; 16]).expect("lineage"),
+            router_ab_core::TenantRootCreationGrantNonceV1::from_bytes([0x33; 32])
+                .expect("grant nonce"),
+            issued_at_ms,
+            expires_at_ms,
+            GRANT_KEY_ID,
+            &GRANT_SEED,
+        )
+        .expect("signed grant")
+    }
+
+    fn verified_grant(org: &str) -> VerifiedTenantRootCreationGrantV1 {
+        signed_grant(org, CEREMONY_ISSUED_AT_MS, CEREMONY_EXPIRES_AT_MS)
+            .verify(GRANT_KEY_ID, &grant_verifying_key())
+            .expect("verified grant")
+    }
+
+    fn ceremony_draw(now_ms: u64) -> TenantRootCreationCeremonyDrawV1 {
+        TenantRootCreationCeremonyDrawV1 {
+            session_id: TenantRootCeremonySessionIdV1::from_bytes([0x11; 16]).expect("session"),
+            ceremony_nonce: TenantRootCeremonyNonceV1::from_bytes([0x44; 32]).expect("nonce"),
+            capability_nonce: TenantRootCreationCapabilityNonceV1::from_bytes([0x55; 32])
+                .expect("capability nonce"),
+            now_ms,
+            deriver_a_signing_key_id: "deriver-a-signing-key-7".to_owned(),
+            deriver_b_signing_key_id: "deriver-b-signing-key-9".to_owned(),
+        }
+    }
+
+    /// Genesis constructs the journal and capability from the grant alone; the
+    /// result is exactly what the Durable Object independently admits.
+    #[test]
+    fn genesis_builds_a_journal_the_durable_object_accepts() {
+        let grant = verified_grant("org-1");
+        let now = CEREMONY_ISSUED_AT_MS + 1;
+        let authorized = authorize_tenant_root_creation_v1(
+            &grant,
+            &ceremony_draw(now),
+            authority(),
+            ISSUER_KEY_ID,
+            &seed(),
+        )
+        .expect("authorized");
+
+        // The journal names exactly the authorized tenant and lineage.
+        assert_eq!(
+            authorized.journal.identity_digest(),
+            grant.identity_digest()
+        );
+        assert_eq!(
+            authorized.journal.custody_lineage(),
+            grant.custody_lineage()
+        );
+
+        // The capability attests the journal the issuer just built, and
+        // re-validates through the same path the Durable Object uses.
+        let validated = validate_creation_record(
+            CloudflareTenantRootCreationJournalRecordV1 {
+                journal_b64u: encode_base64url_bytes_v1(
+                    &authorized.journal.canonical_bytes().expect("journal bytes"),
+                ),
+                creation_capability_b64u: encode_base64url_bytes_v1(
+                    &authorized
+                        .capability
+                        .canonical_bytes()
+                        .expect("capability bytes"),
+                ),
+            },
+            authority(),
+            &published(),
+        )
+        .expect("the Durable Object admits this creation");
+        assert_eq!(validated.identity_digest, grant.identity_digest());
+
+        // The ceremony window never outlives the authorization that opened it.
+        let context = &validated.ceremony_context;
+        assert_eq!(context.issued_at_ms(), now);
+        assert!(context.expires_at_ms() <= grant.expires_at_ms());
+        assert_eq!(
+            context.signing_key_id(TwoPartyDeriverRole::DeriverA),
+            "deriver-a-signing-key-7"
+        );
+        assert_eq!(
+            context.signing_key_id(TwoPartyDeriverRole::DeriverB),
+            "deriver-b-signing-key-9"
+        );
+    }
+
+    /// The whole creation path, end to end: a grant opens a ceremony, and the
+    /// role command minted against it verifies at a Deriver.
+    #[test]
+    fn genesis_then_role_command_verifies_at_a_deriver() {
+        let grant = verified_grant("org-1");
+        let now = CEREMONY_ISSUED_AT_MS + 1;
+        let authorized = authorize_tenant_root_creation_v1(
+            &grant,
+            &ceremony_draw(now),
+            authority(),
+            ISSUER_KEY_ID,
+            &seed(),
+        )
+        .expect("authorized");
+        let journal = validate_creation_record(
+            CloudflareTenantRootCreationJournalRecordV1 {
+                journal_b64u: encode_base64url_bytes_v1(
+                    &authorized.journal.canonical_bytes().expect("journal bytes"),
+                ),
+                creation_capability_b64u: encode_base64url_bytes_v1(
+                    &authorized
+                        .capability
+                        .canonical_bytes()
+                        .expect("capability bytes"),
+                ),
+            },
+            authority(),
+            &published(),
+        )
+        .expect("validated journal");
+
+        for role in [TwoPartyDeriverRole::DeriverA, TwoPartyDeriverRole::DeriverB] {
+            let issued = issue_tenant_root_role_creation_command_v1(
+                TenantRootRoleCreationCommandIssuanceV1 {
+                    journal: &journal,
+                    progress: &fresh(),
+                    role,
+                    authority_id: authority(),
+                    now_ms: now + 1,
+                },
+                ISSUER_KEY_ID,
+                &seed(),
+            )
+            .expect("issued command");
+            let verified = issued
+                .package
+                .verify(
+                    role,
+                    authority(),
+                    ISSUER_KEY_ID,
+                    &published()[ISSUER_KEY_ID],
+                )
+                .expect("a Deriver verifies it with only the package and the public anchor");
+            assert_eq!(verified.command().role(), role);
+        }
+    }
+
+    #[test]
+    fn genesis_fails_closed_outside_the_authorized_window() {
+        let grant = verified_grant("org-1");
+        for now in [
+            0,
+            CEREMONY_ISSUED_AT_MS,
+            CEREMONY_EXPIRES_AT_MS,
+            CEREMONY_EXPIRES_AT_MS + 1,
+        ] {
+            assert!(
+                authorize_tenant_root_creation_v1(
+                    &grant,
+                    &ceremony_draw(now),
+                    authority(),
+                    ISSUER_KEY_ID,
+                    &seed(),
+                )
+                .is_err(),
+                "now={now} must be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn genesis_refuses_a_ceremony_that_cannot_separate_the_roles() {
+        let grant = verified_grant("org-1");
+        let mut draw = ceremony_draw(CEREMONY_ISSUED_AT_MS + 1);
+        draw.deriver_b_signing_key_id = draw.deriver_a_signing_key_id.clone();
+        assert_eq!(
+            authorize_tenant_root_creation_v1(&grant, &draw, authority(), ISSUER_KEY_ID, &seed())
+                .expect_err("identical role signers")
+                .code(),
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding
+        );
+    }
+
+    #[test]
+    fn distinct_tenants_open_distinct_creations() {
+        let now = CEREMONY_ISSUED_AT_MS + 1;
+        let a = authorize_tenant_root_creation_v1(
+            &verified_grant("org-1"),
+            &ceremony_draw(now),
+            authority(),
+            ISSUER_KEY_ID,
+            &seed(),
+        )
+        .expect("org-1");
+        let b = authorize_tenant_root_creation_v1(
+            &verified_grant("org-2"),
+            &ceremony_draw(now),
+            authority(),
+            ISSUER_KEY_ID,
+            &seed(),
+        )
+        .expect("org-2");
+        assert_ne!(a.journal.identity_digest(), b.journal.identity_digest());
+        assert_ne!(
+            a.journal.digest().expect("digest"),
+            b.journal.digest().expect("digest")
+        );
+        assert_ne!(
+            a.capability.digest().expect("digest"),
+            b.capability.digest().expect("digest")
+        );
+    }
+
+    #[test]
+    fn the_genesis_request_surface_carries_only_a_grant() {
+        let request = CloudflareTenantRootControlPlaneCreateTenantRootRequestV1 {
+            creation_grant_b64u: "abc".to_owned(),
+        };
+        let json = serde_json::to_value(&request).expect("json");
+        let keys: Vec<&str> = json
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(keys, ["creation_grant_b64u"]);
+        // A smuggled identity, lineage, or window is rejected outright.
+        let smuggled = r#"{"creation_grant_b64u":"abc","custody_lineage_b64u":"x"}"#;
+        assert!(
+            serde_json::from_str::<CloudflareTenantRootControlPlaneCreateTenantRootRequestV1>(
+                smuggled
+            )
+            .is_err()
+        );
     }
 
     #[test]

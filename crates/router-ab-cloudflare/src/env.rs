@@ -120,6 +120,16 @@ pub const ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV: &str = "ROUTER_PROJECT_POLIC
 /// forbidden in the Signing Worker, which has no tenant-root lifecycle role.
 pub const TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV: &str =
     "TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON";
+/// Authorities trusted to sign a tenant-root creation grant.
+///
+/// Genesis is the one operation with no authoritative state to derive from, so
+/// its authorization arrives signed by an external authority. This anchor names
+/// which authorities the issuer accepts. It is deliberately a separate binding
+/// and a separate type from the issuer keyset: the issuer signs commands, the
+/// grant authority authorizes creating a tenant at all, and confusing the two
+/// would let the issuer authorize its own work.
+pub const TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON_ENV: &str =
+    "TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON";
 /// Tenant-root control-plane issuer private signing-key Secret binding name.
 ///
 /// Only the dedicated `tenant-root-control-plane` Worker may hold this. It is
@@ -229,10 +239,11 @@ pub(crate) const TENANT_ROOT_CONTROL_PLANE_FORBIDDEN_ENV_KEYS: &[&str] = &[
     DERIVER_A_PEER_SIGNING_KEY_EPOCH_ENV,
     DERIVER_B_PEER_SIGNING_KEY_BINDING_ENV,
     DERIVER_B_PEER_SIGNING_KEY_EPOCH_ENV,
+    // The role signing key IDs are public ceremony metadata: the issuer names
+    // both roles' expected signers in the creation context it constructs, so it
+    // requires them. Their Secret bindings stay forbidden.
     DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_BINDING_ENV,
-    DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
     DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_BINDING_ENV,
-    DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
     DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF_ENV,
     DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY_ENV,
     DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -1298,6 +1309,84 @@ impl CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1 {
     pub const fn keys(&self) -> &BTreeMap<String, [u8; 32]> {
         &self.keys
     }
+}
+
+/// Bounded, validated set of authorities trusted to sign creation grants.
+///
+/// Structurally identical to the issuer keyset but a distinct type on purpose:
+/// the compiler refuses to verify a grant with the issuer's keys, or a command
+/// with a grant authority's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareTenantRootCreationGrantAuthorityVerifyingKeysV1 {
+    keys: BTreeMap<String, [u8; 32]>,
+}
+
+impl CloudflareTenantRootCreationGrantAuthorityVerifyingKeysV1 {
+    /// Decodes and validates the published grant-authority set.
+    pub fn decode(json: &str) -> RouterAbProtocolResult<Self> {
+        Ok(Self {
+            keys: decode_issuer_verifying_keys(json)?,
+        })
+    }
+
+    /// Revalidates the retained set.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        if self.keys.is_empty() || self.keys.len() > 32 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root creation grant authority set must contain between one and 32 keys",
+            ));
+        }
+        for (key_id, verifying_key) in &self.keys {
+            if !valid_config_key_id(key_id) {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "tenant-root creation grant authority key id is invalid",
+                ));
+            }
+            VerifyingKey::from_bytes(verifying_key).map_err(|_| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "tenant-root creation grant authority key is not a valid Ed25519 point",
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Returns the verifying key trusted for one grant authority id.
+    pub fn for_grant_key_id(&self, grant_key_id: &str) -> Option<&[u8; 32]> {
+        self.keys.get(grant_key_id)
+    }
+
+    /// Returns the retained grant-authority set.
+    pub const fn keys(&self) -> &BTreeMap<String, [u8; 32]> {
+        &self.keys
+    }
+}
+
+/// Parses the trusted grant-authority set from Env.
+pub(crate) fn parse_cloudflare_tenant_root_creation_grant_authority_verifying_keys_v1(
+    env: &impl CloudflareEnvReaderV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootCreationGrantAuthorityVerifyingKeysV1> {
+    CloudflareTenantRootCreationGrantAuthorityVerifyingKeysV1::decode(&read_required_raw_env_text(
+        env,
+        TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON_ENV,
+    )?)
+}
+
+/// Reads the public role signing key id the issuer names for one role.
+pub(crate) fn read_cloudflare_tenant_root_creation_role_signing_key_id_v1(
+    env: &impl CloudflareEnvReaderV1,
+    role: TwoPartyDeriverRole,
+) -> RouterAbProtocolResult<String> {
+    let key = match role {
+        TwoPartyDeriverRole::DeriverA => DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
+        TwoPartyDeriverRole::DeriverB => DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
+    };
+    let value = read_required_raw_env_text(env, key)?;
+    validate_tenant_root_identifier("tenant-root creation role signing key ID", &value)?;
+    Ok(value)
 }
 
 /// Parses the published control-plane issuer verifying key set from Env.

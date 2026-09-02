@@ -30,13 +30,13 @@
     "circuit_digest"
   ],
   "totalFiles": 943,
-  "totalHits": 18021,
-  "classificationDigestSha256": "ac7f5685b7aff8c777893e8281dd2cc26b810e9ef407ffd92c426ec947031858",
+  "totalHits": 18119,
+  "classificationDigestSha256": "eb957830818b972ed16fe88768d540f9c4eea781518e9ecfddee1cdacfa8ce1b",
   "generatedArtifactDigestSha256": "f681b31eefbbc145b965523d81a960539eb9e59c3e116fa8897f35cf8fdc8ee4",
   "categorySummary": {
     "deployment": {
       "fileCount": 41,
-      "hitCount": 817
+      "hitCount": 825
     },
     "documentation": {
       "fileCount": 106,
@@ -44,7 +44,7 @@
     },
     "test fixture": {
       "fileCount": 388,
-      "hitCount": 5462
+      "hitCount": 5469
     },
     "generated artifact": {
       "fileCount": 28,
@@ -52,7 +52,7 @@
     },
     "active signing": {
       "fileCount": 234,
-      "hitCount": 2395
+      "hitCount": 2406
     },
     "persistence": {
       "fileCount": 46,
@@ -60,7 +60,7 @@
     },
     "custody binding": {
       "fileCount": 37,
-      "hitCount": 5173
+      "hitCount": 5245
     },
     "stable derivation": {
       "fileCount": 18,
@@ -1310,29 +1310,29 @@
     {
       "path": "crates/router-ab-cloudflare/scripts/generate-deployment-keys.mjs",
       "category": "deployment",
-      "hitCount": 28,
+      "hitCount": 29,
       "firstLine": 39,
-      "lastLine": 179,
+      "lastLine": 184,
       "terms": [
         "DERIVER_A_ROOT_SHARE_WIRE_SECRET",
         "DERIVER_B_ROOT_SHARE_WIRE_SECRET",
         "TenantRoot"
       ],
-      "matchesDigestSha256": "e9e8c5476f89fac3430d10ac7af591a9b58509f2ab922c4c3fd6761b0ea2c741"
+      "matchesDigestSha256": "3a8da7c24f9270de373d7df1651363e35659ca3bf97e76adbb6791f4e930e3d1"
     },
     {
       "path": "crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs",
       "category": "deployment",
       "hitCount": 16,
       "firstLine": 87,
-      "lastLine": 2272,
+      "lastLine": 2278,
       "terms": [
         "DERIVER_A_ROOT_SHARE_WIRE_SECRET",
         "DERIVER_B_ROOT_SHARE_WIRE_SECRET",
         "TenantRoot",
         "root share"
       ],
-      "matchesDigestSha256": "98c2c03130ad0716864e472d66a5dab77a61afabbeb24813fac07c217aadc1f7"
+      "matchesDigestSha256": "98c76d171f139fc5a150f8aad2dbc565229ac5bf0762969884a930bff1afb9ab"
     },
     {
       "path": "crates/router-ab-cloudflare/scripts/generate-root-share-keys.mjs",
@@ -1485,23 +1485,23 @@
     {
       "path": "crates/router-ab-cloudflare/src/env.rs",
       "category": "deployment",
-      "hitCount": 182,
+      "hitCount": 189,
       "firstLine": 8,
-      "lastLine": 2702,
+      "lastLine": 2791,
       "terms": [
         "DERIVER_A_ROOT_SHARE_WIRE_SECRET",
         "DERIVER_B_ROOT_SHARE_WIRE_SECRET",
         "TenantRoot",
         "tenant_root"
       ],
-      "matchesDigestSha256": "b5c339fccc61ee580a3aff33effadd26cdd78f8e0de57dc064186b28dfc392ba"
+      "matchesDigestSha256": "0543cfa3b886235a12c90ec6b91c64afe1ec87ff9551120f93f2e04de6ad4bf8"
     },
     {
       "path": "crates/router-ab-cloudflare/src/lib.rs",
       "category": "active signing",
-      "hitCount": 210,
+      "hitCount": 221,
       "firstLine": 14,
-      "lastLine": 15143,
+      "lastLine": 15189,
       "terms": [
         "DERIVER_A_ROOT_SHARE_WIRE_SECRET",
         "DERIVER_B_ROOT_SHARE_WIRE_SECRET",
@@ -1516,7 +1516,7 @@
         "signing_root_version",
         "tenant_root"
       ],
-      "matchesDigestSha256": "57e5b4c66bd3f4eec2678380e31f683efeaf9e162d88bc021e98d080e3c139b3"
+      "matchesDigestSha256": "b87e59a7539ae877afe504639a92ca0cd46ac9e799a11f161c74bbb88cdfbc8a"
     },
     {
       "path": "crates/router-ab-cloudflare/src/ordinary_inactive_signer_material.rs",
@@ -1533,12 +1533,12 @@
       "path": "crates/router-ab-cloudflare/src/paths.rs",
       "category": "active signing",
       "hitCount": 2,
-      "firstLine": 287,
-      "lastLine": 305,
+      "firstLine": 294,
+      "lastLine": 312,
       "terms": [
         "TenantRoot"
       ],
-      "matchesDigestSha256": "642c27ec2c89cb2e04d2825e1c3345ba450c48998a266b177ebf6d5eb903797e"
+      "matchesDigestSha256": "b9f19d537e3dd78016211cf02b4d9dbdd9e53020133e0266760b2a0c289f2a2c"
     },
     {
       "path": "crates/router-ab-cloudflare/src/router_coordinator.rs",
@@ -1628,26 +1628,26 @@
     {
       "path": "crates/router-ab-cloudflare/src/strict_worker/tenant_root_control_plane.rs",
       "category": "custody binding",
-      "hitCount": 9,
+      "hitCount": 13,
       "firstLine": 3,
-      "lastLine": 60,
+      "lastLine": 87,
       "terms": [
         "TenantRoot",
         "tenant_root"
       ],
-      "matchesDigestSha256": "5f260ab001bdcdc685c7b925c26b0f9c11a3f04a99511b2b6d9f67f6a2619b2d"
+      "matchesDigestSha256": "e9254c839022e551fa4ed5168b7adfd078509cfc772b81c33f753aa0870c0126"
     },
     {
       "path": "crates/router-ab-cloudflare/src/tenant_root_control_plane.rs",
       "category": "custody binding",
-      "hitCount": 90,
+      "hitCount": 158,
       "firstLine": 10,
-      "lastLine": 684,
+      "lastLine": 1207,
       "terms": [
         "TenantRoot",
         "tenant_root"
       ],
-      "matchesDigestSha256": "99036a3d6c1421127b49c4799b621c2a81b7109838a0a52b55829bb910697cd3"
+      "matchesDigestSha256": "de208bd1eaf0c3e23e0c84ffa4509f033b601d706ef82f15ae99169b69767272"
     },
     {
       "path": "crates/router-ab-cloudflare/src/tenant_root_cutover_lifecycle.rs",
@@ -1720,9 +1720,9 @@
     {
       "path": "crates/router-ab-cloudflare/tests/bindings.rs",
       "category": "test fixture",
-      "hitCount": 142,
+      "hitCount": 149,
       "firstLine": 11,
-      "lastLine": 9574,
+      "lastLine": 9705,
       "terms": [
         "DERIVER_A_ROOT_SHARE_WIRE_SECRET",
         "DERIVER_B_ROOT_SHARE_WIRE_SECRET",
@@ -1734,7 +1734,7 @@
         "root_share_wire",
         "tenant_root"
       ],
-      "matchesDigestSha256": "4de7bd83016fed1d0b8194c4fd2ee1a5ca00f0efba45592b50c32e4b360ef0a9"
+      "matchesDigestSha256": "5b14875c6d2c09bbdb5f5a9aa6b4896941669ea086e75c5a3c963f9fc8ba11f3"
     },
     {
       "path": "crates/router-ab-cloudflare/tests/ed25519_yao_lifecycle_boundaries.rs",
@@ -7916,13 +7916,13 @@
       "path": "scripts/deploy-backend.mjs",
       "category": "deployment",
       "hitCount": 8,
-      "firstLine": 554,
-      "lastLine": 1262,
+      "firstLine": 556,
+      "lastLine": 1269,
       "terms": [
         "TenantRoot",
         "tenantRoot"
       ],
-      "matchesDigestSha256": "8a7cc259ca5cf76588f4d25146d6d172daed3e63dd9a974174fc19bf67c10514"
+      "matchesDigestSha256": "d9765363228f126472d687476568c0bd3921c85eb81b524e5063ad649354862e"
     },
     {
       "path": "scripts/deploy-frontend.mjs",
@@ -8440,12 +8440,12 @@
       "category": "test fixture",
       "hitCount": 10,
       "firstLine": 103,
-      "lastLine": 651,
+      "lastLine": 661,
       "terms": [
         "TenantRoot",
         "tenantRoot"
       ],
-      "matchesDigestSha256": "be7a5a6cf59ca3d5c31d323ab12815d2e55c57fa19b820b8837b3f16e6766916"
+      "matchesDigestSha256": "7d7346a8b1c00cb867fd8cd2248320c2d7ee0aa0c81b09dc106774293bfce45c"
     },
     {
       "path": "tests/unit/deploymentTargets.script.unit.test.ts",

@@ -394,6 +394,16 @@ test('deployment key generation provisions one tenant-root control-plane issuer 
     'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY',
   ]);
 
+  // The grant authority is external: this command must not be able to mint one.
+  const notGenerated = (JSON.parse(result.stdout) as { readonly notGenerated: readonly string[] })
+    .notGenerated;
+  expect(notGenerated).toContain(
+    'ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON',
+  );
+  expect(output.variables).not.toHaveProperty(
+    'ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON',
+  );
+
   // The seed is never printed without --show-secrets.
   const redacted = runCommand(deploymentKeyGeneratorScript, [
     '--lane',
