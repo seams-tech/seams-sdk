@@ -3323,7 +3323,7 @@ export class CloudflareD1WalletRegistrationService {
       const routerStartedAtMs = Date.now();
       const nearEd25519Branch = registrationSignerBranchesFromPlan(ceremony.signerPlan).nearEd25519;
       const [strictResult, ed25519Admission] = await Promise.all([
-        this.ecdsaStrictRegistration.registerInitialWithTenantRoot({
+        this.ecdsaStrictRegistration.registerWithTenantRoot({
           request: strictRegistration,
           tenantRoot,
           requestPolicy: {

@@ -17,7 +17,10 @@ import {
 } from '../../packages/wallet-server/src/core/d1WalletStore';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
-import { normalizeRuntimePolicyScope } from '../../packages/shared-ts/src/threshold/signingRootScope';
+import {
+  deriveSigningRootId,
+  normalizeRuntimePolicyScope,
+} from '../../packages/shared-ts/src/threshold/signingRootScope';
 import {
   registrationNearEd25519BranchKey,
   walletIdFromString,
@@ -349,7 +352,6 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
   > {
     return { ok: false, code: 'unknown_capability', message: 'not used by add-signer test' };
   }
-
 }
 
 test('passkey Ed25519 budget refresh accepts current session identity independently of registration provenance', async () => {
@@ -780,9 +782,7 @@ test('Email OTP source repeat admission returns before issuing a source challeng
       )
       .bind(scope.namespace, scope.orgId, scope.projectId, scope.envId)
       .first<{ readonly count?: unknown }>();
-    expect(Number(challengeCountAfter?.count ?? 0)).toBe(
-      Number(challengeCountBefore?.count ?? 0),
-    );
+    expect(Number(challengeCountAfter?.count ?? 0)).toBe(Number(challengeCountBefore?.count ?? 0));
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -1070,6 +1070,11 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
       config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker' },
     });
     const strictRegistration = new SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort();
+    let resolvedTenantRootIdentity: unknown = null;
+    const activeTenantRoot = {
+      identityDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      custodyLineageB64u: 'AAAAAAAAAAAAAAAAAAAAAA',
+    } as const;
     const custodyCommit = buildWalletCustodyCommitPayloadFixture({
       walletId: String(walletId),
       keySet: 'evm_family_ecdsa_v1',
@@ -1103,6 +1108,12 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
       envId: scope.envId,
       routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
       ecdsaStrictRegistration: strictRegistration,
+      tenantRootCustodyLineage: {
+        async resolveActiveLineage(identity) {
+          resolvedTenantRootIdentity = identity;
+          return activeTenantRoot;
+        },
+      },
       thresholdStore: {
         kind: 'cloudflare-do',
         namespace: durableObjects,
@@ -1166,6 +1177,14 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
     });
     if (!responded.ok) throw new Error(responded.message);
     expect(strictRegistration.registrationRequest).toEqual(strictRequest);
+    expect(strictRegistration.tenantRoot).toEqual(activeTenantRoot);
+    expect(resolvedTenantRootIdentity).toEqual({
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      signingRootId: deriveSigningRootId(runtimePolicyScope),
+      signingRootVersion: runtimePolicyScope.signingRootVersion,
+    });
     await expect(
       service.walletAuthMethods.respondWalletAddSignerEcdsaDerivation({
         addSignerCeremonyId: started.addSignerCeremonyId,

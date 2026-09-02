@@ -419,50 +419,22 @@ async fn handle_strict_deriver_fetch_v1(
             };
         timing.mark("parse", total_started_at_ms);
         let preload_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
-        let (registration_request, signer_bootstrap, preloaded) = match private_request {
-            CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1::TenantRootRegistration(
-                request,
-            ) => {
-                let (registration_request, authenticated) =
-                    match request.into_authenticated_parts(&env, worker_role, now_unix_ms) {
-                        Ok(parts) => parts,
-                        Err(err) => return cloudflare_protocol_error_response_v1(err),
-                    };
-                let preloaded = match preload_strict_deriver_request_with_authenticated_binding_v1(
-                    &env,
-                    &runtime,
-                    &authenticated,
-                )
-                .await
-                {
-                    Ok(loaded) => loaded,
-                    Err(err) => return cloudflare_protocol_error_response_v1(err),
-                };
-                (registration_request, authenticated.bootstrap, preloaded)
-            }
-            CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1::AddSignerRegistration(
-                request,
-            ) => {
-                if let Err(err) = request.validate_for_worker_role(worker_role) {
-                    return cloudflare_protocol_error_response_v1(err);
-                }
-                let preloaded = match preload_strict_deriver_request_v1(
-                    &env,
-                    &runtime,
-                    &request.signer_bootstrap,
-                )
-                .await
-                {
-                    Ok(loaded) => loaded,
-                    Err(err) => return cloudflare_protocol_error_response_v1(err),
-                };
-                (
-                    request.registration_request,
-                    request.signer_bootstrap,
-                    preloaded,
-                )
-            }
+        let (registration_request, authenticated) =
+            match private_request.into_authenticated_parts(&env, worker_role, now_unix_ms) {
+                Ok(parts) => parts,
+                Err(err) => return cloudflare_protocol_error_response_v1(err),
+            };
+        let preloaded = match preload_strict_deriver_request_with_authenticated_binding_v1(
+            &env,
+            &runtime,
+            &authenticated,
+        )
+        .await
+        {
+            Ok(loaded) => loaded,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
+        let signer_bootstrap = authenticated.bootstrap;
         timing.mark("preload", preload_started_at_ms);
         let execute_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
         let response =

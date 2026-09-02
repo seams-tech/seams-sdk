@@ -526,14 +526,8 @@ class UnusedEcdsaStrictRegistration implements RouterAbEcdsaStrictRegistrationPo
     throw new Error('ECDSA is outside the finalize convergence fixture');
   }
 
-  async register(): Promise<never> {
+  async registerWithTenantRoot(): Promise<never> {
     throw new Error('ECDSA is outside the finalize convergence fixture');
-  }
-
-  async registerInitialWithTenantRoot(
-    _input: Parameters<RouterAbEcdsaStrictRegistrationPort['registerInitialWithTenantRoot']>[0],
-  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['registerInitialWithTenantRoot']> {
-    return this.register();
   }
 
   async prepareActivation(): Promise<never> {

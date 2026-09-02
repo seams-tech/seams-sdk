@@ -141,8 +141,9 @@ use router_ab_cloudflare::{
     CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1,
     CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1,
     CloudflareSigningWorkerRuntimeV1, CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
-    CloudflareWorkerBindingsV1, CloudflareWorkerRoleV1, EcdsaVerifiedClientActivationFactsV1,
-    PoolRecord, TombstoneReason, CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1,
+    CloudflareTenantRootCustodyBindingWireV1, CloudflareWorkerBindingsV1, CloudflareWorkerRoleV1,
+    EcdsaVerifiedClientActivationFactsV1, PoolRecord, TombstoneReason,
+    CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1,
     CLOUDFLARE_SERVER_OUTPUT_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1,
     CLOUDFLARE_SIGNER_ENVELOPE_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1,
     DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV, DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -200,7 +201,8 @@ use router_ab_core::{
     RouterAbEd25519NormalSigningIntentV2, RouterAbEd25519NormalSigningPrepareBindingV2,
     RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbEd25519SigningPayloadV2,
     RouterAbEd25519TwoPartyFrostFinalizeProtocolV2, RouterAbNearNetworkIdV2,
-    RouterAbNearTransactionIntentV1,
+    RouterAbNearTransactionIntentV1, TenantRootDerivationNonceV1,
+    TenantRootDerivationOperationIdV1, TenantRootDerivationSessionIdV1,
 };
 use router_ab_ecdsa_derivation::derive_relayer_share_for_client_public;
 use router_ab_ecdsa_online::{
@@ -4420,6 +4422,19 @@ fn signer_private_bootstrap_reconstructs_from_public_request() {
     );
 }
 
+fn tenant_root_registration_transport_fixture() -> CloudflareTenantRootCustodyBindingWireV1 {
+    CloudflareTenantRootCustodyBindingWireV1 {
+        activation_receipt_b64u: "AQ".to_owned(),
+        operation_id: TenantRootDerivationOperationIdV1::from_bytes([0x31; 16])
+            .expect("tenant-root operation id"),
+        session_id: TenantRootDerivationSessionIdV1::from_bytes([0x32; 16])
+            .expect("tenant-root session id"),
+        nonce: TenantRootDerivationNonceV1::from_bytes([0x33; 32]).expect("tenant-root nonce"),
+        issued_at_ms: 1,
+        expires_at_ms: 2_000,
+    }
+}
+
 #[test]
 fn router_ab_ecdsa_derivation_deriver_registration_private_request_accepts_matching_payload() {
     let registration_request =
@@ -4447,10 +4462,11 @@ fn router_ab_ecdsa_derivation_deriver_registration_private_request_accepts_match
     )
     .expect("Router A/B ECDSA derivation registration payload binding");
     let private_request =
-        CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1::add_signer(
+        CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1::new(
             CloudflareWorkerRoleV1::DeriverA,
             registration_request,
             bootstrap,
+            tenant_root_registration_transport_fixture(),
         )
         .expect("Router A/B ECDSA derivation registration private request");
 
@@ -4479,10 +4495,11 @@ fn router_ab_ecdsa_derivation_deriver_registration_private_request_rejects_paylo
     .expect("Router A/B ECDSA derivation registration bootstrap");
     registration_request.replay_nonce = "ecdsa-registration-replay-drift".to_owned();
 
-    let err = CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1::add_signer(
+    let err = CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1::new(
         CloudflareWorkerRoleV1::DeriverA,
         registration_request,
         bootstrap,
+        tenant_root_registration_transport_fixture(),
     )
     .expect_err("payload drift must fail");
 

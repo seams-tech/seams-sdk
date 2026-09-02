@@ -40,8 +40,7 @@ use crate::{
     parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_prepare_request_v1_json,
     parse_cloudflare_router_bearer_authorization_from_request_v1,
     parse_cloudflare_trace_id_from_request_v1, CloudflareEcdsaBoundaryTimingV1,
-    CloudflareRouterAbEcdsaRegistrationMaterialSourceV1, CloudflareRouterWorkerRuntimeV1,
-    CloudflareTraceIdV1, CloudflareWorkerEnvReaderV1,
+    CloudflareRouterWorkerRuntimeV1, CloudflareTraceIdV1, CloudflareWorkerEnvReaderV1,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH,
@@ -200,17 +199,14 @@ use crate::{
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PRIVATE_REQUEST_PATH,
 };
+#[cfg(feature = "strict-worker-router-entrypoint")]
+use router_ab_core::RouterAbEcdsaDerivationRegistrationPurposeV1;
 use router_ab_core::RouterAbProtocolError;
 #[cfg(any(
     feature = "strict-worker-deriver-a-entrypoint",
     feature = "strict-worker-deriver-b-entrypoint"
 ))]
 use router_ab_core::RouterEd25519YaoExecuteFailureCodeV1;
-#[cfg(feature = "strict-worker-router-entrypoint")]
-use router_ab_core::{
-    parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,
-    RouterAbEcdsaDerivationRegistrationPurposeV1,
-};
 #[cfg(any(
     feature = "strict-worker-deriver-a-entrypoint",
     feature = "strict-worker-deriver-b-entrypoint"

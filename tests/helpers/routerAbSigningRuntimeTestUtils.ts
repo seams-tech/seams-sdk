@@ -153,14 +153,8 @@ export class FixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsa
     return FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY;
   }
 
-  async register(): Promise<never> {
+  async registerWithTenantRoot(): Promise<never> {
     throw new Error('Strict ECDSA registration is outside this fixture');
-  }
-
-  async registerInitialWithTenantRoot(
-    _input: Parameters<RouterAbEcdsaStrictRegistrationPort['registerInitialWithTenantRoot']>[0],
-  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['registerInitialWithTenantRoot']> {
-    return this.register();
   }
 
   async activate(): Promise<never> {
@@ -170,6 +164,9 @@ export class FixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsa
 
 export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsaStrictRegistrationPort {
   registrationRequest: RouterAbEcdsaRegistrationRequestV1 | null = null;
+  tenantRoot:
+    | Parameters<RouterAbEcdsaStrictRegistrationPort['registerWithTenantRoot']>[0]['tenantRoot']
+    | null = null;
   activatedReceipt: RouterAbEcdsaRegistrationActivationReceiptV1 | null = null;
   /**
    * Models a caller that dies once the Router has already committed custody:
@@ -182,11 +179,12 @@ export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements Rou
     return FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY;
   }
 
-  async register(
-    input: Parameters<RouterAbEcdsaStrictRegistrationPort['register']>[0],
-  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['register']> {
+  async registerWithTenantRoot(
+    input: Parameters<RouterAbEcdsaStrictRegistrationPort['registerWithTenantRoot']>[0],
+  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['registerWithTenantRoot']> {
     const request = parseRouterAbEcdsaRegistrationRequestV1(input.request);
     this.registrationRequest = request;
+    this.tenantRoot = input.tenantRoot;
     const bundle = {
       kind: 'recipient_proof_bundle',
       transcriptDigestB64u: FIXTURE_ECDSA_DIGEST32_B64U,
@@ -207,12 +205,6 @@ export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements Rou
         }),
       },
     };
-  }
-
-  async registerInitialWithTenantRoot(
-    input: Parameters<RouterAbEcdsaStrictRegistrationPort['registerInitialWithTenantRoot']>[0],
-  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['registerInitialWithTenantRoot']> {
-    return this.register(input);
   }
 
   async activate(

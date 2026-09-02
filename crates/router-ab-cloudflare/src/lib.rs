@@ -326,8 +326,7 @@ use router_ab_core::{
     RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
     RouterAbEcdsaDerivationNormalSigningScopeV1, RouterAbEcdsaDerivationPublicIdentityV1,
     RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
-    RouterAbEcdsaDerivationRegistrationPurposeV1, RouterAbEcdsaDerivationStableKeyContextV1,
-    RouterAbEd25519NormalSigningAdmissionMaterialV2,
+    RouterAbEcdsaDerivationStableKeyContextV1, RouterAbEd25519NormalSigningAdmissionMaterialV2,
     RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
     RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbLifecycleStateV1,
     RouterRequestPolicyClaimsV1, RouterToSignerPayloadV1, SecretMaterial32, ServerIdentityV1,
@@ -341,10 +340,10 @@ use router_ab_core::{
 #[cfg(feature = "workers-rs")]
 use router_ab_core::{
     MpcPrfOutputRequestV1, RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
-    SignerInputQuorumPolicyV1, TenantRootCustodyBindingV1, TenantRootCustodyLineageId,
-    TenantRootDeriverIdentitiesV1, TenantRootIdentityDigestV1, TenantRootProtocolDigestV1,
-    TwoPartyDeriverRole, VerifiedTenantRootOnlineRoleShareV1,
-    VerifiedTenantRootSignedActivationReceiptV1,
+    RouterAbEcdsaDerivationRegistrationPurposeV1, SignerInputQuorumPolicyV1,
+    TenantRootCustodyBindingV1, TenantRootCustodyLineageId, TenantRootDeriverIdentitiesV1,
+    TenantRootIdentityDigestV1, TenantRootProtocolDigestV1, TwoPartyDeriverRole,
+    VerifiedTenantRootOnlineRoleShareV1, VerifiedTenantRootSignedActivationReceiptV1,
 };
 use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 use serde::{Deserialize, Serialize};
@@ -5548,7 +5547,7 @@ pub(crate) async fn handle_cloudflare_router_ab_ecdsa_derivation_registration_bo
     runtime: &CloudflareRouterWorkerRuntimeV1,
     now_unix_ms: u64,
     request: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
-    material_source: CloudflareRouterAbEcdsaRegistrationMaterialSourceV1<'_>,
+    tenant_root_custody_binding: &CloudflareTenantRootCustodyBindingWireV1,
     authorization: CloudflareRouterBearerAuthorizationV1,
     trusted_source_digest: PublicDigest32,
     verifier: Verifier,
@@ -5588,7 +5587,7 @@ where
                             runtime.deriver_a_peer(),
                             &request,
                             deriver_a_message,
-                            material_source,
+                            tenant_root_custody_binding,
                             timing.trace_id(),
                         )
                         .await;
@@ -5605,7 +5604,7 @@ where
                             runtime.deriver_b_peer(),
                             &request,
                             deriver_b_message,
-                            material_source,
+                            tenant_root_custody_binding,
                             timing.trace_id(),
                         )
                         .await;
@@ -9158,11 +9157,10 @@ fn derive_cloudflare_tenant_root_registration_scope_v1(
 #[cfg(feature = "workers-rs")]
 pub(crate) fn cloudflare_tenant_root_registration_binding_wire_v1(
     registration_request: &RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+    registration_purpose: RouterAbEcdsaDerivationRegistrationPurposeV1,
     activation_receipt: &VerifiedTenantRootSignedActivationReceiptV1,
 ) -> RouterAbProtocolResult<CloudflareTenantRootCustodyBindingWireV1> {
-    registration_request.validate_for_registration_purpose(
-        RouterAbEcdsaDerivationRegistrationPurposeV1::WalletRegistration,
-    )?;
+    registration_request.validate_for_registration_purpose(registration_purpose)?;
     let (operation_id, session_id, nonce) =
         derive_cloudflare_tenant_root_registration_scope_v1(registration_request)?;
     let expires_at_ms = registration_request.expires_at_ms;
@@ -9393,6 +9391,7 @@ impl CloudflareTenantRootCustodyBindingWireV1 {
 
     /// Validates exact receipt encoding and the Router-issued time window.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.validate_transport()?;
         let receipt_bytes = self.activation_receipt_bytes()?;
         TenantRootSignedActivationReceiptV1::decode_canonical_bytes(&receipt_bytes).map_err(
             |error| {
@@ -9402,6 +9401,11 @@ impl CloudflareTenantRootCustodyBindingWireV1 {
                 )
             },
         )?;
+        Ok(())
+    }
+
+    fn validate_transport(&self) -> RouterAbProtocolResult<()> {
+        self.activation_receipt_bytes()?;
         if self.issued_at_ms == 0 || self.expires_at_ms <= self.issued_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidTimeRange,
@@ -9509,10 +9513,10 @@ impl CloudflareTenantRootCustodyBindingWireV1 {
     }
 }
 
-/// Strict tenant-root private Deriver request for initial ECDSA registration.
+/// Strict tenant-root private Deriver request for ECDSA registration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CloudflareRouterAbEcdsaDerivationDeriverTenantRootRegistrationPrivateRequestV1 {
+pub struct CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1 {
     /// Typed public registration request admitted by Router.
     pub registration_request: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     /// Router-to-Deriver bootstrap body carrying role-envelope AAD.
@@ -9521,7 +9525,7 @@ pub struct CloudflareRouterAbEcdsaDerivationDeriverTenantRootRegistrationPrivate
     pub tenant_root_custody_binding: CloudflareTenantRootCustodyBindingWireV1,
 }
 
-impl CloudflareRouterAbEcdsaDerivationDeriverTenantRootRegistrationPrivateRequestV1 {
+impl CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1 {
     /// Creates a validated Router A/B ECDSA derivation registration Deriver request.
     #[cfg(feature = "workers-rs")]
     pub fn new(
@@ -9544,13 +9548,10 @@ impl CloudflareRouterAbEcdsaDerivationDeriverTenantRootRegistrationPrivateReques
         &self,
         worker_role: CloudflareWorkerRoleV1,
     ) -> RouterAbProtocolResult<()> {
-        self.registration_request
-            .validate_for_registration_purpose(
-                RouterAbEcdsaDerivationRegistrationPurposeV1::WalletRegistration,
-            )?;
+        self.registration_request.validate()?;
         self.signer_bootstrap
             .validate_for_worker_role(worker_role)?;
-        self.tenant_root_custody_binding.validate()?;
+        self.tenant_root_custody_binding.validate_transport()?;
         let expected_router_request_digest = self.registration_request.request_header_digest()?;
         if self.signer_bootstrap.router_request_digest != expected_router_request_digest {
             return Err(RouterAbProtocolError::new(
@@ -9595,116 +9596,6 @@ impl CloudflareRouterAbEcdsaDerivationDeriverTenantRootRegistrationPrivateReques
             binding,
         )?;
         Ok((self.registration_request, authenticated))
-    }
-}
-
-/// Strict private Deriver request for an additional ECDSA signer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CloudflareRouterAbEcdsaDerivationDeriverAddSignerPrivateRequestV1 {
-    /// Typed public add-signer request admitted by Router.
-    pub registration_request: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
-    /// Router-to-Deriver bootstrap body carrying role-envelope AAD.
-    pub signer_bootstrap: CloudflareSignerPrivateBootstrapRequestV1,
-}
-
-impl CloudflareRouterAbEcdsaDerivationDeriverAddSignerPrivateRequestV1 {
-    /// Creates and validates one add-signer private request.
-    pub fn new(
-        worker_role: CloudflareWorkerRoleV1,
-        registration_request: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
-        signer_bootstrap: CloudflareSignerPrivateBootstrapRequestV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let request = Self {
-            registration_request,
-            signer_bootstrap,
-        };
-        request.validate_for_worker_role(worker_role)?;
-        Ok(request)
-    }
-
-    /// Validates the request purpose and the exact Router-to-Deriver payload.
-    pub fn validate_for_worker_role(
-        &self,
-        worker_role: CloudflareWorkerRoleV1,
-    ) -> RouterAbProtocolResult<()> {
-        self.registration_request
-            .validate_for_registration_purpose(
-                RouterAbEcdsaDerivationRegistrationPurposeV1::WalletAddSigner,
-            )?;
-        self.signer_bootstrap
-            .validate_for_worker_role(worker_role)?;
-        let expected_router_request_digest = self.registration_request.request_header_digest()?;
-        if self.signer_bootstrap.router_request_digest != expected_router_request_digest {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "Router A/B ECDSA add-signer bootstrap digest does not match typed registration request",
-            ));
-        }
-        let router_payload =
-            decode_router_to_signer_payload_v1(self.signer_bootstrap.message.payload.as_bytes())?;
-        validate_cloudflare_router_ab_ecdsa_derivation_registration_request_for_router_payload_v1(
-            &self.registration_request,
-            &router_payload,
-        )
-    }
-}
-
-/// Exact branch-specific private registration command sent by Router.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "request", rename_all = "snake_case")]
-pub enum CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1 {
-    /// Initial registration backed by the active tenant-root epoch.
-    TenantRootRegistration(
-        CloudflareRouterAbEcdsaDerivationDeriverTenantRootRegistrationPrivateRequestV1,
-    ),
-    /// Existing add-signer path backed by its current material source.
-    AddSignerRegistration(CloudflareRouterAbEcdsaDerivationDeriverAddSignerPrivateRequestV1),
-}
-
-impl CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1 {
-    /// Builds the initial tenant-root registration branch.
-    #[cfg(feature = "workers-rs")]
-    pub fn tenant_root(
-        worker_role: CloudflareWorkerRoleV1,
-        registration_request: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
-        signer_bootstrap: CloudflareSignerPrivateBootstrapRequestV1,
-        tenant_root_custody_binding: CloudflareTenantRootCustodyBindingWireV1,
-    ) -> RouterAbProtocolResult<Self> {
-        Ok(Self::TenantRootRegistration(
-            CloudflareRouterAbEcdsaDerivationDeriverTenantRootRegistrationPrivateRequestV1::new(
-                worker_role,
-                registration_request,
-                signer_bootstrap,
-                tenant_root_custody_binding,
-            )?,
-        ))
-    }
-
-    /// Builds the add-signer registration branch.
-    pub fn add_signer(
-        worker_role: CloudflareWorkerRoleV1,
-        registration_request: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
-        signer_bootstrap: CloudflareSignerPrivateBootstrapRequestV1,
-    ) -> RouterAbProtocolResult<Self> {
-        Ok(Self::AddSignerRegistration(
-            CloudflareRouterAbEcdsaDerivationDeriverAddSignerPrivateRequestV1::new(
-                worker_role,
-                registration_request,
-                signer_bootstrap,
-            )?,
-        ))
-    }
-
-    /// Validates the exact branch against the local Deriver role.
-    pub fn validate_for_worker_role(
-        &self,
-        worker_role: CloudflareWorkerRoleV1,
-    ) -> RouterAbProtocolResult<()> {
-        match self {
-            Self::TenantRootRegistration(request) => request.validate_for_worker_role(worker_role),
-            Self::AddSignerRegistration(request) => request.validate_for_worker_role(worker_role),
-        }
     }
 }
 
@@ -13773,19 +13664,12 @@ where
 }
 
 #[cfg(feature = "workers-rs")]
-#[derive(Clone, Copy)]
-pub(crate) enum CloudflareRouterAbEcdsaRegistrationMaterialSourceV1<'a> {
-    TenantRoot(&'a CloudflareTenantRootCustodyBindingWireV1),
-    AddSigner,
-}
-
-#[cfg(feature = "workers-rs")]
 async fn execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1(
     env: &worker::Env,
     peer: &CloudflarePeerBindingV1,
     registration_request: &RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     message: &WireMessageV1,
-    material_source: CloudflareRouterAbEcdsaRegistrationMaterialSourceV1<'_>,
+    tenant_root_custody_binding: &CloudflareTenantRootCustodyBindingWireV1,
     trace_id: Option<CloudflareTraceIdV1>,
 ) -> RouterAbProtocolResult<(
     CloudflareSignerRecipientProofBundleResponseV1,
@@ -13799,23 +13683,13 @@ async fn execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_serv
             registration_request,
             message.clone(),
         )?;
-    let private_request = match material_source {
-        CloudflareRouterAbEcdsaRegistrationMaterialSourceV1::TenantRoot(binding) => {
-            CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1::tenant_root(
-                peer.peer_role,
-                registration_request.clone(),
-                signer_bootstrap,
-                binding.clone(),
-            )?
-        }
-        CloudflareRouterAbEcdsaRegistrationMaterialSourceV1::AddSigner => {
-            CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1::add_signer(
-                peer.peer_role,
-                registration_request.clone(),
-                signer_bootstrap,
-            )?
-        }
-    };
+    let private_request =
+        CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1::new(
+            peer.peer_role,
+            registration_request.clone(),
+            signer_bootstrap,
+            tenant_root_custody_binding.clone(),
+        )?;
     let label = format!(
         "{} Router A/B ECDSA derivation registration service request",
         peer.peer_role.as_str()
