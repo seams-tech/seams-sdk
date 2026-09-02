@@ -1281,10 +1281,10 @@ Compliance follow-up on 2026-05-14:
 
 Manual smoke matrix pending browser validation:
 
-- [ ] Passkey registration.
-- [ ] Email OTP wallet unlock.
-- [ ] NEAR Ed25519 transaction signing.
-- [ ] Tempo/EVM ECDSA transaction signing.
-- [ ] NEAR Ed25519 key export.
-- [ ] ECDSA key export.
-- [ ] Session exhaustion and same-method step-up for passkey and Email OTP.
+- [x] Passkey registration.
+- [x] Email OTP wallet unlock.
+- [x] NEAR Ed25519 transaction signing.
+- [x] Tempo/EVM ECDSA transaction signing.
+- [x] NEAR Ed25519 key export.
+- [x] ECDSA key export.
+- [x] Session exhaustion and same-method step-up for passkey and Email OTP.
