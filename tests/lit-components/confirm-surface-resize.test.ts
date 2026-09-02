@@ -121,9 +121,14 @@ async function mountTreeHost(
       host.addEventListener('lit-tree-toggled', () => {
         state.toggled += 1;
       });
-      host.addEventListener('lit-tree-resize-begin', (event) => {
-        const detail = (event as CustomEvent<{ open: boolean; deltaCssPx: number }>).detail;
-        state.begins.push({ open: detail.open, deltaCssPx: detail.deltaCssPx });
+      host.addEventListener('lit-surface-resize-begin', (event) => {
+        // The seam speaks a signed delta; for a tree node its sign is the
+        // direction of the toggle, which is what these cases assert on.
+        const detail = (event as CustomEvent<{ deltaCssPx: number }>).detail;
+        state.begins.push({
+          open: detail.deltaCssPx > 0,
+          deltaCssPx: Math.abs(detail.deltaCssPx),
+        });
       });
 
       const choreographer = choreography.attachConfirmSurfaceResizeChoreographer(host, {
@@ -205,6 +210,19 @@ function distinct(values: number[]): number[] {
   return values.filter((value, index) => index === 0 || values[index - 1] !== value);
 }
 
+/**
+ * Wait for the motion to land rather than counting frames: a box that jumps
+ * straight to its target is deliberately held for a few frames before the
+ * content follows it (LANDING_CONFIRM_FRAMES), so any fixed count here would
+ * encode that constant into every case.
+ */
+async function waitForLanded(
+  page: import('@playwright/test').Page,
+  toggles: number,
+): Promise<void> {
+  await expect.poll(async () => (await snapshot(page)).toggled, { timeout: 2_000 }).toBe(toggles);
+}
+
 test.describe('wallet-iframe confirm surface resize choreography', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page);
@@ -249,7 +267,7 @@ test.describe('wallet-iframe confirm surface resize choreography', () => {
     }
 
     await setViewport(page, closedPx + deltaPx);
-    await frames(page, 2);
+    await waitForLanded(page, 1);
     const settled = await snapshot(page);
     expect(settled.pinned).toBe(false);
     expect(settled.driven).toBe(false);
@@ -275,8 +293,7 @@ test.describe('wallet-iframe confirm surface resize choreography', () => {
     const opened = await snapshot(page);
     const deltaPx = opened.begins[0].deltaCssPx;
     await setViewport(page, closedPx + deltaPx);
-    await frames(page, 2);
-    expect((await snapshot(page)).toggled).toBe(1);
+    await waitForLanded(page, 1);
 
     await clickNode(page);
     await frames(page, 1);
@@ -297,7 +314,7 @@ test.describe('wallet-iframe confirm surface resize choreography', () => {
     expect(mid.open).toBe(true);
 
     await setViewport(page, closedPx);
-    await frames(page, 2);
+    await waitForLanded(page, 2);
     const settled = await snapshot(page);
     expect(settled.pinned).toBe(false);
     expect(settled.open).toBe(false);
@@ -343,11 +360,10 @@ test.describe('wallet-iframe confirm surface resize choreography', () => {
       expect((await snapshot(page)).bodyPx).toBe(viewportPx - closedPx);
     }
     await setViewport(page, closedPx + deltaPx);
-    await frames(page, 2);
+    await waitForLanded(page, 1);
     const settled = await snapshot(page);
     expect(settled.pinned).toBe(false);
     expect(settled.bodyPx).toBe(deltaPx);
-    expect(settled.toggled).toBe(1);
     expect(distinct(settled.hostHeights).filter((px) => px !== closedPx)).toEqual([
       closedPx + deltaPx,
     ]);
@@ -359,12 +375,11 @@ test.describe('wallet-iframe confirm surface resize choreography', () => {
     await frames(page, 2);
     const deltaPx = (await snapshot(page)).begins[0].deltaCssPx;
     await setViewport(page, closedPx + deltaPx);
-    await frames(page, 5);
+    await waitForLanded(page, 1);
     const settled = await snapshot(page);
     expect(settled.pinned).toBe(false);
     expect(settled.open).toBe(true);
     expect(settled.bodyPx).toBe(deltaPx);
-    expect(settled.toggled).toBe(1);
   });
 
   test('a box that does not hug the host leaves the tree to its own transition', async ({

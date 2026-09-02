@@ -177,6 +177,12 @@ jobs:
       - name: Run signer runtime gates
         run: pnpm -C tests exec playwright test ./unit/walletSessionReadiness.gate.unit.test.ts ./unit/thresholdEcdsa.commitQueue.unit.test.ts ./unit/walletIframeHost.signTempoCancel.unit.test.ts --reporter=line
 
+      - name: Run measured-surface motion gates
+        # Refactor 116: the cross-boundary guard is the only place the parent's
+        # ease, the real iframe origin, and the real confirmer meet, and the
+        # defects it catches are invisible to a same-process harness.
+        run: pnpm -C tests exec playwright test ./wallet-iframe/confirmSurface.treeGrowth.integration.test.ts ./lit-components/confirm-surface-resize.test.ts ./unit/overlayController.test.ts --reporter=line
+
       - name: Run signer parity tests
         run: pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/signerParity.rustPlatforms.unit.test.ts ./unit/signingVectors.webWasmReplay.integration.test.ts --workers=1
 

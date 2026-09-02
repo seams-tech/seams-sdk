@@ -3,13 +3,12 @@ import { repeat } from 'lit/directives/repeat.js';
 import { LitElementWithProps } from '../LitElementWithProps';
 import {
   dispatchLitCopy,
-  dispatchLitTreeResizeBegin,
   dispatchLitTreeToggled,
   dispatchTxReviewCopy,
   dispatchTxReviewOpenLink,
   dispatchTxReviewToggleNode,
-  type LitTreeResizeDriver,
 } from '../../lit-events';
+import { announceClampedSurfaceResize } from '../../confirm-surface-resize';
 import type { TreeNode } from './tx-tree-utils';
 import type { TxTreeStyles } from './tx-tree-themes';
 import { TX_TREE_THEMES } from './tx-tree-themes';
@@ -20,9 +19,10 @@ import type { AppearanceConfig } from '@/core/types/seams';
 // Re-exported for co-located theme typing convenience.
 export type { TxTreeStyles } from './tx-tree-themes';
 
-// A host that claims a node's height motion and then never lands it must not
-// leave that node stuck half-open; well beyond any host box ease.
-const HOST_DRIVEN_RESIZE_SAFETY_MS = 1500;
+// Classes that hold an element at a driven height: `anim-h` clips and carries
+// the transition, `anim-h-active` reads the height variable, `anim-h-driven`
+// removes the transition so the host's frame-by-frame writes are not chased.
+const HEIGHT_DRIVEN_CLASSES = ['anim-h', 'anim-h-active', 'anim-h-driven'] as const;
 
 /**
  * TxTree
@@ -193,10 +193,38 @@ export class TxTree extends LitElementWithProps {
     e.preventDefault();
     e.stopPropagation();
     if (!this.hasFileContentToggle(node)) return;
+    const shell =
+      (e.currentTarget as HTMLElement | null)?.closest<HTMLElement>('.file-content-shell') ?? null;
     const currentMode = this.resolveFileContentMode(node);
     const nextMode: 'decoded' | 'raw' = currentMode === 'decoded' ? 'raw' : 'decoded';
+    const fromCssPx = shell?.getBoundingClientRect().height ?? 0;
+    // Decoded and raw calldata rarely occupy the same number of lines, so
+    // swapping them resizes the card. Hold the block at its current height
+    // across the swap: the new encoding never lays out at its natural height,
+    // so neither the screen nor the surface reporter sees it.
+    if (shell) {
+      shell.classList.add(...HEIGHT_DRIVEN_CLASSES);
+      this.setCssVars({ '--w3a-tree__anim-target': `${fromCssPx}px` });
+    }
     this._fileContentModes.set(node.id, nextMode);
     this.requestUpdate();
+    if (!shell) return;
+    void this.updateComplete.then(() => {
+      // Read the natural height with the clamp momentarily off; no frame is
+      // painted between these two writes.
+      shell.classList.remove(...HEIGHT_DRIVEN_CLASSES);
+      const toCssPx = shell.getBoundingClientRect().height;
+      shell.classList.add(...HEIGHT_DRIVEN_CLASSES);
+      const claimed = announceClampedSurfaceResize({
+        reason: `${node.id}:file-content-mode`,
+        element: shell,
+        drivenClasses: HEIGHT_DRIVEN_CLASSES,
+        fromCssPx,
+        toCssPx,
+        setHeightCssPx: (px) => this.setCssVars({ '--w3a-tree__anim-target': `${px}px` }),
+      });
+      if (!claimed) shell.classList.remove(...HEIGHT_DRIVEN_CLASSES);
+    });
   };
 
   private handleToggle(detail?: { nodeId?: string; open?: boolean }) {
@@ -356,13 +384,14 @@ export class TxTree extends LitElementWithProps {
   }
 
   /**
-   * Offer the node's height motion to the host before animating it here.
+   * Offer the node's height motion to the surrounding surface before animating
+   * it here. A wallet-iframe confirmer claims it, because the parent window
+   * sizes its iframe to hug the card and the box must move before the body
+   * does or the card is clipped by an iframe still catching up. Nobody
+   * claiming means the caller runs the tree's own CSS transition.
    *
-   * A wallet-iframe confirmer accepts: the parent window sizes its iframe to
-   * hug the card, so the box must grow before the body does or the card is
-   * clipped by an iframe still catching up (confirm-surface-resize.ts). The
-   * host then feeds the body height back frame by frame and calls finish().
-   * Nobody claiming means the caller runs the tree's own CSS transition.
+   * The body is already clamped at its pre-change height when this is called:
+   * zero for an open (`anim-h`), full height for a close.
    */
   private beginHostDrivenResize(
     details: HTMLDetailsElement,
@@ -370,38 +399,20 @@ export class TxTree extends LitElementWithProps {
     args: { open: boolean; deltaCssPx: number },
   ): boolean {
     const { open, deltaCssPx } = args;
-    const state: { driver: LitTreeResizeDriver | null; finished: boolean; safety: number | null } =
-      { driver: null, finished: false, safety: null };
-
-    const setHeightCssPx = (px: number) => {
-      if (state.finished) return;
-      const clamped = Number.isFinite(px) ? Math.min(Math.max(px, 0), deltaCssPx) : 0;
-      this.setCssVars({ '--w3a-tree__anim-target': `${clamped}px` });
-    };
-    const finish = () => {
-      if (state.finished) return;
-      state.finished = true;
-      if (state.safety !== null) window.clearTimeout(state.safety);
-      if (!open) details.open = false;
-      body.classList.remove('anim-h', 'anim-h-active', 'anim-h-driven', 'anim-h-hold');
-      this._animating.delete(details);
-      this.handleToggle({ nodeId: details.dataset.nodeId, open: details.open });
-    };
-    const claim = (): LitTreeResizeDriver | null => {
-      if (state.driver || state.finished) return null;
-      // Start where the body visually is now: collapsed for open, full for close.
-      this.setCssVars({ '--w3a-tree__anim-target': `${open ? 0 : deltaCssPx}px` });
-      body.classList.add('anim-h-driven', 'anim-h-active');
-      state.safety = window.setTimeout(() => {
-        setHeightCssPx(open ? deltaCssPx : 0);
-        finish();
-      }, HOST_DRIVEN_RESIZE_SAFETY_MS);
-      state.driver = { setHeightCssPx, finish };
-      return state.driver;
-    };
-
-    dispatchLitTreeResizeBegin(this, { nodeId: details.dataset.nodeId, open, deltaCssPx, claim });
-    return state.driver !== null;
+    return announceClampedSurfaceResize({
+      ...(details.dataset.nodeId ? { reason: details.dataset.nodeId } : {}),
+      element: body,
+      drivenClasses: HEIGHT_DRIVEN_CLASSES,
+      fromCssPx: open ? 0 : deltaCssPx,
+      toCssPx: open ? deltaCssPx : 0,
+      setHeightCssPx: (px) => this.setCssVars({ '--w3a-tree__anim-target': `${px}px` }),
+      onSettled: () => {
+        if (!open) details.open = false;
+        body.classList.remove('anim-h-hold');
+        this._animating.delete(details);
+        this.handleToggle({ nodeId: details.dataset.nodeId, open: details.open });
+      },
+    });
   }
 
   protected getComponentPrefix(): string {
