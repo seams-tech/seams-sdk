@@ -21,6 +21,13 @@ pub const CLOUDFLARE_INTERNAL_PREWARM_PATH: &str = "/internal/prewarm";
 /// Private, internal-service-authenticated. The request carries only a signed
 /// creation grant; the issuer verifies it against its own configured
 /// authorities and derives every ceremony field itself.
+/// Deriver tenant-root creation: admit an issuer-signed role command package.
+///
+/// Private, internal-service-authenticated. The Deriver derives its own role,
+/// authority, clock, and signer locally; the request carries only the signed
+/// package and the peer material the ceremony needs.
+pub const CLOUDFLARE_DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/deriver/tenant-root/creation/v1/create-role-share";
 pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_PRIVATE_REQUEST_PATH: &str =
     "/tenant-root-control-plane/creation/v1/create";
 pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_PRIVATE_REQUEST_PATH: &str =

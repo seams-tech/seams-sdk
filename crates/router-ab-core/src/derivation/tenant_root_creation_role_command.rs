@@ -1020,6 +1020,17 @@ impl TenantRootRoleCreationCommandPackageV1 {
         self.command.issuer_key_id()
     }
 
+    /// Recovers the tenant identity the Started journal was opened with.
+    ///
+    /// Like the ceremony context, this is material the journal digest already
+    /// commits to, so it is a decode rather than an independent input.
+    pub fn identity(&self) -> RouterAbDerivationResult<super::TenantRootIdentityV1> {
+        let TenantRootCreationJournalV1::Started(started_event) = &self.started_journal;
+        super::TenantRootIdentityV1::decode_canonical_bytes(
+            started_event.identity_canonical_bytes(),
+        )
+    }
+
     /// Recovers the ceremony context the Started journal was opened with.
     ///
     /// The Started event retains the exact canonical context bytes, so this is

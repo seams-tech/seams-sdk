@@ -232,6 +232,181 @@ where
     Ok((input, managed_backup))
 }
 
+/// Maximum accepted request size for one Deriver creation call.
+pub const DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_REQUEST_MAX_BYTES_V1: usize = 96 * 1024;
+
+/// Router -> Deriver: execute this role's part of one creation ceremony.
+///
+/// Everything here is issuer-signed or public. The Deriver derives its own
+/// role, authority id, clock and signer locally, so nothing in this request
+/// can select them.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareDeriverTenantRootCreateRoleShareRequestV1 {
+    /// Exact canonical role creation command package, issuer-signed.
+    pub role_creation_command_package_b64u: String,
+    /// The peer's signed public commitment, when the caller already holds it.
+    ///
+    /// Absent on the first leg: that Deriver commits and returns its own
+    /// commitment so the peer can be driven next.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_signed_commitment_b64u: Option<String>,
+}
+
+/// Deriver -> Router: this role's public result.
+///
+/// Public evidence only. No scalar, sealed share, or provider ciphertext is
+/// ever named here.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareDeriverTenantRootCreateRoleShareResponseV1 {
+    /// The role this Deriver executed, from its own runtime.
+    pub role: CloudflareTenantRootCreateRoleV1,
+    /// This role's signed public commitment.
+    pub signed_commitment_b64u: String,
+    /// This role's signed installation evidence, once the pair completed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_installation_evidence_b64u: Option<String>,
+    /// True once this role's pending share is durably persisted.
+    pub pending_persisted: bool,
+}
+
+/// Role label on the Deriver creation wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudflareTenantRootCreateRoleV1 {
+    DeriverA,
+    DeriverB,
+}
+
+impl CloudflareTenantRootCreateRoleV1 {
+    pub(crate) const fn from_protocol(role: TwoPartyDeriverRole) -> Self {
+        match role {
+            TwoPartyDeriverRole::DeriverA => Self::DeriverA,
+            TwoPartyDeriverRole::DeriverB => Self::DeriverB,
+        }
+    }
+}
+
+/// One role's outcome for a creation ceremony, before any transport.
+///
+/// `Committed` is the first leg: this role holds a live share and has
+/// published its commitment, but the pair is not complete, so nothing durable
+/// exists yet and the attempt is abandonable by simply dropping it.
+///
+/// `Sealed` is the second leg: the pair completed, the share is sealed, and the
+/// input is ready for the role's one-use reserve-and-insert.
+// The sealed variant is boxed, but the committed variant deliberately is not:
+// it holds the live share, and moving secret material onto the heap to satisfy
+// a size lint would trade a zeroizing stack value for an allocation whose
+// intermediate copies are harder to reason about.
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum TenantRootRoleCreationProgressV1 {
+    Committed {
+        pending: PendingTenantRootInitialRoleAttemptV1,
+    },
+    #[cfg(feature = "workers-rs")]
+    Sealed {
+        signed_commitment: Vec<u8>,
+        signed_installation_evidence: Vec<u8>,
+        /// Boxed: the persistence input dwarfs the committed variant, and this
+        /// enum is returned by value from every role execution.
+        input: Box<CloudflareTenantRootInitialCreationInputV1>,
+        managed_backup: Box<VerifiedTenantRootManagedBackupV1>,
+    },
+}
+
+/// Executes one role's part of a creation ceremony.
+///
+/// `worker_role` and `expected_authority_id` come from the Worker's own
+/// runtime and Durable Object binding; `role_signer` is its own configured
+/// signer. None of them may be taken from the request, which is why they are
+/// arguments rather than fields of the decoded package.
+///
+/// With no peer commitment this returns `Committed`: the role generates and
+/// commits, and its commitment goes back so the peer can be driven. With the
+/// peer's commitment it finalizes and seals in the same call, so the scalar
+/// never has to survive across a request boundary.
+#[cfg(feature = "workers-rs")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn execute_tenant_root_role_creation_v1<Online, Backup, R>(
+    package_bytes: &[u8],
+    peer_signed_commitment: Option<&[u8]>,
+    worker_role: TwoPartyDeriverRole,
+    expected_authority_id: TenantRootControlPlaneAuthorityIdV1,
+    trusted_issuer_keys: &CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
+    role_keys: &TenantRootCreationRoleVerifyingKeysV1,
+    role_signer: &crate::CloudflareTenantRootCreationRoleSignerV1,
+    role_signing_key_bytes: &[u8; 32],
+    provider_config: &TenantRootRoleRuntimeProviderConfigV1,
+    online_provider: &mut Online,
+    managed_backup_provider: &mut Backup,
+    now_ms: u64,
+    rng: &mut R,
+) -> RouterAbProtocolResult<TenantRootRoleCreationProgressV1>
+where
+    Online: TenantRootOnlineRoleShareProviderV1,
+    Backup: TenantRootManagedBackupProviderV1,
+    R: rand_core_06::RngCore + rand_core_06::CryptoRng,
+{
+    let pending = admit_tenant_root_role_creation_package_v1(
+        package_bytes,
+        worker_role,
+        expected_authority_id,
+        trusted_issuer_keys,
+        role_signer,
+        role_signing_key_bytes,
+        now_ms,
+        rng,
+    )?;
+    let Some(peer_signed_commitment) = peer_signed_commitment else {
+        return Ok(TenantRootRoleCreationProgressV1::Committed { pending });
+    };
+
+    // The identity comes from the package's own Started journal, which the
+    // issuer signature already commits to; it is never a request field.
+    let package = TenantRootRoleCreationCommandPackageV1::decode_canonical_bytes(package_bytes)
+        .map_err(candidate_derivation_error)?;
+    let identity = package.identity().map_err(candidate_derivation_error)?;
+
+    let signed_commitment = pending.commitment_bytes().to_vec();
+    let context = pending.commitment().context().clone();
+    let pair_wires = match worker_role {
+        TwoPartyDeriverRole::DeriverA => TenantRootCreationCommitmentPairWiresV1 {
+            deriver_a_signed_commitment: signed_commitment.clone(),
+            deriver_b_signed_commitment: peer_signed_commitment.to_vec(),
+        },
+        TwoPartyDeriverRole::DeriverB => TenantRootCreationCommitmentPairWiresV1 {
+            deriver_a_signed_commitment: peer_signed_commitment.to_vec(),
+            deriver_b_signed_commitment: signed_commitment.clone(),
+        },
+    };
+    let finalized = finalize_tenant_root_role_attempt_v1(
+        pending,
+        &pair_wires,
+        &context,
+        role_keys,
+        role_signing_key_bytes,
+        rng,
+    )?;
+    let (input, managed_backup) = seal_initial_role_creation_for_persistence_v1(
+        finalized,
+        role_signer,
+        provider_config,
+        online_provider,
+        managed_backup_provider,
+        identity,
+        now_ms,
+    )?;
+    let signed_installation_evidence = input.installation_evidence_bytes().to_vec();
+    Ok(TenantRootRoleCreationProgressV1::Sealed {
+        signed_commitment,
+        signed_installation_evidence,
+        input: Box::new(input),
+        managed_backup: Box::new(managed_backup),
+    })
+}
+
 /// Operations needed by one role-local online-share provider.
 pub(crate) trait TenantRootOnlineRoleShareProviderV1 {
     fn seal_online_role_share(
@@ -470,7 +645,7 @@ fn malformed(message: &'static str) -> RouterAbDerivationError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use base64::Engine;
     use ed25519_dalek::SigningKey;
@@ -488,15 +663,15 @@ mod tests {
 
     use crate::tenant_root_operational_provider::CloudflareTenantRootOperationalRotationProviderV1;
 
-    const ISSUER_KEY: [u8; 32] = [0x41; 32];
+    pub(crate) const ISSUER_KEY: [u8; 32] = [0x41; 32];
     const ISSUER_KEY_ID: &str = "tenant-root-issuer-v1";
-    const ISSUED_AT_MS: u64 = 1_000_000;
+    pub(crate) const ISSUED_AT_MS: u64 = 1_000_000;
     const EXPIRES_AT_MS: u64 = 1_030_000;
     const ONLINE_REF: &str = "online-key/tenant-7/epoch-1";
     const BACKUP_PROVIDER: &str = "backup-provider-a";
     const BACKUP_VERSION: &str = "backup-key-a/tenant-7/epoch-1";
 
-    struct InMemoryProvider {
+    pub(crate) struct InMemoryProvider {
         online_share: Option<SigningRootShareWire>,
         managed_share: Option<MpcPrfSigningRootShareWireV1>,
         online_role: Option<TwoPartyDeriverRole>,
@@ -504,7 +679,7 @@ mod tests {
     }
 
     impl InMemoryProvider {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             Self {
                 online_share: None,
                 managed_share: None,
@@ -1103,10 +1278,10 @@ pub(crate) mod admission_tests {
         TenantRootIdentityV1, TenantRootRoleCreationCommandV1,
     };
 
-    const ISSUER_KEY: [u8; 32] = [0x41; 32];
+    pub(crate) const ISSUER_KEY: [u8; 32] = [0x41; 32];
     const ISSUER_KEY_ID: &str = "tenant-root-issuer-v1";
     const FOREIGN_ISSUER_KEY: [u8; 32] = [0x42; 32];
-    const ISSUED_AT_MS: u64 = 1_000_000;
+    pub(crate) const ISSUED_AT_MS: u64 = 1_000_000;
     const EXPIRES_AT_MS: u64 = 1_030_000;
     const AUTHORITY: [u8; 32] = [0x44; 32];
 
@@ -1612,6 +1787,211 @@ mod exchange_tests {
                     );
                 }
             }
+        }
+    }
+}
+
+#[cfg(all(test, feature = "workers-rs"))]
+mod live_execution_tests {
+    use super::admission_tests::*;
+    use super::tests::InMemoryProvider;
+    use super::*;
+    use rand_chacha::ChaCha20Rng;
+    use rand_core_06::SeedableRng;
+
+    const ONLINE_REF: &str = "online-key/tenant-7/epoch-1";
+    const BACKUP_PROVIDER: &str = "backup-provider-a";
+    const BACKUP_VERSION: &str = "backup-key-a/tenant-7/epoch-1";
+
+    fn provider_config() -> TenantRootRoleRuntimeProviderConfigV1 {
+        TenantRootRoleRuntimeProviderConfigV1::new(ONLINE_REF, BACKUP_PROVIDER, BACKUP_VERSION)
+            .expect("provider config")
+    }
+
+    fn execute(
+        role: TwoPartyDeriverRole,
+        peer: Option<&[u8]>,
+        seed: u8,
+    ) -> RouterAbProtocolResult<TenantRootRoleCreationProgressV1> {
+        let mut online = InMemoryProvider::new();
+        let mut backup = InMemoryProvider::new();
+        execute_tenant_root_role_creation_v1(
+            &package_bytes(role, &ISSUER_KEY),
+            peer,
+            role,
+            authority(),
+            &trusted_issuer_keys(),
+            &test_role_keys(),
+            &signer(role),
+            &role_key(role).to_bytes(),
+            &provider_config(),
+            &mut online,
+            &mut backup,
+            ISSUED_AT_MS + 2,
+            &mut ChaCha20Rng::from_seed([seed; 32]),
+        )
+    }
+
+    /// The first leg commits without creating anything durable.
+    #[test]
+    fn the_first_leg_commits_and_produces_nothing_durable() {
+        let progress = execute(TwoPartyDeriverRole::DeriverA, None, 0x77).expect("committed");
+        match progress {
+            TenantRootRoleCreationProgressV1::Committed { pending } => {
+                assert_eq!(pending.role(), TwoPartyDeriverRole::DeriverA);
+                assert!(!pending.commitment_bytes().is_empty());
+            }
+            TenantRootRoleCreationProgressV1::Sealed { .. } => {
+                panic!("no peer commitment must not produce sealed material")
+            }
+        }
+    }
+
+    /// The second leg finalizes and seals in one call, so the scalar never has
+    /// to survive a request boundary.
+    #[test]
+    fn the_second_leg_finalizes_and_seals_in_one_call() {
+        let TenantRootRoleCreationProgressV1::Committed { pending: a } =
+            execute(TwoPartyDeriverRole::DeriverA, None, 0x77).expect("A committed")
+        else {
+            panic!("expected a committed first leg")
+        };
+        let a_commitment = a.commitment_bytes().to_vec();
+
+        let progress =
+            execute(TwoPartyDeriverRole::DeriverB, Some(&a_commitment), 0x88).expect("B sealed");
+        let TenantRootRoleCreationProgressV1::Sealed {
+            signed_commitment,
+            signed_installation_evidence,
+            input,
+            managed_backup,
+        } = progress
+        else {
+            panic!("expected a sealed second leg")
+        };
+        assert!(!signed_commitment.is_empty());
+        assert!(!signed_installation_evidence.is_empty());
+        assert_eq!(
+            input.installation_evidence_bytes(),
+            signed_installation_evidence
+        );
+        let _ = managed_backup;
+    }
+
+    /// A Deriver executes its own role, never the peer's, even when handed the
+    /// peer's package: the role comes from the Worker runtime.
+    #[test]
+    fn a_deriver_will_not_execute_a_package_addressed_to_its_peer() {
+        for (packaged, worker) in [
+            (TwoPartyDeriverRole::DeriverA, TwoPartyDeriverRole::DeriverB),
+            (TwoPartyDeriverRole::DeriverB, TwoPartyDeriverRole::DeriverA),
+        ] {
+            let mut online = InMemoryProvider::new();
+            let mut backup = InMemoryProvider::new();
+            assert!(
+                execute_tenant_root_role_creation_v1(
+                    &package_bytes(packaged, &ISSUER_KEY),
+                    None,
+                    worker,
+                    authority(),
+                    &trusted_issuer_keys(),
+                    &test_role_keys(),
+                    &signer(worker),
+                    &role_key(worker).to_bytes(),
+                    &provider_config(),
+                    &mut online,
+                    &mut backup,
+                    ISSUED_AT_MS + 2,
+                    &mut ChaCha20Rng::from_seed([0x77; 32]),
+                )
+                .is_err(),
+                "{worker:?} must refuse a {packaged:?} package"
+            );
+        }
+    }
+
+    /// The request surface cannot select role, authority, clock, or signer.
+    #[test]
+    fn the_deriver_request_surface_carries_only_signed_and_public_material() {
+        let request = CloudflareDeriverTenantRootCreateRoleShareRequestV1 {
+            role_creation_command_package_b64u: "abc".to_owned(),
+            peer_signed_commitment_b64u: None,
+        };
+        let json = serde_json::to_value(&request).expect("json");
+        let keys: Vec<&str> = json
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(keys, ["role_creation_command_package_b64u"]);
+
+        for smuggled in [
+            r#"{"role_creation_command_package_b64u":"a","role":"deriver_a"}"#,
+            r#"{"role_creation_command_package_b64u":"a","authority_id_b64u":"x"}"#,
+            r#"{"role_creation_command_package_b64u":"a","now_ms":1}"#,
+            r#"{"role_creation_command_package_b64u":"a","signing_key_id":"k"}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<CloudflareDeriverTenantRootCreateRoleShareRequestV1>(
+                    smuggled
+                )
+                .is_err(),
+                "request must reject {smuggled}"
+            );
+        }
+    }
+
+    /// The scalar-leak proof, extended over the sealed persistence input.
+    #[test]
+    fn no_deriver_response_field_carries_share_material() {
+        let TenantRootRoleCreationProgressV1::Committed { pending: a } =
+            execute(TwoPartyDeriverRole::DeriverA, None, 0x77).expect("A committed")
+        else {
+            panic!("expected a committed first leg")
+        };
+        let a_commitment = a.commitment_bytes().to_vec();
+        let TenantRootRoleCreationProgressV1::Sealed {
+            signed_commitment,
+            signed_installation_evidence,
+            input,
+            ..
+        } = execute(TwoPartyDeriverRole::DeriverB, Some(&a_commitment), 0x88).expect("B sealed")
+        else {
+            panic!("expected a sealed second leg")
+        };
+
+        // Everything this Deriver would put on the wire back to the Router.
+        let response = CloudflareDeriverTenantRootCreateRoleShareResponseV1 {
+            role: CloudflareTenantRootCreateRoleV1::from_protocol(TwoPartyDeriverRole::DeriverB),
+            signed_commitment_b64u: crate::encode_base64url_bytes_v1(&signed_commitment),
+            signed_installation_evidence_b64u: Some(crate::encode_base64url_bytes_v1(
+                &signed_installation_evidence,
+            )),
+            pending_persisted: true,
+        };
+        let response_json = serde_json::to_string(&response).expect("response json");
+
+        // B's scalar, recovered from the record it is about to persist.
+        let sealed = input.sealed_share_ciphertext_for_test();
+        assert!(!sealed.is_empty());
+
+        // The commitment is a public point; the evidence is a proof. Neither,
+        // nor the serialized response, may contain the sealed ciphertext.
+        for (label, wire) in [
+            ("signed commitment", signed_commitment.as_slice()),
+            (
+                "signed installation evidence",
+                signed_installation_evidence.as_slice(),
+            ),
+            ("response json", response_json.as_bytes()),
+        ] {
+            assert!(
+                !wire
+                    .windows(sealed.len())
+                    .any(|window| window == sealed.as_slice()),
+                "{label} contains sealed share material"
+            );
         }
     }
 }

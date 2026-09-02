@@ -1763,6 +1763,23 @@ impl fmt::Debug for CloudflareTenantRootInitialCreationInputV1 {
 
 #[allow(dead_code)]
 impl CloudflareTenantRootInitialCreationInputV1 {
+    /// Returns the sealed share ciphertext, for leak tests only.
+    #[cfg(test)]
+    pub(crate) fn sealed_share_ciphertext_for_test(&self) -> Vec<u8> {
+        use base64::Engine;
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(self.record.sealed_share().ciphertext_b64u())
+            .expect("sealed share ciphertext is canonical base64url")
+    }
+
+    /// Returns the exact signed installation evidence wire bytes.
+    ///
+    /// Public evidence: it is what the Router-owned object verifies, and it
+    /// carries no share material.
+    pub(crate) fn installation_evidence_bytes(&self) -> &[u8] {
+        self.evidence.canonical_bytes()
+    }
+
     /// Builds one exact pending record from verified evidence and local share inputs.
     pub(crate) fn new(
         command: VerifiedTenantRootRoleCreationCommandV1,
