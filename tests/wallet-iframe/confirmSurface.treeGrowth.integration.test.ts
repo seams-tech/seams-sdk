@@ -190,11 +190,12 @@ async function toggleFolder(frame: Frame, expectOpen: boolean): Promise<ToggleTr
     const body = details.querySelector(':scope > .folder-children') as HTMLElement;
     let begin: ToggleTrace['begin'] | null = null;
     host.addEventListener(
-      'lit-tree-resize-begin',
+      'lit-surface-resize-begin',
       (e: any) => {
+        // Signed delta: its sign is the direction of the toggle.
         begin = {
-          open: e.detail.open,
-          delta: e.detail.deltaCssPx,
+          open: e.detail.deltaCssPx > 0,
+          delta: Math.abs(e.detail.deltaCssPx),
           viewportPx: document.documentElement.clientHeight,
           hostPx: host.getBoundingClientRect().height,
           surface: host.getAttribute('data-w3a-confirm-surface'),

@@ -431,6 +431,10 @@ w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'][data-w3a-confirm-vari
    this surface must have an intrinsic height, so the caps are fixed here. */
 w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'] w3a-tx-tree .file-content {
   max-height: 12rem;
+  /* The drag handle resizes content continuously, and the host box eases one
+     step behind every measurement, so the box can never follow the pointer.
+     The block scrolls inside its cap here instead. */
+  resize: none;
 }
 w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe']
   w3a-tx-tree

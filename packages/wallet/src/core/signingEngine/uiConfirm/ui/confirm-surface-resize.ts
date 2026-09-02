@@ -1,38 +1,49 @@
 /**
- * Host-driven tree growth for wallet-iframe confirmations.
+ * Host-driven height changes for wallet-iframe confirmations.
  *
  * In the wallet-iframe modal surface the parent window sizes the iframe to hug
  * this confirmer (surface-measurement-reporter.ts) and eases the box to every
- * new size it hears about (OverlayController.startSurfaceResize). A
- * tree node that animates its own height fights that ease: every frame of the
- * tree's transition posts a fresh measurement, the box restarts its ease from
- * wherever it is, and the card — anchored to the iframe's top-left and already
- * at full height — is clipped by an iframe still catching up.
+ * new size it hears about (OverlayController.startSurfaceResize). Content that
+ * animates its own height fights that ease: every frame of the animation posts
+ * a fresh measurement, the box restarts its ease from wherever it is, and the
+ * card — anchored to the iframe's top-left and already at full height — is
+ * clipped by an iframe still catching up.
  *
- * So the order is reversed here. When a tree node starts to open or close, the
- * confirmer host is pinned to the size the card is heading for — exactly one
- * measurement, so the parent runs exactly one ease — and the tree's body height
- * is then fed from the room the iframe has actually made available, frame by
- * frame. The card can never outrun the box, whatever the parent's easing (or
- * its absence under reduced motion) turns out to be.
+ * So the order is reversed here. A component about to change height clamps
+ * itself at its pre-change height and announces the change; the confirmer host
+ * is pinned to the size it is heading for — exactly one measurement, so the
+ * parent runs exactly one ease — and the component is then driven from the
+ * room the iframe has actually made available, frame by frame. The content can
+ * never outrun the box, whatever the parent's easing (or its absence under
+ * reduced motion) turns out to be.
  *
- * The host is a transparent shell in that surface, so pinning it taller (open)
- * or shorter (close) than its content is invisible. The pin goes through a
- * constructable stylesheet because the wallet origin ships
- * `style-src-attr 'none'`.
+ * The host is a transparent shell in that surface, so pinning it taller or
+ * shorter than its content is invisible. The pin goes through a constructable
+ * stylesheet because the wallet origin ships `style-src-attr 'none'`.
+ *
+ * Refactor 116 owns the rules this module enforces; see
+ * `docs/refactor-116-lit-component-consolidation.md`.
  */
 
 import {
-  addLitTreeResizeBeginListener,
-  type LitTreeResizeBeginDetail,
-  type LitTreeResizeDriver,
+  addLitSurfaceResizeBeginListener,
+  dispatchLitSurfaceResizeBegin,
+  type LitSurfaceResizeBeginDetail,
+  type LitSurfaceResizeDriver,
 } from './lit-events';
-import { W3A_TX_CONFIRMER_ID } from './registry';
-
 export const CONFIRM_SURFACE_MODE_ATTR = 'data-w3a-confirm-surface';
 export const CONFIRM_SURFACE_MODE_WALLET_IFRAME = 'wallet-iframe';
 export const CONFIRM_SURFACE_MODE_STANDALONE = 'standalone';
+/** Marks the confirmer host while its height is held at a motion's target. */
 export const CONFIRM_SURFACE_PINNED_CLASS = 'w3a-confirm-surface-pinned';
+/**
+ * Marks the document root for the same span. It is a second class rather than
+ * the one above because the host rule must match any element that hosts a
+ * confirmation — including the plain container the component suites mount —
+ * so it cannot be qualified by tag, and an unqualified height rule would
+ * otherwise also size `<html>`.
+ */
+export const CONFIRM_SURFACE_PINNED_ROOT_CLASS = 'w3a-confirm-surface-pinned-root';
 
 /** Frames the box may sit still, after it has moved, before its motion counts as over. */
 const SETTLED_FRAMES_AFTER_MOTION = 8;
@@ -40,16 +51,100 @@ const SETTLED_FRAMES_AFTER_MOTION = 8;
 const SETTLED_FRAMES_WITHOUT_MOTION = 20;
 /**
  * The parent writes the destination box and forces a layout BEFORE it starts
- * its ease, and a cross-origin iframe receives that destination size for one
+ * its ease, and a cross-origin iframe can receive that destination size for one
  * frame before the animation snaps it back to the origin. Landing on that
  * frame finishes the interior instantly and leaves the box to ease on its
  * own — the exact jank this module exists to remove. A box that jumps straight
- * to the target therefore has to stay there this many frames before the body
- * lands on it; a box that eased through intermediate sizes lands at once.
+ * to the target therefore has to stay there this many frames before the
+ * content lands on it; a box that eased through intermediate sizes lands at
+ * once. The parent pins the iframe to the origin for that read
+ * (`overlay-styles.ts pinDialogIframe`), so this is the second of two guards.
  */
 const LANDING_CONFIRM_FRAMES = 3;
 /** The parent rounds the measured size; allow that much slack when asking whether the box hugs the host. */
 const HUG_TOLERANCE_CSS_PX = 1;
+/** A host that claims a motion and never lands it must not leave content clamped. */
+const ANNOUNCE_SAFETY_MS = 1500;
+/** Height changes below this are not worth a motion, and round to nothing. */
+const MIN_ANNOUNCED_DELTA_CSS_PX = 1;
+
+/**
+ * What a component hands over when it is about to change its own height.
+ *
+ * The contract, in order: lay out the new content, clamp the changing element
+ * at `fromCssPx`, then announce. The clamp must go through a stylesheet or CSS
+ * variable — never a style attribute, since the wallet origin ships
+ * `style-src-attr 'none'`.
+ */
+export type SurfaceResizeAnnouncement = {
+  /** Diagnostics label: a tree node id, `file-content-mode`, `confirm-body`. */
+  readonly reason?: string;
+  /** Height of the changing element before the change, in CSS px. */
+  readonly fromCssPx: number;
+  /** Height of the changing element after the change, in CSS px. */
+  readonly toCssPx: number;
+  /** Called once, when a host takes the motion, before the first height is written. */
+  onClaimed?(): void;
+  /** Hold the changing element at this height, in CSS px. */
+  setHeightCssPx(px: number): void;
+  /** Release the clamp and commit the final DOM state. Runs at most once. */
+  finish(): void;
+};
+
+/**
+ * Offer a height change to the surrounding surface before making it.
+ *
+ * Returns true when a host claimed the motion and now owns it: the component
+ * must not animate, and its `finish` will be called when the box has arrived.
+ * Returns false when nobody claimed it — a standalone surface, or a box that
+ * does not hug this content — and the component animates itself as usual.
+ */
+export function announceSurfaceResize(
+  target: EventTarget,
+  announcement: SurfaceResizeAnnouncement,
+): boolean {
+  const { fromCssPx, toCssPx } = announcement;
+  if (!Number.isFinite(fromCssPx) || !Number.isFinite(toCssPx)) return false;
+  const deltaCssPx = toCssPx - fromCssPx;
+  if (Math.abs(deltaCssPx) < MIN_ANNOUNCED_DELTA_CSS_PX) return false;
+
+  const lowerCssPx = Math.min(fromCssPx, toCssPx);
+  const upperCssPx = Math.max(fromCssPx, toCssPx);
+  let driver: LitSurfaceResizeDriver | null = null;
+  let finished = false;
+  let safety: number | null = null;
+
+  const setProgress = (progress: number): void => {
+    if (finished) return;
+    const ratio = Number.isFinite(progress) ? Math.min(Math.max(progress, 0), 1) : 0;
+    const px = fromCssPx + ratio * deltaCssPx;
+    announcement.setHeightCssPx(Math.min(Math.max(px, lowerCssPx), upperCssPx));
+  };
+  const finish = (): void => {
+    if (finished) return;
+    finished = true;
+    if (safety !== null) window.clearTimeout(safety);
+    announcement.finish();
+  };
+  const claim = (): LitSurfaceResizeDriver | null => {
+    if (driver || finished) return null;
+    announcement.onClaimed?.();
+    setProgress(0);
+    safety = window.setTimeout(() => {
+      setProgress(1);
+      finish();
+    }, ANNOUNCE_SAFETY_MS);
+    driver = { setProgress, finish };
+    return driver;
+  };
+
+  dispatchLitSurfaceResizeBegin(target, {
+    ...(announcement.reason ? { reason: announcement.reason } : {}),
+    deltaCssPx,
+    claim,
+  });
+  return driver !== null;
+}
 
 export type ConfirmSurfaceResizeChoreographer = {
   dispose(): void;
@@ -61,10 +156,10 @@ export type ConfirmSurfaceResizeChoreographerOptions = {
 };
 
 type ActiveResize = {
-  readonly driver: LitTreeResizeDriver;
-  readonly open: boolean;
-  /** Host height with the node closed; the body height is the room above it. */
-  readonly closedHostPx: number;
+  readonly driver: LitSurfaceResizeDriver;
+  /** Host height with the announcing element still at its pre-change height. */
+  readonly originHostPx: number;
+  /** Signed change the host was pinned to make. */
   readonly deltaCssPx: number;
   lastViewportPx: number;
   framesSinceChange: number;
@@ -100,20 +195,20 @@ function createHostHeightPin(element: HTMLElement): HostHeightPin | null {
   let sheet: CSSStyleSheet | null = null;
   const release = () => {
     element.classList.remove(CONFIRM_SURFACE_PINNED_CLASS);
-    document.documentElement.classList.remove(CONFIRM_SURFACE_PINNED_CLASS);
+    document.documentElement.classList.remove(CONFIRM_SURFACE_PINNED_ROOT_CLASS);
   };
   return {
     set(px) {
       try {
         if (!sheet) sheet = new CSSStyleSheet();
         // While pinned the document deliberately overflows its frame (the host
-        // is taller than the box on open, its content taller than the host on
-        // close). A classic scrollbar appearing for those frames would narrow
-        // the content, re-wrap text, and post a spurious measurement, so the
-        // document must not scroll until the pin comes off.
+        // is taller than the box while growing, its content taller than the
+        // host while shrinking). A classic scrollbar appearing for those frames
+        // would narrow the content, re-wrap text, and post a spurious
+        // measurement, so the document must not scroll until the pin comes off.
         sheet.replaceSync(
-          `${W3A_TX_CONFIRMER_ID}.${CONFIRM_SURFACE_PINNED_CLASS}{height:${Math.max(0, Math.round(px))}px}` +
-            `html.${CONFIRM_SURFACE_PINNED_CLASS}{overflow:hidden}`,
+          `.${CONFIRM_SURFACE_PINNED_CLASS}{height:${Math.max(0, Math.round(px))}px}` +
+            `.${CONFIRM_SURFACE_PINNED_ROOT_CLASS}{overflow:hidden}`,
         );
         if (!document.adoptedStyleSheets.includes(sheet)) {
           document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
@@ -122,7 +217,7 @@ function createHostHeightPin(element: HTMLElement): HostHeightPin | null {
         return false;
       }
       element.classList.add(CONFIRM_SURFACE_PINNED_CLASS);
-      document.documentElement.classList.add(CONFIRM_SURFACE_PINNED_CLASS);
+      document.documentElement.classList.add(CONFIRM_SURFACE_PINNED_ROOT_CLASS);
       return true;
     },
     release,
@@ -151,10 +246,10 @@ export function attachConfirmSurfaceResizeChoreographer(
     if (!current) return;
     active = null;
     if (current.frame !== null) cancelAnimationFrame(current.frame);
-    // Land the body on its target before the pin comes off, so the host's
+    // Land the content on its target before the pin comes off, so the host's
     // natural height equals the pinned one and the reporter sees no second
-    // change from this toggle.
-    current.driver.setHeightCssPx(current.open ? current.deltaCssPx : 0);
+    // change from this motion.
+    current.driver.setProgress(1);
     current.driver.finish();
     pin?.release();
   };
@@ -171,25 +266,22 @@ export function attachConfirmSurfaceResizeChoreographer(
     } else {
       current.framesSinceChange += 1;
     }
-    const bodyPx = clamp(viewportPx - current.closedHostPx, 0, current.deltaCssPx);
     // The pinned target is what the parent applies, rounded on both sides, so
     // the box reaches it exactly; a box the parent clamps short settles below.
-    const atTarget = current.open ? bodyPx >= current.deltaCssPx : bodyPx <= 0;
-    if (atTarget) {
+    const progress = clamp((viewportPx - current.originHostPx) / current.deltaCssPx, 0, 1);
+    if (progress >= 1) {
       current.framesAtTarget += 1;
       if (current.sawIntermediate || current.framesAtTarget >= LANDING_CONFIRM_FRAMES) {
         settle();
         return;
       }
-      // Hold the body where it is: this may be the destination blip.
+      // Hold the content where it is: this may be the destination blip.
       current.frame = requestAnimationFrame(step);
       return;
     }
     current.framesAtTarget = 0;
-    if (current.open ? bodyPx > 0 : bodyPx < current.deltaCssPx) {
-      current.sawIntermediate = true;
-    }
-    current.driver.setHeightCssPx(bodyPx);
+    if (progress > 0) current.sawIntermediate = true;
+    current.driver.setProgress(progress);
     const settledFrames = current.moved
       ? SETTLED_FRAMES_AFTER_MOTION
       : SETTLED_FRAMES_WITHOUT_MOTION;
@@ -200,17 +292,17 @@ export function attachConfirmSurfaceResizeChoreographer(
     current.frame = requestAnimationFrame(step);
   };
 
-  const onTreeResizeBegin = (event: CustomEvent<LitTreeResizeBeginDetail>): void => {
+  const onSurfaceResizeBegin = (event: CustomEvent<LitSurfaceResizeBeginDetail>): void => {
     const detail = event.detail;
     if (!pin || !detail || !isWalletIframeConfirmSurface(element)) return;
     const deltaCssPx = detail.deltaCssPx;
-    if (!Number.isFinite(deltaCssPx) || deltaCssPx <= 0) return;
-    // A second toggle mid-motion: land the first one, then measure afresh.
+    if (!Number.isFinite(deltaCssPx) || Math.abs(deltaCssPx) < MIN_ANNOUNCED_DELTA_CSS_PX) return;
+    // A second change mid-motion: land the first one, then measure afresh.
     settle();
     const viewportPx = readViewportHeightCssPx();
     const hostPx = element.getBoundingClientRect().height;
     // Only a box that hugs the host will follow a new measurement 1:1. A
-    // clamped or full-viewport box leaves the tree to its own transition,
+    // clamped or full-viewport box leaves the component to animate itself,
     // which cannot be clipped there.
     if (
       !(viewportPx > 0) ||
@@ -219,9 +311,11 @@ export function attachConfirmSurfaceResizeChoreographer(
     ) {
       return;
     }
-    const closedHostPx = Math.round(detail.open ? hostPx : hostPx - deltaCssPx);
-    if (closedHostPx < 0) return;
-    const targetHostPx = detail.open ? closedHostPx + deltaCssPx : closedHostPx;
+    // The announcing element is clamped at its pre-change height, so the host
+    // measured now IS the origin, and the target is one signed delta away.
+    const originHostPx = Math.round(hostPx);
+    const targetHostPx = originHostPx + deltaCssPx;
+    if (!(targetHostPx > 0)) return;
     if (!pin.set(targetHostPx)) return;
     const driver = detail.claim();
     if (!driver) {
@@ -230,8 +324,7 @@ export function attachConfirmSurfaceResizeChoreographer(
     }
     active = {
       driver,
-      open: detail.open,
-      closedHostPx,
+      originHostPx,
       deltaCssPx,
       lastViewportPx: viewportPx,
       framesSinceChange: 0,
@@ -243,7 +336,7 @@ export function attachConfirmSurfaceResizeChoreographer(
     active.frame = requestAnimationFrame(step);
   };
 
-  const removeListener = addLitTreeResizeBeginListener(element, onTreeResizeBegin);
+  const removeListener = addLitSurfaceResizeBeginListener(element, onSurfaceResizeBegin);
   return {
     dispose() {
       removeListener();

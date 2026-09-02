@@ -5,7 +5,7 @@ export const LitComponentEvents = {
   CANCEL: 'lit-cancel',
   COPY: 'lit-copy',
   TREE_TOGGLED: 'lit-tree-toggled',
-  TREE_RESIZE_BEGIN: 'lit-tree-resize-begin',
+  SURFACE_RESIZE_BEGIN: 'lit-surface-resize-begin',
   TX_REVIEW_TOGGLE_NODE: 'tx-review:toggle-node',
   TX_REVIEW_COPY: 'tx-review:copy',
   TX_REVIEW_OPEN_LINK: 'tx-review:open-link',
@@ -14,31 +14,36 @@ export const LitComponentEvents = {
 export type LitComponentEvent = (typeof LitComponentEvents)[keyof typeof LitComponentEvents];
 
 /**
- * Handed to whoever takes over the height motion of a tree node (see
- * {@link LitTreeResizeBeginDetail}). The tree keeps ownership of its DOM and
- * only lends out the one number it was about to animate.
+ * Handed to whoever takes over a height change (see
+ * {@link LitSurfaceResizeBeginDetail}). The announcing component keeps
+ * ownership of its DOM and only lends out the one number it was about to
+ * animate, as a ratio so the driver never needs to know the layout.
  */
-export type LitTreeResizeDriver = {
-  /** Set the collapsible body's height now, in CSS px, clamped to [0, deltaCssPx]. */
-  setHeightCssPx(px: number): void;
-  /** The body is at its final height: commit open/closed and emit TREE_TOGGLED. */
+export type LitSurfaceResizeDriver = {
+  /** 0 renders the pre-change height, 1 the post-change height. */
+  setProgress(progress: number): void;
+  /** The change is fully applied: release the clamp and commit the DOM. */
   finish(): void;
 };
 
 /**
- * Fired before a tree node animates open or closed. A host whose box is
+ * Fired before a component inside a confirmation changes its own height, with
+ * that component already clamped at its PRE-change height. A host whose box is
  * sized from outside (the wallet-iframe confirmer, whose iframe the parent
- * window resizes to hug it) can claim the motion so the box grows first and
- * the body fills it, instead of the body growing first and being clipped by
- * a box still catching up. Left unclaimed, the tree runs its own transition.
+ * window resizes to hug it) claims the motion so the box moves first and the
+ * content fills it, instead of the content moving first and being clipped by a
+ * box still catching up. Left unclaimed, the component animates itself.
+ *
+ * Components do not build this detail by hand: `announceSurfaceResize()` in
+ * `ui/confirm-surface-resize.ts` owns the claim, clamp, and safety rules.
  */
-export type LitTreeResizeBeginDetail = {
-  nodeId?: string;
-  open: boolean;
-  /** Full height of the body being revealed (open) or hidden (close), in CSS px. */
+export type LitSurfaceResizeBeginDetail = {
+  /** Diagnostics label: a tree node id, `file-content-mode`, `confirm-body`. */
+  reason?: string;
+  /** Signed change in the announcing element's height, in CSS px. */
   deltaCssPx: number;
   /** Take over the motion. Returns null once someone else already has. */
-  claim(): LitTreeResizeDriver | null;
+  claim(): LitSurfaceResizeDriver | null;
 };
 
 export interface LitComponentEventDetailMap {
@@ -46,7 +51,7 @@ export interface LitComponentEventDetailMap {
   [LitComponentEvents.CANCEL]: { reason?: string } | undefined;
   [LitComponentEvents.COPY]: { type: string; value: string };
   [LitComponentEvents.TREE_TOGGLED]: void;
-  [LitComponentEvents.TREE_RESIZE_BEGIN]: LitTreeResizeBeginDetail;
+  [LitComponentEvents.SURFACE_RESIZE_BEGIN]: LitSurfaceResizeBeginDetail;
   [LitComponentEvents.TX_REVIEW_TOGGLE_NODE]: { nodeId?: string; open?: boolean } | undefined;
   [LitComponentEvents.TX_REVIEW_COPY]: { value: string };
   [LitComponentEvents.TX_REVIEW_OPEN_LINK]: { href: string };
@@ -106,8 +111,10 @@ export const dispatchLitCopy = (target: EventTarget, detail: LitCopyDetail) =>
 export const dispatchLitTreeToggled = (target: EventTarget) =>
   dispatchLitEvent(target, LitComponentEvents.TREE_TOGGLED);
 
-export const dispatchLitTreeResizeBegin = (target: EventTarget, detail: LitTreeResizeBeginDetail) =>
-  dispatchLitEvent(target, LitComponentEvents.TREE_RESIZE_BEGIN, detail);
+export const dispatchLitSurfaceResizeBegin = (
+  target: EventTarget,
+  detail: LitSurfaceResizeBeginDetail,
+) => dispatchLitEvent(target, LitComponentEvents.SURFACE_RESIZE_BEGIN, detail);
 
 export const dispatchTxReviewToggleNode = (
   target: EventTarget,
@@ -120,11 +127,11 @@ export const dispatchTxReviewCopy = (target: EventTarget, detail: TxReviewCopyDe
 export const dispatchTxReviewOpenLink = (target: EventTarget, detail: TxReviewOpenLinkDetail) =>
   dispatchLitEvent(target, LitComponentEvents.TX_REVIEW_OPEN_LINK, detail);
 
-export const addLitTreeResizeBeginListener = (
+export const addLitSurfaceResizeBeginListener = (
   target: EventTarget,
-  listener: LitComponentEventListener<(typeof LitComponentEvents)['TREE_RESIZE_BEGIN']>,
+  listener: LitComponentEventListener<(typeof LitComponentEvents)['SURFACE_RESIZE_BEGIN']>,
   options?: boolean | AddEventListenerOptions,
-) => addLitEventListener(target, LitComponentEvents.TREE_RESIZE_BEGIN, listener, options);
+) => addLitEventListener(target, LitComponentEvents.SURFACE_RESIZE_BEGIN, listener, options);
 
 export const addLitCancelListener = (
   target: EventTarget,
