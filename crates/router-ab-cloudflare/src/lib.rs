@@ -76,6 +76,7 @@ pub use tenant_root_role_d1::*;
 #[cfg(any(feature = "workers-rs", test))]
 mod tenant_root_control_plane;
 mod tenant_root_cutover_lifecycle;
+mod tenant_root_managed_backup_r2;
 mod tenant_root_operational_provider;
 #[cfg(feature = "workers-rs")]
 pub use tenant_root_control_plane::{
@@ -95,6 +96,11 @@ pub use tenant_root_control_plane::{
 #[allow(dead_code)]
 mod tenant_root_role_runtime;
 pub use tenant_root_cutover_lifecycle::*;
+#[cfg(feature = "workers-rs")]
+use tenant_root_role_runtime::{
+    CloudflareDeriverTenantRootCreateRoleShareRequestV1,
+    CloudflareDeriverTenantRootCreateRoleShareResponseV1,
+};
 mod tenant_root_revision_manifest;
 pub use tenant_root_revision_manifest::*;
 mod router;
@@ -179,6 +185,7 @@ mod trace_context;
 #[cfg(feature = "workers-rs")]
 use paths::{
     cloudflare_deriver_peer_service_url,
+    cloudflare_deriver_tenant_root_create_role_share_service_url,
     cloudflare_router_ab_ecdsa_derivation_deriver_export_service_url,
     cloudflare_router_ab_ecdsa_derivation_deriver_refresh_service_url,
     cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_url,
@@ -13543,6 +13550,25 @@ async fn execute_cloudflare_deriver_peer_requests_v1(
         responses.push(execute_cloudflare_deriver_peer_service_call_v1(env, peer, request).await?);
     }
     Ok(responses)
+}
+
+/// Sends one tenant-root role-creation request to the peer Deriver over a
+/// Cloudflare Service Binding.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn execute_cloudflare_deriver_tenant_root_create_role_share_service_call_v1(
+    env: &worker::Env,
+    peer: &CloudflarePeerBindingV1,
+    request: &CloudflareDeriverTenantRootCreateRoleShareRequestV1,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootCreateRoleShareResponseV1> {
+    peer.validate()?;
+    post_service_json(
+        env,
+        &peer.binding_name,
+        cloudflare_deriver_tenant_root_create_role_share_service_url(peer)?,
+        "tenant-root role creation peer request",
+        request,
+    )
+    .await
 }
 
 /// Parses role-specific Worker bindings from an Env reader.

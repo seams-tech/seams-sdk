@@ -13,6 +13,10 @@ database_name = "router-ab-deriver-b-private"
 database_id = "__PRODUCTION_MAINNET_DERIVER_B_PRIVATE_D1_ID__"
 migrations_dir = "migrations/deriver-b"
 
+[[r2_buckets]]
+binding = "TENANT_ROOT_MANAGED_BACKUP_BUCKET"
+bucket_name = "router-ab-deriver-b-tenant-root-managed-backup"
+
 # R120: read authoritative tenant-root creation state directly from the
 # Router-owned Durable Object. The class, namespace, migrations and storage
 # stay owned by the Router manifest; this is an external binding, and the
@@ -48,6 +52,10 @@ database_name = "router-ab-deriver-b-staging-private"
 database_id = "__STAGING_TESTNET_DERIVER_B_PRIVATE_D1_ID__"
 migrations_dir = "migrations/deriver-b"
 
+[[env.staging.r2_buckets]]
+binding = "TENANT_ROOT_MANAGED_BACKUP_BUCKET"
+bucket_name = "router-ab-deriver-b-staging-tenant-root-managed-backup"
+
 [[env.staging.durable_objects.bindings]]
 name = "ROUTER_TENANT_ROOT_CREATION_DO"
 class_name = "RouterAbTenantRootCreationDurableObject"
@@ -81,6 +89,10 @@ database_name = "router-ab-deriver-b-testnet-private"
 # deploy-backend.mjs replaces this lane placeholder before remote migration and deployment.
 database_id = "__PRODUCTION_TESTNET_DERIVER_B_PRIVATE_D1_ID__"
 migrations_dir = "migrations/deriver-b"
+
+[[env.production-testnet.r2_buckets]]
+binding = "TENANT_ROOT_MANAGED_BACKUP_BUCKET"
+bucket_name = "router-ab-deriver-b-testnet-tenant-root-managed-backup"
 
 [[env.production-testnet.durable_objects.bindings]]
 name = "ROUTER_TENANT_ROOT_CREATION_DO"

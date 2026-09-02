@@ -11,6 +11,7 @@ const repoRoot = resolve(packageRoot, '../..');
 const internalAuthHeader = 'x-router-ab-internal-service-auth';
 const internalAuthSecret = 'private-d1-integration-auth';
 const roleD1Binding = 'DERIVER_ROLE_PRIVATE_DB';
+const managedBackupR2Binding = 'TENANT_ROOT_MANAGED_BACKUP_BUCKET';
 const signingWorkerD1Binding = 'SIGNING_WORKER_PRIVATE_DB';
 const deriverAMigrationsPath = join(packageRoot, 'migrations/deriver-a');
 const deriverBMigrationsPath = join(packageRoot, 'migrations/deriver-b');
@@ -55,6 +56,7 @@ function deriverAWorker(fixture) {
       ROUTER_AB_TENANT_ROOT_ROLE_D1_INTEGRATION: 'enabled',
     }),
     d1Databases: { [roleD1Binding]: 'deriver-a-private-d1' },
+    r2Buckets: { [managedBackupR2Binding]: 'deriver-a-managed-backup' },
     serviceBindings: { DERIVER_B: 'deriver-b' },
   };
 }
@@ -66,6 +68,7 @@ function deriverBWorker(fixture) {
       ROUTER_AB_TENANT_ROOT_ROLE_D1_INTEGRATION: 'enabled',
     }),
     d1Databases: { [roleD1Binding]: 'deriver-b-private-d1' },
+    r2Buckets: { [managedBackupR2Binding]: 'deriver-b-managed-backup' },
     serviceBindings: { DERIVER_A: 'deriver-a' },
   };
 }
@@ -248,6 +251,7 @@ async function testTenantRootRoleSchema(database, expectedRole) {
       'reserved_at_ms',
       'executed_at_ms',
       'terminal_at_ms',
+      'admission_digest_hex',
     ],
     'role-private command replay D1 must expose only public binding and receipt fields',
   );
@@ -400,7 +404,7 @@ async function runTenantRootInitialCreation(worker, expectedRole) {
   assert.equal(receipt.role, expectedRole, 'creation probe ran as the wrong role');
   assert.equal(receipt.activeEpoch, 1, 'initial creation must persist epoch 1');
   assert.equal(receipt.retiredEpoch, 0, 'initial creation retires nothing');
-  assert.equal(receipt.cleanupEpoch, 0, 'initial creation cleans nothing');
+  assert.equal(receipt.cleanupEpoch, 2, 'authorized cleanup must remove the exact pending epoch');
   assert.match(
     receipt.commandReceiptDigestHex,
     /^[0-9a-f]{64}$/u,
@@ -421,26 +425,42 @@ async function testTenantRootRoleStoreAdapter(topology, databases) {
     'each role must terminalize its own distinct receipt',
   );
 
+  const backupBucketA = await topology.getR2Bucket(managedBackupR2Binding, 'deriver-a');
+  const backupBucketB = await topology.getR2Bucket(managedBackupR2Binding, 'deriver-b');
+  const [backupsA, backupsB] = await Promise.all([backupBucketA.list(), backupBucketB.list()]);
+  assert.equal(backupsA.objects.length, 1, 'Deriver A must persist one managed backup');
+  assert.equal(backupsB.objects.length, 1, 'Deriver B must persist one managed backup');
+  assert.match(
+    backupsA.objects[0].key,
+    /^tenant-root-managed-backup\/v1\/deriver-a\//u,
+    'Deriver A must write only under its role-private prefix',
+  );
+  assert.match(
+    backupsB.objects[0].key,
+    /^tenant-root-managed-backup\/v1\/deriver-b\//u,
+    'Deriver B must write only under its role-private prefix',
+  );
+
   await assertTenantRootRoleLifecyclePendingActivation(deriverA, 'deriver_a');
   await assertTenantRootRoleLifecyclePendingActivation(deriverB, 'deriver_b');
 
-  const activeA = await databases.deriverA
+  const pendingA = await databases.deriverA
     .prepare(
       `SELECT tenant_identity_digest_hex, custody_lineage_b64u, ciphertext_json
-       FROM tenant_root_role_shares WHERE role = 'deriver_a' AND lifecycle = 'active'`,
+       FROM tenant_root_role_shares WHERE role = 'deriver_a' AND lifecycle = 'pending'`,
     )
     .first();
-  const activeB = await databases.deriverB
+  const pendingB = await databases.deriverB
     .prepare(
       `SELECT tenant_identity_digest_hex, custody_lineage_b64u, ciphertext_json
-       FROM tenant_root_role_shares WHERE role = 'deriver_b' AND lifecycle = 'active'`,
+       FROM tenant_root_role_shares WHERE role = 'deriver_b' AND lifecycle = 'pending'`,
     )
     .first();
-  assert.equal(activeA.tenant_identity_digest_hex, activeB.tenant_identity_digest_hex);
-  assert.equal(activeA.custody_lineage_b64u, activeB.custody_lineage_b64u);
+  assert.equal(pendingA.tenant_identity_digest_hex, pendingB.tenant_identity_digest_hex);
+  assert.equal(pendingA.custody_lineage_b64u, pendingB.custody_lineage_b64u);
   assert.notEqual(
-    activeA.ciphertext_json,
-    activeB.ciphertext_json,
+    pendingA.ciphertext_json,
+    pendingB.ciphertext_json,
     'Deriver A and B must independently encrypt their shares for the same tenant root',
   );
 }

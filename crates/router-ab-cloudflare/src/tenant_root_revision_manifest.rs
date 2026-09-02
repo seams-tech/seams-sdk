@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 
 const REVISION_MANIFEST_DOMAIN_V1: &[u8] = b"seams/r120/revision-manifest/v1";
-const ROLE_PRIVATE_MIGRATION_HEAD_V1: &str = "0003_tenant_root_command_replays";
+const ROLE_PRIVATE_MIGRATION_HEAD_V1: &str = "0004_tenant_root_creation_admission";
 const MAX_TEXT_BYTES: usize = 256;
 
 /// Public digest of one canonical R120 revision manifest.

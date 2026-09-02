@@ -80,7 +80,7 @@ fn participant(
         TenantRootRevisionParticipantRoleV1::DeriverA
         | TenantRootRevisionParticipantRoleV1::DeriverB => {
             TenantRootParticipantStorageRevisionV1::RolePrivateD1 {
-                migration_head: "0003_tenant_root_command_replays".to_owned(),
+                migration_head: "0004_tenant_root_creation_admission".to_owned(),
             }
         }
         TenantRootRevisionParticipantRoleV1::WalletServer

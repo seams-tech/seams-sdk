@@ -1,4 +1,8 @@
 use super::*;
+use crate::tenant_root_role_runtime::CloudflareDeriverTenantRootCreateRoleShareRequestV1;
+use crate::{
+    CloudflarePeerBindingV1, CLOUDFLARE_DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_PATH,
+};
 
 #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
 pub(super) async fn handle_strict_deriver_a_fetch_v1(
@@ -146,6 +150,15 @@ impl StrictDeriverRuntimeV1 {
         }
     }
 
+    fn tenant_root_peer(&self) -> &CloudflarePeerBindingV1 {
+        match self {
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
+            Self::DeriverA(runtime) => runtime.deriver_b_peer(),
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
+            Self::DeriverB(runtime) => runtime.deriver_a_peer(),
+        }
+    }
+
     async fn preload_host(
         &self,
         env: &Env,
@@ -165,12 +178,13 @@ impl StrictDeriverRuntimeV1 {
 
     fn route_error_message(&self) -> String {
         format!(
-            "{} strict Worker route must be served at {}, {}, {}, or {}",
+            "{} strict Worker route must be served at {}, {}, {}, {}, or {}",
             self.label(),
             self.bootstrap_private_path(),
             self.registration_private_path(),
             self.export_private_path(),
-            self.refresh_private_path()
+            self.refresh_private_path(),
+            CLOUDFLARE_DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_PATH,
         )
     }
 }
@@ -224,6 +238,31 @@ async fn handle_strict_deriver_fetch_v1(
                 format!("tenant-root role-store integration failed: {err}"),
                 500,
             ),
+        };
+    }
+
+    if path == CLOUDFLARE_DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_PATH {
+        let creation_request: CloudflareDeriverTenantRootCreateRoleShareRequestV1 =
+            match parse_strict_deriver_json_v1(
+                &mut request,
+                format!("Router A/B strict {label} tenant-root role creation"),
+            )
+            .await?
+            {
+                Ok(parsed) => parsed,
+                Err(response) => return Ok(response),
+            };
+        return match crate::tenant_root_role_runtime::handle_cloudflare_deriver_tenant_root_create_role_share_v1(
+            &env,
+            worker_role,
+            runtime.tenant_root_peer(),
+            creation_request,
+            now_unix_ms,
+        )
+        .await
+        {
+            Ok(response) => Response::from_json(&response),
+            Err(error) => cloudflare_protocol_error_response_v1(error),
         };
     }
 

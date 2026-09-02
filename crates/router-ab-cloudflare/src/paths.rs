@@ -241,6 +241,18 @@ const CLOUDFLARE_DERIVER_B_PEER_REQUEST_URL: &str = concat!(
     "/router-ab/deriver-b/peer"
 );
 #[cfg(feature = "workers-rs")]
+#[allow(dead_code)]
+const CLOUDFLARE_DERIVER_A_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-a.internal",
+    "/router-ab/internal/deriver/tenant-root/creation/v1/create-role-share"
+);
+#[cfg(feature = "workers-rs")]
+#[allow(dead_code)]
+const CLOUDFLARE_DERIVER_B_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-b.internal",
+    "/router-ab/internal/deriver/tenant-root/creation/v1/create-role-share"
+);
+#[cfg(feature = "workers-rs")]
 const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_URL: &str = concat!(
     "https://router-ab-signing-worker.internal",
     "/router-ab/signing-worker/ecdsa-derivation/activate"
@@ -368,6 +380,18 @@ pub(crate) fn cloudflare_deriver_peer_service_url(
         CLOUDFLARE_DERIVER_A_PEER_REQUEST_URL,
         CLOUDFLARE_DERIVER_B_PEER_REQUEST_URL,
         "direct A/B peer handler can send peer work only to signer peers",
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn cloudflare_deriver_tenant_root_create_role_share_service_url(
+    peer: &CloudflarePeerBindingV1,
+) -> RouterAbProtocolResult<&'static str> {
+    cloudflare_deriver_peer_url(
+        peer,
+        CLOUDFLARE_DERIVER_A_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_URL,
+        CLOUDFLARE_DERIVER_B_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_URL,
+        "tenant-root role creation can target only Deriver A or Deriver B",
     )
 }
 

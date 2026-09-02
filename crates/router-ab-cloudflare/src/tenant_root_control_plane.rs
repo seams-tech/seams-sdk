@@ -102,6 +102,7 @@ pub struct CloudflareTenantRootControlPlaneCreateTenantRootResponseV1 {
 pub(crate) struct TenantRootCreationProgressV1 {
     pub(crate) committed_roles: Vec<TwoPartyDeriverRole>,
     pub(crate) installation_checkpointed: bool,
+    pub(crate) cleanup_checkpointed: bool,
 }
 
 impl TenantRootCreationProgressV1 {
@@ -115,6 +116,7 @@ impl TenantRootCreationProgressV1 {
                 .map(|role: &CloudflareTenantRootCreationInstallationRoleV1| role.to_protocol())
                 .collect(),
             installation_checkpointed: response.installation_checkpointed,
+            cleanup_checkpointed: response.cleanup_checkpointed,
         }
     }
 }
@@ -160,6 +162,11 @@ pub(crate) fn issue_tenant_root_role_creation_command_v1(
     active_issuer_key_id: &str,
     issuer_seed: &Zeroizing<[u8; 32]>,
 ) -> RouterAbProtocolResult<IssuedTenantRootRoleCreationCommandV1> {
+    if issuance.progress.cleanup_checkpointed {
+        return Err(refused(
+            "tenant-root creation was abandoned and cleaned; no further role command may be issued",
+        ));
+    }
     if issuance.progress.installation_checkpointed {
         return Err(refused(
             "tenant-root creation is already checkpointed; no further role command may be issued",
@@ -366,8 +373,8 @@ pub use live::{
 mod live {
     use super::*;
     use crate::durable_object::tenant_root_creation::{
-        decode_canonical_base64url, execute_cloudflare_router_tenant_root_creation_journal_call_v1,
-        tenant_root_creation_object_name_v1, validate_creation_record,
+        decode_canonical_base64url, derive_tenant_root_creation_authority_object_v1,
+        execute_cloudflare_router_tenant_root_creation_journal_call_v1, validate_creation_record,
         CloudflareTenantRootCreationJournalOutcomeV1,
         CloudflareTenantRootCreationJournalReadRequestV1,
         CloudflareTenantRootCreationJournalRecordV1,
@@ -401,30 +408,7 @@ mod live {
         identity_digest: TenantRootIdentityDigestV1,
         custody_lineage: TenantRootCustodyLineageId,
     ) -> RouterAbProtocolResult<(TenantRootControlPlaneAuthorityIdV1, String)> {
-        let namespace = env
-            .durable_object(ROUTER_TENANT_ROOT_CREATION_DO_BINDING_V1)
-            .map_err(|error| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::MissingLocalBinding,
-                    format!("tenant-root creation Durable Object binding is unavailable: {error}"),
-                )
-            })?;
-        let object_name = tenant_root_creation_object_name_v1(identity_digest, custody_lineage);
-        let object_id = namespace
-            .id_from_name(&object_name)
-            .map_err(|error| {
-                local(format!(
-                    "tenant-root creation Durable Object id derivation failed: {error}"
-                ))
-            })?
-            .to_string();
-        let authority_id = TenantRootControlPlaneAuthorityIdV1::from_bytes(
-            crate::durable_object::tenant_root_creation::decode_lower_hex_32(
-                "tenant-root creation Durable Object id",
-                &object_id,
-            )?,
-        );
-        Ok((authority_id, object_name))
+        derive_tenant_root_creation_authority_object_v1(env, identity_digest, custody_lineage)
     }
 
     async fn read_creation_state(
@@ -793,6 +777,7 @@ mod tests {
         TenantRootCreationProgressV1 {
             committed_roles: Vec::new(),
             installation_checkpointed: false,
+            cleanup_checkpointed: false,
         }
     }
 
@@ -1234,9 +1219,28 @@ mod tests {
         let journal = validated_journal();
         let now = CEREMONY_ISSUED_AT_MS + 10_000;
 
+        let abandoned = TenantRootCreationProgressV1 {
+            committed_roles: vec![TwoPartyDeriverRole::DeriverB],
+            installation_checkpointed: true,
+            cleanup_checkpointed: true,
+        };
+        assert_eq!(
+            issue(
+                &journal,
+                &abandoned,
+                TwoPartyDeriverRole::DeriverA,
+                now,
+                &seed()
+            )
+            .expect_err("abandoned")
+            .code(),
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding
+        );
+
         let checkpointed = TenantRootCreationProgressV1 {
             committed_roles: Vec::new(),
             installation_checkpointed: true,
+            cleanup_checkpointed: false,
         };
         assert_eq!(
             issue(
@@ -1254,6 +1258,7 @@ mod tests {
         let a_committed = TenantRootCreationProgressV1 {
             committed_roles: vec![TwoPartyDeriverRole::DeriverA],
             installation_checkpointed: false,
+            cleanup_checkpointed: false,
         };
         assert!(issue(
             &journal,

@@ -25,8 +25,8 @@ use router_ab_core::{
     TenantRootSignedAcceptedPermanentLossAuthorizationV1, TenantRootSignedActivationReceiptV1,
     TwoPartyDeriverRole, VerifiedTenantRootCommandFailureReceiptV1,
     VerifiedTenantRootCommandSuccessReceiptV1, VerifiedTenantRootManagedBackupV1,
-    VerifiedTenantRootRoleCreationCommandV1, VerifiedTenantRootRoleRefreshCommandV1,
-    VerifiedTenantRootSignedActivationReceiptV1,
+    VerifiedTenantRootRoleCleanupCommandV1, VerifiedTenantRootRoleCreationCommandV1,
+    VerifiedTenantRootRoleRefreshCommandV1, VerifiedTenantRootSignedActivationReceiptV1,
     VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
     TENANT_ROOT_ACTIVATION_RECEIPT_MAX_BYTES_V1, TENANT_ROOT_COMMAND_TERMINAL_RECEIPT_MAX_BYTES_V1,
 };
@@ -37,6 +37,7 @@ use zeroize::Zeroize;
 
 use crate::{
     encoding::{decode_base64url_bytes_v1, encode_base64url_bytes_v1},
+    env::CloudflareTenantRootCreationRoleSignerV1,
     hpke::{
         parse_cloudflare_hpke_x25519_public_key_v1, CloudflareHpkeGetrandomRngV1,
         CloudflareHpkeKemV1, CloudflareHpkeSuiteV1,
@@ -113,13 +114,14 @@ const CLEANUP_PENDING_SQL: &str = "DELETE FROM tenant_root_role_shares \
     AND revision = ?5";
 const LOAD_COMMAND_REPLAY_SQL: &str = "SELECT replay_key_digest_hex, \
     tenant_identity_digest_hex, custody_lineage_b64u, session_id_hex, nonce_hex, role, \
-    command_digest_hex, status, receipt_b64u, receipt_digest_hex, reserved_at_ms, \
-    executed_at_ms, terminal_at_ms FROM tenant_root_command_replays WHERE replay_key_digest_hex = ?1 \
+    command_digest_hex, admission_digest_hex, status, receipt_b64u, \
+    receipt_digest_hex, reserved_at_ms, executed_at_ms, terminal_at_ms \
+    FROM tenant_root_command_replays WHERE replay_key_digest_hex = ?1 \
     AND role = ?2";
 const INSERT_COMMAND_RESERVATION_SQL: &str = "INSERT INTO tenant_root_command_replays \
     (replay_key_digest_hex, tenant_identity_digest_hex, custody_lineage_b64u, \
-    session_id_hex, nonce_hex, role, command_digest_hex, status, reserved_at_ms) \
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'reserved', ?8) \
+    session_id_hex, nonce_hex, role, command_digest_hex, admission_digest_hex, \
+    status, reserved_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'reserved', ?9) \
     ON CONFLICT(replay_key_digest_hex) DO NOTHING";
 const MARK_COMMAND_EXECUTED_SQL: &str = "UPDATE tenant_root_command_replays SET \
     status = 'executed', executed_at_ms = ?9 \
@@ -1647,6 +1649,7 @@ struct TenantRootCommandReplayD1RowV1 {
     nonce_hex: String,
     role: String,
     command_digest_hex: String,
+    admission_digest_hex: Option<String>,
     status: String,
     receipt_b64u: Option<String>,
     receipt_digest_hex: Option<String>,
@@ -1657,9 +1660,24 @@ struct TenantRootCommandReplayD1RowV1 {
 
 struct StoredTenantRootCommandReplayV1 {
     record: TenantRootCommandReplayRecordV1,
+    admission_digest: Option<TenantRootProtocolDigestV1>,
     receipt_bytes: Option<Vec<u8>>,
     reserved_at_ms: u64,
     executed_at_ms: Option<u64>,
+}
+
+#[derive(Clone, Copy)]
+enum TenantRootCommandAdmissionV1 {
+    InitialCreation(TenantRootProtocolDigestV1),
+    AuthorizedCleanup(TenantRootProtocolDigestV1),
+}
+
+impl TenantRootCommandAdmissionV1 {
+    const fn digest(self) -> TenantRootProtocolDigestV1 {
+        match self {
+            Self::InitialCreation(digest) | Self::AuthorizedCleanup(digest) => digest,
+        }
+    }
 }
 
 /// Durable role-local decision for one exact tenant-root command retry.
@@ -2101,6 +2119,32 @@ pub(crate) enum CloudflareTenantRootInitialCreationDecisionV1 {
     ReplayFailed { failure_receipt_bytes: Vec<u8> },
 }
 
+/// Read-only admission decision before a creation attempt draws a role share.
+///
+/// A completed retry returns its exact public receipt here. Reserved or
+/// executed retries remain in progress because their random scalar cannot be
+/// regenerated after the original request ends.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CloudflareTenantRootInitialCreationPreflightV1 {
+    Fresh,
+    InProgress,
+    ReplayCompleted { receipt_bytes: Vec<u8> },
+    ReplayFailed { failure_receipt_bytes: Vec<u8> },
+}
+
+/// Result of one role-local initial-creation persistence attempt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CloudflareTenantRootInitialCreationPersistenceOutcomeV1 {
+    /// This call persisted the successful terminal receipt.
+    Committed { receipt_bytes: Vec<u8> },
+    /// A reservation or execution checkpoint already owns this command.
+    InProgress,
+    /// An identical command already committed the exact successful receipt.
+    ReplayCompleted { receipt_bytes: Vec<u8> },
+    /// An identical command already committed the exact failure receipt.
+    ReplayFailed { failure_receipt_bytes: Vec<u8> },
+}
+
 /// Executable initial-activation command issued by the role's control plane.
 #[derive(Debug, PartialEq, Eq)]
 pub struct CloudflareTenantRootActivateInitialPendingCommandV1 {
@@ -2133,6 +2177,17 @@ pub struct CloudflareTenantRootCleanupPendingCommandV1 {
     reservation: ReservedTenantRootCommandV1,
     pending: CloudflareStoredTenantRootRoleShareV1,
     expected_revision: i64,
+    operation_payload_digest: TenantRootProtocolDigestV1,
+}
+
+pub(crate) struct CloudflareTenantRootAuthorizedCleanupPendingCommandV1 {
+    command: CloudflareTenantRootCleanupPendingCommandV1,
+    authorization: VerifiedTenantRootRoleCleanupCommandV1,
+}
+
+pub(crate) struct CloudflareTenantRootAuthorizedCleanupExecutedCommandV1 {
+    executed: ExecutedTenantRootCommandV1,
+    authorization: VerifiedTenantRootRoleCleanupCommandV1,
 }
 
 /// Durable decision for one insert-pending command reservation.
@@ -2233,6 +2288,26 @@ pub enum CloudflareTenantRootCleanupPendingDecisionV1 {
     ReplayCompleted { receipt_bytes: Vec<u8> },
     /// Return the exact prior failure receipt bytes.
     ReplayFailed { failure_receipt_bytes: Vec<u8> },
+}
+
+#[allow(dead_code)]
+pub(crate) enum CloudflareTenantRootAuthorizedCleanupDecisionV1 {
+    Execute {
+        command: CloudflareTenantRootAuthorizedCleanupPendingCommandV1,
+    },
+    InProgress,
+    ResumeExecution {
+        command: CloudflareTenantRootAuthorizedCleanupPendingCommandV1,
+    },
+    ResumeCompletion {
+        executed: CloudflareTenantRootAuthorizedCleanupExecutedCommandV1,
+    },
+    ReplayCompleted {
+        receipt_bytes: Vec<u8>,
+    },
+    ReplayFailed {
+        failure_receipt_bytes: Vec<u8>,
+    },
 }
 
 /// Result of persisting one terminal tenant-root command receipt.
@@ -2472,6 +2547,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             record,
             reserved_at_ms,
             operation_payload_digest,
+            None,
         )
         .await
     }
@@ -2482,6 +2558,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         record: CloudflareTenantRootRoleShareRecordV1,
         reserved_at_ms: u64,
         operation_payload_digest: TenantRootProtocolDigestV1,
+        creation_admission_digest: Option<TenantRootProtocolDigestV1>,
     ) -> worker::Result<CloudflareTenantRootInsertPendingDecisionV1> {
         record.validate()?;
         self.cipher.require_role(record.role)?;
@@ -2502,7 +2579,12 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         )?;
         let operation = TenantRootCommandOperationV1::insert_pending(operation_payload_digest);
         match self
-            .reserve_scoped_command(scope, operation, reserved_at_ms)
+            .reserve_scoped_command_with_admission_digest(
+                scope,
+                operation,
+                reserved_at_ms,
+                creation_admission_digest.map(TenantRootCommandAdmissionV1::InitialCreation),
+            )
             .await?
         {
             CloudflareTenantRootCommandReplayDecisionV1::Execute { reservation } => {
@@ -2582,6 +2664,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                 record,
                 reserved_at_ms,
                 operation_payload_digest,
+                None,
             )
             .await?
         {
@@ -2638,6 +2721,129 @@ impl CloudflareTenantRootRoleShareStoreV1 {
     /// The generic replay reservation remains below this creation-only boundary;
     /// this method is the only initial-creation entry point and carries evidence
     /// into every executable branch.
+    pub(crate) async fn preflight_initial_creation(
+        &self,
+        command: &VerifiedTenantRootRoleCreationCommandV1,
+        now_ms: u64,
+    ) -> worker::Result<CloudflareTenantRootInitialCreationPreflightV1> {
+        let scope = command.scope();
+        self.require_command_role(scope.key())?;
+        let Some(stored) = self.load_command_replay(scope.key()).await? else {
+            command
+                .require_fresh(now_ms)
+                .map_err(|error| store_error(error.message()))?;
+            return Ok(CloudflareTenantRootInitialCreationPreflightV1::Fresh);
+        };
+        match self.reconcile_initial_creation_retry(&stored, *scope.key(), command.digest())? {
+            CloudflareTenantRootCommandReplayDecisionV1::InProgress
+            | CloudflareTenantRootCommandReplayDecisionV1::ResumeExecution { .. }
+            | CloudflareTenantRootCommandReplayDecisionV1::ResumeCompletion { .. } => {
+                Ok(CloudflareTenantRootInitialCreationPreflightV1::InProgress)
+            }
+            CloudflareTenantRootCommandReplayDecisionV1::ReplayCompleted { receipt_bytes } => Ok(
+                CloudflareTenantRootInitialCreationPreflightV1::ReplayCompleted { receipt_bytes },
+            ),
+            CloudflareTenantRootCommandReplayDecisionV1::ReplayFailed {
+                failure_receipt_bytes,
+            } => Ok(
+                CloudflareTenantRootInitialCreationPreflightV1::ReplayFailed {
+                    failure_receipt_bytes,
+                },
+            ),
+            CloudflareTenantRootCommandReplayDecisionV1::Execute { .. } => Err(store_error(
+                "durable initial creation replay returned a fresh execution",
+            )),
+        }
+    }
+
+    /// Persists one role's initial tenant-root share through its complete
+    /// reserve, execution-checkpoint, and successful terminal-receipt path.
+    pub(crate) async fn persist_initial_creation(
+        &self,
+        creation: CloudflareTenantRootInitialCreationInputV1,
+        role_signer: &CloudflareTenantRootCreationRoleSignerV1,
+        reserved_at_ms: u64,
+        executed_at_ms: u64,
+        terminal_at_ms: u64,
+    ) -> worker::Result<CloudflareTenantRootInitialCreationPersistenceOutcomeV1> {
+        validate_initial_creation_role_signer(&creation, role_signer)?;
+        match self
+            .preflight_initial_creation(&creation.command, reserved_at_ms)
+            .await?
+        {
+            CloudflareTenantRootInitialCreationPreflightV1::Fresh => {}
+            CloudflareTenantRootInitialCreationPreflightV1::InProgress => {
+                return Ok(CloudflareTenantRootInitialCreationPersistenceOutcomeV1::InProgress);
+            }
+            CloudflareTenantRootInitialCreationPreflightV1::ReplayCompleted { receipt_bytes } => {
+                return Ok(
+                    CloudflareTenantRootInitialCreationPersistenceOutcomeV1::ReplayCompleted {
+                        receipt_bytes,
+                    },
+                );
+            }
+            CloudflareTenantRootInitialCreationPreflightV1::ReplayFailed {
+                failure_receipt_bytes,
+            } => {
+                return Ok(
+                    CloudflareTenantRootInitialCreationPersistenceOutcomeV1::ReplayFailed {
+                        failure_receipt_bytes,
+                    },
+                );
+            }
+        }
+
+        let reservation = self
+            .reserve_initial_creation_pending(creation, reserved_at_ms)
+            .await?;
+        let pending = match reservation {
+            CloudflareTenantRootInitialCreationDecisionV1::Execute { command } => command,
+            CloudflareTenantRootInitialCreationDecisionV1::InProgress
+            | CloudflareTenantRootInitialCreationDecisionV1::ResumeExecution { .. }
+            | CloudflareTenantRootInitialCreationDecisionV1::ResumeCompletion { .. } => {
+                return Ok(CloudflareTenantRootInitialCreationPersistenceOutcomeV1::InProgress);
+            }
+            CloudflareTenantRootInitialCreationDecisionV1::ReplayCompleted { receipt_bytes } => {
+                return Ok(
+                    CloudflareTenantRootInitialCreationPersistenceOutcomeV1::ReplayCompleted {
+                        receipt_bytes,
+                    },
+                );
+            }
+            CloudflareTenantRootInitialCreationDecisionV1::ReplayFailed {
+                failure_receipt_bytes,
+            } => {
+                return Ok(
+                    CloudflareTenantRootInitialCreationPersistenceOutcomeV1::ReplayFailed {
+                        failure_receipt_bytes,
+                    },
+                );
+            }
+        };
+        let (_, executed) = self
+            .insert_initial_creation_pending(pending, executed_at_ms)
+            .await?;
+        let receipt = role_signer
+            .sign_verified_success_terminal_receipt(
+                executed.executed(),
+                executed.evidence_bytes(),
+                terminal_at_ms,
+            )
+            .map_err(|error| store_error(error.message()))?;
+        match self.complete_initial_creation(executed, receipt).await? {
+            CloudflareTenantRootCommandTerminalCommitV1::Committed { receipt_bytes } => Ok(
+                CloudflareTenantRootInitialCreationPersistenceOutcomeV1::Committed {
+                    receipt_bytes,
+                },
+            ),
+            CloudflareTenantRootCommandTerminalCommitV1::Replay { receipt_bytes } => Ok(
+                CloudflareTenantRootInitialCreationPersistenceOutcomeV1::ReplayCompleted {
+                    receipt_bytes,
+                },
+            ),
+        }
+    }
+
     #[allow(dead_code)]
     pub(crate) async fn reserve_initial_creation_pending(
         &self,
@@ -2651,6 +2857,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         } = creation;
         validate_initial_creation_binding(&command, &evidence, &record)?;
         let scope = initial_creation_scope_without_freshness(&command, &record)?;
+        let creation_admission_digest = command.digest();
         // Freshness applies only before the first durable reservation. An exact
         // retry must still reconcile after the issuer command has expired.
         if self.load_command_replay(scope.key()).await?.is_none() {
@@ -2658,8 +2865,15 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                 .require_fresh(reserved_at_ms)
                 .map_err(|error| store_error(error.message()))?;
         }
+        let operation_payload_digest = insert_pending_payload_digest(&record, 1)?;
         match self
-            .reserve_insert_pending(scope, record, reserved_at_ms)
+            .reserve_insert_pending_with_payload_digest(
+                scope,
+                record,
+                reserved_at_ms,
+                operation_payload_digest,
+                Some(creation_admission_digest),
+            )
             .await?
         {
             CloudflareTenantRootInsertPendingDecisionV1::Execute { command } => {
@@ -2888,6 +3102,32 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         self.open_row(row)
     }
 
+    async fn load_epoch_by_identity_digest(
+        &self,
+        identity_digest: TenantRootIdentityDigestV1,
+        custody_lineage: TenantRootCustodyLineageId,
+        epoch: TenantRootShareEpoch,
+    ) -> worker::Result<Option<CloudflareStoredTenantRootRoleShareV1>> {
+        let identity_digest_hex = encode_hex(identity_digest.as_bytes());
+        let custody_lineage_b64u = custody_lineage.to_base64url();
+        let epoch = epoch_i64(epoch)?.to_string();
+        let row = self
+            .session
+            .prepare(LOAD_EPOCH_SQL)
+            .bind_refs(
+                [
+                    D1Type::Text(identity_digest_hex.as_str()),
+                    D1Type::Text(custody_lineage_b64u.as_str()),
+                    D1Type::Text(epoch.as_str()),
+                    D1Type::Text(self.cipher.role.as_str()),
+                ]
+                .iter(),
+            )?
+            .first::<TenantRootRoleD1RowV1>(None)
+            .await?;
+        self.open_row(row)
+    }
+
     /// Reserves one exact initial-activation command.
     async fn reserve_activate_initial_pending(
         &self,
@@ -3078,41 +3318,15 @@ impl CloudflareTenantRootRoleShareStoreV1 {
     /// share it created.
     pub(crate) async fn reserve_authorized_cleanup(
         &self,
-        authorization: &router_ab_core::VerifiedTenantRootRoleCleanupCommandV1,
-        pending: CloudflareStoredTenantRootRoleShareV1,
+        authorization: VerifiedTenantRootRoleCleanupCommandV1,
         reserved_at_ms: u64,
-    ) -> worker::Result<CloudflareTenantRootCleanupPendingDecisionV1> {
-        validate_pending_stored_record(&self.cipher, &pending)?;
-        // The authorization must name the row this store actually holds, at the
-        // exact revision it holds it. Anything else is a different row.
-        let record_role = tenant_root_protocol_role_of(pending.record.role);
-        if authorization.role() != record_role {
+    ) -> worker::Result<CloudflareTenantRootAuthorizedCleanupDecisionV1> {
+        let record_role = authorization.role();
+        if record_role.as_str() != self.cipher.role.as_str() {
             return Err(store_error(
                 "tenant-root cleanup authorization names another role",
             ));
         }
-        if authorization.identity_digest()
-            != pending
-                .record
-                .identity()
-                .digest()
-                .map_err(|error| store_error(error.message()))?
-            || authorization.custody_lineage() != pending.record.custody_lineage
-            || authorization.epoch() != pending.record.epoch
-        {
-            return Err(store_error(
-                "tenant-root cleanup authorization does not name this pending row",
-            ));
-        }
-        if authorization.expected_row_revision() != pending.revision {
-            return Err(store_error(
-                "tenant-root cleanup authorization was issued for a different row revision",
-            ));
-        }
-        authorization
-            .require_fresh(reserved_at_ms)
-            .map_err(|error| store_error(error.message()))?;
-
         let key = TenantRootCommandReplayKeyV1::new(
             authorization.identity_digest(),
             authorization.custody_lineage(),
@@ -3133,8 +3347,119 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             TENANT_ROOT_AUTHORIZED_CLEANUP_CONTROL_PLANE_REVISION_V1,
         )
         .map_err(|error| store_error(error.message()))?;
-        self.reserve_cleanup_pending(scope, pending, reserved_at_ms)
-            .await
+        let authorization_digest = authorization
+            .digest()
+            .map_err(|error| store_error(error.message()))?;
+        let replay = self.load_command_replay(scope.key()).await?;
+        if let Some(stored) = replay.as_ref() {
+            match &stored.record {
+                TenantRootCommandReplayRecordV1::Executed(_)
+                | TenantRootCommandReplayRecordV1::Completed(_)
+                | TenantRootCommandReplayRecordV1::Failed(_) => {
+                    return match self.reconcile_authorized_cleanup_retry(
+                        stored,
+                        key,
+                        authorization_digest,
+                        None,
+                    )? {
+                        CloudflareTenantRootCommandReplayDecisionV1::ResumeCompletion {
+                            executed,
+                        } => Ok(
+                            CloudflareTenantRootAuthorizedCleanupDecisionV1::ResumeCompletion {
+                                executed: CloudflareTenantRootAuthorizedCleanupExecutedCommandV1 {
+                                    executed,
+                                    authorization,
+                                },
+                            },
+                        ),
+                        CloudflareTenantRootCommandReplayDecisionV1::ReplayCompleted {
+                            receipt_bytes,
+                        } => Ok(
+                            CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayCompleted {
+                                receipt_bytes,
+                            },
+                        ),
+                        CloudflareTenantRootCommandReplayDecisionV1::ReplayFailed {
+                            failure_receipt_bytes,
+                        } => Ok(
+                            CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayFailed {
+                                failure_receipt_bytes,
+                            },
+                        ),
+                        _ => Err(store_error(
+                            "durable tenant-root cleanup replay returned an invalid decision",
+                        )),
+                    };
+                }
+                TenantRootCommandReplayRecordV1::Reserved(_) => {}
+            }
+        } else {
+            authorization
+                .require_fresh(reserved_at_ms)
+                .map_err(|error| store_error(error.message()))?;
+        }
+
+        let pending = self
+            .load_epoch_by_identity_digest(
+                authorization.identity_digest(),
+                authorization.custody_lineage(),
+                authorization.epoch(),
+            )
+            .await?
+            .ok_or_else(|| store_error("tenant-root cleanup pending row does not exist"))?;
+        validate_authorized_cleanup_pending(&self.cipher, &authorization, &pending)?;
+        let operation_payload_digest =
+            authorized_cleanup_pending_payload_digest(&authorization, &pending, pending.revision)?;
+        match self
+            .reserve_cleanup_pending_with_payload_digest(
+                scope,
+                pending,
+                reserved_at_ms,
+                operation_payload_digest,
+                Some(TenantRootCommandAdmissionV1::AuthorizedCleanup(
+                    authorization_digest,
+                )),
+            )
+            .await?
+        {
+            CloudflareTenantRootCleanupPendingDecisionV1::Execute { command } => {
+                Ok(CloudflareTenantRootAuthorizedCleanupDecisionV1::Execute {
+                    command: CloudflareTenantRootAuthorizedCleanupPendingCommandV1 {
+                        command,
+                        authorization,
+                    },
+                })
+            }
+            CloudflareTenantRootCleanupPendingDecisionV1::InProgress => {
+                Ok(CloudflareTenantRootAuthorizedCleanupDecisionV1::InProgress)
+            }
+            CloudflareTenantRootCleanupPendingDecisionV1::ResumeExecution { command } => Ok(
+                CloudflareTenantRootAuthorizedCleanupDecisionV1::ResumeExecution {
+                    command: CloudflareTenantRootAuthorizedCleanupPendingCommandV1 {
+                        command,
+                        authorization,
+                    },
+                },
+            ),
+            CloudflareTenantRootCleanupPendingDecisionV1::ResumeCompletion { executed } => Ok(
+                CloudflareTenantRootAuthorizedCleanupDecisionV1::ResumeCompletion {
+                    executed: CloudflareTenantRootAuthorizedCleanupExecutedCommandV1 {
+                        executed,
+                        authorization,
+                    },
+                },
+            ),
+            CloudflareTenantRootCleanupPendingDecisionV1::ReplayCompleted { receipt_bytes } => Ok(
+                CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayCompleted { receipt_bytes },
+            ),
+            CloudflareTenantRootCleanupPendingDecisionV1::ReplayFailed {
+                failure_receipt_bytes,
+            } => Ok(
+                CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayFailed {
+                    failure_receipt_bytes,
+                },
+            ),
+        }
     }
 
     async fn reserve_cleanup_pending(
@@ -3142,6 +3467,25 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         scope: TenantRootCommandScopeV1,
         pending: CloudflareStoredTenantRootRoleShareV1,
         reserved_at_ms: u64,
+    ) -> worker::Result<CloudflareTenantRootCleanupPendingDecisionV1> {
+        let operation_payload_digest = cleanup_pending_payload_digest(&pending, pending.revision)?;
+        self.reserve_cleanup_pending_with_payload_digest(
+            scope,
+            pending,
+            reserved_at_ms,
+            operation_payload_digest,
+            None,
+        )
+        .await
+    }
+
+    async fn reserve_cleanup_pending_with_payload_digest(
+        &self,
+        scope: TenantRootCommandScopeV1,
+        pending: CloudflareStoredTenantRootRoleShareV1,
+        reserved_at_ms: u64,
+        operation_payload_digest: TenantRootProtocolDigestV1,
+        admission: Option<TenantRootCommandAdmissionV1>,
     ) -> worker::Result<CloudflareTenantRootCleanupPendingDecisionV1> {
         validate_pending_stored_record(&self.cipher, &pending)?;
         let expected_revision = pending.revision;
@@ -3151,11 +3495,14 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             expected_revision,
             "tenant-root pending cleanup",
         )?;
-        let operation = TenantRootCommandOperationV1::cleanup_pending(
-            cleanup_pending_payload_digest(&pending, expected_revision)?,
-        );
+        let operation = TenantRootCommandOperationV1::cleanup_pending(operation_payload_digest);
         match self
-            .reserve_scoped_command(scope, operation, reserved_at_ms)
+            .reserve_scoped_command_with_admission_digest(
+                scope,
+                operation,
+                reserved_at_ms,
+                admission,
+            )
             .await?
         {
             CloudflareTenantRootCommandReplayDecisionV1::Execute { reservation } => {
@@ -3165,6 +3512,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                         reservation,
                         pending,
                         expected_revision,
+                        operation_payload_digest,
                     },
                 })
             }
@@ -3178,6 +3526,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                         reservation,
                         pending,
                         expected_revision,
+                        operation_payload_digest,
                     },
                 },
             ),
@@ -3200,6 +3549,17 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         scope: TenantRootCommandScopeV1,
         operation: TenantRootCommandOperationV1,
         reserved_at_ms: u64,
+    ) -> worker::Result<CloudflareTenantRootCommandReplayDecisionV1> {
+        self.reserve_scoped_command_with_admission_digest(scope, operation, reserved_at_ms, None)
+            .await
+    }
+
+    async fn reserve_scoped_command_with_admission_digest(
+        &self,
+        scope: TenantRootCommandScopeV1,
+        operation: TenantRootCommandOperationV1,
+        reserved_at_ms: u64,
+        admission: Option<TenantRootCommandAdmissionV1>,
     ) -> worker::Result<CloudflareTenantRootCommandReplayDecisionV1> {
         // Reservation commits before an executable command leaves this adapter.
         // Atomic reservation-plus-lifecycle mutation needs a D1 transaction path.
@@ -3229,7 +3589,11 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         let session_id_hex = encode_hex(key.session_id().as_bytes());
         let nonce_hex = encode_hex(key.nonce().as_bytes());
         let command_digest_hex = encode_hex(command_digest.as_bytes());
+        let admission_digest_hex = admission.map(|value| encode_hex(value.digest().as_bytes()));
         let reserved_at_ms_text = timestamp_i64(reserved_at_ms)?.to_string();
+        let admission_digest_value = admission_digest_hex
+            .as_deref()
+            .map_or(D1Type::Null, D1Type::Text);
         let result = self
             .session
             .prepare(INSERT_COMMAND_RESERVATION_SQL)
@@ -3242,6 +3606,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                     D1Type::Text(nonce_hex.as_str()),
                     D1Type::Text(self.cipher.role.as_str()),
                     D1Type::Text(command_digest_hex.as_str()),
+                    admission_digest_value,
                     D1Type::Text(reserved_at_ms_text.as_str()),
                 ]
                 .iter(),
@@ -3259,7 +3624,19 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                             "tenant-root command reservation conflict disappeared before reconciliation",
                         )
                     })?;
-                self.reconcile_command_retry(&stored, key, command_digest)
+                match admission {
+                    Some(TenantRootCommandAdmissionV1::InitialCreation(admission_digest)) => {
+                        self.reconcile_initial_creation_retry(&stored, key, admission_digest)
+                    }
+                    Some(TenantRootCommandAdmissionV1::AuthorizedCleanup(admission_digest)) => self
+                        .reconcile_authorized_cleanup_retry(
+                            &stored,
+                            key,
+                            admission_digest,
+                            Some(command_digest),
+                        ),
+                    None => self.reconcile_command_retry(&stored, key, command_digest),
+                }
             }
             _ => Err(store_error(
                 "tenant-root command reservation returned an invalid change count",
@@ -3530,6 +3907,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             reservation,
             pending,
             expected_revision,
+            operation_payload_digest,
         } = command;
         validate_pending_stored_record(&self.cipher, &pending)?;
         if expected_revision != pending.revision {
@@ -3543,9 +3921,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             expected_revision,
             "tenant-root pending cleanup",
         )?;
-        let operation = TenantRootCommandOperationV1::cleanup_pending(
-            cleanup_pending_payload_digest(&pending, expected_revision)?,
-        );
+        let operation = TenantRootCommandOperationV1::cleanup_pending(operation_payload_digest);
         validate_reserved_command(
             &scope,
             &reservation,
@@ -3575,6 +3951,44 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             executed_at_ms,
         )
         .await
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn execute_authorized_cleanup(
+        &self,
+        command: CloudflareTenantRootAuthorizedCleanupPendingCommandV1,
+        executed_at_ms: u64,
+    ) -> worker::Result<CloudflareTenantRootAuthorizedCleanupExecutedCommandV1> {
+        let CloudflareTenantRootAuthorizedCleanupPendingCommandV1 {
+            command,
+            authorization,
+        } = command;
+        let executed = self.cleanup_pending(command, executed_at_ms).await?;
+        Ok(CloudflareTenantRootAuthorizedCleanupExecutedCommandV1 {
+            executed,
+            authorization,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn complete_authorized_cleanup(
+        &self,
+        executed: CloudflareTenantRootAuthorizedCleanupExecutedCommandV1,
+        receipt: VerifiedTenantRootCommandSuccessReceiptV1,
+    ) -> worker::Result<CloudflareTenantRootCommandTerminalCommitV1> {
+        let CloudflareTenantRootAuthorizedCleanupExecutedCommandV1 {
+            executed,
+            authorization,
+        } = executed;
+        let authorization_bytes = authorization
+            .canonical_bytes()
+            .map_err(|error| store_error(error.message()))?;
+        if receipt.payload_bytes() != authorization_bytes {
+            return Err(store_error(
+                "tenant-root cleanup receipt payload does not match its exact authorization",
+            ));
+        }
+        self.complete_command(executed, receipt).await
     }
 
     fn command_execution_checkpoint_statement(
@@ -3878,6 +4292,17 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             &row.command_digest_hex,
         )?)
         .map_err(|error| store_error(error.message()))?;
+        let admission_digest = row
+            .admission_digest_hex
+            .as_deref()
+            .map(|value| {
+                TenantRootProtocolDigestV1::from_bytes(decode_lower_hex_fixed::<32>(
+                    "tenant-root command admission digest",
+                    value,
+                )?)
+                .map_err(|error| store_error(error.message()))
+            })
+            .transpose()?;
         let reserved_at_ms = positive_u64_from_i64(
             "tenant-root command reservation timestamp",
             row.reserved_at_ms,
@@ -3981,6 +4406,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         };
         Ok(StoredTenantRootCommandReplayV1 {
             record,
+            admission_digest,
             receipt_bytes,
             reserved_at_ms,
             executed_at_ms,
@@ -4038,6 +4464,48 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                 })
             }
         }
+    }
+
+    fn reconcile_initial_creation_retry(
+        &self,
+        stored: &StoredTenantRootCommandReplayV1,
+        key: TenantRootCommandReplayKeyV1,
+        creation_admission_digest: TenantRootProtocolDigestV1,
+    ) -> worker::Result<CloudflareTenantRootCommandReplayDecisionV1> {
+        if stored.admission_digest != Some(creation_admission_digest) {
+            return Err(store_error(
+                "tenant-root creation session was reused with different issuer-authorized bytes",
+            ));
+        }
+        match self.reconcile_command_retry(stored, key, stored.record.command_digest())? {
+            CloudflareTenantRootCommandReplayDecisionV1::ResumeExecution { .. }
+            | CloudflareTenantRootCommandReplayDecisionV1::ResumeCompletion { .. } => {
+                Ok(CloudflareTenantRootCommandReplayDecisionV1::InProgress)
+            }
+            decision => Ok(decision),
+        }
+    }
+
+    fn reconcile_authorized_cleanup_retry(
+        &self,
+        stored: &StoredTenantRootCommandReplayV1,
+        key: TenantRootCommandReplayKeyV1,
+        authorization_digest: TenantRootProtocolDigestV1,
+        expected_command_digest: Option<TenantRootProtocolDigestV1>,
+    ) -> worker::Result<CloudflareTenantRootCommandReplayDecisionV1> {
+        if stored.admission_digest != Some(authorization_digest) {
+            return Err(store_error(
+                "tenant-root cleanup session was reused with different authorization bytes",
+            ));
+        }
+        if expected_command_digest
+            .is_some_and(|expected| stored.record.command_digest() != expected)
+        {
+            return Err(store_error(
+                "tenant-root cleanup session was reused after the pending row changed",
+            ));
+        }
+        self.reconcile_command_retry(stored, key, stored.record.command_digest())
     }
 
     fn require_command_role(&self, key: &TenantRootCommandReplayKeyV1) -> worker::Result<()> {
@@ -4576,10 +5044,74 @@ async fn run_cloudflare_tenant_root_role_d1_lifecycle_integration_v1(
 #[cfg(debug_assertions)]
 struct TenantRootCreationProbeCeremonyV1 {
     input: CloudflareTenantRootInitialCreationInputV1,
+    managed_backup: VerifiedTenantRootManagedBackupV1,
     own_package: Vec<u8>,
     evidence: Vec<u8>,
     context: router_ab_core::TenantRootCeremonyContextV1,
     authority_id: router_ab_core::TenantRootControlPlaneAuthorityIdV1,
+}
+
+#[cfg(debug_assertions)]
+struct TenantRootCreationProbeAuthorizationV1 {
+    own_package: Vec<u8>,
+    peer_package: Vec<u8>,
+    context: router_ab_core::TenantRootCeremonyContextV1,
+    authority_id: router_ab_core::TenantRootControlPlaneAuthorityIdV1,
+}
+
+#[cfg(debug_assertions)]
+fn tenant_root_creation_probe_authorization(
+    role: CloudflareTenantRootDeriverRoleV1,
+    session_seed: u8,
+) -> worker::Result<TenantRootCreationProbeAuthorizationV1> {
+    let protocol_role = tenant_root_creation_probe_protocol_role(role);
+    let identity = tenant_root_creation_probe_identity()?;
+    let context = tenant_root_creation_probe_context(session_seed)?;
+    let journal = router_ab_core::TenantRootCreationJournalV1::started(
+        identity,
+        context.custody_lineage(),
+        context.clone(),
+    )
+    .map_err(|error| store_error(error.message()))?;
+    let authority_id = router_ab_core::TenantRootControlPlaneAuthorityIdV1::from_bytes([0x56; 32]);
+    let package_for = |package_role: TwoPartyDeriverRole| -> worker::Result<Vec<u8>> {
+        let signed = tenant_root_creation_probe_signed_command(
+            package_role,
+            &journal,
+            &context,
+            authority_id,
+        )?;
+        router_ab_core::TenantRootRoleCreationCommandPackageV1::new(journal.clone(), signed)
+            .and_then(|package| package.canonical_bytes())
+            .map_err(|error| store_error(error.message()))
+    };
+    Ok(TenantRootCreationProbeAuthorizationV1 {
+        own_package: package_for(protocol_role)?,
+        peer_package: package_for(protocol_role.peer())?,
+        context,
+        authority_id,
+    })
+}
+
+#[cfg(debug_assertions)]
+fn tenant_root_creation_probe_verified_package(
+    authorization: &TenantRootCreationProbeAuthorizationV1,
+    role: CloudflareTenantRootDeriverRoleV1,
+) -> worker::Result<router_ab_core::VerifiedTenantRootRoleCreationCommandPackageV1> {
+    let protocol_role = tenant_root_creation_probe_protocol_role(role);
+    let signer = crate::env::cloudflare_tenant_root_creation_role_signer_for_probe_v1(
+        protocol_role,
+        tenant_root_role_d1_integration_role_signing_key_id(role),
+        tenant_root_role_d1_integration_role_signing_key(role),
+    );
+    crate::tenant_root_role_runtime::verify_tenant_root_role_creation_package_v1(
+        &authorization.own_package,
+        protocol_role,
+        authorization.authority_id,
+        &tenant_root_creation_probe_issuer_keys()?,
+        &signer,
+    )
+    .map_err(|error| store_error(error.message()))
 }
 
 /// Builds one complete ceremony through the production entry point.
@@ -4593,7 +5125,7 @@ struct TenantRootCreationProbeCeremonyV1 {
 fn tenant_root_creation_probe_ceremony(
     env: &Env,
     role: CloudflareTenantRootDeriverRoleV1,
-    session_seed: u8,
+    authorization: TenantRootCreationProbeAuthorizationV1,
     now_ms: u64,
 ) -> worker::Result<TenantRootCreationProbeCeremonyV1> {
     let protocol_role = tenant_root_creation_probe_protocol_role(role);
@@ -4603,33 +5135,20 @@ fn tenant_root_creation_probe_ceremony(
         CloudflareTenantRootDeriverRoleV1::DeriverB => CloudflareTenantRootDeriverRoleV1::DeriverA,
     };
 
-    let identity = tenant_root_creation_probe_identity()?;
-    let context = tenant_root_creation_probe_context(session_seed)?;
-    let journal = router_ab_core::TenantRootCreationJournalV1::started(
-        identity,
-        context.custody_lineage(),
-        context.clone(),
-    )
-    .map_err(|error| store_error(error.message()))?;
-    let authority_id = router_ab_core::TenantRootControlPlaneAuthorityIdV1::from_bytes([0x56; 32]);
-
-    let package_for = |protocol: TwoPartyDeriverRole| -> worker::Result<Vec<u8>> {
-        let signed =
-            tenant_root_creation_probe_signed_command(protocol, &journal, &context, authority_id)?;
-        router_ab_core::TenantRootRoleCreationCommandPackageV1::new(journal.clone(), signed)
-            .and_then(|package| package.canonical_bytes())
-            .map_err(|error| store_error(error.message()))
-    };
-    let own_package = package_for(protocol_role)?;
-    let peer_package = package_for(peer_protocol_role)?;
+    let TenantRootCreationProbeAuthorizationV1 {
+        own_package,
+        peer_package,
+        context,
+        authority_id,
+    } = authorization;
 
     let role_keys = tenant_root_creation_probe_role_keys()?;
     let trusted_issuer = tenant_root_creation_probe_issuer_keys()?;
-    let provider_config = tenant_root_creation_probe_provider_config()?;
     let worker_role = match role {
         CloudflareTenantRootDeriverRoleV1::DeriverA => crate::CloudflareWorkerRoleV1::DeriverA,
         CloudflareTenantRootDeriverRoleV1::DeriverB => crate::CloudflareWorkerRoleV1::DeriverB,
     };
+    let provider_config = tenant_root_creation_probe_provider_config(env, worker_role)?;
     let mut rng = crate::CloudflareSignerProofGetrandomRngV1;
 
     // Peer leg: commit only. Its share dies with this scope.
@@ -4652,7 +5171,6 @@ fn tenant_root_creation_probe_ceremony(
         &trusted_issuer,
         &role_keys,
         &peer_signer,
-        tenant_root_role_d1_integration_role_signing_key(peer_role_id).as_bytes(),
         &provider_config,
         &mut peer_online,
         &mut peer_backup,
@@ -4691,7 +5209,6 @@ fn tenant_root_creation_probe_ceremony(
         &trusted_issuer,
         &role_keys,
         &signer,
-        tenant_root_role_d1_integration_role_signing_key(role).as_bytes(),
         &provider_config,
         &mut online,
         &mut backup,
@@ -4703,9 +5220,11 @@ fn tenant_root_creation_probe_ceremony(
         crate::tenant_root_role_runtime::TenantRootRoleCreationProgressV1::Sealed {
             signed_installation_evidence,
             input,
+            managed_backup,
             ..
         } => Ok(TenantRootCreationProbeCeremonyV1 {
             input: *input,
+            managed_backup: *managed_backup,
             own_package,
             evidence: signed_installation_evidence,
             context,
@@ -4732,43 +5251,82 @@ async fn run_cloudflare_tenant_root_initial_creation_integration_v1(
     let reserved_at_ms = TENANT_ROOT_CREATION_PROBE_ISSUED_AT_MS_V1 + 4;
 
     // 1. The full happy path: reserve, insert, terminalize.
-    let completed = tenant_root_creation_probe_ceremony(env, role, 0x54, reserved_at_ms - 2)?;
-    let pending_command = match store
-        .reserve_initial_creation_pending(completed.input, reserved_at_ms)
+    let completed_authorization = tenant_root_creation_probe_authorization(role, 0x54)?;
+    let completed_package =
+        tenant_root_creation_probe_verified_package(&completed_authorization, role)?;
+    if !matches!(
+        store
+            .preflight_initial_creation(completed_package.command(), reserved_at_ms)
+            .await?,
+        CloudflareTenantRootInitialCreationPreflightV1::Fresh
+    ) {
+        return Err(store_error(
+            "fresh initial creation preflight did not admit generation",
+        ));
+    }
+    let completed = tenant_root_creation_probe_ceremony(
+        env,
+        role,
+        completed_authorization,
+        reserved_at_ms - 2,
+    )?;
+    let role_signer = crate::env::cloudflare_tenant_root_creation_role_signer_for_probe_v1(
+        tenant_root_creation_probe_protocol_role(role),
+        tenant_root_role_d1_integration_role_signing_key_id(role),
+        tenant_root_role_d1_integration_role_signing_key(role),
+    );
+    let backup_store =
+        crate::tenant_root_managed_backup_r2::CloudflareTenantRootManagedBackupStoreV1::from_env(
+            env,
+            role.managed_restore_role(),
+        )?;
+    if !matches!(
+        backup_store.put_verified(&completed.managed_backup).await?,
+        crate::tenant_root_managed_backup_r2::CloudflareTenantRootManagedBackupPutOutcomeV1::Stored { .. }
+    ) {
+        return Err(store_error(
+            "a first managed-backup write reported a replay",
+        ));
+    }
+    let completed_epoch = completed.input.record.epoch.get().get();
+    let committed_bytes = match store
+        .persist_initial_creation(
+            completed.input,
+            &role_signer,
+            reserved_at_ms,
+            reserved_at_ms,
+            reserved_at_ms + 1,
+        )
         .await?
     {
-        CloudflareTenantRootInitialCreationDecisionV1::Execute { command } => command,
-        _ => {
+        CloudflareTenantRootInitialCreationPersistenceOutcomeV1::Committed { receipt_bytes } => {
+            receipt_bytes
+        }
+        CloudflareTenantRootInitialCreationPersistenceOutcomeV1::ReplayCompleted { .. } => {
             return Err(store_error(
-                "fresh initial creation did not return an executable command",
+                "a first initial-creation persistence reported a replay",
             ));
         }
-    };
-    let (stored, executed) = store
-        .insert_initial_creation_pending(pending_command, reserved_at_ms)
-        .await?;
-    let receipt = tenant_root_role_d1_integration_success_receipt(
-        role,
-        executed.executed(),
-        executed.evidence_bytes(),
-        reserved_at_ms + 1,
-    )?;
-    let committed_bytes = match store.complete_initial_creation(executed, receipt).await? {
-        CloudflareTenantRootCommandTerminalCommitV1::Committed { receipt_bytes } => receipt_bytes,
-        CloudflareTenantRootCommandTerminalCommitV1::Replay { .. } => {
+        CloudflareTenantRootInitialCreationPersistenceOutcomeV1::InProgress => {
             return Err(store_error(
-                "a first initial-creation completion reported a replay",
+                "a first initial-creation persistence reported in progress",
+            ));
+        }
+        CloudflareTenantRootInitialCreationPersistenceOutcomeV1::ReplayFailed { .. } => {
+            return Err(store_error(
+                "a first initial-creation persistence replayed a failure",
             ));
         }
     };
 
     // 2. Exact replay returns the identical receipt.
-    let replay_input = tenant_root_creation_probe_ceremony(env, role, 0x54, reserved_at_ms - 2)?;
+    let replay_authorization = tenant_root_creation_probe_authorization(role, 0x54)?;
+    let replay_package = tenant_root_creation_probe_verified_package(&replay_authorization, role)?;
     match store
-        .reserve_initial_creation_pending(replay_input.input, reserved_at_ms + 2)
+        .preflight_initial_creation(replay_package.command(), reserved_at_ms + 2)
         .await?
     {
-        CloudflareTenantRootInitialCreationDecisionV1::ReplayCompleted { receipt_bytes } => {
+        CloudflareTenantRootInitialCreationPreflightV1::ReplayCompleted { receipt_bytes } => {
             if receipt_bytes != committed_bytes {
                 return Err(store_error(
                     "exact initial-creation replay returned different receipt bytes",
@@ -4782,17 +5340,28 @@ async fn run_cloudflare_tenant_root_initial_creation_integration_v1(
         }
     }
 
+    if !matches!(
+        backup_store.put_verified(&completed.managed_backup).await?,
+        crate::tenant_root_managed_backup_r2::CloudflareTenantRootManagedBackupPutOutcomeV1::Replay { .. }
+    ) {
+        return Err(store_error(
+            "an exact managed-backup retry did not report a replay",
+        ));
+    }
+
     // 3. Exact replay AFTER the issuer command expired still reconciles.
     //    Freshness gates only the first durable reservation.
-    let expired_input = tenant_root_creation_probe_ceremony(env, role, 0x54, reserved_at_ms - 2)?;
+    let expired_authorization = tenant_root_creation_probe_authorization(role, 0x54)?;
+    let expired_package =
+        tenant_root_creation_probe_verified_package(&expired_authorization, role)?;
     match store
-        .reserve_initial_creation_pending(
-            expired_input.input,
+        .preflight_initial_creation(
+            expired_package.command(),
             TENANT_ROOT_CREATION_PROBE_EXPIRES_AT_MS_V1 + 60_000,
         )
         .await?
     {
-        CloudflareTenantRootInitialCreationDecisionV1::ReplayCompleted { receipt_bytes } => {
+        CloudflareTenantRootInitialCreationPreflightV1::ReplayCompleted { receipt_bytes } => {
             if receipt_bytes != committed_bytes {
                 return Err(store_error(
                     "post-expiry initial-creation replay returned different receipt bytes",
@@ -4808,7 +5377,21 @@ async fn run_cloudflare_tenant_root_initial_creation_integration_v1(
 
     // 4. A different ceremony for the same tenant is a different command and
     //    must not reconcile against the completed one.
-    let changed = tenant_root_creation_probe_ceremony(env, role, 0x64, reserved_at_ms - 2)?;
+    let changed_authorization = tenant_root_creation_probe_authorization(role, 0x64)?;
+    let changed_package =
+        tenant_root_creation_probe_verified_package(&changed_authorization, role)?;
+    if !matches!(
+        store
+            .preflight_initial_creation(changed_package.command(), reserved_at_ms + 3)
+            .await?,
+        CloudflareTenantRootInitialCreationPreflightV1::Fresh
+    ) {
+        return Err(store_error(
+            "a changed creation package reconciled against another ceremony",
+        ));
+    }
+    let changed =
+        tenant_root_creation_probe_ceremony(env, role, changed_authorization, reserved_at_ms - 2)?;
     match store
         .reserve_initial_creation_pending(changed.input, reserved_at_ms + 3)
         .await
@@ -4827,7 +5410,18 @@ async fn run_cloudflare_tenant_root_initial_creation_integration_v1(
     }
 
     // 5. Execution-checkpoint resume: reserve, do not insert, reserve again.
-    let resume = tenant_root_creation_probe_ceremony(env, role, 0x74, reserved_at_ms - 2)?;
+    let resume_authorization = tenant_root_creation_probe_authorization(role, 0x74)?;
+    let resume_package = tenant_root_creation_probe_verified_package(&resume_authorization, role)?;
+    if !matches!(
+        store
+            .preflight_initial_creation(resume_package.command(), reserved_at_ms + 4)
+            .await?,
+        CloudflareTenantRootInitialCreationPreflightV1::Fresh
+    ) {
+        return Err(store_error("a fresh resume preflight was not executable"));
+    }
+    let resume =
+        tenant_root_creation_probe_ceremony(env, role, resume_authorization, reserved_at_ms - 2)?;
     match store
         .reserve_initial_creation_pending(resume.input, reserved_at_ms + 4)
         .await?
@@ -4835,13 +5429,14 @@ async fn run_cloudflare_tenant_root_initial_creation_integration_v1(
         CloudflareTenantRootInitialCreationDecisionV1::Execute { .. } => {}
         _ => return Err(store_error("a fresh resume ceremony was not executable")),
     }
-    let resume_again = tenant_root_creation_probe_ceremony(env, role, 0x74, reserved_at_ms - 2)?;
+    let resume_again_authorization = tenant_root_creation_probe_authorization(role, 0x74)?;
+    let resume_again_package =
+        tenant_root_creation_probe_verified_package(&resume_again_authorization, role)?;
     match store
-        .reserve_initial_creation_pending(resume_again.input, reserved_at_ms + 5)
+        .preflight_initial_creation(resume_again_package.command(), reserved_at_ms + 5)
         .await?
     {
-        CloudflareTenantRootInitialCreationDecisionV1::ResumeExecution { .. }
-        | CloudflareTenantRootInitialCreationDecisionV1::InProgress => {}
+        CloudflareTenantRootInitialCreationPreflightV1::InProgress => {}
         _ => {
             return Err(store_error(
                 "an unexecuted reservation did not offer resume or report in progress",
@@ -4862,13 +5457,152 @@ async fn run_cloudflare_tenant_root_initial_creation_integration_v1(
     )
     .map_err(|error| store_error(error.message()))?;
 
+    // 7. Cleanup requires a distinct issuer authorization, deletes the exact
+    // pending revision, terminalizes under that authorization, and replays its
+    // exact receipt without resurrecting the row.
+    let cleanup_record = tenant_root_role_d1_integration_pending_record(role, 2, 0x85, 50)?;
+    let cleanup_identity = cleanup_record.identity().clone();
+    let cleanup_lineage = cleanup_record.custody_lineage();
+    let cleanup_epoch = cleanup_record.epoch();
+    let cleanup_insert_scope =
+        tenant_root_role_d1_integration_scope(&cleanup_record, 0x81, 0x82, 1)?;
+    let cleanup_insert = match store
+        .reserve_insert_pending(cleanup_insert_scope, cleanup_record, reserved_at_ms + 6)
+        .await?
+    {
+        CloudflareTenantRootInsertPendingDecisionV1::Execute { command } => command,
+        _ => return Err(store_error("fresh cleanup fixture was not executable")),
+    };
+    let (cleanup_pending, _) = store
+        .insert_pending(cleanup_insert, reserved_at_ms + 6)
+        .await?;
+    let cleanup_session = TenantRootCeremonySessionIdV1::from_bytes([0x83; 16])
+        .map_err(|error| store_error(error.message()))?;
+    let cleanup_ceremony_nonce = TenantRootCeremonyNonceV1::from_bytes([0x84; 32])
+        .map_err(|error| store_error(error.message()))?;
+
+    let wrong_role = tenant_root_creation_probe_cleanup_authorization(
+        &cleanup_pending,
+        tenant_root_creation_probe_protocol_role(role).peer(),
+        cleanup_pending.revision,
+        cleanup_session,
+        cleanup_ceremony_nonce,
+        0x85,
+    )?;
+    require_integration_failure(
+        store
+            .reserve_authorized_cleanup(wrong_role, reserved_at_ms + 7)
+            .await,
+        "role-private D1 accepted a cleanup authorization for the peer role",
+    )?;
+    let wrong_revision = tenant_root_creation_probe_cleanup_authorization(
+        &cleanup_pending,
+        tenant_root_creation_probe_protocol_role(role),
+        cleanup_pending.revision + 1,
+        cleanup_session,
+        cleanup_ceremony_nonce,
+        0x86,
+    )?;
+    require_integration_failure(
+        store
+            .reserve_authorized_cleanup(wrong_revision, reserved_at_ms + 7)
+            .await,
+        "role-private D1 accepted a cleanup authorization for another revision",
+    )?;
+
+    let cleanup_authorization = tenant_root_creation_probe_cleanup_authorization(
+        &cleanup_pending,
+        tenant_root_creation_probe_protocol_role(role),
+        cleanup_pending.revision,
+        cleanup_session,
+        cleanup_ceremony_nonce,
+        0x87,
+    )?;
+    let cleanup_authorization_bytes = cleanup_authorization
+        .canonical_bytes()
+        .map_err(|error| store_error(error.message()))?;
+    let cleanup_command = match store
+        .reserve_authorized_cleanup(cleanup_authorization, reserved_at_ms + 7)
+        .await?
+    {
+        CloudflareTenantRootAuthorizedCleanupDecisionV1::Execute { command } => command,
+        _ => return Err(store_error("fresh authorized cleanup was not executable")),
+    };
+    let cleanup_executed = store
+        .execute_authorized_cleanup(cleanup_command, reserved_at_ms + 7)
+        .await?;
+    let cleanup_receipt = tenant_root_role_d1_integration_success_receipt(
+        role,
+        &cleanup_executed.executed,
+        &cleanup_authorization_bytes,
+        reserved_at_ms + 8,
+    )?;
+    let cleanup_receipt_bytes = match store
+        .complete_authorized_cleanup(cleanup_executed, cleanup_receipt)
+        .await?
+    {
+        CloudflareTenantRootCommandTerminalCommitV1::Committed { receipt_bytes } => receipt_bytes,
+        CloudflareTenantRootCommandTerminalCommitV1::Replay { .. } => {
+            return Err(store_error("fresh authorized cleanup reported a replay"));
+        }
+    };
+    let replay_cleanup_authorization = tenant_root_creation_probe_cleanup_authorization(
+        &cleanup_pending,
+        tenant_root_creation_probe_protocol_role(role),
+        cleanup_pending.revision,
+        cleanup_session,
+        cleanup_ceremony_nonce,
+        0x87,
+    )?;
+    match store
+        .reserve_authorized_cleanup(
+            replay_cleanup_authorization,
+            TENANT_ROOT_CREATION_PROBE_EXPIRES_AT_MS_V1 + 60_000,
+        )
+        .await?
+    {
+        CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayCompleted { receipt_bytes }
+            if receipt_bytes == cleanup_receipt_bytes => {}
+        _ => {
+            return Err(store_error(
+                "authorized cleanup did not replay its exact terminal receipt",
+            ));
+        }
+    }
+    let conflicting_replay_cleanup = tenant_root_creation_probe_cleanup_authorization(
+        &cleanup_pending,
+        tenant_root_creation_probe_protocol_role(role),
+        cleanup_pending.revision + 1,
+        cleanup_session,
+        cleanup_ceremony_nonce,
+        0x87,
+    )?;
+    require_integration_failure(
+        store
+            .reserve_authorized_cleanup(
+                conflicting_replay_cleanup,
+                TENANT_ROOT_CREATION_PROBE_EXPIRES_AT_MS_V1 + 60_000,
+            )
+            .await,
+        "authorized cleanup accepted changed command bytes under a completed replay key",
+    )?;
+    if store
+        .load_epoch(&cleanup_identity, cleanup_lineage, cleanup_epoch)
+        .await?
+        .is_some()
+    {
+        return Err(store_error(
+            "authorized cleanup left its pending role share durable",
+        ));
+    }
+
     Ok(CloudflareTenantRootRoleD1IntegrationReceiptV1 {
         role,
         retired_epoch: 0,
         retired_revision: 0,
-        active_epoch: stored.record.epoch.get().get(),
-        active_revision: stored.revision,
-        cleanup_epoch: 0,
+        active_epoch: completed_epoch,
+        active_revision: 1,
+        cleanup_epoch: cleanup_epoch.get().get(),
         command_receipt_digest_hex: encode_hex(&Sha256::digest(&committed_bytes)),
     })
 }
@@ -4888,14 +5622,27 @@ fn tenant_root_creation_probe_issuer_keys(
     .map_err(|error| store_error(error.message()))
 }
 
-/// The probe's sealing provider descriptors.
+/// The probe's sealing provider descriptors, read from this Worker's own Env.
+///
+/// These must describe the provider that actually performs the seal, not a
+/// fixture's idea of one: a seal request whose declared provider disagrees with
+/// the loaded provider is refused, and that check is one of the things this
+/// probe exists to exercise.
 #[cfg(debug_assertions)]
 fn tenant_root_creation_probe_provider_config(
+    env: &Env,
+    worker_role: crate::CloudflareWorkerRoleV1,
 ) -> worker::Result<crate::tenant_root_role_runtime::TenantRootRoleRuntimeProviderConfigV1> {
+    let reader = crate::CloudflareWorkerEnvReaderV1::new(env);
+    let config = crate::env::parse_cloudflare_tenant_root_operational_rotation_provider_config_v1(
+        worker_role,
+        &reader,
+    )
+    .map_err(|error| store_error(error.message()))?;
     crate::tenant_root_role_runtime::TenantRootRoleRuntimeProviderConfigV1::new(
-        "workerd://tenant-root-creation-probe/epoch-1",
-        "r120-creation-probe-backup",
-        "r120-creation-probe-backup/epoch-1",
+        config.online_epoch_wrapping_key_ref(),
+        config.backup_provider_id(),
+        config.backup_key_version(),
     )
     .map_err(|error| store_error(error.message()))
 }
@@ -5011,6 +5758,57 @@ fn tenant_root_creation_probe_signed_command(
         &TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_V1,
     )
     .map_err(|error| store_error(error.message()))
+}
+
+#[cfg(debug_assertions)]
+fn tenant_root_creation_probe_cleanup_authorization(
+    pending: &CloudflareStoredTenantRootRoleShareV1,
+    authorized_role: TwoPartyDeriverRole,
+    expected_revision: i64,
+    session_id: TenantRootCeremonySessionIdV1,
+    ceremony_nonce: TenantRootCeremonyNonceV1,
+    cleanup_nonce_seed: u8,
+) -> worker::Result<VerifiedTenantRootRoleCleanupCommandV1> {
+    let installation_evidence_digest = TenantRootProtocolDigestV1::from_bytes(
+        *record_installation_evidence_digest(&pending.record)?.as_bytes(),
+    )
+    .map_err(|error| store_error(error.message()))?;
+    let target = router_ab_core::TenantRootRoleCleanupTargetV1 {
+        identity_digest: pending
+            .record
+            .identity()
+            .digest()
+            .map_err(|error| store_error(error.message()))?,
+        custody_lineage: pending.record.custody_lineage(),
+        role: authorized_role,
+        epoch: pending.record.epoch(),
+        expected_row_revision: expected_revision,
+        session_id,
+        ceremony_nonce,
+        installation_evidence_digest,
+    };
+    let cleanup_nonce = TenantRootCeremonyNonceV1::from_bytes([cleanup_nonce_seed; 32])
+        .map_err(|error| store_error(error.message()))?;
+    let issuer_signing_key = SigningKey::from_bytes(&TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_V1);
+    let signed = router_ab_core::TenantRootRoleCleanupCommandV1::sign(
+        &target,
+        router_ab_core::TenantRootControlPlaneAuthorityIdV1::from_bytes([0x56; 32]),
+        cleanup_nonce,
+        TENANT_ROOT_CREATION_PROBE_ISSUED_AT_MS_V1 + 1,
+        TENANT_ROOT_CREATION_PROBE_EXPIRES_AT_MS_V1 - 1,
+        TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_ID_V1,
+        issuer_signing_key.as_bytes(),
+    )
+    .map_err(|error| store_error(error.message()))?;
+    signed
+        .verify(
+            &target,
+            authorized_role,
+            router_ab_core::TenantRootControlPlaneAuthorityIdV1::from_bytes([0x56; 32]),
+            TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_ID_V1,
+            issuer_signing_key.verifying_key().as_bytes(),
+        )
+        .map_err(|error| store_error(error.message()))
 }
 
 #[cfg(debug_assertions)]
@@ -5587,6 +6385,8 @@ const TENANT_ROOT_ROLE_COMMAND_PAYLOAD_DOMAIN_V1: &[u8] =
     b"seams/tenant-root-role-command-payload/v1";
 const TENANT_ROOT_REFRESH_INSERT_PENDING_PAYLOAD_DOMAIN_V1: &[u8] =
     b"seams/tenant-root-refresh-insert-pending-payload/v1";
+const TENANT_ROOT_AUTHORIZED_CLEANUP_PAYLOAD_DOMAIN_V1: &[u8] =
+    b"seams/tenant-root-authorized-cleanup-payload/v1";
 
 fn validate_command_scope_for_record(
     scope: &TenantRootCommandScopeV1,
@@ -5655,6 +6455,31 @@ fn protocol_role_for_cloudflare(role: CloudflareTenantRootDeriverRoleV1) -> TwoP
         CloudflareTenantRootDeriverRoleV1::DeriverA => TwoPartyDeriverRole::DeriverA,
         CloudflareTenantRootDeriverRoleV1::DeriverB => TwoPartyDeriverRole::DeriverB,
     }
+}
+
+fn validate_initial_creation_role_signer(
+    creation: &CloudflareTenantRootInitialCreationInputV1,
+    role_signer: &CloudflareTenantRootCreationRoleSignerV1,
+) -> worker::Result<()> {
+    let role = creation.command.role();
+    if role_signer.role() != role {
+        return Err(store_error(
+            "tenant-root initial creation receipt signer role does not match its command",
+        ));
+    }
+    if role_signer.signing_key_id()
+        != creation
+            .evidence
+            .evidence()
+            .transcript()
+            .context()
+            .signing_key_id(role)
+    {
+        return Err(store_error(
+            "tenant-root initial creation receipt signer key does not match its evidence",
+        ));
+    }
+    Ok(())
 }
 
 #[allow(dead_code)]
@@ -6046,6 +6871,49 @@ fn cleanup_pending_payload_digest(
     push_record_public_payload(&mut bytes, &pending.record)?;
     push_command_i64(&mut bytes, expected_revision)?;
     finish_command_payload(bytes)
+}
+
+fn authorized_cleanup_pending_payload_digest(
+    authorization: &VerifiedTenantRootRoleCleanupCommandV1,
+    pending: &CloudflareStoredTenantRootRoleShareV1,
+    expected_revision: i64,
+) -> worker::Result<TenantRootProtocolDigestV1> {
+    let row_payload_digest = cleanup_pending_payload_digest(pending, expected_revision)?;
+    let authorization_digest = authorization
+        .digest()
+        .map_err(|error| store_error(error.message()))?;
+    let mut bytes = Vec::new();
+    push_command_field(&mut bytes, TENANT_ROOT_AUTHORIZED_CLEANUP_PAYLOAD_DOMAIN_V1)?;
+    push_command_field(&mut bytes, authorization_digest.as_bytes())?;
+    push_command_field(&mut bytes, row_payload_digest.as_bytes())?;
+    finish_command_payload(bytes)
+}
+
+fn validate_authorized_cleanup_pending(
+    cipher: &TenantRootRoleD1CipherV1,
+    authorization: &VerifiedTenantRootRoleCleanupCommandV1,
+    pending: &CloudflareStoredTenantRootRoleShareV1,
+) -> worker::Result<()> {
+    validate_pending_stored_record(cipher, pending)?;
+    let record_role = tenant_root_protocol_role_of(pending.record.role);
+    let identity_digest = pending
+        .record
+        .identity()
+        .digest()
+        .map_err(|error| store_error(error.message()))?;
+    let evidence_digest = record_installation_evidence_digest(&pending.record)?;
+    if authorization.role() != record_role
+        || authorization.identity_digest() != identity_digest
+        || authorization.custody_lineage() != pending.record.custody_lineage
+        || authorization.epoch() != pending.record.epoch
+        || authorization.expected_row_revision() != pending.revision
+        || authorization.installation_evidence_digest().as_bytes() != evidence_digest.as_bytes()
+    {
+        return Err(store_error(
+            "tenant-root cleanup authorization does not name the authoritative pending row",
+        ));
+    }
+    Ok(())
 }
 
 fn command_payload_start(operation: &'static str) -> worker::Result<Vec<u8>> {
@@ -9166,6 +10034,7 @@ mod tests {
         let stored = StoredTenantRootCommandReplayV1 {
             record: TenantRootCommandReplayRecordV1::Executed(executed),
             receipt_bytes: None,
+            admission_digest: None,
             reserved_at_ms: 40,
             executed_at_ms: Some(41),
         };
@@ -10097,6 +10966,7 @@ mod tests {
         let stored = StoredTenantRootCommandReplayV1 {
             record: TenantRootCommandReplayRecordV1::Executed(executed),
             receipt_bytes: None,
+            admission_digest: None,
             reserved_at_ms: 40,
             executed_at_ms: Some(41),
         };

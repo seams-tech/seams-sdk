@@ -8,59 +8,20 @@ R103F compatibility reviewed: August 29, 2026
 
 Ed25519 derivation architecture revised: August 29, 2026
 
-Status: proposed implementation plan. Phase 0 has established provisional local
-feasibility for the role-targeted threshold-PRF design. Production architecture
-selection remains gated on the deployed same-account and cross-account cohorts,
-Workers resource evidence, and the signed selection record. The refresh
-cryptographic core, tenant-root identity primitives, role-targeted Ed25519 Rust
-protocol, signed and recipient-encrypted refresh-message core, and WASM
-self-check adapters are implemented. Role-local distributed root generation,
-signed creation evidence, the byte-exact ECDSA stable-context type, and
-native/WASM share-refresh invariance vectors are also implemented. The dormant
-creation journal and authority capability, deterministic Router Durable Object
-binding and migration, role-private replay/checkpoint persistence, signed
-terminal receipts, the issuer-authenticated initial role command, the dormant
-signed A/B creation-commitment rendezvous, the public-evidence-only A/B
-installation checkpoint, request-local non-clone initial role attempts with
-burn-on-drop semantics, provider-neutral online role-share sealing bound to the
-exact installation evidence and key reference, creation-specific D1
-reservation/execution/success receipts, authenticated private Router
-commitment/evidence RPCs, atomic Durable Object transactions, and B4/B5
-composition boundaries are implemented. The dormant activation-evidence path
-now derives a strict canonical control-plane-signed activation receipt from a
-verified evidence bundle, enforces the exact result revision, and retains its
-exact signed bytes. Its availability branch is exhaustive: it accepts either
-source-bound A/B managed-backup artifacts with distinct provider IDs and strict
-canonical signed artifacts, or a consuming dual-authority accepted-loss
-authorization bound to the exact context, root commitments, installation
-receipts, revisions, and one-use scope. Provider canaries,
-`verify_tenant_root_refresh_evidence_v1`, constant-time secret-derive
-hardening, and the dormant refresh Durable Object's authoritative public-state,
-commitment-checkpoint, and installation-checkpoint paths are implemented; the
-checkpoint paths enforce exact replay/fence semantics and have no activation
-consumer. The existing production ECDSA threshold-PRF adapter still consumes
-its pre-R120 ceremony context. Production runtime wire adapters, live Durable
-Object orchestration, the orchestrated
-creation and refresh ceremonies, role-runtime creation handlers, provider-backed
-key destruction, and production integration remain unimplemented. No public
-activation route, activation caller, or cutover consumes these dormant paths.
-The dormant Cloudflare `operational_rotation_v1` provider adapter now implements
-role-local HPKE X25519/HKDF-SHA256/ChaCha20Poly1305 online and managed-backup
-seal/open with distinct online and backup keys, info labels, and AAD; its
-roundtrip, wrong-provider, and reused-key tests pass. No Env/Wrangler
-provisioning, role-private persistence integration, destruction probe,
-`managed_healing_v1` adapter or qualification, provider registry, live route,
-activation, or cutover consumes it. The dormant creation code retains role
-verifying keys by the exact role-plus-`signing_key_id` pair. Production
-role-verifying-key provisioning/configuration, dedicated creation-signing-key
-provisioning, and provider key create/destroy/probe integration remain open.
-Wrangler provisioning remains deliberately absent pending activation, and no
-activation or cutover consumes them. Refactor 103F's final dev tip
-`bfaed287` (full short form `bfaed2877`) is merged into R120 HEAD
-`308948c15`.
-R120-owned cryptographic and dormant integration work may proceed. Shared
-production activation still follows the Phase 0 architecture-selection and
-release gates defined below.
+Status: implementation in progress. Refactor 103F is complete and current
+`dev` is merged into the R120 branch. The cryptographic core, strict protocol
+types, tenant-root lifecycle, control-plane issuer, Router-owned public Durable
+Object state, role-local D1 replay/terminalization, Deriver admission and
+commitment exchange, online sealing, and authorized pending cleanup are
+implemented and tested.
+
+The active implementation path is now intentionally short: persist each
+role's managed-backup artifact outside its role D1, wire creation end to end,
+switch the production ECDSA and Ed25519 derivation adapters, wire refresh and
+activation, then remove the replaced deployment-root path. Deployed benchmark,
+provider-destruction, canary, and rollout checks are release gates; they do not
+block implementation. The historical detailed ledger remains below as design
+evidence and no longer determines progress.
 
 ## Outcome
 
@@ -775,6 +736,86 @@ in the Router and both Derivers and remains forbidden in the SigningWorker.
 The obsolete
 `ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON` configuration is
 removed rather than accepted as an alias.
+
+#### Tenant-root creation grant authority
+
+The tenant-management/Console backend is the tenant-root creation grant
+authority. It holds one environment-specific Ed25519 signing key in its own
+Secret or KMS binding. The browser, dashboard client, Router, Deriver A,
+Deriver B, SigningWorker, and tenant-root control-plane issuer never receive
+that private key. Only the tenant-root control-plane Worker receives the
+bounded public grant-authority keyset needed to verify grants.
+
+This authority is separate from the routine control-plane issuer. The grant
+authority decides whether an authenticated tenant administrator may create one
+physical root lineage. The control-plane issuer turns that narrow grant into
+the signed role commands needed to execute the ceremony. A grant-authority key
+must not equal an issuer, role-signing, peer-signing, online-sealing, or
+managed-backup key, and no configuration may let either authority sign for the
+other.
+
+Before signing, the Console backend must:
+
+1. authenticate the administrator and authorize the exact organization,
+   project, and environment;
+2. resolve the canonical `TenantRootIdentityV1` server-side, including
+   `signingRootId` and `signingRootVersion`;
+3. allocate the custody lineage and 32-byte nonzero grant nonce from its CSPRNG;
+4. distinguish initial creation from explicit root replacement or migration;
+5. reject caller-supplied authority, role, epoch, session, ceremony nonce,
+   signer key ID, provider key reference, or derivation context;
+6. persist the exact canonical signed grant before returning it, keyed by one
+   server-side creation-operation ID; and
+7. return those same signed bytes for an exact retry of that operation rather
+   than minting a second grant.
+
+The grant authorizes only initial creation of the named identity and lineage.
+It does not authorize refresh, restore, deletion, activation, signing, or a
+second lineage. Those operations use their own lifecycle state and typed
+capabilities. The request reaching the tenant-root control plane carries only
+the exact signed grant; internal transport authentication does not replace its
+signature or scope checks.
+
+Grant replay semantics are fixed:
+
+- first acceptance requires a currently fresh, valid grant from a configured
+  authority;
+- the exact canonical grant is the idempotency key for genesis;
+- an exact grant whose creation record was already durably accepted returns the
+  original record and `replayed: true`, including after grant or ceremony
+  expiry;
+- an unseen expired grant returns `ExpiredLocalRequest`;
+- any different grant for the same identity and lineage returns
+  `ConflictingPair`;
+- a retry never redraws or changes the ceremony session, ceremony nonce,
+  capability nonce, time window, role signer IDs, journal, or capability; and
+- a lost response at any boundary converges to the same accepted record or the
+  lifecycle's explicit cleanup branch.
+
+The control plane therefore must distinguish exact durable replay before
+applying first-use freshness. Deterministically deriving ceremony material from
+the canonical grant is sufficient for byte-identical retries while the active
+issuer and role-signing configuration is unchanged. It does not by itself
+provide exact replay after expiry or configuration rotation. The live boundary
+must identify the already accepted grant before minting a replacement
+capability, return the stored journal/capability digests, and leave any
+subsequent role-key-rotation cleanup to the lifecycle.
+
+Grant-authority rotation is independent from issuer and Deriver rotation. The
+Console backend stops issuing with the retired private key immediately. Its
+public key remains in the control plane's verifier set until every grant signed
+under it is expired and every accepted ceremony under it is terminal or has a
+verified cleanup receipt. Only then may the old verifier and private key be
+destroyed. An issuer or role-signing-key rotation drains admitted ceremonies or
+burns them into the explicit cleanup branch; it never silently reissues an
+existing grant under the new configuration.
+
+The Console backend records the grant digest, authority key ID, tenant scope,
+operation ID, issue/expiry window, outcome, and resulting creation-record
+digest in its audit log. It records no tenant-root share, joined root, issuer
+private material, or provider private reference. Production deployment must
+use a dedicated least-privilege grant-authority key and service credential per
+environment.
 
 The control-plane Worker and both Derivers receive an external
 `ROUTER_TENANT_ROOT_CREATION_DO` namespace binding with the Router Worker as
@@ -1739,7 +1780,11 @@ and restoring each role into an empty replacement of the same logical tenant
 root. It consumes this refactor's frozen protocols and does not redefine the
 cryptographic lifecycle.
 
-## Preparation Phase: Freeze the Map Before Coding
+## Historical Preparation Evidence (reference only)
+
+This section records decisions and evidence already produced while R120 was
+being designed. It is not an execution checklist. Any still-relevant production
+requirement appears once in the active implementation plan below.
 
 No production implementation starts until this phase produces five reviewed
 artifacts:
@@ -2023,7 +2068,7 @@ surfaces wait for the R103F Phase 3 exit. The R120 branch rebases before either
 integration point; it does not preserve an interim R103F shape through a
 wrapper or compatibility union.
 
-### Preparation exit gate
+### Historical preparation snapshot
 
 - [ ] Materialize every specification-closure row as its named canonical
       artifact or executable check.
@@ -2066,7 +2111,112 @@ wrapper or compatibility union.
 - [ ] Stop the refactor if stable-output vectors, the Ed25519 candidate gate,
       recovery separation, or erasure evidence cannot meet the release gates.
 
-## Implementation Plan
+## Active Implementation Plan
+
+This is the only execution checklist for R120. The historical ledger below is
+retained as design evidence; its unchecked rows do not block implementation or
+count toward progress.
+
+### Completed foundation
+
+- [x] Implement and verify the role-targeted threshold-PRF and proactive-share-
+      refresh cryptographic core, native/WASM vectors, minimal proof, and
+      latency prototype.
+- [x] Implement tenant-root identity, lineage, epoch, lifecycle, recovery,
+      restore, retirement, and deletion domain types.
+- [x] Implement the control-plane issuer and grant boundary, Router-owned
+      public Durable Object state, role-local D1 storage, replay checkpoints,
+      and signed terminal receipts.
+- [x] Implement Deriver admission, request-local share generation, signed A/B
+      commitment exchange, finalization, online sealing, and scalar-leak tests.
+- [x] Implement authorized pending cleanup with exact role, identity, lineage,
+      epoch, revision, evidence, replay, and authoritative-row binding.
+
+### Milestone 1: make tenant-root creation work end to end
+
+- [x] Persist each already-encrypted managed-backup artifact in a separate
+      role-private Cloudflare R2 bucket. Deriver A and Deriver B use different
+      buckets, object namespaces, and wrapping keys. The role-private D1 row
+      retains the independently sealed online share.
+- [x] Reject a reserved cleanup replay immediately when its recomputed command
+      digest differs from the stored digest.
+- [ ] Wire the private Router -> Deriver A -> Deriver B flow using the existing
+      strict request/response unions and internal authentication. Keep both
+      live scalars inside their owning bounded requests.
+- [ ] Persist B, verify B's public evidence and terminal receipt at A, persist A,
+      then checkpoint both public installation evidences in the Router-owned
+      Durable Object. Activation remains impossible until both role records and
+      backup objects exist.
+- [ ] Add one isolated-workerd operating-path test covering successful creation,
+      exact retry, interruption after B persistence, authorized cleanup, and a
+      fresh retry. Delete dormant creation helpers made unreachable by this
+      path.
+
+### Milestone 2: use tenant roots for production derivation
+
+- [ ] Resolve exactly one active tenant-root pair from authenticated deployment
+      configuration for each tenant; callers cannot select identity, lineage,
+      role, or epoch.
+- [ ] Switch ECDSA derivation to `StableTenantDerivationContextV2` and remove
+      `RootShareEpoch` from threshold-PRF input bytes.
+- [ ] Version and wire the Ed25519 outer protocol so A and B consume only their
+      target PRF outputs while the existing Yao circuit remains byte-identical.
+- [ ] Regenerate the affected Rust/WASM/TypeScript bindings and vectors once,
+      then delete the replaced deployment-root derivation adapter, Secrets,
+      configuration, and dead protocol variants.
+- [ ] Prove one existing ECDSA wallet and one existing Ed25519 wallet keep the
+      same public keys and addresses through the new server path.
+
+### Milestone 3: make refresh and recovery operational
+
+- [ ] Wire the existing refresh protocol through per-tenant locking, the
+      Router-owned public checkpoint, both role-private stores, and the same
+      managed-backup store used by creation.
+- [ ] Keep the current epoch active until both next-epoch role records, backup
+      objects, installation evidences, and the activation receipt verify.
+- [ ] Resume or clean up every persisted interruption state without ever
+      combining mixed epochs or regenerating a committed random share.
+- [ ] Wire one-role managed restore followed immediately by forward refresh;
+      keep tenant-controlled recovery packages on their existing independent
+      path.
+- [ ] Retire old role records and destroy old online/backup wrapping-key
+      versions after activation. Record `cryptographic_erasure_unverified` when
+      the selected provider cannot prove destruction.
+- [ ] Add one operating-path test proving refresh preserves ECDSA and Ed25519
+      outputs, normal signing stays available, and another tenant is unchanged.
+
+### Milestone 4: release and remove the old path
+
+- [ ] Run the deployed same-account and cross-account Ed25519 benchmark once;
+      require no new connection or client round trip and at most 10 ms warm p95
+      overhead before enabling the new profile.
+- [ ] Exercise creation, refresh, interruption cleanup, one-role restore,
+      retirement, and deletion in staging with independently provisioned A/B
+      stores and keys.
+- [ ] Run the authoritative Rust, WASM, TypeScript boundary, and intended-
+      behaviour suites on the exact release tree.
+- [ ] Fence new ceremonies, drain pre-cutover operations, activate one revision,
+      and confirm wallets and clients require no migration or local mutation.
+- [ ] Remove obsolete deployment-root code, bindings, Secrets, migrations that
+      were never deployed, temporary allowances, dead exports, and superseded
+      tests. Preserve applied migration history and immutable evidence.
+- [ ] Update the architecture and operations documentation and mark R120
+      complete.
+
+### Execution rules
+
+- Implement the next unchecked operating-path item before adding more evidence,
+  guards, abstractions, or plan structure.
+- Add one authoritative behavioural test for each operating path. Add another
+  guard only when an observed escape is not representable by that test or the
+  type system.
+- Do not add dormant adapters, compatibility variants, duplicate canonical
+  encoders, new inventory frameworks, or speculative provider abstractions.
+- Run focused tests while implementing. Run broad suites only after a milestone
+  changes shared protocol, persistence, deployment, or cryptographic behavior.
+- Update progress at milestone boundaries rather than counting evidence rows.
+
+## Historical Detailed Ledger (reference only)
 
 ### Phase 0: benchmark and freeze the Ed25519 architecture
 
@@ -2936,7 +3086,333 @@ role-key provisioning remain open.
 - [ ] Enable a conservative jittered schedule.
 - [ ] Publish exact security claims and recovery limitations.
 
-## Verification
+### Phase 6: final cleanup and closure
+
+Phase 6 is mandatory. Phase 5 proves that the selected R120 profile works;
+Phase 6 proves that the repository and deployed system contain only that
+profile. No compatibility alias, dual parser, dormant production branch,
+obsolete fixture, retired Secret, or unowned cloud resource may remain.
+
+Cleanup begins only after the first R120-profile derivation has committed and
+the cutover has become forward-only. Before that point, cleanup must preserve
+the exact Phase 5 rollback release. After that point, the prior derivation
+profile is not a recovery mechanism and must be removed rather than hidden
+behind a flag.
+
+#### Entry gate
+
+- [ ] Accept the signed Phase 0 architecture-selection record and deployed
+      benchmark evidence.
+- [ ] Give every Phase 1-4 creation, refresh, restore, deletion, activation, and
+      signing path a live production consumer.
+- [ ] Complete the Phase 5 fenced cutover, both curve canaries, and one exact
+      B4/B5 derivation per curve.
+- [ ] Persist the first R120-profile derivation receipt, closing rollback to the
+      prior profile.
+- [ ] Drive every admitted pre-cutover operation to a terminal state or a
+      verified cleanup receipt.
+- [ ] Sign and archive the active-tenant inventory, role-private migration
+      heads, provider-key inventory, deployment revision manifest, and the
+      pre-cleanup source/binding inventory.
+
+#### Canonical cleanup manifest
+
+Extend `docs/evidence/r120-boundary-inventory-v1.json` into the canonical
+cleanup manifest. Every R120-related source, generated artifact, configuration
+value, deployed resource, persisted record class, test, and document receives
+exactly one disposition:
+
+| Disposition | Meaning | Closure evidence |
+| --- | --- | --- |
+| `delete` | Prior-profile, intermediate, duplicated, or one-time code/data/resource | Zero runtime hits and green operating-path tests without it |
+| `rename_without_alias` | Valid behavior with an obsolete ownership or semantic name | New name exists; old name and aliases have zero hits |
+| `activate` | Required implementation that remains dormant, test-only, or unreachable | A production caller exercises it and dead-code suppression is gone |
+| `retain_durable` | Required persisted state or immutable applied migration | Named reader, lifecycle, retention rule, and reason |
+| `retain_evidence` | Immutable benchmark, vector, proof, audit, or release evidence | Recorded digest and verifier; never accepted as a runtime compatibility input |
+
+- [ ] Record each row's exact path/symbol or resource ID, owner, phase, final
+      disposition, replacement or retained reader, and closure command.
+- [ ] Fail Phase 6 on any unexplained inventory hit.
+- [ ] Fail Phase 6 when a `delete` or `rename_without_alias` item has a remaining
+      runtime, generated-binding, deployment, or public-documentation hit.
+- [ ] Permit path-scoped exceptions only for `retain_durable` and
+      `retain_evidence`; each exception names the exact file and reason.
+
+#### Cryptographic and protocol source cleanup
+
+- [ ] Replace the ceremony-bound ECDSA threshold-PRF request with the selected
+      V2 request. Delete `EcdsaThresholdPrfRequestV1`, its context/version
+      builders, encoders, decoders, dispatch branches, bindings, vectors,
+      fixtures, and route adapters in the same change.
+- [ ] Remove `RootShareEpoch` from threshold-PRF request bytes, purpose plans,
+      transcripts, proof inputs, Router/Deriver handling, and WASM adapters.
+- [ ] Retain `RootShareEpoch` only where it identifies existing durable ECDSA
+      material or an unchanged R103F record. List every surviving file in the
+      cleanup manifest; a global symbol deletion is forbidden.
+- [ ] Keep `TenantRootShareEpoch` confined to tenant-root custody,
+      role-private persistence, lifecycle, refresh, restore, deletion, and
+      server-side control-plane evidence.
+- [ ] Prove `TenantRootShareEpoch` and custody lineage remain absent from Wallet
+      Session, signer-D1, browser, SDK, iframe, device-link, registration,
+      recovery, and client-facing request/response shapes.
+- [ ] Replace the Ed25519 Yao V1 outer request, pair-session identity,
+      proof-bundle payload, lifecycle branch, Router/Deriver dispatch,
+      generated binding, local runner, and production vector with the selected
+      V2 shape. Delete the V1 production decoder and mixed-version routing.
+- [ ] Delete the deployment-share-hash Ed25519 root adapter plus every helper,
+      fixture, export, dependency, and test that exists only to feed it.
+- [ ] Preserve the seed-derived Ed25519 Yao Client root, lane-holder material,
+      unchanged Yao circuit, manifests, schedules, tables, formal proofs, and
+      signed Phase 0 artifact digests.
+- [ ] Keep historical V1 artifacts only as `retain_evidence`. They must expose
+      no production parser, public export, route, or fallback.
+- [ ] Delete generic purpose-string, caller-selected target, reverse-role,
+      joined-root, and arbitrary-context adapters made unreachable by the fixed
+      A-target/B-target protocol.
+- [ ] Delete temporary conversion helpers, duplicate canonical encoders,
+      broad raw-wire constructors, unsafe domain casts, compatibility unions,
+      optional identity/epoch fields, and intermediate wrappers.
+- [ ] Remove unused exports and reduce retained visibility in
+      `router-ab-core`, `router-ab-cloudflare`, `threshold-prf`, Ed25519 crates,
+      signer-core, WASM crates, and generated TypeScript modules.
+- [ ] Audit every `#[allow(dead_code)]`, `#[allow(unused_*)]`, TypeScript lint
+      suppression, and unreachable match branch in R120 production modules.
+      Activate or delete it. Test helpers must be under `#[cfg(test)]`.
+- [ ] Remove `dormant`, `temporary`, `future`, `prototype`, and `TODO R120`
+      claims from production modules. Each named path must be live or deleted.
+
+The source inventory includes at least:
+
+- `crates/router-ab-core/src/derivation/tenant_root*`,
+  `ecdsa_threshold_prf.rs`, `ecdsa_threshold_prf_backend.rs`, and the ECDSA and
+  Ed25519 protocol modules;
+- `crates/threshold-prf`, `crates/router-ab-ed25519-yao*`,
+  `crates/signer-core`, and their WASM bindings;
+- `crates/router-ab-cloudflare/src/tenant_root*`,
+  `durable_object/tenant_root_creation.rs`, Router coordination, strict Worker
+  routes, ECDSA adapters, and Ed25519 lifecycle/pair/signing-worker modules;
+- `crates/router-ab-dev`, `crates/ed25519-yao-cloudflare-bench`, generated
+  shared TypeScript modules, wallet-server tenant-root composition, and the
+  threshold ECDSA/Ed25519 transport routes.
+
+#### Runtime and trust-boundary cleanup
+
+- [ ] Give each retained creation, refresh, activation, restore, cleanup,
+      deletion, status, and operator operation one typed route or scheduled
+      caller. Delete debug routes, raw-payload routes, duplicate private RPCs,
+      and superseded service-binding paths.
+- [ ] Derive tenant, root, lineage, role, epoch, authority, signer identity, and
+      current time from authenticated local state. Delete request fields and
+      parsers that previously accepted them from callers.
+- [ ] Prove A and B never share a scalar, sealing key, backup key, provider
+      credential, or role-signing key. Delete transports, serializers, fixture
+      helpers, and log fields capable of carrying those values across roles.
+- [ ] Keep Router and the tenant-root control plane public-evidence-only.
+      Delete scalar/share decoders and secret bindings visible to either.
+- [ ] Keep SigningWorker unaware of tenant-root shares, lineage, epoch, issuer
+      keys, role-creation keys, and provider keys. Remove accidental imports,
+      request fields, persistence fields, and Env visibility.
+- [ ] Enforce the final grant-authority, control-plane issuer, Router-owned DO,
+      and Deriver verifier trust graph. Delete Router self-issuance,
+      request-supplied verifier, shared private issuer, and peer-role fallback
+      paths.
+- [ ] Keep one owner for every replay and terminalization transition. Delete
+      mutation helpers that bypass the typed reserved/executed token.
+- [ ] Remove response and diagnostic fields exposing internal identity,
+      lineage, epoch, provider/key references, commitments, or replay details
+      beyond the redacted operator contract.
+
+#### Persistence and operational-state cleanup
+
+- [ ] Preserve applied D1 and Durable Object migration history. Never rewrite
+      or delete a migration that may have run; use a forward migration to
+      remove obsolete live schema.
+- [ ] Re-prove the R103F signer-D1 no-change digest. Tenant-root lineage, epoch,
+      receipts, shares, provider references, and cleanup state belong only in
+      role-private stores and Router-owned public DO state.
+- [ ] Inventory every pending share, command reservation, execution checkpoint,
+      commitment rendezvous, installation checkpoint, restore attempt, cleanup
+      failure, alarm, and idempotency record.
+- [ ] Drive each record to active, retired, deleted, terminal failure, or
+      verified cleanup before removing code that can interpret it.
+- [ ] Delete abandoned pending ciphertext only through exact-revision cleanup
+      commands and receipts. Never delete an active or potentially active share
+      based on age alone.
+- [ ] Define retention and compaction for completed/failed replay rows, terminal
+      receipts, public evidence, alarms, and idempotency records. Preserve
+      enough information to reject delayed replay for the full accepted
+      lifetime.
+- [ ] Prove delayed registration, recovery, device-link, export, and
+      lane-materialization commits cannot activate old-profile material.
+- [ ] Delete compatibility readers only after the inventory reports zero live
+      records that require them.
+- [ ] Inspect encrypted rows in both role stores and public DO records. No
+      plaintext share, PRF partial/output, joined root, signing seed, provider
+      private key, or issuer private key may appear in storage, logs,
+      analytics, traces, errors, or deployment artifacts.
+
+#### Secrets, keys, and providers
+
+- [ ] Remove `DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING` and
+      `DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING` from source, generators,
+      Wrangler, workflows, local development, documentation, and deployed
+      Secrets after every tenant has an active physical root pair.
+- [ ] Rename shared configuration whose name still implies obsolete
+      Router-only ownership, including the shared role-verifier keyset. Delete
+      the old symbol, Env name, workflow input, and documentation without an
+      alias.
+- [ ] Confirm the retired Router-prefixed control-plane issuer verifier has zero
+      hits. Retain only
+      `TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON` in Router,
+      Deriver A, Deriver B, and the control plane; keep it out of SigningWorker.
+- [ ] Keep the issuer private binding only in the control plane. Keep each role
+      creation, online epoch, managed-backup, and provider credential only in
+      its owning Deriver.
+- [ ] Rotate away bootstrap, development, benchmark, and pre-cutover keys.
+      Revoke their Cloudflare Secrets, KMS/HSM versions, access policies,
+      service tokens, CI secrets, and local values after production keys pass.
+- [ ] Destroy retired online and managed-backup keys only after signed
+      retirement/destruction receipts and rollback probes prove the active
+      epoch remains usable.
+- [ ] Record `cryptographic_erasure_unverified` when the provider cannot prove
+      destruction; never upgrade that outcome through documentation.
+- [ ] Keep tenant-controlled recovery packages independent of operational key
+      cleanup and prove service cleanup cannot delete tenant-owned backups.
+- [ ] Run a final secret scan over tracked files, generated deployment output,
+      workflow/build logs, benchmark artifacts, and release bundles.
+
+#### Deployment and cloud-resource cleanup
+
+- [ ] Reconcile Router, A, B, SigningWorker, tenant-root control plane, wallet
+      server, local runner, and benchmark manifests against the final binding
+      matrix. Delete every binding with no live consumer.
+- [ ] Remove obsolete Wrangler variables, Secrets, service/DO bindings,
+      compatibility names, environment examples, generator fields, workflow
+      inputs, and deployment-target values.
+- [ ] Preserve Router-owned DO migration history and active namespaces. Remove
+      superseded classes/bindings only through a supported migration after
+      proving they contain no live authority or replay state.
+- [ ] Undeploy benchmark-only and abandoned Workers after signed evidence is
+      captured. Remove their routes, domains, bindings, tokens, datasets,
+      alarms, queues, and environment values.
+- [ ] Retain only benchmark source and verifier tooling required to reproduce
+      or validate published Phase 0 evidence.
+- [ ] Delete pre-cutover Worker revisions after the rollback window closes.
+      Prove no route, binding, cron, queue consumer, or traffic split reaches
+      them.
+- [ ] Enforce final deployment order and independent least-privilege tokens.
+      Revoke temporary broad development and staging tokens.
+- [ ] Verify staging, testnet, mainnet, and self-hosted templates express the
+      same role separation and secret-visibility matrix.
+- [ ] Remove fixed-port, temporary-worktree, local-tunnel, and shared-service
+      assumptions. Retain one collision-safe per-worktree local runner.
+
+#### Tests, fixtures, generation, and dependencies
+
+- [ ] Classify each failing or obsolete test before editing. Delete tests,
+      snapshots, fixtures, mocks, factories, guards, and helpers that exist
+      only for the retired profile or an intermediate R120 shape.
+- [ ] Never add production compatibility code to preserve an obsolete test.
+- [ ] Update valid factories to construct only final discriminated unions. Add
+      negative type fixtures for V1 requests, optional identity/epoch fields,
+      broad spreads, raw casts, mixed roles/epochs, and caller-selected context.
+- [ ] Regenerate Rust-to-TypeScript bindings, ECDSA vectors, Ed25519 wires,
+      WASM fixtures, Yao anti-drift evidence, schema manifests, and the boundary
+      inventory using authoritative generators.
+- [ ] Remove stale generated files and exports. A clean regeneration must
+      produce no diff.
+- [ ] Audit Cargo features, crate dependencies, package dependencies, script
+      entries, build aliases, and workspace exports. Remove items used only by
+      deleted adapters, benchmark Workers, or compatibility code.
+- [ ] Delete source guards superseded by types, vectors, constraints, or
+      operating-path tests. Update retained guards to final symbols.
+- [ ] Keep historical V1 proof/release artifacts only in explicit evidence
+      directories and exclude them from production packages and imports.
+
+#### Documentation, observability, and repository cleanup
+
+- [ ] Change this plan from proposed/in progress to complete and reconcile every
+      checkbox. Remove stale R103F, dormant, future-worker, and provisioning
+      claims.
+- [ ] Update architecture, deployment, self-hosting, backup/restore, deletion,
+      incident-response, key-rotation, and operator-refresh documentation to
+      final names and trust boundaries.
+- [ ] Delete superseded operating documents or mark immutable historical
+      evidence so it cannot be mistaken for current guidance.
+- [ ] Remove temporary rollout dashboards, old-profile counters, benchmark
+      alerts, and migration-only alarms after their retention window. Keep
+      redacted current-path health and security telemetry.
+- [ ] Observe zero old-profile traffic, zero old-version parsing, zero
+      unfinished cutover state, zero unknown tenant-root rows, zero orphaned
+      provider keys, and zero unreachable cloud resources for the documented
+      closure window.
+- [ ] Remove temporary branches, worktrees, patches, scratch generation output,
+      local deployment output, and ignored build artifacts only after commits
+      and evidence are preserved. Never clean a dirty worktree broadly.
+- [ ] Record one signed closure receipt containing the release commit, migration
+      heads, deployment IDs, source/build/schema/generated-artifact digests,
+      Phase 0 digest, provider-destruction receipts, and full test matrix.
+
+#### Executable closure searches
+
+Turn these inventory searches into checked-in assertions. Manual review alone
+is not closure evidence.
+
+| Search | Required final result |
+| --- | --- |
+| Prior ECDSA request/context symbols | Zero runtime/generated-binding hits; immutable vectors only as named evidence |
+| Ed25519 V1 outer/pair protocol and deployment-share-hash adapter | Zero production, local-runner, SDK, WASM-export, and binding hits |
+| `RootShareEpoch` in threshold-PRF inputs | Zero request/purpose/transcript hits; every durable survivor listed |
+| `TenantRootShareEpoch` or lineage in R103F/client surfaces | Zero signer-D1, Wallet Session, browser, iframe, device-link, and client-request hits |
+| Deployment-wide root-share bindings | Zero source, generator, workflow, Wrangler, environment, and deployed-secret hits |
+| Superseded Router-prefixed verifier names | Zero hits after no-alias rename |
+| R120 dead-code suppressions, dormant comments, unreachable routes, unused exports | Zero production hits |
+| Dual-profile flags, fallback branches, V1/V2 unions, compatibility readers | Zero runtime hits outside a dated persistence-boundary removal plan |
+| Private root/PRF/provider material outside the owning Deriver | Zero transport, persistence, log, analytics, and generated-public-type hits |
+| R120 fields in frozen R103F B4/B5/client shapes | Zero schema diff from the recorded R103F digest |
+| Obsolete tests, fixtures, mocks, guards, scripts, dependencies, exports | Zero unexplained cleanup-manifest rows |
+
+#### Final verification matrix
+
+- [ ] Run all router-ab-core, router-ab-cloudflare, threshold-prf, Ed25519,
+      signer-core, local-dev, WASM, vector, constant-time, and formal suites on
+      a clean checkout.
+- [ ] Run production Rust feature combinations with warning-clean check,
+      formatting, accepted Clippy policy, and `git diff --check`.
+- [ ] Run TypeScript builds, no-emit checks, type fixtures, unit suites, source
+      boundaries, generated-binding parity, and clean regeneration.
+- [ ] Run the complete intended-behaviour matrix on the exact release tree.
+- [ ] Run creation, refresh, restore, cleanup, deletion, replay,
+      mixed-revision/epoch, tenant-isolation, normal-signing, and provider
+      destruction drills against staging.
+- [ ] Smoke-test both a fresh deployment and an upgraded deployment and compare
+      their binding, migration, and trust manifests.
+- [ ] Run all canonical closure assertions and require zero unexplained hits.
+- [ ] Review the final diff for compatibility code, duplication, stale comments,
+      debug logging, broad visibility, flags, secret exposure, and unrelated
+      user work.
+
+#### Exit gate
+
+Refactor 120 is complete only when:
+
+1. Every cleanup-manifest row has one satisfied terminal disposition.
+2. Every deleted/renamed item has zero runtime hits; every retained item has a
+   concrete reader/verifier and retention reason.
+3. No production R120 module uses dead-code suppression, a dormant path, debug
+   route, legacy flag, V1 fallback, or compatibility union.
+4. No deployed route, revision, binding, Secret, provider key, database row,
+   alarm, queue, token, or benchmark Worker sits outside the signed inventory.
+5. The final verification matrix is green on the signed release commit and
+   deployed revision manifest.
+6. Every **Definition of Done** item is backed by a named test, receipt,
+   inventory assertion, or deployed drill in the signed closure record.
+
+## Reference Invariant Catalogue
+
+These invariants explain the design. They do not require one test each. The
+active plan names the authoritative operating-path tests; focused unit tests
+remain only where they cover a distinct boundary those paths cannot reach.
 
 The implementation is complete only when tests prove:
 
@@ -3022,7 +3498,11 @@ The implementation is complete only when tests prove:
 - R120 activation cannot begin before R103F R5 or while an old Wallet Session
   worker or mismatched R120 derivation revision can serve traffic.
 
-## Definition of Done
+## Historical Definition of Done (reference only)
+
+The active implementation milestones above are the executable definition of
+done. This earlier list is retained for traceability and must not create
+duplicate work.
 
 Refactor 120 is complete when:
 
@@ -3095,7 +3575,7 @@ Refactor 120 is complete when:
   recoverable epoch;
 - claiming cryptographic erasure without executable rollback evidence;
 
-## Remaining Evidence Gates
+## Historical Evidence-Gate Notes (reference only)
 
 One deliberate architecture-selection gate remains before production transport
 and activation integration:

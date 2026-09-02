@@ -3,10 +3,13 @@ use base64::Engine;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use hpke_ng::{DhKemX25519HkdfSha256, Kem};
 use router_ab_core::{
-    RouterAbDerivationError, RouterAbDerivationErrorCode, RouterAbDerivationResult,
-    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
-    TenantRootManagedBackupSealRequestV1, TenantRootManagedRestoreRoleV1,
-    TenantRootSignedManagedBackupV1, TwoPartyDeriverRole,
+    ExecutedTenantRootCommandV1, PendingTenantRootInitialRoleAttemptV1, RouterAbDerivationError,
+    RouterAbDerivationErrorCode, RouterAbDerivationResult, RouterAbProtocolError,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult, TenantRootCeremonyContextV1,
+    TenantRootCommandTerminalReceiptV1, TenantRootManagedBackupSealRequestV1,
+    TenantRootManagedRestoreRoleV1, TenantRootSignedManagedBackupV1, TwoPartyDeriverRole,
+    VerifiedTenantRootCommandSuccessReceiptV1, VerifiedTenantRootCreationCommitmentPairV1,
+    VerifiedTenantRootInitialRoleAttemptV1, VerifiedTenantRootRoleCreationCommandV1,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -764,7 +767,6 @@ fn invalid_operational_config(message: impl Into<String>) -> RouterAbProtocolErr
 
 #[cfg(feature = "workers-rs")]
 /// Loads the role-local operational provider from Cloudflare Env and Secret bindings.
-#[allow(dead_code)]
 pub(crate) fn load_cloudflare_tenant_root_operational_rotation_provider_v1(
     env: &worker::Env,
     worker_role: CloudflareWorkerRoleV1,
@@ -1074,6 +1076,70 @@ impl CloudflareTenantRootCreationRoleSignerV1 {
     /// Returns this signer's public verifier bytes.
     pub(crate) fn verifying_key_bytes(&self) -> [u8; 32] {
         self.signing_key.verifying_key().to_bytes()
+    }
+
+    /// Starts one role-local creation attempt without exposing the signing seed.
+    pub(crate) fn begin_initial_role_attempt<R>(
+        &self,
+        command: VerifiedTenantRootRoleCreationCommandV1,
+        context: TenantRootCeremonyContextV1,
+        now_ms: u64,
+        rng: &mut R,
+    ) -> RouterAbDerivationResult<PendingTenantRootInitialRoleAttemptV1>
+    where
+        R: rand_core_06::RngCore + rand_core_06::CryptoRng,
+    {
+        let seed = Zeroizing::new(self.signing_key.to_bytes());
+        PendingTenantRootInitialRoleAttemptV1::new(
+            command,
+            context,
+            &seed,
+            &self.verifying_key_bytes(),
+            now_ms,
+            rng,
+        )
+    }
+
+    /// Finalizes one live role-local attempt without exposing the signing seed.
+    pub(crate) fn finalize_initial_role_attempt<R>(
+        &self,
+        pending: PendingTenantRootInitialRoleAttemptV1,
+        pair: VerifiedTenantRootCreationCommitmentPairV1,
+        rng: &mut R,
+    ) -> RouterAbDerivationResult<VerifiedTenantRootInitialRoleAttemptV1>
+    where
+        R: rand_core_06::RngCore + rand_core_06::CryptoRng,
+    {
+        let seed = Zeroizing::new(self.signing_key.to_bytes());
+        pending.finalize(pair, &seed, rng)
+    }
+
+    /// Signs and locally verifies one successful terminal receipt for an
+    /// executed command.
+    pub(crate) fn sign_verified_success_terminal_receipt(
+        &self,
+        executed: &ExecutedTenantRootCommandV1,
+        payload: &[u8],
+        terminal_at_ms: u64,
+    ) -> RouterAbDerivationResult<VerifiedTenantRootCommandSuccessReceiptV1> {
+        if executed.key().role() != self.role {
+            return Err(RouterAbDerivationError::new(
+                RouterAbDerivationErrorCode::SignerIdentityMismatch,
+                "tenant-root terminal receipt signer identity does not match command role",
+            ));
+        }
+        let receipt = TenantRootCommandTerminalReceiptV1::sign_success(
+            *executed.key(),
+            executed.command_digest(),
+            payload.to_vec(),
+            terminal_at_ms,
+            self.signing_key_id.clone(),
+            self.signing_key.as_bytes(),
+        )?;
+        let receipt_bytes = receipt.canonical_bytes()?;
+        let decoded = TenantRootCommandTerminalReceiptV1::decode_canonical_bytes(&receipt_bytes)?;
+        let verifying_key = self.verifying_key_bytes();
+        decoded.verify_success(executed, &self.signing_key_id, &verifying_key)
     }
 
     /// Signs one validated managed-backup request with this role-constrained key.
@@ -1724,7 +1790,6 @@ pub(crate) fn decode_role_verifying_keys(
 
 #[cfg(feature = "workers-rs")]
 /// Loads and verifies the current Deriver's dormant tenant-root role-signing Secret.
-#[allow(dead_code)]
 pub(crate) fn load_cloudflare_tenant_root_creation_role_signing_key_v1(
     env: &worker::Env,
     worker_role: CloudflareWorkerRoleV1,

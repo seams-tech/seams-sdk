@@ -361,10 +361,25 @@ impl VerifiedTenantRootRoleCleanupCommandV1 {
         self.data.nonce
     }
 
+    /// Returns the installation-evidence digest of the exact pending row.
+    pub const fn installation_evidence_digest(&self) -> TenantRootProtocolDigestV1 {
+        self.data.installation_evidence_digest
+    }
+
+    /// Returns the authenticated issue timestamp.
+    pub const fn issued_at_ms(&self) -> u64 {
+        self.data.issued_at_ms
+    }
+
     /// Returns the exact canonical signed command bytes.
     pub fn canonical_bytes(&self) -> RouterAbDerivationResult<Vec<u8>> {
         let unsigned = unsigned_canonical_bytes(&self.data)?;
         canonical_bytes_from_unsigned(unsigned, &self.data.signature)
+    }
+
+    /// Returns the digest of the exact verified signed authorization bytes.
+    pub fn digest(&self) -> RouterAbDerivationResult<TenantRootProtocolDigestV1> {
+        TenantRootProtocolDigestV1::from_bytes(Sha256::digest(self.canonical_bytes()?).into())
     }
 
     /// Requires `now_ms` to fall inside the authorized window.

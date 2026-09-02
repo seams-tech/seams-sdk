@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         x25519_public_key(router_local, "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY")?;
 
     let fixture = PrivateD1Fixture {
-        router_env: cloudflare_router_env(router_local, deriver_a_local),
+        router_env: cloudflare_router_env(router_local, deriver_a_local)?,
         deriver_a_env: cloudflare_deriver_a_env(deriver_a_local, router_local)?,
         deriver_b_env: cloudflare_deriver_b_env(deriver_b_local, router_local)?,
         signing_worker_env: cloudflare_signing_worker_env(signing_worker_local)?,
@@ -234,8 +234,8 @@ fn request_fixture(
 fn cloudflare_router_env(
     local: &BTreeMap<String, String>,
     deriver_local: &BTreeMap<String, String>,
-) -> BTreeMap<String, String> {
-    BTreeMap::from([
+) -> Result<BTreeMap<String, String>, Box<dyn std::error::Error>> {
+    let mut env = BTreeMap::from([
         ("ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING".into(), "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET".into()),
         ("ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET".into(), INTERNAL_AUTH_SECRET.into()),
         ("ROUTER_JWT_ISSUER".into(), "https://issuer.example".into()),
@@ -252,7 +252,12 @@ fn cloudflare_router_env(
         ("DERIVER_A_PEER_BINDING".into(), "DERIVER_A".into()),
         ("DERIVER_B_PEER_BINDING".into(), "DERIVER_B".into()),
         ("SIGNING_WORKER_PEER_BINDING".into(), "SIGNING_WORKER".into()),
-    ])
+    ]);
+    env.insert(
+        "TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON".into(),
+        cloudflare_tenant_root_control_plane_issuer_verifying_keys_json()?,
+    );
+    Ok(env)
 }
 
 fn cloudflare_deriver_a_env(

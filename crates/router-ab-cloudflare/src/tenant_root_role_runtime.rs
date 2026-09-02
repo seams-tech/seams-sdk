@@ -11,8 +11,12 @@ use router_ab_core::{
     VerifiedTenantRootCreationCommitmentPairV1, VerifiedTenantRootCreationCommitmentV1,
     VerifiedTenantRootInitialRoleAttemptV1, VerifiedTenantRootManagedBackupShareV1,
     VerifiedTenantRootManagedBackupV1, VerifiedTenantRootOnlineRoleShareV1,
-    VerifiedTenantRootRoleCreationCommandV1,
+    VerifiedTenantRootRoleCreationCommandPackageV1, VerifiedTenantRootRoleCreationCommandV1,
     VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
+};
+#[cfg(feature = "workers-rs")]
+use router_ab_core::{
+    TenantRootCommandTerminalReceiptV1, TenantRootIdentityV1, TenantRootManagedRestoreRoleV1,
 };
 use zeroize::Zeroizing;
 
@@ -22,7 +26,10 @@ use crate::env::{
 };
 #[cfg(feature = "workers-rs")]
 use crate::tenant_root_role_d1::{
-    CloudflareTenantRootInitialCreationInputV1, CloudflareTenantRootInitialCreationShareInputV1,
+    CloudflareTenantRootInitialCreationInputV1,
+    CloudflareTenantRootInitialCreationPersistenceOutcomeV1,
+    CloudflareTenantRootInitialCreationPreflightV1,
+    CloudflareTenantRootInitialCreationShareInputV1, CloudflareTenantRootRoleShareStoreV1,
 };
 use crate::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 
@@ -39,20 +46,13 @@ use crate::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolRe
 ///
 /// On success the Deriver holds a live share it has committed to. The scalar
 /// never leaves this process: only the signed public commitment does.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn admit_tenant_root_role_creation_package_v1<R>(
+pub(crate) fn verify_tenant_root_role_creation_package_v1(
     package_bytes: &[u8],
     worker_role: TwoPartyDeriverRole,
     expected_authority_id: TenantRootControlPlaneAuthorityIdV1,
     trusted_issuer_keys: &CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
     role_signer: &CloudflareTenantRootCreationRoleSignerV1,
-    role_signing_key_bytes: &[u8; 32],
-    now_ms: u64,
-    rng: &mut R,
-) -> RouterAbProtocolResult<PendingTenantRootInitialRoleAttemptV1>
-where
-    R: rand_core_06::RngCore + rand_core_06::CryptoRng,
-{
+) -> RouterAbProtocolResult<VerifiedTenantRootRoleCreationCommandPackageV1> {
     if role_signer.role() != worker_role {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::ForbiddenLocalBinding,
@@ -88,16 +88,33 @@ where
             "tenant-root ceremony does not name this Worker's role signing key",
         ));
     }
-    let verifying_key = role_signer.verifying_key_bytes();
-    PendingTenantRootInitialRoleAttemptV1::new(
-        verified.into_command(),
-        context,
-        role_signing_key_bytes,
-        &verifying_key,
-        now_ms,
-        rng,
-    )
-    .map_err(candidate_derivation_error)
+    Ok(verified)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn admit_tenant_root_role_creation_package_v1<R>(
+    package_bytes: &[u8],
+    worker_role: TwoPartyDeriverRole,
+    expected_authority_id: TenantRootControlPlaneAuthorityIdV1,
+    trusted_issuer_keys: &CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
+    role_signer: &CloudflareTenantRootCreationRoleSignerV1,
+    now_ms: u64,
+    rng: &mut R,
+) -> RouterAbProtocolResult<PendingTenantRootInitialRoleAttemptV1>
+where
+    R: rand_core_06::RngCore + rand_core_06::CryptoRng,
+{
+    let verified = verify_tenant_root_role_creation_package_v1(
+        package_bytes,
+        worker_role,
+        expected_authority_id,
+        trusted_issuer_keys,
+        role_signer,
+    )?;
+    let context = verified.creation_context().clone();
+    role_signer
+        .begin_initial_role_attempt(verified.into_command(), context, now_ms, rng)
+        .map_err(candidate_derivation_error)
 }
 
 fn candidate_derivation_error(error: RouterAbDerivationError) -> RouterAbProtocolError {
@@ -131,7 +148,7 @@ pub(crate) fn finalize_tenant_root_role_attempt_v1<R>(
     pair_wires: &TenantRootCreationCommitmentPairWiresV1,
     context: &TenantRootCeremonyContextV1,
     role_keys: &TenantRootCreationRoleVerifyingKeysV1,
-    role_signing_key_bytes: &[u8; 32],
+    role_signer: &CloudflareTenantRootCreationRoleSignerV1,
     rng: &mut R,
 ) -> RouterAbProtocolResult<VerifiedTenantRootInitialRoleAttemptV1>
 where
@@ -167,8 +184,8 @@ where
     .map_err(candidate_derivation_error)?;
     // finalize() independently requires the pair to contain THIS role's exact
     // commitment, so a pair assembled from someone else's ceremony is refused.
-    pending
-        .finalize(pair, role_signing_key_bytes, rng)
+    role_signer
+        .finalize_initial_role_attempt(pending, pair, rng)
         .map_err(candidate_derivation_error)
 }
 
@@ -241,34 +258,43 @@ pub const DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_REQUEST_MAX_BYTES_V1: usize = 96
 /// role, authority id, clock and signer locally, so nothing in this request
 /// can select them.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CloudflareDeriverTenantRootCreateRoleShareRequestV1 {
-    /// Exact canonical role creation command package, issuer-signed.
-    pub role_creation_command_package_b64u: String,
-    /// The peer's signed public commitment, when the caller already holds it.
-    ///
-    /// Absent on the first leg: that Deriver commits and returns its own
-    /// commitment so the peer can be driven next.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub peer_signed_commitment_b64u: Option<String>,
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareDeriverTenantRootCreateRoleShareRequestV1 {
+    /// Router -> initiating Deriver: run both role legs in one request.
+    Initiator {
+        /// Exact canonical package for this Deriver's role, issuer-signed.
+        role_creation_command_package_b64u: String,
+        /// Exact canonical package to hand to the peer Deriver.
+        peer_role_creation_command_package_b64u: String,
+    },
+    /// Initiating Deriver -> peer Deriver: complete against the initiator's
+    /// public commitment while keeping this Deriver's share request-local.
+    PeerCompletion {
+        /// Exact canonical package for the peer's role, issuer-signed.
+        role_creation_command_package_b64u: String,
+        /// The initiating Deriver's signed public commitment.
+        initiator_signed_commitment_b64u: String,
+    },
 }
 
-/// Deriver -> Router: this role's public result.
+/// Deriver -> caller: the completed role's public result.
 ///
-/// Public evidence only. No scalar, sealed share, or provider ciphertext is
-/// ever named here.
+/// Public evidence only. No scalar, sealed share, provider ciphertext, or
+/// persistence claim is named here. Completion requires the authenticated
+/// terminal receipt returned by the role-private store.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CloudflareDeriverTenantRootCreateRoleShareResponseV1 {
-    /// The role this Deriver executed, from its own runtime.
-    pub role: CloudflareTenantRootCreateRoleV1,
-    /// This role's signed public commitment.
-    pub signed_commitment_b64u: String,
-    /// This role's signed installation evidence, once the pair completed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signed_installation_evidence_b64u: Option<String>,
-    /// True once this role's pending share is durably persisted.
-    pub pending_persisted: bool,
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareDeriverTenantRootCreateRoleShareResponseV1 {
+    Completed {
+        /// The role this Deriver executed, from its own runtime.
+        role: CloudflareTenantRootCreateRoleV1,
+        /// This role's signed public commitment.
+        signed_commitment_b64u: String,
+        /// This role's signed installation evidence.
+        signed_installation_evidence_b64u: String,
+        /// Authenticated terminal receipt for this role's insertion.
+        terminal_receipt_b64u: String,
+    },
 }
 
 /// Role label on the Deriver creation wire.
@@ -338,7 +364,6 @@ pub(crate) fn execute_tenant_root_role_creation_v1<Online, Backup, R>(
     trusted_issuer_keys: &CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
     role_keys: &TenantRootCreationRoleVerifyingKeysV1,
     role_signer: &crate::CloudflareTenantRootCreationRoleSignerV1,
-    role_signing_key_bytes: &[u8; 32],
     provider_config: &TenantRootRoleRuntimeProviderConfigV1,
     online_provider: &mut Online,
     managed_backup_provider: &mut Backup,
@@ -356,7 +381,6 @@ where
         expected_authority_id,
         trusted_issuer_keys,
         role_signer,
-        role_signing_key_bytes,
         now_ms,
         rng,
     )?;
@@ -387,7 +411,7 @@ where
         &pair_wires,
         &context,
         role_keys,
-        role_signing_key_bytes,
+        role_signer,
         rng,
     )?;
     let (input, managed_backup) = seal_initial_role_creation_for_persistence_v1(
@@ -555,14 +579,13 @@ pub(crate) fn verify_tenant_root_peer_persistence_v1(
 pub(crate) trait TenantRootPeerRoleDriverV1 {
     /// Hands the peer everything it needs and receives its public result.
     ///
-    /// The peer receives BOTH command packages and the initiator's exact signed
+    /// The peer receives its command package and the initiator's exact signed
     /// commitment. It cannot recompute that commitment: the initiator's share is
     /// random and lives only in the initiator's process, so the commitment has
     /// to travel.
     async fn drive_peer(
         &mut self,
         peer_package_bytes: &[u8],
-        initiator_package_bytes: &[u8],
         initiator_signed_commitment: &[u8],
     ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1>;
 }
@@ -583,8 +606,8 @@ pub(crate) struct TenantRootPeerRoleOutcomeV1 {
     ///
     /// Fully verified by the initiator against expectations it computes from
     /// public material: the peer's own issuer-signed package yields the replay
-    /// key and command digest, and the ceremony yields the signing key id, the
-    /// trusted verifying key, and the earliest legitimate terminal time.
+    /// key, and the ceremony yields the signing key id, trusted verifying key,
+    /// and earliest legitimate terminal time.
     pub(crate) terminal_receipt: Vec<u8>,
 }
 
@@ -609,7 +632,6 @@ pub(crate) async fn drive_tenant_root_role_creation_as_initiator_v1<Online, Back
     trusted_issuer_keys: &CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
     role_keys: &TenantRootCreationRoleVerifyingKeysV1,
     role_signer: &crate::CloudflareTenantRootCreationRoleSignerV1,
-    role_signing_key_bytes: &[u8; 32],
     provider_config: &TenantRootRoleRuntimeProviderConfigV1,
     online_provider: &mut Online,
     managed_backup_provider: &mut Backup,
@@ -631,7 +653,6 @@ where
         expected_authority_id,
         trusted_issuer_keys,
         role_signer,
-        role_signing_key_bytes,
         now_ms,
         rng,
     )?;
@@ -642,7 +663,7 @@ where
     // peer receives the initiator's exact commitment because it cannot derive
     // it: that share exists only here.
     let peer_outcome = peer
-        .drive_peer(peer_package_bytes, package_bytes, &signed_commitment)
+        .drive_peer(peer_package_bytes, &signed_commitment)
         .await?;
     let peer_role = worker_role.peer();
     let peer_verifying_key = role_keys
@@ -712,7 +733,7 @@ where
         &pair_wires,
         &context,
         role_keys,
-        role_signing_key_bytes,
+        role_signer,
         rng,
     )?;
     let package = TenantRootRoleCreationCommandPackageV1::decode_canonical_bytes(package_bytes)
@@ -734,6 +755,367 @@ where
         input: Box::new(input),
         managed_backup: Box::new(managed_backup),
     })
+}
+
+#[cfg(feature = "workers-rs")]
+struct CloudflareTenantRootCreationPeerV1<'a> {
+    env: &'a worker::Env,
+    binding: &'a crate::CloudflarePeerBindingV1,
+    expected_role: TwoPartyDeriverRole,
+}
+
+#[cfg(feature = "workers-rs")]
+impl TenantRootPeerRoleDriverV1 for CloudflareTenantRootCreationPeerV1<'_> {
+    async fn drive_peer(
+        &mut self,
+        peer_package_bytes: &[u8],
+        initiator_signed_commitment: &[u8],
+    ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
+        let request = CloudflareDeriverTenantRootCreateRoleShareRequestV1::PeerCompletion {
+            role_creation_command_package_b64u: crate::encode_base64url_bytes_v1(
+                peer_package_bytes,
+            ),
+            initiator_signed_commitment_b64u: crate::encode_base64url_bytes_v1(
+                initiator_signed_commitment,
+            ),
+        };
+        let response =
+            crate::execute_cloudflare_deriver_tenant_root_create_role_share_service_call_v1(
+                self.env,
+                self.binding,
+                &request,
+            )
+            .await?;
+        let CloudflareDeriverTenantRootCreateRoleShareResponseV1::Completed {
+            role,
+            signed_commitment_b64u,
+            signed_installation_evidence_b64u,
+            terminal_receipt_b64u,
+        } = response;
+        if role != CloudflareTenantRootCreateRoleV1::from_protocol(self.expected_role) {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root creation peer response came from the wrong Deriver role",
+            ));
+        }
+        Ok(TenantRootPeerRoleOutcomeV1 {
+            signed_commitment: crate::decode_base64url_bytes_v1(
+                "tenant-root peer signed commitment",
+                &signed_commitment_b64u,
+            )?,
+            signed_installation_evidence: crate::decode_base64url_bytes_v1(
+                "tenant-root peer signed installation evidence",
+                &signed_installation_evidence_b64u,
+            )?,
+            terminal_receipt: crate::decode_base64url_bytes_v1(
+                "tenant-root peer terminal receipt",
+                &terminal_receipt_b64u,
+            )?,
+        })
+    }
+}
+
+#[cfg(feature = "workers-rs")]
+fn tenant_root_creation_protocol_role_v1(
+    worker_role: crate::CloudflareWorkerRoleV1,
+) -> RouterAbProtocolResult<TwoPartyDeriverRole> {
+    match worker_role {
+        crate::CloudflareWorkerRoleV1::DeriverA => Ok(TwoPartyDeriverRole::DeriverA),
+        crate::CloudflareWorkerRoleV1::DeriverB => Ok(TwoPartyDeriverRole::DeriverB),
+        crate::CloudflareWorkerRoleV1::Router
+        | crate::CloudflareWorkerRoleV1::SigningWorker
+        | crate::CloudflareWorkerRoleV1::TenantRootControlPlane => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "only a Deriver may execute tenant-root role creation",
+        )),
+    }
+}
+
+#[cfg(feature = "workers-rs")]
+fn tenant_root_managed_restore_role_v1(
+    role: TwoPartyDeriverRole,
+) -> TenantRootManagedRestoreRoleV1 {
+    match role {
+        TwoPartyDeriverRole::DeriverA => TenantRootManagedRestoreRoleV1::DeriverA,
+        TwoPartyDeriverRole::DeriverB => TenantRootManagedRestoreRoleV1::DeriverB,
+    }
+}
+
+#[cfg(feature = "workers-rs")]
+fn tenant_root_creation_package_authority_v1(
+    env: &worker::Env,
+    package_bytes: &[u8],
+) -> RouterAbProtocolResult<TenantRootControlPlaneAuthorityIdV1> {
+    let package = TenantRootRoleCreationCommandPackageV1::decode_canonical_bytes(package_bytes)
+        .map_err(candidate_derivation_error)?;
+    let context = package
+        .creation_context()
+        .map_err(candidate_derivation_error)?;
+    let (authority_id, _) =
+        crate::durable_object::tenant_root_creation::derive_tenant_root_creation_authority_object_v1(
+            env,
+            context.identity_digest(),
+            context.custody_lineage(),
+        )?;
+    Ok(authority_id)
+}
+
+#[cfg(feature = "workers-rs")]
+fn tenant_root_role_runtime_provider_config_from_env_v1(
+    env: &worker::Env,
+    worker_role: crate::CloudflareWorkerRoleV1,
+) -> RouterAbProtocolResult<TenantRootRoleRuntimeProviderConfigV1> {
+    let reader = crate::CloudflareWorkerEnvReaderV1::new(env);
+    let config = crate::env::parse_cloudflare_tenant_root_operational_rotation_provider_config_v1(
+        worker_role,
+        &reader,
+    )?;
+    TenantRootRoleRuntimeProviderConfigV1::new(
+        config.online_epoch_wrapping_key_ref(),
+        config.backup_provider_id(),
+        config.backup_key_version(),
+    )
+    .map_err(candidate_derivation_error)
+}
+
+#[cfg(feature = "workers-rs")]
+fn tenant_root_store_error_v1(
+    operation: &'static str,
+    error: worker::Error,
+) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+        format!("{operation} failed: {error}"),
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+async fn require_fresh_tenant_root_creation_v1(
+    store: &CloudflareTenantRootRoleShareStoreV1,
+    package_bytes: &[u8],
+    role: TwoPartyDeriverRole,
+    authority_id: TenantRootControlPlaneAuthorityIdV1,
+    trusted_issuer_keys: &CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
+    role_signer: &CloudflareTenantRootCreationRoleSignerV1,
+    now_ms: u64,
+) -> RouterAbProtocolResult<()> {
+    let verified = verify_tenant_root_role_creation_package_v1(
+        package_bytes,
+        role,
+        authority_id,
+        trusted_issuer_keys,
+        role_signer,
+    )?;
+    match store
+        .preflight_initial_creation(verified.command(), now_ms)
+        .await
+        .map_err(|error| tenant_root_store_error_v1("tenant-root creation preflight", error))?
+    {
+        CloudflareTenantRootInitialCreationPreflightV1::Fresh => Ok(()),
+        CloudflareTenantRootInitialCreationPreflightV1::InProgress => {
+            Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "tenant-root creation is already in progress and requires cleanup",
+            ))
+        }
+        CloudflareTenantRootInitialCreationPreflightV1::ReplayCompleted { .. } => {
+            Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "tenant-root creation already completed for this role",
+            ))
+        }
+        CloudflareTenantRootInitialCreationPreflightV1::ReplayFailed { .. } => {
+            Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "tenant-root creation already failed for this role",
+            ))
+        }
+    }
+}
+
+#[cfg(feature = "workers-rs")]
+async fn persist_tenant_root_creation_progress_v1(
+    env: &worker::Env,
+    role: TwoPartyDeriverRole,
+    role_signer: &CloudflareTenantRootCreationRoleSignerV1,
+    store: &CloudflareTenantRootRoleShareStoreV1,
+    progress: TenantRootRoleCreationProgressV1,
+    now_ms: u64,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootCreateRoleShareResponseV1> {
+    let TenantRootRoleCreationProgressV1::Sealed {
+        signed_commitment,
+        signed_installation_evidence,
+        input,
+        managed_backup,
+    } = progress
+    else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "tenant-root creation did not complete its commitment pair",
+        ));
+    };
+    let backup_store =
+        crate::tenant_root_managed_backup_r2::CloudflareTenantRootManagedBackupStoreV1::from_env(
+            env,
+            tenant_root_managed_restore_role_v1(role),
+        )
+        .map_err(|error| tenant_root_store_error_v1("tenant-root backup store lookup", error))?;
+    backup_store
+        .put_verified(&managed_backup)
+        .await
+        .map_err(|error| tenant_root_store_error_v1("tenant-root backup persistence", error))?;
+    let persisted = store
+        .persist_initial_creation(*input, role_signer, now_ms, now_ms, now_ms)
+        .await
+        .map_err(|error| tenant_root_store_error_v1("tenant-root role persistence", error))?;
+    let receipt_bytes = match persisted {
+        CloudflareTenantRootInitialCreationPersistenceOutcomeV1::Committed { receipt_bytes } => {
+            receipt_bytes
+        }
+        CloudflareTenantRootInitialCreationPersistenceOutcomeV1::InProgress => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "tenant-root role persistence is already in progress",
+            ));
+        }
+        CloudflareTenantRootInitialCreationPersistenceOutcomeV1::ReplayCompleted { .. } => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "tenant-root role persistence completed before this live attempt",
+            ));
+        }
+        CloudflareTenantRootInitialCreationPersistenceOutcomeV1::ReplayFailed { .. } => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "tenant-root role persistence previously failed",
+            ));
+        }
+    };
+    Ok(
+        CloudflareDeriverTenantRootCreateRoleShareResponseV1::Completed {
+            role: CloudflareTenantRootCreateRoleV1::from_protocol(role),
+            signed_commitment_b64u: crate::encode_base64url_bytes_v1(&signed_commitment),
+            signed_installation_evidence_b64u: crate::encode_base64url_bytes_v1(
+                &signed_installation_evidence,
+            ),
+            terminal_receipt_b64u: crate::encode_base64url_bytes_v1(&receipt_bytes),
+        },
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn handle_cloudflare_deriver_tenant_root_create_role_share_v1(
+    env: &worker::Env,
+    worker_role: crate::CloudflareWorkerRoleV1,
+    peer_binding: &crate::CloudflarePeerBindingV1,
+    request: CloudflareDeriverTenantRootCreateRoleShareRequestV1,
+    now_ms: u64,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootCreateRoleShareResponseV1> {
+    let role = tenant_root_creation_protocol_role_v1(worker_role)?;
+    let reader = crate::CloudflareWorkerEnvReaderV1::new(env);
+    let trusted_issuer_keys =
+        crate::env::parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(&reader)?;
+    let role_keys =
+        crate::env::parse_cloudflare_tenant_root_creation_role_verifying_keys_v1(&reader)?;
+    let (_, role_signer) =
+        crate::env::load_cloudflare_tenant_root_creation_role_signing_key_v1(env, worker_role)?;
+    let provider_config = tenant_root_role_runtime_provider_config_from_env_v1(env, worker_role)?;
+    let store = CloudflareTenantRootRoleShareStoreV1::from_env(env)
+        .map_err(|error| tenant_root_store_error_v1("tenant-root role store lookup", error))?;
+    let mut online_provider =
+        crate::env::load_cloudflare_tenant_root_operational_rotation_provider_v1(env, worker_role)?;
+    let mut backup_provider =
+        crate::env::load_cloudflare_tenant_root_operational_rotation_provider_v1(env, worker_role)?;
+    let mut rng = crate::CloudflareSignerProofGetrandomRngV1;
+
+    let progress = match request {
+        CloudflareDeriverTenantRootCreateRoleShareRequestV1::Initiator {
+            role_creation_command_package_b64u,
+            peer_role_creation_command_package_b64u,
+        } => {
+            let package_bytes = crate::decode_base64url_bytes_v1(
+                "tenant-root role creation package",
+                &role_creation_command_package_b64u,
+            )?;
+            let peer_package_bytes = crate::decode_base64url_bytes_v1(
+                "tenant-root peer role creation package",
+                &peer_role_creation_command_package_b64u,
+            )?;
+            let authority_id = tenant_root_creation_package_authority_v1(env, &package_bytes)?;
+            require_fresh_tenant_root_creation_v1(
+                &store,
+                &package_bytes,
+                role,
+                authority_id,
+                &trusted_issuer_keys,
+                &role_signer,
+                now_ms,
+            )
+            .await?;
+            let mut peer = CloudflareTenantRootCreationPeerV1 {
+                env,
+                binding: peer_binding,
+                expected_role: role.peer(),
+            };
+            drive_tenant_root_role_creation_as_initiator_v1(
+                &package_bytes,
+                &peer_package_bytes,
+                role,
+                authority_id,
+                &trusted_issuer_keys,
+                &role_keys,
+                &role_signer,
+                &provider_config,
+                &mut online_provider,
+                &mut backup_provider,
+                &mut peer,
+                now_ms,
+                &mut rng,
+            )
+            .await?
+        }
+        CloudflareDeriverTenantRootCreateRoleShareRequestV1::PeerCompletion {
+            role_creation_command_package_b64u,
+            initiator_signed_commitment_b64u,
+        } => {
+            let package_bytes = crate::decode_base64url_bytes_v1(
+                "tenant-root role creation package",
+                &role_creation_command_package_b64u,
+            )?;
+            let initiator_signed_commitment = crate::decode_base64url_bytes_v1(
+                "tenant-root initiator signed commitment",
+                &initiator_signed_commitment_b64u,
+            )?;
+            let authority_id = tenant_root_creation_package_authority_v1(env, &package_bytes)?;
+            require_fresh_tenant_root_creation_v1(
+                &store,
+                &package_bytes,
+                role,
+                authority_id,
+                &trusted_issuer_keys,
+                &role_signer,
+                now_ms,
+            )
+            .await?;
+            execute_tenant_root_role_creation_v1(
+                &package_bytes,
+                Some(&initiator_signed_commitment),
+                role,
+                authority_id,
+                &trusted_issuer_keys,
+                &role_keys,
+                &role_signer,
+                &provider_config,
+                &mut online_provider,
+                &mut backup_provider,
+                now_ms,
+                &mut rng,
+            )?
+        }
+    };
+
+    persist_tenant_root_creation_progress_v1(env, role, &role_signer, &store, progress, now_ms)
+        .await
 }
 
 /// Operations needed by one role-local online-share provider.
@@ -1726,7 +2108,6 @@ pub(crate) mod admission_tests {
             authority(),
             &trusted_issuer_keys(),
             &signer(role),
-            &role_key(role).to_bytes(),
             ISSUED_AT_MS + 2,
             &mut ChaCha20Rng::from_seed([seed; 32]),
         )
@@ -1773,7 +2154,6 @@ pub(crate) mod admission_tests {
             authority_id,
             &trusted_issuer_keys(),
             &signer(worker_role),
-            &role_key(worker_role).to_bytes(),
             now_ms,
             &mut ChaCha20Rng::from_seed([0x77; 32]),
         )
@@ -1874,7 +2254,6 @@ pub(crate) mod admission_tests {
                 authority(),
                 &trusted_issuer_keys(),
                 &mismatched,
-                &role_key(role).to_bytes(),
                 ISSUED_AT_MS + 2,
                 &mut ChaCha20Rng::from_seed([0x77; 32]),
             )
@@ -1891,7 +2270,6 @@ pub(crate) mod admission_tests {
                 authority(),
                 &trusted_issuer_keys(),
                 &signer(TwoPartyDeriverRole::DeriverB),
-                &role_key(role).to_bytes(),
                 ISSUED_AT_MS + 2,
                 &mut ChaCha20Rng::from_seed([0x77; 32]),
             )
@@ -1955,7 +2333,7 @@ mod exchange_tests {
                 &wires,
                 &test_context(),
                 &test_role_keys(),
-                &test_role_key(role).to_bytes(),
+                &signer(role),
                 &mut rng(0x91),
             )
             .expect("finalized");
@@ -1990,7 +2368,7 @@ mod exchange_tests {
                 &foreign,
                 &test_context(),
                 &test_role_keys(),
-                &test_role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
+                &signer(TwoPartyDeriverRole::DeriverA),
                 &mut rng(0x91),
             )
             .is_err(),
@@ -2011,7 +2389,7 @@ mod exchange_tests {
             &swapped,
             &test_context(),
             &test_role_keys(),
-            &test_role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
+            &signer(TwoPartyDeriverRole::DeriverA),
             &mut rng(0x91),
         )
         .is_err());
@@ -2027,7 +2405,7 @@ mod exchange_tests {
             &duplicated,
             &test_context(),
             &test_role_keys(),
-            &test_role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
+            &signer(TwoPartyDeriverRole::DeriverA),
             &mut rng(0x91),
         )
         .is_err());
@@ -2050,7 +2428,7 @@ mod exchange_tests {
                     &tampered,
                     &test_context(),
                     &test_role_keys(),
-                    &test_role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
+                    &signer(TwoPartyDeriverRole::DeriverA),
                     &mut rng(0x91),
                 )
                 .is_err(),
@@ -2085,7 +2463,7 @@ mod exchange_tests {
                 &wires,
                 &test_context(),
                 &test_role_keys(),
-                &test_role_key(role).to_bytes(),
+                &signer(role),
                 &mut rng(0x91),
             )
             .expect("finalized");
@@ -2156,7 +2534,6 @@ pub(crate) mod live_execution_tests {
             &trusted_issuer_keys(),
             &test_role_keys(),
             &signer(role),
-            &role_key(role).to_bytes(),
             &provider_config(),
             &mut online,
             &mut backup,
@@ -2230,7 +2607,6 @@ pub(crate) mod live_execution_tests {
                     &trusted_issuer_keys(),
                     &test_role_keys(),
                     &signer(worker),
-                    &role_key(worker).to_bytes(),
                     &provider_config(),
                     &mut online,
                     &mut backup,
@@ -2246,24 +2622,37 @@ pub(crate) mod live_execution_tests {
     /// The request surface cannot select role, authority, clock, or signer.
     #[test]
     fn the_deriver_request_surface_carries_only_signed_and_public_material() {
-        let request = CloudflareDeriverTenantRootCreateRoleShareRequestV1 {
+        let request = CloudflareDeriverTenantRootCreateRoleShareRequestV1::Initiator {
             role_creation_command_package_b64u: "abc".to_owned(),
-            peer_signed_commitment_b64u: None,
+            peer_role_creation_command_package_b64u: "peer-package".to_owned(),
         };
         let json = serde_json::to_value(&request).expect("json");
-        let keys: Vec<&str> = json
-            .as_object()
-            .expect("object")
-            .keys()
-            .map(String::as_str)
-            .collect();
-        assert_eq!(keys, ["role_creation_command_package_b64u"]);
+        assert_eq!(json["kind"], "initiator");
+        assert_eq!(json["role_creation_command_package_b64u"], "abc");
+        assert_eq!(
+            json["peer_role_creation_command_package_b64u"],
+            "peer-package"
+        );
+
+        let request = CloudflareDeriverTenantRootCreateRoleShareRequestV1::PeerCompletion {
+            role_creation_command_package_b64u: "peer-package".to_owned(),
+            initiator_signed_commitment_b64u: "commitment".to_owned(),
+        };
+        let json = serde_json::to_value(&request).expect("json");
+        assert_eq!(json["kind"], "peer_completion");
+        assert_eq!(json["role_creation_command_package_b64u"], "peer-package");
+        assert_eq!(json["initiator_signed_commitment_b64u"], "commitment");
 
         for smuggled in [
             r#"{"role_creation_command_package_b64u":"a","role":"deriver_a"}"#,
             r#"{"role_creation_command_package_b64u":"a","authority_id_b64u":"x"}"#,
             r#"{"role_creation_command_package_b64u":"a","now_ms":1}"#,
             r#"{"role_creation_command_package_b64u":"a","signing_key_id":"k"}"#,
+            r#"{"kind":"initiator","role_creation_command_package_b64u":"a"}"#,
+            r#"{"kind":"initiator","role_creation_command_package_b64u":"a","peer_role_creation_command_package_b64u":"b","initiator_signed_commitment_b64u":"c"}"#,
+            r#"{"kind":"peer_completion","role_creation_command_package_b64u":"a"}"#,
+            r#"{"kind":"peer_completion","role_creation_command_package_b64u":"a","initiator_role_creation_command_package_b64u":"b","initiator_signed_commitment_b64u":"c"}"#,
+            r#"{"kind":"peer_completion","role_creation_command_package_b64u":"a","initiator_signed_commitment_b64u":"c","pending_persisted":true}"#,
         ] {
             assert!(
                 serde_json::from_str::<CloudflareDeriverTenantRootCreateRoleShareRequestV1>(
@@ -2295,15 +2684,31 @@ pub(crate) mod live_execution_tests {
         };
 
         // Everything this Deriver would put on the wire back to the Router.
-        let response = CloudflareDeriverTenantRootCreateRoleShareResponseV1 {
+        let response = CloudflareDeriverTenantRootCreateRoleShareResponseV1::Completed {
             role: CloudflareTenantRootCreateRoleV1::from_protocol(TwoPartyDeriverRole::DeriverB),
             signed_commitment_b64u: crate::encode_base64url_bytes_v1(&signed_commitment),
-            signed_installation_evidence_b64u: Some(crate::encode_base64url_bytes_v1(
+            signed_installation_evidence_b64u: crate::encode_base64url_bytes_v1(
                 &signed_installation_evidence,
-            )),
-            pending_persisted: true,
+            ),
+            terminal_receipt_b64u: crate::encode_base64url_bytes_v1(b"terminal-receipt"),
         };
         let response_json = serde_json::to_string(&response).expect("response json");
+        assert!(response_json.contains("\"kind\":\"completed\""));
+        assert!(response_json.contains("terminal_receipt_b64u"));
+        assert!(!response_json.contains("pending_persisted"));
+        for incomplete in [
+            r#"{"role":"deriver_b","signed_commitment_b64u":"c","signed_installation_evidence_b64u":"e","terminal_receipt_b64u":"r"}"#,
+            r#"{"kind":"completed","role":"deriver_b","signed_commitment_b64u":"c","signed_installation_evidence_b64u":"e"}"#,
+            r#"{"kind":"completed","role":"deriver_b","signed_commitment_b64u":"c","signed_installation_evidence_b64u":"e","terminal_receipt_b64u":"r","pending_persisted":true}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<CloudflareDeriverTenantRootCreateRoleShareResponseV1>(
+                    incomplete
+                )
+                .is_err(),
+                "response must reject {incomplete}"
+            );
+        }
 
         // B's scalar, recovered from the record it is about to persist.
         let sealed = input.sealed_share_ciphertext_for_test();
@@ -2347,7 +2752,6 @@ mod initiator_tests {
     struct RealPeer {
         role: TwoPartyDeriverRole,
         received_initiator_commitment: Option<Vec<u8>>,
-        received_initiator_package: Option<Vec<u8>>,
         withhold_receipt: bool,
         calls: usize,
     }
@@ -2357,7 +2761,6 @@ mod initiator_tests {
             Self {
                 role,
                 received_initiator_commitment: None,
-                received_initiator_package: None,
                 withhold_receipt: false,
                 calls: 0,
             }
@@ -2404,12 +2807,10 @@ mod initiator_tests {
         async fn drive_peer(
             &mut self,
             peer_package_bytes: &[u8],
-            initiator_package_bytes: &[u8],
             initiator_signed_commitment: &[u8],
         ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
             self.calls += 1;
             self.received_initiator_commitment = Some(initiator_signed_commitment.to_vec());
-            self.received_initiator_package = Some(initiator_package_bytes.to_vec());
 
             let mut online = InMemoryProvider::new();
             let mut backup = InMemoryProvider::new();
@@ -2421,7 +2822,6 @@ mod initiator_tests {
                 &trusted_issuer_keys(),
                 &test_role_keys(),
                 &signer(self.role),
-                &role_key(self.role).to_bytes(),
                 &test_provider_config(),
                 &mut online,
                 &mut backup,
@@ -2462,7 +2862,6 @@ mod initiator_tests {
             &mut self,
             _: &[u8],
             _: &[u8],
-            _: &[u8],
         ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
             Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
@@ -2479,16 +2878,11 @@ mod initiator_tests {
         async fn drive_peer(
             &mut self,
             peer_package_bytes: &[u8],
-            initiator_package_bytes: &[u8],
             initiator_signed_commitment: &[u8],
         ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
             let mut honest = RealPeer::new(self.role);
             let mut outcome = honest
-                .drive_peer(
-                    peer_package_bytes,
-                    initiator_package_bytes,
-                    initiator_signed_commitment,
-                )
+                .drive_peer(peer_package_bytes, initiator_signed_commitment)
                 .await?;
             // Corrupt the evidence so its signature no longer verifies.
             outcome.signed_installation_evidence[0] ^= 0xff;
@@ -2509,7 +2903,6 @@ mod initiator_tests {
             &trusted_issuer_keys(),
             &test_role_keys(),
             &signer(TwoPartyDeriverRole::DeriverA),
-            &role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
             &test_provider_config(),
             &mut online,
             &mut backup,
@@ -2529,7 +2922,7 @@ mod initiator_tests {
     /// This is the property the earlier test masked: B cannot derive A's
     /// commitment, so the orchestration must transport it.
     #[test]
-    fn the_peer_receives_the_initiators_exact_commitment_and_package() {
+    fn the_peer_receives_the_initiators_exact_commitment() {
         let mut peer = RealPeer::new(TwoPartyDeriverRole::DeriverB);
         let progress = block_on(drive(&mut peer)).expect("initiator sealed");
         assert_eq!(peer.calls, 1, "the peer is driven exactly once");
@@ -2546,11 +2939,6 @@ mod initiator_tests {
         assert_eq!(
             received, signed_commitment,
             "the peer must receive the initiator's exact commitment"
-        );
-        assert_eq!(
-            peer.received_initiator_package.expect("package"),
-            package_bytes(TwoPartyDeriverRole::DeriverA, &ISSUER_KEY),
-            "the peer must receive the initiator's exact package"
         );
     }
 
@@ -2585,16 +2973,11 @@ mod initiator_tests {
             async fn drive_peer(
                 &mut self,
                 peer_package_bytes: &[u8],
-                initiator_package_bytes: &[u8],
                 initiator_signed_commitment: &[u8],
             ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
                 let mut honest = RealPeer::new(self.0);
                 let mut outcome = honest
-                    .drive_peer(
-                        peer_package_bytes,
-                        initiator_package_bytes,
-                        initiator_signed_commitment,
-                    )
+                    .drive_peer(peer_package_bytes, initiator_signed_commitment)
                     .await?;
                 // A real signature over a real replay key, but attesting other bytes.
                 outcome.terminal_receipt = peer_terminal_receipt(
@@ -2620,16 +3003,11 @@ mod initiator_tests {
             async fn drive_peer(
                 &mut self,
                 peer_package_bytes: &[u8],
-                initiator_package_bytes: &[u8],
                 initiator_signed_commitment: &[u8],
             ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
                 let mut honest = RealPeer::new(self.0);
                 let mut outcome = honest
-                    .drive_peer(
-                        peer_package_bytes,
-                        initiator_package_bytes,
-                        initiator_signed_commitment,
-                    )
+                    .drive_peer(peer_package_bytes, initiator_signed_commitment)
                     .await?;
                 outcome.terminal_receipt = peer_terminal_receipt(
                     self.0,
@@ -2660,7 +3038,6 @@ mod initiator_tests {
             async fn drive_peer(
                 &mut self,
                 peer_package_bytes: &[u8],
-                initiator_package_bytes: &[u8],
                 _initiator_signed_commitment: &[u8],
             ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
                 // Build a SECOND initiator commitment the real initiator never
@@ -2669,11 +3046,7 @@ mod initiator_tests {
                 let other_commitment = other_initiator.commitment_bytes().to_vec();
                 let mut honest = RealPeer::new(self.0);
                 honest
-                    .drive_peer(
-                        peer_package_bytes,
-                        initiator_package_bytes,
-                        &other_commitment,
-                    )
+                    .drive_peer(peer_package_bytes, &other_commitment)
                     .await
             }
         }
@@ -2729,7 +3102,6 @@ mod progress_debug_tests {
             &trusted_issuer_keys(),
             &test_role_keys(),
             &signer(TwoPartyDeriverRole::DeriverA),
-            &role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
             &test_provider_config(),
             &mut online,
             &mut backup,

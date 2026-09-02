@@ -95,7 +95,7 @@ fn storage_for_role(
         TenantRootRevisionParticipantRoleV1::DeriverA
         | TenantRootRevisionParticipantRoleV1::DeriverB => {
             TenantRootParticipantStorageRevisionV1::RolePrivateD1 {
-                migration_head: "0003_tenant_root_command_replays".to_owned(),
+                migration_head: "0004_tenant_root_creation_admission".to_owned(),
             }
         }
         TenantRootRevisionParticipantRoleV1::WalletServer
@@ -190,7 +190,7 @@ fn exact_revision_set_has_frozen_canonical_digest_and_round_trips() {
         .expect("manifest");
     assert_eq!(
         encode_hex(manifest.digest().expect("digest").as_bytes()),
-        "fc10ea13f4f9993dbdb4fd98604c7289c14007df0f7035ba46fb2237e0e3ad45"
+        "e7629215ff381a0a0ff5d5e15b0352d75e5703b56a6ca7189f398ee1f34946d6"
     );
     let json = serde_json::to_string(&manifest).expect("json");
     let decoded: TenantRootRevisionManifestV1 = serde_json::from_str(&json).expect("decode");
@@ -351,7 +351,7 @@ fn deriver_roles_require_distinct_private_configuration_digests() {
         profile: TenantRootDerivationProfileV1::RoleTargetedThresholdPrfV1,
         yao_artifacts: common,
         storage: TenantRootParticipantStorageRevisionV1::RolePrivateD1 {
-            migration_head: "0003_tenant_root_command_replays".to_owned(),
+            migration_head: "0004_tenant_root_creation_admission".to_owned(),
         },
     })
     .expect("deriver B participant");
