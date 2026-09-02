@@ -322,7 +322,7 @@ keep a closed surface alive.
 
 Content inside a measured modal must not animate its own layout height. The
 controller eases the box to each measured→measured change (`startSurfaceResize`,
-220ms, from the box's current visual rectangle), so a child transition that
+`SURFACE_RESIZE_DURATION_MS`, from the box's current visual rectangle), so a child transition that
 streams one measurement per frame makes the box chase a moving target and
 trail the card, which is clipped at the iframe edge until the ease lands. A
 tree node therefore hands its height motion to the confirmer host first

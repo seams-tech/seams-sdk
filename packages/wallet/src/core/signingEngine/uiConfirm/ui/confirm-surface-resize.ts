@@ -3,7 +3,7 @@
  *
  * In the wallet-iframe modal surface the parent window sizes the iframe to hug
  * this confirmer (surface-measurement-reporter.ts) and eases the box to every
- * new size it hears about (OverlayController.startSurfaceResize, ~220ms). A
+ * new size it hears about (OverlayController.startSurfaceResize). A
  * tree node that animates its own height fights that ease: every frame of the
  * tree's transition posts a fresh measurement, the box restarts its ease from
  * wherever it is, and the card — anchored to the iframe's top-left and already

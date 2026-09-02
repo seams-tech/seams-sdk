@@ -51,7 +51,11 @@ type SurfaceRect = {
   height: number;
 };
 
-const SURFACE_RESIZE_DURATION_MS = 220;
+// The single motion for a measured request modal: the child never animates
+// its own layout height while the box hugs it, it fills whatever box this
+// ease has made (confirm-surface-resize.ts), so this is the duration a user
+// sees for a tree expand or a content swap.
+const SURFACE_RESIZE_DURATION_MS = 180;
 
 function finiteSurfaceRect(rect: DOMRect): SurfaceRect | null {
   if (
@@ -67,10 +71,7 @@ function finiteSurfaceRect(rect: DOMRect): SurfaceRect | null {
   return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
 }
 
-function surfaceResizeKeyframes(
-  origin: SurfaceRect,
-  destination: SurfaceRect,
-): Keyframe[] {
+function surfaceResizeKeyframes(origin: SurfaceRect, destination: SurfaceRect): Keyframe[] {
   return [
     {
       top: `${origin.top}px`,
