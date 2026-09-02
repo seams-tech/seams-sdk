@@ -2,7 +2,7 @@
 
 Date frozen: August 18, 2026
 
-Current addenda reconciled: August 29, 2026
+Current addenda reconciled: September 2, 2026
 
 Status: historical snapshot. It records the pre-closeout classification and is
 not an extraction manifest or evidence that the current tree satisfies the
@@ -173,9 +173,11 @@ factor, not R130A's deleted inbound-email recovery.
 `webauthn_authenticators`, `webauthn_challenges`,
 `webauthn_credential_bindings`.
 
-The private role-storage migrations under
+The role-private storage migrations under
 `crates/router-ab-cloudflare/migrations/` (deriver-a, deriver-b,
-signing-worker) are Wallet runtime ownership.
+signing-worker) are Wallet runtime ownership and move to the public repository.
+After R120 merges, this includes each Deriver's tenant-root role-share and
+command-replay migrations.
 
 ## Boundary Guard
 
@@ -514,13 +516,54 @@ pipelines:
 | Pipeline | Owns | Must never write |
 | --- | --- | --- |
 | Console | Console Pages/Worker/D1, Console session and OAuth secrets, Console email/webhook/billing inputs, Console routes and origins | Wallet Gateway/Runtime, hosted Wallet, signer, Router A/B, root-share, ceremony, signing-session, or relayer values |
-| Wallet system | Wallet Gateway/Runtime, hosted Wallet Pages, signer D1, Router A/B workers and role D1s, protocol keys, root shares, ceremony/signing-session material, relayer and Wallet-network values | Console D1, Console session/OAuth/email/webhook/billing values, Console Pages/Worker, or Console routes |
+| Wallet system | Wallet Gateway/Runtime, hosted Wallet Pages, signer D1, Router A/B workers and role D1s, R120 tenant-root control plane, protocol keys, root shares, role-sealing/backup/creation keys, ceremony/signing-session material, relayer and Wallet-network values | Console D1, Console session/OAuth/email/webhook/billing values, Console Pages/Worker, or Console routes |
 
 Each pipeline receives its own target file, generator, protected GitHub
 environments, update/rotation command, backup output, and deploy workflow. A
 shared read-only handoff may contain public origins, network names, service
 binding names, and deployed artifact versions. It contains no secret and grants
 neither pipeline write access to the other's environments.
+
+Within the Wallet-system pipeline, R120 keeps independent protected
+environments for the tenant-root control plane, Router, Deriver A, Deriver B,
+and Signing Worker. The issuer private key belongs only to the control-plane
+Worker. Each Deriver owns distinct online-sealing, managed-backup, and
+role-creation keys. The Signing Worker receives none of those authorities.
+
+## September 2 Pre-R105 Addendum
+
+R105 starts from `dev` only after Refactor 120 completes and merges. Phase 0
+must regenerate this inventory from that merged commit. The current R120 branch
+is implementation input rather than a valid extraction reference.
+
+The latest `dev` commits add two migration details that the final inventory
+must classify:
+
+- `packages/console-server-ts/scripts/d1-local-migrate-signer.mjs` currently
+  copies and adapts a signer migration for local `workerd`. The compatibility
+  adapter is generic Wallet-runtime behavior and moves behind an installed
+  `@seams/wallet-server` local-migration command. Console owns no signer
+  migration transformation after the split.
+- `packages/console-server-ts/scripts/apply-remote-d1-migrations.mjs` now
+  checkpoints migration fingerprints after each successful file. Remote
+  application remains private Wallet-system orchestration and consumes the
+  exact migration manifest, heads, and fingerprints shipped by the installed
+  `@seams/wallet-server` version.
+
+R120 adds the following ownership:
+
+- public Wallet implementation: tenant-root protocol and lifecycle source,
+  the generic tenant-root control-plane/Router/Deriver runtime, role-private
+  Deriver schemas and migrations, generic key-generation primitives, tests,
+  and typed binding contracts;
+- private monorepo: all existing and R120 production/staging workflows, real
+  targets and Worker names, provider configuration, role secrets, target/apply
+  wrappers, architecture-selection evidence, rollout/rollback records, and
+  operational plans;
+- npm release boundary: `@seams/wallet-server` ships prebuilt Worker/Wasm
+  artifacts plus a manifest naming the exact control-plane, Router, Deriver,
+  and Signing Worker artifacts and all migration heads/fingerprints. Private
+  deployment consumes that manifest without Cargo or public source access.
 
 ## Current Repository Destination Addendum
 

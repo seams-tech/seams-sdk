@@ -3,7 +3,7 @@
  *
  * In the wallet-iframe modal surface the parent window sizes the iframe to hug
  * this confirmer (surface-measurement-reporter.ts) and eases the box to every
- * new size it hears about (OverlayController.startSurfaceResize, ~220ms). A
+ * new size it hears about (OverlayController.startSurfaceResize). A
  * tree node that animates its own height fights that ease: every frame of the
  * tree's transition posts a fresh measurement, the box restarts its ease from
  * wherever it is, and the card — anchored to the iframe's top-left and already
@@ -37,6 +37,16 @@ export const CONFIRM_SURFACE_PINNED_CLASS = 'w3a-confirm-surface-pinned';
 const SETTLED_FRAMES_AFTER_MOTION = 8;
 /** Frames to wait for the parent to react at all before giving up on it. */
 const SETTLED_FRAMES_WITHOUT_MOTION = 20;
+/**
+ * The parent writes the destination box and forces a layout BEFORE it starts
+ * its ease, and a cross-origin iframe receives that destination size for one
+ * frame before the animation snaps it back to the origin. Landing on that
+ * frame finishes the interior instantly and leaves the box to ease on its
+ * own — the exact jank this module exists to remove. A box that jumps straight
+ * to the target therefore has to stay there this many frames before the body
+ * lands on it; a box that eased through intermediate sizes lands at once.
+ */
+const LANDING_CONFIRM_FRAMES = 3;
 /** The parent rounds the measured size; allow that much slack when asking whether the box hugs the host. */
 const HUG_TOLERANCE_CSS_PX = 1;
 
@@ -58,6 +68,10 @@ type ActiveResize = {
   lastViewportPx: number;
   framesSinceChange: number;
   moved: boolean;
+  /** The box was seen strictly between origin and target, so it is easing. */
+  sawIntermediate: boolean;
+  /** Consecutive frames the box has reported the target without easing there. */
+  framesAtTarget: number;
   frame: number | null;
 };
 
@@ -147,14 +161,28 @@ export function attachConfirmSurfaceResizeChoreographer(
       current.framesSinceChange += 1;
     }
     const bodyPx = clamp(viewportPx - current.closedHostPx, 0, current.deltaCssPx);
-    current.driver.setHeightCssPx(bodyPx);
     // The pinned target is what the parent applies, rounded on both sides, so
     // the box reaches it exactly; a box the parent clamps short settles below.
-    const reached = current.open ? bodyPx >= current.deltaCssPx : bodyPx <= 0;
+    const atTarget = current.open ? bodyPx >= current.deltaCssPx : bodyPx <= 0;
+    if (atTarget) {
+      current.framesAtTarget += 1;
+      if (current.sawIntermediate || current.framesAtTarget >= LANDING_CONFIRM_FRAMES) {
+        settle();
+        return;
+      }
+      // Hold the body where it is: this may be the destination blip.
+      current.frame = requestAnimationFrame(step);
+      return;
+    }
+    current.framesAtTarget = 0;
+    if (current.open ? bodyPx > 0 : bodyPx < current.deltaCssPx) {
+      current.sawIntermediate = true;
+    }
+    current.driver.setHeightCssPx(bodyPx);
     const settledFrames = current.moved
       ? SETTLED_FRAMES_AFTER_MOTION
       : SETTLED_FRAMES_WITHOUT_MOTION;
-    if (reached || current.framesSinceChange >= settledFrames) {
+    if (current.framesSinceChange >= settledFrames) {
       settle();
       return;
     }
@@ -197,6 +225,8 @@ export function attachConfirmSurfaceResizeChoreographer(
       lastViewportPx: viewportPx,
       framesSinceChange: 0,
       moved: false,
+      sawIntermediate: false,
+      framesAtTarget: 0,
       frame: null,
     };
     active.frame = requestAnimationFrame(step);

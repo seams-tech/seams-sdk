@@ -322,7 +322,7 @@ keep a closed surface alive.
 
 Content inside a measured modal must not animate its own layout height. The
 controller eases the box to each measured→measured change (`startSurfaceResize`,
-220ms, from the box's current visual rectangle), so a child transition that
+`SURFACE_RESIZE_DURATION_MS`, from the box's current visual rectangle), so a child transition that
 streams one measurement per frame makes the box chase a moving target and
 trail the card, which is clipped at the iframe edge until the ease lands. A
 tree node therefore hands its height motion to the confirmer host first
@@ -332,6 +332,13 @@ and feeds the node's body height back from the iframe viewport frame by frame,
 so the card fills exactly the room the box has made. A box that does not hug
 the host (clamped, full-viewport fallback, standalone surface) leaves the tree
 to its own transition, which cannot be clipped there.
+
+For the same reason, nothing inside a measured modal may size itself in
+viewport units: inside the iframe the viewport _is_ the box the parent just
+sized to the content, so a `max-height: 40vh` block grows on every ease, posts
+a larger measurement, and the box chases it while the interior re-lays out
+instantly (`tx-confirmer.css` pins those caps to rem values under
+`data-w3a-confirm-surface='wallet-iframe'`).
 
 ## Ownership and lifecycle
 

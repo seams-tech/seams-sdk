@@ -308,6 +308,65 @@ test.describe('wallet-iframe confirm surface resize choreography', () => {
     ]);
   });
 
+  test('does not land on the one-frame destination blip before the parent eases', async ({
+    page,
+  }) => {
+    // The parent writes the destination geometry and forces a layout before
+    // its ease starts, so a cross-origin iframe sees the final size for one
+    // frame, then the origin again, then the ease. Landing on the blip would
+    // finish the interior instantly while the box still has to travel.
+    const { closedPx } = await mountTreeHost(page, { surface: 'wallet-iframe' });
+
+    await clickNode(page);
+    await frames(page, 2);
+    const pinned = await snapshot(page);
+    expect(pinned.pinned).toBe(true);
+    const deltaPx = pinned.begins[0].deltaCssPx;
+
+    await setViewport(page, closedPx + deltaPx);
+    await frames(page, 1);
+    const blip = await snapshot(page);
+    expect(blip.pinned).toBe(true);
+    expect(blip.bodyPx).toBe(0);
+    expect(blip.toggled).toBe(0);
+
+    await setViewport(page, closedPx);
+    await frames(page, 1);
+    const back = await snapshot(page);
+    expect(back.pinned).toBe(true);
+    expect(back.bodyPx).toBe(0);
+
+    for (const fraction of [0.3, 0.6]) {
+      const viewportPx = closedPx + Math.round(deltaPx * fraction);
+      await setViewport(page, viewportPx);
+      await frames(page, 1);
+      expect((await snapshot(page)).bodyPx).toBe(viewportPx - closedPx);
+    }
+    await setViewport(page, closedPx + deltaPx);
+    await frames(page, 2);
+    const settled = await snapshot(page);
+    expect(settled.pinned).toBe(false);
+    expect(settled.bodyPx).toBe(deltaPx);
+    expect(settled.toggled).toBe(1);
+    expect(distinct(settled.hostHeights).filter((px) => px !== closedPx)).toEqual([
+      closedPx + deltaPx,
+    ]);
+  });
+
+  test('lands on a box that jumps to the target and stays there', async ({ page }) => {
+    const { closedPx } = await mountTreeHost(page, { surface: 'wallet-iframe' });
+    await clickNode(page);
+    await frames(page, 2);
+    const deltaPx = (await snapshot(page)).begins[0].deltaCssPx;
+    await setViewport(page, closedPx + deltaPx);
+    await frames(page, 5);
+    const settled = await snapshot(page);
+    expect(settled.pinned).toBe(false);
+    expect(settled.open).toBe(true);
+    expect(settled.bodyPx).toBe(deltaPx);
+    expect(settled.toggled).toBe(1);
+  });
+
   test('a box that does not hug the host leaves the tree to its own transition', async ({
     page,
   }) => {

@@ -2,10 +2,14 @@
 
 Date created: August 27, 2026
 
+Last reconciled: September 2, 2026 (latest `dev` and pre-merge Refactor 120)
+
 Status: planned. This plan executes the tree confirmation required by
 [Refactor 105](./refactor-105-split-console.md) "Boundary Closeout And Final
 Split" and removes the gaps it found. Refactor 105 Phase 7 remains blocked
-until this plan's definition of done is met.
+until this plan's definition of done is met. Refactor 120 must complete and
+merge into `dev` before this plan starts; rerun the path inventory against that
+merged commit before editing.
 
 ## Decision
 
@@ -88,6 +92,14 @@ carries `d1:local:migrate:signer` and `d1:staging:signer-custody` scripts.
 Composition wiring that names wallet artifacts belongs to the wallet
 composition owner, not the product-neutral core package. (The stale
 `.wrangler/generated/gateway.jsonc` is untracked; no repository action.)
+
+The latest `dev` tree adds
+`packages/console-server-ts/scripts/d1-local-migrate-signer.mjs`, which copies
+and rewrites a signer migration for local `workerd`, and strengthens
+`apply-remote-d1-migrations.mjs` with partial migration-fingerprint
+checkpoints. The local compatibility adapter belongs to the generic Wallet
+runtime. Remote application and checkpointing belong to private Wallet-system
+deployment composition. Neither remains owned by Console core.
 
 ### F1. Frontend core pages import the wallet product
 
@@ -191,11 +203,16 @@ and balance refresh passes against the projection.
 
 ### Phase 4: Move composition wiring out of the core package (S4)
 
-- [ ] Move `render-d1-gateway-config.mjs` and the signer-touching scripts
-      (`d1:local:migrate:signer`, `d1:staging:signer-custody`, and any script
-      resolving `@seams/wallet-server` or `wallet-console-server-ts` paths)
-      into `wallet-console-server-ts/scripts/`. Update the commands that
-      invoke them.
+- [ ] Move `render-d1-gateway-config.mjs` and private signer deployment scripts
+      such as `d1:staging:signer-custody` into
+      `wallet-console-server-ts/scripts/`. Replace `d1:local:migrate:signer`
+      with a thin composition command that invokes the Wallet package. Update
+      every caller that currently resolves `@seams/wallet-server` or
+      `wallet-console-server-ts` through the core package.
+- [ ] Move the generic local `workerd` signer-migration adaptation behind an
+      `@seams/wallet-server` command. Keep remote apply and fingerprint
+      checkpointing in private Wallet-system composition, consuming the exact
+      installed package migration manifest.
 - [ ] Keep only console-core-scoped D1 commands in
       `console-server-ts/package.json`.
 
@@ -247,8 +264,10 @@ product-to-app import in `apps/seams-console`.
 
 ## Ordering And Independence
 
-Phases 1–4 (server) and Phase 5 (frontend) are independent and may proceed in
-parallel. Phase 6 lands with or after Phase 5. Within the server work, Phase 1
+Refactor 120 completes and merges into `dev` first. Refresh the seven-gap path
+inventory from that commit, including the expanded S4 migration-script scope.
+Then Phases 1–4 (server) and Phase 5 (frontend) are independent and may proceed
+in parallel. Phase 6 lands with or after Phase 5. Within the server work, Phase 1
 before Phase 2 (the observability route families move with their routes);
 Phases 3 and 4 are independent of both.
 

@@ -2,10 +2,12 @@
 
 Date created: August 18, 2026
 
-Last reconciled: August 29, 2026 (Console and Wallet test-runtime ownership)
+Last reconciled: September 2, 2026 (latest `dev` and pre-merge Refactor 120)
 
 Status: planned. This plan executes Refactor 105 Phase 8 after the in-monorepo
-Console boundary is complete.
+Console boundary is complete. Refactor 120 must first complete and merge into
+`dev`. Phase 0 inventories that merged commit; no R105B extraction reference
+may point at the current R120 branch or an intermediate merge.
 
 ## Decision
 
@@ -39,6 +41,9 @@ Move the complete public Wallet implementation:
 - `packages/wallet-server`, published as `@seams/wallet-server`;
 - Wallet-only shared packages required by those packages;
 - the required `crates/`, `wasm/`, generators, and checked-in bindings;
+- the R120 tenant-root protocol and generic control-plane, Router, and Deriver
+  runtime source, role-private migration sets, binding contracts, and generic
+  self-host configuration;
 - Wallet-owned tests that run without Console or private infrastructure;
 - Wallet API, protocol, self-hosting, and development documentation under
   `docs/`;
@@ -62,6 +67,8 @@ Keep:
 - deployment scripts, Cloudflare/Wrangler configuration, domains, routes,
   environment declarations, account identifiers, provider configuration,
   secrets, and production/staging runbooks;
+- R120 plans, architecture-selection and deployment evidence, real
+  tenant-root target rendering, role-key operations, and incident procedures;
 - the separate Console and Wallet-system target files, environment/secret
   generators, update/rotation commands, and deployment entrypoints;
 - Console, deployment, staging, and composed-stack tests;
@@ -79,14 +86,23 @@ submodule, sibling checkout, or fallback to public source.
 
 `@seams/wallet` ships the browser SDK and `SeamsAuthMenu` exports needed by the
 private frontend. `@seams/wallet-server` ships the generic executable Worker
-modules, Wasm assets, signer migrations, types, and an artifact manifest needed
-by the private backend.
+modules, Wasm assets, signer and R120 role-private migrations, types, and the
+artifact manifest needed by the private backend. The manifest identifies the
+exact tenant-root control-plane, Router, Deriver, and Signing Worker artifacts
+plus every migration set's head and fingerprint.
 
 The packages contain generic runtime artifacts only. Private workflows add the
 real Cloudflare bindings, routes, database IDs, service names, provider
 configuration, environment values, and secrets when they deploy. Private
 deployment does not run Cargo or `wasm-pack` and does not check out
 `seams-wallet` source.
+
+The public package owns a generic local signer-migration command and reads its
+own versioned migrations directly. The private local-runtime and remote
+migration managers invoke that installed command or manifest. They do not copy,
+rewrite, or discover signer/role migration files through Console package paths.
+The private remote manager keeps partial-application checkpoints and records
+the fingerprint supplied by the exact installed package version.
 
 All existing GitHub Actions remain in `seams-monorepo`. The public repository
 gets new workflows limited to public validation and npm publishing. Those
@@ -121,7 +137,9 @@ secrets, Console email/webhook/billing configuration, Console routes, and
 Console origins. The Wallet-system pipeline owns Wallet Gateway/Runtime,
 hosted Wallet Pages, signer and Router A/B infrastructure, protocol keys, root
 shares, ceremony/signing-session material, relayer credentials, Wallet network
-configuration, and Wallet origins.
+configuration, Wallet origins, and the R120 tenant-root control plane. R120
+online-sealing, managed-backup, role-creation, and issuer keys remain scoped to
+their owning Wallet role.
 
 The two generators have different manifest schemas and output files. Each can
 write only its own protected GitHub environments and owned variable/secret
@@ -131,10 +149,13 @@ reads or writes a Console secret.
 
 Use distinct environment names. Console uses `staging-console` and
 `production-console`. Wallet-system environments remain lane/role-specific,
-for example `<lane>-gateway`, `<lane>-mpc-router`, `<lane>-deriver-a`,
-`<lane>-deriver-b`, and `<lane>-signing-worker`. No GitHub environment belongs
-to both pipelines. Site/docs environments keep their existing private owner and
-are outside the Wallet-system secret set.
+for example `<lane>-gateway`, `<lane>-tenant-root-control-plane`,
+`<lane>-mpc-router`, `<lane>-deriver-a`, `<lane>-deriver-b`, and
+`<lane>-signing-worker`. The tenant-root issuer private key exists only in its
+control-plane environment. Deriver A and B keep distinct online, backup, and
+role-creation keys. The Signing Worker receives none of these values. No GitHub
+environment belongs to both pipelines. Site/docs environments keep their
+existing private owner and are outside the Wallet-system secret set.
 
 Deploy workflows follow the same boundary. Remove the combined backend
 sequence that deploys Wallet Runtime, Console, and Gateway under one secret
@@ -201,6 +222,8 @@ concrete owner.
 
 ### Phase 0: Freeze Ownership
 
+- [ ] Complete Refactor 120 and merge it into `dev`; record that merged commit
+      as the only candidate inventory and extraction baseline.
 - [ ] Complete the Refactor 105 in-monorepo boundary and classify unfinished
       Refactor 99B paths as private.
 - [ ] Reconcile the ownership inventory against the current tree.
@@ -208,6 +231,9 @@ concrete owner.
       GitHub environment, and Cloudflare token as Console or Wallet-system.
 - [ ] Confirm the public docs, examples, tests, Rust/Wasm inputs, and package
       artifacts required for an independent Wallet build.
+- [ ] Classify all R120 additions: tenant-root protocol/runtime and generic
+      Worker artifacts public; real targets, workflows, secrets, key
+      operations, implementation plans, and deployment evidence private.
 - [ ] Record the landed Refactor 117 Console suite as private and classify
       `start-intended-services.mjs` as a mixed manager that must be split.
 - [ ] Choose the extraction commit, initial npm versions, public license, and
@@ -235,7 +261,9 @@ only the intended Wallet source.
       metadata, README, license, security policy, docs, and examples.
 - [ ] Set every carried Rust crate to `publish = false`.
 - [ ] Make `@seams/wallet-server` package the Worker, Wasm, migrations, types,
-      and generic runtime artifacts consumed by private deployment.
+      and generic runtime artifacts consumed by private deployment, including
+      the R120 tenant-root control plane, Router/Deriver artifacts, role-private
+      migration sets, and their manifest heads/fingerprints.
 - [ ] Add credential-free CI and npm trusted-publishing workflows.
 - [ ] Move `run-intended-isolated.mjs` and the Wallet intended Playwright
       configs to a Wallet-only service manager with no Console, site, or
@@ -264,9 +292,16 @@ Exit: the public source and both npm packages are independently consumable.
 - [ ] Rewire frontend builds to import `@seams/wallet`.
 - [ ] Rewire backend, migration, local-runtime, and deployment scripts to use
       artifacts from `@seams/wallet-server`.
+- [ ] Replace the Console-owned local signer-migration adapter with the public
+      package command. Keep remote application and fingerprint checkpointing in
+      the private Wallet-system deployment manager.
 - [ ] Split `deployment/targets.json`, environment generation, update/rotation
       commands, GitHub environments, and deploy entrypoints into the Console
       and Wallet-system owners described above.
+- [ ] Keep R120 control-plane, Router, Deriver A, Deriver B, and Signing Worker
+      environments role-specific inside the Wallet-system pipeline. Retain
+      generic key-generation primitives with the public implementation and keep
+      Seams target generation/application private.
 - [ ] Remove the paired generation manifest, shared generation ID, generic
       `product` component, combined rotation command, and cross-authority
       `DEPLOYMENT_SECRETS_JSON` input.
@@ -311,7 +346,8 @@ overwriting or unpublishing one.
   secret configuration, provider configuration, and staging/production
   deployment remain private;
 - the public repository owns both Wallet npm packages and all Rust/Wasm needed
-  to build them;
+  to build them, including the R120 tenant-root runtime and role-private
+  migrations;
 - Rust crates remain co-located and unpublished;
 - the public repository includes Wallet docs, a minimal `SeamsAuthMenu`
   example, and a working generic self-host runtime;
@@ -321,6 +357,8 @@ overwriting or unpublishing one.
   environments, Cloudflare tokens, and deployment workflows are disjoint;
 - neither private pipeline can generate, apply, rotate, or deploy the other
   authority's configuration;
+- the Wallet-system pipeline preserves the R120 control-plane, Router, Deriver,
+  Signing Worker, online-sealing, and managed-backup role boundaries;
 - the public intended-behaviour runner starts no Console service, while the
   private `test:console` suite runs against exact installed Wallet packages;
 - no compatibility package or duplicate repository remains.
@@ -330,4 +368,5 @@ overwriting or unpublishing one.
 [Refactor 105](./refactor-105-split-console.md) owns the Console/Wallet source
 boundary. [Refactor 105C](./refactor-105C.md) starts after this split and owns
 the private unified Console deployment. [Refactor 99B](./refactor-99B-MPC-control-plane.md)
-owns the private Admin control plane.
+owns the private Admin control plane. [Refactor 120](./refactor-120-rotate-tenant-secrets.md)
+is the mandatory pre-R105 Wallet-runtime baseline.
