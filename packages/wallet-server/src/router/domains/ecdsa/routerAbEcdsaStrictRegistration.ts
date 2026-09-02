@@ -120,6 +120,11 @@ export type RouterAbEcdsaRegistrationRequestPolicyV1 = {
   readonly requestDigestB64u: string;
 };
 
+export type RouterAbEcdsaRegistrationTenantRootV1 = {
+  readonly identityDigestB64u: string;
+  readonly custodyLineageB64u: string;
+};
+
 type RouterAbRequestPolicyClaimsInputV1 = {
   readonly policyVersion: string;
   readonly workKind: 'registration_prepare' | 'key_export' | 'server_share_refresh';
@@ -155,6 +160,15 @@ export interface RouterAbEcdsaStrictRegistrationPort {
   topology(): RouterAbEcdsaStrictRegistrationTopology;
   register(input: {
     readonly request: RouterAbEcdsaRegistrationRequestV1;
+    readonly requestPolicy: RouterAbEcdsaRegistrationRequestPolicyV1;
+    readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly traceContext?: RouterAbTraceContextV1;
+    readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
+    readonly onHeaderPresence?: RouterAbEcdsaStrictHeaderPresenceSink;
+  }): Promise<RouterAbEcdsaStrictRegistrationResult>;
+  registerInitialWithTenantRoot(input: {
+    readonly request: RouterAbEcdsaRegistrationRequestV1;
+    readonly tenantRoot: RouterAbEcdsaRegistrationTenantRootV1;
     readonly requestPolicy: RouterAbEcdsaRegistrationRequestPolicyV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
     readonly traceContext?: RouterAbTraceContextV1;
@@ -287,6 +301,34 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
     return parseStrictRegistrationForwardingResult(body.value);
   }
 
+  async registerInitialWithTenantRoot(input: {
+    readonly request: RouterAbEcdsaRegistrationRequestV1;
+    readonly tenantRoot: RouterAbEcdsaRegistrationTenantRootV1;
+    readonly requestPolicy: RouterAbEcdsaRegistrationRequestPolicyV1;
+    readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly traceContext?: RouterAbTraceContextV1;
+    readonly onServerTiming?: RouterAbEcdsaStrictServerTimingSink;
+    readonly onHeaderPresence?: RouterAbEcdsaStrictHeaderPresenceSink;
+  }): Promise<RouterAbEcdsaStrictRegistrationResult> {
+    const authorityFailure = validateRegistrationAuthorityBinding(input);
+    if (authorityFailure) return authorityFailure;
+    const tenantRootFailure = validateRegistrationTenantRoot(input.tenantRoot);
+    if (tenantRootFailure) return tenantRootFailure;
+    const body = await this.forward({
+      kind: 'tenant_root_registration',
+      path: STRICT_ECDSA_REGISTRATION_PATH,
+      authority: input.authority,
+      requestPolicy: input.requestPolicy,
+      request: input.request,
+      tenantRoot: input.tenantRoot,
+      traceContext: input.traceContext,
+      onServerTiming: input.onServerTiming,
+      onHeaderPresence: input.onHeaderPresence,
+    });
+    if (!body.ok) return body;
+    return parseStrictRegistrationForwardingResult(body.value);
+  }
+
   async activate(input: {
     readonly activationCorrelationId: CorrelationId;
     readonly activationRequestDigestB64u: string;
@@ -366,6 +408,11 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       | {
           readonly kind: 'registration';
           readonly request: RouterAbEcdsaRegistrationRequestV1;
+        }
+      | {
+          readonly kind: 'tenant_root_registration';
+          readonly request: RouterAbEcdsaRegistrationRequestV1;
+          readonly tenantRoot: RouterAbEcdsaRegistrationTenantRootV1;
         }
       | {
           readonly kind: 'activation';
@@ -642,6 +689,11 @@ function strictForwardBodyJson(
         readonly request: RouterAbEcdsaRegistrationRequestV1;
       }
     | {
+        readonly kind: 'tenant_root_registration';
+        readonly request: RouterAbEcdsaRegistrationRequestV1;
+        readonly tenantRoot: RouterAbEcdsaRegistrationTenantRootV1;
+      }
+    | {
         readonly kind: 'activation';
         readonly activationCorrelationId: CorrelationId;
         readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
@@ -651,6 +703,14 @@ function strictForwardBodyJson(
   switch (input.kind) {
     case 'registration':
       return JSON.stringify(input.request);
+    case 'tenant_root_registration':
+      return JSON.stringify({
+        registration_request: input.request,
+        tenant_root: {
+          identity_digest_b64u: input.tenantRoot.identityDigestB64u,
+          custody_lineage_b64u: input.tenantRoot.custodyLineageB64u,
+        },
+      });
     case 'activation':
       return `{"activation_correlation_id":${JSON.stringify(input.activationCorrelationId)},"pending":${input.pendingActivation.canonicalPayloadJson},"client_activation":${JSON.stringify(input.clientActivation)}}`;
     default:
@@ -839,6 +899,23 @@ function validateRegistrationAuthorityBinding(input: {
       ok: false,
       code: 'strict_registration_authority_mismatch',
       message: 'Strict ECDSA registration request is outside the admitted ceremony authority',
+      retryable: false,
+    };
+  }
+  return null;
+}
+
+function validateRegistrationTenantRoot(
+  tenantRoot: RouterAbEcdsaRegistrationTenantRootV1,
+): RouterAbEcdsaStrictFailure | null {
+  if (
+    !base64UrlString(tenantRoot.identityDigestB64u, 32) ||
+    !base64UrlString(tenantRoot.custodyLineageB64u, 16)
+  ) {
+    return {
+      ok: false,
+      code: 'strict_registration_tenant_root_invalid',
+      message: 'Strict ECDSA registration tenant-root binding is invalid',
       retryable: false,
     };
   }

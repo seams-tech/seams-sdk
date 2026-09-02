@@ -90,7 +90,10 @@ import {
   fullOwnerPermissionsForManagementFixture,
 } from './linkedDeviceManagement.fixtures';
 import { insertEmailOtpEnrollment } from './cloudflareD1RouterApiAuthService.fixtures';
-import { SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort } from '../../helpers/routerAbSigningRuntimeTestUtils';
+import {
+  FIXTURE_TENANT_ROOT_CUSTODY_LINEAGE,
+  SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort,
+} from '../../helpers/routerAbSigningRuntimeTestUtils';
 import {
   passkeyCustodyEnvelope,
   rawEmailOtpFactor,
@@ -517,6 +520,7 @@ export async function createLocalYaoEmailOtpExportAuthorization(input: {
     emailOtpDeliveryMode: 'dev_d1_outbox',
     emailOtpDevOutboxEnabled: true,
     ecdsaStrictRegistration: new SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort(),
+    tenantRootCustodyLineage: FIXTURE_TENANT_ROOT_CUSTODY_LINEAGE,
   });
   const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
     challengeId,

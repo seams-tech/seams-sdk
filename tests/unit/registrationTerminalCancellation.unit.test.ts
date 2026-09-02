@@ -155,6 +155,36 @@ test('strict ECDSA registration forwards the opaque trace correlation header', a
   expect(router.request?.headers.get('x-seams-trace-id')).toBe(traceContext.value);
 });
 
+test('initial ECDSA registration forwards the server-resolved tenant-root selector', async () => {
+  const request = strictRegistrationRequest();
+  const router = new TraceCapturingRouter();
+  const port = strictRegistrationPortForRequest({ request, router });
+  const tenantRoot = {
+    identityDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    custodyLineageB64u: 'AAAAAAAAAAAAAAAAAAAAAA',
+  } as const;
+
+  await port.registerInitialWithTenantRoot({
+    request,
+    tenantRoot,
+    requestPolicy: REQUEST_POLICY,
+    authority: {
+      subjectId: request.client_id,
+      sessionId: request.lifecycle.session_id,
+      accountId: request.lifecycle.account_id,
+      expiresAtMs: request.expires_at_ms,
+    },
+  });
+
+  expect(await router.request?.json()).toEqual({
+    registration_request: request,
+    tenant_root: {
+      identity_digest_b64u: tenantRoot.identityDigestB64u,
+      custody_lineage_b64u: tenantRoot.custodyLineageB64u,
+    },
+  });
+});
+
 test('strict ECDSA activation forwards the exact Rust wire envelope', async () => {
   const request = strictRegistrationRequest();
   const router = new TraceCapturingRouter();

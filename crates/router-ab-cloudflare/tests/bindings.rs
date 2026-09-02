@@ -1193,8 +1193,16 @@ fn router_ab_ecdsa_derivation_lifecycle_scope() -> LifecycleScopeV1 {
 
 fn router_ab_ecdsa_derivation_registration_request(
 ) -> RouterAbEcdsaDerivationRegistrationBootstrapRequestV1 {
-    RouterAbEcdsaDerivationRegistrationBootstrapRequestV1::new(
+    router_ab_ecdsa_derivation_registration_request_for(
         RouterAbEcdsaDerivationRegistrationPurposeV1::WalletRegistration,
+    )
+}
+
+fn router_ab_ecdsa_derivation_registration_request_for(
+    purpose: RouterAbEcdsaDerivationRegistrationPurposeV1,
+) -> RouterAbEcdsaDerivationRegistrationBootstrapRequestV1 {
+    RouterAbEcdsaDerivationRegistrationBootstrapRequestV1::new(
+        purpose,
         router_ab_ecdsa_derivation_context(),
         router_ab_ecdsa_derivation_lifecycle_scope(),
         signer_set(),
@@ -1211,7 +1219,15 @@ fn router_ab_ecdsa_derivation_registration_request(
 
 fn router_ab_ecdsa_derivation_registration_request_with_aad_bound_envelopes(
 ) -> RouterAbEcdsaDerivationRegistrationBootstrapRequestV1 {
-    let base = router_ab_ecdsa_derivation_registration_request();
+    router_ab_ecdsa_derivation_registration_request_with_aad_bound_envelopes_for(
+        RouterAbEcdsaDerivationRegistrationPurposeV1::WalletRegistration,
+    )
+}
+
+fn router_ab_ecdsa_derivation_registration_request_with_aad_bound_envelopes_for(
+    purpose: RouterAbEcdsaDerivationRegistrationPurposeV1,
+) -> RouterAbEcdsaDerivationRegistrationBootstrapRequestV1 {
+    let base = router_ab_ecdsa_derivation_registration_request_for(purpose);
     let header = base.header();
     let header_digest = base
         .request_header_digest()
@@ -4407,7 +4423,9 @@ fn signer_private_bootstrap_reconstructs_from_public_request() {
 #[test]
 fn router_ab_ecdsa_derivation_deriver_registration_private_request_accepts_matching_payload() {
     let registration_request =
-        router_ab_ecdsa_derivation_registration_request_with_aad_bound_envelopes();
+        router_ab_ecdsa_derivation_registration_request_with_aad_bound_envelopes_for(
+            RouterAbEcdsaDerivationRegistrationPurposeV1::WalletAddSigner,
+        );
     let public_request = registration_request
         .to_threshold_prf_request()
         .expect("Router A/B ECDSA derivation registration public request");
@@ -4429,7 +4447,7 @@ fn router_ab_ecdsa_derivation_deriver_registration_private_request_accepts_match
     )
     .expect("Router A/B ECDSA derivation registration payload binding");
     let private_request =
-        CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1::new(
+        CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1::add_signer(
             CloudflareWorkerRoleV1::DeriverA,
             registration_request,
             bootstrap,
@@ -4444,7 +4462,9 @@ fn router_ab_ecdsa_derivation_deriver_registration_private_request_accepts_match
 #[test]
 fn router_ab_ecdsa_derivation_deriver_registration_private_request_rejects_payload_drift() {
     let mut registration_request =
-        router_ab_ecdsa_derivation_registration_request_with_aad_bound_envelopes();
+        router_ab_ecdsa_derivation_registration_request_with_aad_bound_envelopes_for(
+            RouterAbEcdsaDerivationRegistrationPurposeV1::WalletAddSigner,
+        );
     let public_request = registration_request
         .to_threshold_prf_request()
         .expect("Router A/B ECDSA derivation registration public request");
@@ -4459,7 +4479,7 @@ fn router_ab_ecdsa_derivation_deriver_registration_private_request_rejects_paylo
     .expect("Router A/B ECDSA derivation registration bootstrap");
     registration_request.replay_nonce = "ecdsa-registration-replay-drift".to_owned();
 
-    let err = CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1::new(
+    let err = CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1::add_signer(
         CloudflareWorkerRoleV1::DeriverA,
         registration_request,
         bootstrap,

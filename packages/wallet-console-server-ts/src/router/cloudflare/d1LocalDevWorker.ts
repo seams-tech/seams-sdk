@@ -102,6 +102,8 @@ import {
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
 } from '@seams/wallet-server/cloud-host';
 import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@seams/wallet-server/cloud-host';
+import { createD1TenantRootCreationGrantServiceV1 } from '../../tenantRootCreation/d1';
+import { tenantRootIdentityDigestB64uV1 } from '../../tenantRootCreation/grantSigner';
 
 interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly CONSOLE_DB: D1DatabaseLike;
@@ -1324,8 +1326,25 @@ function localD1RouterApiAuthServiceOptions(
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env, orgId).registration,
+    tenantRootCustodyLineage: localTenantRootCustodyLineageResolver(env),
     linkedDevice: localLinkedDeviceSessionComposition(env, orgId),
     ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
+  };
+}
+
+function localTenantRootCustodyLineageResolver(
+  env: LocalD1DevEnv,
+): CloudflareD1RouterApiAuthServiceOptions['tenantRootCustodyLineage'] {
+  const grants = createD1TenantRootCreationGrantServiceV1({
+    database: env.CONSOLE_DB,
+    namespace: localTenantStorageNamespace(env),
+  });
+  return {
+    async resolveActiveLineage(identity) {
+      const identityDigestB64u = await tenantRootIdentityDigestB64uV1(identity);
+      const record = await grants.findActiveLineageByIdentity({ identity, identityDigestB64u });
+      return record ? { identityDigestB64u, custodyLineageB64u: record.custodyLineageB64u } : null;
+    },
   };
 }
 

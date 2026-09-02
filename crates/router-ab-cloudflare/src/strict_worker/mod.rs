@@ -18,7 +18,7 @@ use crate::CloudflareEd25519YaoRoleFailureResponseV1;
 use crate::{
     build_cloudflare_router_ed25519_jwks_jwt_verifier_v1, build_cloudflare_router_public_keyset_v2,
     cloudflare_now_unix_ms_v1, cloudflare_router_normal_signing_cors_allowed_origin_v1,
-    cloudflare_trusted_source_digest_v1,
+    cloudflare_tenant_root_registration_binding_wire_v1, cloudflare_trusted_source_digest_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_activation_authenticated_public_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_authenticated_public_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1,
@@ -34,12 +34,14 @@ use crate::{
     parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_request_v1_json,
     parse_cloudflare_router_ab_ecdsa_derivation_activation_request_v1_json,
     parse_cloudflare_router_ab_ecdsa_derivation_export_command_v1_json,
+    parse_cloudflare_router_ab_ecdsa_derivation_registration_gateway_request_v1,
     parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json,
     parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_finalize_request_v1_json,
     parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_prepare_request_v1_json,
     parse_cloudflare_router_bearer_authorization_from_request_v1,
     parse_cloudflare_trace_id_from_request_v1, CloudflareEcdsaBoundaryTimingV1,
-    CloudflareRouterWorkerRuntimeV1, CloudflareTraceIdV1, CloudflareWorkerEnvReaderV1,
+    CloudflareRouterAbEcdsaRegistrationMaterialSourceV1, CloudflareRouterWorkerRuntimeV1,
+    CloudflareTraceIdV1, CloudflareWorkerEnvReaderV1,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH,
@@ -55,25 +57,6 @@ use crate::{
     CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_PUBLIC_KEYSET_PATH, CLOUDFLARE_ROUTER_PUBLIC_KEYSET_WELL_KNOWN_PATH,
-};
-#[cfg(any(
-    feature = "strict-worker-deriver-a-entrypoint",
-    feature = "strict-worker-deriver-b-entrypoint"
-))]
-use crate::{
-    cloudflare_now_unix_ms_v1,
-    decrypt_and_handle_cloudflare_mpc_prf_recipient_proof_bundle_signer_private_request_v1,
-    decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_signer_private_request_v1,
-    decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_signer_private_request_v1,
-    decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_registration_signer_private_request_v1,
-    CloudflareEcdsaBoundaryTimingV1, CloudflarePreloadedSignerHostV1,
-    CloudflareRootShareStartupMetadataV1,
-    CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1,
-    CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1,
-    CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1,
-    CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1, CloudflareSignerHostPreloadInputV1,
-    CloudflareSignerHostPreloadPlanV1, CloudflareSignerPeerSigningKeyBindingV1,
-    CloudflareSignerPrivateBootstrapRequestV1, CloudflareWorkerRoleV1,
 };
 #[cfg(feature = "strict-worker-signing-worker-entrypoint")]
 use crate::{
@@ -168,6 +151,23 @@ use crate::{
     run_cloudflare_tenant_root_role_d1_integration_v1,
     CloudflareTenantRootRoleD1IntegrationRequestV1,
     CLOUDFLARE_TENANT_ROOT_ROLE_D1_INTEGRATION_PATH,
+};
+#[cfg(any(
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
+))]
+use crate::{
+    decrypt_and_handle_cloudflare_mpc_prf_recipient_proof_bundle_signer_private_request_v1,
+    decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_signer_private_request_v1,
+    decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_signer_private_request_v1,
+    decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_registration_signer_private_request_v1,
+    CloudflareEcdsaBoundaryTimingV1, CloudflarePreloadedSignerHostV1,
+    CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1,
+    CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1,
+    CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1,
+    CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1, CloudflareSignerHostPreloadInputV1,
+    CloudflareSignerHostPreloadPlanV1, CloudflareSignerPeerSigningKeyBindingV1,
+    CloudflareSignerPrivateBootstrapRequestV1, CloudflareWorkerRoleV1,
 };
 #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
 use crate::{

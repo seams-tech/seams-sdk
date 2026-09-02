@@ -21,6 +21,7 @@ import {
   type RouterAbEcdsaStrictRegistrationTopology,
 } from '@server/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
 import type { ThresholdStoreConfigInput } from '@server/core/types';
+import type { TenantRootCustodyLineageResolverV1 } from '@server/router/domains/tenantRoot/tenantRootCustodyLineage';
 import {
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
   parseRouterAbEcdsaRegistrationRequestV1,
@@ -82,6 +83,15 @@ const FIXTURE_ECDSA_SERVER_PUBLIC_KEY33_B64U = Buffer.from([
   ...new Array<number>(32).fill(0),
 ]).toString('base64url');
 const FIXTURE_ECDSA_ADDRESS20_B64U = Buffer.alloc(20, 1).toString('base64url');
+
+export const FIXTURE_TENANT_ROOT_CUSTODY_LINEAGE: TenantRootCustodyLineageResolverV1 = {
+  async resolveActiveLineage() {
+    return {
+      identityDigestB64u: FIXTURE_ECDSA_DIGEST32_B64U,
+      custodyLineageB64u: Buffer.alloc(16).toString('base64url'),
+    };
+  },
+};
 
 export function fixtureRouterAbEcdsaActivationFacts(): RouterAbEcdsaVerifiedClientActivationFactsV1 {
   return parseRouterAbEcdsaVerifiedClientActivationFactsV1({
@@ -147,6 +157,12 @@ export class FixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsa
     throw new Error('Strict ECDSA registration is outside this fixture');
   }
 
+  async registerInitialWithTenantRoot(
+    _input: Parameters<RouterAbEcdsaStrictRegistrationPort['registerInitialWithTenantRoot']>[0],
+  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['registerInitialWithTenantRoot']> {
+    return this.register();
+  }
+
   async activate(): Promise<never> {
     throw new Error('Strict ECDSA activation is outside this fixture');
   }
@@ -191,6 +207,12 @@ export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements Rou
         }),
       },
     };
+  }
+
+  async registerInitialWithTenantRoot(
+    input: Parameters<RouterAbEcdsaStrictRegistrationPort['registerInitialWithTenantRoot']>[0],
+  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['registerInitialWithTenantRoot']> {
+    return this.register(input);
   }
 
   async activate(

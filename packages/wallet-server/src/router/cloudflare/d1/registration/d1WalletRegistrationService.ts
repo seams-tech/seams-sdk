@@ -149,6 +149,8 @@ import {
   routerAbEcdsaStrictRegistrationRequestMatchesFacts,
   type RouterAbEcdsaStrictRegistrationPort,
 } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
+import type { TenantRootCustodyLineageResolverV1 } from '../../../domains/tenantRoot/tenantRootCustodyLineage';
+import type { TenantRootIdentityV1 } from '../../../domains/tenantRoot/tenantRootIdentityResolution';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import type {
   InstalledLinkedDeviceEcdsaAuthorityProjectionV1,
@@ -1545,6 +1547,20 @@ function registrationPreparedContextRuntimePolicyScope(
     : undefined;
 }
 
+function registrationTenantRootIdentity(
+  preparedContext: StoredWalletRegistrationPreparedContext,
+): TenantRootIdentityV1 | null {
+  const scope = registrationPreparedContextRuntimePolicyScope(preparedContext);
+  if (!scope) return null;
+  return {
+    orgId: scope.orgId,
+    projectId: scope.projectId,
+    envId: scope.envId,
+    signingRootId: preparedContext.signingRootId,
+    signingRootVersion: preparedContext.signingRootVersion,
+  };
+}
+
 function registrationPreparedContextEcdsaChainTargets(
   preparedContext: StoredWalletRegistrationPreparedContext,
 ): readonly ThresholdEcdsaChainTarget[] | null {
@@ -1983,6 +1999,7 @@ export class CloudflareD1WalletRegistrationService {
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
   private readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
+  private readonly tenantRootCustodyLineage: TenantRootCustodyLineageResolverV1;
   private readonly getWalletStore: WalletStoreProvider;
   /** The single Gateway operation row for activate-with-finalize (94C). */
   private readonly activateSideEffects: D1WalletRegistrationActivateSideEffectStore;
@@ -2002,6 +2019,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
     readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
+    readonly tenantRootCustodyLineage: TenantRootCustodyLineageResolverV1;
     readonly getWalletStore: WalletStoreProvider;
     readonly activateSideEffects: D1WalletRegistrationActivateSideEffectStore;
     readonly nearProvisioningSideEffects: D1WalletRegistrationNearProvisioningSideEffectStore;
@@ -2017,6 +2035,7 @@ export class CloudflareD1WalletRegistrationService {
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getEd25519YaoProductRegistration = input.getEd25519YaoProductRegistration;
     this.ecdsaStrictRegistration = input.ecdsaStrictRegistration;
+    this.tenantRootCustodyLineage = input.tenantRootCustodyLineage;
     this.getWalletStore = input.getWalletStore;
     this.activateSideEffects = input.activateSideEffects;
     this.nearProvisioningSideEffects = input.nearProvisioningSideEffects;
@@ -2529,10 +2548,7 @@ export class CloudflareD1WalletRegistrationService {
       }
       const issuedAtMs = Date.now();
       const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
-      const remainingUses = Math.min(
-        DEFAULT_WALLET_SESSION_REMAINING_USES,
-        policy.remainingUses,
-      );
+      const remainingUses = Math.min(DEFAULT_WALLET_SESSION_REMAINING_USES, policy.remainingUses);
       await assertDirectWalletSessionOwnerProof({
         proof: authorization.proof,
         tenantId: this.authorizationTenantId,
@@ -2544,18 +2560,17 @@ export class CloudflareD1WalletRegistrationService {
       /* A refresh replaces the same method's session under a fresh mint;
          the direct issuer retires the predecessor and closes its quota in
          the successor transaction. */
-      const directIssue =
-        await this.authorizationService.issueDirectWalletSessionAuthorizationV2({
-          tenantId: this.authorizationTenantId,
-          principalId: walletSessionPrincipalId(authority),
-          walletId: activeAuthority.authority.walletId,
-          authority: activeAuthority.authority,
-          walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
-          mintId: requireWalletSessionMintId(authorization.verifiedChallengeId),
-          remainingUses,
-          issuedAtMs,
-          expiresAtMs,
-        });
+      const directIssue = await this.authorizationService.issueDirectWalletSessionAuthorizationV2({
+        tenantId: this.authorizationTenantId,
+        principalId: walletSessionPrincipalId(authority),
+        walletId: activeAuthority.authority.walletId,
+        authority: activeAuthority.authority,
+        walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
+        mintId: requireWalletSessionMintId(authorization.verifiedChallengeId),
+        remainingUses,
+        issuedAtMs,
+        expiresAtMs,
+      });
       if (directIssue.kind === 'already_committed') {
         return ed25519AlreadyCommittedWalletSessionResponse(directIssue);
       }
@@ -3286,12 +3301,31 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
 
+      const tenantRootIdentity = registrationTenantRootIdentity(ceremony.preparedContext);
+      if (!tenantRootIdentity) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ECDSA registration has no authoritative tenant-root identity',
+        };
+      }
+      const tenantRoot =
+        await this.tenantRootCustodyLineage.resolveActiveLineage(tenantRootIdentity);
+      if (!tenantRoot) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ECDSA registration tenant root is not active',
+        };
+      }
+
       /* Both Router calls are authority-bound and independent of each other. */
       const routerStartedAtMs = Date.now();
       const nearEd25519Branch = registrationSignerBranchesFromPlan(ceremony.signerPlan).nearEd25519;
       const [strictResult, ed25519Admission] = await Promise.all([
-        this.ecdsaStrictRegistration.register({
+        this.ecdsaStrictRegistration.registerInitialWithTenantRoot({
           request: strictRegistration,
+          tenantRoot,
           requestPolicy: {
             policyVersion: WALLET_REGISTRATION_ROUTER_POLICY_VERSION,
             requestDigestB64u: input.ecdsa.requestDigestB64u,

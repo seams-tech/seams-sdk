@@ -788,34 +788,101 @@ pub(super) async fn handle_strict_router_fetch_v1(
             Ok(bytes) => bytes,
             Err(response) => return Ok(response),
         };
-        let registration_request = match parse_router_public_body_v1(
-            &request_body,
-            parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,
-            &request,
-            &env,
-        )? {
-            Ok(parsed) => parsed,
-            Err(response) => return Ok(response),
-        };
-        if let Err(err) =
-            registration_request.validate_for_registration_purpose(registration_purpose)
-        {
-            let response = cloudflare_protocol_error_response_v1(err)?;
-            return cloudflare_router_normal_signing_response_v1(response, &request, &env);
+        match registration_purpose {
+            RouterAbEcdsaDerivationRegistrationPurposeV1::WalletRegistration => {
+                let (registration_request, identity_digest, custody_lineage) =
+                    match parse_router_public_body_v1(
+                        &request_body,
+                        parse_cloudflare_router_ab_ecdsa_derivation_registration_gateway_request_v1,
+                        &request,
+                        &env,
+                    )? {
+                        Ok(parsed) => parsed,
+                        Err(response) => return Ok(response),
+                    };
+                if let Err(err) =
+                    registration_request.validate_for_registration_purpose(registration_purpose)
+                {
+                    let response = cloudflare_protocol_error_response_v1(err)?;
+                    return cloudflare_router_normal_signing_response_v1(response, &request, &env);
+                }
+                let active_receipt =
+                    match execute_cloudflare_router_tenant_root_creation_active_state_read_call_v1(
+                        &env,
+                        identity_digest,
+                        custody_lineage,
+                    )
+                    .await
+                    {
+                        Ok(receipt) => receipt,
+                        Err(err) => {
+                            let response = cloudflare_protocol_error_response_v1(err)?;
+                            return cloudflare_router_normal_signing_response_v1(
+                                response, &request, &env,
+                            );
+                        }
+                    };
+                let custody_binding = match cloudflare_tenant_root_registration_binding_wire_v1(
+                    &registration_request,
+                    &active_receipt,
+                ) {
+                    Ok(binding) => binding,
+                    Err(err) => {
+                        let response = cloudflare_protocol_error_response_v1(err)?;
+                        return cloudflare_router_normal_signing_response_v1(
+                            response, &request, &env,
+                        );
+                    }
+                };
+                let mut timing = CloudflareEcdsaBoundaryTimingV1::with_trace_id(trace_id);
+                let response = handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1(
+                    &env,
+                    &runtime,
+                    now_unix_ms,
+                    registration_request,
+                    CloudflareRouterAbEcdsaRegistrationMaterialSourceV1::TenantRoot(
+                        &custody_binding,
+                    ),
+                    authorization,
+                    trusted_source_digest,
+                    verifier,
+                    &mut timing,
+                )
+                .await;
+                return router_ecdsa_timed_json_cors_response_v1(response, &timing, &request, &env);
+            }
+            RouterAbEcdsaDerivationRegistrationPurposeV1::WalletAddSigner => {
+                let registration_request = match parse_router_public_body_v1(
+                    &request_body,
+                    parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,
+                    &request,
+                    &env,
+                )? {
+                    Ok(parsed) => parsed,
+                    Err(response) => return Ok(response),
+                };
+                if let Err(err) =
+                    registration_request.validate_for_registration_purpose(registration_purpose)
+                {
+                    let response = cloudflare_protocol_error_response_v1(err)?;
+                    return cloudflare_router_normal_signing_response_v1(response, &request, &env);
+                }
+                let mut timing = CloudflareEcdsaBoundaryTimingV1::with_trace_id(trace_id);
+                let response = handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1(
+                    &env,
+                    &runtime,
+                    now_unix_ms,
+                    registration_request,
+                    CloudflareRouterAbEcdsaRegistrationMaterialSourceV1::AddSigner,
+                    authorization,
+                    trusted_source_digest,
+                    verifier,
+                    &mut timing,
+                )
+                .await;
+                return router_ecdsa_timed_json_cors_response_v1(response, &timing, &request, &env);
+            }
         }
-        let mut timing = CloudflareEcdsaBoundaryTimingV1::with_trace_id(trace_id);
-        let response = handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1(
-            &env,
-            &runtime,
-            now_unix_ms,
-            registration_request,
-            authorization,
-            trusted_source_digest,
-            verifier,
-            &mut timing,
-        )
-        .await;
-        return router_ecdsa_timed_json_cors_response_v1(response, &timing, &request, &env);
     }
 
     if path == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH {

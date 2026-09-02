@@ -1655,6 +1655,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     getRegistrationCeremonyIntentStore,
     getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
+    tenantRootCustodyLineage: options.tenantRootCustodyLineage,
     getWalletStore,
     activateSideEffects: walletRegistrationActivateSideEffectStore(options),
     nearProvisioningSideEffects: walletRegistrationNearProvisioningSideEffectStore(options),

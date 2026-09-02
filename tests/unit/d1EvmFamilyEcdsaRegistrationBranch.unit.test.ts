@@ -88,6 +88,9 @@ function testStrictRegistrationPort(): RouterAbEcdsaStrictRegistrationPort {
     register: async () => {
       throw new Error('strict registration register() is unreachable in this fixture');
     },
+    registerInitialWithTenantRoot: async () => {
+      throw new Error('strict registration register() is unreachable in this fixture');
+    },
     activate: async () => {
       throw new Error('strict registration activate() is unreachable in this fixture');
     },

@@ -93,6 +93,8 @@ import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } fro
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
 import type { WarmBootstrapLinkedEd25519AuthorityReaderV1 } from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
+import { createD1TenantRootCreationGrantServiceV1 } from '../../tenantRootCreation/d1';
+import { tenantRootIdentityDigestB64uV1 } from '../../tenantRootCreation/grantSigner';
 import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
@@ -304,10 +306,25 @@ function stagingTenantScope(env: CloudflareD1GatewayBaseEnv): RouterApiTenantSco
   };
 }
 
+function createD1TenantRootCustodyLineageResolver(
+  database: D1DatabaseLike,
+  namespace: string,
+): CloudflareD1RouterApiAuthServiceOptions['tenantRootCustodyLineage'] {
+  const grants = createD1TenantRootCreationGrantServiceV1({ database, namespace });
+  return {
+    async resolveActiveLineage(identity) {
+      const identityDigestB64u = await tenantRootIdentityDigestB64uV1(identity);
+      const record = await grants.findActiveLineageByIdentity({ identity, identityDigestB64u });
+      return record ? { identityDigestB64u, custodyLineageB64u: record.custodyLineageB64u } : null;
+    },
+  };
+}
+
 async function createStagingRouterApiAuthComposition(
   env: CloudflareD1GatewayBaseEnv,
   scope: RouterApiTenantScope,
   yaoRuntime: RouterAbEd25519YaoProductRegistrationRuntimeV1,
+  tenantRootCustodyLineage: CloudflareD1RouterApiAuthServiceOptions['tenantRootCustodyLineage'],
 ) {
   const ecdsaCeremonyTokenIssuer = createStagingEcdsaCeremonyTokenIssuer(env);
   const topology = requireStagingEcdsaRegistrationTopology(env);
@@ -376,6 +393,7 @@ async function createStagingRouterApiAuthComposition(
     routerAbEcdsaPresignRuntime: createStagingEcdsaPresignRuntime(env),
     ed25519YaoProductRegistration: yaoRuntime,
     ecdsaStrictRegistration,
+    tenantRootCustodyLineage,
     linkedDevice: stagingLinkedDeviceSessionComposition(env, scope),
   });
   return { service, ecdsaStrictPostRegistration };
@@ -496,6 +514,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     env,
     scope,
     yaoRuntime,
+    createD1TenantRootCustodyLineageResolver(env.CONSOLE_DB, scope.namespace),
   );
   const routerApiHandler = createCloudflareRouter(service, {
     ...bundle.routerApiRouterOptions,
@@ -581,6 +600,7 @@ export async function createSplitGatewayRouterHandler(
     env,
     scope,
     yaoRuntime,
+    createWalletConsoleOpsClient(env.WALLET_CONSOLE).tenantRootActiveLineage,
   );
   const ops = createWalletConsoleOpsClient(env.WALLET_CONSOLE);
   const admissionStore = createCloudflareD1RouterAbNormalSigningAdmissionStore({
@@ -620,12 +640,17 @@ export async function createSplitGatewayRouterHandler(
 
 export async function handleSplitGatewayWalletRuntimeRequest(
   request: Request,
-  env: CloudflareD1GatewayBaseEnv,
+  env: CloudflareD1GatewayEnv,
 ): Promise<Response | null> {
   const handler = createWalletRuntimeOpsHandler(async () => {
     const scope = stagingTenantScope(env);
     const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
-    const { service } = await createStagingRouterApiAuthComposition(env, scope, yaoRuntime);
+    const { service } = await createStagingRouterApiAuthComposition(
+      env,
+      scope,
+      yaoRuntime,
+      createWalletConsoleOpsClient(env.WALLET_CONSOLE).tenantRootActiveLineage,
+    );
     return {
       executeSignedDelegate: service.executeSignedDelegate.bind(service),
       getRelayerAccount: service.router.getRelayerAccount.bind(service.router),
@@ -644,7 +669,12 @@ export async function handleSplitGatewayRequest(
   }
   const operation = yaoDirectOperationForRequest(request);
   if (operation !== null) {
-    const response = await handlePartitionedD1Operation(env, request, operation);
+    const response = await handlePartitionedD1Operation(
+      env,
+      request,
+      operation,
+      createWalletConsoleOpsClient(env.WALLET_CONSOLE).tenantRootActiveLineage,
+    );
     withCors(response.headers, { corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS) }, request);
     return response;
   }
@@ -926,7 +956,12 @@ async function fetch(
   }
   const operation = yaoDirectOperationForRequest(request);
   if (operation !== null) {
-    const response = await handlePartitionedD1Operation(env, request, operation);
+    const response = await handlePartitionedD1Operation(
+      env,
+      request,
+      operation,
+      createD1TenantRootCustodyLineageResolver(env.CONSOLE_DB, stagingTenantScope(env).namespace),
+    );
     withCors(response.headers, { corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS) }, request);
     return response;
   }
@@ -1043,6 +1078,7 @@ async function handlePartitionedD1Operation(
   env: CloudflareD1GatewayBaseEnv,
   request: Request,
   operation: RouterApiYaoDirectOperationV1,
+  tenantRootCustodyLineage: CloudflareD1RouterApiAuthServiceOptions['tenantRootCustodyLineage'],
 ): Promise<Response> {
   switch (operation) {
     case 'registration_admission':
@@ -1059,13 +1095,18 @@ async function handlePartitionedD1Operation(
     case 'recovery_status':
       return await handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1({
         request,
-        ...createStagingRecoveryRequestScopedDependencies(env),
+        ...createStagingRecoveryRequestScopedDependencies(env, tenantRootCustodyLineage),
       });
     case 'export_admission':
     case 'export_execute': {
       const scope = stagingTenantScope(env);
       const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
-      const { service } = await createStagingRouterApiAuthComposition(env, scope, yaoRuntime);
+      const { service } = await createStagingRouterApiAuthComposition(
+        env,
+        scope,
+        yaoRuntime,
+        tenantRootCustodyLineage,
+      );
       return await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1({
         request,
         ...createStagingExportRequestScopedDependencies(env, service),
@@ -1117,7 +1158,10 @@ export default { fetch, scheduled };
  * is constructed here against request-scoped state instead of runtime-held
  * state, which is the dependency Refactor 93 exists to remove.
  */
-export function createStagingRecoveryRequestScopedDependencies(env: CloudflareD1GatewayBaseEnv): {
+export function createStagingRecoveryRequestScopedDependencies(
+  env: CloudflareD1GatewayBaseEnv,
+  tenantRootCustodyLineage: CloudflareD1RouterApiAuthServiceOptions['tenantRootCustodyLineage'],
+): {
   readonly store: ReturnType<typeof createStagingYaoPartitionedStateStore>;
   readonly backend: ReturnType<typeof createStagingEd25519YaoBackend>;
   readonly authorization: RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter;
@@ -1132,7 +1176,12 @@ export function createStagingRecoveryRequestScopedDependencies(env: CloudflareD1
     backend: createStagingEd25519YaoBackend(env),
     authorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(async () => {
       const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
-      const { service } = await createStagingRouterApiAuthComposition(env, scope, yaoRuntime);
+      const { service } = await createStagingRouterApiAuthComposition(
+        env,
+        scope,
+        yaoRuntime,
+        tenantRootCustodyLineage,
+      );
       return {
         authorizationSessions: service.authorizationSessions,
         preparedRecoveryAdmission: service.passkeyCustody,
@@ -1155,7 +1204,12 @@ export function createStagingRecoveryRequestScopedDependencies(env: CloudflareD1
     linkedAuthorities: {
       async readInstalledEd25519AuthorityByMaterialActivationV1(input) {
         const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
-        const { service } = await createStagingRouterApiAuthComposition(env, scope, yaoRuntime);
+        const { service } = await createStagingRouterApiAuthComposition(
+          env,
+          scope,
+          yaoRuntime,
+          tenantRootCustodyLineage,
+        );
         const reader = service.linkedDeviceEd25519AuthorityReader;
         return reader
           ? await reader.readInstalledEd25519AuthorityByMaterialActivationV1(input)
