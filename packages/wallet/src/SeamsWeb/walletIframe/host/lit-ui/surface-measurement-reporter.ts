@@ -101,6 +101,13 @@ function measurementForSize(
  */
 const STREAMING_POSTS_THRESHOLD = 4;
 const STREAMING_WINDOW_MS = 150;
+/**
+ * A confirmation arrives in stages — shell, heading, transaction body, decoded
+ * calldata — and each stage legitimately resizes a surface that has nothing to
+ * hug yet. That opening stream is not the defect, so the check only starts
+ * once the surface has held one size for this long.
+ */
+const STREAMING_SETTLE_GAP_MS = 400;
 
 // Parent-side surface generations can outlive a remounted child root.
 let nextSurfaceMeasurementSequence = 1;
@@ -123,6 +130,7 @@ class SurfaceMeasurementReporter implements WalletIframeSurfaceMeasurementReport
   private latestEntry: ResizeObserverEntry | null = null;
   private recentPostTimes: number[] = [];
   private warnedAboutStreaming = false;
+  private surfaceHasSettled = false;
   private animationFrame: number | null = null;
   private lastSize: SurfaceSize | null = null;
   private disconnected = false;
@@ -187,17 +195,26 @@ class SurfaceMeasurementReporter implements WalletIframeSurfaceMeasurementReport
   private noteStreaming(): void {
     if (this.warnedAboutStreaming) return;
     const now = typeof performance === 'object' ? performance.now() : Date.now();
+    const previous = this.recentPostTimes.at(-1);
+    if (previous !== undefined && now - previous > STREAMING_SETTLE_GAP_MS) {
+      // The surface held one size and has now changed again: it has finished
+      // arriving, so anything bursty from here is a motion, not a stage.
+      this.surfaceHasSettled = true;
+      this.recentPostTimes.length = 0;
+    }
     this.recentPostTimes.push(now);
     while (this.recentPostTimes.length && now - this.recentPostTimes[0] > STREAMING_WINDOW_MS) {
       this.recentPostTimes.shift();
     }
+    if (!this.surfaceHasSettled) return;
     if (this.recentPostTimes.length < STREAMING_POSTS_THRESHOLD) return;
     this.warnedAboutStreaming = true;
     console.warn(
       `[W3A] ${this.options.kind} posted ${this.recentPostTimes.length} surface measurements in ` +
-        `${STREAMING_WINDOW_MS}ms. Content inside a measured surface must announce a height ` +
-        'change once (announceSurfaceResize) instead of animating its own height; the host box ' +
-        'cannot follow a moving target. See docs/refactor-116-lit-component-consolidation.md.',
+        `${STREAMING_WINDOW_MS}ms after it had settled. Content inside a measured surface must ` +
+        'announce a height change once (announceSurfaceResize) instead of animating its own ' +
+        'height; the host box cannot follow a moving target. See ' +
+        'docs/refactor-116-lit-component-consolidation.md.',
     );
   }
 

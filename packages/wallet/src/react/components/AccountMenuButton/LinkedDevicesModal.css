@@ -40,6 +40,15 @@
   outline: none;
 }
 
+/* These dialogs render while their inventory loads and rely on the `hidden`
+   attribute to stay out of sight until it arrives. An author `display` beats
+   the user agent's `[hidden] { display: none }` whatever its specificity, so
+   without this the empty shell paints first and the dialog visibly grows to
+   its real size the moment the data lands. */
+.w3a-linked-devices-modal-content[hidden] {
+  display: none;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .w3a-linked-devices-modal-content {
     animation: w3a-linked-devices-modal-content-enter 80ms ease-out both;

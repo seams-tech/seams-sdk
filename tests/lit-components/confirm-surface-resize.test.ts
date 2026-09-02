@@ -401,6 +401,44 @@ test.describe('wallet-iframe confirm surface resize choreography', () => {
     expect(settled.bodyPx).toBe(during.begins[0].deltaCssPx);
   });
 
+  test('an unclaimed surface still animates the node itself', async ({ page }) => {
+    // The drawer's box never hugs its content, so nobody claims the motion and
+    // the tree runs its own height transition. Offering the change must hand
+    // the node back exactly as it was found: a body left unclipped animates
+    // nothing and the node snaps open a safety-timeout later.
+    await mountTreeHost(page, { surface: 'standalone' });
+
+    const heights = await page.evaluate(async () => {
+      const harness = window.__w3aResizeHarness;
+      if (!harness) throw new Error('harness missing');
+      const body = () => harness.body;
+      const samples: Array<{ px: number; clipped: boolean }> = [];
+      const startedAt = performance.now();
+      const done = new Promise<void>((resolve) => {
+        const tick = () => {
+          const element = body();
+          samples.push({
+            px: element.getBoundingClientRect().height,
+            clipped: element.classList.contains('anim-h'),
+          });
+          if (performance.now() - startedAt < 400) requestAnimationFrame(tick);
+          else resolve();
+        };
+        requestAnimationFrame(tick);
+      });
+      harness.summary.click();
+      await done;
+      return samples;
+    });
+
+    const finalPx = heights.at(-1)?.px ?? 0;
+    expect(finalPx).toBeGreaterThan(0);
+    // The body was clipped while it grew, and passed through the middle.
+    const midway = heights.filter((s) => s.clipped && s.px > 0.5 && s.px < finalPx - 0.5);
+    expect(midway.length).toBeGreaterThanOrEqual(1);
+    expect((await snapshot(page)).open).toBe(true);
+  });
+
   test('a standalone surface never pins', async ({ page }) => {
     await mountTreeHost(page, { surface: 'standalone' });
 

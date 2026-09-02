@@ -285,8 +285,13 @@ export function announceClampedSurfaceResize(args: {
   if (!Number.isFinite(fromCssPx) || !Number.isFinite(toCssPx)) return false;
   if (Math.abs(toCssPx - fromCssPx) < MIN_ANNOUNCED_DELTA_CSS_PX) return false;
   const drivenClasses = args.drivenClasses ?? [CONFIRM_SURFACE_HEIGHT_DRIVEN_CLASS];
+  // Only the classes this call adds may be taken away again. A caller that had
+  // already clamped the element — the tree holds its body across a toggle, and
+  // animates it itself when nobody claims — must get back exactly the state it
+  // was in, or its own animation runs against a body that is no longer clipped.
+  const addedClasses = drivenClasses.filter((name) => !element.classList.contains(name));
 
-  element.classList.add(...drivenClasses);
+  element.classList.add(...addedClasses);
   args.setHeightCssPx(fromCssPx);
   const claimed = announceSurfaceResize(element, {
     ...(args.reason ? { reason: args.reason } : {}),
@@ -298,9 +303,9 @@ export function announceClampedSurfaceResize(args: {
       args.onSettled?.();
     },
   });
-  // Nobody owns the motion, so there is no box to wait for: drop the clamp in
-  // the same task, before anything is painted.
-  if (!claimed) element.classList.remove(...drivenClasses);
+  // Nobody owns the motion, so there is no box to wait for: hand the element
+  // back untouched, in the same task, before anything is painted.
+  if (!claimed) element.classList.remove(...addedClasses);
   return claimed;
 }
 
