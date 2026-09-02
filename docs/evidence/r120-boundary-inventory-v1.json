@@ -30,8 +30,8 @@
     "circuit_digest"
   ],
   "totalFiles": 943,
-  "totalHits": 18219,
-  "classificationDigestSha256": "838ab606a6ecba601cd419f1d8c94ddeafb751b46715581dd7c82513ad812d3e",
+  "totalHits": 18206,
+  "classificationDigestSha256": "7f0789d1517f342edd73375666ad145d898eb6a6ad4e4a55a4e4529a4848c49c",
   "generatedArtifactDigestSha256": "f681b31eefbbc145b965523d81a960539eb9e59c3e116fa8897f35cf8fdc8ee4",
   "categorySummary": {
     "deployment": {
@@ -40,7 +40,7 @@
     },
     "documentation": {
       "fileCount": 106,
-      "hitCount": 836
+      "hitCount": 823
     },
     "test fixture": {
       "fileCount": 388,
@@ -4485,9 +4485,9 @@
     {
       "path": "docs/refactor-120-rotate-tenant-secrets.md",
       "category": "documentation",
-      "hitCount": 198,
+      "hitCount": 185,
       "firstLine": 37,
-      "lastLine": 3456,
+      "lastLine": 3092,
       "terms": [
         "DERIVER_A_ROOT_SHARE_WIRE_SECRET",
         "DERIVER_B_ROOT_SHARE_WIRE_SECRET",
@@ -4517,7 +4517,7 @@
         "tenant_root",
         "tenant_root_share_epoch"
       ],
-      "matchesDigestSha256": "a73e509f28285956e164eef3d3eb7585fe25d32ee958e774fb52d933c4259bb9"
+      "matchesDigestSha256": "13d349d835f05f521a41542c86e844481e08feedf55667061b419e40492261f5"
     },
     {
       "path": "docs/refactor-121-tenant-derivation-root-security.md",
