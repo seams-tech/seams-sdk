@@ -959,6 +959,11 @@ impl CloudflareStoredTenantRootRoleShareV1 {
         self.revision
     }
 
+    /// Returns the validated public binding for this active role share.
+    pub(crate) fn active_binding(&self) -> worker::Result<TenantRootActiveRoleBindingV1> {
+        active_binding_from_stored(self)
+    }
+
     /// Returns the exact activation receipt retained by an active row.
     pub(crate) fn active_activation_receipt_bytes(&self) -> worker::Result<&[u8]> {
         let CloudflareTenantRootRoleShareLifecycleV1::Active(active) = &self.record.lifecycle
@@ -2007,6 +2012,11 @@ impl fmt::Debug for CloudflareTenantRootRefreshInputV1 {
 
 #[allow(dead_code)]
 impl CloudflareTenantRootRefreshInputV1 {
+    /// Returns the exact signed installation evidence wire bytes.
+    pub(crate) fn installation_evidence_bytes(&self) -> &[u8] {
+        self.evidence.canonical_bytes()
+    }
+
     /// Builds one exact pending record from verified refresh evidence and local
     /// provider-sealed share inputs.
     pub(crate) fn new(
@@ -2104,6 +2114,18 @@ impl fmt::Debug for CloudflareTenantRootRefreshPendingCommandV1 {
 pub(crate) struct CloudflareTenantRootRefreshExecutedCommandV1 {
     executed: ExecutedTenantRootCommandV1,
     evidence: VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
+}
+
+impl CloudflareTenantRootRefreshExecutedCommandV1 {
+    /// Returns the executed command this insertion must be terminalized under.
+    pub(crate) const fn executed(&self) -> &ExecutedTenantRootCommandV1 {
+        &self.executed
+    }
+
+    /// Returns the installation evidence this insertion attests.
+    pub(crate) fn evidence_bytes(&self) -> &[u8] {
+        self.evidence.canonical_bytes()
+    }
 }
 
 impl fmt::Debug for CloudflareTenantRootRefreshExecutedCommandV1 {
@@ -3329,7 +3351,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
     }
 
     /// Reserves one exact active-epoch-swap command.
-    async fn reserve_swap_active_epoch(
+    pub(crate) async fn reserve_swap_active_epoch(
         &self,
         scope: TenantRootCommandScopeV1,
         active: CloudflareStoredTenantRootRoleShareV1,
