@@ -1,12 +1,14 @@
 use router_ab_core::{
     MpcPrfShareCommitmentWireV1, MpcPrfSigningRootShareWireV1,
     PendingTenantRootInitialRoleAttemptV1, RouterAbDerivationError, RouterAbDerivationErrorCode,
-    RouterAbDerivationResult, TenantRootCeremonyEpochsV1, TenantRootControlPlaneAuthorityIdV1,
-    TenantRootCustodyLineageId, TenantRootIdentityDigestV1, TenantRootManagedBackupBindingV1,
-    TenantRootManagedBackupSealRequestV1, TenantRootOnlineRoleShareBindingV1,
-    TenantRootOnlineRoleShareSealRequestV1, TenantRootRoleCreationCommandPackageV1,
-    TenantRootSealedOnlineRoleShareV1, TenantRootShareEpoch,
+    RouterAbDerivationResult, TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1,
+    TenantRootControlPlaneAuthorityIdV1, TenantRootCustodyLineageId, TenantRootIdentityDigestV1,
+    TenantRootManagedBackupBindingV1, TenantRootManagedBackupSealRequestV1,
+    TenantRootOnlineRoleShareBindingV1, TenantRootOnlineRoleShareSealRequestV1,
+    TenantRootRoleCreationCommandPackageV1, TenantRootSealedOnlineRoleShareV1,
+    TenantRootShareEpoch, TenantRootSignedCreationCommitmentV1,
     TenantRootSignedShareInstallationEvidenceV1, TwoPartyDeriverRole,
+    VerifiedTenantRootCreationCommitmentPairV1, VerifiedTenantRootCreationCommitmentV1,
     VerifiedTenantRootInitialRoleAttemptV1, VerifiedTenantRootManagedBackupShareV1,
     VerifiedTenantRootManagedBackupV1, VerifiedTenantRootOnlineRoleShareV1,
     VerifiedTenantRootRoleCreationCommandV1,
@@ -15,7 +17,8 @@ use router_ab_core::{
 use zeroize::Zeroizing;
 
 use crate::env::{
-    CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1, CloudflareTenantRootCreationRoleSignerV1,
+    CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
+    CloudflareTenantRootCreationRoleSignerV1, TenantRootCreationRoleVerifyingKeysV1,
 };
 use crate::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 
@@ -98,6 +101,71 @@ fn candidate_derivation_error(error: RouterAbDerivationError) -> RouterAbProtoco
         RouterAbProtocolErrorCode::MalformedWirePayload,
         format!("tenant-root role creation package was refused: {error}"),
     )
+}
+
+/// The rendezvous outcome a Deriver receives back from the Router-owned object.
+///
+/// Public evidence only: two signed commitments and the pair digest the object
+/// computed. Nothing here is role-private, which is why it may cross back to
+/// the peer Deriver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TenantRootCreationCommitmentPairWiresV1 {
+    pub(crate) deriver_a_signed_commitment: Vec<u8>,
+    pub(crate) deriver_b_signed_commitment: Vec<u8>,
+}
+
+/// Finalizes this role's attempt against the completed commitment pair.
+///
+/// Both commitments are re-verified here against the ceremony context and the
+/// published role keys. The Deriver does not trust the object's assembly of the
+/// pair: it trusts the two role signatures, which the object cannot forge.
+///
+/// The peer's commitment is a public curve point. The scalar stays in this
+/// process; what leaves is the signed installation evidence.
+pub(crate) fn finalize_tenant_root_role_attempt_v1<R>(
+    pending: PendingTenantRootInitialRoleAttemptV1,
+    pair_wires: &TenantRootCreationCommitmentPairWiresV1,
+    context: &TenantRootCeremonyContextV1,
+    role_keys: &TenantRootCreationRoleVerifyingKeysV1,
+    role_signing_key_bytes: &[u8; 32],
+    rng: &mut R,
+) -> RouterAbProtocolResult<VerifiedTenantRootInitialRoleAttemptV1>
+where
+    R: rand_core_06::RngCore + rand_core_06::CryptoRng,
+{
+    let verify_side = |bytes: &[u8],
+                       role: TwoPartyDeriverRole|
+     -> RouterAbProtocolResult<VerifiedTenantRootCreationCommitmentV1> {
+        let signed = TenantRootSignedCreationCommitmentV1::decode_canonical_bytes(bytes)
+            .map_err(candidate_derivation_error)?;
+        let expected_key = role_keys
+            .for_role_and_key_id(role, context.signing_key_id(role))
+            .map_err(|_| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                    "tenant-root ceremony names a role signing key that is not published",
+                )
+            })?;
+        signed
+            .verify_strict(context, role, context.signing_key_id(role), expected_key)
+            .map_err(candidate_derivation_error)
+    };
+    let pair = VerifiedTenantRootCreationCommitmentPairV1::new(
+        verify_side(
+            &pair_wires.deriver_a_signed_commitment,
+            TwoPartyDeriverRole::DeriverA,
+        )?,
+        verify_side(
+            &pair_wires.deriver_b_signed_commitment,
+            TwoPartyDeriverRole::DeriverB,
+        )?,
+    )
+    .map_err(candidate_derivation_error)?;
+    // finalize() independently requires the pair to contain THIS role's exact
+    // commitment, so a pair assembled from someone else's ceremony is refused.
+    pending
+        .finalize(pair, role_signing_key_bytes, rng)
+        .map_err(candidate_derivation_error)
 }
 
 /// Operations needed by one role-local online-share provider.
@@ -428,12 +496,12 @@ mod tests {
         }
     }
 
-    fn identity() -> TenantRootIdentityV1 {
+    pub(crate) fn identity() -> TenantRootIdentityV1 {
         TenantRootIdentityV1::new("org-1", "project-2", "production", "root-main", "v3")
             .expect("identity")
     }
 
-    fn context() -> TenantRootCeremonyContextV1 {
+    pub(crate) fn context() -> TenantRootCeremonyContextV1 {
         TenantRootCeremonyContextV1::new(
             identity().digest().expect("identity digest"),
             TenantRootCustodyLineageId::from_bytes([0x22; 16]).expect("lineage"),
@@ -448,7 +516,7 @@ mod tests {
         .expect("context")
     }
 
-    fn role_key(role: TwoPartyDeriverRole) -> SigningKey {
+    pub(crate) fn role_key(role: TwoPartyDeriverRole) -> SigningKey {
         SigningKey::from_bytes(
             &[match role {
                 TwoPartyDeriverRole::DeriverA => 0x51,
@@ -544,7 +612,9 @@ mod tests {
         bytes.iter().map(|byte| format!("{byte:02x}")).collect()
     }
 
-    fn signer(role: TwoPartyDeriverRole) -> crate::CloudflareTenantRootCreationRoleSignerV1 {
+    pub(crate) fn signer(
+        role: TwoPartyDeriverRole,
+    ) -> crate::CloudflareTenantRootCreationRoleSignerV1 {
         signer_with_keys(
             role,
             role_key(TwoPartyDeriverRole::DeriverA),
@@ -958,7 +1028,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod admission_tests {
+pub(crate) mod admission_tests {
     use super::*;
     use ed25519_dalek::SigningKey;
     use rand_chacha::ChaCha20Rng;
@@ -976,30 +1046,30 @@ mod admission_tests {
     const EXPIRES_AT_MS: u64 = 1_030_000;
     const AUTHORITY: [u8; 32] = [0x44; 32];
 
-    fn authority() -> TenantRootControlPlaneAuthorityIdV1 {
+    pub(crate) fn authority() -> TenantRootControlPlaneAuthorityIdV1 {
         TenantRootControlPlaneAuthorityIdV1::from_bytes(AUTHORITY)
     }
 
-    fn identity() -> TenantRootIdentityV1 {
+    pub(crate) fn identity() -> TenantRootIdentityV1 {
         TenantRootIdentityV1::new("org-1", "project-2", "production", "root-main", "v3")
             .expect("identity")
     }
 
-    fn role_key(role: TwoPartyDeriverRole) -> SigningKey {
+    pub(crate) fn role_key(role: TwoPartyDeriverRole) -> SigningKey {
         SigningKey::from_bytes(&match role {
             TwoPartyDeriverRole::DeriverA => [0xa1; 32],
             TwoPartyDeriverRole::DeriverB => [0xb1; 32],
         })
     }
 
-    fn signing_key_id(role: TwoPartyDeriverRole) -> &'static str {
+    pub(crate) fn signing_key_id(role: TwoPartyDeriverRole) -> &'static str {
         match role {
             TwoPartyDeriverRole::DeriverA => "deriver-a-signing-key-7",
             TwoPartyDeriverRole::DeriverB => "deriver-b-signing-key-9",
         }
     }
 
-    fn context() -> TenantRootCeremonyContextV1 {
+    pub(crate) fn context() -> TenantRootCeremonyContextV1 {
         TenantRootCeremonyContextV1::new(
             identity().digest().expect("identity digest"),
             TenantRootCustodyLineageId::from_bytes([0x22; 16]).expect("lineage"),
@@ -1015,7 +1085,7 @@ mod admission_tests {
     }
 
     /// A package exactly as it reaches a Deriver over the wire.
-    fn package_bytes(role: TwoPartyDeriverRole, issuer_seed: &[u8; 32]) -> Vec<u8> {
+    pub(crate) fn package_bytes(role: TwoPartyDeriverRole, issuer_seed: &[u8; 32]) -> Vec<u8> {
         let context = context();
         let journal = TenantRootCreationJournalV1::started(
             identity(),
@@ -1040,7 +1110,7 @@ mod admission_tests {
             .expect("package bytes")
     }
 
-    fn trusted_issuer_keys() -> CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1 {
+    pub(crate) fn trusted_issuer_keys() -> CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1 {
         let hex: String = SigningKey::from_bytes(&ISSUER_KEY)
             .verifying_key()
             .to_bytes()
@@ -1053,7 +1123,7 @@ mod admission_tests {
         .expect("trusted issuer keys")
     }
 
-    fn signer(role: TwoPartyDeriverRole) -> CloudflareTenantRootCreationRoleSignerV1 {
+    pub(crate) fn signer(role: TwoPartyDeriverRole) -> CloudflareTenantRootCreationRoleSignerV1 {
         crate::env::test_support_tenant_root_creation_role_signer_v1(
             role,
             signing_key_id(role),
@@ -1061,7 +1131,69 @@ mod admission_tests {
         )
     }
 
-    fn admit(
+    /// Admits a package for `role`.
+    ///
+    /// The seed is role-specific because each Deriver draws from its own RNG in
+    /// production; a shared seed would make both roles commit to the same point,
+    /// which the pair type correctly rejects as duplicate.
+    pub(crate) fn admit_for(role: TwoPartyDeriverRole) -> PendingTenantRootInitialRoleAttemptV1 {
+        admit_for_with_rng(
+            role,
+            match role {
+                TwoPartyDeriverRole::DeriverA => 0x77,
+                TwoPartyDeriverRole::DeriverB => 0x88,
+            },
+        )
+    }
+
+    /// Admits a package for `role` with an explicit RNG seed, so two runs of the
+    /// same ceremony produce different shares.
+    pub(crate) fn admit_for_with_rng(
+        role: TwoPartyDeriverRole,
+        seed: u8,
+    ) -> PendingTenantRootInitialRoleAttemptV1 {
+        admit_tenant_root_role_creation_package_v1(
+            &package_bytes(role, &ISSUER_KEY),
+            role,
+            authority(),
+            &trusted_issuer_keys(),
+            &signer(role),
+            &role_key(role).to_bytes(),
+            ISSUED_AT_MS + 2,
+            &mut ChaCha20Rng::from_seed([seed; 32]),
+        )
+        .expect("admitted")
+    }
+
+    pub(crate) fn test_context() -> TenantRootCeremonyContextV1 {
+        context()
+    }
+
+    pub(crate) fn test_role_key(role: TwoPartyDeriverRole) -> SigningKey {
+        role_key(role)
+    }
+
+    /// The published role keyset, matching the ceremony context's key IDs.
+    pub(crate) fn test_role_keys() -> TenantRootCreationRoleVerifyingKeysV1 {
+        let hex = |role: TwoPartyDeriverRole| -> String {
+            role_key(role)
+                .verifying_key()
+                .to_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect()
+        };
+        crate::env::decode_role_verifying_keys(&format!(
+            "{{\"keys\":[{{\"role\":\"deriver_a\",\"signing_key_id\":\"{}\",\"verifying_key_hex\":\"{}\"}},{{\"role\":\"deriver_b\",\"signing_key_id\":\"{}\",\"verifying_key_hex\":\"{}\"}}]}}",
+            signing_key_id(TwoPartyDeriverRole::DeriverA),
+            hex(TwoPartyDeriverRole::DeriverA),
+            signing_key_id(TwoPartyDeriverRole::DeriverB),
+            hex(TwoPartyDeriverRole::DeriverB),
+        ))
+        .expect("role keyset")
+    }
+
+    pub(crate) fn admit(
         bytes: &[u8],
         worker_role: TwoPartyDeriverRole,
         authority_id: TenantRootControlPlaneAuthorityIdV1,
@@ -1214,5 +1346,208 @@ mod admission_tests {
             );
         }
         assert!(admit(&[], role, authority(), ISSUED_AT_MS + 2).is_err());
+    }
+}
+
+#[cfg(test)]
+mod exchange_tests {
+    use super::admission_tests::*;
+    use super::*;
+    use rand_chacha::ChaCha20Rng;
+    use rand_core_06::SeedableRng;
+
+    fn rng(seed: u8) -> ChaCha20Rng {
+        ChaCha20Rng::from_seed([seed; 32])
+    }
+
+    /// Both roles admit, exchange commitments, and finalize independently.
+    fn run_exchange() -> (
+        PendingTenantRootInitialRoleAttemptV1,
+        PendingTenantRootInitialRoleAttemptV1,
+        TenantRootCreationCommitmentPairWiresV1,
+    ) {
+        let a = admit_for(TwoPartyDeriverRole::DeriverA);
+        let b = admit_for(TwoPartyDeriverRole::DeriverB);
+        let wires = TenantRootCreationCommitmentPairWiresV1 {
+            deriver_a_signed_commitment: a.commitment_bytes().to_vec(),
+            deriver_b_signed_commitment: b.commitment_bytes().to_vec(),
+        };
+        (a, b, wires)
+    }
+
+    #[test]
+    fn both_roles_finalize_against_the_same_commitment_pair() {
+        let (a, b, wires) = run_exchange();
+        for (pending, role) in [
+            (a, TwoPartyDeriverRole::DeriverA),
+            (b, TwoPartyDeriverRole::DeriverB),
+        ] {
+            let finalized = finalize_tenant_root_role_attempt_v1(
+                pending,
+                &wires,
+                &test_context(),
+                &test_role_keys(),
+                &test_role_key(role).to_bytes(),
+                &mut rng(0x91),
+            )
+            .expect("finalized");
+            let (command, _share, evidence) = finalized.into_parts();
+            assert_eq!(command.role(), role);
+            assert!(!evidence.canonical_bytes().is_empty());
+        }
+    }
+
+    /// A Deriver trusts the two role signatures, not the object's assembly, so
+    /// a pair it did not participate in is refused.
+    #[test]
+    fn a_role_refuses_a_pair_that_does_not_contain_its_own_commitment() {
+        let (a, _b, _wires) = run_exchange();
+        // A second, independent ceremony run produces different commitments.
+        let (other_a, other_b, _) = {
+            let a2 = admit_for_with_rng(TwoPartyDeriverRole::DeriverA, 0x33);
+            let b2 = admit_for_with_rng(TwoPartyDeriverRole::DeriverB, 0x44);
+            let w = TenantRootCreationCommitmentPairWiresV1 {
+                deriver_a_signed_commitment: a2.commitment_bytes().to_vec(),
+                deriver_b_signed_commitment: b2.commitment_bytes().to_vec(),
+            };
+            (a2, b2, w)
+        };
+        let foreign = TenantRootCreationCommitmentPairWiresV1 {
+            deriver_a_signed_commitment: other_a.commitment_bytes().to_vec(),
+            deriver_b_signed_commitment: other_b.commitment_bytes().to_vec(),
+        };
+        assert!(
+            finalize_tenant_root_role_attempt_v1(
+                a,
+                &foreign,
+                &test_context(),
+                &test_role_keys(),
+                &test_role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
+                &mut rng(0x91),
+            )
+            .is_err(),
+            "a pair without this role's own commitment must be refused"
+        );
+    }
+
+    #[test]
+    fn swapped_or_duplicated_roles_in_the_pair_fail_closed() {
+        let (a, _b, wires) = run_exchange();
+        // Roles swapped: A's commitment presented as B's and vice versa.
+        let swapped = TenantRootCreationCommitmentPairWiresV1 {
+            deriver_a_signed_commitment: wires.deriver_b_signed_commitment.clone(),
+            deriver_b_signed_commitment: wires.deriver_a_signed_commitment.clone(),
+        };
+        assert!(finalize_tenant_root_role_attempt_v1(
+            a,
+            &swapped,
+            &test_context(),
+            &test_role_keys(),
+            &test_role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
+            &mut rng(0x91),
+        )
+        .is_err());
+
+        // One role's commitment duplicated into both positions.
+        let (a2, _b2, wires2) = run_exchange();
+        let duplicated = TenantRootCreationCommitmentPairWiresV1 {
+            deriver_a_signed_commitment: wires2.deriver_a_signed_commitment.clone(),
+            deriver_b_signed_commitment: wires2.deriver_a_signed_commitment.clone(),
+        };
+        assert!(finalize_tenant_root_role_attempt_v1(
+            a2,
+            &duplicated,
+            &test_context(),
+            &test_role_keys(),
+            &test_role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
+            &mut rng(0x91),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn every_commitment_wire_mutation_fails_closed() {
+        let (a, _b, wires) = run_exchange();
+        let bytes = wires.deriver_b_signed_commitment.clone();
+        for index in (0..bytes.len()).step_by(5) {
+            let mut mutated = bytes.clone();
+            mutated[index] ^= 0xff;
+            let tampered = TenantRootCreationCommitmentPairWiresV1 {
+                deriver_a_signed_commitment: wires.deriver_a_signed_commitment.clone(),
+                deriver_b_signed_commitment: mutated,
+            };
+            assert!(
+                finalize_tenant_root_role_attempt_v1(
+                    admit_for(TwoPartyDeriverRole::DeriverA),
+                    &tampered,
+                    &test_context(),
+                    &test_role_keys(),
+                    &test_role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
+                    &mut rng(0x91),
+                )
+                .is_err(),
+                "mutated peer commitment byte {index} must be refused"
+            );
+        }
+        drop(a);
+    }
+
+    /// Behavioural proof that no scalar reaches any wire that leaves a Deriver.
+    ///
+    /// Rather than scanning source text, this reconstructs the exact bytes that
+    /// cross each boundary and asserts the secret share does not appear in any
+    /// of them: the signed commitment sent to the object, the pair wires
+    /// returned to the peer, and the signed installation evidence.
+    #[test]
+    fn no_wire_leaving_a_deriver_contains_the_secret_share() {
+        let (a, b, wires) = run_exchange();
+
+        // Recover each role's raw scalar bytes from the finalized attempt.
+        let mut scalars: Vec<Vec<u8>> = Vec::new();
+        let mut outbound: Vec<Vec<u8>> = vec![
+            wires.deriver_a_signed_commitment.clone(),
+            wires.deriver_b_signed_commitment.clone(),
+        ];
+        for (pending, role) in [
+            (a, TwoPartyDeriverRole::DeriverA),
+            (b, TwoPartyDeriverRole::DeriverB),
+        ] {
+            let finalized = finalize_tenant_root_role_attempt_v1(
+                pending,
+                &wires,
+                &test_context(),
+                &test_role_keys(),
+                &test_role_key(role).to_bytes(),
+                &mut rng(0x91),
+            )
+            .expect("finalized");
+            let (_command, share_wire, evidence) = finalized.into_parts();
+            scalars.push(share_wire.to_bytes().to_vec());
+            // The signed installation evidence crosses to the object.
+            outbound.push(evidence.canonical_bytes().to_vec());
+        }
+
+        assert_eq!(scalars.len(), 2);
+        assert_ne!(scalars[0], scalars[1], "roles must hold distinct scalars");
+        for share_wire_bytes in &scalars {
+            // The share wire is a 2-byte share id followed by the 32-byte
+            // scalar; search for the full wire AND the bare scalar, so a leak
+            // that drops the prefix is still caught.
+            assert_eq!(share_wire_bytes.len(), 34);
+            let scalar = &share_wire_bytes[2..];
+            assert_eq!(scalar.len(), 32);
+            assert!(
+                scalar.iter().any(|byte| *byte != 0),
+                "a zero scalar would make this test vacuous"
+            );
+            for needle in [share_wire_bytes.as_slice(), scalar] {
+                for (index, wire) in outbound.iter().enumerate() {
+                    assert!(
+                        !wire.windows(needle.len()).any(|window| window == needle),
+                        "outbound wire {index} contains secret share material"
+                    );
+                }
+            }
+        }
     }
 }
