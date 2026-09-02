@@ -33,9 +33,9 @@ use router_ab_core::{
 #[cfg(any(feature = "workers-rs", test))]
 use zeroize::Zeroizing;
 
-#[cfg(feature = "workers-rs")]
-use threshold_prf::RootShareRefreshContributionWire;
 use threshold_prf::SigningRootShare;
+#[cfg(feature = "workers-rs")]
+use threshold_prf::{RootShareRefreshContributionWire, SigningRootShareWire};
 
 #[cfg(feature = "workers-rs")]
 use sha2::{Digest, Sha256};
@@ -450,7 +450,10 @@ pub(crate) enum TenantRootRoleRefreshProgressV1 {
     #[cfg(feature = "workers-rs")]
     Sealed {
         signed_commitment: Vec<u8>,
+        signed_installation_evidence: Vec<u8>,
         input: Box<CloudflareTenantRootRefreshInputV1>,
+        managed_backup: Box<VerifiedTenantRootManagedBackupV1>,
+        provider_canary_receipt: Vec<u8>,
     },
 }
 
@@ -488,34 +491,43 @@ where
 /// role-private pending-row insertion path.
 #[cfg(feature = "workers-rs")]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn finalize_tenant_root_role_refresh_v1<Online, R>(
+pub(crate) fn finalize_tenant_root_role_refresh_v1<Online, Backup, R>(
     pending: PendingTenantRootRefreshRoleAttemptV1,
     commitment_pair: VerifiedTenantRootRefreshCommitmentPairV1,
     peer_contribution: RootShareRefreshContributionWire,
+    role_signer: &crate::CloudflareTenantRootCreationRoleSignerV1,
     identity: TenantRootIdentityV1,
     provider_config: &TenantRootRoleRuntimeProviderConfigV1,
     online_provider: &mut Online,
+    managed_backup_provider: &mut Backup,
     staged_at_ms: u64,
     rng: &mut R,
 ) -> RouterAbProtocolResult<TenantRootRoleRefreshProgressV1>
 where
     Online: TenantRootOnlineRoleShareProviderV1,
+    Backup: TenantRootManagedBackupProviderV1,
     R: rand_core_06::RngCore + rand_core_06::CryptoRng,
 {
     let signed_commitment = pending.commitment_bytes().to_vec();
     let finalized = pending
         .finalize(commitment_pair, peer_contribution, rng)
         .map_err(candidate_derivation_error)?;
-    let input = compose_refresh_tenant_root_role_runtime_v1(
+    let (input, managed_backup, provider_canary_receipt) = seal_refresh_role_for_persistence_v1(
         finalized,
+        role_signer,
         identity,
         provider_config,
         online_provider,
+        managed_backup_provider,
         staged_at_ms,
     )?;
+    let signed_installation_evidence = input.installation_evidence_bytes().to_vec();
     Ok(TenantRootRoleRefreshProgressV1::Sealed {
         signed_commitment,
+        signed_installation_evidence,
         input: Box::new(input),
+        managed_backup: Box::new(managed_backup),
+        provider_canary_receipt,
     })
 }
 
@@ -2033,7 +2045,7 @@ where
             "tenant-root initial creation canary requires the initial epoch",
         ));
     }
-    let commitments = tenant_root_initial_epoch_commitments_v1(&evidence)?;
+    let commitments = tenant_root_epoch_commitments_v1(&evidence)?;
     let canary_binding = TenantRootProviderCanaryReceiptBindingV1::new(
         command.identity_digest(),
         command.custody_lineage(),
@@ -2088,6 +2100,44 @@ where
     Online: TenantRootOnlineRoleShareProviderV1,
 {
     let (command, share_wire, evidence) = attempt.into_parts();
+    let (command, evidence, online_sealed, _) = compose_refresh_role_online_artifacts_v1(
+        command,
+        share_wire,
+        evidence,
+        &identity,
+        provider_config,
+        online_provider,
+    )?;
+    CloudflareTenantRootRefreshInputV1::new(
+        command,
+        evidence,
+        CloudflareTenantRootRefreshShareInputV1::new(identity, online_sealed, staged_at_ms),
+    )
+    .map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("tenant-root refresh persistence input was refused: {error}"),
+        )
+    })
+}
+
+#[cfg(feature = "workers-rs")]
+fn compose_refresh_role_online_artifacts_v1<Online>(
+    command: VerifiedTenantRootRoleRefreshCommandV1,
+    share_wire: SigningRootShareWire,
+    evidence: VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
+    identity: &TenantRootIdentityV1,
+    provider_config: &TenantRootRoleRuntimeProviderConfigV1,
+    online_provider: &mut Online,
+) -> RouterAbProtocolResult<(
+    VerifiedTenantRootRoleRefreshCommandV1,
+    VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
+    TenantRootSealedOnlineRoleShareV1,
+    MpcPrfSigningRootShareWireV1,
+)>
+where
+    Online: TenantRootOnlineRoleShareProviderV1,
+{
     let identity_digest = identity.digest().map_err(candidate_derivation_error)?;
     if identity_digest != command.identity_digest() {
         return Err(RouterAbProtocolError::new(
@@ -2098,6 +2148,9 @@ where
     let transcript = evidence.evidence().transcript();
     let share_commitment =
         MpcPrfShareCommitmentWireV1::new(transcript.commitment().to_bytes().to_vec())
+            .map_err(candidate_derivation_error)?;
+    let managed_share =
+        MpcPrfSigningRootShareWireV1::new(Zeroizing::new(share_wire.to_bytes()).to_vec())
             .map_err(candidate_derivation_error)?;
     let online_binding = TenantRootOnlineRoleShareBindingV1::new(
         command.identity_digest(),
@@ -2132,7 +2185,90 @@ where
         ));
     }
     drop(opened_online);
-    CloudflareTenantRootRefreshInputV1::new(
+    Ok((command, evidence, online_sealed, managed_share))
+}
+
+#[cfg(feature = "workers-rs")]
+#[allow(clippy::too_many_arguments)]
+fn seal_refresh_role_for_persistence_v1<Online, Backup>(
+    attempt: VerifiedTenantRootRefreshRoleAttemptV1,
+    role_signer: &crate::CloudflareTenantRootCreationRoleSignerV1,
+    identity: TenantRootIdentityV1,
+    provider_config: &TenantRootRoleRuntimeProviderConfigV1,
+    online_provider: &mut Online,
+    managed_backup_provider: &mut Backup,
+    staged_at_ms: u64,
+) -> RouterAbProtocolResult<(
+    CloudflareTenantRootRefreshInputV1,
+    VerifiedTenantRootManagedBackupV1,
+    Vec<u8>,
+)>
+where
+    Online: TenantRootOnlineRoleShareProviderV1,
+    Backup: TenantRootManagedBackupProviderV1,
+{
+    let (command, share_wire, evidence) = attempt.into_parts();
+    validate_attempt(
+        command.role(),
+        command.identity_digest(),
+        command.custody_lineage(),
+        command.next_epoch(),
+        &evidence,
+        role_signer,
+    )
+    .map_err(candidate_derivation_error)?;
+    let (command, evidence, online_sealed, managed_share) =
+        compose_refresh_role_online_artifacts_v1(
+            command,
+            share_wire,
+            evidence,
+            &identity,
+            provider_config,
+            online_provider,
+        )?;
+    let context = evidence.evidence().transcript().context();
+    let commitments =
+        tenant_root_epoch_commitments_v1(&evidence).map_err(candidate_derivation_error)?;
+    let canary_binding = TenantRootProviderCanaryReceiptBindingV1::new(
+        command.identity_digest(),
+        command.custody_lineage(),
+        TenantRootActivationReceiptTransitionV1::RefreshSwap,
+        command.next_epoch(),
+        commitments,
+        tenant_root_provider_canary_curve_family_v1(command.role()),
+        provider_config.online_epoch_wrapping_key_ref.clone(),
+        staged_at_ms,
+        command.authority_id(),
+        role_signer.signing_key_id().to_owned(),
+        context.issued_at_ms(),
+        context.expires_at_ms(),
+    )
+    .map_err(candidate_derivation_error)?;
+    let provider_canary_receipt = role_signer
+        .sign_provider_canary(canary_binding)
+        .map_err(candidate_derivation_error)?
+        .canonical_bytes()
+        .map_err(candidate_derivation_error)?;
+    let managed_binding = TenantRootManagedBackupBindingV1::from_verified_installation_evidence(
+        &evidence,
+        provider_config.managed_backup_provider_id.clone(),
+        provider_config.managed_backup_key_version.clone(),
+        role_signer.signing_key_id().to_owned(),
+        context.issued_at_ms(),
+    )
+    .map_err(candidate_derivation_error)?;
+    let managed_request =
+        TenantRootManagedBackupSealRequestV1::new(managed_binding.clone(), managed_share)
+            .map_err(candidate_derivation_error)?;
+    let managed_ciphertext = managed_backup_provider
+        .seal_managed_backup(&managed_request)
+        .map_err(candidate_derivation_error)?;
+    let managed_backup = role_signer
+        .sign_managed_backup(managed_request, managed_ciphertext)
+        .map_err(candidate_derivation_error)?
+        .verify(&managed_binding, &role_signer.verifying_key_bytes())
+        .map_err(candidate_derivation_error)?;
+    let input = CloudflareTenantRootRefreshInputV1::new(
         command,
         evidence,
         CloudflareTenantRootRefreshShareInputV1::new(identity, online_sealed, staged_at_ms),
@@ -2142,7 +2278,8 @@ where
             RouterAbProtocolErrorCode::MalformedWirePayload,
             format!("tenant-root refresh persistence input was refused: {error}"),
         )
-    })
+    })?;
+    Ok((input, managed_backup, provider_canary_receipt))
 }
 
 /// Opens an online artifact and re-verifies its role share commitment.
@@ -2207,7 +2344,7 @@ fn installation_epoch(epochs: TenantRootCeremonyEpochsV1) -> TenantRootShareEpoc
 }
 
 #[cfg(feature = "workers-rs")]
-fn tenant_root_initial_epoch_commitments_v1(
+fn tenant_root_epoch_commitments_v1(
     evidence: &VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
 ) -> RouterAbDerivationResult<TenantRootEpochCommitmentsV1> {
     let transcript = evidence.evidence().transcript();
@@ -3001,13 +3138,17 @@ pub(crate) mod tests {
             TenantRootRoleRuntimeProviderConfigV1::new(ONLINE_REF, BACKUP_PROVIDER, BACKUP_VERSION)
                 .expect("provider config");
         let mut provider = InMemoryProvider::new();
+        let mut backup_provider = InMemoryProvider::new();
+        let role_signer = signer(role);
         let progress = finalize_tenant_root_role_refresh_v1(
             pending,
             pair,
             peer_pending.contribution_for_peer(),
+            &role_signer,
             identity(),
             &config,
             &mut provider,
+            &mut backup_provider,
             ISSUED_AT_MS + 11,
             &mut ChaCha20Rng::from_seed([0x71; 32]),
         )
@@ -3015,13 +3156,49 @@ pub(crate) mod tests {
 
         let TenantRootRoleRefreshProgressV1::Sealed {
             signed_commitment,
+            signed_installation_evidence,
             input,
+            managed_backup,
+            provider_canary_receipt,
         } = progress
         else {
             panic!("refresh finalization should expose a composed input");
         };
         assert!(!signed_commitment.is_empty());
+        assert!(!signed_installation_evidence.is_empty());
         assert_eq!(provider.online_role, Some(role));
+        assert_eq!(
+            backup_provider.backup_role,
+            Some(router_ab_core::TenantRootManagedRestoreRoleV1::DeriverA)
+        );
+        assert_eq!(
+            managed_backup.binding().backup_provider_id(),
+            BACKUP_PROVIDER
+        );
+        assert!(!provider_canary_receipt.is_empty());
+        assert_eq!(
+            input.installation_evidence_bytes(),
+            signed_installation_evidence.as_slice()
+        );
+        let canary = TenantRootSignedProviderCanaryReceiptV1::decode_canonical_bytes(
+            &provider_canary_receipt,
+        )
+        .expect("canonical refresh provider canary");
+        assert_eq!(
+            canary.transition(),
+            TenantRootActivationReceiptTransitionV1::RefreshSwap
+        );
+        assert_eq!(
+            canary.target_epoch(),
+            TenantRootShareEpoch::new(8).expect("next epoch")
+        );
+        assert_eq!(canary.provider_key_version_ref(), ONLINE_REF);
+        canary
+            .verify(
+                &canary.binding().clone(),
+                &role_signer.verifying_key_bytes(),
+            )
+            .expect("refresh provider canary signature");
         assert!(format!("{input:?}").contains("CloudflareTenantRootRefreshInputV1"));
     }
 
@@ -3042,13 +3219,17 @@ pub(crate) mod tests {
             TenantRootRoleRuntimeProviderConfigV1::new(ONLINE_REF, BACKUP_PROVIDER, BACKUP_VERSION)
                 .expect("provider config");
         let mut provider = InMemoryProvider::new();
+        let mut backup_provider = InMemoryProvider::new();
+        let role_signer = signer(role);
         assert!(finalize_tenant_root_role_refresh_v1(
             pending,
             pair,
             wrong_peer_contribution,
+            &role_signer,
             identity(),
             &config,
             &mut provider,
+            &mut backup_provider,
             ISSUED_AT_MS + 11,
             &mut ChaCha20Rng::from_seed([0x71; 32]),
         )
