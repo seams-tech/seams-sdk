@@ -2212,6 +2212,19 @@ pub(crate) enum CloudflareTenantRootInitialCreationPersistenceOutcomeV1 {
     ReplayFailed { failure_receipt_bytes: Vec<u8> },
 }
 
+/// Result of persisting one refresh-only tenant-root share.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CloudflareTenantRootRefreshPersistenceOutcomeV1 {
+    /// This call persisted the successful terminal receipt.
+    Committed { receipt_bytes: Vec<u8> },
+    /// A reservation or execution checkpoint already owns this command.
+    InProgress,
+    /// An identical command already committed the exact successful receipt.
+    ReplayCompleted { receipt_bytes: Vec<u8> },
+    /// An identical command already committed the exact failure receipt.
+    ReplayFailed { failure_receipt_bytes: Vec<u8> },
+}
+
 /// Executable initial-activation command issued by the role's control plane.
 #[derive(Debug, PartialEq, Eq)]
 pub struct CloudflareTenantRootActivateInitialPendingCommandV1 {
@@ -2780,6 +2793,64 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             stored,
             CloudflareTenantRootRefreshExecutedCommandV1 { executed, evidence },
         ))
+    }
+
+    /// Persists one refresh-only tenant-root share through its complete
+    /// reserve, execution-checkpoint, and successful terminal-receipt path.
+    pub(crate) async fn persist_refresh(
+        &self,
+        refresh: CloudflareTenantRootRefreshInputV1,
+        role_signer: &CloudflareTenantRootCreationRoleSignerV1,
+        reserved_at_ms: u64,
+        executed_at_ms: u64,
+        terminal_at_ms: u64,
+    ) -> worker::Result<CloudflareTenantRootRefreshPersistenceOutcomeV1> {
+        validate_refresh_role_signer(&refresh, role_signer)?;
+        let reservation = self
+            .reserve_refresh_pending(refresh, reserved_at_ms)
+            .await?;
+        let executed = match reservation {
+            CloudflareTenantRootRefreshDecisionV1::Execute { command }
+            | CloudflareTenantRootRefreshDecisionV1::ResumeExecution { command } => {
+                let (_, executed) = self.insert_refresh_pending(command, executed_at_ms).await?;
+                executed
+            }
+            CloudflareTenantRootRefreshDecisionV1::ResumeCompletion { executed } => executed,
+            CloudflareTenantRootRefreshDecisionV1::InProgress => {
+                return Ok(CloudflareTenantRootRefreshPersistenceOutcomeV1::InProgress);
+            }
+            CloudflareTenantRootRefreshDecisionV1::ReplayCompleted { receipt_bytes } => {
+                return Ok(
+                    CloudflareTenantRootRefreshPersistenceOutcomeV1::ReplayCompleted {
+                        receipt_bytes,
+                    },
+                );
+            }
+            CloudflareTenantRootRefreshDecisionV1::ReplayFailed {
+                failure_receipt_bytes,
+            } => {
+                return Ok(
+                    CloudflareTenantRootRefreshPersistenceOutcomeV1::ReplayFailed {
+                        failure_receipt_bytes,
+                    },
+                );
+            }
+        };
+        let receipt = role_signer
+            .sign_verified_success_terminal_receipt(
+                executed.executed(),
+                executed.evidence_bytes(),
+                terminal_at_ms,
+            )
+            .map_err(|error| store_error(error.message()))?;
+        match self.complete_refresh(executed, receipt).await? {
+            CloudflareTenantRootCommandTerminalCommitV1::Committed { receipt_bytes } => {
+                Ok(CloudflareTenantRootRefreshPersistenceOutcomeV1::Committed { receipt_bytes })
+            }
+            CloudflareTenantRootCommandTerminalCommitV1::Replay { receipt_bytes } => Ok(
+                CloudflareTenantRootRefreshPersistenceOutcomeV1::ReplayCompleted { receipt_bytes },
+            ),
+        }
     }
 
     /// Reserves initial creation with one exact verified evidence wire.
@@ -6689,6 +6760,31 @@ fn validate_initial_creation_role_signer(
     {
         return Err(store_error(
             "tenant-root initial creation receipt signer key does not match its evidence",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_refresh_role_signer(
+    refresh: &CloudflareTenantRootRefreshInputV1,
+    role_signer: &CloudflareTenantRootCreationRoleSignerV1,
+) -> worker::Result<()> {
+    let role = refresh.command.role();
+    if role_signer.role() != role {
+        return Err(store_error(
+            "tenant-root refresh receipt signer role does not match its command",
+        ));
+    }
+    if role_signer.signing_key_id()
+        != refresh
+            .evidence
+            .evidence()
+            .transcript()
+            .context()
+            .signing_key_id(role)
+    {
+        return Err(store_error(
+            "tenant-root refresh receipt signer key does not match its evidence",
         ));
     }
     Ok(())
