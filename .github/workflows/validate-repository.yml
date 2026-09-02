@@ -85,7 +85,7 @@ jobs:
   build-and-test:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -165,6 +165,20 @@ jobs:
 
       - name: Run signer parity tests
         run: pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/signerParity.rustPlatforms.unit.test.ts ./unit/signingVectors.webWasmReplay.integration.test.ts --workers=1
+
+      # The console harness boots the local Router A/B stack, which refuses to
+      # start without the strict Worker artifacts and their build receipt. The
+      # SDK step above runs only the wallet half of `build:sdk-prod`; the other
+      # half is `pnpm router:build`, so it has to run here. The dev profile
+      # keeps this inside the job budget -- these paths assert behaviour, not
+      # optimized codegen.
+      - name: Install worker-build
+        run: pnpm -C crates/router-ab-cloudflare run worker-build:install
+
+      - name: Build Router A/B Worker artifacts
+        env:
+          ROUTER_AB_WORKER_BUILD_PROFILE: dev
+        run: pnpm router:build
 
       - name: Run Console operating paths
         env:
