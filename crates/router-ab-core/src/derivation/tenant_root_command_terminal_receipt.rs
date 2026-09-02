@@ -150,6 +150,62 @@ impl TenantRootCommandSuccessReceiptV1 {
     }
 
     /// Verifies this successful receipt against the exact executed replay token.
+    /// Verifies a success receipt from a remote role using public expectations.
+    ///
+    /// A peer role cannot reconstruct the signer's executed-command token: the
+    /// insert-pending payload digest covers the signer's sealed record, whose
+    /// ciphertext is role-private. So this checks everything a remote verifier
+    /// CAN derive independently -- the role signature, the expected signing key
+    /// id, the replay key, the payload, and the earliest legitimate terminal
+    /// time -- and deliberately does not assert the command digest, which is
+    /// only meaningful to the signer.
+    ///
+    /// The payload binding is what makes this useful: the caller supplies the
+    /// exact bytes the receipt must attest, so a receipt for a different
+    /// operation by the same role in the same ceremony does not satisfy it.
+    ///
+    /// Use [`Self::verify`] wherever the executed-command token is available;
+    /// it is strictly stronger.
+    pub fn verify_remote_public(
+        &self,
+        expected_key: &TenantRootCommandReplayKeyV1,
+        expected_payload: &[u8],
+        earliest_terminal_at_ms: u64,
+        expected_role_signing_key_id: &str,
+        trusted_role_verifying_key: &[u8; 32],
+    ) -> RouterAbDerivationResult<()> {
+        validate_data(&self.data)?;
+        require_tenant_root_identifier(
+            "tenant-root command role signing key id",
+            expected_role_signing_key_id,
+        )?;
+        if self.data.key != *expected_key {
+            return Err(replay_mismatch(
+                "tenant-root command receipt replay key does not match its ceremony",
+            ));
+        }
+        if self.data.payload != expected_payload {
+            return Err(replay_mismatch(
+                "tenant-root command receipt payload does not match its expected attestation",
+            ));
+        }
+        if self.data.terminal_at_ms < earliest_terminal_at_ms {
+            return Err(replay_mismatch(
+                "tenant-root command receipt predates its ceremony",
+            ));
+        }
+        if self.data.role_signing_key_id != expected_role_signing_key_id {
+            return Err(replay_mismatch(
+                "tenant-root command receipt signing key id does not match its expected role",
+            ));
+        }
+        verify_receipt_signature(
+            TenantRootCommandTerminalOutcomeV1::Success,
+            &self.data,
+            trusted_role_verifying_key,
+        )
+    }
+
     pub fn verify(
         &self,
         executed: &ExecutedTenantRootCommandV1,
@@ -663,6 +719,31 @@ fn verify_receipt(
     let canonical_bytes = canonical_bytes_from_unsigned(unsigned, &data.signature)?;
     let digest = receipt_digest(canonical_bytes.clone())?;
     Ok((data.clone(), canonical_bytes, digest))
+}
+
+/// Verifies only the role signature over a receipt's canonical bytes.
+fn verify_receipt_signature(
+    outcome: TenantRootCommandTerminalOutcomeV1,
+    data: &TenantRootCommandTerminalReceiptDataV1,
+    trusted_role_verifying_key: &[u8; 32],
+) -> RouterAbDerivationResult<()> {
+    let unsigned = unsigned_canonical_bytes(
+        outcome,
+        &data.key,
+        data.command_digest,
+        &data.payload,
+        data.payload_digest,
+        data.terminal_at_ms,
+        &data.role_signing_key_id,
+    )?;
+    let verifying_key = VerifyingKey::from_bytes(trusted_role_verifying_key)
+        .map_err(|_| malformed("tenant-root command role verifying key is invalid"))?;
+    verifying_key
+        .verify_strict(
+            &role_authentication_input(data.key.role(), &data.role_signing_key_id, &unsigned)?,
+            &Signature::from_bytes(&data.signature),
+        )
+        .map_err(|_| verification_failed("tenant-root command role signature is invalid"))
 }
 
 fn decode_data(

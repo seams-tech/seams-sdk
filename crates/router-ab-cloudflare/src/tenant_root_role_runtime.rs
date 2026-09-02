@@ -2,8 +2,9 @@ use router_ab_core::{
     MpcPrfShareCommitmentWireV1, MpcPrfSigningRootShareWireV1,
     PendingTenantRootInitialRoleAttemptV1, RouterAbDerivationError, RouterAbDerivationErrorCode,
     RouterAbDerivationResult, TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1,
-    TenantRootControlPlaneAuthorityIdV1, TenantRootCustodyLineageId, TenantRootIdentityDigestV1,
-    TenantRootIdentityV1, TenantRootManagedBackupBindingV1, TenantRootManagedBackupSealRequestV1,
+    TenantRootCommandTerminalReceiptV1, TenantRootControlPlaneAuthorityIdV1,
+    TenantRootCustodyLineageId, TenantRootIdentityDigestV1, TenantRootIdentityV1,
+    TenantRootManagedBackupBindingV1, TenantRootManagedBackupSealRequestV1,
     TenantRootOnlineRoleShareBindingV1, TenantRootOnlineRoleShareSealRequestV1,
     TenantRootRoleCreationCommandPackageV1, TenantRootSealedOnlineRoleShareV1,
     TenantRootShareEpoch, TenantRootSignedCreationCommitmentV1,
@@ -408,6 +409,134 @@ where
     })
 }
 
+/// Recovers the committed point from a signed commitment wire.
+#[cfg(feature = "workers-rs")]
+fn decode_signed_commitment_point(
+    signed_commitment: &[u8],
+    context: &TenantRootCeremonyContextV1,
+    role: TwoPartyDeriverRole,
+    role_keys: &TenantRootCreationRoleVerifyingKeysV1,
+) -> RouterAbProtocolResult<threshold_prf::SigningRootShareCommitment> {
+    let signing_key_id = context.signing_key_id(role);
+    let trusted = role_keys
+        .for_role_and_key_id(role, signing_key_id)
+        .map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root ceremony names a signing key that is not published",
+            )
+        })?;
+    let signed = TenantRootSignedCreationCommitmentV1::decode_canonical_bytes(signed_commitment)
+        .map_err(candidate_derivation_error)?;
+    Ok(signed
+        .verify_strict(context, role, signing_key_id, trusted)
+        .map_err(candidate_derivation_error)?
+        .commitment())
+}
+
+/// Proof that the peer durably persisted its own pending share.
+///
+/// Deliberately neither cloneable nor serializable: it is a conclusion reached
+/// locally from verified bytes, not a value to forward.
+#[cfg(feature = "workers-rs")]
+pub(crate) struct VerifiedTenantRootPeerPersistenceV1 {
+    peer_role: TwoPartyDeriverRole,
+}
+
+#[cfg(feature = "workers-rs")]
+impl VerifiedTenantRootPeerPersistenceV1 {
+    pub(crate) const fn peer_role(&self) -> TwoPartyDeriverRole {
+        self.peer_role
+    }
+}
+
+/// Verifies a peer's terminal receipt using only public expectations.
+///
+/// The peer's executed-command token stays role-local to the peer and gates
+/// receipt creation there. What crosses is the resulting public attestation,
+/// and every expectation needed to check it is derivable here: the peer's
+/// package is issuer-signed, so verifying it yields the peer's replay key and
+/// command digest; the ceremony yields the peer's signing key id, its trusted
+/// verifying key, and the earliest legitimate terminal time.
+///
+/// The receipt payload must be exactly the peer's installation-evidence bytes,
+/// which binds the receipt to the installation it attests rather than to some
+/// other command by the same role.
+#[cfg(feature = "workers-rs")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn verify_tenant_root_peer_persistence_v1(
+    terminal_receipt_bytes: &[u8],
+    peer_package_bytes: &[u8],
+    peer_signed_installation_evidence: &[u8],
+    peer_role: TwoPartyDeriverRole,
+    expected_authority_id: TenantRootControlPlaneAuthorityIdV1,
+    trusted_issuer_keys: &CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
+    role_keys: &TenantRootCreationRoleVerifyingKeysV1,
+    context: &TenantRootCeremonyContextV1,
+) -> RouterAbProtocolResult<VerifiedTenantRootPeerPersistenceV1> {
+    let peer_package =
+        TenantRootRoleCreationCommandPackageV1::decode_canonical_bytes(peer_package_bytes)
+            .map_err(candidate_derivation_error)?;
+    let issuer_key_id = peer_package.issuer_key_id().to_owned();
+    let Some(trusted_issuer_key) = trusted_issuer_keys.for_issuer_key_id(&issuer_key_id) else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root peer command issuer is not trusted by this Worker",
+        ));
+    };
+    if peer_package
+        .creation_context()
+        .map_err(candidate_derivation_error)?
+        != *context
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root peer command belongs to a different ceremony",
+        ));
+    }
+    let peer_command = peer_package
+        .verify(
+            peer_role,
+            expected_authority_id,
+            &issuer_key_id,
+            trusted_issuer_key,
+        )
+        .map_err(candidate_derivation_error)?
+        .into_command();
+
+    let signing_key_id = context.signing_key_id(peer_role);
+    let trusted_role_key = role_keys
+        .for_role_and_key_id(peer_role, signing_key_id)
+        .map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root ceremony names a peer signing key that is not published",
+            )
+        })?;
+
+    // A failure receipt is not persistence: only the success variant attests
+    // that the peer's insertion completed.
+    let TenantRootCommandTerminalReceiptV1::Success(receipt) =
+        TenantRootCommandTerminalReceiptV1::decode_canonical_bytes(terminal_receipt_bytes)
+            .map_err(candidate_derivation_error)?
+    else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root peer returned a failure receipt, which is not persistence",
+        ));
+    };
+    receipt
+        .verify_remote_public(
+            peer_command.scope().key(),
+            peer_signed_installation_evidence,
+            context.issued_at_ms(),
+            signing_key_id,
+            trusted_role_key,
+        )
+        .map_err(candidate_derivation_error)?;
+    Ok(VerifiedTenantRootPeerPersistenceV1 { peer_role })
+}
+
 /// Drives the peer Deriver over a service binding.
 ///
 /// Async because the real call is a Worker-to-Worker service binding and must
@@ -441,12 +570,12 @@ pub(crate) struct TenantRootPeerRoleOutcomeV1 {
     pub(crate) signed_commitment: Vec<u8>,
     /// The peer's signed installation evidence, which the initiator verifies.
     pub(crate) signed_installation_evidence: Vec<u8>,
-    /// The peer's authenticated terminal receipt for its own insertion.
+    /// The peer's role-signed terminal receipt for its own insertion.
     ///
-    /// Carried forward rather than fully verified here: verifying it needs the
-    /// peer's executed-command coordinates, which are role-local to the peer.
-    /// The initiator requires it to be present and well formed, and the
-    /// Router-owned object verifies it against its own record.
+    /// Fully verified by the initiator against expectations it computes from
+    /// public material: the peer's own issuer-signed package yields the replay
+    /// key and command digest, and the ceremony yields the signing key id, the
+    /// trusted verifying key, and the earliest legitimate terminal time.
     pub(crate) terminal_receipt: Vec<u8>,
 }
 
@@ -506,15 +635,6 @@ where
     let peer_outcome = peer
         .drive_peer(peer_package_bytes, package_bytes, &signed_commitment)
         .await?;
-    if peer_outcome.terminal_receipt.is_empty() {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
-            "tenant-root peer role returned no terminal receipt for its insertion",
-        ));
-    }
-    // The peer's installation evidence is verifiable here, against the ceremony
-    // the initiator is already party to and the published role keys. This is
-    // what replaces trusting a claim.
     let peer_role = worker_role.peer();
     let peer_verifying_key = role_keys
         .for_role_and_key_id(peer_role, context.signing_key_id(peer_role))
@@ -537,6 +657,36 @@ where
             "tenant-root peer installation evidence belongs to a different ceremony",
         ));
     }
+    // Bind the evidence to the exact pair. A valid peer signature over some
+    // OTHER pair satisfies every check above but attests a different ceremony
+    // outcome.
+    let initiator_commitment =
+        decode_signed_commitment_point(&signed_commitment, &context, worker_role, role_keys)?;
+    let peer_commitment_point = decode_signed_commitment_point(
+        &peer_outcome.signed_commitment,
+        &context,
+        peer_role,
+        role_keys,
+    )?;
+    if peer_transcript.commitment() != peer_commitment_point
+        || peer_transcript.peer_commitment() != initiator_commitment
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root peer installation evidence is not bound to this commitment pair",
+        ));
+    }
+    // The peer's persistence is a verified conclusion, not a reported claim.
+    let _peer_persistence = verify_tenant_root_peer_persistence_v1(
+        &peer_outcome.terminal_receipt,
+        peer_package_bytes,
+        &peer_outcome.signed_installation_evidence,
+        peer_role,
+        expected_authority_id,
+        trusted_issuer_keys,
+        role_keys,
+        &context,
+    )?;
 
     let pair_wires = match worker_role {
         TwoPartyDeriverRole::DeriverA => TenantRootCreationCommitmentPairWiresV1 {
@@ -834,7 +984,7 @@ pub(crate) mod tests {
     use crate::tenant_root_operational_provider::CloudflareTenantRootOperationalRotationProviderV1;
 
     pub(crate) const ISSUER_KEY: [u8; 32] = [0x41; 32];
-    const ISSUER_KEY_ID: &str = "tenant-root-issuer-v1";
+    pub(crate) const ISSUER_KEY_ID: &str = "tenant-root-issuer-v1";
     pub(crate) const ISSUED_AT_MS: u64 = 1_000_000;
     const EXPIRES_AT_MS: u64 = 1_030_000;
     const ONLINE_REF: &str = "online-key/tenant-7/epoch-1";
@@ -1449,7 +1599,7 @@ pub(crate) mod admission_tests {
     };
 
     pub(crate) const ISSUER_KEY: [u8; 32] = [0x41; 32];
-    const ISSUER_KEY_ID: &str = "tenant-root-issuer-v1";
+    pub(crate) const ISSUER_KEY_ID: &str = "tenant-root-issuer-v1";
     const FOREIGN_ISSUER_KEY: [u8; 32] = [0x42; 32];
     pub(crate) const ISSUED_AT_MS: u64 = 1_000_000;
     const EXPIRES_AT_MS: u64 = 1_030_000;
@@ -2205,6 +2355,42 @@ mod initiator_tests {
         }
     }
 
+    /// Mints the receipt B's role key would actually sign for its insertion.
+    ///
+    /// Signed over B's real replay key and the exact installation evidence, so
+    /// the tests exercise the verifier rather than a placeholder.
+    pub(crate) fn peer_terminal_receipt(
+        peer_role: TwoPartyDeriverRole,
+        peer_package: &[u8],
+        evidence_bytes: &[u8],
+        signing_key: &[u8; 32],
+    ) -> Vec<u8> {
+        let package = TenantRootRoleCreationCommandPackageV1::decode_canonical_bytes(peer_package)
+            .expect("peer package");
+        let command = package
+            .verify(
+                peer_role,
+                authority(),
+                ISSUER_KEY_ID,
+                &ed25519_dalek::SigningKey::from_bytes(&ISSUER_KEY)
+                    .verifying_key()
+                    .to_bytes(),
+            )
+            .expect("verified peer command")
+            .into_command();
+        router_ab_core::TenantRootCommandTerminalReceiptV1::sign_success(
+            *command.scope().key(),
+            command.digest(),
+            evidence_bytes.to_vec(),
+            ISSUED_AT_MS + 3,
+            signing_key_id(peer_role),
+            signing_key,
+        )
+        .expect("terminal receipt")
+        .canonical_bytes()
+        .expect("receipt bytes")
+    }
+
     impl TenantRootPeerRoleDriverV1 for RealPeer {
         async fn drive_peer(
             &mut self,
@@ -2241,15 +2427,21 @@ mod initiator_tests {
             else {
                 panic!("the peer leg must seal")
             };
+            // The receipt B's role key would really sign for this insertion.
+            let terminal_receipt = if self.withhold_receipt {
+                b"not-a-receipt-at-all".to_vec()
+            } else {
+                peer_terminal_receipt(
+                    self.role,
+                    peer_package_bytes,
+                    &signed_installation_evidence,
+                    &role_key(self.role).to_bytes(),
+                )
+            };
             Ok(TenantRootPeerRoleOutcomeV1 {
                 signed_commitment,
                 signed_installation_evidence,
-                // Stands in for the peer's authenticated insertion receipt.
-                terminal_receipt: if self.withhold_receipt {
-                    Vec::new()
-                } else {
-                    b"peer-terminal-receipt".to_vec()
-                },
+                terminal_receipt,
             })
         }
     }
@@ -2363,18 +2555,132 @@ mod initiator_tests {
         );
     }
 
-    /// A missing terminal receipt is refused: the initiator will not install
-    /// against a peer that cannot show its own insertion completed.
+    /// Non-empty garbage is refused. The earlier check only required bytes to
+    /// be present, which is the same trust problem as a boolean.
     #[test]
-    fn the_initiator_refuses_a_peer_without_a_terminal_receipt() {
+    fn a_non_empty_garbage_receipt_is_refused() {
         let mut peer = RealPeer::new(TwoPartyDeriverRole::DeriverB);
         peer.withhold_receipt = true;
-        assert_eq!(
-            block_on(drive(&mut peer))
-                .expect_err("missing terminal receipt")
-                .code(),
-            RouterAbProtocolErrorCode::ForbiddenLocalBinding
+        assert!(
+            block_on(drive(&mut peer)).is_err(),
+            "non-empty bytes must not stand in for a receipt"
         );
+    }
+
+    /// A validly signed receipt for DIFFERENT evidence is refused: the payload
+    /// must be exactly the installation it attests.
+    #[test]
+    fn a_valid_receipt_for_other_evidence_is_refused() {
+        struct WrongPayloadPeer(TwoPartyDeriverRole);
+        impl TenantRootPeerRoleDriverV1 for WrongPayloadPeer {
+            async fn drive_peer(
+                &mut self,
+                peer_package_bytes: &[u8],
+                initiator_package_bytes: &[u8],
+                initiator_signed_commitment: &[u8],
+            ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
+                let mut honest = RealPeer::new(self.0);
+                let mut outcome = honest
+                    .drive_peer(
+                        peer_package_bytes,
+                        initiator_package_bytes,
+                        initiator_signed_commitment,
+                    )
+                    .await?;
+                // A real signature over a real replay key, but attesting other bytes.
+                outcome.terminal_receipt = peer_terminal_receipt(
+                    self.0,
+                    peer_package_bytes,
+                    b"some other evidence",
+                    &role_key(self.0).to_bytes(),
+                );
+                Ok(outcome)
+            }
+        }
+        assert!(
+            block_on(drive(&mut WrongPayloadPeer(TwoPartyDeriverRole::DeriverB))).is_err(),
+            "a receipt attesting other evidence must be refused"
+        );
+    }
+
+    /// A receipt signed by the wrong role key is refused.
+    #[test]
+    fn a_receipt_signed_by_the_wrong_role_is_refused() {
+        struct WrongSignerPeer(TwoPartyDeriverRole);
+        impl TenantRootPeerRoleDriverV1 for WrongSignerPeer {
+            async fn drive_peer(
+                &mut self,
+                peer_package_bytes: &[u8],
+                initiator_package_bytes: &[u8],
+                initiator_signed_commitment: &[u8],
+            ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
+                let mut honest = RealPeer::new(self.0);
+                let mut outcome = honest
+                    .drive_peer(
+                        peer_package_bytes,
+                        initiator_package_bytes,
+                        initiator_signed_commitment,
+                    )
+                    .await?;
+                outcome.terminal_receipt = peer_terminal_receipt(
+                    self.0,
+                    peer_package_bytes,
+                    &outcome.signed_installation_evidence,
+                    // The initiator's key, not the peer's.
+                    &role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
+                );
+                Ok(outcome)
+            }
+        }
+        assert!(
+            block_on(drive(&mut WrongSignerPeer(TwoPartyDeriverRole::DeriverB))).is_err(),
+            "a receipt signed by the wrong role must be refused"
+        );
+    }
+
+    /// A peer whose evidence is validly signed over a DIFFERENT commitment pair
+    /// is refused.
+    ///
+    /// This is the case a signature-only check cannot catch: every signature
+    /// verifies, the role and ceremony match, but the transcript attests a pair
+    /// the initiator is not part of.
+    #[test]
+    fn valid_evidence_over_a_different_commitment_pair_is_refused() {
+        struct OtherPairPeer(TwoPartyDeriverRole);
+        impl TenantRootPeerRoleDriverV1 for OtherPairPeer {
+            async fn drive_peer(
+                &mut self,
+                peer_package_bytes: &[u8],
+                initiator_package_bytes: &[u8],
+                _initiator_signed_commitment: &[u8],
+            ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
+                // Build a SECOND initiator commitment the real initiator never
+                // produced, and have the peer finalize against that instead.
+                let other_initiator = admit_for_with_rng(TwoPartyDeriverRole::DeriverA, 0x5a);
+                let other_commitment = other_initiator.commitment_bytes().to_vec();
+                let mut honest = RealPeer::new(self.0);
+                honest
+                    .drive_peer(
+                        peer_package_bytes,
+                        initiator_package_bytes,
+                        &other_commitment,
+                    )
+                    .await
+            }
+        }
+        let err = block_on(drive(&mut OtherPairPeer(TwoPartyDeriverRole::DeriverB)))
+            .expect_err("evidence over another pair");
+        assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
+    }
+
+    /// The exact receipt and the exact pair are accepted.
+    #[test]
+    fn the_exact_receipt_and_commitment_pair_are_accepted() {
+        let mut peer = RealPeer::new(TwoPartyDeriverRole::DeriverB);
+        assert!(matches!(
+            block_on(drive(&mut peer)).expect("accepted"),
+            TenantRootRoleCreationProgressV1::Sealed { .. }
+        ));
     }
 
     /// The peer's installation evidence is verified, not taken on trust.
