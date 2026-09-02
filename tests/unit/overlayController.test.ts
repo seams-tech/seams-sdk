@@ -515,6 +515,90 @@ test.describe('OverlayController', () => {
     expect(result.firstKeyframe.opacity).toBeUndefined();
   });
 
+  test('never lays the iframe out at the destination before the ease reaches it', async ({
+    page,
+  }) => {
+    // Reading the destination rectangle is a layout, and a cross-origin iframe
+    // laid out at the destination is told that size at once — one frame of the
+    // final box before the animation snaps it back, which content inside the
+    // frame reads as arrival. Sample the iframe at every layout the controller
+    // forces while applying the new geometry.
+    const result = await page.evaluate(
+      async ({ path }) => {
+        const mod = await import(path);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        const overlay = new OverlayController({
+          ensureIframe: (mountParent?: HTMLElement) => {
+            if (mountParent && iframe.parentElement !== mountParent) {
+              mountParent.appendChild(iframe);
+            }
+            return iframe;
+          },
+        });
+        const identity = {
+          kind: 'request_surface_identity_v1' as const,
+          surfaceId: 'pin-surface',
+          requestId: 'pin-request',
+        };
+        const apply = (heightCssPx: number, topCssPx: number) =>
+          overlay.apply({
+            kind: 'compact_request_modal',
+            presentation: { kind: 'modal', title: 'Review transaction' },
+            geometry: {
+              kind: 'centered_modal',
+              widthCssPx: 460,
+              heightCssPx,
+              topCssPx,
+              leftCssPx: 282,
+            },
+            focusTrap: true,
+            identity,
+          });
+
+        apply(360, 164);
+        const dialog = iframe.closest('dialog.w3a-wallet-overlay-dialog');
+        if (!(dialog instanceof HTMLDialogElement)) throw new Error('overlay dialog missing');
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+        // Record the iframe's height at each layout the controller forces.
+        const iframeHeightsAtLayout: number[] = [];
+        const nativeRect = Element.prototype.getBoundingClientRect;
+        Element.prototype.getBoundingClientRect = function patched(this: Element) {
+          const rect = nativeRect.call(this);
+          if (this === dialog) iframeHeightsAtLayout.push(nativeRect.call(iframe).height);
+          return rect;
+        };
+        try {
+          apply(580, 94);
+        } finally {
+          Element.prototype.getBoundingClientRect = nativeRect;
+        }
+
+        const animation = dialog
+          .getAnimations()
+          .find(
+            (candidate) =>
+              candidate.effect instanceof KeyframeEffect && candidate.effect.target === dialog,
+          );
+        if (!animation) throw new Error('surface morph animation missing');
+        animation.finish();
+        await Promise.resolve();
+        const finalHeight = iframe.getBoundingClientRect().height;
+
+        overlay.dispose();
+        return { iframeHeightsAtLayout, finalHeight };
+      },
+      { path: IMPORT_PATHS.overlay },
+    );
+
+    expect(result.iframeHeightsAtLayout.length).toBeGreaterThan(0);
+    // Every layout taken while the destination was written saw the origin.
+    for (const height of result.iframeHeightsAtLayout) expect(height).toBe(360);
+    // The ease is what finally moves it.
+    expect(result.finalHeight).toBe(580);
+  });
+
   test('keeps a provisional drawer visible for the inner slide-in animation', async ({ page }) => {
     const result = await page.evaluate(
       async ({ path }) => {
