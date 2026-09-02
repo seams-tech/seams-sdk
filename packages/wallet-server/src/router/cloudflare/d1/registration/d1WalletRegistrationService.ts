@@ -150,7 +150,10 @@ import {
   type RouterAbEcdsaStrictRegistrationPort,
 } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
 import type { TenantRootCustodyLineageResolverV1 } from '../../../domains/tenantRoot/tenantRootCustodyLineage';
-import type { TenantRootIdentityV1 } from '../../../domains/tenantRoot/tenantRootIdentityResolution';
+import {
+  resolveTenantRootIdentityV1,
+  type TenantRootIdentityV1,
+} from '../../../domains/tenantRoot/tenantRootIdentityResolution';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import type {
   InstalledLinkedDeviceEcdsaAuthorityProjectionV1,
@@ -2290,6 +2293,57 @@ export class CloudflareD1WalletRegistrationService {
         ok: false,
         code: 'internal',
         message: error instanceof Error ? error.message : 'ECDSA material lookup failed',
+      };
+    }
+  }
+
+  async resolveActiveEcdsaTenantRoot(input: {
+    readonly walletId: string;
+    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly identityDigestB64u: string;
+        readonly custodyLineageB64u: string;
+      }
+    | {
+        readonly ok: false;
+        readonly code: 'not_found' | 'invalid_state' | 'internal';
+        readonly message: string;
+      }
+  > {
+    const activeMaterial = await this.resolveEcdsaMaterialActivation(input);
+    if (!activeMaterial.ok) return activeMaterial;
+
+    const identity = resolveTenantRootIdentityV1({
+      kind: 'ecdsa_b5_active_material',
+      activeMaterial,
+    });
+    if (!identity.ok) {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: identity.message,
+      };
+    }
+
+    try {
+      const tenantRoot = await this.tenantRootCustodyLineage.resolveActiveLineage(
+        identity.identity,
+      );
+      if (!tenantRoot) {
+        return {
+          ok: false,
+          code: 'not_found',
+          message: 'ECDSA tenant root is not active',
+        };
+      }
+      return { ok: true, ...tenantRoot };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: error instanceof Error ? error.message : 'ECDSA tenant-root lookup failed',
       };
     }
   }

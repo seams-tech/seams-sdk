@@ -143,8 +143,6 @@ pub(crate) use validation::{
 };
 mod hpke;
 #[cfg(feature = "workers-rs")]
-pub use hpke::cloudflare_server_output_material_record_from_ecdsa_activation_request_v2;
-#[cfg(feature = "workers-rs")]
 use hpke::CloudflareHpkeGetrandomRngV1;
 #[cfg(test)]
 use hpke::{
@@ -164,6 +162,11 @@ pub use hpke::{
     seal_cloudflare_signer_envelope_hpke_payload_v1, CloudflareHpkeRecipientOutputEncryptorV1,
     CloudflareHpkeRecipientProofBundleEncryptorV1, CloudflareSecretMaterial32V1,
     CloudflareServerOutputMaterialRecordV1,
+};
+#[cfg(feature = "workers-rs")]
+pub use hpke::{
+    cloudflare_server_output_material_record_from_ecdsa_activation_request_v2,
+    cloudflare_server_output_material_record_from_ecdsa_refresh_request_v2,
 };
 use hpke::{
     parse_cloudflare_hpke_x25519_public_key_v1, push_lower_hex_v1,
@@ -3561,6 +3564,8 @@ pub struct CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshReques
     pub activation: CloudflareSigningWorkerRecipientProofBundleActivationV1,
     /// Canonical exact material activation for the refreshed ECDSA capability.
     pub material_activation: MpcMaterialActivationRefV1,
+    /// Digest of the Router-authenticated tenant-root custody binding.
+    pub tenant_root_custody_binding_digest: TenantRootProtocolDigestV1,
 }
 
 impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1 {
@@ -3570,6 +3575,7 @@ impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1 {
         router_payload: RouterToSignerPayloadV1,
         activation: CloudflareSigningWorkerRecipientProofBundleActivationV1,
         material_activation: MpcMaterialActivationRefV1,
+        tenant_root_custody_binding_digest: TenantRootProtocolDigestV1,
     ) -> RouterAbProtocolResult<Self> {
         router_payload.require_recipient_role(Role::SignerA)?;
         activation.validate_for_router_payload(&router_payload)?;
@@ -3580,6 +3586,7 @@ impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1 {
             activation_context,
             activation,
             material_activation,
+            tenant_root_custody_binding_digest,
         };
         request.validate()?;
         Ok(request)
@@ -4465,6 +4472,25 @@ impl CloudflareRouterAbEcdsaDerivationExportCommandV1 {
             .validate_for_ecdsa_scope(&self.export_authority.normal_signing_scope)?;
         self.private_authorization
             .validate_for_request(&self.request)?;
+        self.tenant_root.resolve()?;
+        Ok(())
+    }
+}
+
+/// Gateway-admitted activation refresh with server-resolved tenant-root coordinates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareRouterAbEcdsaDerivationActivationRefreshCommandV1 {
+    /// Typed activation-refresh request created by the browser ceremony.
+    pub refresh_request: RouterAbEcdsaDerivationActivationRefreshRequestV1,
+    /// Tenant-root coordinates resolved by the authenticated server boundary.
+    pub tenant_root: CloudflareTenantRootCoordinatesV1,
+}
+
+impl CloudflareRouterAbEcdsaDerivationActivationRefreshCommandV1 {
+    /// Validates the browser request and server-owned coordinates.
+    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
+        self.refresh_request.validate_at(now_unix_ms)?;
         self.tenant_root.resolve()?;
         Ok(())
     }
@@ -5806,18 +5832,19 @@ pub fn parse_cloudflare_router_ab_ecdsa_derivation_activation_request_v1_json(
 
 /// Parses one strict ECDSA activation-refresh request.
 #[cfg(feature = "workers-rs")]
-pub fn parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_request_v1_json(
+pub fn parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_command_v1_json(
     bytes: &[u8],
-) -> RouterAbProtocolResult<RouterAbEcdsaDerivationActivationRefreshRequestV1> {
-    let request: RouterAbEcdsaDerivationActivationRefreshRequestV1 = serde_json::from_slice(bytes)
-        .map_err(|err| {
+) -> RouterAbProtocolResult<CloudflareRouterAbEcdsaDerivationActivationRefreshCommandV1> {
+    let command: CloudflareRouterAbEcdsaDerivationActivationRefreshCommandV1 =
+        serde_json::from_slice(bytes).map_err(|err| {
             RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::MalformedWirePayload,
-                format!("Router A/B ECDSA activation-refresh request JSON parse failed: {err}"),
+                format!("Router A/B ECDSA activation-refresh command JSON parse failed: {err}"),
             )
         })?;
-    request.validate()?;
-    Ok(request)
+    command.refresh_request.validate()?;
+    command.tenant_root.resolve()?;
+    Ok(command)
 }
 
 /// Handles an authenticated public Router Router A/B ECDSA derivation explicit export request.
@@ -5996,7 +6023,7 @@ pub async fn handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_aut
     env: &worker::Env,
     runtime: &CloudflareRouterWorkerRuntimeV1,
     now_unix_ms: u64,
-    request: RouterAbEcdsaDerivationActivationRefreshRequestV1,
+    command: CloudflareRouterAbEcdsaDerivationActivationRefreshCommandV1,
     authorization: CloudflareRouterBearerAuthorizationV1,
     trusted_source_digest: PublicDigest32,
     verifier: Verifier,
@@ -6004,7 +6031,24 @@ pub async fn handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_aut
 where
     Verifier: CloudflareRouterJwtVerifierV1,
 {
-    request.validate_at(now_unix_ms)?;
+    command.validate_at(now_unix_ms)?;
+    let CloudflareRouterAbEcdsaDerivationActivationRefreshCommandV1 {
+        refresh_request: request,
+        tenant_root,
+    } = command;
+    let (identity_digest, custody_lineage) = tenant_root.resolve()?;
+    let active_receipt = execute_cloudflare_router_tenant_root_creation_active_state_read_call_v1(
+        env,
+        identity_digest,
+        custody_lineage,
+    )
+    .await?;
+    let tenant_root_custody_binding =
+        cloudflare_tenant_root_refresh_binding_wire_v1(&request, &active_receipt)?;
+    let tenant_root_custody_binding_digest = tenant_root_custody_binding
+        .authenticate_for_refresh(env, &request, now_unix_ms)?
+        .digest()
+        .map_err(map_root_share_to_protocol)?;
     let public_request = request.to_threshold_prf_request()?;
     let public_request_for_derivers = public_request.clone();
     let trusted_admission = derive_cloudflare_router_trusted_admission_from_worker_jwt_v1(
@@ -6031,6 +6075,7 @@ where
                     &request,
                     &public_request_for_derivers,
                     deriver_a_message,
+                    &tenant_root_custody_binding,
                 ),
                 execute_cloudflare_router_ab_ecdsa_derivation_deriver_activation_refresh_service_call_v1(
                     env,
@@ -6038,6 +6083,7 @@ where
                     &request,
                     &public_request_for_derivers,
                     deriver_b_message,
+                    &tenant_root_custody_binding,
                 ),
             );
             let deriver_a_response = deriver_a_result?;
@@ -6058,6 +6104,7 @@ where
                         deriver_b_response.server_bundle,
                     )?,
                     request.material_activation.clone(),
+                    tenant_root_custody_binding_digest,
                 )?;
             let signing_worker_activation =
                 execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_refresh_service_call_v1(
@@ -8912,8 +8959,8 @@ pub async fn refresh_cloudflare_router_ab_ecdsa_derivation_signing_worker_output
         env,
         runtime.server_output_decrypt_key(),
     )?;
-    let material = cloudflare_server_output_material_record_from_activation_request_v1(
-        &generic_activation,
+    let material = cloudflare_server_output_material_record_from_ecdsa_refresh_request_v2(
+        &activation,
         &private_key_bytes,
     );
     private_key_bytes.zeroize();
@@ -9243,6 +9290,22 @@ fn derive_cloudflare_tenant_root_export_scope_v1(
 }
 
 #[cfg(feature = "workers-rs")]
+fn derive_cloudflare_tenant_root_refresh_scope_v1(
+    refresh_request: &RouterAbEcdsaDerivationActivationRefreshRequestV1,
+) -> RouterAbProtocolResult<(
+    TenantRootDerivationOperationIdV1,
+    TenantRootDerivationSessionIdV1,
+    TenantRootDerivationNonceV1,
+)> {
+    derive_cloudflare_tenant_root_ecdsa_scope_v1(
+        refresh_request.request_digest()?,
+        b"seams/router-ab-ecdsa-refresh/operation/v1",
+        b"seams/router-ab-ecdsa-refresh/session/v1",
+        b"seams/router-ab-ecdsa-refresh/nonce/v1",
+    )
+}
+
+#[cfg(feature = "workers-rs")]
 pub(crate) fn cloudflare_tenant_root_registration_binding_wire_v1(
     registration_request: &RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     registration_purpose: RouterAbEcdsaDerivationRegistrationPurposeV1,
@@ -9284,6 +9347,28 @@ fn cloudflare_tenant_root_export_binding_wire_v1(
         nonce,
         issued_at_ms,
         export_request.expires_at_ms,
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_tenant_root_refresh_binding_wire_v1(
+    refresh_request: &RouterAbEcdsaDerivationActivationRefreshRequestV1,
+    activation_receipt: &VerifiedTenantRootSignedActivationReceiptV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootCustodyBindingWireV1> {
+    refresh_request.validate()?;
+    let (operation_id, session_id, nonce) =
+        derive_cloudflare_tenant_root_refresh_scope_v1(refresh_request)?;
+    let issued_at_ms = refresh_request
+        .expires_at_ms
+        .saturating_sub(TENANT_ROOT_MAX_LIFETIME_MS_V1)
+        .max(1);
+    CloudflareTenantRootCustodyBindingWireV1::from_verified_activation_receipt(
+        activation_receipt,
+        operation_id,
+        session_id,
+        nonce,
+        issued_at_ms,
+        refresh_request.expires_at_ms,
     )
 }
 
@@ -9616,6 +9701,21 @@ impl CloudflareTenantRootCustodyBindingWireV1 {
     }
 
     #[cfg(feature = "workers-rs")]
+    fn authenticate_for_refresh(
+        &self,
+        env: &worker::Env,
+        refresh_request: &RouterAbEcdsaDerivationActivationRefreshRequestV1,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<TenantRootCustodyBindingV1> {
+        refresh_request.validate_at(now_unix_ms)?;
+        self.authenticate_for_stable_request(
+            env,
+            &refresh_request.to_threshold_prf_request()?,
+            now_unix_ms,
+        )
+    }
+
+    #[cfg(feature = "workers-rs")]
     fn authenticate_for_stable_request(
         &self,
         env: &worker::Env,
@@ -9838,11 +9938,14 @@ impl CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1 {
 
 /// Strict private Deriver request for Router A/B ECDSA derivation activation refresh.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1 {
     /// Typed public activation-refresh request admitted by Router.
     pub refresh_request: RouterAbEcdsaDerivationActivationRefreshRequestV1,
     /// Router-to-Deriver bootstrap body carrying role-envelope AAD.
     pub signer_bootstrap: CloudflareSignerPrivateBootstrapRequestV1,
+    /// Issuer-verified tenant-root receipt and Router-issued operation scope.
+    pub tenant_root_custody_binding: CloudflareTenantRootCustodyBindingWireV1,
 }
 
 impl CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1 {
@@ -9851,10 +9954,12 @@ impl CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1 {
         worker_role: CloudflareWorkerRoleV1,
         refresh_request: RouterAbEcdsaDerivationActivationRefreshRequestV1,
         signer_bootstrap: CloudflareSignerPrivateBootstrapRequestV1,
+        tenant_root_custody_binding: CloudflareTenantRootCustodyBindingWireV1,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self {
             refresh_request,
             signer_bootstrap,
+            tenant_root_custody_binding,
         };
         request.validate_for_worker_role(worker_role)?;
         Ok(request)
@@ -9868,6 +9973,13 @@ impl CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1 {
         self.refresh_request.validate()?;
         self.signer_bootstrap
             .validate_for_worker_role(worker_role)?;
+        self.tenant_root_custody_binding.validate_transport()?;
+        if self.tenant_root_custody_binding.expires_at_ms < self.refresh_request.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidTimeRange,
+                "tenant-root private binding expires before the admitted refresh request",
+            ));
+        }
         let expected_router_request_digest = self
             .refresh_request
             .to_threshold_prf_request()?
@@ -11122,7 +11234,6 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation
     host: &CloudflarePreloadedSignerHostV1,
     request: CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1,
     envelope_decrypt_keys: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1,
-    peer_signing_key: &CloudflareSignerPeerSigningKeyBindingV1,
     root_share_metadata: &CloudflareRootShareStartupMetadataV1,
     now_unix_ms: u64,
 ) -> RouterAbProtocolResult<CloudflareSignerRecipientProofBundleResponseV1> {
@@ -11130,7 +11241,10 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation
     let CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1 {
         refresh_request,
         signer_bootstrap: bootstrap,
+        tenant_root_custody_binding,
     } = request;
+    let custody_binding =
+        tenant_root_custody_binding.authenticate_for_refresh(env, &refresh_request, now_unix_ms)?;
     let expected_plaintext =
         RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::refresh_for_request(
             &refresh_request,
@@ -11153,22 +11267,15 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation
         &refresh_request,
         validated.router_payload(),
     )?;
-    validate_cloudflare_peer_signing_key_matches_request_v1(
-        worker_role,
-        peer_signing_key,
-        &validated,
-    )?;
-    let mut peer_signing_key_bytes =
-        load_cloudflare_deriver_peer_signing_key_bytes_v1(env, peer_signing_key)?;
     let mut encryptor = CloudflareHpkeRecipientProofBundleEncryptorV1::new();
-    let response = handle_cloudflare_validated_mpc_prf_recipient_proof_bundle_signer_request_v1(
+    let response = handle_cloudflare_authenticated_stable_mpc_prf_signer_request_v2(
         host,
-        &peer_signing_key_bytes,
+        &refresh_request.to_threshold_prf_request()?,
+        &custody_binding,
         &validated,
+        now_unix_ms,
         &mut encryptor,
-    );
-    peer_signing_key_bytes.zeroize();
-    let response = response?;
+    )?;
     validate_cloudflare_signer_recipient_proof_bundle_private_response_v1(
         worker_role,
         validated.message(),
@@ -14156,6 +14263,7 @@ async fn execute_cloudflare_router_ab_ecdsa_derivation_deriver_activation_refres
     refresh_request: &RouterAbEcdsaDerivationActivationRefreshRequestV1,
     public_request: &EcdsaThresholdPrfRequestV1,
     message: &WireMessageV1,
+    tenant_root_custody_binding: &CloudflareTenantRootCustodyBindingWireV1,
 ) -> RouterAbProtocolResult<CloudflareSignerRecipientProofBundleResponseV1> {
     peer.validate()?;
     validate_cloudflare_signer_private_request_v1(peer.peer_role, message)?;
@@ -14169,6 +14277,7 @@ async fn execute_cloudflare_router_ab_ecdsa_derivation_deriver_activation_refres
             peer.peer_role,
             refresh_request.clone(),
             signer_bootstrap,
+            tenant_root_custody_binding.clone(),
         )?;
     let label = format!(
         "{} Router A/B ECDSA derivation activation-refresh service request",

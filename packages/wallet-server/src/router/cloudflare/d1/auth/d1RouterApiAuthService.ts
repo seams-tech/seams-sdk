@@ -1872,6 +1872,9 @@ function createD1WalletRegistrationRouteService(
       assembly.walletRegistrations.resolveEcdsaMaterialActivation.bind(
         assembly.walletRegistrations,
       ),
+    resolveActiveEcdsaTenantRoot: assembly.walletRegistrations.resolveActiveEcdsaTenantRoot.bind(
+      assembly.walletRegistrations,
+    ),
     listWalletEcdsaKeyFactsInventory:
       assembly.walletRegistrations.listWalletEcdsaKeyFactsInventory.bind(
         assembly.walletRegistrations,

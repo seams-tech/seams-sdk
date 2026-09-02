@@ -95,7 +95,6 @@ import {
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1,
   parseRouterAbEcdsaExplicitExportForwardedResponseV1,
-  type RouterAbEcdsaClientProofFinalizationV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
   type RouterAbEcdsaRegistrationRequestFactsV1,
@@ -567,9 +566,7 @@ function verifyRouterAbEcdsaRegistrationClientProofs(
     if (proofTranscriptDigest !== active.registrationBinding.transcriptDigestB64u) {
       throw new Error('Router A/B ECDSA client proof bundles changed the ceremony transcript');
     }
-    active.ceremony.verify_encrypted_proof_bundles(
-      JSON.stringify(request.clientProofFinalization),
-    );
+    active.ceremony.verify_encrypted_proof_bundles(JSON.stringify(request.clientProofFinalization));
   } catch (error: unknown) {
     closeRouterAbEcdsaRegistrationCeremonyState(ceremonyId, active);
     throw error;
@@ -1234,7 +1231,9 @@ function verifyRouterAbEcdsaPostRegistrationProofs(
     throw new Error('ECDSA explicit export proofs require export finalization');
   }
   try {
-    active.ceremony.verify_encrypted_proof_bundles(JSON.stringify(request.clientProofFinalization));
+    active.ceremony.verify_stable_encrypted_proof_bundles(
+      JSON.stringify(request.clientProofFinalization),
+    );
     return { kind: 'router_ab_ecdsa_activation_refresh_proofs_verified_v1', ceremonyId };
   } finally {
     closeRouterAbEcdsaPostRegistrationCeremonyState(ceremonyId, active);

@@ -299,18 +299,52 @@ pub fn cloudflare_server_output_material_record_from_ecdsa_activation_request_v2
     private_key_bytes: &[u8],
 ) -> RouterAbProtocolResult<CloudflareServerOutputMaterialRecordV1> {
     request.validate()?;
-    let activation_context = &request.pending.activation_context;
+    let public_request = request.pending.registration.to_threshold_prf_request()?;
+    cloudflare_server_output_material_record_from_stable_activation_v2(
+        &request.pending.activation_context,
+        &request.pending.activation,
+        &public_request,
+        request.pending.tenant_root_custody_binding_digest,
+        private_key_bytes,
+    )
+}
+
+/// Opens and combines V2 server proof bundles for one tenant-root ECDSA refresh.
+#[cfg(feature = "workers-rs")]
+pub fn cloudflare_server_output_material_record_from_ecdsa_refresh_request_v2(
+    request: &CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1,
+    private_key_bytes: &[u8],
+) -> RouterAbProtocolResult<CloudflareServerOutputMaterialRecordV1> {
+    request.validate()?;
+    let public_request = request.refresh_request.to_threshold_prf_request()?;
+    cloudflare_server_output_material_record_from_stable_activation_v2(
+        &request.activation_context,
+        &request.activation,
+        &public_request,
+        request.tenant_root_custody_binding_digest,
+        private_key_bytes,
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_server_output_material_record_from_stable_activation_v2(
+    activation_context: &SigningWorkerActivationContextV1,
+    activation: &CloudflareSigningWorkerRecipientProofBundleActivationV1,
+    public_request: &EcdsaThresholdPrfRequestV1,
+    tenant_root_custody_binding_digest: TenantRootProtocolDigestV1,
+    private_key_bytes: &[u8],
+) -> RouterAbProtocolResult<CloudflareServerOutputMaterialRecordV1> {
     let selected_server = &activation_context.signer_set().selected_server;
     let deriver_a_envelope = decode_cloudflare_recipient_proof_bundle_wire_v1(
         "deriver_a_bundle",
-        &request.pending.activation.deriver_a_bundle,
+        &activation.deriver_a_bundle,
         Role::SignerA,
         Role::Server,
         OpenedShareKind::XServerBase,
     )?;
     let deriver_b_envelope = decode_cloudflare_recipient_proof_bundle_wire_v1(
         "deriver_b_server_bundle",
-        &request.pending.activation.deriver_b_server_bundle,
+        &activation.deriver_b_server_bundle,
         Role::SignerB,
         Role::Server,
         OpenedShareKind::XServerBase,
@@ -325,15 +359,11 @@ pub fn cloudflare_server_output_material_record_from_ecdsa_activation_request_v2
         private_key_bytes,
         activation_context.transcript_digest(),
     )?;
-    let stable_context = request
-        .pending
-        .registration
-        .to_threshold_prf_request()?
-        .stable_tenant_derivation_context()?;
+    let stable_context = public_request.stable_tenant_derivation_context()?;
     let plan =
         router_ab_core::plan_mpc_prf_stable_purpose_binding_from_authenticated_custody_digest_v2(
             &stable_context,
-            request.pending.tenant_root_custody_binding_digest,
+            tenant_root_custody_binding_digest,
             threshold_prf::PrfPurpose::RouterAbXServerBaseV1,
         )
         .map_err(map_root_share_to_protocol)?;

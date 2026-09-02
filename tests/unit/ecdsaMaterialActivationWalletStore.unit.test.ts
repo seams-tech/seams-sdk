@@ -472,6 +472,13 @@ async function stepUpRouteFixture(input: {
                 message: 'ECDSA material activation is not active for this wallet',
               };
         },
+        async resolveActiveEcdsaTenantRoot() {
+          return {
+            ok: true as const,
+            identityDigestB64u: digest(71),
+            custodyLineageB64u: digest(72),
+          };
+        },
       },
       walletAuthMethods: {
         async verifyActivePasskeyAuthority() {

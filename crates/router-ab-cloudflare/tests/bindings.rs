@@ -1546,6 +1546,7 @@ fn router_ab_ecdsa_derivation_activation_refresh_request(
         router_payload,
         activation,
         router_ab_ecdsa_derivation_material_activation_for_epoch("epoch-2"),
+        TenantRootProtocolDigestV1::from_bytes([0x56; 32]).expect("custody binding digest"),
     )
     .expect("Router A/B ECDSA derivation SigningWorker activation-refresh request")
 }
@@ -4601,6 +4602,7 @@ fn router_ab_ecdsa_derivation_deriver_activation_refresh_private_request_accepts
             CloudflareWorkerRoleV1::DeriverA,
             refresh_request,
             bootstrap,
+            tenant_root_registration_transport_fixture(),
         )
         .expect("Router A/B ECDSA derivation refresh private request");
 
@@ -4631,6 +4633,7 @@ fn router_ab_ecdsa_derivation_deriver_activation_refresh_private_request_rejects
         CloudflareWorkerRoleV1::DeriverA,
         refresh_request,
         bootstrap,
+        tenant_root_registration_transport_fixture(),
     )
     .expect_err("payload drift must fail");
 

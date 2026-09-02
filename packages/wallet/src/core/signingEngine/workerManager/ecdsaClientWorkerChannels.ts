@@ -1,6 +1,5 @@
 import { isObject } from '@shared/utils/validation';
 import type {
-  RouterAbEcdsaClientProofFinalizationV1,
   RouterAbEcdsaDerivationActivationRefreshRequestV1,
   RouterAbEcdsaDerivationExplicitExportRequestV1,
   RouterAbEcdsaDerivationExplicitExportProtocolRequestV1,
@@ -485,7 +484,7 @@ export type FinalizeRouterAbEcdsaExplicitExportResultV1 = {
 export type VerifyRouterAbEcdsaPostRegistrationProofsRequestV1 = {
   readonly kind: 'verify_router_ab_ecdsa_post_registration_proofs_v1';
   readonly ceremonyId: string;
-  readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
+  readonly clientProofFinalization: RouterAbEcdsaStableClientProofFinalizationV2;
 };
 
 export type VerifyRouterAbEcdsaPostRegistrationProofsResultV1 = {

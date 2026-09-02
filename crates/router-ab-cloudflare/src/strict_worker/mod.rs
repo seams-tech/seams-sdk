@@ -31,7 +31,7 @@ use crate::{
     handle_cloudflare_router_ed25519_yao_source_preserving_execute_private_fetch_v1,
     handle_cloudflare_router_normal_signing_finalize_authenticated_public_request_v2,
     handle_cloudflare_router_normal_signing_prepare_authenticated_public_request_v2,
-    parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_request_v1_json,
+    parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_command_v1_json,
     parse_cloudflare_router_ab_ecdsa_derivation_activation_request_v1_json,
     parse_cloudflare_router_ab_ecdsa_derivation_export_command_v1_json,
     parse_cloudflare_router_ab_ecdsa_derivation_registration_gateway_request_v1,

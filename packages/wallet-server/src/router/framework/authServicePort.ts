@@ -1161,6 +1161,21 @@ export interface RouterApiWalletRegistrationService {
       }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   >;
+  resolveActiveEcdsaTenantRoot(input: {
+    readonly walletId: string;
+    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly identityDigestB64u: string;
+        readonly custodyLineageB64u: string;
+      }
+    | {
+        readonly ok: false;
+        readonly code: 'not_found' | 'invalid_state' | 'internal';
+        readonly message: string;
+      }
+  >;
   listWalletEcdsaKeyFactsInventory(
     input: RouterApiMethodTypes['listWalletEcdsaKeyFactsInventory']['input'],
   ): Promise<RouterApiMethodTypes['listWalletEcdsaKeyFactsInventory']['result']>;

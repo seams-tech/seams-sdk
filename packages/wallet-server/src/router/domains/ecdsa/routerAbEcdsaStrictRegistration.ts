@@ -200,11 +200,13 @@ export interface RouterAbEcdsaStrictPostRegistrationPort {
     readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
     readonly requestDigestB64u: string;
     readonly authority: RouterAbEcdsaStrictExportAuthority;
+    readonly tenantRoot: RouterAbEcdsaRegistrationTenantRootV1;
   }): Promise<RouterAbEcdsaStrictExportResult>;
   refresh(input: {
     readonly request: RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
     readonly requestDigestB64u: string;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly tenantRoot: RouterAbEcdsaRegistrationTenantRootV1;
   }): Promise<RouterAbEcdsaStrictRefreshResult>;
 }
 
@@ -455,6 +457,7 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
     readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
     readonly requestDigestB64u: string;
     readonly authority: RouterAbEcdsaStrictExportAuthority;
+    readonly tenantRoot: RouterAbEcdsaRegistrationTenantRootV1;
   }): Promise<RouterAbEcdsaStrictExportResult> {
     const forwarded = await this.forwardRaw({
       kind: 'explicit_export',
@@ -462,6 +465,7 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
       request: parseRouterAbEcdsaDerivationExplicitExportRequestV1(input.request),
       requestDigestB64u: input.requestDigestB64u,
       authority: input.authority,
+      tenantRoot: input.tenantRoot,
     });
     if (!forwarded.ok) return forwarded;
     try {
@@ -483,6 +487,7 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
     readonly request: RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
     readonly requestDigestB64u: string;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+    readonly tenantRoot: RouterAbEcdsaRegistrationTenantRootV1;
   }): Promise<RouterAbEcdsaStrictRefreshResult> {
     const command = parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1(input.request);
     const forwarded = await this.forwardRaw({
@@ -492,6 +497,7 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
       requestDigestB64u: input.requestDigestB64u,
       workKind: 'server_share_refresh',
       authority: input.authority,
+      tenantRoot: input.tenantRoot,
     });
     if (!forwarded.ok) return forwarded;
     try {
@@ -525,6 +531,7 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
           readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
           readonly requestDigestB64u: string;
           readonly authority: RouterAbEcdsaStrictExportAuthority;
+          readonly tenantRoot: RouterAbEcdsaRegistrationTenantRootV1;
         }
       | {
           readonly kind: 'post_registration_proof';
@@ -533,6 +540,7 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
           readonly requestDigestB64u: string;
           readonly workKind: 'server_share_refresh';
           readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+          readonly tenantRoot: RouterAbEcdsaRegistrationTenantRootV1;
         },
   ): Promise<{ readonly ok: true; readonly value: unknown } | RouterAbEcdsaStrictFailure> {
     const authorityFailure = validatePostRegistrationAuthorityBinding(input);
@@ -578,11 +586,13 @@ function strictPostRegistrationForwardBodyJson(
         readonly kind: 'explicit_export';
         readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
         readonly authority: RouterAbEcdsaStrictExportAuthority;
+        readonly tenantRoot: RouterAbEcdsaRegistrationTenantRootV1;
       }
     | {
         readonly kind: 'post_registration_proof';
         readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
         readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+        readonly tenantRoot: RouterAbEcdsaRegistrationTenantRootV1;
       },
 ): string {
   switch (input.kind) {
@@ -598,9 +608,19 @@ function strictPostRegistrationForwardBodyJson(
           input.authority.normalSigningScope,
         ),
         private_authorization: privateExportAuthorizationWire(input.authority.privateAuthorization),
+        tenant_root: {
+          identity_digest_b64u: input.tenantRoot.identityDigestB64u,
+          custody_lineage_b64u: input.tenantRoot.custodyLineageB64u,
+        },
       });
     case 'post_registration_proof':
-      return JSON.stringify(input.request);
+      return JSON.stringify({
+        refresh_request: input.request,
+        tenant_root: {
+          identity_digest_b64u: input.tenantRoot.identityDigestB64u,
+          custody_lineage_b64u: input.tenantRoot.custodyLineageB64u,
+        },
+      });
   }
 }
 
