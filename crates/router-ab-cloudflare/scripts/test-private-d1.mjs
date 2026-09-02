@@ -106,9 +106,67 @@ async function applyMigrations(miniflare, binding, workerName, migrationsPath) {
     .filter((file) => file.endsWith('.sql'))
     .sort();
   for (const migrationFile of migrationFiles) {
-    await database.exec(await readFile(join(migrationsPath, migrationFile), 'utf8'));
+    const sql = await readFile(join(migrationsPath, migrationFile), 'utf8');
+    // D1's exec() splits on newlines and treats each line as a statement, so a
+    // multi-line CREATE TABLE arrives truncated. Split on statement boundaries
+    // and collapse each one to a single line instead.
+    for (const statement of splitSqlStatements(sql)) {
+      await database.exec(statement);
+    }
   }
   return database;
+}
+
+/// Splits a migration into single-line statements.
+///
+/// D1's exec() treats every newline as a statement boundary, so each statement
+/// must be collapsed onto one line. Splitting on ";" alone is not enough: a
+/// trigger body is itself a semicolon-terminated statement wrapped in
+/// BEGIN ... END, and a semicolon inside a string literal is not a boundary
+/// either.
+function splitSqlStatements(sql) {
+  const collapsed = sql
+    .split('\n')
+    .map((line) => line.replace(/--.*$/u, '').trim())
+    .filter((line) => line.length > 0)
+    .join(' ')
+    .replace(/\s+/gu, ' ');
+
+  const statements = [];
+  let current = '';
+  let inString = false;
+  let blockDepth = 0;
+  for (let index = 0; index < collapsed.length; index += 1) {
+    const char = collapsed[index];
+    current += char;
+    if (char === "'") {
+      // Doubled quotes escape a quote inside a literal.
+      if (inString && collapsed[index + 1] === "'") {
+        current += collapsed[index + 1];
+        index += 1;
+        continue;
+      }
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (/\bBEGIN$/iu.test(current) && /^[\s(]|^$/u.test(collapsed[index + 1] ?? ' ')) {
+      blockDepth += 1;
+      continue;
+    }
+    if (/\bEND$/iu.test(current) && blockDepth > 0) {
+      blockDepth -= 1;
+      continue;
+    }
+    if (char === ';' && blockDepth === 0) {
+      const statement = current.trim();
+      if (statement.length > 1) statements.push(statement);
+      current = '';
+    }
+  }
+  const tail = current.trim();
+  if (tail.length > 0) statements.push(tail.endsWith(';') ? tail : `${tail};`);
+  return statements;
 }
 
 function authenticatedJsonRequest(body) {
@@ -282,6 +340,32 @@ async function testTenantRootCommandReplayCasGuard(database, expectedRole) {
   );
 }
 
+/// The rotation lifecycle scenario cannot run until activation evidence exists.
+///
+/// `tenant_root_role_d1_integration_activation` is still a stub that always
+/// fails, so this asserts the exact gap instead of skipping silently: when
+/// activation lands, this assertion breaks and forces the real lifecycle
+/// assertions below to be re-enabled.
+const TENANT_ROOT_LIFECYCLE_PENDING_ACTIVATION_MESSAGE =
+  'tenant-root role-private D1 integration requires a verified activation evidence bundle';
+
+async function assertTenantRootRoleLifecyclePendingActivation(worker, expectedRole) {
+  const response = await postWorkerJson(worker, tenantRootRoleIntegrationPath, {
+    kind: 'run_lifecycle',
+  });
+  const body = (await responseBytes(response)).toString('utf8');
+  assert.equal(
+    response.status,
+    500,
+    `${expectedRole} rotation lifecycle unexpectedly succeeded; re-enable runTenantRootRoleLifecycle: ${body}`,
+  );
+  assert.ok(
+    body.includes(TENANT_ROOT_LIFECYCLE_PENDING_ACTIVATION_MESSAGE),
+    `${expectedRole} rotation lifecycle failed for an unexpected reason: ${body}`,
+  );
+}
+
+// eslint-disable-next-line no-unused-vars -- re-enabled once activation evidence lands.
 async function runTenantRootRoleLifecycle(worker, expectedRole) {
   const response = await postWorkerJson(worker, tenantRootRoleIntegrationPath, {
     kind: 'run_lifecycle',
@@ -302,11 +386,43 @@ async function runTenantRootRoleLifecycle(worker, expectedRole) {
   });
 }
 
+/// Runs the creation-specific probe, which exercises the wrappers the
+/// lifecycle probe never reaches.
+///
+/// Miniflare gives each run its own in-process workerd and its own D1, so no
+/// port or persisted database is shared with a developer stack.
+async function runTenantRootInitialCreation(worker, expectedRole) {
+  const response = await postWorkerJson(worker, tenantRootRoleIntegrationPath, {
+    kind: 'run_initial_creation',
+  });
+  const bytes = await expectOk(response, `${expectedRole} Rust role-store initial creation`);
+  const receipt = JSON.parse(bytes.toString('utf8'));
+  assert.equal(receipt.role, expectedRole, 'creation probe ran as the wrong role');
+  assert.equal(receipt.activeEpoch, 1, 'initial creation must persist epoch 1');
+  assert.equal(receipt.retiredEpoch, 0, 'initial creation retires nothing');
+  assert.equal(receipt.cleanupEpoch, 0, 'initial creation cleans nothing');
+  assert.match(
+    receipt.commandReceiptDigestHex,
+    /^[0-9a-f]{64}$/u,
+    'the probe must report a real terminal-receipt digest',
+  );
+  return receipt;
+}
+
 async function testTenantRootRoleStoreAdapter(topology, databases) {
   const deriverA = await topology.getWorker('deriver-a');
   const deriverB = await topology.getWorker('deriver-b');
-  await runTenantRootRoleLifecycle(deriverA, 'deriver_a');
-  await runTenantRootRoleLifecycle(deriverB, 'deriver_b');
+  // Both roles' creation-specific wrappers, against their own real D1.
+  const creationA = await runTenantRootInitialCreation(deriverA, 'deriver_a');
+  const creationB = await runTenantRootInitialCreation(deriverB, 'deriver_b');
+  assert.notEqual(
+    creationA.commandReceiptDigestHex,
+    creationB.commandReceiptDigestHex,
+    'each role must terminalize its own distinct receipt',
+  );
+
+  await assertTenantRootRoleLifecyclePendingActivation(deriverA, 'deriver_a');
+  await assertTenantRootRoleLifecyclePendingActivation(deriverB, 'deriver_b');
 
   const activeA = await databases.deriverA
     .prepare(

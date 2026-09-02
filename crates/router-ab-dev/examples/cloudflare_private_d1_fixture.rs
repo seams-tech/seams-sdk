@@ -365,7 +365,88 @@ fn cloudflare_deriver_env(
         ),
     ]);
     env.insert(format!("{peer_binding}_PEER_BINDING"), peer_binding.into());
+    insert_cloudflare_deriver_tenant_root_env(&mut env, suffix)?;
     Ok(env)
+}
+
+/// Adds the tenant-root env surface a Deriver Worker needs to boot and to run
+/// the role-private creation probe.
+///
+/// The published issuer keyset here is a deployment descriptor, not the probe's
+/// signing authority: the creation probe carries its own issuer identity so it
+/// can never be satisfied by whatever key a real deployment publishes.
+fn insert_cloudflare_deriver_tenant_root_env(
+    env: &mut BTreeMap<String, String>,
+    suffix: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let lower = suffix.to_ascii_lowercase();
+    let (online_seed, backup_seed) = if lower == "a" {
+        ([0xa2; 32], [0xa3; 32])
+    } else {
+        ([0xb2; 32], [0xb3; 32])
+    };
+    let online = derive_local_ed25519_yao_recipient_key_pair_v1(&online_seed)?;
+    let backup = derive_local_ed25519_yao_recipient_key_pair_v1(&backup_seed)?;
+    let online_binding = format!("DERIVER_{suffix}_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY");
+    let backup_binding = format!("DERIVER_{suffix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY");
+
+    env.insert(
+        "TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON".into(),
+        cloudflare_tenant_root_control_plane_issuer_verifying_keys_json()?,
+    );
+    env.insert(
+        format!("DERIVER_{suffix}_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF"),
+        format!("miniflare-tenant-root-{lower}-online-epoch-1"),
+    );
+    env.insert(
+        format!("DERIVER_{suffix}_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY"),
+        format!("x25519:{}", hex::encode(online.public_key)),
+    );
+    env.insert(
+        format!("DERIVER_{suffix}_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING"),
+        online_binding.clone(),
+    );
+    env.insert(
+        online_binding,
+        format!(
+            "hpke-x25519-private-v1:{}",
+            hex::encode(online.private_key.as_bytes())
+        ),
+    );
+    env.insert(
+        format!("DERIVER_{suffix}_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID"),
+        format!("miniflare-tenant-root-{lower}-managed-backup"),
+    );
+    env.insert(
+        format!("DERIVER_{suffix}_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION"),
+        format!("miniflare-tenant-root-{lower}-backup-v1"),
+    );
+    env.insert(
+        format!("DERIVER_{suffix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY"),
+        format!("x25519:{}", hex::encode(backup.public_key)),
+    );
+    env.insert(
+        format!("DERIVER_{suffix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING"),
+        backup_binding.clone(),
+    );
+    env.insert(
+        backup_binding,
+        format!(
+            "hpke-x25519-private-v1:{}",
+            hex::encode(backup.private_key.as_bytes())
+        ),
+    );
+    Ok(())
+}
+
+/// Builds the published control-plane issuer keyset descriptor.
+fn cloudflare_tenant_root_control_plane_issuer_verifying_keys_json(
+) -> Result<String, Box<dyn std::error::Error>> {
+    let verifying_key = ed25519_dalek::SigningKey::from_bytes(&[0xc1; 32]).verifying_key();
+    Ok(format!(
+        "{{\"keys\":[{{\"issuer_key_id\":\"miniflare-tenant-root-control-plane-issuer-v1\",\"verifying_key_hex\":\"{}\"}}]}}",
+        hex::encode(verifying_key.as_bytes())
+    ))
 }
 
 fn cloudflare_signing_worker_env(
