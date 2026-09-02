@@ -334,7 +334,7 @@ the host (clamped, full-viewport fallback, standalone surface) leaves the tree
 to its own transition, which cannot be clipped there.
 
 For the same reason, nothing inside a measured modal may size itself in
-viewport units: inside the iframe the viewport *is* the box the parent just
+viewport units: inside the iframe the viewport _is_ the box the parent just
 sized to the content, so a `max-height: 40vh` block grows on every ease, posts
 a larger measurement, and the box chases it while the interior re-lays out
 instantly (`tx-confirmer.css` pins those caps to rem values under
