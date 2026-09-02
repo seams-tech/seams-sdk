@@ -301,6 +301,7 @@ impl CloudflareTenantRootCreateRoleV1 {
 // a size lint would trade a zeroizing stack value for an allocation whose
 // intermediate copies are harder to reason about.
 #[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
 pub(crate) enum TenantRootRoleCreationProgressV1 {
     Committed {
         pending: PendingTenantRootInitialRoleAttemptV1,
@@ -389,6 +390,127 @@ where
         role_signing_key_bytes,
         rng,
     )?;
+    let (input, managed_backup) = seal_initial_role_creation_for_persistence_v1(
+        finalized,
+        role_signer,
+        provider_config,
+        online_provider,
+        managed_backup_provider,
+        identity,
+        now_ms,
+    )?;
+    let signed_installation_evidence = input.installation_evidence_bytes().to_vec();
+    Ok(TenantRootRoleCreationProgressV1::Sealed {
+        signed_commitment,
+        signed_installation_evidence,
+        input: Box::new(input),
+        managed_backup: Box::new(managed_backup),
+    })
+}
+
+/// Drives the peer Deriver and returns its signed public commitment.
+///
+/// Modelled as a trait so the initiating role's orchestration is testable
+/// without a Worker, and so the only thing that crosses to the peer is bytes.
+#[cfg(feature = "workers-rs")]
+pub(crate) trait TenantRootPeerRoleDriverV1 {
+    /// Hands the peer its package and receives back its signed commitment.
+    fn drive_peer(
+        &mut self,
+        package_bytes: &[u8],
+    ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1>;
+}
+
+/// What the peer returns: public bytes only.
+#[cfg(feature = "workers-rs")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TenantRootPeerRoleOutcomeV1 {
+    /// The peer's signed public commitment.
+    pub(crate) signed_commitment: Vec<u8>,
+    /// True once the peer's own pending share is durably persisted.
+    pub(crate) pending_persisted: bool,
+}
+
+/// Runs the initiating role's ceremony without ever parking its scalar.
+///
+/// The initiating role commits, drives the peer, and finalizes inside a single
+/// invocation. Its share is random, so it cannot be regenerated on a later
+/// request: parking the commitment durably and returning would strand a
+/// ceremony whose scalar no longer exists. Holding the request open for the
+/// peer call is what makes the share's lifetime equal to this function's.
+///
+/// If the peer call fails, or the peer's commitment does not complete the
+/// pair, this returns an error and the share is dropped. Nothing durable was
+/// written for the initiating role, so the attempt is abandoned by returning.
+#[cfg(feature = "workers-rs")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn drive_tenant_root_role_creation_as_initiator_v1<Online, Backup, Peer, R>(
+    package_bytes: &[u8],
+    peer_package_bytes: &[u8],
+    worker_role: TwoPartyDeriverRole,
+    expected_authority_id: TenantRootControlPlaneAuthorityIdV1,
+    trusted_issuer_keys: &CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
+    role_keys: &TenantRootCreationRoleVerifyingKeysV1,
+    role_signer: &crate::CloudflareTenantRootCreationRoleSignerV1,
+    role_signing_key_bytes: &[u8; 32],
+    provider_config: &TenantRootRoleRuntimeProviderConfigV1,
+    online_provider: &mut Online,
+    managed_backup_provider: &mut Backup,
+    peer: &mut Peer,
+    now_ms: u64,
+    rng: &mut R,
+) -> RouterAbProtocolResult<TenantRootRoleCreationProgressV1>
+where
+    Online: TenantRootOnlineRoleShareProviderV1,
+    Backup: TenantRootManagedBackupProviderV1,
+    Peer: TenantRootPeerRoleDriverV1,
+    R: rand_core_06::RngCore + rand_core_06::CryptoRng,
+{
+    // Commit first, so the peer is only ever driven for a ceremony this role
+    // has already been authorized to execute.
+    let pending = admit_tenant_root_role_creation_package_v1(
+        package_bytes,
+        worker_role,
+        expected_authority_id,
+        trusted_issuer_keys,
+        role_signer,
+        role_signing_key_bytes,
+        now_ms,
+        rng,
+    )?;
+    let signed_commitment = pending.commitment_bytes().to_vec();
+    let context = pending.commitment().context().clone();
+
+    // The share stays on this stack for exactly the span of the peer call.
+    let peer_outcome = peer.drive_peer(peer_package_bytes)?;
+    if !peer_outcome.pending_persisted {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root peer role did not persist its pending share",
+        ));
+    }
+
+    let pair_wires = match worker_role {
+        TwoPartyDeriverRole::DeriverA => TenantRootCreationCommitmentPairWiresV1 {
+            deriver_a_signed_commitment: signed_commitment.clone(),
+            deriver_b_signed_commitment: peer_outcome.signed_commitment,
+        },
+        TwoPartyDeriverRole::DeriverB => TenantRootCreationCommitmentPairWiresV1 {
+            deriver_a_signed_commitment: peer_outcome.signed_commitment,
+            deriver_b_signed_commitment: signed_commitment.clone(),
+        },
+    };
+    let finalized = finalize_tenant_root_role_attempt_v1(
+        pending,
+        &pair_wires,
+        &context,
+        role_keys,
+        role_signing_key_bytes,
+        rng,
+    )?;
+    let package = TenantRootRoleCreationCommandPackageV1::decode_canonical_bytes(package_bytes)
+        .map_err(candidate_derivation_error)?;
+    let identity = package.identity().map_err(candidate_derivation_error)?;
     let (input, managed_backup) = seal_initial_role_creation_for_persistence_v1(
         finalized,
         role_signer,
@@ -1792,7 +1914,7 @@ mod exchange_tests {
 }
 
 #[cfg(all(test, feature = "workers-rs"))]
-mod live_execution_tests {
+pub(crate) mod live_execution_tests {
     use super::admission_tests::*;
     use super::tests::InMemoryProvider;
     use super::*;
@@ -1802,6 +1924,10 @@ mod live_execution_tests {
     const ONLINE_REF: &str = "online-key/tenant-7/epoch-1";
     const BACKUP_PROVIDER: &str = "backup-provider-a";
     const BACKUP_VERSION: &str = "backup-key-a/tenant-7/epoch-1";
+
+    pub(crate) fn test_provider_config() -> TenantRootRoleRuntimeProviderConfigV1 {
+        provider_config()
+    }
 
     fn provider_config() -> TenantRootRoleRuntimeProviderConfigV1 {
         TenantRootRoleRuntimeProviderConfigV1::new(ONLINE_REF, BACKUP_PROVIDER, BACKUP_VERSION)
@@ -1993,5 +2119,205 @@ mod live_execution_tests {
                 "{label} contains sealed share material"
             );
         }
+    }
+}
+
+#[cfg(all(test, feature = "workers-rs"))]
+mod initiator_tests {
+    use super::admission_tests::*;
+    use super::live_execution_tests::test_provider_config;
+    use super::tests::InMemoryProvider;
+    use super::*;
+    use rand_chacha::ChaCha20Rng;
+    use rand_core_06::SeedableRng;
+
+    /// A peer that runs the real second-leg execution in-process.
+    struct RealPeer {
+        role: TwoPartyDeriverRole,
+        initiator_commitment: Vec<u8>,
+        persisted: bool,
+        calls: usize,
+    }
+
+    impl TenantRootPeerRoleDriverV1 for RealPeer {
+        fn drive_peer(
+            &mut self,
+            package_bytes: &[u8],
+        ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
+            self.calls += 1;
+            let mut online = InMemoryProvider::new();
+            let mut backup = InMemoryProvider::new();
+            let progress = execute_tenant_root_role_creation_v1(
+                package_bytes,
+                Some(&self.initiator_commitment),
+                self.role,
+                authority(),
+                &trusted_issuer_keys(),
+                &test_role_keys(),
+                &signer(self.role),
+                &role_key(self.role).to_bytes(),
+                &test_provider_config(),
+                &mut online,
+                &mut backup,
+                ISSUED_AT_MS + 2,
+                &mut ChaCha20Rng::from_seed([0x88; 32]),
+            )?;
+            let TenantRootRoleCreationProgressV1::Sealed {
+                signed_commitment, ..
+            } = progress
+            else {
+                panic!("the peer leg must seal")
+            };
+            Ok(TenantRootPeerRoleOutcomeV1 {
+                signed_commitment,
+                pending_persisted: self.persisted,
+            })
+        }
+    }
+
+    /// A peer that fails, standing in for a lost or refused peer call.
+    struct FailingPeer;
+    impl TenantRootPeerRoleDriverV1 for FailingPeer {
+        fn drive_peer(&mut self, _: &[u8]) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
+            Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "peer unavailable",
+            ))
+        }
+    }
+
+    fn initiator_commitment() -> Vec<u8> {
+        let progress = {
+            let mut online = InMemoryProvider::new();
+            let mut backup = InMemoryProvider::new();
+            execute_tenant_root_role_creation_v1(
+                &package_bytes(TwoPartyDeriverRole::DeriverA, &ISSUER_KEY),
+                None,
+                TwoPartyDeriverRole::DeriverA,
+                authority(),
+                &trusted_issuer_keys(),
+                &test_role_keys(),
+                &signer(TwoPartyDeriverRole::DeriverA),
+                &role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
+                &test_provider_config(),
+                &mut online,
+                &mut backup,
+                ISSUED_AT_MS + 2,
+                &mut ChaCha20Rng::from_seed([0x77; 32]),
+            )
+            .expect("committed")
+        };
+        let TenantRootRoleCreationProgressV1::Committed { pending } = progress else {
+            panic!("expected a committed leg")
+        };
+        pending.commitment_bytes().to_vec()
+    }
+
+    fn drive<P: TenantRootPeerRoleDriverV1>(
+        peer: &mut P,
+    ) -> RouterAbProtocolResult<TenantRootRoleCreationProgressV1> {
+        let mut online = InMemoryProvider::new();
+        let mut backup = InMemoryProvider::new();
+        drive_tenant_root_role_creation_as_initiator_v1(
+            &package_bytes(TwoPartyDeriverRole::DeriverA, &ISSUER_KEY),
+            &package_bytes(TwoPartyDeriverRole::DeriverB, &ISSUER_KEY),
+            TwoPartyDeriverRole::DeriverA,
+            authority(),
+            &trusted_issuer_keys(),
+            &test_role_keys(),
+            &signer(TwoPartyDeriverRole::DeriverA),
+            &role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
+            &test_provider_config(),
+            &mut online,
+            &mut backup,
+            peer,
+            ISSUED_AT_MS + 2,
+            &mut ChaCha20Rng::from_seed([0x77; 32]),
+        )
+    }
+
+    /// The initiator commits, drives the peer, and seals in one invocation.
+    #[test]
+    fn the_initiator_completes_within_a_single_invocation() {
+        let mut peer = RealPeer {
+            role: TwoPartyDeriverRole::DeriverB,
+            initiator_commitment: initiator_commitment(),
+            persisted: true,
+            calls: 0,
+        };
+        let progress = drive(&mut peer).expect("initiator sealed");
+        assert_eq!(peer.calls, 1, "the peer is driven exactly once");
+        assert!(matches!(
+            progress,
+            TenantRootRoleCreationProgressV1::Sealed { .. }
+        ));
+    }
+
+    /// A failed peer call abandons the attempt. Nothing durable was written for
+    /// the initiator, so returning the error IS the cleanup.
+    #[test]
+    fn a_failed_peer_call_abandons_the_initiator_attempt() {
+        assert!(
+            drive(&mut FailingPeer).is_err(),
+            "a failed peer call must abandon rather than park a scalar"
+        );
+    }
+
+    /// The initiator refuses to finalize against a peer that has not persisted.
+    ///
+    /// Finalizing anyway would leave the initiator durably installed against a
+    /// peer share that may never exist.
+    #[test]
+    fn the_initiator_refuses_a_peer_that_did_not_persist() {
+        let mut peer = RealPeer {
+            role: TwoPartyDeriverRole::DeriverB,
+            initiator_commitment: initiator_commitment(),
+            persisted: false,
+            calls: 0,
+        };
+        assert_eq!(
+            drive(&mut peer).expect_err("unpersisted peer").code(),
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding
+        );
+    }
+}
+
+#[cfg(all(test, feature = "workers-rs"))]
+mod progress_debug_tests {
+    use super::admission_tests::*;
+    use super::live_execution_tests::test_provider_config;
+    use super::tests::InMemoryProvider;
+    use super::*;
+    use rand_chacha::ChaCha20Rng;
+    use rand_core_06::SeedableRng;
+
+    /// The progress enum derives Debug, so pin that the derive cannot print
+    /// share material: a future field that is not itself redacting would be
+    /// caught here rather than in a log.
+    #[test]
+    fn the_progress_debug_never_prints_share_material() {
+        let mut online = InMemoryProvider::new();
+        let mut backup = InMemoryProvider::new();
+        let progress = execute_tenant_root_role_creation_v1(
+            &package_bytes(TwoPartyDeriverRole::DeriverA, &ISSUER_KEY),
+            None,
+            TwoPartyDeriverRole::DeriverA,
+            authority(),
+            &trusted_issuer_keys(),
+            &test_role_keys(),
+            &signer(TwoPartyDeriverRole::DeriverA),
+            &role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
+            &test_provider_config(),
+            &mut online,
+            &mut backup,
+            ISSUED_AT_MS + 2,
+            &mut ChaCha20Rng::from_seed([0x77; 32]),
+        )
+        .expect("committed");
+        let rendered = format!("{progress:?}");
+        assert!(
+            rendered.contains("[redacted]"),
+            "the share must render redacted, got: {rendered}"
+        );
     }
 }
