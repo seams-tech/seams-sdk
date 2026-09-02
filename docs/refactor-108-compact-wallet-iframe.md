@@ -320,6 +320,19 @@ newer than the active one. A bounded two-frame settle check covers content
 wrapping after the parent width clamp. No timer or repeated style write may
 keep a closed surface alive.
 
+Content inside a measured modal must not animate its own layout height. The
+controller eases the box to each measured→measured change (`startSurfaceResize`,
+220ms, from the box's current visual rectangle), so a child transition that
+streams one measurement per frame makes the box chase a moving target and
+trail the card, which is clipped at the iframe edge until the ease lands. A
+tree node therefore hands its height motion to the confirmer host first
+(`lit-tree-resize-begin`, `ui/confirm-surface-resize.ts`): the host pins its
+own height to the size the card is heading for — one measurement, one ease —
+and feeds the node's body height back from the iframe viewport frame by frame,
+so the card fills exactly the room the box has made. A box that does not hug
+the host (clamped, full-viewport fallback, standalone surface) leaves the tree
+to its own transition, which cannot be clipped there.
+
 ## Ownership and lifecycle
 
 1. The router normalizes a request's presentation, allocates its existing
