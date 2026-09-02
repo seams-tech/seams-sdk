@@ -80,6 +80,8 @@ type MotionTrace = {
   frames: Array<{ viewportPx: number; cardPx: number; pinned: boolean }>;
   /** Where the content actually ended up, once everything settled. */
   finalHostPx: number;
+  /** Frames where the box claimed its target and then moved away again. */
+  blipFrames: number;
 };
 
 /** The interior changes this surface can make, each through the same seam. */
@@ -251,6 +253,9 @@ async function recordMotion(frame: Frame, action: MotionAction): Promise<MotionT
       measurements: measurements.slice(),
       frames,
       finalHostPx: host.getBoundingClientRect().height,
+      blipFrames:
+        (window as unknown as { __w3aSurfaceMotion?: { blipFrames: number } }).__w3aSurfaceMotion
+          ?.blipFrames ?? 0,
     };
   }, action);
 }
@@ -293,6 +298,9 @@ function assertMotionInvariants(trace: MotionTrace, expected: { sign?: 1 | -1 } 
   );
   expect(intermediate.length).toBeGreaterThanOrEqual(2);
   expect(frames.at(-1)?.pinned).toBe(false);
+  // The parent held the iframe at the origin while it wrote the destination,
+  // so the frame never saw the final size before the ease reached it.
+  expect(trace.blipFrames).toBe(0);
 }
 
 test.describe('wallet iframe host-driven interior motion', () => {

@@ -304,6 +304,55 @@ export function announceClampedSurfaceResize(args: {
   return claimed;
 }
 
+/**
+ * A per-frame view of the one thing that matters when this goes wrong: what
+ * the box is doing and whether the content is being held for it. The bug this
+ * module exists to prevent was only ever visible in a real browser, frame by
+ * frame, so the sampler that found it ships with the code.
+ *
+ * From the wallet frame's console: `await __w3aSurfaceMotion.trace()`, then
+ * interact. `blipFrames` counts frames where the box reported its target and
+ * then moved away again — the parent laying out the destination before its
+ * ease reaches it, which must stay at zero.
+ */
+export type SurfaceMotionDiagnostics = {
+  blipFrames: number;
+  trace(durationMs?: number): Promise<string[]>;
+};
+
+let diagnosticHost: HTMLElement | null = null;
+
+const surfaceMotionDiagnostics: SurfaceMotionDiagnostics = {
+  blipFrames: 0,
+  trace(durationMs = 2_000) {
+    return new Promise<string[]>((resolve) => {
+      const lines: string[] = [];
+      const startedAt = performance.now();
+      const tick = () => {
+        const host = diagnosticHost;
+        const pinned = host?.classList.contains(CONFIRM_SURFACE_PINNED_CLASS) ? '*' : '';
+        lines.push(
+          `${Math.round(performance.now() - startedAt)}: box=${document.documentElement.clientHeight} ` +
+            `content=${host ? Math.round(host.getBoundingClientRect().height) : '-'}${pinned}`,
+        );
+        if (performance.now() - startedAt < durationMs) requestAnimationFrame(tick);
+        else resolve(lines);
+      };
+      requestAnimationFrame(tick);
+    });
+  },
+};
+
+function publishDiagnostics(element: HTMLElement): void {
+  diagnosticHost = element;
+  try {
+    (window as unknown as { __w3aSurfaceMotion?: SurfaceMotionDiagnostics }).__w3aSurfaceMotion =
+      surfaceMotionDiagnostics;
+  } catch {
+    // A locked-down global is not worth failing a confirmation over.
+  }
+}
+
 export type ConfirmSurfaceResizeChoreographer = {
   dispose(): void;
 };
@@ -397,6 +446,7 @@ export function attachConfirmSurfaceResizeChoreographer(
 ): ConfirmSurfaceResizeChoreographer {
   const readViewportHeightCssPx = options.viewportHeightCssPx ?? defaultViewportHeightCssPx;
   const pin = createHostHeightPin(element);
+  publishDiagnostics(element);
   let active: ActiveResize | null = null;
 
   const settle = (): void => {
@@ -437,6 +487,9 @@ export function attachConfirmSurfaceResizeChoreographer(
       current.frame = requestAnimationFrame(step);
       return;
     }
+    // The box said it had arrived and then moved away: the parent laid out its
+    // destination before the ease reached it.
+    if (current.framesAtTarget > 0) surfaceMotionDiagnostics.blipFrames += 1;
     current.framesAtTarget = 0;
     if (progress > 0) current.sawIntermediate = true;
     current.driver.setProgress(progress);
