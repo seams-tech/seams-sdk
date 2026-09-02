@@ -65,6 +65,23 @@ fn signing_key(seed: u8) -> SigningKey {
     SigningKey::from_bytes(&[seed; 32])
 }
 
+fn recipient(role: TwoPartyDeriverRole) -> (&'static str, TenantRootRefreshHpkePublicKeyV1) {
+    match role {
+        TwoPartyDeriverRole::DeriverA => (
+            "deriver-b-hpke-key-8",
+            TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xb1; 32])
+                .unwrap()
+                .public_key(),
+        ),
+        TwoPartyDeriverRole::DeriverB => (
+            "deriver-a-hpke-key-7",
+            TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xa1; 32])
+                .unwrap()
+                .public_key(),
+        ),
+    }
+}
+
 fn coefficient(role: TwoPartyDeriverRole, scalar: u64) -> RootShareRefreshCoefficient {
     RootShareRefreshCoefficient::from_canonical_bytes(role, Scalar::from(scalar).to_bytes())
         .unwrap()
@@ -75,8 +92,14 @@ fn signed_refresh_commitment(
     coefficient: &RootShareRefreshCoefficient,
     signing_key: &SigningKey,
 ) -> TenantRootSignedRefreshCommitmentV1 {
-    let transcript =
-        TenantRootRefreshCommitmentTranscriptV1::new(context, coefficient.commitment()).unwrap();
+    let (recipient_key_id, recipient_public_key) = recipient(coefficient.commitment().source());
+    let transcript = TenantRootRefreshCommitmentTranscriptV1::new(
+        context,
+        coefficient.commitment(),
+        recipient_key_id,
+        recipient_public_key,
+    )
+    .unwrap();
     TenantRootSignedRefreshCommitmentV1::sign(transcript, &signing_key.to_bytes()).unwrap()
 }
 
@@ -85,8 +108,14 @@ fn verified_commitment(
     coefficient: &RootShareRefreshCoefficient,
     signing_key: &SigningKey,
 ) -> router_ab_core::VerifiedTenantRootRefreshCommitmentV1 {
-    let transcript =
-        TenantRootRefreshCommitmentTranscriptV1::new(context, coefficient.commitment()).unwrap();
+    let (recipient_key_id, recipient_public_key) = recipient(coefficient.commitment().source());
+    let transcript = TenantRootRefreshCommitmentTranscriptV1::new(
+        context,
+        coefficient.commitment(),
+        recipient_key_id,
+        recipient_public_key,
+    )
+    .unwrap();
     TenantRootSignedRefreshCommitmentV1::sign(transcript, &signing_key.to_bytes())
         .unwrap()
         .verify(signing_key.verifying_key().as_bytes())
@@ -147,6 +176,16 @@ fn signed_refresh_commitment_wire_round_trips_and_retains_public_authentication(
     assert_eq!(decoded.transcript(), signed.transcript());
     assert_eq!(decoded.role(), TwoPartyDeriverRole::DeriverA);
     assert_eq!(decoded.signing_key_id(), "deriver-a-signing-key-7");
+    assert_eq!(
+        decoded.transcript().recipient_key_id(),
+        "deriver-b-hpke-key-8"
+    );
+    assert_eq!(
+        decoded.transcript().recipient_public_key(),
+        TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xb1; 32])
+            .unwrap()
+            .public_key()
+    );
     assert_eq!(decoded.signature(), signed.signature());
 
     let verified = TenantRootSignedRefreshCommitmentV1::decode_and_verify_canonical_bytes(
@@ -203,6 +242,34 @@ fn signed_refresh_commitment_wire_rejects_malformed_and_substituted_fields() {
     let key_id = next_len32_field_range(&wrong_key_id, &mut offset);
     wrong_key_id[key_id.end - 1] ^= 1;
     assert!(TenantRootSignedRefreshCommitmentV1::decode_canonical_bytes(&wrong_key_id).is_err());
+
+    let mut substituted_recipient = signed.canonical_bytes().unwrap();
+    let mut outer_offset = 0;
+    next_len32_field_range(&substituted_recipient, &mut outer_offset);
+    let transcript_range = next_len32_field_range(&substituted_recipient, &mut outer_offset);
+    let mut transcript = substituted_recipient[transcript_range.clone()].to_vec();
+    let mut transcript_offset = 0;
+    for _ in 0..11 {
+        next_len32_field_range(&transcript, &mut transcript_offset);
+    }
+    let recipient_key_id = next_len32_field_range(&transcript, &mut transcript_offset);
+    transcript[recipient_key_id.end - 1] ^= 1;
+    substituted_recipient[transcript_range].copy_from_slice(&transcript);
+    let substituted_recipient_signed =
+        TenantRootSignedRefreshCommitmentV1::decode_canonical_bytes(&substituted_recipient)
+            .unwrap();
+    assert_eq!(
+        substituted_recipient_signed
+            .verify_strict(
+                &context,
+                TwoPartyDeriverRole::DeriverA,
+                "deriver-a-signing-key-7",
+                signing_a.verifying_key().as_bytes(),
+            )
+            .unwrap_err()
+            .code(),
+        RouterAbDerivationErrorCode::OutputVerificationFailed,
+    );
 
     let mut substituted_context = wire.clone();
     let mut outer_offset = 0;
@@ -328,7 +395,7 @@ fn both_refresh_contribution_directions_are_signed_encrypted_and_exact() {
     .unwrap();
     let aad_b_to_a = TenantRootRefreshContributionAadV1::deriver_b_to_a(
         &commitment_pair,
-        "deriver-a-hpke-key-8",
+        "deriver-a-hpke-key-7",
         hpke_a.public_key(),
     )
     .unwrap();
@@ -344,6 +411,25 @@ fn both_refresh_contribution_directions_are_signed_encrypted_and_exact() {
     let decoded_signed_a =
         TenantRootSignedRefreshContributionV1::decode_canonical_bytes(&signed_a_wire).unwrap();
     assert_eq!(decoded_signed_a.canonical_bytes().unwrap(), signed_a_wire);
+    let publicly_verified_a = decoded_signed_a
+        .verify_signature(&aad_a_to_b, signing_a.verifying_key().as_bytes())
+        .unwrap();
+    assert_eq!(publicly_verified_a.source(), TwoPartyDeriverRole::DeriverA);
+    assert_eq!(
+        publicly_verified_a.recipient(),
+        TwoPartyDeriverRole::DeriverB
+    );
+    assert_eq!(
+        publicly_verified_a.canonical_bytes(),
+        signed_a_wire.as_slice()
+    );
+    assert_eq!(
+        decoded_signed_a
+            .verify_signature(&aad_a_to_b, signing_b.verifying_key().as_bytes())
+            .unwrap_err()
+            .code(),
+        RouterAbDerivationErrorCode::OutputVerificationFailed,
+    );
     let opened_a = decoded_signed_a
         .verify_and_open(&aad_a_to_b, signing_a.verifying_key().as_bytes(), &hpke_b)
         .unwrap();
@@ -524,8 +610,13 @@ fn session_recipient_role_and_signature_substitutions_fail_closed() {
     let hpke_b = TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xb1; 32]).unwrap();
     let other_hpke_b = TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xb2; 32]).unwrap();
     let signed_commitment = TenantRootSignedRefreshCommitmentV1::sign(
-        TenantRootRefreshCommitmentTranscriptV1::new(context(0x22), coefficient_a.commitment())
-            .unwrap(),
+        TenantRootRefreshCommitmentTranscriptV1::new(
+            context(0x22),
+            coefficient_a.commitment(),
+            "deriver-b-hpke-key-8",
+            hpke_b.public_key(),
+        )
+        .unwrap(),
         &signing_a.to_bytes(),
     )
     .unwrap();
@@ -653,21 +744,14 @@ fn session_recipient_role_and_signature_substitutions_fail_closed() {
         &coefficient_b,
         &signing_b,
     );
-    let substituted_recipient_aad = TenantRootRefreshContributionAadV1::deriver_a_to_b(
+    let substituted_recipient_error = TenantRootRefreshContributionAadV1::deriver_a_to_b(
         &recipient_commitments,
         "deriver-b-hpke-key-8",
         other_hpke_b.public_key(),
     )
-    .unwrap();
+    .unwrap_err();
     assert_eq!(
-        signed
-            .verify_and_open(
-                &substituted_recipient_aad,
-                signing_a.verifying_key().as_bytes(),
-                &other_hpke_b,
-            )
-            .unwrap_err()
-            .code(),
+        substituted_recipient_error.code(),
         RouterAbDerivationErrorCode::MalformedInput,
     );
 
@@ -697,6 +781,8 @@ fn session_recipient_role_and_signature_substitutions_fail_closed() {
     assert!(TenantRootRefreshCommitmentTranscriptV1::new(
         creation_context,
         coefficient_a.commitment(),
+        "deriver-b-hpke-key-8",
+        hpke_b.public_key(),
     )
     .is_err());
 }

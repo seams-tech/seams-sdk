@@ -14,10 +14,11 @@ use router_ab_core::{
     TenantRootRefreshCommitmentCheckpointEvaluationV1,
     TenantRootRefreshCommitmentCheckpointOutcomeV1, TenantRootRefreshCommitmentCheckpointStateV1,
     TenantRootRefreshCommitmentTranscriptV1, TenantRootRefreshFailureV1,
-    TenantRootRoleRefreshCommandV1, TenantRootRoleRetirementReceiptsV1, TenantRootShareEpoch,
-    TenantRootSignedRefreshCommitmentV1, TenantRootSignedShareInstallationEvidenceV1,
-    VerifiedTenantRootRefreshCommitmentPairV1, VerifiedTenantRootRefreshCommitmentV1,
-    VerifiedTenantRootRoleRefreshCommandV1, VerifiedTenantRootSignedActivationReceiptV1,
+    TenantRootRefreshHpkeKeypairV1, TenantRootRoleRefreshCommandV1,
+    TenantRootRoleRetirementReceiptsV1, TenantRootShareEpoch, TenantRootSignedRefreshCommitmentV1,
+    TenantRootSignedShareInstallationEvidenceV1, VerifiedTenantRootRefreshCommitmentPairV1,
+    VerifiedTenantRootRefreshCommitmentV1, VerifiedTenantRootRoleRefreshCommandV1,
+    VerifiedTenantRootSignedActivationReceiptV1,
     VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
 };
 use threshold_prf::{
@@ -267,9 +268,20 @@ fn signed_commitment(
     let coefficient =
         RootShareRefreshCoefficient::from_canonical_bytes(role, Scalar::from(scalar).to_bytes())
             .expect("refresh coefficient");
-    let transcript =
-        TenantRootRefreshCommitmentTranscriptV1::new(context, coefficient.commitment())
-            .expect("refresh commitment transcript");
+    let (recipient_key_id, recipient_ikm) = match role {
+        TwoPartyDeriverRole::DeriverA => ("deriver-b-hpke-key-8", [0xb1; 32]),
+        TwoPartyDeriverRole::DeriverB => ("deriver-a-hpke-key-7", [0xa1; 32]),
+    };
+    let recipient_public_key = TenantRootRefreshHpkeKeypairV1::derive_from_ikm(recipient_ikm)
+        .expect("recipient HPKE keypair")
+        .public_key();
+    let transcript = TenantRootRefreshCommitmentTranscriptV1::new(
+        context,
+        coefficient.commitment(),
+        recipient_key_id,
+        recipient_public_key,
+    )
+    .expect("refresh commitment transcript");
     let signing_key = match role {
         TwoPartyDeriverRole::DeriverA => SigningKey::from_bytes(&[0x51; 32]),
         TwoPartyDeriverRole::DeriverB => SigningKey::from_bytes(&[0x61; 32]),

@@ -440,6 +440,8 @@ impl VerifiedTenantRootCreationCommitmentPairV1 {
 pub struct TenantRootRefreshCommitmentTranscriptV1 {
     context: TenantRootCeremonyContextV1,
     commitment: RootShareRefreshCoefficientCommitment,
+    recipient_key_id: String,
+    recipient_public_key: TenantRootRefreshHpkePublicKeyV1,
 }
 
 impl TenantRootRefreshCommitmentTranscriptV1 {
@@ -447,11 +449,20 @@ impl TenantRootRefreshCommitmentTranscriptV1 {
     pub fn new(
         context: TenantRootCeremonyContextV1,
         commitment: RootShareRefreshCoefficientCommitment,
+        recipient_key_id: impl Into<String>,
+        recipient_public_key: TenantRootRefreshHpkePublicKeyV1,
     ) -> RouterAbDerivationResult<Self> {
         require_refresh_context(&context)?;
+        let recipient_key_id = recipient_key_id.into();
+        require_key_id(
+            "tenant-root refresh commitment recipient key id",
+            &recipient_key_id,
+        )?;
         Ok(Self {
             context,
             commitment,
+            recipient_key_id,
+            recipient_public_key,
         })
     }
 
@@ -462,6 +473,8 @@ impl TenantRootRefreshCommitmentTranscriptV1 {
         self.context.append_transcript_prefix(&mut bytes)?;
         push_role(&mut bytes, self.source())?;
         push_len32(&mut bytes, &self.commitment.to_bytes())?;
+        push_len32(&mut bytes, self.recipient_key_id.as_bytes())?;
+        push_len32(&mut bytes, self.recipient_public_key.as_bytes())?;
         self.context.append_transcript_suffix(&mut bytes)?;
         Ok(bytes)
     }
@@ -479,6 +492,16 @@ impl TenantRootRefreshCommitmentTranscriptV1 {
     /// Returns the source-bound coefficient commitment.
     pub const fn commitment(&self) -> RootShareRefreshCoefficientCommitment {
         self.commitment
+    }
+
+    /// Returns the exact peer HPKE recipient key identifier authenticated by this transcript.
+    pub fn recipient_key_id(&self) -> &str {
+        &self.recipient_key_id
+    }
+
+    /// Returns the exact peer HPKE recipient public key authenticated by this transcript.
+    pub const fn recipient_public_key(&self) -> TenantRootRefreshHpkePublicKeyV1 {
+        self.recipient_public_key
     }
 }
 
@@ -698,6 +721,16 @@ impl VerifiedTenantRootRefreshCommitmentV1 {
         self.signed.signing_key_id()
     }
 
+    /// Returns the exact peer HPKE recipient key identifier authenticated by this commitment.
+    pub fn recipient_key_id(&self) -> &str {
+        self.signed.transcript().recipient_key_id()
+    }
+
+    /// Returns the exact peer HPKE recipient public key authenticated by this commitment.
+    pub const fn recipient_public_key(&self) -> TenantRootRefreshHpkePublicKeyV1 {
+        self.signed.transcript().recipient_public_key()
+    }
+
     /// Returns the exact role signature bytes.
     pub const fn signature(&self) -> &[u8; 64] {
         self.signed.signature()
@@ -825,6 +858,13 @@ impl TenantRootRefreshContributionAadV1 {
             "tenant-root refresh HPKE recipient key id",
             &aad.recipient_key_id,
         )?;
+        if aad.recipient_key_id != aad.verified_commitment.recipient_key_id()
+            || aad.recipient_public_key != aad.verified_commitment.recipient_public_key()
+        {
+            return Err(malformed(
+                "tenant-root refresh HPKE recipient does not match its signed commitment",
+            ));
+        }
         Ok(aad)
     }
 
@@ -1243,13 +1283,12 @@ impl TenantRootSignedRefreshContributionV1 {
         })
     }
 
-    /// Verifies the source signature, opens the envelope, and parses the contribution.
-    pub fn verify_and_open(
+    /// Verifies the exact source signature and recipient binding without opening the envelope.
+    pub fn verify_signature(
         &self,
         aad: &TenantRootRefreshContributionAadV1,
         verifying_key_bytes: &[u8; 32],
-        recipient: &TenantRootRefreshHpkeKeypairV1,
-    ) -> RouterAbDerivationResult<RootShareRefreshContributionWire> {
+    ) -> RouterAbDerivationResult<VerifiedTenantRootSignedRefreshContributionV1> {
         self.envelope.validate_against_aad(aad)?;
         self.authentication.verify(
             aad.context(),
@@ -1257,7 +1296,21 @@ impl TenantRootSignedRefreshContributionV1 {
             &self.envelope.canonical_bytes()?,
             verifying_key_bytes,
         )?;
-        open_tenant_root_refresh_contribution_v1(aad, &self.envelope, recipient)
+        Ok(VerifiedTenantRootSignedRefreshContributionV1 {
+            signed: self.clone(),
+            canonical_bytes: self.canonical_bytes()?,
+        })
+    }
+
+    /// Verifies the source signature, opens the envelope, and parses the contribution.
+    pub fn verify_and_open(
+        &self,
+        aad: &TenantRootRefreshContributionAadV1,
+        verifying_key_bytes: &[u8; 32],
+        recipient: &TenantRootRefreshHpkeKeypairV1,
+    ) -> RouterAbDerivationResult<RootShareRefreshContributionWire> {
+        let verified = self.verify_signature(aad, verifying_key_bytes)?;
+        open_tenant_root_refresh_contribution_v1(aad, &verified.signed.envelope, recipient)
     }
 
     /// Returns the exact signed encrypted-contribution wire bytes.
@@ -1301,19 +1354,71 @@ impl TenantRootSignedRefreshContributionV1 {
         require_key_id("tenant-root refresh role signing key id", &signing_key_id)?;
         let signature = decoder.fixed_field::<64>("tenant-root refresh role signature")?;
         decoder.finish()?;
-        Ok(Self {
+        let signed = Self {
             envelope,
             authentication: TenantRootRoleAuthenticationV1 {
                 role,
                 signing_key_id,
                 signature,
             },
-        })
+        };
+        if signed.canonical_bytes()? != bytes {
+            return Err(malformed(
+                "tenant-root signed refresh contribution wire is not canonical",
+            ));
+        }
+        Ok(signed)
     }
 
     /// Returns the encrypted envelope.
     pub const fn envelope(&self) -> &TenantRootEncryptedRefreshContributionV1 {
         &self.envelope
+    }
+}
+
+/// Publicly verified source signature and recipient binding for one encrypted contribution.
+///
+/// The token retains only public authenticated bytes. Opening still requires the recipient's
+/// private HPKE keypair and remains available through `TenantRootSignedRefreshContributionV1`.
+pub struct VerifiedTenantRootSignedRefreshContributionV1 {
+    signed: TenantRootSignedRefreshContributionV1,
+    canonical_bytes: Vec<u8>,
+}
+
+impl fmt::Debug for VerifiedTenantRootSignedRefreshContributionV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("VerifiedTenantRootSignedRefreshContributionV1")
+            .field("signed", &self.signed)
+            .field("canonical_bytes", &"[public authenticated bytes]")
+            .finish()
+    }
+}
+
+impl VerifiedTenantRootSignedRefreshContributionV1 {
+    /// Returns the exact source role.
+    pub const fn source(&self) -> TwoPartyDeriverRole {
+        self.signed.envelope.source()
+    }
+
+    /// Returns the exact recipient role.
+    pub const fn recipient(&self) -> TwoPartyDeriverRole {
+        self.signed.envelope.recipient()
+    }
+
+    /// Returns the exact recipient-bound encrypted envelope.
+    pub const fn envelope(&self) -> &TenantRootEncryptedRefreshContributionV1 {
+        self.signed.envelope()
+    }
+
+    /// Returns the exact canonical signed contribution wire bytes.
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    /// Consumes the token into the exact canonical signed contribution wire bytes.
+    pub fn into_canonical_bytes(self) -> Vec<u8> {
+        self.canonical_bytes
     }
 }
 
@@ -1726,6 +1831,18 @@ fn decode_refresh_commitment_transcript_canonical_bytes(
         "tenant-root refresh commitment coefficient commitment",
     )?)
     .map_err(|_| malformed("tenant-root refresh coefficient commitment is invalid"))?;
+    let recipient_key_id = decoder.text_field(
+        "tenant-root refresh commitment recipient key id",
+        MAX_ROLE_KEY_ID_BYTES_V1,
+    )?;
+    require_key_id(
+        "tenant-root refresh commitment recipient key id",
+        &recipient_key_id,
+    )?;
+    let recipient_public_key = TenantRootRefreshHpkePublicKeyV1::from_bytes(
+        decoder
+            .fixed_field::<HPKE_KEY_LEN>("tenant-root refresh commitment recipient public key")?,
+    )?;
     let nonce = decoder.fixed_field::<32>("tenant-root refresh commitment nonce")?;
     push_len32(&mut context_bytes, &nonce)?;
     let issued_at_ms = decoder.u64_field("tenant-root refresh commitment issue time")?;
@@ -1740,7 +1857,12 @@ fn decode_refresh_commitment_transcript_canonical_bytes(
     push_len32(&mut context_bytes, deriver_b_signing_key_id)?;
     decoder.finish()?;
     let context = TenantRootCeremonyContextV1::decode_canonical_bytes(&context_bytes)?;
-    let transcript = TenantRootRefreshCommitmentTranscriptV1::new(context, commitment)?;
+    let transcript = TenantRootRefreshCommitmentTranscriptV1::new(
+        context,
+        commitment,
+        recipient_key_id,
+        recipient_public_key,
+    )?;
     if transcript.source() != source {
         return Err(malformed(
             "tenant-root refresh commitment source role does not match commitment",

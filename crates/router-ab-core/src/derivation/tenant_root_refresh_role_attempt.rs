@@ -15,10 +15,11 @@ use super::{
     MpcPrfShareCommitmentWireV1, RouterAbDerivationError, RouterAbDerivationErrorCode,
     RouterAbDerivationResult, TenantRootActiveRoleBindingV1, TenantRootCeremonyContextV1,
     TenantRootCeremonyEpochsV1, TenantRootEpochCommitmentsV1, TenantRootManagedRestoreRoleV1,
-    TenantRootRefreshCommitmentTranscriptV1, TenantRootShareInstallationEvidenceV1,
-    TenantRootShareInstallationTranscriptV1, TenantRootSignedRefreshCommitmentV1,
-    TenantRootSignedShareInstallationEvidenceV1, VerifiedTenantRootRefreshCommitmentPairV1,
-    VerifiedTenantRootRefreshCommitmentV1, VerifiedTenantRootRoleRefreshCommandV1,
+    TenantRootRefreshCommitmentTranscriptV1, TenantRootRefreshHpkePublicKeyV1,
+    TenantRootShareInstallationEvidenceV1, TenantRootShareInstallationTranscriptV1,
+    TenantRootSignedRefreshCommitmentV1, TenantRootSignedShareInstallationEvidenceV1,
+    VerifiedTenantRootRefreshCommitmentPairV1, VerifiedTenantRootRefreshCommitmentV1,
+    VerifiedTenantRootRoleRefreshCommandV1,
     VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
 };
 
@@ -60,6 +61,8 @@ impl PendingTenantRootRefreshRoleAttemptV1 {
         opened_share: SigningRootShare,
         role_signing_key_bytes: &[u8; 32],
         expected_role_verifying_key_bytes: &[u8; 32],
+        recipient_key_id: impl Into<String>,
+        recipient_public_key: TenantRootRefreshHpkePublicKeyV1,
         now_ms: u64,
         rng: &mut R,
     ) -> RouterAbDerivationResult<Self>
@@ -81,6 +84,8 @@ impl PendingTenantRootRefreshRoleAttemptV1 {
         let transcript = TenantRootRefreshCommitmentTranscriptV1::new(
             refresh_context,
             coefficient.commitment(),
+            recipient_key_id,
+            recipient_public_key,
         )?;
         let signed = TenantRootSignedRefreshCommitmentV1::sign(transcript, role_signing_key_bytes)?;
         let commitment_bytes = signed.canonical_bytes()?;

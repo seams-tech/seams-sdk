@@ -9,9 +9,10 @@ use router_ab_core::{
     TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1,
     TenantRootCeremonySessionIdV1, TenantRootControlPlaneAuthorityIdV1, TenantRootCustodyLineageId,
     TenantRootIdentityV1, TenantRootManagedRestoreRoleV1, TenantRootRefreshCommitmentTranscriptV1,
-    TenantRootRoleRefreshCommandV1, TenantRootShareEpoch, TenantRootSignedRefreshCommitmentV1,
-    TwoPartyDeriverRole, VerifiedTenantRootRefreshCommitmentPairV1,
-    VerifiedTenantRootRefreshCommitmentV1, VerifiedTenantRootRoleRefreshCommandV1,
+    TenantRootRefreshHpkeKeypairV1, TenantRootRoleRefreshCommandV1, TenantRootShareEpoch,
+    TenantRootSignedRefreshCommitmentV1, TwoPartyDeriverRole,
+    VerifiedTenantRootRefreshCommitmentPairV1, VerifiedTenantRootRefreshCommitmentV1,
+    VerifiedTenantRootRoleRefreshCommandV1,
 };
 use threshold_prf::{
     derive_two_party_root_share_refresh_commitments, RootShareRefreshCoefficient,
@@ -66,6 +67,28 @@ fn role_key(role: TwoPartyDeriverRole) -> SigningKey {
             TwoPartyDeriverRole::DeriverB => 0x61,
         }; 32],
     )
+}
+
+fn recipient(
+    role: TwoPartyDeriverRole,
+) -> (
+    &'static str,
+    router_ab_core::TenantRootRefreshHpkePublicKeyV1,
+) {
+    match role {
+        TwoPartyDeriverRole::DeriverA => (
+            "deriver-b-hpke-key-8",
+            TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xb1; 32])
+                .expect("recipient HPKE keypair")
+                .public_key(),
+        ),
+        TwoPartyDeriverRole::DeriverB => (
+            "deriver-a-hpke-key-7",
+            TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xa1; 32])
+                .expect("recipient HPKE keypair")
+                .public_key(),
+        ),
+    }
 }
 
 fn share(role: TwoPartyDeriverRole, scalar: u64) -> SigningRootShare {
@@ -183,6 +206,7 @@ fn pending(
 ) -> PendingTenantRootRefreshRoleAttemptV1 {
     let signing_key = role_key(role);
     let verifying_key = signing_key.verifying_key().to_bytes();
+    let (recipient_key_id, recipient_public_key) = recipient(role);
     PendingTenantRootRefreshRoleAttemptV1::new(
         verified_command(context, role),
         context.clone(),
@@ -190,6 +214,8 @@ fn pending(
         active_share(role),
         &signing_key.to_bytes(),
         &verifying_key,
+        recipient_key_id,
+        recipient_public_key,
         ISSUED_AT_MS + 10,
         &mut rng(coefficient_rng_seed),
     )
@@ -317,6 +343,7 @@ fn constructor_rejects_freshness_context_binding_share_and_key_substitution() {
     let role = TwoPartyDeriverRole::DeriverA;
     let signing_key = role_key(role);
     let verifying_key = signing_key.verifying_key().to_bytes();
+    let (recipient_key_id, recipient_public_key) = recipient(role);
 
     let mut command = verified_command(&ceremony_context, role);
     assert!(PendingTenantRootRefreshRoleAttemptV1::new(
@@ -326,6 +353,8 @@ fn constructor_rejects_freshness_context_binding_share_and_key_substitution() {
         active_share(role),
         &signing_key.to_bytes(),
         &verifying_key,
+        recipient_key_id,
+        recipient_public_key,
         ISSUED_AT_MS,
         &mut rng(0xe1),
     )
@@ -339,6 +368,8 @@ fn constructor_rejects_freshness_context_binding_share_and_key_substitution() {
         active_share(role),
         &signing_key.to_bytes(),
         &verifying_key,
+        recipient_key_id,
+        recipient_public_key,
         ISSUED_AT_MS + 10,
         &mut rng(0xe2),
     )
@@ -352,6 +383,8 @@ fn constructor_rejects_freshness_context_binding_share_and_key_substitution() {
         active_share(role),
         &signing_key.to_bytes(),
         &verifying_key,
+        recipient_key_id,
+        recipient_public_key,
         ISSUED_AT_MS + 10,
         &mut rng(0xe3),
     )
@@ -365,6 +398,8 @@ fn constructor_rejects_freshness_context_binding_share_and_key_substitution() {
         active_share(TwoPartyDeriverRole::DeriverB),
         &signing_key.to_bytes(),
         &verifying_key,
+        recipient_key_id,
+        recipient_public_key,
         ISSUED_AT_MS + 10,
         &mut rng(0xe4),
     )
@@ -379,6 +414,8 @@ fn constructor_rejects_freshness_context_binding_share_and_key_substitution() {
         active_share(role),
         &wrong_key.to_bytes(),
         &verifying_key,
+        recipient_key_id,
+        recipient_public_key,
         ISSUED_AT_MS + 10,
         &mut rng(0xe5),
     )
@@ -430,9 +467,12 @@ fn finalize_rejects_coefficient_cancellation() {
     let cancelling_peer =
         RootShareRefreshCoefficient::from_canonical_bytes(role.peer(), (-local_scalar).to_bytes())
             .expect("cancelling peer coefficient");
+    let (recipient_key_id, recipient_public_key) = recipient(role.peer());
     let peer_transcript = TenantRootRefreshCommitmentTranscriptV1::new(
         ceremony_context.clone(),
         cancelling_peer.commitment(),
+        recipient_key_id,
+        recipient_public_key,
     )
     .expect("peer commitment transcript");
     let peer_signed = TenantRootSignedRefreshCommitmentV1::sign(

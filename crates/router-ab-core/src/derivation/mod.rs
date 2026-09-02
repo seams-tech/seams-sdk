@@ -165,7 +165,8 @@ pub use self::tenant_root_refresh_transport::{
     TenantRootSignedRefreshCommitmentV1, TenantRootSignedRefreshContributionV1,
     TenantRootSignedShareInstallationEvidenceV1, VerifiedTenantRootCreationCommitmentPairV1,
     VerifiedTenantRootCreationCommitmentV1, VerifiedTenantRootRefreshCommitmentPairV1,
-    VerifiedTenantRootRefreshCommitmentV1, VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
+    VerifiedTenantRootRefreshCommitmentV1, VerifiedTenantRootSignedRefreshContributionV1,
+    VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
     TENANT_ROOT_SIGNED_CREATION_COMMITMENT_MAX_BYTES_V1,
     TENANT_ROOT_SIGNED_SHARE_INSTALLATION_EVIDENCE_MAX_BYTES_V1,
 };
