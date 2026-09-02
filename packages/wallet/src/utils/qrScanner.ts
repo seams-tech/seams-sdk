@@ -58,6 +58,7 @@ export class ScanQRCodeFlow {
   private scanStartTime: number = 0;
   private currentError: Error | null = null;
   private detectedQRData: QrLinkedDeviceSessionPayloadV5 | null = null;
+  private startGeneration = 0;
 
   constructor(
     private options: ScanQRCodeFlowOptions = {},
@@ -102,6 +103,12 @@ export class ScanQRCodeFlow {
       return; // Already running
     }
 
+    // Starting the camera spans two awaits the user can close the scanner
+    // across. Anything stopping or restarting the flow bumps this, so a start
+    // that lost the race can tell the difference between "the camera failed"
+    // and "nobody is waiting for this camera any more".
+    const generation = ++this.startGeneration;
+
     this.setState(ScanQRCodeFlowState.INITIALIZING);
     this.currentError = null;
     this.detectedQRData = null;
@@ -111,7 +118,16 @@ export class ScanQRCodeFlow {
       const constraints = this.buildCameraConstraints();
 
       // Get camera stream
-      this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      // Cancelled while the permission prompt or camera warm-up was pending:
+      // cleanup() already ran and never saw this stream, so release it here or
+      // the camera light stays on with nothing scanning.
+      if (this.isSupersededStart(generation)) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      this.mediaStream = mediaStream;
 
       // Create video element if not provided externally
       if (!this.video) {
@@ -122,6 +138,7 @@ export class ScanQRCodeFlow {
 
       this.video.srcObject = this.mediaStream;
       await this.video.play();
+      if (this.isSupersededStart(generation)) return;
 
       // Notify camera is ready
       this.events.onCameraReady?.(this.mediaStream);
@@ -137,15 +154,28 @@ export class ScanQRCodeFlow {
       if (timeout > 0) {
         this.timeoutId = setTimeout(() => {
           this.handleError(
-            new Error(`Camera scan timeout - no QR code detected within ${timeout}ms`),
+            new Error(
+              `No QR code was found in ${Math.round(timeout / 1000)} seconds. ` +
+                'Center the code in the frame and try again.',
+            ),
           );
         }, timeout);
       }
 
       // Start scanning loop
       this.scanFrame();
-    } catch (error: any) {
-      this.handleError(new Error(`Camera access failed: ${error.message}`));
+    } catch (error: unknown) {
+      // Closing the scanner tears the video down under the pending play(),
+      // which rejects with an AbortError. The user chose that, so it is a
+      // cancellation, not a camera failure worth a message. Whoever superseded
+      // this start owns the flow now, so leave its state and stream alone.
+      if (this.isSupersededStart(generation)) return;
+      if (isScannerCancellationError(error)) {
+        this.setState(ScanQRCodeFlowState.CANCELLED);
+        this.cleanup();
+        return;
+      }
+      this.handleError(new Error(cameraAccessFailureMessage(error)));
     }
   }
 
@@ -156,6 +186,7 @@ export class ScanQRCodeFlow {
    * For React contexts with external video elements, use destroy() instead.
    */
   stop(): void {
+    this.startGeneration += 1;
     this.setState(ScanQRCodeFlowState.CANCELLED);
     this.cleanup();
   }
@@ -167,7 +198,9 @@ export class ScanQRCodeFlow {
     this.video = video;
     if (this.mediaStream && this.state === ScanQRCodeFlowState.SCANNING) {
       this.video.srcObject = this.mediaStream;
-      this.video.play();
+      // Detaching or stopping before this settles rejects it; the scan loop
+      // reads readyState, so a lost play() needs no report of its own.
+      void this.video.play().catch(() => {});
     }
   }
 
@@ -221,6 +254,11 @@ export class ScanQRCodeFlow {
 
   private setState(newState: ScanQRCodeFlowState): void {
     this.state = newState;
+  }
+
+  /** True once this start attempt was cancelled or replaced by a later one. */
+  private isSupersededStart(generation: number): boolean {
+    return generation !== this.startGeneration;
   }
 
   private buildCameraConstraints(): MediaStreamConstraints {
@@ -344,6 +382,48 @@ export class ScanQRCodeFlow {
     if (this.video) {
       this.video.srcObject = null;
     }
+  }
+}
+
+/**
+ * Does this rejection mean the scanner went away, rather than the camera
+ * failing?
+ *
+ * Clearing `srcObject` or stopping the tracks under a pending `play()` rejects
+ * it with an `AbortError` whose message is about the media element ("The play()
+ * request was interrupted by a new load request"), not about the user. Safari
+ * and Firefox word it differently, so match the name first and keep the text
+ * check only as a fallback for browsers that use a bare `Error`.
+ */
+export function isScannerCancellationError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === 'AbortError') return true;
+  return /interrupted by|request was interrupted|media was removed/i.test(error.message);
+}
+
+/**
+ * A sentence to show someone whose camera genuinely did not start.
+ *
+ * `getUserMedia` reports the cause in `name`; its `message` is browser-authored
+ * debugging text ending in a goo.gl link, which is not something to put in
+ * front of a user.
+ */
+export function cameraAccessFailureMessage(error: unknown): string {
+  switch (error instanceof Error ? error.name : '') {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return 'Camera access was blocked. Allow camera access in your browser, then scan again.';
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+      return 'No camera was found on this device.';
+    case 'NotReadableError':
+    case 'TrackStartError':
+      return 'The camera is being used by another app. Close it, then scan again.';
+    case 'OverconstrainedError':
+    case 'ConstraintNotSatisfiedError':
+      return 'This camera does not support the requested video size.';
+    default:
+      return 'The camera could not be started. Check your camera, then scan again.';
   }
 }
 
