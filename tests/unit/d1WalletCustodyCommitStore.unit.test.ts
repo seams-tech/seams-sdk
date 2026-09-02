@@ -13,10 +13,7 @@ import { parseRecoveryCodeReservationId } from '@shared/wallet-recovery/recovery
 import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import { CloudflareD1WalletCustodyCommitStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 import { D1WalletAuthorityStore } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
-import {
-  CloudflareD1WebAuthnStore,
-  type WebAuthnRecoveryRegistrationChallengeRecord,
-} from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
+import { CloudflareD1WebAuthnStore } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
 import { resolveCommittedRecoveryReplayV1 } from '../../packages/wallet-server/src/router/domains/passkeyCustody/walletRecoveryFinalization';
 import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import type {
@@ -28,6 +25,7 @@ import type {
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { parseWalletRecoveryOperationId } from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
+import { webAuthnRecoveryRegistrationChallengeFixture } from './helpers/walletRecovery.fixtures';
 import { buildWalletRecoveryBackupAcknowledgementV1 } from '../../packages/shared-ts/src/wallet-recovery/backupAcknowledgement';
 import { parseRecoveryCodeLocatorV1 } from '../../packages/shared-ts/src/wallet-recovery/recoveryCodeLocator';
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
@@ -488,8 +486,7 @@ test('a real recovery commit retains the consumed locator tombstone for exact re
     const challengeId = 'recovery-registration-real-replay';
     const sourceFactor = sourceEnvelope.factor;
     if (sourceFactor.kind !== 'passkey') throw new Error('source fixture is not passkey-bound');
-    const challenge: WebAuthnRecoveryRegistrationChallengeRecord = {
-      version: 'webauthn_recovery_registration_challenge_v2',
+    const challenge = webAuthnRecoveryRegistrationChallengeFixture({
       challengeId,
       walletId: WALLET_ID as WalletId,
       reservationId,
@@ -497,10 +494,8 @@ test('a real recovery commit retains the consumed locator tombstone for exact re
       targetDeviceId: targetAuthority.principal.deviceId,
       targetAuthorityId: targetAuthority.authorityId,
       targetWalletAuthMethodId: target.authMethod.walletAuthMethodId,
-      origin: 'https://wallet.example.test',
       rpId: target.authMethod.rpId,
       replacementId: String(targetEnvelope.envelopeId),
-      challengeB64u: 'AQIDBAUGBwgJCgsMDQ4PEA',
       continuityAnchor: {
         kind: 'wallet_recovery_continuity_anchor_v1',
         authority: source.authority,
@@ -516,9 +511,7 @@ test('a real recovery commit retains the consumed locator tombstone for exact re
           bindingKind: 'wallet_custody_seed_v1',
         },
       },
-      createdAtMs: 400,
-      expiresAtMs: 10_000,
-    };
+    });
     await webAuthn.writeChallenge({
       challengeId,
       challengeKind: 'recovery_registration',

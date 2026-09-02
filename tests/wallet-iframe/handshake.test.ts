@@ -195,7 +195,6 @@ test.describe('Wallet iframe handshake', () => {
         });
 
         const result = await new Promise<boolean>((resolve) => {
-          let timeout: number | undefined;
           const onMessage = (event: MessageEvent): void => {
             if (
               event.source !== iframe.contentWindow ||
@@ -203,15 +202,17 @@ test.describe('Wallet iframe handshake', () => {
             ) {
               return;
             }
-            if (timeout !== undefined) window.clearTimeout(timeout);
+            window.clearTimeout(timeout);
             window.removeEventListener('message', onMessage);
             resolve(true);
           };
-          window.addEventListener('message', onMessage);
-          timeout = window.setTimeout(() => {
+          // Armed before the listener so the handler closes over a timer that
+          // already exists; messages cannot arrive before this scope returns.
+          const timeout = window.setTimeout(() => {
             window.removeEventListener('message', onMessage);
             resolve(false);
           }, 3_000);
+          window.addEventListener('message', onMessage);
 
           const channel = new MessageChannel();
           channel.port1.start();
