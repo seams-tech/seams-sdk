@@ -20,6 +20,10 @@ import { prepareRouterAbD1LocalRuntimeConfig } from './d1-local-runtime-config.m
 import { prepareRouterAbStrictLocalRuntimeConfigs } from './strict-local-runtime-config.mjs';
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
+
+// Bumped from v3 when the receipt gained source_digest: a receipt without one
+// cannot vouch for artifact freshness, so it has to read as unusable.
+const STRICT_BUILD_RECEIPT_SCHEMA_VERSION = 'router_ab_strict_local_build_v4';
 const ansiSequencePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
 dotenv.config({ path: join(repoRoot, '.env.local') });
 const gatewayHost = '127.0.0.1';
@@ -348,15 +352,55 @@ function buildProductionWorkerBinaries() {
     strictBuildReceiptPath,
     `${JSON.stringify(
       {
-        schema_version: 'router_ab_strict_local_build_v3',
+        schema_version: STRICT_BUILD_RECEIPT_SCHEMA_VERSION,
         worker_build_profile: strictWorkerBuildProfile,
         roles: ['router', 'deriver-a', 'deriver-b', 'signing-worker'],
+        source_digest: strictWorkerSourceDigest(),
       },
       null,
       2,
     )}\n`,
     { mode: 0o600 },
   );
+}
+
+/*
+ * Fingerprint of the Rust the strict Workers compile from.
+ *
+ * The artifacts are gitignored and were only ever existence-checked, so a
+ * Worker built days ago would happily serve current Gateway traffic and fail
+ * as a wire error somewhere far away. Recording this at build time and
+ * comparing it at startup turns that into one legible message.
+ *
+ * The scope is every crate rather than this Worker's dependency closure:
+ * resolving the closure means parsing Cargo metadata, and being too broad only
+ * ever costs a rebuild that was already cheap, while being too narrow costs an
+ * afternoon of chasing a wire mismatch.
+ */
+function strictWorkerSourceDigest() {
+  const digest = createHash('sha256');
+  const cratesRoot = join(repoRoot, 'crates');
+  const entries = readdirSync(cratesRoot, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(entry.parentPath ?? entry.path, entry.name))
+    .filter((path) => path.endsWith('.rs') || path.endsWith('/Cargo.toml'))
+    // Build output lives under crates/*/build and would fold the previous
+    // artifacts back into the fingerprint of the next one.
+    .filter((path) => !relative(cratesRoot, path).split('/').includes('build'))
+    .filter((path) => !relative(cratesRoot, path).split('/').includes('target'))
+    .sort();
+  for (const path of entries) {
+    digest.update(relative(repoRoot, path));
+    digest.update('\0');
+    digest.update(readFileSync(path));
+    digest.update('\0');
+  }
+  const lockfilePath = join(repoRoot, 'Cargo.lock');
+  if (existsSync(lockfilePath)) {
+    digest.update('Cargo.lock\0');
+    digest.update(readFileSync(lockfilePath));
+  }
+  return digest.digest('hex');
 }
 
 function resolveStrictWorkerBuildProfile(input) {
@@ -410,12 +454,20 @@ function assertProductionWorkerBinariesReady() {
     receipt.roles.length === expectedRoles.length &&
     receipt.roles.join('\0') === expectedRoles.join('\0');
   if (
-    receipt.schema_version !== 'router_ab_strict_local_build_v3' ||
+    receipt.schema_version !== STRICT_BUILD_RECEIPT_SCHEMA_VERSION ||
     receipt.worker_build_profile !== strictWorkerBuildProfile ||
     !rolesMatch
   ) {
     throw new Error(
       `Router A/B Worker artifacts do not match the current ${strictWorkerBuildProfile} build profile. Rebuild with pnpm build:sdk-dev or pnpm build:sdk-prod before pnpm router.`,
+    );
+  }
+  if (receipt.source_digest !== strictWorkerSourceDigest()) {
+    throw new Error(
+      'Router A/B Worker artifacts were built from different Rust sources than the current checkout. ' +
+        'Serving them would fail current traffic as a wire error far from its cause. ' +
+        'Rebuild with pnpm router:build (or pnpm build:sdk-full) before pnpm router. ' +
+        'Note that pnpm build:sdk alone never rebuilds these Workers.',
     );
   }
 }
