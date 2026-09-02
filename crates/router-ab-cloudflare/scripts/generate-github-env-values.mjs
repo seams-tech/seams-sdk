@@ -1383,6 +1383,8 @@ function buildTenantRootControlPlaneEnvironment(input) {
           variables.ROUTER_AB_DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID,
         ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID:
           variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID,
+        ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
       },
       optionalVariables: {},
       secrets,

@@ -2547,6 +2547,24 @@ static GRANT_AUTHORITY_VERIFYING_KEYS_JSON: std::sync::LazyLock<String> = std::s
     },
 );
 
+/// The published role keyset the control plane resolves its configured signing
+/// IDs against. Keys are distinct from the issuer and grant authorities.
+static ROLE_VERIFYING_KEYS_JSON: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let hex = |seed: u8| -> String {
+        SigningKey::from_bytes(&[seed; 32])
+            .verifying_key()
+            .to_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    };
+    format!(
+        "{{\"keys\":[{{\"role\":\"deriver_a\",\"signing_key_id\":\"deriver-a-signing-key-7\",\"verifying_key_hex\":\"{}\"}},{{\"role\":\"deriver_b\",\"signing_key_id\":\"deriver-b-signing-key-9\",\"verifying_key_hex\":\"{}\"}}]}}",
+        hex(0xa1),
+        hex(0xb1)
+    )
+});
+
 fn issuer_verifying_keys() -> CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1 {
     CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1::decode(&ISSUER_VERIFYING_KEYS_JSON)
         .expect("issuer verifying keys")
@@ -9372,6 +9390,10 @@ fn tenant_root_control_plane_env() -> CloudflareEnvMapV1 {
             router_ab_cloudflare::DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
             "deriver-b-signing-key-9".to_string(),
         ),
+        (
+            router_ab_cloudflare::ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON_ENV,
+            ROLE_VERIFYING_KEYS_JSON.to_string(),
+        ),
     ])
 }
 
@@ -9493,20 +9515,11 @@ fn control_plane_rejects_every_scalar_and_router_auth_config() {
         (ROUTER_JWT_JWKS_JSON_ENV, "{}"),
         (ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV, "{}"),
     ] {
-        let mut entries = vec![
-            (
-                router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID_ENV,
-                "control-plane-issuer-v1",
-            ),
-            (
-                router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
-                "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY",
-            ),
-        ];
-        entries.push((key, value));
+        // Start from a fully valid control plane, so the rejection is the
+        // forbidden-material check and not a missing-configuration error.
         let err = parse_cloudflare_worker_bindings_v1(
             CloudflareWorkerRoleV1::TenantRootControlPlane,
-            &CloudflareEnvMapV1::new(entries),
+            &control_plane_env_with(key, value),
         )
         .expect_err("control plane must reject foreign material");
         assert_eq!(
@@ -9547,6 +9560,79 @@ fn a_grant_authority_may_not_reuse_a_control_plane_issuer_key() {
         error.code(),
         RouterAbProtocolErrorCode::ForbiddenLocalBinding
     );
+}
+
+/// The complete control-plane fixture with one entry overridden, so a boundary
+/// test fails on the boundary it is testing rather than on missing config.
+fn control_plane_env_with(key: &str, value: &str) -> CloudflareEnvMapV1 {
+    let mut entries: Vec<(String, String)> = tenant_root_control_plane_env()
+        .entries()
+        .iter()
+        .map(|(name, existing)| (name.clone(), existing.clone()))
+        .collect();
+    match entries.iter_mut().find(|(name, _)| name == key) {
+        Some(slot) => slot.1 = value.to_string(),
+        None => entries.push((key.to_string(), value.to_string())),
+    }
+    CloudflareEnvMapV1::new(entries)
+}
+
+/// A configured role signing ID must exist in the published keyset under its
+/// own role: otherwise a typo mints a ceremony no Deriver can ever execute.
+#[test]
+fn control_plane_role_signing_ids_must_be_published_under_their_roles() {
+    let base: Vec<(String, String)> = tenant_root_control_plane_env()
+        .entries()
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    let with = |key: &str, value: &str| -> CloudflareEnvMapV1 {
+        let mut next = base.clone();
+        next.iter_mut()
+            .find(|(name, _)| name == key)
+            .expect("fixture entry")
+            .1 = value.to_string();
+        CloudflareEnvMapV1::new(next)
+    };
+    let parse = |env: &CloudflareEnvMapV1| {
+        parse_cloudflare_worker_bindings_v1(CloudflareWorkerRoleV1::TenantRootControlPlane, env)
+    };
+
+    // The matching configuration parses and resolves both roles' keys.
+    parse(&CloudflareEnvMapV1::new(base.clone())).expect("published role IDs");
+
+    // An ID absent from the keyset.
+    assert_eq!(
+        parse(&with(
+            router_ab_cloudflare::DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
+            "deriver-a-signing-key-typo",
+        ))
+        .expect_err("unpublished role signing ID")
+        .code(),
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+    );
+
+    // An ID published for the OTHER role: present in the keyset, wrong role.
+    assert!(parse(&with(
+        router_ab_cloudflare::DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
+        "deriver-b-signing-key-9",
+    ))
+    .is_err());
+    assert!(parse(&with(
+        router_ab_cloudflare::DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
+        "deriver-a-signing-key-7",
+    ))
+    .is_err());
+
+    // A missing keyset fails the Worker at boot.
+    let without: Vec<(String, String)> = base
+        .iter()
+        .filter(|(key, _)| {
+            key != router_ab_cloudflare::ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON_ENV
+        })
+        .cloned()
+        .collect();
+    assert!(parse(&CloudflareEnvMapV1::new(without)).is_err());
 }
 
 /// The issuer names both roles' public signing key IDs, and never their Secrets.
@@ -9617,6 +9703,10 @@ fn control_plane_requires_its_active_issuer_key_id_to_be_published() {
         (
             router_ab_cloudflare::DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
             "deriver-b-signing-key-9".to_string(),
+        ),
+        (
+            router_ab_cloudflare::ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON_ENV,
+            ROLE_VERIFYING_KEYS_JSON.to_string(),
         ),
     ];
     parse_cloudflare_worker_bindings_v1(
@@ -9701,18 +9791,11 @@ fn control_plane_issuer_binding_must_be_control_plane_scoped_and_complete() {
         "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET",
         "ISSUER_SIGNING_KEY",
     ] {
-        let err =
-            parse_cloudflare_tenant_root_control_plane_bindings_v1(&CloudflareEnvMapV1::new(vec![
-                (
-                    router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID_ENV,
-                    "control-plane-issuer-v1",
-                ),
-                (
-                    router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
-                    foreign,
-                ),
-            ]))
-            .expect_err("foreign binding name must be rejected");
+        let err = parse_cloudflare_tenant_root_control_plane_bindings_v1(&control_plane_env_with(
+            router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
+            foreign,
+        ))
+        .expect_err("foreign binding name must be rejected");
         assert_eq!(
             err.code(),
             RouterAbProtocolErrorCode::ForbiddenLocalBinding,

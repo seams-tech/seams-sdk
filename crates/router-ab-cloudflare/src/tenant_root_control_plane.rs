@@ -15,6 +15,7 @@ use router_ab_core::{
     TENANT_ROOT_MAX_LIFETIME_MS_V1,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use threshold_prf::TwoPartyDeriverRole;
 use zeroize::Zeroizing;
 
@@ -201,18 +202,74 @@ pub(crate) fn issue_tenant_root_role_creation_command_v1(
     Ok(IssuedTenantRootRoleCreationCommandV1 { command, package })
 }
 
-/// Ceremony material the issuer draws locally for one genesis operation.
+const TENANT_ROOT_CEREMONY_SESSION_DOMAIN_V1: &[u8] = b"tenant_root_creation_ceremony_session_v1";
+const TENANT_ROOT_CEREMONY_NONCE_DOMAIN_V1: &[u8] = b"tenant_root_creation_ceremony_nonce_v1";
+const TENANT_ROOT_CAPABILITY_NONCE_DOMAIN_V1: &[u8] = b"tenant_root_creation_capability_nonce_v1";
+
+/// Ceremony material for one genesis operation, derived from the grant.
 ///
-/// Every field is issuer-generated. A caller cannot supply a session, a nonce,
-/// a window, or the expected role signers: choosing any of them would let a
-/// caller steer the ceremony that a later role command is bound to.
+/// A caller cannot supply a session, a nonce, a window, or the expected role
+/// signers: choosing any of them would let a caller steer the ceremony that a
+/// later role command is bound to.
+///
+/// The material is *derived*, not drawn, so genesis is a pure function of the
+/// authorization. The Durable Object recognises a replay only when the journal
+/// and capability match byte for byte, so freshly drawn randomness would make a
+/// lost-response retry of the same grant conflict with its own first attempt.
+/// Deriving instead means the same grant reproduces the same creation and the
+/// retry lands on the object's existing replay path, while a different grant
+/// for the same tenant still produces different bytes and conflicts.
+///
+/// Unpredictability is preserved: the derivation is domain-separated over the
+/// grant's canonical bytes, which carry the authority's 32-byte random nonce.
+/// Predicting this material requires the grant, and holding the grant already
+/// authorizes opening the creation.
 pub(crate) struct TenantRootCreationCeremonyDrawV1 {
     pub(crate) session_id: TenantRootCeremonySessionIdV1,
     pub(crate) ceremony_nonce: TenantRootCeremonyNonceV1,
     pub(crate) capability_nonce: TenantRootCreationCapabilityNonceV1,
-    pub(crate) now_ms: u64,
     pub(crate) deriver_a_signing_key_id: String,
     pub(crate) deriver_b_signing_key_id: String,
+}
+
+fn derive_ceremony_bytes_v1<const N: usize>(domain: &[u8], grant_bytes: &[u8]) -> [u8; N] {
+    let mut hasher = Sha256::new();
+    hasher.update(domain);
+    hasher.update((grant_bytes.len() as u64).to_be_bytes());
+    hasher.update(grant_bytes);
+    let digest: [u8; 32] = hasher.finalize().into();
+    let mut out = [0_u8; N];
+    out.copy_from_slice(&digest[..N]);
+    out
+}
+
+/// Derives one ceremony's material from the exact signed grant.
+pub(crate) fn derive_tenant_root_creation_ceremony_v1(
+    grant_canonical_bytes: &[u8],
+    deriver_a_signing_key_id: String,
+    deriver_b_signing_key_id: String,
+) -> RouterAbProtocolResult<TenantRootCreationCeremonyDrawV1> {
+    Ok(TenantRootCreationCeremonyDrawV1 {
+        session_id: TenantRootCeremonySessionIdV1::from_bytes(derive_ceremony_bytes_v1::<16>(
+            TENANT_ROOT_CEREMONY_SESSION_DOMAIN_V1,
+            grant_canonical_bytes,
+        ))
+        .map_err(derivation)?,
+        ceremony_nonce: TenantRootCeremonyNonceV1::from_bytes(derive_ceremony_bytes_v1::<32>(
+            TENANT_ROOT_CEREMONY_NONCE_DOMAIN_V1,
+            grant_canonical_bytes,
+        ))
+        .map_err(derivation)?,
+        capability_nonce: TenantRootCreationCapabilityNonceV1::from_bytes(
+            derive_ceremony_bytes_v1::<32>(
+                TENANT_ROOT_CAPABILITY_NONCE_DOMAIN_V1,
+                grant_canonical_bytes,
+            ),
+        )
+        .map_err(derivation)?,
+        deriver_a_signing_key_id,
+        deriver_b_signing_key_id,
+    })
 }
 
 /// The Started journal and its issuer capability, ready to persist.
@@ -232,13 +289,16 @@ pub(crate) struct AuthorizedTenantRootCreationV1 {
 pub(crate) fn authorize_tenant_root_creation_v1(
     grant: &VerifiedTenantRootCreationGrantV1,
     draw: &TenantRootCreationCeremonyDrawV1,
+    now_ms: u64,
     authority_id: TenantRootControlPlaneAuthorityIdV1,
     active_issuer_key_id: &str,
     issuer_seed: &Zeroizing<[u8; 32]>,
 ) -> RouterAbProtocolResult<AuthorizedTenantRootCreationV1> {
     // The grant's own window gates the operation: an expired authorization
-    // cannot open a ceremony, however fresh the issuer's clock is.
-    grant.require_fresh(draw.now_ms).map_err(|_| {
+    // cannot open a ceremony, however fresh the issuer's clock is. `now_ms` is
+    // the only non-derived input, and it gates admission without entering the
+    // constructed bytes, so a retry inside the window is byte-identical.
+    grant.require_fresh(now_ms).map_err(|_| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::ExpiredLocalRequest,
             "tenant-root creation grant is outside its authorized window",
@@ -249,8 +309,9 @@ pub(crate) fn authorize_tenant_root_creation_v1(
             "tenant-root creation ceremony must name distinct role signers",
         ));
     }
-    let issued_at_ms = draw.now_ms;
-    // The ceremony never outlives the authorization that opened it.
+    // The ceremony window IS the authorization's window, so it is reproducible
+    // and can never outlive the grant that opened it.
+    let issued_at_ms = grant.issued_at_ms();
     let expires_at_ms = issued_at_ms
         .saturating_add(TENANT_ROOT_MAX_LIFETIME_MS_V1)
         .min(grant.expires_at_ms());
@@ -314,7 +375,6 @@ mod live {
     };
     use crate::env::decode_cloudflare_tenant_root_control_plane_issuer_signing_secret_v1;
     use crate::{encode_base64url_bytes_v1, CloudflareTenantRootControlPlaneRuntimeV1};
-    use rand_core::RngCore;
     use router_ab_core::{
         TenantRootCreationGrantV1, TenantRootCustodyLineageId, TenantRootIdentityDigestV1,
         TENANT_ROOT_CREATION_GRANT_MAX_BYTES_V1,
@@ -542,32 +602,6 @@ mod live {
         RouterAbProtocolError::new(RouterAbProtocolErrorCode::ForbiddenLocalBinding, message)
     }
 
-    /// Draws one ceremony's session, nonces, and expected role signers.
-    ///
-    /// Session and nonces come from the Worker CSPRNG, never from a request.
-    fn draw_creation_ceremony(
-        runtime: &CloudflareTenantRootControlPlaneRuntimeV1,
-        now_ms: u64,
-    ) -> RouterAbProtocolResult<TenantRootCreationCeremonyDrawV1> {
-        let mut rng = crate::CloudflareHpkeGetrandomRngV1;
-        let mut session = [0_u8; 16];
-        let mut ceremony_nonce = [0_u8; 32];
-        let mut capability_nonce = [0_u8; 32];
-        rng.fill_bytes(&mut session);
-        rng.fill_bytes(&mut ceremony_nonce);
-        rng.fill_bytes(&mut capability_nonce);
-        Ok(TenantRootCreationCeremonyDrawV1 {
-            session_id: TenantRootCeremonySessionIdV1::from_bytes(session).map_err(derivation)?,
-            ceremony_nonce: TenantRootCeremonyNonceV1::from_bytes(ceremony_nonce)
-                .map_err(derivation)?,
-            capability_nonce: TenantRootCreationCapabilityNonceV1::from_bytes(capability_nonce)
-                .map_err(derivation)?,
-            now_ms,
-            deriver_a_signing_key_id: runtime.bindings().deriver_a_signing_key_id.clone(),
-            deriver_b_signing_key_id: runtime.bindings().deriver_b_signing_key_id.clone(),
-        })
-    }
-
     /// Loads the issuer signing seed for one operation.
     fn load_issuer_seed(
         env: &worker::Env,
@@ -626,7 +660,11 @@ mod live {
             .map_err(derivation)?;
 
         let now_ms = crate::cloudflare_now_unix_ms_v1()?;
-        let draw = draw_creation_ceremony(runtime, now_ms)?;
+        let draw = derive_tenant_root_creation_ceremony_v1(
+            &grant_bytes,
+            runtime.bindings().deriver_a_signing_key_id.clone(),
+            runtime.bindings().deriver_b_signing_key_id.clone(),
+        )?;
         let (authority_id, _) = read_creation_object_binding(
             env,
             verified.identity_digest(),
@@ -636,6 +674,7 @@ mod live {
         let authorized = authorize_tenant_root_creation_v1(
             &verified,
             &draw,
+            now_ms,
             authority_id,
             runtime.bindings().issuer_signing_key.signing_key_id(),
             &seed,
@@ -811,16 +850,20 @@ mod tests {
             .expect("verified grant")
     }
 
-    fn ceremony_draw(now_ms: u64) -> TenantRootCreationCeremonyDrawV1 {
-        TenantRootCreationCeremonyDrawV1 {
-            session_id: TenantRootCeremonySessionIdV1::from_bytes([0x11; 16]).expect("session"),
-            ceremony_nonce: TenantRootCeremonyNonceV1::from_bytes([0x44; 32]).expect("nonce"),
-            capability_nonce: TenantRootCreationCapabilityNonceV1::from_bytes([0x55; 32])
-                .expect("capability nonce"),
-            now_ms,
-            deriver_a_signing_key_id: "deriver-a-signing-key-7".to_owned(),
-            deriver_b_signing_key_id: "deriver-b-signing-key-9".to_owned(),
-        }
+    /// The ceremony as the handler derives it: from the exact grant bytes.
+    fn ceremony_draw_for(org: &str) -> TenantRootCreationCeremonyDrawV1 {
+        derive_tenant_root_creation_ceremony_v1(
+            &signed_grant(org, CEREMONY_ISSUED_AT_MS, CEREMONY_EXPIRES_AT_MS)
+                .canonical_bytes()
+                .expect("grant bytes"),
+            "deriver-a-signing-key-7".to_owned(),
+            "deriver-b-signing-key-9".to_owned(),
+        )
+        .expect("derived ceremony")
+    }
+
+    fn ceremony_draw() -> TenantRootCreationCeremonyDrawV1 {
+        ceremony_draw_for("org-1")
     }
 
     /// Genesis constructs the journal and capability from the grant alone; the
@@ -831,7 +874,8 @@ mod tests {
         let now = CEREMONY_ISSUED_AT_MS + 1;
         let authorized = authorize_tenant_root_creation_v1(
             &grant,
-            &ceremony_draw(now),
+            &ceremony_draw(),
+            now,
             authority(),
             ISSUER_KEY_ID,
             &seed(),
@@ -868,9 +912,10 @@ mod tests {
         .expect("the Durable Object admits this creation");
         assert_eq!(validated.identity_digest, grant.identity_digest());
 
-        // The ceremony window never outlives the authorization that opened it.
+        // The ceremony window IS the authorization's window: reproducible, and
+        // it can never outlive the grant that opened it.
         let context = &validated.ceremony_context;
-        assert_eq!(context.issued_at_ms(), now);
+        assert_eq!(context.issued_at_ms(), grant.issued_at_ms());
         assert!(context.expires_at_ms() <= grant.expires_at_ms());
         assert_eq!(
             context.signing_key_id(TwoPartyDeriverRole::DeriverA),
@@ -890,7 +935,8 @@ mod tests {
         let now = CEREMONY_ISSUED_AT_MS + 1;
         let authorized = authorize_tenant_root_creation_v1(
             &grant,
-            &ceremony_draw(now),
+            &ceremony_draw(),
+            now,
             authority(),
             ISSUER_KEY_ID,
             &seed(),
@@ -939,6 +985,101 @@ mod tests {
         }
     }
 
+    /// A lost-response retry of the SAME grant must reproduce the SAME creation.
+    ///
+    /// The Durable Object recognises a replay only on an exact byte match, so
+    /// any per-request randomness or clock reading in the constructed bytes
+    /// would make a retry conflict with its own first attempt.
+    #[test]
+    fn the_same_grant_reproduces_the_same_creation_byte_for_byte() {
+        let grant = verified_grant("org-1");
+        // Two attempts at different wall-clock instants inside the window.
+        let first = authorize_tenant_root_creation_v1(
+            &grant,
+            &ceremony_draw(),
+            CEREMONY_ISSUED_AT_MS + 1,
+            authority(),
+            ISSUER_KEY_ID,
+            &seed(),
+        )
+        .expect("first attempt");
+        let retry = authorize_tenant_root_creation_v1(
+            &grant,
+            &ceremony_draw(),
+            CEREMONY_EXPIRES_AT_MS - 1,
+            authority(),
+            ISSUER_KEY_ID,
+            &seed(),
+        )
+        .expect("lost-response retry");
+
+        assert_eq!(
+            first.journal.canonical_bytes().expect("journal"),
+            retry.journal.canonical_bytes().expect("journal"),
+        );
+        assert_eq!(
+            first.capability.canonical_bytes().expect("capability"),
+            retry.capability.canonical_bytes().expect("capability"),
+        );
+        assert_eq!(
+            first.journal.digest().expect("digest"),
+            retry.journal.digest().expect("digest")
+        );
+        assert_eq!(
+            first.capability.digest().expect("digest"),
+            retry.capability.digest().expect("digest")
+        );
+
+        // The Durable Object therefore sees an identical record and replays it
+        // rather than reporting a conflicting pair.
+        let record =
+            |a: &AuthorizedTenantRootCreationV1| CloudflareTenantRootCreationJournalRecordV1 {
+                journal_b64u: encode_base64url_bytes_v1(
+                    &a.journal.canonical_bytes().expect("journal"),
+                ),
+                creation_capability_b64u: encode_base64url_bytes_v1(
+                    &a.capability.canonical_bytes().expect("capability"),
+                ),
+            };
+        assert_eq!(record(&first), record(&retry));
+
+        // A DIFFERENT grant for the same tenant still produces different bytes,
+        // so it conflicts rather than silently replaying.
+        let other = signed_grant("org-1", CEREMONY_ISSUED_AT_MS + 5, CEREMONY_EXPIRES_AT_MS)
+            .verify(GRANT_KEY_ID, &grant_verifying_key())
+            .expect("second grant");
+        let other_draw = derive_tenant_root_creation_ceremony_v1(
+            &signed_grant("org-1", CEREMONY_ISSUED_AT_MS + 5, CEREMONY_EXPIRES_AT_MS)
+                .canonical_bytes()
+                .expect("grant bytes"),
+            "deriver-a-signing-key-7".to_owned(),
+            "deriver-b-signing-key-9".to_owned(),
+        )
+        .expect("derived");
+        let different = authorize_tenant_root_creation_v1(
+            &other,
+            &other_draw,
+            CEREMONY_ISSUED_AT_MS + 6,
+            authority(),
+            ISSUER_KEY_ID,
+            &seed(),
+        )
+        .expect("different grant");
+        assert_ne!(record(&first), record(&different));
+    }
+
+    /// The derived material is grant-specific, not a constant.
+    #[test]
+    fn ceremony_material_is_derived_per_grant() {
+        let a = ceremony_draw_for("org-1");
+        let b = ceremony_draw_for("org-2");
+        assert_ne!(a.session_id, b.session_id);
+        assert_ne!(a.ceremony_nonce, b.ceremony_nonce);
+        assert_ne!(a.capability_nonce, b.capability_nonce);
+        // Domain separation: the three values differ within one grant.
+        assert_ne!(a.ceremony_nonce.as_bytes(), a.capability_nonce.as_bytes());
+    }
+
     #[test]
     fn genesis_fails_closed_outside_the_authorized_window() {
         let grant = verified_grant("org-1");
@@ -951,7 +1092,8 @@ mod tests {
             assert!(
                 authorize_tenant_root_creation_v1(
                     &grant,
-                    &ceremony_draw(now),
+                    &ceremony_draw(),
+                    now,
                     authority(),
                     ISSUER_KEY_ID,
                     &seed(),
@@ -965,12 +1107,19 @@ mod tests {
     #[test]
     fn genesis_refuses_a_ceremony_that_cannot_separate_the_roles() {
         let grant = verified_grant("org-1");
-        let mut draw = ceremony_draw(CEREMONY_ISSUED_AT_MS + 1);
+        let mut draw = ceremony_draw();
         draw.deriver_b_signing_key_id = draw.deriver_a_signing_key_id.clone();
         assert_eq!(
-            authorize_tenant_root_creation_v1(&grant, &draw, authority(), ISSUER_KEY_ID, &seed())
-                .expect_err("identical role signers")
-                .code(),
+            authorize_tenant_root_creation_v1(
+                &grant,
+                &draw,
+                CEREMONY_ISSUED_AT_MS + 1,
+                authority(),
+                ISSUER_KEY_ID,
+                &seed(),
+            )
+            .expect_err("identical role signers")
+            .code(),
             RouterAbProtocolErrorCode::ForbiddenLocalBinding
         );
     }
@@ -980,7 +1129,8 @@ mod tests {
         let now = CEREMONY_ISSUED_AT_MS + 1;
         let a = authorize_tenant_root_creation_v1(
             &verified_grant("org-1"),
-            &ceremony_draw(now),
+            &ceremony_draw(),
+            now,
             authority(),
             ISSUER_KEY_ID,
             &seed(),
@@ -988,7 +1138,8 @@ mod tests {
         .expect("org-1");
         let b = authorize_tenant_root_creation_v1(
             &verified_grant("org-2"),
-            &ceremony_draw(now),
+            &ceremony_draw_for("org-2"),
+            now,
             authority(),
             ISSUER_KEY_ID,
             &seed(),

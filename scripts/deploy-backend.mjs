@@ -834,6 +834,8 @@ function componentRuntimeRequirements(lane, component) {
         'TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON',
         'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
         'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
+        // The anchor those IDs are resolved against at boot.
+        'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
       ];
     case 'gateway':
     case 'wallet-runtime':
@@ -1281,6 +1283,8 @@ function deployTenantRootControlPlane(lane) {
     `DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID:${requireEnvironmentValue('DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID')}`,
     '--var',
     `DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID:${requireEnvironmentValue('DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID')}`,
+    '--var',
+    `ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:${requireEnvironmentValue('ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON')}`,
   );
   runRouterCommand(args);
 }

@@ -1390,6 +1390,21 @@ pub(crate) fn parse_cloudflare_tenant_root_creation_grant_authority_verifying_ke
     )?)
 }
 
+/// Parses the published role verifying keyset.
+///
+/// The control plane holds this to prove the role signing IDs it names in a
+/// ceremony actually exist under their roles.
+pub(crate) fn parse_cloudflare_tenant_root_creation_role_verifying_keys_v1(
+    env: &impl CloudflareEnvReaderV1,
+) -> RouterAbProtocolResult<TenantRootCreationRoleVerifyingKeysV1> {
+    let key_set = decode_role_verifying_keys(&read_required_raw_env_text(
+        env,
+        ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON_ENV,
+    )?)?;
+    validate_tenant_root_creation_role_verifying_keys_against_peer_v1(env, &key_set)?;
+    Ok(key_set)
+}
+
 /// Reads the public role signing key id the issuer names for one role.
 pub(crate) fn read_cloudflare_tenant_root_creation_role_signing_key_id_v1(
     env: &impl CloudflareEnvReaderV1,

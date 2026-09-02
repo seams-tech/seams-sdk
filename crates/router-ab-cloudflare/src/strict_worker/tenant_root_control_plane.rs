@@ -20,10 +20,12 @@ use crate::{
 /// fails closed on any forbidden key or missing issuer Secret before a single
 /// route is considered.
 ///
-/// No signing route exists yet. When one is added it must construct canonical
-/// commands, capabilities and receipts from exact tenant authorization and
-/// authoritative Durable Object state; a raw-payload signing method must never
-/// be exposed here.
+/// Two issuer operations are exposed, and no raw-payload signing method ever
+/// will be. Genesis opens a tenant root under a signed creation grant; the role
+/// command operation mints one Deriver's creation command. Both construct every
+/// canonical artifact from exact tenant authorization and authoritative Durable
+/// Object state, and derive authority, revision, session, nonce, window and
+/// signing key locally rather than accepting them from a request.
 #[cfg(feature = "strict-worker-tenant-root-control-plane-entrypoint")]
 pub(super) async fn handle_strict_tenant_root_control_plane_fetch_v1(
     mut request: Request,

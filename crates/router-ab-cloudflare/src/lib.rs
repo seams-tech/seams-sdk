@@ -117,6 +117,7 @@ pub use env::*;
 use env::{
     parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1,
     parse_cloudflare_tenant_root_creation_grant_authority_verifying_keys_v1,
+    parse_cloudflare_tenant_root_creation_role_verifying_keys_v1,
     read_cloudflare_tenant_root_creation_role_signing_key_id_v1, DERIVER_A_FORBIDDEN_ENV_KEYS,
     DERIVER_B_FORBIDDEN_ENV_KEYS, ROUTER_FORBIDDEN_ENV_KEYS, SIGNING_WORKER_FORBIDDEN_ENV_KEYS,
 };
@@ -1897,6 +1898,13 @@ pub struct CloudflareTenantRootControlPlaneBindingsV1 {
     pub deriver_a_signing_key_id: String,
     /// Public role signing key ID the issuer names for Deriver B.
     pub deriver_b_signing_key_id: String,
+    /// Deriver A's published verifying key, resolved from the role keyset.
+    ///
+    /// Resolving at parse time is what proves the configured ID actually exists
+    /// under its role; a typo or stale ID cannot reach a ceremony.
+    pub deriver_a_verifying_key: [u8; 32],
+    /// Deriver B's published verifying key, resolved from the role keyset.
+    pub deriver_b_verifying_key: [u8; 32],
 }
 
 impl CloudflareTenantRootControlPlaneBindingsV1 {
@@ -1907,6 +1915,8 @@ impl CloudflareTenantRootControlPlaneBindingsV1 {
         grant_authority_verifying_keys: CloudflareTenantRootCreationGrantAuthorityVerifyingKeysV1,
         deriver_a_signing_key_id: String,
         deriver_b_signing_key_id: String,
+        deriver_a_verifying_key: [u8; 32],
+        deriver_b_verifying_key: [u8; 32],
     ) -> RouterAbProtocolResult<Self> {
         let bindings = Self {
             issuer_signing_key,
@@ -1914,6 +1924,8 @@ impl CloudflareTenantRootControlPlaneBindingsV1 {
             grant_authority_verifying_keys,
             deriver_a_signing_key_id,
             deriver_b_signing_key_id,
+            deriver_a_verifying_key,
+            deriver_b_verifying_key,
         };
         bindings.validate()?;
         Ok(bindings)
@@ -1952,6 +1964,46 @@ impl CloudflareTenantRootControlPlaneBindingsV1 {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
                 "tenant-root control-plane active issuer key ID is not in the published verifying key set",
+            ));
+        }
+        // A ceremony signer must be a Deriver, never the control plane. The IDs
+        // themselves were proved to exist under their roles when the bindings
+        // were parsed; these keys are what that resolution produced.
+        for (signing_key_id, role_key) in [
+            (
+                self.deriver_a_signing_key_id.as_str(),
+                &self.deriver_a_verifying_key,
+            ),
+            (
+                self.deriver_b_signing_key_id.as_str(),
+                &self.deriver_b_verifying_key,
+            ),
+        ] {
+            if self
+                .issuer_verifying_keys
+                .keys()
+                .values()
+                .any(|key| key == role_key)
+                || self
+                    .grant_authority_verifying_keys
+                    .keys()
+                    .values()
+                    .any(|key| key == role_key)
+            {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                    format!(
+                        "tenant-root role signing key ID {signing_key_id} reuses a control-plane key"
+                    ),
+                ));
+            }
+        }
+        if self.deriver_a_signing_key_id == self.deriver_b_signing_key_id
+            || self.deriver_a_verifying_key == self.deriver_b_verifying_key
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root role signing keys must be distinct across roles",
             ));
         }
         Ok(())
@@ -13523,6 +13575,29 @@ pub fn parse_cloudflare_worker_bindings_v1(
 pub fn parse_cloudflare_tenant_root_control_plane_bindings_v1(
     env: &impl CloudflareEnvReaderV1,
 ) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneBindingsV1> {
+    // Resolve each configured role signing ID against the published role
+    // keyset. This is the step that proves the ID exists under its own role: a
+    // typo or a stale ID fails the Worker at boot rather than minting a
+    // permanently persisted ceremony no Deriver could execute.
+    let role_keys = parse_cloudflare_tenant_root_creation_role_verifying_keys_v1(env)?;
+    let resolve =
+        |role: threshold_prf::TwoPartyDeriverRole| -> RouterAbProtocolResult<(String, [u8; 32])> {
+            let signing_key_id =
+                read_cloudflare_tenant_root_creation_role_signing_key_id_v1(env, role)?;
+            let verifying_key = role_keys
+            .for_role_and_key_id(role, &signing_key_id)
+            .map_err(|_| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    format!(
+                        "tenant-root role signing key ID {signing_key_id} is not published for {role:?}"
+                    ),
+                )
+            })?;
+            Ok((signing_key_id, *verifying_key))
+        };
+    let deriver_a_role = resolve(threshold_prf::TwoPartyDeriverRole::DeriverA)?;
+    let deriver_b_role = resolve(threshold_prf::TwoPartyDeriverRole::DeriverB)?;
     CloudflareTenantRootControlPlaneBindingsV1::new(
         parse_cloudflare_tenant_root_control_plane_issuer_signing_key_binding_v1(
             CloudflareWorkerRoleV1::TenantRootControlPlane,
@@ -13530,14 +13605,10 @@ pub fn parse_cloudflare_tenant_root_control_plane_bindings_v1(
         )?,
         parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(env)?,
         parse_cloudflare_tenant_root_creation_grant_authority_verifying_keys_v1(env)?,
-        read_cloudflare_tenant_root_creation_role_signing_key_id_v1(
-            env,
-            threshold_prf::TwoPartyDeriverRole::DeriverA,
-        )?,
-        read_cloudflare_tenant_root_creation_role_signing_key_id_v1(
-            env,
-            threshold_prf::TwoPartyDeriverRole::DeriverB,
-        )?,
+        deriver_a_role.0,
+        deriver_b_role.0,
+        deriver_a_role.1,
+        deriver_b_role.1,
     )
 }
 
