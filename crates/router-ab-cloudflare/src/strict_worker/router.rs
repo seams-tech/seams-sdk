@@ -7,6 +7,7 @@ use super::cors::{
 use super::*;
 use crate::durable_object::tenant_root_creation::{
     decode_bounded_json_request, derive_tenant_root_creation_authority_object_v1,
+    execute_cloudflare_router_tenant_root_creation_active_state_read_call_v1,
     execute_cloudflare_router_tenant_root_creation_cleanup_call_v1,
     execute_cloudflare_router_tenant_root_creation_initial_activation_call_v1,
 };
@@ -49,6 +50,61 @@ use crate::{
 };
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
+async fn finish_cloudflare_router_tenant_root_initial_activation_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    genesis: &CloudflareTenantRootControlPlaneCreateTenantRootResponseV1,
+) -> RouterAbProtocolResult<()> {
+    let identity_digest_bytes = crate::decode_base64url_bytes_v1(
+        "tenant-root creation identity digest",
+        &genesis.identity_digest_b64u,
+    )?;
+    let identity_digest = router_ab_core::TenantRootIdentityDigestV1::from_bytes(
+        identity_digest_bytes.try_into().map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "tenant-root creation identity digest must contain exactly 32 bytes",
+            )
+        })?,
+    );
+    let custody_lineage =
+        router_ab_core::TenantRootCustodyLineageId::from_base64url(&genesis.custody_lineage_b64u)
+            .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("tenant-root creation custody lineage is invalid: {error}"),
+            )
+        })?;
+    let active = execute_cloudflare_router_tenant_root_creation_active_state_read_call_v1(
+        env,
+        identity_digest,
+        custody_lineage,
+    )
+    .await?;
+    if active.transition()
+        != router_ab_core::TenantRootActivationReceiptTransitionV1::InitialCreation
+    {
+        return Ok(());
+    }
+    let role_activation = CloudflareDeriverTenantRootInitialActivationRequestV1 {
+        activation_receipt_b64u: crate::encode_base64url_bytes_v1(active.canonical_bytes()),
+    };
+    execute_cloudflare_deriver_tenant_root_initial_activation_service_call_v1(
+        env,
+        &runtime.bindings().deriver_a,
+        &role_activation,
+    )
+    .await?;
+    execute_cloudflare_deriver_tenant_root_initial_activation_service_call_v1(
+        env,
+        &runtime.bindings().deriver_b,
+        &role_activation,
+    )
+    .await?;
+    Ok(())
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
 async fn coordinate_cloudflare_router_tenant_root_creation_v1(
     env: &Env,
     runtime: &CloudflareRouterWorkerRuntimeV1,
@@ -59,7 +115,11 @@ async fn coordinate_cloudflare_router_tenant_root_creation_v1(
     )
     .await?;
     match &genesis.status {
-        CloudflareTenantRootCreationStatusV1::Ready { .. } => return Ok(genesis),
+        CloudflareTenantRootCreationStatusV1::Ready { .. } => {
+            finish_cloudflare_router_tenant_root_initial_activation_v1(env, runtime, &genesis)
+                .await?;
+            return Ok(genesis);
+        }
         CloudflareTenantRootCreationStatusV1::Abandoned { .. } => {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLifecycleState,

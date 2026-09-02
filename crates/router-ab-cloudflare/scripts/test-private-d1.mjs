@@ -515,6 +515,45 @@ async function testTenantRootCreationOperatingPath(topology, fixture, databases)
     'Router must not return before both role installations are checkpointed',
   );
 
+  const [activeRowsA, activeRowsB] = await Promise.all([
+    databases.deriverA
+      .prepare(
+        `SELECT tenant_identity_digest_hex, custody_lineage_b64u, ciphertext_json
+         FROM tenant_root_role_shares
+         WHERE tenant_root_share_epoch = 1 AND role = 'deriver_a' AND lifecycle = 'active'`,
+      )
+      .all(),
+    databases.deriverB
+      .prepare(
+        `SELECT tenant_identity_digest_hex, custody_lineage_b64u, ciphertext_json
+         FROM tenant_root_role_shares
+         WHERE tenant_root_share_epoch = 1 AND role = 'deriver_b' AND lifecycle = 'active'`,
+      )
+      .all(),
+  ]);
+  assert.equal(
+    activeRowsA.results.length,
+    1,
+    'Deriver A must persist exactly one active initial tenant-root row',
+  );
+  assert.equal(
+    activeRowsB.results.length,
+    1,
+    'Deriver B must persist exactly one active initial tenant-root row',
+  );
+  const identityDigestHex = Buffer.from(first.identity_digest_b64u, 'base64url').toString('hex');
+  const activeA = activeRowsA.results[0];
+  const activeB = activeRowsB.results[0];
+  assert.equal(activeA.tenant_identity_digest_hex, identityDigestHex);
+  assert.equal(activeB.tenant_identity_digest_hex, identityDigestHex);
+  assert.equal(activeA.custody_lineage_b64u, first.custody_lineage_b64u);
+  assert.equal(activeB.custody_lineage_b64u, first.custody_lineage_b64u);
+  assert.notEqual(
+    activeA.ciphertext_json,
+    activeB.ciphertext_json,
+    'Deriver A and B must independently encrypt their active shares for the same tenant root',
+  );
+
   const replayBytes = await expectOk(
     await postWorkerJson(router, tenantRootCreationPath, fixture.tenant_root_creation.fresh),
     'tenant-root creation exact retry',
@@ -543,26 +582,6 @@ async function testTenantRootCreationOperatingPath(topology, fixture, databases)
   const deriverB = await topology.getWorker('deriver-b');
   await assertTenantRootRoleLifecyclePendingActivation(deriverA, 'deriver_a');
   await assertTenantRootRoleLifecyclePendingActivation(deriverB, 'deriver_b');
-
-  const pendingA = await databases.deriverA
-    .prepare(
-      `SELECT tenant_identity_digest_hex, custody_lineage_b64u, ciphertext_json
-       FROM tenant_root_role_shares WHERE role = 'deriver_a' AND lifecycle = 'pending'`,
-    )
-    .first();
-  const pendingB = await databases.deriverB
-    .prepare(
-      `SELECT tenant_identity_digest_hex, custody_lineage_b64u, ciphertext_json
-       FROM tenant_root_role_shares WHERE role = 'deriver_b' AND lifecycle = 'pending'`,
-    )
-    .first();
-  assert.equal(pendingA.tenant_identity_digest_hex, pendingB.tenant_identity_digest_hex);
-  assert.equal(pendingA.custody_lineage_b64u, pendingB.custody_lineage_b64u);
-  assert.notEqual(
-    pendingA.ciphertext_json,
-    pendingB.ciphertext_json,
-    'Deriver A and B must independently encrypt their shares for the same tenant root',
-  );
 }
 
 async function testRolePrivateD1RetryAndConvergence(topology, fixture, databases) {

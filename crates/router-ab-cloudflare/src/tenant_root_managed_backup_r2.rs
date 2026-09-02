@@ -1,10 +1,12 @@
+#[cfg(feature = "workers-rs")]
 use sha2::{Digest, Sha256};
 
 use router_ab_core::{
     TenantRootCustodyLineageId, TenantRootIdentityDigestV1, TenantRootManagedBackupBindingV1,
-    TenantRootManagedRestoreRoleV1, TenantRootShareEpoch, TenantRootSignedManagedBackupV1,
-    VerifiedTenantRootManagedBackupV1,
+    TenantRootManagedRestoreRoleV1, TenantRootShareEpoch,
 };
+#[cfg(feature = "workers-rs")]
+use router_ab_core::{TenantRootSignedManagedBackupV1, VerifiedTenantRootManagedBackupV1};
 
 #[cfg(feature = "workers-rs")]
 use worker::{Bucket, Conditional, Env};

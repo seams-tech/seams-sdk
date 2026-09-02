@@ -817,6 +817,11 @@ impl CloudflareTenantRootRoleShareRecordV1 {
         &self.lifecycle
     }
 
+    /// Returns the last timestamp durably written with this row.
+    pub(crate) const fn updated_at_ms(&self) -> u64 {
+        self.updated_at_ms
+    }
+
     fn into_online_role_share_artifact(self) -> worker::Result<TenantRootSealedOnlineRoleShareV1> {
         let installation_evidence_digest = match &self.lifecycle {
             CloudflareTenantRootRoleShareLifecycleV1::Active(active) => {
@@ -952,6 +957,46 @@ impl CloudflareStoredTenantRootRoleShareV1 {
     /// Returns the positive compare-and-set revision.
     pub const fn revision(&self) -> i64 {
         self.revision
+    }
+
+    /// Returns the exact activation receipt retained by an active row.
+    pub(crate) fn active_activation_receipt_bytes(&self) -> worker::Result<&[u8]> {
+        let CloudflareTenantRootRoleShareLifecycleV1::Active(active) = &self.record.lifecycle
+        else {
+            return Err(store_error(
+                "tenant-root initial activation retry requires an active record",
+            ));
+        };
+        Ok(active.activation.activation_receipt_bytes())
+    }
+
+    /// Reconstructs the exact pending revision consumed by initial activation.
+    pub(crate) fn initial_activation_retry_pending(&self) -> worker::Result<Self> {
+        self.record.validate()?;
+        if self.record.epoch != TenantRootShareEpoch::INITIAL {
+            return Err(store_error(
+                "tenant-root initial activation retry requires epoch 1",
+            ));
+        }
+        let CloudflareTenantRootRoleShareLifecycleV1::Active(active) = &self.record.lifecycle
+        else {
+            return Err(store_error(
+                "tenant-root initial activation retry requires an active record",
+            ));
+        };
+        let revision = self
+            .revision
+            .checked_sub(1)
+            .filter(|revision| *revision > 0)
+            .ok_or_else(|| {
+                store_error("tenant-root initial activation retry has no prior pending revision")
+            })?;
+        let mut record = self.record.clone();
+        record.lifecycle =
+            CloudflareTenantRootRoleShareLifecycleV1::Pending(active.pending.clone());
+        record.updated_at_ms = active.pending.staged_at_ms;
+        record.validate()?;
+        Ok(Self { record, revision })
     }
 
     /// Reconstructs the opaque provider artifact from one validated active D1 record.
@@ -3182,12 +3227,23 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         if !matches!(
             stored.record.lifecycle(),
             CloudflareTenantRootRoleShareLifecycleV1::Pending(_)
+                | CloudflareTenantRootRoleShareLifecycleV1::Active(_)
         ) {
             return Err(store_error(
-                "tenant-root initial activation requires a pending role share",
+                "tenant-root initial activation requires a pending or active role share",
             ));
         }
         Ok(stored)
+    }
+
+    /// Returns whether one exact initial-activation command already has a
+    /// durable replay row. Freshness is enforced only when this is false.
+    pub(crate) async fn initial_activation_replay_exists(
+        &self,
+        scope: &TenantRootCommandScopeV1,
+    ) -> worker::Result<bool> {
+        self.require_command_role(scope.key())?;
+        Ok(self.load_command_replay(scope.key()).await?.is_some())
     }
 
     /// Reserves one exact initial-activation command.
@@ -9876,6 +9932,50 @@ mod tests {
         };
         *identity_digest = TenantRootIdentityDigestV1::from_bytes([0x91; 32]);
         assert!(cipher.open(&row_from_record(&cipher, &tampered)).is_err());
+    }
+
+    #[test]
+    fn active_initial_activation_retry_reuses_exact_receipt_and_pending_command_revision() {
+        let pending = record(CloudflareTenantRootDeriverRoleV1::DeriverA);
+        let pending_stored = CloudflareStoredTenantRootRoleShareV1 {
+            record: pending.clone(),
+            revision: 1,
+        };
+        let activation =
+            current_backup_activation(CloudflareTenantRootDeriverRoleV1::DeriverA, 0x88, 0x89, 20);
+        let active_record = pending
+            .clone()
+            .into_active(activation.clone(), 20)
+            .expect("active record");
+        let active_stored = CloudflareStoredTenantRootRoleShareV1 {
+            record: active_record,
+            revision: 2,
+        };
+
+        assert_eq!(
+            active_stored
+                .active_activation_receipt_bytes()
+                .expect("stored activation receipt"),
+            activation.activation_receipt_bytes()
+        );
+        let retry_pending = active_stored
+            .initial_activation_retry_pending()
+            .expect("retry pending record");
+        assert_eq!(retry_pending.revision(), pending_stored.revision());
+        assert!(matches!(
+            retry_pending.record().lifecycle(),
+            CloudflareTenantRootRoleShareLifecycleV1::Pending(_)
+        ));
+        assert_eq!(
+            retry_pending.record().updated_at_ms(),
+            pending_stored.record().updated_at_ms()
+        );
+        assert_eq!(
+            activate_initial_payload_digest(&pending_stored, &activation, 20, 1)
+                .expect("original activation payload"),
+            activate_initial_payload_digest(&retry_pending, &activation, 20, 1)
+                .expect("retry activation payload")
+        );
     }
 
     #[test]

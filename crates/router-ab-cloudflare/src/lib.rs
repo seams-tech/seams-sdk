@@ -9012,6 +9012,7 @@ pub fn decode_and_select_cloudflare_signer_envelope_hpke_decrypt_key_binding_v1<
 /// The core custody binding intentionally has no deserializer: only an
 /// authenticated Router boundary may construct it. The wire keeps the
 /// binding's serialized form for exact comparison against that boundary value.
+#[cfg(feature = "workers-rs")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CloudflareSignerPrivateBootstrapWithCustodyBindingWireV1 {
@@ -9026,6 +9027,7 @@ pub struct CloudflareSignerPrivateBootstrapWithCustodyBindingWireV1 {
 }
 
 /// Typed server-only bootstrap after custody-binding comparison.
+#[cfg(feature = "workers-rs")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CloudflareAuthenticatedSignerPrivateBootstrapRequestV1 {
     /// Existing validated signer bootstrap body.
@@ -9034,6 +9036,7 @@ pub struct CloudflareAuthenticatedSignerPrivateBootstrapRequestV1 {
     pub tenant_root_custody_binding: TenantRootCustodyBindingV1,
 }
 
+#[cfg(feature = "workers-rs")]
 impl CloudflareAuthenticatedSignerPrivateBootstrapRequestV1 {
     /// Creates a typed bootstrap from an already validated server binding.
     pub fn new(

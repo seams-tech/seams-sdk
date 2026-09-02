@@ -1,28 +1,31 @@
+#[cfg(any(feature = "workers-rs", test))]
+use router_ab_core::MpcPrfSigningRootShareWireV1;
+#[cfg(feature = "workers-rs")]
 use router_ab_core::{
-    MpcPrfShareCommitmentWireV1, MpcPrfSigningRootShareWireV1,
+    MpcPrfShareCommitmentWireV1, TenantRootActivationReceiptTransitionV1,
+    TenantRootCanaryCurveFamilyV1, TenantRootCeremonyNonceV1, TenantRootCeremonySessionIdV1,
+    TenantRootCommandReplayKeyV1, TenantRootCommandScopeV1, TenantRootCommandTerminalReceiptV1,
+    TenantRootEpochCommitmentsV1, TenantRootIdentityV1, TenantRootManagedBackupBindingV1,
+    TenantRootManagedRestoreRoleV1, TenantRootOnlineRoleShareBindingV1,
+    TenantRootProviderCanaryReceiptBindingV1, TenantRootRoleCleanupCommandV1,
+    TenantRootSignedActivationReceiptV1, TenantRootSignedProviderCanaryReceiptV1,
+    VerifiedTenantRootRoleCreationCommandV1, VerifiedTenantRootSignedActivationReceiptV1,
+};
+use router_ab_core::{
     PendingTenantRootInitialRoleAttemptV1, RouterAbDerivationError, RouterAbDerivationErrorCode,
     RouterAbDerivationResult, TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1,
     TenantRootControlPlaneAuthorityIdV1, TenantRootCustodyLineageId, TenantRootIdentityDigestV1,
-    TenantRootManagedBackupBindingV1, TenantRootManagedBackupSealRequestV1,
-    TenantRootOnlineRoleShareBindingV1, TenantRootOnlineRoleShareSealRequestV1,
+    TenantRootManagedBackupSealRequestV1, TenantRootOnlineRoleShareSealRequestV1,
     TenantRootRoleCreationCommandPackageV1, TenantRootSealedOnlineRoleShareV1,
     TenantRootShareEpoch, TenantRootSignedCreationCommitmentV1,
     TenantRootSignedShareInstallationEvidenceV1, TwoPartyDeriverRole,
     VerifiedTenantRootCreationCommitmentPairV1, VerifiedTenantRootCreationCommitmentV1,
     VerifiedTenantRootInitialRoleAttemptV1, VerifiedTenantRootManagedBackupShareV1,
     VerifiedTenantRootManagedBackupV1, VerifiedTenantRootOnlineRoleShareV1,
-    VerifiedTenantRootRoleCreationCommandPackageV1, VerifiedTenantRootRoleCreationCommandV1,
+    VerifiedTenantRootRoleCreationCommandPackageV1,
     VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
 };
-#[cfg(feature = "workers-rs")]
-use router_ab_core::{
-    TenantRootActivationReceiptTransitionV1, TenantRootCanaryCurveFamilyV1,
-    TenantRootCeremonyNonceV1, TenantRootCeremonySessionIdV1, TenantRootCommandReplayKeyV1,
-    TenantRootCommandScopeV1, TenantRootCommandTerminalReceiptV1, TenantRootEpochCommitmentsV1,
-    TenantRootIdentityV1, TenantRootManagedRestoreRoleV1, TenantRootProviderCanaryReceiptBindingV1,
-    TenantRootRoleCleanupCommandV1, TenantRootSignedActivationReceiptV1,
-    TenantRootSignedProviderCanaryReceiptV1, VerifiedTenantRootSignedActivationReceiptV1,
-};
+#[cfg(any(feature = "workers-rs", test))]
 use zeroize::Zeroizing;
 
 #[cfg(feature = "workers-rs")]
@@ -44,7 +47,8 @@ use crate::tenant_root_role_d1::{
     CloudflareTenantRootInitialCreationInputV1,
     CloudflareTenantRootInitialCreationPersistenceOutcomeV1,
     CloudflareTenantRootInitialCreationPreflightV1,
-    CloudflareTenantRootInitialCreationShareInputV1, CloudflareTenantRootRoleShareStoreV1,
+    CloudflareTenantRootInitialCreationShareInputV1, CloudflareTenantRootRoleShareLifecycleV1,
+    CloudflareTenantRootRoleShareStoreV1,
 };
 use crate::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 
@@ -1114,13 +1118,59 @@ fn tenant_root_initial_activation_scope_v1(
 #[cfg(feature = "workers-rs")]
 pub(crate) async fn persist_tenant_root_initial_activation_v1(
     store: &CloudflareTenantRootRoleShareStoreV1,
-    pending: CloudflareStoredTenantRootRoleShareV1,
+    stored: CloudflareStoredTenantRootRoleShareV1,
     managed_backup: &VerifiedTenantRootManagedBackupV1,
     activation_receipt: VerifiedTenantRootSignedActivationReceiptV1,
     role_signer: &CloudflareTenantRootCreationRoleSignerV1,
     now_ms: u64,
 ) -> RouterAbProtocolResult<Vec<u8>> {
+    let active_retry = matches!(
+        stored.record().lifecycle(),
+        CloudflareTenantRootRoleShareLifecycleV1::Active(_)
+    );
+    let (pending, updated_at_ms) = match stored.record().lifecycle() {
+        CloudflareTenantRootRoleShareLifecycleV1::Pending(_) => (stored, now_ms),
+        CloudflareTenantRootRoleShareLifecycleV1::Active(_) => {
+            if stored.active_activation_receipt_bytes().map_err(|error| {
+                tenant_root_store_error_v1("tenant-root activation retry", error)
+            })? != activation_receipt.canonical_bytes()
+            {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                    "tenant-root activation retry does not match the stored activation receipt",
+                ));
+            }
+            let updated_at_ms = stored.record().updated_at_ms();
+            let pending = stored.initial_activation_retry_pending().map_err(|error| {
+                tenant_root_store_error_v1("tenant-root activation retry", error)
+            })?;
+            (pending, updated_at_ms)
+        }
+        CloudflareTenantRootRoleShareLifecycleV1::Retired(_) => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "tenant-root initial activation cannot retry a retired role share",
+            ));
+        }
+    };
     let scope = tenant_root_initial_activation_scope_v1(&activation_receipt, &pending)?;
+    let replay_exists = store
+        .initial_activation_replay_exists(&scope)
+        .await
+        .map_err(|error| {
+            tenant_root_store_error_v1("tenant-root activation replay lookup", error)
+        })?;
+    if active_retry && !replay_exists {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "tenant-root active role share has no matching activation replay record",
+        ));
+    }
+    if !replay_exists {
+        activation_receipt
+            .require_fresh(now_ms)
+            .map_err(candidate_derivation_error)?;
+    }
     let activation = CloudflareTenantRootActivationV1::with_current_role_backup(
         pending.record(),
         managed_backup,
@@ -1129,7 +1179,7 @@ pub(crate) async fn persist_tenant_root_initial_activation_v1(
     .map_err(|error| tenant_root_store_error_v1("tenant-root activation evidence", error))?;
     let activation_for_completion = activation.clone();
     let decision = store
-        .reserve_activate_initial_pending(scope, pending, activation, now_ms, now_ms)
+        .reserve_activate_initial_pending(scope, pending, activation, updated_at_ms, now_ms)
         .await
         .map_err(|error| tenant_root_store_error_v1("tenant-root activation reservation", error))?;
     let executed = match decision {
@@ -1218,9 +1268,6 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_initial_activation_v1(
         })?;
     let verified = receipt
         .verify_issuer_signature(issuer_key)
-        .map_err(candidate_derivation_error)?;
-    verified
-        .require_fresh(now_ms)
         .map_err(candidate_derivation_error)?;
     let (authority_id, _) =
         crate::durable_object::tenant_root_creation::derive_tenant_root_creation_authority_object_v1(
@@ -1829,6 +1876,7 @@ impl TenantRootRoleRuntimeArtifactsV1 {
 }
 
 /// Composes one verified initial role attempt through online and managed sealing.
+#[cfg(feature = "workers-rs")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn compose_initial_tenant_root_role_runtime_v1<Online, Backup>(
     attempt: VerifiedTenantRootInitialRoleAttemptV1,
@@ -2333,6 +2381,7 @@ pub(crate) mod tests {
         .expect("operational provider")
     }
 
+    #[cfg(feature = "workers-rs")]
     #[test]
     fn initial_role_attempts_remain_live_through_pair_and_compose_both_roles() {
         let ceremony_context = context();
@@ -2523,6 +2572,7 @@ pub(crate) mod tests {
         );
     }
 
+    #[cfg(feature = "workers-rs")]
     #[test]
     fn compose_rejects_same_role_and_key_id_with_alternate_evidence_key() {
         let ceremony_context = context();
@@ -2565,6 +2615,7 @@ pub(crate) mod tests {
         assert_eq!(backup_provider.backup_role, None);
     }
 
+    #[cfg(feature = "workers-rs")]
     #[test]
     fn operational_provider_roundtrip_and_rejections() {
         let ceremony_context = context();
