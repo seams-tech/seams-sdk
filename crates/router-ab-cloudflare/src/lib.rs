@@ -222,6 +222,7 @@ use paths::{
     cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_url,
     cloudflare_tenant_root_control_plane_cleanup_command_service_url,
     cloudflare_tenant_root_control_plane_create_tenant_root_service_url,
+    cloudflare_tenant_root_control_plane_refresh_activation_service_url,
     cloudflare_tenant_root_control_plane_role_creation_command_service_url,
 };
 pub use trace_context::CloudflareTraceIdV1;
@@ -14669,6 +14670,24 @@ pub(crate) async fn execute_cloudflare_tenant_root_control_plane_refresh_command
         TENANT_ROOT_CONTROL_PLANE_SERVICE_BINDING_V1,
         cloudflare_tenant_root_control_plane_refresh_commands_service_url(),
         "tenant-root control-plane refresh-command request",
+        request,
+    )
+    .await
+}
+
+/// Requests an issuer-signed refresh activation receipt for exact public artifacts.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn execute_cloudflare_tenant_root_control_plane_refresh_activation_service_call_v1(
+    env: &worker::Env,
+    request: &tenant_root_control_plane::CloudflareTenantRootControlPlaneRefreshActivationRequestV1,
+) -> RouterAbProtocolResult<
+    tenant_root_control_plane::CloudflareTenantRootControlPlaneRefreshActivationReceiptResponseV1,
+> {
+    post_service_json(
+        env,
+        TENANT_ROOT_CONTROL_PLANE_SERVICE_BINDING_V1,
+        cloudflare_tenant_root_control_plane_refresh_activation_service_url(),
+        "tenant-root control-plane refresh-activation request",
         request,
     )
     .await

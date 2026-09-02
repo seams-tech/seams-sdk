@@ -129,12 +129,28 @@ pub const TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_REQUEST_MAX_BYTES_V1: usi
 pub(crate) const TENANT_ROOT_CONTROL_PLANE_INITIAL_ACTIVATION_REQUEST_MAX_BYTES_V1: usize =
     256 * 1024;
 const TENANT_ROOT_CONTROL_PLANE_INITIAL_ACTIVATION_RESPONSE_MAX_BYTES_V1: usize = 32 * 1024;
+/// Maximum accepted request size for refresh activation evidence.
+pub(crate) const TENANT_ROOT_CONTROL_PLANE_REFRESH_ACTIVATION_REQUEST_MAX_BYTES_V1: usize =
+    256 * 1024;
 
 /// Router -> control plane: issue the signed initial-activation receipt from
 /// exact public installation, managed-backup, and provider-canary wires.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CloudflareTenantRootControlPlaneInitialActivationRequestV1 {
+    pub(crate) deriver_a_signed_installation_evidence_b64u: String,
+    pub(crate) deriver_b_signed_installation_evidence_b64u: String,
+    pub(crate) deriver_a_signed_managed_backup_b64u: String,
+    pub(crate) deriver_b_signed_managed_backup_b64u: String,
+    pub(crate) ecdsa_provider_canary_receipt_b64u: String,
+    pub(crate) ed25519_provider_canary_receipt_b64u: String,
+}
+
+/// Router -> control plane: issue the signed refresh-swap receipt from exact
+/// public installation, managed-backup, and provider-canary wires.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootControlPlaneRefreshActivationRequestV1 {
     pub(crate) deriver_a_signed_installation_evidence_b64u: String,
     pub(crate) deriver_b_signed_installation_evidence_b64u: String,
     pub(crate) deriver_a_signed_managed_backup_b64u: String,
@@ -177,6 +193,13 @@ pub struct CloudflareTenantRootControlPlaneCreateTenantRootResponseV1 {
 #[serde(deny_unknown_fields)]
 pub struct CloudflareTenantRootControlPlaneInitialActivationReceiptResponseV1 {
     pub activation_receipt_b64u: String,
+}
+
+/// Control plane -> Router: the exact signed refresh-swap activation receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootControlPlaneRefreshActivationReceiptResponseV1 {
+    pub(crate) activation_receipt_b64u: String,
 }
 
 /// Exhaustive durable state of one tenant-root creation.
@@ -322,6 +345,18 @@ pub(crate) fn initial_activation_receipt_response_v1(
     let receipt_bytes = receipt.canonical_bytes().map_err(derivation)?;
     Ok(
         CloudflareTenantRootControlPlaneInitialActivationReceiptResponseV1 {
+            activation_receipt_b64u: crate::encode_base64url_bytes_v1(&receipt_bytes),
+        },
+    )
+}
+
+/// Projects an issued refresh receipt onto the strict service-binding wire.
+pub(crate) fn refresh_activation_receipt_response_v1(
+    receipt: TenantRootSignedActivationReceiptV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneRefreshActivationReceiptResponseV1> {
+    let receipt_bytes = receipt.canonical_bytes().map_err(derivation)?;
+    Ok(
+        CloudflareTenantRootControlPlaneRefreshActivationReceiptResponseV1 {
             activation_receipt_b64u: crate::encode_base64url_bytes_v1(&receipt_bytes),
         },
     )
@@ -609,6 +644,7 @@ pub use live::{
 pub(crate) use live::{
     execute_cloudflare_tenant_root_control_plane_initial_activation_service_call_v1,
     handle_cloudflare_tenant_root_control_plane_initial_activation_v1,
+    handle_cloudflare_tenant_root_control_plane_refresh_activation_v1,
 };
 
 #[cfg(feature = "workers-rs")]
@@ -1334,6 +1370,120 @@ mod live {
             &issuer_seed,
         )?;
         super::initial_activation_receipt_response_v1(receipt)
+    }
+
+    /// Verifies the six public refresh artifacts against the active state and
+    /// issues the exact refresh-swap receipt.
+    pub(crate) async fn handle_cloudflare_tenant_root_control_plane_refresh_activation_v1(
+        request: CloudflareTenantRootControlPlaneRefreshActivationRequestV1,
+        env: &worker::Env,
+        runtime: &CloudflareTenantRootControlPlaneRuntimeV1,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneRefreshActivationReceiptResponseV1>
+    {
+        let bindings = runtime.bindings();
+        let deriver_a_installation = decode_verified_installation_evidence_v1(
+            "tenant-root Deriver A refresh installation evidence",
+            &request.deriver_a_signed_installation_evidence_b64u,
+            TwoPartyDeriverRole::DeriverA,
+            &bindings.deriver_a_signing_key_id,
+            &bindings.deriver_a_verifying_key,
+        )?;
+        let deriver_b_installation = decode_verified_installation_evidence_v1(
+            "tenant-root Deriver B refresh installation evidence",
+            &request.deriver_b_signed_installation_evidence_b64u,
+            TwoPartyDeriverRole::DeriverB,
+            &bindings.deriver_b_signing_key_id,
+            &bindings.deriver_b_verifying_key,
+        )?;
+        let deriver_a_backup = decode_verified_managed_backup_v1(
+            "tenant-root Deriver A refresh managed backup",
+            &request.deriver_a_signed_managed_backup_b64u,
+            TenantRootManagedRestoreRoleV1::DeriverA,
+            &bindings.deriver_a_signing_key_id,
+            &bindings.deriver_a_verifying_key,
+        )?;
+        let deriver_b_backup = decode_verified_managed_backup_v1(
+            "tenant-root Deriver B refresh managed backup",
+            &request.deriver_b_signed_managed_backup_b64u,
+            TenantRootManagedRestoreRoleV1::DeriverB,
+            &bindings.deriver_b_signing_key_id,
+            &bindings.deriver_b_verifying_key,
+        )?;
+        let ecdsa_canary = decode_verified_provider_canary_v1(
+            "tenant-root ECDSA refresh provider canary",
+            &request.ecdsa_provider_canary_receipt_b64u,
+            TenantRootCanaryCurveFamilyV1::Ecdsa,
+            &bindings.deriver_a_signing_key_id,
+            &bindings.deriver_a_verifying_key,
+        )?;
+        let ed25519_canary = decode_verified_provider_canary_v1(
+            "tenant-root Ed25519 refresh provider canary",
+            &request.ed25519_provider_canary_receipt_b64u,
+            TenantRootCanaryCurveFamilyV1::Ed25519,
+            &bindings.deriver_b_signing_key_id,
+            &bindings.deriver_b_verifying_key,
+        )?;
+
+        let context = deriver_a_installation.evidence().transcript().context();
+        let identity_digest = context.identity_digest();
+        let custody_lineage = context.custody_lineage();
+        let active =
+            execute_cloudflare_router_tenant_root_creation_active_state_with_revision_read_call_v1(
+                env,
+                identity_digest,
+                custody_lineage,
+            )
+            .await?;
+        let authority_id = active.activation_receipt.binding().authority_id();
+        let active_pair = TenantRootActiveRootPairV1::from_verified_activation_receipt(
+            &active.activation_receipt,
+        )
+        .map_err(derivation)?;
+        if active_pair.identity_digest() != identity_digest
+            || active_pair.custody_lineage() != custody_lineage
+        {
+            return Err(refused(
+                "tenant-root active state does not match refresh installation evidence",
+            ));
+        }
+        let TenantRootCeremonyEpochsV1::Refresh { current, .. } = context.epochs() else {
+            return Err(refused(
+                "tenant-root refresh activation requires refresh ceremony epochs",
+            ));
+        };
+        if current != active_pair.epoch() {
+            return Err(refused(
+                "tenant-root refresh activation current epoch does not match active state",
+            ));
+        }
+        let expected_control_plane_revision = active.lifecycle_revision;
+        let result_control_plane_revision = expected_control_plane_revision
+            .checked_add(1)
+            .ok_or_else(|| refused("tenant-root refresh activation revision cannot advance"))?;
+        let bundle =
+            VerifiedTenantRootRefreshSwapActivationEvidenceBundleV1::from_verified_managed_backups(
+                active_pair.commitments(),
+                deriver_a_installation,
+                deriver_b_installation,
+                deriver_a_backup,
+                deriver_b_backup,
+                ecdsa_canary,
+                ed25519_canary,
+                expected_control_plane_revision,
+                result_control_plane_revision,
+            )
+            .map_err(derivation)?;
+        let activated_at_ms = crate::cloudflare_now_unix_ms_v1()?;
+        let issuer_binding = &bindings.issuer_signing_key;
+        let issuer_seed = load_issuer_seed(env, runtime)?;
+        let receipt = super::issue_tenant_root_refresh_activation_receipt_v1(
+            &bundle,
+            activated_at_ms,
+            authority_id,
+            issuer_binding.signing_key_id(),
+            &issuer_seed,
+        )?;
+        super::refresh_activation_receipt_response_v1(receipt)
     }
 
     async fn read_bounded_initial_activation_response_body_v1(
