@@ -4,9 +4,10 @@ use threshold_prf::{SigningRootShareCommitment, TwoPartyDeriverRole};
 
 use super::{
     MpcPrfShareCommitmentWireV1, RouterAbDerivationError, RouterAbDerivationErrorCode,
-    RouterAbDerivationResult, TenantRootCustodyBindingV1, TenantRootCustodyLineageId,
-    TenantRootEpochCommitmentsV1, TenantRootIdentityDigestV1, TenantRootLifecycleReceiptDigestV1,
-    TenantRootManagedRestoreRoleV1, TenantRootShareEpoch,
+    RouterAbDerivationResult, TenantRootActivationReceiptBindingV1, TenantRootCustodyBindingV1,
+    TenantRootCustodyLineageId, TenantRootEpochCommitmentsV1, TenantRootIdentityDigestV1,
+    TenantRootLifecycleReceiptDigestV1, TenantRootManagedRestoreRoleV1, TenantRootShareEpoch,
+    VerifiedTenantRootSignedActivationReceiptV1,
 };
 
 /// Public coordinates of one stored active role-share row.
@@ -312,6 +313,49 @@ pub struct TenantRootActiveRootPairV1 {
 }
 
 impl TenantRootActiveRootPairV1 {
+    /// Projects the currently active pair authenticated by an activation receipt.
+    pub fn from_verified_activation_receipt(
+        activation_receipt: &VerifiedTenantRootSignedActivationReceiptV1,
+    ) -> RouterAbDerivationResult<Self> {
+        let (epoch, commitments) = match activation_receipt.binding() {
+            TenantRootActivationReceiptBindingV1::InitialCreation(binding) => {
+                (binding.epoch(), binding.commitments())
+            }
+            TenantRootActivationReceiptBindingV1::RefreshSwap(binding) => {
+                (binding.next_epoch(), binding.next_commitments())
+            }
+        };
+        let identity_digest = activation_receipt.identity_digest();
+        let custody_lineage = activation_receipt.custody_lineage();
+        let activation_receipt_digest = activation_receipt.digest();
+        let deriver_a = TenantRootActiveRoleBindingV1::new(
+            TenantRootActiveRoleRowKeyV1::new(
+                identity_digest,
+                custody_lineage,
+                epoch,
+                TenantRootManagedRestoreRoleV1::DeriverA,
+            ),
+            commitments.deriver_a().clone(),
+            activation_receipt_digest,
+        )?;
+        let deriver_b = TenantRootActiveRoleBindingV1::new(
+            TenantRootActiveRoleRowKeyV1::new(
+                identity_digest,
+                custody_lineage,
+                epoch,
+                TenantRootManagedRestoreRoleV1::DeriverB,
+            ),
+            commitments.deriver_b().clone(),
+            activation_receipt_digest,
+        )?;
+        let resolution = resolve_active_tenant_root_pair_binding_v1(
+            identity_digest,
+            &TenantRootActiveRoleResolutionV1::Active(deriver_a),
+            &TenantRootActiveRoleResolutionV1::Active(deriver_b),
+        )?;
+        Ok(resolution.require_active()?.clone())
+    }
+
     /// Returns Deriver A's active role binding.
     pub const fn deriver_a(&self) -> &TenantRootActiveRoleBindingV1 {
         &self.deriver_a

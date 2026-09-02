@@ -9,17 +9,21 @@ use crate::tenant_root_control_plane::{
 use crate::{
     handle_cloudflare_tenant_root_control_plane_cleanup_command_v1,
     handle_cloudflare_tenant_root_control_plane_create_tenant_root_v1,
+    handle_cloudflare_tenant_root_control_plane_refresh_commands_v1,
     handle_cloudflare_tenant_root_control_plane_role_creation_command_v1,
     CloudflareTenantRootControlPlaneCleanupCommandRequestV1,
     CloudflareTenantRootControlPlaneCreateTenantRootRequestV1,
+    CloudflareTenantRootControlPlaneRefreshCommandsRequestV1,
     CloudflareTenantRootControlPlaneRoleCreationCommandRequestV1,
     CloudflareTenantRootControlPlaneRuntimeV1,
     CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CLEANUP_COMMAND_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_INITIAL_ACTIVATION_PRIVATE_REQUEST_PATH,
+    CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_PRIVATE_REQUEST_PATH,
     TENANT_ROOT_CONTROL_PLANE_CLEANUP_COMMAND_REQUEST_MAX_BYTES_V1,
     TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_REQUEST_MAX_BYTES_V1,
+    TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_REQUEST_MAX_BYTES_V1,
     TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_REQUEST_MAX_BYTES_V1,
 };
 
@@ -98,6 +102,29 @@ pub(super) async fn handle_strict_tenant_root_control_plane_fetch_v1(
                     Err(err) => return cloudflare_protocol_error_response_v1(err),
                 };
             match handle_cloudflare_tenant_root_control_plane_role_creation_command_v1(
+                parsed, &env, &runtime,
+            )
+            .await
+            {
+                Ok(response) => Response::from_json(&response),
+                Err(err) => cloudflare_protocol_error_response_v1(err),
+            }
+        }
+        CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_PRIVATE_REQUEST_PATH => {
+            if request.method() != Method::Post {
+                return Response::error("tenant-root control-plane routes require POST", 405);
+            }
+            let parsed: CloudflareTenantRootControlPlaneRefreshCommandsRequestV1 =
+                match decode_bounded_json_request(
+                    &mut request,
+                    TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_REQUEST_MAX_BYTES_V1,
+                )
+                .await
+                {
+                    Ok(value) => value,
+                    Err(err) => return cloudflare_protocol_error_response_v1(err),
+                };
+            match handle_cloudflare_tenant_root_control_plane_refresh_commands_v1(
                 parsed, &env, &runtime,
             )
             .await

@@ -1600,6 +1600,13 @@ pub(crate) async fn execute_cloudflare_router_tenant_root_creation_initial_activ
     Ok(response)
 }
 
+/// Issuer-verified active public state read from the Router-owned object.
+#[cfg(feature = "workers-rs")]
+pub(crate) struct CloudflareVerifiedTenantRootActiveStateV1 {
+    pub(crate) activation_receipt: router_ab_core::VerifiedTenantRootSignedActivationReceiptV1,
+    pub(crate) lifecycle_revision: u64,
+}
+
 /// Reads the Router-owned active state and returns its issuer-verified receipt.
 #[cfg(feature = "workers-rs")]
 pub(crate) async fn execute_cloudflare_router_tenant_root_creation_active_state_read_call_v1(
@@ -1607,6 +1614,24 @@ pub(crate) async fn execute_cloudflare_router_tenant_root_creation_active_state_
     identity_digest: TenantRootIdentityDigestV1,
     custody_lineage: TenantRootCustodyLineageId,
 ) -> RouterAbProtocolResult<router_ab_core::VerifiedTenantRootSignedActivationReceiptV1> {
+    Ok(
+        execute_cloudflare_router_tenant_root_creation_active_state_with_revision_read_call_v1(
+            env,
+            identity_digest,
+            custody_lineage,
+        )
+        .await?
+        .activation_receipt,
+    )
+}
+
+/// Reads the authoritative active receipt together with its current lifecycle revision.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn execute_cloudflare_router_tenant_root_creation_active_state_with_revision_read_call_v1(
+    env: &worker::Env,
+    identity_digest: TenantRootIdentityDigestV1,
+    custody_lineage: TenantRootCustodyLineageId,
+) -> RouterAbProtocolResult<CloudflareVerifiedTenantRootActiveStateV1> {
     let (authority_id, _) =
         derive_tenant_root_creation_authority_object_v1(env, identity_digest, custody_lineage)?;
     let request = CloudflareTenantRootCreationActiveStateReadRequestV1 {
@@ -1667,10 +1692,12 @@ pub(crate) async fn execute_cloudflare_router_tenant_root_creation_active_state_
     let receipt = receipt
         .verify_issuer_signature(issuer_verifying_key)
         .map_err(candidate_authorization_error)?;
-    if receipt.identity_digest() != identity_digest || receipt.custody_lineage() != custody_lineage
+    if receipt.identity_digest() != identity_digest
+        || receipt.custody_lineage() != custody_lineage
+        || receipt.binding().authority_id() != authority_id
     {
         return Err(malformed_input(
-            "tenant-root active-state response receipt does not match the request",
+            "tenant-root active-state response receipt does not match the request authority",
         ));
     }
     let response_receipt_digest = decode_lifecycle_receipt_digest(
@@ -1689,7 +1716,10 @@ pub(crate) async fn execute_cloudflare_router_tenant_root_creation_active_state_
             "tenant-root active-state response lifecycle revision is invalid",
         ));
     }
-    Ok(receipt)
+    Ok(CloudflareVerifiedTenantRootActiveStateV1 {
+        activation_receipt: receipt,
+        lifecycle_revision: response.lifecycle_revision,
+    })
 }
 
 #[cfg(feature = "workers-rs")]

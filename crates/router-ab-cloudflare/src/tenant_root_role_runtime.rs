@@ -22,7 +22,7 @@ use router_ab_core::{
     VerifiedTenantRootCreationCommitmentPairV1, VerifiedTenantRootCreationCommitmentV1,
     VerifiedTenantRootInitialRoleAttemptV1, VerifiedTenantRootManagedBackupShareV1,
     VerifiedTenantRootManagedBackupV1, VerifiedTenantRootOnlineRoleShareV1,
-    VerifiedTenantRootRoleCreationCommandPackageV1,
+    VerifiedTenantRootRefreshRoleAttemptV1, VerifiedTenantRootRoleCreationCommandPackageV1,
     VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
 };
 #[cfg(any(feature = "workers-rs", test))]
@@ -47,7 +47,8 @@ use crate::tenant_root_role_d1::{
     CloudflareTenantRootInitialCreationInputV1,
     CloudflareTenantRootInitialCreationPersistenceOutcomeV1,
     CloudflareTenantRootInitialCreationPreflightV1,
-    CloudflareTenantRootInitialCreationShareInputV1, CloudflareTenantRootRoleShareLifecycleV1,
+    CloudflareTenantRootInitialCreationShareInputV1, CloudflareTenantRootRefreshInputV1,
+    CloudflareTenantRootRefreshShareInputV1, CloudflareTenantRootRoleShareLifecycleV1,
     CloudflareTenantRootRoleShareStoreV1,
 };
 use crate::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
@@ -1979,6 +1980,81 @@ where
     Ok((command, evidence, artifacts))
 }
 
+/// Seals one verified refresh role attempt into the exact pending D1 input.
+///
+/// Refresh finalization owns the current share and emits this verified token;
+/// this adapter is the only boundary that turns its next-epoch share into
+/// provider ciphertext. The provider result is opened immediately so a bad
+/// provider response cannot reach D1.
+#[cfg(feature = "workers-rs")]
+pub(crate) fn compose_refresh_tenant_root_role_runtime_v1<Online>(
+    attempt: VerifiedTenantRootRefreshRoleAttemptV1,
+    identity: TenantRootIdentityV1,
+    provider_config: &TenantRootRoleRuntimeProviderConfigV1,
+    online_provider: &mut Online,
+    staged_at_ms: u64,
+) -> RouterAbProtocolResult<CloudflareTenantRootRefreshInputV1>
+where
+    Online: TenantRootOnlineRoleShareProviderV1,
+{
+    let (command, share_wire, evidence) = attempt.into_parts();
+    let identity_digest = identity.digest().map_err(candidate_derivation_error)?;
+    if identity_digest != command.identity_digest() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root refresh sealing identity does not match its authorized command",
+        ));
+    }
+    let transcript = evidence.evidence().transcript();
+    let share_commitment =
+        MpcPrfShareCommitmentWireV1::new(transcript.commitment().to_bytes().to_vec())
+            .map_err(candidate_derivation_error)?;
+    let online_binding = TenantRootOnlineRoleShareBindingV1::new(
+        command.identity_digest(),
+        command.custody_lineage(),
+        command.role(),
+        command.next_epoch(),
+        share_commitment,
+        provider_config.online_epoch_wrapping_key_ref.clone(),
+        &evidence,
+    )
+    .map_err(candidate_derivation_error)?;
+    let online_request = TenantRootOnlineRoleShareSealRequestV1::new(online_binding, share_wire)
+        .map_err(candidate_derivation_error)?;
+    let online_ciphertext = online_provider
+        .seal_online_role_share(&online_request)
+        .map_err(candidate_derivation_error)?;
+    let online_sealed = online_request
+        .complete(online_ciphertext)
+        .map_err(candidate_derivation_error)?;
+    let opened_online =
+        open_tenant_root_online_role_share_v1(online_sealed.clone(), online_provider)
+            .map_err(candidate_derivation_error)?;
+    if opened_online.identity_digest() != identity_digest
+        || opened_online.custody_lineage() != command.custody_lineage()
+        || opened_online.role() != command.role()
+        || opened_online.epoch() != command.next_epoch()
+        || opened_online.share_commitment() != online_sealed.binding().share_commitment()
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root refresh provider returned a share with the wrong binding",
+        ));
+    }
+    drop(opened_online);
+    CloudflareTenantRootRefreshInputV1::new(
+        command,
+        evidence,
+        CloudflareTenantRootRefreshShareInputV1::new(identity, online_sealed, staged_at_ms),
+    )
+    .map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("tenant-root refresh persistence input was refused: {error}"),
+        )
+    })
+}
+
 /// Opens an online artifact and re-verifies its role share commitment.
 pub(crate) fn open_tenant_root_online_role_share_v1<Provider>(
     sealed: TenantRootSealedOnlineRoleShareV1,
@@ -2084,18 +2160,24 @@ fn malformed(message: &'static str) -> RouterAbDerivationError {
 pub(crate) mod tests {
     use super::*;
     use base64::Engine;
+    use curve25519_dalek::scalar::Scalar;
     use ed25519_dalek::SigningKey;
     use hpke_ng::{DhKemX25519HkdfSha256, Kem};
     use rand_chacha::ChaCha20Rng;
     use rand_core_06::SeedableRng;
     use router_ab_core::{
-        verify_tenant_root_creation_evidence_v1, TenantRootCeremonyContextV1,
-        TenantRootCeremonyNonceV1, TenantRootControlPlaneAuthorityIdV1,
-        TenantRootCreationJournalV1, TenantRootCustodyLineageId, TenantRootIdentityV1,
-        TenantRootRoleCreationCommandV1, TenantRootSignedCreationCommitmentV1,
-        VerifiedTenantRootCreationCommitmentPairV1, VerifiedTenantRootCreationCommitmentV1,
+        resolve_active_tenant_root_pair_binding_v1, verify_tenant_root_creation_evidence_v1,
+        PendingTenantRootRefreshRoleAttemptV1, TenantRootActiveRoleBindingV1,
+        TenantRootActiveRoleResolutionV1, TenantRootActiveRoleRowKeyV1,
+        TenantRootCeremonyContextV1, TenantRootCeremonyNonceV1,
+        TenantRootControlPlaneAuthorityIdV1, TenantRootCreationJournalV1,
+        TenantRootCustodyLineageId, TenantRootIdentityV1, TenantRootLifecycleReceiptDigestV1,
+        TenantRootManagedRestoreRoleV1, TenantRootRoleCreationCommandV1,
+        TenantRootRoleRefreshCommandV1, TenantRootShareEpoch, TenantRootSignedCreationCommitmentV1,
+        TenantRootSignedRefreshCommitmentV1, VerifiedTenantRootCreationCommitmentPairV1,
+        VerifiedTenantRootCreationCommitmentV1, VerifiedTenantRootRefreshCommitmentPairV1,
     };
-    use threshold_prf::SigningRootShareWire;
+    use threshold_prf::{SigningRootShare, SigningRootShareCommitment, SigningRootShareWire};
 
     use crate::tenant_root_operational_provider::CloudflareTenantRootOperationalRotationProviderV1;
 
@@ -2189,6 +2271,190 @@ pub(crate) mod tests {
             "deriver-b-signing-key-9",
         )
         .expect("context")
+    }
+
+    #[cfg(feature = "workers-rs")]
+    fn refresh_context() -> TenantRootCeremonyContextV1 {
+        TenantRootCeremonyContextV1::new(
+            identity().digest().expect("identity digest"),
+            TenantRootCustodyLineageId::from_bytes([0x22; 16]).expect("lineage"),
+            TenantRootCeremonyEpochsV1::refresh(
+                TenantRootShareEpoch::new(7).expect("current epoch"),
+                TenantRootShareEpoch::new(8).expect("next epoch"),
+            )
+            .expect("refresh epochs"),
+            router_ab_core::TenantRootCeremonySessionIdV1::from_bytes([0x11; 16]).expect("session"),
+            TenantRootCeremonyNonceV1::from_bytes([0x33; 32]).expect("nonce"),
+            ISSUED_AT_MS,
+            EXPIRES_AT_MS,
+            "deriver-a-signing-key-7",
+            "deriver-b-signing-key-9",
+        )
+        .expect("refresh context")
+    }
+
+    #[cfg(feature = "workers-rs")]
+    fn refresh_share(role: TwoPartyDeriverRole) -> SigningRootShare {
+        SigningRootShare::from_canonical_bytes(
+            role.share_id(),
+            Scalar::from(match role {
+                TwoPartyDeriverRole::DeriverA => 17_u64,
+                TwoPartyDeriverRole::DeriverB => 29_u64,
+            })
+            .to_bytes(),
+        )
+        .expect("refresh share")
+    }
+
+    #[cfg(feature = "workers-rs")]
+    fn refresh_active_pair() -> router_ab_core::TenantRootActiveRootPairV1 {
+        let identity_digest = identity().digest().expect("identity digest");
+        let lineage = TenantRootCustodyLineageId::from_bytes([0x22; 16]).expect("lineage");
+        let epoch = TenantRootShareEpoch::new(7).expect("current epoch");
+        let receipt = TenantRootLifecycleReceiptDigestV1::from_bytes([0x77; 32])
+            .expect("activation receipt digest");
+        let binding_a = TenantRootActiveRoleBindingV1::new(
+            TenantRootActiveRoleRowKeyV1::new(
+                identity_digest,
+                lineage,
+                epoch,
+                TenantRootManagedRestoreRoleV1::DeriverA,
+            ),
+            MpcPrfShareCommitmentWireV1::new(
+                SigningRootShareCommitment::from_share(&refresh_share(
+                    TwoPartyDeriverRole::DeriverA,
+                ))
+                .to_bytes()
+                .to_vec(),
+            )
+            .expect("Deriver A commitment"),
+            receipt,
+        )
+        .expect("Deriver A active binding");
+        let binding_b = TenantRootActiveRoleBindingV1::new(
+            TenantRootActiveRoleRowKeyV1::new(
+                identity_digest,
+                lineage,
+                epoch,
+                TenantRootManagedRestoreRoleV1::DeriverB,
+            ),
+            MpcPrfShareCommitmentWireV1::new(
+                SigningRootShareCommitment::from_share(&refresh_share(
+                    TwoPartyDeriverRole::DeriverB,
+                ))
+                .to_bytes()
+                .to_vec(),
+            )
+            .expect("Deriver B commitment"),
+            receipt,
+        )
+        .expect("Deriver B active binding");
+        resolve_active_tenant_root_pair_binding_v1(
+            identity_digest,
+            &TenantRootActiveRoleResolutionV1::Active(binding_a),
+            &TenantRootActiveRoleResolutionV1::Active(binding_b),
+        )
+        .expect("active pair resolution")
+        .require_active()
+        .expect("active pair")
+        .clone()
+    }
+
+    #[cfg(feature = "workers-rs")]
+    fn refresh_active_binding(role: TwoPartyDeriverRole) -> TenantRootActiveRoleBindingV1 {
+        let pair = refresh_active_pair();
+        match role {
+            TwoPartyDeriverRole::DeriverA => pair.deriver_a().clone(),
+            TwoPartyDeriverRole::DeriverB => pair.deriver_b().clone(),
+        }
+    }
+
+    #[cfg(feature = "workers-rs")]
+    fn refresh_command(
+        context: &TenantRootCeremonyContextV1,
+        role: TwoPartyDeriverRole,
+    ) -> router_ab_core::VerifiedTenantRootRoleRefreshCommandV1 {
+        let active_pair = refresh_active_pair();
+        let issuer = SigningKey::from_bytes(&ISSUER_KEY);
+        TenantRootRoleRefreshCommandV1::sign(
+            &active_pair,
+            context,
+            role,
+            4,
+            TenantRootControlPlaneAuthorityIdV1::from_bytes([0x44; 32]),
+            ISSUED_AT_MS + 1,
+            EXPIRES_AT_MS - 1,
+            ISSUER_KEY_ID,
+            &ISSUER_KEY,
+        )
+        .expect("signed refresh command")
+        .verify(
+            &active_pair,
+            context,
+            role,
+            4,
+            TenantRootControlPlaneAuthorityIdV1::from_bytes([0x44; 32]),
+            ISSUER_KEY_ID,
+            issuer.verifying_key().as_bytes(),
+        )
+        .expect("verified refresh command")
+    }
+
+    #[cfg(feature = "workers-rs")]
+    fn refresh_pending(
+        context: &TenantRootCeremonyContextV1,
+        role: TwoPartyDeriverRole,
+        coefficient_seed: u8,
+    ) -> PendingTenantRootRefreshRoleAttemptV1 {
+        let signing_key = role_key(role);
+        let verifying_key = signing_key.verifying_key().to_bytes();
+        PendingTenantRootRefreshRoleAttemptV1::new(
+            refresh_command(context, role),
+            context.clone(),
+            refresh_active_binding(role),
+            refresh_share(role),
+            &signing_key.to_bytes(),
+            &verifying_key,
+            ISSUED_AT_MS + 10,
+            &mut ChaCha20Rng::from_seed([coefficient_seed; 32]),
+        )
+        .expect("pending refresh role attempt")
+    }
+
+    #[cfg(feature = "workers-rs")]
+    fn verified_refresh_commitment(
+        pending: &PendingTenantRootRefreshRoleAttemptV1,
+    ) -> router_ab_core::VerifiedTenantRootRefreshCommitmentV1 {
+        let role = pending.role();
+        let context = pending.commitment().transcript().context();
+        let key = role_key(role);
+        TenantRootSignedRefreshCommitmentV1::decode_and_verify_canonical_bytes(
+            pending.commitment_bytes(),
+            context,
+            role,
+            context.signing_key_id(role),
+            key.verifying_key().as_bytes(),
+        )
+        .expect("verified refresh commitment")
+    }
+
+    #[cfg(feature = "workers-rs")]
+    fn completed_refresh_attempt() -> router_ab_core::VerifiedTenantRootRefreshRoleAttemptV1 {
+        let context = refresh_context();
+        let pending_a = refresh_pending(&context, TwoPartyDeriverRole::DeriverA, 0x51);
+        let pending_b = refresh_pending(&context, TwoPartyDeriverRole::DeriverB, 0x61);
+        let pair = VerifiedTenantRootRefreshCommitmentPairV1::new(
+            verified_refresh_commitment(&pending_a),
+            verified_refresh_commitment(&pending_b),
+        )
+        .expect("verified refresh commitment pair");
+        pending_a
+            .finalize(
+                pair,
+                pending_b.contribution_for_peer(),
+                &mut ChaCha20Rng::from_seed([0x71; 32]),
+            )
+            .expect("completed refresh role attempt")
     }
 
     pub(crate) fn role_key(role: TwoPartyDeriverRole) -> SigningKey {
@@ -2570,6 +2836,58 @@ pub(crate) mod tests {
             online_opened.share_commitment().as_bytes(),
             root_commitments.deriver_b().to_bytes().as_slice()
         );
+    }
+
+    #[cfg(feature = "workers-rs")]
+    #[test]
+    fn refresh_role_attempt_composes_a_provider_sealed_d1_input() {
+        let config =
+            TenantRootRoleRuntimeProviderConfigV1::new(ONLINE_REF, BACKUP_PROVIDER, BACKUP_VERSION)
+                .expect("provider config");
+        let mut provider = InMemoryProvider::new();
+        let input = compose_refresh_tenant_root_role_runtime_v1(
+            completed_refresh_attempt(),
+            identity(),
+            &config,
+            &mut provider,
+            ISSUED_AT_MS + 11,
+        )
+        .expect("refresh persistence input");
+
+        assert_eq!(provider.online_role, Some(TwoPartyDeriverRole::DeriverA));
+        assert_eq!(
+            provider
+                .online_share
+                .as_ref()
+                .expect("provider received the next share")
+                .to_share()
+                .expect("provider share wire")
+                .id(),
+            TwoPartyDeriverRole::DeriverA.share_id()
+        );
+        assert!(format!("{input:?}").contains("CloudflareTenantRootRefreshInputV1"));
+    }
+
+    #[cfg(feature = "workers-rs")]
+    #[test]
+    fn refresh_role_attempt_rejects_a_sealing_identity_substitution_before_provider_use() {
+        let config =
+            TenantRootRoleRuntimeProviderConfigV1::new(ONLINE_REF, BACKUP_PROVIDER, BACKUP_VERSION)
+                .expect("provider config");
+        let wrong_identity =
+            TenantRootIdentityV1::new("org-1", "project-2", "production", "root-substituted", "v3")
+                .expect("wrong identity");
+        let mut provider = InMemoryProvider::new();
+        assert!(compose_refresh_tenant_root_role_runtime_v1(
+            completed_refresh_attempt(),
+            wrong_identity,
+            &config,
+            &mut provider,
+            ISSUED_AT_MS + 11,
+        )
+        .is_err());
+        assert_eq!(provider.online_role, None);
+        assert!(provider.online_share.is_none());
     }
 
     #[cfg(feature = "workers-rs")]

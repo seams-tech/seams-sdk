@@ -39,6 +39,8 @@ pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_PRIVATE_REQUES
     "/tenant-root-control-plane/creation/v1/create";
 pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_PRIVATE_REQUEST_PATH: &str =
     "/tenant-root-control-plane/creation/v1/role-command";
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_PRIVATE_REQUEST_PATH: &str =
+    "/tenant-root-control-plane/refresh/v1/commands";
 pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CLEANUP_COMMAND_PRIVATE_REQUEST_PATH: &str =
     "/tenant-root-control-plane/creation/v1/cleanup-command";
 /// Tenant-root control-plane issuer operation: issue the initial activation receipt.
@@ -298,6 +300,11 @@ const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_PRIVATE_REQUEST
     "/tenant-root-control-plane/creation/v1/role-command"
 );
 #[cfg(feature = "workers-rs")]
+const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-tenant-root-control-plane.internal",
+    "/tenant-root-control-plane/refresh/v1/commands"
+);
+#[cfg(feature = "workers-rs")]
 const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CLEANUP_COMMAND_PRIVATE_REQUEST_URL: &str = concat!(
     "https://router-ab-tenant-root-control-plane.internal",
     "/tenant-root-control-plane/creation/v1/cleanup-command"
@@ -484,6 +491,12 @@ pub(crate) const fn cloudflare_tenant_root_control_plane_create_tenant_root_serv
 pub(crate) const fn cloudflare_tenant_root_control_plane_role_creation_command_service_url(
 ) -> &'static str {
     CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_PRIVATE_REQUEST_URL
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) const fn cloudflare_tenant_root_control_plane_refresh_commands_service_url(
+) -> &'static str {
+    CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_PRIVATE_REQUEST_URL
 }
 
 #[cfg(feature = "workers-rs")]

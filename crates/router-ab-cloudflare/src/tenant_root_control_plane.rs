@@ -7,16 +7,17 @@
 //! request types name *what* to issue, never the bytes to sign.
 
 use router_ab_core::{
-    TenantRootActivationReceiptTransitionV1, TenantRootCanaryCurveFamilyV1,
-    TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1,
-    TenantRootCeremonySessionIdV1, TenantRootControlPlaneAuthorityIdV1,
+    TenantRootActivationReceiptTransitionV1, TenantRootActiveRootPairV1,
+    TenantRootCanaryCurveFamilyV1, TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1,
+    TenantRootCeremonyNonceV1, TenantRootCeremonySessionIdV1, TenantRootControlPlaneAuthorityIdV1,
     TenantRootCreationCapabilityNonceV1, TenantRootCreationCapabilityV1,
     TenantRootCreationJournalV1, TenantRootManagedRestoreRoleV1, TenantRootProtocolDigestV1,
     TenantRootRoleCleanupCommandV1, TenantRootRoleCleanupTargetV1,
-    TenantRootRoleCreationCommandPackageV1, TenantRootRoleCreationCommandV1, TenantRootShareEpoch,
-    TenantRootSignedActivationReceiptV1, TenantRootSignedManagedBackupV1,
-    TenantRootSignedProviderCanaryReceiptV1, TenantRootSignedShareInstallationEvidenceV1,
-    VerifiedTenantRootCreationGrantV1, VerifiedTenantRootInitialCreationActivationEvidenceBundleV1,
+    TenantRootRoleCreationCommandPackageV1, TenantRootRoleCreationCommandV1,
+    TenantRootRoleRefreshCommandV1, TenantRootShareEpoch, TenantRootSignedActivationReceiptV1,
+    TenantRootSignedManagedBackupV1, TenantRootSignedProviderCanaryReceiptV1,
+    TenantRootSignedShareInstallationEvidenceV1, VerifiedTenantRootCreationGrantV1,
+    VerifiedTenantRootInitialCreationActivationEvidenceBundleV1,
     TENANT_ROOT_ACTIVATION_RECEIPT_MAX_BYTES_V1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
     TENANT_ROOT_PROVIDER_CANARY_RECEIPT_MAX_BYTES_V1,
 };
@@ -35,6 +36,7 @@ use crate::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolRe
 /// Maximum accepted request size for the role creation command operation.
 pub const TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_REQUEST_MAX_BYTES_V1: usize = 2 * 1024;
 pub const TENANT_ROOT_CONTROL_PLANE_CLEANUP_COMMAND_REQUEST_MAX_BYTES_V1: usize = 2 * 1024;
+pub const TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_REQUEST_MAX_BYTES_V1: usize = 2 * 1024;
 
 /// Role label on the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,6 +85,24 @@ pub struct CloudflareTenantRootControlPlaneRoleCreationCommandResponseV1 {
     pub issuer_key_id: String,
     pub role_creation_command_b64u: String,
     pub role_creation_command_package_b64u: String,
+}
+
+/// Router -> control plane: mint both role commands for one fresh refresh.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareTenantRootControlPlaneRefreshCommandsRequestV1 {
+    pub identity_digest_b64u: String,
+    pub custody_lineage_b64u: String,
+}
+
+/// Control plane -> Router: one exact context and its A/B issuer commands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareTenantRootControlPlaneRefreshCommandsResponseV1 {
+    pub refresh_context_b64u: String,
+    pub deriver_a_refresh_command_b64u: String,
+    pub deriver_b_refresh_command_b64u: String,
+    pub issuer_key_id: String,
 }
 
 /// Router -> control plane: issue cleanup for the one stranded role, if any.
@@ -218,6 +238,28 @@ pub(crate) struct IssuedTenantRootRoleCreationCommandV1 {
     pub(crate) package: TenantRootRoleCreationCommandPackageV1,
 }
 
+/// Everything the issuer derives before it signs one refresh pair; nothing
+/// here is caller-chosen.
+pub(crate) struct TenantRootRoleRefreshCommandIssuanceV1<'a> {
+    /// The one active A/B pair resolved from the tenant's private stores.
+    pub(crate) active_pair: &'a TenantRootActiveRootPairV1,
+    /// The exact refresh ceremony context selected by the control plane.
+    pub(crate) refresh_context: &'a TenantRootCeremonyContextV1,
+    /// The lifecycle revision the Router must still hold when applying either command.
+    pub(crate) expected_control_plane_revision: u64,
+    /// The locally derived control-plane authority binding.
+    pub(crate) authority_id: TenantRootControlPlaneAuthorityIdV1,
+    /// The issuer's current time, used for both commands.
+    pub(crate) now_ms: u64,
+}
+
+/// The two signed role wires for one exact refresh ceremony.
+#[derive(Debug)]
+pub(crate) struct IssuedTenantRootRoleRefreshCommandsV1 {
+    pub(crate) deriver_a: TenantRootRoleRefreshCommandV1,
+    pub(crate) deriver_b: TenantRootRoleRefreshCommandV1,
+}
+
 fn refused(message: &'static str) -> RouterAbProtocolError {
     RouterAbProtocolError::new(RouterAbProtocolErrorCode::ForbiddenLocalBinding, message)
 }
@@ -322,6 +364,60 @@ pub(crate) fn issue_tenant_root_role_creation_command_v1(
     let package = TenantRootRoleCreationCommandPackageV1::new(journal.clone(), command.clone())
         .map_err(derivation)?;
     Ok(IssuedTenantRootRoleCreationCommandV1 { command, package })
+}
+
+/// Mints both refresh role commands from one validated active pair and one
+/// exact refresh context.
+pub(crate) fn issue_tenant_root_role_refresh_commands_v1(
+    issuance: TenantRootRoleRefreshCommandIssuanceV1<'_>,
+    active_issuer_key_id: &str,
+    issuer_seed: &Zeroizing<[u8; 32]>,
+) -> RouterAbProtocolResult<IssuedTenantRootRoleRefreshCommandsV1> {
+    let context = issuance.refresh_context;
+    if issuance.now_ms < context.issued_at_ms() || issuance.now_ms >= context.expires_at_ms() {
+        return Err(refused(
+            "tenant-root refresh ceremony window does not contain the issuance time",
+        ));
+    }
+    let issued_at_ms = issuance.now_ms;
+    let expires_at_ms = issued_at_ms
+        .saturating_add(TENANT_ROOT_MAX_LIFETIME_MS_V1)
+        .min(context.expires_at_ms());
+    if expires_at_ms <= issued_at_ms {
+        return Err(refused(
+            "tenant-root refresh ceremony window leaves no room for a role command",
+        ));
+    }
+
+    let deriver_a = TenantRootRoleRefreshCommandV1::sign(
+        issuance.active_pair,
+        context,
+        TwoPartyDeriverRole::DeriverA,
+        issuance.expected_control_plane_revision,
+        issuance.authority_id,
+        issued_at_ms,
+        expires_at_ms,
+        active_issuer_key_id,
+        issuer_seed,
+    )
+    .map_err(derivation)?;
+    let deriver_b = TenantRootRoleRefreshCommandV1::sign(
+        issuance.active_pair,
+        context,
+        TwoPartyDeriverRole::DeriverB,
+        issuance.expected_control_plane_revision,
+        issuance.authority_id,
+        issued_at_ms,
+        expires_at_ms,
+        active_issuer_key_id,
+        issuer_seed,
+    )
+    .map_err(derivation)?;
+
+    Ok(IssuedTenantRootRoleRefreshCommandsV1 {
+        deriver_a,
+        deriver_b,
+    })
 }
 
 const TENANT_ROOT_CEREMONY_SESSION_DOMAIN_V1: &[u8] = b"tenant_root_creation_ceremony_session_v1";
@@ -482,6 +578,7 @@ pub(crate) fn authorize_tenant_root_creation_v1(
 pub use live::{
     handle_cloudflare_tenant_root_control_plane_cleanup_command_v1,
     handle_cloudflare_tenant_root_control_plane_create_tenant_root_v1,
+    handle_cloudflare_tenant_root_control_plane_refresh_commands_v1,
     handle_cloudflare_tenant_root_control_plane_role_creation_command_v1,
 };
 
@@ -497,6 +594,7 @@ mod live {
     use super::*;
     use crate::durable_object::tenant_root_creation::{
         decode_canonical_base64url, derive_tenant_root_creation_authority_object_v1,
+        execute_cloudflare_router_tenant_root_creation_active_state_with_revision_read_call_v1,
         execute_cloudflare_router_tenant_root_creation_journal_call_v1, validate_creation_record,
         CloudflareTenantRootCreationJournalOutcomeV1,
         CloudflareTenantRootCreationJournalReadRequestV1,
@@ -742,6 +840,98 @@ mod live {
                 ),
             },
         )
+    }
+
+    /// Mints one fresh A/B refresh command pair from authoritative active state.
+    pub async fn handle_cloudflare_tenant_root_control_plane_refresh_commands_v1(
+        request: CloudflareTenantRootControlPlaneRefreshCommandsRequestV1,
+        env: &worker::Env,
+        runtime: &CloudflareTenantRootControlPlaneRuntimeV1,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneRefreshCommandsResponseV1> {
+        let identity_digest = TenantRootIdentityDigestV1::from_bytes(
+            decode_canonical_base64url(
+                "tenant-root refresh identity digest",
+                &request.identity_digest_b64u,
+                32,
+                48,
+            )?
+            .as_slice()
+            .try_into()
+            .map_err(|_| refused("tenant-root refresh identity digest length is invalid"))?,
+        );
+        let custody_lineage = TenantRootCustodyLineageId::from_bytes(
+            decode_canonical_base64url(
+                "tenant-root refresh custody lineage",
+                &request.custody_lineage_b64u,
+                16,
+                24,
+            )?
+            .as_slice()
+            .try_into()
+            .map_err(|_| refused("tenant-root refresh custody lineage length is invalid"))?,
+        )
+        .map_err(derivation)?;
+        let active =
+            execute_cloudflare_router_tenant_root_creation_active_state_with_revision_read_call_v1(
+                env,
+                identity_digest,
+                custody_lineage,
+            )
+            .await?;
+        let authority_id = active.activation_receipt.binding().authority_id();
+        let active_pair = TenantRootActiveRootPairV1::from_verified_activation_receipt(
+            &active.activation_receipt,
+        )
+        .map_err(derivation)?;
+        let session_bytes: [u8; 16] = crate::cloudflare_random_bytes_v1(16)?
+            .try_into()
+            .map_err(|_| refused("tenant-root refresh session generation failed"))?;
+        let nonce_bytes: [u8; 32] = crate::cloudflare_random_bytes_v1(32)?
+            .try_into()
+            .map_err(|_| refused("tenant-root refresh nonce generation failed"))?;
+        let now_ms = crate::cloudflare_now_unix_ms_v1()?;
+        let expires_at_ms = now_ms.saturating_add(TENANT_ROOT_MAX_LIFETIME_MS_V1);
+        let bindings = runtime.bindings();
+        let refresh_context = TenantRootCeremonyContextV1::new(
+            identity_digest,
+            custody_lineage,
+            TenantRootCeremonyEpochsV1::refresh(
+                active_pair.epoch(),
+                active_pair.epoch().next().map_err(derivation)?,
+            )
+            .map_err(derivation)?,
+            TenantRootCeremonySessionIdV1::from_bytes(session_bytes).map_err(derivation)?,
+            TenantRootCeremonyNonceV1::from_bytes(nonce_bytes).map_err(derivation)?,
+            now_ms,
+            expires_at_ms,
+            bindings.deriver_a_signing_key_id.clone(),
+            bindings.deriver_b_signing_key_id.clone(),
+        )
+        .map_err(derivation)?;
+        let issuer_seed = load_issuer_seed(env, runtime)?;
+        let issued = issue_tenant_root_role_refresh_commands_v1(
+            TenantRootRoleRefreshCommandIssuanceV1 {
+                active_pair: &active_pair,
+                refresh_context: &refresh_context,
+                expected_control_plane_revision: active.lifecycle_revision,
+                authority_id,
+                now_ms,
+            },
+            bindings.issuer_signing_key.signing_key_id(),
+            &issuer_seed,
+        )?;
+        Ok(CloudflareTenantRootControlPlaneRefreshCommandsResponseV1 {
+            refresh_context_b64u: encode_base64url_bytes_v1(
+                &refresh_context.canonical_bytes().map_err(derivation)?,
+            ),
+            deriver_a_refresh_command_b64u: encode_base64url_bytes_v1(
+                &issued.deriver_a.canonical_bytes().map_err(derivation)?,
+            ),
+            deriver_b_refresh_command_b64u: encode_base64url_bytes_v1(
+                &issued.deriver_b.canonical_bytes().map_err(derivation)?,
+            ),
+            issuer_key_id: bindings.issuer_signing_key.signing_key_id().to_owned(),
+        })
     }
 
     /// Issues cleanup for the exact sole role installation recorded by the DO.
@@ -2299,6 +2489,93 @@ mod tests {
             .expect("response receipt bytes"),
             receipt_bytes
         );
+    }
+
+    #[test]
+    fn refresh_command_issuance_binds_both_roles_to_one_active_pair_and_context() {
+        let bundle = activation_bundle();
+        let activated_at_ms = CEREMONY_ISSUED_AT_MS + 20;
+        let receipt = issue_tenant_root_initial_activation_receipt_v1(
+            &bundle,
+            activated_at_ms,
+            authority(),
+            ISSUER_KEY_ID,
+            &Zeroizing::new(ACTIVATION_ISSUER_SEED),
+        )
+        .expect("issued initial activation receipt")
+        .verify_initial_creation(
+            &bundle,
+            activated_at_ms,
+            authority(),
+            ISSUER_KEY_ID,
+            &SigningKey::from_bytes(&ACTIVATION_ISSUER_SEED)
+                .verifying_key()
+                .to_bytes(),
+        )
+        .expect("verified active receipt");
+        let active_pair = TenantRootActiveRootPairV1::from_verified_activation_receipt(&receipt)
+            .expect("active pair from receipt");
+        let refresh_context = TenantRootCeremonyContextV1::new(
+            active_pair.identity_digest(),
+            active_pair.custody_lineage(),
+            TenantRootCeremonyEpochsV1::refresh(
+                active_pair.epoch(),
+                active_pair.epoch().next().expect("next epoch"),
+            )
+            .expect("refresh epochs"),
+            TenantRootCeremonySessionIdV1::from_bytes([0x61; 16]).expect("session"),
+            TenantRootCeremonyNonceV1::from_bytes([0x62; 32]).expect("nonce"),
+            activated_at_ms + 1,
+            activated_at_ms + 10_000,
+            activation_role_signing_key_id(TwoPartyDeriverRole::DeriverA),
+            activation_role_signing_key_id(TwoPartyDeriverRole::DeriverB),
+        )
+        .expect("refresh context");
+        let issuer_seed = Zeroizing::new(ACTIVATION_ISSUER_SEED);
+        let issued = issue_tenant_root_role_refresh_commands_v1(
+            TenantRootRoleRefreshCommandIssuanceV1 {
+                active_pair: &active_pair,
+                refresh_context: &refresh_context,
+                expected_control_plane_revision: receipt.result_control_plane_revision(),
+                authority_id: authority(),
+                now_ms: refresh_context.issued_at_ms(),
+            },
+            ISSUER_KEY_ID,
+            &issuer_seed,
+        )
+        .expect("issued refresh role commands");
+        let issuer_verifying_key = SigningKey::from_bytes(&ACTIVATION_ISSUER_SEED)
+            .verifying_key()
+            .to_bytes();
+        let verified_a = issued
+            .deriver_a
+            .verify(
+                &active_pair,
+                &refresh_context,
+                TwoPartyDeriverRole::DeriverA,
+                receipt.result_control_plane_revision(),
+                authority(),
+                ISSUER_KEY_ID,
+                &issuer_verifying_key,
+            )
+            .expect("verified Deriver A command");
+        let verified_b = issued
+            .deriver_b
+            .verify(
+                &active_pair,
+                &refresh_context,
+                TwoPartyDeriverRole::DeriverB,
+                receipt.result_control_plane_revision(),
+                authority(),
+                ISSUER_KEY_ID,
+                &issuer_verifying_key,
+            )
+            .expect("verified Deriver B command");
+        assert_eq!(
+            verified_a.refresh_context_digest(),
+            verified_b.refresh_context_digest()
+        );
+        assert_ne!(verified_a.digest(), verified_b.digest());
     }
 
     #[cfg(feature = "workers-rs")]

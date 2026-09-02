@@ -84,6 +84,7 @@ mod tenant_root_operational_provider;
 pub use tenant_root_control_plane::{
     handle_cloudflare_tenant_root_control_plane_cleanup_command_v1,
     handle_cloudflare_tenant_root_control_plane_create_tenant_root_v1,
+    handle_cloudflare_tenant_root_control_plane_refresh_commands_v1,
     handle_cloudflare_tenant_root_control_plane_role_creation_command_v1,
 };
 #[cfg(any(feature = "workers-rs", test))]
@@ -92,11 +93,14 @@ pub use tenant_root_control_plane::{
     CloudflareTenantRootControlPlaneCleanupCommandResponseV1,
     CloudflareTenantRootControlPlaneCreateTenantRootRequestV1,
     CloudflareTenantRootControlPlaneCreateTenantRootResponseV1,
+    CloudflareTenantRootControlPlaneRefreshCommandsRequestV1,
+    CloudflareTenantRootControlPlaneRefreshCommandsResponseV1,
     CloudflareTenantRootControlPlaneRoleCreationCommandRequestV1,
     CloudflareTenantRootControlPlaneRoleCreationCommandResponseV1,
     CloudflareTenantRootControlPlaneRoleV1, CloudflareTenantRootCreationStatusV1,
     TENANT_ROOT_CONTROL_PLANE_CLEANUP_COMMAND_REQUEST_MAX_BYTES_V1,
     TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_REQUEST_MAX_BYTES_V1,
+    TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_REQUEST_MAX_BYTES_V1,
     TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_REQUEST_MAX_BYTES_V1,
 };
 #[allow(dead_code)]
@@ -14652,6 +14656,22 @@ pub(crate) async fn execute_cloudflare_tenant_root_control_plane_role_creation_c
         ));
     }
     Ok(response)
+}
+
+/// Requests both issuer-signed role commands for one tenant-root refresh.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn execute_cloudflare_tenant_root_control_plane_refresh_commands_service_call_v1(
+    env: &worker::Env,
+    request: &CloudflareTenantRootControlPlaneRefreshCommandsRequestV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneRefreshCommandsResponseV1> {
+    post_service_json(
+        env,
+        TENANT_ROOT_CONTROL_PLANE_SERVICE_BINDING_V1,
+        cloudflare_tenant_root_control_plane_refresh_commands_service_url(),
+        "tenant-root control-plane refresh-command request",
+        request,
+    )
+    .await
 }
 
 /// Requests one issuer-authorized cleanup command from the control plane.

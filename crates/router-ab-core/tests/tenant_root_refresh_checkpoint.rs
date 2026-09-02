@@ -212,45 +212,9 @@ fn active_pair(
     active_state: &TenantRootActiveRefreshV1,
     activation_receipt: &VerifiedTenantRootSignedActivationReceiptV1,
 ) -> TenantRootActiveRootPairV1 {
-    let identity_digest = active_state
-        .identity()
-        .digest()
-        .expect("active identity digest");
-    let custody_lineage = active_state.custody_lineage();
-    let epoch = active_state.current().epoch();
-    let commitments = active_state.current().verified().commitments();
-    let receipt = activation_receipt.digest();
-    let deriver_a = TenantRootActiveRoleBindingV1::new(
-        TenantRootActiveRoleRowKeyV1::new(
-            identity_digest,
-            custody_lineage,
-            epoch,
-            TenantRootManagedRestoreRoleV1::DeriverA,
-        ),
-        commitments.deriver_a().clone(),
-        receipt,
-    )
-    .expect("Deriver A active binding");
-    let deriver_b = TenantRootActiveRoleBindingV1::new(
-        TenantRootActiveRoleRowKeyV1::new(
-            identity_digest,
-            custody_lineage,
-            epoch,
-            TenantRootManagedRestoreRoleV1::DeriverB,
-        ),
-        commitments.deriver_b().clone(),
-        receipt,
-    )
-    .expect("Deriver B active binding");
-    resolve_active_tenant_root_pair_binding_v1(
-        identity_digest,
-        &TenantRootActiveRoleResolutionV1::Active(deriver_a),
-        &TenantRootActiveRoleResolutionV1::Active(deriver_b),
-    )
-    .expect("active pair resolution")
-    .require_active()
-    .expect("active pair")
-    .clone()
+    let _ = active_state;
+    TenantRootActiveRootPairV1::from_verified_activation_receipt(activation_receipt)
+        .expect("active pair from activation receipt")
 }
 
 fn command(
