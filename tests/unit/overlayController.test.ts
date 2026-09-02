@@ -324,6 +324,7 @@ test.describe('OverlayController', () => {
         const provisional = {
           open: dialog.open,
           visibility: getComputedStyle(dialog).visibility,
+          opacity: getComputedStyle(dialog).opacity,
           iframeRect: iframe.getBoundingClientRect().toJSON(),
         };
 
@@ -343,6 +344,7 @@ test.describe('OverlayController', () => {
         const beforeReveal = {
           open: dialog.open,
           visibility: getComputedStyle(dialog).visibility,
+          opacity: getComputedStyle(dialog).opacity,
           pending: dialog.classList.contains('is-reveal-pending'),
         };
 
@@ -358,6 +360,7 @@ test.describe('OverlayController', () => {
         const firstVisibleRect = dialog.getBoundingClientRect().toJSON();
         const revealed = {
           visibility: getComputedStyle(dialog).visibility,
+          opacity: getComputedStyle(dialog).opacity,
           pending: dialog.classList.contains('is-reveal-pending'),
           transitionOrigin: dialog.classList.contains('has-transition-origin'),
           surfaceAnimation: surfaceAnimation !== undefined,
@@ -372,17 +375,30 @@ test.describe('OverlayController', () => {
       { path: IMPORT_PATHS.overlay },
     );
 
+    // The unmeasured and reveal-pending dialog is transparent, never
+    // visibility:hidden: Chrome stops rendering a cross-origin iframe under a
+    // visibility:hidden ancestor, so the child could never post the
+    // measurement this reveal waits for (the card only appeared at the 4s
+    // fallback). Bundled Chromium does not throttle it, so this assertion is
+    // the guard that a browser run cannot be.
     expect(result.provisional).toMatchObject({
       open: true,
-      visibility: 'hidden',
+      visibility: 'visible',
+      opacity: '0',
       iframeRect: {
         width: 560,
         height: 320,
       },
     });
-    expect(result.beforeReveal).toEqual({ open: true, visibility: 'hidden', pending: true });
+    expect(result.beforeReveal).toEqual({
+      open: true,
+      visibility: 'visible',
+      opacity: '0',
+      pending: true,
+    });
     expect(result.revealed).toEqual({
       visibility: 'visible',
+      opacity: '1',
       pending: false,
       transitionOrigin: false,
       surfaceAnimation: false,

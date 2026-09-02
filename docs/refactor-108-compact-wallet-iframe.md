@@ -297,9 +297,15 @@ as the boundary fallback. All values are CSS pixels.
   starts at its `384px` content width cap and conservative height. Measured
   content may shrink below those seeds, while the cap lets wider content settle
   without being constrained by the provisional rectangle. The controller may
-  gate the dialog with `visibility: hidden` until the first valid measurement
-  to avoid exposing a reflow. It never uses a fullscreen rectangle for this
-  first paint.
+  gate the dialog with `opacity: 0` (plus `pointer-events: none`) until the
+  first valid measurement to avoid exposing a reflow. It must NOT use
+  `visibility: hidden` for this: Chrome stops rendering a cross-origin iframe
+  under a `visibility: hidden` ancestor (no animation frames, no
+  `ResizeObserver` delivery), so the child never lays out its confirmer or
+  posts the measurement, and the surface only appears at the measurement
+  fallback. Playwright's bundled Chromium does not throttle such frames, so
+  only a real Chrome run shows the difference. It never uses a fullscreen
+  rectangle for this first paint.
 - Measurement unavailable: after one `ResizeObserver` callback plus at most two
   animation frames (bounded by a small timeout), use `viewport_fallback` with
   the visual viewport rectangle. A missing `ResizeObserver` gets one
