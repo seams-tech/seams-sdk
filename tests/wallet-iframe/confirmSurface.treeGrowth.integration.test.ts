@@ -101,7 +101,9 @@ async function openRealModal(page: Page): Promise<Frame> {
 
   await page.evaluate(
     async ({ walletOrigin, calldata, contract }) => {
-      const routerModule = await import('/_test-sdk/esm/SeamsWeb/walletIframe/client/router.js');
+      const routerModule = (await import(
+        /* @vite-ignore */ '/_test-sdk/esm/SeamsWeb/walletIframe/client/router.js' as string
+      )) as typeof import('@/SeamsWeb/walletIframe/client/router');
       const router = new routerModule.WalletIframeRouter({
         walletOrigin,
         servicePath: '/wallet-service',
