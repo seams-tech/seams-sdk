@@ -82,10 +82,8 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   private readonly _heightReflow: SurfaceHeightReflow = createSurfaceHeightReflow({
     reason: 'confirm-body',
     element: () => this.querySelector<HTMLElement>('.modal-container-root'),
-    setHeightCssPx: (px) =>
-      this.setCssVars({
-        [CONFIRM_SURFACE_HEIGHT_DRIVEN_VAR]: px === null ? 'auto' : `${px}px`,
-      }),
+    setHeightCssPx: (px) => this.setCssVars({ [CONFIRM_SURFACE_HEIGHT_DRIVEN_VAR]: `${px}px` }),
+    settled: () => this.updateComplete,
   });
 
   static requiredChildTags = ['w3a-tx-confirm-content'];

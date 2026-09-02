@@ -33,10 +33,8 @@ export class TxConfirmContentElement extends LitElementWithProps {
   private readonly _heightReflow: SurfaceHeightReflow = createSurfaceHeightReflow({
     reason: 'tx-body',
     element: () => this.querySelector<HTMLElement>('.txc-root'),
-    setHeightCssPx: (px) =>
-      this.setCssVars({
-        [CONFIRM_SURFACE_HEIGHT_DRIVEN_VAR]: px === null ? 'auto' : `${px}px`,
-      }),
+    setHeightCssPx: (px) => this.setCssVars({ [CONFIRM_SURFACE_HEIGHT_DRIVEN_VAR]: `${px}px` }),
+    settled: () => this.updateComplete,
   });
 
   // Fail fast in dev if nested custom elements are not defined

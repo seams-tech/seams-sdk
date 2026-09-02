@@ -68,26 +68,33 @@ const childScript = (calldata: string) => String.raw`
   };
 `;
 
-type ToggleTrace = {
+/** What a single interior height change looks like from inside the frame. */
+type MotionTrace = {
   begin: {
-    open: boolean;
-    delta: number;
+    deltaCssPx: number;
     viewportPx: number;
     hostPx: number;
     surface: string | null;
   };
   measurements: number[];
-  frames: Array<{ viewportPx: number; cardPx: number; bodyPx: number; pinned: boolean }>;
-  open: boolean;
+  frames: Array<{ viewportPx: number; cardPx: number; pinned: boolean }>;
+  /** Where the content actually ended up, once everything settled. */
+  finalHostPx: number;
 };
 
-async function openRealModal(page: Page): Promise<Frame> {
+/** The interior changes this surface can make, each through the same seam. */
+type MotionAction =
+  | { kind: 'folder'; open: boolean }
+  | { kind: 'file-content-mode' }
+  | { kind: 'error-banner'; message: string };
+
+async function openRealModal(page: Page, options: { greeting?: string } = {}): Promise<Frame> {
   await page.goto('about:blank');
   await injectImportMap(page);
   const calldata = encodeFunctionData({
     abi: parseAbi(['function setGreeting(string newGreeting)']),
     functionName: 'setGreeting',
-    args: ['Hello Tempo'],
+    args: [options.greeting ?? 'Hello Tempo'],
   });
   // The stub document must reset the UA body margin exactly like the real
   // wallet-service document does (wallet-service.css): with an 8px margin the
@@ -178,24 +185,16 @@ async function openRealModal(page: Page): Promise<Frame> {
   return frame;
 }
 
-async function toggleFolder(frame: Frame, expectOpen: boolean): Promise<ToggleTrace> {
-  return frame.evaluate(async (expectOpen) => {
+async function recordMotion(frame: Frame, action: MotionAction): Promise<MotionTrace> {
+  return frame.evaluate(async (action) => {
     const host = document.getElementById('w3a-confirm-portal')!.firstElementChild as HTMLElement;
     const card = host.querySelector('.modal-container-root') as HTMLElement;
-    const details = document.querySelector(
-      `w3a-tx-tree details.folder${expectOpen ? ':not([open])' : '[open]:not(:has(> .folder-children > details.folder[open]))'}`,
-    ) as HTMLDetailsElement | null;
-    if (!details) throw new Error('no folder in the expected state');
-    const summary = details.querySelector(':scope > summary') as HTMLElement;
-    const body = details.querySelector(':scope > .folder-children') as HTMLElement;
-    let begin: ToggleTrace['begin'] | null = null;
+    let begin: MotionTrace['begin'] | null = null;
     host.addEventListener(
       'lit-surface-resize-begin',
       (e: any) => {
-        // Signed delta: its sign is the direction of the toggle.
         begin = {
-          open: e.detail.deltaCssPx > 0,
-          delta: Math.abs(e.detail.deltaCssPx),
+          deltaCssPx: e.detail.deltaCssPx,
           viewportPx: document.documentElement.clientHeight,
           hostPx: host.getBoundingClientRect().height,
           surface: host.getAttribute('data-w3a-confirm-surface'),
@@ -203,14 +202,14 @@ async function toggleFolder(frame: Frame, expectOpen: boolean): Promise<ToggleTr
       },
       { capture: true, once: true },
     );
+
     const measurements: number[] = (window as any).__measurements;
     measurements.length = 0;
-    const frames: ToggleTrace['frames'] = [];
+    const frames: MotionTrace['frames'] = [];
     const sample = () => {
       frames.push({
         viewportPx: document.documentElement.clientHeight,
         cardPx: card.getBoundingClientRect().height,
-        bodyPx: body.getBoundingClientRect().height,
         pinned: host.classList.contains('w3a-confirm-surface-pinned'),
       });
     };
@@ -220,51 +219,85 @@ async function toggleFolder(frame: Frame, expectOpen: boolean): Promise<ToggleTr
     const observer = new ResizeObserver(sample);
     observer.observe(document.documentElement);
     observer.observe(card);
-    observer.observe(body);
     sample();
-    summary.click();
+
+    const click = (selector: string) => {
+      const target = document.querySelector(selector) as HTMLElement | null;
+      if (!target) throw new Error(`nothing to click for ${selector}`);
+      target.click();
+    };
+    switch (action.kind) {
+      case 'folder':
+        click(
+          action.open
+            ? 'w3a-tx-tree details.folder:not([open]) > summary'
+            : 'w3a-tx-tree details.folder[open]:not(:has(> .folder-children > details.folder[open])) > summary',
+        );
+        break;
+      case 'file-content-mode':
+        click('w3a-tx-tree .file-content-mode-toggle');
+        break;
+      case 'error-banner':
+        (host as unknown as { errorMessage: string }).errorMessage = action.message;
+        break;
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 1200));
     observer.disconnect();
     sample();
-    if (!begin) throw new Error('the tree did not hand its motion to the host');
-    return { begin, measurements: measurements.slice(), frames, open: details.open };
-  }, expectOpen);
+    if (!begin) throw new Error('the surface was never offered the height change');
+    return {
+      begin,
+      measurements: measurements.slice(),
+      frames,
+      finalHostPx: host.getBoundingClientRect().height,
+    };
+  }, action);
 }
 
-function assertToggleInvariants(trace: ToggleTrace, expectOpen: boolean): void {
+/**
+ * The invariants of refactor 116, asserted from inside the frame while the
+ * parent is genuinely easing: one measurement, a card that never exceeds its
+ * box, and content that lands only after the box was seen part-way there.
+ */
+function assertMotionInvariants(trace: MotionTrace, expected: { sign?: 1 | -1 } = {}): void {
   const { begin, measurements, frames } = trace;
   expect(begin.surface).toBe('wallet-iframe');
-  expect(begin.open).toBe(expectOpen);
-  expect(begin.delta).toBeGreaterThan(0);
-  // The box hugs the host when the toggle starts.
+  if (expected.sign) expect(Math.sign(begin.deltaCssPx)).toBe(expected.sign);
+  expect(Math.abs(begin.deltaCssPx)).toBeGreaterThanOrEqual(1);
+  // The box hugs the host when the change is announced, and the announcing
+  // element is still clamped at its pre-change height.
   expect(Math.abs(begin.viewportPx - begin.hostPx)).toBeLessThanOrEqual(1);
-  const closedPx = Math.round(expectOpen ? begin.hostPx : begin.hostPx - begin.delta);
-  const targetPx = expectOpen ? closedPx + begin.delta : closedPx;
-  // One measurement per toggle: the target, posted before the motion.
-  expect(measurements[0]).toBe(targetPx);
-  // The host releases its pin the moment the body lands (the closed body keeps
-  // a stale layout box in Chrome, so the pin is the reliable landing marker).
+
+  const originPx = Math.round(begin.hostPx);
+  // Exactly one measurement per change, and it is where the content actually
+  // ended up. A stream of intermediate sizes, and a box sent somewhere the
+  // card then has to correct, are the two defects this guards.
+  expect(measurements).toHaveLength(1);
+  expect(Math.abs(measurements[0] - trace.finalHostPx)).toBeLessThanOrEqual(1);
+  const targetPx = measurements[0];
+
+  // The pin comes off when the content lands, so it is the landing marker: a
+  // collapsed body keeps a stale layout box in Chrome and cannot be one.
   const firstPinned = frames.findIndex((f) => f.pinned);
   expect(firstPinned).toBeGreaterThanOrEqual(0);
   const landing = frames.findIndex((f, i) => i > firstPinned && !f.pinned);
   expect(landing).toBeGreaterThan(firstPinned);
+
   const untilLanding = frames.slice(0, landing + 1);
-  if (expectOpen) expect(frames[landing].bodyPx).toBeGreaterThanOrEqual(begin.delta - 0.5);
-  expect(measurements.filter((px) => px !== targetPx)).toEqual([]);
-  // The card never exceeds the box while the toggle is in flight.
   for (const f of untilLanding) expect(f.cardPx).toBeLessThanOrEqual(f.viewportPx + 1);
-  // The body only lands after the box has been seen at intermediate sizes.
+
+  const progressOf = (viewportPx: number) => (viewportPx - originPx) / (targetPx - originPx);
   const intermediate = untilLanding.filter(
-    (f) => f.pinned && f.bodyPx > 0.5 && f.bodyPx < begin.delta - 0.5,
+    (f) => f.pinned && progressOf(f.viewportPx) > 0.01 && progressOf(f.viewportPx) < 0.99,
   );
   expect(intermediate.length).toBeGreaterThanOrEqual(2);
-  expect(trace.open).toBe(expectOpen);
   expect(frames.at(-1)?.pinned).toBe(false);
 }
 
-test.describe('wallet iframe host-driven tree growth', () => {
+test.describe('wallet iframe host-driven interior motion', () => {
   test.beforeEach(async ({ page }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(120_000);
     await setupBasicPasskeyTest(page, {
       skipSeamsWebInit: true,
       injectWalletServiceImportMap: true,
@@ -279,16 +312,66 @@ test.describe('wallet iframe host-driven tree growth', () => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
   });
 
-  test('the card fills the easing box on open and close, one measurement each', async ({
+  test('a tree node fills the easing box on open and close, one measurement each', async ({
     page,
   }) => {
     const frame = await openRealModal(page);
 
-    const opened = await toggleFolder(frame, true);
-    assertToggleInvariants(opened, true);
-
+    assertMotionInvariants(await recordMotion(frame, { kind: 'folder', open: true }), { sign: 1 });
     await page.waitForTimeout(400);
-    const closed = await toggleFolder(frame, false);
-    assertToggleInvariants(closed, false);
+    assertMotionInvariants(await recordMotion(frame, { kind: 'folder', open: false }), {
+      sign: -1,
+    });
+  });
+
+  test('swapping decoded calldata for bytes moves the box, not the card', async ({ page }) => {
+    // Long enough that the decoded JSON and the hex differ by more than a line.
+    const frame = await openRealModal(page, { greeting: `Hello Tempo ${'x'.repeat(120)}` });
+    await recordMotion(frame, { kind: 'folder', open: true });
+    await page.waitForTimeout(400);
+
+    assertMotionInvariants(await recordMotion(frame, { kind: 'file-content-mode' }));
+  });
+
+  test('an error banner arriving moves the box, not the card', async ({ page }) => {
+    const frame = await openRealModal(page);
+    assertMotionInvariants(
+      await recordMotion(frame, { kind: 'error-banner', message: 'Signing failed. Try again.' }),
+    );
+  });
+
+  test('content height does not depend on the box it is given', async ({ page }) => {
+    // Long calldata so the block's height cap actually binds: a cap in viewport
+    // units would then make the content a function of the box the parent gave
+    // it, and the two would chase each other.
+    const frame = await openRealModal(page, { greeting: `Hello Tempo ${'y'.repeat(600)}` });
+    await recordMotion(frame, { kind: 'folder', open: true });
+    await page.waitForTimeout(400);
+
+    const hostHeight = () =>
+      frame.evaluate(() =>
+        Math.round(
+          (
+            document.getElementById('w3a-confirm-portal')!.firstElementChild as HTMLElement
+          ).getBoundingClientRect().height,
+        ),
+      );
+    // Grow only: a box smaller than its content would raise a classic
+    // scrollbar, narrow the content, and re-wrap it for reasons of its own.
+    const setBoxHeightCssPx = async (px: number | null) => {
+      await page.evaluate((height) => {
+        const iframe = document.querySelector(
+          'dialog.w3a-wallet-overlay-dialog iframe',
+        ) as HTMLIFrameElement;
+        iframe.style.height = height === null ? '' : `${height}px`;
+      }, px);
+      await page.waitForTimeout(150);
+    };
+
+    const natural = await hostHeight();
+    await setBoxHeightCssPx(natural + 320);
+    const grown = await hostHeight();
+    await setBoxHeightCssPx(null);
+    expect(grown).toBe(natural);
   });
 });

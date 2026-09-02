@@ -76,9 +76,11 @@ const MIN_ANNOUNCED_DELTA_CSS_PX = 1;
  * What a component hands over when it is about to change its own height.
  *
  * The contract, in order: lay out the new content, clamp the changing element
- * at `fromCssPx`, then announce. The clamp must go through a stylesheet or CSS
- * variable — never a style attribute, since the wallet origin ships
- * `style-src-attr 'none'`.
+ * at `fromCssPx`, then announce. The clamp must be in place before the call,
+ * because a host measures itself synchronously while the announcement is
+ * dispatched and would otherwise read a change that has already happened. It
+ * must go through a stylesheet or CSS variable — never a style attribute,
+ * since the wallet origin ships `style-src-attr 'none'`.
  */
 export type SurfaceResizeAnnouncement = {
   /** Diagnostics label: a tree node id, `file-content-mode`, `confirm-body`. */
@@ -172,8 +174,16 @@ export function createSurfaceHeightReflow(args: {
   readonly reason?: string;
   /** The element whose height changes, resolved fresh on every call. */
   element: () => HTMLElement | null;
-  /** Hold the element at this height, or release it when given null. */
-  setHeightCssPx(px: number | null): void;
+  /** Hold the element at this height, in CSS px. */
+  setHeightCssPx(px: number): void;
+  /**
+   * Resolves once this component AND the children it renders have settled.
+   * Nested components update in their own microtasks, so a height measured in
+   * `updated` can be short by whatever a child adds a moment later — and the
+   * box would then be sent to the wrong size. Waiting is safe because the
+   * element is already clamped by then.
+   */
+  settled?(): Promise<unknown>;
 }): SurfaceHeightReflow {
   let capturedCssPx: number | null = null;
   let clampedElement: HTMLElement | null = null;
@@ -183,7 +193,6 @@ export function createSurfaceHeightReflow(args: {
     clampedElement = null;
     if (!element) return;
     element.classList.remove(CONFIRM_SURFACE_HEIGHT_DRIVEN_CLASS);
-    args.setHeightCssPx(null);
   };
 
   return {
@@ -200,20 +209,99 @@ export function createSurfaceHeightReflow(args: {
       // whatever this render changed when the pin comes off, so the parent
       // still eases once rather than chasing two overlapping motions.
       if (document.documentElement.classList.contains(CONFIRM_SURFACE_PINNED_ROOT_CLASS)) return;
-      announceSurfaceResize(element, {
-        ...(args.reason ? { reason: args.reason } : {}),
-        fromCssPx,
-        toCssPx: element.getBoundingClientRect().height,
-        onClaimed: () => {
-          clampedElement = element;
+      // An enclosing reflow is already holding this subtree. Its motion covers
+      // whatever changed in here, and a clamp of our own would make the height
+      // it is about to measure short by exactly this element's growth.
+      if (element.parentElement?.closest(`.${CONFIRM_SURFACE_HEIGHT_DRIVEN_CLASS}`)) return;
+      // Clamp in this task, before anything is painted or observed. Everything
+      // after this point can take its time.
+      clampedElement = element;
+      element.classList.add(CONFIRM_SURFACE_HEIGHT_DRIVEN_CLASS);
+      args.setHeightCssPx(fromCssPx);
+
+      void Promise.resolve(args.settled?.())
+        // Nested components render in their own microtasks, and a height read
+        // before they have is short by whatever they add. One frame under the
+        // clamp is long enough for all of them, and costs nothing visible: the
+        // element is holding its pre-change height either way.
+        .then(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+        .then(() => {
+          // A newer render, or a dispose, has taken this element over.
+          if (clampedElement !== element) return;
+          // A motion claimed the surface while this render was settling. It
+          // owns the box, and this element sits inside what it is moving.
+          if (document.documentElement.classList.contains(CONFIRM_SURFACE_PINNED_ROOT_CLASS)) {
+            release();
+            return;
+          }
+          // Read the natural height with the clamp momentarily off. No frame
+          // is painted between these two writes, so nothing sees the gap.
+          element.classList.remove(CONFIRM_SURFACE_HEIGHT_DRIVEN_CLASS);
+          const toCssPx = element.getBoundingClientRect().height;
           element.classList.add(CONFIRM_SURFACE_HEIGHT_DRIVEN_CLASS);
-        },
-        setHeightCssPx: (px) => args.setHeightCssPx(px),
-        finish: release,
-      });
+          const claimed = announceClampedSurfaceResize({
+            ...(args.reason ? { reason: args.reason } : {}),
+            element,
+            fromCssPx,
+            toCssPx,
+            setHeightCssPx: (px) => args.setHeightCssPx(px),
+            onSettled: () => {
+              clampedElement = null;
+            },
+          });
+          if (!claimed) release();
+        });
     },
     dispose: release,
   };
+}
+
+/**
+ * Clamp an element at its pre-change height, announce the change, and release
+ * the clamp when the motion lands. This is the call every height change in a
+ * confirmation goes through, because the clamp has to be in place *before* the
+ * announcement: a host measures itself while the event is dispatched.
+ *
+ * Returns true when a host took the motion. False means the clamp was never
+ * applied (or has already been dropped) and the caller animates itself.
+ */
+export function announceClampedSurfaceResize(args: {
+  readonly reason?: string;
+  /** The element to hold; it carries `drivenClasses` for the motion. */
+  readonly element: HTMLElement;
+  readonly fromCssPx: number;
+  readonly toCssPx: number;
+  /**
+   * Classes that make the element read the height written by
+   * `setHeightCssPx`, without a transition of its own. Defaults to the shared
+   * one; components with their own height rules pass theirs.
+   */
+  readonly drivenClasses?: readonly string[];
+  setHeightCssPx(px: number): void;
+  /** Extra commit work once the clamp is released. */
+  onSettled?(): void;
+}): boolean {
+  const { element, fromCssPx, toCssPx } = args;
+  if (!Number.isFinite(fromCssPx) || !Number.isFinite(toCssPx)) return false;
+  if (Math.abs(toCssPx - fromCssPx) < MIN_ANNOUNCED_DELTA_CSS_PX) return false;
+  const drivenClasses = args.drivenClasses ?? [CONFIRM_SURFACE_HEIGHT_DRIVEN_CLASS];
+
+  element.classList.add(...drivenClasses);
+  args.setHeightCssPx(fromCssPx);
+  const claimed = announceSurfaceResize(element, {
+    ...(args.reason ? { reason: args.reason } : {}),
+    fromCssPx,
+    toCssPx,
+    setHeightCssPx: args.setHeightCssPx,
+    finish: () => {
+      element.classList.remove(...drivenClasses);
+      args.onSettled?.();
+    },
+  });
+  // Nobody owns the motion, so there is no box to wait for: drop the clamp in
+  // the same task, before anything is painted.
+  if (!claimed) element.classList.remove(...drivenClasses);
+  return claimed;
 }
 
 export type ConfirmSurfaceResizeChoreographer = {

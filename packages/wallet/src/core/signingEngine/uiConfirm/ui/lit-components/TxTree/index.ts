@@ -8,7 +8,7 @@ import {
   dispatchTxReviewOpenLink,
   dispatchTxReviewToggleNode,
 } from '../../lit-events';
-import { announceSurfaceResize } from '../../confirm-surface-resize';
+import { announceClampedSurfaceResize } from '../../confirm-surface-resize';
 import type { TreeNode } from './tx-tree-utils';
 import type { TxTreeStyles } from './tx-tree-themes';
 import { TX_TREE_THEMES } from './tx-tree-themes';
@@ -198,24 +198,32 @@ export class TxTree extends LitElementWithProps {
     const currentMode = this.resolveFileContentMode(node);
     const nextMode: 'decoded' | 'raw' = currentMode === 'decoded' ? 'raw' : 'decoded';
     const fromCssPx = shell?.getBoundingClientRect().height ?? 0;
+    // Decoded and raw calldata rarely occupy the same number of lines, so
+    // swapping them resizes the card. Hold the block at its current height
+    // across the swap: the new encoding never lays out at its natural height,
+    // so neither the screen nor the surface reporter sees it.
+    if (shell) {
+      shell.classList.add(...HEIGHT_DRIVEN_CLASSES);
+      this.setCssVars({ '--w3a-tree__anim-target': `${fromCssPx}px` });
+    }
     this._fileContentModes.set(node.id, nextMode);
     this.requestUpdate();
     if (!shell) return;
     void this.updateComplete.then(() => {
-      // Decoded and raw calldata rarely occupy the same number of lines, so
-      // swapping them resizes the card. Measured here, after Lit has written
-      // the new content and before the frame is painted, so the natural height
-      // never reaches the screen or the surface reporter: this continuation and
-      // the render share one task.
+      // Read the natural height with the clamp momentarily off; no frame is
+      // painted between these two writes.
+      shell.classList.remove(...HEIGHT_DRIVEN_CLASSES);
       const toCssPx = shell.getBoundingClientRect().height;
-      announceSurfaceResize(this, {
+      shell.classList.add(...HEIGHT_DRIVEN_CLASSES);
+      const claimed = announceClampedSurfaceResize({
         reason: `${node.id}:file-content-mode`,
+        element: shell,
+        drivenClasses: HEIGHT_DRIVEN_CLASSES,
         fromCssPx,
         toCssPx,
-        onClaimed: () => shell.classList.add(...HEIGHT_DRIVEN_CLASSES),
         setHeightCssPx: (px) => this.setCssVars({ '--w3a-tree__anim-target': `${px}px` }),
-        finish: () => shell.classList.remove(...HEIGHT_DRIVEN_CLASSES),
       });
+      if (!claimed) shell.classList.remove(...HEIGHT_DRIVEN_CLASSES);
     });
   };
 
@@ -391,15 +399,16 @@ export class TxTree extends LitElementWithProps {
     args: { open: boolean; deltaCssPx: number },
   ): boolean {
     const { open, deltaCssPx } = args;
-    return announceSurfaceResize(this, {
+    return announceClampedSurfaceResize({
       ...(details.dataset.nodeId ? { reason: details.dataset.nodeId } : {}),
+      element: body,
+      drivenClasses: HEIGHT_DRIVEN_CLASSES,
       fromCssPx: open ? 0 : deltaCssPx,
       toCssPx: open ? deltaCssPx : 0,
-      onClaimed: () => body.classList.add(...HEIGHT_DRIVEN_CLASSES),
       setHeightCssPx: (px) => this.setCssVars({ '--w3a-tree__anim-target': `${px}px` }),
-      finish: () => {
+      onSettled: () => {
         if (!open) details.open = false;
-        body.classList.remove(...HEIGHT_DRIVEN_CLASSES, 'anim-h-hold');
+        body.classList.remove('anim-h-hold');
         this._animating.delete(details);
         this.handleToggle({ nodeId: details.dataset.nodeId, open: details.open });
       },
