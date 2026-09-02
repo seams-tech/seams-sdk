@@ -57,13 +57,27 @@ jobs:
   ed25519-yao-constant-time-codegen:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # check_constant_time_codegen.mjs runs three cold --release builds (native,
+    # then both cross-account Worker features) into a throwaway CARGO_TARGET_DIR,
+    # because the codegen it asserts on has to come from a clean compile. That
+    # does not fit in 30 minutes on a hosted runner -- the job was cancelled at
+    # the cap on every dispatch since it was added. A cap is a safety net, not a
+    # budget: billing follows actual minutes, so give it room to finish.
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      # The script's temp target dir defeats artifact caching by design; this
+      # still spares the crates.io index and dependency downloads.
+      - name: Cache Ed25519-Yao Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ed25519-yao-constant-time-${{ runner.os }}
+          cache-targets: 'false'
 
       - name: Add Worker WASM target
         run: rustup target add wasm32-unknown-unknown
