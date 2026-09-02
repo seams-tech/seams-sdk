@@ -278,7 +278,7 @@ pub(crate) fn complete_deriver_a(
         .map_err(|_| PrefaceError::Proof)?
         .into_secret_bytes();
     derive_ed25519_yao_deriver_a_server_contribution_v1(
-        &Ed25519YaoDeriverADerivationRootV1::from_secret_bytes(output),
+        &Ed25519YaoDeriverADerivationRootV1::from_secret_bytes(*output),
         stable_context,
     )
     .map_err(|_| PrefaceError::ContributionKdf)
@@ -304,7 +304,7 @@ pub(crate) fn complete_deriver_b(
         .map_err(|_| PrefaceError::Proof)?
         .into_secret_bytes();
     derive_ed25519_yao_deriver_b_server_contribution_v1(
-        &Ed25519YaoDeriverBDerivationRootV1::from_secret_bytes(output),
+        &Ed25519YaoDeriverBDerivationRootV1::from_secret_bytes(*output),
         stable_context,
     )
     .map_err(|_| PrefaceError::ContributionKdf)

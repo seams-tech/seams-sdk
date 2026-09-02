@@ -387,6 +387,9 @@ impl TwoPartyRootShareCommitments {
         require_commitment_role(&deriver_b, TwoPartyDeriverRole::DeriverB)?;
         require_non_identity_point(&deriver_a.point())?;
         require_non_identity_point(&deriver_b.point())?;
+        if bool::from(deriver_a.point().ct_eq(&deriver_b.point())) {
+            return Err(ThresholdPrfError::InvalidRootCommitment);
+        }
         let root_point = (Scalar::from(2_u64) * deriver_a.point()) - deriver_b.point();
         let root = TwoPartyRootCommitment::from_bytes(root_point.compress().to_bytes())?;
         Ok(Self {
@@ -421,6 +424,36 @@ impl TwoPartyRootShareCommitments {
     pub fn deriver_b(&self) -> SigningRootShareCommitment {
         self.deriver_b
     }
+}
+
+/// Derives the next public A/B commitments from two ordered refresh coefficients.
+pub fn derive_two_party_root_share_refresh_commitments(
+    current: &TwoPartyRootShareCommitments,
+    deriver_a_coefficient: RootShareRefreshCoefficientCommitment,
+    deriver_b_coefficient: RootShareRefreshCoefficientCommitment,
+) -> ThresholdPrfResult<TwoPartyRootShareCommitments> {
+    if deriver_a_coefficient.source != TwoPartyDeriverRole::DeriverA
+        || deriver_b_coefficient.source != TwoPartyDeriverRole::DeriverB
+    {
+        return Err(ThresholdPrfError::InvalidRefreshRole);
+    }
+    let delta = deriver_a_coefficient.point + deriver_b_coefficient.point;
+    if bool::from(delta.ct_eq(&RistrettoPoint::identity())) {
+        return Err(ThresholdPrfError::RefreshNoOp);
+    }
+    let next_deriver_a = SigningRootShareCommitment::from_compressed(
+        TwoPartyDeriverRole::DeriverA.share_id(),
+        (current.deriver_a.point() + delta).compress().to_bytes(),
+    )?;
+    let next_deriver_b = SigningRootShareCommitment::from_compressed(
+        TwoPartyDeriverRole::DeriverB.share_id(),
+        (current.deriver_b.point() + (Scalar::from(2_u64) * delta))
+            .compress()
+            .to_bytes(),
+    )?;
+    let next = TwoPartyRootShareCommitments::new(next_deriver_a, next_deriver_b)?;
+    verify_two_party_root_share_refresh(current, &next)?;
+    Ok(next)
 }
 
 /// Verifies that both shares changed and the exact joined root commitment stayed fixed.

@@ -33,8 +33,9 @@ Options:
   --repo <owner/repo>
                     Pass an explicit repository to gh.
 
-This command generates deployment identity keys only. It does not generate
-DERIVER_A_ROOT_SHARE_WIRE_SECRET or DERIVER_B_ROOT_SHARE_WIRE_SECRET.`);
+This command generates deployment identity and operational-encryption keys. It
+does not generate DERIVER_A_ROOT_SHARE_WIRE_SECRET or
+DERIVER_B_ROOT_SHARE_WIRE_SECRET.`);
   process.exit(laneId ? 0 : 1);
 }
 
@@ -42,6 +43,10 @@ const deriverAEnvelope = generateX25519KeyPair();
 const deriverBEnvelope = generateX25519KeyPair();
 const deriverARolePrivateD1Kek = generateX25519KeyPair();
 const deriverBRolePrivateD1Kek = generateX25519KeyPair();
+const deriverATenantRootOnline = generateX25519KeyPair();
+const deriverATenantRootManagedBackup = generateX25519KeyPair();
+const deriverBTenantRootOnline = generateX25519KeyPair();
+const deriverBTenantRootManagedBackup = generateX25519KeyPair();
 const signingWorkerServerOutput = generateX25519KeyPair();
 const signingWorkerPrivateD1Kek = generateX25519KeyPair();
 const deriverAPeer = generateEd25519KeyPair();
@@ -54,6 +59,22 @@ const variables = {
   ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION: 'epoch-1',
   ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY: deriverBRolePrivateD1Kek.publicKey,
   ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION: 'epoch-1',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF:
+    'cloudflare-worker-secret/deriver-a/tenant-root-online/key-1',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY: deriverATenantRootOnline.publicKey,
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID:
+    'cloudflare-worker-secret-operational-v1',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION: 'deriver-a-key-1',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:
+    deriverATenantRootManagedBackup.publicKey,
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF:
+    'cloudflare-worker-secret/deriver-b/tenant-root-online/key-1',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY: deriverBTenantRootOnline.publicKey,
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID:
+    'cloudflare-worker-secret-operational-v1',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION: 'deriver-b-key-1',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:
+    deriverBTenantRootManagedBackup.publicKey,
   ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: signingWorkerServerOutput.publicKey,
   ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY: signingWorkerPrivateD1Kek.publicKey,
   ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION: 'epoch-1',
@@ -65,9 +86,13 @@ const secrets = {
   DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${deriverAEnvelope.privateKeyHex}`,
   DERIVER_A_ROLE_PRIVATE_D1_KEK: `hpke-x25519-role-private-d1-private-v1:${deriverARolePrivateD1Kek.privateKeyHex}`,
   DERIVER_A_PEER_SIGNING_KEY: deriverAPeer.signingSeedB64u,
+  DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${deriverATenantRootOnline.privateKeyHex}`,
+  DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${deriverATenantRootManagedBackup.privateKeyHex}`,
   DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${deriverBEnvelope.privateKeyHex}`,
   DERIVER_B_ROLE_PRIVATE_D1_KEK: `hpke-x25519-role-private-d1-private-v1:${deriverBRolePrivateD1Kek.privateKeyHex}`,
   DERIVER_B_PEER_SIGNING_KEY: deriverBPeer.signingSeedB64u,
+  DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${deriverBTenantRootOnline.privateKeyHex}`,
+  DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${deriverBTenantRootManagedBackup.privateKeyHex}`,
   SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: `hpke-x25519-server-output-private-v1:${signingWorkerServerOutput.privateKeyHex}`,
   SIGNING_WORKER_PRIVATE_D1_KEK: `hpke-x25519-server-output-private-v1:${signingWorkerPrivateD1Kek.privateKeyHex}`,
 };

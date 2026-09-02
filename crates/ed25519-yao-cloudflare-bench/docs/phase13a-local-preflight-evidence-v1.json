@@ -1,14 +1,14 @@
 {
   "schema": "phase13a-local-preflight-evidence-v1",
-  "recorded_at": "2026-07-17",
+  "recorded_at": "2026-08-31",
   "scope": "local-evidence-only",
   "phase13a_decision": "unavailable",
   "production_eligible": false,
   "validated_inputs": {
     "schema": "ed25519_yao_local_readiness_inputs_v1",
-    "file_count": 2349,
-    "total_bytes": 34293845,
-    "sha256": "6f02b1e3c1093ffa5c2c634fa4b01fd3d9574bc0ffff0f69c6d99d091a528818"
+    "file_count": 2870,
+    "total_bytes": 47326913,
+    "sha256": "d07dcaab31fb64fe62d658761e88a156627897e4b2b2f2255644df72dd8ddf51"
   },
   "phase9c_validation": {
     "receipt_path": "crates/router-ab-dev/target/phase9c-yaos-ab-local-evidence-v1.json",
@@ -83,11 +83,11 @@
     "schema": "ed25519_yao_benchmark_isolation_audit_v1",
     "status": "pass",
     "production_reachable": false,
-    "authorized_core_dependents": 5,
+    "authorized_core_dependents": 6,
     "benchmark_dependents": 0,
-    "product_files_scanned": 4409,
+    "product_files_scanned": 3188,
     "product_references": 0,
-    "benchmark_wrangler_configs": 19,
+    "benchmark_wrangler_configs": 21,
     "production_routes": 0
   },
   "stream_kat_cases": [
@@ -111,21 +111,21 @@
   "validation": {
     "command": "npm run validate:local-readiness",
     "result": "pass",
-    "rust_unit_tests": 18,
-    "source_guard_tests": 12,
+    "rust_unit_tests": 25,
+    "source_guard_tests": 13,
     "normal_role_artifacts": 4,
     "fault_artifacts": 9,
     "wrangler_dry_run_artifacts": 4,
-    "core_passive_rust_tests": 100,
+    "core_passive_rust_tests": 104,
     "independent_python_tests": 186,
     "deterministic_differential_cases": 128,
     "phase5_stream_kat_drift_tests": 1,
     "strict_core_clippy_targets": 3,
     "wasm_stream_profiles": 6,
     "wasm_stream_modes": 2,
-    "formal_parity_production_rust_tests": 82,
-    "formal_parity_generator_rust_tests": 418,
-    "formal_parity_circuit_rust_tests": 25,
+    "formal_parity_production_rust_tests": 84,
+    "formal_parity_generator_rust_tests": 420,
+    "formal_parity_circuit_rust_tests": 26,
     "formal_parity_artifact_filesystem_tests": 3,
     "local_native_compute_profiles": 2,
     "local_wasm_compute_profiles": 2,
@@ -158,7 +158,7 @@
     },
     {
       "path": "crates/ed25519-yao-cloudflare-bench/docs/phase13a-isolation-audit-v1.md",
-      "sha256": "3cfcf3daad0008ab27760e0eceae6addf52bebbd7b32dc622f024f3b16f66294"
+      "sha256": "3d0437f9d6716f16fdeb3d4b13add8cd8f643199be9fd0ff7c28aa8cea97cf6c"
     },
     {
       "path": "crates/ed25519-yao-cloudflare-bench/docs/phase9b-same-account-report-v085.md",
@@ -166,11 +166,11 @@
     },
     {
       "path": "crates/ed25519-yao-cloudflare-bench/tests/source_guards.rs",
-      "sha256": "d187a0bb38cb264cbb71ea96a1a59b7245f4880b124cce718cb11b0c929d9448"
+      "sha256": "ce42a01405d526e9bd33c840dd4d8dcea47f89fccf80f03d4545689dc2ebe8bf"
     },
     {
       "path": "crates/ed25519-yao-cloudflare-bench/Cargo.toml",
-      "sha256": "5f1d047adbe3685f719be5c29ec5d289168ef192df6a7e563c9505e2089d0d80"
+      "sha256": "8395ee0defcd66a0c49e841eebd3a993ad98c722440723d243ca1aa3c6e16709"
     },
     {
       "path": "crates/router-ab-dev/reports/ed25519-yao-local-latency-v1.json",

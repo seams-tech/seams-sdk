@@ -218,7 +218,21 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     router.assert_wrangler("binding = \"DERIVER_A\"");
     router.assert_wrangler("binding = \"DERIVER_B\"");
     router.assert_wrangler("binding = \"SIGNING_WORKER\"");
-    router.assert_wrangler_absent("[durable_objects]");
+    router.assert_wrangler("[durable_objects]");
+    router.assert_wrangler(
+        "name = \"ROUTER_TENANT_ROOT_CREATION_DO\", class_name = \"RouterAbTenantRootCreationDurableObject\"",
+    );
+    router.assert_wrangler("[[migrations]]");
+    router.assert_wrangler("tag = \"router_ab_router_tenant_root_creation_v1\"");
+    router.assert_wrangler("new_sqlite_classes = [\"RouterAbTenantRootCreationDurableObject\"]");
+    router.assert_wrangler("[[env.staging.durable_objects.bindings]]");
+    router.assert_wrangler(
+        "name = \"ROUTER_TENANT_ROOT_CREATION_DO\"\nclass_name = \"RouterAbTenantRootCreationDurableObject\"",
+    );
+    router.assert_wrangler("[[env.production-testnet.durable_objects.bindings]]");
+    router.assert_wrangler(
+        "name = \"ROUTER_TENANT_ROOT_CREATION_DO\"\nclass_name = \"RouterAbTenantRootCreationDurableObject\"",
+    );
     router.assert_wrangler_absent("[[d1_databases]]");
     router.assert_local("DERIVER_A_URL=http://127.0.0.1:4103");
     router.assert_local("DERIVER_B_URL=http://127.0.0.1:4104");

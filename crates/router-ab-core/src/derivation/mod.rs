@@ -16,18 +16,33 @@ mod material;
 mod scope;
 mod signer_plaintext;
 mod tenant_root;
+mod tenant_root_activation_evidence;
+mod tenant_root_activation_receipt;
+mod tenant_root_activation_support_evidence;
+mod tenant_root_active_binding;
 mod tenant_root_command_replay;
+mod tenant_root_command_terminal_receipt;
+mod tenant_root_creation_capability;
+mod tenant_root_creation_journal;
+mod tenant_root_creation_role_command;
 mod tenant_root_custody_binding;
 mod tenant_root_deletion_lifecycle;
+mod tenant_root_initial_role_attempt;
 mod tenant_root_lifecycle;
 mod tenant_root_managed_backup;
 mod tenant_root_managed_restore_lifecycle;
+mod tenant_root_online_sealing;
 mod tenant_root_protocol;
 mod tenant_root_recovery_artifacts;
 mod tenant_root_recovery_recipient_proof;
 mod tenant_root_recovery_reshare;
+mod tenant_root_refresh_checkpoint;
+mod tenant_root_refresh_role_attempt;
+mod tenant_root_refresh_role_command;
 mod tenant_root_refresh_transport;
 mod tenant_root_restore_import;
+
+pub use threshold_prf::TwoPartyDeriverRole;
 mod transcript;
 mod wire;
 mod x25519_canonical;
@@ -76,16 +91,27 @@ pub use self::signer_plaintext::{
     decode_signer_input_plaintext_v1, encode_signer_input_plaintext_v1, SignerInputPlaintextV1,
     SignerInputQuorumPolicyV1,
 };
+pub(crate) use self::tenant_root::require_tenant_root_identifier;
 pub use self::tenant_root::{
     TenantRootCustodyLineageId, TenantRootIdentityDigestV1, TenantRootIdentityV1,
-    TenantRootShareEpoch,
+    TenantRootShareEpoch, TENANT_ROOT_MAX_CLOCK_SKEW_MS_V1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
 };
+pub use self::tenant_root_activation_evidence::*;
+pub use self::tenant_root_activation_receipt::*;
+pub use self::tenant_root_activation_support_evidence::*;
+pub use self::tenant_root_active_binding::*;
 pub use self::tenant_root_command_replay::*;
+pub use self::tenant_root_command_terminal_receipt::*;
+pub use self::tenant_root_creation_capability::*;
+pub use self::tenant_root_creation_journal::*;
+pub use self::tenant_root_creation_role_command::*;
 pub use self::tenant_root_custody_binding::*;
 pub use self::tenant_root_deletion_lifecycle::*;
+pub use self::tenant_root_initial_role_attempt::*;
 pub use self::tenant_root_lifecycle::*;
 pub use self::tenant_root_managed_backup::*;
 pub use self::tenant_root_managed_restore_lifecycle::*;
+pub use self::tenant_root_online_sealing::*;
 pub use self::tenant_root_protocol::{
     verify_tenant_root_creation_evidence_v1, verify_tenant_root_refresh_evidence_v1,
     TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1,
@@ -123,14 +149,21 @@ pub use self::tenant_root_recovery_reshare::{
     VerifiedTenantRootRecoveryReshareCommitmentV1, VerifiedTenantRootRecoveryReshareContributionV1,
     VerifiedTenantRootRecoveryResharePairV1, VerifiedTenantRootRecoveryShareV1,
 };
+pub use self::tenant_root_refresh_checkpoint::*;
+pub use self::tenant_root_refresh_role_attempt::*;
+pub use self::tenant_root_refresh_role_command::*;
 pub use self::tenant_root_refresh_transport::{
     open_tenant_root_refresh_contribution_v1, seal_tenant_root_refresh_contribution_v1,
-    TenantRootEncryptedRefreshContributionV1, TenantRootRefreshCommitmentTranscriptV1,
-    TenantRootRefreshContributionAadDigestV1, TenantRootRefreshContributionAadV1,
-    TenantRootRefreshHpkeKeypairV1, TenantRootRefreshHpkePublicKeyV1,
+    TenantRootCreationCommitmentTranscriptV1, TenantRootEncryptedRefreshContributionV1,
+    TenantRootRefreshCommitmentTranscriptV1, TenantRootRefreshContributionAadDigestV1,
+    TenantRootRefreshContributionAadV1, TenantRootRefreshHpkeKeypairV1,
+    TenantRootRefreshHpkePublicKeyV1, TenantRootSignedCreationCommitmentV1,
     TenantRootSignedRefreshCommitmentV1, TenantRootSignedRefreshContributionV1,
-    TenantRootSignedShareInstallationEvidenceV1, VerifiedTenantRootRefreshCommitmentPairV1,
-    VerifiedTenantRootRefreshCommitmentV1,
+    TenantRootSignedShareInstallationEvidenceV1, VerifiedTenantRootCreationCommitmentPairV1,
+    VerifiedTenantRootCreationCommitmentV1, VerifiedTenantRootRefreshCommitmentPairV1,
+    VerifiedTenantRootRefreshCommitmentV1, VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
+    TENANT_ROOT_SIGNED_CREATION_COMMITMENT_MAX_BYTES_V1,
+    TENANT_ROOT_SIGNED_SHARE_INSTALLATION_EVIDENCE_MAX_BYTES_V1,
 };
 pub use self::tenant_root_restore_import::{
     ExpectedTenantRootRestoreImportV1, ImportedTenantRootRecoveryRoleShareV1,

@@ -16,13 +16,51 @@ cryptographic core, tenant-root identity primitives, role-targeted Ed25519 Rust
 protocol, signed and recipient-encrypted refresh-message core, and WASM
 self-check adapters are implemented. Role-local distributed root generation,
 signed creation evidence, the byte-exact ECDSA stable-context type, and
-native/WASM share-refresh invariance vectors are also implemented. The existing
-production ECDSA threshold-PRF adapter still consumes its pre-R120 ceremony
-context. Runtime wire adapters, the orchestrated creation and refresh
-ceremonies, Deriver stores, control-plane lifecycle, and production integration
-remain unimplemented. R120-owned cryptographic work may proceed while Refactor
-103F is implemented. Shared wallet-server integration and production
-activation follow the R103F gates defined below.
+native/WASM share-refresh invariance vectors are also implemented. The dormant
+creation journal and authority capability, deterministic Router Durable Object
+binding and migration, role-private replay/checkpoint persistence, signed
+terminal receipts, the issuer-authenticated initial role command, the dormant
+signed A/B creation-commitment rendezvous, the public-evidence-only A/B
+installation checkpoint, request-local non-clone initial role attempts with
+burn-on-drop semantics, provider-neutral online role-share sealing bound to the
+exact installation evidence and key reference, creation-specific D1
+reservation/execution/success receipts, authenticated private Router
+commitment/evidence RPCs, atomic Durable Object transactions, and B4/B5
+composition boundaries are implemented. The dormant activation-evidence path
+now derives a strict canonical control-plane-signed activation receipt from a
+verified evidence bundle, enforces the exact result revision, and retains its
+exact signed bytes. Its availability branch is exhaustive: it accepts either
+source-bound A/B managed-backup artifacts with distinct provider IDs and strict
+canonical signed artifacts, or a consuming dual-authority accepted-loss
+authorization bound to the exact context, root commitments, installation
+receipts, revisions, and one-use scope. Provider canaries,
+`verify_tenant_root_refresh_evidence_v1`, constant-time secret-derive
+hardening, and the dormant refresh Durable Object's authoritative public-state,
+commitment-checkpoint, and installation-checkpoint paths are implemented; the
+checkpoint paths enforce exact replay/fence semantics and have no activation
+consumer. The existing production ECDSA threshold-PRF adapter still consumes
+its pre-R120 ceremony context. Production runtime wire adapters, live Durable
+Object orchestration, the orchestrated
+creation and refresh ceremonies, role-runtime creation handlers, provider-backed
+key destruction, and production integration remain unimplemented. No public
+activation route, activation caller, or cutover consumes these dormant paths.
+The dormant Cloudflare `operational_rotation_v1` provider adapter now implements
+role-local HPKE X25519/HKDF-SHA256/ChaCha20Poly1305 online and managed-backup
+seal/open with distinct online and backup keys, info labels, and AAD; its
+roundtrip, wrong-provider, and reused-key tests pass. No Env/Wrangler
+provisioning, role-private persistence integration, destruction probe,
+`managed_healing_v1` adapter or qualification, provider registry, live route,
+activation, or cutover consumes it. The dormant creation code retains role
+verifying keys by the exact role-plus-`signing_key_id` pair. Production
+role-verifying-key provisioning/configuration, dedicated creation-signing-key
+provisioning, and provider key create/destroy/probe integration remain open.
+Wrangler provisioning remains deliberately absent pending activation, and no
+activation or cutover consumes them. Refactor 103F's final dev tip
+`bfaed287` (full short form `bfaed2877`) is merged into R120 HEAD
+`308948c15`.
+R120-owned cryptographic and dormant integration work may proceed. Shared
+production activation still follows the Phase 0 architecture-selection and
+release gates defined below.
 
 ## Outcome
 
@@ -284,11 +322,10 @@ authenticated deployment configuration
 
 ### Frozen R103F B4/B5 API snapshot
 
-This snapshot records the exact integration surface after merging R103F commit
-`223c0222359c2fe4abb923a2ae056b31d95f77b5` in merge commit
-`669dbacb9d590f27c28b98c6b7e91b299f1d12ab`. R120 changes this boundary only
-through the independently resolved tenant-root binding and the equality check
-described below.
+This snapshot records the exact integration surface after merging the completed
+R103F tree through `bfaed2877` in R120 merge `308948c15`. R120 changes this boundary
+only through the independently resolved tenant-root binding and the equality
+check described below.
 
 **B4 operation admission** is owned by
 `walletExecutionAdmission.ts`:
@@ -326,7 +363,7 @@ are:
 | Family  | Authoritative B5 fields used for the R120 equality check                                                                                                                                                  |
 | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ECDSA   | `routerAbEcdsaDerivationNormalSigning.scope.signing_root_id` and `.signing_root_version`                                                                                                                  |
-| Ed25519 | `exportIdentity.application_binding.signing_root_id` and `exportIdentity.scope.root_share_epoch`, with the latter already checked by the B5 store against the signer record's stable `signingRootVersion` |
+| Ed25519 | `exportIdentity.application_binding.signing_root_id` and `exportIdentity.scope.root_share_epoch`; the R120 resolver compares the latter with B5's independently parsed `runtimePolicyScope.signingRootVersion` |
 
 The Ed25519 field name is inherited R103/R103F wire vocabulary. R120 treats its
 value only as the established material's stable signing-root version. It never
@@ -350,8 +387,11 @@ Normal signing stops after B5. It never executes steps 3 through 5 and never
 loads a tenant-root share.
 
 The R103F signer-D1 migration tree is frozen at this snapshot. Its aggregate
-SHA-256, produced by hashing each ordered `migrations/d1-signer/*.sql` digest,
-is `22bc861e959d7466f5c9ed7de3e85fd4562674a3016825fb74373327b2766d68`.
+SHA-256 is `670aeba976269f2142eddcb9524a7b68a4022147eb30f02ecd5e10958aaaf1b8`,
+computed as SHA-256 over the concatenated raw SHA-256 digests of the 35
+lexicographically ordered `packages/wallet-server/migrations/d1-signer/*.sql`
+files. The boundary-inventory evidence records every ordered file digest and
+recomputes this aggregate.
 R120 adds no signer-D1 migration or root-custody field. Its secret custody rows
 belong only in the separate Deriver A and Deriver B private stores; an observed
 change to that signer-D1 digest requires explicit plan review before R120 can
@@ -461,38 +501,102 @@ share IDs, and issued/expiry Unix milliseconds use fixed-width big-endian
 integers inside their field. Session IDs are 128 random bits and nonces are 32
 random bytes. Text IDs reuse their authoritative parsed UTF-8 bytes. Unknown,
 missing, duplicated, out-of-order, or trailing fields fail before proof or
-signature verification. Protocol peers allow at most 60 seconds of clock skew;
-larger skew fails the session and alerts operations.
+signature verification.
+
+Every tenant-root identity field, role signing-key ID, and Deriver deployment
+identity is one boundary identifier. A boundary identifier is non-empty, carries
+no leading or trailing whitespace, contains no control characters, and is at
+most 256 UTF-8 bytes. This layer never canonicalizes; a non-canonical raw input
+fails instead. `TenantRootProtocolDigestV1` rejects the all-zero digest at its
+constructor and at serde parsing, so no protocol transcript, custody, stable
+context, or replay digest can be the zero value.
+
+Two frozen time bounds apply to every tenant-root ceremony context and custody
+binding. Peers allow at most 60 seconds of clock skew
+(`TENANT_ROOT_MAX_CLOCK_SKEW_MS_V1`); larger skew fails the session and alerts
+operations. The issue-to-expiry window is at most 300 000 ms
+(`TENANT_ROOT_MAX_LIFETIME_MS_V1`), so the widest acceptance window any peer can
+observe is 360 seconds. Both constants live once in `router-ab-core` and are
+enforced by the ceremony and custody-binding validators.
 
 ### Authoritative lifecycle and crash recovery
 
 One Durable Object keyed by `TenantRootIdentityDigestV1` and
 `TenantRootCustodyLineageId` owns the operation lock, monotonic lifecycle
 revision, active epoch, root commitment, and accepted role-receipt digests. A
-role can install pending material only from a one-use command containing the
-expected revision. Derivation requests receive a control-plane-signed active
-custody binding and each Deriver accepts only that exact epoch.
+role can install pending material only from an issuer-authenticated, one-use
+command containing the expected revision. Derivation requests receive a
+control-plane-signed active custody binding and each Deriver accepts only that
+exact epoch.
 
 Activation follows one direction:
 
 1. both roles install pending shares and current-epoch managed backups;
 2. both return signed commitment and backup receipts;
 3. continuity canaries pass;
-4. the Durable Object commits the next epoch as active with compare-and-swap;
-5. both roles receive the signed activation receipt and retire the previous
+4. the control plane verifies the complete evidence bundle and issues the
+   control-plane-signed activation receipt;
+5. the Durable Object commits the next epoch as active with compare-and-swap;
+6. both roles receive the verified activation receipt and retire the previous
    epoch.
 
-Before step 4, recovery deletes pending material and keeps the old epoch active.
-After step 4, recovery resumes retirement or starts another forward refresh;
+Before step 5, recovery deletes pending material and keeps the old epoch active.
+After step 5, recovery resumes retirement or starts another forward refresh;
 rollback to the previous epoch is forbidden. Every command is idempotent by
 session ID and payload digest. Repeating an identical command returns its prior
 receipt; reusing an ID with different bytes fails.
 
 Each role store and its managed backup retain the same signed activation-receipt
 digest. If Durable Object state is unavailable, derivation and mutation freeze.
-Control-plane reconstruction requires matching current activation receipts from
-both roles. Any mismatch requires tenant-controlled restore into an empty
+Control-plane reconstruction requires matching current signed activation receipts
+from both roles. Any mismatch requires tenant-controlled restore into an empty
 lineage.
+
+### Dormant activation evidence and availability branches
+
+The activation-evidence slice now accepts one verified source bundle for each
+forward-only activation transition. The bundle is assembled from exact
+role-signed installation evidence, the target A/B commitments, exact role
+installation-receipt digests, both ECDSA and Ed25519 provider-canary receipts,
+and exactly one availability branch. The public core verifier
+`verify_tenant_root_refresh_evidence_v1` checks the exact A/B refresh context,
+roles, peer commitments, signatures, and stable joined-root continuity before a
+refresh bundle can be built.
+
+`TenantRootSignedActivationReceiptV1` is a strict canonical control-plane-signed
+receipt derived from that bundle. Its binding includes the server-resolved
+identity, custody lineage, transition, epoch or epoch pair, ceremony context
+digest, A/B and joined-root commitments, installation receipts, availability
+evidence, canary receipts, activation time, authority, issuer key, and validity
+window. Initial creation is fixed at expected revision 2 and result revision 3;
+refresh swap requires the result revision to equal the expected revision plus
+one. Verification retains the exact canonical signed bytes and their digest.
+Lifecycle and role-private D1 consume this verified token rather than accepting
+a caller-selected receipt or digest.
+
+The availability branch is exhaustive:
+
+- `CurrentRoleBackups` carries two independently verified,
+  source-bound `TenantRootSignedManagedBackupV1` artifacts. Each artifact binds
+  identity, custody lineage, role, epoch, share commitment, installation
+  receipt, provider ID, key version, role signing-key ID, and creation time in
+  strict canonical signed bytes; the bundle rejects shared provider IDs, key
+  versions, or role authorities.
+- `AcceptedPermanentDerivationLoss` carries one exact dual-authority signed
+  authorization. It binds the context, identity and root commitments, target
+  epoch, installation receipts, expected and result revisions, one-use policy,
+  incident scope, reason, validity window, and two distinct authority/key IDs.
+  Verification consumes the authorization into the activation bundle, and the
+  lifecycle transition plus its one-use D1 CAS path accept the branch once for
+  its exact scope. No unresolved quorum or caller-built accepted-loss digest
+  remains.
+
+Provider canary receipts are strict scope-bound artifacts: each names the
+activation transition, target epoch, role/root commitments, curve family,
+provider key-version reference, completion time, authority, signing key, and
+freshness window. The signed activation receipt records both canary digests.
+These are dormant local contracts; no public activation route or production
+provider transport consumes them yet.
 
 ### Deployment security profiles
 
@@ -629,11 +733,133 @@ The creation ceremony:
    `K_pub = 2*C_A - C_B` and rejects the identity element.
 6. Each role installs its own sealed pending share.
 7. Fixed ECDSA and Ed25519 canaries run against the pending epoch.
-8. The control plane activates epoch 1 after both roles attest installation and
-   every canary passes.
+8. The control plane verifies the complete evidence bundle, issues the
+   control-plane-signed activation receipt, and activates epoch 1 after both
+   roles attest installation and every canary passes.
 
 Neither scalar share crosses into the opposite role. Only commitments, proofs,
 and redacted receipts leave a Deriver.
+
+### Dormant creation journal and authority
+
+The implemented creation slice persists only a `Started` journal event. Its
+canonical identity and creation-context bytes rebuild `preparing`; later
+creation events are not representable. An issuer-signed
+`TenantRootCreationCapabilityV1` binds the Started-journal digest, identity,
+custody lineage, expected revision, deterministic Durable Object authority ID,
+one-use nonce, issuer key ID, and issue/expiry window. The dormant parser
+accepts a bounded issuer verifying-key set by key ID, retaining issuer keys by
+ID so accepted capabilities remain verifiable across issuer-key rotation.
+
+The Router uses the deterministic
+`ROUTER_TENANT_ROOT_CREATION_DO` binding and
+`router_ab_router_tenant_root_creation_v1` migration. Its object name is derived
+from the identity digest and custody lineage. The internal request carries only
+canonical journal and capability bytes; validation gates a single get/put at
+`creation/v1/journal`. First acceptance requires a fresh capability. An exact
+persisted record replays after expiry, an unseen expired capability returns
+`ExpiredLocalRequest`, and any changed record returns `ConflictingPair`. Creation
+capability freshness is checked only for the first `Started`-journal acceptance.
+After that durable acceptance, installation progress uses
+`TenantRootCeremonyContextV1::validate_at` and also requires Router time to be
+no later than the nominal `expires_at_ms`, matching the lifecycle finalizer's
+strict verification window. Exact persisted evidence retries remain replayable
+after expiry.
+A dormant crate-private Router caller derives the same object, checks the
+capability authority before dispatch, and verifies the returned revision plus
+both request digests. The dormant boundary accepts a bounded issuer
+verifying-key set by key ID through
+`ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON_ENV`; production
+deployment provisioning and rotation rollout for that set remain open.
+
+`expected_control_plane_revision` always names the exact lifecycle state from
+which the control plane dispatches a role mutation. It is positive, is assigned
+only by the lifecycle authority, and is authenticated by the issuer command.
+The Router Durable Object must compare it with its current revision before
+dispatch; role D1 treats it as an authenticated command coordinate and keeps
+its own row revision as a separate CAS counter.
+
+| Role mutation | Dispatch state | `expected_control_plane_revision` | State after accepted receipts |
+| --- | --- | ---: | ---: |
+| Initial pending insertion | Creation `Preparing` | 1 | 1 |
+| Initial activation | Creation `Verified` | 2 | 3 (`Active`) |
+| Refresh pending insertion | Refresh `Preparing` | 4 | 4 |
+| Refresh swap | Refresh `Verified` | 5 | 6 (`Retiring`) |
+| Pending cleanup after a failed pre-activation attempt | Current `Preparing`, `Verified`, or `CleanupIncomplete` state | The exact persisted state revision; the first attempt is 1 or 2 for creation and 4 or 5 for the first refresh | The lifecycle transition increments once after the required cleanup receipts |
+| Previous-epoch destruction | Refresh `Retiring` | 6 | 7 (`Active`) |
+
+For a later stable active revision `R`, the next refresh uses `R+1` for pending
+insertion, `R+2` for swap, and `R+3` for previous-epoch destruction, producing
+the next active state at `R+4`. Failed attempts also consume revisions, so the
+issuer must read the persisted branch revision instead of calculating from a
+fixed ceremony number. A resumed cleanup from `CleanupIncomplete` uses that
+newer state revision. Initial activation cannot be issued at revision 3 and
+refresh swap cannot be issued at revision 6: those revisions exist only after
+the corresponding role mutations and accepted receipts complete.
+
+Issuer authorization and role-local mutation use two deliberately distinct
+digests. The issuer command authenticates a pre-handler authorization payload
+made entirely from control-plane-known public facts. After the selected
+Deriver generates and seals its role share, role D1 computes its existing exact
+mutation digest over the complete public row payload, including the ciphertext
+digest. A verified issuer command supplies the immutable command scope; it
+cannot supply or impersonate the later D1 mutation digest.
+
+### Dormant public-evidence-only installation checkpoint
+
+`TenantRootSignedShareInstallationEvidenceV1::decode_and_verify_canonical_bytes`
+returns `VerifiedTenantRootSignedShareInstallationEvidenceWireV1` after strict
+canonical decoding and role-signature verification. The strict raw decoder
+exposes `TenantRootSignedShareInstallationEvidenceV1::signing_key_id`, and
+reload selects that exact ID within the evidence role before signature
+verification. The crate-private
+`RouterAbTenantRootCreationDurableObject::persist_installation_checkpoint`
+validates that wire against the Started journal,
+`TenantRootCreationRoleVerifyingKeysV1`, and
+`verify_tenant_root_creation_evidence_v1`, then stores a
+`CloudflareTenantRootCreationInstallationCheckpointV1` under
+`TENANT_ROOT_CREATION_INSTALLATION_CHECKPOINT_STORAGE_KEY_V1`. The checkpoint
+stores one role's canonical signed evidence in `OneRoleReady`, or both role
+evidence values plus the public root commitment in `BothRolesReady`; no scalar
+share crosses this boundary. Either role may arrive first; unseen first/peer
+evidence passes `require_fresh_installation_context` before nominal expiry,
+while exact persisted retries replay after expiry. Substituted or corrupt
+evidence fails closed.
+
+The role-private pending record derives its installation-evidence receipt
+digest from those same exact verified signed-evidence bytes. The successful
+role-command receipt carries the same canonical bytes. This keeps one evidence
+encoding across the Deriver, role D1, terminal receipt, and Router checkpoint;
+no boundary reconstructs the evidence or accepts an independently supplied
+digest.
+
+This slice is dormant. No public route or role-runtime creation handler invokes
+`persist_installation_checkpoint`, and `BothRolesReady` does not activate or cut
+over an epoch. Role verification reads
+`ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON_ENV`; the retained
+`TenantRootCreationRoleVerifyingKeysV1` resolves each verified wire by its exact
+role and `signing_key_id`. Production provisioning/configuration and deployment
+rotation rollout for this role-key set remain open.
+
+The role-key decoder rejects duplicate verifier bytes across roles or key IDs,
+duplicate key IDs, malformed points, and surrounding identifier whitespace; it
+never trims those values. Its keyset and binding fields are private. Both Router
+and Deriver loaders apply the peer-verifier exclusion before accepting the key
+set, and no raw signing-key field escapes the role-constrained signer. The role
+runtime re-verifies the exact canonical installation-evidence bytes against the
+configured signer before calling either provider; an adversarial
+same-ID/different-key evidence value fails before either provider is invoked.
+
+The three role-runtime prerequisites are now frozen. The
+issuer-authenticated `create_pending_share` command binds the exact role,
+Started journal/context, epoch, positive control-plane revision, session,
+nonce, authority, and expiry. The Durable Object accepts exact role-signed
+creation commitments into `OneRoleCommitted`/`BothRolesCommitted`, verifies the
+pair before either installation checkpoint, and keeps scalar material outside
+the rendezvous. The lifecycle authority remains the sole source of
+`expected_control_plane_revision`. The next slice is the dormant Deriver
+handler and private evidence-to-checkpoint caller that compose these contracts;
+no public route or activation path is wired yet.
 
 ## Proactive Share Refresh
 
@@ -690,7 +916,9 @@ The complete ceremony:
 11. Verify `2*C_A' - C_B' = K_pub`.
 12. Run fixed ECDSA and Ed25519 continuity canaries.
 13. Mark the next epoch verified.
-14. Activate it for new derivations after both role receipts pass.
+14. Verify the complete evidence bundle, issue the control-plane-signed
+    activation receipt, and activate the next epoch only after its exact
+    revision and both role receipts pass.
 15. Unfence tenant derivation.
 16. Destroy previous-epoch shares, refresh material, and previous-epoch wrapping
     keys.
@@ -699,6 +927,28 @@ The complete ceremony:
 
 Normal signing continues during every step because it does not read tenant root
 shares.
+
+### Dormant refresh Durable Object checkpoints
+
+The refresh Durable Object slice persists authoritative public state only from
+an issuer-verified activation receipt. Its active-state record retains the
+exact signed receipt bytes and digest, tenant identity, custody lineage, active
+epoch, A/B share commitments, joined-root commitment, lifecycle revision, and
+fence. An exact projection replay is accepted; conflicting state is rejected.
+
+Each refresh attempt binds the command authority, context, session, nonce,
+current and next epochs, expected revision, current A/B/root commitments, and
+active activation-receipt digest. Commitment and installation checkpoints are
+accepted in either role order only within that exact scope. Every mutation uses
+one atomic Durable Object transaction. First-unseen checkpoints require fresh
+evidence; an identical durable record replays, while a changed payload or
+fence fails closed. The checkpoint fence advances only through its
+open -> reserved -> executed states; terminal activation transitions remain
+owned by the lifecycle activation path.
+
+This public checkpoint slice contains no secret shares and deliberately has no
+activation or cutover consumer. Public routes, production transport, live
+two-role orchestration, and crash/restart coordination remain release gates.
 
 ## Stable Derivation Boundary
 
@@ -760,9 +1010,10 @@ exact field bytes; epoch and Unix milliseconds are fixed-width big-endian
 integers inside their fields. The
 binding digest is SHA-256 over those canonical bytes. Only the control plane
 constructs the binding from an active lifecycle state, so callers cannot supply
-the identity, lineage, epoch, or commitments independently. The same 60-second
-clock-skew rule used by tenant-root ceremonies applies to its issue and expiry
-times.
+the identity, lineage, epoch, or commitments independently. The same frozen
+60-second clock-skew allowance and 300 000 ms maximum issue-to-expiry window
+used by tenant-root ceremonies apply to this record, and its Deriver identities
+use the same boundary-identifier rules.
 
 Threshold-PRF evaluation depends on the stable context bytes and the selected
 role share. Partial proofs, routing, share selection, replay protection,
@@ -1069,7 +1320,7 @@ type TenantRootRefreshStateV1 =
       readonly identity: TenantRootIdentityV1;
       readonly current: ActiveTenantRootEpochV1;
       readonly previous: RetiringTenantRootEpochV1;
-      readonly activation: TenantRootActivationReceiptV1;
+      readonly activation: VerifiedTenantRootSignedActivationReceiptV1;
       readonly next?: never;
       readonly failure?: never;
     }
@@ -1109,6 +1360,21 @@ own operational branch and blocks another mutation. After activation, rollback
 is unavailable; remediation uses another forward refresh. A lifecycle stuck in
 `retiring` remains operational and cannot claim proactive compromise healing.
 
+The `activation` field is the non-cloneable, issuer-verified token. The active
+state projection retains only its exact signed bytes and digest.
+
+The dormant lifecycle and role-private D1 cutover now use the exact signed
+activation receipt bytes. `TenantRootActivationReceiptProjectionV1` consumes the
+verified receipt token and retains its canonical bytes plus digest. The
+Cloudflare role-private stores use the `tenant-root-role-private-d1/v2` schema:
+activation rows persist canonical receipt bytes (base64url at the D1 boundary),
+recompute their digest on load, and reject any projection or availability
+branch that differs from the decoded receipt. One-use command replay rows move
+forward through `reserved`, `executed`, and exactly one terminal
+`completed`/`failed` state, retaining exact terminal receipt bytes and applying
+the lifecycle CAS guard in the same transaction. Only the v2 schema is served;
+there is no legacy receipt shape or compatibility reader.
+
 The other tenant-root machines use these exhaustive branches:
 
 - creation: `empty`, `preparing`, `verified`, `active`,
@@ -1120,9 +1386,9 @@ The other tenant-root machines use these exhaustive branches:
 
 Refactor 121 freezes tenant recovery-set and source-independent restore states.
 `ActiveTenantRootEpochV1` and `VerifiedTenantRootEpochV1` require either two
-current-epoch role-backup receipts or the explicit
-`accepted_permanent_derivation_loss` deployment policy. Optional backup receipts
-would make an unsafe activation state representable.
+source-bound, signature-verified current-epoch role-backup artifacts or the
+exact dual-authority signed `accepted_permanent_derivation_loss` authorization.
+Optional backup evidence would make an unsafe activation state representable.
 
 ## Storage and Erasure
 
@@ -1484,9 +1750,9 @@ review confidence.
 | Shared TypeScript protocol                    | `packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts`, `routerAbEd25519Yao.ts`, `domainIds.ts`; generated `routerAbEd25519YaoCore.ts`                                                                                                                                                                                                                                                       | Manual exact-key parsers and builders duplicate Rust lifecycle and canonical-wire assumptions                                                                                                                                                                                            |
 | Wallet-server orchestration                   | `packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa.ts`; Ed25519 registration, recovery, export, and capability domains; D1 registration and capability persistence                                                                                                                                                                                                        | Route bodies, database rows, and service results are parsed at separate boundaries; current checks sometimes equate root epoch with signing-root version                                                                                                                                 |
 | Wallet SDK and browser workers                | wallet registration, recovery, export, local material, presign-pool, relayer RPC, and worker modules under `packages/wallet/src`                                                                                                                                                                                                                                                                | IndexedDB records, Worker messages, WASM calls, and response parsers do not share a single compiler boundary with Rust or the server                                                                                                                                                     |
-| Role-private persistence                      | `crates/router-ab-cloudflare/migrations/deriver-a`, `deriver-b`; `ed25519_yao_role_d1.rs`; strict Deriver runtime adapters                                                                                                                                                                                                                                                                      | Current schemas store Yao sessions and have no tenant-root share, backup, epoch-key, receipt, or lifecycle tables                                                                                                                                                                        |
-| Control plane and coordination                | `crates/router-ab-cloudflare/src/router_coordinator.rs`, `durable_object/mod.rs`, `ecdsa_pool_lifecycle.rs`, `ed25519_yao_lifecycle.rs`                                                                                                                                                                                                                                                         | Distributed compare-and-swap, lock, alarm, retry, and crash semantics are runtime behavior rather than static types                                                                                                                                                                      |
-| Deployment and secrets                        | `crates/router-ab-cloudflare/src/env.rs`; both Wrangler files; deployment key generators; `scripts/deployment-targets.mjs`; environment examples; `docs/deployment`                                                                                                                                                                                                                             | Binding names and deployment manifests are stringly typed; current per-role root share is one deployment-wide Secret                                                                                                                                                                     |
+| Role-private persistence                      | `crates/router-ab-cloudflare/migrations/deriver-a`, `deriver-b`; `tenant_root_role_d1.rs`; `ed25519_yao_role_d1.rs`; strict Deriver runtime adapters                                                                                                                                                                                                                                      | Dormant schemas now include encrypted tenant-root lifecycle rows and one-use command-replay rows with execution checkpoints and terminal receipts; provider-backed key destruction, live orchestration, and runtime fault evidence remain open                                  |
+| Control plane and coordination                | `crates/router-ab-cloudflare/src/router_coordinator.rs`, `durable_object/mod.rs`, `durable_object/tenant_root_creation.rs`, `ecdsa_pool_lifecycle.rs`, `ed25519_yao_lifecycle.rs`                                                                                                                                                                                                                | The creation and refresh Durable Object binding/migration, input-gated journal, authoritative public active-state projection, and public-evidence-only A/B commitment/installation checkpoints are dormant; exact replay/fence semantics and atomic mutations are implemented, with no activation consumer or role-runtime creation handler, while live lock, alarm, retry, crash, and orchestration semantics remain runtime work |
+| Deployment and secrets                        | `crates/router-ab-cloudflare/src/env.rs`; both Wrangler files; deployment key generators; `scripts/deployment-targets.mjs`; environment examples; `docs/deployment`                                                                                                                                                                                                                             | The dormant creation binding and code-level issuer/role-key parsers with exact key-ID retention are present; production role-verifying-key provisioning/configuration and deployment rotation rollout, live public caller/configuration, per-tenant key provisioning, and cutover evidence remain open                                      |
 | Local/dev parity                              | `crates/router-ab-dev/src/local_ecdsa_root_shares.rs`, local Router/worker coordinators, SQLite schema and seed scripts, strict local runtime config                                                                                                                                                                                                                                            | Local fixtures can silently preserve the deployment-wide root model and mask Cloudflare-only failures                                                                                                                                                                                    |
 | Persistence consumers                         | R103F final signer-D1 stores; ECDSA capability manifests; Ed25519 local metadata; device-link source contributions; recovery key manifests                                                                                                                                                                                                                                                      | Existing stable signing-root metadata must remain readable while `TenantRootShareEpoch` and custody lineage stay absent; these surfaces are verification-only unless the plan is amended after R103F                                                                                     |
 | Vectors, fixtures, and generation             | `crates/router-ab-core/fixtures`; Router A/B Rust tests; Yao formal-verification fixtures; `wasm/wallet_custody_ceremony/tests/wire_fixtures.rs`; shared TypeScript and top-level test helpers                                                                                                                                                                                                  | Generated JSON and hand-written fixtures compile independently, while stale snapshots can preserve retired semantics                                                                                                                                                                     |
@@ -1496,6 +1762,7 @@ The checked inventory must classify every hit from repository-wide searches for:
 
 ```text
 RootShareEpoch | root_share_epoch | rootShareEpoch | activation_epoch
+TenantRoot | tenant_root | tenantRoot
 TenantRootShareEpoch | tenant_root_share_epoch | tenantRootShareEpoch
 signingRootId | signing_root_id | signingRootVersion | signing_root_version
 DERIVER_A_ROOT_SHARE_WIRE_SECRET | DERIVER_B_ROOT_SHARE_WIRE_SECRET
@@ -1526,13 +1793,117 @@ new owner for each claim.
 | Cross-runtime wires          | Rust-to-TypeScript generated bindings; Rust/WASM/JS round trips; unknown/missing field rejection; canonical JSON and custom binary encoding parity                                                                                                                                                                                                                                                                                                                                                                         | `pnpm generate:router-ab-ed25519-yao-types`, relevant signer-core generation, WASM package builds, and wallet-custody wire fixtures                                                                                                                                      |
 | Domain-state types           | Invalid lifecycle branches, broad spreads, direct object literals, missing role receipts, caller-selected identity, mixed current/next epochs, and activation from the wrong state fail to compile                                                                                                                                                                                                                                                                                                                         | Targeted `*.typecheck.ts` fixtures with `@ts-expect-error` in shared TypeScript, wallet-server, and top-level `tests/typecheck`                                                                                                                                          |
 | R103F composition            | Exact admission resolves the same `MpcMaterialActivationRef` before and after refresh; normal signing never loads a tenant root; Ed25519 export first resolves exact active material through B5 and then independently resolves the server root binding required by its derivation ceremony; no R120 custody field appears in R103F authorization, signer-D1, receipt, link, browser, or iframe shapes                                                                                                                     | Focused wallet-server composition tests, R103F B4/B5 type fixtures, signer-D1 schema inspection, and the authoritative client-transparency contract                                                                                                                      |
-| Role-private stores          | Tenant/role/epoch key uniqueness; encrypted-at-rest record shape; no cross-request plaintext cache; current/pending selection; CAS transitions; crash recovery; cross-tenant denial; stale-backup rejection                                                                                                                                                                                                                                                                                                                | New Rust Cloudflare D1 adapter tests and migration tests; local SQLite parity where it exercises the same contract                                                                                                                                                       |
+| Role-private stores          | Tenant/role/epoch key uniqueness; encrypted-at-rest record shape; no cross-request plaintext cache; current/pending selection; CAS transitions; one-use replay reservation, execution checkpoint, signed terminal receipt, exact retry, and conflict behavior; crash recovery; cross-tenant denial; stale-backup rejection                                                                                                                                                           | New Rust Cloudflare D1 adapter tests and migration tests; local SQLite parity where it exercises the same contract                                                                                                                                                       |
+| Creation journal and authority | Started-only journal decoding/rebuild; signed object-, identity-, and lineage-bound capability; retained issuer-key verification; deterministic Durable Object binding; input-gated single-key persistence; fresh-versus-expired replay and conflict semantics                                                                                                                     | Focused `router-ab-core` journal/capability tests and Cloudflare creation-Durable-Object tests; public caller/configuration and cutover evidence remain open                                                                                                           |
 | Backup and restore           | Independent A/B key paths; exact AAD; managed current-epoch and tenant recovery namespaces; recovery reshare continuity; one-role restore; wrong-role and wrong-tenant denial; commitment verification; forward refresh; old managed-key destruction; tenant-copy non-revocation; provider and database rollback drill                                                                                                                                                                                                     | New adapter integration tests plus an executable disaster-recovery runbook producing redacted receipts                                                                                                                                                                   |
 | Server orchestration         | Server-resolved tenant identity; request override rejection; per-tenant fencing; concurrency; one-role failure; activation and retirement convergence; normal signing during every state                                                                                                                                                                                                                                                                                                                                   | Cloudflare lifecycle tests and focused wallet-server route/unit tests                                                                                                                                                                                                    |
 | Client transparency          | No WebAuthn prompt, SDK callback, IndexedDB mutation, signer-package fetch, wallet scan, or activation-reference change; public keys and addresses remain stable                                                                                                                                                                                                                                                                                                                                                           | One authoritative intended-behaviour contract backed by focused unit assertions at RPC/Worker boundaries                                                                                                                                                                 |
 | Deployment cutover           | R103F R5 complete; old-profile committed receipts inventoried; unfinished registration/recovery derivation paths drained or retired; deployment-wide root bindings absent; tenant stores and key providers present only in the owning role; derivation fenced until one R120 revision set passes preflight                                                                                                                                                                                                                 | R103F zero-state and committed-receipt inventory, delayed-replay rejection, `crates/router-ab-cloudflare/tests/bindings.rs`, secret-material boundary tests, mixed-revision rejection, deployment-target tests, strict local config tests, and deployment smoke evidence |
 | Erasure and security claims  | Old sessions drain before destruction; old online and backup ciphertext cannot be opened after key retirement; Worker, D1, secret, deployment, and disaster-recovery rollback cannot restore a usable old epoch; provider quota exhaustion never selects a shared fallback                                                                                                                                                                                                                                                 | Destructive staging and quota drills against the selected provider; documentation claims are gated on their executable receipts                                                                                                                                          |
 | Multi-tenant operations      | Refresh, restore, failure, deletion, schedule jitter, quota exhaustion, and audit events for tenant A leave tenant B unchanged and available                                                                                                                                                                                                                                                                                                                                                                               | Cloudflare integration tests and bounded-concurrency scheduler tests                                                                                                                                                                                                     |
+
+### Invariant evidence ownership
+
+Every invariant now has one named authoritative owner. `Local green` means the
+current implementation has executable local evidence. The other states name the
+exact future gate and do not count as release evidence.
+
+| Invariant | Authoritative owner                                                                                                                   | Current evidence state                                                                                                |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| R120-I01  | `tenant_root.rs`, `tenant_root_lifecycle.rs`, role-private D1 lifecycle integration, and the future control-plane tenant-mapping test | Identity and role-store primitives are local green; physical control-plane mapping remains open                       |
+| R120-I02  | Tenant-root TypeScript type fixtures plus the ECDSA, Ed25519, and shared identity composition tests                                   | Local green, including runtime JavaScript override rejection before B5 resolution                                     |
+| R120-I03  | Tenant-root secret-material API review, role-store redaction tests, deployment bundle scan, and provider restore drill                | Rust role separation is local green; deployment and provider evidence remain open                                     |
+| R120-I04  | `tenant_root_protocol.rs` creation vector and `threshold-prf` root-share proof tests                                                  | Local green                                                                                                           |
+| R120-I05  | `tenant_root_protocol.rs`, `tenant_root_lifecycle.rs`, refresh algebra tests, and the minimal Verus anti-drift theorem                | Local green                                                                                                           |
+| R120-I06  | `ecdsa_stable_context.rs` and the stable-purpose backend tests                                                                        | Local green for dormant V2; production adapter cutover remains open                                                   |
+| R120-I07  | Custody-binding vectors, stable-purpose backend substitution tests, role replay D1 integration, and future production-wire tests      | Core and role-local replay evidence are local green; production-wire integration remains open                         |
+| R120-I08  | `threshold-prf` role-target vectors, Router A/B native/WASM parity, and the Phase 0 candidate runner                                  | Local correctness is green; deployed architecture selection remains open                                              |
+| R120-I09  | Tenant-root protocol, refresh-transport, strict activation-evidence/receipt, command-replay, lifecycle, and role-private D1 substitution tests | Local green, including exact receipt-byte and refresh-checkpoint replay/fence paths; transition-level runtime fault injection remains open |
+| R120-I10  | Exhaustive creation/refresh recovery-plan tests, dormant refresh Durable Object checkpoints, and the future live restart matrix         | Pure state machine and dormant checkpoint path are local green; live runtime restart evidence remains open             |
+| R120-I11  | Signing-engine boundary checks and the future one-role availability intended-behaviour contract                                       | Existing signing boundary is green; production failure-state contract remains open                                    |
+| R120-I12  | B4/B5 composition tests, signer-D1 no-change check, and the future client-transparency intended-behaviour contract                    | Composition and schema boundary are local green; end-to-end refresh proof remains open                                |
+| R120-I13  | `threshold-prf` scalar tests, HPKE/parser vectors, constant-time code-generation gate, and CSPRNG boundary review                     | Local green                                                                                                           |
+| R120-I14  | Role-private D1 identity/lineage CAS tests and the future multi-tenant concurrency operating test                                     | Store isolation is local green; fleet concurrency evidence remains open                                               |
+| R120-I15  | Managed-backup frozen vector, strict activation-evidence/canary and creation lifecycle activation tests, and provider backup integration | Provider-neutral artifacts and activation branches are local green; qualified provider evidence remains open          |
+| R120-I16  | Managed-restore lifecycle and managed-backup cross-lineage/role/epoch/commitment substitution tests                                   | Local green; deployed forward-refresh drill remains open                                                              |
+| R120-I17  | Root-deletion lifecycle tests plus destructive online/backup provider rollback drills                                                 | Pure lifecycle is local green; provider destruction evidence remains open                                             |
+| R120-I18  | Rust frozen vectors, WASM adapters, TypeScript type checks, D1 migrations, and generation anti-drift commands                         | Current local representations are green; final production binding generation remains open                             |
+| R120-I19  | Pre-launch production-identity inventory and signed cutover decision                                                                  | Cutover evidence required                                                                                             |
+| R120-I20  | Cross-lineage lifecycle, backup, recovery-artifact, Refactor 150 linking, and Refactor 121 restore contracts                          | R120 cryptographic lineage checks are local green; product integration remains outside this phase                     |
+| R120-I21  | Recovery-reshare, recovery-artifact, recipient-proof, and restore-import vector suites                                                | Local green                                                                                                           |
+| R120-I22  | Recovery-reshare continuity tests and the Refactor 121 replacement operating contract                                                 | Cryptographic continuity is local green; product replacement evidence remains in Refactor 121                         |
+| R120-I23  | Exact ECDSA/Ed25519 B4/B5 composition tests and tenant-root type fixtures                                                             | Local green with runtime and static selector rejection                                                                |
+| R120-I24  | R103F R5 closure receipt, derivation-fence drill, revision manifest, and mixed-revision rejection test                                | Canonical five-participant manifest and mixed-revision rejection are local green; deployed cutover drill remains open |
+| R120-I25  | R103F committed-registration inventory and delayed registration/recovery replay drill                                                 | Cutover evidence required                                                                                             |
+| R120-I26  | `threshold-prf` role-target type and vector tests plus benchmark bundle-direction checks                                              | Local green                                                                                                           |
+| R120-I27  | Yao artifact anti-drift suite, role-target source audit, and Phase 0 artifact equality check                                          | Local green; deployed selection receipt remains open                                                                  |
+| R120-I28  | Phase 0 benchmark evaluator and release-signature verifier                                                                            | Local evaluator is green; deployed cohort and signature remain open                                                   |
+| R120-I29  | Benchmark preface lifecycle tests and the future versioned outer-protocol `preface_ready` state test                                  | Benchmark behavior is local green; production protocol remains gated by Phase 0                                       |
+| R120-I30  | Refresh/deletion security-claim tests and the published recovery-limitations review                                                   | Pure lifecycle semantics are local green; final product claims remain open                                            |
+
+### R103F overlap ownership
+
+The merged R103F tree is classified into three ownership branches. Changes that
+cross a listed integration gate update the owning contract directly; R120 adds
+no compatibility union or interim wrapper.
+
+| Ownership                     | Exact surfaces                                                                                                                                                                                                                                                                                                                      | R120 rule and merge gate                                                                                                                                                                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R103F-owned unchanged         | Wallet Session admission and exact authorization under `packages/wallet-server/src/router/auth`; signer-D1 registration, receipt, capability, and activation stores; `packages/wallet/src` browser, recovery, device-link, worker, and V6 persistence state; host/iframe messages; R103F intended-behaviour contracts               | R120 consumes these through B4/B5 and adds no custody field. The signer-D1 no-change digest, type checks, source boundaries, and eight-contract browser matrix own this branch.                                                                       |
+| R120-owned                    | `crates/router-ab-core/src/derivation/tenant_root*`; tenant-root and role-target tests; `crates/threshold-prf` role targets; `crates/ed25519-yao-cloudflare-bench` candidate code; `crates/router-ab-cloudflare/src/tenant_root_role_d1.rs` and its A/B migrations; wallet-server tenant-root composition modules and type fixtures | R120 may evolve these before activation while preserving frozen R103F inputs and outputs. The local R120 crypto, store, composition, and Phase 9C/13A gates own this branch.                                                                          |
+| Shared production integration | ECDSA threshold request/backend adapters; versioned Ed25519 outer protocol and pair lifecycle; Router coordinator and strict Deriver routes; generated Router A/B TypeScript bindings; wallet-server threshold routes that will invoke tenant-root composition                                                                      | Integration waits for the signed Phase 0 architecture selection. The completed R103F B4/B5 snapshot through `bfaed2877`, merged in `308948c15`, is the input contract. Final generated-binding, mixed-revision, cutover, and intended-behaviour checks own the merge. |
+
+### Boundary-local version and cutover map
+
+R120 changes only the boundaries listed below. An unlisted R103F boundary keeps
+its current exact version and shape. A changed wire receives one new version;
+the release carries no dual parser beyond an explicitly documented request or
+persistence boundary.
+
+| Boundary                                         | Frozen version decision                                                                                                                                                                         | Release evidence                                                                                                                  |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Wallet Session admission and material resolution | Keep the exact R103F B4 admission and B5 activation projections at completed input `bfaed2877` from R120 merge `308948c15`. R120 adds no field to either shape.                                                               | ECDSA and Ed25519 composition tests, negative type fixtures, and the signer-D1 no-change digest                                   |
+| Tenant root identity                             | `TenantRootIdentityV1` and `TenantRootIdentityDigestV1`; five required server-resolved fields and no epoch or role selector                                                                     | Rust identity vectors and TypeScript boundary fixtures                                                                            |
+| Custody identity and lifecycle                   | `TenantRootCustodyLineageId`, `TenantRootShareEpoch`, `TenantRootCustodyBindingV1`, and the creation, refresh, restore, and deletion `V1` unions                                                | Tenant-root protocol and lifecycle suites                                                                                         |
+| Stable ECDSA derivation                          | `StableTenantDerivationContextV2` and `MpcPrfStablePurposeBindingPlanV2`; custody epoch remains outside stable PRF bytes                                                                        | `ecdsa_stable_context.rs` and backend substitution tests                                                                          |
+| ECDSA production transport                       | Replace the current ceremony-bound stable-purpose request with one exact V2 request after Phase 0 and the shared-boundary gate. Delete the prior production request in the same change.         | Rust wire vector, generated binding parity, mixed-version rejection, and before/after public-key equality                         |
+| Ed25519 production transport                     | Existing `Ed25519Yao*V1` remains unchanged until Phase 0 passes. The selected preface ships as one exact V2 outer protocol and pair-session shape; V1 is deleted at activation.                 | Generated Rust/TypeScript vectors, arbitrary-context denial, pair burn/zeroization tests, and byte-identical Yao artifact digests |
+| Role-private persistence                         | Deriver A and B migrations remain independent. `0002_tenant_root_role_shares.sql` owns encrypted lifecycle rows and `0003_tenant_root_command_replays.sql` owns exact one-use command receipts. | Migration parity, real `workerd` store integration, encrypted-row inspection, and schema-head manifest fields                     |
+| Phase 0 evidence                                 | Phase 9C local evidence is `v2`; the deployed benchmark, selection approval payload, and release signature retain their frozen V1 schemas.                                                      | Current-source receipt digest, six raw deployed artifacts, evaluator output, and release signature verification                   |
+
+The participating revision manifest is `r120_revision_manifest_v1`. It contains
+one release ID and git commit, then one required record for each of
+`wallet_server`, `router`, `deriver_a`, `deriver_b`, and `signing_worker`. Every
+record contains the deployed script identity, deployment ID, source/build
+digest, configuration digest, supported R120 protocol version, and role-local
+migration head. The manifest also commits the B4/B5 input commit, Phase 0
+selection-record digest, Yao artifact digest set, and exact derivation-profile
+ID. The control plane accepts a release only when every required participant is
+present, every digest is canonical, the two Derivers report their own role, and
+all participants report the same release, profile, protocol, and artifact set.
+A stale, missing, duplicate-role, or mixed-profile participant leaves
+derivation fenced.
+
+The derivation-fence procedure is fixed:
+
+1. Verify R103F R5 closure, the committed-registration identity inventory, and
+   the signed Phase 0 architecture-selection record.
+2. Fence new registration, recovery, export, and lane-materialization
+   derivations. Normal signing continues and does not consult tenant-root
+   custody.
+3. Drain every admitted derivation session and retire or reject every delayed
+   registration or recovery commit. Record the zero-in-flight receipt.
+4. Deploy the complete participant set without activating the R120 profile.
+   Read back and verify `r120_revision_manifest_v1`, both role-private schema
+   heads, and the absence of deployment-wide root-share bindings.
+5. Run ECDSA and Ed25519 canaries plus the deliberate mixed-revision rejection
+   probe while the fence remains closed.
+6. Activate the one authoritative R120 profile, record its activation receipt,
+   and run one exact B4/B5 Wallet Session derivation proof for each curve.
+7. Unfence derivation only after all receipts agree. Rollback to the old release
+   is allowed through step 5. Once the first R120-profile derivation is
+   admitted, recovery is forward-only and deploys the complete R120 revision
+   set again.
 
 Existing source-text guards are reviewed as low-authority inventory aids. Update or
 delete stale guards after classifying the invariant they encode; do not bend the
@@ -1563,16 +1934,29 @@ wrapper or compatibility union.
 
 - [ ] Materialize every specification-closure row as its named canonical
       artifact or executable check.
-- [ ] Assign every invariant to at least one authoritative test or executable
-      operational check.
-- [ ] Classify every boundary-search hit and every generated artifact.
-- [ ] Classify every R103F overlap as R103F-owned unchanged state, an R120-owned
-      surface, or a shared integration point with one named merge gate.
-- [ ] Freeze byte-exact creation, refresh, ECDSA, Ed25519, backup, and lifecycle
-      schemas and vectors.
+- [x] Assign every invariant to at least one authoritative test or executable
+      operational check. The invariant evidence ownership table records the
+      current local proof and the exact remaining release gate for R120-I01
+      through R120-I30.
+- [x] Classify every boundary-search hit and every generated artifact. The
+      executable inventory at
+      `crates/router-ab-dev/scripts/check-r120-boundary-inventory.mjs` classifies
+      every current tracked and non-ignored untracked hit with no unclassified
+      path, explicitly records the two ignored local Deriver secret-binding
+      boundaries without reading their contents, and records 34 generated
+      artifacts with their byte length, SHA-256 digest, regeneration command,
+      and verification command in
+      `docs/evidence/r120-boundary-inventory-v1.json`.
+- [x] Classify every R103F overlap as R103F-owned unchanged state, an R120-owned
+      surface, or a shared integration point with one named merge gate. The
+      ownership table fixes the exact path scopes and shared production gate.
+- [x] Freeze byte-exact creation, refresh, ECDSA, Ed25519, backup, and lifecycle
+      schemas and vectors. The canonical Rust suites, threshold-PRF role-target
+      vectors, and five native/WASM R120 self-checks own these bytes; production
+      transport versions remain gated separately.
 - [x] Freeze the B4/B5 composition contract and signer-D1 no-change assertion.
-- [ ] Freeze the boundary-local version map, derivation-fence procedure, and
-      participating revision manifest.
+- [x] Freeze the boundary-local version map, derivation-fence procedure, and
+      `r120_revision_manifest_v1` participant and fail-closed contract.
 - [ ] Implement the benchmark-only role-targeted threshold-PRF preface, run every
       frozen cohort, and approve one signed architecture-selection record only
       after all correctness, separation, artifact, latency, CPU, memory, wire,
@@ -1582,7 +1966,10 @@ wrapper or compatibility union.
 - [ ] Choose and exercise the online and backup key-destruction provider.
 - [ ] Inventory production identities and approve a pre-launch cutover with no
       dual production profile.
-- [ ] Approve the one-share-loss availability contract and restore quorum.
+- [x] Freeze the one-share-loss availability contract as an explicit branch:
+      exact current-role backups or dual-authority accepted permanent loss;
+      production provider qualification and restore-quorum evidence remain
+      gated.
 - [ ] Stop the refactor if stable-output vectors, the Ed25519 candidate gate,
       recovery separation, or erasure evidence cannot meet the release gates.
 
@@ -1692,21 +2079,52 @@ Phase 0 execution status on 2026-08-29:
   wallet lifecycle, and process gate passes 159/159 on a clean detached R120
   snapshot. The local role/process lifecycle matrix, both parser mutation
   smokes, and the constant-time code-generation guard also pass when invoked
-  directly against that source state. The full producer currently stops before
-  the local-product browser gate because the concurrent R103F task owns the
-  shared intended-behaviour ports. It emits no receipt on that infrastructure
-  failure. The protocol crate lockfile now includes R120's Router-core crypto
-  dependencies, and a locked parser-smoke rerun leaves it unchanged. The
-  checked-in readiness bundle remains bound to the last fully passing tree.
-  Regenerate it only after the full producer and canonical readiness command
-  pass against one source state.
+  directly against that source state. R103F commits `d805d7ec0`, `9d4df8a65`,
+  `a91a5fd8a`, and `affe85e83` fixed the mixed-registration and exhausted-session
+  failures. All four R120 Ed25519-Yao contracts, the shared Passkey registration
+  contract, the immediate Passkey unlock contract, and the Passkey page-refresh
+  contract now pass. The page-refresh contract covers warm EVM signing, budget
+  exhaustion, exact-session NEAR, Tempo, and Arc step-up, and both key exports.
+  R103F commit `ed02eb9f5` moved the final cold-sync contract onto its exact
+  account-sync route. Commit `5a895cf8c` then authorized
+  `/router-ab/ed25519/yao/recovery/admit` through the exact Ed25519 operation
+  credential while preserving the durable recovery-challenge path. Commit
+  `a51c73bb6` carries that exact authorization tuple through recovery execution
+  and activation and rejects phase-to-phase provenance changes. Its focused
+  recovery tests pass 19/19, and both wallet-server and unit-workspace
+  type-checks pass. The local D1 restart fixture now preserves the selected
+  challenge-based authorization mode through execute and activation; its
+  focused persistence replay contract passes. The
+  authoritative empty-browser-storage cold-sync contract passes in 4.7 minutes,
+  and the complete eight-contract local-product matrix passes in 5.0 minutes
+  after the authorization follow-up.
+  The canonical `pnpm validate:yaos-ab-local` producer now clears all thirteen
+  checks and emits a v2 receipt bound to the exact 2,870-file input tree. Its
+  retired per-profile file handoff was deleted with the R103F serial role routes;
+  lifecycle latency and wire evidence remain independently digest-bound and
+  validated. The Phase 13A mutation fixtures and all thirteen local preflight
+  checks pass against the refreshed bundle. The result remains
+  `deployment-required` and `production_eligible: false` because deployed
+  evidence is still unavailable. The protocol crate lockfile includes R120's
+  Router-core crypto dependencies, and a locked parser-smoke rerun leaves it
+  unchanged.
 - R103F evidence tip `05e96856f` is an ancestor of R120 merge commit
   `0c6a25f1a`; its non-browser code closure is `97c3dc589`. The cross-platform,
   signing-engine architecture, and
   platform-runtime boundaries pass; the full source-guard chain passes; and the
-  source Playwright suite passes 201/201. Browser-dependent acceptance remains
-  with the concurrent R103F owner. The cross-account cohort also requires a
-  second independently administered
+  source Playwright suite passes 201/201. R120 includes the complete R103F
+  integration history through `3e7610789` in merge `0e21234c7`; the selected
+  Passkey browser acceptance and focused Google OIDC harness tests remain
+  green. Final R103F closure at `0668e5d96` is merged into R120 at
+  `977ed053d`; the final staging migration fix `bfaed2877` is merged at
+  `308948c15`. Its authoritative intended-behaviour matrix is 47/47 green, and
+  backend/frontend staging smoke checks pass.
+  On that exact merged tree, the ECDSA/Ed25519 B4-to-B5 tenant-root composition
+  suite passes 27/27 and the unit TypeScript typecheck passes. The B4 and B5
+  shapes remain unchanged. The post-staging 35-file signer-D1 aggregate is
+  `670aeba976269f2142eddcb9524a7b68a4022147eb30f02ecd5e10958aaaf1b8`.
+  The cross-account cohort also
+  requires a second independently administered
   Cloudflare account/profile and endpoint. Deployed cohorts, per-role CPU,
   sampled memory P999, the 25% finite-limit headroom check, raw artifact
   publication, and the signed selection record remain required. The first
@@ -1717,8 +2135,12 @@ Phase 0 execution status on 2026-08-29:
   role-target design.
 - The Phase 13A preflight evaluator now expects the same thirteen completed
   checks emitted by the Phase 9C producer. Its stale requirement for the
-  R103F-deleted managed-product source guard is removed; a future receipt no
-  longer fails solely because it cannot contain an obsolete check label.
+  R103F-deleted managed-product source guard and serial-role lifecycle evidence
+  files is removed. The v2 receipt is written only after the authoritative
+  product, role/process, parser, and code-generation gates pass; the evaluator
+  separately validates the digest-bound two-profile lifecycle report. The
+  duplicate checkpoint evaluator is removed, leaving one aggregate lifecycle
+  report and one validation receipt.
 
 ### Phase 1: add per-tenant root custody
 
@@ -1747,13 +2169,54 @@ Phase 0 execution status on 2026-08-29:
       exact active-epoch drain evidence, and separates permanent provider
       destruction from the explicit `cryptographic_erasure_unverified`
       operational claim.
-- [ ] Add independent Deriver A and B private stores and role-local current-epoch
-      backup adapters.
+- [x] Add independent Deriver A and B private stores.
+- [x] Add the provider-neutral role-local current-epoch managed-backup contract.
+- [x] Add the dormant Cloudflare `operational_rotation_v1` role-local HPKE
+      online and managed-backup adapter with distinct key slots, info labels,
+      and AAD; keep its roundtrip and provider-separation checks green.
+- [ ] Qualify a provider-specific `managed_healing_v1` adapter with
+      independently destroyable A/B epoch keys.
 - [x] Add role-local distributed tenant-root share generation, commitments,
       transcript-bound knowledge proofs, signed installation evidence, and a
       native/WASM creation vector.
+- [x] Add the Started-only creation journal and the issuer-signed,
+      object/identity/lineage-bound creation capability.
+- [x] Add the deterministic Router Durable Object binding/migration and its
+      input-gated single-key journal persistence, including bounded issuer
+      verifying-key parsing and exact fresh/expired-replay/unseen-expiry/conflict
+      behavior.
+- [x] Add the dormant crate-private Router caller with deterministic object,
+      capability-authority, response-revision, and response-digest checks.
+- [x] Add the issuer-authenticated initial role command and the signed A/B
+      creation-commitment rendezvous that gates knowledge proofs and
+      installation evidence.
+- [x] Add the request-local, non-clone initial role-attempt token. A
+      `WaitingForPeer` result stays inside the same bounded request; timeout
+      drops and burns the scalar, so retry requires fresh lineage, session, and
+      nonce because the public commitment is immutable.
+- [x] Add the provider-neutral online role-share sealing binding with its exact
+      installation-evidence digest, role commitment, and opaque epoch key
+      reference. Provider ciphertext remains opaque to the core.
+- [x] Add creation-specific D1 reservation, execution, and success-receipt
+      paths that carry the exact verified installation-evidence bytes through
+      every stage; add authenticated private Router commitment/evidence RPCs
+      with first-unseen freshness and exact durable replay after expiry, using
+      atomic Durable Object transactions for each mutation.
+- [x] Add the dormant public-evidence-only A/B installation checkpoint:
+      strictly verify `VerifiedTenantRootSignedShareInstallationEvidenceWireV1`
+      against the retained role-plus-`signing_key_id` set, accept either role
+      first, persist exact `OneRoleReady`/
+      `BothRolesReady` state, and replay exact evidence.
+- [x] Add the strict bundle-derived activation-evidence and signed-receipt
+      boundary. It verifies refresh root continuity, exact result revisions,
+      source-bound A/B managed-backup artifacts or the dual-authority
+      accepted-loss authorization, both provider canaries, and retains the
+      exact signed activation bytes for lifecycle and D1 consumption.
 - [ ] Orchestrate distributed tenant-root creation through the role runtimes and
       control-plane activation lifecycle.
+- [ ] Provision dedicated creation-signing keys and integrate provider-specific
+      key create/destroy/probe operations for production activation; the
+      dormant Cloudflare operational adapter remains test-only.
 - [x] Orchestrate dedicated tenant recovery resharing from the active shares.
 - [x] Add the native role-encrypted recovery packages, externally trusted
       signatures, and signed public recovery manifest.
@@ -1767,12 +2230,14 @@ Phase 0 execution status on 2026-08-29:
       active.
 - [x] Keep all root-custody rows out of signer D1 and preserve R103F's final
       schema unchanged.
-- [ ] Reject caller-selected tenants, roots, roles, and epochs.
+- [x] Reject caller-selected tenants, roots, roles, and epochs. The shared
+      TypeScript boundary rejects these fields both statically and at runtime;
+      both B4/B5 composition paths fail before consulting B5 material.
 
 Phase 1 pure lifecycle evidence on 2026-08-31:
 
 - `cargo test --offline --manifest-path crates/router-ab-core/Cargo.toml
---test tenant_root_lifecycle` passes twenty-three focused creation, refresh,
+--test tenant_root_lifecycle` passes twenty-eight focused creation, refresh,
   custody-binding, managed one-role restore, and irreversible deletion tests.
 - `cargo test --offline --manifest-path crates/router-ab-core/Cargo.toml
 --all-targets` passes the complete core crate matrix.
@@ -1781,13 +2246,69 @@ Phase 1 pure lifecycle evidence on 2026-08-31:
 clippy::needless-borrow -D warnings` passes. The two allowed lints are
   pre-existing R103F protocol/test findings; the new lifecycle module is clean
   under the remaining warning set.
+- On 2026-09-01, the dormant creation boundary persists only the canonical
+  Started journal,
+  rebuilds `preparing`, and accepts a capability signed by a bounded issuer
+  verifying-key set. The capability binds the journal digest, identity,
+  custody lineage, expected revision, deterministic Durable Object authority,
+  nonce, issuer key ID, and freshness window. The Router creation object uses
+  the identity/lineage-derived object name and migration, validates the
+  internal journal-plus-capability request before its single-key
+  `creation/v1/journal` get/put, and applies exact replay semantics: a fresh
+  first acceptance commits, an exact persisted record replays after expiry,
+  unseen expiry returns `ExpiredLocalRequest`, and changed input returns
+  `ConflictingPair`. The crate-private Router caller independently derives the
+  object, checks the capability authority before dispatch, and validates the
+  exact response revision and digests. Authenticated private commitment and
+  evidence RPCs use bounded JSON and private service authentication. Their
+  journal, rendezvous, and checkpoint get/evaluate/put paths each run in one
+  atomic Durable Object transaction. The same Durable Object now persists exact
+  role-signed creation commitments as `OneRoleCommitted` or
+  `BothRolesCommitted`; the complete verified pair gates all installation
+  evidence and its exact own/peer commitments. The public-evidence-only A/B
+  checkpoint accepts `VerifiedTenantRootSignedShareInstallationEvidenceWireV1`,
+  accepts either role first, persists `OneRoleReady`/`BothRolesReady` under
+  `TENANT_ROOT_CREATION_INSTALLATION_CHECKPOINT_STORAGE_KEY_V1`, and replays
+  exact evidence without activation. First-unseen commitment or evidence
+  requires a fresh bounded command; the exact durable record replays after
+  expiry. The focused command
+  `cargo test --offline --manifest-path crates/router-ab-cloudflare/Cargo.toml
+  --lib tenant_root_creation -- --nocapture` passes 17/17
+  (`durable_object::tenant_root_creation::tests::*`, including
+  `role_key_set_retains_exact_role_and_key_id_across_rotation`), and
+  `cargo test --offline --manifest-path crates/router-ab-core/Cargo.toml --test
+  tenant_root_installation_evidence_wire -- --nocapture` passes 7/7. Capability
+  freshness is checked only for the first `Started`-journal acceptance.
+  Installation progress then validates
+  `TenantRootCeremonyContextV1::validate_at` through
+  `require_fresh_installation_context` for unseen first/peer evidence, while
+  exact persisted retries remain replayable after expiry. The broader Phase 1
+  evidence remains 5/5 for the core journal and 5/5 for the core capability.
+  No public route or role-runtime creation handler invokes this path. Exact
+  role-plus-`signing_key_id` retention is implemented through
+  `TenantRootCreationRoleVerifyingKeysV1`,
+  `decode_role_verifying_keys`, and
+  `ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON_ENV`; production
+  role-key provisioning/configuration and deployment rotation rollout remain
+  open, and no activation or cutover consumes it.
+- The initial role attempt is request-local and non-cloneable: a
+  `WaitingForPeer` result stays inside the same bounded request, and timeout
+  drops the sampled scalar so it is burned. Because its public commitment is
+  immutable, a timed-out retry requires fresh lineage, session, and nonce.
+  The two-role in-process flow keeps both nonpersistable attempts live through
+  exact A/B pair replay, each `finalize`, runtime `compose`, and provider
+  reopen; the five focused `tenant_root_initial_role_attempt` tests pass. The
+  provider-neutral online role-share sealing binding carries the exact
+  installation-evidence digest, role commitment, and opaque epoch key
+  reference; its two focused `tenant_root_online_sealing` tests pass.
+  The runtime re-verifies exact installation evidence against the configured
+  signer before either provider call, and the same-ID/different-key adversarial
+  test leaves both providers untouched.
 - The dormant Deriver A/B private-D1 prototype now enforces epoch-one initial
   activation, exact-revision pending cleanup, idempotent identical pending
-  installation, and an atomic exact-next-epoch active swap. Five focused Rust
-  tests originally covered its lifecycle and CAS contract. Two additional
-  tests now prove that startup accepts a matching HPKE KEK pair and fails
-  closed on a mismatched public/private pair before any ciphertext is written;
-  all seven focused Rust tests pass. The real `workerd` integration now invokes
+  installation, and an atomic exact-next-epoch active swap. Startup accepts a
+  matching HPKE KEK pair and fails closed on a mismatched public/private pair
+  before any ciphertext is written. The real `workerd` integration now invokes
   the production Rust store methods rather than copied SQL. It covers exact
   pending retry, conflicting-share rejection, epoch-one activation, missing
   successor and stale-CAS rejection, atomic retirement/activation, exact
@@ -1796,8 +2317,8 @@ clippy::needless-borrow -D warnings` passes. The two allowed lints are
   encrypted outer ciphertexts. The integration endpoint is available only in
   an explicitly enabled debug build; a release Worker build proves it is
   absent. The checklist item remains open until the role-local current-epoch
-  backup adapter, independently destroyable epoch-key provider, and runtime
-  orchestration are implemented.
+  backup persistence integration, independently destroyable epoch-key provider,
+  and runtime orchestration are implemented.
 - The provider-neutral managed-backup contract is now frozen in
   `tenant_root_managed_backup.rs`. A role-local provider receives a secret share
   only through a request that first proves the share matches the exact role
@@ -1807,16 +2328,103 @@ clippy::needless-borrow -D warnings` passes. The two allowed lints are
   provider-opened share is accepted only after reproducing the bound commitment.
   Three focused tests pin the AAD, ciphertext, and signed lifecycle-receipt
   digests and reject role, identity, epoch, signature, empty-ciphertext, and
-  restored-share substitution. The provider-specific create, encrypt/decrypt,
-  destroy, and destruction-probe adapter remains open until the deployment key
-  provider is selected and qualified.
-- The role-private D1 activation API accepts only a typed current-role-backup
-  receipt or a typed accepted-permanent-loss policy receipt. It retains that
-  evidence in the encrypted active record. Seven focused `workers-rs` unit
-  tests pass, including forward-only lifecycle and out-of-order evidence
-  rejection. The dormant B4/B5 identity adapter also passes fourteen focused
-  behavioral checks and the authoritative unit-workspace type-check; its
-  runtime mapping and request-boundary wiring remain open.
+  restored-share substitution. The dormant Cloudflare
+  `operational_rotation_v1` adapter supplies role-local HPKE
+  X25519/HKDF-SHA256/ChaCha20Poly1305 online and managed-backup
+  encrypt/decrypt with distinct online/backup keys, info labels, and AAD;
+  roundtrip, wrong-provider, and reused-key checks pass. Env/Wrangler
+  provisioning, persistence integration, destruction probes, the
+  `managed_healing_v1` adapter, provider qualification, live route, activation,
+  and cutover remain open.
+- The dormant activation-evidence bundle now verifies the public A/B refresh
+  evidence through `verify_tenant_root_refresh_evidence_v1`, then binds exact
+  installation, availability, and ECDSA/Ed25519 provider-canary artifacts into
+  `TenantRootSignedActivationReceiptV1`. Refresh receipts require result
+  revision `expected + 1`; initial creation is fixed at revisions 2 -> 3.
+  Verification retains exact canonical signed receipt bytes and their digest.
+  The availability union accepts either distinct-provider A/B managed backups
+  or a consuming, dual-authority accepted-loss authorization bound to the exact
+  context, root commitments, installation receipts, revisions, and one-use
+  scope. These local contracts remain dormant until production role handlers,
+  provider adapters, and activation orchestration are wired.
+- The role-private D1 activation API accepts either a signature-verified,
+  source-bound current-role backup artifact or a typed accepted-permanent-loss
+  authorization from the strict availability union. Current-backup activation
+  checks exact tenant, lineage, role, epoch, provider/key, and commitment
+  binding before transition; accepted-loss activation checks the exact
+  dual-authority bytes and scope. Both branches retain the exact activation
+  receipt bytes and derived digest in the encrypted active record.
+  Creation-specific reservation, execution, and success terminalization carry
+  the exact verified installation-evidence bytes through every stage; the
+  five initial-creation tests are included in the 29-test `workers-rs`
+  role-private D1 suite. The suite also covers forward-only lifecycle,
+  out-of-order evidence, backup-binding substitution, active-pair resolution,
+  and typed-command payload checks. The dormant B4/B5 identity adapter derives
+  its active-material types from the exact R103F resolver surface. The
+  aggregate identity/composition suite remains at 27 focused behavioral
+  checks, plus the authoritative unit-workspace type-check; live route wiring
+  remains open.
+- The shared server-resolved identity boundary and both ECDSA and Ed25519 B4/B5
+  composition boundaries reject runtime JavaScript objects carrying any
+  caller-selected tenant, root, role, epoch, Wallet Session, authorization,
+  credential, browser, request, or diagnostics selector. The 27-test focused
+  suite proves the rejection occurs before a B5 resolver call, while the
+  existing type fixtures reject the same fields statically.
+- Cross-lineage replay now has explicit local evidence at three independent
+  layers: an active refresh rejects a next ceremony from another lineage, a
+  managed restore capability from another lineage cannot enter installation,
+  and a valid signed managed-backup artifact cannot verify against another
+  lineage's AAD. The complete 28-test lifecycle suite and three-test managed
+  backup suite pass.
+
+- The dormant domain/store slice proves the intended resolution contract for
+  one authenticated tenant and one active Deriver A/B physical root pair.
+  Each role-private store answers only for itself, so the two halves meet once,
+  in `resolve_active_tenant_root_pair_binding_v1`. An active role row now
+  carries the public share commitment stored beside it
+  (`TenantRootActiveRoleBindingV1`), and construction pins that commitment's
+  embedded threshold share id to the row's own role, so a pair can never be
+  assembled from one role's coordinates and another role's commitment. The pair
+  itself is built through the existing `TenantRootEpochCommitmentsV1`, so the
+  joined public root commitment is the pair's stable identity and a commitment
+  that joins no pair is rejected rather than repaired. The resolution is
+  exhaustive over unprovisioned, active, partial pair, per-role ambiguity
+  (distinct lineages and duplicate rows in one lineage, including identical
+  rows), custody-lineage mismatch, epoch mismatch, and commitment mismatch;
+  nothing selects a winner. At the Cloudflare boundary
+  `cloudflare_require_active_tenant_root_pair_v1` fails closed on every unsafe
+  state, while `cloudflare_resolve_active_tenant_root_pair_v1` lets
+  reconciliation observe it without deriving from it. Pair resolution consumes
+  only each role's public half, so no Deriver receives its peer's opened record.
+  The active-binding suite has 23 tests, the tenant-root lifecycle suite has 28,
+  and the focused role-private D1 suite has 29 `workers-rs` tests. The
+  authority-derived custody binding takes identity, custody lineage, epoch,
+  role, and the public share commitment from the validated role-private record;
+  activation matches the verified managed-backup receipt binding field-for-field
+  before storing the active record. All four dormant D1 mutations—inserting a
+  pending share, initial activation, active-epoch swap, and pending cleanup—now
+  require branch-specific durably reserved typed commands. Their exact
+  canonical non-secret payload and core scope digests jointly bind identity,
+  custody lineage, role, epoch, control-plane revision, session, nonce, local
+  revisions, lifecycle evidence, and timestamps; accepted-loss construction and
+  mutation, reservation, and terminal APIs are crate-fenced. Exact retries
+  ignore a new arrival timestamp and replay the durable terminal receipt. The
+  role-local D1 mutation and its executed checkpoint run in one atomic batch,
+  so this local path is crash-resumable: persisted `reserved` or `executed` rows
+  reconstruct the exact local resume token after a crash. Both Deriver replay
+  migrations explicitly require
+  `IS NULL` or `IS NOT NULL` for each nullable lifecycle column, and the row
+  parser applies the same exhaustive shape check before resuming a command. The
+  private authority-bearing role-D1 wire boundary keeps branch-specific command
+  fields and mutation APIs inside the adapter; identity, custody lineage, role,
+  epoch, control-plane revision, session, nonce, operation, and payload digest
+  come from the server-issued scope rather than the caller. The dormant refresh
+  Durable Object now persists authoritative public active state and exact
+  commitment/installation checkpoints with replay and fence semantics; Router/
+  global control-plane issuer and current-revision authentication, two-role
+  runtime orchestration, and transition-level crash injection remain open, and
+  there is no production caller. The refreshed boundary inventory is recorded at
+  `docs/evidence/r120-boundary-inventory-v1.json`.
 
 ### Phase 2: implement ECDSA transparent refresh
 
@@ -1843,13 +2451,21 @@ clippy::needless-borrow -D warnings` passes. The two allowed lints are
       installation-evidence messages covering the operation, tenant identity,
       custody lineage, epochs, session, nonce, expiry, roles, commitments, and
       role key IDs.
-- [ ] Add the runtime one-use replay store, two-role commit barrier, encrypted
-      wire boundary parser, and abort/restart coordination around those exact
-      cryptographic messages.
-- [x] After R103F Phase 2, integrate the stable root identity check with the
-      final B4/B5 material resolver without decoding
-      `MpcMaterialActivationRef` or reconstructing either identity from the
-      other.
+- [x] Add the role-local one-use replay store and encrypted wire boundary
+      parser for the exact cryptographic messages, with reserved/executed
+      checkpoints and signed terminal receipts.
+- [x] Add the pure two-role commitment barrier required before either encrypted
+      refresh contribution can be constructed.
+- [x] Add the dormant refresh Durable Object authoritative public-state,
+      commitment-checkpoint, and installation-checkpoint paths with exact
+      replay, fence, and atomic-transaction semantics; the checkpoint slice
+      has no activation consumer.
+- [ ] Add live two-role runtime orchestration and abort/restart coordination
+      around those persisted messages.
+- [x] Implement and test the dormant stable-root identity adapter against the
+      final B4/B5 material resolver without decoding `MpcMaterialActivationRef`
+      or reconstructing either identity from the other. Live route wiring
+      remains behind the signed Phase 0 and shared-production integration gate.
 - [x] Add cryptographic mixed-epoch, replay-session, role, recipient-key,
       coefficient-commitment, peer-commitment, signature, root, and restart
       substitution vectors.
@@ -1864,10 +2480,14 @@ Phase 2 pure crash-recovery evidence on 2026-08-31:
   epoch; incomplete cleanup can only resume cleanup; a committed activation
   can only resume forward retirement. No recovery action can reactivate the
   previous epoch.
-- Focused vectors cover all six creation states and all six refresh states.
-  The persisted-message-transition item remains open until the runtime replay
-  store and Durable Object checkpoints exist and fault injection exercises
-  every stored command boundary.
+- Focused vectors cover all six creation states and all six refresh states. The
+  role-local replay store and its atomic mutation-plus-executed-checkpoint path
+  are locally covered. The dormant refresh Durable Object now persists the
+  verified activation's authoritative public active state, then exact A/B
+  commitment and installation checkpoints with replay/fence semantics; it
+  deliberately stops before activation. Live two-role runtime orchestration,
+  abort/restart coordination, and transition-level fault injection across the
+  production path remain open.
 - The dormant `MpcPrfStablePurposeBindingPlanV2` accepts the typed stable context
   together with an independently authenticated custody binding. Its threshold-
   PRF bytes are exactly `StableTenantDerivationContextV2::canonical_context_bytes()`;
@@ -1878,41 +2498,79 @@ Phase 2 pure crash-recovery evidence on 2026-08-31:
   output across a share-epoch refresh, different custody-bound proofs, and
   failure after either metadata-only or proof-level custody substitution. The
   complete threshold-PRF test and committed-vector matrix remains green, so V1
-  proof transcripts and outputs did not drift. Production request, payload,
-  proof, and runtime wires are unchanged.
+  proof transcripts and outputs did not drift. `MpcPrfStableThresholdSignerInputV2`
+  is now linear and constructible only from one fresh custody binding, its exact
+  authoritative active A/B pair, the matching role, and an opened share whose
+  derived commitment equals that role's active commitment. Substituted shares,
+  stale bindings, changed activation receipts, foreign pairs, and role mismatch
+  fail closed. The focused backend and lifecycle suites pass 17/17 and 33/33.
+  Production request, payload, proof, and runtime wires are unchanged.
 - `cargo test --manifest-path crates/router-ab-core/Cargo.toml --all-targets`
   and the full `router-ab-cloudflare` `workers-rs` test matrix pass after this
   addition. The threshold-PRF production library and router-ab-core also pass
   their warning-clean Clippy profiles.
-- Refresh contribution AAD can now be constructed only from a verified A+B
-  commitment pair for one exact ceremony. Fixed `deriver_a_to_b` and
+- Refresh commitment messages now have one strict canonical signed wire with
+  exact context, source role, signing-key ID, signature, canonical-byte
+  retention, and wire digest. Malformed, non-canonical, context-, role-, key-,
+  and signature-substituted messages fail closed; the focused transport suite
+  passes 9/9 tests. Refresh contribution AAD can be constructed only from a
+  verified A+B commitment pair for one exact ceremony. Fixed `deriver_a_to_b` and
   `deriver_b_to_a` builders replace the single-source constructor, so neither
   role can seal a contribution after verifying only its own commitment. The
-  focused transport suite now has six passing tests, including wrong-role and
+  focused transport suite includes plaintext
+  role/AAD binding, wrong-role and
   mixed-ceremony barrier rejection, strict encrypted/signed wire round trips,
   malformed-wire rejection, and authentication-role substitution. The signed
   A-to-B wire digest is frozen as
   `f8333d288e2a89d2a94a67e7dedef765415312f7561dc9bca1a4935141f4f3d7`, and the
-  native/WASM outer-protocol vector remains green. The checklist item stays open
-  for persistent replay storage and the crash/restart coordinator.
+  native/WASM outer-protocol vector remains green. The dormant refresh Durable
+  Object checkpoint path now stores authoritative public state and exact
+  commitment/installation evidence with replay and fence semantics, while
+  two-role runtime orchestration and the crash/restart coordinator remain open.
+- The issuer-signed `TenantRootRoleRefreshCommandV1` strictly binds the exact
+  active A/B commitments and root, current activation receipt, refresh context,
+  role, current and next epochs, dynamic control-plane revision, authority,
+  issuer, and validity window. Its verified token is non-cloneable and its
+  focused command suite passes 5/5 tests.
+- `PendingTenantRootRefreshRoleAttemptV1` owns the opened current share,
+  refresh coefficient, and role signing key as one request-local linear value.
+  Finalization requires the exact verified A/B commitment pair, predicts the
+  next public pair, proves the next local share, and emits exact signed
+  installation evidence. The focused attempt suite passes 4/4 tests. The
+  threshold public derivation rejects identity, zero, cancellation, and
+  collapsed equal-role commitment pairs; its refresh suite passes 8/8 tests
+  and the formal anti-drift suite passes 3/3.
+- The role-private D1 refresh insertion path now consumes the exact verified
+  refresh command and installation evidence through branch-specific linear
+  commands. Its replay digest commits to both the exact signed command digest
+  and exact public insert-row payload, so reissuing authority, active-pair,
+  issuer, signature, or validity fields cannot resume an earlier operation.
+  The role-store slice passes 35/35 focused tests, the full `workers-rs`
+  library passes 106 tests, and the no-feature library passes 33 tests. This
+  path remains dormant until the live refresh checkpoint coordinator, provider-
+  backed role runtime, and activation caller are complete.
 - The pure one-use command contract now distinguishes `execute`, `in_progress`,
   `replay_completed`, and `replay_failed` without making a terminal-to-running
   transition representable. Its role-local storage key binds the server-resolved
   identity, custody lineage, session, and role while retaining the nonce inside
   the authenticated record, so a same-session nonce or payload substitution
-  reaches the existing row and fails with `ReplayMismatch`. Four focused tests,
-  the full core matrix, and warning-clean Clippy pass; the frozen storage-key
-  digest is
+  reaches the existing row and fails with `ReplayMismatch`. Nine focused core
+  command-replay tests, the full core matrix, and warning-clean Clippy pass;
+  the frozen storage-key digest is
   `933a0980c47235dbb05eccd1d5f9974180c7de313bb6b71898f685b1f67c9037`.
   Deriver A and B now each have a role-constrained private-D1 replay table and a
-  primary-consistent adapter that persists `reserved`, `completed`, or `failed`
-  as one forward-only row. A terminal row retains the exact signed public receipt
-  bytes plus their recomputed digest; identical lost-response retries return
+  primary-consistent adapter that persists `reserved`, `executed`, `completed`,
+  or `failed` as one forward-only row. A terminal row retains the exact signed
+  public receipt bytes plus their recomputed digest; identical lost-response
+  retries return
   those bytes, while nonce, payload, role, or terminal-kind substitution fails
   closed. The real `workerd` integration exercises successful and failed replay
-  through both Deriver builds, and the complete 61-test Cloudflare `workers-rs`
-  library suite passes. Durable Object checkpoints, two-role runtime
-  orchestration, and transition-level crash injection remain open.
+  through both Deriver builds. On 2026-09-01, the focused signed-terminal-receipt
+  suite passes 8/8 tests, the role-private D1 unit slice passes 29/29 tests, the full
+  Cloudflare `workers-rs` library suite passes 100/100 tests, and `tests/bindings.rs`
+  passes 225 tests. The dormant refresh Durable Object checkpoint path is
+  implemented; two-role runtime orchestration and transition-level crash
+  injection remain open.
 
 ### Phase 3: replace the Ed25519 derivation profile
 
@@ -1923,7 +2581,7 @@ Phase 2 pure crash-recovery evidence on 2026-08-31:
 - [x] Add exact source/target inner protocol types: B may send only an A-target
       bundle to A, and A may send only a B-target bundle to B. Make the reverse
       directions and mixed payload combinations unrepresentable.
-- [ ] Bind the stable PRF context separately from the epoch-bound custody,
+- [x] Bind the stable PRF context separately from the epoch-bound custody,
       recipient, session, nonce, expiry, and replay transcript.
 - [x] Combine each output only inside its target Deriver, convert it through a
       role-specific zeroizing capability, and run the existing contribution KDF
@@ -1970,9 +2628,10 @@ Cryptographic Rust/WASM execution status on 2026-08-31:
   capabilities, fixed X25519/HKDF-SHA-256/AES-256-GCM contribution envelopes,
   and role-signed installation evidence. Strict canonical decoders now reject
   truncated, trailing, oversized, non-canonical, role-substituted, and malformed
-  encrypted contribution wires before verification. Replay persistence,
-  commit-barrier runtime state, transport orchestration, and activation remain
-  later lifecycle work.
+  encrypted contribution wires before verification. Role-local command replay
+  persistence now includes execution checkpoints and signed terminal receipts;
+  pair-session replay, commit-barrier runtime state, transport orchestration,
+  and activation remain later lifecycle work.
 - `router-ab-core` now also owns the tenant-controlled recovery cryptographic
   path. A recovery context can be built only from the authoritative active
   lifecycle state and substitutes one random recovery-set ID plus the two
@@ -2054,34 +2713,104 @@ Server integration status on 2026-08-31:
   authorization, credential, browser, request-body, or diagnostics selector.
   Negative type fixtures reject those fields and a curve/result mismatch.
   Focused behavioral tests cover both curves plus activation, root-ID, and
-  root-version substitution; all six pass.
+  root-version substitution; all nine pass.
 - The dormant ECDSA composition boundary now accepts only a successful B4
   Wallet Session operation admission. It derives the wallet and exact material
   activation selectors from that admission, resolves B5 once, verifies the B5
   activation, wallet, threshold public key, signing-root ID, and signing-root
   version, and returns the unchanged admission plus the full B5 material and
   five-field tenant-root identity. It has no live route importer and returns no
-  R120 share epoch. Eight focused behavioral tests and the canonical unit/type
+  R120 share epoch. Nine focused behavioral tests and the canonical unit/type
   fixture compilation pass.
+- The matching dormant Ed25519 composition boundary accepts only an exact B4
+  Ed25519 export admission. It resolves B5 once, verifies the top-level
+  activation, both wallet bindings, the registered public key, signing-root ID,
+  and signing-root version, and returns the unchanged admission plus the full
+  B5 material and five-field tenant-root identity. Nine focused behavioral
+  tests and the negative type fixture pass. Neither family composition has a
+  live route importer, public caller, production lifecycle configuration, or
+  cutover consumes either boundary, and neither returns an R120 share epoch.
 - Separate Deriver A and B migrations contain the encrypted role-share rows;
-  the R103F signer-D1 tree remains byte-identical to the frozen 35-file digest
-  `22bc861e959d7466f5c9ed7de3e85fd4562674a3016825fb74373327b2766d68`.
+  the R103F signer-D1 tree remains byte-identical to the executable 35-file
+  aggregate digest
+  `670aeba976269f2142eddcb9524a7b68a4022147eb30f02ecd5e10958aaaf1b8`.
   Role lifecycle transitions retain installation, exhaustive availability,
   signed activation, and signed retirement evidence inside the role-encrypted
   record. Focused Rust tests and the real `workerd` D1 suite pass.
 
 ### Phase 4: add lifecycle and operations
 
-- [ ] Add the exhaustive current/next control-plane state.
-- [ ] Add per-tenant locks, fences, canaries, activation, and redacted receipts.
+- [x] Add the exhaustive current/next control-plane state.
+- [x] Add the pure deployment-cutover state machine with attempt-bound receipts,
+      a validated revision manifest, distinct post-activation canaries, bounded
+      timestamps, collision-free rollback revisions, and forward-only recovery
+      actions.
+- [x] Add strict provider-canary and activation-evidence receipts, including
+      exact A/B/root commitments, source-bound availability, and exact signed
+      bytes; add the dormant refresh Durable Object public-state and
+      commitment/installation checkpoint fence.
+- [ ] Add live per-tenant locks, fences, activation, and redacted production
+      receipts.
 - [ ] Add fresh online and backup epoch key versions and verified retirement.
-- [ ] Add one-role restore with commitment verification and mandatory forward
+- [x] Add one-role restore with commitment verification and mandatory forward
       refresh.
-- [ ] Keep managed availability restore and tenant recovery restore in distinct
+- [x] Keep managed availability restore and tenant recovery restore in distinct
       exhaustive protocol branches.
 - [ ] Inject failure before and after every role install and activation step.
 - [ ] Prove normal signing remains available.
 - [ ] Add operator-triggered refresh before scheduled refresh.
+
+Phase 4 pure cutover evidence on 2026-08-31:
+
+- The Cloudflare control-plane boundary owns `TenantRootRevisionManifestV1` and
+  `TenantRootCutoverStateV1`; deployment identities and D1 migration heads do
+  not enter the cryptographic core. One random nonzero
+  `TenantRootCutoverAttemptIdV1` is carried through the complete state and must
+  bind every runtime-verified receipt. Fence, drain, revision verification,
+  profile activation, rollback, and unfence receipts are branch-specific Rust
+  types, so a receipt from one stage cannot be substituted at another stage.
+  The exhaustive cutover state advances
+  through `open`, `fenced`, `drained`, `revisions_verified`,
+  `profile_activated`, `profile_committed`, `ready_to_unfence`, and `complete`.
+  A signed rollback is representable through `profile_activated`. Admitting the
+  first R120-profile derivation creates `profile_committed`, whose API exposes
+  only forward completion of the other curve and then unfencing.
+- Eight focused manifest and cutover tests reject mixed release commits,
+  protocol/artifact sets, role slots, deployment identities, storage shapes,
+  duplicate receipts, repeated curve canaries, and timestamp replay. The full
+  Cloudflare `workers-rs --all-targets` matrix and warning-clean Clippy pass
+  under the repository's explicit existing lint exceptions. The dormant refresh
+  Durable Object persists authoritative public state and exact
+  commitment/installation checkpoints with replay/fence semantics; live fences,
+  participant readback, production activation, and deployed fault injection
+  remain open. The canonical manifest digest is frozen at
+  `3042742aca6b9f308591d79c8bed255c56dbf9be76026731038162c03e399753`.
+
+### Current green evidence (2026-09-02)
+
+- The `router-ab-core --all-targets` suite is green. The exact refresh
+  transition derives the next pair as the authoritative active pair plus the
+  accepted A/B coefficients, re-verifies the stored `BothRoles` installation
+  evidence, and rejects root-preserving and coefficient-as-share substitutions.
+  Core refresh-checkpoint evidence is 5/5, the independent audit is clean, and
+  the activation-receipt suite passes 12/12.
+- Cloudflare feature and no-feature checks and all-targets are green: the
+  `workers-rs` library passes 129 tests, `tests/bindings.rs` passes 225 tests,
+  and all integration targets pass. The Durable Object refresh checkpoint
+  suite passes 21/21.
+- The dormant A/B role-signing boundary passes 2/2, and the TypeScript unit
+  typecheck is green.
+- The regenerated boundary inventory records 932 files and 17,451 hits with
+  34 generated artifacts; its generated-artifact digest is
+  `f681b31eefbbc145b965523d81a960539eb9e59c3e116fa8897f35cf8fdc8ee4`.
+
+These are local development results. Phase 0 remains gated because there is no
+deployed signed architecture-selection record or deployed benchmark evidence;
+no public activation route or production activation caller consumes the dormant
+paths. Env/Wrangler provisioning, role-private persistence integration,
+destruction probes, `managed_healing_v1`, provider qualification, live
+orchestration, physical tenant mapping, cutover, drills, and production
+role-key provisioning remain open.
 
 ### Phase 5: release the client-transparent path
 
@@ -2113,6 +2842,31 @@ The implementation is complete only when tests prove:
 
 - tenant A and tenant B have unrelated root commitments and shares;
 - neither initial creation nor refresh exposes the joined root;
+- the creation journal contains only the Started event and rebuilds the exact
+  preparing state;
+- the creation capability is signed and binds the exact object authority,
+  identity, custody lineage, journal digest, issuer key, and freshness window;
+- the creation Durable Object accepts only its deterministic identity/lineage
+  binding and input-gated journal key, with exact expired-replay, unseen-expiry,
+  and conflict behavior;
+- the dormant installation checkpoint accepts either A/B arrival order only
+  after `TenantRootSignedShareInstallationEvidenceV1::decode_and_verify_canonical_bytes`
+  produces `VerifiedTenantRootSignedShareInstallationEvidenceWireV1`, stores
+  public evidence only, freshness-validates unseen first/peer evidence with
+  `TenantRootCeremonyContextV1::validate_at`, rejects substituted or corrupt
+  evidence, and replays exact persisted evidence after expiry without
+  activation;
+- initial role attempts are request-local and non-cloneable, keep
+  `WaitingForPeer` within the same bounded request, and burn the scalar on
+  timeout/drop; a retry requires fresh lineage, session, and nonce because the
+  public commitment is immutable;
+- the provider-neutral online seal binding carries the exact installation
+  evidence and opaque key reference, while provider ciphertext remains outside
+  the core's interpretation;
+- creation-specific D1 reservation, execution, and success receipts preserve
+  the exact evidence bytes, and authenticated private Router commitment/evidence
+  RPCs require freshness for unseen input while replaying the exact durable
+  record after expiry; each Durable Object mutation is atomic;
 - both root shares change after refresh;
 - `2*A - B` and `2*A' - B'` bind to the same public root commitment;
 - old and new shares produce identical ECDSA threshold-PRF outputs;
@@ -2139,6 +2893,8 @@ The implementation is complete only when tests prove:
 - stale, future, substituted, and replayed epochs are rejected;
 - failure before activation leaves the current epoch usable;
 - failure after one pending install exposes no mixed-epoch derivation path;
+- role-local command persistence checkpoints execution before terminalization,
+  and signed terminal receipts replay with their exact canonical bytes;
 - restart from every lifecycle state converges to one defined branch;
 - no wallet record, signer package, client state, public key, address, or
   activation reference changes;
@@ -2241,8 +2997,8 @@ Refactor 120 is complete when:
 
 ## Remaining Evidence Gates
 
-One deliberate architecture-selection gate remains before production transport,
-storage, lifecycle, and activation work:
+One deliberate architecture-selection gate remains before production transport
+and activation integration:
 the role-targeted threshold-PRF preface must pass Phase 0. A passing record
 freezes that design. A failure stops Refactor 120 and reopens the Ed25519
 architecture through an explicit plan amendment; it does not authorize the
@@ -2252,6 +3008,32 @@ primitives remain pre-activation code until that record passes.
 Phase 1 also waits for the canonical schemas, vectors, type fixtures, boundary
 inventory, baseline classification, and red tests named by the preparation
 phase.
+
+The Started-only creation journal, signed creation capability, deterministic
+Router Durable Object binding/migration, role-local replay checkpoint, signed
+installation evidence, the public-evidence-only A/B installation checkpoint,
+signed terminal receipts, strict bundle-derived activation evidence and
+receipts, provider canaries, the public refresh-evidence verifier, the dormant
+refresh Durable Object public-state/checkpoint path, constant-time secret-derive
+hardening, and dormant B4/B5 composition are local implementation slices. The
+activation receipt binds only verified source artifacts, enforces its exact
+result revision, and retains the exact signed bytes. Its availability branch is
+either source-bound A/B managed backups or a consuming dual-authority
+accepted-loss authorization bound to the exact context, root commitments,
+installation receipts, revisions, and one-use scope. The refresh Durable
+Object's authoritative public state and commitment/installation checkpoints
+have exact replay/fence semantics and no activation or cutover consumer.
+
+These slices have no public caller or role-runtime creation handler. Exact
+role-plus-`signing_key_id` retention is implemented in the dormant parser.
+Production role-key provisioning/configuration and deployment rotation rollout
+remain open. Dedicated creation-signing-key provisioning, provider key
+create/destroy/probe integration, live Durable Object orchestration, production
+route/transport wiring, provider qualification, and release evidence remain
+required. The dormant Cloudflare `operational_rotation_v1` HPKE adapter is not
+persisted or provisioned through Env/Wrangler, and no public route, production
+transport, activation, or cutover consumes it. Wrangler provisioning remains
+deliberately absent pending activation.
 
 Production activation additionally requires measured acceptance of the frozen
 resource budget, successful online-store, backup, restore, deletion, and erasure

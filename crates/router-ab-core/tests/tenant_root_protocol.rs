@@ -6,9 +6,10 @@ use router_ab_core::{
     verify_tenant_root_creation_evidence_v1, verify_tenant_root_refresh_evidence_v1,
     RouterAbDerivationErrorCode, TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1,
     TenantRootCeremonyNonceV1, TenantRootCeremonySessionIdV1, TenantRootCustodyLineageId,
-    TenantRootIdentityV1, TenantRootShareEpoch, TenantRootShareInstallationEvidenceV1,
+    TenantRootEpochCommitmentsV1, TenantRootIdentityV1, TenantRootProtocolDigestV1,
+    TenantRootShareEpoch, TenantRootShareInstallationEvidenceV1,
     TenantRootShareInstallationTranscriptV1, TenantRootSignedShareInstallationEvidenceV1,
-    VerifiedTenantRootShareInstallationEvidenceV1,
+    VerifiedTenantRootShareInstallationEvidenceV1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
 };
 use sha2::{Digest, Sha256};
 use threshold_prf::{
@@ -110,6 +111,27 @@ fn refreshed_share(
     apply_two_party_root_share_refresh(current, contribution_a, contribution_b).unwrap()
 }
 
+fn epoch_commitments(
+    deriver_a: &SigningRootShare,
+    deriver_b: &SigningRootShare,
+) -> TenantRootEpochCommitmentsV1 {
+    TenantRootEpochCommitmentsV1::new(
+        router_ab_core::MpcPrfShareCommitmentWireV1::new(
+            SigningRootShareCommitment::from_share(deriver_a)
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap(),
+        router_ab_core::MpcPrfShareCommitmentWireV1::new(
+            SigningRootShareCommitment::from_share(deriver_b)
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap(),
+    )
+    .unwrap()
+}
+
 #[test]
 fn creation_context_and_installation_evidence_are_canonical_and_exact() {
     let context = ceremony_context(TenantRootCeremonyEpochsV1::create(), 0x21);
@@ -206,6 +228,14 @@ fn refresh_evidence_preserves_root_and_rejects_session_peer_and_root_substitutio
     let verified_b = authenticated_evidence(evidence_b);
     let next = verify_tenant_root_refresh_evidence_v1(&current, &verified_a, &verified_b).unwrap();
     assert_eq!(current.root(), next.root());
+    let current_epoch = epoch_commitments(&current_a, &current_b);
+    let next_epoch = current_epoch
+        .verify_refresh_evidence(&verified_a, &verified_b)
+        .unwrap();
+    assert_eq!(
+        next_epoch.root_commitment(),
+        current_epoch.root_commitment()
+    );
 
     let other_session = ceremony_context(epochs, 0x23);
     let other_b = evidence(
@@ -234,14 +264,22 @@ fn refresh_evidence_preserves_root_and_rejects_session_peer_and_root_substitutio
         &unrelated_a,
         8,
     );
+    let verified_peer_substituted_b = authenticated_evidence(peer_substituted_b);
     assert_eq!(
         verify_tenant_root_refresh_evidence_v1(
             &current,
             &verified_a,
-            &authenticated_evidence(peer_substituted_b),
+            &verified_peer_substituted_b,
         )
         .unwrap_err()
         .code(),
+        RouterAbDerivationErrorCode::MalformedInput,
+    );
+    assert_eq!(
+        current_epoch
+            .verify_refresh_evidence(&verified_a, &verified_peer_substituted_b)
+            .unwrap_err()
+            .code(),
         RouterAbDerivationErrorCode::MalformedInput,
     );
 
@@ -252,6 +290,17 @@ fn refresh_evidence_preserves_root_and_rejects_session_peer_and_root_substitutio
     .unwrap();
     assert_eq!(
         verify_tenant_root_refresh_evidence_v1(&unrelated_current, &verified_a, &verified_b,)
+            .unwrap_err()
+            .code(),
+        RouterAbDerivationErrorCode::OutputVerificationFailed,
+    );
+    let unrelated_current_epoch = epoch_commitments(
+        &fixed_share(TwoPartyDeriverRole::DeriverA, 51),
+        &fixed_share(TwoPartyDeriverRole::DeriverB, 83),
+    );
+    assert_eq!(
+        unrelated_current_epoch
+            .verify_refresh_evidence(&verified_a, &verified_b)
             .unwrap_err()
             .code(),
         RouterAbDerivationErrorCode::OutputVerificationFailed,
@@ -294,4 +343,98 @@ fn epoch_time_session_nonce_and_restart_invariants_fail_closed() {
         TenantRootShareInstallationEvidenceV1::new(restarted_transcript, original.proof(),)
             .is_err()
     );
+}
+
+fn ceremony_context_with(
+    issued_at_ms: u64,
+    expires_at_ms: u64,
+    deriver_a_signing_key_id: &str,
+    deriver_b_signing_key_id: &str,
+) -> Result<TenantRootCeremonyContextV1, router_ab_core::RouterAbDerivationError> {
+    TenantRootCeremonyContextV1::new(
+        identity_digest(),
+        TenantRootCustodyLineageId::from_bytes([0x31; 16]).unwrap(),
+        TenantRootCeremonyEpochsV1::create(),
+        TenantRootCeremonySessionIdV1::from_bytes([0x51; 16]).unwrap(),
+        TenantRootCeremonyNonceV1::from_bytes([0x41; 32]).unwrap(),
+        issued_at_ms,
+        expires_at_ms,
+        deriver_a_signing_key_id,
+        deriver_b_signing_key_id,
+    )
+}
+
+#[test]
+fn protocol_digest_rejects_the_all_zero_digest_at_every_boundary() {
+    assert_eq!(
+        TenantRootProtocolDigestV1::from_bytes([0; 32])
+            .unwrap_err()
+            .code(),
+        RouterAbDerivationErrorCode::MalformedInput
+    );
+    let digest = TenantRootProtocolDigestV1::from_bytes([0x84; 32]).expect("non-zero digest");
+    let encoded = serde_json::to_value(digest).expect("digest serializes");
+    assert_eq!(
+        serde_json::from_value::<TenantRootProtocolDigestV1>(encoded).expect("round trip"),
+        digest
+    );
+    let zero = serde_json::to_value([0_u8; 32]).expect("zero array serializes");
+    assert!(serde_json::from_value::<TenantRootProtocolDigestV1>(zero).is_err());
+}
+
+#[test]
+fn ceremony_lifetime_is_bounded_by_the_frozen_maximum_window() {
+    let issued = 1_000_000;
+    assert!(ceremony_context_with(
+        issued,
+        issued + TENANT_ROOT_MAX_LIFETIME_MS_V1,
+        "deriver-a-signing-key-7",
+        "deriver-b-signing-key-9",
+    )
+    .is_ok());
+    let over = ceremony_context_with(
+        issued,
+        issued + TENANT_ROOT_MAX_LIFETIME_MS_V1 + 1,
+        "deriver-a-signing-key-7",
+        "deriver-b-signing-key-9",
+    )
+    .unwrap_err();
+    assert_eq!(over.code(), RouterAbDerivationErrorCode::MalformedInput);
+    assert!(ceremony_context_with(
+        issued,
+        issued,
+        "deriver-a-signing-key-7",
+        "deriver-b-signing-key-9",
+    )
+    .is_err());
+    assert!(ceremony_context_with(
+        0,
+        1_000,
+        "deriver-a-signing-key-7",
+        "deriver-b-signing-key-9",
+    )
+    .is_err());
+}
+
+#[test]
+fn ceremony_signing_key_ids_require_strict_boundary_hygiene() {
+    let peer = "deriver-b-signing-key-9";
+    for rejected in [
+        "",
+        " deriver-a-signing-key-7",
+        "deriver-a-signing-key-7 ",
+        "deriver-a\u{0000}signing-key-7",
+        "deriver-a\nsigning-key-7",
+        "deriver-a\tsigning-key-7",
+    ] {
+        assert!(
+            ceremony_context_with(1_000_000, 1_030_000, rejected, peer).is_err(),
+            "expected rejection for {rejected:?}"
+        );
+    }
+    let longest = "k".repeat(256);
+    assert!(ceremony_context_with(1_000_000, 1_030_000, &longest, peer).is_ok());
+    let too_long = "k".repeat(257);
+    assert!(ceremony_context_with(1_000_000, 1_030_000, &too_long, peer).is_err());
+    assert!(ceremony_context_with(1_000_000, 1_030_000, peer, peer).is_err());
 }

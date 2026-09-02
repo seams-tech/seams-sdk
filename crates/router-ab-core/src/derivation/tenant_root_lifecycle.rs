@@ -1,12 +1,16 @@
-use serde::Serialize;
+use serde::{de::Error as DeError, ser::SerializeStruct, Deserialize, Deserializer, Serialize};
 use threshold_prf::{SigningRootShareCommitment, TwoPartyRootShareCommitments};
 
 use super::{
     verify_tenant_root_creation_evidence_v1, verify_tenant_root_refresh_evidence_v1,
     MpcPrfShareCommitmentWireV1, RouterAbDerivationError, RouterAbDerivationErrorCode,
-    RouterAbDerivationResult, TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1,
-    TenantRootCustodyLineageId, TenantRootIdentityV1, TenantRootProtocolDigestV1,
-    TenantRootShareEpoch, VerifiedTenantRootShareInstallationEvidenceV1,
+    RouterAbDerivationResult, TenantRootAcceptedPermanentLossAuthorizationDigestV1,
+    TenantRootActivationReceiptAvailabilityV1, TenantRootActivationReceiptBindingV1,
+    TenantRootActivationReceiptTransitionV1, TenantRootCeremonyContextV1,
+    TenantRootCeremonyEpochsV1, TenantRootCustodyLineageId, TenantRootIdentityV1,
+    TenantRootProtocolDigestV1, TenantRootShareEpoch,
+    TenantRootSignedAcceptedPermanentLossAuthorizationV1,
+    VerifiedTenantRootShareInstallationEvidenceV1, VerifiedTenantRootSignedActivationReceiptV1,
 };
 
 /// Public SHA-256 digest of a signed tenant-root lifecycle receipt.
@@ -30,6 +34,16 @@ impl TenantRootLifecycleReceiptDigestV1 {
     }
 }
 
+impl<'de> Deserialize<'de> for TenantRootLifecycleReceiptDigestV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = <[u8; 32]>::deserialize(deserializer)?;
+        Self::from_bytes(bytes).map_err(D::Error::custom)
+    }
+}
+
 /// Exact public A/B commitments for one tenant-root epoch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,11 +61,15 @@ impl TenantRootEpochCommitmentsV1 {
     ) -> RouterAbDerivationResult<Self> {
         let deriver_a = MpcPrfShareCommitmentWireV1::new(deriver_a.as_bytes().to_vec())?;
         let deriver_b = MpcPrfShareCommitmentWireV1::new(deriver_b.as_bytes().to_vec())?;
-        let pair = TwoPartyRootShareCommitments::new(
-            parse_share_commitment(&deriver_a)?,
-            parse_share_commitment(&deriver_b)?,
-        )
-        .map_err(|_| malformed("tenant-root epoch commitment pair is invalid"))?;
+        let deriver_a_point = parse_share_commitment(&deriver_a)?;
+        let deriver_b_point = parse_share_commitment(&deriver_b)?;
+        if deriver_a_point.to_compressed() == deriver_b_point.to_compressed() {
+            return Err(malformed(
+                "tenant-root epoch role commitments must commit to distinct points",
+            ));
+        }
+        let pair = TwoPartyRootShareCommitments::new(deriver_a_point, deriver_b_point)
+            .map_err(|_| malformed("tenant-root epoch commitment pair is invalid"))?;
         Ok(Self {
             deriver_a,
             deriver_b,
@@ -82,7 +100,18 @@ impl TenantRootEpochCommitmentsV1 {
         &self.root_commitment
     }
 
-    fn threshold_pair(&self) -> RouterAbDerivationResult<TwoPartyRootShareCommitments> {
+    /// Verifies a refreshed A/B evidence pair against this epoch's public root.
+    pub fn verify_refresh_evidence(
+        &self,
+        deriver_a: &VerifiedTenantRootShareInstallationEvidenceV1,
+        deriver_b: &VerifiedTenantRootShareInstallationEvidenceV1,
+    ) -> RouterAbDerivationResult<Self> {
+        let current = self.threshold_pair()?;
+        let next = verify_tenant_root_refresh_evidence_v1(&current, deriver_a, deriver_b)?;
+        Self::from_verified(next)
+    }
+
+    pub(crate) fn threshold_pair(&self) -> RouterAbDerivationResult<TwoPartyRootShareCommitments> {
         let pair = TwoPartyRootShareCommitments::new(
             parse_share_commitment(&self.deriver_a)?,
             parse_share_commitment(&self.deriver_b)?,
@@ -161,27 +190,85 @@ impl TenantRootRoleBackupReceiptsV1 {
     }
 }
 
-/// Signed deployment decision accepting permanent derivation loss.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+/// Exact accepted-loss authorization retained from verified activation evidence.
+///
+/// The lifecycle never accepts a caller-built digest. The authorization bytes
+/// and their typed digest are copied only from a verified support-evidence
+/// token at the activation-evidence boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TenantRootAcceptedLossReceiptV1 {
-    digest: TenantRootLifecycleReceiptDigestV1,
+    authorization_bytes: Vec<u8>,
+    authorization_digest: TenantRootAcceptedPermanentLossAuthorizationDigestV1,
 }
 
 impl TenantRootAcceptedLossReceiptV1 {
-    /// Creates the explicit accepted-loss receipt.
-    pub const fn new(digest: TenantRootLifecycleReceiptDigestV1) -> Self {
-        Self { digest }
+    /// Retains the exact accepted-loss authorization from a verified token.
+    pub fn from_verified(
+        authorization: super::VerifiedTenantRootAcceptedPermanentLossAuthorizationV1,
+    ) -> Self {
+        let authorization_digest = authorization.digest();
+        Self {
+            authorization_bytes: authorization.into_canonical_bytes(),
+            authorization_digest,
+        }
     }
 
-    /// Returns the signed policy receipt digest.
-    pub const fn digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
-        self.digest
+    /// Returns the exact signed authorization bytes.
+    pub fn authorization_bytes(&self) -> &[u8] {
+        &self.authorization_bytes
+    }
+
+    /// Returns the digest of the exact signed authorization bytes.
+    pub const fn authorization_digest(
+        &self,
+    ) -> &TenantRootAcceptedPermanentLossAuthorizationDigestV1 {
+        &self.authorization_digest
+    }
+
+    /// Returns the exact canonical signed authorization bytes.
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.authorization_bytes
+    }
+
+    /// Returns the digest of the exact canonical signed authorization bytes.
+    pub const fn digest(&self) -> TenantRootAcceptedPermanentLossAuthorizationDigestV1 {
+        self.authorization_digest
+    }
+
+    /// Requires the retained authorization to be inside its signed freshness window.
+    pub fn require_fresh(&self, now_ms: u64) -> RouterAbDerivationResult<()> {
+        let authorization =
+            TenantRootSignedAcceptedPermanentLossAuthorizationV1::decode_canonical_bytes(
+                &self.authorization_bytes,
+            )?;
+        if authorization.digest()? != self.authorization_digest {
+            return Err(malformed(
+                "tenant-root accepted-loss authorization digest does not match its bytes",
+            ));
+        }
+        if now_ms < authorization.issued_at_ms() || now_ms > authorization.expires_at_ms() {
+            return Err(replay_mismatch(
+                "tenant-root accepted-loss authorization is outside its freshness window",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Serialize for TenantRootAcceptedLossReceiptV1 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("TenantRootAcceptedLossReceiptV1", 2)?;
+        state.serialize_field("authorizationBytes", &self.authorization_bytes)?;
+        state.serialize_field("authorizationDigest", self.authorization_digest.as_bytes())?;
+        state.end()
     }
 }
 
 /// Exact availability branch required before a tenant-root epoch can activate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", content = "evidence", rename_all = "snake_case")]
 pub enum TenantRootBackupPolicyV1 {
     /// Both roles hold independently encrypted current-epoch managed backups.
@@ -349,8 +436,8 @@ impl VerifiedTenantRootEpochV1 {
     }
 
     /// Returns the activation availability branch.
-    pub const fn backup_policy(&self) -> TenantRootBackupPolicyV1 {
-        self.backup_policy
+    pub fn backup_policy(&self) -> TenantRootBackupPolicyV1 {
+        self.backup_policy.clone()
     }
 
     /// Returns both continuity-canary receipts.
@@ -364,28 +451,35 @@ impl VerifiedTenantRootEpochV1 {
     }
 }
 
-/// Signed control-plane activation receipt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+/// Cloneable active-state projection of one verified activation receipt.
+///
+/// The verified token is consumed at activation. Active state retains only the
+/// exact authenticated wire and the values derived from it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TenantRootActivationReceiptV1 {
+pub struct TenantRootActivationReceiptProjectionV1 {
+    canonical_bytes: Vec<u8>,
     digest: TenantRootLifecycleReceiptDigestV1,
     activated_at_ms: u64,
 }
 
-impl TenantRootActivationReceiptV1 {
-    /// Creates one non-zero-time activation receipt.
-    pub fn new(
-        digest: TenantRootLifecycleReceiptDigestV1,
-        activated_at_ms: u64,
-    ) -> RouterAbDerivationResult<Self> {
-        require_timestamp("tenant-root activation timestamp", activated_at_ms)?;
-        Ok(Self {
+impl TenantRootActivationReceiptProjectionV1 {
+    fn from_verified(receipt: VerifiedTenantRootSignedActivationReceiptV1) -> Self {
+        let digest = receipt.digest();
+        let activated_at_ms = receipt.activated_at_ms();
+        Self {
+            canonical_bytes: receipt.into_canonical_bytes(),
             digest,
             activated_at_ms,
-        })
+        }
     }
 
-    /// Returns the signed receipt digest.
+    /// Returns the exact canonical signed receipt bytes.
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    /// Returns the digest of the exact canonical signed receipt bytes.
     pub const fn digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
         self.digest
     }
@@ -401,7 +495,7 @@ impl TenantRootActivationReceiptV1 {
 #[serde(rename_all = "camelCase")]
 pub struct ActiveTenantRootEpochV1 {
     verified: VerifiedTenantRootEpochV1,
-    activation: TenantRootActivationReceiptV1,
+    activation: TenantRootActivationReceiptProjectionV1,
 }
 
 impl ActiveTenantRootEpochV1 {
@@ -416,8 +510,23 @@ impl ActiveTenantRootEpochV1 {
     }
 
     /// Returns the control-plane activation receipt.
-    pub const fn activation(&self) -> TenantRootActivationReceiptV1 {
-        self.activation
+    pub const fn activation(&self) -> &TenantRootActivationReceiptProjectionV1 {
+        &self.activation
+    }
+
+    /// Returns the exact canonical signed activation receipt bytes.
+    pub fn activation_receipt_bytes(&self) -> &[u8] {
+        self.activation.canonical_bytes()
+    }
+
+    /// Returns the digest of the exact canonical signed activation receipt.
+    pub const fn activation_receipt_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.activation.digest()
+    }
+
+    /// Returns the authenticated activation time.
+    pub const fn activation_time_ms(&self) -> u64 {
+        self.activation.activated_at_ms()
     }
 }
 
@@ -667,6 +776,22 @@ impl TenantRootPreparingCreationV1 {
         let commitments = TenantRootEpochCommitmentsV1::from_verified(
             verify_tenant_root_creation_evidence_v1(deriver_a, deriver_b)?,
         )?;
+        let verified_revision = next_revision(self.revision)?;
+        let activation_revision = next_revision(verified_revision)?;
+        validate_backup_policy(
+            &backup_policy,
+            self.identity.digest()?,
+            self.custody_lineage,
+            TenantRootActivationReceiptTransitionV1::InitialCreation,
+            self.next.epoch(),
+            self.next.ceremony_digest(),
+            &commitments,
+            installation_receipts,
+            verified_revision,
+            activation_revision,
+            self.next.issued_at_ms(),
+            self.next.expires_at_ms(),
+        )?;
         Ok(TenantRootVerifiedCreationV1 {
             identity: self.identity,
             custody_lineage: self.custody_lineage,
@@ -678,7 +803,7 @@ impl TenantRootPreparingCreationV1 {
                 canary_receipts,
                 verified_at_ms,
             },
-            revision: next_revision(self.revision)?,
+            revision: verified_revision,
         })
     }
 
@@ -728,18 +853,32 @@ pub struct TenantRootVerifiedCreationV1 {
 }
 
 impl TenantRootVerifiedCreationV1 {
-    /// Activates epoch 1 using one signed control-plane receipt.
+    /// Returns the allocated tenant-root identity.
+    pub const fn identity(&self) -> &TenantRootIdentityV1 {
+        &self.identity
+    }
+
+    /// Returns the custody lineage selected for creation.
+    pub const fn custody_lineage(&self) -> TenantRootCustodyLineageId {
+        self.custody_lineage
+    }
+
+    /// Returns the verified epoch awaiting activation.
+    pub const fn next(&self) -> &VerifiedTenantRootEpochV1 {
+        &self.next
+    }
+
+    /// Returns the current lifecycle revision.
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Activates epoch 1 using one issuer-verified control-plane receipt.
     pub fn activate(
         self,
-        activation: TenantRootActivationReceiptV1,
+        activation: VerifiedTenantRootSignedActivationReceiptV1,
     ) -> RouterAbDerivationResult<TenantRootActiveCreationV1> {
-        if activation.activated_at_ms < self.next.verified_at_ms
-            || activation.activated_at_ms > self.next.pending.expires_at_ms
-        {
-            return Err(malformed(
-                "tenant-root activation must follow verification within the ceremony lifetime",
-            ));
-        }
+        let activation = project_initial_creation_activation(&self, activation)?;
         Ok(TenantRootActiveCreationV1 {
             identity: self.identity,
             custody_lineage: self.custody_lineage,
@@ -790,6 +929,45 @@ impl TenantRootVerifiedCreationV1 {
     }
 }
 
+fn project_initial_creation_activation(
+    state: &TenantRootVerifiedCreationV1,
+    activation: VerifiedTenantRootSignedActivationReceiptV1,
+) -> RouterAbDerivationResult<TenantRootActivationReceiptProjectionV1> {
+    activation.require_fresh(activation.activated_at_ms())?;
+    require_transition_time(
+        &state.next.pending,
+        activation.activated_at_ms(),
+        "activation",
+    )?;
+    if activation.activated_at_ms() < state.next.verified_at_ms() {
+        return Err(malformed("tenant-root activation must follow verification"));
+    }
+    let TenantRootActivationReceiptBindingV1::InitialCreation(binding) = activation.binding()
+    else {
+        return Err(replay_mismatch(
+            "tenant-root initial activation receipt branch is invalid",
+        ));
+    };
+    if binding.epoch() != TenantRootShareEpoch::INITIAL
+        || binding.identity_digest() != state.identity.digest()?
+        || binding.custody_lineage() != state.custody_lineage
+        || binding.context_digest() != state.next.pending.ceremony_digest()
+        || binding.expected_control_plane_revision() != state.revision
+        || binding.result_control_plane_revision() != next_revision(state.revision)?
+        || binding.commitments() != &state.next.commitments
+        || binding.installation_receipts() != state.next.installation_receipts
+        || binding.canary_receipts() != state.next.canary_receipts
+        || binding.issued_at_ms() != state.next.pending.issued_at_ms()
+        || binding.expires_at_ms() != state.next.pending.expires_at_ms()
+    {
+        return Err(replay_mismatch(
+            "tenant-root initial activation receipt fields do not match its lifecycle state",
+        ));
+    }
+    validate_activation_availability(&state.next.backup_policy, binding.availability())?;
+    project_verified_activation(activation)
+}
+
 /// Terminal successful initial-creation branch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -809,6 +987,26 @@ impl TenantRootActiveCreationV1 {
     /// Returns the final creation revision.
     pub const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Returns the exact active epoch projection.
+    pub const fn current_epoch(&self) -> &ActiveTenantRootEpochV1 {
+        &self.current
+    }
+
+    /// Returns the exact canonical signed activation receipt bytes.
+    pub fn activation_receipt_bytes(&self) -> &[u8] {
+        self.current.activation_receipt_bytes()
+    }
+
+    /// Returns the digest of the exact canonical signed activation receipt.
+    pub const fn activation_receipt_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.current.activation_receipt_digest()
+    }
+
+    /// Returns the authenticated activation time.
+    pub const fn activation_time_ms(&self) -> u64 {
+        self.current.activation_time_ms()
     }
 
     /// Moves the successfully created root into its steady-state refresh machine.
@@ -1024,7 +1222,7 @@ impl TenantRootCreationStateV1 {
                 state.custody_lineage,
                 TenantRootCreationRecoveryActionV1::KeepActive {
                     active_epoch: state.current.epoch(),
-                    activation_receipt_digest: state.current.activation().digest(),
+                    activation_receipt_digest: state.current.activation_receipt_digest(),
                 },
             ),
             Self::FailedBeforeActivation(state) => (
@@ -1203,6 +1401,21 @@ impl TenantRootActiveRefreshV1 {
         self.revision
     }
 
+    /// Returns the exact canonical signed activation receipt bytes for the active epoch.
+    pub fn activation_receipt_bytes(&self) -> &[u8] {
+        self.current.activation_receipt_bytes()
+    }
+
+    /// Returns the digest of the exact canonical signed activation receipt.
+    pub const fn activation_receipt_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.current.activation_receipt_digest()
+    }
+
+    /// Returns the authenticated activation time for the active epoch.
+    pub const fn activation_time_ms(&self) -> u64 {
+        self.current.activation_time_ms()
+    }
+
     pub(crate) fn resume_at_revision(mut self, revision: u64) -> RouterAbDerivationResult<Self> {
         if revision < self.revision {
             return Err(malformed(
@@ -1279,9 +1492,26 @@ impl TenantRootPreparingRefreshV1 {
                 "tenant-root installation evidence belongs to another refresh ceremony",
             ));
         }
-        let current_commitments = self.current.verified.commitments.threshold_pair()?;
-        let next_commitments = TenantRootEpochCommitmentsV1::from_verified(
-            verify_tenant_root_refresh_evidence_v1(&current_commitments, deriver_a, deriver_b)?,
+        let next_commitments = self
+            .current
+            .verified
+            .commitments
+            .verify_refresh_evidence(deriver_a, deriver_b)?;
+        let verified_revision = next_revision(self.revision)?;
+        let activation_revision = next_revision(verified_revision)?;
+        validate_backup_policy(
+            &backup_policy,
+            self.identity.digest()?,
+            self.custody_lineage,
+            TenantRootActivationReceiptTransitionV1::RefreshSwap,
+            self.next.epoch(),
+            self.next.ceremony_digest(),
+            &next_commitments,
+            installation_receipts,
+            verified_revision,
+            activation_revision,
+            self.next.issued_at_ms(),
+            self.next.expires_at_ms(),
         )?;
         Ok(TenantRootVerifiedRefreshV1 {
             identity: self.identity,
@@ -1295,7 +1525,7 @@ impl TenantRootPreparingRefreshV1 {
                 canary_receipts,
                 verified_at_ms,
             },
-            revision: next_revision(self.revision)?,
+            revision: verified_revision,
         })
     }
 
@@ -1356,26 +1586,37 @@ pub struct TenantRootVerifiedRefreshV1 {
 }
 
 impl TenantRootVerifiedRefreshV1 {
+    /// Returns the server-resolved tenant-root identity.
+    pub const fn identity(&self) -> &TenantRootIdentityV1 {
+        &self.identity
+    }
+
+    /// Returns the custody lineage selected for refresh.
+    pub const fn custody_lineage(&self) -> TenantRootCustodyLineageId {
+        self.custody_lineage
+    }
+
+    /// Returns the active epoch retained during the swap.
+    pub const fn current(&self) -> &ActiveTenantRootEpochV1 {
+        &self.current
+    }
+
+    /// Returns the verified epoch awaiting activation.
+    pub const fn next(&self) -> &VerifiedTenantRootEpochV1 {
+        &self.next
+    }
+
     /// Returns the current lifecycle revision.
     pub const fn revision(&self) -> u64 {
         self.revision
     }
 
-    /// Activates the verified next epoch and enters forward-only retirement.
+    /// Activates the verified next epoch with one issuer-verified receipt and enters forward-only retirement.
     pub fn activate(
         self,
-        activation: TenantRootActivationReceiptV1,
+        activation: VerifiedTenantRootSignedActivationReceiptV1,
     ) -> RouterAbDerivationResult<TenantRootRetiringRefreshV1> {
-        require_transition_time(
-            &self.next.pending,
-            activation.activated_at_ms(),
-            "activation",
-        )?;
-        if activation.activated_at_ms() < self.next.verified_at_ms() {
-            return Err(malformed(
-                "tenant-root refresh activation must follow verification",
-            ));
-        }
+        let activation = project_refresh_activation(&self, activation)?;
         let previous = RetiringTenantRootEpochV1 {
             active: self.current,
             retirement_started_at_ms: activation.activated_at_ms(),
@@ -1388,7 +1629,6 @@ impl TenantRootVerifiedRefreshV1 {
                 activation,
             },
             previous,
-            activation,
             revision: next_revision(self.revision)?,
         })
     }
@@ -1438,6 +1678,121 @@ impl TenantRootVerifiedRefreshV1 {
     }
 }
 
+fn project_refresh_activation(
+    state: &TenantRootVerifiedRefreshV1,
+    activation: VerifiedTenantRootSignedActivationReceiptV1,
+) -> RouterAbDerivationResult<TenantRootActivationReceiptProjectionV1> {
+    activation.require_fresh(activation.activated_at_ms())?;
+    require_transition_time(
+        &state.next.pending,
+        activation.activated_at_ms(),
+        "activation",
+    )?;
+    if activation.activated_at_ms() < state.next.verified_at_ms() {
+        return Err(malformed(
+            "tenant-root refresh activation must follow verification",
+        ));
+    }
+    let TenantRootActivationReceiptBindingV1::RefreshSwap(binding) = activation.binding() else {
+        return Err(replay_mismatch(
+            "tenant-root refresh activation receipt branch is invalid",
+        ));
+    };
+    if binding.identity_digest() != state.identity.digest()?
+        || binding.custody_lineage() != state.custody_lineage
+        || binding.current_epoch() != state.current.epoch()
+        || binding.next_epoch() != state.next.pending.epoch()
+        || binding.current_commitments() != &state.current.verified.commitments
+        || binding.next_commitments() != &state.next.commitments
+        || binding.context_digest() != state.next.pending.ceremony_digest()
+        || binding.expected_control_plane_revision() != state.revision
+        || binding.result_control_plane_revision() != next_revision(state.revision)?
+        || binding.installation_receipts() != state.next.installation_receipts
+        || binding.canary_receipts() != state.next.canary_receipts
+        || binding.issued_at_ms() != state.next.pending.issued_at_ms()
+        || binding.expires_at_ms() != state.next.pending.expires_at_ms()
+    {
+        return Err(replay_mismatch(
+            "tenant-root refresh activation receipt fields do not match its lifecycle state",
+        ));
+    }
+    validate_activation_availability(&state.next.backup_policy, binding.availability())?;
+    project_verified_activation(activation)
+}
+
+fn validate_activation_availability(
+    expected: &TenantRootBackupPolicyV1,
+    actual: &TenantRootActivationReceiptAvailabilityV1,
+) -> RouterAbDerivationResult<()> {
+    match (expected, actual) {
+        (
+            TenantRootBackupPolicyV1::CurrentRoleBackups(expected),
+            TenantRootActivationReceiptAvailabilityV1::CurrentRoleBackups { receipts: actual },
+        ) if expected == actual => Ok(()),
+        (
+            TenantRootBackupPolicyV1::AcceptedPermanentDerivationLoss(expected),
+            TenantRootActivationReceiptAvailabilityV1::AcceptedPermanentDerivationLoss {
+                authorization_bytes,
+                authorization_digest,
+            },
+        ) if expected.authorization_bytes() == authorization_bytes.as_slice()
+            && expected.authorization_digest() == authorization_digest => Ok(()),
+        _ => Err(replay_mismatch(
+            "tenant-root activation receipt availability does not match verified lifecycle evidence",
+        )),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_backup_policy(
+    policy: &TenantRootBackupPolicyV1,
+    identity_digest: super::TenantRootIdentityDigestV1,
+    custody_lineage: TenantRootCustodyLineageId,
+    transition: TenantRootActivationReceiptTransitionV1,
+    target_epoch: TenantRootShareEpoch,
+    context_digest: TenantRootProtocolDigestV1,
+    commitments: &TenantRootEpochCommitmentsV1,
+    installation_receipts: TenantRootRoleInstallationReceiptsV1,
+    expected_control_plane_revision: u64,
+    result_control_plane_revision: u64,
+    issued_at_ms: u64,
+    expires_at_ms: u64,
+) -> RouterAbDerivationResult<()> {
+    let TenantRootBackupPolicyV1::AcceptedPermanentDerivationLoss(accepted) = policy else {
+        return Ok(());
+    };
+    let authorization =
+        TenantRootSignedAcceptedPermanentLossAuthorizationV1::decode_canonical_bytes(
+            accepted.authorization_bytes(),
+        )?;
+    if authorization.digest()? != *accepted.authorization_digest()
+        || authorization.identity_digest() != identity_digest
+        || authorization.custody_lineage() != custody_lineage
+        || authorization.transition() != transition
+        || authorization.target_epoch() != target_epoch
+        || authorization.context_digest() != context_digest
+        || authorization.commitments() != commitments
+        || authorization.installation_receipts() != installation_receipts
+        || authorization.expected_control_plane_revision() != expected_control_plane_revision
+        || authorization.result_control_plane_revision() != result_control_plane_revision
+        || authorization.issued_at_ms() != issued_at_ms
+        || authorization.expires_at_ms() != expires_at_ms
+    {
+        return Err(replay_mismatch(
+            "tenant-root accepted-loss authorization does not match lifecycle scope",
+        ));
+    }
+    Ok(())
+}
+
+fn project_verified_activation(
+    activation: VerifiedTenantRootSignedActivationReceiptV1,
+) -> RouterAbDerivationResult<TenantRootActivationReceiptProjectionV1> {
+    Ok(TenantRootActivationReceiptProjectionV1::from_verified(
+        activation,
+    ))
+}
+
 /// Post-activation branch while the previous epoch is being destroyed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1446,7 +1801,6 @@ pub struct TenantRootRetiringRefreshV1 {
     custody_lineage: TenantRootCustodyLineageId,
     current: ActiveTenantRootEpochV1,
     previous: RetiringTenantRootEpochV1,
-    activation: TenantRootActivationReceiptV1,
     revision: u64,
 }
 
@@ -1471,7 +1825,7 @@ impl TenantRootRetiringRefreshV1 {
         self,
         receipts: TenantRootRoleRetirementReceiptsV1,
     ) -> RouterAbDerivationResult<TenantRootActiveRefreshV1> {
-        if receipts.retired_at_ms() < self.activation.activated_at_ms() {
+        if receipts.retired_at_ms() < self.current.activation_time_ms() {
             return Err(malformed(
                 "tenant-root retirement cannot predate forward activation",
             ));
@@ -1727,7 +2081,7 @@ impl TenantRootRefreshStateV1 {
                 TenantRootRefreshRecoveryActionV1::ResumeRetirement {
                     active_epoch: state.current.epoch(),
                     retiring_epoch: state.previous.active().epoch(),
-                    activation_receipt_digest: state.activation.digest(),
+                    activation_receipt_digest: state.current.activation_receipt_digest(),
                 },
             ),
             Self::FailedBeforeActivation(state) => (
@@ -1869,4 +2223,8 @@ fn next_revision(current: u64) -> RouterAbDerivationResult<u64> {
 
 fn malformed(message: &'static str) -> RouterAbDerivationError {
     RouterAbDerivationError::new(RouterAbDerivationErrorCode::MalformedInput, message)
+}
+
+fn replay_mismatch(message: &'static str) -> RouterAbDerivationError {
+    RouterAbDerivationError::new(RouterAbDerivationErrorCode::ReplayMismatch, message)
 }

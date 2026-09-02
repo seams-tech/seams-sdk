@@ -97,32 +97,8 @@ function failPhase9CGate(receipt) {
   receipt.result = 'failed';
 }
 
-function removePhase9CProfile(receipt) {
-  receipt.lifecycle_evidence.pop();
-}
-
-function removePhase9CLifecycleVector(receipt) {
-  receipt.lifecycle_evidence[0].lifecycle_vectors.pop();
-}
-
-function breakPhase9CExportContinuity(receipt) {
-  receipt.lifecycle_evidence[0].export_public_key_matches_registered = false;
-}
-
-function breakPhase9CExportSignature(receipt) {
-  receipt.lifecycle_evidence[0].export_standard_signature_verified = false;
-}
-
-function substitutePhase9CExportedPublicKey(receipt) {
-  receipt.lifecycle_evidence[0].exported_public_key_sha256 = '0'.repeat(64);
-}
-
-function addPhase9CSigningDeriverCall(receipt) {
-  receipt.lifecycle_evidence[0].ordinary_signing_deriver_a_requests = 1;
-}
-
-function addPhase9CSigningDeriverBytes(receipt) {
-  receipt.lifecycle_evidence[0].ordinary_signing_deriver_a_to_b_bytes = 1;
+function downgradePhase9CReceiptSchema(receipt) {
+  receipt.schema = 'seams-ed25519-yao-phase9c-validation-receipt-v1';
 }
 
 function corruptPhase9CSourceDigest(receipt) {
@@ -179,13 +155,7 @@ function run() {
   assertMutationRejected(exposeBenchmarkToProduction);
   assertMutationRejected(corruptPhase9CBinding);
   assertReceiptMutationRejected(failPhase9CGate);
-  assertReceiptMutationRejected(removePhase9CProfile);
-  assertReceiptMutationRejected(removePhase9CLifecycleVector);
-  assertReceiptMutationRejected(breakPhase9CExportContinuity);
-  assertReceiptMutationRejected(breakPhase9CExportSignature);
-  assertReceiptMutationRejected(substitutePhase9CExportedPublicKey);
-  assertReceiptMutationRejected(addPhase9CSigningDeriverCall);
-  assertReceiptMutationRejected(addPhase9CSigningDeriverBytes);
+  assertReceiptMutationRejected(downgradePhase9CReceiptSchema);
   assertReceiptMutationRejected(corruptPhase9CSourceDigest);
   assertReceiptMutationRejected(removePhase9CCompletedCheck);
 }

@@ -62,7 +62,7 @@ impl StableTenantDerivationContextV2 {
     }
 
     /// Returns the digest of the exact bytes supplied to threshold-PRF.
-    pub fn digest(&self) -> TenantRootProtocolDigestV1 {
+    pub fn digest(&self) -> RouterAbDerivationResult<TenantRootProtocolDigestV1> {
         TenantRootProtocolDigestV1::from_bytes(
             Sha256::digest(self.canonical_context_bytes()).into(),
         )

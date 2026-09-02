@@ -33,6 +33,38 @@ fn direct_output(root: &threshold_prf::SigningRootScalar, purpose: PrfPurpose) -
     .into_bytes()
 }
 
+/// Applies one exact two-party zero-share refresh to both current role shares.
+fn refreshed_shares(
+    share_a: &SigningRootShare,
+    share_b: &SigningRootShare,
+    seed: u8,
+) -> (SigningRootShare, SigningRootShare) {
+    let coefficient_a =
+        RootShareRefreshCoefficient::random(TwoPartyDeriverRole::DeriverA, &mut seeded_rng(seed));
+    let coefficient_b = RootShareRefreshCoefficient::random(
+        TwoPartyDeriverRole::DeriverB,
+        &mut seeded_rng(seed.wrapping_add(1)),
+    );
+    let contributions_for = |recipient: TwoPartyDeriverRole| {
+        (
+            coefficient_a
+                .commitment()
+                .verify_contribution(coefficient_a.contribution_for(recipient))
+                .expect("Deriver A contribution"),
+            coefficient_b
+                .commitment()
+                .verify_contribution(coefficient_b.contribution_for(recipient))
+                .expect("Deriver B contribution"),
+        )
+    };
+    let (a_for_a, b_for_a) = contributions_for(TwoPartyDeriverRole::DeriverA);
+    let (a_for_b, b_for_b) = contributions_for(TwoPartyDeriverRole::DeriverB);
+    (
+        apply_two_party_root_share_refresh(share_a, a_for_a, b_for_a).expect("refreshed A share"),
+        apply_two_party_root_share_refresh(share_b, a_for_b, b_for_b).expect("refreshed B share"),
+    )
+}
+
 #[test]
 fn exact_directions_complete_only_their_role_target_and_match_direct_reference() {
     let (share_a, share_b) = shares();
@@ -62,13 +94,13 @@ fn exact_directions_complete_only_their_role_target_and_match_direct_reference()
     .unwrap();
 
     assert_eq!(
-        complete_ed25519_deriver_a_target_v1(prepared_a, &b_to_a)
+        *complete_ed25519_deriver_a_target_v1(prepared_a, &b_to_a)
             .unwrap()
             .into_secret_bytes(),
         direct_output(&root, PrfPurpose::Ed25519DeriverAContributionRoot)
     );
     assert_eq!(
-        complete_ed25519_deriver_b_target_v1(prepared_b, &a_to_b)
+        *complete_ed25519_deriver_b_target_v1(prepared_b, &a_to_b)
             .unwrap()
             .into_secret_bytes(),
         direct_output(&root, PrfPurpose::Ed25519DeriverBContributionRoot)
@@ -82,35 +114,7 @@ fn exact_directions_complete_only_their_role_target_and_match_direct_reference()
 #[test]
 fn refresh_preserves_both_role_target_outputs() {
     let (share_a, share_b) = shares();
-    let coefficient_a =
-        RootShareRefreshCoefficient::random(TwoPartyDeriverRole::DeriverA, &mut seeded_rng(4));
-    let coefficient_b =
-        RootShareRefreshCoefficient::random(TwoPartyDeriverRole::DeriverB, &mut seeded_rng(5));
-    let contribution_a_to_b = coefficient_a
-        .commitment()
-        .verify_contribution(coefficient_a.contribution_for(TwoPartyDeriverRole::DeriverA))
-        .unwrap();
-    let contribution_b_to_a = coefficient_b
-        .commitment()
-        .verify_contribution(coefficient_b.contribution_for(TwoPartyDeriverRole::DeriverA))
-        .unwrap();
-    let contribution_a_to_b_for_b = coefficient_a
-        .commitment()
-        .verify_contribution(coefficient_a.contribution_for(TwoPartyDeriverRole::DeriverB))
-        .unwrap();
-    let contribution_b_to_a_for_b = coefficient_b
-        .commitment()
-        .verify_contribution(coefficient_b.contribution_for(TwoPartyDeriverRole::DeriverB))
-        .unwrap();
-    let refreshed_a =
-        apply_two_party_root_share_refresh(&share_a, contribution_a_to_b, contribution_b_to_a)
-            .unwrap();
-    let refreshed_b = apply_two_party_root_share_refresh(
-        &share_b,
-        contribution_a_to_b_for_b,
-        contribution_b_to_a_for_b,
-    )
-    .unwrap();
+    let (refreshed_a, refreshed_b) = refreshed_shares(&share_a, &share_b, 4);
 
     let (prepared_a, a_to_b) = prepare_ed25519_deriver_a_target_v1(
         &refreshed_a,
@@ -148,16 +152,60 @@ fn refresh_preserves_both_role_target_outputs() {
     )
     .unwrap();
     assert_eq!(
-        refreshed_output_a,
-        complete_ed25519_deriver_a_target_v1(prepared_a, &b_to_a)
+        *refreshed_output_a,
+        *complete_ed25519_deriver_a_target_v1(prepared_a, &b_to_a)
             .unwrap()
             .into_secret_bytes()
     );
     assert_eq!(
-        refreshed_output_b,
-        complete_ed25519_deriver_b_target_v1(prepared_b, &a_to_b)
+        *refreshed_output_b,
+        *complete_ed25519_deriver_b_target_v1(prepared_b, &a_to_b)
             .unwrap()
             .into_secret_bytes()
+    );
+}
+
+#[test]
+fn pre_refresh_proof_bundles_cannot_cross_the_refresh_epoch() {
+    let (share_a, share_b) = shares();
+    let (_, old_a_to_b) = prepare_ed25519_deriver_a_target_v1(
+        &share_a,
+        SigningRootShareCommitment::from_share(&share_b),
+        STABLE_CONTEXT,
+        &mut seeded_rng(14),
+    )
+    .unwrap();
+    let (_, old_b_to_a) = prepare_ed25519_deriver_b_target_v1(
+        &share_b,
+        SigningRootShareCommitment::from_share(&share_a),
+        STABLE_CONTEXT,
+        &mut seeded_rng(15),
+    )
+    .unwrap();
+
+    let (refreshed_a, refreshed_b) = refreshed_shares(&share_a, &share_b, 16);
+    let (prepared_a, _) = prepare_ed25519_deriver_a_target_v1(
+        &refreshed_a,
+        SigningRootShareCommitment::from_share(&refreshed_b),
+        STABLE_CONTEXT,
+        &mut seeded_rng(18),
+    )
+    .unwrap();
+    let (prepared_b, _) = prepare_ed25519_deriver_b_target_v1(
+        &refreshed_b,
+        SigningRootShareCommitment::from_share(&refreshed_a),
+        STABLE_CONTEXT,
+        &mut seeded_rng(19),
+    )
+    .unwrap();
+
+    assert_eq!(
+        complete_ed25519_deriver_a_target_v1(prepared_a, &old_b_to_a).unwrap_err(),
+        ThresholdPrfError::UnexpectedPeerCommitment
+    );
+    assert_eq!(
+        complete_ed25519_deriver_b_target_v1(prepared_b, &old_a_to_b).unwrap_err(),
+        ThresholdPrfError::UnexpectedPeerCommitment
     );
 }
 

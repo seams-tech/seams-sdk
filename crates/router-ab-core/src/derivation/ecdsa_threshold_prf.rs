@@ -108,7 +108,7 @@ pub fn plan_mpc_prf_stable_purpose_binding_v2(
         ));
     }
     custody_binding.validate()?;
-    let stable_context_digest = stable_context.digest();
+    let stable_context_digest = stable_context.digest()?;
     if custody_binding.stable_context_digest() != stable_context_digest {
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::TranscriptMismatch,

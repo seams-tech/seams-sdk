@@ -33,6 +33,20 @@ test('resolves the exact ECDSA tenant-root identity from B5 active material', ()
   expect(result).toEqual({ ok: true, identity: EXPECTED_IDENTITY });
 });
 
+test('rejects a runtime caller-selected tenant-root field', () => {
+  const input = {
+    kind: 'ecdsa_b5_active_material' as const,
+    activeMaterial: buildActiveEcdsaMaterialFixture(),
+  };
+  Reflect.set(input, 'tenantRootShareEpoch', 2);
+
+  expect(resolveTenantRootIdentityV1(input)).toEqual({
+    ok: false,
+    code: 'caller_selected_tenant_root',
+    message: 'Caller-supplied tenant-root selector field is forbidden: tenantRootShareEpoch',
+  });
+});
+
 test('rejects an Ed25519 B5 signing-root ID mismatch', async () => {
   const activeMaterial = await buildActiveEd25519MaterialFixture();
   const result = resolveTenantRootIdentityV1({
@@ -100,6 +114,46 @@ test('rejects an ECDSA B5 stable signing-root version mismatch', () => {
     ok: false,
     code: 'signing_root_version_mismatch',
     message: 'B5 signing-root version does not match authenticated deployment configuration',
+  });
+});
+
+test('returns a typed rejection for an empty B5 signing-root version', () => {
+  const activeMaterial = buildActiveEcdsaMaterialFixture();
+  const result = resolveTenantRootIdentityV1({
+    kind: 'ecdsa_b5_active_material',
+    activeMaterial: {
+      ...activeMaterial,
+      runtimePolicyScope: {
+        ...activeMaterial.runtimePolicyScope,
+        signingRootVersion: '',
+      },
+    },
+  });
+
+  expect(result).toEqual({
+    ok: false,
+    code: 'non_canonical_tenant_root_field',
+    message: 'B5 runtime policy scope field is not canonical: signingRootVersion',
+  });
+});
+
+test('rejects a padded B5 scope before deriving an inconsistent identity', () => {
+  const activeMaterial = buildActiveEcdsaMaterialFixture();
+  const result = resolveTenantRootIdentityV1({
+    kind: 'ecdsa_b5_active_material',
+    activeMaterial: {
+      ...activeMaterial,
+      runtimePolicyScope: {
+        ...activeMaterial.runtimePolicyScope,
+        projectId: ` ${activeMaterial.runtimePolicyScope.projectId}`,
+      },
+    },
+  });
+
+  expect(result).toEqual({
+    ok: false,
+    code: 'non_canonical_tenant_root_field',
+    message: 'B5 runtime policy scope field is not canonical: projectId',
   });
 });
 

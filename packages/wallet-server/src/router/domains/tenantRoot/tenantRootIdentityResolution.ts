@@ -2,12 +2,10 @@ import {
   signingRootScopeFromRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
-import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { RouterAbEd25519YaoExportAuthorizationIdentityV1 } from '@shared/utils/routerAbEd25519Yao';
 import {
   sameRouterAbMpcMaterialActivationRef,
-  type RouterAbMpcMaterialActivationRefWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { RouterApiWalletRegistrationService } from '../../framework/authServicePort';
 
 export type TenantRootIdentityV1 = {
   readonly orgId: string;
@@ -17,21 +15,17 @@ export type TenantRootIdentityV1 = {
   readonly signingRootVersion: string;
 };
 
-export type ActiveEd25519MaterialActivationV1 = {
-  readonly ok: true;
-  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
-  readonly runtimePolicyScope: RuntimePolicyScope;
-  readonly exportIdentity: RouterAbEd25519YaoExportAuthorizationIdentityV1;
-};
+export type ActiveEd25519MaterialActivationV1 = Extract<
+  Awaited<ReturnType<RouterApiWalletRegistrationService['resolveEd25519MaterialActivation']>>,
+  { readonly ok: true }
+>;
 
-export type ActiveEcdsaMaterialActivationV1 = {
-  readonly ok: true;
-  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
-  readonly runtimePolicyScope: RuntimePolicyScope;
-  readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
-};
+export type ActiveEcdsaMaterialActivationV1 = Extract<
+  Awaited<ReturnType<RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation']>>,
+  { readonly ok: true }
+>;
 
-type ForbiddenTenantRootSelectorFieldsV1 = {
+export type ForbiddenTenantRootSelectorFieldsV1 = {
   readonly orgId?: never;
   readonly projectId?: never;
   readonly envId?: never;
@@ -58,6 +52,36 @@ type ForbiddenTenantRootSelectorFieldsV1 = {
   readonly diagnostics?: never;
 };
 
+const FORBIDDEN_TENANT_ROOT_SELECTOR_FIELDS_V1 = [
+  'orgId',
+  'projectId',
+  'envId',
+  'signingRootId',
+  'signingRootVersion',
+  'walletId',
+  'materialActivation',
+  'tenantRootIdentity',
+  'tenantRootId',
+  'tenantRootShareEpoch',
+  'rootShareEpoch',
+  'epoch',
+  'role',
+  'walletSession',
+  'walletSessionId',
+  'authorization',
+  'authorizationId',
+  'credential',
+  'credentialIdB64u',
+  'browser',
+  'browserRecord',
+  'requestBody',
+  'requestId',
+  'diagnostics',
+] as const;
+
+export type ForbiddenTenantRootSelectorFieldV1 =
+  (typeof FORBIDDEN_TENANT_ROOT_SELECTOR_FIELDS_V1)[number];
+
 export type ServerResolvedTenantRootMaterialV1 =
   | (ForbiddenTenantRootSelectorFieldsV1 & {
       readonly kind: 'ed25519_b5_active_material';
@@ -69,7 +93,9 @@ export type ServerResolvedTenantRootMaterialV1 =
     });
 
 export type TenantRootIdentityResolutionErrorCodeV1 =
+  | 'caller_selected_tenant_root'
   | 'material_activation_mismatch'
+  | 'non_canonical_tenant_root_field'
   | 'signing_root_id_mismatch'
   | 'signing_root_version_mismatch';
 
@@ -89,6 +115,26 @@ type StableMaterialRootBindingV1 = {
   readonly signingRootId: string;
   readonly signingRootVersion: string;
 };
+
+const TENANT_ROOT_RUNTIME_POLICY_SCOPE_FIELDS_V1 = [
+  'orgId',
+  'projectId',
+  'envId',
+  'signingRootVersion',
+] as const;
+
+type TenantRootRuntimePolicyScopeFieldV1 =
+  (typeof TENANT_ROOT_RUNTIME_POLICY_SCOPE_FIELDS_V1)[number];
+
+function findNonCanonicalRuntimePolicyScopeFieldV1(
+  scope: RuntimePolicyScope,
+): TenantRootRuntimePolicyScopeFieldV1 | null {
+  for (const field of TENANT_ROOT_RUNTIME_POLICY_SCOPE_FIELDS_V1) {
+    const value = scope[field];
+    if (value.length === 0 || value.trim() !== value) return field;
+  }
+  return null;
+}
 
 function ed25519StableMaterialRootBinding(
   activeMaterial: ActiveEd25519MaterialActivationV1,
@@ -130,9 +176,26 @@ function mismatch(
   return { ok: false, code, message };
 }
 
+export function findForbiddenTenantRootSelectorFieldV1(
+  input: object,
+): ForbiddenTenantRootSelectorFieldV1 | null {
+  for (const field of FORBIDDEN_TENANT_ROOT_SELECTOR_FIELDS_V1) {
+    if (Object.prototype.hasOwnProperty.call(input, field)) return field;
+  }
+  return null;
+}
+
 export function resolveTenantRootIdentityV1(
   input: ServerResolvedTenantRootMaterialV1,
 ): TenantRootIdentityResolutionResultV1 {
+  const forbiddenSelector = findForbiddenTenantRootSelectorFieldV1(input);
+  if (forbiddenSelector) {
+    return mismatch(
+      'caller_selected_tenant_root',
+      `Caller-supplied tenant-root selector field is forbidden: ${forbiddenSelector}`,
+    );
+  }
+
   let runtimePolicyScope;
   let materialRootBinding: StableMaterialRootBindingV1;
   switch (input.kind) {
@@ -152,6 +215,14 @@ export function resolveTenantRootIdentityV1(
     return mismatch(
       'material_activation_mismatch',
       'B5 material activation does not match its established material identity',
+    );
+  }
+
+  const nonCanonicalScopeField = findNonCanonicalRuntimePolicyScopeFieldV1(runtimePolicyScope);
+  if (nonCanonicalScopeField) {
+    return mismatch(
+      'non_canonical_tenant_root_field',
+      `B5 runtime policy scope field is not canonical: ${nonCanonicalScopeField}`,
     );
   }
 

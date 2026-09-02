@@ -106,12 +106,7 @@ async function applyMigrations(miniflare, binding, workerName, migrationsPath) {
     .filter((file) => file.endsWith('.sql'))
     .sort();
   for (const migrationFile of migrationFiles) {
-    const statements = (await readFile(join(migrationsPath, migrationFile), 'utf8'))
-      .split(';')
-      .map((statement) => statement.trim())
-      .filter(Boolean)
-      .map((statement) => database.prepare(statement));
-    await database.batch(statements);
+    await database.exec(await readFile(join(migrationsPath, migrationFile), 'utf8'));
   }
   return database;
 }
@@ -193,6 +188,7 @@ async function testTenantRootRoleSchema(database, expectedRole) {
       'receipt_b64u',
       'receipt_digest_hex',
       'reserved_at_ms',
+      'executed_at_ms',
       'terminal_at_ms',
     ],
     'role-private command replay D1 must expose only public binding and receipt fields',
@@ -216,6 +212,73 @@ async function testTenantRootRoleSchema(database, expectedRole) {
       )
       .run(),
     'each Deriver command-replay table must reject the other role',
+  );
+}
+
+async function testTenantRootCommandReplayCasGuard(database, expectedRole) {
+  const replayKeyDigestHex = 'a'.repeat(64);
+  await assert.rejects(
+    database.prepare('DELETE FROM tenant_root_command_cas_guard').run(),
+    'command-replay CAS guard row must be immutable',
+  );
+  const guard = await database
+    .prepare('SELECT guard_id FROM tenant_root_command_cas_guard')
+    .first();
+  assert.equal(guard.guard_id, 1, 'command-replay CAS guard row must survive deletion attempts');
+
+  await database
+    .prepare(
+      `INSERT INTO tenant_root_command_replays (
+         replay_key_digest_hex, tenant_identity_digest_hex, custody_lineage_b64u,
+         session_id_hex, nonce_hex, role, command_digest_hex, status, reserved_at_ms
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', 10)`,
+    )
+    .bind(
+      replayKeyDigestHex,
+      'b'.repeat(64),
+      'C'.repeat(22),
+      'd'.repeat(32),
+      'e'.repeat(64),
+      expectedRole,
+      'f'.repeat(64),
+    )
+    .run();
+  const before = await database
+    .prepare(
+      `SELECT status, executed_at_ms
+       FROM tenant_root_command_replays WHERE replay_key_digest_hex = ?`,
+    )
+    .bind(replayKeyDigestHex)
+    .first();
+  await assert.rejects(
+    database.batch([
+      database
+        .prepare(
+          `UPDATE tenant_root_command_replays
+           SET status = 'executed', executed_at_ms = 11
+           WHERE replay_key_digest_hex = ?`,
+        )
+        .bind(replayKeyDigestHex),
+      database
+        .prepare(
+          `INSERT INTO tenant_root_command_cas_guard (guard_id)
+           SELECT 1 WHERE changes() <> ?`,
+        )
+        .bind(2),
+    ]),
+    'wrong lifecycle/checkpoint change counts must roll back the mutation',
+  );
+  const after = await database
+    .prepare(
+      `SELECT status, executed_at_ms
+       FROM tenant_root_command_replays WHERE replay_key_digest_hex = ?`,
+    )
+    .bind(replayKeyDigestHex)
+    .first();
+  assert.deepEqual(
+    after,
+    before,
+    'wrong lifecycle/checkpoint change counts must not commit partial replay state',
   );
 }
 
@@ -409,6 +472,8 @@ async function main() {
     };
     await testTenantRootRoleSchema(databases.deriverA, 'deriver_a');
     await testTenantRootRoleSchema(databases.deriverB, 'deriver_b');
+    await testTenantRootCommandReplayCasGuard(databases.deriverA, 'deriver_a');
+    await testTenantRootCommandReplayCasGuard(databases.deriverB, 'deriver_b');
     await testTenantRootRoleStoreAdapter(topology, databases);
     await applyMigrations(
       topology,

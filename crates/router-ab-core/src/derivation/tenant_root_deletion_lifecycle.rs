@@ -503,7 +503,7 @@ impl TenantRootDeletionActiveV1 {
         authorization: TenantRootDeletionAuthorizationV1,
         fence: TenantRootDeletionFenceReceiptV1,
     ) -> RouterAbDerivationResult<TenantRootDeletionFencedV1> {
-        if authorization.requested_at_ms < self.active.current().activation().activated_at_ms()
+        if authorization.requested_at_ms < self.active.current().activation_time_ms()
             || fence.fenced_at_ms < authorization.requested_at_ms
             || authorization.digest == fence.digest
         {

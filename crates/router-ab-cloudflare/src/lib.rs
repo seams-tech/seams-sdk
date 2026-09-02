@@ -71,6 +71,13 @@ pub use ordinary_inactive_signer_material::{
 mod tenant_root_role_d1;
 #[cfg(feature = "workers-rs")]
 pub use tenant_root_role_d1::*;
+mod tenant_root_cutover_lifecycle;
+mod tenant_root_operational_provider;
+#[allow(dead_code)]
+mod tenant_root_role_runtime;
+pub use tenant_root_cutover_lifecycle::*;
+mod tenant_root_revision_manifest;
+pub use tenant_root_revision_manifest::*;
 mod router;
 pub use router::*;
 
@@ -1977,7 +1984,7 @@ impl CloudflareSignerHostPeerPreloadInputV1 {
 }
 
 /// Role-local root-share wire loaded before synchronous signer execution.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct CloudflarePreloadedRootShareWireV1 {
     /// Signer role that owns the root-share wire.
     pub signer_role: Role,
@@ -2140,7 +2147,7 @@ fn decode_cloudflare_peer_verifying_key_hex_nibble_v1(byte: u8) -> RouterAbProto
 }
 
 /// Synchronous signer host built from async Cloudflare adapter preload results.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudflarePreloadedSignerHostV1 {
     /// Worker-local time captured by the adapter.
     pub now_unix_ms: u64,

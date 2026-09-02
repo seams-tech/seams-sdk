@@ -56,6 +56,23 @@ fn mpc_prf_threshold_backend_secret_types_do_not_derive_serialization() {
 }
 
 #[test]
+fn mpc_prf_secret_types_do_not_derive_variable_time_equality() {
+    let backend_rs = read_src_file("ecdsa_threshold_prf_backend.rs");
+    for struct_name in [
+        "MpcPrfSigningRootShareWireV1",
+        "MpcPrfThresholdSignerInputV1",
+        "MpcPrfThresholdSignerBatchInputV1",
+        "MpcPrfStableThresholdCombinedOutputV2",
+        "MpcPrfThresholdBatchCombinedOutputV1",
+        "MpcPrfThresholdCombinedOutputV1",
+    ] {
+        let block = extract_struct_block(&backend_rs, struct_name);
+        assert!(!block.contains("PartialEq"), "{struct_name}");
+        assert!(!block.contains("Eq"), "{struct_name}");
+    }
+}
+
+#[test]
 fn recipient_output_encryption_request_does_not_derive_serialization() {
     let output_rs = read_manifest_file("src/protocol/output.rs");
     let block = extract_struct_block(&output_rs, "RecipientOutputEncryptionRequestV1");

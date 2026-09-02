@@ -21,11 +21,9 @@ fn additive_rebind_preserves_threshold_public_identity() {
     )
     .expect("source relayer");
     let target_client = sample_ecdsa_lane_client_share_v1([0x33; 32]).expect("target client");
-    let delta = derive_ecdsa_lane_delta_from_source_share32_v1(
-        source_client.x_client32,
-        &target_client,
-    )
-    .expect("delta");
+    let delta =
+        derive_ecdsa_lane_delta_from_source_share32_v1(source_client.x_client32, &target_client)
+            .expect("delta");
     let rebound = rebind_ecdsa_lane_relayer_share_bytes_v1(
         source_relayer.x_relayer32,
         &EcdsaLanePublicIdentityBindingV1 {
@@ -66,11 +64,9 @@ fn additive_rebind_rejects_target_commitment_substitution() {
     )
     .expect("source relayer");
     let target_client = sample_ecdsa_lane_client_share_v1([0x33; 32]).expect("target client");
-    let delta = derive_ecdsa_lane_delta_from_source_share32_v1(
-        source_client.x_client32,
-        &target_client,
-    )
-    .expect("delta");
+    let delta =
+        derive_ecdsa_lane_delta_from_source_share32_v1(source_client.x_client32, &target_client)
+            .expect("delta");
     let mut substituted_target = *target_client.public_key33();
     substituted_target[1] ^= 1;
     let result = rebind_ecdsa_lane_relayer_share_bytes_v1(

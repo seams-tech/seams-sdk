@@ -84,6 +84,26 @@ const PREFLIGHT_VARIABLE_ALIASES = Object.freeze({
   ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION: 'DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION',
   ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY: 'DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
   ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION: 'DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF:
+    'DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY:
+    'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID:
+    'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION:
+    'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:
+    'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF:
+    'DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY:
+    'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID:
+    'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION:
+    'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:
+    'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
 });
 const PRIVATE_D1_DEPLOYMENTS = Object.freeze({
   'signing-worker': Object.freeze({
@@ -665,6 +685,11 @@ function componentRuntimeRequirements(lane, component) {
         'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
+        'DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF',
+        'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
+        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID',
+        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION',
+        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
       ];
     case 'deriver-b':
       return [
@@ -674,6 +699,11 @@ function componentRuntimeRequirements(lane, component) {
         'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
+        'DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF',
+        'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
+        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID',
+        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION',
+        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
       ];
     case 'router':
       return [
@@ -780,6 +810,18 @@ export function validateDeploymentKeyPairs(component, environment = process.env)
         'DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
         environment,
       );
+      assertX25519KeyPair(
+        'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+        'hpke-x25519-private-v1:',
+        'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
+        environment,
+      );
+      assertX25519KeyPair(
+        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+        'hpke-x25519-private-v1:',
+        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
+        environment,
+      );
       return;
     case 'deriver-b':
       assertX25519KeyPair(
@@ -792,6 +834,18 @@ export function validateDeploymentKeyPairs(component, environment = process.env)
         'DERIVER_B_ROLE_PRIVATE_D1_KEK',
         'hpke-x25519-role-private-d1-private-v1:',
         'DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
+        environment,
+      );
+      assertX25519KeyPair(
+        'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+        'hpke-x25519-private-v1:',
+        'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
+        environment,
+      );
+      assertX25519KeyPair(
+        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+        'hpke-x25519-private-v1:',
+        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
         environment,
       );
       return;
@@ -876,6 +930,8 @@ function deployDeriver(lane, role) {
   putWorkerSecret(resource, `${prefix}_ENVELOPE_HPKE_PRIVATE_KEY`);
   putWorkerSecret(resource, `${prefix}_PEER_SIGNING_KEY`);
   putWorkerSecret(resource, `${prefix}_ROLE_PRIVATE_D1_KEK`);
+  putWorkerSecret(resource, `${prefix}_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY`);
+  putWorkerSecret(resource, `${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY`);
   const component = `deriver-${role}`;
   const configPath = renderPrivateD1WorkerConfig(lane, resource, component);
   migratePrivateD1(resource, configPath, component);
@@ -893,6 +949,20 @@ function deployDeriver(lane, role) {
     `DERIVER_ROLE_PRIVATE_D1_KEK_VERSION:${requireEnvironmentValue(`${prefix}_ROLE_PRIVATE_D1_KEK_VERSION`)}`,
     '--var',
     `DERIVER_ROLE_PRIVATE_D1_ENVIRONMENT:${lane.id}`,
+    '--var',
+    `${prefix}_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF`)}`,
+    '--var',
+    `${prefix}_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY`)}`,
+    '--var',
+    `${prefix}_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING:${prefix}_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY`,
+    '--var',
+    `${prefix}_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID`)}`,
+    '--var',
+    `${prefix}_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION`)}`,
+    '--var',
+    `${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY`)}`,
+    '--var',
+    `${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING:${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY`,
   );
   runRouterCommand(args);
 }

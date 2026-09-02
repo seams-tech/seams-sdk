@@ -1499,6 +1499,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "bs58",
+ "curve25519-dalek",
  "ed25519-dalek",
  "frost-ed25519",
  "futures",
@@ -1520,6 +1521,8 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "signer-core",
+ "subtle",
+ "threshold-prf",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "worker",

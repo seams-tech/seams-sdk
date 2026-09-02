@@ -81,6 +81,10 @@ export async function buildActiveEd25519MaterialFixture(): Promise<ActiveEd25519
   return {
     ok: true,
     materialActivation: activation,
+    nearAccountId: parsed.value.scope.account_id,
+    signerSlot: parsed.value.application_binding.key_creation_signer_slot,
+    signingWorkerId: activation.signing_worker,
+    participantIds: [1, 2],
     runtimePolicyScope: TENANT_ROOT_RUNTIME_POLICY_SCOPE_FIXTURE,
     exportIdentity: {
       scope: parsed.value.scope,
@@ -127,6 +131,9 @@ export function buildActiveEcdsaMaterialFixture(): ActiveEcdsaMaterialActivation
   return {
     ok: true,
     materialActivation: activation,
+    keyHandle: 'ecdsa-key-handle-tenant-root-b5',
+    relayerKeyId: 'ecdsa-relayer-key-tenant-root-b5',
+    participantIds: [1, 2],
     runtimePolicyScope: TENANT_ROOT_RUNTIME_POLICY_SCOPE_FIXTURE,
     routerAbEcdsaDerivationNormalSigning: normalSigning,
   };

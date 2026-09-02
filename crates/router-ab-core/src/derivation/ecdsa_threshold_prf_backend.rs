@@ -1,6 +1,7 @@
 use core::fmt;
 
 use rand_core::{CryptoRng, RngCore};
+use subtle::ConstantTimeEq;
 use threshold_prf::{
     combine_verified_partials, combine_verified_partials_bound_to_digest,
     evaluate_partial_with_dleq_proof, evaluate_partial_with_dleq_proof_bound_to_digest,
@@ -9,7 +10,7 @@ use threshold_prf::{
     SigningRootShareCommitment, SigningRootShareWire, ThresholdPolicy, ValidatedThresholdSet,
 };
 use threshold_prf::{PrfContext, PrfOutputEncoding, PrfPurpose, SuiteId, ThresholdPrfError};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::derivation::ecdsa_threshold_prf::{
     plan_mpc_prf_combine_v1, plan_mpc_prf_partial_verification_v1,
@@ -24,7 +25,10 @@ use crate::derivation::error::{
 };
 use crate::derivation::material::{OpenedShareKind, PublicDigest32, Role, SecretMaterial32};
 use crate::derivation::transcript::TranscriptBinding;
-use crate::derivation::TenantRootProtocolDigestV1;
+use crate::derivation::{
+    TenantRootActiveRootPairV1, TenantRootCustodyBindingV1, TenantRootManagedRestoreRoleV1,
+    TenantRootProtocolDigestV1,
+};
 
 /// Router/A/B signing-root share wire length for the threshold-prf backend.
 pub const MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN: usize = 34;
@@ -34,7 +38,7 @@ fn fixed_threshold_policy_v1() -> RouterAbDerivationResult<ThresholdPolicy> {
 }
 
 /// Signer-local secret signing-root-share wire. Debug output is always redacted.
-#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct MpcPrfSigningRootShareWireV1 {
     bytes: Vec<u8>,
 }
@@ -42,6 +46,7 @@ pub struct MpcPrfSigningRootShareWireV1 {
 impl MpcPrfSigningRootShareWireV1 {
     /// Creates a fixed-width signer-local share wire.
     pub fn new(bytes: Vec<u8>) -> RouterAbDerivationResult<Self> {
+        let mut bytes = Zeroizing::new(bytes);
         if bytes.len() != MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN {
             return Err(RouterAbDerivationError::new(
                 RouterAbDerivationErrorCode::MalformedInput,
@@ -49,7 +54,9 @@ impl MpcPrfSigningRootShareWireV1 {
             ));
         }
         require_fixed_share_id(u16::from_be_bytes([bytes[0], bytes[1]]))?;
-        Ok(Self { bytes })
+        Ok(Self {
+            bytes: core::mem::take(&mut *bytes),
+        })
     }
 
     /// Returns the fixed public share identifier encoded by the wire.
@@ -70,7 +77,7 @@ impl fmt::Debug for MpcPrfSigningRootShareWireV1 {
 }
 
 /// Deriver-side production backend input for the fixed ECDSA threshold PRF.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct MpcPrfThresholdSignerInputV1 {
     /// Public signer metadata and requested outputs.
     pub signer_input: MpcPrfSignerPartialInputV1,
@@ -91,14 +98,59 @@ impl fmt::Debug for MpcPrfThresholdSignerInputV1 {
 }
 
 /// Dormant Deriver input for stable-context, custody-bound threshold PRF.
-#[derive(Clone, PartialEq, Eq)]
 pub struct MpcPrfStableThresholdSignerInputV2 {
     /// Stable PRF context and independent epoch-bound custody digest.
-    pub purpose_plan: MpcPrfStablePurposeBindingPlanV2,
+    purpose_plan: MpcPrfStablePurposeBindingPlanV2,
     /// Exact Deriver role holding the local share.
-    pub signer_role: Role,
+    signer_role: Role,
     /// Decrypted role-local tenant-root share.
-    pub signing_root_share_wire: MpcPrfSigningRootShareWireV1,
+    signing_root_share_wire: MpcPrfSigningRootShareWireV1,
+}
+
+impl MpcPrfStableThresholdSignerInputV2 {
+    /// Creates a stable signer input from one fresh, authoritative custody tuple.
+    pub fn new(
+        purpose_plan: MpcPrfStablePurposeBindingPlanV2,
+        custody_binding: &TenantRootCustodyBindingV1,
+        active_pair: &TenantRootActiveRootPairV1,
+        signer_role: Role,
+        signing_root_share_wire: MpcPrfSigningRootShareWireV1,
+        now_ms: u64,
+    ) -> RouterAbDerivationResult<Self> {
+        custody_binding.validate_at(now_ms)?;
+        if purpose_plan.custody_binding_digest() != custody_binding.digest()? {
+            return Err(RouterAbDerivationError::new(
+                RouterAbDerivationErrorCode::TranscriptMismatch,
+                "stable MPC PRF purpose plan does not match custody binding",
+            ));
+        }
+        validate_stable_active_pair_binding(active_pair, custody_binding)?;
+        let expected_commitment = stable_share_commitment_for_role(active_pair, signer_role)?;
+
+        let backend_share_wire =
+            SigningRootShareWire::decode_slice(signing_root_share_wire.as_bytes())
+                .map_err(map_threshold_error)?;
+        let backend_share = backend_share_wire.to_share().map_err(map_threshold_error)?;
+        require_backend_share_role(signer_role, backend_share.id().get().get())?;
+        let opened_commitment = SigningRootShareCommitment::from_share(&backend_share);
+        if !bool::from(
+            opened_commitment
+                .to_bytes()
+                .as_ref()
+                .ct_eq(expected_commitment.as_bytes()),
+        ) {
+            return Err(RouterAbDerivationError::new(
+                RouterAbDerivationErrorCode::OutputVerificationFailed,
+                "stable MPC PRF opened share does not match its active commitment",
+            ));
+        }
+
+        Ok(Self {
+            purpose_plan,
+            signer_role,
+            signing_root_share_wire,
+        })
+    }
 }
 
 impl fmt::Debug for MpcPrfStableThresholdSignerInputV2 {
@@ -150,7 +202,7 @@ pub struct MpcPrfStableThresholdCombineInputV2 {
 }
 
 /// Combined stable threshold-PRF output with public binding digests.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct MpcPrfStableThresholdCombinedOutputV2 {
     /// Digest of the exact stable PRF bytes.
     pub stable_context_digest: TenantRootProtocolDigestV1,
@@ -171,7 +223,7 @@ impl fmt::Debug for MpcPrfStableThresholdCombinedOutputV2 {
 }
 
 /// Deriver-side batch input for evaluating every requested ECDSA output.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct MpcPrfThresholdSignerBatchInputV1 {
     /// Public signer metadata and requested outputs.
     pub signer_input: MpcPrfSignerPartialInputV1,
@@ -244,7 +296,7 @@ pub struct MpcPrfThresholdBatchCombineInputV1 {
 }
 
 /// Recipient-local combined batch output. Debug output redacts material.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct MpcPrfThresholdBatchCombinedOutputV1 {
     /// Transcript digest shared by every combined output.
     pub transcript_digest: PublicDigest32,
@@ -262,7 +314,7 @@ impl fmt::Debug for MpcPrfThresholdBatchCombinedOutputV1 {
 }
 
 /// Recipient-local combined ECDSA threshold-PRF output. Debug output redacts material.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct MpcPrfThresholdCombinedOutputV1 {
     /// Transcript digest.
     pub transcript_digest: PublicDigest32,
@@ -657,6 +709,62 @@ fn threshold_context_from_plan_v1(
     ))
 }
 
+fn validate_stable_active_pair_binding(
+    active_pair: &TenantRootActiveRootPairV1,
+    custody_binding: &TenantRootCustodyBindingV1,
+) -> RouterAbDerivationResult<()> {
+    if active_pair.identity_digest() != custody_binding.identity_digest()
+        || active_pair.custody_lineage() != custody_binding.custody_lineage()
+        || active_pair.epoch() != custody_binding.epoch()
+        || active_pair.commitments() != custody_binding.commitments()
+    {
+        return Err(RouterAbDerivationError::new(
+            RouterAbDerivationErrorCode::MismatchedActiveTenantRootPair,
+            "stable MPC PRF active root pair does not match custody binding",
+        ));
+    }
+    let expected_receipt = custody_binding.activation_receipt_digest();
+    if active_pair.deriver_a().activation_receipt_digest() != expected_receipt
+        || active_pair.deriver_b().activation_receipt_digest() != expected_receipt
+    {
+        return Err(RouterAbDerivationError::new(
+            RouterAbDerivationErrorCode::MismatchedActiveTenantRootPair,
+            "stable MPC PRF active root pair receipt does not match custody binding",
+        ));
+    }
+    Ok(())
+}
+
+fn stable_share_commitment_for_role(
+    active_pair: &TenantRootActiveRootPairV1,
+    signer_role: Role,
+) -> RouterAbDerivationResult<&MpcPrfShareCommitmentWireV1> {
+    match signer_role {
+        Role::SignerA => {
+            if active_pair.deriver_a().role() != TenantRootManagedRestoreRoleV1::DeriverA {
+                return Err(RouterAbDerivationError::new(
+                    RouterAbDerivationErrorCode::SignerIdentityMismatch,
+                    "stable MPC PRF active pair Deriver A role mapping is invalid",
+                ));
+            }
+            Ok(active_pair.commitments().deriver_a())
+        }
+        Role::SignerB => {
+            if active_pair.deriver_b().role() != TenantRootManagedRestoreRoleV1::DeriverB {
+                return Err(RouterAbDerivationError::new(
+                    RouterAbDerivationErrorCode::SignerIdentityMismatch,
+                    "stable MPC PRF active pair Deriver B role mapping is invalid",
+                ));
+            }
+            Ok(active_pair.commitments().deriver_b())
+        }
+        _ => Err(RouterAbDerivationError::new(
+            RouterAbDerivationErrorCode::SignerIdentityMismatch,
+            "stable MPC PRF signer input requires a Deriver role",
+        )),
+    }
+}
+
 fn threshold_context_from_stable_plan_v2(
     plan: &MpcPrfStablePurposeBindingPlanV2,
 ) -> RouterAbDerivationResult<PrfContext> {
@@ -796,7 +904,9 @@ fn map_threshold_error(error: ThresholdPrfError) -> RouterAbDerivationError {
         ThresholdPrfError::InvalidDleqProof => {
             RouterAbDerivationErrorCode::OutputVerificationFailed
         }
-        ThresholdPrfError::RefreshContinuityMismatch | ThresholdPrfError::InvalidKnowledgeProof => {
+        ThresholdPrfError::RefreshContinuityMismatch
+        | ThresholdPrfError::InvalidKnowledgeProof
+        | ThresholdPrfError::UnexpectedPeerCommitment => {
             RouterAbDerivationErrorCode::OutputVerificationFailed
         }
         ThresholdPrfError::InvalidScalarEncoding

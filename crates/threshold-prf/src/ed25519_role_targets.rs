@@ -7,8 +7,8 @@ use crate::context::{PrfContext, PrfPurpose};
 use crate::error::{ThresholdPrfError, ThresholdPrfResult};
 use crate::prf::{
     combine_partials, evaluate_partial, evaluate_partial_with_dleq_proof,
-    verify_partial_dleq_proof, PrfDleqProof, PrfPartial, PrfPartialProofBundle, PrfPartialWire,
-    SigningRootShareCommitment,
+    verify_partial_dleq_proof, PrfDleqProof, PrfOutput32, PrfPartial, PrfPartialProofBundle,
+    PrfPartialWire, SigningRootShareCommitment,
 };
 use crate::shamir::{SigningRootShare, ThresholdPolicy, ValidatedThresholdSet};
 use crate::suite::SuiteId;
@@ -58,7 +58,10 @@ impl Ed25519DeriverAToBTargetProofBundleV1 {
     /// Fixed plaintext length before recipient encryption.
     pub const LEN: usize = ROLE_TARGET_PROOF_BUNDLE_LEN;
 
-    /// Parses the exact A-to-B bundle and rejects any other source share.
+    /// Parses one already-opened A-to-B plaintext and rejects any other source share.
+    ///
+    /// This performs no authentication: the caller opens the recipient-encrypted,
+    /// role-authenticated outer transport first, then parses the plaintext here.
     pub fn from_slice(bytes: &[u8]) -> ThresholdPrfResult<Self> {
         let wire = decode_role_target_bundle_wire(bytes, DERIVER_A_SHARE_ID)?;
         Ok(Self(wire))
@@ -84,7 +87,10 @@ impl Ed25519DeriverBToATargetProofBundleV1 {
     /// Fixed plaintext length before recipient encryption.
     pub const LEN: usize = ROLE_TARGET_PROOF_BUNDLE_LEN;
 
-    /// Parses the exact B-to-A bundle and rejects any other source share.
+    /// Parses one already-opened B-to-A plaintext and rejects any other source share.
+    ///
+    /// This performs no authentication: the caller opens the recipient-encrypted,
+    /// role-authenticated outer transport first, then parses the plaintext here.
     pub fn from_slice(bytes: &[u8]) -> ThresholdPrfResult<Self> {
         let wire = decode_role_target_bundle_wire(bytes, DERIVER_B_SHARE_ID)?;
         Ok(Self(wire))
@@ -107,9 +113,14 @@ impl fmt::Debug for Ed25519DeriverAThresholdPrfRootV1 {
 }
 
 impl Ed25519DeriverAThresholdPrfRootV1 {
+    /// Takes ownership of the combined target output without an intermediate copy.
+    fn from_combined_output(output: PrfOutput32) -> Self {
+        Self(output.into_bytes())
+    }
+
     /// Consumes the capability for the existing Deriver A contribution KDF.
-    pub fn into_secret_bytes(mut self) -> [u8; 32] {
-        core::mem::take(&mut self.0)
+    pub fn into_secret_bytes(mut self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(core::mem::take(&mut self.0))
     }
 }
 
@@ -124,9 +135,14 @@ impl fmt::Debug for Ed25519DeriverBThresholdPrfRootV1 {
 }
 
 impl Ed25519DeriverBThresholdPrfRootV1 {
+    /// Takes ownership of the combined target output without an intermediate copy.
+    fn from_combined_output(output: PrfOutput32) -> Self {
+        Self(output.into_bytes())
+    }
+
     /// Consumes the capability for the existing Deriver B contribution KDF.
-    pub fn into_secret_bytes(mut self) -> [u8; 32] {
-        core::mem::take(&mut self.0)
+    pub fn into_secret_bytes(mut self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(core::mem::take(&mut self.0))
     }
 }
 
@@ -212,7 +228,7 @@ pub fn complete_ed25519_deriver_a_target_v1(
         &incoming.0,
         DERIVER_B_SHARE_ID,
     )
-    .map(Ed25519DeriverAThresholdPrfRootV1)
+    .map(Ed25519DeriverAThresholdPrfRootV1::from_combined_output)
 }
 
 /// Verifies A's B-target proof and completes only Deriver B's target output.
@@ -227,7 +243,7 @@ pub fn complete_ed25519_deriver_b_target_v1(
         &incoming.0,
         DERIVER_A_SHARE_ID,
     )
-    .map(Ed25519DeriverBThresholdPrfRootV1)
+    .map(Ed25519DeriverBThresholdPrfRootV1::from_combined_output)
 }
 
 fn role_target_context(purpose: PrfPurpose, stable_context_bytes: &[u8]) -> PrfContext {
@@ -300,16 +316,19 @@ fn complete_role_target(
     expected_peer_commitment: &SigningRootShareCommitment,
     incoming: &[u8; ROLE_TARGET_PROOF_BUNDLE_LEN],
     expected_peer_share_id: u16,
-) -> ThresholdPrfResult<[u8; 32]> {
+) -> ThresholdPrfResult<PrfOutput32> {
     let (peer_partial, peer_commitment, peer_proof) = decode_role_target_bundle(incoming)?;
-    if peer_partial.id().get().get() != expected_peer_share_id
-        || peer_commitment != *expected_peer_commitment
-    {
-        return Err(ThresholdPrfError::InvalidDleqProof);
+    if peer_partial.id().get().get() != expected_peer_share_id {
+        return Err(ThresholdPrfError::InvalidShareId);
+    }
+    // The stable PRF context excludes every epoch, so this equality is the only
+    // binding that keeps a pre-refresh bundle out of a post-refresh session.
+    if peer_commitment != *expected_peer_commitment {
+        return Err(ThresholdPrfError::UnexpectedPeerCommitment);
     }
     verify_partial_dleq_proof(&peer_commitment, &peer_partial, context, &peer_proof)?;
     let local_partial = PrfPartialWire::decode(*local_partial_wire)?.to_partial()?;
     let policy = ThresholdPolicy::from_u16s(2, 2)?;
     let partials = ValidatedThresholdSet::from_partials(policy, vec![local_partial, peer_partial])?;
-    combine_partials(&partials, context).map(|output| output.into_bytes())
+    combine_partials(&partials, context)
 }

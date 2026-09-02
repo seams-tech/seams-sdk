@@ -31,6 +31,30 @@ fn tenant_root_identity_canonical_bytes_and_digest_are_pinned() {
 }
 
 #[test]
+fn tenant_root_identity_wire_round_trip_rejects_malformed_and_trailing_bytes() {
+    let identity = identity();
+    let wire = identity.canonical_bytes().unwrap();
+    assert_eq!(
+        TenantRootIdentityV1::decode_canonical_bytes(&wire).unwrap(),
+        identity
+    );
+
+    let mut bad_domain = wire.clone();
+    bad_domain[0] ^= 1;
+    assert!(TenantRootIdentityV1::decode_canonical_bytes(&bad_domain).is_err());
+
+    let mut bad_identifier = wire.clone();
+    let first_field = b"seams/tenant-root-identity/v1".len() + 4;
+    bad_identifier[first_field] = b' ';
+    assert!(TenantRootIdentityV1::decode_canonical_bytes(&bad_identifier).is_err());
+
+    assert!(TenantRootIdentityV1::decode_canonical_bytes(&wire[..wire.len() - 1]).is_err());
+    let mut trailing = wire;
+    trailing.push(0);
+    assert!(TenantRootIdentityV1::decode_canonical_bytes(&trailing).is_err());
+}
+
+#[test]
 fn tenant_root_identity_json_boundary_rejects_partial_unknown_and_empty_shapes() {
     let encoded = serde_json::to_string(&identity()).unwrap();
     let decoded: TenantRootIdentityV1 = serde_json::from_str(&encoded).unwrap();

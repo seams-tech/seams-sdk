@@ -61,6 +61,24 @@ test('composes exact B4 ECDSA admission with B5 material and tenant-root identit
   }
 });
 
+test('rejects a runtime caller-selected role before B5 resolution', async () => {
+  const fixture = await buildTenantRootEcdsaWalletSessionCompositionFixture();
+  const input = {
+    admission: fixture.admission,
+    resolveEcdsaMaterialActivation: fixture.resolver.resolveEcdsaMaterialActivation.bind(
+      fixture.resolver,
+    ),
+  };
+  Reflect.set(input, 'role', 'deriver_a');
+
+  await expect(resolveTenantRootEcdsaWalletSessionCompositionV1(input)).resolves.toEqual({
+    ok: false,
+    code: 'caller_selected_tenant_root',
+    message: 'Caller-supplied tenant-root selector field is forbidden: role',
+  });
+  expect(fixture.resolver.calls).toEqual([]);
+});
+
 test('rejects B5 not_found without resolving tenant-root identity', async () => {
   const fixture = await buildTenantRootEcdsaWalletSessionCompositionFixture();
   const resolver = new RecordingTenantRootEcdsaMaterialActivationResolverV1(

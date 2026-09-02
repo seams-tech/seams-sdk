@@ -24,6 +24,10 @@ const environmentGeneratorScript = path.join(
   repoRoot,
   'crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs',
 );
+const deploymentKeyGeneratorScript = path.join(
+  repoRoot,
+  'crates/router-ab-cloudflare/scripts/generate-deployment-keys.mjs',
+);
 const deploymentSecretNames = [
   'STRIPE_API_SK',
   'RELAYER_PRIVATE_KEY',
@@ -90,6 +94,24 @@ function validateMismatchedDeriverAKeyPair(): void {
     DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: mismatched.publicKey,
     DERIVER_A_ROLE_PRIVATE_D1_KEK: `hpke-x25519-role-private-d1-private-v1:${current.privateKeyHex}`,
     DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY: current.publicKey,
+  });
+}
+
+function validateMismatchedDeriverATenantRootOnlineKeyPair(): void {
+  const envelope = generateX25519Pair();
+  const privateD1 = generateX25519Pair();
+  const online = generateX25519Pair();
+  const backup = generateX25519Pair();
+  const mismatched = generateX25519Pair();
+  validateDeploymentKeyPairs('deriver-a', {
+    DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${envelope.privateKeyHex}`,
+    DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: envelope.publicKey,
+    DERIVER_A_ROLE_PRIVATE_D1_KEK: `hpke-x25519-role-private-d1-private-v1:${privateD1.privateKeyHex}`,
+    DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY: privateD1.publicKey,
+    DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${online.privateKeyHex}`,
+    DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY: mismatched.publicKey,
+    DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${backup.privateKeyHex}`,
+    DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY: backup.publicKey,
   });
 }
 
@@ -278,6 +300,33 @@ test('backend deployment rejects an HPKE private key that does not match its pub
   expect(validateMismatchedDeriverAKeyPair).toThrow(
     /DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY does not match DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY/u,
   );
+  expect(validateMismatchedDeriverATenantRootOnlineKeyPair).toThrow(
+    /DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY does not match DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY/u,
+  );
+});
+
+test('deployment key generation provisions distinct role-local tenant-root provider keys', () => {
+  const result = runCommand(deploymentKeyGeneratorScript, ['--lane', 'staging-testnet', '--json']);
+  expect(result.status).toBe(0);
+  const output = JSON.parse(result.stdout) as {
+    readonly variables: Readonly<Record<string, string>>;
+    readonly secrets: Readonly<Record<string, string>>;
+  };
+  const publicKeys = [
+    output.variables.ROUTER_AB_DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY,
+    output.variables.ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY,
+    output.variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY,
+    output.variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY,
+  ];
+  expect(new Set(publicKeys).size).toBe(publicKeys.length);
+  for (const name of [
+    'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+    'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+    'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+    'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+  ]) {
+    expect(output.secrets[name]).toBe('hpke-x25519-private-v1:<redacted>');
+  }
 });
 
 test('backend deployment accepts components that do not own deployment key pairs', () => {

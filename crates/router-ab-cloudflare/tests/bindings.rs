@@ -8716,11 +8716,11 @@ fn preloaded_signer_host_exposes_role_local_root_share_wire() {
     )
     .expect("preloaded host with root-share wire");
 
-    assert_eq!(
-        host.signing_root_share_wire(Role::SignerA, &root_epoch())
-            .expect("root-share wire"),
-        share_wire
-    );
+    let actual_share_wire = host
+        .signing_root_share_wire(Role::SignerA, &root_epoch())
+        .expect("root-share wire");
+    assert_eq!(actual_share_wire.share_id(), share_wire.share_id());
+    assert_eq!(actual_share_wire.as_bytes(), share_wire.as_bytes());
     assert_eq!(
         host.signing_root_share_wire(Role::SignerB, &root_epoch())
             .expect_err("opposite role root-share wire must be absent")
@@ -8740,10 +8740,10 @@ fn root_share_wire_secret_decoder_builds_preloaded_record() {
 
     assert_eq!(decoded.signer_role, Role::SignerA);
     assert_eq!(decoded.root_share_epoch, root_epoch());
-    assert_eq!(
-        decoded.signing_root_share_wire(),
-        root_share_wire(Role::SignerA)
-    );
+    let actual_share_wire = decoded.signing_root_share_wire();
+    let expected_share_wire = root_share_wire(Role::SignerA);
+    assert_eq!(actual_share_wire.share_id(), expected_share_wire.share_id());
+    assert_eq!(actual_share_wire.as_bytes(), expected_share_wire.as_bytes());
 
     let host = CloudflarePreloadedSignerHostV1::new_with_root_share_wires(
         1_000,
@@ -8755,11 +8755,12 @@ fn root_share_wire_secret_decoder_builds_preloaded_record() {
     )
     .expect("host with decoded root-share wire");
 
-    assert_eq!(
-        host.signing_root_share_wire(Role::SignerA, &root_epoch())
-            .expect("root-share wire"),
-        root_share_wire(Role::SignerA)
-    );
+    let actual_share_wire = host
+        .signing_root_share_wire(Role::SignerA, &root_epoch())
+        .expect("root-share wire");
+    let expected_share_wire = root_share_wire(Role::SignerA);
+    assert_eq!(actual_share_wire.share_id(), expected_share_wire.share_id());
+    assert_eq!(actual_share_wire.as_bytes(), expected_share_wire.as_bytes());
 }
 
 #[test]
@@ -8790,10 +8791,10 @@ fn root_share_wire_secret_binding_decoder_accepts_visible_binding() {
     .expect("binding-aware root-share wire decoder");
 
     assert_eq!(decoded.signer_role, Role::SignerA);
-    assert_eq!(
-        decoded.signing_root_share_wire(),
-        root_share_wire(Role::SignerA)
-    );
+    let actual_share_wire = decoded.signing_root_share_wire();
+    let expected_share_wire = root_share_wire(Role::SignerA);
+    assert_eq!(actual_share_wire.share_id(), expected_share_wire.share_id());
+    assert_eq!(actual_share_wire.as_bytes(), expected_share_wire.as_bytes());
 }
 
 #[test]

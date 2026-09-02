@@ -170,7 +170,6 @@ test.describe('local D1 Ed25519 Yao request reconstruction', () => {
         env: fixture.env,
         path: ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
         body: recovery.recoveryAdmission,
-        grant: recovery.token,
         recoveryChallengeId: recovery.recoveryChallengeId,
       });
       expect(admission.status, await admission.clone().text()).toBe(200);
@@ -180,7 +179,6 @@ test.describe('local D1 Ed25519 Yao request reconstruction', () => {
         env: fixture.env,
         path: ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
         body: executeRequest,
-        grant: recovery.token,
       });
       expect(executed.status, await executed.clone().text()).toBe(200);
       const executionBody = await executed.text();
@@ -194,7 +192,6 @@ test.describe('local D1 Ed25519 Yao request reconstruction', () => {
         env: restartedEnv,
         path: ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
         body: executeRequest,
-        grant: recovery.token,
       });
       expect(replay.status).toBe(200);
       expect(await replay.text()).toBe(executionBody);
@@ -204,7 +201,6 @@ test.describe('local D1 Ed25519 Yao request reconstruction', () => {
         env: restartedEnv,
         path: ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
         body: recoveryExecuteFromAdmission(admissionBody, 31),
-        grant: recovery.token,
       });
       expect(conflict.status).toBe(409);
       await expect(conflict.json()).resolves.toMatchObject({ ok: false, code: 'binding_mismatch' });
@@ -215,7 +211,6 @@ test.describe('local D1 Ed25519 Yao request reconstruction', () => {
         env: restartedEnv,
         path: ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
         body: activation,
-        grant: recovery.token,
       });
       expect(activated.status, await activated.clone().text()).toBe(200);
       expect(fixture.router.recoveryPromotionCalls).toBe(1);

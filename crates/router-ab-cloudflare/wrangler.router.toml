@@ -6,6 +6,15 @@ workers_dev = false
 [build]
 command = "cargo install -q worker-build --version 0.8.4 && bash ./scripts/build-strict-worker.sh router"
 
+[durable_objects]
+bindings = [
+  { name = "ROUTER_TENANT_ROOT_CREATION_DO", class_name = "RouterAbTenantRootCreationDurableObject" },
+]
+
+[[migrations]]
+tag = "router_ab_router_tenant_root_creation_v1"
+new_sqlite_classes = ["RouterAbTenantRootCreationDurableObject"]
+
 [[services]]
 binding = "DERIVER_A"
 service = "router-ab-deriver-a"
@@ -32,6 +41,10 @@ SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 [env.staging]
 name = "router-ab-mpc-router-staging"
 workers_dev = true
+
+[[env.staging.durable_objects.bindings]]
+name = "ROUTER_TENANT_ROOT_CREATION_DO"
+class_name = "RouterAbTenantRootCreationDurableObject"
 
 [[env.staging.services]]
 binding = "DERIVER_A"
@@ -65,6 +78,10 @@ SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 [env.production-testnet]
 name = "router-ab-mpc-router-testnet"
 workers_dev = true
+
+[[env.production-testnet.durable_objects.bindings]]
+name = "ROUTER_TENANT_ROOT_CREATION_DO"
+class_name = "RouterAbTenantRootCreationDurableObject"
 
 [[env.production-testnet.services]]
 binding = "DERIVER_A"

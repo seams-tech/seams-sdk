@@ -1,5 +1,6 @@
 use curve25519_dalek::scalar::Scalar;
 use ed25519_dalek::SigningKey;
+use hpke_ng::{Aes256Gcm, DhKemX25519HkdfSha256, HkdfSha256, Hpke, Kem};
 use rand_chacha::ChaCha20Rng;
 use rand_chacha_09::ChaCha20Rng as HpkeRng;
 use rand_core::SeedableRng;
@@ -7,7 +8,8 @@ use rand_core_09::SeedableRng as SeedableRng09;
 use router_ab_core::{
     seal_tenant_root_refresh_contribution_v1, RouterAbDerivationErrorCode,
     TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1,
-    TenantRootCeremonySessionIdV1, TenantRootCustodyLineageId, TenantRootIdentityV1,
+    TenantRootCeremonySessionIdV1, TenantRootCustodyLineageId,
+    TenantRootEncryptedRefreshContributionV1, TenantRootIdentityV1,
     TenantRootRefreshCommitmentTranscriptV1, TenantRootRefreshContributionAadV1,
     TenantRootRefreshHpkeKeypairV1, TenantRootRefreshHpkePublicKeyV1, TenantRootShareEpoch,
     TenantRootShareInstallationEvidenceV1, TenantRootShareInstallationTranscriptV1,
@@ -17,8 +19,8 @@ use router_ab_core::{
 use sha2::{Digest, Sha256};
 use std::ops::Range;
 use threshold_prf::{
-    prove_root_share_knowledge, RootShareRefreshCoefficient, SigningRootShare,
-    SigningRootShareCommitment, TwoPartyDeriverRole,
+    prove_root_share_knowledge, RootShareRefreshCoefficient, RootShareRefreshContributionWire,
+    SigningRootShare, SigningRootShareCommitment, TwoPartyDeriverRole,
 };
 
 fn seeded_rng(seed: u8) -> ChaCha20Rng {
@@ -66,6 +68,16 @@ fn signing_key(seed: u8) -> SigningKey {
 fn coefficient(role: TwoPartyDeriverRole, scalar: u64) -> RootShareRefreshCoefficient {
     RootShareRefreshCoefficient::from_canonical_bytes(role, Scalar::from(scalar).to_bytes())
         .unwrap()
+}
+
+fn signed_refresh_commitment(
+    context: TenantRootCeremonyContextV1,
+    coefficient: &RootShareRefreshCoefficient,
+    signing_key: &SigningKey,
+) -> TenantRootSignedRefreshCommitmentV1 {
+    let transcript =
+        TenantRootRefreshCommitmentTranscriptV1::new(context, coefficient.commitment()).unwrap();
+    TenantRootSignedRefreshCommitmentV1::sign(transcript, &signing_key.to_bytes()).unwrap()
 }
 
 fn verified_commitment(
@@ -120,6 +132,151 @@ fn refresh_hpke_public_key_rejects_noncanonical_x25519_aliases() {
     reduced_alias[0] = 0xf6;
     reduced_alias[31] = 0x7f;
     assert!(TenantRootRefreshHpkePublicKeyV1::from_bytes(reduced_alias).is_err());
+}
+
+#[test]
+fn signed_refresh_commitment_wire_round_trips_and_retains_public_authentication() {
+    let context = context(0x1f);
+    let signing_a = signing_key(0x51);
+    let coefficient_a = coefficient(TwoPartyDeriverRole::DeriverA, 17);
+    let signed = signed_refresh_commitment(context.clone(), &coefficient_a, &signing_a);
+    let wire = signed.canonical_bytes().unwrap();
+
+    let decoded = TenantRootSignedRefreshCommitmentV1::decode_canonical_bytes(&wire).unwrap();
+    assert_eq!(decoded.canonical_bytes().unwrap(), wire);
+    assert_eq!(decoded.transcript(), signed.transcript());
+    assert_eq!(decoded.role(), TwoPartyDeriverRole::DeriverA);
+    assert_eq!(decoded.signing_key_id(), "deriver-a-signing-key-7");
+    assert_eq!(decoded.signature(), signed.signature());
+
+    let verified = TenantRootSignedRefreshCommitmentV1::decode_and_verify_canonical_bytes(
+        &wire,
+        &context,
+        TwoPartyDeriverRole::DeriverA,
+        "deriver-a-signing-key-7",
+        signing_a.verifying_key().as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(verified.transcript(), signed.transcript());
+    assert_eq!(verified.role(), TwoPartyDeriverRole::DeriverA);
+    assert_eq!(verified.signing_key_id(), signed.signing_key_id());
+    assert_eq!(verified.signature(), signed.signature());
+    assert_eq!(verified.canonical_bytes(), wire.as_slice());
+    assert_eq!(verified.into_canonical_bytes(), wire);
+}
+
+#[test]
+fn signed_refresh_commitment_wire_rejects_malformed_and_substituted_fields() {
+    let context = context(0x20);
+    let signing_a = signing_key(0x51);
+    let coefficient_a = coefficient(TwoPartyDeriverRole::DeriverA, 17);
+    let signed = signed_refresh_commitment(context.clone(), &coefficient_a, &signing_a);
+    let wire = signed.canonical_bytes().unwrap();
+
+    let mut trailing = wire.clone();
+    trailing.push(0);
+    assert!(TenantRootSignedRefreshCommitmentV1::decode_canonical_bytes(&trailing).is_err());
+    assert!(
+        TenantRootSignedRefreshCommitmentV1::decode_canonical_bytes(&wire[..wire.len() - 1])
+            .is_err()
+    );
+
+    let mut wrong_domain = wire.clone();
+    wrong_domain[4] ^= 1;
+    assert!(TenantRootSignedRefreshCommitmentV1::decode_canonical_bytes(&wrong_domain).is_err());
+
+    let mut wrong_role = wire.clone();
+    let mut offset = 0;
+    next_len32_field_range(&wrong_role, &mut offset);
+    next_len32_field_range(&wrong_role, &mut offset);
+    let role_label = next_len32_field_range(&wrong_role, &mut offset);
+    wrong_role[role_label].copy_from_slice(b"deriver_b");
+    let role_share_id = next_len32_field_range(&wrong_role, &mut offset);
+    wrong_role[role_share_id].copy_from_slice(&2_u16.to_be_bytes());
+    assert!(TenantRootSignedRefreshCommitmentV1::decode_canonical_bytes(&wrong_role).is_err());
+
+    let mut wrong_key_id = wire.clone();
+    let mut offset = 0;
+    for _ in 0..4 {
+        next_len32_field_range(&wrong_key_id, &mut offset);
+    }
+    let key_id = next_len32_field_range(&wrong_key_id, &mut offset);
+    wrong_key_id[key_id.end - 1] ^= 1;
+    assert!(TenantRootSignedRefreshCommitmentV1::decode_canonical_bytes(&wrong_key_id).is_err());
+
+    let mut substituted_context = wire.clone();
+    let mut outer_offset = 0;
+    next_len32_field_range(&substituted_context, &mut outer_offset);
+    let transcript_range = next_len32_field_range(&substituted_context, &mut outer_offset);
+    let mut transcript = substituted_context[transcript_range.clone()].to_vec();
+    let mut transcript_offset = 0;
+    for _ in 0..7 {
+        next_len32_field_range(&transcript, &mut transcript_offset);
+    }
+    let session_id = next_len32_field_range(&transcript, &mut transcript_offset);
+    transcript[session_id.start] ^= 1;
+    substituted_context[transcript_range].copy_from_slice(&transcript);
+    let substituted_context_signed =
+        TenantRootSignedRefreshCommitmentV1::decode_canonical_bytes(&substituted_context).unwrap();
+    assert_eq!(
+        substituted_context_signed
+            .verify_strict(
+                &context,
+                TwoPartyDeriverRole::DeriverA,
+                "deriver-a-signing-key-7",
+                signing_a.verifying_key().as_bytes(),
+            )
+            .unwrap_err()
+            .code(),
+        RouterAbDerivationErrorCode::MalformedInput,
+    );
+
+    let mut wrong_signature = wire;
+    let mut offset = 0;
+    for _ in 0..5 {
+        next_len32_field_range(&wrong_signature, &mut offset);
+    }
+    let signature = next_len32_field_range(&wrong_signature, &mut offset);
+    wrong_signature[signature.start] ^= 1;
+    let substituted_signature =
+        TenantRootSignedRefreshCommitmentV1::decode_canonical_bytes(&wrong_signature).unwrap();
+    assert_eq!(
+        substituted_signature
+            .verify_strict(
+                &context,
+                TwoPartyDeriverRole::DeriverA,
+                "deriver-a-signing-key-7",
+                signing_a.verifying_key().as_bytes(),
+            )
+            .unwrap_err()
+            .code(),
+        RouterAbDerivationErrorCode::OutputVerificationFailed,
+    );
+
+    assert_eq!(
+        signed
+            .verify_strict(
+                &context,
+                TwoPartyDeriverRole::DeriverB,
+                "deriver-b-signing-key-9",
+                signing_a.verifying_key().as_bytes(),
+            )
+            .unwrap_err()
+            .code(),
+        RouterAbDerivationErrorCode::MalformedInput,
+    );
+    assert_eq!(
+        signed
+            .verify_strict(
+                &context,
+                TwoPartyDeriverRole::DeriverA,
+                "deriver-a-signing-key-8",
+                signing_a.verifying_key().as_bytes(),
+            )
+            .unwrap_err()
+            .code(),
+        RouterAbDerivationErrorCode::MalformedInput,
+    );
 }
 
 #[test]
@@ -226,6 +383,81 @@ fn both_refresh_contribution_directions_are_signed_encrypted_and_exact() {
         hex::encode(Sha256::digest(&signed_a_wire)),
         "f8333d288e2a89d2a94a67e7dedef765415312f7561dc9bca1a4935141f4f3d7",
     );
+}
+
+#[test]
+fn refresh_open_rejects_plaintext_roles_swapped_inside_valid_signed_envelope() {
+    let context = context(0x25);
+    let signing_a = signing_key(0x51);
+    let signing_b = signing_key(0x61);
+    let hpke_b = TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xb1; 32]).unwrap();
+    let coefficient_a = coefficient(TwoPartyDeriverRole::DeriverA, 17);
+    let coefficient_b = coefficient(TwoPartyDeriverRole::DeriverB, 29);
+    let commitments = verified_commitment_pair(
+        context,
+        &coefficient_a,
+        &signing_a,
+        &coefficient_b,
+        &signing_b,
+    );
+    let aad = TenantRootRefreshContributionAadV1::deriver_a_to_b(
+        &commitments,
+        "deriver-b-hpke-key-8",
+        hpke_b.public_key(),
+    )
+    .unwrap();
+    let contribution = coefficient_a.contribution_for(TwoPartyDeriverRole::DeriverB);
+    let envelope =
+        seal_tenant_root_refresh_contribution_v1(&aad, &contribution, &mut hpke_rng(0x71)).unwrap();
+
+    let mut swapped_bytes = contribution.to_bytes();
+    swapped_bytes[..2].copy_from_slice(
+        &TwoPartyDeriverRole::DeriverB
+            .share_id()
+            .get()
+            .get()
+            .to_be_bytes(),
+    );
+    swapped_bytes[2..4].copy_from_slice(
+        &TwoPartyDeriverRole::DeriverA
+            .share_id()
+            .get()
+            .get()
+            .to_be_bytes(),
+    );
+    let swapped = RootShareRefreshContributionWire::decode(swapped_bytes).unwrap();
+    let recipient_key =
+        DhKemX25519HkdfSha256::pk_from_bytes(aad.recipient_public_key().as_bytes()).unwrap();
+    let aad_bytes = aad.canonical_bytes().unwrap();
+    let (encapsulated_key, ciphertext) =
+        Hpke::<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>::seal_base(
+            &mut hpke_rng(0x91),
+            &recipient_key,
+            b"seams/tenant-root-refresh/hpke-x25519-hkdf-sha256-aes256gcm/v1",
+            &aad_bytes,
+            &swapped.to_bytes(),
+        )
+        .unwrap();
+
+    let mut envelope_wire = envelope.canonical_bytes().unwrap();
+    let mut offset = 0;
+    for _ in 0..9 {
+        next_len32_field_range(&envelope_wire, &mut offset);
+    }
+    let encapsulated_key_range = next_len32_field_range(&envelope_wire, &mut offset);
+    let ciphertext_range = next_len32_field_range(&envelope_wire, &mut offset);
+    envelope_wire[encapsulated_key_range].copy_from_slice(encapsulated_key.as_ref());
+    envelope_wire[ciphertext_range].copy_from_slice(&ciphertext);
+    let swapped_envelope =
+        TenantRootEncryptedRefreshContributionV1::decode_canonical_bytes(&envelope_wire).unwrap();
+    let swapped_signed =
+        TenantRootSignedRefreshContributionV1::sign(&aad, swapped_envelope, &signing_a.to_bytes())
+            .unwrap();
+
+    let error = swapped_signed
+        .verify_and_open(&aad, signing_a.verifying_key().as_bytes(), &hpke_b)
+        .unwrap_err();
+    assert_eq!(error.code(), RouterAbDerivationErrorCode::MalformedInput);
 }
 
 #[test]

@@ -30,11 +30,11 @@ pub use prf::{
     PrfOutput32, PrfPartial, PrfPartialProofBundle, PrfPartialWire, SigningRootShareCommitment,
 };
 pub use refresh::{
-    apply_two_party_root_share_refresh, generate_two_party_root_share, prove_root_share_knowledge,
-    verify_root_share_knowledge, verify_two_party_root_share_refresh, RootShareKnowledgeProof,
-    RootShareRefreshCoefficient, RootShareRefreshCoefficientCommitment,
-    RootShareRefreshContributionWire, TwoPartyDeriverRole, TwoPartyRootCommitment,
-    TwoPartyRootShareCommitments, VerifiedRootShareRefreshContribution,
+    apply_two_party_root_share_refresh, derive_two_party_root_share_refresh_commitments,
+    generate_two_party_root_share, prove_root_share_knowledge, verify_root_share_knowledge,
+    verify_two_party_root_share_refresh, RootShareKnowledgeProof, RootShareRefreshCoefficient,
+    RootShareRefreshCoefficientCommitment, RootShareRefreshContributionWire, TwoPartyDeriverRole,
+    TwoPartyRootCommitment, TwoPartyRootShareCommitments, VerifiedRootShareRefreshContribution,
 };
 pub use shamir::{
     generate_signing_root, split_signing_root, SigningRootScalar, SigningRootShare,

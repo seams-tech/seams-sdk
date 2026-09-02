@@ -3,16 +3,16 @@ use serde::{de::Error as DeError, Deserialize, Deserializer, Serialize, Serializ
 use sha2::{Digest, Sha256};
 
 use super::{
-    RouterAbDerivationError, RouterAbDerivationErrorCode, RouterAbDerivationResult,
-    StableTenantDerivationContextV2, TenantRootActiveRefreshV1, TenantRootCustodyLineageId,
-    TenantRootEpochCommitmentsV1, TenantRootIdentityDigestV1, TenantRootProtocolDigestV1,
-    TenantRootShareEpoch,
+    require_tenant_root_identifier, RouterAbDerivationError, RouterAbDerivationErrorCode,
+    RouterAbDerivationResult, StableTenantDerivationContextV2, TenantRootActiveRefreshV1,
+    TenantRootCustodyLineageId, TenantRootEpochCommitmentsV1, TenantRootIdentityDigestV1,
+    TenantRootLifecycleReceiptDigestV1, TenantRootProtocolDigestV1, TenantRootShareEpoch,
+    TENANT_ROOT_MAX_CLOCK_SKEW_MS_V1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
 };
 
 const TENANT_ROOT_CUSTODY_BINDING_DOMAIN_V1: &[u8] = b"seams/tenant-root-custody-binding/v1";
 const TENANT_ROOT_DERIVATION_ID_LEN: usize = 16;
 const TENANT_ROOT_DERIVATION_NONCE_LEN: usize = 32;
-const TENANT_ROOT_MAX_CLOCK_SKEW_MS_V1: u64 = 60_000;
 
 /// Router-issued identifier for one admitted tenant-root derivation operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,8 +158,8 @@ impl TenantRootDeriverIdentitiesV1 {
             deriver_a: deriver_a.into(),
             deriver_b: deriver_b.into(),
         };
-        require_identity("tenant-root Deriver A identity", &identities.deriver_a)?;
-        require_identity("tenant-root Deriver B identity", &identities.deriver_b)?;
+        require_tenant_root_identifier("tenant-root Deriver A identity", &identities.deriver_a)?;
+        require_tenant_root_identifier("tenant-root Deriver B identity", &identities.deriver_b)?;
         if identities.deriver_a == identities.deriver_b {
             return Err(malformed("tenant-root Deriver identities must be distinct"));
         }
@@ -186,6 +186,7 @@ pub struct TenantRootCustodyBindingV1 {
     epoch: TenantRootShareEpoch,
     derivers: TenantRootDeriverIdentitiesV1,
     commitments: TenantRootEpochCommitmentsV1,
+    activation_receipt_digest: TenantRootLifecycleReceiptDigestV1,
     operation_id: TenantRootDerivationOperationIdV1,
     session_id: TenantRootDerivationSessionIdV1,
     nonce: TenantRootDerivationNonceV1,
@@ -215,12 +216,13 @@ impl TenantRootCustodyBindingV1 {
             epoch: active.current().epoch(),
             derivers,
             commitments: active.current().verified().commitments().clone(),
+            activation_receipt_digest: active.current().activation_receipt_digest(),
             operation_id,
             session_id,
             nonce,
             issued_at_ms,
             expires_at_ms,
-            stable_context_digest: stable_context.digest(),
+            stable_context_digest: stable_context.digest()?,
             outer_transcript_digest,
         };
         binding.validate()?;
@@ -229,14 +231,25 @@ impl TenantRootCustodyBindingV1 {
 
     /// Validates exact identities, lifetime, and commitments.
     pub fn validate(&self) -> RouterAbDerivationResult<()> {
-        require_identity("tenant-root Deriver A identity", self.derivers.deriver_a())?;
-        require_identity("tenant-root Deriver B identity", self.derivers.deriver_b())?;
+        require_tenant_root_identifier(
+            "tenant-root Deriver A identity",
+            self.derivers.deriver_a(),
+        )?;
+        require_tenant_root_identifier(
+            "tenant-root Deriver B identity",
+            self.derivers.deriver_b(),
+        )?;
         if self.derivers.deriver_a() == self.derivers.deriver_b() {
             return Err(malformed("tenant-root Deriver identities must be distinct"));
         }
         if self.issued_at_ms == 0 || self.expires_at_ms <= self.issued_at_ms {
             return Err(malformed(
                 "tenant-root custody binding expiry must follow a non-zero issue time",
+            ));
+        }
+        if self.expires_at_ms - self.issued_at_ms > TENANT_ROOT_MAX_LIFETIME_MS_V1 {
+            return Err(malformed(
+                "tenant-root custody binding lifetime exceeds the frozen maximum window",
             ));
         }
         TenantRootEpochCommitmentsV1::new(
@@ -262,9 +275,34 @@ impl TenantRootCustodyBindingV1 {
         Ok(())
     }
 
+    /// Returns the identity digest selected by the control plane.
+    pub const fn identity_digest(&self) -> TenantRootIdentityDigestV1 {
+        self.identity_digest
+    }
+
+    /// Returns the custody lineage selected by the control plane.
+    pub const fn custody_lineage(&self) -> TenantRootCustodyLineageId {
+        self.custody_lineage
+    }
+
     /// Returns the exact epoch selected by the control plane.
     pub const fn epoch(&self) -> TenantRootShareEpoch {
         self.epoch
+    }
+
+    /// Returns the exact A/B commitments selected by the control plane.
+    pub const fn commitments(&self) -> &TenantRootEpochCommitmentsV1 {
+        &self.commitments
+    }
+
+    /// Returns the stable public root commitment selected by the control plane.
+    pub const fn root_commitment(&self) -> &[u8; 32] {
+        self.commitments.root_commitment()
+    }
+
+    /// Returns the activation receipt accepted for this active epoch.
+    pub const fn activation_receipt_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.activation_receipt_digest
     }
 
     /// Returns the stable-context digest without exposing custody metadata as context bytes.
@@ -285,6 +323,7 @@ impl TenantRootCustodyBindingV1 {
         push_field(&mut bytes, self.commitments.deriver_a().as_bytes())?;
         push_field(&mut bytes, self.commitments.deriver_b().as_bytes())?;
         push_field(&mut bytes, self.commitments.root_commitment())?;
+        push_field(&mut bytes, self.activation_receipt_digest.as_bytes())?;
         push_field(&mut bytes, self.operation_id.as_bytes())?;
         push_field(&mut bytes, self.session_id.as_bytes())?;
         push_field(&mut bytes, self.nonce.as_bytes())?;
@@ -297,9 +336,7 @@ impl TenantRootCustodyBindingV1 {
 
     /// Returns the SHA-256 digest of the exact epoch-bound custody record.
     pub fn digest(&self) -> RouterAbDerivationResult<TenantRootProtocolDigestV1> {
-        Ok(TenantRootProtocolDigestV1::from_bytes(
-            Sha256::digest(self.canonical_bytes()?).into(),
-        ))
+        TenantRootProtocolDigestV1::from_bytes(Sha256::digest(self.canonical_bytes()?).into())
     }
 }
 
@@ -322,18 +359,6 @@ fn require_nonzero(bytes: &[u8], message: &'static str) -> RouterAbDerivationRes
     } else {
         Ok(())
     }
-}
-
-fn require_identity(field: &'static str, value: &str) -> RouterAbDerivationResult<()> {
-    if value.is_empty() {
-        return Err(RouterAbDerivationError::new(
-            RouterAbDerivationErrorCode::EmptyField,
-            format!("{field} is required"),
-        ));
-    }
-    u32::try_from(value.len())
-        .map_err(|_| malformed("tenant-root Deriver identity is too long"))?;
-    Ok(())
 }
 
 fn push_field(bytes: &mut Vec<u8>, value: &[u8]) -> RouterAbDerivationResult<()> {

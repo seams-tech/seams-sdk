@@ -1,20 +1,20 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{
     ActiveTenantRootEpochV1, MpcPrfShareCommitmentWireV1, RouterAbDerivationError,
-    RouterAbDerivationErrorCode, RouterAbDerivationResult, TenantRootActivationReceiptV1,
-    TenantRootActiveRefreshV1, TenantRootBackupPolicyV1, TenantRootCanaryReceiptsV1,
-    TenantRootCeremonyContextV1, TenantRootCleanupIncompleteRefreshV1, TenantRootCustodyLineageId,
+    RouterAbDerivationErrorCode, RouterAbDerivationResult, TenantRootActiveRefreshV1,
+    TenantRootBackupPolicyV1, TenantRootCanaryReceiptsV1, TenantRootCeremonyContextV1,
+    TenantRootCleanupIncompleteRefreshV1, TenantRootCustodyLineageId,
     TenantRootFailedBeforeActivationRefreshV1, TenantRootIdentityDigestV1,
     TenantRootLifecycleReceiptDigestV1, TenantRootPendingCleanupFailureV1,
     TenantRootPendingCleanupReceiptV1, TenantRootPreparingRefreshV1, TenantRootRefreshFailureV1,
     TenantRootRetiringRefreshV1, TenantRootRoleInstallationReceiptsV1,
     TenantRootRoleRetirementReceiptsV1, TenantRootShareEpoch, TenantRootVerifiedRefreshV1,
-    VerifiedTenantRootShareInstallationEvidenceV1,
+    VerifiedTenantRootShareInstallationEvidenceV1, VerifiedTenantRootSignedActivationReceiptV1,
 };
 
 /// One role eligible for service-managed current-epoch recovery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TenantRootManagedRestoreRoleV1 {
     /// Deriver A's role-local share and backup authority.
@@ -437,7 +437,7 @@ impl TenantRootManagedRestoreAvailableV1 {
         self,
         receipt: TenantRootRoleUnavailableReceiptV1,
     ) -> RouterAbDerivationResult<TenantRootManagedRestoreRoleUnavailableV1> {
-        if receipt.unavailable_at_ms < self.active.current().activation().activated_at_ms() {
+        if receipt.unavailable_at_ms < self.active.current().activation_time_ms() {
             return Err(malformed(
                 "tenant-root role unavailability cannot predate active-epoch activation",
             ));
@@ -792,10 +792,15 @@ pub struct TenantRootManagedRestoreForwardVerifiedV1 {
 }
 
 impl TenantRootManagedRestoreForwardVerifiedV1 {
+    /// Returns the verified refresh state awaiting activation.
+    pub const fn refresh(&self) -> &TenantRootVerifiedRefreshV1 {
+        &self.refresh
+    }
+
     /// Activates the next epoch and enters mandatory old-epoch retirement.
     pub fn activate(
         self,
-        activation: TenantRootActivationReceiptV1,
+        activation: VerifiedTenantRootSignedActivationReceiptV1,
     ) -> RouterAbDerivationResult<TenantRootManagedRestoreForwardRetiringV1> {
         Ok(TenantRootManagedRestoreForwardRetiringV1 {
             restored: self.restored,
@@ -1120,7 +1125,7 @@ fn validate_capability(
     if capability.identity_digest != active.identity().digest()?
         || capability.custody_lineage != active.custody_lineage()
         || capability.epoch != active.current().epoch()
-        || capability.activation_receipt_digest != active.current().activation().digest()
+        || capability.activation_receipt_digest != active.current().activation_receipt_digest()
     {
         return Err(malformed(
             "tenant-root managed-restore capability does not match the authoritative active custody binding",

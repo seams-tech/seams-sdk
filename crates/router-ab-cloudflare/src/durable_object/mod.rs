@@ -19,6 +19,9 @@ use crate::{
 };
 #[cfg(feature = "workers-rs")]
 mod ecdsa_presign_live_session;
+#[cfg(any(feature = "workers-rs", test))]
+mod tenant_root_creation;
+#[cfg(any(feature = "workers-rs", test))]
 #[cfg(feature = "workers-rs")]
 mod worker_storage;
 #[cfg(feature = "workers-rs")]
@@ -37,6 +40,30 @@ pub(crate) use ecdsa_presign_live_session::{
     CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoProgressV1,
     CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeRequestV1,
     CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeResponseV1,
+};
+#[cfg(feature = "workers-rs")]
+#[allow(unused_imports)]
+pub(crate) use tenant_root_creation::RouterAbTenantRootCreationDurableObject;
+#[cfg(feature = "workers-rs")]
+#[allow(unused_imports)]
+pub(crate) use tenant_root_creation::{
+    execute_cloudflare_router_tenant_root_creation_commitment_call_v1,
+    execute_cloudflare_router_tenant_root_creation_installation_call_v1,
+    execute_cloudflare_router_tenant_root_creation_journal_call_v1,
+};
+#[allow(unused_imports)]
+#[cfg(any(feature = "workers-rs", test))]
+pub(crate) use tenant_root_creation::{
+    tenant_root_creation_object_name_v1, CloudflareTenantRootCreationCommitmentOutcomeV1,
+    CloudflareTenantRootCreationInstallationOutcomeV1,
+    CloudflareTenantRootCreationInstallationRoleV1, CloudflareTenantRootCreationJournalOutcomeV1,
+    CloudflareTenantRootCreationJournalRecordV1, CloudflareTenantRootCreationJournalRequestV1,
+    CloudflareTenantRootCreationJournalResponseV1,
+    CLOUDFLARE_TENANT_ROOT_CREATION_COMMITMENT_RENDEZVOUS_PATH,
+    CLOUDFLARE_TENANT_ROOT_CREATION_INSTALLATION_CHECKPOINT_PATH,
+    CLOUDFLARE_TENANT_ROOT_CREATION_JOURNAL_PATH,
+    TENANT_ROOT_CREATION_INSTALLATION_CHECKPOINT_STORAGE_KEY_V1,
+    TENANT_ROOT_CREATION_JOURNAL_STORAGE_KEY_V1,
 };
 #[cfg(feature = "workers-rs")]
 pub(crate) use worker_storage::execute_cloudflare_durable_object_custom_json_call_v1;
@@ -1395,14 +1422,7 @@ impl CloudflareSigningWorkerPrivateD1ResponseV1 {
 
 #[cfg(feature = "workers-rs")]
 fn durable_object_error_status(code: RouterAbProtocolErrorCode) -> u16 {
-    match code {
-        RouterAbProtocolErrorCode::ForbiddenLocalBinding
-        | RouterAbProtocolErrorCode::InvalidRole => 403,
-        RouterAbProtocolErrorCode::MissingLocalBinding => 404,
-        RouterAbProtocolErrorCode::ReplayedLocalRequest => 409,
-        RouterAbProtocolErrorCode::MalformedWirePayload => 400,
-        _ => 422,
-    }
+    crate::cloudflare_router_error_status(code)
 }
 
 fn validate_compressed_secp256k1_point_b64u_v1(

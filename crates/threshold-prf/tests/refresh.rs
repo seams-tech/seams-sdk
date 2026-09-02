@@ -3,12 +3,13 @@ use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use threshold_prf::recovery::reconstruct_signing_root;
 use threshold_prf::{
-    apply_two_party_root_share_refresh, generate_signing_root, generate_two_party_root_share,
-    prove_root_share_knowledge, split_signing_root, verify_root_share_knowledge,
-    verify_two_party_root_share_refresh, RootShareKnowledgeProof, RootShareRefreshCoefficient,
-    RootShareRefreshCoefficientCommitment, RootShareRefreshContributionWire, SigningRootShare,
-    SigningRootShareCommitment, ThresholdPolicy, ThresholdPrfError, TwoPartyDeriverRole,
-    TwoPartyRootShareCommitments, ValidatedThresholdSet,
+    apply_two_party_root_share_refresh, derive_two_party_root_share_refresh_commitments,
+    generate_signing_root, generate_two_party_root_share, prove_root_share_knowledge,
+    split_signing_root, verify_root_share_knowledge, verify_two_party_root_share_refresh,
+    RootShareKnowledgeProof, RootShareRefreshCoefficient, RootShareRefreshCoefficientCommitment,
+    RootShareRefreshContributionWire, SigningRootShare, SigningRootShareCommitment,
+    ThresholdPolicy, ThresholdPrfError, TwoPartyDeriverRole, TwoPartyRootShareCommitments,
+    ValidatedThresholdSet,
 };
 
 fn seeded_rng(seed: u8) -> ChaCha20Rng {
@@ -85,6 +86,13 @@ fn contributory_refresh_changes_both_shares_and_preserves_root() {
     let current_commitments =
         TwoPartyRootShareCommitments::from_shares(&current[0], &current[1]).unwrap();
     let next_commitments = TwoPartyRootShareCommitments::from_shares(&next_a, &next_b).unwrap();
+    let derived_commitments = derive_two_party_root_share_refresh_commitments(
+        &current_commitments,
+        coefficient_a.commitment(),
+        coefficient_b.commitment(),
+    )
+    .expect("public commitments predict both refreshed shares");
+    assert_eq!(derived_commitments, next_commitments);
     verify_two_party_root_share_refresh(&current_commitments, &next_commitments)
         .expect("public root continuity");
     assert_eq!(current_commitments.root(), next_commitments.root());
@@ -147,8 +155,19 @@ fn recipient_specific_contributions_have_fixed_wires_and_reject_substitution() {
 #[test]
 fn cancellation_and_zero_next_share_are_rejected() {
     let (_, current) = initial_shares();
+    let current_commitments =
+        TwoPartyRootShareCommitments::from_shares(&current[0], &current[1]).unwrap();
     let coefficient_a = fixed_coefficient(TwoPartyDeriverRole::DeriverA, Scalar::from(5_u64));
     let coefficient_b = fixed_coefficient(TwoPartyDeriverRole::DeriverB, -Scalar::from(5_u64));
+    assert_eq!(
+        derive_two_party_root_share_refresh_commitments(
+            &current_commitments,
+            coefficient_a.commitment(),
+            coefficient_b.commitment(),
+        )
+        .unwrap_err(),
+        ThresholdPrfError::RefreshNoOp,
+    );
     assert_eq!(
         refresh_role_share(
             &current[0],
@@ -165,6 +184,15 @@ fn cancellation_and_zero_next_share_are_rejected() {
     let coefficient_a = fixed_coefficient(TwoPartyDeriverRole::DeriverA, Scalar::ONE);
     let coefficient_b = fixed_coefficient(TwoPartyDeriverRole::DeriverB, -current_a - Scalar::ONE);
     assert_eq!(
+        derive_two_party_root_share_refresh_commitments(
+            &current_commitments,
+            coefficient_a.commitment(),
+            coefficient_b.commitment(),
+        )
+        .unwrap_err(),
+        ThresholdPrfError::InvalidRootCommitment,
+    );
+    assert_eq!(
         refresh_role_share(
             &current[0],
             TwoPartyDeriverRole::DeriverA,
@@ -173,6 +201,61 @@ fn cancellation_and_zero_next_share_are_rejected() {
         )
         .unwrap_err(),
         ThresholdPrfError::ZeroScalar,
+    );
+}
+
+#[test]
+fn public_refresh_rejects_swapped_and_duplicate_coefficient_roles() {
+    let (_, current) = initial_shares();
+    let current_commitments =
+        TwoPartyRootShareCommitments::from_shares(&current[0], &current[1]).unwrap();
+    let coefficient_a = fixed_coefficient(TwoPartyDeriverRole::DeriverA, Scalar::from(5_u64));
+    let coefficient_b = fixed_coefficient(TwoPartyDeriverRole::DeriverB, Scalar::from(7_u64));
+
+    assert_eq!(
+        derive_two_party_root_share_refresh_commitments(
+            &current_commitments,
+            coefficient_b.commitment(),
+            coefficient_a.commitment(),
+        )
+        .unwrap_err(),
+        ThresholdPrfError::InvalidRefreshRole,
+    );
+    assert_eq!(
+        derive_two_party_root_share_refresh_commitments(
+            &current_commitments,
+            coefficient_a.commitment(),
+            coefficient_a.commitment(),
+        )
+        .unwrap_err(),
+        ThresholdPrfError::InvalidRefreshRole,
+    );
+}
+
+#[test]
+fn public_refresh_rejects_collapsed_next_pair() {
+    let current_a = SigningRootShare::from_canonical_bytes(
+        TwoPartyDeriverRole::DeriverA.share_id(),
+        Scalar::from(12_u64).to_bytes(),
+    )
+    .unwrap();
+    let current_b = SigningRootShare::from_canonical_bytes(
+        TwoPartyDeriverRole::DeriverB.share_id(),
+        Scalar::from(19_u64).to_bytes(),
+    )
+    .unwrap();
+    let current = TwoPartyRootShareCommitments::from_shares(&current_a, &current_b).unwrap();
+    let coefficient_a = fixed_coefficient(TwoPartyDeriverRole::DeriverA, Scalar::ONE);
+    let coefficient_b = fixed_coefficient(TwoPartyDeriverRole::DeriverB, -Scalar::from(8_u64));
+
+    assert_eq!(
+        derive_two_party_root_share_refresh_commitments(
+            &current,
+            coefficient_a.commitment(),
+            coefficient_b.commitment(),
+        )
+        .unwrap_err(),
+        ThresholdPrfError::InvalidRootCommitment,
     );
 }
 

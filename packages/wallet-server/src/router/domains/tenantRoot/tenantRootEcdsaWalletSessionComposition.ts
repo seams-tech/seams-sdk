@@ -7,7 +7,9 @@ import {
   type RouterAbMpcMaterialActivationRefWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
+  findForbiddenTenantRootSelectorFieldV1,
   resolveTenantRootIdentityV1,
+  type ForbiddenTenantRootSelectorFieldsV1,
   type TenantRootIdentityResolutionErrorCodeV1,
   type TenantRootIdentityV1,
 } from './tenantRootIdentityResolution';
@@ -38,38 +40,10 @@ export type TenantRootEcdsaActiveMaterialV1 = Extract<
   { readonly ok: true }
 >;
 
-type ForbiddenTenantRootCompositionSelectorFieldsV1 = {
-  readonly orgId?: never;
-  readonly projectId?: never;
-  readonly envId?: never;
-  readonly signingRootId?: never;
-  readonly signingRootVersion?: never;
-  readonly walletId?: never;
-  readonly materialActivation?: never;
-  readonly tenantRootIdentity?: never;
-  readonly tenantRootId?: never;
-  readonly tenantRootShareEpoch?: never;
-  readonly rootShareEpoch?: never;
-  readonly epoch?: never;
-  readonly role?: never;
-  readonly walletSession?: never;
-  readonly walletSessionId?: never;
-  readonly authorization?: never;
-  readonly authorizationId?: never;
-  readonly credential?: never;
-  readonly credentialIdB64u?: never;
-  readonly browser?: never;
-  readonly browserRecord?: never;
-  readonly requestBody?: never;
-  readonly requestId?: never;
-  readonly diagnostics?: never;
+export type TenantRootEcdsaWalletSessionCompositionInputV1 = ForbiddenTenantRootSelectorFieldsV1 & {
+  readonly admission: TenantRootEcdsaWalletSessionExportAdmissionV1;
+  readonly resolveEcdsaMaterialActivation: TenantRootEcdsaMaterialActivationResolverV1;
 };
-
-export type TenantRootEcdsaWalletSessionCompositionInputV1 =
-  ForbiddenTenantRootCompositionSelectorFieldsV1 & {
-    readonly admission: TenantRootEcdsaWalletSessionExportAdmissionV1;
-    readonly resolveEcdsaMaterialActivation: TenantRootEcdsaMaterialActivationResolverV1;
-  };
 
 export type TenantRootEcdsaWalletSessionCompositionErrorCodeV1 =
   | 'not_found'
@@ -151,6 +125,14 @@ function b5MaterialMatchesEcdsaWalletSessionAdmission(input: {
 export async function resolveTenantRootEcdsaWalletSessionCompositionV1(
   input: TenantRootEcdsaWalletSessionCompositionInputV1,
 ): Promise<TenantRootEcdsaWalletSessionCompositionResultV1> {
+  const forbiddenSelector = findForbiddenTenantRootSelectorFieldV1(input);
+  if (forbiddenSelector) {
+    return compositionFailure(
+      'caller_selected_tenant_root',
+      `Caller-supplied tenant-root selector field is forbidden: ${forbiddenSelector}`,
+    );
+  }
+
   const materialActivation = ecdsaWalletSessionMaterialActivation(input.admission);
   const activeMaterial = await input.resolveEcdsaMaterialActivation({
     walletId: ecdsaWalletSessionWalletId(input.admission),

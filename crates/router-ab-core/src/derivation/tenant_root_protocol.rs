@@ -1,5 +1,5 @@
 use rand_core::{CryptoRng, RngCore};
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as DeError, Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use threshold_prf::{
     verify_root_share_knowledge, verify_two_party_root_share_refresh, RootShareKnowledgeProof,
@@ -7,15 +7,17 @@ use threshold_prf::{
 };
 
 use super::{
-    RouterAbDerivationError, RouterAbDerivationErrorCode, RouterAbDerivationResult,
-    TenantRootCustodyLineageId, TenantRootIdentityDigestV1, TenantRootShareEpoch,
+    require_tenant_root_identifier, RouterAbDerivationError, RouterAbDerivationErrorCode,
+    RouterAbDerivationResult, TenantRootCustodyLineageId, TenantRootIdentityDigestV1,
+    TenantRootShareEpoch, TENANT_ROOT_MAX_CLOCK_SKEW_MS_V1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
 };
 
 const TENANT_ROOT_CREATE_DOMAIN_V1: &[u8] = b"tenant_root_create_v1";
 const TENANT_ROOT_REFRESH_DOMAIN_V1: &[u8] = b"tenant_root_refresh_v1";
-const TENANT_ROOT_MAX_CLOCK_SKEW_MS_V1: u64 = 60_000;
 const TENANT_ROOT_SESSION_ID_LEN: usize = 16;
 const TENANT_ROOT_NONCE_LEN: usize = 32;
+const TENANT_ROOT_CEREMONY_CONTEXT_MAX_WIRE_BYTES_V1: usize = 4 * 1024;
+const TENANT_ROOT_CEREMONY_CONTEXT_MAX_IDENTIFIER_BYTES_V1: usize = 256;
 
 /// Random one-use identifier for a tenant-root creation or refresh ceremony.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,8 +180,8 @@ impl TenantRootCeremonyContextV1 {
 
     /// Validates required key identities and the strict time interval.
     pub fn validate(&self) -> RouterAbDerivationResult<()> {
-        require_nonempty_key_id("deriver A signing key id", &self.deriver_a_signing_key_id)?;
-        require_nonempty_key_id("deriver B signing key id", &self.deriver_b_signing_key_id)?;
+        require_tenant_root_identifier("deriver A signing key id", &self.deriver_a_signing_key_id)?;
+        require_tenant_root_identifier("deriver B signing key id", &self.deriver_b_signing_key_id)?;
         if self.deriver_a_signing_key_id == self.deriver_b_signing_key_id {
             return Err(malformed(
                 "tenant-root Deriver signing key ids must be distinct",
@@ -188,6 +190,11 @@ impl TenantRootCeremonyContextV1 {
         if self.issued_at_ms == 0 || self.expires_at_ms <= self.issued_at_ms {
             return Err(malformed(
                 "tenant-root ceremony expiry must follow a non-zero issue time",
+            ));
+        }
+        if self.expires_at_ms - self.issued_at_ms > TENANT_ROOT_MAX_LIFETIME_MS_V1 {
+            return Err(malformed(
+                "tenant-root ceremony lifetime exceeds the frozen maximum window",
             ));
         }
         match self.epochs {
@@ -227,6 +234,86 @@ impl TenantRootCeremonyContextV1 {
         self.append_transcript_prefix(&mut bytes)?;
         self.append_transcript_suffix(&mut bytes)?;
         Ok(bytes)
+    }
+
+    /// Parses one exact canonical shared ceremony context wire.
+    pub fn decode_canonical_bytes(bytes: &[u8]) -> RouterAbDerivationResult<Self> {
+        if bytes.is_empty() || bytes.len() > TENANT_ROOT_CEREMONY_CONTEXT_MAX_WIRE_BYTES_V1 {
+            return Err(malformed(
+                "tenant-root ceremony context wire length is invalid",
+            ));
+        }
+        let mut decoder = TenantRootWireDecoderV1::new(bytes);
+        let domain = decoder.field("tenant-root ceremony context domain")?;
+        let operation = decoder.field("tenant-root ceremony context operation")?;
+        let identity_digest = TenantRootIdentityDigestV1::from_bytes(
+            decoder.fixed_field::<32>("tenant-root ceremony context identity digest")?,
+        );
+        let custody_lineage = TenantRootCustodyLineageId::from_bytes(
+            decoder.fixed_field::<16>("tenant-root ceremony context custody lineage")?,
+        )?;
+        let epochs = match (domain, operation) {
+            (TENANT_ROOT_CREATE_DOMAIN_V1, b"create") => {
+                if decoder.u64_field("tenant-root ceremony context next epoch")?
+                    != TenantRootShareEpoch::INITIAL.get().get()
+                {
+                    return Err(malformed(
+                        "tenant-root ceremony context creation epoch is invalid",
+                    ));
+                }
+                TenantRootCeremonyEpochsV1::create()
+            }
+            (TENANT_ROOT_REFRESH_DOMAIN_V1, b"refresh") => {
+                let current = TenantRootShareEpoch::new(
+                    decoder.u64_field("tenant-root ceremony context current epoch")?,
+                )?;
+                let next = TenantRootShareEpoch::new(
+                    decoder.u64_field("tenant-root ceremony context next epoch")?,
+                )?;
+                TenantRootCeremonyEpochsV1::refresh(current, next)?
+            }
+            _ => {
+                return Err(malformed(
+                    "tenant-root ceremony context domain or operation is invalid",
+                ));
+            }
+        };
+        let session_id = TenantRootCeremonySessionIdV1::from_bytes(
+            decoder.fixed_field::<TENANT_ROOT_SESSION_ID_LEN>(
+                "tenant-root ceremony context session id",
+            )?,
+        )?;
+        let nonce = TenantRootCeremonyNonceV1::from_bytes(
+            decoder.fixed_field::<TENANT_ROOT_NONCE_LEN>("tenant-root ceremony context nonce")?,
+        )?;
+        let issued_at_ms = decoder.u64_field("tenant-root ceremony context issue time")?;
+        let expires_at_ms = decoder.u64_field("tenant-root ceremony context expiry")?;
+        let deriver_a_signing_key_id = decoder.text_field(
+            "tenant-root ceremony context Deriver A signing key id",
+            TENANT_ROOT_CEREMONY_CONTEXT_MAX_IDENTIFIER_BYTES_V1,
+        )?;
+        let deriver_b_signing_key_id = decoder.text_field(
+            "tenant-root ceremony context Deriver B signing key id",
+            TENANT_ROOT_CEREMONY_CONTEXT_MAX_IDENTIFIER_BYTES_V1,
+        )?;
+        decoder.finish()?;
+        let context = Self::new(
+            identity_digest,
+            custody_lineage,
+            epochs,
+            session_id,
+            nonce,
+            issued_at_ms,
+            expires_at_ms,
+            deriver_a_signing_key_id,
+            deriver_b_signing_key_id,
+        )?;
+        if context.canonical_bytes()? != bytes {
+            return Err(malformed(
+                "tenant-root ceremony context wire is not canonical",
+            ));
+        }
+        Ok(context)
     }
 
     pub(crate) fn append_transcript_prefix(
@@ -288,11 +375,19 @@ impl TenantRootCeremonyContextV1 {
         self.expires_at_ms
     }
 
+    /// Returns the one-use ceremony session identifier.
+    pub const fn session_id(&self) -> TenantRootCeremonySessionIdV1 {
+        self.session_id
+    }
+
+    /// Returns the one-use ceremony replay nonce.
+    pub const fn nonce(&self) -> TenantRootCeremonyNonceV1 {
+        self.nonce
+    }
+
     /// Returns a public digest of the exact ceremony context.
     pub fn digest(&self) -> RouterAbDerivationResult<TenantRootProtocolDigestV1> {
-        Ok(TenantRootProtocolDigestV1(
-            Sha256::digest(self.canonical_bytes()?).into(),
-        ))
+        TenantRootProtocolDigestV1::from_bytes(Sha256::digest(self.canonical_bytes()?).into())
     }
 
     /// Returns the source role's exact signing-key identifier.
@@ -365,9 +460,7 @@ impl TenantRootShareInstallationTranscriptV1 {
 
     /// Returns a public SHA-256 transcript digest.
     pub fn digest(&self) -> RouterAbDerivationResult<TenantRootProtocolDigestV1> {
-        Ok(TenantRootProtocolDigestV1(
-            Sha256::digest(self.canonical_bytes()?).into(),
-        ))
+        TenantRootProtocolDigestV1::from_bytes(Sha256::digest(self.canonical_bytes()?).into())
     }
 }
 
@@ -432,13 +525,14 @@ impl TenantRootShareInstallationEvidenceV1 {
 }
 
 /// Public digest for one exact tenant-root protocol transcript.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct TenantRootProtocolDigestV1([u8; 32]);
 
 impl TenantRootProtocolDigestV1 {
-    /// Parses exact public digest bytes.
-    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(bytes)
+    /// Parses exact public digest bytes and rejects the all-zero digest.
+    pub fn from_bytes(bytes: [u8; 32]) -> RouterAbDerivationResult<Self> {
+        require_nonzero_bytes(&bytes, "tenant-root protocol digest must be non-zero")?;
+        Ok(Self(bytes))
     }
 
     /// Returns the exact digest bytes.
@@ -449,6 +543,16 @@ impl TenantRootProtocolDigestV1 {
     /// Consumes the digest and returns its bytes.
     pub const fn into_bytes(self) -> [u8; 32] {
         self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for TenantRootProtocolDigestV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = <[u8; 32]>::deserialize(deserializer)?;
+        Self::from_bytes(bytes).map_err(D::Error::custom)
     }
 }
 
@@ -541,16 +645,97 @@ fn require_nonzero_bytes(bytes: &[u8], message: &'static str) -> RouterAbDerivat
     }
 }
 
-fn require_nonempty_key_id(field: &'static str, value: &str) -> RouterAbDerivationResult<()> {
-    if value.is_empty() {
-        return Err(RouterAbDerivationError::new(
-            RouterAbDerivationErrorCode::EmptyField,
-            format!("{field} is required"),
-        ));
+pub(crate) struct TenantRootWireDecoderV1<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> TenantRootWireDecoderV1<'a> {
+    pub(crate) const fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
     }
-    u32::try_from(value.len())
-        .map_err(|_| malformed("tenant-root role signing key id is too long"))?;
-    Ok(())
+
+    pub(crate) fn field(&mut self, name: &'static str) -> RouterAbDerivationResult<&'a [u8]> {
+        let length_end = self
+            .offset
+            .checked_add(4)
+            .ok_or_else(|| malformed("tenant-root wire offset overflow"))?;
+        let length_bytes = self
+            .bytes
+            .get(self.offset..length_end)
+            .ok_or_else(|| malformed("tenant-root wire field length is truncated"))?;
+        let length = u32::from_be_bytes(
+            length_bytes
+                .try_into()
+                .expect("fixed four-byte tenant-root wire field length"),
+        ) as usize;
+        let value_end = length_end
+            .checked_add(length)
+            .ok_or_else(|| malformed("tenant-root wire field length overflows"))?;
+        let value = self
+            .bytes
+            .get(length_end..value_end)
+            .ok_or_else(|| malformed("tenant-root wire field is truncated"))?;
+        self.offset = value_end;
+        if value.is_empty() {
+            return Err(RouterAbDerivationError::new(
+                RouterAbDerivationErrorCode::EmptyField,
+                format!("{name} is required"),
+            ));
+        }
+        Ok(value)
+    }
+
+    pub(crate) fn require_field(&mut self, expected: &[u8]) -> RouterAbDerivationResult<()> {
+        if self.field("tenant-root wire domain")? != expected {
+            return Err(malformed("tenant-root wire domain is invalid"));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn fixed_field<const N: usize>(
+        &mut self,
+        name: &'static str,
+    ) -> RouterAbDerivationResult<[u8; N]> {
+        self.field(name)?
+            .try_into()
+            .map_err(|_| malformed("tenant-root wire fixed field length is invalid"))
+    }
+
+    pub(crate) fn u64_field(&mut self, name: &'static str) -> RouterAbDerivationResult<u64> {
+        Ok(u64::from_be_bytes(self.fixed_field::<8>(name)?))
+    }
+
+    pub(crate) fn text_field(
+        &mut self,
+        name: &'static str,
+        max_bytes: usize,
+    ) -> RouterAbDerivationResult<String> {
+        let bytes = self.field(name)?;
+        if bytes.len() > max_bytes {
+            return Err(malformed("tenant-root wire text field is too long"));
+        }
+        core::str::from_utf8(bytes)
+            .map(str::to_owned)
+            .map_err(|_| malformed("tenant-root wire text field is invalid UTF-8"))
+    }
+
+    pub(crate) fn role(&mut self) -> RouterAbDerivationResult<TwoPartyDeriverRole> {
+        let label = self.field("tenant-root wire role")?;
+        let share_id = self.fixed_field::<2>("tenant-root wire role share id")?;
+        match (label, u16::from_be_bytes(share_id)) {
+            (b"deriver_a", 1) => Ok(TwoPartyDeriverRole::DeriverA),
+            (b"deriver_b", 2) => Ok(TwoPartyDeriverRole::DeriverB),
+            _ => Err(malformed("tenant-root wire role encoding is invalid")),
+        }
+    }
+
+    pub(crate) fn finish(self) -> RouterAbDerivationResult<()> {
+        if self.offset != self.bytes.len() {
+            return Err(malformed("tenant-root wire has trailing bytes"));
+        }
+        Ok(())
+    }
 }
 
 fn push_len32(out: &mut Vec<u8>, value: &[u8]) -> RouterAbDerivationResult<()> {

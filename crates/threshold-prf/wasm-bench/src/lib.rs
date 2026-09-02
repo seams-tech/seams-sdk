@@ -416,9 +416,10 @@ fn ed25519_role_target_outputs(
         R120_STABLE_CONTEXT,
         &mut seeded_rng(seed.wrapping_add(1)),
     )?;
-    let output_a = complete_ed25519_deriver_a_target_v1(prepared_a, &b_to_a)?;
-    let output_b = complete_ed25519_deriver_b_target_v1(prepared_b, &a_to_b)?;
-    Ok((output_a.into_secret_bytes(), output_b.into_secret_bytes()))
+    Ok((
+        *complete_ed25519_deriver_a_target_v1(prepared_a, &b_to_a)?.into_secret_bytes(),
+        *complete_ed25519_deriver_b_target_v1(prepared_b, &a_to_b)?.into_secret_bytes(),
+    ))
 }
 
 fn run_r120_ed25519_role_target_vector() -> Result<(), ThresholdPrfError> {

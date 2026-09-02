@@ -191,9 +191,7 @@ impl TenantRootRecoveryReshareContextV1 {
 
     /// Returns the SHA-256 digest of the exact public context.
     pub fn digest(&self) -> RouterAbDerivationResult<TenantRootProtocolDigestV1> {
-        Ok(TenantRootProtocolDigestV1::from_bytes(
-            Sha256::digest(self.canonical_bytes()?).into(),
-        ))
+        TenantRootProtocolDigestV1::from_bytes(Sha256::digest(self.canonical_bytes()?).into())
     }
 
     /// Returns the server-resolved tenant-root identity.

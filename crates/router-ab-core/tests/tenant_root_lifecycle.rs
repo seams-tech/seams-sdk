@@ -5,14 +5,19 @@ use rand_core::SeedableRng;
 use router_ab_core::{
     combine_mpc_prf_stable_proof_bundles_with_threshold_backend_v2,
     evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2,
-    plan_mpc_prf_stable_purpose_binding_v2,
-    verify_mpc_prf_stable_partial_with_threshold_backend_v2, ActiveTenantRootEpochV1,
-    MpcPrfSigningRootShareWireV1, MpcPrfStableThresholdCombineInputV2,
+    plan_mpc_prf_stable_purpose_binding_v2, resolve_active_tenant_root_pair_binding_v1,
+    resolve_authoritative_active_tenant_root_pair_binding_v1,
+    verify_mpc_prf_stable_partial_with_threshold_backend_v2, MpcPrfSigningRootShareWireV1,
+    MpcPrfStablePurposeBindingPlanV2, MpcPrfStableThresholdCombineInputV2,
     MpcPrfStableThresholdSignerInputV2, Role, StableTenantDerivationContextV2,
-    TenantRootAcceptedLossReceiptV1, TenantRootActivationReceiptV1, TenantRootBackupPolicyV1,
-    TenantRootCanaryReceiptsV1, TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1,
-    TenantRootCeremonyNonceV1, TenantRootCeremonySessionIdV1,
-    TenantRootCleanupIncompleteCreationV1, TenantRootCreationFailureV1,
+    TenantRootAcceptedLossReceiptV1, TenantRootAcceptedPermanentLossAuthorizationBindingV1,
+    TenantRootActivationReceiptTransitionV1, TenantRootActivePairMismatchV1,
+    TenantRootActivePairResolutionV1, TenantRootActiveRoleBindingV1,
+    TenantRootActiveRoleResolutionV1, TenantRootActiveRoleRowKeyV1, TenantRootActiveRootPairV1,
+    TenantRootBackupPolicyV1, TenantRootCanaryCurveFamilyV1, TenantRootCanaryReceiptsV1,
+    TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1,
+    TenantRootCeremonySessionIdV1, TenantRootCleanupIncompleteCreationV1,
+    TenantRootControlPlaneAuthorityIdV1, TenantRootCreationFailureV1,
     TenantRootCreationRecoveryActionV1, TenantRootCreationStateV1, TenantRootCustodyBindingV1,
     TenantRootCustodyLineageId, TenantRootDeletedReceiptV1, TenantRootDeletionActiveV1,
     TenantRootDeletionAuthorizationV1, TenantRootDeletionDrainReceiptV1,
@@ -21,28 +26,35 @@ use router_ab_core::{
     TenantRootDerivationSessionIdV1, TenantRootDeriverIdentitiesV1, TenantRootDestructionCommandV1,
     TenantRootDestructionFailureV1, TenantRootDestructionProfileV1,
     TenantRootDestructionProgressReceiptV1, TenantRootEmptyCreationV1,
-    TenantRootFailedBeforeActivationCreationV1, TenantRootIdentityV1,
-    TenantRootLifecycleReceiptDigestV1, TenantRootManagedRestoreAvailableV1,
-    TenantRootManagedRestoreCapabilityV1, TenantRootManagedRestoreCleanupFailureV1,
-    TenantRootManagedRestoreCleanupReceiptV1, TenantRootManagedRestoreFailureV1,
-    TenantRootManagedRestoreInstallationReceiptV1, TenantRootManagedRestoreInstallingV1,
-    TenantRootManagedRestorePeerVerificationReceiptV1, TenantRootManagedRestoreRoleV1,
-    TenantRootManagedRestoreStateV1, TenantRootManagedRoleDestructionReceiptV1,
-    TenantRootManagedRoleDestructionReceiptsV1, TenantRootOperationalErasureClaimV1,
-    TenantRootOperationalRoleRemovalReceiptV1, TenantRootOperationalRoleRemovalReceiptsV1,
-    TenantRootPendingCleanupFailureV1, TenantRootPendingCleanupReceiptV1,
-    TenantRootProtocolDigestV1, TenantRootRefreshFailureV1, TenantRootRefreshRecoveryActionV1,
-    TenantRootRefreshStateV1, TenantRootRoleBackupReceiptsV1, TenantRootRoleInstallationReceiptsV1,
-    TenantRootRoleRetirementReceiptsV1, TenantRootRoleUnavailableReceiptV1,
-    TenantRootServiceCleanupReceiptV1, TenantRootShareEpoch, TenantRootShareInstallationEvidenceV1,
-    TenantRootShareInstallationTranscriptV1, TenantRootSignedShareInstallationEvidenceV1,
-    VerifiedTenantRootShareInstallationEvidenceV1,
+    TenantRootEpochCommitmentsV1, TenantRootFailedBeforeActivationCreationV1,
+    TenantRootIdentityDigestV1, TenantRootIdentityV1, TenantRootLifecycleReceiptDigestV1,
+    TenantRootManagedRestoreAvailableV1, TenantRootManagedRestoreCapabilityV1,
+    TenantRootManagedRestoreCleanupFailureV1, TenantRootManagedRestoreCleanupReceiptV1,
+    TenantRootManagedRestoreFailureV1, TenantRootManagedRestoreInstallationReceiptV1,
+    TenantRootManagedRestoreInstallingV1, TenantRootManagedRestorePeerVerificationReceiptV1,
+    TenantRootManagedRestoreRoleV1, TenantRootManagedRestoreStateV1,
+    TenantRootManagedRoleDestructionReceiptV1, TenantRootManagedRoleDestructionReceiptsV1,
+    TenantRootOperationalErasureClaimV1, TenantRootOperationalRoleRemovalReceiptV1,
+    TenantRootOperationalRoleRemovalReceiptsV1, TenantRootPendingCleanupFailureV1,
+    TenantRootPendingCleanupReceiptV1, TenantRootProtocolDigestV1,
+    TenantRootProviderCanaryReceiptBindingV1, TenantRootRefreshFailureV1,
+    TenantRootRefreshRecoveryActionV1, TenantRootRefreshStateV1, TenantRootRoleBackupReceiptsV1,
+    TenantRootRoleInstallationReceiptsV1, TenantRootRoleRetirementReceiptsV1,
+    TenantRootRoleUnavailableReceiptV1, TenantRootServiceCleanupReceiptV1, TenantRootShareEpoch,
+    TenantRootShareInstallationEvidenceV1, TenantRootShareInstallationTranscriptV1,
+    TenantRootSignedAcceptedPermanentLossAuthorizationV1, TenantRootSignedProviderCanaryReceiptV1,
+    TenantRootSignedShareInstallationEvidenceV1,
+    VerifiedTenantRootInitialCreationActivationEvidenceBundleV1,
+    VerifiedTenantRootProviderCanaryReceiptV1, VerifiedTenantRootShareInstallationEvidenceV1,
+    VerifiedTenantRootSignedShareInstallationEvidenceWireV1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
 };
 use threshold_prf::{
     apply_two_party_root_share_refresh, prove_root_share_knowledge, PrfPurpose,
     RootShareRefreshCoefficient, SigningRootShare, SigningRootShareCommitment,
     SigningRootShareWire, TwoPartyDeriverRole, TwoPartyRootShareCommitments,
 };
+
+mod support;
 
 const ISSUED_AT_MS: u64 = 1_000_000;
 const EXPIRES_AT_MS: u64 = 1_030_000;
@@ -283,6 +295,18 @@ fn authenticated_evidence(
     peer: &SigningRootShare,
     proof_seed: u8,
 ) -> VerifiedTenantRootShareInstallationEvidenceV1 {
+    authenticated_installation_wire(context, role, share, peer, proof_seed)
+        .evidence()
+        .clone()
+}
+
+fn authenticated_installation_wire(
+    context: TenantRootCeremonyContextV1,
+    role: TwoPartyDeriverRole,
+    share: &SigningRootShare,
+    peer: &SigningRootShare,
+    proof_seed: u8,
+) -> VerifiedTenantRootSignedShareInstallationEvidenceWireV1 {
     let transcript = TenantRootShareInstallationTranscriptV1::new(
         context,
         role,
@@ -298,10 +322,15 @@ fn authenticated_evidence(
     .unwrap();
     let evidence = TenantRootShareInstallationEvidenceV1::new(transcript, proof).unwrap();
     let key = signing_key(role);
-    TenantRootSignedShareInstallationEvidenceV1::sign(evidence, &key.to_bytes())
+    let signed = TenantRootSignedShareInstallationEvidenceV1::sign(evidence, &key.to_bytes())
         .unwrap()
-        .verify(key.verifying_key().as_bytes())
-        .unwrap()
+        .canonical_bytes()
+        .unwrap();
+    TenantRootSignedShareInstallationEvidenceV1::decode_and_verify_canonical_bytes(
+        &signed,
+        key.verifying_key().as_bytes(),
+    )
+    .unwrap()
 }
 
 fn evidence_pair(
@@ -371,38 +400,55 @@ fn active_refresh_state(
     SigningRootShare,
     SigningRootShare,
 ) {
-    active_refresh_state_with_policy(lineage, managed_backups())
-}
-
-fn active_refresh_state_with_policy(
-    lineage: TenantRootCustodyLineageId,
-    backup_policy: TenantRootBackupPolicyV1,
-) -> (
-    router_ab_core::TenantRootActiveRefreshV1,
-    SigningRootShare,
-    SigningRootShare,
-) {
     let creation_context = context(lineage, 0x71);
+    let (verified, bundle) =
+        verified_creation_with_managed_bundle(lineage, creation_context, 21, 22);
+    let activation = support::initial_activation_receipt(&bundle, 1_020_000);
+    let active = verified.activate(activation).unwrap().into_refresh_state();
     let share_a = fixed_share(TwoPartyDeriverRole::DeriverA, 12);
     let share_b = fixed_share(TwoPartyDeriverRole::DeriverB, 19);
-    let (evidence_a, evidence_b, _) =
-        evidence_pair_for_shares(&creation_context, &share_a, &share_b, 21, 22);
-    let active = TenantRootEmptyCreationV1::new(identity(), lineage)
+    (active, share_a, share_b)
+}
+
+fn verified_creation_with_managed_bundle(
+    lineage: TenantRootCustodyLineageId,
+    creation_context: TenantRootCeremonyContextV1,
+    proof_seed_a: u8,
+    proof_seed_b: u8,
+) -> (
+    router_ab_core::TenantRootVerifiedCreationV1,
+    VerifiedTenantRootInitialCreationActivationEvidenceBundleV1,
+) {
+    let share_a = fixed_share(TwoPartyDeriverRole::DeriverA, 12);
+    let share_b = fixed_share(TwoPartyDeriverRole::DeriverB, 19);
+    let fixture = support::initial_activation_evidence_fixture(
+        creation_context.clone(),
+        &share_a,
+        &share_b,
+        proof_seed_a,
+        proof_seed_b,
+    );
+    let support::InitialActivationEvidenceFixture {
+        bundle,
+        evidence_a,
+        evidence_b,
+        installation_receipts,
+        backup_policy,
+        canary_receipts,
+    } = fixture;
+    let verified = TenantRootEmptyCreationV1::new(identity(), lineage)
         .start(&creation_context)
         .unwrap()
         .verify(
             &evidence_a,
             &evidence_b,
-            installation_receipts(),
+            installation_receipts,
             backup_policy,
-            canaries(),
+            canary_receipts,
             1_010_000,
         )
-        .unwrap()
-        .activate(TenantRootActivationReceiptV1::new(digest(30), 1_020_000).unwrap())
-        .unwrap()
-        .into_refresh_state();
-    (active, share_a, share_b)
+        .unwrap();
+    (verified, bundle)
 }
 
 fn advance_active_refresh(
@@ -439,21 +485,38 @@ fn advance_active_refresh(
         &coefficient_a,
         &coefficient_b,
     );
-    let (evidence_a, evidence_b, _) =
-        evidence_pair_for_shares(&refresh_context, &next_a, &next_b, 73, 74);
-    let active = active
+    let fixture = support::refresh_activation_evidence_fixture(
+        refresh_context.clone(),
+        active.current().verified().commitments(),
+        &next_a,
+        &next_b,
+        73,
+        74,
+        5,
+    );
+    let support::RefreshActivationEvidenceFixture {
+        bundle,
+        evidence_a,
+        evidence_b,
+        installation_receipts,
+        backup_policy,
+        canary_receipts,
+    } = fixture;
+    let verified = active
         .start(&refresh_context)
         .unwrap()
         .verify(
             &evidence_a,
             &evidence_b,
-            installation_receipts(),
-            managed_backups(),
-            canaries(),
+            installation_receipts,
+            backup_policy,
+            canary_receipts,
             1_010_000,
         )
-        .unwrap()
-        .activate(TenantRootActivationReceiptV1::new(digest(75), 1_020_000).unwrap())
+        .unwrap();
+    let activation = support::refresh_activation_receipt(&bundle, 1_020_000);
+    let active = verified
+        .activate(activation)
         .unwrap()
         .finish_retirement(
             TenantRootRoleRetirementReceiptsV1::new(digest(76), digest(77), 1_021_000).unwrap(),
@@ -465,7 +528,7 @@ fn advance_active_refresh(
 fn stable_context_digest(
     stable_context: &StableTenantDerivationContextV2,
 ) -> TenantRootProtocolDigestV1 {
-    stable_context.digest()
+    stable_context.digest().expect("stable context digest")
 }
 
 fn custody_binding(
@@ -481,13 +544,299 @@ fn custody_binding(
         ISSUED_AT_MS,
         EXPIRES_AT_MS,
         stable_context,
-        TenantRootProtocolDigestV1::from_bytes([0x84; 32]),
+        TenantRootProtocolDigestV1::from_bytes([0x84; 32]).expect("non-zero protocol digest"),
     )
     .unwrap()
 }
 
+fn active_role_binding(
+    active: &router_ab_core::TenantRootActiveRefreshV1,
+    role: TenantRootManagedRestoreRoleV1,
+    activation_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+) -> TenantRootActiveRoleBindingV1 {
+    let share_commitment = match role {
+        TenantRootManagedRestoreRoleV1::DeriverA => active
+            .current()
+            .verified()
+            .commitments()
+            .deriver_a()
+            .clone(),
+        TenantRootManagedRestoreRoleV1::DeriverB => active
+            .current()
+            .verified()
+            .commitments()
+            .deriver_b()
+            .clone(),
+    };
+    TenantRootActiveRoleBindingV1::new(
+        TenantRootActiveRoleRowKeyV1::new(
+            active.identity().digest().unwrap(),
+            active.custody_lineage(),
+            active.current().epoch(),
+            role,
+        ),
+        share_commitment,
+        activation_receipt_digest,
+    )
+    .unwrap()
+}
+
+fn active_role_resolution(
+    active: &router_ab_core::TenantRootActiveRefreshV1,
+    role: TenantRootManagedRestoreRoleV1,
+    activation_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+) -> TenantRootActiveRoleResolutionV1 {
+    TenantRootActiveRoleResolutionV1::Active(active_role_binding(
+        active,
+        role,
+        activation_receipt_digest,
+    ))
+}
+
+fn active_pair(
+    active: &router_ab_core::TenantRootActiveRefreshV1,
+    custody_binding: &TenantRootCustodyBindingV1,
+) -> TenantRootActiveRootPairV1 {
+    let activation_receipt_digest = custody_binding.activation_receipt_digest();
+    resolve_authoritative_active_tenant_root_pair_binding_v1(
+        active.identity().digest().unwrap(),
+        custody_binding,
+        &active_role_resolution(
+            active,
+            TenantRootManagedRestoreRoleV1::DeriverA,
+            activation_receipt_digest,
+        ),
+        &active_role_resolution(
+            active,
+            TenantRootManagedRestoreRoleV1::DeriverB,
+            activation_receipt_digest,
+        ),
+    )
+    .unwrap()
+    .require_active()
+    .unwrap()
+    .clone()
+}
+
+fn stable_signer_input(
+    purpose_plan: MpcPrfStablePurposeBindingPlanV2,
+    custody_binding: &TenantRootCustodyBindingV1,
+    active_pair: &TenantRootActiveRootPairV1,
+    signer_role: Role,
+    share: &SigningRootShare,
+    now_ms: u64,
+) -> MpcPrfStableThresholdSignerInputV2 {
+    MpcPrfStableThresholdSignerInputV2::new(
+        purpose_plan,
+        custody_binding,
+        active_pair,
+        signer_role,
+        backend_share_wire(share),
+        now_ms,
+    )
+    .expect("stable signer input")
+}
+
 fn digest(seed: u8) -> TenantRootLifecycleReceiptDigestV1 {
     TenantRootLifecycleReceiptDigestV1::from_bytes([seed; 32]).unwrap()
+}
+
+fn accepted_loss_authorization(
+    identity: &TenantRootIdentityV1,
+    custody_lineage: TenantRootCustodyLineageId,
+    context_digest: TenantRootProtocolDigestV1,
+    commitments: TenantRootEpochCommitmentsV1,
+    installation_receipts: TenantRootRoleInstallationReceiptsV1,
+) -> router_ab_core::VerifiedTenantRootAcceptedPermanentLossAuthorizationV1 {
+    let binding = TenantRootAcceptedPermanentLossAuthorizationBindingV1::new(
+        identity.digest().unwrap(),
+        custody_lineage,
+        TenantRootActivationReceiptTransitionV1::InitialCreation,
+        TenantRootShareEpoch::INITIAL,
+        context_digest,
+        commitments,
+        installation_receipts,
+        2,
+        3,
+        "policy-accept-loss-001",
+        "incident-2026-0001",
+        "both managed backups are unavailable",
+        ISSUED_AT_MS,
+        EXPIRES_AT_MS,
+        TenantRootControlPlaneAuthorityIdV1::from_bytes([0x71; 32]),
+        "operator-a-v1",
+        TenantRootControlPlaneAuthorityIdV1::from_bytes([0x72; 32]),
+        "operator-b-v1",
+    )
+    .unwrap();
+    let first_key = SigningKey::from_bytes(&[0x61; 32]);
+    let second_key = SigningKey::from_bytes(&[0x62; 32]);
+    let signed = TenantRootSignedAcceptedPermanentLossAuthorizationV1::sign(
+        binding.clone(),
+        &first_key.to_bytes(),
+        &second_key.to_bytes(),
+    )
+    .unwrap();
+    signed
+        .verify(
+            &binding,
+            first_key.verifying_key().as_bytes(),
+            second_key.verifying_key().as_bytes(),
+        )
+        .unwrap()
+}
+
+fn accepted_loss_policy(
+    identity: &TenantRootIdentityV1,
+    custody_lineage: TenantRootCustodyLineageId,
+    context_digest: TenantRootProtocolDigestV1,
+    commitments: TenantRootEpochCommitmentsV1,
+    installation_receipts: TenantRootRoleInstallationReceiptsV1,
+) -> TenantRootBackupPolicyV1 {
+    TenantRootBackupPolicyV1::AcceptedPermanentDerivationLoss(
+        TenantRootAcceptedLossReceiptV1::from_verified(accepted_loss_authorization(
+            identity,
+            custody_lineage,
+            context_digest,
+            commitments,
+            installation_receipts,
+        )),
+    )
+}
+
+struct AcceptedInitialActivationFixture {
+    bundle: VerifiedTenantRootInitialCreationActivationEvidenceBundleV1,
+    evidence_a: VerifiedTenantRootShareInstallationEvidenceV1,
+    evidence_b: VerifiedTenantRootShareInstallationEvidenceV1,
+    installation_receipts: TenantRootRoleInstallationReceiptsV1,
+    backup_policy: TenantRootBackupPolicyV1,
+    canary_receipts: TenantRootCanaryReceiptsV1,
+}
+
+fn accepted_initial_activation_fixture(
+    context: TenantRootCeremonyContextV1,
+    proof_seed_a: u8,
+    proof_seed_b: u8,
+) -> AcceptedInitialActivationFixture {
+    let share_a = fixed_share(TwoPartyDeriverRole::DeriverA, 12);
+    let share_b = fixed_share(TwoPartyDeriverRole::DeriverB, 19);
+    let installation_a = authenticated_installation_wire(
+        context.clone(),
+        TwoPartyDeriverRole::DeriverA,
+        &share_a,
+        &share_b,
+        proof_seed_a,
+    );
+    let installation_b = authenticated_installation_wire(
+        context.clone(),
+        TwoPartyDeriverRole::DeriverB,
+        &share_b,
+        &share_a,
+        proof_seed_b,
+    );
+    let evidence_a = installation_a.evidence().clone();
+    let evidence_b = installation_b.evidence().clone();
+    let commitments = TenantRootEpochCommitmentsV1::from_verified(
+        TwoPartyRootShareCommitments::from_shares(&share_a, &share_b).unwrap(),
+    )
+    .unwrap();
+    let installation_receipts = TenantRootRoleInstallationReceiptsV1::new(
+        installation_a.lifecycle_receipt_digest().unwrap(),
+        installation_b.lifecycle_receipt_digest().unwrap(),
+    )
+    .unwrap();
+    let ecdsa_canary =
+        activation_canary(&context, &commitments, TenantRootCanaryCurveFamilyV1::Ecdsa);
+    let ed25519_canary = activation_canary(
+        &context,
+        &commitments,
+        TenantRootCanaryCurveFamilyV1::Ed25519,
+    );
+    let canary_receipts = TenantRootCanaryReceiptsV1::new(
+        TenantRootLifecycleReceiptDigestV1::from_bytes(*ecdsa_canary.digest().as_bytes()).unwrap(),
+        TenantRootLifecycleReceiptDigestV1::from_bytes(*ed25519_canary.digest().as_bytes())
+            .unwrap(),
+    )
+    .unwrap();
+    let backup_policy = accepted_loss_policy(
+        &identity(),
+        context.custody_lineage(),
+        context.digest().unwrap(),
+        commitments.clone(),
+        installation_receipts.clone(),
+    );
+    let authorization = accepted_loss_authorization(
+        &identity(),
+        context.custody_lineage(),
+        context.digest().unwrap(),
+        commitments,
+        installation_receipts.clone(),
+    );
+    let bundle =
+        VerifiedTenantRootInitialCreationActivationEvidenceBundleV1::from_verified_accepted_loss(
+            installation_a,
+            installation_b,
+            authorization,
+            ecdsa_canary,
+            ed25519_canary,
+            2,
+            3,
+        )
+        .unwrap();
+    AcceptedInitialActivationFixture {
+        bundle,
+        evidence_a,
+        evidence_b,
+        installation_receipts,
+        backup_policy,
+        canary_receipts,
+    }
+}
+
+fn activation_canary(
+    context: &TenantRootCeremonyContextV1,
+    commitments: &TenantRootEpochCommitmentsV1,
+    family: TenantRootCanaryCurveFamilyV1,
+) -> VerifiedTenantRootProviderCanaryReceiptV1 {
+    let (transition, target_epoch) = match context.epochs() {
+        TenantRootCeremonyEpochsV1::Create { next } => (
+            TenantRootActivationReceiptTransitionV1::InitialCreation,
+            next,
+        ),
+        TenantRootCeremonyEpochsV1::Refresh { next, .. } => {
+            (TenantRootActivationReceiptTransitionV1::RefreshSwap, next)
+        }
+    };
+    let provider_key_version_ref = match family {
+        TenantRootCanaryCurveFamilyV1::Ecdsa => "kms/tenant-root/ecdsa-canary-v1",
+        TenantRootCanaryCurveFamilyV1::Ed25519 => "kms/tenant-root/ed25519-canary-v1",
+    };
+    let binding = TenantRootProviderCanaryReceiptBindingV1::new(
+        context.identity_digest(),
+        context.custody_lineage(),
+        transition,
+        target_epoch,
+        commitments.clone(),
+        family,
+        provider_key_version_ref,
+        context.issued_at_ms(),
+        TenantRootControlPlaneAuthorityIdV1::from_bytes([0x72; 32]),
+        "control-plane-canary-v1",
+        context.issued_at_ms(),
+        context.expires_at_ms(),
+    )
+    .unwrap();
+    let signing_key = [0x71; 32];
+    let signed =
+        TenantRootSignedProviderCanaryReceiptV1::sign(binding.clone(), &signing_key).unwrap();
+    signed
+        .verify(
+            &binding,
+            SigningKey::from_bytes(&signing_key)
+                .verifying_key()
+                .as_bytes(),
+        )
+        .unwrap()
 }
 
 fn installation_receipts() -> TenantRootRoleInstallationReceiptsV1 {
@@ -510,19 +859,51 @@ fn assert_state_kind(state: impl Into<TenantRootCreationStateV1>, expected: &str
     assert_eq!(json["kind"], expected);
 }
 
+fn assert_creation_recovery_metadata(
+    plan: &router_ab_core::TenantRootCreationRecoveryPlanV1,
+    custody_lineage: TenantRootCustodyLineageId,
+    revision: u64,
+) {
+    assert_eq!(plan.identity_digest(), identity().digest().unwrap());
+    assert_eq!(plan.custody_lineage(), custody_lineage);
+    assert_eq!(plan.revision(), revision);
+}
+
+fn assert_refresh_recovery_metadata(
+    plan: &router_ab_core::TenantRootRefreshRecoveryPlanV1,
+    custody_lineage: TenantRootCustodyLineageId,
+    revision: u64,
+) {
+    assert_eq!(plan.identity_digest(), identity().digest().unwrap());
+    assert_eq!(plan.custody_lineage(), custody_lineage);
+    assert_eq!(plan.revision(), revision);
+}
+
 #[test]
 fn creation_restart_projects_one_forward_recovery_action_from_every_state() {
     let custody_lineage = lineage(0x30);
     let creation_context = context(custody_lineage, 0x20);
     let ceremony_digest = creation_context.digest().unwrap();
-    let (evidence_a, evidence_b, _) = evidence_pair(&creation_context);
+    let fixture = support::initial_activation_evidence_fixture(
+        creation_context.clone(),
+        &fixed_share(TwoPartyDeriverRole::DeriverA, 12),
+        &fixed_share(TwoPartyDeriverRole::DeriverB, 19),
+        1,
+        2,
+    );
+    let support::InitialActivationEvidenceFixture {
+        bundle,
+        evidence_a,
+        evidence_b,
+        installation_receipts,
+        backup_policy,
+        canary_receipts,
+    } = fixture;
     let empty = TenantRootEmptyCreationV1::new(identity(), custody_lineage);
     let empty_plan = TenantRootCreationStateV1::from(empty.clone())
         .recovery_plan()
         .unwrap();
-    assert_eq!(empty_plan.identity_digest(), identity().digest().unwrap());
-    assert_eq!(empty_plan.custody_lineage(), custody_lineage);
-    assert_eq!(empty_plan.revision(), 0);
+    assert_creation_recovery_metadata(&empty_plan, custody_lineage, 0);
     assert_eq!(
         empty_plan.action(),
         TenantRootCreationRecoveryActionV1::StartFreshCeremony
@@ -532,6 +913,7 @@ fn creation_restart_projects_one_forward_recovery_action_from_every_state() {
     let preparing_plan = TenantRootCreationStateV1::from(preparing.clone())
         .recovery_plan()
         .unwrap();
+    assert_creation_recovery_metadata(&preparing_plan, custody_lineage, 1);
     assert_eq!(
         preparing_plan.action(),
         TenantRootCreationRecoveryActionV1::AbortPendingEpoch {
@@ -545,32 +927,33 @@ fn creation_restart_projects_one_forward_recovery_action_from_every_state() {
         .verify(
             &evidence_a,
             &evidence_b,
-            installation_receipts(),
-            managed_backups(),
-            canaries(),
+            installation_receipts,
+            backup_policy,
+            canary_receipts,
             1_010_000,
         )
         .unwrap();
+    let verified_plan = TenantRootCreationStateV1::from(verified.clone())
+        .recovery_plan()
+        .unwrap();
+    assert_creation_recovery_metadata(&verified_plan, custody_lineage, 2);
     assert_eq!(
-        TenantRootCreationStateV1::from(verified.clone())
-            .recovery_plan()
-            .unwrap()
-            .action(),
+        verified_plan.action(),
         TenantRootCreationRecoveryActionV1::AbortPendingEpoch {
             pending_epoch: TenantRootShareEpoch::INITIAL,
             ceremony_digest,
         }
     );
 
-    let activation_digest = digest(0x29);
-    let active = verified
-        .activate(TenantRootActivationReceiptV1::new(activation_digest, 1_020_000).unwrap())
+    let activation = support::initial_activation_receipt(&bundle, 1_020_000);
+    let activation_digest = activation.digest();
+    let active = verified.clone().activate(activation).unwrap();
+    let active_plan = TenantRootCreationStateV1::from(active)
+        .recovery_plan()
         .unwrap();
+    assert_creation_recovery_metadata(&active_plan, custody_lineage, 3);
     assert_eq!(
-        TenantRootCreationStateV1::from(active)
-            .recovery_plan()
-            .unwrap()
-            .action(),
+        active_plan.action(),
         TenantRootCreationRecoveryActionV1::KeepActive {
             active_epoch: TenantRootShareEpoch::INITIAL,
             activation_receipt_digest: activation_digest,
@@ -584,11 +967,12 @@ fn creation_restart_projects_one_forward_recovery_action_from_every_state() {
             TenantRootPendingCleanupReceiptV1::new(digest(0x2b), digest(0x2c), 1_006_000).unwrap(),
         )
         .unwrap();
+    let failed_plan = TenantRootCreationStateV1::from(failed.clone())
+        .recovery_plan()
+        .unwrap();
+    assert_creation_recovery_metadata(&failed_plan, custody_lineage, 2);
     assert_eq!(
-        TenantRootCreationStateV1::from(failed)
-            .recovery_plan()
-            .unwrap()
-            .action(),
+        failed_plan.action(),
         TenantRootCreationRecoveryActionV1::StartFreshCeremonyAfterCleanup {
             failed_epoch: TenantRootShareEpoch::INITIAL,
             failed_ceremony_digest: ceremony_digest,
@@ -596,6 +980,7 @@ fn creation_restart_projects_one_forward_recovery_action_from_every_state() {
     );
 
     let cleanup_incomplete = preparing
+        .clone()
         .fail_with_incomplete_cleanup(
             TenantRootCreationFailureV1::new(digest(0x2d), 1_005_000).unwrap(),
             TenantRootPendingCleanupFailureV1::deriver_b_incomplete(
@@ -606,11 +991,63 @@ fn creation_restart_projects_one_forward_recovery_action_from_every_state() {
             .unwrap(),
         )
         .unwrap();
+    let cleanup_incomplete_plan = TenantRootCreationStateV1::from(cleanup_incomplete.clone())
+        .recovery_plan()
+        .unwrap();
+    assert_creation_recovery_metadata(&cleanup_incomplete_plan, custody_lineage, 2);
     assert_eq!(
-        TenantRootCreationStateV1::from(cleanup_incomplete)
+        cleanup_incomplete_plan.action(),
+        TenantRootCreationRecoveryActionV1::ResumePendingCleanup {
+            pending_epoch: TenantRootShareEpoch::INITIAL,
+            ceremony_digest,
+        }
+    );
+
+    let failed_after_verification = verified
+        .clone()
+        .fail_with_cleanup(
+            TenantRootCreationFailureV1::new(digest(0x30), 1_015_000).unwrap(),
+            TenantRootPendingCleanupReceiptV1::new(digest(0x31), digest(0x32), 1_016_000).unwrap(),
+        )
+        .unwrap();
+    let failed_after_verification_plan =
+        TenantRootCreationStateV1::from(failed_after_verification.clone())
             .recovery_plan()
-            .unwrap()
-            .action(),
+            .unwrap();
+    assert_creation_recovery_metadata(&failed_after_verification_plan, custody_lineage, 3);
+    assert_eq!(
+        failed_after_verification_plan.action(),
+        TenantRootCreationRecoveryActionV1::StartFreshCeremonyAfterCleanup {
+            failed_epoch: TenantRootShareEpoch::INITIAL,
+            failed_ceremony_digest: ceremony_digest,
+        }
+    );
+    assert!(failed_after_verification
+        .retry(&context(lineage(0x31), 0x21))
+        .is_err());
+
+    let cleanup_incomplete_after_verification = verified
+        .fail_with_incomplete_cleanup(
+            TenantRootCreationFailureV1::new(digest(0x33), 1_015_000).unwrap(),
+            TenantRootPendingCleanupFailureV1::deriver_a_incomplete(
+                digest(0x34),
+                digest(0x35),
+                1_016_000,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let cleanup_incomplete_after_verification_plan =
+        TenantRootCreationStateV1::from(cleanup_incomplete_after_verification)
+            .recovery_plan()
+            .unwrap();
+    assert_creation_recovery_metadata(
+        &cleanup_incomplete_after_verification_plan,
+        custody_lineage,
+        3,
+    );
+    assert_eq!(
+        cleanup_incomplete_after_verification_plan.action(),
         TenantRootCreationRecoveryActionV1::ResumePendingCleanup {
             pending_epoch: TenantRootShareEpoch::INITIAL,
             ceremony_digest,
@@ -623,11 +1060,12 @@ fn refresh_restart_projects_abort_or_forward_recovery_from_every_state() {
     let custody_lineage = lineage(0x40);
     let (active, current_a, current_b) = active_refresh_state(custody_lineage);
     let active_epoch = TenantRootShareEpoch::INITIAL;
+    let active_plan = TenantRootRefreshStateV1::from(active.clone())
+        .recovery_plan()
+        .unwrap();
+    assert_refresh_recovery_metadata(&active_plan, custody_lineage, 3);
     assert_eq!(
-        TenantRootRefreshStateV1::from(active.clone())
-            .recovery_plan()
-            .unwrap()
-            .action(),
+        active_plan.action(),
         TenantRootRefreshRecoveryActionV1::KeepActive { active_epoch }
     );
 
@@ -650,14 +1088,30 @@ fn refresh_restart_projects_abort_or_forward_recovery_from_every_state() {
         &coefficient_a,
         &coefficient_b,
     );
-    let (evidence_a, evidence_b, _) =
-        evidence_pair_for_shares(&ceremony, &next_a, &next_b, 0x33, 0x34);
+    let fixture = support::refresh_activation_evidence_fixture(
+        ceremony.clone(),
+        active.current().verified().commitments(),
+        &next_a,
+        &next_b,
+        0x33,
+        0x34,
+        5,
+    );
+    let support::RefreshActivationEvidenceFixture {
+        bundle,
+        evidence_a,
+        evidence_b,
+        installation_receipts,
+        backup_policy,
+        canary_receipts,
+    } = fixture;
     let preparing = active.start(&ceremony).unwrap();
+    let preparing_plan = TenantRootRefreshStateV1::from(preparing.clone())
+        .recovery_plan()
+        .unwrap();
+    assert_refresh_recovery_metadata(&preparing_plan, custody_lineage, 4);
     assert_eq!(
-        TenantRootRefreshStateV1::from(preparing.clone())
-            .recovery_plan()
-            .unwrap()
-            .action(),
+        preparing_plan.action(),
         TenantRootRefreshRecoveryActionV1::AbortPendingEpoch {
             active_epoch,
             pending_epoch,
@@ -670,17 +1124,18 @@ fn refresh_restart_projects_abort_or_forward_recovery_from_every_state() {
         .verify(
             &evidence_a,
             &evidence_b,
-            installation_receipts(),
-            managed_backups(),
-            canaries(),
+            installation_receipts,
+            backup_policy,
+            canary_receipts,
             1_010_000,
         )
         .unwrap();
+    let verified_plan = TenantRootRefreshStateV1::from(verified.clone())
+        .recovery_plan()
+        .unwrap();
+    assert_refresh_recovery_metadata(&verified_plan, custody_lineage, 5);
     assert_eq!(
-        TenantRootRefreshStateV1::from(verified.clone())
-            .recovery_plan()
-            .unwrap()
-            .action(),
+        verified_plan.action(),
         TenantRootRefreshRecoveryActionV1::AbortPendingEpoch {
             active_epoch,
             pending_epoch,
@@ -688,10 +1143,9 @@ fn refresh_restart_projects_abort_or_forward_recovery_from_every_state() {
         }
     );
 
-    let activation_digest = digest(0x35);
-    let retiring = verified
-        .activate(TenantRootActivationReceiptV1::new(activation_digest, 1_020_000).unwrap())
-        .unwrap();
+    let activation = support::refresh_activation_receipt(&bundle, 1_020_000);
+    let activation_digest = activation.digest();
+    let retiring = verified.clone().activate(activation).unwrap();
     let retiring_plan = TenantRootRefreshStateV1::from(retiring)
         .recovery_plan()
         .unwrap();
@@ -717,11 +1171,12 @@ fn refresh_restart_projects_abort_or_forward_recovery_from_every_state() {
             TenantRootPendingCleanupReceiptV1::new(digest(0x37), digest(0x38), 1_006_000).unwrap(),
         )
         .unwrap();
+    let failed_plan = TenantRootRefreshStateV1::from(failed.clone())
+        .recovery_plan()
+        .unwrap();
+    assert_refresh_recovery_metadata(&failed_plan, custody_lineage, 5);
     assert_eq!(
-        TenantRootRefreshStateV1::from(failed)
-            .recovery_plan()
-            .unwrap()
-            .action(),
+        failed_plan.action(),
         TenantRootRefreshRecoveryActionV1::StartFreshRefreshAfterCleanup {
             active_epoch,
             failed_epoch: pending_epoch,
@@ -730,6 +1185,7 @@ fn refresh_restart_projects_abort_or_forward_recovery_from_every_state() {
     );
 
     let cleanup_incomplete = preparing
+        .clone()
         .fail_with_incomplete_cleanup(
             TenantRootRefreshFailureV1::new(digest(0x39), 1_005_000).unwrap(),
             TenantRootPendingCleanupFailureV1::deriver_a_incomplete(
@@ -740,11 +1196,65 @@ fn refresh_restart_projects_abort_or_forward_recovery_from_every_state() {
             .unwrap(),
         )
         .unwrap();
+    let cleanup_incomplete_plan = TenantRootRefreshStateV1::from(cleanup_incomplete.clone())
+        .recovery_plan()
+        .unwrap();
+    assert_refresh_recovery_metadata(&cleanup_incomplete_plan, custody_lineage, 5);
     assert_eq!(
-        TenantRootRefreshStateV1::from(cleanup_incomplete)
+        cleanup_incomplete_plan.action(),
+        TenantRootRefreshRecoveryActionV1::ResumePendingCleanup {
+            active_epoch,
+            pending_epoch,
+            ceremony_digest,
+        }
+    );
+
+    let failed_after_verification = verified
+        .clone()
+        .fail_with_cleanup(
+            TenantRootRefreshFailureV1::new(digest(0x3c), 1_015_000).unwrap(),
+            TenantRootPendingCleanupReceiptV1::new(digest(0x3d), digest(0x3e), 1_016_000).unwrap(),
+        )
+        .unwrap();
+    let failed_after_verification_plan =
+        TenantRootRefreshStateV1::from(failed_after_verification.clone())
             .recovery_plan()
-            .unwrap()
-            .action(),
+            .unwrap();
+    assert_refresh_recovery_metadata(&failed_after_verification_plan, custody_lineage, 6);
+    assert_eq!(
+        failed_after_verification_plan.action(),
+        TenantRootRefreshRecoveryActionV1::StartFreshRefreshAfterCleanup {
+            active_epoch,
+            failed_epoch: pending_epoch,
+            failed_ceremony_digest: ceremony_digest,
+        }
+    );
+    assert!(failed_after_verification
+        .retry(&refresh_context(lineage(0x41), 2, 3, 0x79))
+        .is_err());
+
+    let cleanup_incomplete_after_verification = verified
+        .fail_with_incomplete_cleanup(
+            TenantRootRefreshFailureV1::new(digest(0x3f), 1_015_000).unwrap(),
+            TenantRootPendingCleanupFailureV1::deriver_b_incomplete(
+                digest(0x40),
+                digest(0x41),
+                1_016_000,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let cleanup_incomplete_after_verification_plan =
+        TenantRootRefreshStateV1::from(cleanup_incomplete_after_verification)
+            .recovery_plan()
+            .unwrap();
+    assert_refresh_recovery_metadata(
+        &cleanup_incomplete_after_verification_plan,
+        custody_lineage,
+        6,
+    );
+    assert_eq!(
+        cleanup_incomplete_after_verification_plan.action(),
         TenantRootRefreshRecoveryActionV1::ResumePendingCleanup {
             active_epoch,
             pending_epoch,
@@ -757,7 +1267,22 @@ fn refresh_restart_projects_abort_or_forward_recovery_from_every_state() {
 fn creation_moves_only_empty_to_preparing_to_verified_to_active() {
     let lineage = lineage(0x31);
     let context = context(lineage, 0x21);
-    let (evidence_a, evidence_b, expected_commitments) = evidence_pair(&context);
+    let fixture = support::initial_activation_evidence_fixture(
+        context.clone(),
+        &fixed_share(TwoPartyDeriverRole::DeriverA, 12),
+        &fixed_share(TwoPartyDeriverRole::DeriverB, 19),
+        1,
+        2,
+    );
+    let expected_root = *fixture.bundle.root_commitment();
+    let support::InitialActivationEvidenceFixture {
+        bundle,
+        evidence_a,
+        evidence_b,
+        installation_receipts,
+        backup_policy,
+        canary_receipts,
+    } = fixture;
     let empty = TenantRootEmptyCreationV1::new(identity(), lineage);
     assert_eq!(TenantRootCreationStateV1::from(empty.clone()).revision(), 0);
 
@@ -770,9 +1295,9 @@ fn creation_moves_only_empty_to_preparing_to_verified_to_active() {
         .verify(
             &evidence_a,
             &evidence_b,
-            installation_receipts(),
-            managed_backups(),
-            canaries(),
+            installation_receipts,
+            backup_policy,
+            canary_receipts,
             1_010_000,
         )
         .unwrap();
@@ -780,14 +1305,25 @@ fn creation_moves_only_empty_to_preparing_to_verified_to_active() {
         TenantRootCreationStateV1::from(verified.clone()).revision(),
         2
     );
-    let active = verified
-        .activate(TenantRootActivationReceiptV1::new(digest(7), 1_020_000).unwrap())
-        .unwrap();
+    let activation = support::initial_activation_receipt(&bundle, 1_020_000);
+    let activation_bytes = activation.canonical_bytes().to_vec();
+    let activation_digest = activation.digest();
+    let activation_time = activation.activated_at_ms();
+    let active = verified.activate(activation).unwrap();
 
     assert_eq!(active.revision(), 3);
     assert_eq!(
+        active.current().activation_receipt_bytes(),
+        activation_bytes
+    );
+    assert_eq!(
+        active.current().activation_receipt_digest(),
+        activation_digest
+    );
+    assert_eq!(active.current().activation_time_ms(), activation_time);
+    assert_eq!(
         active.current().verified().commitments().root_commitment(),
-        &expected_commitments.root().to_bytes(),
+        &expected_root,
     );
     assert_eq!(active.current().verified().pending().epoch().get().get(), 1);
     assert!(matches!(
@@ -798,36 +1334,105 @@ fn creation_moves_only_empty_to_preparing_to_verified_to_active() {
 }
 
 #[test]
-fn explicit_accepted_loss_is_the_only_backup_free_activation_branch() {
+fn accepted_loss_activation_requires_the_exact_verified_authorization() {
     let lineage = lineage(0x32);
     let context = context(lineage, 0x22);
-    let (evidence_a, evidence_b, _) = evidence_pair(&context);
+    let fixture = accepted_initial_activation_fixture(context.clone(), 1, 2);
+    let AcceptedInitialActivationFixture {
+        bundle,
+        evidence_a,
+        evidence_b,
+        installation_receipts,
+        backup_policy,
+        canary_receipts,
+    } = fixture;
     let verified = TenantRootEmptyCreationV1::new(identity(), lineage)
         .start(&context)
         .unwrap()
         .verify(
             &evidence_a,
             &evidence_b,
-            installation_receipts(),
-            TenantRootBackupPolicyV1::AcceptedPermanentDerivationLoss(
-                TenantRootAcceptedLossReceiptV1::new(digest(8)),
-            ),
-            canaries(),
+            installation_receipts,
+            backup_policy,
+            canary_receipts,
             1_010_000,
         )
         .unwrap();
 
+    let activation = support::initial_activation_receipt(&bundle, 1_020_000);
+    let active = verified.activate(activation).unwrap();
+    assert_eq!(active.revision(), 3);
     assert!(matches!(
-        verified
-            .activate(TenantRootActivationReceiptV1::new(digest(9), 1_020_000).unwrap())
-            .unwrap()
-            .current(),
-        ActiveTenantRootEpochV1 { .. }
+        active.current().verified().backup_policy(),
+        TenantRootBackupPolicyV1::AcceptedPermanentDerivationLoss(_)
     ));
     assert!(TenantRootLifecycleReceiptDigestV1::from_bytes([0; 32]).is_err());
+    assert!(
+        serde_json::from_value::<TenantRootLifecycleReceiptDigestV1>(
+            serde_json::to_value([0_u8; 32]).unwrap(),
+        )
+        .is_err()
+    );
+    let encoded_digest = serde_json::to_value(digest(10)).unwrap();
+    assert_eq!(
+        serde_json::from_value::<TenantRootLifecycleReceiptDigestV1>(encoded_digest).unwrap(),
+        digest(10),
+    );
     assert!(TenantRootRoleBackupReceiptsV1::new(digest(3), digest(3)).is_err());
     assert!(TenantRootRoleInstallationReceiptsV1::new(digest(1), digest(1)).is_err());
     assert!(TenantRootCanaryReceiptsV1::new(digest(5), digest(5)).is_err());
+}
+
+#[test]
+fn accepted_loss_activation_rejects_cross_scope_receipt_replay() {
+    let first_lineage = lineage(0x32);
+    let second_lineage = lineage(0x39);
+    let first_context = context(first_lineage, 0x22);
+    let second_context = context(second_lineage, 0x29);
+    let first_fixture = accepted_initial_activation_fixture(first_context.clone(), 1, 2);
+    let second_fixture = accepted_initial_activation_fixture(second_context.clone(), 1, 2);
+    let AcceptedInitialActivationFixture {
+        bundle: _,
+        evidence_a: first_evidence_a,
+        evidence_b: first_evidence_b,
+        installation_receipts: first_installation_receipts,
+        backup_policy: first_backup_policy,
+        canary_receipts: first_canary_receipts,
+    } = first_fixture;
+    let AcceptedInitialActivationFixture {
+        bundle: second_bundle,
+        evidence_a: second_evidence_a,
+        evidence_b: second_evidence_b,
+        installation_receipts: second_installation_receipts,
+        backup_policy: second_backup_policy,
+        canary_receipts: second_canary_receipts,
+    } = second_fixture;
+    let first_verified = TenantRootEmptyCreationV1::new(identity(), first_lineage)
+        .start(&first_context)
+        .unwrap()
+        .verify(
+            &first_evidence_a,
+            &first_evidence_b,
+            first_installation_receipts,
+            first_backup_policy,
+            first_canary_receipts,
+            1_010_000,
+        )
+        .unwrap();
+    let _second_verified = TenantRootEmptyCreationV1::new(identity(), second_lineage)
+        .start(&second_context)
+        .unwrap()
+        .verify(
+            &second_evidence_a,
+            &second_evidence_b,
+            second_installation_receipts,
+            second_backup_policy,
+            second_canary_receipts,
+            1_010_000,
+        )
+        .unwrap();
+    let replayed_activation = support::initial_activation_receipt(&second_bundle, 1_020_000);
+    assert!(first_verified.activate(replayed_activation).is_err());
 }
 
 #[test]
@@ -871,7 +1476,14 @@ fn pre_activation_failures_distinguish_complete_and_incomplete_cleanup() {
             TenantRootPendingCleanupReceiptV1::new(digest(11), digest(12), 1_006_000).unwrap(),
         )
         .unwrap();
-    assert_state_kind(complete, "failed_before_activation");
+    assert_state_kind(complete.clone(), "failed_before_activation");
+    assert!(complete
+        .clone()
+        .retry(&context(
+            TenantRootCustodyLineageId::from_bytes([0x36; 16]).unwrap(),
+            0x67,
+        ))
+        .is_err());
 
     let incomplete: TenantRootCleanupIncompleteCreationV1 = preparing
         .clone()
@@ -886,6 +1498,12 @@ fn pre_activation_failures_distinguish_complete_and_incomplete_cleanup() {
         )
         .unwrap();
     assert_state_kind(incomplete.clone(), "cleanup_incomplete");
+    assert!(incomplete
+        .clone()
+        .complete_cleanup(
+            TenantRootPendingCleanupReceiptV1::new(digest(0x22), digest(0x23), 1_005_999).unwrap(),
+        )
+        .is_err());
     let cleaned = incomplete
         .complete_cleanup(
             TenantRootPendingCleanupReceiptV1::new(digest(23), digest(24), 1_007_000).unwrap(),
@@ -914,41 +1532,6 @@ fn pre_activation_failures_distinguish_complete_and_incomplete_cleanup() {
 }
 
 #[test]
-fn verification_and_activation_cannot_cross_the_ceremony_expiry() {
-    let lineage = lineage(0x36);
-    let context = context(lineage, 0x27);
-    let (evidence_a, evidence_b, _) = evidence_pair(&context);
-    let preparing = TenantRootEmptyCreationV1::new(identity(), lineage)
-        .start(&context)
-        .unwrap();
-    assert!(preparing
-        .clone()
-        .verify(
-            &evidence_a,
-            &evidence_b,
-            installation_receipts(),
-            managed_backups(),
-            canaries(),
-            EXPIRES_AT_MS + 1,
-        )
-        .is_err());
-
-    let verified = preparing
-        .verify(
-            &evidence_a,
-            &evidence_b,
-            installation_receipts(),
-            managed_backups(),
-            canaries(),
-            1_010_000,
-        )
-        .unwrap();
-    assert!(verified
-        .activate(TenantRootActivationReceiptV1::new(digest(22), EXPIRES_AT_MS + 1).unwrap())
-        .is_err());
-}
-
-#[test]
 fn refresh_is_forward_only_and_returns_to_active_after_both_retirements() {
     let lineage = lineage(0x41);
     let (active, current_a, current_b) = active_refresh_state(lineage);
@@ -970,8 +1553,23 @@ fn refresh_is_forward_only_and_returns_to_active_after_both_retirements() {
         &coefficient_a,
         &coefficient_b,
     );
-    let (evidence_a, evidence_b, _) =
-        evidence_pair_for_shares(&refresh_context, &next_a, &next_b, 33, 34);
+    let fixture = support::refresh_activation_evidence_fixture(
+        refresh_context.clone(),
+        active.current().verified().commitments(),
+        &next_a,
+        &next_b,
+        33,
+        34,
+        5,
+    );
+    let support::RefreshActivationEvidenceFixture {
+        bundle,
+        evidence_a,
+        evidence_b,
+        installation_receipts,
+        backup_policy,
+        canary_receipts,
+    } = fixture;
 
     let preparing = active.start(&refresh_context).unwrap();
     assert_eq!(
@@ -982,9 +1580,9 @@ fn refresh_is_forward_only_and_returns_to_active_after_both_retirements() {
         .verify(
             &evidence_a,
             &evidence_b,
-            installation_receipts(),
-            managed_backups(),
-            canaries(),
+            installation_receipts,
+            backup_policy,
+            canary_receipts,
             1_010_000,
         )
         .unwrap();
@@ -992,9 +1590,20 @@ fn refresh_is_forward_only_and_returns_to_active_after_both_retirements() {
         TenantRootRefreshStateV1::from(verified.clone()).revision(),
         5
     );
-    let retiring = verified
-        .activate(TenantRootActivationReceiptV1::new(digest(31), 1_020_000).unwrap())
-        .unwrap();
+    let activation = support::refresh_activation_receipt(&bundle, 1_020_000);
+    let activation_bytes = activation.canonical_bytes().to_vec();
+    let activation_digest = activation.digest();
+    let activation_time = activation.activated_at_ms();
+    let retiring = verified.activate(activation).unwrap();
+    assert_eq!(
+        retiring.current().activation_receipt_bytes(),
+        activation_bytes
+    );
+    assert_eq!(
+        retiring.current().activation_receipt_digest(),
+        activation_digest
+    );
+    assert_eq!(retiring.current().activation_time_ms(), activation_time);
     assert_eq!(retiring.current().epoch().get().get(), 2);
     assert_eq!(retiring.previous().active().epoch().get().get(), 1);
     assert_eq!(
@@ -1017,14 +1626,26 @@ fn refresh_is_forward_only_and_returns_to_active_after_both_retirements() {
         .unwrap();
     assert_eq!(active.current().epoch().get().get(), 2);
     assert_eq!(active.revision(), 7);
+    assert_eq!(active.activation_receipt_bytes(), activation_bytes);
+    assert_eq!(active.activation_receipt_digest(), activation_digest);
+    assert_eq!(active.activation_time_ms(), activation_time);
     let refresh_json = serde_json::to_value(TenantRootRefreshStateV1::from(active)).unwrap();
     assert_eq!(refresh_json["kind"], "active");
 }
 
 #[test]
-fn refresh_rejects_epoch_root_and_ceremony_substitution() {
+fn refresh_rejects_epoch_lineage_root_and_ceremony_substitution() {
     let lineage = lineage(0x43);
     let (active, current_a, current_b) = active_refresh_state(lineage);
+    assert!(active
+        .clone()
+        .start(&refresh_context(
+            TenantRootCustodyLineageId::from_bytes([0x42; 16]).unwrap(),
+            1,
+            2,
+            0x72,
+        ))
+        .is_err());
     assert!(active
         .clone()
         .start(&refresh_context(lineage, 2, 3, 0x73))
@@ -1099,6 +1720,19 @@ fn refresh_failure_keeps_the_old_epoch_and_retirement_cannot_roll_back() {
         1
     );
     assert!(failed.clone().retry(&ceremony).is_err());
+    assert!(failed
+        .clone()
+        .retry(&refresh_context(
+            TenantRootCustodyLineageId::from_bytes([0x45; 16]).unwrap(),
+            1,
+            2,
+            0x79,
+        ))
+        .is_err());
+    assert!(failed
+        .clone()
+        .retry(&refresh_context(lineage, 2, 3, 0x7a))
+        .is_err());
     let retry_context = refresh_context(lineage, 1, 2, 0x77);
     assert_eq!(
         TenantRootRefreshStateV1::from(failed.retry(&retry_context).unwrap()).revision(),
@@ -1115,6 +1749,12 @@ fn refresh_failure_keeps_the_old_epoch_and_retirement_cannot_roll_back() {
     let incomplete_json =
         serde_json::to_value(TenantRootRefreshStateV1::from(incomplete.clone())).unwrap();
     assert_eq!(incomplete_json["kind"], "cleanup_incomplete");
+    assert!(incomplete
+        .clone()
+        .complete_cleanup(
+            TenantRootPendingCleanupReceiptV1::new(digest(50), digest(51), 1_005_999).unwrap(),
+        )
+        .is_err());
     let cleaned = incomplete
         .complete_cleanup(
             TenantRootPendingCleanupReceiptV1::new(digest(48), digest(49), 1_007_000).unwrap(),
@@ -1146,21 +1786,37 @@ fn refresh_failure_keeps_the_old_epoch_and_retirement_cannot_roll_back() {
         &coefficient_a,
         &coefficient_b,
     );
-    let (evidence_a, evidence_b, _) = evidence_pair_for_shares(&ceremony, &next_a, &next_b, 43, 44);
-    let retiring = active
+    let fixture = support::refresh_activation_evidence_fixture(
+        ceremony.clone(),
+        active.current().verified().commitments(),
+        &next_a,
+        &next_b,
+        43,
+        44,
+        5,
+    );
+    let support::RefreshActivationEvidenceFixture {
+        bundle,
+        evidence_a,
+        evidence_b,
+        installation_receipts,
+        backup_policy,
+        canary_receipts,
+    } = fixture;
+    let verified = active
         .start(&ceremony)
         .unwrap()
         .verify(
             &evidence_a,
             &evidence_b,
-            installation_receipts(),
-            managed_backups(),
-            canaries(),
+            installation_receipts,
+            backup_policy,
+            canary_receipts,
             1_010_000,
         )
-        .unwrap()
-        .activate(TenantRootActivationReceiptV1::new(digest(45), 1_020_000).unwrap())
         .unwrap();
+    let activation = support::refresh_activation_receipt(&bundle, 1_020_000);
+    let retiring = verified.activate(activation).unwrap();
     assert!(retiring
         .finish_retirement(
             TenantRootRoleRetirementReceiptsV1::new(digest(46), digest(47), 1_019_999).unwrap()
@@ -1247,20 +1903,35 @@ fn managed_restore_requires_commitment_verification_and_forward_refresh() {
         &coefficient_a,
         &coefficient_b,
     );
-    let (evidence_a, evidence_b, _) =
-        evidence_pair_for_shares(&forward_context, &next_a, &next_b, 53, 54);
-    let retiring = forward
+    let fixture = support::refresh_activation_evidence_fixture(
+        forward_context.clone(),
+        active.current().verified().commitments(),
+        &next_a,
+        &next_b,
+        53,
+        54,
+        8,
+    );
+    let support::RefreshActivationEvidenceFixture {
+        bundle,
+        evidence_a,
+        evidence_b,
+        installation_receipts,
+        backup_policy,
+        canary_receipts,
+    } = fixture;
+    let verified = forward
         .verify(
             &evidence_a,
             &evidence_b,
-            installation_receipts(),
-            managed_backups(),
-            canaries(),
+            installation_receipts,
+            backup_policy,
+            canary_receipts,
             1_030_000,
         )
-        .unwrap()
-        .activate(TenantRootActivationReceiptV1::new(digest(64), 1_040_000).unwrap())
         .unwrap();
+    let activation = support::refresh_activation_receipt(&bundle, 1_040_000);
+    let retiring = verified.activate(activation).unwrap();
     let available = retiring
         .finish_retirement(
             TenantRootRoleRetirementReceiptsV1::new(digest(65), digest(66), 1_041_000).unwrap(),
@@ -1281,18 +1952,6 @@ fn managed_restore_requires_commitment_verification_and_forward_refresh() {
     let available_json =
         serde_json::to_value(TenantRootManagedRestoreStateV1::from(available)).unwrap();
     assert_eq!(available_json["kind"], "available");
-}
-
-#[test]
-fn accepted_permanent_loss_policy_cannot_enter_managed_restore() {
-    let (active, _, _) = active_refresh_state_with_policy(
-        lineage(0x57),
-        TenantRootBackupPolicyV1::AcceptedPermanentDerivationLoss(
-            TenantRootAcceptedLossReceiptV1::new(digest(107)),
-        ),
-    );
-
-    assert!(TenantRootManagedRestoreAvailableV1::new(active).is_err());
 }
 
 #[test]
@@ -1393,6 +2052,22 @@ fn managed_restore_rejects_identity_epoch_commitment_and_peer_substitution() {
     assert!(unavailable
         .clone()
         .start_restore(wrong_identity, 1_023_000)
+        .is_err());
+
+    let wrong_lineage = TenantRootManagedRestoreCapabilityV1::new(
+        digest(87),
+        active.identity().digest().unwrap(),
+        TenantRootCustodyLineageId::from_bytes([0x53; 16]).unwrap(),
+        TenantRootManagedRestoreRoleV1::DeriverA,
+        active.current().epoch(),
+        active.current().activation().digest(),
+        1_022_000,
+        1_050_000,
+    )
+    .unwrap();
+    assert!(unavailable
+        .clone()
+        .start_restore(wrong_lineage, 1_023_000)
         .is_err());
 
     let wrong_epoch = TenantRootManagedRestoreCapabilityV1::new(
@@ -1765,29 +2440,6 @@ fn root_deletion_rejects_undrained_or_wrong_epoch_and_preserves_partial_failure(
 }
 
 #[test]
-fn accepted_loss_roots_can_only_use_operational_deletion_claims() {
-    let (active, _, _) = active_refresh_state_with_policy(
-        lineage(0x63),
-        TenantRootBackupPolicyV1::AcceptedPermanentDerivationLoss(
-            TenantRootAcceptedLossReceiptV1::new(digest(181)),
-        ),
-    );
-
-    assert!(TenantRootDeletionActiveV1::new(
-        active.clone(),
-        TenantRootDestructionProfileV1::ManagedHealing,
-    )
-    .is_err());
-    let operational = TenantRootDeletionActiveV1::new(
-        active,
-        TenantRootDestructionProfileV1::OperationalRotation,
-    )
-    .unwrap();
-    let json = serde_json::to_value(TenantRootDeletionStateV1::from(operational)).unwrap();
-    assert_eq!(json["state"]["profile"], "operational_rotation_v1");
-}
-
-#[test]
 fn custody_binding_changes_with_the_active_epoch_while_stable_context_remains_exact() {
     let lineage = lineage(0x71);
     let stable_context = StableTenantDerivationContextV2::new([0x42; 32]);
@@ -1800,10 +2452,12 @@ fn custody_binding_changes_with_the_active_epoch_while_stable_context_remains_ex
         .commitments()
         .root_commitment();
     let binding_one = custody_binding(&epoch_one, &stable_context);
+    let pair_one = active_pair(&epoch_one, &binding_one);
 
     let (epoch_two, refreshed_share_a, refreshed_share_b) =
         advance_active_refresh(epoch_one, &share_a, &share_b);
     let binding_two = custody_binding(&epoch_two, &stable_context);
+    let pair_two = active_pair(&epoch_two, &binding_two);
 
     assert_eq!(binding_one.epoch().get().get(), 1);
     assert_eq!(binding_two.epoch().get().get(), 2);
@@ -1854,38 +2508,50 @@ fn custody_binding_changes_with_the_active_epoch_while_stable_context_remains_ex
     );
 
     let epoch_one_a = evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2(
-        MpcPrfStableThresholdSignerInputV2 {
-            purpose_plan: plan_one.clone(),
-            signer_role: Role::SignerA,
-            signing_root_share_wire: backend_share_wire(&share_a),
-        },
+        stable_signer_input(
+            plan_one.clone(),
+            &binding_one,
+            &pair_one,
+            Role::SignerA,
+            &share_a,
+            ISSUED_AT_MS,
+        ),
         &mut seeded_rng(91),
     )
     .unwrap();
     let epoch_one_b = evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2(
-        MpcPrfStableThresholdSignerInputV2 {
-            purpose_plan: plan_one.clone(),
-            signer_role: Role::SignerB,
-            signing_root_share_wire: backend_share_wire(&share_b),
-        },
+        stable_signer_input(
+            plan_one.clone(),
+            &binding_one,
+            &pair_one,
+            Role::SignerB,
+            &share_b,
+            ISSUED_AT_MS,
+        ),
         &mut seeded_rng(92),
     )
     .unwrap();
     let epoch_two_a = evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2(
-        MpcPrfStableThresholdSignerInputV2 {
-            purpose_plan: plan_two.clone(),
-            signer_role: Role::SignerA,
-            signing_root_share_wire: backend_share_wire(&refreshed_share_a),
-        },
+        stable_signer_input(
+            plan_two.clone(),
+            &binding_two,
+            &pair_two,
+            Role::SignerA,
+            &refreshed_share_a,
+            ISSUED_AT_MS,
+        ),
         &mut seeded_rng(91),
     )
     .unwrap();
     let epoch_two_b = evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2(
-        MpcPrfStableThresholdSignerInputV2 {
-            purpose_plan: plan_two.clone(),
-            signer_role: Role::SignerB,
-            signing_root_share_wire: backend_share_wire(&refreshed_share_b),
-        },
+        stable_signer_input(
+            plan_two.clone(),
+            &binding_two,
+            &pair_two,
+            Role::SignerB,
+            &refreshed_share_b,
+            ISSUED_AT_MS,
+        ),
         &mut seeded_rng(92),
     )
     .unwrap();
@@ -1937,6 +2603,350 @@ fn custody_binding_changes_with_the_active_epoch_while_stable_context_remains_ex
         PrfPurpose::RouterAbXClientBaseV1,
     )
     .is_err());
+}
+
+#[test]
+fn stable_signer_input_rejects_a_substituted_share() {
+    let stable_context = StableTenantDerivationContextV2::new([0x42; 32]);
+    let (active, _, _) = active_refresh_state(lineage(0x7a));
+    let custody_binding = custody_binding(&active, &stable_context);
+    let active_pair = active_pair(&active, &custody_binding);
+    let plan = plan_mpc_prf_stable_purpose_binding_v2(
+        &stable_context,
+        &custody_binding,
+        PrfPurpose::RouterAbXClientBaseV1,
+    )
+    .unwrap();
+    let substituted_share = fixed_share(TwoPartyDeriverRole::DeriverA, 31);
+
+    let error = MpcPrfStableThresholdSignerInputV2::new(
+        plan,
+        &custody_binding,
+        &active_pair,
+        Role::SignerA,
+        backend_share_wire(&substituted_share),
+        ISSUED_AT_MS,
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.code(),
+        router_ab_core::RouterAbDerivationErrorCode::OutputVerificationFailed
+    );
+}
+
+#[test]
+fn stable_signer_input_rejects_a_stale_custody_binding() {
+    let stable_context = StableTenantDerivationContextV2::new([0x42; 32]);
+    let (active, share_a, _) = active_refresh_state(lineage(0x7b));
+    let custody_binding = custody_binding(&active, &stable_context);
+    let active_pair = active_pair(&active, &custody_binding);
+    let plan = plan_mpc_prf_stable_purpose_binding_v2(
+        &stable_context,
+        &custody_binding,
+        PrfPurpose::RouterAbXClientBaseV1,
+    )
+    .unwrap();
+
+    let error = MpcPrfStableThresholdSignerInputV2::new(
+        plan,
+        &custody_binding,
+        &active_pair,
+        Role::SignerA,
+        backend_share_wire(&share_a),
+        EXPIRES_AT_MS + 60_001,
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.code(),
+        router_ab_core::RouterAbDerivationErrorCode::MalformedInput
+    );
+}
+
+#[test]
+fn stable_signer_input_rejects_a_pair_from_another_custody_binding() {
+    let stable_context = StableTenantDerivationContextV2::new([0x42; 32]);
+    let (active, share_a, _) = active_refresh_state(lineage(0x7c));
+    let binding_one = custody_binding(&active, &stable_context);
+    let pair_one = active_pair(&active, &binding_one);
+    let (foreign_active, _, _) = active_refresh_state(lineage(0x7d));
+    let foreign_binding = custody_binding(&foreign_active, &stable_context);
+    let foreign_pair = active_pair(&foreign_active, &foreign_binding);
+    let plan = plan_mpc_prf_stable_purpose_binding_v2(
+        &stable_context,
+        &binding_one,
+        PrfPurpose::RouterAbXClientBaseV1,
+    )
+    .unwrap();
+
+    let error = MpcPrfStableThresholdSignerInputV2::new(
+        plan,
+        &binding_one,
+        &foreign_pair,
+        Role::SignerA,
+        backend_share_wire(&share_a),
+        ISSUED_AT_MS,
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.code(),
+        router_ab_core::RouterAbDerivationErrorCode::MismatchedActiveTenantRootPair
+    );
+    assert_ne!(pair_one, foreign_pair);
+}
+
+#[test]
+fn stable_signer_input_rejects_a_plan_or_receipt_substitution() {
+    let stable_context = StableTenantDerivationContextV2::new([0x42; 32]);
+    let (active, share_a, _) = active_refresh_state(lineage(0x7f));
+    let binding_one = custody_binding(&active, &stable_context);
+    let active_pair = active_pair(&active, &binding_one);
+
+    let alternate_binding =
+        custody_binding(&active, &StableTenantDerivationContextV2::new([0x43; 32]));
+    let alternate_plan = plan_mpc_prf_stable_purpose_binding_v2(
+        &StableTenantDerivationContextV2::new([0x43; 32]),
+        &alternate_binding,
+        PrfPurpose::RouterAbXClientBaseV1,
+    )
+    .unwrap();
+    let plan_error = MpcPrfStableThresholdSignerInputV2::new(
+        alternate_plan,
+        &binding_one,
+        &active_pair,
+        Role::SignerA,
+        backend_share_wire(&share_a),
+        ISSUED_AT_MS,
+    )
+    .unwrap_err();
+    assert_eq!(
+        plan_error.code(),
+        router_ab_core::RouterAbDerivationErrorCode::TranscriptMismatch
+    );
+
+    let expected_receipt = binding_one.activation_receipt_digest();
+    let substituted_receipt = digest(0x9a);
+    let substituted_receipt_resolution = resolve_active_tenant_root_pair_binding_v1(
+        active.identity().digest().unwrap(),
+        &active_role_resolution(
+            &active,
+            TenantRootManagedRestoreRoleV1::DeriverA,
+            expected_receipt,
+        ),
+        &active_role_resolution(
+            &active,
+            TenantRootManagedRestoreRoleV1::DeriverB,
+            substituted_receipt,
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        substituted_receipt_resolution,
+        TenantRootActivePairResolutionV1::Mismatched(
+            TenantRootActivePairMismatchV1::ActivationReceiptDigests {
+                deriver_a: expected_receipt,
+                deriver_b: substituted_receipt,
+            }
+        )
+    );
+    assert_eq!(
+        substituted_receipt_resolution
+            .require_active()
+            .unwrap_err()
+            .code(),
+        router_ab_core::RouterAbDerivationErrorCode::MismatchedActiveTenantRootPair
+    );
+}
+
+#[test]
+fn stable_signer_input_rejects_an_invalid_or_mismatched_role() {
+    let stable_context = StableTenantDerivationContextV2::new([0x42; 32]);
+    let (active, share_a, _) = active_refresh_state(lineage(0x7e));
+    let custody_binding = custody_binding(&active, &stable_context);
+    let active_pair = active_pair(&active, &custody_binding);
+    let plan = plan_mpc_prf_stable_purpose_binding_v2(
+        &stable_context,
+        &custody_binding,
+        PrfPurpose::RouterAbXClientBaseV1,
+    )
+    .unwrap();
+
+    let invalid_role = MpcPrfStableThresholdSignerInputV2::new(
+        plan.clone(),
+        &custody_binding,
+        &active_pair,
+        Role::Server,
+        backend_share_wire(&share_a),
+        ISSUED_AT_MS,
+    )
+    .unwrap_err();
+    assert_eq!(
+        invalid_role.code(),
+        router_ab_core::RouterAbDerivationErrorCode::SignerIdentityMismatch
+    );
+
+    let mismatched_role = MpcPrfStableThresholdSignerInputV2::new(
+        plan,
+        &custody_binding,
+        &active_pair,
+        Role::SignerB,
+        backend_share_wire(&share_a),
+        ISSUED_AT_MS,
+    )
+    .unwrap_err();
+    assert_eq!(
+        mismatched_role.code(),
+        router_ab_core::RouterAbDerivationErrorCode::SignerIdentityMismatch
+    );
+}
+
+#[test]
+fn authoritative_pair_requires_exact_custody_facts_and_activation_receipt() {
+    let (active, _, _) = active_refresh_state(lineage(0x75));
+    let stable_context = StableTenantDerivationContextV2::new([0x42; 32]);
+    let custody_binding = custody_binding(&active, &stable_context);
+    let activation_receipt_digest = active.current().activation().digest();
+    let deriver_a = active_role_resolution(
+        &active,
+        TenantRootManagedRestoreRoleV1::DeriverA,
+        activation_receipt_digest,
+    );
+    let deriver_b = active_role_resolution(
+        &active,
+        TenantRootManagedRestoreRoleV1::DeriverB,
+        activation_receipt_digest,
+    );
+
+    let resolution = resolve_authoritative_active_tenant_root_pair_binding_v1(
+        active.identity().digest().unwrap(),
+        &custody_binding,
+        &deriver_a,
+        &deriver_b,
+    )
+    .unwrap();
+    let pair = resolution.require_active().unwrap();
+    assert_eq!(pair.identity_digest(), custody_binding.identity_digest());
+    assert_eq!(pair.custody_lineage(), custody_binding.custody_lineage());
+    assert_eq!(pair.epoch(), custody_binding.epoch());
+    assert_eq!(pair.commitments(), custody_binding.commitments());
+    assert_eq!(pair.root_commitment(), custody_binding.root_commitment());
+    assert_eq!(
+        pair.activation_receipt_digest(),
+        custody_binding.activation_receipt_digest(),
+    );
+}
+
+#[test]
+fn authoritative_pair_rejects_stale_lineage_epoch_or_commitments() {
+    let stable_context = StableTenantDerivationContextV2::new([0x42; 32]);
+    let (epoch_one, share_a, share_b) = active_refresh_state(lineage(0x76));
+    let custody_binding = custody_binding(&epoch_one, &stable_context);
+
+    let (epoch_two, _, _) = advance_active_refresh(epoch_one, &share_a, &share_b);
+    assert_ne!(epoch_two.current().epoch(), custody_binding.epoch());
+    assert_ne!(
+        epoch_two.current().verified().commitments(),
+        custody_binding.commitments()
+    );
+    let refreshed_receipt = epoch_two.current().activation().digest();
+    let refreshed = resolve_authoritative_active_tenant_root_pair_binding_v1(
+        epoch_two.identity().digest().unwrap(),
+        &custody_binding,
+        &active_role_resolution(
+            &epoch_two,
+            TenantRootManagedRestoreRoleV1::DeriverA,
+            refreshed_receipt,
+        ),
+        &active_role_resolution(
+            &epoch_two,
+            TenantRootManagedRestoreRoleV1::DeriverB,
+            refreshed_receipt,
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        refreshed,
+        TenantRootActivePairResolutionV1::Mismatched(
+            TenantRootActivePairMismatchV1::CustodyBinding
+        )
+    );
+
+    let (other_lineage, _, _) = active_refresh_state(lineage(0x77));
+    let other_lineage_receipt = other_lineage.current().activation().digest();
+    let other_lineage_result = resolve_authoritative_active_tenant_root_pair_binding_v1(
+        other_lineage.identity().digest().unwrap(),
+        &custody_binding,
+        &active_role_resolution(
+            &other_lineage,
+            TenantRootManagedRestoreRoleV1::DeriverA,
+            other_lineage_receipt,
+        ),
+        &active_role_resolution(
+            &other_lineage,
+            TenantRootManagedRestoreRoleV1::DeriverB,
+            other_lineage_receipt,
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        other_lineage_result,
+        TenantRootActivePairResolutionV1::Mismatched(
+            TenantRootActivePairMismatchV1::CustodyBinding
+        )
+    );
+}
+
+#[test]
+fn authoritative_pair_rejects_an_activation_receipt_substitution() {
+    let (active, _, _) = active_refresh_state(lineage(0x78));
+    let stable_context = StableTenantDerivationContextV2::new([0x42; 32]);
+    let custody_binding = custody_binding(&active, &stable_context);
+    let expected = custody_binding.activation_receipt_digest();
+    let substituted = digest(0x99);
+    let resolution = resolve_authoritative_active_tenant_root_pair_binding_v1(
+        active.identity().digest().unwrap(),
+        &custody_binding,
+        &active_role_resolution(&active, TenantRootManagedRestoreRoleV1::DeriverA, expected),
+        &active_role_resolution(
+            &active,
+            TenantRootManagedRestoreRoleV1::DeriverB,
+            substituted,
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        resolution,
+        TenantRootActivePairResolutionV1::Mismatched(
+            TenantRootActivePairMismatchV1::ActivationReceiptDigest {
+                expected,
+                deriver_a: expected,
+                deriver_b: substituted,
+            }
+        )
+    );
+}
+
+#[test]
+fn authoritative_pair_rejects_a_foreign_custody_identity() {
+    let (active, _, _) = active_refresh_state(lineage(0x79));
+    let stable_context = StableTenantDerivationContextV2::new([0x42; 32]);
+    let custody_binding = custody_binding(&active, &stable_context);
+    let receipt = custody_binding.activation_receipt_digest();
+    let deriver_a =
+        active_role_resolution(&active, TenantRootManagedRestoreRoleV1::DeriverA, receipt);
+    let deriver_b =
+        active_role_resolution(&active, TenantRootManagedRestoreRoleV1::DeriverB, receipt);
+
+    let error = resolve_authoritative_active_tenant_root_pair_binding_v1(
+        TenantRootIdentityDigestV1::from_bytes([0x99; 32]),
+        &custody_binding,
+        &deriver_a,
+        &deriver_b,
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.code(),
+        router_ab_core::RouterAbDerivationErrorCode::MalformedInput
+    );
 }
 
 #[test]
@@ -2008,7 +3018,7 @@ fn custody_binding_identifiers_and_lifetime_are_strict() {
         0,
         EXPIRES_AT_MS,
         &stable_context,
-        TenantRootProtocolDigestV1::from_bytes([0x84; 32]),
+        TenantRootProtocolDigestV1::from_bytes([0x84; 32]).expect("non-zero protocol digest"),
     )
     .is_err());
     assert!(TenantRootCustodyBindingV1::from_active(
@@ -2020,7 +3030,7 @@ fn custody_binding_identifiers_and_lifetime_are_strict() {
         ISSUED_AT_MS,
         ISSUED_AT_MS,
         &stable_context,
-        TenantRootProtocolDigestV1::from_bytes([0x84; 32]),
+        TenantRootProtocolDigestV1::from_bytes([0x84; 32]).expect("non-zero protocol digest"),
     )
     .is_err());
 }
@@ -2042,7 +3052,7 @@ fn custody_binding_digest_rejects_public_field_substitution() {
             ISSUED_AT_MS,
             EXPIRES_AT_MS,
             &stable_context,
-            TenantRootProtocolDigestV1::from_bytes([0x84; 32]),
+            TenantRootProtocolDigestV1::from_bytes([0x84; 32]).expect("non-zero protocol digest"),
         )
         .unwrap(),
         TenantRootCustodyBindingV1::from_active(
@@ -2055,7 +3065,7 @@ fn custody_binding_digest_rejects_public_field_substitution() {
             ISSUED_AT_MS,
             EXPIRES_AT_MS,
             &stable_context,
-            TenantRootProtocolDigestV1::from_bytes([0x84; 32]),
+            TenantRootProtocolDigestV1::from_bytes([0x84; 32]).expect("non-zero protocol digest"),
         )
         .unwrap(),
         TenantRootCustodyBindingV1::from_active(
@@ -2068,7 +3078,7 @@ fn custody_binding_digest_rejects_public_field_substitution() {
             ISSUED_AT_MS,
             EXPIRES_AT_MS,
             &stable_context,
-            TenantRootProtocolDigestV1::from_bytes([0x84; 32]),
+            TenantRootProtocolDigestV1::from_bytes([0x84; 32]).expect("non-zero protocol digest"),
         )
         .unwrap(),
         TenantRootCustodyBindingV1::from_active(
@@ -2081,7 +3091,7 @@ fn custody_binding_digest_rejects_public_field_substitution() {
             ISSUED_AT_MS,
             EXPIRES_AT_MS,
             &stable_context,
-            TenantRootProtocolDigestV1::from_bytes([0x84; 32]),
+            TenantRootProtocolDigestV1::from_bytes([0x84; 32]).expect("non-zero protocol digest"),
         )
         .unwrap(),
         TenantRootCustodyBindingV1::from_active(
@@ -2094,7 +3104,7 @@ fn custody_binding_digest_rejects_public_field_substitution() {
             ISSUED_AT_MS,
             EXPIRES_AT_MS,
             &alternate_context,
-            TenantRootProtocolDigestV1::from_bytes([0x84; 32]),
+            TenantRootProtocolDigestV1::from_bytes([0x84; 32]).expect("non-zero protocol digest"),
         )
         .unwrap(),
         TenantRootCustodyBindingV1::from_active(
@@ -2107,7 +3117,7 @@ fn custody_binding_digest_rejects_public_field_substitution() {
             ISSUED_AT_MS,
             EXPIRES_AT_MS,
             &stable_context,
-            TenantRootProtocolDigestV1::from_bytes([0x89; 32]),
+            TenantRootProtocolDigestV1::from_bytes([0x89; 32]).expect("non-zero protocol digest"),
         )
         .unwrap(),
     ];
@@ -2125,6 +3135,58 @@ fn custody_binding_canonical_digest_is_frozen() {
 
     assert_eq!(
         hex::encode(binding.digest().unwrap().into_bytes()),
-        "d9815df6f9ad6cb3b1c4406969ec33877077af61df69e3b8b1e38e35ee6899c7",
+        "8e32299705e9c1aa1f87805b882df95f6fdc1dadfb2955585a777b37194170f6",
     );
+}
+
+#[test]
+fn custody_binding_lifetime_and_identities_use_the_frozen_boundary_rules() {
+    let (active, _, _) = active_refresh_state(lineage(0x74));
+    let stable_context = StableTenantDerivationContextV2::new([0x42; 32]);
+    let build = |issued_at_ms: u64, expires_at_ms: u64, deriver_a: &str, deriver_b: &str| {
+        TenantRootCustodyBindingV1::from_active(
+            &active,
+            TenantRootDeriverIdentitiesV1::new(deriver_a, deriver_b)?,
+            TenantRootDerivationOperationIdV1::from_bytes([0x81; 16]).unwrap(),
+            TenantRootDerivationSessionIdV1::from_bytes([0x82; 16]).unwrap(),
+            TenantRootDerivationNonceV1::from_bytes([0x83; 32]).unwrap(),
+            issued_at_ms,
+            expires_at_ms,
+            &stable_context,
+            TenantRootProtocolDigestV1::from_bytes([0x84; 32]).expect("non-zero protocol digest"),
+        )
+    };
+
+    let issued = ISSUED_AT_MS;
+    assert!(build(
+        issued,
+        issued + TENANT_ROOT_MAX_LIFETIME_MS_V1,
+        "deriver-a-runtime-7",
+        "deriver-b-runtime-9",
+    )
+    .is_ok());
+    assert!(build(
+        issued,
+        issued + TENANT_ROOT_MAX_LIFETIME_MS_V1 + 1,
+        "deriver-a-runtime-7",
+        "deriver-b-runtime-9",
+    )
+    .is_err());
+
+    for rejected in [
+        "",
+        " deriver-a-runtime-7",
+        "deriver-a-runtime-7 ",
+        "deriver-a\u{0000}runtime-7",
+        "deriver-a\nruntime-7",
+    ] {
+        assert!(
+            build(issued, EXPIRES_AT_MS, rejected, "deriver-b-runtime-9").is_err(),
+            "expected rejection for {rejected:?}"
+        );
+    }
+    let longest = "d".repeat(256);
+    assert!(build(issued, EXPIRES_AT_MS, &longest, "deriver-b-runtime-9").is_ok());
+    let too_long = "d".repeat(257);
+    assert!(build(issued, EXPIRES_AT_MS, &too_long, "deriver-b-runtime-9").is_err());
 }

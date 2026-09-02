@@ -31,6 +31,7 @@ packages/console-server-ts/wrangler.d1-staging-gateway.toml
 sqlite/
 packages/wallet-server/.wrangler/
 packages/wallet-server/cloudflare-router-ab/
+crates/router-ab-cloudflare/.wrangler/
 
 
 # Playwright artifacts
@@ -56,6 +57,10 @@ wasm/email_otp_runtime/pkg
 wasm/email_otp_runtime/target
 crates/*/target
 tools/*/target
+tools/ed25519-yao-generator/artifact-fs-policy/target/
+/target/
+/rust_out
+/librust_out.rlib
 crates/threshold-prf/wasm-bench/pkg
 crates/threshold-prf/wasm-bench/target
 crates/ed25519-yao/wasm-bench/pkg

@@ -84,9 +84,7 @@ import {
   type WebAuthnRecoveryRegistrationChallengeRecord,
 } from '../../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnRecords';
 import { resolveWalletRecoveryKeyManifestV1 } from '../../../packages/wallet-server/src/router/domains/passkeyCustody/walletRecoveryKeyManifest';
-import {
-  UnavailableRouterAbEd25519YaoRegistrationBackend,
-} from './routerAbEd25519YaoRegistrationBridge.fixtures';
+import { UnavailableRouterAbEd25519YaoRegistrationBackend } from './routerAbEd25519YaoRegistrationBridge.fixtures';
 import {
   buildLinkedDeviceManagementAuthorityFixture,
   fullOwnerPermissionsForManagementFixture,
@@ -565,9 +563,7 @@ export function exportExecuteFromAdmission(
   ciphertextSeed = 39,
 ): RouterAbEd25519YaoExportExecuteRequestV1 {
   const envelope = requireRecord(rawAdmissionReceipt, 'Export admission response');
-  const receipt = requireParsed(
-    parseRouterAbEd25519YaoExportAdmissionReceiptV1(envelope.protocol),
-  );
+  const receipt = requireParsed(parseRouterAbEd25519YaoExportAdmissionReceiptV1(envelope.protocol));
   const binding = receipt.binding;
   return requireParsed(
     parseRouterAbEd25519YaoExportExecuteRequestV1({
@@ -599,20 +595,15 @@ export async function callLocalYaoWorker(input: {
   readonly env: LocalD1DevWorkerEnv;
   readonly path: string;
   readonly body: unknown;
-  readonly grant: string;
+  readonly grant?: string;
   readonly origin?: string;
   readonly recoveryChallengeId?: string;
 }): Promise<Response> {
-  const headers = new Headers({
-    authorization: `Bearer ${input.grant}`,
-    'content-type': 'application/json',
-  });
+  const headers = new Headers({ 'content-type': 'application/json' });
+  if (input.grant) headers.set('authorization', `Bearer ${input.grant}`);
   if (input.origin) headers.set('origin', input.origin);
   if (input.recoveryChallengeId) {
-    headers.set(
-      ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1,
-      input.recoveryChallengeId,
-    );
+    headers.set(ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1, input.recoveryChallengeId);
   }
   return await localD1DevWorker.fetch(
     new Request(`http://127.0.0.1:8787/relay${input.path}`, {
@@ -819,9 +810,7 @@ async function issueLocalWalletSessionCredential(input: {
   if (!walletKeyId.ok) throw new Error(walletKeyId.error.message);
   const registeredPublicKeyB64u = parseEd25519PublicKeyB64u(
     base64UrlEncode(
-      Uint8Array.from(
-        input.capability.activationResult.public_receipt.registered_public_key,
-      ),
+      Uint8Array.from(input.capability.activationResult.public_receipt.registered_public_key),
     ),
   );
   const records = await buildLinkedDeviceManagementAuthorityFixture({
@@ -1058,9 +1047,7 @@ async function prepareLocalYaoRecoveryAdmission(input: {
   );
 
   const challengeId = `recovery-challenge:${input.label}`;
-  const recoveryOperationId = parseWalletRecoveryOperationId(
-    `recovery-operation:${input.label}`,
-  );
+  const recoveryOperationId = parseWalletRecoveryOperationId(`recovery-operation:${input.label}`);
   const rpId = parseWebAuthnRpId('wallet.local');
   if (!recoveryOperationId.ok || !rpId.ok) {
     throw new Error('local Yao recovery challenge identity is invalid');
