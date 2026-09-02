@@ -987,6 +987,49 @@ mod live {
             .map_err(derivation)
     }
 
+    pub(super) fn require_persisted_initial_activation_state_v1(
+        read: &CloudflareTenantRootCreationJournalReadResponseV1,
+        bundle: &VerifiedTenantRootInitialCreationActivationEvidenceBundleV1,
+    ) -> RouterAbProtocolResult<()> {
+        if read.cleanup_checkpointed {
+            return Err(refused(
+                "tenant-root initial activation cannot issue after creation cleanup",
+            ));
+        }
+        if read.committed_roles.len() != 2
+            || !read
+                .committed_roles
+                .contains(&CloudflareTenantRootCreationInstallationRoleV1::DeriverA)
+            || !read
+                .committed_roles
+                .contains(&CloudflareTenantRootCreationInstallationRoleV1::DeriverB)
+        {
+            return Err(refused(
+                "tenant-root initial activation requires both persisted role commitments",
+            ));
+        }
+        let CloudflareTenantRootCreationInstallationCheckpointReadStateV1::BothRolesReady {
+            root_commitment_b64u,
+        } = &read.installation_checkpoint
+        else {
+            return Err(refused(
+                "tenant-root initial activation requires both persisted role installations",
+            ));
+        };
+        let root_commitment = decode_canonical_base64url(
+            "tenant-root persisted installation root commitment",
+            root_commitment_b64u,
+            32,
+            48,
+        )?;
+        if root_commitment.as_slice() != bundle.root_commitment() {
+            return Err(refused(
+                "tenant-root persisted installation root does not match the activation evidence",
+            ));
+        }
+        Ok(())
+    }
+
     /// Verifies the six public activation artifacts and issues the exact receipt.
     pub(crate) async fn handle_cloudflare_tenant_root_control_plane_initial_activation_v1(
         request: CloudflareTenantRootControlPlaneInitialActivationRequestV1,
@@ -1049,11 +1092,26 @@ mod live {
         )
         .map_err(derivation)?;
         let activated_at_ms = crate::cloudflare_now_unix_ms_v1()?;
-        let (authority_id, _) = derive_tenant_root_creation_authority_object_v1(
-            env,
-            bundle.identity_digest(),
-            bundle.custody_lineage(),
+        let (authority_id, read) =
+            read_creation_state(env, bundle.identity_digest(), bundle.custody_lineage()).await?;
+        let record = CloudflareTenantRootCreationJournalRecordV1 {
+            journal_b64u: read.journal_b64u.clone(),
+            creation_capability_b64u: read.creation_capability_b64u.clone(),
+        };
+        let journal = validate_creation_record(
+            record,
+            authority_id,
+            runtime.bindings().issuer_verifying_keys.keys(),
         )?;
+        if journal.identity_digest != bundle.identity_digest()
+            || journal.custody_lineage != bundle.custody_lineage()
+            || journal.ceremony_context.digest().map_err(derivation)? != bundle.context_digest()
+        {
+            return Err(refused(
+                "tenant-root persisted creation state does not match the activation evidence",
+            ));
+        }
+        require_persisted_initial_activation_state_v1(&read, &bundle)?;
         let issuer_binding = &bindings.issuer_signing_key;
         let issuer_seed = load_issuer_seed(env, runtime)?;
         let receipt = super::issue_tenant_root_initial_activation_receipt_v1(
@@ -2240,6 +2298,53 @@ mod tests {
             )
             .expect("response receipt bytes"),
             receipt_bytes
+        );
+    }
+
+    #[cfg(feature = "workers-rs")]
+    #[test]
+    fn initial_activation_requires_the_exact_persisted_both_roles_state() {
+        let bundle = activation_bundle();
+        let mut read = CloudflareTenantRootCreationJournalReadResponseV1 {
+            journal_b64u: "journal".to_owned(),
+            creation_capability_b64u: "capability".to_owned(),
+            revision: 1,
+            committed_roles: vec![
+                CloudflareTenantRootCreationInstallationRoleV1::DeriverA,
+                CloudflareTenantRootCreationInstallationRoleV1::DeriverB,
+            ],
+            installation_checkpoint:
+                CloudflareTenantRootCreationInstallationCheckpointReadStateV1::BothRolesReady {
+                    root_commitment_b64u: crate::encode_base64url_bytes_v1(
+                        bundle.root_commitment(),
+                    ),
+                },
+            cleanup_checkpointed: false,
+        };
+        live::require_persisted_initial_activation_state_v1(&read, &bundle)
+            .expect("exact persisted installation state");
+
+        read.installation_checkpoint =
+            CloudflareTenantRootCreationInstallationCheckpointReadStateV1::BothRolesReady {
+                root_commitment_b64u: crate::encode_base64url_bytes_v1(&[0x55; 32]),
+            };
+        assert_eq!(
+            live::require_persisted_initial_activation_state_v1(&read, &bundle)
+                .expect_err("foreign persisted root")
+                .code(),
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding
+        );
+
+        read.installation_checkpoint =
+            CloudflareTenantRootCreationInstallationCheckpointReadStateV1::BothRolesReady {
+                root_commitment_b64u: crate::encode_base64url_bytes_v1(bundle.root_commitment()),
+            };
+        read.cleanup_checkpointed = true;
+        assert_eq!(
+            live::require_persisted_initial_activation_state_v1(&read, &bundle)
+                .expect_err("cleaned creation")
+                .code(),
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding
         );
     }
 }
