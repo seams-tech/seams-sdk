@@ -42,6 +42,7 @@ mod tenant_root_refresh_role_attempt;
 mod tenant_root_refresh_role_command;
 mod tenant_root_refresh_transport;
 mod tenant_root_restore_import;
+mod tenant_root_role_cleanup_command;
 
 pub use threshold_prf::TwoPartyDeriverRole;
 mod transcript;
@@ -174,6 +175,7 @@ pub use self::tenant_root_restore_import::{
     TenantRootRestoreImportPublicKeyV1, TenantRootRestoreSessionIdV1,
     TENANT_ROOT_RESTORE_IMPORT_MAX_BYTES,
 };
+pub use self::tenant_root_role_cleanup_command::*;
 pub use self::transcript::{
     transcript_binding_digest, transcript_digest_v1, IndexedSignerBinding, QuorumPolicy,
     SignerSetBinding, TranscriptBinding,
