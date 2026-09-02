@@ -408,27 +408,46 @@ where
     })
 }
 
-/// Drives the peer Deriver and returns its signed public commitment.
+/// Drives the peer Deriver over a service binding.
 ///
-/// Modelled as a trait so the initiating role's orchestration is testable
-/// without a Worker, and so the only thing that crosses to the peer is bytes.
+/// Async because the real call is a Worker-to-Worker service binding and must
+/// be awaited. Modelled as a trait so the initiating role's orchestration is
+/// testable without a Worker, and so only bytes ever cross to the peer.
 #[cfg(feature = "workers-rs")]
 pub(crate) trait TenantRootPeerRoleDriverV1 {
-    /// Hands the peer its package and receives back its signed commitment.
-    fn drive_peer(
+    /// Hands the peer everything it needs and receives its public result.
+    ///
+    /// The peer receives BOTH command packages and the initiator's exact signed
+    /// commitment. It cannot recompute that commitment: the initiator's share is
+    /// random and lives only in the initiator's process, so the commitment has
+    /// to travel.
+    async fn drive_peer(
         &mut self,
-        package_bytes: &[u8],
+        peer_package_bytes: &[u8],
+        initiator_package_bytes: &[u8],
+        initiator_signed_commitment: &[u8],
     ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1>;
 }
 
-/// What the peer returns: public bytes only.
+/// What the peer returns: authenticated public bytes only.
+///
+/// Deliberately not a "persisted" boolean. A boolean is the peer's own claim and
+/// admits states that never happened; these are artifacts the initiator can
+/// check against the ceremony it is already party to.
 #[cfg(feature = "workers-rs")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TenantRootPeerRoleOutcomeV1 {
     /// The peer's signed public commitment.
     pub(crate) signed_commitment: Vec<u8>,
-    /// True once the peer's own pending share is durably persisted.
-    pub(crate) pending_persisted: bool,
+    /// The peer's signed installation evidence, which the initiator verifies.
+    pub(crate) signed_installation_evidence: Vec<u8>,
+    /// The peer's authenticated terminal receipt for its own insertion.
+    ///
+    /// Carried forward rather than fully verified here: verifying it needs the
+    /// peer's executed-command coordinates, which are role-local to the peer.
+    /// The initiator requires it to be present and well formed, and the
+    /// Router-owned object verifies it against its own record.
+    pub(crate) terminal_receipt: Vec<u8>,
 }
 
 /// Runs the initiating role's ceremony without ever parking its scalar.
@@ -444,7 +463,7 @@ pub(crate) struct TenantRootPeerRoleOutcomeV1 {
 /// written for the initiating role, so the attempt is abandoned by returning.
 #[cfg(feature = "workers-rs")]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn drive_tenant_root_role_creation_as_initiator_v1<Online, Backup, Peer, R>(
+pub(crate) async fn drive_tenant_root_role_creation_as_initiator_v1<Online, Backup, Peer, R>(
     package_bytes: &[u8],
     peer_package_bytes: &[u8],
     worker_role: TwoPartyDeriverRole,
@@ -481,22 +500,51 @@ where
     let signed_commitment = pending.commitment_bytes().to_vec();
     let context = pending.commitment().context().clone();
 
-    // The share stays on this stack for exactly the span of the peer call.
-    let peer_outcome = peer.drive_peer(peer_package_bytes)?;
-    if !peer_outcome.pending_persisted {
+    // The share stays on this stack for exactly the span of the peer call. The
+    // peer receives the initiator's exact commitment because it cannot derive
+    // it: that share exists only here.
+    let peer_outcome = peer
+        .drive_peer(peer_package_bytes, package_bytes, &signed_commitment)
+        .await?;
+    if peer_outcome.terminal_receipt.is_empty() {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::ForbiddenLocalBinding,
-            "tenant-root peer role did not persist its pending share",
+            "tenant-root peer role returned no terminal receipt for its insertion",
+        ));
+    }
+    // The peer's installation evidence is verifiable here, against the ceremony
+    // the initiator is already party to and the published role keys. This is
+    // what replaces trusting a claim.
+    let peer_role = worker_role.peer();
+    let peer_verifying_key = role_keys
+        .for_role_and_key_id(peer_role, context.signing_key_id(peer_role))
+        .map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root ceremony names a peer signing key that is not published",
+            )
+        })?;
+    let peer_evidence =
+        TenantRootSignedShareInstallationEvidenceV1::decode_and_verify_canonical_bytes(
+            &peer_outcome.signed_installation_evidence,
+            peer_verifying_key,
+        )
+        .map_err(candidate_derivation_error)?;
+    let peer_transcript = peer_evidence.evidence().transcript();
+    if peer_transcript.role() != peer_role || peer_transcript.context() != &context {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root peer installation evidence belongs to a different ceremony",
         ));
     }
 
     let pair_wires = match worker_role {
         TwoPartyDeriverRole::DeriverA => TenantRootCreationCommitmentPairWiresV1 {
             deriver_a_signed_commitment: signed_commitment.clone(),
-            deriver_b_signed_commitment: peer_outcome.signed_commitment,
+            deriver_b_signed_commitment: peer_outcome.signed_commitment.clone(),
         },
         TwoPartyDeriverRole::DeriverB => TenantRootCreationCommitmentPairWiresV1 {
-            deriver_a_signed_commitment: peer_outcome.signed_commitment,
+            deriver_a_signed_commitment: peer_outcome.signed_commitment.clone(),
             deriver_b_signed_commitment: signed_commitment.clone(),
         },
     };
@@ -2131,25 +2179,48 @@ mod initiator_tests {
     use rand_chacha::ChaCha20Rng;
     use rand_core_06::SeedableRng;
 
-    /// A peer that runs the real second-leg execution in-process.
+    /// A peer that runs the real second leg against whatever commitment it is
+    /// actually handed.
+    ///
+    /// It deliberately does NOT recompute the initiator's commitment. An
+    /// earlier version did, using the same deterministic seed, which hid that
+    /// production B has no way to obtain it.
     struct RealPeer {
         role: TwoPartyDeriverRole,
-        initiator_commitment: Vec<u8>,
-        persisted: bool,
+        received_initiator_commitment: Option<Vec<u8>>,
+        received_initiator_package: Option<Vec<u8>>,
+        withhold_receipt: bool,
         calls: usize,
     }
 
+    impl RealPeer {
+        fn new(role: TwoPartyDeriverRole) -> Self {
+            Self {
+                role,
+                received_initiator_commitment: None,
+                received_initiator_package: None,
+                withhold_receipt: false,
+                calls: 0,
+            }
+        }
+    }
+
     impl TenantRootPeerRoleDriverV1 for RealPeer {
-        fn drive_peer(
+        async fn drive_peer(
             &mut self,
-            package_bytes: &[u8],
+            peer_package_bytes: &[u8],
+            initiator_package_bytes: &[u8],
+            initiator_signed_commitment: &[u8],
         ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
             self.calls += 1;
+            self.received_initiator_commitment = Some(initiator_signed_commitment.to_vec());
+            self.received_initiator_package = Some(initiator_package_bytes.to_vec());
+
             let mut online = InMemoryProvider::new();
             let mut backup = InMemoryProvider::new();
             let progress = execute_tenant_root_role_creation_v1(
-                package_bytes,
-                Some(&self.initiator_commitment),
+                peer_package_bytes,
+                Some(initiator_signed_commitment),
                 self.role,
                 authority(),
                 &trusted_issuer_keys(),
@@ -2163,22 +2234,35 @@ mod initiator_tests {
                 &mut ChaCha20Rng::from_seed([0x88; 32]),
             )?;
             let TenantRootRoleCreationProgressV1::Sealed {
-                signed_commitment, ..
+                signed_commitment,
+                signed_installation_evidence,
+                ..
             } = progress
             else {
                 panic!("the peer leg must seal")
             };
             Ok(TenantRootPeerRoleOutcomeV1 {
                 signed_commitment,
-                pending_persisted: self.persisted,
+                signed_installation_evidence,
+                // Stands in for the peer's authenticated insertion receipt.
+                terminal_receipt: if self.withhold_receipt {
+                    Vec::new()
+                } else {
+                    b"peer-terminal-receipt".to_vec()
+                },
             })
         }
     }
 
-    /// A peer that fails, standing in for a lost or refused peer call.
+    /// A peer that fails, standing in for a lost or refused service call.
     struct FailingPeer;
     impl TenantRootPeerRoleDriverV1 for FailingPeer {
-        fn drive_peer(&mut self, _: &[u8]) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
+        async fn drive_peer(
+            &mut self,
+            _: &[u8],
+            _: &[u8],
+            _: &[u8],
+        ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
             Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
                 "peer unavailable",
@@ -2186,34 +2270,32 @@ mod initiator_tests {
         }
     }
 
-    fn initiator_commitment() -> Vec<u8> {
-        let progress = {
-            let mut online = InMemoryProvider::new();
-            let mut backup = InMemoryProvider::new();
-            execute_tenant_root_role_creation_v1(
-                &package_bytes(TwoPartyDeriverRole::DeriverA, &ISSUER_KEY),
-                None,
-                TwoPartyDeriverRole::DeriverA,
-                authority(),
-                &trusted_issuer_keys(),
-                &test_role_keys(),
-                &signer(TwoPartyDeriverRole::DeriverA),
-                &role_key(TwoPartyDeriverRole::DeriverA).to_bytes(),
-                &test_provider_config(),
-                &mut online,
-                &mut backup,
-                ISSUED_AT_MS + 2,
-                &mut ChaCha20Rng::from_seed([0x77; 32]),
-            )
-            .expect("committed")
-        };
-        let TenantRootRoleCreationProgressV1::Committed { pending } = progress else {
-            panic!("expected a committed leg")
-        };
-        pending.commitment_bytes().to_vec()
+    /// A peer that returns another ceremony's installation evidence.
+    struct ForeignEvidencePeer {
+        role: TwoPartyDeriverRole,
+    }
+    impl TenantRootPeerRoleDriverV1 for ForeignEvidencePeer {
+        async fn drive_peer(
+            &mut self,
+            peer_package_bytes: &[u8],
+            initiator_package_bytes: &[u8],
+            initiator_signed_commitment: &[u8],
+        ) -> RouterAbProtocolResult<TenantRootPeerRoleOutcomeV1> {
+            let mut honest = RealPeer::new(self.role);
+            let mut outcome = honest
+                .drive_peer(
+                    peer_package_bytes,
+                    initiator_package_bytes,
+                    initiator_signed_commitment,
+                )
+                .await?;
+            // Corrupt the evidence so its signature no longer verifies.
+            outcome.signed_installation_evidence[0] ^= 0xff;
+            Ok(outcome)
+        }
     }
 
-    fn drive<P: TenantRootPeerRoleDriverV1>(
+    async fn drive<P: TenantRootPeerRoleDriverV1>(
         peer: &mut P,
     ) -> RouterAbProtocolResult<TenantRootRoleCreationProgressV1> {
         let mut online = InMemoryProvider::new();
@@ -2234,23 +2316,41 @@ mod initiator_tests {
             ISSUED_AT_MS + 2,
             &mut ChaCha20Rng::from_seed([0x77; 32]),
         )
+        .await
     }
 
-    /// The initiator commits, drives the peer, and seals in one invocation.
+    fn block_on<F: core::future::Future>(future: F) -> F::Output {
+        futures::executor::block_on(future)
+    }
+
+    /// The peer is handed the initiator's exact commitment and package.
+    ///
+    /// This is the property the earlier test masked: B cannot derive A's
+    /// commitment, so the orchestration must transport it.
     #[test]
-    fn the_initiator_completes_within_a_single_invocation() {
-        let mut peer = RealPeer {
-            role: TwoPartyDeriverRole::DeriverB,
-            initiator_commitment: initiator_commitment(),
-            persisted: true,
-            calls: 0,
-        };
-        let progress = drive(&mut peer).expect("initiator sealed");
+    fn the_peer_receives_the_initiators_exact_commitment_and_package() {
+        let mut peer = RealPeer::new(TwoPartyDeriverRole::DeriverB);
+        let progress = block_on(drive(&mut peer)).expect("initiator sealed");
         assert_eq!(peer.calls, 1, "the peer is driven exactly once");
-        assert!(matches!(
-            progress,
-            TenantRootRoleCreationProgressV1::Sealed { .. }
-        ));
+
+        let received = peer
+            .received_initiator_commitment
+            .expect("the peer must receive a commitment");
+        let TenantRootRoleCreationProgressV1::Sealed {
+            signed_commitment, ..
+        } = progress
+        else {
+            panic!("expected a sealed initiator")
+        };
+        assert_eq!(
+            received, signed_commitment,
+            "the peer must receive the initiator's exact commitment"
+        );
+        assert_eq!(
+            peer.received_initiator_package.expect("package"),
+            package_bytes(TwoPartyDeriverRole::DeriverA, &ISSUER_KEY),
+            "the peer must receive the initiator's exact package"
+        );
     }
 
     /// A failed peer call abandons the attempt. Nothing durable was written for
@@ -2258,26 +2358,34 @@ mod initiator_tests {
     #[test]
     fn a_failed_peer_call_abandons_the_initiator_attempt() {
         assert!(
-            drive(&mut FailingPeer).is_err(),
+            block_on(drive(&mut FailingPeer)).is_err(),
             "a failed peer call must abandon rather than park a scalar"
         );
     }
 
-    /// The initiator refuses to finalize against a peer that has not persisted.
-    ///
-    /// Finalizing anyway would leave the initiator durably installed against a
-    /// peer share that may never exist.
+    /// A missing terminal receipt is refused: the initiator will not install
+    /// against a peer that cannot show its own insertion completed.
     #[test]
-    fn the_initiator_refuses_a_peer_that_did_not_persist() {
-        let mut peer = RealPeer {
-            role: TwoPartyDeriverRole::DeriverB,
-            initiator_commitment: initiator_commitment(),
-            persisted: false,
-            calls: 0,
-        };
+    fn the_initiator_refuses_a_peer_without_a_terminal_receipt() {
+        let mut peer = RealPeer::new(TwoPartyDeriverRole::DeriverB);
+        peer.withhold_receipt = true;
         assert_eq!(
-            drive(&mut peer).expect_err("unpersisted peer").code(),
+            block_on(drive(&mut peer))
+                .expect_err("missing terminal receipt")
+                .code(),
             RouterAbProtocolErrorCode::ForbiddenLocalBinding
+        );
+    }
+
+    /// The peer's installation evidence is verified, not taken on trust.
+    #[test]
+    fn the_initiator_verifies_the_peers_installation_evidence() {
+        let mut peer = ForeignEvidencePeer {
+            role: TwoPartyDeriverRole::DeriverB,
+        };
+        assert!(
+            block_on(drive(&mut peer)).is_err(),
+            "unverifiable peer evidence must be refused"
         );
     }
 }
