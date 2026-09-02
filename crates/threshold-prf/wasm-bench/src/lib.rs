@@ -13,10 +13,10 @@ use router_ab_core::{
     StableTenantDerivationContextV2, TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1,
     TenantRootCeremonyNonceV1, TenantRootCeremonySessionIdV1, TenantRootCustodyLineageId,
     TenantRootIdentityV1, TenantRootRefreshCommitmentTranscriptV1,
-    TenantRootRefreshContributionAadV1, TenantRootRefreshHpkeKeypairV1, TenantRootShareEpoch,
-    TenantRootShareInstallationEvidenceV1, TenantRootShareInstallationTranscriptV1,
-    TenantRootSignedRefreshCommitmentV1, TenantRootSignedRefreshContributionV1,
-    TenantRootSignedShareInstallationEvidenceV1,
+    TenantRootRefreshContributionAadV1, TenantRootRefreshHpkeKeypairV1,
+    TenantRootRefreshHpkePublicKeyV1, TenantRootShareEpoch, TenantRootShareInstallationEvidenceV1,
+    TenantRootShareInstallationTranscriptV1, TenantRootSignedRefreshCommitmentV1,
+    TenantRootSignedRefreshContributionV1, TenantRootSignedShareInstallationEvidenceV1,
 };
 use threshold_prf::trusted::combine_partials;
 use threshold_prf::{
@@ -463,9 +463,15 @@ fn r120_verified_refresh_commitment(
     context: TenantRootCeremonyContextV1,
     coefficient: &RootShareRefreshCoefficient,
     signing_key: &SigningKey,
+    recipient_key_id: &str,
+    recipient_public_key: TenantRootRefreshHpkePublicKeyV1,
 ) -> Result<router_ab_core::VerifiedTenantRootRefreshCommitmentV1, RouterAbDerivationError> {
-    let transcript =
-        TenantRootRefreshCommitmentTranscriptV1::new(context, coefficient.commitment())?;
+    let transcript = TenantRootRefreshCommitmentTranscriptV1::new(
+        context,
+        coefficient.commitment(),
+        recipient_key_id,
+        recipient_public_key,
+    )?;
     TenantRootSignedRefreshCommitmentV1::sign(transcript, &signing_key.to_bytes())?
         .verify(signing_key.verifying_key().as_bytes())
 }
@@ -509,10 +515,20 @@ fn run_r120_tenant_root_outer_protocol_vector() -> Result<(), RouterAbDerivation
         RootShareRefreshCoefficient::random(TwoPartyDeriverRole::DeriverA, &mut seeded_rng(71));
     let coefficient_b =
         RootShareRefreshCoefficient::random(TwoPartyDeriverRole::DeriverB, &mut seeded_rng(72));
-    let commitment_a =
-        r120_verified_refresh_commitment(context.clone(), &coefficient_a, &signing_a)?;
-    let commitment_b =
-        r120_verified_refresh_commitment(context.clone(), &coefficient_b, &signing_b)?;
+    let commitment_a = r120_verified_refresh_commitment(
+        context.clone(),
+        &coefficient_a,
+        &signing_a,
+        "deriver-b-hpke-key-8",
+        hpke_b.public_key(),
+    )?;
+    let commitment_b = r120_verified_refresh_commitment(
+        context.clone(),
+        &coefficient_b,
+        &signing_b,
+        "deriver-a-hpke-key-8",
+        hpke_a.public_key(),
+    )?;
     let commitment_pair =
         router_ab_core::VerifiedTenantRootRefreshCommitmentPairV1::new(commitment_a, commitment_b)?;
     let aad_a_to_b = TenantRootRefreshContributionAadV1::deriver_a_to_b(
