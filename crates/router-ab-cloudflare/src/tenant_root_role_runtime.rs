@@ -3,7 +3,7 @@ use router_ab_core::{
     PendingTenantRootInitialRoleAttemptV1, RouterAbDerivationError, RouterAbDerivationErrorCode,
     RouterAbDerivationResult, TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1,
     TenantRootControlPlaneAuthorityIdV1, TenantRootCustodyLineageId, TenantRootIdentityDigestV1,
-    TenantRootManagedBackupBindingV1, TenantRootManagedBackupSealRequestV1,
+    TenantRootIdentityV1, TenantRootManagedBackupBindingV1, TenantRootManagedBackupSealRequestV1,
     TenantRootOnlineRoleShareBindingV1, TenantRootOnlineRoleShareSealRequestV1,
     TenantRootRoleCreationCommandPackageV1, TenantRootSealedOnlineRoleShareV1,
     TenantRootShareEpoch, TenantRootSignedCreationCommitmentV1,
@@ -19,6 +19,10 @@ use zeroize::Zeroizing;
 use crate::env::{
     CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
     CloudflareTenantRootCreationRoleSignerV1, TenantRootCreationRoleVerifyingKeysV1,
+};
+#[cfg(feature = "workers-rs")]
+use crate::tenant_root_role_d1::{
+    CloudflareTenantRootInitialCreationInputV1, CloudflareTenantRootInitialCreationShareInputV1,
 };
 use crate::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 
@@ -166,6 +170,66 @@ where
     pending
         .finalize(pair, role_signing_key_bytes, rng)
         .map_err(candidate_derivation_error)
+}
+
+#[cfg(feature = "workers-rs")]
+/// Seals a finalized role attempt and builds its role-local persistence input.
+///
+/// This is the last step before anything durable exists for this role. The
+/// scalar is consumed here: it goes into the online provider's sealed
+/// ciphertext and the managed backup, and neither the returned value nor
+/// anything it contains carries it in the clear.
+///
+/// The returned input is not yet persisted. Reservation and insertion are
+/// separate, one-use, and exactly retryable, so a lost response after sealing
+/// re-reserves the same command rather than creating a second share.
+#[cfg(feature = "workers-rs")]
+pub(crate) fn seal_initial_role_creation_for_persistence_v1<Online, Backup>(
+    finalized: VerifiedTenantRootInitialRoleAttemptV1,
+    signer: &crate::CloudflareTenantRootCreationRoleSignerV1,
+    provider_config: &TenantRootRoleRuntimeProviderConfigV1,
+    online_provider: &mut Online,
+    managed_backup_provider: &mut Backup,
+    identity: TenantRootIdentityV1,
+    staged_at_ms: u64,
+) -> RouterAbProtocolResult<(
+    CloudflareTenantRootInitialCreationInputV1,
+    VerifiedTenantRootManagedBackupV1,
+)>
+where
+    Online: TenantRootOnlineRoleShareProviderV1,
+    Backup: TenantRootManagedBackupProviderV1,
+{
+    let (command, evidence, artifacts) = compose_initial_tenant_root_role_runtime_v1(
+        finalized,
+        signer,
+        provider_config,
+        online_provider,
+        managed_backup_provider,
+    )
+    .map_err(candidate_derivation_error)?;
+    // The command names the tenant; the caller's identity must be that tenant,
+    // so a mis-supplied identity cannot seal a share under the wrong record.
+    let identity_digest = identity.digest().map_err(candidate_derivation_error)?;
+    if identity_digest != command.identity_digest() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root sealing identity does not match its authorized command",
+        ));
+    }
+    let (online_sealed, managed_backup) = artifacts.into_parts();
+    let input = CloudflareTenantRootInitialCreationInputV1::new(
+        command,
+        evidence,
+        CloudflareTenantRootInitialCreationShareInputV1::new(identity, online_sealed, staged_at_ms),
+    )
+    .map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("tenant-root role creation persistence input was refused: {error}"),
+        )
+    })?;
+    Ok((input, managed_backup))
 }
 
 /// Operations needed by one role-local online-share provider.
