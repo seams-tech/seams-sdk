@@ -434,17 +434,23 @@ fn decode_signed_commitment_point(
         .commitment())
 }
 
-/// Proof that the peer durably persisted its own pending share.
+/// A verified role attestation that the peer completed its own insertion.
+///
+/// This is the peer's signed statement, checked against expectations the
+/// verifier derived independently. It is NOT independent proof of the peer's
+/// D1 state: only the peer can observe its own store. A peer whose role key is
+/// compromised can attest an insertion that did not happen, which is why the
+/// role signing keys are role-local and never leave their Deriver.
 ///
 /// Deliberately neither cloneable nor serializable: it is a conclusion reached
 /// locally from verified bytes, not a value to forward.
 #[cfg(feature = "workers-rs")]
-pub(crate) struct VerifiedTenantRootPeerPersistenceV1 {
+pub(crate) struct VerifiedTenantRootPeerPersistenceAttestationV1 {
     peer_role: TwoPartyDeriverRole,
 }
 
 #[cfg(feature = "workers-rs")]
-impl VerifiedTenantRootPeerPersistenceV1 {
+impl VerifiedTenantRootPeerPersistenceAttestationV1 {
     pub(crate) const fn peer_role(&self) -> TwoPartyDeriverRole {
         self.peer_role
     }
@@ -452,16 +458,20 @@ impl VerifiedTenantRootPeerPersistenceV1 {
 
 /// Verifies a peer's terminal receipt using only public expectations.
 ///
-/// The peer's executed-command token stays role-local to the peer and gates
-/// receipt creation there. What crosses is the resulting public attestation,
-/// and every expectation needed to check it is derivable here: the peer's
-/// package is issuer-signed, so verifying it yields the peer's replay key and
-/// command digest; the ceremony yields the peer's signing key id, its trusted
-/// verifying key, and the earliest legitimate terminal time.
+/// The security split is deliberate. The peer verifies the full command digest
+/// locally against its own `ExecutedTenantRootCommandV1`, because that digest
+/// covers the peer's sealed record and is role-private. The verifier here
+/// checks the public attestation instead: the exact replay key, the exact
+/// installation-evidence bytes, the expected role and signing key id, the role
+/// signature, and the ceremony timing.
 ///
-/// The receipt payload must be exactly the peer's installation-evidence bytes,
-/// which binds the receipt to the installation it attests rather than to some
-/// other command by the same role.
+/// The peer's issuer-signed package yields the replay key. It does not yield
+/// the command digest, and this function does not attempt to derive one.
+/// Requiring that would either expose the peer's private ciphertext inputs or
+/// introduce a second public command digest with overlapping semantics.
+///
+/// The payload binding is what constrains the receipt: it must attest exactly
+/// this installation, not another operation by the same role in the ceremony.
 #[cfg(feature = "workers-rs")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn verify_tenant_root_peer_persistence_v1(
@@ -473,7 +483,7 @@ pub(crate) fn verify_tenant_root_peer_persistence_v1(
     trusted_issuer_keys: &CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
     role_keys: &TenantRootCreationRoleVerifyingKeysV1,
     context: &TenantRootCeremonyContextV1,
-) -> RouterAbProtocolResult<VerifiedTenantRootPeerPersistenceV1> {
+) -> RouterAbProtocolResult<VerifiedTenantRootPeerPersistenceAttestationV1> {
     let peer_package =
         TenantRootRoleCreationCommandPackageV1::decode_canonical_bytes(peer_package_bytes)
             .map_err(candidate_derivation_error)?;
@@ -534,7 +544,7 @@ pub(crate) fn verify_tenant_root_peer_persistence_v1(
             trusted_role_key,
         )
         .map_err(candidate_derivation_error)?;
-    Ok(VerifiedTenantRootPeerPersistenceV1 { peer_role })
+    Ok(VerifiedTenantRootPeerPersistenceAttestationV1 { peer_role })
 }
 
 /// Drives the peer Deriver over a service binding.

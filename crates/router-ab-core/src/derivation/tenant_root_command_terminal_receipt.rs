@@ -149,7 +149,6 @@ impl TenantRootCommandSuccessReceiptV1 {
         receipt_digest(self.canonical_bytes()?)
     }
 
-    /// Verifies this successful receipt against the exact executed replay token.
     /// Verifies a success receipt from a remote role using public expectations.
     ///
     /// A peer role cannot reconstruct the signer's executed-command token: the
@@ -206,6 +205,7 @@ impl TenantRootCommandSuccessReceiptV1 {
         )
     }
 
+    /// Verifies this successful receipt against the exact executed replay token.
     pub fn verify(
         &self,
         executed: &ExecutedTenantRootCommandV1,
