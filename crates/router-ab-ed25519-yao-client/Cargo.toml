@@ -51,12 +51,12 @@ router-ab-ed25519-yao-protocol = { path = "../router-ab-ed25519-yao-protocol" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
-signer-core = { path = "../signer-core", features = ["ed25519-yao-derivation", "near-threshold-ed25519", "passkey-custody"] }
+signer-core = { path = "../signer-core", features = ["ed25519-yao-derivation", "near-threshold-ed25519", "passkey-custody", "ed25519-yao-client-root-transfer", "secp256k1"] }
 subtle = { version = "=2.6.1", default-features = false }
 zeroize = { version = "1.8", features = ["zeroize_derive"] }
 
 [dev-dependencies]
-signer-core = { path = "../signer-core", features = ["ed25519-yao-derivation", "near-threshold-ed25519", "passkey-custody"] }
+signer-core = { path = "../signer-core", features = ["ed25519-yao-derivation", "near-threshold-ed25519", "passkey-custody", "ed25519-yao-client-root-transfer"] }
 router-ab-dev = { path = "../router-ab-dev" }
 router-ab-ed25519-yao = { path = "../router-ab-ed25519-yao" }
 

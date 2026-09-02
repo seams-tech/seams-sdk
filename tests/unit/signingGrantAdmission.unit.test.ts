@@ -4,14 +4,14 @@ import {
   classifyWalletSessionQuotaAdmissionFailure,
   decideWalletSessionQuotaAdmissionError,
   WalletSessionQuotaAdmissionError,
-} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/authorizationAdmission';
-import { routerAbNormalSigningAdmissionErrorFromPayload } from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
-import { signingLaneAuthBindingKey } from '../../packages/sdk-web/src/core/signingEngine/session/identity/signingLaneAuthBinding';
+} from '../../packages/wallet/src/core/signingEngine/session/operationState/authorizationAdmission';
+import { routerAbNormalSigningAdmissionErrorFromPayload } from '../../packages/wallet/src/core/rpcClients/relayer/routerAbNormalSigning';
+import { signingLaneAuthBindingKey } from '../../packages/wallet/src/core/signingEngine/session/identity/signingLaneAuthBinding';
 import {
   WALLET_SESSION_QUOTA_EXHAUSTED_ERROR,
   WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR,
-} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/authorizationAdmission';
-import { SigningSessionCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
+} from '../../packages/wallet/src/core/signingEngine/session/operationState/authorizationAdmission';
+import { SigningSessionCoordinator } from '../../packages/wallet/src/core/signingEngine/session/SigningSessionCoordinator';
 
 test.describe('wallet-session quota admission boundary', () => {
   test('parses Router A/B exhausted payloads into typed admission errors', () => {

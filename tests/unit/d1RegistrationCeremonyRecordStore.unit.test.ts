@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   D1RegistrationCeremonyRecordConflictError,
   D1RegistrationCeremonyRecordStore,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecordStore';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecordStore';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

@@ -10,7 +10,7 @@ register a wallet, and create a wallet session before signing.
 
 ## Prerequisites
 
-Install `@seams/sdk`, serve the configured wallet origin, and provide the
+Install `@seams/wallet`, serve the configured wallet origin, and provide the
 registration and relayer environment variables shown in the setup example.
 
 ## Configure the provider
@@ -19,9 +19,12 @@ Place `SeamsWebProvider` above the components that call `useSeams`.
 
 <<< ./setup.tsx
 
-The example reads `VITE_WALLET_ORIGIN`, `VITE_RELAYER_URL`,
-`VITE_SEAMS_PROJECT_ENVIRONMENT_ID`, and `VITE_SEAMS_PUBLISHABLE_KEY` from the
-app environment. Use your own values in each deployment.
+`seamsTestnetConfig` takes the three values a wallet cannot start without and
+defaults the rest — wallet service path, SDK base path, relayer account, and
+chain RPC and explorer URLs. The example reads `VITE_WALLET_ORIGIN`,
+`VITE_RELAYER_URL`, and `VITE_SEAMS_PUBLISHABLE_KEY` from the app environment;
+use your own values in each deployment, and `defineSeamsConfig` when you are not
+on testnet.
 
 ## Register with a passkey
 
@@ -32,7 +35,9 @@ registration screen.
 
 `RegistrationResult` is a typed union. A successful registration can be ready
 immediately or can report pending NEAR provisioning; keep the branch handling
-before reading a chain-specific capability.
+before reading a chain-specific capability. For the pending branch, await
+`seams.registration.awaitNearReady({ walletId })` rather than polling
+`getNearProvisioningState` yourself.
 
 ## Unlock an existing wallet
 

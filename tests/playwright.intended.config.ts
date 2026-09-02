@@ -2,20 +2,43 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
+import {
+  readEnvFile,
+  resolveGoogleClientId,
+  resolveGoogleIdToken,
+} from './scripts/intended-google-oidc-env.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-dotenv.config({ path: path.join(repoRoot, '.env.intended.local'), override: false });
+const intendedEnvFilePath = path.join(repoRoot, '.env.local');
+const intendedFileEnv = readEnvFile(intendedEnvFilePath);
+dotenv.config({ path: intendedEnvFilePath, override: false });
 
-const APP_URL = process.env.SEAMS_INTENDED_APP_URL || 'https://localhost';
+const intendedGoogleClientId = resolveGoogleClientId({
+  processEnv: process.env,
+  fileEnv: intendedFileEnv,
+});
+const intendedGoogleIdToken = resolveGoogleIdToken({
+  processToken: process.env.SEAMS_INTENDED_GOOGLE_ID_TOKEN,
+  fileToken: intendedFileEnv.SEAMS_INTENDED_GOOGLE_ID_TOKEN,
+  clientId: intendedGoogleClientId,
+});
+if (intendedGoogleIdToken) {
+  process.env.SEAMS_INTENDED_GOOGLE_ID_TOKEN = intendedGoogleIdToken;
+}
+
+const APP_URL = process.env.SEAMS_INTENDED_APP_URL || 'http://localhost:4001';
 
 export default defineConfig({
   tsconfig: './tsconfig.playwright.json',
   testDir: '.',
-  testMatch: ['**/e2e/intended-behaviours/**/*.contract.test.ts'],
+  testMatch: [
+    '**/e2e/intended-behaviours/**/*.contract.test.ts',
+    '**/e2e/linked-device.operating-path.test.ts',
+  ],
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  globalTimeout: 600_000,
+  globalTimeout: 1_800_000,
   timeout: 420_000,
   expect: {
     timeout: 15_000,

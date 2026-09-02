@@ -1,5 +1,5 @@
-import { SHAPE_PRESETS } from '@seams/sdk/react';
-import type { SeamsConfigsInput, ThemeProps, WalletShapeId } from '@seams/sdk/react';
+import { SHAPE_PRESETS } from '@seams/wallet/react';
+import type { SeamsConfigsInput, ThemeProps, WalletShapeId } from '@seams/wallet/react';
 
 type SdkAppearance = NonNullable<SeamsConfigsInput['appearance']>;
 
@@ -124,11 +124,11 @@ export const ROSE_PINE_LIGHT_COLORS: Record<string, string> = {
 // "Paper" — the ElevenLabs style: eggshell paper, ink buttons, warm
 // taupe/stone neutrals, and soft blue accents for focused details.
 export const PAPER_LIGHT_COLORS: Record<string, string> = {
-  primary: '#6f9fd8',
-  primaryHover: '#5a8cc7',
+  primary: '#2f9a76',
+  primaryHover: '#157f5f',
   secondary: '#44403b',
   secondaryHover: '#000000',
-  accent: '#6f9fd8',
+  accent: '#2f9a76',
 
   textPrimary: '#000000',
   textSecondary: '#777169',
@@ -157,25 +157,89 @@ export const PAPER_LIGHT_COLORS: Record<string, string> = {
 
   hover: '#f5f3f1',
   active: '#ebe8e4',
-  focus: '#157f5f',
+  focus: '#000000',
 
   success: '#157f5f',
   warning: '#b45309',
   error: '#ff4704',
-  info: '#6f9fd8',
+  info: '#2f9a76',
 
   borderPrimary: '#ebe8e4',
   borderSecondary: '#e5e5e5',
   borderHover: '#d6d1cb',
 
-  highlightPrimary: '#6f9fd8',
-  highlightRow: 'rgba(111, 159, 216, 0.12)',
-  highlightHalo: '#c7dcf4',
+  highlightPrimary: '#2f9a76',
+  highlightRow: 'rgba(47, 154, 118, 0.12)',
+  highlightHalo: '#c3e5d7',
   // one accent in the tx tree: the receiver/contract address. Method names
   // and amounts read in ink (ElevenLabs accent discipline).
-  highlightReceiver: '#4a6fa5',
+  highlightReceiver: '#157f5f',
   highlightMethodName: '#000000',
   highlightAmount: '#000000',
+};
+
+// "Carbon" — the SDK's stock dark slate ramp (hue-240 oklch tokens from
+// theme/palette.json, resolved to sRGB). Every control is a slate slab; the
+// primary CTA leads by sitting one step lighter on the ramp rather than by
+// inverting to white.
+export const CARBON_DARK_COLORS: Record<string, string> = {
+  primary: '#5cacff',
+  primaryHover: '#499fff',
+  secondary: '#876cca',
+  secondaryHover: '#9b78de',
+  accent: '#00cb9b',
+
+  textPrimary: '#f4f5f6',
+  textSecondary: '#8b959d',
+  textMuted: '#626e76',
+  textButton: '#f4f5f6',
+
+  // slate600 — the lit step the reference card uses for its active segment;
+  // one rung above the slabs, so the CTA leads without leaving the ramp
+  buttonBackground: '#3c4a54',
+  buttonHoverBackground: '#4c5c68',
+  // secondary (Google SSO) rides the same slate slab as the other
+  // non-primary actions, so only the CTA sits lifted
+  secondaryButtonBackground: '#252f37',
+  secondaryButtonHoverBackground: '#303c45',
+  secondaryButtonBorder: '#3e4952',
+  secondaryButtonText: '#f4f5f6',
+
+  colorBackground: '#12171a',
+  // surface backs the slate slabs: secondary buttons, Scan-and-Link, and
+  // the square-shape input field
+  surface: '#252f37',
+  // chip behind the passkey halo icon: one step down from the slabs
+  passkeyHaloBackground: '#1a2329',
+  // surface2 is the shared hover step: the Scan-and-Link button takes it
+  // directly, the SSO button via secondaryButtonHoverBackground. Both must
+  // resolve to the same value or the two slabs light up differently.
+  surface2: '#303c45',
+  surface3: '#10171c',
+  surface4: '#0a1116',
+  txDetailsBackground: '#1a2329',
+
+  hover: '#303c45',
+  active: '#323c43',
+  focus: '#5cacff',
+
+  success: '#00cb9b',
+  warning: '#cea700',
+  error: '#ff7a80',
+  info: '#5cacff',
+
+  borderPrimary: '#323c43',
+  borderSecondary: '#303c45',
+  borderHover: '#3e4952',
+
+  highlightPrimary: '#5cacff',
+  highlightRow: 'rgba(92, 172, 255, 0.12)',
+  highlightHalo: '#9ecdff',
+  // one accent in the tx tree, mirroring Paper: receiver in blue, method
+  // names and amounts in off-white ink
+  highlightReceiver: '#5cacff',
+  highlightMethodName: '#f4f5f6',
+  highlightAmount: '#f4f5f6',
 };
 
 // "Greenhouse" — the Ironclad palette (ironcladapp.com, from their own color
@@ -341,6 +405,7 @@ const PASTEL_LIGHT_COLORS: Record<string, string> = {
 
 export type DemoThemeId =
   | 'paper'
+  | 'carbon'
   | 'rose-pine-dark'
   | 'rose-pine-light'
   | 'greenhouse'
@@ -362,6 +427,13 @@ export interface DemoThemePreset {
 
 export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
   { id: 'paper', label: 'Paper', mode: 'light', swatch: '#fdfcfc', colors: PAPER_LIGHT_COLORS },
+  {
+    id: 'carbon',
+    label: 'Carbon',
+    mode: 'dark',
+    swatch: '#12171a',
+    colors: CARBON_DARK_COLORS,
+  },
   {
     id: 'rose-pine-dark',
     label: 'Rose Pine Dark',

@@ -1,7 +1,9 @@
 import express, { Express, type RequestHandler } from 'express';
+import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
+import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import { Buffer } from 'node:buffer';
 import type { IncomingMessage } from 'node:http';
-import { AuthService, requireEnvVar, type ThresholdStoreConfigInput } from '@seams/sdk-server';
+import { AuthService, requireEnvVar, type ThresholdStoreConfigInput } from '@seams/wallet-server';
 import {
   createInMemoryConsoleSponsorshipSpendCapService,
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
@@ -13,7 +15,7 @@ import {
   type ConsoleBillingPrepaidReservationService,
   type ConsoleSponsoredCallService,
   type ConsoleSponsorshipSpendCapService,
-} from '@seams-internal/console-server';
+} from '@seams-internal/wallet-console-server';
 import {
   createConsoleRouter,
   createInMemoryConsoleAccountService,
@@ -47,7 +49,7 @@ import {
   type ConsoleWallet,
   type ConsoleWalletService,
   type ConsoleWebhookService,
-} from '@seams-internal/console-server/router/express-adaptor';
+} from '@seams-internal/wallet-console-server/router/express-adaptor';
 
 import dotenv from 'dotenv';
 import { dirname, resolve } from 'node:path';
@@ -55,7 +57,7 @@ import { fileURLToPath } from 'node:url';
 import { createJwtSession } from './jwtSession.js';
 import { resolveWebServerConsoleConfig, toOptionalSecret } from './consoleConfig.js';
 const webServerDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const webServerDotenvPath = resolve(webServerDir, '.env');
+const webServerDotenvPath = resolve(webServerDir, '../..', '.env.local');
 dotenv.config({ path: webServerDotenvPath });
 
 let server: ReturnType<Express['listen']> | null = null;
@@ -650,7 +652,7 @@ async function main() {
     port: Number(env.PORT || 3000),
     host,
     expectedOrigin: env.EXPECTED_ORIGIN || 'https://localhost', // Frontend origin
-    expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://localhost:8443', // Wallet origin (optional)
+    expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://localhost:4002', // Wallet origin (optional)
   };
   const startupHost = config.host || '0.0.0.0';
   console.log(`[web-server] startup target http://${startupHost}:${config.port}`);
@@ -754,7 +756,9 @@ async function main() {
   });
   const consoleOrgProjectEnvBase: ConsoleOrgProjectEnvService =
     createInMemoryConsoleOrgProjectEnvService();
-  const consoleApiKeys: ConsoleApiKeyService = createInMemoryConsoleApiKeyService();
+  const consoleApiKeys: ConsoleApiKeyService = createInMemoryConsoleApiKeyService({
+    scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+  });
   const consolePolicies: ConsolePolicyService = createInMemoryConsolePolicyService();
   const consoleApprovals: ConsoleApprovalService = createInMemoryConsoleApprovalService();
   const consoleRuntimeSnapshots: ConsoleRuntimeSnapshotService =
@@ -798,6 +802,7 @@ async function main() {
     createInMemoryConsoleObservabilityService();
   const consoleObservabilityIngestion: ConsoleObservabilityIngestionService | null = null;
   const consoleWebhooks: ConsoleWebhookService = createInMemoryConsoleWebhookService({
+    categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
     observabilityIngestion: consoleObservabilityIngestion,
     observabilityLogger: console as any,
   } as any);

@@ -23,7 +23,7 @@ const envFile = readEnvFile(envFilePath);
 
 // Opt-out for a clean, unseeded console (e.g. to exercise the real
 // org/project/environment creation flow from scratch). Set it in the shell or
-// in .env.intended.local (SEAMS_SKIP_INTENDED_CONSOLE_SEED=1); when set, the
+// in .env.local (SEAMS_SKIP_INTENDED_CONSOLE_SEED=1); when set, the
 // seed makes no DB or env-file changes.
 if (
   ['1', 'true', 'yes'].includes(
@@ -70,21 +70,21 @@ function resolveSeedConfig(localEnv) {
     firstNonEmptyString([
       process.env.SEAMS_INTENDED_APP_URL,
       localEnv.SEAMS_INTENDED_APP_URL,
-      'https://localhost',
+      'http://localhost:4001',
     ]),
   );
   const walletOrigin = originFromUrl(
     firstNonEmptyString([
       process.env.SEAMS_INTENDED_WALLET_ORIGIN,
       localEnv.SEAMS_INTENDED_WALLET_ORIGIN,
-      'https://localhost:8443',
+      'https://localhost:4002',
     ]),
   );
   const docsOrigin = originFromUrl(
     firstNonEmptyString([
       process.env.SEAMS_INTENDED_DOCS_ORIGIN,
       localEnv.SEAMS_INTENDED_DOCS_ORIGIN,
-      'https://docs.localhost',
+      'https://docs.localhost:4003',
     ]),
   );
   const publishableKey = firstNonEmptyString([
@@ -131,8 +131,8 @@ function resolveSeedConfig(localEnv) {
       appOrigin,
       walletOrigin,
       docsOrigin,
-      'https://localhost',
-      'https://localhost:8443',
+      'http://localhost:4001',
+      'https://localhost:4002',
     ]),
     keyPrefix: publishableKey.trim().slice(0, 24),
     secretHash: hashApiKeySecret(publishableKey),
@@ -222,7 +222,7 @@ ON CONFLICT(namespace, id) DO UPDATE SET
 
 function buildEnvironmentStatement(config) {
   return `INSERT INTO environments
-  (namespace, id, org_id, project_id, env_key, signing_root_version, name, status, created_at_ms, updated_at_ms)
+  (namespace, id, org_id, project_id, env_key, runtime_version, name, status, created_at_ms, updated_at_ms)
 VALUES
   (${sqlString(config.namespace)}, ${sqlString(config.environmentId)}, ${sqlString(config.orgId)},
    ${sqlString(config.projectId)}, ${sqlString(config.environmentKey)}, 'default',
@@ -231,7 +231,7 @@ ON CONFLICT(namespace, id) DO UPDATE SET
   org_id = excluded.org_id,
   project_id = excluded.project_id,
   env_key = excluded.env_key,
-  signing_root_version = excluded.signing_root_version,
+  runtime_version = excluded.runtime_version,
   name = excluded.name,
   status = excluded.status,
   updated_at_ms = excluded.updated_at_ms;`;

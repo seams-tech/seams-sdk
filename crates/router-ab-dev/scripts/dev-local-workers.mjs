@@ -21,20 +21,20 @@ import { prepareRouterAbStrictLocalRuntimeConfigs } from './strict-local-runtime
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const ansiSequencePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
-dotenv.config({ path: join(repoRoot, '.env.intended.local') });
+dotenv.config({ path: join(repoRoot, '.env.local') });
 const gatewayHost = '127.0.0.1';
-const gatewayPort = 9090;
+const gatewayPort = 4100;
 const gatewayBaseUrl = `http://${gatewayHost}:${gatewayPort}`;
 const gatewayInternalWellKnownUrl = `${gatewayBaseUrl}/.well-known/webauthn`;
-const gatewayPublicUrl = 'https://localhost:9444';
+const gatewayPublicUrl = 'https://localhost:4101';
 const gatewayPublicWellKnownUrl = `${gatewayPublicUrl}/.well-known/webauthn`;
 const gatewayPublicHost = 'localhost';
-const gatewayPublicPort = 9444;
+const gatewayPublicPort = 4101;
 const productionWorkerEndpoints = Object.freeze([
-  { role: 'router', label: 'mpc-router', port: 9100, url: 'http://127.0.0.1:9100' },
-  { role: 'deriver-a', port: 9101, url: 'http://127.0.0.1:9101' },
-  { role: 'deriver-b', port: 9102, url: 'http://127.0.0.1:9102' },
-  { role: 'signing-worker', port: 9103, url: 'http://127.0.0.1:9103' },
+  { role: 'router', label: 'mpc-router', port: 4102, url: 'http://127.0.0.1:4102' },
+  { role: 'deriver-a', port: 4103, url: 'http://127.0.0.1:4103' },
+  { role: 'deriver-b', port: 4104, url: 'http://127.0.0.1:4104' },
+  { role: 'signing-worker', port: 4105, url: 'http://127.0.0.1:4105' },
 ]);
 
 const localEnvRoles = [
@@ -126,11 +126,11 @@ const ecdsaDerivationClientPackageWasmPath = join(
   'router_ab_ecdsa_client_bg.wasm',
 );
 const ecdsaDerivationClientSdkWasmPaths = [
-  join(repoRoot, 'packages', 'sdk-web', 'dist', 'workers', 'router_ab_ecdsa_client_bg.wasm'),
+  join(repoRoot, 'packages', 'wallet', 'dist', 'workers', 'router_ab_ecdsa_client_bg.wasm'),
   join(
     repoRoot,
     'packages',
-    'sdk-web',
+    'wallet',
     'dist',
     'public',
     'sdk',
@@ -140,7 +140,7 @@ const ecdsaDerivationClientSdkWasmPaths = [
   join(
     repoRoot,
     'packages',
-    'sdk-web',
+    'wallet',
     'dist',
     'esm',
     'wasm',
@@ -193,11 +193,6 @@ const gateway = {
   exitPromise: null,
   killAsGroup: false,
 };
-const gatewayHttpsProxy = {
-  child: null,
-  exitPromise: null,
-  killAsGroup: false,
-};
 
 const labelColors = {
   gateway: '\x1b[36m',
@@ -242,7 +237,7 @@ try {
   if (options.mode === 'multiplex' && displayMode === 'logs') {
     console.log('Multiplex mode requires a TTY; using interleaved logs.');
   }
-  startProductionWorkers();
+  await startProductionWorkers();
   await waitForProductionWorkers();
   await ensureGateway();
   if (gatewayD1NeedsBootstrap) seedLocalConsoleIdentity();
@@ -733,62 +728,70 @@ async function productionWorkerPortsAreFree() {
   return true;
 }
 
-function startProductionWorkers() {
-  for (let index = 0; index < strictRuntime.configs.length; index += 1) {
-    const config = strictRuntime.configs[index];
-    const pane = workerPanes[index];
-    pane.url = config.url;
-    pane.status = 'starting';
-    appendLine(pane, `config ${relative(repoRoot, config.configPath)}`);
-    appendLine(pane, `url ${config.url}`);
-
-    const child = spawn(
-      'pnpm',
-      [
-        'exec',
-        'wrangler',
-        'dev',
-        '--config',
-        config.configPath,
-        '--port',
-        String(config.port),
-        '--inspector-port',
-        String(config.port + 100),
-        '--persist-to',
-        join(strictPersistPath, config.role),
-        '--env-file',
-        config.secretPath,
-        '--local',
-        '--show-interactive-dev-session=false',
-      ],
-      {
-        cwd: repoRoot,
-        env: process.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: process.platform !== 'win32',
-      },
-    );
-    pane.child = child;
-    pane.pid = child.pid ?? null;
-    pane.killAsGroup = process.platform !== 'win32';
-    pane.exitPromise = new Promise((resolve) => child.once('exit', resolve));
-    child.stdout.on('data', (chunk) => appendChunk(pane, chunk));
-    child.stderr.on('data', (chunk) => appendChunk(pane, chunk, 'stderr: '));
-    child.once('spawn', () => {
-      appendLine(pane, `pid ${child.pid}`);
-      appendProcessStatus(pane, child.pid);
-    });
-    child.once('exit', (code, signal) => {
-      pane.status = signal ? `signal ${signal}` : `exit ${code ?? 'unknown'}`;
-      appendLine(pane, `worker stopped: ${pane.status}`);
-      if (!shutdownStarted) shutdown(exitCodeForChildExit(code, signal));
-    });
-    child.once('error', (error) => {
-      pane.status = 'spawn error';
-      appendLine(pane, `spawn error: ${error.message}`);
-      if (!shutdownStarted) shutdown(1);
-    });
+async function startProductionWorkers() {
+  for (let index = 1; index < strictRuntime.configs.length; index += 1) {
+    startProductionWorker(index);
   }
+  for (let index = 1; index < strictRuntime.configs.length; index += 1) {
+    await waitForUrlResponse(strictRuntime.configs[index].url, 90_000);
+  }
+  startProductionWorker(0);
+}
+
+function startProductionWorker(index) {
+  const config = strictRuntime.configs[index];
+  const pane = workerPanes[index];
+  pane.url = config.url;
+  pane.status = 'starting';
+  appendLine(pane, `config ${relative(repoRoot, config.configPath)}`);
+  appendLine(pane, `url ${config.url}`);
+
+  const child = spawn(
+    'pnpm',
+    [
+      'exec',
+      'wrangler',
+      'dev',
+      '--config',
+      config.configPath,
+      '--port',
+      String(config.port),
+      '--inspector-port',
+      String(config.port + 100),
+      '--persist-to',
+      join(strictPersistPath, config.role),
+      '--env-file',
+      config.secretPath,
+      '--local',
+      '--show-interactive-dev-session=false',
+    ],
+    {
+      cwd: repoRoot,
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
+    },
+  );
+  pane.child = child;
+  pane.pid = child.pid ?? null;
+  pane.killAsGroup = process.platform !== 'win32';
+  pane.exitPromise = new Promise((resolve) => child.once('exit', resolve));
+  child.stdout.on('data', (chunk) => appendChunk(pane, chunk));
+  child.stderr.on('data', (chunk) => appendChunk(pane, chunk, 'stderr: '));
+  child.once('spawn', () => {
+    appendLine(pane, `pid ${child.pid}`);
+    appendProcessStatus(pane, child.pid);
+  });
+  child.once('exit', (code, signal) => {
+    pane.status = signal ? `signal ${signal}` : `exit ${code ?? 'unknown'}`;
+    appendLine(pane, `worker stopped: ${pane.status}`);
+    if (!shutdownStarted) shutdown(exitCodeForChildExit(code, signal));
+  });
+  child.once('error', (error) => {
+    pane.status = 'spawn error';
+    appendLine(pane, `spawn error: ${error.message}`);
+    if (!shutdownStarted) shutdown(1);
+  });
 }
 
 function applyPrivateD1Migrations() {
@@ -854,8 +857,8 @@ function seedLocalConsoleIdentity() {
 
 function canonicalGatewayD1SchemaDigest() {
   const migrationDirectories = [
-    join(repoRoot, 'packages', 'console-server-ts', 'migrations', 'd1-console'),
-    join(repoRoot, 'packages', 'sdk-server-ts', 'migrations', 'd1-signer'),
+    join(repoRoot, 'packages', 'wallet-console-server-ts', 'migrations', 'd1-console'),
+    join(repoRoot, 'packages', 'wallet-server', 'migrations', 'd1-signer'),
   ];
   const migrationPaths = [];
   for (const directory of migrationDirectories) {
@@ -894,6 +897,17 @@ function gatewayD1HasCanonicalAuthorizedOperationsSchema() {
 
 function gatewayD1HasConfiguredPublishableKey() {
   const publishableKey = String(process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local').trim();
+  const appOrigin = new URL(
+    String(process.env.SEAMS_INTENDED_APP_URL || 'http://localhost:4001').trim(),
+  ).origin;
+  const walletOrigin = new URL(
+    String(process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localhost:4002').trim(),
+  ).origin;
+  const docsOrigin = new URL(
+    String(process.env.SEAMS_INTENDED_DOCS_ORIGIN || 'https://docs.localhost:4003').trim(),
+  ).origin;
+  const requiredOrigins = [...new Set([appOrigin, walletOrigin, docsOrigin])];
+  const requiredOriginPlaceholders = requiredOrigins.map(() => '?').join(', ');
   const secretHash = `sha256:${createHash('sha256').update(publishableKey).digest('hex')}`;
   for (const path of sqliteFilesIn(d1LocalPersistPath)) {
     const database = new DatabaseSync(path, { readOnly: true });
@@ -906,14 +920,16 @@ function gatewayD1HasConfiguredPublishableKey() {
       if (Number(hasApiKeys?.present) !== 1) continue;
       const row = database
         .prepare(
-          `SELECT COUNT(*) AS present
+          `SELECT COUNT(DISTINCT origins.value) AS matching_origin_count
              FROM api_keys
+             JOIN json_each(allowed_origins_json) AS origins
             WHERE kind = 'publishable_key'
               AND status = 'ACTIVE'
-              AND secret_hash = ?`,
+              AND secret_hash = ?
+              AND origins.value IN (${requiredOriginPlaceholders})`,
         )
-        .get(secretHash);
-      if (Number(row?.present) === 1) return true;
+        .get(secretHash, ...requiredOrigins);
+      if (Number(row?.matching_origin_count) === requiredOrigins.length) return true;
     } finally {
       database.close();
     }
@@ -944,7 +960,28 @@ async function waitForProductionWorkers() {
   }
   const keysetUrl = `${strictRuntime.mpcRouterUrl}/.well-known/router-ab/keyset`;
   await waitForUrlStatus(keysetUrl, 90_000);
+  const routerSecret = readEnvFile(strictRuntime.configs[0].secretPath).get(
+    'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
+  );
+  if (!routerSecret) {
+    throw new Error('strict Router service-auth secret is unavailable');
+  }
+  await assertAuthenticatedRouterPrewarm(
+    `${strictRuntime.mpcRouterUrl}/internal/prewarm`,
+    routerSecret,
+    90_000,
+  );
   appendLine(workerPanes[0], 'production topology ready');
+}
+
+async function assertAuthenticatedRouterPrewarm(url, secret, timeoutMs) {
+  const status = await requestStatus(url, timeoutMs, {
+    method: 'POST',
+    headers: { 'x-router-ab-internal-service-auth': secret },
+  });
+  if (status.statusCode !== 200) {
+    throw new Error(`Router A/B service bindings did not become ready (HTTP ${status.statusCode})`);
+  }
 }
 
 function printProductionReadySummary() {
@@ -1090,61 +1127,7 @@ async function ensureGatewayHttpsProxy() {
     }
   }
 
-  appendLine(pane, 'Gateway HTTPS proxy not running; starting pnpm caddy...');
-  const child = spawn('pnpm', ['run', 'caddy'], {
-    cwd: repoRoot,
-    env: process.env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: process.platform !== 'win32',
-  });
-  gatewayHttpsProxy.child = child;
-  gatewayHttpsProxy.killAsGroup = process.platform !== 'win32';
-  gatewayHttpsProxy.exitPromise = new Promise((resolve) => child.once('exit', resolve));
-
-  child.stdout.on('data', (chunk) => appendChunk(pane, chunk, 'caddy: '));
-  child.stderr.on('data', (chunk) => appendChunk(pane, chunk, 'caddy stderr: '));
-  child.once('spawn', () => {
-    appendLine(pane, `Gateway HTTPS proxy pid ${child.pid}`);
-    appendProcessStatus(pane, child.pid);
-  });
-  child.once('exit', (code, signal) => {
-    const status = signal ? `signal ${signal}` : `exit ${code ?? 'unknown'}`;
-    appendLine(pane, `Gateway HTTPS proxy stopped: ${status}`);
-    scheduleRender();
-    handleRouterHttpsProxyExit(child, code, signal);
-  });
-  child.once('error', (error) => {
-    appendLine(pane, `Gateway HTTPS proxy spawn error: ${error.message}`);
-    scheduleRender();
-    if (!shutdownStarted) {
-      shutdown(1);
-    }
-  });
-
-  await waitForUrlStatus(gatewayPublicWellKnownUrl, 90_000);
-  await waitForStableUrlStatus(gatewayPublicWellKnownUrl, 2_000, 15_000);
-  appendLine(pane, `Gateway HTTPS proxy ready at ${gatewayPublicUrl}`);
-}
-
-async function handleRouterHttpsProxyExit(child, code, signal) {
-  if (shutdownStarted) {
-    return;
-  }
-  try {
-    await waitForStableUrlStatus(gatewayPublicWellKnownUrl, 750, 10_000);
-    if (gatewayHttpsProxy.child === child) {
-      gatewayHttpsProxy.child = null;
-      gatewayHttpsProxy.exitPromise = null;
-      gatewayHttpsProxy.killAsGroup = false;
-    }
-    appendLine(
-      getGatewayPane(),
-      `Gateway HTTPS proxy still healthy at ${gatewayPublicUrl}; continuing with external proxy`,
-    );
-    scheduleRender();
-    return;
-  } catch {}
-  shutdown(exitCodeForChildExit(code, signal));
+  appendLine(pane, `Gateway HTTPS proxy unavailable at ${gatewayPublicUrl}; start pnpm site`);
 }
 
 function healthCheck(baseUrl) {
@@ -1263,15 +1246,17 @@ async function describeUrlStatus(url) {
   }
 }
 
-function requestStatus(urlInput, timeoutMs) {
+function requestStatus(urlInput, timeoutMs, requestInit = {}) {
   return new Promise((resolve, reject) => {
     const url = urlInput instanceof URL ? urlInput : new URL(urlInput);
     const transport = url.protocol === 'https:' ? https : http;
-    const request = transport.get(
+    const request = transport.request(
       url,
       {
         timeout: timeoutMs,
         rejectUnauthorized: false,
+        method: requestInit.method ?? 'GET',
+        headers: requestInit.headers,
       },
       (response) => {
         response.resume();
@@ -1280,6 +1265,7 @@ function requestStatus(urlInput, timeoutMs) {
     );
     request.on('timeout', () => request.destroy(new Error('timeout')));
     request.on('error', reject);
+    request.end();
   });
 }
 
@@ -1288,10 +1274,6 @@ async function shutdown(exitCode) {
     return;
   }
   shutdownStarted = true;
-  if (isChildRunning(gatewayHttpsProxy.child)) {
-    appendLine(getGatewayPane(), 'stopping Gateway HTTPS proxy...');
-    killChild(gatewayHttpsProxy.child, 'SIGTERM', gatewayHttpsProxy.killAsGroup);
-  }
   if (isChildRunning(gateway.child)) {
     appendLine(getGatewayPane(), 'stopping Gateway...');
     killChild(gateway.child, 'SIGTERM', gateway.killAsGroup);
@@ -1307,18 +1289,11 @@ async function shutdown(exitCode) {
 
   await Promise.race([
     Promise.all(
-      [
-        gatewayHttpsProxy.exitPromise,
-        gateway.exitPromise,
-        ...workerPanes.map((pane) => pane.exitPromise),
-      ].filter(Boolean),
+      [gateway.exitPromise, ...workerPanes.map((pane) => pane.exitPromise)].filter(Boolean),
     ),
     sleep(1200),
   ]);
 
-  if (isChildRunning(gatewayHttpsProxy.child)) {
-    killChild(gatewayHttpsProxy.child, 'SIGKILL', gatewayHttpsProxy.killAsGroup);
-  }
   if (isChildRunning(gateway.child)) {
     killChild(gateway.child, 'SIGKILL', gateway.killAsGroup);
   }
@@ -1328,7 +1303,7 @@ async function shutdown(exitCode) {
     }
   }
   restoreTerminal();
-  console.log('Stopped Router A/B local dev workers, Gateway, and HTTPS proxy.');
+  console.log('Stopped Router A/B local dev workers and Gateway.');
   process.exit(exitCode);
 }
 
@@ -1342,16 +1317,9 @@ async function stopStartedChildren() {
   if (isChildRunning(gateway.child)) {
     killChild(gateway.child, 'SIGTERM', gateway.killAsGroup);
   }
-  if (isChildRunning(gatewayHttpsProxy.child)) {
-    killChild(gatewayHttpsProxy.child, 'SIGTERM', gatewayHttpsProxy.killAsGroup);
-  }
   await Promise.race([
     Promise.all(
-      [
-        gatewayHttpsProxy.exitPromise,
-        gateway.exitPromise,
-        ...workerPanes.map((pane) => pane.exitPromise),
-      ].filter(Boolean),
+      [gateway.exitPromise, ...workerPanes.map((pane) => pane.exitPromise)].filter(Boolean),
     ),
     sleep(1200),
   ]);
@@ -1769,8 +1737,8 @@ function usage() {
        pnpm router:build [-- --root <path>] [--fresh] [--no-init]
 
 Runs Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker in one terminal.
-Also starts the Gateway on 127.0.0.1:9090 when it is not already running.
-Also verifies https://localhost:9444/.well-known/webauthn and starts Caddy when that local HTTPS proxy is absent.
+Also starts the Gateway on 127.0.0.1:4100 when it is not already running.
+Reports whether the HTTPS proxy from pnpm site is available at https://localhost:4101/.well-known/webauthn.
 
 Options:
   --root <path>      Local root containing generated env files. Defaults to repo root.
@@ -1778,8 +1746,8 @@ Options:
   --fresh           Regenerate env files before launch.
   --no-init         Require env files to already exist.
   --no-gateway
-                    Use an already-running external Gateway on 127.0.0.1:9090.
+                    Use an already-running external Gateway on 127.0.0.1:4100.
   --build-only      Build strict Worker artifacts and exit without starting services.
 
-Press Ctrl-C to stop all workers, stop started Gateway/proxy processes, and restore the terminal.`;
+Press Ctrl-C to stop all workers, stop the started Gateway, and restore the terminal.`;
 }

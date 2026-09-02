@@ -10,10 +10,10 @@ import {
 } from '@/core/signingEngine/flows/signEvmFamily/signingFlow';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import {
-  activeEvmFamilyWalletSessionAuthorizationFixture,
   canonicalEvmFamilyEcdsaSigningCapabilityFixture,
   ecdsaCapabilityActivationLookupFixture,
 } from './helpers/ecdsaCapabilityManifest.fixtures';
+import { buildExactPasskeyEvmFamilyWalletSessionAuthorizationFixture } from './helpers/exactEvmFamilyWalletSessionAuthorization.fixtures';
 
 // R90-INV-010. A preparation binds one material activation; the wallet's active
 // manifest names the one that may be used now. When those differ the
@@ -87,46 +87,56 @@ test.describe('ECDSA material supersession', () => {
   });
 
   test('treats reusable authorization replacement during confirmation as superseded', async () => {
-    const fixture = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('passkey');
-    const preparedAuthorization = activeEvmFamilyWalletSessionAuthorizationFixture({
-      manifest: fixture.manifest,
-      walletSessionId: 'prepared-wallet-session',
-    });
-    const currentAuthorization = activeEvmFamilyWalletSessionAuthorizationFixture({
-      manifest: fixture.manifest,
-      walletSessionId: 'replacement-wallet-session',
+    const preparedAuthorization = await buildExactPasskeyEvmFamilyWalletSessionAuthorizationFixture(
+      {
+        label: 'session-replacement',
+        walletSessionLabel: 'prepared-wallet-session',
+        authorizationLabel: 'shared-authorization',
+        quotaLabel: 'shared-quota',
+      },
+    );
+    const currentAuthorization = await buildExactPasskeyEvmFamilyWalletSessionAuthorizationFixture({
+      label: 'session-replacement',
+      walletSessionLabel: 'replacement-wallet-session',
+      authorizationLabel: 'shared-authorization',
+      quotaLabel: 'shared-quota',
     });
 
     expect(
       ecdsaSigningAuthorizationSupersession({
         preparedAuthorization,
         currentAuthorization,
-        materialActivation: fixture.manifest.activation.materialActivation,
+        materialActivation: preparedAuthorization.runtime.materialActivation,
       }),
     ).toEqual({
       kind: 'superseded',
       supersessionKind: 'reusable_authorization_replaced',
-      preparedMaterialActivation: fixture.manifest.activation.materialActivation,
-      currentMaterialActivation: fixture.manifest.activation.materialActivation,
+      preparedMaterialActivation: preparedAuthorization.runtime.materialActivation,
+      currentMaterialActivation: preparedAuthorization.runtime.materialActivation,
     });
   });
 
   test('treats reusable quota replacement during confirmation as superseded', async () => {
-    const fixture = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('passkey');
-    const preparedAuthorization = activeEvmFamilyWalletSessionAuthorizationFixture({
-      manifest: fixture.manifest,
-      quotaId: 'prepared-quota',
-    });
-    const currentAuthorization = activeEvmFamilyWalletSessionAuthorizationFixture({
-      manifest: fixture.manifest,
-      quotaId: 'replacement-quota',
+    const preparedAuthorization = await buildExactPasskeyEvmFamilyWalletSessionAuthorizationFixture(
+      {
+        label: 'quota-replacement',
+        walletSessionLabel: 'shared-wallet-session',
+        authorizationLabel: 'shared-authorization',
+        quotaLabel: 'prepared-quota',
+      },
+    );
+    const currentAuthorization = await buildExactPasskeyEvmFamilyWalletSessionAuthorizationFixture({
+      label: 'quota-replacement',
+      walletSessionLabel: 'shared-wallet-session',
+      authorizationLabel: 'shared-authorization',
+      quotaLabel: 'replacement-quota',
     });
 
     expect(
       ecdsaSigningAuthorizationSupersession({
         preparedAuthorization,
         currentAuthorization,
-        materialActivation: fixture.manifest.activation.materialActivation,
+        materialActivation: preparedAuthorization.runtime.materialActivation,
       }),
     ).toMatchObject({
       kind: 'superseded',

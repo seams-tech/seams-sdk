@@ -211,13 +211,6 @@ const EMAIL_OTP_REGISTRATION_SESSION_SCRIPT = String.raw`
           walletId: 'alice.testnet',
           authMethod: 'email_otp',
         },
-        reusableWalletSession: {
-          kind: 'missing',
-          walletId: 'alice.testnet',
-          authorizationId: 'wallet-session-authorization-router-fixture',
-          walletSessionId: 'wallet-session-router-fixture',
-          authMethod: 'email_otp',
-        },
         capabilityProjection: { kind: 'not_requested' },
         nonceDiagnostics: null,
       };
@@ -270,6 +263,15 @@ const EMAIL_OTP_REGISTRATION_SESSION_SCRIPT = String.raw`
           }
           if (data.type === 'PM_GET_EXACT_WALLET_SESSION_STATE') {
             captureEmailOtpRequest(data.type);
+            postResult(requestId, {
+              kind: 'wallet_unlocked_without_signing_session',
+              walletId: 'alice.testnet',
+              authorizationId: 'wallet-session-authorization-router-fixture',
+              walletSessionId: 'wallet-session-router-fixture',
+              authMethod: 'email_otp',
+              reason: 'not_found',
+            });
+            return;
           }
           originalHandler?.(event);
         };
@@ -286,6 +288,53 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
 
   test.afterEach(async ({ page }) => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
+  });
+
+  test('addEmailOtp shows an interactive wallet surface while awaiting the OTP', async ({
+    page,
+  }) => {
+    const routerPath = SDK_ESM_PATHS.walletIframeRouter;
+    const result = await page.evaluate(
+      async ({ walletOrigin, waitForSource, routerPath }) => {
+        const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
+        const mod = await import(routerPath);
+        const { WalletIframeRouter } =
+          mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+        const router = new WalletIframeRouter({
+          walletOrigin,
+          servicePath: '/wallet-service',
+          connectTimeoutMs: 3000,
+          requestTimeoutMs: 100,
+          sdkBasePath: '/sdk',
+        });
+        await router.init();
+
+        let settled = false;
+        const request = router
+          .addEmailOtp({ walletId: 'alice.testnet', emailAddress: 'alice@example.test' })
+          .then(
+            () => {
+              settled = true;
+            },
+            () => {
+              settled = true;
+            },
+          );
+        const shown = await waitFor(() => router.getOverlayState().visible, 3000);
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        const state = router.getOverlayState();
+        const remainedInteractive = !settled && state.visible;
+
+        router.dispose();
+        await request;
+        return { shown, remainedInteractive, mode: state.mode };
+      },
+      { walletOrigin: WALLET_ORIGIN, waitForSource: WAIT_FOR_SOURCE, routerPath },
+    );
+
+    expect(result.shown).toBe(true);
+    expect(result.remainedInteractive).toBe(true);
+    expect(result.mode).toBe('compact_modal');
   });
 
   test('executeAction shows overlay then hides it after request timeout', async ({ page }) => {
@@ -744,9 +793,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     expect(result.statuses).toEqual([]);
   });
 
-  test('Email OTP registration mirrors its returned session without another iframe request', async ({
-    page,
-  }) => {
+  test('Email OTP registration refreshes its exact session state', async ({ page }) => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
     await registerWalletServiceRoute(
       page,
@@ -792,6 +839,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
             throw new Error('Expected Google Email OTP registration flow');
           }
           const completed = await started.value.completeRegistration();
+          await new Promise((resolve) => setTimeout(resolve, 0));
 
           return {
             success: true as const,
@@ -823,6 +871,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
       'PM_GET_EXACT_WALLET_SESSION_STATE',
       'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH',
       'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION',
+      'PM_GET_EXACT_WALLET_SESSION_STATE',
     ]);
     expect(result.statuses).toEqual([{ isLoggedIn: true, walletId: 'alice.testnet' }]);
     expect(result.mirroredSession).toEqual({

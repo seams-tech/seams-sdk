@@ -1,7 +1,18 @@
 # Seams SDK
 
-Monorepo for `@seams/sdk`: an embedded passkey wallet SDK and
+Monorepo for `@seams/wallet`: an embedded passkey wallet SDK and
 self-hostable signing infrastructure.
+
+## Product direction
+
+Seams is for applications that need a persistent wallet for each user or
+shopping agent. The three primary use cases are platform wallets, shopping
+wallet applications, and shopping agents purchasing from unrelated ecommerce
+stores. Ordinary one-off merchant checkout is outside the primary customer
+profile.
+
+Read [the wallet vision](docs/vision.md) for customer fit, product boundaries,
+and priorities.
 
 ## Getting Started
 
@@ -18,25 +29,29 @@ pnpm router
 ```
 
 - Run the commands above in separate terminals.
-- `pnpm run site` is the canonical local UI entrypoint. It starts Caddy + site + docs for local HTTPS (`brew install caddy`; first run may prompt for trust via `caddy trust`).
+- `pnpm run site` is the canonical local UI entrypoint. It stops an existing
+  Caddy listener on the Seams development ports, then starts Caddy + site + docs
+  in the foreground. Ctrl+C releases the ports for another local project.
 - If SDK wallet assets or Router A/B Worker artifacts are missing or stale,
   refresh them explicitly with `pnpm build:sdk`. After browser WASM changes,
   run `pnpm build:sdk-full`.
-- `pnpm router` starts Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker. It starts Gateway through `pnpm gateway:server` when `127.0.0.1:9090` is not already ready.
-- Primary local endpoints: app `https://localhost`, wallet `https://localhost:8443`, Gateway base `https://localhost:9444`.
-- Docs default origin: `https://docs.localhost`.
-- Internal dev ports: Vite on `http://localhost:3600`, Gateway on `http://127.0.0.1:9090`, and MPCRouter on `http://127.0.0.1:9100`.
+- `pnpm router` starts Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker. It starts Gateway through `pnpm gateway:server` when `127.0.0.1:4100` is not already ready.
+- Primary local endpoints: app `http://localhost:4001`, wallet `https://localhost:4002`, Gateway base `https://localhost:4101`.
+- Docs default origin: `https://docs.localhost:4003`.
+- Internal dev ports: site Vite on `http://localhost:4004`, Console Vite on `http://localhost:4005`, docs VitePress on `http://localhost:4006`, Gateway on `http://127.0.0.1:4100`, and MPCRouter on `http://127.0.0.1:4102`.
 - Browser-managed registration in the local site uses
   `VITE_SEAMS_PROJECT_ENVIRONMENT_ID` and `VITE_SEAMS_PUBLISHABLE_KEY`.
+- Keep all human-edited local configuration in the ignored root `.env.local`.
+  `pnpm router` generates its role-specific env files; do not edit those files.
 
 ## Repo Layout
 
 - `apps/seams-site`: local app, wallet origin, and Caddy config.
 - `apps/web-server`: Gateway runtime.
 - `apps/docs`: documentation site.
-- `packages/sdk-web`: browser SDK package.
-- `packages/sdk-server-ts`: server-side Router helpers.
-- `packages/sdk-web/src/core/runtime`: shared runtime composition code.
+- `packages/wallet`: browser SDK package.
+- `packages/wallet-server`: server-side Router helpers.
+- `packages/wallet/src/core/runtime`: shared runtime composition code.
 - `packages/shared-ts`: shared TypeScript utilities.
 - `crates`: Rust protocol, signer, HSS, and Router A/B crates.
 - `wasm`: signer WASM packages.
@@ -72,8 +87,8 @@ the existing domain type.
 - Public HTTPS route probe: `pnpm router:public-route-smoke`
 
 These commands launch Router A/B protocol harnesses. Browser account creation at
-`https://localhost` still needs the local site; `pnpm router` and
-`pnpm router:multiplex` start Gateway at `127.0.0.1:9090` when it is
+`http://localhost:4001` still needs the local site; `pnpm router` and
+`pnpm router:multiplex` start Gateway at `127.0.0.1:4100` when it is
 not already running. Run `pnpm build:sdk` after SDK or Router A/B Rust changes.
 Run `pnpm build:sdk-full` after browser WASM changes. `pnpm router` validates
 the existing strict Worker artifacts and starts services without rebuilding.

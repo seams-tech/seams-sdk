@@ -75,7 +75,7 @@ test('D1 staging migration plan records migration hashes and noninteractive appl
   const plan = module.buildD1StagingMigrationPlan(migrationInput);
 
   expect(plan.targets).toHaveLength(2);
-  expect(plan.targets[0].migrationsDir).toBe('migrations/d1-console');
+  expect(plan.targets[0].migrationsDir).toBe('../wallet-console-server-ts/migrations/d1-console');
   expect(plan.targets[0].files.length).toBeGreaterThan(0);
   expect(plan.targets[0].files[0].sha256).toMatch(/^[a-f0-9]{64}$/);
   expect(plan.commands).toHaveLength(6);

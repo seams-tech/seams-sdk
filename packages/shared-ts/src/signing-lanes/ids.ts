@@ -4,9 +4,6 @@ import type {
 } from '../utils/ecdsaCapabilityActivation';
 
 export type {
-  AgentPrincipalId,
-  DelegatedIdempotencyKey,
-  DelegatedIntentDigest,
   LaneShareEpoch,
   LaneEnrollmentId,
   LaneOperationId,
@@ -14,7 +11,6 @@ export type {
   LinkedDeviceId,
   LinkedDeviceEnrollmentId,
   LinkDeviceSessionId,
-  MandatePolicyId,
   SigningLaneId,
   WalletKeyId,
   Ed25519YaoSuiteId,
@@ -25,8 +21,8 @@ export type EcdsaManifestIdentity = {
   manifestRevision: EcdsaCapabilityManifestRevision;
 };
 
-// Shared-ts cannot depend on sdk-web's platform module. Keep the chain target
-// structural so sdk-web's ThresholdEcdsaChainTarget remains assignable.
+// Shared-ts cannot depend on the wallet package's platform module. Keep the
+// chain target structural so its ThresholdEcdsaChainTarget remains assignable.
 export type ThresholdEcdsaChainTarget =
   | {
       kind: 'evm';
@@ -41,9 +37,6 @@ export type ThresholdEcdsaChainTarget =
     };
 
 export {
-  parseAgentPrincipalId,
-  parseDelegatedIdempotencyKey,
-  parseDelegatedIntentDigest,
   parseLaneShareEpoch,
   parseLaneEnrollmentId,
   parseLaneOperationId,
@@ -51,7 +44,6 @@ export {
   parseLinkedDeviceId,
   parseLinkedDeviceEnrollmentId,
   parseLinkDeviceSessionId,
-  parseMandatePolicyId,
   parseSigningLaneId,
   parseWalletKeyId,
   parseEd25519YaoSuiteId,

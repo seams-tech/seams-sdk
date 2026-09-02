@@ -18,6 +18,8 @@ import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionS
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
+  AVAILABLE_LANES_ECDSA_RP_ID,
+  AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID,
   availableLaneEd25519Authorization,
   canonicalEcdsaAvailableLane,
 } from './helpers/availableSigningLanes.fixtures';
@@ -43,13 +45,18 @@ const ARC_TARGET_KEY = thresholdEcdsaChainTargetKey(ARC_TARGET);
 const THRESHOLD_OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const PASSKEY_AUTH = {
   kind: 'passkey' as const,
-  rpId: toRpId('localhost'),
-  credentialIdB64u: 'credential-runtime-postconditions',
+  rpId: toRpId(AVAILABLE_LANES_ECDSA_RP_ID),
+  credentialIdB64u: AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID,
+};
+const PASSKEY_OWNER = {
+  auth: PASSKEY_AUTH,
+  signerSlot: 1,
 };
 const EMAIL_OTP_AUTH = {
   kind: 'email_otp' as const,
-  providerSubjectId: 'google:runtime-postconditions',
+  providerSubjectId: 'google:available-lanes',
 };
+const EMAIL_OTP_OWNER = { auth: EMAIL_OTP_AUTH };
 const REQUIRED_TARGETS = [
   { curve: 'ed25519' as const },
   { curve: 'ecdsa' as const, chainTarget: TARGET },
@@ -76,7 +83,7 @@ function ed25519Lane(
     nearAccountId: ED25519_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
     signerSlot: 1,
-    state: options.state ?? 'ready',
+    state: options.state === 'deferred' ? 'ready' : (options.state ?? 'ready'),
     authorizationState: 'authorized',
     authorization: availableLaneEd25519Authorization({
       walletId: String(ED25519_WALLET_ID),
@@ -108,7 +115,7 @@ function ecdsaLane(
     ecdsaThresholdKeyId: 'ecdsa-key-runtime-postconditions',
     thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
     authMethod,
-    state: options.state ?? 'ready',
+    state: options.state === 'restorable' ? 'ready' : (options.state ?? 'ready'),
     remainingUses: options.remainingUses ?? 3,
     expiresAtMs: options.expiresAtMs ?? 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,
@@ -159,9 +166,9 @@ test.describe('wallet runtime postconditions', () => {
     const inventory = await assertWalletRuntimePostconditions({
       source: 'registration_finalize',
       walletId: WALLET_ID,
-      authMethod: 'email_otp',
+      ownerScope: EMAIL_OTP_OWNER,
       requiredTargets: REQUIRED_TARGETS,
-      readPersistedAvailableSigningLanes: async () => availableLanes('registration'),
+      readOwnerScopedSigningLanes: async () => availableLanes('registration'),
     });
 
     expect(inventory.ed25519).toMatchObject({
@@ -184,28 +191,27 @@ test.describe('wallet runtime postconditions', () => {
     });
   });
 
-  test('accepts candidate-backed Ed25519 lanes when the aggregate slot is stale', async () => {
-    const lanes = availableLanes('candidate-backed-unlock', 'passkey');
+  test('rejects unlock when the owner-scoped aggregate lane is missing', async () => {
+    const lanes = availableLanes('aggregate-missing-unlock', 'passkey');
     lanes.lanes.ed25519.near = {
       curve: 'ed25519',
       chain: 'near',
       state: 'missing',
     };
+    lanes.candidates.ed25519.near = [ed25519Lane('stale-candidate', 'passkey')];
 
-    const inventory = await assertWalletRuntimePostconditions({
+    const result = await readWalletRuntimePostconditions({
       source: 'wallet_unlock',
       walletId: WALLET_ID,
-      authMethod: 'passkey',
+      ownerScope: PASSKEY_OWNER,
       requiredTargets: [{ curve: 'ed25519' }],
-      readPersistedAvailableSigningLanes: async () => lanes,
+      readOwnerScopedSigningLanes: async () => lanes,
     });
 
-    expect(inventory.ed25519).toMatchObject({
-      authMethod: 'passkey',
-      target: { curve: 'ed25519' },
-      walletSessionId: 'available-lane-wallet-session:candidate-backed-unlock',
-      quotaId: 'available-lane-quota:candidate-backed-unlock',
-      material: { kind: 'durable_sealed_record' },
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'ed25519_lane_missing',
+      details: { state: 'missing', candidateCount: 1 },
     });
   });
 
@@ -219,9 +225,9 @@ test.describe('wallet runtime postconditions', () => {
     const inventory = await assertWalletRuntimePostconditions({
       source: 'wallet_unlock',
       walletId: WALLET_ID,
-      authMethod: 'email_otp',
+      ownerScope: EMAIL_OTP_OWNER,
       requiredTargets: [{ curve: 'ed25519' }],
-      readPersistedAvailableSigningLanes: async () => lanes,
+      readOwnerScopedSigningLanes: async () => lanes,
     });
 
     expect(inventory.ed25519).toMatchObject({
@@ -235,9 +241,9 @@ test.describe('wallet runtime postconditions', () => {
     const result = await readWalletRuntimePostconditions({
       source: 'wallet_unlock',
       walletId: WALLET_ID,
-      authMethod: 'passkey',
+      ownerScope: PASSKEY_OWNER,
       requiredTargets: [{ curve: 'ed25519' }],
-      readPersistedAvailableSigningLanes: async () => availableLanes('unlock'),
+      readOwnerScopedSigningLanes: async () => availableLanes('unlock'),
     });
 
     expect(result).toMatchObject({
@@ -254,9 +260,9 @@ test.describe('wallet runtime postconditions', () => {
     const result = await readWalletRuntimePostconditions({
       source: 'wallet_unlock',
       walletId: WALLET_ID,
-      authMethod: 'email_otp',
+      ownerScope: EMAIL_OTP_OWNER,
       requiredTargets: REQUIRED_TARGETS,
-      readPersistedAvailableSigningLanes: async () => lanesWithMissingArc,
+      readOwnerScopedSigningLanes: async () => lanesWithMissingArc,
     });
 
     expect(result).toMatchObject({
@@ -274,16 +280,16 @@ test.describe('wallet runtime postconditions', () => {
     const registration = await assertWalletRuntimePostconditions({
       source: 'registration_finalize',
       walletId: WALLET_ID,
-      authMethod: 'email_otp',
+      ownerScope: EMAIL_OTP_OWNER,
       requiredTargets: REQUIRED_TARGETS,
-      readPersistedAvailableSigningLanes: async () => availableLanes('registration'),
+      readOwnerScopedSigningLanes: async () => availableLanes('registration'),
     });
     const unlock = await assertWalletRuntimePostconditions({
       source: 'wallet_unlock',
       walletId: WALLET_ID,
-      authMethod: 'email_otp',
+      ownerScope: EMAIL_OTP_OWNER,
       requiredTargets: REQUIRED_TARGETS,
-      readPersistedAvailableSigningLanes: async () => availableLanes('unlock'),
+      readOwnerScopedSigningLanes: async () => availableLanes('unlock'),
     });
 
     expect(compareWalletRuntimeInventories({ registration, unlock })).toMatchObject({
@@ -295,17 +301,16 @@ test.describe('wallet runtime postconditions', () => {
     const registration = await assertWalletRuntimePostconditions({
       source: 'registration_finalize',
       walletId: WALLET_ID,
-      authMethod: 'passkey',
+      ownerScope: PASSKEY_OWNER,
       requiredTargets: REQUIRED_TARGETS,
-      readPersistedAvailableSigningLanes: async () =>
-        availableLanes('registration-passkey', 'passkey'),
+      readOwnerScopedSigningLanes: async () => availableLanes('registration-passkey', 'passkey'),
     });
     const unlock = await assertWalletRuntimePostconditions({
       source: 'wallet_unlock',
       walletId: WALLET_ID,
-      authMethod: 'passkey',
+      ownerScope: PASSKEY_OWNER,
       requiredTargets: REQUIRED_TARGETS,
-      readPersistedAvailableSigningLanes: async () => availableLanes('unlock-passkey', 'passkey'),
+      readOwnerScopedSigningLanes: async () => availableLanes('unlock-passkey', 'passkey'),
     });
 
     expect(compareWalletRuntimeInventories({ registration, unlock })).toMatchObject({
@@ -324,9 +329,9 @@ test.describe('wallet runtime postconditions', () => {
     const inventory = await assertWalletRuntimePostconditions({
       source: 'wallet_unlock',
       walletId: WALLET_ID,
-      authMethod: 'email_otp',
+      ownerScope: EMAIL_OTP_OWNER,
       requiredTargets: REQUIRED_TARGETS,
-      readPersistedAvailableSigningLanes: async () => lanes,
+      readOwnerScopedSigningLanes: async () => lanes,
     });
 
     expect(inventory.ed25519).toMatchObject({
@@ -347,13 +352,13 @@ test.describe('wallet runtime postconditions', () => {
     const result = await readWalletRuntimePostconditions({
       source: 'wallet_unlock',
       walletId: WALLET_ID,
-      authMethod: 'email_otp',
+      ownerScope: EMAIL_OTP_OWNER,
       requiredTargets: [{ curve: 'ecdsa', chainTarget: ARC_TARGET }],
-      readPersistedAvailableSigningLanes: async () =>
+      readOwnerScopedSigningLanes: async () =>
         availableLanes('page-refresh-expired', 'email_otp', {
           state: 'expired',
           source: 'durable_sealed_record',
-          expiresAtMs: 1,
+          expiresAtMs: 2,
         }),
       nowMs: 1_800_000_000_000,
     });

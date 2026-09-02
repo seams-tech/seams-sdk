@@ -9,12 +9,10 @@ import {
   makeSecretPreview,
   parseApiKeySecret,
 } from './secret';
-import { normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
-import {
-  isApiCredentialScope,
-  type ApiCredentialScope,
-} from "@seams-internal/console-shared/apiKeyScopes";
+import { normalizeCorsOrigin } from '../boundary';
+
 import type {
+  ApiCredentialScopeValidation,
   AuthenticateConsoleApiKeyRequest,
   AuthenticateConsoleApiKeyResult,
   AuthenticateConsolePublishableKeyRequest,
@@ -39,6 +37,7 @@ export interface ConsoleApiKeysContext {
 }
 
 export interface InMemoryConsoleApiKeyServiceOptions {
+  scopeValidation: ApiCredentialScopeValidation;
   now?: () => Date;
 }
 
@@ -119,14 +118,17 @@ function cloneApiKey(apiKey: StoredApiKey): ConsoleApiKey {
   };
 }
 
-function normalizeApiCredentialScopes(input: readonly string[] | undefined): ApiCredentialScope[] {
+function normalizeApiCredentialScopes(
+  input: readonly string[] | undefined,
+  scopeValidation: ApiCredentialScopeValidation,
+): string[] {
   if (!Array.isArray(input)) return [];
-  const out: ApiCredentialScope[] = [];
+  const out: string[] = [];
   const seen = new Set<string>();
   for (const raw of input) {
     const value = String(raw || '').trim();
     if (!value) continue;
-    if (!isApiCredentialScope(value)) {
+    if (!scopeValidation.isKnownScope(value)) {
       throw new ConsoleApiKeyError('invalid_body', 400, `Invalid secret_key scope: ${value}`);
     }
     const dedupeKey = value.toLowerCase();
@@ -141,7 +143,11 @@ function hasAnyDefinedField(input: UpdateConsoleApiKeyRequest): boolean {
   return Object.values(input).some((value) => value !== undefined);
 }
 
-function applyApiKeyUpdate(apiKey: StoredApiKey, request: UpdateConsoleApiKeyRequest): StoredApiKey {
+function applyApiKeyUpdate(
+  apiKey: StoredApiKey,
+  request: UpdateConsoleApiKeyRequest,
+  scopeValidation: ApiCredentialScopeValidation,
+): StoredApiKey {
   if (apiKey.kind === 'publishable_key') {
     if (request.scopes !== undefined || request.ipAllowlist !== undefined) {
       throw new ConsoleApiKeyError(
@@ -179,14 +185,14 @@ function applyApiKeyUpdate(apiKey: StoredApiKey, request: UpdateConsoleApiKeyReq
   return {
     ...apiKey,
     ...(request.name !== undefined ? { name: request.name } : {}),
-    ...(request.scopes !== undefined ? { scopes: normalizeApiCredentialScopes(request.scopes) } : {}),
+    ...(request.scopes !== undefined ? { scopes: normalizeApiCredentialScopes(request.scopes, scopeValidation) } : {}),
     ...(request.ipAllowlist !== undefined ? { ipAllowlist: [...request.ipAllowlist] } : {}),
     ...(request.expiresAt !== undefined ? { expiresAt: request.expiresAt } : {}),
   };
 }
 
 export function createInMemoryConsoleApiKeyService(
-  opts: InMemoryConsoleApiKeyServiceOptions = {},
+  opts: InMemoryConsoleApiKeyServiceOptions,
 ): ConsoleApiKeyService {
   const now = opts.now || (() => new Date());
   const stores = new Map<string, Map<string, StoredApiKey>>();
@@ -217,10 +223,7 @@ export function createInMemoryConsoleApiKeyService(
     apiKey.updatedAt = toIso(now());
   }
 
-  function hasRequiredScopes(
-    scopes: ApiCredentialScope[],
-    requiredScopes: ApiCredentialScope[],
-  ): boolean {
+  function hasRequiredScopes(scopes: string[], requiredScopes: string[]): boolean {
     if (!requiredScopes.length) return true;
     const available = new Set(
       scopes.map((scope) => String(scope || '').trim().toLowerCase()).filter(Boolean),
@@ -310,7 +313,7 @@ export function createInMemoryConsoleApiKeyService(
           : {
               ...base,
               kind: 'secret_key',
-              scopes: normalizeApiCredentialScopes(request.scopes),
+              scopes: normalizeApiCredentialScopes(request.scopes, opts.scopeValidation),
               ipAllowlist: request.ipAllowlist ? [...request.ipAllowlist] : [],
             };
 
@@ -394,7 +397,7 @@ export function createInMemoryConsoleApiKeyService(
       if (!hasAnyDefinedField(request)) {
         return cloneApiKey(apiKey);
       }
-      const next = applyApiKeyUpdate(apiKey, request);
+      const next = applyApiKeyUpdate(apiKey, request, opts.scopeValidation);
       next.updatedAt = toIso(now());
       store.set(apiKeyId, next);
       return cloneApiKey(next);

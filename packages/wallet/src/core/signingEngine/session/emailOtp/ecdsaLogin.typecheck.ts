@@ -1,0 +1,167 @@
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSessionRef,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EcdsaCommittedLane } from '../../flows/signEvmFamily/ecdsaSelection';
+import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
+import type {
+  EmailOtpEcdsaTransactionStepUpInput,
+  LoginEmailOtpEcdsaCapabilityForSigningArgs,
+  LoginEmailOtpEcdsaCapabilityArgs,
+} from './ecdsaLogin';
+
+declare const walletSession: WalletSessionRef;
+declare const chainTarget: ThresholdEcdsaChainTarget;
+declare const committedLane: EcdsaCommittedLane;
+declare const routePlan: EmailOtpRoutePlan;
+
+const transactionStepUpWithCommittedLane: EmailOtpEcdsaTransactionStepUpInput = {
+  mode: 'transaction_step_up',
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  committedLane,
+  remainingUses: 3,
+};
+void transactionStepUpWithCommittedLane;
+
+// @ts-expect-error transaction step-up requires a concrete budget allowance.
+const transactionStepUpWithoutRemainingUses: EmailOtpEcdsaTransactionStepUpInput = {
+  mode: 'transaction_step_up',
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  committedLane,
+};
+void transactionStepUpWithoutRemainingUses;
+
+const transactionStepUpWithRouteAuth: EmailOtpEcdsaTransactionStepUpInput = {
+  mode: 'transaction_step_up',
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  committedLane,
+  remainingUses: 3,
+  // @ts-expect-error transaction step-up does not accept loose route auth.
+  routeAuth: { kind: 'wallet_session', jwt: 'jwt' },
+};
+void transactionStepUpWithRouteAuth;
+
+// @ts-expect-error transaction step-up requires a committed ECDSA lane.
+const transactionStepUpMissingAuth: EmailOtpEcdsaTransactionStepUpInput = {
+  mode: 'transaction_step_up',
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  remainingUses: 3,
+};
+void transactionStepUpMissingAuth;
+
+const transactionStepUpWithRegistrationAttempt: EmailOtpEcdsaTransactionStepUpInput = {
+  mode: 'transaction_step_up',
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  committedLane,
+  remainingUses: 3,
+  // @ts-expect-error transaction step-up does not accept registration attempts.
+  registrationAttemptId: 'registration-attempt',
+};
+void transactionStepUpWithRegistrationAttempt;
+
+const signingCapabilityWithCommittedLane: LoginEmailOtpEcdsaCapabilityForSigningArgs = {
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  committedLane,
+  remainingUses: 3,
+};
+void signingCapabilityWithCommittedLane;
+
+// @ts-expect-error signing capability refresh requires a concrete budget allowance.
+const signingCapabilityWithoutRemainingUses: LoginEmailOtpEcdsaCapabilityForSigningArgs = {
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  committedLane,
+};
+void signingCapabilityWithoutRemainingUses;
+
+// @ts-expect-error signing capability refresh requires a committed ECDSA lane.
+const signingCapabilityWithoutCommittedLane: LoginEmailOtpEcdsaCapabilityForSigningArgs = {
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  remainingUses: 3,
+};
+void signingCapabilityWithoutCommittedLane;
+
+const validCapabilityLoginWithExplicitProvider: LoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  authoritySelector: { kind: 'wallet' },
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  emailHashHex: 'email-hash',
+  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+  providerIdentity: {
+    kind: 'explicit_provider_user',
+    provider: 'google',
+    providerUserId: 'google-provider-user-1',
+  },
+  ed25519YaoRecovery: { kind: 'not_requested' },
+};
+void validCapabilityLoginWithExplicitProvider;
+
+// @ts-expect-error ECDSA login requires a provider-identity branch.
+const invalidCapabilityLoginWithoutProvider: LoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  emailHashHex: 'email-hash',
+  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+};
+void invalidCapabilityLoginWithoutProvider;
+
+const invalidCapabilityLoginWithAuthSubject: LoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  routePlan,
+  emailHashHex: 'email-hash',
+  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+  providerIdentity: {
+    kind: 'explicit_provider_user',
+    provider: 'google',
+    providerUserId: 'google-provider-user-1',
+  },
+  // @ts-expect-error authSubjectId is a worker boundary field, not a login authority input.
+  authSubjectId: 'legacy-auth-subject',
+};
+void invalidCapabilityLoginWithAuthSubject;
+
+// @ts-expect-error ECDSA login core requires a committed route plan.
+const invalidCapabilityLoginWithoutRoutePlan: LoginEmailOtpEcdsaCapabilityArgs = {
+  walletSession,
+  chainTarget,
+  otpCode: '123456',
+  emailHashHex: 'email-hash',
+  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+  providerIdentity: {
+    kind: 'explicit_provider_user',
+    provider: 'google',
+    providerUserId: 'google-provider-user-1',
+  },
+};
+void invalidCapabilityLoginWithoutRoutePlan;
+
+export {};

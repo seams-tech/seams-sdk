@@ -11,18 +11,22 @@ import {
   toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { canonicalEcdsaSealedRuntimeFixture } from './helpers/ecdsaOperationStepUp.fixtures';
-import { activeEvmFamilyWalletSessionAuthorizationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
-import {
-  buildPasskeyEd25519AuthorizationProjectionFixture,
-  buildPasskeyEd25519SealedSessionRecordFixture,
-} from './helpers/sealedSigningSession.fixtures';
+import { buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeFixture } from './helpers/exactEvmFamilyWalletSessionAuthorization.fixtures';
+import { buildPasskeyEd25519SealedSessionRecordFixture } from './helpers/sealedSigningSession.fixtures';
+import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 
 async function createEnvelope(): Promise<WarmSessionEnvelope> {
-  const { fixture, runtime } = await canonicalEcdsaSealedRuntimeFixture('passkey');
-  const authorization = activeEvmFamilyWalletSessionAuthorizationFixture({
-    manifest: fixture.manifest,
-  });
+  const canonicalRuntime = await canonicalEcdsaSealedRuntimeFixture('passkey');
+  const { fixture, runtime } = canonicalRuntime;
+  const authorization =
+    await buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeFixture({
+      label: 'warm-transition',
+      walletSessionLabel: 'warm-transition',
+      authorizationLabel: 'warm-transition',
+      quotaLabel: 'warm-transition',
+      canonicalRuntime,
+    });
   const publicFacts = fixture.manifest.durableMaterial.roleLocalPublicFacts;
   if (
     runtime.authBinding.kind !== 'passkey' ||
@@ -61,7 +65,12 @@ async function createEnvelope(): Promise<WarmSessionEnvelope> {
   if (!ed25519Runtime) {
     throw new Error('transition fixture requires exact Ed25519 sealed runtime');
   }
-  const ed25519Authorization = buildPasskeyEd25519AuthorizationProjectionFixture(ed25519Record);
+  const ed25519Authorization = availableLaneEd25519Authorization({
+    walletId: String(ed25519Runtime.walletId),
+    identitySeed: 'warm-transition',
+    authMethod: 'passkey',
+    expiresAtMs: ed25519Runtime.expiresAtMs,
+  });
   return {
     walletId: ed25519Runtime.walletId,
     capabilities: {

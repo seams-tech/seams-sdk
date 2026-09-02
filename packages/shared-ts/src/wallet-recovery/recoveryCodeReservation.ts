@@ -21,12 +21,9 @@ export type RecoveryCodeReservationId = string & {
   readonly __recoveryCodeReservationIdBrand: 'RecoveryCodeReservationId';
 };
 
-export type WalletRecoveryKeySetId =
-  | `near_ed25519:${string}`
-  | `evm_family_ecdsa:${string}`;
+export type WalletRecoveryKeySetId = `near_ed25519:${string}` | `evm_family_ecdsa:${string}`;
 
-const WALLET_RECOVERY_KEY_LIFECYCLE_DOMAIN_V1 =
-  'seams/wallet-recovery/key-lifecycle/v1' as const;
+const WALLET_RECOVERY_KEY_LIFECYCLE_DOMAIN_V1 = 'seams/wallet-recovery/key-lifecycle/v1' as const;
 
 /** One protocol lifecycle below a wallet-scoped recovery reservation. */
 export async function deriveWalletRecoveryKeyLifecycleId(input: {

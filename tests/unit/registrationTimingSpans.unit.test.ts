@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { emitRegistrationTimingSpan } from '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration';
+import { emitRegistrationTimingSpan } from '../../packages/wallet/src/SeamsWeb/operations/registration/registration';
 
 const traceContext = {
   kind: 'router_ab_trace_context_v1' as const,

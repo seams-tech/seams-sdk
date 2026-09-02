@@ -1,595 +1,279 @@
 import { expect, test } from '@playwright/test';
 import {
-  buildActiveLinkedDeviceSessionState,
-  buildCancelledUnclaimedLinkedDeviceSessionState,
-  buildCommittedCompletionRequiredLinkedDeviceSessionState,
+  buildLinkedDeviceSessionClaimV1,
+  parseQrLinkedDeviceSessionPayloadV5,
+  parseQrLinkedDeviceSessionTextV5,
+  serializeQrLinkedDeviceSessionPayloadV5,
+} from '@shared/device-linking/parsers';
+import {
   computeLinkedDeviceApprovalDigestV1,
   computeLinkedDeviceSessionClaimDigestV1,
-  buildLinkedDeviceHolderDeliveryAcknowledgementV1,
-  buildLinkedDeviceProvisioningCommandV1,
-  buildLinkedDeviceTargetCredentialRegistrationV1,
-  buildLinkedDeviceTargetPreparationV1,
-  assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1,
-  computeLinkedDeviceTargetPreparationDigestV1,
-  parseLinkedDeviceApprovalV1,
-  parseLinkedDeviceHolderDeliveryAcknowledgementV1,
-  parseLinkedDeviceEnrollmentReceiptV1,
-  parseLinkedDeviceEnrollmentTranscriptV1,
-  parseLinkedDeviceProvisioningCommandV1,
-  parseLinkedDeviceProvisioningDeliveriesV1,
-  parseLinkedDeviceProvisioningDeliveriesSubmissionV1,
-  parseLinkedDeviceSessionState,
-  parseLinkedDeviceSessionTransportRequestV1,
-  parseLinkedDeviceTargetCredentialRegistrationV1,
-  parseLinkedDeviceTargetPreparationV1,
-  parseLinkedDeviceTargetReadyR102InputV1,
-  parseLinkedDeviceWalletSessionDeliveryV1,
-  parseLinkedDeviceOwnerAuthorizationRequestV1,
-  parseLinkedDeviceOwnerSourceLaneV1,
-  parseQrLinkedDeviceSessionTextV4,
-  parseQrLinkedDeviceSessionPayloadV4,
-  serializeQrLinkedDeviceSessionPayloadV4,
-} from '../../packages/shared-ts/src/device-linking';
-import type { HttpTransport } from '../../packages/sdk-web/src/core/platform/http';
-import { createWalletHostOwnerAuthoritiesV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/walletHostOwnerAuthority';
+} from '@shared/device-linking/digests';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
-import { buildOwnerWalletExecutionEvidenceFixture } from './helpers/walletExecutionLane.fixtures';
-import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 import {
-  buildR102HolderDeliveryReceipt,
-  buildR102LaneJob,
-  buildR102ManifestChild,
-  buildR102ProtocolCommitReceipt,
-} from './helpers/r102LaneGateway.fixtures';
-import { parseRotatableSigningLaneJobV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
-import { buildLaneEnrollmentManifestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import { parseWalletAuthorityId } from '@shared/utils/domainIds';
 import {
-  parseWebAuthnCredentialIdB64u,
-  parseWebAuthnRpId,
-} from '../../packages/shared-ts/src/utils/domainIds';
-import { buildR103LinkedWalletSessionDeliveryFixture } from './helpers/deviceLinkContracts.fixtures';
+  buildActiveWalletSessionV1,
+  parseStoredExactWalletSessionAuthorizationRowV6,
+  toStoredExactWalletSessionAuthorizationRowV6,
+} from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  parseLinkedDeviceApprovalResultV1,
+  parseActiveWalletSessionV1,
+  parseLinkSessionProjectionV1,
+  parseLinkSessionStateV1,
+  parseLinkSessionTransportEventV1,
+  parseWalletSessionOperationCredentialV1,
+} from '../../packages/shared-ts/src/device-linking/parsers';
 
-function manifestForJob(job: ReturnType<typeof buildR102LaneJob>) {
-  return buildLaneEnrollmentManifestV1({
-    enrollmentId: job.enrollmentId,
-    walletId: job.walletId,
-    authorization: job.authorization,
-    orderedChildren: [buildR102ManifestChild(job)],
-    createdAtMs: 1_000,
-    expiresAtMs: job.expiresAtMs,
-  });
-}
-
-test.describe('R103 shared linked-device contracts', () => {
-  test('wallet-host owner authorization sends only authenticated public source projections', async () => {
-    const deviceLink = buildR103DeviceLinkFixture();
-    const owner = await buildOwnerWalletExecutionEvidenceFixture();
-    const sourceHint = parseLinkedDeviceOwnerSourceLaneV1({
-      kind: 'linked_device_owner_source_lane_v1',
-      keyFamily: 'ecdsa_secp256k1',
-      walletKey: owner.walletKey,
-      lane: owner.lane,
-      materialActivation: owner.materialActivation,
-      verifiedActivationReceiptDigestB64u: owner.verifiedActivationReceiptDigestB64u,
-      ecdsaSourceManifest: {
-        manifestId: 'ecdsa-manifest-fixture',
-        manifestRevision: 1,
-      },
+test.describe('R103E link-session contracts', () => {
+  test('parses only high-entropy opaque operation credentials with their session binding', () => {
+    const token = `wst_${'a'.repeat(43)}`;
+    const credential = parseWalletSessionOperationCredentialV1({
+      kind: 'opaque_wallet_session_operation_credential_v1',
+      token,
+      walletSessionId: 'wallet-session:credential-parser',
     });
-    const projection = availableLaneEd25519Authorization({
-      walletId: String(owner.walletId),
-      identitySeed: 'owner-authorization',
-      authMethod: 'passkey',
+    expect(credential).toEqual({
+      kind: 'opaque_wallet_session_operation_credential_v1',
+      token,
+      walletSessionId: 'wallet-session:credential-parser',
     });
-    let captured: Parameters<HttpTransport['request']>[0] | null = null;
-    const http: HttpTransport = {
-      kind: 'http_transport',
-      request: async (input) => {
-        captured = input;
-        return {
-          ok: true,
-          value: { status: 400, body: { message: 'stop after capture' } },
-        };
-      },
-    };
-    const authorities = createWalletHostOwnerAuthoritiesV1({
-      http,
-      relayerUrl: 'https://relay.example.test',
-      walletSessions: {
-        read: async () => ({ kind: 'missing' as const }),
-        readActiveForWallet: async () => ({ kind: 'found' as const, projection }),
-      },
-      readWalletAuthenticationState: () => ({
-        kind: 'authenticated',
-        walletId: projection.walletId,
-        authMethod: projection.authMethod,
-      }),
-      hasLinkedDeviceSigningSession: () => false,
-      readOwnerSourceLaneHintsV1: async () => [sourceHint],
-    });
-
-    await expect(
-      authorities.ownerAuthorization.authenticateOwnerForLinkingV1({
-        payload: deviceLink.payload,
-        requestedAtMs: 2_000,
-      }),
-    ).rejects.toThrow('Owner authorization failed');
-    expect(captured?.headers?.authorization).toBe(
-      'Bearer fixture-wallet-session-jwt:owner-authorization',
-    );
-    expect(captured?.url).toBe(
-      'https://relay.example.test/wallet/device-linking/v1/owner-authorization',
-    );
-    const body = parseLinkedDeviceOwnerAuthorizationRequestV1(captured?.body);
-    expect(body.orderedOwnerSourceLaneHints).toEqual([sourceHint]);
-    expect(JSON.stringify(captured?.body)).not.toContain('walletSessionJwt');
-    expect(JSON.stringify(captured?.body)).not.toContain('privateKey');
-  });
-
-  test('signing-only linked-device sessions cannot use owner device operations', async () => {
-    const deviceLink = buildR103DeviceLinkFixture();
-    const owner = await buildOwnerWalletExecutionEvidenceFixture();
-    const projection = availableLaneEd25519Authorization({
-      walletId: String(owner.walletId),
-      identitySeed: 'linked-device-management-guard',
-      authMethod: 'passkey',
-    });
-    const authorities = createWalletHostOwnerAuthoritiesV1({
-      http: {
-        kind: 'http_transport',
-        request: async () => {
-          throw new Error('linked-device owner operations must stop before HTTP');
-        },
-      },
-      relayerUrl: 'https://relay.example.test',
-      walletSessions: {
-        read: async () => ({ kind: 'missing' as const }),
-        readActiveForWallet: async () => {
-          throw new Error('linked-device owner operations must stop before session lookup');
-        },
-      },
-      readWalletAuthenticationState: () => ({
-        kind: 'authenticated',
-        walletId: projection.walletId,
-        authMethod: projection.authMethod,
-      }),
-      hasLinkedDeviceSigningSession: (walletId) => walletId === projection.walletId,
-      readOwnerSourceLaneHintsV1: async () => {
-        throw new Error('linked-device owner operations must stop before source lookup');
-      },
-    });
-
-    await expect(
-      authorities.ownerAuthorization.authenticateOwnerForLinkingV1({
-        payload: deviceLink.payload,
-        requestedAtMs: 2_000,
-      }),
-    ).rejects.toThrow('Signing-only linked-device sessions cannot manage devices');
-    await expect(
-      authorities.managementRequest.request({
-        walletId: projection.walletId,
-        method: 'GET',
-        canonicalPath: '/wallet/device-linking/v1/devices',
-      }),
-    ).rejects.toThrow('Signing-only linked-device sessions cannot manage devices');
-  });
-
-  test('round-trips QR, approval, transcript, and receipt projections through strict parsers', async () => {
-    const fixture = buildR103DeviceLinkFixture();
-    const serializedQr = serializeQrLinkedDeviceSessionPayloadV4(fixture.payload);
-
-    expect(parseQrLinkedDeviceSessionPayloadV4(fixture.payload)).toEqual(fixture.payload);
-    expect(parseQrLinkedDeviceSessionTextV4(serializedQr)).toEqual(fixture.payload);
-    expect(new TextEncoder().encode(serializedQr).byteLength).toBeLessThan(240);
-    expect(parseLinkedDeviceApprovalV1(fixture.approval)).toEqual(fixture.approval);
-    expect(parseLinkedDeviceEnrollmentTranscriptV1(fixture.transcript)).toEqual(fixture.transcript);
-    expect(parseLinkedDeviceEnrollmentReceiptV1(fixture.receipt)).toEqual(fixture.receipt);
-
-    const claimDigest = await computeLinkedDeviceSessionClaimDigestV1({
-      kind: 'linked_device_session_claim_v1',
-      linkSessionId: fixture.payload.linkSessionId,
-      walletId: fixture.approval.walletId,
-      enrollmentId: fixture.approval.enrollmentId,
-      deviceId: fixture.approval.deviceId,
-      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-      claimedAtMs: 1_500,
-      claimExpiresAtMs: 9_000,
-    });
-    const approvalDigest = await computeLinkedDeviceApprovalDigestV1(fixture.approval);
-    expect(claimDigest).toBe('FgZvqK0Fekq89xChB3UoQBKz0nlTcbBvkxXAa6v6_EA');
-    expect(approvalDigest).toBe('bHlUJYZw2MvCe50tNFocxCy4KPlHKGzEXZuEqkXWiZQ');
-  });
-
-  test('rejects dormant QR permissions, unknown fields, non-canonical keys, and invalid expiry', () => {
-    const fixture = buildR103DeviceLinkFixture();
-
     expect(() =>
-      parseQrLinkedDeviceSessionPayloadV4({
-        ...fixture.payload,
-        requestedPermission: {
-          kind: 'scoped_signing',
-          administrationScope: 'no_account_admin',
-          mandatePolicyDigest: 'retired',
-        },
+      parseWalletSessionOperationCredentialV1({
+        kind: 'opaque_wallet_session_operation_credential_v1',
+        token: 'wst_short',
+        walletSessionId: 'wallet-session:credential-parser',
       }),
     ).toThrow();
     expect(() =>
-      parseQrLinkedDeviceSessionPayloadV4({ ...fixture.payload, walletId: 'wallet:leak' }),
+      parseWalletSessionOperationCredentialV1({ kind: credential.kind, token }),
+    ).toThrow();
+    expect(() =>
+      parseWalletSessionOperationCredentialV1({
+        kind: 'signed_wallet_session_operation_credential_v1',
+        token,
+        walletSessionId: 'wallet-session:credential-parser',
+      }),
+    ).toThrow();
+    expect(() =>
+      parseWalletSessionOperationCredentialV1({
+        kind: credential.kind,
+        token,
+        walletSessionId: 'wallet-session:credential-parser',
+        signature: 'legacy-signed-credential',
+      }),
+    ).toThrow();
+  });
+
+  test('round-trips the opaque operation credential in the exact V6 session row', () => {
+    const fixture = buildR103DeviceLinkFixture();
+    const walletSessionId = parseWalletSessionId('wallet-session:persisted-credential');
+    const authorizationId = parseWalletSessionAuthorizationId('authorization:persisted-credential');
+    const quotaId = parseMpcWalletSigningQuotaId('quota:persisted-credential');
+    const authorityId = parseWalletAuthorityId('authority:persisted-credential');
+    if (!walletSessionId.ok || !authorizationId.ok || !quotaId.ok || !authorityId.ok) {
+      throw new Error('R103 persistence identifiers are invalid');
+    }
+    const record = buildActiveWalletSessionV1({
+      walletId: fixture.approval.walletId,
+      authorityId: authorityId.value,
+      authMethodId: fixture.sourceWalletAuthMethodId,
+      authorizationId: authorizationId.value,
+      quotaId: quotaId.value,
+      authorityDigestB64u: fixture.packageSetDigestB64u,
+      authorityRevocationEpoch: 0,
+      capabilitySubjects: [
+        {
+          kind: 'sign',
+          keyFamily: 'ed25519',
+          materialActivation: fixture.sourceMaterialActivation,
+        },
+      ],
+      issuedAtMs: 2_100,
+      expiresAtMs: 10_000,
+    });
+    const operationCredential = parseWalletSessionOperationCredentialV1({
+      kind: 'opaque_wallet_session_operation_credential_v1',
+      token: `wst_${'b'.repeat(43)}`,
+      walletSessionId: walletSessionId.value,
+    });
+    const stored = toStoredExactWalletSessionAuthorizationRowV6(record, operationCredential);
+
+    expect(stored.wallet_session_id).toBe(walletSessionId.value);
+    expect(stored.wallet_session_id).not.toBe(record.authorizationId);
+    expect(stored.record.quotaId).toBe(quotaId.value);
+    expect(
+      parseStoredExactWalletSessionAuthorizationRowV6(
+        JSON.parse(JSON.stringify(stored)),
+      ),
+    ).toEqual({ record, operationCredential, physicalKey: walletSessionId.value });
+    expect(
+      parseStoredExactWalletSessionAuthorizationRowV6({
+        ...stored,
+        wallet_session_id: record.authorizationId,
+      }),
+    ).toBeNull();
+    const withoutQuota = Object.fromEntries(
+      Object.entries(record).filter(([field]) => field !== 'quotaId'),
+    );
+    expect(() => parseActiveWalletSessionV1(withoutQuota)).toThrow(/quotaId/);
+  });
+
+  test('round-trips the QR payload through its strict wire parser', () => {
+    const fixture = buildR103DeviceLinkFixture();
+    const serialized = serializeQrLinkedDeviceSessionPayloadV5(fixture.payload);
+
+    expect(parseQrLinkedDeviceSessionPayloadV5(fixture.payload)).toEqual(fixture.payload);
+    expect(parseQrLinkedDeviceSessionTextV5(serialized)).toEqual(fixture.payload);
+    expect(new TextEncoder().encode(serialized).byteLength).toBeLessThan(240);
+    expect(() =>
+      parseQrLinkedDeviceSessionPayloadV5({ ...fixture.payload, walletId: 'wallet:leak' }),
     ).toThrow(/walletId/);
     expect(() =>
-      parseQrLinkedDeviceSessionPayloadV4({
-        ...fixture.payload,
-        linkPublicKeyB64u: `${fixture.payload.linkPublicKeyB64u}=`,
-      }),
-    ).toThrow(/base64url/);
-    expect(() =>
-      parseQrLinkedDeviceSessionPayloadV4({
+      parseQrLinkedDeviceSessionPayloadV5({
         ...fixture.payload,
         expiresAtMs: fixture.payload.issuedAtMs,
       }),
     ).toThrow(/expiresAtMs/);
   });
 
-  test('keeps wallet identity out of unclaimed states and splits cancellation branches', () => {
+  test('binds claim and approval digests to the exact transcript values', async () => {
     const fixture = buildR103DeviceLinkFixture();
-    const active = buildActiveLinkedDeviceSessionState({
+    const claim = buildLinkedDeviceSessionClaimV1({
       linkSessionId: fixture.payload.linkSessionId,
       walletId: fixture.approval.walletId,
       enrollmentId: fixture.approval.enrollmentId,
-      activatedAtMs: 10_000,
+      deviceId: fixture.approval.deviceId,
+      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+      targetFactor: fixture.payload.targetFactor,
+      sessionRevision: 2,
+      claimedAtMs: 1_500,
+      claimExpiresAtMs: fixture.payload.expiresAtMs,
     });
-    const cancelled = buildCancelledUnclaimedLinkedDeviceSessionState({
-      linkSessionId: fixture.payload.linkSessionId,
-      cancelledAtMs: 3_000,
-    });
-    expect(parseLinkedDeviceSessionState(active)).toEqual(active);
-    expect(parseLinkedDeviceSessionState(cancelled)).toEqual(cancelled);
-    const committed = buildCommittedCompletionRequiredLinkedDeviceSessionState({
-      linkSessionId: fixture.payload.linkSessionId,
-      walletId: fixture.approval.walletId,
-      enrollmentId: fixture.approval.enrollmentId,
-      keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
-      transcriptSetDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
-    });
-    expect(parseLinkedDeviceSessionState(committed)).toEqual(committed);
-    expect(() =>
-      parseLinkedDeviceSessionState({ ...cancelled, walletId: fixture.approval.walletId }),
-    ).toThrow(/walletId/);
+    const claimDigest = await computeLinkedDeviceSessionClaimDigestV1(claim);
+    const approvalDigest = await computeLinkedDeviceApprovalDigestV1(fixture.approval);
 
+    expect(claimDigest).toBe(await computeLinkedDeviceSessionClaimDigestV1(claim));
+    expect(approvalDigest).toBe(await computeLinkedDeviceApprovalDigestV1(fixture.approval));
     expect(
-      parseLinkedDeviceSessionTransportRequestV1({
-        kind: 'linked_device_session_cancel_unclaimed_request_v1',
+      await computeLinkedDeviceApprovalDigestV1({
+        ...fixture.approval,
+        expiresAtMs: fixture.approval.expiresAtMs - 1,
+      }),
+    ).not.toBe(approvalDigest);
+  });
+
+  test('accepts only the linear lifecycle states and rejects committed cancellation facts', () => {
+    const fixture = buildR103DeviceLinkFixture();
+    const authorityId = 'authority:r103';
+    const states: readonly unknown[] = [
+      { state: 'displaying_qr' },
+      { state: 'claimed', deviceId: String(fixture.approval.deviceId) },
+      { state: 'awaiting_target_factor', deviceId: String(fixture.approval.deviceId) },
+      { state: 'provisioning', deviceId: String(fixture.approval.deviceId) },
+      {
+        state: 'authority_pending_local_install',
+        deviceId: String(fixture.approval.deviceId),
+        authorityId,
+        packageSetDigestB64u: String(fixture.packageSetDigestB64u),
+      },
+      {
+        state: 'active',
+        deviceId: String(fixture.approval.deviceId),
+        authorityId,
+        activatedAtMs: 9_000,
+      },
+      {
+        state: 'failed_before_commit',
+        error: { kind: 'package_preparation_failed', reason: 'worker-unavailable' },
+      },
+      { state: 'cancelled', cancelledAtMs: 3_000 },
+      { state: 'expired', expiredAtMs: 3_000 },
+    ];
+
+    for (const state of states) expect(parseLinkSessionStateV1(state)).toEqual(state);
+    expect(() =>
+      parseLinkSessionStateV1({
+        state: 'authority_pending_local_install',
+        deviceId: String(fixture.approval.deviceId),
+        authorityId,
+        packageSetDigestB64u: String(fixture.packageSetDigestB64u),
+        cancelledAtMs: 3_000,
+      }),
+    ).toThrow();
+  });
+
+  test('parses the browser projection and event at the strict shared boundary', () => {
+    const fixture = buildR103DeviceLinkFixture();
+    const projection = parseLinkSessionProjectionV1({
+      kind: 'linked_device_session_projection_v1',
+      linkSessionId: fixture.payload.linkSessionId,
+      qrPayload: fixture.payload,
+      revision: 1,
+      createdAtMs: fixture.payload.issuedAtMs,
+      updatedAtMs: fixture.payload.issuedAtMs,
+      state: {
+        state: 'claimed',
+        deviceId: String(fixture.approval.deviceId),
+      },
+    });
+    expect(projection.state).toEqual({
+      state: 'claimed',
+      deviceId: fixture.approval.deviceId,
+    });
+    expect(
+      parseLinkSessionTransportEventV1({
+        kind: 'linked_device_session_event_v1',
         linkSessionId: fixture.payload.linkSessionId,
-        reason: 'user_cancelled',
-        requestedAtMs: 3_000,
-      }),
-    ).toMatchObject({ kind: 'linked_device_session_cancel_unclaimed_request_v1' });
+        state: {
+          state: 'authority_pending_local_install',
+          deviceId: String(fixture.approval.deviceId),
+          authorityId: 'authority:r103',
+          packageSetDigestB64u: String(fixture.packageSetDigestB64u),
+        },
+        emittedAtMs: fixture.payload.issuedAtMs,
+      }).state,
+    ).toEqual({
+      state: 'authority_pending_local_install',
+      deviceId: fixture.approval.deviceId,
+      authorityId: 'authority:r103',
+      packageSetDigestB64u: fixture.packageSetDigestB64u,
+    });
     expect(() =>
-      parseLinkedDeviceSessionTransportRequestV1({
-        kind: 'linked_device_session_cancel_unclaimed_request_v1',
-        linkSessionId: fixture.payload.linkSessionId,
-        reason: 'user_cancelled',
-        requestedAtMs: 3_000,
-        deviceId: fixture.approval.deviceId,
+      parseLinkSessionStateV1({
+        state: 'authority_pending_local_install',
+        deviceId: String(fixture.approval.deviceId),
+        authorityId: 'authority:r103',
+        packageSetDigestB64u: String(fixture.packageSetDigestB64u),
+        cancelledAtMs: 3_000,
       }),
-    ).toThrow(/deviceId/);
+    ).toThrow();
   });
 
-  test('round-trips role-bound provisioning and holder receipt DTOs', () => {
+  test('parses approval responses through the compact linear session state', () => {
     const fixture = buildR103DeviceLinkFixture();
-    const command = buildLinkedDeviceProvisioningCommandV1({
-      linkSessionId: fixture.payload.linkSessionId,
-      enrollmentId: fixture.approval.enrollmentId,
-      deviceId: fixture.approval.deviceId,
-    });
-    expect(parseLinkedDeviceProvisioningCommandV1(command)).toEqual(command);
-
-    const sourceJob = buildR102LaneJob('linked-device');
-    const job = parseRotatableSigningLaneJobV1({
-      ...sourceJob,
-      enrollmentId: String(fixture.approval.enrollmentId),
-      walletId: String(fixture.approval.walletId),
-      authorization: {
-        kind: 'linked_device_enrollment',
-        authorizedOperationId: String(sourceJob.authorization.authorizedOperationId),
-        linkedDeviceEnrollmentId: String(fixture.approval.enrollmentId),
-        linkedDevicePermissionDigestB64u: fixture.approval.policyDigestB64u,
-      },
-    });
-    const protocolCommitReceipt = buildR102ProtocolCommitReceipt(job);
-    const deliveries = {
-      kind: 'linked_device_provisioning_deliveries_v1' as const,
-      linkSessionId: fixture.payload.linkSessionId,
-      enrollmentId: fixture.approval.enrollmentId,
-      deviceId: fixture.approval.deviceId,
-      manifest: manifestForJob(job),
-      orderedChildren: [
-        {
-          kind: 'linked_device_provisioning_child_v1' as const,
-          job,
-          protocolCommitReceipt,
-          holderPackage: {
-            kind: 'ed25519_yao_lane_holder_package_set_v1' as const,
-            deriverAEncryptedPackageJson: '{}',
-            deriverBEncryptedPackageJson: '{}',
-          },
-          expectedVersion: 0,
-        },
-      ],
+    const pending = {
+      state: 'awaiting_target_factor' as const,
+      deviceId: String(fixture.approval.deviceId),
     };
-    expect(parseLinkedDeviceProvisioningDeliveriesV1(deliveries)).toEqual(deliveries);
 
-    const holderReceipt = buildR102HolderDeliveryReceipt(job);
-    const acknowledgement = buildLinkedDeviceHolderDeliveryAcknowledgementV1({
-      linkSessionId: fixture.payload.linkSessionId,
-      enrollmentId: fixture.approval.enrollmentId,
-      deviceId: fixture.approval.deviceId,
-      orderedHolderDeliveryReceipts: [holderReceipt],
-      acknowledgedAtMs: 4_000,
+    expect(parseLinkedDeviceApprovalResultV1({ outcome: 'pending', state: pending })).toEqual({
+      outcome: 'pending',
+      state: pending,
     });
-    expect(parseLinkedDeviceHolderDeliveryAcknowledgementV1(acknowledgement)).toEqual(
-      acknowledgement,
-    );
-  });
-
-  test('binds each delivered Wallet Session JWT to the linked device and approved key', () => {
-    const fixture = buildR103DeviceLinkFixture();
-    const delivery = buildR103LinkedWalletSessionDeliveryFixture(fixture);
-
-    expect(parseLinkedDeviceWalletSessionDeliveryV1(delivery)).toEqual(delivery);
-    expect(() =>
-      parseLinkedDeviceWalletSessionDeliveryV1({ ...delivery, unexpected: true }),
-    ).toThrow(/not part/);
-    expect(() =>
-      parseLinkedDeviceWalletSessionDeliveryV1({
-        ...delivery,
-        orderedTokens: [delivery.orderedTokens[0], delivery.orderedTokens[0]],
+    expect(
+      parseLinkedDeviceApprovalResultV1({
+        outcome: 'replayed',
+        replay: { state: 'pending', session: pending },
       }),
-    ).toThrow(/duplicate wallet key/);
-    expect(() =>
-      parseLinkedDeviceWalletSessionDeliveryV1({
-        ...delivery,
-        orderedTokens: [{ ...delivery.orderedTokens[0], keyFamily: 'ecdsa_secp256k1' }],
-      }),
-    ).toThrow(/identity does not match/);
-  });
-
-  test('rejects provisioning identity substitution and unknown DTO fields', () => {
-    const fixture = buildR103DeviceLinkFixture();
-    const command = buildLinkedDeviceProvisioningCommandV1({
-      linkSessionId: fixture.payload.linkSessionId,
-      enrollmentId: fixture.approval.enrollmentId,
-      deviceId: fixture.approval.deviceId,
+    ).toEqual({
+      outcome: 'replayed',
+      replay: { state: 'pending', session: pending },
     });
-    expect(() => parseLinkedDeviceProvisioningCommandV1({ ...command, extra: true })).toThrow(
-      /not part/,
-    );
-
-    const sourceJob = buildR102LaneJob('substitution');
-    const job = parseRotatableSigningLaneJobV1({
-      ...sourceJob,
-      enrollmentId: String(fixture.approval.enrollmentId),
-      walletId: String(fixture.approval.walletId),
-      authorization: {
-        kind: 'linked_device_enrollment',
-        authorizedOperationId: String(sourceJob.authorization.authorizedOperationId),
-        linkedDeviceEnrollmentId: String(fixture.approval.enrollmentId),
-        linkedDevicePermissionDigestB64u: fixture.approval.policyDigestB64u,
-      },
-    });
-    const commit = buildR102ProtocolCommitReceipt(job);
-    expect(() =>
-      parseLinkedDeviceProvisioningDeliveriesV1({
-        kind: 'linked_device_provisioning_deliveries_v1',
-        linkSessionId: fixture.payload.linkSessionId,
-        enrollmentId: fixture.approval.enrollmentId,
-        deviceId: fixture.approval.deviceId,
-        manifest: manifestForJob(job),
-        orderedChildren: [
-          {
-            kind: 'linked_device_provisioning_child_v1',
-            job,
-            protocolCommitReceipt: {
-              ...commit,
-              sourceRevocationEpoch: commit.sourceRevocationEpoch + 1,
-            },
-            holderPackage: {
-              kind: 'ed25519_yao_lane_holder_package_set_v1',
-              deriverAEncryptedPackageJson: '{}',
-              deriverBEncryptedPackageJson: '{}',
-            },
-            expectedVersion: 0,
-          },
-        ],
-      }),
-    ).toThrow(/does not match its job/);
-  });
-
-  test('binds target-ready jobs and prepared deliveries to one exact manifest', () => {
-    const fixture = buildR103DeviceLinkFixture();
-    const sourceJob = buildR102LaneJob('target-ready');
-    const job = parseRotatableSigningLaneJobV1({
-      ...sourceJob,
-      enrollmentId: String(fixture.approval.enrollmentId),
-      walletId: String(fixture.approval.walletId),
-      authorization: {
-        kind: 'linked_device_enrollment',
-        authorizedOperationId: String(sourceJob.authorization.authorizedOperationId),
-        linkedDeviceEnrollmentId: String(fixture.approval.enrollmentId),
-        linkedDevicePermissionDigestB64u: fixture.approval.policyDigestB64u,
-      },
-    });
-    const manifest = buildLaneEnrollmentManifestV1({
-      enrollmentId: job.enrollmentId,
-      walletId: job.walletId,
-      authorization: job.authorization,
-      orderedChildren: [
-        {
-          operationId: job.operationId,
-          walletKeyId: job.walletKeyId,
-          keyFamily: job.keyFamily,
-          sourceLaneId: job.source.laneId,
-          sourceLaneShareEpoch: job.source.laneShareEpoch,
-          sourceRevocationEpoch: job.source.revocationEpoch,
-          sourceMaterialActivation: job.source.materialActivation,
-          targetLaneId: job.target.laneId,
-          targetLaneShareEpoch: job.target.laneShareEpoch,
-          targetMaterialActivationId: job.targetMaterialActivationId,
-          holderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
-          signingWorkerParticipantBindingDigestB64u:
-            job.targetSigningWorker.participantBindingDigestB64u,
-        },
-      ],
-      createdAtMs: 1_000,
-      expiresAtMs: 9_000,
-    });
-    const targetReady = {
-      kind: 'linked_device_target_ready_r102_input_v1' as const,
-      linkSessionId: fixture.approval.linkSessionId,
-      walletId: fixture.approval.walletId,
-      enrollmentId: fixture.approval.enrollmentId,
-      deviceId: fixture.approval.deviceId,
-      manifest,
-      children: [job] as const,
-    };
-    expect(parseLinkedDeviceTargetReadyR102InputV1(targetReady)).toEqual(targetReady);
-    const deliveries = parseLinkedDeviceProvisioningDeliveriesV1({
-      kind: 'linked_device_provisioning_deliveries_v1',
-      linkSessionId: targetReady.linkSessionId,
-      enrollmentId: targetReady.enrollmentId,
-      deviceId: targetReady.deviceId,
-      manifest,
-      orderedChildren: [
-        {
-          kind: 'linked_device_provisioning_child_v1',
-          job,
-          protocolCommitReceipt: buildR102ProtocolCommitReceipt(job),
-          holderPackage: {
-            kind: 'ed25519_yao_lane_holder_package_set_v1',
-            deriverAEncryptedPackageJson: '{}',
-            deriverBEncryptedPackageJson: '{}',
-          },
-          expectedVersion: 0,
-        },
-      ],
-    });
-    const submission = {
-      kind: 'linked_device_provisioning_deliveries_submission_v1' as const,
-      linkSessionId: targetReady.linkSessionId,
-      walletId: targetReady.walletId,
-      enrollmentId: targetReady.enrollmentId,
-      deviceId: targetReady.deviceId,
-      manifestDigestB64u: fixture.approval.policyDigestB64u,
-      deliveries,
-    };
-    expect(parseLinkedDeviceProvisioningDeliveriesSubmissionV1(submission)).toEqual(submission);
-    expect(() =>
-      parseLinkedDeviceTargetReadyR102InputV1({
-        ...targetReady,
-        children: [{ ...job, walletKeyId: 'wallet-key:substituted' }],
-      }),
-    ).toThrow(/differs from its manifest child/);
-  });
-
-  test('binds verified target attestation and public holder records to one preparation', async () => {
-    const fixture = buildR103DeviceLinkFixture();
-    const job = buildR102LaneJob('target-preparation');
-    const rpId = parseWebAuthnRpId('wallet.example.test');
-    const credentialId = parseWebAuthnCredentialIdB64u('AQID');
-    if (!rpId.ok) throw new Error(rpId.error.message);
-    if (!credentialId.ok) throw new Error(credentialId.error.message);
-    const preparation = buildLinkedDeviceTargetPreparationV1({
-      linkSessionId: fixture.approval.linkSessionId,
-      walletId: fixture.approval.walletId,
-      enrollmentId: fixture.approval.enrollmentId,
-      deviceId: fixture.approval.deviceId,
-      rpId: rpId.value,
-      userHandleB64u: 'AQID',
-      challengeB64u: fixture.approval.policyDigestB64u,
-      orderedChildren: [
-        {
-          kind: 'linked_device_target_preparation_child_v1',
-          operationId: job.operationId,
-          walletKeyId: job.walletKeyId,
-          keyFamily: job.keyFamily,
-          targetLaneId: job.target.laneId,
-          targetLaneShareEpoch: job.target.laneShareEpoch,
-          targetMaterialActivationId: job.targetMaterialActivationId,
-          targetHolderParticipantId: job.targetHolder.participantId,
-        },
-      ],
-      issuedAtMs: 1_000,
-      expiresAtMs: 2_000,
-    });
-    expect(parseLinkedDeviceTargetPreparationV1(preparation)).toEqual(preparation);
-    const targetPreparationDigestB64u =
-      await computeLinkedDeviceTargetPreparationDigestV1(preparation);
-    const registration = buildLinkedDeviceTargetCredentialRegistrationV1({
-      linkSessionId: fixture.approval.linkSessionId,
-      walletId: fixture.approval.walletId,
-      enrollmentId: fixture.approval.enrollmentId,
-      deviceId: fixture.approval.deviceId,
-      targetPreparationDigestB64u,
-      webauthnRegistration: {
-        kind: 'linked_device_webauthn_registration_v1',
-        credentialIdB64u: credentialId.value,
-        authenticatorAttachment: 'platform',
-        clientDataJsonB64u: 'AQID',
-        attestationObjectB64u: 'BAUG',
-        transports: ['internal'],
-      },
-      orderedHolderRegistrations: [
-        {
-          kind: 'linked_device_target_holder_registration_v1',
-          operationId: job.operationId,
-          walletKeyId: job.walletKeyId,
-          keyFamily: job.keyFamily,
-          targetLaneId: job.target.laneId,
-          targetLaneShareEpoch: job.target.laneShareEpoch,
-          targetMaterialActivationId: job.targetMaterialActivationId,
-          holderParticipant: {
-            kind: 'lane_holder_participant_v1',
-            participantId: job.targetHolder.participantId,
-            custodyBindingId: job.targetHolder.custodyBindingId,
-            custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
-            hpkePublicKeyB64u: job.targetHolder.hpkePublicKeyB64u,
-            hpkePublicKeyDigestB64u: job.targetHolder.hpkePublicKeyDigestB64u,
-            participantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
-          },
-        },
-      ],
-      registeredAtMs: 1_500,
-    });
-    expect(parseLinkedDeviceTargetCredentialRegistrationV1(registration)).toEqual(registration);
-    await expect(
-      assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1({
-        preparation,
-        registration,
-      }),
-    ).resolves.toBeUndefined();
-    const substitutedRegistration = parseLinkedDeviceTargetCredentialRegistrationV1({
-      ...registration,
-      orderedHolderRegistrations: [
-        {
-          ...registration.orderedHolderRegistrations[0],
-          operationId: 'operation:substituted',
-        },
-      ],
-    });
-    await expect(
-      assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1({
-        preparation,
-        registration: substitutedRegistration,
-      }),
-    ).rejects.toThrow(/R102 child/);
-    expect(() =>
-      parseLinkedDeviceTargetCredentialRegistrationV1({
-        ...registration,
-        webauthnRegistration: {
-          ...registration.webauthnRegistration,
-          clientExtensionResults: { prf: { results: { first: 'secret' } } },
-        },
-      }),
-    ).toThrow(/clientExtensionResults/);
   });
 });

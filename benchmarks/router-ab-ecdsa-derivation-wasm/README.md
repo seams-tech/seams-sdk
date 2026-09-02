@@ -9,7 +9,6 @@ Scope:
 - additive-share derivation
 - bootstrap
 - non-export sign
-- explicit export
 
 Runtime:
 

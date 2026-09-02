@@ -224,7 +224,7 @@ Router A/B Wallet Session state plus worker-owned handles.
       Wallet Session credentials.
 - [x] Added SDK guards proving deleted grant names cannot return at the public
       client boundary.
-- [x] Restored `rtk pnpm -C packages/sdk-web type-check`.
+- [x] Restored `rtk pnpm -C packages/wallet type-check`.
 - [x] Ran local Router smoke gates through split-worker and bundled topologies.
 
 ### Phase 7: Delete Legacy Normal-Signing Surface
@@ -497,7 +497,7 @@ retain protocol or persistence fields.
       boundary without old threshold-auth-mode naming.
 - [x] Restricted the public threshold subpath away from low-level session
       bootstrap helpers.
-      `@seams/sdk/threshold` no longer re-exports
+      `@seams/wallet/threshold` no longer re-exports
       `connectEd25519Session` or `connectEcdsaSession`; those helpers remain
       internal provisioning implementation details behind SeamsWeb and the
       passkey/session surfaces.
@@ -515,7 +515,7 @@ retain protocol or persistence fields.
       Session names. The follow-up schema/config bump moved the remaining
       `AUTH_PREFIX` and `auth:` storage vocabulary to Wallet Session prefix,
       row-kind, and consumption-table names.
-      Validation: `rtk pnpm -C packages/sdk-server-ts run type-check`, the
+      Validation: `rtk pnpm -C packages/wallet-server run type-check`, the
       focused signing-session seal / wallet-budget / rehydrate / malformed-row
       unit bundle, the ECDSA durable-store relayer test, the Router A/B SDK
       guard, and `rtk git diff --check`.
@@ -534,7 +534,7 @@ retain protocol or persistence fields.
       `THRESHOLD_ECDSA_WALLET_SESSION_PREFIX`, `wallet-session:`,
       `kind = 'wallet_session'`, and
       `threshold_wallet_session_consumptions`.
-      Validation: `rtk pnpm -C packages/sdk-server-ts run type-check`, the
+      Validation: `rtk pnpm -C packages/wallet-server run type-check`, the
       focused malformed-row / wallet-budget / signing-session seal unit bundle,
       and the ECDSA durable-store relayer test.
 - [x] Renamed active ECDSA-HSS pool-fill auth and SDK diagnostics.
@@ -543,8 +543,8 @@ retain protocol or persistence fields.
       pool-fill scope errors, and the SDK pool-fill helper types/fallback
       messages no longer describe the deleted public
       `/threshold-ecdsa/presign/*` route surface.
-      Validation: `rtk pnpm -C packages/sdk-server-ts run type-check`, `rtk
-      pnpm -C packages/sdk-web run type-check`, the focused ECDSA-HSS
+      Validation: `rtk pnpm -C packages/wallet-server run type-check`, `rtk
+      pnpm -C packages/wallet run type-check`, the focused ECDSA-HSS
       presign-distributed / presign-bridge / presign-refill / normal-signing
       unit bundle, and the ECDSA relayer signature harness.
 - [x] Renamed the SDK public-auth domain helper away from stale auth-session
@@ -553,7 +553,7 @@ retain protocol or persistence fields.
       `AuthSessionWebContext`, and `getAuthSessionDeps` are now
       `walletAuth.ts`, `WalletAuthDomainDeps`, `WalletAuthSigningSurface`,
       `WalletAuthWebContext`, and `getWalletAuthDeps`.
-      Validation: `rtk pnpm -C packages/sdk-web run type-check` and the focused
+      Validation: `rtk pnpm -C packages/wallet run type-check` and the focused
       public-auth / SeamsWeb login / wallet-iframe guard bundle.
 - [x] Cleaned active/public documentation after the Router A/B-only signing
       cleanup.
@@ -603,7 +603,7 @@ retain protocol or persistence fields.
       generic signer implementation is private and Router A/B-only.
       SDK signing-capable state no longer normalizes browser-cookie auth into
       Ed25519/ECDSA signer state. Validation covered
-      `rtk pnpm -C packages/sdk-server-ts type-check`, focused claim/budget
+      `rtk pnpm -C packages/wallet-server type-check`, focused claim/budget
       parser unit tests, the server claim-boundary source guard, and the
       relayer seal plus Ed25519/ECDSA route subset.
 - [x] Finish the remaining cookie-mode lower-level provisioning audit.
@@ -620,10 +620,10 @@ retain protocol or persistence fields.
 
 Recent validation for this cleanup pass:
 
-- `rtk pnpm -C packages/sdk-web run type-check`
-- `rtk pnpm -C packages/sdk-server-ts run type-check`
+- `rtk pnpm -C packages/wallet run type-check`
+- `rtk pnpm -C packages/wallet-server run type-check`
 - `rtk pnpm -C tests exec playwright test unit/signingBudgetStatus.parser.unit.test.ts unit/availableSigningLanes.ecdsaDuplicates.unit.test.ts --reporter=line`
-- `rtk pnpm -C packages/sdk-web run build`
+- `rtk pnpm -C packages/wallet run build`
 - `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/sessionTokens.unit.test.ts ./unit/thresholdSessionClaims.unit.test.ts --reporter=line`
 - `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/routerAbEd25519.walletSessionState.unit.test.ts ./unit/warmSessionStore.bootstrapResolution.unit.test.ts ./unit/warmSessionStore.capabilityResolution.unit.test.ts --reporter=line`
 - `rtk pnpm -C tests exec playwright test -c playwright.relayer.config.ts ./relayer/email-otp.bootstrap-integration.test.ts --reporter=line`
@@ -683,11 +683,11 @@ Representative validation from June 15, 2026:
 - `rtk pnpm router:deploy:check` passed before ECDSA-HSS was promoted to a
   pre-deploy release blocker. Later ECDSA-HSS and Router A/B deployment gates
   are tracked in the active cleanup/deployment plans.
-- `rtk pnpm -C packages/sdk-web type-check` passed.
+- `rtk pnpm -C packages/wallet type-check` passed.
 - `rtk pnpm -C apps/web-client typecheck` passed after the broader cleanup.
-- `rtk pnpm -C packages/sdk-server-ts type-check` passed after the broader
+- `rtk pnpm -C packages/wallet-server type-check` passed after the broader
   cleanup.
-- `rtk pnpm -C packages/sdk-server-ts type-check` passed after adding the
+- `rtk pnpm -C packages/wallet-server type-check` passed after adding the
   Router A/B ECDSA-HSS presignature bridge and sender.
 - `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/routerAbEcdsaHssPresignBridge.unit.test.ts --reporter=line`
   passed with 6 tests after adding the Router A/B ECDSA-HSS presignature
@@ -771,8 +771,8 @@ Representative validation from June 15, 2026:
   passed with 300 tests after adding direct-delivery source guards for
   server-only bundle validation and client/export surface exclusion.
 - `rtk pnpm -C apps/web-server build` passed after the broader cleanup.
-- `rtk pnpm -C packages/sdk-web run type-check` and
-  `rtk pnpm -C packages/sdk-server-ts run type-check` passed after hardening the
+- `rtk pnpm -C packages/wallet run type-check` and
+  `rtk pnpm -C packages/wallet-server run type-check` passed after hardening the
   Router A/B-only unlock-to-sign readiness boundary.
 - `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/routerAbNormalSigningPolicy.unit.test.ts ./unit/availableSigningLanes.ed25519Duplicates.unit.test.ts ./unit/availableSigningLanes.ecdsaDuplicates.unit.test.ts ./unit/seamsWeb.loginThresholdWarm.unit.test.ts ./unit/thresholdEd25519.registrationWarmSession.unit.test.ts --reporter=line`
   passed with 76 tests for the same hardening.
@@ -909,7 +909,7 @@ Authorization: Bearer <wallet-session-jwt>
 Preferred local gates before manual testing:
 
 ```sh
-rtk pnpm -C packages/sdk-web type-check
+rtk pnpm -C packages/wallet type-check
 rtk pnpm router:smoke
 rtk pnpm router:smoke:bundled
 rtk pnpm router:deploy:check

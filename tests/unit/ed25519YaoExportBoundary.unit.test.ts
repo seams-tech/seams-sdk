@@ -1,7 +1,14 @@
 import { expect, test } from '@playwright/test';
 import type { RouterAbEd25519YaoExportAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
-import { buildRouterAbEd25519YaoExportAdmissionBodyV1 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
-import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
+import {
+  buildRouterAbEd25519YaoExportAdmissionBodyV1,
+  exportSessionConstructorForCustodyEnvelopeV1,
+} from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/yaoClient';
+import {
+  WasmEd25519YaoClientRootExportSessionV1,
+  WasmWalletCustodySeedExportSessionV1,
+} from '../../crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.js';
+import type { WebAuthnAuthenticationCredential } from '../../packages/wallet/src/core/types/webauthn';
 
 const PARTICIPANT_IDS = [11, 29] as const;
 
@@ -76,6 +83,15 @@ function authenticationCredential(): WebAuthnAuthenticationCredential {
 }
 
 test.describe('Ed25519 Yao export browser boundary', () => {
+  test('selects the matching strict WASM export session for each envelope kind', () => {
+    expect(
+      exportSessionConstructorForCustodyEnvelopeV1({ kind: 'wallet_custody_seed_v1' }),
+    ).toBe(WasmWalletCustodySeedExportSessionV1);
+    expect(
+      exportSessionConstructorForCustodyEnvelopeV1({ kind: 'ed25519_yao_client_root_v1' }),
+    ).toBe(WasmEd25519YaoClientRootExportSessionV1);
+  });
+
   test('removes PRF results from the server-bound authentication credential', () => {
     const protocol = exportAdmissionRequest();
     const body = buildRouterAbEd25519YaoExportAdmissionBodyV1({

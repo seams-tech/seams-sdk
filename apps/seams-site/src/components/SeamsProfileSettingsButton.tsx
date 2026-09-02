@@ -7,8 +7,8 @@ import {
   useTheme,
   type KeyExportFlowEvent,
   type LinkDeviceFlowEvent,
-} from '@seams/sdk/react';
-import { AccountMenuButton } from '@seams/sdk/react/profile';
+} from '@seams/wallet/react';
+import { AccountMenuButton } from '@seams/wallet/react/profile';
 import { useProfileMenuControl } from '@/context/ProfileMenuControl';
 import {
   dismissDemoEmailOtpToast,
@@ -16,6 +16,23 @@ import {
 } from '@/flows/demo/demoEmailOtpToast';
 
 const KEY_EXPORT_EMAIL_OTP_TOAST_ID = 'key-export:demo-email-otp';
+const DEVICE_LINKING_TOAST_ID = 'device-linking';
+const WALLET_UNLOCK_REQUIRED = 'wallet_unlock_required';
+
+function showDeviceLinkingError(message: string): void {
+  toast.dismiss(DEVICE_LINKING_TOAST_ID);
+  if (message === WALLET_UNLOCK_REQUIRED) {
+    toast.error('Sign in again to link a device', {
+      id: DEVICE_LINKING_TOAST_ID,
+      description: 'Your wallet session expired. Sign in again, then scan the QR code.',
+    });
+    return;
+  }
+  toast.error('Device linking failed', {
+    id: DEVICE_LINKING_TOAST_ID,
+    description: message,
+  });
+}
 
 function demoEmailOtpCodeFromKeyExportEvent(event: KeyExportFlowEvent): string | null {
   if (event.phase !== KeyExportEventPhase.STEP_02_AUTH_EMAIL_OTP_INPUT_REQUIRED) return null;
@@ -68,24 +85,21 @@ export const SeamsProfileSettingsButton: React.FC<SeamsProfileSettingsButtonProp
   const handleDeviceLinkingEvents = (event: LinkDeviceFlowEvent) => {
     if (event.flow !== 'link_device') return;
     if (event.phase === LinkDeviceEventPhase.CANCELLED || event.status === 'cancelled') {
-      toast.info(event.message || 'Device link cancelled', { id: 'device-linking' });
+      toast.info(event.message || 'Device link cancelled', { id: DEVICE_LINKING_TOAST_ID });
       return;
     }
     if (event.phase === LinkDeviceEventPhase.FAILED || event.status === 'failed') {
-      toast.dismiss('device-linking');
-      toast.error(event.error?.message || event.message || 'Device linking failed', {
-        id: 'device-linking',
-      });
+      showDeviceLinkingError(event.error?.message || event.message || 'Unknown error');
       return;
     }
     if (event.status === 'succeeded') {
       toast.success(event.message || 'QR code scanned', {
-        id: 'device-linking',
+        id: DEVICE_LINKING_TOAST_ID,
         description: 'Continue setup on your other device.',
       });
       return;
     }
-    toast.loading(event.message || 'Processing device link...', { id: 'device-linking' });
+    toast.loading(event.message || 'Processing device link...', { id: DEVICE_LINKING_TOAST_ID });
   };
 
   React.useEffect(() => {
@@ -147,9 +161,10 @@ export const SeamsProfileSettingsButton: React.FC<SeamsProfileSettingsButtonProp
           deviceLinkingScannerParams={{
             fundingAmount: '0.05',
             onError: (error: Error) => {
-              console.error('Device linking error:', error);
-              toast.dismiss('device-linking');
-              toast.error(`Device linking failed: ${error.message}`, { id: 'device-linking' });
+              if (error.message !== WALLET_UNLOCK_REQUIRED) {
+                console.error('Device linking error:', error);
+              }
+              showDeviceLinkingError(error.message);
             },
             onClose: () => {
               toast.dismiss();

@@ -2,33 +2,14 @@ import { expect, test } from '@playwright/test';
 import { isWalletSessionReadyForUi } from '@/react/context/walletSessionReadiness';
 import {
   activeWalletSessionFixture,
-  activeLinkedDeviceWalletSessionFixture,
   anonymousWalletSessionFixture,
-  exhaustedWalletSessionFixture,
-  expiredWalletSessionFixture,
-  missingWalletSessionFixture,
 } from './helpers/walletSessionReadProjection.fixtures';
 
 test.describe('wallet authentication readiness gate', () => {
-  test('accepts authenticated wallets independently of reusable authorization', () => {
+  test('accepts authenticated wallets independently of exact capability readiness', () => {
     expect(
       isWalletSessionReadyForUi({
         session: activeWalletSessionFixture(),
-      }),
-    ).toBe(true);
-    expect(
-      isWalletSessionReadyForUi({
-        session: exhaustedWalletSessionFixture(),
-      }),
-    ).toBe(true);
-    expect(
-      isWalletSessionReadyForUi({
-        session: missingWalletSessionFixture(),
-      }),
-    ).toBe(true);
-    expect(
-      isWalletSessionReadyForUi({
-        session: expiredWalletSessionFixture(),
       }),
     ).toBe(true);
   });
@@ -50,14 +31,6 @@ test.describe('wallet authentication readiness gate', () => {
           nearOperationalPublicKey: null,
           thresholdEcdsaPublicKeyB64u: 'threshold-ecdsa-public-key',
         }),
-      }),
-    ).toBe(true);
-  });
-
-  test('accepts an active linked-device Wallet Session', () => {
-    expect(
-      isWalletSessionReadyForUi({
-        session: activeLinkedDeviceWalletSessionFixture(),
       }),
     ).toBe(true);
   });

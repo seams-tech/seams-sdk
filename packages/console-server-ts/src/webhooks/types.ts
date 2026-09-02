@@ -1,5 +1,10 @@
-export type { ConsoleWebhookEventCategory } from '@seams-internal/console-shared/webhookEventCategories';
-import type { ConsoleWebhookEventCategory } from '@seams-internal/console-shared/webhookEventCategories';
+/**
+ * Product-supplied webhook category vocabulary. Core delivery stores and
+ * matches normalized category strings; the composed product owns the catalog.
+ */
+export interface WebhookEventCategoryValidation {
+  normalizeCategory(value: unknown): string | null;
+}
 
 export type ConsoleWebhookEndpointStatus = 'ACTIVE' | 'DISABLED';
 
@@ -14,12 +19,27 @@ export interface ConsoleWebhookEndpoint {
   id: string;
   orgId: string;
   url: string;
-  eventCategories: ConsoleWebhookEventCategory[];
+  eventCategories: string[];
   status: ConsoleWebhookEndpointStatus;
   secretVersion: number;
   secretPreview: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * The plaintext signing secret is sealed at rest and never returned by any
+ * read route, so create and rotate are the only moments a customer can capture
+ * it. Both carry it out-of-band from the endpoint record for that reason.
+ */
+export interface CreateConsoleWebhookEndpointResult {
+  endpoint: ConsoleWebhookEndpoint;
+  signingSecret: string;
+}
+
+export interface RotateConsoleWebhookSecretResult {
+  endpoint: ConsoleWebhookEndpoint;
+  signingSecret: string;
 }
 
 export interface ConsoleWebhookDelivery {
@@ -75,13 +95,13 @@ export interface ConsoleWebhookPage<T> {
 
 export interface CreateConsoleWebhookEndpointRequest {
   url: string;
-  eventCategories: ConsoleWebhookEventCategory[];
+  eventCategories: string[];
   status?: ConsoleWebhookEndpointStatus;
 }
 
 export interface UpdateConsoleWebhookEndpointRequest {
   url?: string;
-  eventCategories?: ConsoleWebhookEventCategory[];
+  eventCategories?: string[];
   status?: ConsoleWebhookEndpointStatus;
 }
 

@@ -1,9 +1,6 @@
 import type {
   ChallengeSubjectId,
-  AgentPrincipalId,
   CapabilityInstanceRef,
-  DelegatedIdempotencyKey,
-  DelegatedIntentDigest,
   DomainIdParseResult,
   EcdsaActiveStateId,
   EmailOtpChallengeId,
@@ -11,8 +8,8 @@ import type {
   GoogleProviderSubject,
   LaneShareEpoch,
   LinkedDeviceId,
+  LinkedDeviceEnrollmentId,
   LinkDeviceSessionId,
-  MandatePolicyId,
   MpcCapabilityRuntimeRef,
   MpcKeyBindingRef,
   MpcLifecycleBindingRef,
@@ -29,8 +26,11 @@ import type {
   ThresholdEcdsaSessionId,
   ThresholdEd25519SessionId,
   VerifiedGoogleEmail,
+  WalletAuthorityId,
+  WalletAuthMethodId,
   WalletId,
   WalletKeyId,
+  WalletRecoveryOperationId,
 } from './domainIds';
 import {
   buildMpcMaterialActivationRef,
@@ -44,10 +44,20 @@ import {
   parseMpcReauthorizationPolicyRef,
   parseMpcRegisteredPublicKeyBindingRef,
   parseMpcSigningWorkerRef,
+  parseWalletAuthorityId,
+  parseWalletAuthMethodId,
+  parseWalletRecoveryOperationId,
 } from './domainIds';
-import type { WalletSessionId } from '../authorization/capabilityKinds';
+import type {
+  WalletSessionAuthorizationId,
+  WalletSessionId,
+} from '../authorization/capabilityKinds';
 
 declare const walletId: WalletId;
+declare const walletAuthorityId: WalletAuthorityId;
+declare const walletAuthMethodId: WalletAuthMethodId;
+declare const walletRecoveryOperationId: WalletRecoveryOperationId;
+declare const walletSessionAuthorizationId: WalletSessionAuthorizationId;
 declare const providerSubject: ProviderSubject;
 declare const googleProviderSubject: GoogleProviderSubject;
 declare const verifiedGoogleEmail: VerifiedGoogleEmail;
@@ -63,11 +73,8 @@ declare const rootShareEpoch: RootShareEpoch;
 declare const walletKeyId: WalletKeyId;
 declare const signingLaneId: SigningLaneId;
 declare const laneShareEpoch: LaneShareEpoch;
-declare const agentPrincipalId: AgentPrincipalId;
 declare const linkedDeviceId: LinkedDeviceId;
-declare const mandatePolicyId: MandatePolicyId;
-declare const delegatedIntentDigest: DelegatedIntentDigest;
-declare const delegatedIdempotencyKey: DelegatedIdempotencyKey;
+declare const linkedDeviceEnrollmentId: LinkedDeviceEnrollmentId;
 declare const linkDeviceSessionId: LinkDeviceSessionId;
 declare const capabilityInstanceRef: CapabilityInstanceRef;
 declare const mpcMaterialOwnerRef: MpcMaterialOwnerRef;
@@ -90,6 +97,14 @@ const mpcMaterialActivationRef = buildMpcMaterialActivationRef({
 });
 
 function acceptsWalletId(value: WalletId): void {
+  void value;
+}
+
+function acceptsWalletAuthorityId(value: WalletAuthorityId): void {
+  void value;
+}
+
+function acceptsWalletRecoveryOperationId(value: WalletRecoveryOperationId): void {
   void value;
 }
 
@@ -153,23 +168,7 @@ function acceptsLaneShareEpoch(value: LaneShareEpoch): void {
   void value;
 }
 
-function acceptsAgentPrincipalId(value: AgentPrincipalId): void {
-  void value;
-}
-
 function acceptsLinkedDeviceId(value: LinkedDeviceId): void {
-  void value;
-}
-
-function acceptsMandatePolicyId(value: MandatePolicyId): void {
-  void value;
-}
-
-function acceptsDelegatedIntentDigest(value: DelegatedIntentDigest): void {
-  void value;
-}
-
-function acceptsDelegatedIdempotencyKey(value: DelegatedIdempotencyKey): void {
   void value;
 }
 
@@ -218,6 +217,8 @@ function acceptsMpcMaterialActivationRef(value: MpcMaterialActivationRef): void 
 }
 
 acceptsWalletId(walletId);
+acceptsWalletAuthorityId(walletAuthorityId);
+acceptsWalletRecoveryOperationId(walletRecoveryOperationId);
 acceptsProviderSubject(providerSubject);
 acceptsProviderSubject(googleProviderSubject);
 acceptsGoogleProviderSubject(googleProviderSubject);
@@ -234,11 +235,7 @@ acceptsRootShareEpoch(rootShareEpoch);
 acceptsWalletKeyId(walletKeyId);
 acceptsSigningLaneId(signingLaneId);
 acceptsLaneShareEpoch(laneShareEpoch);
-acceptsAgentPrincipalId(agentPrincipalId);
 acceptsLinkedDeviceId(linkedDeviceId);
-acceptsMandatePolicyId(mandatePolicyId);
-acceptsDelegatedIntentDigest(delegatedIntentDigest);
-acceptsDelegatedIdempotencyKey(delegatedIdempotencyKey);
 acceptsLinkDeviceSessionId(linkDeviceSessionId);
 acceptsCapabilityInstanceRef(capabilityInstanceRef);
 acceptsMpcMaterialOwnerRef(mpcMaterialOwnerRef);
@@ -273,9 +270,32 @@ parseMpcMaterialActivationRef({
   lifecycleBinding: 'lifecycle',
   signingWorker: 'worker',
 }) satisfies DomainIdParseResult<MpcMaterialActivationRef>;
+parseWalletAuthorityId('wallet-authority') satisfies DomainIdParseResult<WalletAuthorityId>;
+parseWalletAuthMethodId('wallet-auth-method') satisfies DomainIdParseResult<WalletAuthMethodId>;
+parseWalletRecoveryOperationId(
+  'wallet-recovery-operation',
+) satisfies DomainIdParseResult<WalletRecoveryOperationId>;
 
 // @ts-expect-error Provider subjects are not wallet ids.
 acceptsWalletId(providerSubject);
+
+// @ts-expect-error Wallet ids are not wallet authority ids.
+acceptsWalletAuthorityId(walletId);
+
+// @ts-expect-error Auth-method ids are not wallet authority ids.
+acceptsWalletAuthorityId(walletAuthMethodId);
+
+// @ts-expect-error Recovery operation ids are not wallet authority ids.
+acceptsWalletAuthorityId(walletRecoveryOperationId);
+
+// @ts-expect-error Material activation ids are not wallet authority ids.
+acceptsWalletAuthorityId(mpcMaterialActivationId);
+
+// @ts-expect-error Link enrollment ids are not wallet authority ids.
+acceptsWalletAuthorityId(linkedDeviceEnrollmentId);
+
+// @ts-expect-error Wallet Session authorization ids are not wallet authority ids.
+acceptsWalletAuthorityId(walletSessionAuthorizationId);
 
 // @ts-expect-error Wallet ids are not provider subjects.
 acceptsProviderSubject(walletId);
@@ -339,15 +359,6 @@ acceptsWalletKeyId(walletId);
 
 // @ts-expect-error Lane share epochs are not signing lanes.
 acceptsSigningLaneId(laneShareEpoch);
-
-// @ts-expect-error Agent principals are not linked devices.
-acceptsLinkedDeviceId(agentPrincipalId);
-
-// @ts-expect-error Linked devices are not agent principals.
-acceptsAgentPrincipalId(linkedDeviceId);
-
-// @ts-expect-error Delegated intent digests are not idempotency keys.
-acceptsDelegatedIdempotencyKey(delegatedIntentDigest);
 
 // @ts-expect-error Link-device sessions are not signing lanes.
 acceptsSigningLaneId(linkDeviceSessionId);

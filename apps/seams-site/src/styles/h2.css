@@ -38,6 +38,10 @@
     'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     Roboto, Helvetica, Arial, sans-serif;
   --h2-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  /* uppercase micro-labels (kickers, eyebrows, tags). Aliased so the whole
+     label layer can be re-pointed to a mono in one line; --h2-mono stays for
+     real data: code, call args, key strings, auth metadata. */
+  --h2-label: var(--h2-font);
 
   /* type scale: the pre-de-zoom sizes x0.9, rounded to the nearest 0.5px */
   --h2-text-2xs: 9.5px; /* micro mono labels (was 10.5px) */
@@ -96,13 +100,13 @@ body:has(.h2-page) {
 
 /* ---------- type helpers ---------- */
 
-/* Mono uppercase micro-label, deck style: "SEAMS · PLATFORM" */
+/* Uppercase micro-label, deck style: "SEAMS · PLATFORM" */
 .h2-kicker {
   margin: 0;
-  font-family: var(--h2-mono);
+  font-family: var(--h2-label);
   font-size: 10.5px;
   font-weight: 500;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--h2-ash);
 }
@@ -122,12 +126,14 @@ body:has(.h2-page) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 16px;
+  gap: 7px;
+  height: 40px;
+  padding: 0 18px;
   border-radius: 9999px;
   border: 1px solid transparent;
-  font-size: var(--h2-text-lg);
+  /* Set in px rather than off --h2-text-lg: that token sizes dense UI text
+     (12.5px), and these are the pages' primary calls to action. */
+  font-size: 14px;
   font-weight: 500;
   line-height: 1;
   cursor: pointer;
@@ -159,10 +165,13 @@ body:has(.h2-page) {
   background: var(--h2-taupe);
 }
 
+/* Kept 4px taller than the base button, as before: hero CTAs pair an --lg
+   primary with a plain outline, and widening the step makes the mismatched
+   pair read as a mistake. */
 .h2-btn--lg {
-  height: 40px;
-  padding: 0 20px;
-  font-size: 13.5px;
+  height: 44px;
+  padding: 0 22px;
+  font-size: 15px;
 }
 
 /* ---------- flat navbar (structural reskin of NavbarStatic on this page) ---------- */
@@ -291,6 +300,21 @@ body:has(.h2-page) {
       no-repeat;
 }
 
+/* Variant with a third tick at the row's center, for rows whose grid draws
+   a center divider: same corner ticks, plus the mid intersection */
+.h2-rule--midtick::after {
+  background:
+    linear-gradient(var(--h2-ink), var(--h2-ink)) left 10px center / 2px 2px no-repeat,
+    linear-gradient(var(--h2-ink), var(--h2-ink)) right 10px center / 2px 2px no-repeat,
+    linear-gradient(var(--h2-ink), var(--h2-ink)) center / 2px 2px no-repeat,
+    radial-gradient(circle 11px at 11px 50%, var(--h2-bg) 98%, transparent) left center / 22px 23px
+      no-repeat,
+    radial-gradient(circle 11px at 11px 50%, var(--h2-bg) 98%, transparent) right center / 22px 23px
+      no-repeat,
+    radial-gradient(circle 11px at 50% 50%, var(--h2-bg) 98%, transparent) center / 22px 23px
+      no-repeat;
+}
+
 /* No column borders below 1160px: keep the rule clean, drop the ticks */
 @media (max-width: 1160px) {
   .h2-rule::after {
@@ -305,6 +329,11 @@ body:has(.h2-page) {
 /* variant for sections whose content should hug the surrounding rules */
 .h2-section--snug {
   padding: 64px 0 14px;
+}
+
+/* variant for sections whose last row carries its own bottom spacing */
+.h2-section--flush-bottom {
+  padding-bottom: 0;
 }
 
 /* Split section header: display headline left, smoke paragraph right */
@@ -1059,12 +1088,17 @@ body:has(.h2-page) {
   filter: drop-shadow(0 22px 40px rgba(15, 23, 42, 0.14));
   transform: scale(0.8);
   margin: -52px 0;
+  /* an explicit width (not the grid's shrink-wrap) so the card inside can
+     stretch past its ~317px intrinsic footprint */
+  width: min(440px, 100%);
 }
 
 /* the card's own border (--w3a borderPrimary) vanishes against the tinted
-   aside; lift it to a visible-but-light warm gray */
+   aside; lift it to a visible-but-light warm gray. Widened past the SDK's
+   natural min(330px) footprint, which reads narrow in the hero panel. */
 .h2-heroscene__shell .w3a-signup-menu-root {
   border-color: #ddd8d1;
+  width: 100%;
 }
 
 /* the skeleton dims its disabled controls; restore the live card's contrast */
@@ -1887,6 +1921,18 @@ body:has(.h2-page) {
   margin-top: 14px;
 }
 
+/* the chip row scrolls edge to edge: break out of the demo column's 36px side
+   padding, then re-add it inside so the chips still start on the content rail.
+   The negative margins cancel the added width, so the row's layout footprint
+   (and the centered THEMES kicker above it) is unchanged. */
+.h2-hero__demo .h2-themeswitch__track {
+  width: calc(100% + 72px);
+  max-width: calc(100% + 72px);
+  margin-inline: -36px;
+  padding-inline: 36px;
+  scroll-padding-inline: 36px;
+}
+
 .h2-page--wallet .passkey-demo {
   min-height: var(--h2-wallet-demo-shell-min-height);
 }
@@ -1926,17 +1972,55 @@ body:has(.h2-page) {
 }
 
 /* Live-demo theme presets. */
+/* kicker over a single-line chip carousel; justify-items lets the track size
+   to its content so short rows center and long ones fill and scroll */
 .h2-themeswitch {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 7px;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
   margin-top: 26px;
+}
+
+.h2-themeswitch__label {
+  font-family: var(--h2-label);
+  font-size: var(--h2-text-xs);
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--h2-ash);
+}
+
+.h2-themeswitch__track {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  cursor: grab;
+  /* the row is dragged and wheel-scrolled; a visible bar would crowd the chips */
+  scrollbar-width: none;
+}
+
+.h2-themeswitch__track::-webkit-scrollbar {
+  display: none;
+}
+
+.h2-themeswitch__track.is-dragging {
+  cursor: grabbing;
+}
+
+/* while dragging, chips must not swallow the pointer or show hover states */
+.h2-themeswitch__track.is-dragging .h2-themeswitch__btn {
+  pointer-events: none;
 }
 
 .h2-themeswitch__btn {
   display: inline-flex;
   align-items: center;
+  flex: none;
   gap: 7px;
   padding: 5px 13px 5px 7px;
   border-radius: 9999px;
@@ -1980,16 +2064,6 @@ body:has(.h2-page) {
   margin-top: 26px;
 }
 
-.h2-shapeswitch__label {
-  margin-right: 4px;
-  font-family: var(--h2-mono);
-  font-size: var(--h2-text-xs);
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--h2-ash);
-}
-
 .h2-shapeswitch__btn {
   display: inline-flex;
   align-items: center;
@@ -2007,6 +2081,11 @@ body:has(.h2-page) {
     color 150ms ease,
     border-color 150ms ease,
     background-color 150ms ease;
+}
+
+/* the Sharp chip previews the square geometry it selects */
+.h2-shapeswitch__btn--square {
+  border-radius: 4px;
 }
 
 .h2-shapeswitch__btn:hover {
@@ -2448,88 +2527,292 @@ body:has(.h2-page) {
   display: block;
 }
 
+.h2-mpc :where(path, rect, circle) {
+  vector-effect: non-scaling-stroke;
+}
+
 .h2-mpc__kicker {
-  font-family: var(--h2-mono);
-  font-size: var(--h2-text-2xs);
-  letter-spacing: 0.13em;
+  font-family: var(--h2-label);
+  font-size: var(--h2-text-sm);
+  font-weight: 500;
+  letter-spacing: 0.15em;
   fill: var(--h2-ash);
-}
-
-.h2-mpc__label {
-  font-family: var(--h2-mono);
-  font-size: var(--h2-text-xl);
-  fill: var(--h2-ink);
-}
-
-.h2-mpc__label--result {
-  fill: var(--h2-green);
 }
 
 .h2-mpc__node {
   fill: var(--h2-bg);
-  stroke: var(--h2-stone);
+  stroke: var(--h2-ash);
+  stroke-width: 0.9;
 }
 
 .h2-mpc__node--result {
-  stroke: color-mix(in srgb, var(--h2-green) 45%, var(--h2-stone));
+  stroke: var(--h2-ash);
 }
 
 .h2-mpc__flow {
   fill: none;
-  stroke: var(--h2-ash);
-  stroke-width: 1.4;
-  stroke-dasharray: 4 5;
+  stroke: var(--h2-smoke);
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+.h2-mpc__flow--device {
+  --h2-dash-cycle: 5;
+  stroke-dasharray: 1 4;
+}
+
+.h2-mpc__flow--infrastructure {
+  --h2-dash-cycle: 10;
+  stroke-dasharray: 6 4;
+}
+
+.h2-mpc__terminal {
+  fill: var(--h2-bg);
+  stroke: var(--h2-smoke);
+  stroke-width: 0.85;
+}
+
+.h2-mpc__share-key-outline,
+.h2-mpc__share-key-detail,
+.h2-mpc__signature-mark {
+  fill: none;
+  stroke: var(--h2-graphite);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.h2-mpc__guide {
+  --h2-dash-cycle: 5;
+  fill: none;
+  stroke: var(--h2-stone);
+  stroke-width: 0.75;
+  stroke-dasharray: 1 4;
+  stroke-linecap: round;
 }
 
 .h2-mpc__gate {
   fill: var(--h2-bg);
   stroke: var(--h2-graphite);
-  stroke-width: 1.4;
+  stroke-width: 1.15;
   stroke-linejoin: round;
 }
 
 .h2-mpc__gate-check {
   fill: none;
   stroke: var(--h2-graphite);
-  stroke-width: 1.6;
+  stroke-width: 1.45;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.h2-mpc__gatelabel {
+.h2-mpc__gatelabel,
+.h2-mpc__resultlabel {
   font-family: var(--h2-mono);
-  font-size: var(--h2-text-xs);
+  font-size: var(--h2-text-lg);
   fill: var(--h2-smoke);
 }
 
 .h2-mpc__out {
   fill: none;
   stroke: var(--h2-graphite);
-  stroke-width: 1.4;
+  stroke-width: 1.15;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .h2-mpc__note {
   font-family: var(--h2-mono);
-  font-size: 10.5px;
+  font-size: var(--h2-text-lg);
   fill: var(--h2-ash);
+}
+
+.h2-mpc .h2-draw__base {
+  stroke: color-mix(in srgb, var(--h2-ash) 72%, var(--h2-bg));
+  stroke-width: 0.7;
+}
+
+.h2-mpc .h2-draw__overlay {
+  fill: none;
+  stroke: var(--h2-graphite);
+  stroke-width: 1.15;
+  opacity: 0;
+}
+
+@keyframes h2-stroke-draw {
+  from {
+    opacity: 1;
+    stroke-dasharray: var(--h2-draw-length, 1000px) var(--h2-draw-length, 1000px);
+    stroke-dashoffset: var(--h2-draw-length, 1000px);
+  }
+  99.9% {
+    opacity: 1;
+    stroke-dasharray: var(--h2-draw-length, 1000px) var(--h2-draw-length, 1000px);
+    stroke-dashoffset: 0;
+  }
+  to {
+    opacity: 1;
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes h2-stroke-travel {
+  from {
+    opacity: 1;
+    stroke-dashoffset: var(--h2-dash-cycle, 10);
+  }
+  to {
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes h2-stroke-draw-pulse {
+  0% {
+    opacity: 0;
+    stroke-dasharray: var(--h2-draw-length, 1000px) var(--h2-draw-length, 1000px);
+    stroke-dashoffset: var(--h2-draw-length, 1000px);
+  }
+  2% {
+    opacity: 1;
+    stroke-dasharray: var(--h2-draw-length, 1000px) var(--h2-draw-length, 1000px);
+    stroke-dashoffset: var(--h2-draw-length, 1000px);
+  }
+  70% {
+    opacity: 1;
+    stroke-dasharray: var(--h2-draw-length, 1000px) var(--h2-draw-length, 1000px);
+    stroke-dashoffset: 0;
+  }
+  70.1%,
+  90% {
+    opacity: 1;
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+  100% {
+    opacity: 1;
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes h2-stroke-travel-pulse {
+  0% {
+    opacity: 0;
+    stroke-dashoffset: var(--h2-dash-cycle, 10);
+  }
+  5% {
+    opacity: 1;
+    stroke-dashoffset: var(--h2-dash-cycle, 10);
+  }
+  90% {
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+  100% {
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes h2-stroke-base-undraw {
+  0% {
+    opacity: 1;
+  }
+  5%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes h2-security-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .h2-security__view.is-active .h2-mpc .h2-mpc__node.h2-draw__overlay:not(.h2-mpc__node--result),
+  .h2-security__view.is-active .h2-mpc .h2-mpc__share-key-outline.h2-draw__overlay,
+  .h2-security__view.is-active .h2-mpc .h2-mpc__share-key-detail.h2-draw__overlay,
+  .h2-security__view.is-active .h2-mpc .h2-mpc__terminal.h2-draw__overlay,
+  .h2-security__view.is-active .h2-mpc .h2-mpc__gate.h2-draw__overlay,
+  .h2-security__view.is-active .h2-mpc .h2-mpc__gate-check.h2-draw__overlay,
+  .h2-security__view.is-active .h2-mpc .h2-mpc__out.h2-draw__overlay,
+  .h2-security__view.is-active .h2-mpc .h2-mpc__node--result.h2-draw__overlay,
+  .h2-security__view.is-active .h2-mpc .h2-mpc__signature-mark.h2-draw__overlay {
+    stroke-dasharray: var(--h2-draw-length, 1000px) var(--h2-draw-length, 1000px);
+    animation: h2-stroke-draw 1200ms linear both;
+    animation-delay: 360ms;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-mpc__flow.h2-draw__overlay,
+  .h2-security__view.is-active .h2-mpc .h2-mpc__guide.h2-draw__overlay {
+    animation:
+      h2-stroke-travel-pulse 1200ms linear var(--h2-mpc-travel-delay) both,
+      h2-stroke-travel 1200ms linear calc(var(--h2-mpc-travel-delay) + 1200ms) infinite;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-mpc__flow {
+    --h2-mpc-travel-delay: 460ms;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-mpc__guide {
+    --h2-mpc-travel-delay: 600ms;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-draw__base:is(.h2-mpc__flow, .h2-mpc__guide) {
+    animation: h2-stroke-base-undraw 1200ms linear var(--h2-mpc-travel-delay) both;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-mpc__share-key-outline.h2-draw__overlay {
+    animation-delay: 460ms;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-mpc__terminal.h2-draw__overlay {
+    animation-delay: 460ms;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-mpc__share-key-detail.h2-draw__overlay {
+    animation-delay: 640ms;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-mpc__gate.h2-draw__overlay {
+    animation-delay: 730ms;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-mpc__gate-check.h2-draw__overlay {
+    animation-delay: 1180ms;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-mpc__out.h2-draw__overlay {
+    animation-delay: 1330ms;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-mpc__node--result.h2-draw__overlay {
+    animation-delay: 1470ms;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-mpc__signature-mark.h2-draw__overlay {
+    animation-delay: 1700ms;
+  }
 }
 
 /* SVG text scales with the viewBox, so on narrow screens (diagram ~0.6x)
    larger viewBox-unit sizes keep the labels legible */
 @media (max-width: 640px) {
   .h2-mpc__kicker {
-    font-size: var(--h2-text-md);
-  }
-
-  .h2-mpc__label {
-    font-size: 15.5px;
+    font-size: var(--h2-text-xl);
   }
 
   .h2-mpc__gatelabel,
+  .h2-mpc__resultlabel,
   .h2-mpc__note {
-    font-size: var(--h2-text-lg);
+    font-size: var(--h2-text-title);
   }
 }
 
@@ -2548,7 +2831,7 @@ body:has(.h2-page) {
 .h2-splitkey__stack {
   width: 136px;
   height: auto;
-  filter: drop-shadow(0 16px 18px rgba(23, 74, 70, 0.18));
+  filter: drop-shadow(0 16px 18px rgba(40, 36, 32, 0.18));
 }
 
 /* chips stretch over the stack's height so each one sits beside its layer */
@@ -2577,25 +2860,26 @@ body:has(.h2-page) {
   gap: 8px;
   padding: 8px 14px 8px 10px;
   border-radius: 12px;
-  border: 1px solid var(--h2-stone);
+  border: 1px solid #ffffff;
   background: #ffffff;
   box-shadow:
-    0 10px 24px -14px rgba(23, 42, 38, 0.28),
-    0 2px 6px -3px rgba(23, 42, 38, 0.12);
+    0 10px 24px -14px rgba(40, 36, 32, 0.28),
+    0 2px 6px -3px rgba(40, 36, 32, 0.12);
   font-size: var(--h2-text-lg);
   font-weight: 600;
   color: var(--h2-ink);
   white-space: nowrap;
 }
 
-/* hairline connectors reaching back toward the slab vertices */
+/* hairline connectors reaching back toward the slab vertices; white like the
+   slab edges so they stand out from the taupe panel */
 .h2-splitkey__chip::before {
   content: '';
   position: absolute;
   right: 100%;
   top: 50%;
   height: 1px;
-  background: var(--h2-stone);
+  background: #ffffff;
 }
 
 .h2-splitkey__chip:nth-child(1)::before {
@@ -2942,9 +3226,10 @@ body:has(.h2-page) {
   background-size: cover;
   background-position: center 70%;
   box-shadow: inset 0 0 0 1px rgba(10, 10, 10, 0.12);
-  font-family: var(--h2-mono);
+  font-family: var(--h2-label);
   font-size: var(--h2-text-xs);
-  letter-spacing: 0.06em;
+  font-weight: 500;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #ffffff;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
@@ -3050,10 +3335,77 @@ body:has(.h2-page) {
   color: var(--h2-smoke);
 }
 
-/* split-key diagram under the copy items, sized to their measure */
-.h2-security__diagram {
-  margin-top: 40px;
-  max-width: 432px;
+/* paged right column: one stage tall enough for either view, so the section
+   height (and the pager on its rule) holds still when the view changes */
+.h2-security__stage {
+  display: grid;
+  place-items: center;
+  min-height: 386px;
+}
+
+.h2-security__view {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 320ms ease-out,
+    visibility 0s linear 320ms;
+}
+
+.h2-security__view.is-active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+
+.h2-security__view > .h2-security__grid {
+  width: 100%;
+}
+
+/* the pager rides this section's bottom rule, so the content sits closer to
+   it than the default 86px section padding would allow */
+.h2-section--pagerfoot {
+  padding-bottom: 34px;
+}
+
+.h2-security__progress {
+  position: absolute;
+  inset-inline-end: 12px;
+  bottom: -0.5px;
+  inset-inline-start: calc(50% + 58px);
+  z-index: 4;
+  height: 1px;
+  overflow: hidden;
+  background: var(--h2-bg);
+  pointer-events: none;
+}
+
+@media (max-width: 1160px) {
+  .h2-security__progress {
+    inset-inline-end: 0;
+  }
+}
+
+.h2-security__progress-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--h2-ink);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .h2-security__progress-fill {
+    animation-name: h2-security-progress;
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+  }
 }
 
 .h2-security__grid {
@@ -3084,14 +3436,141 @@ body:has(.h2-page) {
 }
 
 .h2-security__cell svg {
-  width: 96px;
-  height: 96px;
-  color: var(--h2-ash);
+  width: 104px;
+  height: 104px;
+  overflow: visible;
+}
+
+.h2-security__cell svg :where(path, circle) {
+  vector-effect: non-scaling-stroke;
+}
+
+.h2-lineart__primary {
+  stroke: var(--h2-graphite);
+  stroke-width: 1.15;
+}
+
+.h2-lineart__secondary {
+  stroke: var(--h2-smoke);
+  stroke-width: 0.8;
+}
+
+.h2-lineart__hidden {
+  --h2-dash-cycle: 8.5;
+  stroke: var(--h2-ash);
+  stroke-width: 0.75;
+  stroke-dasharray: 5 3.5;
+}
+
+.h2-lineart__guide {
+  --h2-dash-cycle: 4.5;
+  stroke: var(--h2-ash);
+  stroke-width: 0.65;
+  stroke-dasharray: 1 3.5;
+  stroke-linecap: round;
+}
+
+.h2-lineart__accent {
+  stroke: var(--h2-graphite);
+  stroke-width: 1.3;
+}
+
+.h2-lineart__share {
+  fill: var(--h2-taupe);
+  stroke: var(--h2-smoke);
+  stroke-width: 0.8;
+}
+
+.h2-lineart__markers circle {
+  fill: var(--h2-bg);
+  stroke: var(--h2-ash);
   stroke-width: 0.65;
 }
 
+.h2-security__cell .h2-draw__base {
+  stroke: color-mix(in srgb, var(--h2-ash) 72%, var(--h2-bg));
+  stroke-width: 0.65;
+}
+
+.h2-security__cell .h2-draw__overlay {
+  fill: none;
+  stroke: var(--h2-graphite);
+  stroke-width: 1.15;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .h2-security__cell:nth-child(1) {
+    --h2-sequence-delay: 400ms;
+  }
+
+  .h2-security__cell:nth-child(2) {
+    --h2-sequence-delay: 1400ms;
+  }
+
+  .h2-security__cell:nth-child(3) {
+    --h2-sequence-delay: 2400ms;
+  }
+
+  .h2-security__cell:nth-child(4) {
+    --h2-sequence-delay: 3400ms;
+  }
+
+  .h2-security__view.is-active
+    .h2-security__grid
+    .h2-security__cell
+    .h2-draw__overlay:is(
+      .h2-lineart__primary,
+      .h2-lineart__secondary,
+      .h2-lineart__share,
+      .h2-lineart__accent,
+      .h2-lineart__marker
+    ) {
+    animation: h2-stroke-draw-pulse 1200ms linear var(--h2-sequence-delay) both;
+  }
+
+  .h2-security__view.is-active
+    .h2-security__grid
+    .h2-security__cell
+    .h2-draw__base:is(.h2-lineart__hidden, .h2-lineart__guide) {
+    animation: h2-stroke-base-undraw 1200ms linear var(--h2-sequence-delay) both;
+  }
+
+  .h2-security__view.is-active
+    .h2-security__grid
+    .h2-security__cell
+    .h2-draw__overlay:is(.h2-lineart__hidden, .h2-lineart__guide) {
+    animation:
+      h2-stroke-travel-pulse 1200ms linear var(--h2-sequence-delay) both,
+      h2-stroke-travel 1200ms linear calc(var(--h2-sequence-delay) + 1200ms) infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .h2-security__view {
+    transition: none;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-draw__overlay,
+  .h2-security__view.is-active .h2-security__cell .h2-draw__overlay {
+    opacity: 1;
+  }
+
+  .h2-security__view.is-active
+    .h2-security__cell
+    .h2-draw__base:is(.h2-lineart__hidden, .h2-lineart__guide) {
+    opacity: 0;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-draw__base:is(.h2-mpc__flow, .h2-mpc__guide) {
+    opacity: 0;
+  }
+}
+
 .h2-security__cell span {
+  font-family: var(--h2-mono);
   font-size: var(--h2-text-base);
+  letter-spacing: 0.015em;
   color: var(--h2-smoke);
 }
 
@@ -3105,16 +3584,54 @@ body:has(.h2-page) {
 /* ---------- get-started band (stacked two-column rows) ---------- */
 
 .h2-starthead {
+  display: block;
   padding-bottom: 50px;
 }
 
+/* the band heading runs at the custody section's display scale; the wider
+   measure keeps it to two lines at that size */
+.h2-starthead .h2-eco__title {
+  font-size: clamp(27px, 2.9vw, 38px);
+  max-width: 620px;
+}
+
+.h2-starthead__cta {
+  margin-top: 24px;
+}
+
+/* the row's 50px vertical rhythm lives on the text column, not the grid, so
+   the code card can run to within 1rem of the row rules */
 .h2-startrow__grid {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-  gap: 44px 58px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
-  padding-top: 50px;
-  padding-bottom: 50px;
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
+
+/* hairline between the two even halves; the halves pad away from it, and
+   .h2-rule--midtick puts a tick where it crosses the row rules */
+.h2-startrow__grid::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 50%;
+  border-inline-start: 1px solid var(--h2-line);
+  pointer-events: none;
+}
+
+.h2-startrow__text {
+  padding-block: 34px;
+  padding-inline-end: 56px;
+}
+
+.h2-startrow__grid > .h2-code {
+  align-self: stretch;
+  margin-inline-start: 16px;
+  /* run through the shell's inline padding so the right gap matches the
+     1rem clearance on the other sides */
+  margin-inline-end: -20px;
 }
 
 .h2-startrow__text h3 {
@@ -3167,6 +3684,234 @@ body:has(.h2-page) {
   justify-items: center;
 }
 
+/* Wallet console band: heading + two-page legend above a tinted stage that
+   crops two console screens, elevenlabs.io-style — the overview screen in
+   front at the left, the policy screen sliding out of the right edge. All
+   screen geometry is percentage-based so the stage scales proportionally. */
+.h2-consoleband {
+  display: grid;
+  gap: 30px;
+  padding-top: 50px;
+  /* The stage runs off the section's bottom edge, so the shell keeps no
+     bottom padding — any gap here would float the open-bottomed card above
+     the rule instead of meeting it. */
+  padding-bottom: 0;
+}
+
+/* legend columns track the stage split so each label sits over its screen */
+/* display-scale title, matching the custody section's heading */
+.h2-startrow__text h3.h2-consoleband__title {
+  margin: 0 0 14px;
+  font-size: clamp(27px, 2.9vw, 38px);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+}
+
+/* legend columns track the stage split so each row sits over its screen */
+.h2-consoleband__legend {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  margin-top: -4px;
+  /* The row's fill is the widest thing in the band, so it sets the reader's
+     sense of the left edge. Pulling it out past the shell to align the label
+     text instead left the panel hanging to the left of the heading it belongs
+     to; align the fill and let the labels indent. */
+  margin-inline: 0;
+}
+
+/* The legend rows are the stage's control surface, styled as the pillar tabs
+   are: a soft-filled row with a chipped icon, quiet until selected. */
+.h2-consoleband__tab {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+/* The selected row is carried mostly by its ink stepping up to full weight;
+   the fill is only a hint behind it, well short of the pillar tabs' solid
+   taupe, which reads as a block at this row's width. */
+.h2-consoleband__tab:hover {
+  background: color-mix(in srgb, var(--h2-taupe) 30%, transparent);
+}
+
+.h2-consoleband__tab.is-active {
+  background: color-mix(in srgb, var(--h2-taupe) 60%, transparent);
+}
+
+.h2-consoleband__tab-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* Sized off the pillar tabs rather than the shared note tokens: those are
+   dense-UI sizes for captions, and these rows are the section's controls. */
+.h2-startrow__notes .h2-consoleband__tab-copy strong {
+  margin-bottom: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--h2-ash);
+  transition: color 150ms ease;
+}
+
+.h2-consoleband__tab.is-active .h2-consoleband__tab-copy strong,
+.h2-consoleband__tab:hover .h2-consoleband__tab-copy strong {
+  color: var(--h2-ink);
+}
+
+.h2-startrow__notes .h2-consoleband__tab-copy span {
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--h2-smoke);
+}
+
+.h2-consoleband__stage {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 14 / 5;
+  /* Open-bottomed: the stage meets the section rule rather than closing
+     above it, so the screens read as continuing past the fold. */
+  border-radius: 26px 26px 0 0;
+  border: 1px solid var(--h2-stone);
+  border-bottom: 0;
+  background: var(--h2-taupe);
+}
+
+/* each card window shows a left-crop of its page at readable scale: the img
+   is wider than the card, so the card's fixed width crops the right side and
+   the stage bottom crops the rest */
+.h2-consoleband__screen {
+  position: absolute;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid #e3ded6;
+  background: var(--h2-bg);
+  box-shadow: 0 24px 60px -30px rgba(15, 23, 42, 0.3);
+}
+
+.h2-consoleband__screen img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* The screens overlap by about a third and swap focus with a sliding soft
+   mask (the elevenlabs.io mechanic): each card carries a fixed gradient mask
+   twice its width, and only mask-position, translateY, and z-index change
+   between states — the unfocused card's overlapped edge dissolves, the
+   focused one reveals fully. Rest state = audit focused. */
+.h2-consoleband__screen--overview {
+  inset-inline-start: 3.5%;
+  /* 3.5% of the stage's width, restated against its height: block insets
+     resolve on the other axis, so matching the side gap means scaling by the
+     14/5 ratio (3.5 × 2.8 = 9.8) and then staggering this card 2 below. */
+  inset-block-start: 11.8%;
+  z-index: 0;
+  width: 62%;
+  mask-image: linear-gradient(to right, white 65%, transparent 70%);
+  mask-size: 200% 100%;
+  /* rest: the fade completes where the audit card begins — at 62% wide the
+     cards overlap by 31% of the stage, which is exactly half of each card,
+     so the dissolve lands at 0.5 of this one's width. */
+  mask-position: 90% 0;
+  transform: translateY(12px);
+}
+
+.h2-consoleband__screen--audit {
+  inset-inline-end: 3.5%;
+  inset-block-start: 9.8%;
+  z-index: 1;
+  width: 62%;
+  mask-image: linear-gradient(to left, white 55%, transparent 60.5%);
+  mask-size: 200% 100%;
+  mask-position: 95% 0;
+}
+
+@media (hover: hover) {
+  .h2-consoleband__screen {
+    transition:
+      mask-position 500ms ease,
+      transform 500ms ease;
+  }
+
+  /* Focusing the overview slides its mask off the edge and dissolves the
+     audit screen's overlap instead. This keys off the stage's data-focus,
+     which holds the last hovered card, rather than off `:has(:hover)` —
+     `:hover` only describes the pointer's current position, so on mouse-out
+     the stage snapped back and the audit screen animated forward every
+     time. Held state means whichever card was last hovered stays in front. */
+  .h2-consoleband__stage[data-focus='overview'] .h2-consoleband__screen--overview {
+    z-index: 1;
+    mask-position: 15% 0;
+    transform: translateY(0);
+  }
+
+  .h2-consoleband__stage[data-focus='overview'] .h2-consoleband__screen--audit {
+    z-index: 0;
+    mask-position: 27% 0;
+    transform: translateY(12px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .h2-consoleband__screen {
+    transition: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .h2-consoleband {
+    padding-top: 36px;
+    /* Matches the wide layout: the stage is open-bottomed at every width, so
+       keeping 24px here would leave its cut edge floating above the rule. */
+    padding-bottom: 0;
+  }
+
+  .h2-consoleband__legend {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* Sized so a single 90% card very nearly fills the stage: the wide
+     layout's ratio left a quarter of the band empty under the card, which
+     an open bottom edge only makes more obvious. */
+  .h2-consoleband__stage {
+    aspect-ratio: 15 / 8;
+  }
+
+  /* One screen at a time, chosen by the legend rows. The pair cannot overlap
+     legibly at this width, but hiding one outright would leave its row a
+     control that does nothing, so they swap instead. */
+  .h2-consoleband__stage .h2-consoleband__screen {
+    width: 90%;
+    inset-inline-start: 5%;
+    inset-inline-end: auto;
+    /* 5% of width against a 15/8 stage: 5 × 1.875 = 9.375 */
+    inset-block-start: 9.4%;
+    mask-image: none;
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .h2-consoleband__stage[data-focus='overview'] .h2-consoleband__screen--overview,
+  .h2-consoleband__stage[data-focus='audit'] .h2-consoleband__screen--audit {
+    z-index: 1;
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+  }
+}
+
 .h2-mockcard--wide {
   width: min(360px, 100%);
 }
@@ -3185,12 +3930,16 @@ body:has(.h2-page) {
   white-space: pre;
 }
 
-/* roomier variant for the get-started rows */
+/* compact variant for the get-started rows: snug card, striking tokens */
 .h2-code--lg {
-  border-radius: 14px;
-  padding: 24px 28px;
-  font-size: var(--h2-text-md);
-  line-height: 1.85;
+  border-radius: 16px;
+  padding: 22px 24px;
+  font-size: var(--h2-text-sm);
+  line-height: 1.7;
+  /* keep the hairline ring, add a whisper of lift off the row */
+  box-shadow:
+    0 0 0 1px var(--h2-stone),
+    0 10px 24px -22px rgba(15, 23, 42, 0.12);
 }
 
 .h2-code .tok-kw {
@@ -3205,12 +3954,39 @@ body:has(.h2-page) {
   color: var(--h2-ash);
 }
 
+.h2-code--lg .tok-kw {
+  color: #d0342c;
+}
+
+.h2-code--lg .tok-prop {
+  color: #2e63c4;
+}
+
+.h2-code--lg .tok-str {
+  color: var(--h2-ink);
+}
+
 @media (max-width: 980px) {
   .h2-startrow__grid {
     grid-template-columns: 1fr;
     gap: 26px;
     padding-top: 36px;
     padding-bottom: 36px;
+  }
+
+  .h2-startrow__grid::before {
+    display: none;
+  }
+
+  .h2-startrow__text {
+    padding-block: 0;
+    padding-inline-end: 0;
+  }
+
+  .h2-startrow__grid > .h2-code {
+    align-self: auto;
+    margin-inline-start: 0;
+    margin-inline-end: 0;
   }
 
   .h2-starthead {
@@ -3289,10 +4065,10 @@ body:has(.h2-page) {
 
 .h2-demo-label {
   margin: 0 0 11px;
-  font-family: var(--h2-mono);
+  font-family: var(--h2-label);
   font-size: 9px;
-  font-weight: 400;
-  letter-spacing: 0.1em;
+  font-weight: 500;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: color-mix(in srgb, var(--h2-smoke) 62%, transparent);
   text-align: center;
@@ -3305,67 +4081,78 @@ body:has(.h2-page) {
 }
 
 .h2-footer__inner {
-  padding: 50px 36px 32px;
+  padding: 72px 36px 64px;
 }
 
 .h2-footer__grid {
   display: grid;
-  grid-template-columns: 1.2fr repeat(4, 1fr);
-  gap: 28px;
+  grid-template-columns: minmax(180px, 1fr) minmax(0, 3fr);
+  gap: 48px;
+  align-items: start;
+}
+
+.h2-footer__brand {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .h2-footer__brand a {
   display: inline-flex;
+  width: fit-content;
+}
+
+.h2-footer__links {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  gap: 48px 32px;
+}
+
+.h2-footer__col {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
 }
 
 .h2-footer__col h3 {
-  margin: 0 0 11px;
-  font-family: var(--h2-mono);
+  margin: 0 0 14px;
+  font-family: var(--h2-label);
   font-size: var(--h2-text-xs);
   font-weight: 500;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--h2-ash);
 }
 
 .h2-footer__col a {
   display: block;
-  padding: 4px 0;
-  font-size: var(--h2-text-lg);
-  color: var(--h2-smoke);
+  padding: 6px 0;
+  font-size: var(--h2-text-body);
+  line-height: 1.3;
+  color: var(--h2-ink);
 }
 
 .h2-footer__col a:hover {
-  color: var(--h2-ink);
-}
-
-.h2-footer__bottom {
-  margin-top: 40px;
-  padding-top: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  font-size: var(--h2-text-md);
   color: var(--h2-smoke);
-}
-
-.h2-footer__socials {
-  display: flex;
-  gap: 13px;
-}
-
-.h2-footer__socials a {
-  color: var(--h2-smoke);
-  display: inline-flex;
-}
-
-.h2-footer__socials a:hover {
-  color: var(--h2-ink);
 }
 
 @media (max-width: 860px) {
+  .h2-footer__inner {
+    padding: 48px 24px 44px;
+  }
+
   .h2-footer__grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
+    gap: 36px;
+  }
+
+  .h2-footer__links {
+    gap: 32px 24px;
+  }
+}
+
+@media (max-width: 520px) {
+  .h2-footer__links {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

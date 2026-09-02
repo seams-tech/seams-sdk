@@ -22,6 +22,7 @@ import {
 } from '@shared/utils/walletCapabilityBindings';
 import type { WalletSession } from '@/core/types/seams';
 import { parseEmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/challengeDelivery';
+import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
 
 let flowHandleRandomFillCalls = 0;
 
@@ -55,7 +56,10 @@ function walletId(value: string) {
 }
 
 function emailOtpAuthMethodBinding(value: { walletId?: string } = {}): WalletAuthMethodBinding {
+  const walletAuthMethodId = parseWalletAuthMethodId('wallet-auth-method:email-otp-fixture');
+  if (!walletAuthMethodId.ok) throw new Error('Email OTP fixture auth method id is invalid');
   return buildEmailOtpWalletAuthMethodBinding({
+    walletAuthMethodId: walletAuthMethodId.value,
     wallet: buildWalletIdentity({ walletId: walletId(value.walletId ?? 'alice.testnet') }),
     emailHashHex: 'email-hash',
     registrationAuthorityId: 'google-email-otp',

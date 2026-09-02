@@ -8,100 +8,100 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '../..');
 
 const guardedRoots = [
-  'packages/sdk-web/src/core/signingEngine/session',
-  'packages/sdk-web/src/core/signingEngine/flows',
-  'packages/sdk-web/src/core/signingEngine/threshold',
-  'packages/sdk-web/src/core/signingEngine/interfaces',
-  'packages/sdk-web/src/core/signingEngine/useCases',
+  'packages/wallet/src/core/signingEngine/session',
+  'packages/wallet/src/core/signingEngine/flows',
+  'packages/wallet/src/core/signingEngine/threshold',
+  'packages/wallet/src/core/signingEngine/interfaces',
+  'packages/wallet/src/core/signingEngine/useCases',
 ];
 
-const activeCoreSigningRoots = [...guardedRoots, 'packages/sdk-web/src/core/signingEngine/chains'];
+const activeCoreSigningRoots = [...guardedRoots, 'packages/wallet/src/core/signingEngine/chains'];
 
 const platformBoundaryFiles = guardBoundaryFiles([
   {
-    file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/events.ts',
+    file: 'packages/wallet/src/core/signingEngine/flows/signEvmFamily/events.ts',
     owner: 'EVM-family diagnostics boundary',
     reason: 'reads browser diagnostics storage for signing event traces',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/accountAuth.ts',
+    file: 'packages/wallet/src/core/signingEngine/flows/signEvmFamily/accountAuth.ts',
     owner: 'EVM-family auth boundary',
     reason: 'checks browser credential availability before WebAuthn authentication',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
+    file: 'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
     owner: 'EVM-family public signing boundary',
     reason: 'coordinates browser diagnostics and runtime signing checks at the public flow edge',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/webauthnP256.ts',
+    file: 'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signers/webauthnP256.ts',
     owner: 'WebAuthn P-256 signer boundary',
     reason: 'performs direct WebAuthn P-256 assertions',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/webauthnP256KeyRef.ts',
+    file: 'packages/wallet/src/core/signingEngine/flows/signEvmFamily/webauthnP256KeyRef.ts',
     owner: 'WebAuthn P-256 key-ref boundary',
     reason: 'reads browser credential state for P-256 key references',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/interfaces/operationDeps.ts',
+    file: 'packages/wallet/src/core/signingEngine/interfaces/operationDeps.ts',
     owner: 'operation dependency port boundary',
     reason: 'types runtime dependencies injected at signing operation edges',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/interfaces/runtime.ts',
+    file: 'packages/wallet/src/core/signingEngine/interfaces/runtime.ts',
     owner: 'runtime dependency port boundary',
     reason: 'types platform runtime dependencies injected by assembly',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts',
+    file: 'packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts',
     owner: 'signing lane availability boundary',
     reason: 'checks browser persistence availability before reading lane state',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/session/operationState/trace.ts',
+    file: 'packages/wallet/src/core/signingEngine/session/operationState/trace.ts',
     owner: 'operation trace diagnostics boundary',
     reason: 'reads browser diagnostics storage for operation traces',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
+    file: 'packages/wallet/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
     owner: 'passkey ECDSA bootstrap boundary',
     reason: 'receives browser storage and prompt ports for ECDSA bootstrap',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery.ts',
+    file: 'packages/wallet/src/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery.ts',
     owner: 'passkey Ed25519 Yao recovery boundary',
     reason: 'coordinates exact-owner recovery persistence at the browser recovery edge',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoRecoverySource.ts',
+    file: 'packages/wallet/src/core/signingEngine/session/passkey/ed25519YaoRecoverySource.ts',
     owner: 'passkey Ed25519 Yao recovery source boundary',
     reason: 'seals recovery source material with the browser WebCrypto boundary',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/session/userPreferences.ts',
+    file: 'packages/wallet/src/core/signingEngine/session/userPreferences.ts',
     owner: 'session preference persistence boundary',
     reason: 'reads browser local storage for user preferences',
   },
 ]);
 
 const secretSourceCastBoundaryFiles = new Set([
-  'packages/sdk-web/src/core/platform/types.typecheck.ts',
+  'packages/wallet/src/core/platform/types.typecheck.ts',
 ]);
 
 const signerCommandSchemaBoundaryFiles = guardBoundaryFiles([
   {
-    file: 'packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts',
+    file: 'packages/wallet/src/core/platform/generated/signerCoreCommands.ts',
     owner: 'generated signer-core schemas',
     reason: 'this is the committed Rust-generated command schema file',
   },
   {
-    file: 'packages/sdk-web/src/core/platform/signerCoreCommandAdapters.ts',
+    file: 'packages/wallet/src/core/platform/signerCoreCommandAdapters.ts',
     owner: 'signer-core schema adapter',
     reason: 'this module is the only TypeScript wrapper layer for generated command schemas',
   },
   {
-    file: 'packages/sdk-web/src/core/platform/signerCoreCommandAdapters.typecheck.ts',
+    file: 'packages/wallet/src/core/platform/signerCoreCommandAdapters.typecheck.ts',
     owner: 'signer-core schema type fixtures',
     reason: 'type fixtures intentionally reference generated command schema names',
   },
@@ -129,9 +129,9 @@ const secretSourceCastPatterns = [
 ];
 
 const signerCommandSchemaRoots = [
-  'packages/sdk-web/src/core/platform',
-  'packages/sdk-web/src/core/signingEngine/threshold',
-  'packages/sdk-web/src/core/signingEngine/workerManager',
+  'packages/wallet/src/core/platform',
+  'packages/wallet/src/core/signingEngine/threshold',
+  'packages/wallet/src/core/signingEngine/workerManager',
 ];
 
 const handWrittenSignerCommandSchemaPatterns = [
@@ -223,8 +223,8 @@ function guardBoundaryFiles(entries) {
 
 function isRuntimePortsAssemblyFile(file) {
   return (
-    file === 'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts' ||
-    file.startsWith('packages/sdk-web/src/core/signingEngine/assembly/')
+    file === 'packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts' ||
+    file.startsWith('packages/wallet/src/core/signingEngine/assembly/')
   );
 }
 
@@ -255,7 +255,7 @@ function collectPlatformApiViolations() {
 
 function collectSecretSourceCastViolations() {
   return collectPatternViolations(
-    listTypeScriptFilesInRoots(['packages/sdk-web/src/core/platform', ...guardedRoots]),
+    listTypeScriptFilesInRoots(['packages/wallet/src/core/platform', ...guardedRoots]),
     secretSourceCastBoundaryFiles,
     secretSourceCastPatterns,
     'client secret source cast outside builder boundary',
@@ -264,7 +264,7 @@ function collectSecretSourceCastViolations() {
 
 function collectRuntimePortsAggregateViolations() {
   const violations = [];
-  const files = listTypeScriptFiles('packages/sdk-web/src/core/signingEngine');
+  const files = listTypeScriptFiles('packages/wallet/src/core/signingEngine');
 
   for (const file of files) {
     if (isRuntimePortsAssemblyFile(file)) {
@@ -281,7 +281,7 @@ function collectRuntimePortsAggregateViolations() {
 
 function collectUseCaseRuntimePortsViolations() {
   const violations = [];
-  const files = listTypeScriptFiles('packages/sdk-web/src/core/signingEngine/useCases');
+  const files = listTypeScriptFiles('packages/wallet/src/core/signingEngine/useCases');
 
   for (const file of files) {
     const source = readRepoFile(file);
@@ -295,7 +295,7 @@ function collectUseCaseRuntimePortsViolations() {
 
 function collectRoleLocalParserViolations() {
   const violations = [];
-  const platformTypes = 'packages/sdk-web/src/core/platform/ecdsaRoleLocalRecords.ts';
+  const platformTypes = 'packages/wallet/src/core/platform/ecdsaRoleLocalRecords.ts';
 
   if (pathExists(platformTypes)) {
     const source = readRepoFile(platformTypes);
@@ -310,9 +310,9 @@ function collectRoleLocalParserViolations() {
     }
   }
 
-  const files = listTypeScriptFilesInRoots(['packages/sdk-web/src/core']);
+  const files = listTypeScriptFilesInRoots(['packages/wallet/src/core']);
   for (const file of files) {
-    if (file.startsWith('packages/sdk-web/src/core/platform/')) {
+    if (file.startsWith('packages/wallet/src/core/platform/')) {
       continue;
     }
     const source = readRepoFile(file);
@@ -336,10 +336,10 @@ function collectHandWrittenSignerCommandSchemaViolations() {
 function collectEmailOtpRegistrationPrepViolations() {
   const violations = [];
   const registrationSource = readRepoFile(
-    'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
+    'packages/wallet/src/SeamsWeb/operations/registration/registration.ts',
   );
   const workerTypesSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts',
+    'packages/wallet/src/core/signingEngine/workerManager/workerTypes.ts',
   );
 
   if (registrationSource.includes('enrollment.clientRootShare32B64u')) {
@@ -355,10 +355,10 @@ function collectEmailOtpRegistrationPrepViolations() {
 function collectEmailOtpEd25519ExportMaterialViolations() {
   const violations = [];
   const workerTypesSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts',
+    'packages/wallet/src/core/signingEngine/workerManager/workerTypes.ts',
   );
   const exportRecoverySource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts',
+    'packages/wallet/src/core/signingEngine/session/emailOtp/exportRecovery.ts',
   );
 
   if (workerTypesSource.includes('recoverEmailOtpEd25519ExportPrfFirst')) {
@@ -375,7 +375,7 @@ function collectEmailOtpEd25519ExportMaterialViolations() {
 
 function collectLifecycleWorkerResultViolations() {
   const workerTypesSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts',
+    'packages/wallet/src/core/signingEngine/workerManager/workerTypes.ts',
   );
   if (workerTypesSource.includes('result: { ok: boolean }')) {
     return ['workerTypes.ts exposes lifecycle worker result as boolean success bag'];

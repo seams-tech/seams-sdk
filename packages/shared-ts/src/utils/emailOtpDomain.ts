@@ -27,15 +27,21 @@ export type WalletEmailOtpLoginOperation = (typeof WALLET_EMAIL_OTP_LOGIN_OPERAT
 
 export const WALLET_EMAIL_OTP_REGISTRATION_OPERATION = 'registration' as const;
 
+/** Linked-device enrollment (Refactor 103 Phase 6): prove control of the
+ * wallet's enrolled email destination to complete one device link. */
+export const WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION = 'device_link' as const;
+
 export type WalletEmailOtpOperation =
   | WalletEmailOtpLoginOperation
-  | typeof WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
+  | typeof WALLET_EMAIL_OTP_REGISTRATION_OPERATION
+  | typeof WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION;
 
 export const WALLET_EMAIL_OTP_ACTIONS = {
   login: 'wallet_email_otp_login',
   registration: 'wallet_email_otp_registration',
   recoveryBootstrap: 'wallet_email_otp_recovery_bootstrap',
   unseal: 'wallet_email_otp_unseal',
+  deviceLink: 'wallet_email_otp_device_link',
 } as const;
 
 export type WalletEmailOtpAction =

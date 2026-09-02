@@ -13,13 +13,12 @@
       "visibility": "public",
       "sourcePaths": [
         ".cargo",
-        "apps/docs",
         "benchmarks",
         "crates",
         "examples/self-host-cloudflare-worker",
         "justfile",
-        "packages/sdk-server-ts",
-        "packages/sdk-web",
+        "packages/wallet-server",
+        "packages/wallet",
         "packages/shared-ts",
         "tools",
         "voiceId",
@@ -34,12 +33,11 @@
         "tools/ed25519-yao-generator/artifact-fs-policy/target"
       ],
       "workspacePackages": [
-        "apps/docs",
         "crates/ed25519-yao-cloudflare-bench",
         "crates/router-ab-cloudflare",
         "examples/self-host-cloudflare-worker",
-        "packages/sdk-server-ts",
-        "packages/sdk-web",
+        "packages/wallet-server",
+        "packages/wallet",
         "packages/shared-ts",
         "voiceId"
       ]
@@ -47,12 +45,14 @@
     "seams-cloud": {
       "visibility": "private",
       "sourcePaths": [
-        "AGENTS.md",
-        "eslint.config.mjs",
-        ".github/workflows/deploy-production-backend.yml",
+        ".github/workflows/deploy-production-mainnet-backend.yml",
+        ".github/workflows/deploy-production-testnet-backend.yml",
         ".github/workflows/deploy-production-frontend.yml",
         ".github/workflows/deploy-staging-backend.yml",
         ".github/workflows/deploy-staging-frontend.yml",
+        "AGENTS.md",
+        "apps/docs",
+        "apps/seams-console",
         "apps/seams-site",
         "apps/web-server",
         "crates/router-ab-cloudflare/env/deployment-values.example.env",
@@ -64,8 +64,11 @@
         "docs/deployment",
         "docs/refactor-103-console.md",
         "docs/saas",
+        "eslint.config.mjs",
         "packages/console-server-ts",
         "packages/console-shared-ts",
+        "packages/wallet-console-server-ts",
+        "packages/wallet-console-shared-ts",
         "scripts/deploy-backend.mjs",
         "scripts/deploy-frontend.mjs",
         "scripts/deployment-smoke.mjs",
@@ -74,10 +77,14 @@
       ],
       "excludePaths": [],
       "workspacePackages": [
+        "apps/docs",
+        "apps/seams-console",
         "apps/seams-site",
         "apps/web-server",
         "packages/console-server-ts",
-        "packages/console-shared-ts"
+        "packages/console-shared-ts",
+        "packages/wallet-console-server-ts",
+        "packages/wallet-console-shared-ts"
       ]
     }
   }

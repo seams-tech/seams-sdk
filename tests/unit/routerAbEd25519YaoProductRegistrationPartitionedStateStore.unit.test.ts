@@ -9,22 +9,22 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
-import { InMemoryRouterAbEd25519YaoRecoveryService } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
-import { encodeRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPersistence';
-import type { VersionedJsonRecordReadResult } from '../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+import { InMemoryRouterAbEd25519YaoRecoveryService } from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import { encodeRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPersistence';
+import type { VersionedJsonRecordReadResult } from '../../packages/wallet-server/src/router/framework/versionedJsonRecordStore';
 import {
   runRouterAbEd25519YaoProductRegistrationRequestScopedV1,
   type RouterAbEd25519YaoProductRegistrationRequestScopedExecutionV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRunner';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRunner';
 import {
   runRouterAbEd25519YaoRegistrationTwoPhaseV1,
   type RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1,
   type RouterAbEd25519YaoRegistrationTwoPhaseCompletionV1,
   type RouterAbEd25519YaoRegistrationTwoPhasePrepareResultV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationTwoPhaseRunner';
-import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationTwoPhaseRunner';
+import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
 
@@ -374,6 +374,70 @@ test.describe('partitioned Gateway product-state composition', () => {
       throw new Error('active capability disappeared after terminal commit');
     }
     expect(rereadActive.identity.nearAccountId).toBe('mutated-after-load.testnet');
+  });
+
+  test('bounds the shared recovery capability cache before a D1 commit', async () => {
+    const backend = new MemoryPartitionRecordStore();
+    const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1(backend);
+    const loaded = await store.load('lifecycle-bounded-capabilities');
+    const recoveryService = new InMemoryRouterAbEd25519YaoRecoveryService(
+      {
+        admitRecovery: async () => ({
+          ok: false as const,
+          status: 503 as const,
+          code: 'test_unavailable',
+          message: 'test backend unavailable',
+        }),
+        executeRecovery: async () => ({
+          ok: false as const,
+          status: 503 as const,
+          code: 'test_unavailable',
+          message: 'test backend unavailable',
+        }),
+        activateRecovery: async () => ({
+          ok: false as const,
+          status: 503 as const,
+          code: 'test_unavailable',
+          message: 'test backend unavailable',
+        }),
+      },
+      loaded.state.recovery,
+    );
+
+    for (let index = 0; index < 40; index += 1) {
+      const fixture = buildEd25519YaoCapabilityFixture({
+        walletId: walletIdFromString(`wallet-bounded-${index}`),
+        nearAccountId: `wallet-bounded-${index}.testnet`,
+        nearEd25519SigningKeyId: `near-ed25519-bounded-${index}`,
+        thresholdSessionId: `threshold-bounded-${index}`,
+        signerSlot: 1,
+        signingWorkerId: 'signing-worker-bounded',
+        participantIds: [1, 2],
+        runtimePolicyScope: {
+          orgId: 'org-bounded',
+          projectId: 'project-bounded',
+          envId: 'env-bounded',
+          signingRootVersion: 'root-bounded-v1',
+        },
+        seed: index + 1,
+      });
+      const installed = recoveryService.installPersistedActiveCapability(fixture.capability);
+      if (!installed.ok) throw new Error(installed.message);
+    }
+
+    await expect(
+      store.commit({
+        lifecycleId: 'lifecycle-bounded-capabilities',
+        state: loaded.state,
+        sharedState: loaded.sharedState,
+        sharedVersion: loaded.sharedVersion,
+        ceremonyVersion: loaded.ceremonyVersion,
+      }),
+    ).resolves.toMatchObject({ kind: 'stored' });
+
+    const reread = await store.load('lifecycle-bounded-capabilities');
+    expect(reread.state.recovery.capabilities.size).toBe(32);
+    expect(reread.state.recovery.identityCapabilities.size).toBe(32);
   });
 
   test('preserves another ceremony while committing a separate lifecycle', async () => {

@@ -276,11 +276,11 @@ integration gate:
 - **Claude / product lane:** `claude/refactor-94c-product-path`
 
 Create both branches from the commit containing this split. Codex owns
-`crates/router-ab-*`, `packages/sdk-server-ts/migrations`, role and
+`crates/router-ab-*`, `packages/wallet-server/migrations`, role and
 SigningWorker database migrations, Worker bindings/configuration, generated
 Rust-to-TypeScript protocol bindings, Rust tests, custody documentation, and
-Durable Object deletion. Claude owns `packages/sdk-server-ts/src`,
-`packages/sdk-web`, `apps/seams-site`, and the TypeScript tests for those
+Durable Object deletion. Claude owns `packages/wallet-server/src`,
+`packages/wallet`, `apps/seams-site`, and the TypeScript tests for those
 product paths. Only Codex edits this checklist. Claude reports completed commit
 hashes for Codex to mark.
 

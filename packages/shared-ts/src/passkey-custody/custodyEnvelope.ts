@@ -1,10 +1,12 @@
 import type {
   PasskeyEnvelopeId,
+  WalletAuthMethodId,
   WalletId,
   WebAuthnCredentialIdB64u,
   WebAuthnRpId,
 } from '../utils/domainIds';
 import {
+  parseWalletAuthMethodId,
   parsePasskeyEnvelopeId,
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
@@ -25,6 +27,8 @@ import {
 } from './primitives';
 
 export const WALLET_CUSTODY_ENVELOPE_VERSION_V2 = 'wallet_custody_envelope_v2' as const;
+/** Refactor 109C: an envelope whose owning auth method is part of its AAD. */
+export const WALLET_CUSTODY_ENVELOPE_VERSION_V3 = 'wallet_custody_envelope_v3' as const;
 export const PASSKEY_PRF_KEK_VERSION_V1 = 'passkey_prf_kek_hkdf_sha256_v1' as const;
 export const EMAIL_OTP_FACTOR_KEK_VERSION_V1 = 'email_otp_factor_kek_hkdf_sha256_v1' as const;
 
@@ -42,6 +46,19 @@ export type EmailOtpFactorKekVersion = typeof EMAIL_OTP_FACTOR_KEK_VERSION_V1;
  * Email OTP envelope from carrying an RP ID or a passkey envelope from
  * carrying an enrollment id.
  */
+/**
+ * Mirrors `signer_core::PasskeyCustodyEnvelopeOwnershipV1`.
+ *
+ * `method_bound` is the only shape a new envelope may be written in; `unbound`
+ * exists to open envelopes sealed before ownership was authenticated, and a
+ * successful open is followed by a reseal once the exact method is known. The
+ * two encode different AAD, which is what stops a stored envelope from being
+ * relabelled to a sibling method.
+ */
+export type WalletCustodyEnvelopeOwnership =
+  | { readonly kind: 'unbound'; readonly walletAuthMethodId?: never }
+  | { readonly kind: 'method_bound'; readonly walletAuthMethodId: WalletAuthMethodId };
+
 export type WalletCustodyEnvelopeFactor =
   | {
       kind: 'passkey';
@@ -96,6 +113,8 @@ export type PasskeyCustodyEnvelopeRecord = {
   kind: 'wallet_custody_envelope_v2';
   envelopeId: PasskeyEnvelopeId;
   walletId: WalletId;
+  /** Which auth method owns this envelope, and whether that is authenticated. */
+  ownership: WalletCustodyEnvelopeOwnership;
   binding: PasskeyCustodySecretBinding;
   factor: WalletCustodyEnvelopeFactor;
   envelopeVersion: WalletCustodyEnvelopeVersion;
@@ -109,10 +128,112 @@ export type PasskeyCustodyEnvelopeRecord = {
   updatedAtMs: number;
 };
 
+const ENVELOPE_OWNERSHIP_FIELDS = ['kind', 'walletAuthMethodId'] as const;
+
+export function parseWalletCustodyEnvelopeOwnership(
+  raw: unknown,
+  label: string,
+): WalletCustodyEnvelopeOwnership {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${label} must be an object`);
+  }
+  const record = raw as Record<string, unknown>;
+  rejectUnknownFields(record, ENVELOPE_OWNERSHIP_FIELDS, label);
+  switch (record.kind) {
+    case 'unbound':
+      if (record.walletAuthMethodId !== undefined) {
+        throw new Error(`${label}.walletAuthMethodId belongs to the method_bound branch`);
+      }
+      return { kind: 'unbound' };
+    case 'method_bound': {
+      const parsed = parseWalletAuthMethodId(record.walletAuthMethodId);
+      if (!parsed.ok) {
+        throw new Error(`${label}.walletAuthMethodId ${parsed.error.message}`);
+      }
+      return { kind: 'method_bound', walletAuthMethodId: parsed.value };
+    }
+    default:
+      throw new Error(`${label}.kind must be unbound or method_bound`);
+  }
+}
+
+/**
+ * The exact JSON `signer_core::PasskeyCustodyEnvelopeBindingV1` deserialises.
+ *
+ * Every caller that hands a binding to wasm must build it here. The Rust struct
+ * uses `deny_unknown_fields` and now requires `ownership`, so a hand-rolled
+ * object that omits it fails to deserialise — and that failure surfaces as an
+ * unopenable envelope, not a type error.
+ */
+export function custodyEnvelopeBindingJsonV1(
+  envelope: Pick<
+    PasskeyCustodyEnvelopeRecord,
+    'walletId' | 'envelopeId' | 'factor' | 'envelopeRevision' | 'binding' | 'ownership'
+  >,
+): string {
+  return JSON.stringify({
+    walletId: envelope.walletId,
+    envelopeId: envelope.envelopeId,
+    factor: envelope.factor,
+    envelopeRevision: envelope.envelopeRevision,
+    binding: envelope.binding,
+    ownership: custodyEnvelopeOwnershipWireV1(envelope.ownership),
+  });
+}
+
+/**
+ * Reads the serde shape back — the inverse of `custodyEnvelopeOwnershipWireV1`.
+ *
+ * The record shape and the wire shape are deliberately different: one is
+ * TypeScript's tagged union, the other is what `serde` emits for a Rust enum.
+ * Anything that came out of wasm carries the wire shape, and passing it to the
+ * record parser would reject a perfectly valid ownership for having no `kind`.
+ */
+export function parseWalletCustodyEnvelopeOwnershipWireV1(
+  raw: unknown,
+  label: string,
+): WalletCustodyEnvelopeOwnership {
+  if (raw === 'unbound') return { kind: 'unbound' };
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${label} must be "unbound" or a methodBound object`);
+  }
+  const record = raw as Record<string, unknown>;
+  rejectUnknownFields(record, ['methodBound'], label);
+  const methodBound = record.methodBound;
+  if (typeof methodBound !== 'object' || methodBound === null || Array.isArray(methodBound)) {
+    throw new Error(`${label}.methodBound must be an object`);
+  }
+  const fields = methodBound as Record<string, unknown>;
+  rejectUnknownFields(fields, ['walletAuthMethodId'], `${label}.methodBound`);
+  const parsed = parseWalletAuthMethodId(fields.walletAuthMethodId);
+  if (!parsed.ok) {
+    throw new Error(`${label}.methodBound.walletAuthMethodId ${parsed.error.message}`);
+  }
+  return { kind: 'method_bound', walletAuthMethodId: parsed.value };
+}
+
+/** Serde's shape for the ownership enum: a bare string, or a one-key object. */
+export function custodyEnvelopeOwnershipWireV1(ownership: WalletCustodyEnvelopeOwnership): unknown {
+  switch (ownership.kind) {
+    case 'unbound':
+      return 'unbound';
+    case 'method_bound':
+      return { methodBound: { walletAuthMethodId: String(ownership.walletAuthMethodId) } };
+    default:
+      throw new Error(`Unhandled custody envelope ownership: ${String(ownership)}`);
+  }
+}
+
+export function buildMethodBoundEnvelopeOwnership(
+  walletAuthMethodId: WalletAuthMethodId,
+): WalletCustodyEnvelopeOwnership {
+  return { kind: 'method_bound', walletAuthMethodId };
+}
+
 export function buildPasskeyEnvelopeFactor(args: {
   rpId: WebAuthnRpId;
   credentialIdB64u: WebAuthnCredentialIdB64u;
-}): WalletCustodyEnvelopeFactor {
+}): Extract<WalletCustodyEnvelopeFactor, { readonly kind: 'passkey' }> {
   return {
     kind: 'passkey',
     rpId: args.rpId,
@@ -124,7 +245,7 @@ export function buildPasskeyEnvelopeFactor(args: {
 export function buildEmailOtpEnvelopeFactor(args: {
   enrollmentId: string;
   enrollmentSealKeyVersion: string;
-}): WalletCustodyEnvelopeFactor {
+}): Extract<WalletCustodyEnvelopeFactor, { readonly kind: 'email_otp' }> {
   return {
     kind: 'email_otp',
     enrollmentId: args.enrollmentId,
@@ -164,6 +285,7 @@ export function buildRevokedEnvelopeLifecycle(args: {
 export function buildPasskeyCustodyEnvelopeRecord(args: {
   envelopeId: PasskeyEnvelopeId;
   walletId: WalletId;
+  ownership: WalletCustodyEnvelopeOwnership;
   binding: PasskeyCustodySecretBinding;
   factor: WalletCustodyEnvelopeFactor;
   envelopeRevision: EnvelopeRevision;
@@ -179,6 +301,7 @@ export function buildPasskeyCustodyEnvelopeRecord(args: {
     kind: 'wallet_custody_envelope_v2',
     envelopeId: args.envelopeId,
     walletId: args.walletId,
+    ownership: args.ownership,
     binding: args.binding,
     factor: args.factor,
     envelopeVersion: WALLET_CUSTODY_ENVELOPE_VERSION_V2,
@@ -293,6 +416,7 @@ const ENVELOPE_RECORD_FIELDS = [
   'kind',
   'envelopeId',
   'walletId',
+  'ownership',
   'binding',
   'factor',
   'envelopeVersion',
@@ -329,6 +453,7 @@ export function parsePasskeyCustodyEnvelopeRecord(
   if (!envelopeId.ok) throw new Error(`${label}.envelopeId ${envelopeId.error.message}`);
   const walletId = parseWalletId(record.walletId);
   if (!walletId.ok) throw new Error(`${label}.walletId ${walletId.error.message}`);
+  const ownership = parseWalletCustodyEnvelopeOwnership(record.ownership, `${label}.ownership`);
 
   const createdAtMs = parseUnixMs(record.createdAtMs, `${label}.createdAtMs`);
   const updatedAtMs = parseUnixMs(record.updatedAtMs, `${label}.updatedAtMs`);
@@ -339,6 +464,7 @@ export function parsePasskeyCustodyEnvelopeRecord(
   return buildPasskeyCustodyEnvelopeRecord({
     envelopeId: envelopeId.value,
     walletId: walletId.value,
+    ownership,
     binding: parsePasskeyCustodySecretBinding(record.binding, `${label}.binding`),
     factor: parseWalletCustodyEnvelopeFactor(record.factor, `${label}.factor`),
     envelopeRevision: parseEnvelopeRevision(record.envelopeRevision, `${label}.envelopeRevision`),
@@ -360,4 +486,58 @@ export function parsePasskeyCustodyEnvelopeRecord(
 
 export function isActivePasskeyCustodyEnvelope(envelope: PasskeyCustodyEnvelopeRecord): boolean {
   return envelope.lifecycle.state === 'active';
+}
+
+/** Two ownerships name the same owner. */
+export function sameWalletCustodyEnvelopeOwnership(
+  left: WalletCustodyEnvelopeOwnership,
+  right: WalletCustodyEnvelopeOwnership,
+): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === 'unbound') return true;
+  return (
+    right.kind === 'method_bound' &&
+    String(left.walletAuthMethodId) === String(right.walletAuthMethodId)
+  );
+}
+
+export type WalletCustodyEnvelopeOwnershipReplacementAdmissionV1 =
+  | { readonly kind: 'admitted' }
+  | { readonly kind: 'refused'; readonly reason: string };
+
+/**
+ * Whether a stored envelope's ownership may be replaced by another.
+ *
+ * Two rules, and both are load-bearing. A replacement is always `method_bound`,
+ * because no path may write a new V2 envelope — `unbound` exists only to decode
+ * what was sealed before ownership was authenticated. And a stored owner may
+ * only be replaced by itself: an envelope already bound to one method is never
+ * rebound to a sibling, which is the whole point of putting the owner in the
+ * AAD. That leaves exactly one transition that moves anything — the pre-109C
+ * upgrade, `unbound` to the method that just proved it can open the envelope.
+ */
+export function admitWalletCustodyEnvelopeOwnershipReplacementV1(input: {
+  readonly stored: WalletCustodyEnvelopeOwnership;
+  readonly replacement: WalletCustodyEnvelopeOwnership;
+}): WalletCustodyEnvelopeOwnershipReplacementAdmissionV1 {
+  if (input.replacement.kind === 'unbound') {
+    return {
+      kind: 'refused',
+      reason: 'a replacement custody envelope must name its owning method',
+    };
+  }
+  switch (input.stored.kind) {
+    case 'unbound':
+      return { kind: 'admitted' };
+    case 'method_bound':
+      return String(input.stored.walletAuthMethodId) ===
+        String(input.replacement.walletAuthMethodId)
+        ? { kind: 'admitted' }
+        : {
+            kind: 'refused',
+            reason: 'a custody envelope owned by one auth method is never rebound to another',
+          };
+    default:
+      return { kind: 'refused', reason: 'unhandled stored custody envelope ownership' };
+  }
 }

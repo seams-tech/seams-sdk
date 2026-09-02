@@ -261,7 +261,7 @@ Phase 2 evidence:
 - `verifiedWalletSessionAuth.typecheck.ts` rejects raw strings, missing
   `signingGrantId`, and cross-curve branch mixing for verified Wallet Session
   auth consumers.
-- Validation: `pnpm -C packages/sdk-server-ts type-check` and focused
+- Validation: `pnpm -C packages/wallet-server type-check` and focused
   `thresholdSessionClaims` / `signingBudgetStatus.parser` unit tests.
 
 ## Phase 3: Rename Server Claims And Records
@@ -350,9 +350,9 @@ Phase 4 evidence:
 - SDK Wallet Session JWT readers build ECDSA session identity from
   `thresholdSessionId` and `signingGrantId`; trusted budget-status requests send
   `{ signingGrantId, thresholdSessionId }` with bearer Wallet Session auth.
-- Validation: `pnpm -C packages/sdk-web type-check`, focused ECDSA provisioning
+- Validation: `pnpm -C packages/wallet type-check`, focused ECDSA provisioning
   and bootstrap persistence unit tests, sealed-session persistence unit tests,
-  `pnpm -C packages/sdk-web build:prepare`, and the Refactor 71 source guard.
+  `pnpm -C packages/wallet build:prepare`, and the Refactor 71 source guard.
 
 ## Phase 5: Router A/B Cloudflare And Rust Contracts
 
@@ -461,8 +461,8 @@ phase:
 
 ```sh
 rg "walletSigningSessionId|thresholdSessionId|signingGrantId"
-pnpm -C packages/sdk-server-ts type-check
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet-server type-check
+pnpm -C packages/wallet type-check
 pnpm -C tests test tests/unit/thresholdSessionClaims.unit.test.ts
 pnpm -C tests test tests/unit/sessionTokens.unit.test.ts
 pnpm -C tests test tests/unit/routerAbEd25519.walletSessionState.unit.test.ts

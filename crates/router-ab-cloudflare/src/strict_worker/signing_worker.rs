@@ -29,6 +29,76 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
                 Err(err) => cloudflare_protocol_error_response_v1(err),
             }
         }
+        CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RESERVE_INACTIVE_PATH => {
+            match handle_cloudflare_signing_worker_ed25519_yao_reserve_inactive_v1(request, &env)
+                .await
+            {
+                Ok(response) => Ok(response),
+                Err(err) => cloudflare_protocol_error_response_v1(err),
+            }
+        }
+        CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RESERVE_INACTIVE_SOURCE_PRESERVING_PATH => {
+            match handle_cloudflare_signing_worker_ed25519_yao_reserve_inactive_source_preserving_v1(
+                request, &env,
+            )
+            .await
+            {
+                Ok(response) => Ok(response),
+                Err(err) => cloudflare_protocol_error_response_v1(err),
+            }
+        }
+        CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_ACTIVATE_RESERVATION_PATH => {
+            match handle_cloudflare_signing_worker_ed25519_yao_activate_reservation_v1(request, &env)
+                .await
+            {
+                Ok(response) => Ok(response),
+                Err(err) => cloudflare_protocol_error_response_v1(err),
+            }
+        }
+        CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DEACTIVATE_RESERVATION_PATH => {
+            match handle_cloudflare_signing_worker_ed25519_yao_deactivate_reservation_v1(
+                request, &env,
+            )
+            .await
+            {
+                Ok(response) => Ok(response),
+                Err(err) => cloudflare_protocol_error_response_v1(err),
+            }
+        }
+        CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_PATH => {
+            match handle_cloudflare_signing_worker_ecdsa_reserve_inactive_v1(request, &env).await {
+                Ok(response) => Ok(response),
+                Err(err) => cloudflare_protocol_error_response_v1(err),
+            }
+        }
+        CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_SOURCE_PRESERVING_PATH => {
+            match handle_cloudflare_signing_worker_ecdsa_reserve_inactive_source_preserving_v1(
+                request, &env,
+            )
+            .await
+            {
+                Ok(response) => Ok(response),
+                Err(err) => cloudflare_protocol_error_response_v1(err),
+            }
+        }
+        CLOUDFLARE_SIGNING_WORKER_ECDSA_ACTIVATE_RESERVATION_PATH => {
+            match handle_cloudflare_signing_worker_ecdsa_activate_reservation_v1(
+                request, &env, &runtime,
+            )
+            .await
+            {
+                Ok(response) => Ok(response),
+                Err(err) => cloudflare_protocol_error_response_v1(err),
+            }
+        }
+        CLOUDFLARE_SIGNING_WORKER_ECDSA_DEACTIVATE_RESERVATION_PATH => {
+            match handle_cloudflare_signing_worker_ecdsa_deactivate_reservation_v1(request, &env)
+                .await
+            {
+                Ok(response) => Ok(response),
+                Err(err) => cloudflare_protocol_error_response_v1(err),
+            }
+        }
         CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH => {
             match handle_cloudflare_signing_worker_ed25519_yao_recovery_promote_v1(
                 request, &env,
@@ -96,6 +166,18 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
                 request,
                 &env,
                 &runtime,
+                now_unix_ms,
+            )
+            .await
+        }
+        CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_EXPORT_SHARE_PATH => {
+            let now_unix_ms = match cloudflare_now_unix_ms_v1() {
+                Ok(now_unix_ms) => now_unix_ms,
+                Err(err) => return cloudflare_protocol_error_response_v1(err),
+            };
+            handle_cloudflare_signing_worker_linked_ecdsa_export_share_private_fetch_v1(
+                request,
+                &env,
                 now_unix_ms,
             )
             .await

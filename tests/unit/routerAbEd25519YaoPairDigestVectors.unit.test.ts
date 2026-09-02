@@ -29,7 +29,7 @@ const FIXTURE_PATH = fileURLToPath(
 );
 const BACKEND_PATH = fileURLToPath(
   new URL(
-    '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend.ts',
+    '../../packages/wallet-server/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend.ts',
     import.meta.url,
   ),
 );

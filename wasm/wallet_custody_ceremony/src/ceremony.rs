@@ -46,10 +46,11 @@ use signer_core::ecdsa_role_local_client::command::{
     EcdsaRoleLocalPendingStateBlob, FinalizeEcdsaClientBootstrapCommand,
     PrepareEcdsaClientBootstrapCommand, RelayerPublicIdentityInput,
 };
-use signer_core::ed25519_yao_derivation::Ed25519YaoClientDerivationRootV1;
+use signer_core::ed25519_yao_derivation::Ed25519YaoClientRootV1;
 use signer_core::passkey_custody::{
     open_wallet_custody_seed_envelope_v1, seal_wallet_custody_seed_envelope_v1, sha256_digest,
-    PasskeyCustodyEnvelopeBindingV1, PasskeyCustodySecretBindingV1, WalletCustodyEnvelopeFactorV1,
+    PasskeyCustodyEnvelopeBindingV1, PasskeyCustodyEnvelopeOwnershipV1,
+    PasskeyCustodySecretBindingV1, WalletCustodyEnvelopeFactorV1,
     PASSKEY_CUSTODY_KEY_LEN, WALLET_SEED_DERIVATION_SCHEME_V1,
 };
 use signer_core::wallet_recovery_custody::{
@@ -179,6 +180,9 @@ pub struct RecoveryCodeInputV1 {
 pub struct FactorSealInputsV1 {
     pub envelope_id: String,
     pub factor: WalletCustodyEnvelopeFactorV1,
+    /// The exact auth method the sealed envelope belongs to. Every envelope
+    /// sealed here is method-bound; there is no unbound seal path.
+    pub wallet_auth_method_id: String,
     pub factor_secret: Zeroizing<Vec<u8>>,
 }
 
@@ -590,7 +594,7 @@ impl CeremonySeedHeldV1 {
                 let root =
                     derive_ed25519_yao_client_root_from_seed_v1(&self.seed[..], &binding_digest)
                         .map_err(|error| CeremonyError::new(format!("root derivation: {error}")))?;
-                let root = Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root);
+                let root = Ed25519YaoClientRootV1::from_secret_bytes(*root);
 
                 let prepared = match continuity {
                     Some(expected_registered_public_key) => {
@@ -1263,6 +1267,9 @@ impl CeremonyManifestEstablishedV1 {
             binding: PasskeyCustodySecretBindingV1::WalletCustodySeed {
                 derivation_scheme: WALLET_SEED_DERIVATION_SCHEME_V1.to_string(),
             },
+            ownership: PasskeyCustodyEnvelopeOwnershipV1::MethodBound {
+                wallet_auth_method_id: factor.wallet_auth_method_id.clone(),
+            },
         };
         let mut nonce = [0u8; PASSKEY_CUSTODY_NONCE_LEN];
         random_bytes(&mut nonce)?;
@@ -1426,6 +1433,7 @@ mod tests {
     fn factor() -> FactorSealInputsV1 {
         FactorSealInputsV1 {
             envelope_id: "wallet-custody-envelope-1".to_string(),
+            wallet_auth_method_id: "wallet-auth-method:fixture".to_string(),
             factor: WalletCustodyEnvelopeFactorV1::EmailOtp {
                 enrollment_id: "enrollment-1".to_string(),
                 enrollment_seal_key_version: "seal-v1".to_string(),
@@ -1438,6 +1446,7 @@ mod tests {
     fn replacement_passkey_factor() -> FactorSealInputsV1 {
         FactorSealInputsV1 {
             envelope_id: "wallet-custody-recovery-envelope-1".to_string(),
+            wallet_auth_method_id: "wallet-auth-method:fixture".to_string(),
             factor: WalletCustodyEnvelopeFactorV1::Passkey {
                 rp_id: "wallet.example".to_string(),
                 credential_id_b64u: b64u(&[44u8; 32]),

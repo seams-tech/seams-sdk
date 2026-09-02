@@ -17,30 +17,33 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
 | `walletId`           | Durable wallet identity. For current NEAR-backed wallets this is often the NEAR account id, but code must treat it as the wallet id. |
 | `providerSubject`    | External identity-provider subject, such as a Google subject used by Email OTP registration.                                         |
 | `challengeSubjectId` | Subject stored on an Email OTP challenge. For Google Email OTP it must match `providerSubject`.                                      |
-| `walletSessionId`    | Reusable authenticated Wallet Session identity.                                                                                       |
-| `quotaId`            | Server-authoritative remaining-use and expiry quota for a Wallet Session.                                                             |
-| `capabilityGrantId`  | Exact one-operation authority bound to an operation, capability, and material activation.                                             |
+| `walletSessionId`    | Exact authenticated Wallet Session identity bound to one wallet, authority, auth method, and quota.                                |
+| `quotaId`            | Server-authoritative remaining-use, expiry, and lifecycle quota for that exact Wallet Session.                                      |
+| `capabilityGrantId`  | Exact one-operation authority bound to an operation, capability, and material activation.                                            |
 | `thresholdSessionId` | Cryptographic signing-session id for Ed25519 or ECDSA material.                                                                      |
 | `chainTarget`        | Concrete ECDSA signing target, such as Tempo testnet or Arc EVM testnet.                                                             |
-| `warm session`       | Short-lived reusable signing session created by registration or unlock.                                                            |
+| `warm session`       | Short-lived multi-use signing state created by registration or exact-method unlock.                                                  |
 | `step-up auth`       | Same-method fresh authorization scoped to one privileged operation.                                                                  |
-| `owner proof`        | Server-internal passkey or Email OTP verification result consumed once to mint a Wallet Session or authorize one exact operation.   |
-| `opaque token`       | Random Wallet Session bearer whose identity, budget, expiry, and revocation state are resolved by the server.                       |
+| `owner proof`        | Server-internal passkey or Email OTP verification result consumed once to issue one exact Wallet Session and its primary operation credential, or authorize one exact operation. |
+| `operation credential` | Opaque primary or hosted credential bound to one exact Wallet Session; the server resolves its identity, quota, expiry, and revocation state. |
+| `walletAuthorityId`  | Opaque identity of one permissioned wallet authority and its exact signer activations.                                               |
+| `walletAuthMethodId` | Opaque identity of one Passkey or Email OTP method attached to a wallet authority.                                                   |
+| `deviceId`           | Installation identity for one wallet authority on one browser or device; it is not a hardware fingerprint.                           |
 
 ## Global Invariants
 
 - Passkey and Email OTP are separate auth methods. A flow selected as
   `email_otp` must not call passkey/WebAuthn credential lookup. A flow selected
   as `passkey` must not call Email OTP verification.
-- Registration must persist the configured signer inventory and establish a
-  reusable Wallet Session for the authenticated registration authority. Default
+- Registration must persist the configured signer inventory and establish one
+  exact Wallet Session for the authenticated registration authority. Default
   wallet unlock hydrates that durable inventory; explicit partial unlock
   hydrates only the requested lane subset.
 - Transaction signing uses warm-session budget. It should not ask for step-up
   while a valid warm session has enough signature uses for the requested
   operation.
 - Step-up authorizes one exact operation. It does not create, renew, or add
-  budget to a reusable Wallet Session.
+  budget to an exact Wallet Session.
 - Key export always requires fresh operation-specific authorization. A normal
   transaction-signing warm session is not sufficient authority for export.
 - ECDSA lanes are target-specific. Tempo and Arc/EVM may share key facts and
@@ -51,8 +54,8 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
   or exhausted, the next operation must use normal unlock or step-up auth.
 - Application authentication is outside the wallet SDK. An application token,
   cookie, user id, or provider session never proves wallet ownership.
-- Owner Wallet Session tokens are opaque. Client code must not decode identity,
-  budget, expiry, authority, or signing claims from them.
+- Primary and hosted operation credentials are opaque. Client code must not decode
+  identity, budget, expiry, authority, or signing claims from them.
 
 ## Hosted Auth Menu Entry Point
 
@@ -69,8 +72,9 @@ CTA belong to the wallet origin.
 - The wallet host owns passkey and Email OTP validation, OTP state,
   registration continuation, and unlock continuation.
 - A hosted-wallet handoff is single-use and bound to the application and wallet
-  origins. The outer application never receives the wallet host's opaque Wallet
-  Session token.
+  origins. The wallet iframe receives one short-lived hosted operation credential
+  for the exact parent Wallet Session; the primary operation credential stays in
+  the wallet origin and never reaches the outer application.
 - The adapter emits exactly one terminal `HostedAuthMenuOutcome` for the session.
   Unmounting or closing cancels only that session and leaves direct
   `registerWallet()`, `addWalletSigner()`, and `unlock()` confirmation surfaces
@@ -86,8 +90,8 @@ Expected behaviour:
 - The newly created passkey credential is bound to the wallet and stored as a
   passkey auth method.
 - Registration returns after the wallet, auth method, configured ECDSA signer
-  inventory, and reusable Wallet Session are durable. Tempo and Arc/EVM signing
-  may begin immediately.
+  inventory, and exact Wallet Session are durable and the primary operation
+  credential has been issued. Tempo and Arc/EVM signing may begin immediately.
 - For a mixed signer set, Ed25519/NEAR provisioning continues under the same
   authenticated ceremony and publishes one of `near_pending`,
   `near_provisioning`, `near_ready`, or `near_failed_retryable`.
@@ -118,8 +122,9 @@ Expected behaviour:
 - Registration stores the Email OTP auth method and binds it to the final
   wallet id.
 - Registration returns after the wallet, Email OTP auth method, configured ECDSA
-  signer inventory, and reusable Wallet Session are durable. Tempo and Arc/EVM
-  signing may begin immediately.
+  signer inventory, and exact Wallet Session are durable and the primary
+  operation credential has been issued. Tempo and Arc/EVM signing may begin
+  immediately.
 - For a mixed signer set, Ed25519/NEAR provisioning continues with the live
   registration factor and publishes one of `near_pending`,
   `near_provisioning`, `near_ready`, or `near_failed_retryable`.
@@ -144,13 +149,22 @@ Failure behaviour:
 
 Expected behaviour:
 
-- Refreshing before registration finalize may restore UI progress from durable
+- Refreshing during registration completion may restore UI progress from durable
   registration attempt state when available.
 - Refreshing must not send a second OTP solely because the wallet name changed.
 - Refreshing must not finalize registration without the same required
   operation-bound owner proof.
-- After completed registration, a refresh follows the session-refresh behaviour
-  below.
+- Retrying the same activation or deferred NEAR provisioning request uses the
+  original ceremony and idempotency key. The server returns the credential-free
+  V2 committed projection without repeating custody effects; a changed request
+  under that key is refused.
+- Local pending registration state remains invisible until one exact readwrite
+  publication succeeds. A failed publication leaves it pending for an exact
+  retry.
+- A credential-free committed projection identifies the exact method required
+  for a fresh unlock and never replays a primary operation credential.
+- After completed registration, a refresh follows the exact-session restoration
+  behaviour below.
 
 ## Wallet Unlock
 
@@ -164,8 +178,9 @@ Expected behaviour:
 - By default, unlock warms NEAR Ed25519 and configured ECDSA signing lanes.
 - Callers may request an explicit subset, such as NEAR-only, ECDSA-only, or
   specific ECDSA targets, to avoid unnecessary unlock latency.
-- Unlock creates a multi-use transaction-signing session according to the
-  current environment policy.
+- Unlock issues one exact Wallet Session for the selected auth method and its
+  primary operation credential. Local warm signing state can authorize multiple
+  transactions within that session's quota.
 - Unlock should not require Email OTP.
 - Unlock should not delete durable sealed/session records that are needed for
   future refresh or recovery unless the user explicitly removes the wallet,
@@ -187,8 +202,9 @@ Expected behaviour:
   lanes.
 - Callers may request an explicit subset, such as NEAR-only, ECDSA-only, or
   specific ECDSA targets, to avoid unnecessary unlock latency.
-- Unlock creates a multi-use transaction-signing session according to the
-  current environment policy.
+- Unlock issues one exact Wallet Session for the selected auth method and its
+  primary operation credential. Local warm signing state can authorize multiple
+  transactions within that session's quota.
 - Unlock should not require passkey/WebAuthn.
 - Unlock should not call passkey PRF/touch-confirm sealed restore.
 - Default unlock should hydrate the same lane inventory as successful Email OTP
@@ -217,6 +233,50 @@ Expected behaviour:
   privileged operation.
 - Refresh must not silently switch an Email OTP wallet to passkey paths or a
   passkey wallet to Email OTP paths.
+- Every unlock request names the exact `walletAuthMethodId`; a wallet-level
+  method fallback is refused.
+- A replayed unlock mint returns the exact committed session and quota identity
+  without a credential. A fresh unlock through the exact method is required for
+  a new primary operation credential.
+
+## Account Recovery
+
+### Passkey and Google / Email OTP Recovery Targets
+
+Expected behaviour:
+
+- The hosted login menu accepts one unused recovery code, resolves its wallet,
+  and lets the user recover with a new Passkey or Google SSO with Email OTP.
+- The recovery code is the sole wallet-recovery authorization. The selected
+  target still proves its own factor: Passkey registration for Passkey, or a
+  server-verified Google identity followed by Email OTP for Email OTP.
+- The server selects one exact active method and custody envelope as the
+  continuity anchor. Passkey-only, Email-only, and mixed-method wallets admit
+  either recovery target.
+- Finalization verifies the complete stored key manifest and preserves the
+  registered NEAR, Tempo, and Arc/EVM public identities.
+- Recovery-code consumption and installation of a fresh device authority,
+  target method, signer activations, and method-bound custody envelope occur
+  atomically. Existing methods, envelopes, authorities, linked devices, and
+  Wallet Sessions remain active.
+- Recovery finalization itself does not issue a Wallet Session. Recovery
+  completion proceeds through normal login with the newly installed method; that
+  login creates the fresh exact Wallet Session and primary operation credential.
+- A consumed code cannot authorize a second recovery.
+- Re-entering a consumed code, or entering a code held by another active
+  recovery, reports that it has already been used and directs the owner to
+  another code. An abandoned reservation becomes reusable after it expires.
+
+Failure behaviour:
+
+- The unauthenticated server boundary identifies an exact consumed code through
+  its non-secret locator tombstone. Unknown wallets, malformed or unknown codes,
+  target-policy mismatches, unsupported auth shapes, and unrelated conflicts
+  retain the generic refusal.
+- Precommit cancellation and definite failure leave the recovery code
+  unconsumed.
+- Recovery material, server diagnostics, and code values never enter hosted
+  outcomes, parent-window messages, or logs.
 
 ## Transaction Signing
 
@@ -228,16 +288,15 @@ Expected behaviour:
   curve and chain target.
 - If the selected warm session has enough signature uses, signing proceeds
   without another prompt.
-- The server resolves the opaque Wallet Session and chooses reusable admission,
-  same-method step-up, or hard denial.
+- The server resolves the operation credential to its exact Wallet Session and
+  chooses exact admission, same-method step-up, or hard denial.
 - NEAR action batching consumes one signature use per NEAR transaction, not one
   use per action.
 - Multiple independent transactions in one signing request consume one
   signature use per transaction digest.
 - Tempo and EVM each consume one signature use per transaction request unless a
   future batch API explicitly declares more.
-- After successful signing, the signing grant budget is finalized
-  exactly once.
+- After successful signing, the Wallet Session quota is finalized exactly once.
 
 Failure behaviour:
 
@@ -255,8 +314,8 @@ Expected behaviour:
   curve and chain target.
 - If the selected warm session has enough signature uses, signing proceeds
   without another OTP.
-- The server resolves the opaque Wallet Session and chooses reusable admission,
-  same-method step-up, or hard denial.
+- The server resolves the operation credential to its exact Wallet Session and
+  chooses exact admission, same-method step-up, or hard denial.
 - NEAR action batching consumes one signature use per NEAR transaction, not one
   use per action.
 - Multiple independent transactions in one signing request consume one
@@ -266,8 +325,7 @@ Expected behaviour:
 - ECDSA shared-key material may be sourced from another EVM-family target, but
   signing readiness and budget checks must remain exact to the requested
   `chainTarget`.
-- After successful signing, the signing grant budget is finalized
-  exactly once.
+- After successful signing, the Wallet Session quota is finalized exactly once.
 
 Failure behaviour:
 
@@ -399,6 +457,132 @@ Expected behaviour:
 - A transaction-signing session restored after refresh must not become export
   authority.
 
+## Account Recovery
+
+Code recovery selects an exact active method and custody envelope as its
+continuity anchor. The source family does not constrain the selected recovery
+target.
+
+Expected behaviour:
+
+- The hosted wallet-iframe menu accepts one unused recovery code. The server
+  resolves the wallet from the code locator without an existing Passkey
+  assertion, an old credential ID, or a client-supplied wallet or source
+  method.
+- Preparation reserves the code and binds an immutable Passkey or
+  Google/Email target. Passkey creation and Google authentication each begin
+  from their dedicated user action; Google recovery also requires the issued
+  Email OTP before factor release.
+- Finalization preserves every public wallet identity and atomically installs
+  a fresh recovery authority, its target auth method, signer activations, and
+  method-bound custody envelope while consuming one code. Existing methods,
+  envelopes, authorities, linked devices, and Wallet Sessions stay active.
+- Recovery restores local continuity against the fresh recovery authority.
+- An existing synced Passkey on a sibling authority does not block creation of
+  the fresh recovery authority's Passkey.
+- The menu reports authentication only after normal login through the new
+  Passkey or Google/Email method creates a fresh exact Wallet Session and
+  primary operation credential for that method.
+- The remaining recovery codes stay active. Reusing the consumed code reports
+  that it has already been used and directs the owner to another code.
+
+Failure behaviour:
+
+- Cancellation before finalization leaves the code usable after its reservation
+  expires and clears client-held recovery material.
+- A different attempt presenting the code during that reservation receives the
+  already-used response.
+- A failed atomic finalization leaves all existing methods active and the code
+  unconsumed. Transport uncertainty may replay the same exact additive
+  finalization.
+- Unknown wallets, unusable codes, target mismatch, and unsupported
+  auth-method shapes expose no distinguishing recovery detail.
+
+## Adding an Authentication Method
+
+A wallet authority holds at most one Passkey method and one Email OTP method.
+The product offers one **Add authentication method** action, and which branch it
+runs is decided by the exact active inventory of the selected authority rather
+than chosen by the caller.
+
+- The action is offered only when the authority is missing a family, and
+  disappears once both are active.
+- Adding a family the authority already has answers `already_configured` at
+  admission, before any target factor is verified and before any code is sent.
+  Repeating an addition must not cost the user a verification.
+- The source method supplies a fresh proof bound to that exact addition. The
+  target factor is verified independently; the source proof never serves as
+  target verification.
+- The new method reuses the authority and device it was added to. It creates no
+  authority, signer activation, share, public key, export root, or key manifest,
+  and it carries forward whatever signer access the authority already has. A
+  wallet owning one signer family gains a method that correctly claims only that
+  family.
+- The source method and its Wallet Session stay selected. The added method comes
+  into use only through explicit selection, or through lock and unlock naming
+  it; an unlock that names it moves the selection to it, and that move is
+  allowed only between members of one authority.
+- A Wallet Session names the exact method that opened it, not merely its family.
+  Each sibling method may have its own active session. Replacing or revoking one
+  method retires only that method's session, quota, and hosted children; sibling
+  methods and their sessions remain active.
+- Either sibling can revoke the other, proving with its own factor rather than
+  the one being removed. The last remaining method cannot be revoked.
+- Revoking a method must not prevent adding another of that family afterwards.
+
+## Linked Devices
+
+Expected behaviour:
+
+- Linking creates a fresh `deviceId`, `walletAuthorityId`,
+  `walletAuthMethodId`, and signer activation for every signer family present
+  on the source authority. The wallet's public signer identities remain
+  unchanged, and Device 1's authority, methods, material, sessions, and
+  revocation epoch remain unchanged.
+- Device 2 never receives the wallet custody seed. An Ed25519 installation
+  with `export_keys` receives only the one-use encrypted Yao Client export
+  root and seals it under the verified target method.
+- Activation gives Device 2 an exact Wallet Session and recipient-bound sealed
+  operation-credential delivery. After the local worker opens it, Device 2 uses
+  ordinary signing, export, reload, lock, unlock, inventory, and revocation
+  paths. Those operations do not read the completed link session or repair
+  missing material.
+- Device inventory is derived from active wallet authorities with
+  device-link provenance and their exact auth methods. A completed link
+  session is temporary workflow state and is deleted after acknowledgement.
+- A Passkey card displays server-derived authenticator metadata when it is
+  available. An Email OTP card displays `Email OTP` and makes no browser,
+  operating-system, provider, transport, sync, or hardware claim.
+- Every card displays a stable shortened `deviceId`. Creation-order labels
+  such as `Device 2` are not durable identity, and metadata must not imply an
+  exact physical machine or exclusive possession of a synced Passkey.
+- Device metadata is display and audit context only. Authorization, signing,
+  export, unlock, and revocation never branch on labels, browser or operating-
+  system names, providers, transports, or sync state.
+- Raw User-Agent strings, attestation objects, PRF output, factor secrets, and
+  Email OTP addresses do not enter the management response.
+- User revocation targets one exact `walletAuthMethodId` and requires fresh
+  proof from a different active method under a full-owner authority. Removing
+  the wallet's final active method is refused without changing durable state.
+- Revoking the final method attached to an authority retires that authority,
+  invalidates its sessions, and disables its exact signer activations while
+  leaving other methods, authorities, and devices operational.
+
+Failure behaviour:
+
+- Missing, duplicate, cross-wallet, wrong-kind, revoked, or digest-mismatched
+  authority and auth-method records fail closed. Runtime operations do not
+  select a sibling device or infer identity from timestamps or display data.
+- An incomplete migrated enrollment returns `relink_required` at its boundary.
+  Linking does not hydrate, recover, rotate, promote, or synthesize missing
+  signer or export material.
+- Retrying after the pending-authority commit reuses the exact authority,
+  method, activation, package, and digest identities. It must not create a
+  duplicate authority or signer activation.
+- Activation replay returns the same exact session and sealed delivery.
+  Acknowledgement cleanup is authenticated and remains resumable after the live
+  link session is deleted.
+
 ## Test Matrix
 
 Every release touching registration, auth methods, signing sessions, budget,
@@ -415,23 +599,32 @@ Each row needs either an automated test or an explicit manual verification note
 when a change touches registration, unlock, signing, step-up, export, session
 restore, lane selection, or budget handling.
 
-| Behaviour                                                                | Evidence                                                   |
-| ------------------------------------------------------------------------ | ---------------------------------------------------------- |
-| Email OTP registration with zero rerolls uses one OTP code               | Relayer route/auth-service test                            |
-| Email OTP registration with one reroll uses the original OTP code        | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
-| Email OTP registration with multiple rerolls uses the original OTP code  | Relayer route test or manual registration reroll note      |
-| Wrong Email OTP provider subject is rejected                             | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
-| Wrong Email OTP challenged email is rejected                             | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
-| Registration and unlock produce equivalent runtime lanes                 | Client runtime-postcondition test                          |
-| Passkey registration signs Tempo/Arc immediately and NEAR at readiness   | Intended-behaviour registration contract                   |
-| Email OTP registration signs Tempo/Arc immediately and NEAR at readiness | Intended-behaviour registration contract                   |
-| Passkey step-up signs NEAR, Tempo, and Arc/EVM                           | Client signing test or manual browser note                 |
-| Email OTP step-up signs NEAR, Tempo, and Arc/EVM                         | Client signing test or manual browser note                 |
-| Passkey Ed25519 and ECDSA export require fresh export auth               | Client export test or manual browser note                  |
-| Email OTP Ed25519 and ECDSA export require fresh export auth             | Client export test or manual browser note                  |
-| Page refresh restores only exact valid lanes                             | Page-refresh session test or manual browser note           |
-| Email OTP paths never call passkey credential lookup or PRF restore      | `tests/unit/refactor46d.guard.unit.test.ts`                |
-| ECDSA budget checks are exact to chain target                            | `tests/unit/refactor46d.guard.unit.test.ts`                |
+| Behaviour                                                                | Evidence                                                                     |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| Email OTP registration with zero rerolls uses one OTP code               | Relayer route/auth-service test                                              |
+| Email OTP registration with one reroll uses the original OTP code        | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts`                   |
+| Email OTP registration with multiple rerolls uses the original OTP code  | Relayer route test or manual registration reroll note                        |
+| Wrong Email OTP provider subject is rejected                             | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts`                   |
+| Wrong Email OTP challenged email is rejected                             | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts`                   |
+| Registration and unlock produce equivalent runtime lanes                 | Client runtime-postcondition test                                            |
+| Passkey registration signs Tempo/Arc immediately and NEAR at readiness   | Intended-behaviour registration contract                                     |
+| Email OTP registration signs Tempo/Arc immediately and NEAR at readiness | Intended-behaviour registration contract                                     |
+| Passkey step-up signs NEAR, Tempo, and Arc/EVM                           | Client signing test or manual browser note                                   |
+| Email OTP step-up signs NEAR, Tempo, and Arc/EVM                         | Client signing test or manual browser note                                   |
+| Passkey Ed25519 and ECDSA export require fresh export auth               | Client export test or manual browser note                                    |
+| Email OTP Ed25519 and ECDSA export require fresh export auth             | Client export test or manual browser note                                    |
+| Page refresh restores only exact valid lanes                             | Page-refresh session test or manual browser note                             |
+| Adding a method reuses the authority and creates no new signer material  | `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`       |
+| An added Passkey unlocks, signs, and exports both families               | `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts`       |
+| An added Email OTP method unlocks through hosted Google and signs both families | `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts` |
+| Addition works on wallets owning one signer family                       | `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts` |
+| Repeating an addition answers already_configured before sending a code   | `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`       |
+| Either sibling revokes the other; the last method cannot be revoked      | `tests/unit/r109cSiblingRevocation.unit.test.ts`                             |
+| The Add action disappears once both families are active                  | `tests/unit/linkedDevicesModal.unit.test.ts`                                 |
+| Code recovery adds either target family and preserves public identities  | Intended-behaviour 2x2 recovery contracts                                    |
+| Code recovery preserves source sessions and consumes exactly one code    | Intended-behaviour 2x2 recovery contracts                                    |
+| Email OTP paths never call passkey credential lookup or PRF restore      | `tests/unit/emailOtpEd25519YaoExportRefresh.unit.test.ts`; `tests/unit/walletEmailOtpChallengeRoute.unit.test.ts` |
+| ECDSA budget checks are exact to chain target                            | `tests/unit/emailOtpEcdsaUnlockExactSession.unit.test.ts`; `tests/unit/ecdsaMaterialActivationWalletStore.unit.test.ts` |
 
 ## Non-Goals
 

@@ -14,7 +14,7 @@ import {
   Store,
   Wallet,
 } from 'lucide-react';
-import { AuthMenuMode, SeamsAuthMenuSkeletonInner } from '@seams/sdk/react';
+import { AuthMenuMode, SeamsAuthMenuSkeletonInner } from '@seams/wallet/react';
 import { PAPER_LIGHT_COLORS } from '@/context/app-themes';
 import NavbarCompact from '@/components/Navbar/NavbarCompact';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';

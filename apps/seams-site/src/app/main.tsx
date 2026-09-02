@@ -11,7 +11,7 @@ import '@fontsource/hanken-grotesk/600-italic.css';
 import '@fontsource/hanken-grotesk/700.css';
 import '@fontsource/hanken-grotesk/700-italic.css';
 // Standalone dev page needs SDK styles globally
-import '@seams/sdk/react/styles';
+import '@seams/wallet/react/styles';
 
 const rootEl = document.getElementById('app-root');
 

@@ -1,45 +1,49 @@
 {
-  "extends": "../packages/sdk-web/tsconfig.json",
+  "extends": "../packages/wallet/tsconfig.json",
   "compilerOptions": {
     "baseUrl": ".",
     "types": ["@playwright/test", "node", "react", "react-dom", "qrcode"],
     "typeRoots": [
       "./node_modules/@types",
-      "../packages/sdk-web/node_modules/@types",
+      "../packages/wallet/node_modules/@types",
       "../packages/node_modules/@types",
       "../node_modules/@types",
       "./node_modules",
-      "../packages/sdk-web/node_modules",
+      "../packages/wallet/node_modules",
       "../packages/node_modules",
       "../node_modules"
     ],
     "paths": {
-      "@/core/runtime": ["../packages/sdk-web/src/core/runtime/index.ts"],
-      "@/core/runtime/*": ["../packages/sdk-web/src/core/runtime/*"],
-      "@/*": ["../packages/sdk-web/src/*"],
-      "@/plugins/*": ["../packages/sdk-web/src/plugins/*"],
+      "@/core/runtime": ["../packages/wallet/src/core/runtime/index.ts"],
+      "@/core/runtime/*": ["../packages/wallet/src/core/runtime/*"],
+      "@/*": ["../packages/wallet/src/*"],
+      "@/plugins/*": ["../packages/wallet/src/plugins/*"],
       "@shared/utils": ["../packages/shared-ts/src/utils/index.ts"],
       "@shared/*": ["../packages/shared-ts/src/*"],
       "@shared/threshold": ["../packages/shared-ts/src/threshold/index.ts"],
       "@seams-internal/console-shared": ["../packages/console-shared-ts/src/index.ts"],
       "@seams-internal/console-shared/*": ["../packages/console-shared-ts/src/*"],
+      "@seams-internal/wallet-console-shared": ["../packages/wallet-console-shared-ts/src/index.ts"],
+      "@seams-internal/wallet-console-shared/*": ["../packages/wallet-console-shared-ts/src/*"],
+      "@seams-internal/wallet-console-server": ["../packages/wallet-console-server-ts/src/index.ts"],
+      "@seams-internal/wallet-console-server/*": ["../packages/wallet-console-server-ts/src/*"],
       "@seams-internal/console-server": ["../packages/console-server-ts/src/index.ts"],
       "@seams-internal/console-server/*": ["../packages/console-server-ts/src/*"],
       "@seams-internal/shared-ts/*": ["../packages/shared-ts/src/*"],
-      "@server": ["../packages/sdk-server-ts/src/index.ts"],
-      "@server/*": ["../packages/sdk-server-ts/src/*"],
-      "@build-paths": ["../packages/sdk-web/build-paths.ts"],
-      "@seams/sdk/advanced": ["../packages/sdk-web/src/advanced.ts"],
-      "@seams/sdk-server": ["../packages/sdk-server-ts/src/index.ts"],
-      "@seams/sdk-server/router/cloudflare": [
-        "../packages/sdk-server-ts/src/router/cloudflare-adaptor.ts"
+      "@server": ["../packages/wallet-server/src/index.ts"],
+      "@server/*": ["../packages/wallet-server/src/*"],
+      "@build-paths": ["../packages/wallet/build-paths.ts"],
+      "@seams/wallet/advanced": ["../packages/wallet/src/advanced.ts"],
+      "@seams/wallet-server": ["../packages/wallet-server/src/index.ts"],
+      "@seams/wallet-server/router/cloudflare": [
+        "../packages/wallet-server/src/router/cloudflare-adaptor.ts"
       ],
-      "@seams/sdk-server/router/express": [
-        "../packages/sdk-server-ts/src/router/express-adaptor.ts"
+      "@seams/wallet-server/router/express": [
+        "../packages/wallet-server/src/router/express-adaptor.ts"
       ],
-      "@seams/sdk-server/router/ror": ["../packages/sdk-server-ts/src/router/ror-adaptor.ts"],
+      "@seams/wallet-server/router/ror": ["../packages/wallet-server/src/router/ror-adaptor.ts"],
       "sonner": ["../apps/seams-site/node_modules/sonner/dist/index.d.ts"],
-      "@seams/sdk-server/wasm/signer": ["../packages/sdk-server-ts/src/wasm/signer.ts"]
+      "@seams/wallet-server/wasm/signer": ["../packages/wallet-server/src/wasm/signer.ts"]
     }
   }
 }

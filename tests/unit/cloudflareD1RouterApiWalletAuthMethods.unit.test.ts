@@ -1,14 +1,22 @@
 import { expect, test } from '@playwright/test';
+import { emailOtpDeviceEnrollmentId } from '@shared/utils/emailOtpDomain';
+import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
+import {
+  buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture,
+  buildActiveMethodBoundPasskeyCustodyEnvelopeFixture,
+  buildWalletCustodyCommitPayloadFixture,
+  CIPHERTEXT_B64U,
+  VALID_SECP256K1_PUBLIC_KEY_B64U,
+} from './helpers/passkeyCustodyEnvelope.fixtures';
+
+const EMAIL_OTP_ENROLLMENT_SEAL_KEY_VERSION = 'enrollment-seal-v1';
 import { parseCorrelationId } from '@shared/utils/canonicalPrimitives';
 import {
   D1WalletStore,
   parseWalletEd25519SignerRecord,
-} from '../../packages/sdk-server-ts/src/core/d1WalletStore';
-import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import type {
-  RouterAbEd25519YaoProductRegistrationRuntimeV1,
-  RouterAbEd25519YaoWalletSessionMintInputV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+} from '../../packages/wallet-server/src/core/d1WalletStore';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import { normalizeRuntimePolicyScope } from '../../packages/shared-ts/src/threshold/signingRootScope';
 import {
   registrationNearEd25519BranchKey,
@@ -16,8 +24,12 @@ import {
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
 import { type RouterAbEcdsaVerifiedClientActivationFactsV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
-import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import {
+  parseWalletAuthMethodId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+} from '../../packages/shared-ts/src/utils/domainIds';
+import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
 import {
@@ -28,8 +40,27 @@ import {
   FixtureRouterAbEcdsaStrictRegistrationPort,
   SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort,
 } from '../helpers/routerAbSigningRuntimeTestUtils';
-import { base64UrlDecode } from '../../packages/shared-ts/src/utils/encoders';
+import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
+import { buildVerifiedWalletSessionPasskeyFactorResult } from '../../packages/wallet-server/src/authorization/factorEvidence';
+import { parseVerifiedOwnerProofId } from '../../packages/wallet-server/src/authorization/domain';
+import {
+  parseAuthFactorId,
+  parsePrincipalId,
+  parseTenantId,
+  parseWalletSessionMintId,
+} from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { computeWalletAddSignerEcdsaActivationRequestDigestB64u } from '../../packages/shared-ts/src/utils/walletAddSignerActivation';
+import type { ActiveWalletAuthorityV1 } from '../../packages/shared-ts/src/authorization/walletAuthority';
+import {
+  buildLinkedDeviceManagementAuthorityFixture,
+  extendFixtureAuthorityWithEcdsaSigner,
+  fullOwnerPermissionsForManagementFixture,
+} from './helpers/linkedDeviceManagement.fixtures';
 import {
   RecordingDurableObjectNamespace,
   requireSingleEcdsaPrepare,
@@ -38,7 +69,9 @@ import {
   hexBytes,
   applySignerMigrations,
   insertSignerWallet,
+  insertEmailOtpEnrollment,
   insertWalletAuthMethod,
+  seedFoundingPasskeyAuthority,
   readWalletAuthMethodRecord,
   readWalletSignerRecord,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
@@ -53,6 +86,50 @@ const TEST_ECDSA_MATERIAL_ACTIVATION = fixtureRouterAbEcdsaMaterialActivation(
 
 function yaoBytes(seed: number): number[] {
   return new Array<number>(32).fill(seed);
+}
+
+function requiredDomainValue<T>(
+  result: { readonly ok: true; readonly value: T } | { readonly ok: false },
+  field: string,
+): T {
+  if (!result.ok) throw new Error(`Test ${field} is invalid`);
+  return result.value;
+}
+
+async function persistActiveAuthorityAdvance(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: {
+    readonly namespace: string;
+    readonly orgId: string;
+    readonly projectId: string;
+    readonly envId: string;
+  };
+  readonly expected: ActiveWalletAuthorityV1;
+  readonly next: ActiveWalletAuthorityV1;
+}): Promise<void> {
+  const result = await input.database
+    .prepare(
+      `UPDATE wallet_authorities
+          SET signer_activations_json = ?, signer_activation_set_digest_b64u = ?,
+              authority_digest_b64u = ?, record_json = ?, updated_at_ms = ?
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+          AND authority_id = ? AND authority_digest_b64u = ?`,
+    )
+    .bind(
+      JSON.stringify(input.next.signerActivations),
+      String(input.next.signerActivationSetDigestB64u),
+      String(input.next.authorityDigestB64u),
+      JSON.stringify(input.next),
+      input.next.updatedAtMs,
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      String(input.next.authorityId),
+      String(input.expected.authorityDigestB64u),
+    )
+    .run();
+  expect(result.meta?.changes).toBe(1);
 }
 
 async function reopenAddSignerFinalizeCompletionAsStaleClaim(input: {
@@ -149,6 +226,8 @@ function testWebAuthnAssertionCredential(credentialIdB64u: string) {
 class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistrationRuntimeV1 {
   readonly kind = 'router_ab_ed25519_yao_product_registration_runtime_v1' as const;
   readonly signingWorkerId = TEST_YAO_SIGNING_WORKER_ID;
+  constructor(readonly registeredPublicKeyB64u: string) {}
+
   private admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1 | null = null;
   private consumerBinding: string | null = null;
   private consumedActivation: Extract<
@@ -216,7 +295,7 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
           deriver_b_client_package: yaoClientPackage('deriver_b', 22),
           public_receipt: {
             transcript: yaoBytes(11),
-            registered_public_key: yaoBytes(12),
+            registered_public_key: Array.from(base64UrlDecode(this.registeredPublicKeyB64u)),
             joined_client_commitment: yaoBytes(13),
             joined_signing_worker_commitment: yaoBytes(14),
             signing_worker_verifying_share: yaoBytes(14),
@@ -271,36 +350,6 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
     return { ok: false, code: 'unknown_capability', message: 'not used by add-signer test' };
   }
 
-  async mintWalletSession(
-    input: RouterAbEd25519YaoWalletSessionMintInputV1,
-  ): ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['mintWalletSession']> {
-    const expiresAtMs =
-      input.kind === 'verified_wallet_unlock_v1' ? input.expiresAtMs : Date.now() + 60_000;
-    return {
-      ok: true,
-      session: {
-        sessionKind: 'jwt',
-        walletSessionJwt: 'test.ed25519.yao.wallet.session',
-        walletId: input.walletId,
-        nearAccountId: input.nearAccountId,
-        nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
-        authorityScope: { kind: 'passkey_rp', rpId: 'example.com' },
-        thresholdSessionId: input.thresholdSessionId,
-        walletSessionId: input.walletSessionId,
-        quotaId: input.quotaId,
-        expiresAtMs,
-        participantIds: [input.participantIds[0], input.participantIds[1]],
-        remainingUses: input.remainingUses,
-        signingRootId: `${input.runtimePolicyScope.projectId}:${input.runtimePolicyScope.envId}`,
-        signingRootVersion: input.runtimePolicyScope.signingRootVersion,
-        runtimePolicyScope: input.runtimePolicyScope,
-        routerAbNormalSigning: {
-          kind: 'router_ab_ed25519_normal_signing_v1',
-          signingWorkerId: TEST_YAO_SIGNING_WORKER_ID,
-        },
-      },
-    };
-  }
 }
 
 test('passkey Ed25519 budget refresh accepts current session identity independently of registration provenance', async () => {
@@ -322,6 +371,12 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
     const currentQuotaId = 'wallet-quota-current';
     const rpId = 'example.com';
     const credentialIdB64u = 'passkey-budget-refresh-credential';
+    const tenantId = requiredDomainValue(parseTenantId(scope.orgId), 'tenantId');
+    const principalId = requiredDomainValue(parsePrincipalId(String(walletId)), 'principalId');
+    const walletAuthMethodId = requiredDomainValue(
+      parseWalletAuthMethodId('wallet-auth-method:passkey-budget-refresh'),
+      'walletAuthMethodId',
+    );
     const participantIds = [1, 2] as const;
     const runtimePolicyScope = normalizeRuntimePolicyScope({
       orgId: scope.orgId,
@@ -329,11 +384,21 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       envId: scope.envId,
       signingRootVersion: 'root-v1',
     });
-    const authority = buildPasskeyWalletAuthAuthority({
+    const authority = {
       walletId,
-      rpId,
-      credentialIdB64u,
-    });
+      factor: {
+        kind: 'passkey' as const,
+        credentialIdB64u: requiredDomainValue(
+          parseWebAuthnCredentialIdB64u(credentialIdB64u),
+          'credentialIdB64u',
+        ),
+      },
+      verifier: {
+        kind: 'webauthn' as const,
+        rpId: requiredDomainValue(parseWebAuthnRpId(rpId), 'rpId'),
+      },
+      bindingId: walletAuthMethodId,
+    };
     const activeYao = buildEd25519YaoCapabilityFixture({
       walletId,
       nearAccountId,
@@ -362,6 +427,9 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       signingRootVersion: runtimePolicyScope.signingRootVersion,
       runtimePolicyScope,
       activeYaoCapability: activeYao.capability,
+      // The signer records the manifest its key set was registered against;
+      // the parser has required it since custody commits became mandatory.
+      custodyKeyManifestDigestB64u: 'Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE',
       createdAtMs: 1_000,
       updatedAtMs: 1_000,
     });
@@ -369,20 +437,41 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
     if (!persistedSigner) throw new Error('test Ed25519 signer did not parse');
 
     await insertSignerWallet({ database, ...scope, walletId });
+    /* Refresh resolves the authority the method belongs to, so a wallet with
+       only an auth-method row is a state production cannot reach. The founding
+       authority comes from the shared factory, which is also what makes this
+       test's provenance claim meaningful. */
+    const founding = await seedFoundingPasskeyAuthority({
+      database,
+      ...scope,
+      identity: {
+        walletId: String(walletId),
+        authorityId: 'wallet-authority:passkey-budget-refresh',
+        walletAuthMethodId: String(walletAuthMethodId),
+        rpId,
+        credentialIdB64u,
+      },
+    });
+    const siblingCredentialIdB64u = 'passkey-budget-refresh-sibling-credential';
+    const siblingAuthority = buildPasskeyWalletAuthAuthority({
+      walletId,
+      rpId,
+      credentialIdB64u: siblingCredentialIdB64u,
+    });
     await insertWalletAuthMethod({
       database,
       ...scope,
       record: {
-        version: 'wallet_auth_method_v1',
         kind: 'passkey',
-        status: 'active',
-        walletId,
+        walletAuthMethodId: String(siblingAuthority.bindingId),
+        walletAuthorityId: String(founding.authority.authorityId),
+        walletId: String(walletId),
         rpId,
-        credentialIdB64u,
-        credentialPublicKeyB64u: 'test-passkey-public-key',
+        credentialIdB64u: siblingCredentialIdB64u,
+        credentialPublicKeyB64u: 'test-sibling-passkey-public-key',
         counter: 0,
-        createdAtMs: 1_000,
-        updatedAtMs: 1_000,
+        createdAtMs: 1_001,
+        updatedAtMs: 1_001,
       },
     });
     const walletStore = new D1WalletStore({
@@ -405,41 +494,295 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       ed25519YaoProductRegistration: yaoRuntime,
     });
 
+    const verifiedChallengeId = 'passkey-budget-refresh-challenge';
+    const refreshVerifiedAtMs = Date.now();
+    const refreshProof = await service.authorizedOperations.buildVerifiedOwnerProof({
+      purpose: 'wallet_session',
+      proofId: parseVerifiedOwnerProofId(`owner-proof:${verifiedChallengeId}`),
+      factor: buildVerifiedWalletSessionPasskeyFactorResult({
+        tenantId,
+        principalId,
+        walletId,
+        authorityRef: await walletAuthAuthorityRef({ authority }),
+        requestOrigin: 'https://wallet.example.test',
+        audience: 'https://wallet.example.test',
+        factorId: requiredDomainValue(parseAuthFactorId(`passkey:${credentialIdB64u}`), 'factorId'),
+        credentialIdB64u: requiredDomainValue(
+          parseWebAuthnCredentialIdB64u(credentialIdB64u),
+          'credentialIdB64u',
+        ),
+        assertionDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(9))),
+        verifiedAtMs: refreshVerifiedAtMs,
+        expiresAtMs: refreshVerifiedAtMs + 300_000,
+      }),
+    });
+    const siblingSession =
+      await service.authorizationSessions.issueDirectWalletSessionAuthorizationV2({
+        tenantId,
+        principalId,
+        walletId,
+        authority: founding.authority,
+        walletAuthMethodId: siblingAuthority.bindingId,
+        mintId: requiredDomainValue(
+          parseWalletSessionMintId('wallet-mint:passkey-budget-refresh-sibling'),
+          'siblingWalletSessionMintId',
+        ),
+        remainingUses: 7,
+        issuedAtMs: refreshVerifiedAtMs - 1_000,
+        expiresAtMs: refreshVerifiedAtMs + 300_000,
+      });
+    if (siblingSession.kind !== 'issued') {
+      throw new Error('sibling Wallet Session fixture did not issue');
+    }
+    const siblingAuthMethodBefore = await readWalletAuthMethodRecord({
+      database,
+      ...scope,
+      walletAuthMethodId: String(siblingAuthority.bindingId),
+    });
+    const siblingAuthorizationBefore =
+      await service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId,
+        token: siblingSession.operationCredential.token,
+        nowMs: refreshVerifiedAtMs,
+      });
+    expect(siblingAuthorizationBefore).not.toBeNull();
+
+    const refreshSessionPolicy = {
+      version: 'threshold_session_v1',
+      nearAccountId,
+      nearEd25519SigningKeyId,
+      authority,
+      relayerKeyId: TEST_YAO_SIGNING_WORKER_ID,
+      thresholdSessionId: currentThresholdSessionId,
+      walletSessionId: currentWalletSessionId,
+      quotaId: currentQuotaId,
+      runtimePolicyScope,
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1',
+        signingWorkerId: TEST_YAO_SIGNING_WORKER_ID,
+      },
+      participantIds,
+      ttlMs: 60_000,
+      remainingUses: 1,
+    } as const;
     const refreshed = await service.walletRegistration.refreshEd25519YaoWalletSession({
       kind: 'router_ab_ed25519_yao_budget_refresh_v1',
-      sessionPolicy: {
-        version: 'threshold_session_v1',
-        nearAccountId,
-        nearEd25519SigningKeyId,
-        authority,
-        relayerKeyId: TEST_YAO_SIGNING_WORKER_ID,
-        thresholdSessionId: currentThresholdSessionId,
-        walletSessionId: currentWalletSessionId,
-        quotaId: currentQuotaId,
-        runtimePolicyScope,
-        routerAbNormalSigning: {
-          kind: 'router_ab_ed25519_normal_signing_v1',
-          signingWorkerId: TEST_YAO_SIGNING_WORKER_ID,
-        },
-        participantIds,
-        ttlMs: 60_000,
-        remainingUses: 1,
-      },
+      sessionPolicy: refreshSessionPolicy,
       authorization: {
         kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
         authority,
-        verifiedChallengeId: 'passkey-budget-refresh-challenge',
+        proof: refreshProof,
+        verifiedChallengeId,
       },
     });
-    expect(refreshed).toMatchObject({
+    expect(refreshed, JSON.stringify(refreshed)).toMatchObject({
       ok: true,
+      sessionKind: 'issued_exact_wallet_session',
       walletId,
       thresholdSessionId: currentThresholdSessionId,
       remainingUses: 1,
     });
     if (!refreshed.ok) throw new Error(refreshed.message);
+    if (refreshed.sessionKind !== 'issued_exact_wallet_session') {
+      throw new Error('budget refresh must issue a fresh Wallet Session');
+    }
     expect(refreshed.walletSessionId).not.toBe(currentWalletSessionId);
     expect(refreshed.quotaId).not.toBe(currentQuotaId);
+    /* The refresh hands over the credential that admits the session it just
+       issued, and nothing else can reach it. */
+    expect(refreshed.operationCredential.walletSessionId).toBe(refreshed.walletSessionId);
+    expect(refreshed.operationCredential.token).toMatch(/^wst_[A-Za-z0-9_-]{43}$/);
+    const persistedExpiry = await database
+      .prepare(
+        `SELECT expires_at_ms
+           FROM wallet_session_authorizations_v2
+          WHERE namespace = ?1
+            AND tenant_id = ?2
+            AND wallet_session_id = ?3`,
+      )
+      .bind(
+        scope.namespace,
+        service.authorizationSessions.tenantId,
+        String(refreshed.walletSessionId),
+      )
+      .first<{ readonly expires_at_ms: number }>();
+    expect(persistedExpiry).toEqual({ expires_at_ms: refreshed.expiresAtMs });
+
+    /* Replaying the same verified challenge cannot mint a second credential
+       for the committed session; it returns the exact-method continuation. */
+    const replay = await service.walletRegistration.refreshEd25519YaoWalletSession({
+      kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+      sessionPolicy: refreshSessionPolicy,
+      authorization: {
+        kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
+        authority,
+        proof: refreshProof,
+        verifiedChallengeId,
+      },
+    });
+    expect(replay, JSON.stringify(replay)).toMatchObject({
+      ok: false,
+      code: 'already_committed',
+      next: 'unlock_exact_method',
+      committed: {
+        kind: 'already_committed_wallet_session_v1',
+        walletId,
+        authorizationId: refreshed.authorizationId,
+        walletSessionId: refreshed.walletSessionId,
+        quotaId: refreshed.quotaId,
+      },
+    });
+    expect(replay).not.toHaveProperty('operationCredential');
+    const siblingAuthMethodAfter = await readWalletAuthMethodRecord({
+      database,
+      ...scope,
+      walletAuthMethodId: String(siblingAuthority.bindingId),
+    });
+    const siblingAuthorizationAfter =
+      await service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId,
+        token: siblingSession.operationCredential.token,
+        nowMs: refreshVerifiedAtMs,
+      });
+    expect(siblingAuthMethodAfter).toEqual(siblingAuthMethodBefore);
+    expect(siblingAuthorizationAfter).toEqual(siblingAuthorizationBefore);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Email OTP source repeat admission returns before issuing a source challenge', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const walletId = walletIdFromString('add-auth-repeat-wallet.testnet');
+    const targetRpId = requiredDomainValue(
+      parseWebAuthnRpId('repeat-target.example.com'),
+      'repeat target rpId',
+    );
+    const founding = await buildLinkedDeviceManagementAuthorityFixture({
+      label: 'add-auth-repeat-email-source',
+      permissions: fullOwnerPermissionsForManagementFixture(),
+      provenance: 'wallet_registration',
+      identity: {
+        walletId: String(walletId),
+        authorityId: 'wallet-authority:add-auth-repeat',
+        walletAuthMethodId: 'wallet-auth-method:add-auth-repeat-email-source',
+        rpId: 'repeat-source.example.com',
+      },
+    });
+    await insertSignerWallet({ database, ...scope, walletId });
+    await insertWalletAuthMethod({
+      database,
+      ...scope,
+      record: {
+        kind: 'email_otp',
+        walletAuthMethodId: String(founding.authMethod.walletAuthMethodId),
+        walletAuthorityId: String(founding.authMethod.walletAuthorityId),
+        walletId: String(walletId),
+        emailHashHex: 'ab'.repeat(32),
+        registrationAuthorityId: 'challenge:add-auth-repeat-source',
+        createdAtMs: 100,
+        updatedAtMs: 200,
+      },
+    });
+    await insertWalletAuthMethod({
+      database,
+      ...scope,
+      record: {
+        kind: 'passkey',
+        walletAuthMethodId: 'wallet-auth-method:add-auth-repeat-existing-passkey',
+        walletAuthorityId: String(founding.authMethod.walletAuthorityId),
+        walletId: String(walletId),
+        rpId: String(targetRpId),
+        credentialIdB64u: base64UrlEncode(new Uint8Array(32).fill(42)),
+        credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(65).fill(43)),
+        counter: 0,
+        createdAtMs: 100,
+        updatedAtMs: 200,
+      },
+    });
+    await insertEmailOtpEnrollment({
+      database,
+      ...scope,
+      walletId: String(walletId),
+      providerUserId: 'google:add-auth-repeat-source',
+      verifiedEmail: 'repeat.source@example.test',
+    });
+
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      ...scope,
+      emailOtpDeliveryMode: 'dev_d1_outbox',
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'intent-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+    const intent = await service.walletAuthMethods.createAddAuthMethodIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      command: {
+        subject: {
+          kind: 'wallet_auth_method_management',
+          walletId,
+        },
+        authMethod: { kind: 'passkey', rpId: targetRpId },
+        caller: {
+          caller: 'same_device_addition',
+          source: {
+            walletAuthorityId: founding.authority.authorityId,
+            walletAuthMethodId: founding.authMethod.walletAuthMethodId,
+            walletSessionId: String(founding.issuedSession.session.walletSessionId),
+            authorityDigestB64u: String(founding.authority.authorityDigestB64u),
+            revocationEpoch: founding.authority.revocationEpoch,
+          },
+        },
+      },
+    });
+    expect(intent.ok, JSON.stringify(intent)).toBe(true);
+    if (!intent.ok) throw new Error(intent.message);
+
+    const challengeCountBefore = await database
+      .prepare(
+        `SELECT COUNT(*) AS count
+           FROM email_otp_challenges
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?`,
+      )
+      .bind(scope.namespace, scope.orgId, scope.projectId, scope.envId)
+      .first<{ readonly count?: unknown }>();
+    const result = await service.walletAuthMethods.createAddAuthMethodEmailOtpChallenge({
+      walletId,
+      addAuthMethodIntentGrant: intent.addAuthMethodIntentGrant,
+      addAuthMethodIntentDigestB64u: intent.addAuthMethodIntentDigestB64u,
+    });
+    expect(result).toEqual({
+      ok: false,
+      code: 'already_configured',
+      message: 'Wallet authority already has an active passkey auth method',
+    });
+    const challengeCountAfter = await database
+      .prepare(
+        `SELECT COUNT(*) AS count
+           FROM email_otp_challenges
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?`,
+      )
+      .bind(scope.namespace, scope.orgId, scope.projectId, scope.envId)
+      .first<{ readonly count?: unknown }>();
+    expect(Number(challengeCountAfter?.count ?? 0)).toBe(
+      Number(challengeCountBefore?.count ?? 0),
+    );
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -459,23 +802,19 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
     const rpId = 'example.com';
     const providerSubject = 'google:add-auth-user';
     const email = 'add.auth@example.test';
-    const appSessionVersion = 'add-auth-session-v1';
     const durableObjects = new RecordingDurableObjectNamespace();
     await insertSignerWallet({ database, ...scope, walletId });
-    await insertWalletAuthMethod({
+    /* R109C adds to an authority that already exists, so the founding one is
+       seeded rather than implied: the addition resolves it, checks it is an
+       active full owner, and revalidates its digest and revocation epoch. */
+    const founding = await seedFoundingPasskeyAuthority({
       database,
       ...scope,
-      record: {
-        version: 'wallet_auth_method_v1',
-        kind: 'passkey',
-        status: 'active',
-        walletId,
+      identity: {
+        walletId: String(walletId),
+        authorityId: 'wallet-authority:add-auth-wallet',
+        walletAuthMethodId: 'wallet-auth-method:add-auth-existing-passkey',
         rpId,
-        credentialIdB64u: 'existing-passkey-credential',
-        credentialPublicKeyB64u: 'existing-passkey-public-key',
-        counter: 0,
-        createdAtMs: 1_000,
-        updatedAtMs: 1_000,
       },
     });
 
@@ -504,12 +843,39 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
           walletId,
         },
         authMethod: { kind: 'email_otp', email },
+        /* The source the fresh proof will be taken over. Every identity the
+           start revalidates is named here, so a claim that drifts from live
+           state fails closed instead of authorizing against the resolved
+           source. */
+        caller: {
+          caller: 'same_device_addition',
+          source: {
+            walletAuthorityId: founding.authMethod.walletAuthorityId,
+            walletAuthMethodId: founding.authMethod.walletAuthMethodId,
+            walletSessionId: String(founding.issuedSession.session.walletSessionId),
+            authorityDigestB64u: String(founding.authority.authorityDigestB64u),
+            revocationEpoch: founding.authority.revocationEpoch,
+          },
+        },
       },
     });
-    expect(intent.ok).toBe(true);
+    expect(intent.ok, JSON.stringify(intent)).toBe(true);
     if (!intent.ok) throw new Error(intent.message);
     expect(Object.prototype.hasOwnProperty.call(intent.intent, 'rpId')).toBe(false);
     const runtimePolicyScope = normalizeRuntimePolicyScope(intent.intent.runtimePolicyScope);
+
+    const advancedAuthority = await extendFixtureAuthorityWithEcdsaSigner(founding.authority);
+    await persistActiveAuthorityAdvance({
+      database,
+      scope,
+      expected: founding.authority,
+      next: advancedAuthority,
+    });
+    expect(advancedAuthority.authorityDigestB64u).not.toBe(
+      intent.intent.caller === 'same_device_addition'
+        ? intent.intent.source.authorityDigestB64u
+        : '',
+    );
 
     const challenge = await service.emailOtp.createEmailOtpEnrollmentChallenge({
       userId: providerSubject,
@@ -517,10 +883,13 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       orgId: scope.orgId,
       email,
       otpChannel: 'email_otp',
-      sessionHash: intent.addAuthMethodIntentDigestB64u,
-      appSessionVersion,
+      /* The value the ceremony's own verification checks the code against, and
+         what the enrollment-code route now computes server-side. `sessionHash`
+         and `appSessionVersion` were this field's retired names; neither
+         appears in production. */
+      ownerProofBindingDigest: intent.addAuthMethodIntentDigestB64u,
     });
-    expect(challenge.ok).toBe(true);
+    expect(challenge.ok, JSON.stringify(challenge)).toBe(true);
     if (!challenge.ok) throw new Error(challenge.message);
     const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
       challengeId: challenge.challenge.challengeId,
@@ -538,15 +907,20 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       addAuthMethodIntentGrant: intent.addAuthMethodIntentGrant,
       addAuthMethodIntentDigestB64u: intent.addAuthMethodIntentDigestB64u,
       intent: intent.intent,
+      /* The route verifies the assertion and hands the service the credential
+         it proved; at this layer the credential is resolved by id. `app_session`
+         was a retired auth kind — `AddAuthMethodExistingAuth` has three, and it
+         is not among them. */
       auth: {
-        kind: 'app_session',
-        policy: {
-          permission: 'wallet_auth_method_provision',
-          walletId,
-          authMethod: intent.intent.authMethod,
-          runtimePolicyScope,
-          expiresAtMs: Date.now() + 60_000,
+        kind: 'webauthn_assertion',
+        rpId,
+        credential: {
+          id: String(founding.authMethod.credentialIdB64u),
+          rawId: String(founding.authMethod.credentialIdB64u),
+          type: 'public-key',
+          response: {},
         },
+        expectedChallengeDigestB64u: intent.addAuthMethodIntentDigestB64u,
       },
       authority: {
         kind: 'email_otp',
@@ -559,17 +933,17 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
           otpCode: outbox.otpCode,
           otpChannel: 'email_otp',
           registrationIntentDigestB64u: intent.addAuthMethodIntentDigestB64u,
-          appSessionVersion,
         },
       },
     });
-    expect(started.ok).toBe(true);
+    expect(started.ok, JSON.stringify(started)).toBe(true);
     if (!started.ok) throw new Error(started.message);
     expect(started.intent).toEqual(intent.intent);
 
     const emailHashHex = hexBytes(await sha256(utf8Bytes(email)));
     await expect(
       service.walletAuthMethods.finalizeWalletAddAuthMethod({
+        authorization: { kind: 'owner' as const },
         subject: {
           kind: 'wallet_auth_method_management',
           walletId: walletIdFromString('different-wallet.testnet'),
@@ -581,13 +955,37 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       code: 'invalid_body',
       message: 'add-auth-method ceremony subject mismatch',
     });
+    /* R109C: the browser opens the source envelope and reseals the same seed
+       under the verified Email factor, and this wallet has no shared enrollment
+       yet, so the addition creates one in the same batch. */
+    const resealedEnvelope = buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture({
+      walletId: String(walletId),
+      envelopeId: 'email-envelope:add-auth-resealed',
+      enrollmentId: emailOtpDeviceEnrollmentId(String(walletId), providerSubject),
+      enrollmentSealKeyVersion: EMAIL_OTP_ENROLLMENT_SEAL_KEY_VERSION,
+      walletAuthMethodId: String(intent.intent.targetWalletAuthMethodId),
+    });
     const finalized = await service.walletAuthMethods.finalizeWalletAddAuthMethod({
+      authorization: { kind: 'owner' as const },
       subject: {
         kind: 'wallet_auth_method_management',
         walletId,
       },
       addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
+      custodyEnvelope: resealedEnvelope,
+      emailOtpTarget: {
+        kind: 'new_enrollment',
+        enrollment: {
+          enrollmentSealKeyVersion: EMAIL_OTP_ENROLLMENT_SEAL_KEY_VERSION,
+          clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_B64U,
+          unlockKeyVersion: 'unlock-v1',
+          serverSealedFactorCiphertextB64u: CIPHERTEXT_B64U,
+        },
+      },
     });
+    if (!finalized.ok) throw new Error(`Expected add-auth finalization: ${finalized.message}`);
+    const addedWalletAuthMethodId = String(finalized.authority.bindingId);
+    expect(addedWalletAuthMethodId).toMatch(/^wallet-auth-method:/);
     expect(finalized).toEqual({
       ok: true,
       walletId,
@@ -602,7 +1000,7 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
           kind: 'email_otp_wallet_auth_method',
           emailHashHex,
         },
-        bindingId: `email_otp:${walletId}:${emailHashHex}`,
+        bindingId: addedWalletAuthMethodId,
       },
       authMethod: {
         kind: 'email_otp',
@@ -613,28 +1011,44 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       readWalletAuthMethodRecord({
         database,
         ...scope,
-        walletAuthMethodId: `email_otp:${walletId}:${emailHashHex}`,
+        walletAuthMethodId: addedWalletAuthMethodId,
       }),
     ).resolves.toMatchObject({
-      version: 'wallet_auth_method_v1',
+      version: 'wallet_auth_method_v2',
+      walletAuthMethodId: addedWalletAuthMethodId,
+      walletAuthorityId: 'wallet-authority:add-auth-wallet',
       kind: 'email_otp',
       status: 'active',
       walletId,
       emailHashHex,
       registrationAuthorityId: challenge.challenge.challengeId,
     });
+    /* Inverted on purpose. This used to expect `not_found`: the ceremony was
+       consumed and the Email branch wrote no replay record, so an exact retry
+       after a lost response answered as though the addition had never
+       happened. R109C requires the retry to return the same active method, so
+       the identical request now replays it. A different request against the
+       same ceremony is still refused as a conflict. */
     await expect(
       service.walletAuthMethods.finalizeWalletAddAuthMethod({
+        authorization: { kind: 'owner' as const },
         subject: {
           kind: 'wallet_auth_method_management',
           walletId,
         },
         addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
+        custodyEnvelope: resealedEnvelope,
+        emailOtpTarget: {
+          kind: 'new_enrollment',
+          enrollment: {
+            enrollmentSealKeyVersion: EMAIL_OTP_ENROLLMENT_SEAL_KEY_VERSION,
+            clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_B64U,
+            unlockKeyVersion: 'unlock-v1',
+            serverSealedFactorCiphertextB64u: CIPHERTEXT_B64U,
+          },
+        },
       }),
-    ).resolves.toMatchObject({
-      ok: false,
-      code: 'not_found',
-    });
+    ).resolves.toEqual(finalized);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -656,7 +1070,31 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
       config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker' },
     });
     const strictRegistration = new SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort();
+    const custodyCommit = buildWalletCustodyCommitPayloadFixture({
+      walletId: String(walletId),
+      keySet: 'evm_family_ecdsa_v1',
+    });
+    if (!custodyCommit.clientRootPublicKey33B64u) {
+      throw new Error('ECDSA custody fixture did not provide a client root public key');
+    }
+    const custodyKeySet = {
+      kind: 'evm_family_ecdsa_v1' as const,
+      keyManifestDigestB64u: custodyCommit.keyManifestDigestB64u,
+      clientRootPublicKey33B64u: custodyCommit.clientRootPublicKey33B64u,
+    };
     await insertSignerWallet({ database, ...scope, walletId });
+    /* An add-signer needs an active full-owner source with live custody, the
+       same as an addition does. */
+    const addSignerFounding = await seedFoundingPasskeyAuthority({
+      database,
+      ...scope,
+      identity: {
+        walletId: String(walletId),
+        authorityId: 'wallet-authority:strict-add-signer',
+        walletAuthMethodId: 'wallet-auth-method:strict-add-signer',
+        rpId: 'example.com',
+      },
+    });
     const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
@@ -698,18 +1136,22 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
       addSignerIntentGrant: intent.addSignerIntentGrant,
       addSignerIntentDigestB64u: intent.addSignerIntentDigestB64u,
       intent: intent.intent,
+      /* `AddSignerAuth` has one kind. `app_session` was retired here too. */
       auth: {
-        kind: 'app_session',
-        policy: {
-          permission: 'wallet_signer_provision',
-          walletId,
-          signerSelection: intent.intent.signerSelection,
-          runtimePolicyScope,
-          expiresAtMs: Date.now() + 60_000,
+        kind: 'webauthn_assertion',
+        rpId: 'example.com',
+        credential: {
+          id: String(addSignerFounding.authMethod.credentialIdB64u),
+          rawId: String(addSignerFounding.authMethod.credentialIdB64u),
+          type: 'public-key',
+          response: {},
         },
+        expectedChallengeDigestB64u: intent.addSignerIntentDigestB64u,
       },
     });
-    if (!started.ok || !started.ecdsa) throw new Error('Expected ECDSA add-signer start');
+    if (!started.ok || !started.ecdsa) {
+      throw new Error(`Expected ECDSA add-signer start: ${JSON.stringify(started)}`);
+    }
     expect(started.ecdsa.strictRegistration.registration_purpose).toBe('wallet_add_signer');
 
     const strictRequest = buildFixtureRouterAbEcdsaStrictRegistrationRequest(
@@ -802,6 +1244,7 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
       addSignerCeremonyId: started.addSignerCeremonyId,
       idempotencyKey: 'strict-ecdsa-add-signer-finalize',
       ecdsa: { expectedKeyHandles: [activated.ecdsa.bootstrap.keyHandle] },
+      custodyKeySet,
     };
     const finalized = await service.walletAuthMethods.finalizeWalletAddSigner(finalizeRequest);
     if (!finalized.ok) throw new Error(finalized.message);
@@ -827,6 +1270,7 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
         addSignerCeremonyId: finalizeRequest.addSignerCeremonyId,
         idempotencyKey: 'strict-ecdsa-add-signer-conflict',
         ecdsa: { expectedKeyHandles: [activated.ecdsa.bootstrap.keyHandle] },
+        custodyKeySet,
       }),
     ).resolves.toMatchObject({ ok: false, code: 'idempotency_conflict' });
     await expect(
@@ -860,8 +1304,16 @@ test('partitioned D1 finalizes and replays Ed25519 Yao add-signer without reques
     const walletId = walletIdFromString('ed25519-yao-add-signer.testnet');
     const rpId = 'example.com';
     const credentialIdB64u = 'Y3JlZGVudGlhbC0x';
+    const custodyCommit = buildWalletCustodyCommitPayloadFixture({
+      walletId: String(walletId),
+      keySet: 'near_ed25519_v1',
+      origin: 'join',
+    });
+    if (!custodyCommit.registeredPublicKeyB64u) {
+      throw new Error('Ed25519 custody fixture did not provide a registered public key');
+    }
     const durableObjects = new RecordingDurableObjectNamespace();
-    const yaoRuntime = new TestEd25519YaoAddSignerRuntime();
+    const yaoRuntime = new TestEd25519YaoAddSignerRuntime(custodyCommit.registeredPublicKeyB64u);
     const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
       config: {
         ROUTER_AB_NORMAL_SIGNING_WORKER_ID: TEST_YAO_SIGNING_WORKER_ID,
@@ -872,9 +1324,9 @@ test('partitioned D1 finalizes and replays Ed25519 Yao add-signer without reques
       database,
       ...scope,
       record: {
-        version: 'wallet_auth_method_v1',
         kind: 'passkey',
-        status: 'active',
+        walletAuthMethodId: 'wallet-auth-method:ed25519-add-signer',
+        walletAuthorityId: 'wallet-authority:ed25519-add-signer',
         walletId,
         rpId,
         credentialIdB64u,
@@ -884,6 +1336,17 @@ test('partitioned D1 finalizes and replays Ed25519 Yao add-signer without reques
         updatedAtMs: 1_000,
       },
     });
+    /* The verified passkey needs live custody: an add-signer opens the source
+       envelope to derive the new signer's material. */
+    await new CloudflareD1PasskeyCustodyEnvelopeStore({ database, scope }).createEnvelope(
+      buildActiveMethodBoundPasskeyCustodyEnvelopeFixture({
+        walletId: String(walletId),
+        envelopeId: 'passkey-envelope:ed25519-add-signer',
+        rpId,
+        credentialIdB64u,
+        walletAuthMethodId: 'wallet-auth-method:ed25519-add-signer',
+      }),
+    );
     const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
@@ -968,6 +1431,11 @@ test('partitioned D1 finalizes and replays Ed25519 Yao add-signer without reques
           lifecycle_id: started.addSignerCeremonyId,
           session_id: TEST_YAO_SESSION_ID,
         },
+      },
+      custodyKeySet: {
+        kind: 'near_ed25519_v1' as const,
+        keyManifestDigestB64u: custodyCommit.keyManifestDigestB64u,
+        registeredPublicKeyB64u: custodyCommit.registeredPublicKeyB64u,
       },
     };
     const finalized = await service.walletAuthMethods.finalizeWalletAddSigner(exactFinalize);

@@ -1,5 +1,5 @@
 name = "seams-sdk-d1-console-staging"
-main = "src/router/cloudflare/d1ConsoleStagingWorker.ts"
+main = "../wallet-console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts"
 compatibility_date = "2026-04-17"
 compatibility_flags = ["nodejs_compat"]
 
@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "CONSOLE_DB"
 database_name = "seams-console-staging-nrt"
 database_id = "<remote-console-d1-database-id>"
-migrations_dir = "migrations/d1-console"
+migrations_dir = "../wallet-console-server-ts/migrations/d1-console"
 
 [vars]
 SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
@@ -17,6 +17,7 @@ CONSOLE_SESSION_AUDIENCE = "seams-console-dashboard"
 CONSOLE_EMAIL_RUNTIME_PROFILE = "PRODUCTION"
 CONSOLE_EMAIL_PROVIDER = "RESEND"
 CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID = "console-email-staging-r1"
+CONSOLE_WEBHOOK_SECRET_KEY_ID = "console-webhook-staging-r1"
 CONSOLE_EMAIL_FROM = "Seams <console@example.com>"
 CONSOLE_EMAIL_CRON_EXPRESSIONS = "*/5 * * * *"
 
@@ -27,6 +28,7 @@ crons = ["*/5 * * * *"]
 required = [
   "CONSOLE_SESSION_HMAC_SECRET",
   "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U",
+  "CONSOLE_WEBHOOK_SECRET_KEY_B64U",
   "RESEND_API_KEY",
   "STRIPE_API_SK",
   "STRIPE_WEBHOOK_SECRET",

@@ -30,13 +30,13 @@ import {
   buildMpcMaterialActivationRef,
   parseCapabilityInstanceRef,
 } from '../../packages/shared-ts/src/utils/domainIds';
-import { CloudflareD1LaneEnrollmentGateway } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LaneEnrollmentGateway';
-import { CloudflareD1LaneLifecycleStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LaneLifecycleStore';
-import { buildLaneActivationEffectPlanV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/operations/activationCoordinator';
+import { CloudflareD1LaneEnrollmentGateway } from '../../packages/wallet-server/src/router/cloudflare/d1/signingLanes/d1LaneEnrollmentGateway';
+import { CloudflareD1LaneLifecycleStore } from '../../packages/wallet-server/src/router/cloudflare/d1/signingLanes/d1LaneLifecycleStore';
+import { buildLaneActivationEffectPlanV1 } from '../../packages/wallet/src/core/signingEngine/session/lanes/operations/activationCoordinator';
 import {
   invalidateRefreshPredecessorsAfterActivationV1,
   invalidateRevokedLaneAfterCompletionV1,
-} from '../../packages/sdk-web/src/core/signingEngine/session/lanes/operations/laneMaterialInvalidation';
+} from '../../packages/wallet/src/core/signingEngine/session/lanes/operations/laneMaterialInvalidation';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

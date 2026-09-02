@@ -17,7 +17,7 @@ const TEST_ESM_ROUTE_PATTERN = `**${SDK_ESM_BASE_PATH}/**`;
 function resolveRepoRoot(): string {
   if (process.env.W3A_REPO_ROOT) return process.env.W3A_REPO_ROOT;
   const cwd = process.cwd();
-  if (fs.existsSync(path.join(cwd, 'packages/sdk-server-ts'))) return cwd;
+  if (fs.existsSync(path.join(cwd, 'packages/wallet-server'))) return cwd;
   return path.resolve(cwd, '..');
 }
 
@@ -46,8 +46,8 @@ function resolveEsmFixturePath(url: string): string | null {
   const rel = decodeURIComponent(parsed.pathname.slice(markerIndex + marker.length));
   const isServerFixture = rel === 'server' || rel.startsWith('server/');
   const root = isServerFixture
-    ? path.join(resolveRepoRoot(), 'packages/sdk-server-ts/dist/esm')
-    : path.join(resolveRepoRoot(), 'packages/sdk-web/dist/esm');
+    ? path.join(resolveRepoRoot(), 'packages/wallet-server/dist/esm')
+    : path.join(resolveRepoRoot(), 'packages/wallet/dist/esm');
   const fileRel = isServerFixture ? rel.replace(/^server\/?/, '') : rel;
   const candidate = path.normalize(path.join(root, fileRel));
   const normalizedRoot = path.normalize(root);

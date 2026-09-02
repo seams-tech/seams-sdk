@@ -649,12 +649,14 @@ another lane. Compromise of both participants in any one lane compromises the
 wallet key and requires wallet rekey. Combining participants from different
 lanes must not satisfy the public relation unless their lane and epoch match.
 
-The functionality has no export branch. Its request, circuit outputs, recipient
-packages, and receipts cannot carry seed bytes, base scalars, export recipients,
-or export authorization. Before `OutputCommitted`, failure discards the pending
-target. At and after `OutputCommitted`, the exact ciphertext packages and
-receipt are forward-only and may only be redelivered, activated, or durably
-revoked.
+The provisioning and refresh functionality has no export branch. Its request,
+circuit outputs, recipient packages, and receipts cannot carry seed bytes, base
+scalars, export recipients, or export authorization. This operation boundary
+does not classify the activated lane as non-exportable: a later explicit-export
+protocol may use that exact lane under fresh authorization. Before
+`OutputCommitted`, failure discards the pending target. At and after
+`OutputCommitted`, the exact ciphertext packages and receipt are forward-only
+and may only be redelivered, activated, or durably revoked.
 
 This Refactor 102 extension is specification-complete and implementation-open.
 It does not reopen or rewrite the historical completion claims for registration,
@@ -2061,11 +2063,11 @@ SigningWorker
   active Ed25519 server share
   normal signing with zero Deriver calls
 
-packages/sdk-web
+packages/wallet
   lifecycle orchestration and worker handles
   no raw Yao state or 2 MiB transport
 
-packages/sdk-server-ts
+packages/wallet-server
   application authentication and Router grant issuance
   no threshold signing or secure-computation service
 ```
@@ -5279,10 +5281,10 @@ cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --target wasm
 cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --target wasm32-unknown-unknown --features strict-worker-signing-worker-entrypoint
 cargo check --manifest-path wasm/near_signer/Cargo.toml --target wasm32-unknown-unknown
 
-pnpm -C packages/sdk-web type-check
-pnpm -C packages/sdk-server-ts type-check
+pnpm -C packages/wallet type-check
+pnpm -C packages/wallet-server type-check
 pnpm -C packages/shared-ts type-check
-pnpm -C packages/sdk-web build:wasm
+pnpm -C packages/wallet build:wasm
 pnpm test:source-guards
 pnpm router:deploy:check
 ```

@@ -3,7 +3,7 @@ import {
   completeWalletRegistrationNearProvisioning,
   parseWalletAddSignerFinalizeResponse,
   parseWalletAddSignerStartResponse,
-} from '../../packages/sdk-web/src/core/rpcClients/relayer/walletRegistration';
+} from '../../packages/wallet/src/core/rpcClients/relayer/walletRegistration';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 const SESSION_ID = new Array<number>(32).fill(19);

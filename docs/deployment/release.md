@@ -13,7 +13,7 @@ pnpm check
 pnpm build:sdk-prod
 pnpm test:lite
 pnpm test:signers:gates
-pnpm -C packages/sdk-web test:relayer
+pnpm -C packages/wallet test:relayer
 ```
 
 For changes touching threshold signing or D1/DO-backed relay behavior, also run:
@@ -27,8 +27,8 @@ pnpm -C packages/console-server-ts run d1:local:restore:drill
 ## Version And Tag
 
 ```bash
-# Edit packages/sdk-web/package.json version first.
-git add packages/sdk-web/package.json
+# Edit packages/wallet/package.json version first.
+git add packages/wallet/package.json
 git commit -m "release: vX.Y.Z"
 git tag vX.Y.Z -m "release: vX.Y.Z"
 ```
@@ -49,14 +49,14 @@ npm publish remains manual:
 npm login --scope=@seams-sdk --registry=https://registry.npmjs.org
 pnpm install --frozen-lockfile
 pnpm build:sdk-prod
-cd packages/sdk-web
+cd packages/wallet
 npm publish --access public
 ```
 
 Verify:
 
 ```bash
-npm view @seams/sdk version
+npm view @seams/wallet version
 ```
 
 ## Deploy Hosted Surfaces
@@ -101,7 +101,7 @@ SDK runtime:
 npm:
 
 ```bash
-npm deprecate @seams/sdk@X.Y.Z "Use X.Y.Z+1"
+npm deprecate @seams/wallet@X.Y.Z "Use X.Y.Z+1"
 ```
 
 Use `npm unpublish` only inside npm's allowed unpublish window and only when

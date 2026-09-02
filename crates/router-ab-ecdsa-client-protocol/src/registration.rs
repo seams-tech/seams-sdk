@@ -1,6 +1,7 @@
 use base64ct::{Base64UrlUnpadded, Encoding};
 use hpke_ng::{DhKemX25519HkdfSha256, Kem};
 use sha2::{Digest, Sha256};
+use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 use zeroize::{Zeroize, Zeroizing};
 
 use super::{
@@ -481,6 +482,20 @@ impl EcdsaRegistrationHeaderV1 {
         })
     }
 
+    /// Validates that opened role plaintext is the canonical registration payload.
+    pub fn validate_deriver_plaintext_v1(
+        &self,
+        role: EcdsaDeriverRoleV1,
+        plaintext: &[u8],
+    ) -> Result<(), EcdsaClientProtocolError> {
+        let aad_digest = self.role_aad(role)?.digest()?;
+        let expected = self.deriver_plaintext(role, aad_digest)?;
+        if plaintext == expected.as_slice() {
+            return Ok(());
+        }
+        Err(EcdsaClientProtocolError::InvalidShape)
+    }
+
     fn deriver_plaintext(
         &self,
         role: EcdsaDeriverRoleV1,
@@ -661,6 +676,21 @@ impl EcdsaClientEphemeralKeyPairV1 {
     }
 }
 
+impl EcdsaClientEphemeralKeyPairV1 {
+    /// Reconstructs a worker-local keypair from the exact private key retained
+    /// by a prior client ceremony.
+    pub fn from_private_key_bytes(private_key: [u8; 32]) -> Result<Self, EcdsaClientProtocolError> {
+        let _private_key_obj = DhKemX25519HkdfSha256::sk_from_bytes(&private_key)
+            .map_err(|_| EcdsaClientProtocolError::HpkeFailed)?;
+        let public_key_bytes =
+            X25519PublicKey::from(&X25519StaticSecret::from(private_key)).to_bytes();
+        Ok(Self {
+            private_key: Zeroizing::new(private_key),
+            public_key: encode_x25519_public_key(&public_key_bytes),
+        })
+    }
+}
+
 /// Derives an ephemeral X25519 keypair from worker-supplied CSPRNG seed material.
 pub fn derive_ecdsa_client_ephemeral_keypair_v1(
     seed: [u8; 32],
@@ -789,4 +819,79 @@ pub(super) fn sha256(bytes: &[u8]) -> Result<[u8; 32], EcdsaClientProtocolError>
         .as_slice()
         .try_into()
         .map_err(|_| EcdsaClientProtocolError::InvalidShape)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn registration_header() -> EcdsaRegistrationHeaderV1 {
+        let context_digest = Base64UrlUnpadded::encode_string(&[0x11; 32]);
+        let lifecycle = EcdsaRegistrationLifecycleV1::from_wire(EcdsaRegistrationLifecycleWireV1 {
+            lifecycle_id: "lifecycle-1".to_owned(),
+            work_kind: "registration_prepare".to_owned(),
+            primitive_request_kind: "registration".to_owned(),
+            root_share_epoch: "root-epoch-1".to_owned(),
+            account_id: "wallet-1".to_owned(),
+            session_id: "session-1".to_owned(),
+            signer_set_id: "signer-set-1".to_owned(),
+            selected_server_id: "server-1".to_owned(),
+        })
+        .expect("registration lifecycle");
+        let signer_set = EcdsaRegistrationSignerSetV1::new(
+            "signer-set-1",
+            EcdsaSignerIdentityV1 {
+                role: EcdsaDeriverRoleV1::A,
+                signer_id: "deriver-a".to_owned(),
+                key_epoch: "epoch-a".to_owned(),
+            },
+            EcdsaSignerIdentityV1 {
+                role: EcdsaDeriverRoleV1::B,
+                signer_id: "deriver-b".to_owned(),
+                key_epoch: "epoch-b".to_owned(),
+            },
+            EcdsaSelectedServerIdentityV1 {
+                server_id: "server-1".to_owned(),
+                key_epoch: "server-epoch-1".to_owned(),
+                recipient_encryption_key: format!("x25519:{}", "11".repeat(32)),
+            },
+        )
+        .expect("signer set");
+        EcdsaRegistrationHeaderV1::new(EcdsaRegistrationHeaderInputV1 {
+            registration_purpose: EcdsaRegistrationPurposeV1::WalletRegistration,
+            context: EcdsaStableKeyContextV1::new(context_digest).expect("context"),
+            lifecycle,
+            signer_set,
+            router_id: "router-1".to_owned(),
+            client_id: "client-1".to_owned(),
+            client_ephemeral_public_key: format!("x25519:{}", "22".repeat(32)),
+            replay_nonce: "nonce-1".to_owned(),
+            expires_at_ms: 1,
+        })
+        .expect("registration header")
+    }
+
+    #[test]
+    fn deriver_plaintext_validation_accepts_canonical_payload_only() {
+        let header = registration_header();
+        let role = EcdsaDeriverRoleV1::A;
+        let aad_digest = header
+            .role_aad(role)
+            .expect("role AAD")
+            .digest()
+            .expect("digest");
+        let plaintext = header
+            .deriver_plaintext(role, aad_digest)
+            .expect("plaintext");
+        header
+            .validate_deriver_plaintext_v1(role, &plaintext)
+            .expect("canonical plaintext");
+
+        let mut malformed = plaintext;
+        malformed[0] ^= 1;
+        assert_eq!(
+            header.validate_deriver_plaintext_v1(role, &malformed),
+            Err(EcdsaClientProtocolError::InvalidShape)
+        );
+    }
 }

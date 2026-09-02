@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { handleWalletRecoveryBackupAcknowledge } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/passkeyCustody';
+import { handleWalletRecoveryBackupAcknowledge } from '../../packages/wallet-server/src/router/transport/fetch/routes/passkeyCustody';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
-} from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
+} from '../../packages/wallet-server/src/router/framework/routeDefinitions';
+import { acknowledgeWalletRecoveryBackup } from '../../packages/wallet/src/core/rpcClients/relayer/walletRecoveryRotate';
 
 /**
  * The acknowledgement route.
@@ -15,6 +16,18 @@ import {
  */
 
 const routeDefinitions = createRouterApiRouteDefinitions();
+let capturedAcknowledgementRequest: { url: string; init: RequestInit } | null = null;
+
+async function captureAcknowledgementRequest(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  capturedAcknowledgementRequest = { url: String(input), init: init ?? {} };
+  return new Response(JSON.stringify({ ok: true, issuedAtMs: 1_700 }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
 
 function context(body: unknown, service: unknown) {
   return {
@@ -35,6 +48,30 @@ function context(body: unknown, service: unknown) {
 test('the route is registered', () => {
   const route = findRouteDefinitionById(routeDefinitions, 'wallet_recovery_backup_acknowledge');
   expect(route?.path).toBe('/wallets/recovery/acknowledge-backup');
+  expect(route?.auth.plane).toBe('public');
+  expect(route?.auth.plane === 'public' ? route.auth.proof : undefined).toBeUndefined();
+  expect(route?.requiredServices).toEqual(['passkeyCustody']);
+});
+
+test('the client acknowledges with the wallet id and no factor proof', async () => {
+  capturedAcknowledgementRequest = null;
+  const result = await acknowledgeWalletRecoveryBackup({
+    relayUrl: 'https://relay.localhost',
+    walletId: 'alice.testnet',
+    fetchImpl: captureAcknowledgementRequest as typeof fetch,
+  });
+
+  expect(result).toEqual({
+    kind: 'acknowledged',
+    walletId: 'alice.testnet',
+    issuedAtMs: 1_700,
+  });
+  expect(capturedAcknowledgementRequest?.url).toBe(
+    'https://relay.localhost/wallets/recovery/acknowledge-backup',
+  );
+  expect(JSON.parse(String(capturedAcknowledgementRequest?.init.body))).toEqual({
+    walletId: 'alice.testnet',
+  });
 });
 
 test('an acknowledgement echoes the issuance it covered', () => {

@@ -26,9 +26,9 @@ import {
   type ConsoleEmailProviderSendResult,
   type ConsoleEmailTemplateV1,
   type ConsoleInvitationSecretCipher,
-} from '@seams-internal/console-server/email';
+} from '@seams-internal/console-server/email/index';
 import { createD1ConsoleOnboardingWelcomeEmail } from '../../packages/console-server-ts/src/onboarding/welcomeEmail';
-import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

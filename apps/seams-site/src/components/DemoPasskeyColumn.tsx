@@ -1,17 +1,13 @@
 import React from 'react';
 import NavbarProfileOverlay from './Navbar/NavbarProfileOverlay';
-import { useSeams, useTheme, type AuthMenuMode } from '@seams/sdk/react';
+import { useSeams, useTheme, type AuthMenuMode } from '@seams/wallet/react';
 
 import { GlassBorder } from './GlassBorder';
 import { DemoTxCardSkeleton } from './DemoTxCardSkeleton';
 import { Carousel } from './Carousel/Carousel';
+import { HostedPasskeyLoginMenu } from '@/flows/demo/HostedPasskeyLoginMenu';
 
-// Lazily load the most common flows to shrink the initial bundle.
-const HostedPasskeyLoginMenu = React.lazy(() =>
-  import('@/flows/demo/HostedPasskeyLoginMenu').then((m) => ({
-    default: m.HostedPasskeyLoginMenu,
-  })),
-);
+// Post-login flows stay deferred until the user unlocks the wallet.
 const DemoPage = React.lazy(() =>
   import('@/flows/demo/DemoPage').then((m) => ({ default: m.DemoPage })),
 );
@@ -145,13 +141,9 @@ export function DemoPasskeyColumn({
         key: 'demo-auth',
         title: 'Login',
         element: () => (
-          <>
-            <React.Suspense fallback={<SuspenseFallback />}>
-              <HostedPasskeyLoginMenu
-                defaultModeWhenNoDetectedAccount={defaultModeWhenNoDetectedAccount}
-              />
-            </React.Suspense>
-          </>
+          <HostedPasskeyLoginMenu
+            defaultModeWhenNoDetectedAccount={defaultModeWhenNoDetectedAccount}
+          />
         ),
       },
       {

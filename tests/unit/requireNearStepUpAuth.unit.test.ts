@@ -1,18 +1,19 @@
 import { expect, test } from '@playwright/test';
-import { requireNearStepUpAuth } from '../../packages/sdk-web/src/core/signingEngine/flows/signNear/requireNearStepUpAuth';
+import { requireNearStepUpAuth } from '../../packages/wallet/src/core/signingEngine/flows/signNear/requireNearStepUpAuth';
 import {
   buildEd25519EmailOtpSigningLane,
   buildEd25519PasskeySigningLane,
-} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
-import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
-import { SigningAuthPlanKind } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types';
-import { ActionType } from '../../packages/sdk-web/src/core/types/actions';
-import { requiredNearTransactionSignatureUses } from '../../packages/sdk-web/src/core/signingEngine/flows/signNear/signatureUses';
-import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
-import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+} from '../../packages/wallet/src/core/signingEngine/session/operationState/lanes';
+import { SigningSessionIds } from '../../packages/wallet/src/core/signingEngine/session/operationState/types';
+import { SigningAuthPlanKind } from '../../packages/wallet/src/core/signingEngine/stepUpConfirmation/types';
+import { ActionType } from '../../packages/wallet/src/core/types/actions';
+import { requiredNearTransactionSignatureUses } from '../../packages/wallet/src/core/signingEngine/flows/signNear/signatureUses';
+import { toAccountId } from '../../packages/wallet/src/core/types/accountIds';
+import { toWalletId } from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toRpId } from '../../packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 
 const WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
@@ -26,6 +27,7 @@ const EMAIL_OTP_AUTH = {
   kind: 'email_otp' as const,
   providerSubjectId: 'google:near-step-up',
 };
+const OPERATION_FINGERPRINT_DIGEST = parseDigestB64u('A'.repeat(43));
 test.describe('requireNearStepUpAuth', () => {
   test('returns a warm-session branch without prompt wrappers', async () => {
     const signingAuthPlan = {
@@ -53,6 +55,7 @@ test.describe('requireNearStepUpAuth', () => {
       signingAuthPlan,
       signingLaneAuth: signingLane.auth,
       requiredSignatureUses: 1,
+      operationFingerprintDigest: OPERATION_FINGERPRINT_DIGEST,
     });
 
     expect(prepared).toEqual({
@@ -105,6 +108,7 @@ test.describe('requireNearStepUpAuth', () => {
       signingAuthPlan,
       signingLaneAuth: signingLane.auth,
       requiredSignatureUses,
+      operationFingerprintDigest: OPERATION_FINGERPRINT_DIGEST,
     });
 
     expect(prepared.kind).toBe('warm_session');
@@ -126,20 +130,24 @@ test.describe('requireNearStepUpAuth', () => {
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-email'),
     });
     let challengeRequests = 0;
+    let challengeOperationFingerprintDigest: typeof OPERATION_FINGERPRINT_DIGEST | undefined;
 
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
       signingLaneAuth: signingLane.auth,
       requiredSignatureUses: 1,
+      operationFingerprintDigest: OPERATION_FINGERPRINT_DIGEST,
       emailOtpEd25519StepUp: {
-        prepare: async () => {
+        prepare: async ({ operationFingerprintDigest }) => {
           challengeRequests += 1;
+          challengeOperationFingerprintDigest = operationFingerprintDigest;
           return { challengeId: 'otp-1', emailHint: 'a***@x.test' };
         },
       },
     });
 
     expect(challengeRequests).toBe(1);
+    expect(challengeOperationFingerprintDigest).toBe(OPERATION_FINGERPRINT_DIGEST);
     expect(prepared.kind).toBe('email_otp');
     if (prepared.kind !== 'email_otp') throw new Error('expected email_otp branch');
     expect(prepared.emailOtpPrompt.challengeId).toBe('otp-1');
@@ -168,6 +176,7 @@ test.describe('requireNearStepUpAuth', () => {
       signingAuthPlan,
       signingLaneAuth: signingLane.auth,
       requiredSignatureUses: 1,
+      operationFingerprintDigest: OPERATION_FINGERPRINT_DIGEST,
       passkeyEd25519OperationStepUp: {
         prepare: async () => {
           return {

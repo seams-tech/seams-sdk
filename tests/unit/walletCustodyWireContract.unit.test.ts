@@ -2,10 +2,13 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
+import { deriveRecoveryCodeLocatorRecordsV1 } from '../../packages/shared-ts/src/wallet-recovery/recoveryCodeLocator';
+import { parseDerivedWalletRecoveryKeyId } from '../../packages/shared-ts/src/wallet-recovery/recoveryKeyId';
+import { base64UrlDecode } from '../../packages/shared-ts/src/utils/base64';
 import {
   buildWalletCustodyRegistrationRecords,
   type WalletCustodyCeremonyCommitPayload,
-} from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/walletCustodyRegistrationCommit';
+} from '../../packages/wallet-server/src/router/domains/passkeyCustody/walletCustodyRegistrationCommit';
 import {
   buildEmailOtpEnvelopeFactor,
   buildPasskeyEnvelopeFactor,
@@ -58,24 +61,48 @@ function fixture(): FixtureDoc {
   return doc;
 }
 
-function browserCommitPayload(
+async function browserCommitPayload(
   payload: WalletCustodyCeremonyCommitPayload,
-): WalletCustodyCeremonyCommitPayload {
-  // Rust emits the pre-acknowledgement payload. The browser adds this marker
-  // after the user visibly confirms the recovery backup before calling the
-  // server adapter.
-  return { ...payload, recoveryBackupAcknowledged: true };
+  recoveryCodes: readonly { readonly recoveryKeyId: string; readonly codeBytesB64u: string }[],
+): Promise<WalletCustodyCeremonyCommitPayload> {
+  // Rust emits the pre-acknowledgement payload. The browser adds the
+  // acknowledgement marker after the user visibly confirms the backup, and the
+  // code locators, which the ceremony never sees — it holds the code bytes only
+  // long enough to wrap them. Deriving them here through the production
+  // function is what keeps this a contract test rather than a shape guess.
+  const custody = payload.establishedCustody;
+  if (!custody) return { ...payload, recoveryBackupAcknowledged: true };
+  const locators = await deriveRecoveryCodeLocatorRecordsV1(
+    recoveryCodes.map((code) => ({
+      codeBytes: base64UrlDecode(code.codeBytesB64u),
+      recoveryKeyId: parseDerivedWalletRecoveryKeyId(
+        code.recoveryKeyId,
+        'fixture.recoveryKeyId',
+      ),
+    })),
+  );
+  return {
+    ...payload,
+    recoveryBackupAcknowledged: true,
+    establishedCustody: {
+      ...custody,
+      recoveryCodeLocators: locators.map((locator) => ({
+        locatorB64u: String(locator.locatorB64u),
+        recoveryKeyId: String(locator.recoveryKeyId),
+      })),
+    },
+  };
 }
 
 const NOW_MS = 1_700_000_000_000;
 
-test('the Rust establish payload parses into records through the production adapter', () => {
+test('the Rust establish payload parses into records through the production adapter', async () => {
   const doc = fixture();
   const custody = doc.establishCommitPayload.establishedCustody;
   expect(custody).toBeTruthy();
 
   const records = buildWalletCustodyRegistrationRecords({
-    payload: browserCommitPayload(doc.establishCommitPayload),
+    payload: await browserCommitPayload(doc.establishCommitPayload, doc.inputs.recoveryCodes),
     factor: buildEmailOtpEnvelopeFactor({
       enrollmentId: doc.inputs.enrollmentId,
       enrollmentSealKeyVersion: doc.inputs.enrollmentSealKeyVersion,
@@ -93,11 +120,12 @@ test('the Rust establish payload parses into records through the production adap
   expect(records.recoverySet.entries).toHaveLength(1);
 });
 
-test('the Rust join payload is refused: a joining run commits no custody records', () => {
+test('the Rust join payload is refused: a joining run commits no custody records', async () => {
   const doc = fixture();
+  const joinPayload = await browserCommitPayload(doc.joinCommitPayload, doc.inputs.recoveryCodes);
   expect(() =>
     buildWalletCustodyRegistrationRecords({
-      payload: browserCommitPayload(doc.joinCommitPayload),
+      payload: joinPayload,
       factor: buildEmailOtpEnvelopeFactor({
         enrollmentId: doc.inputs.enrollmentId,
         enrollmentSealKeyVersion: doc.inputs.enrollmentSealKeyVersion,
@@ -123,6 +151,9 @@ test('the TypeScript builders reproduce the Rust envelope bindings byte-for-byte
     }),
     envelopeRevision: 1,
     binding: buildWalletCustodySeedBinding(),
+    // R109C: every sealed envelope names the method it belongs to, and that
+    // name is inside the AAD. A binding without it is a different generation.
+    ownership: { methodBound: { walletAuthMethodId: doc.inputs.walletAuthMethodId } },
   };
   expect(builtEmailOtp).toEqual(JSON.parse(custody!.envelopeBindingJson));
 
@@ -135,6 +166,7 @@ test('the TypeScript builders reproduce the Rust envelope bindings byte-for-byte
     } as Parameters<typeof buildPasskeyEnvelopeFactor>[0]),
     envelopeRevision: 1,
     binding: buildWalletCustodySeedBinding(),
+    ownership: { methodBound: { walletAuthMethodId: doc.inputs.walletAuthMethodId } },
   };
   expect(builtPasskey).toEqual(doc.passkeyEnvelopeBinding);
 });

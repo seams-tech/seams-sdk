@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
-import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { buildNearTransactionSigningLane } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
+import { toAccountId } from '../../packages/wallet/src/core/types/accountIds';
+import { toWalletId } from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toRpId } from '../../packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { buildNearTransactionSigningLane } from '../../packages/wallet/src/core/signingEngine/session/operationState/lanes';
 import {
   SigningSessionIds,
   SigningSessionPlanKind,
-} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
-import { SigningSessionCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
+} from '../../packages/wallet/src/core/signingEngine/session/operationState/types';
+import { SigningSessionCoordinator } from '../../packages/wallet/src/core/signingEngine/session/SigningSessionCoordinator';
 import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 const walletId = toWalletId('ed25519-step-up-status.testnet');

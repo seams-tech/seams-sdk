@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   respondWalletRegistration,
   activateWalletRegistration,
-} from '../../packages/sdk-web/src/core/rpcClients/relayer/walletRegistration';
+} from '../../packages/wallet/src/core/rpcClients/relayer/walletRegistration';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 /**
@@ -195,14 +195,14 @@ test('activate rejects a nearProvisioning snapshot carrying more than a status',
         kind: 'evm_family_ecdsa',
         walletId: 'w.testnet',
         ecdsa: { walletKeys: [] },
-        nearProvisioning: { status: 'pending', nearAccountId: 'leaked.testnet' },
+        nearProvisioning: { status: 'near_pending', nearAccountId: 'leaked.testnet' },
       },
       () => activateWalletRegistration(ACTIVATE_ARGS),
     ),
   ).rejects.toThrow(/nearProvisioning contains unknown fields: nearAccountId/);
 });
 
-test('activate rejects a nearProvisioning status other than pending', async () => {
+test('activate rejects a nearProvisioning status other than near_pending', async () => {
   await expect(
     withStubbedFetch(
       {
@@ -249,7 +249,6 @@ test('activate accepts an Ed25519 wallet pending signer provisioning', async () 
         credentialIdB64u,
         credentialPublicKeyB64u: 'credential-public-key',
       },
-      appSessionJwt: 'app-session-jwt',
       nearProvisioning: { status: 'near_pending' },
     },
     () =>

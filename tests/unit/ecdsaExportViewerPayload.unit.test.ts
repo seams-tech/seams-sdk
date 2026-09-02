@@ -5,17 +5,17 @@ import {
   requestThresholdEcdsaExportAuthorization,
   showEd25519ExportViewer,
   showThresholdEcdsaExportViewer,
-} from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportConfirmation';
+} from '../../packages/wallet/src/core/signingEngine/flows/recovery/keyExportConfirmation';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
-} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
-import { resolveEmailOtpAuthLane } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
+} from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WebAuthnAuthenticationCredential } from '../../packages/wallet/src/core/types/webauthn';
+import type { EmailOtpSigningSessionAuthLane } from '../../packages/wallet/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import {
   KeyExportEventPhase,
   type KeyExportFlowEvent,
-} from '../../packages/sdk-web/src/core/types/sdkSentEvents';
+} from '../../packages/wallet/src/core/types/sdkSentEvents';
 
 const EVM_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
@@ -44,6 +44,13 @@ const TEST_WEBAUTHN_CREDENTIAL = {
     },
   },
 } satisfies WebAuthnAuthenticationCredential;
+
+const EMAIL_OTP_ED25519_AUTH_LANE = {
+  kind: 'signing_session',
+  walletSessionToken: 'durable-wallet-session-jwt',
+  thresholdSessionId: 'threshold-session-1',
+  curve: 'ed25519',
+} satisfies Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
 
 test.describe('threshold ECDSA export viewer payload', () => {
   test('renders Ed25519 loading state without private material', async () => {
@@ -134,6 +141,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
   test('accepts server-allocated wallet ids for passkey export authorization', async () => {
     let capturedSummaryAccountId = '';
     let capturedIntentDigest = '';
+    let capturedCredentialIdB64u = '';
 
     const authorization = await requestThresholdEcdsaExportAuthorization(
       {
@@ -143,6 +151,9 @@ test.describe('threshold ECDSA export viewer payload', () => {
               (request.summary as { accountId?: unknown }).accountId || '',
             );
             capturedIntentDigest = String(request.intentDigest || '');
+            capturedCredentialIdB64u = String(
+              (request.payload as { credentialIdB64u?: unknown }).credentialIdB64u || '',
+            );
             return {
               requestId: request.requestId,
               confirmed: true,
@@ -153,6 +164,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
       },
       {
         walletSessionUserId: 'frost-vermillion-k7p9m2',
+        credentialIdB64u: 'device-2-credential',
         publicKey: '0x02abcdef',
         chainTarget: EVM_TARGET,
         flowId: 'key-export-flow-1',
@@ -162,6 +174,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
     expect(authorization.walletSessionUserId).toBe('frost-vermillion-k7p9m2');
     expect(capturedSummaryAccountId).toBe('frost-vermillion-k7p9m2');
     expect(capturedIntentDigest).toContain('frost-vermillion-k7p9m2');
+    expect(capturedCredentialIdB64u).toBe('device-2-credential');
   });
 
   test('accepts server-allocated wallet ids for Email OTP export authorization', async () => {
@@ -289,14 +302,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
   test('emits the demo Email OTP code on the Ed25519 key-export lane', async () => {
     const walletId = toWalletId('frost-vermillion-k7p9m2');
     const exportEvents: KeyExportFlowEvent[] = [];
-    const authLane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'wallet_session', jwt: 'durable-wallet-session-jwt' },
-      thresholdSessionId: 'threshold-session-1',
-      curve: 'ed25519',
-    });
-    if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
-      throw new Error('expected Ed25519 signing-session auth lane');
-    }
+    const authLane = EMAIL_OTP_ED25519_AUTH_LANE;
 
     const authorization = await requestEmailOtpEd25519KeyExportAuthorization(
       {
@@ -358,14 +364,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
   test('withholds the demo code from the Ed25519 lane on provider-only delivery', async () => {
     const walletId = toWalletId('frost-vermillion-k7p9m2');
     const exportEvents: KeyExportFlowEvent[] = [];
-    const authLane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'wallet_session', jwt: 'durable-wallet-session-jwt' },
-      thresholdSessionId: 'threshold-session-1',
-      curve: 'ed25519',
-    });
-    if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
-      throw new Error('expected Ed25519 signing-session auth lane');
-    }
+    const authLane = EMAIL_OTP_ED25519_AUTH_LANE;
 
     await requestEmailOtpEd25519KeyExportAuthorization(
       {

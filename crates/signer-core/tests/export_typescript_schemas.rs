@@ -32,7 +32,7 @@ fn repo_root() -> PathBuf {
 }
 
 fn generated_schema_path() -> PathBuf {
-    repo_root().join("packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts")
+    repo_root().join("packages/wallet/src/core/platform/generated/signerCoreCommands.ts")
 }
 
 fn push_decl<T: TS + 'static>(out: &mut String, cfg: &Config) {

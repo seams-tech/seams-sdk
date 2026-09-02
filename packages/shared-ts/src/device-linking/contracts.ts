@@ -1,216 +1,183 @@
+import type { DelegatedWalletAuthorityV1 } from '../authorization/delegatedAuthority';
 import type {
-  AuthorizationEvidenceSetId,
-  AuthorizedOperationId,
-  LinkedDeviceWalletSessionAuthorizationId,
+  DeviceId,
   MpcWalletSigningQuotaId,
-  TenantId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '../authorization/capabilityKinds';
 import type {
-  LaneHolderParticipantRecordV1,
-  LaneHolderParticipantId,
-  SigningWorkerParticipantId,
-} from '../signing-lanes/participants';
-import type {
-  LaneOperationId,
-  LaneOperationIdempotencyKey,
-  LaneShareEpoch,
   LinkedDeviceEnrollmentId,
   LinkedDeviceId,
   LinkDeviceSessionId,
-  SigningLaneId,
   WalletKeyId,
 } from '../signing-lanes/ids';
-import type { SigningLaneKind } from '../signing-lanes/records';
-import type { OwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerContinuity';
 import type {
-  MpcMaterialActivationId,
   MpcMaterialActivationRef,
+  WalletAuthorityId,
+  WalletAuthMethodId,
   WalletId,
   WebAuthnCredentialIdB64u,
   WebAuthnRpId,
 } from '../utils/domainIds';
+import type { WebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
+import type { WalletAddAuthMethodRegistrationOptions } from '../utils/addAuthMethodRegistration';
+import type { Ed25519PublicKeyB64u } from '../passkey-custody/primitives';
 import type {
-  LaneHolderDeliveryReceiptV1,
-  LaneHolderPackageWireV1,
-  LaneProtocolCommitReceiptV1,
-  LaneEnrollmentManifestV1,
-  RotatableSigningLaneJobV1,
-  ActiveLaneProtocolSourceV1,
-} from '../signing-lanes/rotation';
-import type { SigningLaneRecord, WalletKeyRecord } from '../signing-lanes/records';
+  ActiveWalletAuthorityV1,
+  WalletAuthorityV1,
+  WalletSignerActivationSetV1,
+} from '../authorization/walletAuthority';
+import type { CanonicalDelegatedWalletPermissionSetV1 } from '../authorization/delegatedAuthority';
+import type { ExactAdministeredSignerManifestV1 } from './delegatedActivationPlan';
 import type {
-  EcdsaCapabilityManifestId,
-  EcdsaCapabilityManifestRevision,
-} from '../utils/ecdsaCapabilityActivation';
-import type { NearAccountId } from '../utils/near';
+  EmailOtpWalletAuthMethodDraftV1,
+  PasskeyWalletAuthMethodDraftV1,
+  WalletAuthMethodRecordV2,
+  WalletEmailOtpEnrollmentMaterialV1,
+} from '../utils/registrationIntent';
+import type { VerifiedEmailAddress } from '../utils/domainIds';
+import type {
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
+} from './sourceContribution';
+import type {
+  LinkedDeviceWalletSessionCredentialDeliveryBindingV1,
+  LinkedDeviceWalletSessionCredentialDeliveryV1,
+} from './walletSessionCredentialDelivery';
+
+export type {
+  LinkedDeviceEcdsaSourceContributionBindingV1,
+  LinkedDeviceEcdsaSourceContributionPackageV1,
+  LinkedDeviceEcdsaSourceContributionPreparationV1,
+  LinkedDeviceEcdsaSourceDerivationV1,
+  LinkedDeviceEcdsaSourcePreservingActivationReceiptV1,
+  LinkedDeviceEcdsaSourceContributionV1,
+  LinkedDeviceEcdsaSourceSignerIdentityV1,
+  LinkedDeviceEcdsaTargetRecipientPreparationV1,
+  LinkedDeviceEd25519SourceContributionPreparationV1,
+  LinkedDeviceEd25519SourceContributionV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionV1,
+} from './sourceContribution';
+
+export type {
+  CommittedAuthorityPackagesV1,
+  CommittedEd25519SignerPackageV1,
+  CommittedEcdsaSignerPackageV1,
+  PendingWalletAuthMethodRecordV1,
+  CommittedSignerPackageSetDigestInputV1,
+  CommittedSignerPackageSetV1,
+} from './committedSignerPackages';
 
 /** Public key bytes carried by the link session, encoded as canonical base64url. */
 export type LinkDevicePublicKeyB64u = string & {
   readonly __linkDevicePublicKeyB64uBrand: 'LinkDevicePublicKeyB64u';
 };
 
-/** The only permission branch available to the first linked-device release. */
-export type QrLinkedDevicePermissionRequest = {
-  readonly kind: 'owner_equivalent_signing';
-  readonly administrationScope: 'signing_only';
-  readonly localUserPresence: 'required';
+export type LinkedDeviceTargetFactorV1 =
+  | { readonly kind: 'passkey_prf' }
+  | { readonly kind: 'email_otp' };
+
+export type LinkedDeviceEmailOtpEnrollmentSelectionV1 =
+  | { readonly kind: 'existing_enrollment' }
+  | { readonly kind: 'new_enrollment' };
+
+export type LinkedDeviceApprovedTargetFactorV1 =
+  | {
+      readonly kind: 'passkey_prf';
+      readonly baseWalletAuthMethodId?: never;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'existing_enrollment' }
+      >;
+      readonly baseWalletAuthMethodId: WalletAuthMethodId;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'new_enrollment' }
+      >;
+      readonly baseWalletAuthMethodId?: never;
+    };
+
+export type LinkedDeviceEmailOtpBaseFactorChoiceV1 = {
+  readonly baseWalletAuthMethodId: WalletAuthMethodId;
+  readonly maskedEmailHint: string;
 };
 
-export type QrLinkedDeviceSessionPayloadV4 = {
-  readonly version: 'v4';
+export type LinkedDeviceEmailOtpBaseFactorResolutionV1 =
+  | {
+      readonly kind: 'selected';
+      readonly choice: LinkedDeviceEmailOtpBaseFactorChoiceV1;
+    }
+  | {
+      readonly kind: 'selection_required';
+      readonly choices: readonly [
+        LinkedDeviceEmailOtpBaseFactorChoiceV1,
+        ...LinkedDeviceEmailOtpBaseFactorChoiceV1[],
+      ];
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason: 'no_active_email_otp_base_factor';
+    };
+
+export type LinkedDeviceEmailOtpBaseFactorRequestV1 =
+  | {
+      readonly kind: 'resolve';
+      readonly expectedRevision: number;
+      readonly baseWalletAuthMethodId?: never;
+    }
+  | {
+      readonly kind: 'select';
+      readonly expectedRevision: number;
+      readonly baseWalletAuthMethodId: WalletAuthMethodId;
+    };
+
+export type LinkedDeviceEmailOtpBaseFactorResolutionResultV1 = {
+  readonly revision: number;
+  readonly resolution: LinkedDeviceEmailOtpBaseFactorResolutionV1;
+};
+
+type QrLinkedDeviceSessionPayloadBaseV5 = {
+  readonly version: 'v5';
   readonly purpose: 'linked_device_lane_creation';
   readonly linkSessionId: LinkDeviceSessionId;
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
-  readonly requestedPermission: QrLinkedDevicePermissionRequest;
+  readonly requestedPermission: DelegatedWalletAuthorityV1;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };
 
-type LinkedDeviceOwnerSourceLaneBaseV1<TWalletKey extends WalletKeyRecord> = {
-  readonly kind: 'linked_device_owner_source_lane_v1';
-  readonly walletKey: TWalletKey;
-  readonly lane: Extract<
-    SigningLaneRecord,
-    { readonly laneKind: 'owner_passkey' | 'owner_email_otp' }
-  >;
-  readonly materialActivation: MpcMaterialActivationRef;
-  readonly verifiedActivationReceiptDigestB64u: DigestB64u;
-};
-
-/** Public owner-lane identity authenticated by the wallet-host Wallet Session. */
-export type LinkedDeviceOwnerSourceLaneV1 =
-  | (LinkedDeviceOwnerSourceLaneBaseV1<
-      Extract<WalletKeyRecord, { readonly keyFamily: 'ed25519' }>
-    > & {
-      readonly keyFamily: 'ed25519';
-      readonly ecdsaSourceManifest?: never;
+export type QrLinkedDeviceSessionPayloadV5 =
+  | (QrLinkedDeviceSessionPayloadBaseV5 & {
+      readonly targetFactor: { readonly kind: 'passkey_prf' };
+      readonly targetEmail?: never;
     })
-  | (LinkedDeviceOwnerSourceLaneBaseV1<
-      Extract<WalletKeyRecord, { readonly keyFamily: 'ecdsa_secp256k1' }>
-    > & {
-      readonly keyFamily: 'ecdsa_secp256k1';
-      readonly ecdsaSourceManifest: {
-        readonly manifestId: EcdsaCapabilityManifestId;
-        readonly manifestRevision: EcdsaCapabilityManifestRevision;
-      };
+  | (QrLinkedDeviceSessionPayloadBaseV5 & {
+      readonly targetFactor: { readonly kind: 'email_otp' };
+      readonly targetEmail: VerifiedEmailAddress;
     });
 
-/**
- * Authenticated Device 1 owner-authorization request. Source-lane hints carry
- * public wallet/lane identity and activation receipts only; Router re-resolves
- * every hint against its durable wallet projection.
- */
+/** Authenticated Device 1 owner-authorization request. */
 export type LinkedDeviceOwnerAuthorizationRequestV1 = {
-  readonly payload: QrLinkedDeviceSessionPayloadV4;
+  readonly payload: QrLinkedDeviceSessionPayloadV5;
   readonly requestedAtMs: number;
-  readonly orderedOwnerSourceLaneHints: readonly [
-    LinkedDeviceOwnerSourceLaneV1,
-    ...LinkedDeviceOwnerSourceLaneV1[],
-  ];
 };
-
-export type LinkedDeviceLocalPresenceAssertionV1 = {
-  readonly kind: 'linked_device_local_presence_assertion_v1';
-  readonly authorizedOperationId: AuthorizedOperationId;
-  readonly deviceId: LinkedDeviceId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly credentialIdB64u: WebAuthnCredentialIdB64u;
-  readonly intentDigestB64u: DigestB64u;
-  readonly challengeDigestB64u: DigestB64u;
-  readonly issuedAtMs: number;
-  readonly expiresAtMs: number;
-  readonly assertion: unknown;
-};
-
-/**
- * One exhaustive link-session state. The `never` fields intentionally keep
- * unclaimed branches from acquiring wallet or enrollment identity.
- */
-export type LinkedDeviceSessionState =
-  | {
-      readonly state: 'displaying_qr';
-      readonly linkSessionId: LinkDeviceSessionId;
-      readonly expiresAtMs: number;
-      readonly walletId?: never;
-      readonly enrollmentId?: never;
-    }
-  | {
-      readonly state: 'claimed_by_owner';
-      readonly linkSessionId: LinkDeviceSessionId;
-      readonly walletId: WalletId;
-      readonly enrollmentId: LinkedDeviceEnrollmentId;
-      readonly claimExpiresAtMs: number;
-    }
-  | {
-      readonly state: 'awaiting_target_passkey';
-      readonly linkSessionId: LinkDeviceSessionId;
-      readonly walletId: WalletId;
-      readonly enrollmentId: LinkedDeviceEnrollmentId;
-      readonly credentialDeadlineMs: number;
-    }
-  | {
-      readonly state: 'provisioning';
-      readonly linkSessionId: LinkDeviceSessionId;
-      readonly walletId: WalletId;
-      readonly enrollmentId: LinkedDeviceEnrollmentId;
-      readonly keyManifestDigestB64u: DigestB64u;
-    }
-  | {
-      readonly state: 'active';
-      readonly linkSessionId: LinkDeviceSessionId;
-      readonly walletId: WalletId;
-      readonly enrollmentId: LinkedDeviceEnrollmentId;
-      readonly activatedAtMs: number;
-    }
-  | {
-      readonly state: 'expired_unclaimed';
-      readonly linkSessionId: LinkDeviceSessionId;
-      readonly expiredAtMs: number;
-      readonly walletId?: never;
-      readonly enrollmentId?: never;
-    }
-  | {
-      readonly state: 'expired_claimed';
-      readonly linkSessionId: LinkDeviceSessionId;
-      readonly walletId: WalletId;
-      readonly enrollmentId: LinkedDeviceEnrollmentId;
-      readonly expiredAtMs: number;
-    }
-  | {
-      readonly state: 'cancelled_unclaimed';
-      readonly linkSessionId: LinkDeviceSessionId;
-      readonly cancelledAtMs: number;
-      readonly walletId?: never;
-      readonly enrollmentId?: never;
-    }
-  | {
-      readonly state: 'cancelled_claimed_precommit';
-      readonly linkSessionId: LinkDeviceSessionId;
-      readonly walletId: WalletId;
-      readonly enrollmentId: LinkedDeviceEnrollmentId;
-      readonly cancelledAtMs: number;
-    }
-  | {
-      readonly state: 'committed_completion_required';
-      readonly linkSessionId: LinkDeviceSessionId;
-      readonly walletId: WalletId;
-      readonly enrollmentId: LinkedDeviceEnrollmentId;
-      readonly keyManifestDigestB64u: DigestB64u;
-      readonly transcriptSetDigestB64u: DigestB64u;
-    };
-
-export type LinkedDeviceSessionUnclaimedState = Extract<
-  LinkedDeviceSessionState,
-  { readonly state: 'displaying_qr' | 'expired_unclaimed' | 'cancelled_unclaimed' }
->;
 
 export type LinkedDeviceSessionClaimRequestV1 = {
   readonly kind: 'linked_device_session_claim_request_v1';
-  readonly payload: QrLinkedDeviceSessionPayloadV4;
+  readonly payload: QrLinkedDeviceSessionPayloadV5;
 };
 
 export type LinkedDeviceSessionClaimV1 = {
@@ -220,100 +187,20 @@ export type LinkedDeviceSessionClaimV1 = {
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
+  readonly targetFactor: LinkedDeviceTargetFactorV1;
+  readonly sessionRevision: number;
   readonly claimedAtMs: number;
   readonly claimExpiresAtMs: number;
 };
 
-/** Exactly one opaque Wallet Session or one fresh step-up authorization source. */
-export type LinkedDeviceOwnerAuthorizationSourceV1 =
-  | {
-      readonly kind: 'wallet_session';
-      readonly walletSessionId: WalletSessionId;
-      readonly authorizationId: WalletSessionAuthorizationId;
-      readonly stepUpEvidenceSetId?: never;
-    }
-  | {
-      readonly kind: 'step_up';
-      readonly evidenceSetId: AuthorizationEvidenceSetId;
-      readonly walletSessionId?: never;
-      readonly authorizationId?: never;
-    };
-
-type LinkedDeviceEnrollmentKeyBindingBaseV1 = {
-  readonly walletKeyId: WalletKeyId;
-  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
-  readonly sourceLaneId: SigningLaneId;
-  readonly sourceLaneKind: SigningLaneKind;
-  readonly sourceKind: 'owner_registration' | 'provisioned_lane';
-  readonly sourceLaneShareEpoch: LaneShareEpoch;
-  readonly sourceRevocationEpoch: number;
-  readonly targetLaneId: SigningLaneId;
-  readonly targetLaneShareEpoch: LaneShareEpoch;
+/** The exact reusable Wallet Session authorizing a link. */
+export type LinkedDeviceOwnerAuthorizationSourceV1 = {
+  readonly kind: 'wallet_session';
+  readonly walletSessionId: WalletSessionId;
+  readonly authorizationId: WalletSessionAuthorizationId;
 };
 
-export type LinkedDeviceOwnerEnrollmentKeyBindingV1 = LinkedDeviceEnrollmentKeyBindingBaseV1 & {
-  readonly sourceKind: 'owner_registration';
-  readonly sourceLaneKind: 'owner_passkey' | 'owner_email_otp';
-  readonly ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
-  readonly sourceHolderParticipantId?: never;
-  readonly sourceSigningWorkerParticipantId?: never;
-};
-
-export type LinkedDeviceProvisionedEnrollmentKeyBindingV1 =
-  LinkedDeviceEnrollmentKeyBindingBaseV1 & {
-    readonly sourceKind: 'provisioned_lane';
-    readonly sourceLaneKind: Exclude<SigningLaneKind, 'owner_passkey' | 'owner_email_otp'>;
-    readonly sourceHolderParticipantId: LaneHolderParticipantId;
-    readonly sourceSigningWorkerParticipantId: SigningWorkerParticipantId;
-    readonly ownerParticipantContinuity?: never;
-  };
-
-export type LinkedDeviceEnrollmentKeyBindingV1 =
-  | LinkedDeviceOwnerEnrollmentKeyBindingV1
-  | LinkedDeviceProvisionedEnrollmentKeyBindingV1;
-
-export function linkedDeviceEnrollmentBindingMatchesSourceV1(
-  binding: LinkedDeviceEnrollmentKeyBindingV1,
-  source: ActiveLaneProtocolSourceV1,
-): boolean {
-  if (
-    binding.sourceKind !== source.sourceKind ||
-    binding.sourceLaneKind !== source.laneKind ||
-    binding.sourceLaneId !== source.laneId ||
-    binding.sourceLaneShareEpoch !== source.laneShareEpoch ||
-    binding.sourceRevocationEpoch !== source.revocationEpoch
-  ) {
-    return false;
-  }
-  if (source.sourceKind === 'owner_registration') {
-    if (binding.sourceKind !== 'owner_registration') return false;
-    return (
-      binding.ownerParticipantContinuity.signerId === source.ownerParticipantContinuity.signerId &&
-      binding.ownerParticipantContinuity.signingWorkerId ===
-        source.ownerParticipantContinuity.signingWorkerId &&
-      binding.ownerParticipantContinuity.custodyKeyManifestDigestB64u ===
-        source.ownerParticipantContinuity.custodyKeyManifestDigestB64u &&
-      binding.ownerParticipantContinuity.sourceIdentityDigestB64u ===
-        source.ownerParticipantContinuity.sourceIdentityDigestB64u &&
-      binding.ownerParticipantContinuity.participantIds[0] ===
-        source.ownerParticipantContinuity.participantIds[0] &&
-      binding.ownerParticipantContinuity.participantIds[1] ===
-        source.ownerParticipantContinuity.participantIds[1]
-    );
-  }
-  if (binding.sourceKind !== 'provisioned_lane') return false;
-  return (
-    binding.sourceHolderParticipantId === source.holderParticipantId &&
-    binding.sourceSigningWorkerParticipantId === source.signingWorkerParticipantId
-  );
-}
-
-export type LinkedDeviceProtocolVersionV1 = {
-  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
-  readonly version: string;
-};
-
-export type LinkedDeviceApprovalV1 = {
+type LinkedDeviceApprovalBaseV1 = {
   readonly kind: 'linked_device_approval_v1';
   readonly linkSessionId: LinkDeviceSessionId;
   readonly walletId: WalletId;
@@ -321,177 +208,116 @@ export type LinkedDeviceApprovalV1 = {
   readonly deviceId: LinkedDeviceId;
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
-  readonly permission: QrLinkedDevicePermissionRequest;
+  readonly permission: DelegatedWalletAuthorityV1;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
-  readonly policyDigestB64u: DigestB64u;
-  readonly operationId: LaneOperationId;
-  readonly idempotencyKey: LaneOperationIdempotencyKey;
-  readonly orderedKeyBindings: readonly [
-    LinkedDeviceEnrollmentKeyBindingV1,
-    ...LinkedDeviceEnrollmentKeyBindingV1[],
-  ];
-  readonly protocolVersions: readonly [
-    LinkedDeviceProtocolVersionV1,
-    ...LinkedDeviceProtocolVersionV1[],
-  ];
   readonly approvedAtMs: number;
   readonly expiresAtMs: number;
 };
 
-export type LinkedDeviceProvisioningCommandV1 = {
-  readonly kind: 'linked_device_provisioning_command_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly deviceId: LinkedDeviceId;
-};
-
-/** Role-bound ciphertext delivery for one approved R102 child lane. */
-export type LinkedDeviceProvisioningChildV1 = {
-  readonly kind: 'linked_device_provisioning_child_v1';
-  readonly job: RotatableSigningLaneJobV1;
-  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
-  readonly holderPackage: LaneHolderPackageWireV1;
-  readonly expectedVersion: number;
-};
-
-export type LinkedDeviceProvisioningDeliveriesV1 = {
-  readonly kind: 'linked_device_provisioning_deliveries_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly deviceId: LinkedDeviceId;
-  readonly manifest: LaneEnrollmentManifestV1;
-  readonly orderedChildren: readonly [
-    LinkedDeviceProvisioningChildV1,
-    ...LinkedDeviceProvisioningChildV1[],
-  ];
-};
-
-/**
- * Exact owner-authenticated R102 source input. Jobs contain public protocol,
- * recipient, and participant records; private holder, PRF, and credential
- * material never crosses this DTO.
- */
-export type LinkedDeviceTargetReadyR102InputV1 = {
-  readonly kind: 'linked_device_target_ready_r102_input_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly walletId: WalletId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly deviceId: LinkedDeviceId;
-  readonly manifest: LaneEnrollmentManifestV1;
-  readonly children: readonly [RotatableSigningLaneJobV1, ...RotatableSigningLaneJobV1[]];
-};
-
-/** Owner-authenticated persistence submission for prepared R102 deliveries. */
-export type LinkedDeviceProvisioningDeliveriesSubmissionV1 = {
-  readonly kind: 'linked_device_provisioning_deliveries_submission_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly walletId: WalletId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly deviceId: LinkedDeviceId;
-  readonly manifestDigestB64u: DigestB64u;
-  readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
-};
+export type LinkedDeviceApprovalV1 =
+  | (LinkedDeviceApprovalBaseV1 & {
+      readonly targetFactor: LinkedDeviceApprovedTargetFactorV1;
+      /** The first owner approval precedes Device 2 recipient preparation. */
+      readonly sourceContribution?: never;
+    })
+  | (LinkedDeviceApprovalBaseV1 & {
+      readonly targetFactor: LinkedDeviceApprovedTargetFactorV1;
+      /** Final owner relay after Device 2 has registered recipient bindings. */
+      readonly sourceContribution: LinkedDeviceOrdinaryMaterialSourceContributionTupleV1;
+    });
 
 export type LinkedDeviceApprovalDeliveryV1 = {
   readonly kind: 'linked_device_approval_delivery_v1';
   readonly approval: LinkedDeviceApprovalV1;
 };
 
-/** Device2 returns only the holder receipts it produced for this enrollment. */
-export type LinkedDeviceHolderDeliveryAcknowledgementV1 = {
-  readonly kind: 'linked_device_holder_delivery_acknowledgement_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly deviceId: LinkedDeviceId;
-  readonly orderedHolderDeliveryReceipts: readonly [
-    LaneHolderDeliveryReceiptV1,
-    ...LaneHolderDeliveryReceiptV1[],
-  ];
-  readonly acknowledgedAtMs: number;
-};
-
-export type LinkedDeviceEnrollmentTranscriptV1 = {
-  readonly kind: 'linked_device_enrollment_transcript_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly walletId: WalletId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly deviceId: LinkedDeviceId;
-  readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
-  readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
-  readonly permission: QrLinkedDevicePermissionRequest;
-  readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
-  readonly policyDigestB64u: DigestB64u;
-  readonly operationId: LaneOperationId;
-  readonly idempotencyKey: LaneOperationIdempotencyKey;
-  readonly orderedKeyBindings: readonly [
-    LinkedDeviceEnrollmentKeyBindingV1,
-    ...LinkedDeviceEnrollmentKeyBindingV1[],
-  ];
-  readonly protocolVersions: readonly [
-    LinkedDeviceProtocolVersionV1,
-    ...LinkedDeviceProtocolVersionV1[],
-  ];
-  readonly approvedAtMs: number;
-  readonly expiresAtMs: number;
-};
-
-/** Public projection of one R102 child receipt; protocol receipt bodies stay private. */
-export type LinkedDeviceEnrollmentChildReceiptV1 = {
-  readonly kind: 'linked_device_enrollment_child_receipt_v1';
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly walletId: WalletId;
+/** Public source facts needed to bind an Ed25519 export-root handoff. */
+export type LinkedDeviceEd25519ExportRootPreparationV1 = {
+  readonly kind: 'linked_device_ed25519_export_root_preparation_v1';
   readonly walletKeyId: WalletKeyId;
-  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
-  readonly targetLaneId: SigningLaneId;
-  readonly targetLaneShareEpoch: LaneShareEpoch;
-  readonly materialActivation: MpcMaterialActivationRef;
-  readonly receiptDigestB64u: DigestB64u;
-  readonly transcriptHashB64u: DigestB64u;
-  readonly deliveredAtMs: number;
+  readonly applicationBindingDigestB64u: DigestB64u;
+  readonly registeredPublicKeyB64u: Ed25519PublicKeyB64u;
+  readonly revocationEpoch: number;
 };
 
-/** Aggregate projection references the exact R102 aggregate receipt by digest. */
-export type LinkedDeviceEnrollmentReceiptV1 = {
-  readonly kind: 'linked_device_enrollment_receipt_v1';
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly walletId: WalletId;
-  readonly deviceId: LinkedDeviceId;
-  readonly manifestDigestB64u: DigestB64u;
-  readonly aggregateReceiptDigestB64u: DigestB64u;
-  readonly orderedChildReceipts: readonly [
-    LinkedDeviceEnrollmentChildReceiptV1,
-    ...LinkedDeviceEnrollmentChildReceiptV1[],
-  ];
-  readonly activatedAtMs: number;
+export type LinkedDevicePasskeyTargetConfigurationFieldsV1 = {
+  readonly rpId: WebAuthnRpId;
+  readonly expectedOrigin: string;
 };
 
-export type LinkedDeviceTargetPreparationChildV1 = {
-  readonly kind: 'linked_device_target_preparation_child_v1';
-  readonly operationId: LaneOperationId;
-  readonly walletKeyId: WalletKeyId;
-  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
-  readonly targetLaneId: SigningLaneId;
-  readonly targetLaneShareEpoch: LaneShareEpoch;
-  readonly targetMaterialActivationId: MpcMaterialActivationId;
-  readonly targetHolderParticipantId: LaneHolderParticipantId;
-};
+export type LinkedDevicePasskeyTargetConfigurationV1 =
+  LinkedDevicePasskeyTargetConfigurationFieldsV1 & {
+    readonly kind: 'linked_device_passkey_target_configuration_v1';
+    readonly configurationDigestB64u: DigestB64u;
+  };
 
-/** Server-owned challenge and exact R102 child identities required before Device 2 creates keys. */
-export type LinkedDeviceTargetPreparationV1 = {
+type LinkedDeviceTargetPreparationBaseV1 = {
   readonly kind: 'linked_device_target_preparation_v1';
   readonly linkSessionId: LinkDeviceSessionId;
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
-  readonly rpId: WebAuthnRpId;
-  readonly userHandleB64u: string;
-  readonly challengeB64u: DigestB64u;
-  readonly orderedChildren: readonly [
-    LinkedDeviceTargetPreparationChildV1,
-    ...LinkedDeviceTargetPreparationChildV1[],
+  /** Device 2's worker-owned P-256 recipient for committed credential delivery. */
+  readonly deliveryRecipientPublicKey65B64u: string;
+  /** Allocated by the server before target-factor verification. */
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  /** `null` is the explicit ECDSA-only/no-export-root branch. */
+  readonly ed25519ExportRoot: LinkedDeviceEd25519ExportRootPreparationV1 | null;
+  /** Public requirements from which the browser creates local recipients. */
+  readonly ordinarySignerMaterialRecipientRequirements: readonly [
+    OrdinarySignerMaterialRecipientRequirementV1,
+    ...OrdinarySignerMaterialRecipientRequirementV1[],
   ];
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
+};
+
+/**
+ * The server-owned passkey ceremony carried by a target preparation. The
+ * auth-method identity is duplicated here intentionally: the parser binds it
+ * to the preparation identity before this value can enter the domain.
+ */
+export type LinkedDevicePasskeyCreationOptionsV1 = WalletAddAuthMethodRegistrationOptions & {
+  readonly walletAuthMethodId: WalletAuthMethodId;
+};
+
+export type LinkedDeviceTargetPreparationV1 =
+  | (LinkedDeviceTargetPreparationBaseV1 & {
+      readonly targetFactor: { readonly kind: 'passkey_prf' };
+      readonly passkeyCreationOptions: LinkedDevicePasskeyCreationOptionsV1;
+      readonly passkeyConfigurationDigestB64u: DigestB64u;
+      readonly baseWalletAuthMethodId?: never;
+      readonly targetEmail?: never;
+      readonly enrollment?: never;
+    })
+  | (LinkedDeviceTargetPreparationBaseV1 & {
+      readonly targetFactor: { readonly kind: 'email_otp' };
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'existing_enrollment' }
+      >;
+      readonly passkeyCreationOptions?: never;
+      readonly passkeyConfigurationDigestB64u?: never;
+      readonly baseWalletAuthMethodId: WalletAuthMethodId;
+    })
+  | (LinkedDeviceTargetPreparationBaseV1 & {
+      readonly targetFactor: { readonly kind: 'email_otp' };
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'new_enrollment' }
+      >;
+      readonly passkeyCreationOptions?: never;
+      readonly passkeyConfigurationDigestB64u?: never;
+      readonly baseWalletAuthMethodId?: never;
+    });
+
+/** Device 2 publishes the worker-owned credential delivery recipient. */
+export type LinkedDeviceTargetPreparationRequestV1 = {
+  readonly kind: 'linked_device_target_preparation_request_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly deliveryRecipientPublicKey65B64u: string;
 };
 
 /** Verification-safe WebAuthn registration projection. PRF outputs stay on Device 2. */
@@ -512,46 +338,171 @@ export type LinkedDeviceWebAuthnRegistrationV1 = {
   )[];
 };
 
-export type LinkedDeviceTargetHolderRegistrationV1 = {
-  readonly kind: 'linked_device_target_holder_registration_v1';
-  readonly operationId: LaneOperationId;
-  readonly walletKeyId: WalletKeyId;
+/**
+ * Server-derived ordinary material inputs returned after factor verification.
+ * Activation identities are never accepted from a credential registration.
+ */
+export type OrdinarySignerMaterialReservationPreparationV1 =
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationV1;
+
+/**
+ * Public recipient requirements allocated by the server during target
+ * preparation. The browser uses the family and wallet key identity to create
+ * a local recipient keypair.
+ */
+export type OrdinarySignerMaterialRecipientRequirementV1 = {
+  readonly kind: 'ordinary_signer_material_recipient_requirement_v1';
   readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
-  readonly targetLaneId: SigningLaneId;
-  readonly targetLaneShareEpoch: LaneShareEpoch;
-  readonly targetMaterialActivationId: MpcMaterialActivationId;
-  readonly holderParticipant: LaneHolderParticipantRecordV1;
+  readonly walletKeyId: WalletKeyId;
 };
 
-export type LinkedDeviceTargetCredentialRegistrationV1 = {
+/** Public recipient requests returned by the browser after local key creation. */
+export type OrdinarySignerMaterialRecipientRequestV1 =
+  | {
+      readonly kind: 'ordinary_ed25519_signer_material_recipient_request_v1';
+      readonly keyFamily: 'ed25519';
+      readonly walletKeyId: WalletKeyId;
+      readonly recipientPublicKeyB64u: string;
+    }
+  | {
+      readonly kind: 'ordinary_ecdsa_signer_material_recipient_request_v1';
+      readonly keyFamily: 'ecdsa_secp256k1';
+      readonly walletKeyId: WalletKeyId;
+      readonly clientEphemeralPublicKey: string;
+    };
+
+type LinkedDeviceTargetCredentialRegistrationBaseV1 = {
   readonly kind: 'linked_device_target_credential_registration_v1';
   readonly linkSessionId: LinkDeviceSessionId;
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly targetPreparationDigestB64u: DigestB64u;
-  readonly webauthnRegistration: LinkedDeviceWebAuthnRegistrationV1;
-  readonly orderedHolderRegistrations: readonly [
-    LinkedDeviceTargetHolderRegistrationV1,
-    ...LinkedDeviceTargetHolderRegistrationV1[],
+  readonly ordinarySignerMaterialRecipientRequests: readonly [
+    OrdinarySignerMaterialRecipientRequestV1,
+    ...OrdinarySignerMaterialRecipientRequestV1[],
   ];
   readonly registeredAtMs: number;
 };
 
-export type LinkedDeviceReceiptAcknowledgementV1 = {
-  readonly kind: 'linked_device_receipt_acknowledgement_v1';
+type LinkedDeviceEmailOtpVerificationGrantBaseV1 = {
+  readonly kind: 'linked_device_email_otp_verification_grant_v1';
+  readonly grantId: string;
+  readonly grantToken: string;
+  readonly challengeId: string;
   readonly linkSessionId: LinkDeviceSessionId;
+  readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
-  readonly receipt: LinkedDeviceEnrollmentReceiptV1;
-  readonly acknowledgedAtMs: number;
+  readonly targetPreparationDigestB64u: DigestB64u;
+  readonly targetEmail: VerifiedEmailAddress;
+  readonly emailHashHex: string;
+  readonly registrationAuthorityId: string;
+  readonly providerUserId: string;
+  readonly authorityDigestB64u: DigestB64u;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
 };
+
+export type LinkedDeviceEmailOtpVerificationGrantV1 =
+  | (LinkedDeviceEmailOtpVerificationGrantBaseV1 & {
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'existing_enrollment' }
+      >;
+      readonly baseWalletAuthMethodId: WalletAuthMethodId;
+    })
+  | (LinkedDeviceEmailOtpVerificationGrantBaseV1 & {
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'new_enrollment' }
+      >;
+      readonly baseWalletAuthMethodId?: never;
+    });
+
+export type LinkedDeviceEmailOtpFactorReleaseEnvelopeV1 = {
+  readonly kind: 'email_otp_factor_release_v1';
+  readonly challengeId: string;
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly serverEphemeralPublicKey65B64u: string;
+  readonly nonce12B64u: string;
+  readonly ciphertextB64u: string;
+};
+
+export type LinkedDeviceEmailOtpChallengeStartRequestV1 = {
+  readonly kind: 'linked_device_email_otp_challenge_start_request_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly workerEphemeralPublicKey65B64u: string;
+};
+
+export type LinkedDeviceEmailOtpChallengeResendRequestV1 = {
+  readonly kind: 'linked_device_email_otp_challenge_resend_request_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly challengeId: string;
+};
+
+export type LinkedDeviceEmailOtpChallengeVerifyRequestV1 = {
+  readonly kind: 'linked_device_email_otp_challenge_verify_request_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly challengeId: string;
+  readonly otpCode: string;
+};
+
+export type LinkedDeviceEmailOtpChallengeResultV1 = {
+  readonly kind: 'linked_device_email_otp_challenge_result_v1';
+  readonly challengeId: string;
+  readonly maskedEmailHint: string;
+  readonly expiresAtMs: number;
+  readonly resendAvailableAtMs: number;
+};
+
+export type LinkedDeviceEmailOtpVerificationResultV1 =
+  | {
+      readonly kind: 'linked_device_email_otp_verification_result_v1';
+      readonly verificationGrant: Extract<
+        LinkedDeviceEmailOtpVerificationGrantV1,
+        { readonly enrollment: { readonly kind: 'existing_enrollment' } }
+      >;
+      readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
+    }
+  | {
+      readonly kind: 'linked_device_email_otp_verification_result_v1';
+      readonly verificationGrant: Extract<
+        LinkedDeviceEmailOtpVerificationGrantV1,
+        { readonly enrollment: { readonly kind: 'new_enrollment' } }
+      >;
+      readonly factorRelease: null;
+    };
+
+export type LinkedDeviceTargetCredentialRegistrationV1 =
+  | (LinkedDeviceTargetCredentialRegistrationBaseV1 & {
+      readonly targetFactor: { readonly kind: 'passkey_prf' };
+      readonly webauthnRegistration: LinkedDeviceWebAuthnRegistrationV1;
+      readonly emailOtpVerificationGrant?: never;
+      readonly targetEmail?: never;
+      readonly emailOtpEnrollment?: never;
+    })
+  | (LinkedDeviceTargetCredentialRegistrationBaseV1 & {
+      readonly targetFactor: { readonly kind: 'email_otp' };
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly emailOtpVerificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
+      readonly emailOtpEnrollment?: never;
+      readonly webauthnRegistration?: never;
+    })
+  | (LinkedDeviceTargetCredentialRegistrationBaseV1 & {
+      readonly targetFactor: { readonly kind: 'email_otp' };
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly emailOtpVerificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
+      readonly emailOtpEnrollment: WalletEmailOtpEnrollmentMaterialV1;
+      readonly webauthnRegistration?: never;
+    });
 
 export type LinkedDeviceSessionTransportRequestV1 =
   | LinkedDeviceSessionClaimRequestV1
   | LinkedDeviceApprovalV1
   | LinkedDeviceTargetCredentialRegistrationV1
-  | LinkedDeviceReceiptAcknowledgementV1
   | {
       readonly kind: 'linked_device_session_cancel_unclaimed_request_v1';
       readonly linkSessionId: LinkDeviceSessionId;
@@ -574,39 +525,14 @@ export type LinkedDeviceSessionTransportRequestV1 =
       readonly requestedAtMs: number;
     };
 
-export type LinkedDeviceSessionTransportEventV1 = {
-  readonly kind: 'linked_device_session_event_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly state: LinkedDeviceSessionState;
-  readonly emittedAtMs: number;
-};
-
-/** Authenticated relay projection returned to the device that owns a session. */
-export type LinkedDeviceSessionProjectionV1 = {
-  readonly kind: 'linked_device_session_projection_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly qrPayload: QrLinkedDeviceSessionPayloadV4;
-  readonly revision: number;
-  readonly createdAtMs: number;
-  readonly updatedAtMs: number;
-} & (
-  | {
-      readonly state: LinkedDeviceSessionUnclaimedState;
-      readonly deviceId?: never;
-    }
-  | {
-      readonly state: Exclude<LinkedDeviceSessionState, LinkedDeviceSessionUnclaimedState>;
-      readonly deviceId: LinkedDeviceId;
-    }
-);
-
-type LinkedDevicePendingSessionStateV1 = Extract<
-  LinkedDeviceSessionState,
+export type LinkedDevicePendingSessionStateV1 = Extract<
+  LinkSessionStateV1,
   {
     readonly state:
-      | 'awaiting_target_passkey'
+      | 'awaiting_target_factor'
+      | 'awaiting_source_contribution'
       | 'provisioning'
-      | 'committed_completion_required';
+      | 'authority_pending_local_install';
   }
 >;
 
@@ -616,24 +542,33 @@ export type LinkedDeviceApprovalResultV1 =
       readonly state: LinkedDevicePendingSessionStateV1;
     }
   | {
-      readonly outcome: 'active';
-      readonly state: Extract<LinkedDeviceSessionState, { readonly state: 'active' }>;
-      readonly manifestDigestB64u: DigestB64u;
-      readonly receipt: LinkedDeviceEnrollmentReceiptV1;
+      readonly outcome: 'replayed';
+      readonly replay: {
+        readonly state: 'pending';
+        readonly session: LinkedDevicePendingSessionStateV1;
+      };
+    };
+
+/** Canonical owner credential metadata projected into linked-device management. */
+export type LinkedOwnerCredentialMetadataV1 =
+  | {
+      readonly kind: 'passkey';
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+      readonly device: WebAuthnAuthenticatorDeviceInfo;
     }
   | {
-      readonly outcome: 'replayed';
-      readonly replay:
-        | {
-            readonly state: 'pending';
-            readonly session: LinkedDevicePendingSessionStateV1;
-          }
-        | {
-            readonly state: 'active';
-            readonly session: Extract<LinkedDeviceSessionState, { readonly state: 'active' }>;
-            readonly manifestDigestB64u: DigestB64u;
-            readonly receipt: LinkedDeviceEnrollmentReceiptV1;
-          };
+      readonly kind: 'email_otp';
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      /**
+       * The verified address behind this factor. The management projection is
+       * served only to an authenticated owner session, and the owner already
+       * knows the address they enrolled — this exists so the settings surface
+       * can name the factor. Local persistence keeps only the email hash.
+       */
+      readonly email: VerifiedEmailAddress;
+      readonly device?: never;
+      readonly credentialIdB64u?: never;
     };
 
 /** Public wallet-scoped projection for linked-device management. */
@@ -641,9 +576,8 @@ export type LinkedDeviceSummaryV1 = {
   readonly deviceId: LinkedDeviceId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly walletId: WalletId;
-  readonly label: string;
-  readonly platform: string;
-  readonly permission: QrLinkedDevicePermissionRequest;
+  readonly credential: LinkedOwnerCredentialMetadataV1;
+  readonly permission: DelegatedWalletAuthorityV1;
   readonly keyManifestDigestB64u: DigestB64u;
   readonly coveredWalletKeys: readonly WalletKeyId[];
   readonly state: 'provisioning' | 'active' | 'suspended' | 'expired' | 'revoked';
@@ -659,24 +593,50 @@ export type LinkedDeviceListRequestV1 = {
   readonly cursor: string | null;
 };
 
+/**
+ * An active owner credential with no linked-device enrollment: a device that
+ * registered or recovered the wallet directly rather than joining through
+ * linking. It has no deviceId or enrollmentId — removal goes through
+ * auth-method revocation, not linked-device revocation.
+ */
+export type OwnerDeviceSummaryV1 = {
+  readonly walletId: WalletId;
+  /**
+   * The authority this method belongs to.
+   *
+   * R109C puts both factor families on one founding authority and lists one
+   * entry per active method, so a reader needs this to group the entries it was
+   * given — to decide which family is still missing on THIS authority, and to
+   * know which sibling would remain if one were removed. Grouping by wallet
+   * instead would fold in every linked device's methods.
+   */
+  readonly walletAuthorityId: WalletAuthorityId;
+  readonly credential: LinkedOwnerCredentialMetadataV1;
+  readonly createdAtMs: number;
+  readonly lastActivityAtMs: number;
+};
+
 export type LinkedDeviceListResultV1 = {
   readonly devices: readonly LinkedDeviceSummaryV1[];
+  /** Founding owner devices; served with the first page only (cursor === null). */
+  readonly ownerDevices: readonly OwnerDeviceSummaryV1[];
   readonly nextCursor: string | null;
 };
 
 export type LinkedDeviceRevokeRequestV1 = {
   readonly kind: 'linked_device_revoke_request_v1';
   readonly walletId: WalletId;
-  readonly deviceId: LinkedDeviceId;
+  /** Exact persisted method selected from the authority inventory. */
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly requestedAtMs: number;
 };
 
 export type LinkedDeviceRevokeResultV1 =
   | {
-      readonly kind: 'revoked' | 'replayed';
-      readonly enrollmentId: LinkedDeviceEnrollmentId;
+      readonly kind: 'revoked';
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly authorityId: WalletAuthorityId;
       readonly revocationEpoch: number;
-      readonly aggregateReceiptDigestB64u: DigestB64u;
     }
   | {
       readonly kind: 'not_found' | 'conflict' | 'unauthorized';
@@ -686,64 +646,359 @@ export type LinkedDeviceManagementRequestV1 =
   | LinkedDeviceListRequestV1
   | LinkedDeviceRevokeRequestV1;
 
-type LinkedDeviceWalletSessionTokenBaseV1 = {
-  readonly kind: 'linked_device_wallet_session_token_v1';
-  readonly walletKeyId: WalletKeyId;
-  readonly walletSessionJwt: string;
-  /** Revocation epoch of this exact target lane. */
-  readonly revocationEpoch: number;
+export type LinkPrecommitFailureV1 =
+  | { readonly kind: 'invalid_input'; readonly reason: string }
+  | { readonly kind: 'unauthorized_source'; readonly reason: string }
+  | { readonly kind: 'revoked_source'; readonly reason: string }
+  | { readonly kind: 'permission_attenuation_failed'; readonly reason: string }
+  | { readonly kind: 'target_factor_failed'; readonly reason: string }
+  | { readonly kind: 'expired_session'; readonly reason: string }
+  | { readonly kind: 'cancelled_session'; readonly reason: string }
+  | { readonly kind: 'claim_conflict'; readonly reason: string }
+  | { readonly kind: 'package_preparation_failed'; readonly reason: string };
+
+/** The only durable states retained by the linear link-session boundary. */
+export type LinkSessionStateV1 =
+  | {
+      readonly state: 'displaying_qr';
+      readonly deviceId?: never;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'claimed';
+      readonly deviceId: DeviceId;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'awaiting_target_factor';
+      readonly deviceId: DeviceId;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'awaiting_source_contribution';
+      readonly deviceId: DeviceId;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'provisioning';
+      readonly deviceId: DeviceId;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'authority_pending_local_install';
+      readonly deviceId: DeviceId;
+      readonly authorityId: WalletAuthorityId;
+      readonly packageSetDigestB64u: DigestB64u;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'active';
+      readonly deviceId: DeviceId;
+      readonly authorityId: WalletAuthorityId;
+      readonly activatedAtMs: number;
+      readonly packageSetDigestB64u?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'failed_before_commit';
+      readonly error: LinkPrecommitFailureV1;
+      readonly deviceId?: never;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'cancelled';
+      readonly cancelledAtMs: number;
+      readonly deviceId?: never;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'expired';
+      readonly expiredAtMs: number;
+      readonly deviceId?: never;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+    };
+
+export type VerifiedSourceAuthorityV1 = {
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly authMethodId: WalletAuthMethodId;
+  readonly verifiedRevocationEpoch: number;
+  readonly authorityDigestB64u: DigestB64u;
+  readonly verifiedAtMs: number;
 };
 
-export type LinkedDeviceWalletSessionEd25519TokenV1 =
-  LinkedDeviceWalletSessionTokenBaseV1 & {
-    readonly keyFamily: 'ed25519';
-  };
+export type VerifiedTargetFactorV1 =
+  | {
+      readonly kind: 'verified_passkey_target_v1';
+      readonly authMethod: PasskeyWalletAuthMethodDraftV1;
+      readonly verificationDigestB64u: DigestB64u;
+      readonly verifiedAtMs: number;
+    }
+  | {
+      readonly kind: 'verified_email_otp_target_v1';
+      readonly authMethod: EmailOtpWalletAuthMethodDraftV1;
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'existing_enrollment' }
+      >;
+      readonly baseWalletAuthMethodId: WalletAuthMethodId;
+      readonly providerUserId: string;
+      readonly verificationDigestB64u: DigestB64u;
+      readonly verifiedAtMs: number;
+    }
+  | {
+      readonly kind: 'verified_email_otp_target_v1';
+      readonly authMethod: EmailOtpWalletAuthMethodDraftV1;
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'new_enrollment' }
+      >;
+      readonly baseWalletAuthMethodId?: never;
+      readonly providerUserId: string;
+      readonly verificationDigestB64u: DigestB64u;
+      readonly verifiedAtMs: number;
+    };
 
-export type LinkedDeviceWalletSessionEcdsaTokenV1 = LinkedDeviceWalletSessionTokenBaseV1 & {
-  readonly keyFamily: 'ecdsa_secp256k1';
+export type VerifiedLinkInputV1 = {
+  readonly walletId: WalletId;
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly targetDeviceId: DeviceId;
+  /** Authenticated P-256 recipient retained by the target worker. */
+  readonly deliveryRecipientPublicKey65B64u: string;
+  readonly sourceAuthority: VerifiedSourceAuthorityV1;
+  readonly targetFactor: VerifiedTargetFactorV1;
+  readonly permissions: CanonicalDelegatedWalletPermissionSetV1;
+  readonly signerManifest: ExactAdministeredSignerManifestV1;
+  /** One encrypted/publicly-bound contribution per source signer family. */
+  readonly sourceContribution: LinkedDeviceOrdinaryMaterialSourceContributionTupleV1;
+  /** New Email OTP links carry the freshly sealed enrollment into the same D1 batch. */
+  readonly emailOtpEnrollment: WalletEmailOtpEnrollmentMaterialV1 | null;
+  readonly ordinarySignerMaterialRecipientRequests: readonly [
+    OrdinarySignerMaterialRecipientRequestV1,
+    ...OrdinarySignerMaterialRecipientRequestV1[],
+  ];
 };
 
-export type LinkedDeviceWalletSessionTokenV1 =
-  | LinkedDeviceWalletSessionEd25519TokenV1
-  | LinkedDeviceWalletSessionEcdsaTokenV1;
-
-/** Device2-only response from the authenticated post-activation boundary. */
-type LinkedDeviceWalletSessionDeliveryBaseV1 = {
-  readonly kind: 'linked_device_wallet_session_delivery_v1';
-  readonly tenantId: TenantId;
+/**
+ * Browser-safe evidence returned after target-factor verification. Source
+ * authority and grant internals stay inside the server installation port.
+ */
+export type LinkedDeviceTargetCredentialRegistrationResultV1 = {
+  readonly kind: 'linked_device_target_credential_registration_result_v1';
+  readonly outcome: 'applied' | 'replayed';
+  readonly linkSessionId: LinkDeviceSessionId;
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
-  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
-  readonly walletSessionId: WalletSessionId;
-  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly targetPreparationDigestB64u: DigestB64u;
+  readonly targetFactor: VerifiedTargetFactorV1;
+  readonly ordinarySignerMaterialPreparations: readonly [
+    OrdinarySignerMaterialReservationPreparationV1,
+    ...OrdinarySignerMaterialReservationPreparationV1[],
+  ];
+  readonly ordinarySignerMaterialRecipientRequests: readonly [
+    OrdinarySignerMaterialRecipientRequestV1,
+    ...OrdinarySignerMaterialRecipientRequestV1[],
+  ];
   readonly keyManifestDigestB64u: DigestB64u;
-  readonly permission: QrLinkedDevicePermissionRequest;
-  readonly revocationEpoch: number;
-  readonly remainingUses: number;
+};
+
+/** The ordinary session issued by activation and persisted by the browser. */
+export type WalletCapabilitySubjectV1 =
+  | {
+      readonly kind: 'sign';
+      readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+      readonly materialActivation: MpcMaterialActivationRef;
+    }
+  | {
+      readonly kind: 'export_keys';
+      readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+      readonly materialActivation: MpcMaterialActivationRef;
+    }
+  | {
+      readonly kind: 'link_devices' | 'revoke_devices';
+      readonly keyFamily?: never;
+      readonly materialActivation?: never;
+    };
+
+export type ActiveWalletSessionV1 = {
+  readonly kind: 'active_wallet_session_v1';
+  readonly walletId: WalletId;
+  readonly authorityId: WalletAuthorityId;
+  readonly authMethodId: WalletAuthMethodId;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly authorityDigestB64u: DigestB64u;
+  readonly authorityRevocationEpoch: number;
+  readonly capabilitySubjects: readonly [WalletCapabilitySubjectV1, ...WalletCapabilitySubjectV1[]];
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };
 
-export type LinkedDeviceWalletSessionDeliveryV1 =
-  | (LinkedDeviceWalletSessionDeliveryBaseV1 & {
-      readonly nearAccountId: NearAccountId;
-      readonly orderedTokens:
-        | readonly [LinkedDeviceWalletSessionEd25519TokenV1]
-        | readonly [
-            LinkedDeviceWalletSessionEd25519TokenV1,
-            LinkedDeviceWalletSessionEcdsaTokenV1,
-          ]
-        | readonly [
-            LinkedDeviceWalletSessionEcdsaTokenV1,
-            LinkedDeviceWalletSessionEd25519TokenV1,
-          ];
-    })
-  | (LinkedDeviceWalletSessionDeliveryBaseV1 & {
-      readonly nearAccountId?: never;
-      readonly orderedTokens: readonly [LinkedDeviceWalletSessionEcdsaTokenV1];
-    });
+/** The bearer used to authenticate ordinary operations for an active session. */
+export type WalletSessionOperationCredentialV1 = {
+  readonly kind: 'opaque_wallet_session_operation_credential_v1';
+  readonly token: string;
+  readonly walletSessionId: WalletSessionId;
+};
 
-export function assertNeverLinkedDeviceSessionState(value: never): never {
-  throw new Error(`[LinkedDeviceSessionState] unsupported state: ${String(value)}`);
+export type LocalAuthorityInstallationReceiptV1 = {
+  readonly kind: 'local_authority_installation_receipt_v1';
+  readonly authorityId: WalletAuthorityId;
+  readonly walletId: WalletId;
+  readonly authMethodId: WalletAuthMethodId;
+  readonly deviceId: DeviceId;
+  readonly packageSetDigestB64u: DigestB64u;
+  readonly installedActivationRefs: WalletSignerActivationSetV1;
+  readonly installedRecordSetDigestB64u: DigestB64u;
+  readonly targetFactorVerificationDigestB64u: DigestB64u;
+  readonly installedAtMs: number;
+};
+
+export type RelinkRequiredReasonV1 =
+  | { readonly kind: 'incomplete_migrated_enrollment' }
+  | {
+      readonly kind: 'missing_canonical_local_material';
+      readonly activation: MpcMaterialActivationRef;
+    };
+
+export type LinkIntegrityFailureV1 =
+  | {
+      readonly kind: 'authority_id_mismatch';
+      readonly expectedAuthorityId: WalletAuthorityId;
+      readonly actualAuthorityId: WalletAuthorityId;
+    }
+  | {
+      readonly kind: 'package_set_digest_mismatch';
+      readonly expectedPackageSetDigestB64u: DigestB64u;
+      readonly actualPackageSetDigestB64u: DigestB64u;
+    }
+  | {
+      readonly kind: 'installation_receipt_mismatch';
+      readonly field:
+        | 'walletId'
+        | 'authMethodId'
+        | 'deviceId'
+        | 'targetFactorVerificationDigestB64u'
+        | 'installedActivationRefs';
+    };
+
+export type ActivationRetryReasonV1 =
+  | { readonly kind: 'installation_receipt_not_found' }
+  | { readonly kind: 'server_worker_activation_pending' }
+  | { readonly kind: 'wallet_session_issuance_pending' };
+
+export type ActivateInstalledAuthorityResultV1 =
+  | {
+      readonly kind: 'active';
+      readonly authority: Extract<WalletAuthorityV1, { readonly state: 'active' }>;
+      readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+      readonly walletSession: ActiveWalletSessionV1;
+      readonly deliveryBinding: LinkedDeviceWalletSessionCredentialDeliveryBindingV1;
+      readonly sealedDelivery: LinkedDeviceWalletSessionCredentialDeliveryV1;
+    }
+  | {
+      readonly kind: 'pending_local_install';
+      readonly authorityId: WalletAuthorityId;
+      readonly reason: ActivationRetryReasonV1;
+    }
+  | { readonly kind: 'integrity_error'; readonly reason: LinkIntegrityFailureV1 };
+
+export type LinkedAuthorityActivationResultV1 =
+  | {
+      readonly kind: 'active';
+      readonly session: ActiveWalletSessionV1;
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+    }
+  | {
+      readonly kind: 'pending_local_install';
+      readonly authorityId: WalletAuthorityId;
+      readonly packageSetDigestB64u: DigestB64u;
+    }
+  | { readonly kind: 'failed_before_commit'; readonly reason: LinkPrecommitFailureV1 }
+  | { readonly kind: 'relink_required'; readonly reason: RelinkRequiredReasonV1 }
+  | { readonly kind: 'integrity_error'; readonly reason: LinkIntegrityFailureV1 };
+
+/** Final wire acknowledgement after the active authority/session transaction. */
+export type LocalAuthorityActivationFinalAckV1 = {
+  readonly kind: 'local_authority_activation_final_ack_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly authorityId: WalletAuthorityId;
+  readonly packageSetDigestB64u: DigestB64u;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly credentialDigestB64u: DigestB64u;
+  readonly installationReceiptDigestB64u: DigestB64u;
+  readonly acknowledgedAtMs: number;
+};
+
+export function assertNeverLinkSessionStateV1(value: never): never {
+  throw new Error(`[LinkSessionStateV1] unsupported state: ${String(value)}`);
 }
+
+/**
+ * Authenticated Device 2 projection for the linear link lifecycle. The
+ * temporary session id and QR payload stay at this boundary; lifecycle code
+ * consumes the exact state union only.
+ */
+export type LinkSessionProjectionV1 = {
+  readonly kind: 'linked_device_session_projection_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly qrPayload: QrLinkedDeviceSessionPayloadV5;
+  readonly revision: number;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+  readonly state: LinkSessionStateV1;
+};
+
+export type LinkSessionTransportEventV1 = {
+  readonly kind: 'linked_device_session_event_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly state: LinkSessionStateV1;
+  readonly emittedAtMs: number;
+};

@@ -7,7 +7,7 @@ import {
 import {
   parseThresholdEd25519OperationStepUpGrantRequest,
   parseThresholdEd25519SessionRouteRequest,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/session/thresholdEd25519RequestValidation';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/session/thresholdEd25519RequestValidation';
 
 function validWebAuthnAuthentication(): Record<string, unknown> {
   return {
@@ -58,6 +58,7 @@ function validThresholdEd25519SessionBody(): Record<string, unknown> {
     relayerKeyId: 'ed25519:relayer',
     sessionKind: 'opaque',
     sessionPolicy: validThresholdEd25519SessionPolicy(),
+    walletSessionTarget: { kind: 'new_wallet_session' },
     webauthn_authentication: validWebAuthnAuthentication(),
   };
 }
@@ -384,10 +385,7 @@ function rejectsBodyOwnedExpectedOrigin(): void {
 
 function rejectsBodyOwnedEcdsaSessionClaims(): void {
   const body = validThresholdEd25519SessionBody();
-  body.ecdsaSessionClaims = {
-    kind: 'router_ab_ecdsa_derivation_wallet_session_v1',
-    walletId: 'frost-vermillion-k7p9m2',
-  };
+  body.ecdsaSessionClaims = {};
   expectInvalidBody(parseThresholdEd25519SessionRouteRequest(body), 'ecdsaSessionClaims');
 }
 

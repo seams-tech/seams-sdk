@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { CloudflareD1LaneEffectJournalStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LaneEffectJournalStore';
-import { CloudflareD1LaneLockStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LaneLockStore';
+import { CloudflareD1LaneEffectJournalStore } from '../../packages/wallet-server/src/router/cloudflare/d1/signingLanes/d1LaneEffectJournalStore';
+import { CloudflareD1LaneLockStore } from '../../packages/wallet-server/src/router/cloudflare/d1/signingLanes/d1LaneLockStore';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

@@ -1,6 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { createD1PasskeyCustodyRouteService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
-import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
+import { createD1PasskeyCustodyRouteService } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
+import { normalizeLogger } from '../../packages/wallet-server/src/core/logger';
+import {
+  OWNING_WALLET_AUTH_METHOD_ID,
+  SIBLING_WALLET_AUTH_METHOD_ID,
+  WALLET_ID,
+  passkeyCustodyEnvelope,
+} from './helpers/passkeyCustodyEnvelope.fixtures';
 
 /**
  * The port's own decisions — the ones made before the retrieval gate runs.
@@ -51,9 +57,11 @@ function serviceWith(store: ReturnType<typeof storeStub>, seen: unknown[]) {
         seen.push(args);
         return null;
       },
+      listWalletCredentialActivity: async () => [],
     } as never,
     walletCustodyCommits: {} as never,
     walletStore: {} as never,
+    walletAuthorityStore: {} as never,
     webAuthnStore: store as never,
     logger: normalizeLogger(),
   });
@@ -138,4 +146,28 @@ test('the same challenge cannot be used twice', async () => {
   expect(second.status).toBe(401);
   expect(second.body.code).toBe('challenge_unknown');
   expect(consumed).toEqual(['challenge-1', 'challenge-1']);
+});
+
+test('ownership upgrade rejects an envelope owned by a sibling method before store access', async () => {
+  const consumed: ConsumeCall[] = [];
+  const seen: unknown[] = [];
+  const service = serviceWith(storeStub({ consumed }), seen);
+
+  const result = await service.upgradeEnvelopeOwnership({
+    walletId: WALLET_ID as never,
+    walletAuthMethodId: OWNING_WALLET_AUTH_METHOD_ID as never,
+    envelope: passkeyCustodyEnvelope({
+      envelopeRevision: 2,
+      ownership: {
+        kind: 'method_bound',
+        walletAuthMethodId: SIBLING_WALLET_AUTH_METHOD_ID,
+      },
+    }),
+  });
+
+  expect(result).toEqual({
+    kind: 'refused',
+    reason: 'an upgraded custody envelope must name the authenticated auth method',
+  });
+  expect(seen).toEqual([]);
 });

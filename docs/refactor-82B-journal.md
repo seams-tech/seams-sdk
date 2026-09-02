@@ -205,7 +205,7 @@ to its coverage entry and the route-cleanup evidence stands alone.
   for Email OTP wallet-session companion/restore/export ECDSA flows, sealed
   recovery method adapters, and signing-session restore coordination. Before
   the parallel AuthService mechanical split, July 3 validation also passed:
-  `pnpm --dir packages/sdk-server-ts type-check`,
+  `pnpm --dir packages/wallet-server type-check`,
   `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
   unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
   unit/thresholdEcdsa.presignPoolRefill.unit.test.ts --reporter=line` with 64
@@ -222,12 +222,12 @@ to its coverage entry and the route-cleanup evidence stands alone.
 
 ### July 3, 2026: current reruns
 
-- `pnpm build:sdk`, `pnpm --dir packages/sdk-server-ts type-check`,
+- `pnpm build:sdk`, `pnpm --dir packages/wallet-server type-check`,
   `pnpm --dir packages/shared-ts type-check`, focused
   `walletAuthAuthority.shared.unit.test.ts`, focused D1 Email OTP recovery
   lifecycle coverage in `cloudflareD1RouterApiAuthService.unit.test.ts`, and
   `git diff --check` pass.
-- Current `pnpm --dir packages/sdk-web type-check` also passes after the
+- Current `pnpm --dir packages/wallet type-check` also passes after the
   parallel AuthService split corrected its local import mismatch.
 - Current focused fixture hardening rerun passed 56 Playwright unit tests across
   `walletAuthAuthority.shared.unit.test.ts`, `ecdsaRoleLocalRecords.unit.test.ts`,
@@ -244,11 +244,11 @@ to its coverage entry and the route-cleanup evidence stands alone.
   OTP signing-session error, `ReadyEmailOtpEcdsaSessionRecord`, or stale
   `emailOtpAuthContext.(authSubjectId|retention|reason|consumedAtMs)` reads.
 - Current Router A/B Ed25519 material-state parser cleanup passed
-  `pnpm --dir packages/sdk-web type-check` and 21 focused Playwright unit/source
+  `pnpm --dir packages/wallet type-check` and 21 focused Playwright unit/source
   guard tests across `routerAbEd25519.walletSessionState.unit.test.ts` and
   `routerAbNormalSigningSdk.guard.unit.test.ts`.
 - Current EVM-family Email OTP loose-getter deletion passed
-  `pnpm --dir packages/sdk-web type-check` and 29 focused Playwright unit tests
+  `pnpm --dir packages/wallet type-check` and 29 focused Playwright unit tests
   across `ecdsaSelection.restorable.unit.test.ts`,
   `evmFamily.requestBoundary.unit.test.ts`, and
   `evmSigning.thresholdReconnectEvents.unit.test.ts`; source guards in
@@ -256,10 +256,10 @@ to its coverage entry and the route-cleanup evidence stands alone.
   `emailOtpOperationSplit.guard.unit.test.ts` also passed for the deleted getter
   surface.
 - Current broad TypeScript checks also pass:
-  `pnpm --dir packages/sdk-server-ts type-check` and
+  `pnpm --dir packages/wallet-server type-check` and
   `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`.
 - Current NEAR Email OTP Ed25519 step-up committed-lane rerun passed
-  `pnpm --dir packages/sdk-web type-check`,
+  `pnpm --dir packages/wallet type-check`,
   `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
   `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
   unit/emailOtpWalletSessionCoordinator.unit.test.ts
@@ -267,8 +267,8 @@ to its coverage entry and the route-cleanup evidence stands alone.
   `git diff --check`, and `pnpm build:sdk`.
 - Current Phase 2/7 follow-up rerun passed
   `pnpm --dir packages/shared-ts type-check`,
-  `pnpm --dir packages/sdk-server-ts type-check`,
-  `pnpm --dir packages/sdk-web type-check`,
+  `pnpm --dir packages/wallet-server type-check`,
+  `pnpm --dir packages/wallet type-check`,
   `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
   focused `walletAuthAuthority.shared.unit.test.ts` +
   `walletAuthMethodStore.unit.test.ts` with 12 tests, focused ECDSA/Ed25519
@@ -278,14 +278,14 @@ to its coverage entry and the route-cleanup evidence stands alone.
   `emailOtpWalletSessionCoordinator.unit.test.ts` with 77 tests,
   `git diff --check`, and `pnpm build:sdk`.
 - Current ECDSA record-backed generic follow-up rerun passed
-  `pnpm --dir packages/sdk-web type-check`,
+  `pnpm --dir packages/wallet type-check`,
   `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and
   focused Playwright coverage in `emailOtpOperationSplit.guard.unit.test.ts`,
   `ecdsaExportMaterial.unit.test.ts`, and
   `ecdsaSelection.restorable.unit.test.ts` with 36 tests passing.
 - Current Email OTP Ed25519 registration-authority conversion rerun passed
-  `pnpm --dir packages/sdk-server-ts type-check`,
-  `pnpm --dir packages/sdk-web type-check`,
+  `pnpm --dir packages/wallet-server type-check`,
+  `pnpm --dir packages/wallet type-check`,
   `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
   `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
   unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "registration"
@@ -296,7 +296,7 @@ to its coverage entry and the route-cleanup evidence stands alone.
   `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
   unit/googleEmailOtpWalletAuthFlow.unit.test.ts --reporter=line` with 24 tests.
 - Current Email OTP single-use auth-use cleanup passed
-  `pnpm --dir packages/sdk-web type-check`,
+  `pnpm --dir packages/wallet type-check`,
   `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
   `pnpm build:sdk`,
   `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
@@ -400,7 +400,7 @@ Long dated notes moved out of the plan's tracking checklists.
   listed in the plan as D1 cleanup delete candidates.
 - The mechanical AuthService split is complete, and the current route-source
   scan for imports of `core/authService/*` under
-  `packages/sdk-server-ts/src/router` returns no hits. Routes still use the
+  `packages/wallet-server/src/router` returns no hits. Routes still use the
   public route-family/service surfaces while D1-owned ports replace
   AuthService-era behavior.
 
@@ -414,9 +414,9 @@ Long dated notes moved out of the plan's tracking checklists.
   occurrences are the Ed25519 policy model tracked in Phase 2 or
   WebAuthn/passkey-only branches.
 - Deleted the obsolete generic Router A/B ECDSA key-identities route:
-  `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts`,
-  `packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts`,
-  `packages/sdk-server-ts/src/router/routeDefinitions.ts`, shared route
+  `packages/wallet-server/src/router/cloudflare/routes/thresholdEcdsa.ts`,
+  `packages/wallet-server/src/router/express/routes/thresholdEcdsa.ts`,
+  `packages/wallet-server/src/router/routeDefinitions.ts`, shared route
   constants, route parser fixtures, and relayer cookie-mode tests no longer
   expose `/router-ab/ecdsa-hss/key-identities`. The current inventory boundary
   is wallet-scoped `/wallets/:walletId/signers/ecdsa/key-facts/inventory`.
@@ -457,7 +457,7 @@ Long dated notes moved out of the plan's tracking checklists.
   `tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts` so
   `routeDefinitions.ts` and `routeExecutionContext.ts` reject exact
   `authService` and `threshold` route metadata keys.
-- Validation: `pnpm --dir packages/sdk-server-ts type-check`;
+- Validation: `pnpm --dir packages/wallet-server type-check`;
   `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`; focused
   Playwright unit run for Refactor 82 route metadata, route-surface, and Router
   API router guards (11 tests passed).
@@ -483,7 +483,7 @@ Long dated notes moved out of the plan's tracking checklists.
   `ed25519WorkerMaterialBindingDigest` fields into core available-lane records.
   Focused fixture cleanup moved stale Email OTP records to bound
   `WalletAuthAuthority` shapes and complete sealed-worker-material metadata.
-  Validation passed: `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json
+  Validation passed: `pnpm --dir packages/wallet exec tsc -p tsconfig.json
   --noEmit --pretty false`; `pnpm -C tests exec playwright test -c
   playwright.unit.config.ts
   ./unit/persistedAvailableSigningLanes.emailOtpEd25519.unit.test.ts
@@ -497,7 +497,7 @@ Long dated notes moved out of the plan's tracking checklists.
   `ed25519WorkerMaterialBindingDigest` / `materialKeyId` reads remain in
   boundary parsers or typed material-state helpers. Stale sealed-record test
   fixtures now include Email OTP `emailHashHex` binding metadata. Validation
-  passed: `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit
+  passed: `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit
   --pretty false`; `pnpm --dir tests exec tsc -p tsconfig.playwright.json
   --noEmit`; `pnpm -C tests exec playwright test -c
   playwright.unit.config.ts
@@ -529,7 +529,7 @@ Long dated notes moved out of the plan's tracking checklists.
 SDK-side committed-lane slice evidence (re-separated from the plan's original
 single bullet):
 
-- `pnpm build:sdk`; `pnpm --dir packages/sdk-server-ts type-check`.
+- `pnpm build:sdk`; `pnpm --dir packages/wallet-server type-check`.
 - Focused Email OTP ECDSA/companion unit coverage with 39 tests passing.
 - Sealed recovery/restore coverage with 35 tests passing.
 - D1 runtime and presign pool guard coverage with 64 tests passing.
@@ -538,7 +538,7 @@ single bullet):
 - Focused concurrent EVM-family budget reservation coverage in
   `signingSessionBudgetFinalizer.unit.test.ts`.
 - July 3 route cleanup evidence:
-  `pnpm --dir packages/sdk-server-ts type-check`;
+  `pnpm --dir packages/wallet-server type-check`;
   `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
   unit/refactor80SwitchCase.guard.unit.test.ts --grep "key-identity inventory"
   --reporter=line`;
@@ -602,7 +602,7 @@ single bullet):
   coverage in `thresholdWarmSessionPolicyDraft.unit.test.ts` with 4 tests
   passing and a compiler-API check for `session/public.typecheck.ts`,
   `thresholdWarmSessionBootstrap.typecheck.ts`, and
-  `availableSigningLanes.typecheck.ts`; `pnpm --dir packages/sdk-web
+  `availableSigningLanes.typecheck.ts`; `pnpm --dir packages/wallet
   type-check`.
 - Current ECDSA export committed-lane coverage in
   `ecdsaExportMaterial.unit.test.ts` with 9 tests passing; current ECDSA
@@ -613,7 +613,7 @@ single bullet):
   coverage passed with `ecdsaExportMaterial.unit.test.ts` (9 tests),
   `emailOtpWalletSessionCoordinator.unit.test.ts` focused companion tests (6
   tests), `emailOtpOperationSplit.guard.unit.test.ts` focused export/Ed25519
-  guards (2 tests), `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json
+  guards (2 tests), `pnpm --dir packages/wallet exec tsc -p tsconfig.json
   --noEmit`, and `pnpm --dir tests exec tsc -p tsconfig.playwright.json
   --noEmit`; the full `emailOtpOperationSplit.guard.unit.test.ts` also passes
   with 15 tests.
@@ -639,15 +639,15 @@ single bullet):
   generic Email OTP signing-session error, `ReadyEmailOtpEcdsaSessionRecord`,
   or stale `emailOtpAuthContext.(authSubjectId|retention|reason|consumedAtMs)`
   reads; `pnpm build:sdk`; `git diff --check`. Current
-  `pnpm --dir packages/sdk-server-ts type-check` and
+  `pnpm --dir packages/wallet-server type-check` and
   `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit` runs pass.
 - July 3 follow-up validation for transaction step-up committed-lane threading
-  passed: `pnpm --dir packages/sdk-web type-check` and `pnpm --dir tests exec
+  passed: `pnpm --dir packages/wallet type-check` and `pnpm --dir tests exec
   playwright test -c playwright.unit.config.ts
   unit/emailOtpOperationSplit.guard.unit.test.ts --reporter=line` with 12
   tests passing.
 - July 3 record-backed lane collapse validation passed:
-  `pnpm --dir packages/sdk-web type-check`,
+  `pnpm --dir packages/wallet type-check`,
   `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
   `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
   unit/emailOtpOperationSplit.guard.unit.test.ts
@@ -663,7 +663,7 @@ single bullet):
   sibling `walletId` that disagrees with a bound Passkey authority's
   `walletId`, and the shared parser rejects missing or mismatched Passkey
   `bindingId` values. Pure factor parsing rejects wallet-bound verifier fields
-  at the boundary. Focused validation passed: `pnpm --dir packages/sdk-web
+  at the boundary. Focused validation passed: `pnpm --dir packages/wallet
   type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
   --noEmit`, and `pnpm --dir tests exec playwright test -c
   playwright.unit.config.ts unit/walletAuthAuthority.shared.unit.test.ts
@@ -673,7 +673,7 @@ single bullet):
   longer read flat Email OTP authority `provider` or `providerUserId` fields
   directly. Those reads now go through shared authority/context accessors, so
   the later Email OTP bound-authority cut is localized to the authority module
-  and boundary parsers. Focused validation passed: `pnpm --dir packages/sdk-web
+  and boundary parsers. Focused validation passed: `pnpm --dir packages/wallet
   type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
   --noEmit`, `pnpm --dir tests exec playwright test -c
   playwright.unit.config.ts unit/walletAuthAuthority.shared.unit.test.ts
@@ -686,7 +686,7 @@ single bullet):
   playwright.unit.config.ts unit/emailOtpOperationSplit.guard.unit.test.ts -g
   "SDK signing code reads Email OTP authority identity through accessors"
   --reporter=line`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
-  --noEmit`, and `pnpm --dir packages/sdk-web type-check`.
+  --noEmit`, and `pnpm --dir packages/wallet type-check`.
 - July 3 wallet-auth-method binding-id support: added shared
   `walletAuthMethodBindingId` for public SDK `WalletAuthMethodBinding` values
   and extended auth-method store coverage to compare the SDK formula with the
@@ -702,8 +702,8 @@ single bullet):
   now upgrades `RegistrationAuthority` to bound `WalletAuthAuthority` before
   minting the finalized Ed25519 session, while pre-finalize registration
   request policies keep `authorityScope` as boundary data. Focused validation
-  passed: `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit
-  --pretty false`, `pnpm --dir packages/sdk-server-ts exec tsc -p
+  passed: `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit
+  --pretty false`, `pnpm --dir packages/wallet-server exec tsc -p
   tsconfig.json --noEmit --pretty false`, `pnpm build:sdk`, `pnpm -C tests
   exec playwright test -c playwright.unit.config.ts
   ./unit/emailOtpEcdsaSigningSessionAuth.unit.test.ts --reporter=line` with 4
@@ -715,8 +715,8 @@ single bullet):
   ECDSA committed lanes and ECDSA export lanes reject pure
   `AuthFactorIdentity` / `EmailOtpFactorIdentity`, and pre-finalize
   registration ceremony state rejects wallet-bound `WalletAuthAuthority`.
-  Focused validation passed: `pnpm --dir packages/sdk-web exec tsc -p
-  tsconfig.json --noEmit --pretty false` and `pnpm --dir packages/sdk-server-ts
+  Focused validation passed: `pnpm --dir packages/wallet exec tsc -p
+  tsconfig.json --noEmit --pretty false` and `pnpm --dir packages/wallet-server
   exec tsc -p tsconfig.json --noEmit --pretty false`.
 - July 3 Ed25519 registration policy boundary cleanup: D1 and AuthService-era
   registration/session-policy validators now reject `authorityScope` and root
@@ -730,7 +730,7 @@ single bullet):
   rejection. Updated stale registration-preparation fixtures to carry the
   now-required stored authority. Focused validation passed: `pnpm --dir
   packages/shared-ts exec tsc -p tsconfig.json --noEmit --pretty false`,
-  `pnpm --dir packages/sdk-server-ts exec tsc -p tsconfig.json --noEmit
+  `pnpm --dir packages/wallet-server exec tsc -p tsconfig.json --noEmit
   --pretty false`, `pnpm build:sdk`, and `pnpm -C tests exec playwright test
   -c playwright.unit.config.ts ./unit/walletAuthAuthority.shared.unit.test.ts
   ./unit/relayWalletRegistration.boundary.unit.test.ts
@@ -746,7 +746,7 @@ single bullet):
   of the lane candidate. Fixed stale unit fixtures to use wallet-bound Email
   OTP contexts and complete Ed25519 material states, and repaired concurrent
   passkey/recovery envelope parser narrowing changes that blocked the SDK
-  build. Validation passed: `pnpm --dir packages/sdk-web exec tsc -p
+  build. Validation passed: `pnpm --dir packages/wallet exec tsc -p
   tsconfig.json --noEmit --pretty false`, `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit`, `pnpm -C tests exec playwright test -c
   playwright.unit.config.ts ./unit/emailOtpOperationSplit.guard.unit.test.ts
@@ -763,7 +763,7 @@ single bullet):
   guards for the resolver-backed branch. ECDSA committed-lane builders now
   validate that the bound authority wallet matches both the selected lane key
   wallet and the candidate wallet while those duplicated wallet facts remain
-  present. Focused validation passed: `pnpm --dir packages/sdk-web exec tsc -p
+  present. Focused validation passed: `pnpm --dir packages/wallet exec tsc -p
   tsconfig.json --noEmit --pretty false` and `pnpm -C tests exec playwright
   test -c playwright.unit.config.ts
   ./unit/emailOtpOperationSplit.guard.unit.test.ts --reporter=line` with 16
@@ -774,7 +774,7 @@ single bullet):
   transaction challenge surfaces now require branch-specific
   `EmailOtpSigningSessionAuthLane`; root `routeAuth` and optional `authLane`
   are rejected at the TypeScript boundary. Focused validation passed:
-  `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty
+  `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty
   false`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
   and `pnpm -C tests exec playwright test -c playwright.unit.config.ts
   ./unit/emailOtpWalletSessionCoordinator.unit.test.ts
@@ -796,7 +796,7 @@ single bullet):
   adapter is the only NEAR transaction path that extracts
   `committedLane.authLane` for `emailOtpSessions`. Added source/type guards
   against rebuilding Ed25519 step-up authority from a loose auth lane.
-  Validation passed: `pnpm --dir packages/sdk-web exec tsc -p
+  Validation passed: `pnpm --dir packages/wallet exec tsc -p
   tsconfig.json --noEmit --pretty false`, `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit`, `pnpm -C tests exec playwright test -c
   playwright.unit.config.ts ./unit/emailOtpOperationSplit.guard.unit.test.ts
@@ -813,7 +813,7 @@ single bullet):
   produce no bearer route auth. Added type fixtures so missing auth-lane state
   is rejected at compile time instead of being normalized to an empty JWT or
   missing route auth in core session code. Validation passed: `pnpm --dir
-  packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false`, `pnpm
+  packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false`, `pnpm
   --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, `pnpm -C tests
   exec playwright test -c playwright.unit.config.ts
   ./unit/emailOtpAuthLane.unit.test.ts --reporter=line` with 4 tests passing,
@@ -825,7 +825,7 @@ single bullet):
   conversion for public unlock callers, then calls the coordinator with the
   strict core shape. Coordinator unit coverage now passes explicit route plans,
   and `ecdsaLogin.typecheck.ts` rejects raw login auth fields on the core
-  surface. Focused validation passed: `pnpm --dir packages/sdk-web exec tsc -p
+  surface. Focused validation passed: `pnpm --dir packages/wallet exec tsc -p
   tsconfig.json --noEmit --pretty false`, `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit`, and `pnpm -C tests exec playwright test
   -c playwright.unit.config.ts ./unit/emailOtpWalletSessionCoordinator.unit.test.ts
@@ -838,7 +838,7 @@ single bullet):
   `sessionKind` inputs. `emailOtpPublic` now builds the Ed25519 login route
   plan for public unlock callers before invoking `EmailOtpEd25519Warmup`.
   `ed25519Warmup.typecheck.ts` rejects the raw core fields. Focused validation
-  passed: `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit
+  passed: `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit
   --pretty false`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
   --noEmit`, and `pnpm -C tests exec playwright test -c
   playwright.unit.config.ts ./unit/emailOtpWalletSessionCoordinator.unit.test.ts
@@ -868,8 +868,8 @@ single bullet):
   refreshed registration HSS type fixtures, and updated orchestration fixtures
   to use canonical `evmFamilySigningKeySlotId`, real ECDSA application binding
   digests, and complete Ed25519 ready material state. Validation passed:
-  `pnpm --dir packages/sdk-server-ts exec tsc -p tsconfig.json --noEmit
-  --pretty false`, `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json
+  `pnpm --dir packages/wallet-server exec tsc -p tsconfig.json --noEmit
+  --pretty false`, `pnpm --dir packages/wallet exec tsc -p tsconfig.json
   --noEmit --pretty false`, `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit --pretty false`, `pnpm -C tests exec
   playwright test -c playwright.unit.config.ts
@@ -895,7 +895,7 @@ single bullet):
   compose from that shape, and branch selection narrows through
   `authority.factor.kind` rather than method-specific lane objects. Type
   fixtures reject assigning an Email OTP lane to a Passkey-parametrized lane.
-  Focused validation passed: `pnpm --dir packages/sdk-web exec tsc -p
+  Focused validation passed: `pnpm --dir packages/wallet exec tsc -p
   tsconfig.json --noEmit --pretty false`, `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit --pretty false`, and `pnpm -C tests exec
   playwright test -c playwright.unit.config.ts
@@ -915,7 +915,7 @@ single bullet):
   admission boundary records. Sync-account and recovery JWT signing build
   passkey authorities from resolved wallet bindings, and registration route
   attach logic rejects Ed25519 session results missing authority. Focused
-  validation passed: `pnpm --dir packages/sdk-server-ts exec tsc -p
+  validation passed: `pnpm --dir packages/wallet-server exec tsc -p
   tsconfig.json --noEmit --pretty false`, `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit --pretty false`, `pnpm -C tests exec
   playwright test -c playwright.unit.config.ts
@@ -930,7 +930,7 @@ single bullet):
   identity instead of selecting a Wallet Session JWT from the persisted record.
   Type fixtures reject hand-built reconnect material without verified auth and
   reject raw `walletSessionJwt` beside the verified auth. Focused validation
-  passed: `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit
+  passed: `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit
   --pretty false`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
   --noEmit --pretty false`, and `pnpm -C tests exec playwright test -c
   playwright.unit.config.ts ./unit/evmFamilyStepUpProvisionPlan.unit.test.ts
@@ -944,7 +944,7 @@ single bullet):
   consume that normalized authority instead of reconstructing identity from
   loose sealed-record sibling fields. Type fixtures reject wrong authority
   branches and parallel loose authority fields on accepted sealed recovery
-  records. Focused validation passed: `pnpm --dir packages/sdk-web exec tsc
+  records. Focused validation passed: `pnpm --dir packages/wallet exec tsc
   -p tsconfig.json --noEmit --pretty false`, `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit --pretty false`, and `pnpm -C tests exec
   playwright test -c playwright.unit.config.ts

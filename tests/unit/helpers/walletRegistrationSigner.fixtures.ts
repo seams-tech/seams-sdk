@@ -1,6 +1,6 @@
-import { buildWalletEcdsaSignerRecord } from '../../../packages/sdk-server-ts/src/core/d1WalletStore';
-import type { WalletEcdsaSignerRecord } from '../../../packages/sdk-server-ts/src/core/WalletStore';
-import type { WalletRegistrationEcdsaWalletKey } from '../../../packages/sdk-server-ts/src/core/registrationContracts';
+import { buildWalletEcdsaSignerRecord } from '../../../packages/wallet-server/src/core/d1WalletStore';
+import type { WalletEcdsaSignerRecord } from '../../../packages/wallet-server/src/core/WalletStore';
+import type { WalletRegistrationEcdsaWalletKey } from '../../../packages/wallet-server/src/core/registrationContracts';
 import {
   derivationClientSharePublicKey33B64uFromString,
   ecdsaClientRootPublicKey33B64uFromString,

@@ -7,16 +7,16 @@ import { ROUTER_AB_ED25519_HEALTH_PATH } from '../../packages/shared-ts/src/util
 import {
   createSelfHostedCloudflareSigningRouter,
   createSelfHostedCloudflareSigningWorker,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createSelfHostedCloudflareSigningWorker';
-import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
-import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
-import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
+} from '../../packages/wallet-server/src/router/cloudflare/runtime/createSelfHostedCloudflareSigningWorker';
+import { createCloudflareRouter } from '../../packages/wallet-server/src/router/cloudflare/runtime/createCloudflareRouter';
+import type { CfExecutionContext } from '../../packages/wallet-server/src/router/cloudflare/runtime/cloudflare.types';
+import type { RouterApiServiceBag } from '../../packages/wallet-server/src/router/framework/authServicePort';
 
 const fakeCtx = {} as CfExecutionContext;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const selfHostedRouterSourcePath = resolve(
   __dirname,
-  '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createSelfHostedCloudflareSigningWorker.ts',
+  '../../packages/wallet-server/src/router/cloudflare/runtime/createSelfHostedCloudflareSigningWorker.ts',
 );
 
 function fakeRouterApiServiceBag(): RouterApiServiceBag {

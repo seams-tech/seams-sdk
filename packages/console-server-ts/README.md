@@ -41,14 +41,14 @@ console and signer SQLite databases, restores them into fresh SQLite files,
 checks `PRAGMA integrity_check`, verifies expected table counts, and writes a
 manifest under `.wrangler/d1-local-restore-drills`. `d1:local:dev` starts the
 minimal local Worker from `wrangler.d1-local.toml` with persistent state under
-`.wrangler/state/seams-d1`. It loads local Wrangler secrets from
-`../sdk-server-ts/.dev.vars` and then `.dev.vars` when those files exist. Use
-`dev.vars` in this package as the checked-in template for either secret file.
+`.wrangler/state/seams-d1`. It loads local configuration from the repository
+root `.env.local`. Use `dev.vars` in this package as a reference for the
+console-specific entries in that file.
 To enable GitHub dashboard sign-in, register a GitHub OAuth App with
 `https://localhost/dashboard/login` as its callback URL, then set
 `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, and
-`GITHUB_OAUTH_CALLBACK_URL` in `.dev.vars`.
-Set `STRIPE_API_SK` in `packages/console-server-ts/.dev.vars` to make Billing
+`GITHUB_OAUTH_CALLBACK_URL` in the root `.env.local`.
+Set `STRIPE_API_SK` in the root `.env.local` to make Billing
 create real Stripe Checkout Sessions. Without that server-side key, the local
 billing provider remains an in-process test double and must not be used to
 exercise the hosted Stripe Checkout page. Set `STRIPE_WEBHOOK_SECRET` to the
@@ -57,7 +57,7 @@ Use `GET /readyz` on the local Worker to verify the D1 table set and the
 Durable Object normal-signing admission path:
 
 ```sh
-curl http://127.0.0.1:9090/readyz
+curl http://127.0.0.1:4100/readyz
 ```
 
 Open `sqlite/seams_console.sqlite` or `sqlite/seams_signer.sqlite` in TablePlus

@@ -73,16 +73,14 @@ function readOptionalResourceId(body: Record<string, unknown>, key: string): str
   return value;
 }
 
-function readOptionalSigningRootVersion(
-  body: Record<string, unknown>,
-): string | undefined {
-  const value = readOptionalString(body, 'signingRootVersion');
+function readOptionalRuntimeVersion(body: Record<string, unknown>): string | undefined {
+  const value = readOptionalString(body, 'runtimeVersion');
   if (!value) return undefined;
   if (!RESOURCE_ID_PATTERN.test(value)) {
     throw new ConsoleOrgProjectEnvError(
       'invalid_body',
       400,
-      'Field signingRootVersion may only contain letters, numbers, colon, underscore, and hyphen',
+      'Field runtimeVersion may only contain letters, numbers, colon, underscore, and hyphen',
     );
   }
   return value;
@@ -111,7 +109,9 @@ export function parseUpdateConsoleProjectRequest(body: unknown): UpdateConsolePr
   return { name };
 }
 
-function parseEnvironmentKey(body: Record<string, unknown>): CreateConsoleEnvironmentRequest['key'] {
+function parseEnvironmentKey(
+  body: Record<string, unknown>,
+): CreateConsoleEnvironmentRequest['key'] {
   const key = readRequiredString(body, 'key', createParseError).toLowerCase();
   if (key === 'dev' || key === 'staging' || key === 'prod') {
     return key;
@@ -123,12 +123,14 @@ function parseEnvironmentKey(body: Record<string, unknown>): CreateConsoleEnviro
   );
 }
 
-export function parseCreateConsoleEnvironmentRequest(body: unknown): CreateConsoleEnvironmentRequest {
+export function parseCreateConsoleEnvironmentRequest(
+  body: unknown,
+): CreateConsoleEnvironmentRequest {
   const obj = requireBodyObject(body, createParseError);
   const id = readOptionalResourceId(obj, 'id');
   const name = readOptionalString(obj, 'name');
   const projectId = readRequiredString(obj, 'projectId', createParseError);
-  const signingRootVersion = readOptionalSigningRootVersion(obj);
+  const runtimeVersion = readOptionalRuntimeVersion(obj);
   if (!RESOURCE_ID_PATTERN.test(projectId)) {
     throw new ConsoleOrgProjectEnvError(
       'invalid_body',
@@ -140,16 +142,18 @@ export function parseCreateConsoleEnvironmentRequest(body: unknown): CreateConso
     ...(id ? { id } : {}),
     projectId,
     key: parseEnvironmentKey(obj),
-    ...(signingRootVersion ? { signingRootVersion } : {}),
+    ...(runtimeVersion ? { runtimeVersion } : {}),
     ...(name ? { name } : {}),
   };
 }
 
-export function parseUpdateConsoleEnvironmentRequest(body: unknown): UpdateConsoleEnvironmentRequest {
+export function parseUpdateConsoleEnvironmentRequest(
+  body: unknown,
+): UpdateConsoleEnvironmentRequest {
   const obj = requireBodyObject(body, createParseError);
   const name = readOptionalString(obj, 'name');
-  const signingRootVersion = readOptionalSigningRootVersion(obj);
-  if (!name && !signingRootVersion) {
+  const runtimeVersion = readOptionalRuntimeVersion(obj);
+  if (!name && !runtimeVersion) {
     throw new ConsoleOrgProjectEnvError(
       'invalid_body',
       400,
@@ -158,6 +162,6 @@ export function parseUpdateConsoleEnvironmentRequest(body: unknown): UpdateConso
   }
   return {
     ...(name ? { name } : {}),
-    ...(signingRootVersion ? { signingRootVersion } : {}),
+    ...(runtimeVersion ? { runtimeVersion } : {}),
   };
 }

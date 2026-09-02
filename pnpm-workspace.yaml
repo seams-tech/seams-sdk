@@ -1,13 +1,16 @@
 packages:
   - tests
   - packages/console-shared-ts
+  - packages/wallet-console-shared-ts
   - packages/console-server-ts
-  - packages/sdk-web
-  - packages/sdk-server-ts
+  - packages/wallet-console-server-ts
+  - packages/wallet
+  - packages/wallet-server
   - packages/shared-ts
   - voiceId
   - apps/web-server
   - apps/seams-site
+  - apps/seams-console
   - apps/docs
   - crates/router-ab-cloudflare
   - examples/self-host-cloudflare-worker

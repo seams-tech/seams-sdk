@@ -1,3 +1,4 @@
+import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import http from 'node:http';
 import expressImport from 'express';
@@ -9,20 +10,20 @@ import {
   createInMemoryConsoleSponsoredCallService,
   createInMemoryConsoleSponsorshipSpendCapService,
   type ConsoleApiKeyService,
-} from '@seams-internal/console-server/router/express-adaptor';
+} from '@seams-internal/wallet-console-server/router/express-adaptor';
 import { createD1ConsoleBillingService } from '../../packages/console-server-ts/src/billing/d1';
 import type {
   ConsoleBillingContext,
   ConsoleBillingService,
 } from '../../packages/console-server-ts/src/billing/service';
 import type {
-  BillingSponsoredExecutionDebitRequest,
+  BillingProductExecutionDebitRequest,
   BillingUsageEventRequest,
 } from '../../packages/console-server-ts/src/billing/types';
-import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/console-server-ts/src/billingPrepaidReservations/d1';
-import type { ConsoleBillingPrepaidReservationService } from '../../packages/console-server-ts/src/billingPrepaidReservations/service';
-import { createD1ConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls/d1';
-import type { ConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls/service';
+import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/wallet-console-server-ts/src/billingPrepaidReservations/d1';
+import type { ConsoleBillingPrepaidReservationService } from '../../packages/wallet-console-server-ts/src/billingPrepaidReservations/service';
+import { createD1ConsoleSponsoredCallService } from '../../packages/wallet-console-server-ts/src/sponsoredCalls/d1';
+import type { ConsoleSponsoredCallService } from '../../packages/wallet-console-server-ts/src/sponsoredCalls/service';
 import { fetchJson, randomNamespace, startExpressRouter } from './helpers';
 import { registerSponsoredEvmCallRoute } from '@server';
 import {
@@ -78,8 +79,7 @@ const sponsorshipD1TempDirs = new Set<string>();
 type BillingEventSpy = {
   kind: 'usage' | 'sponsored_execution_debit';
   walletId: string;
-  action?: string;
-  succeeded?: boolean;
+  shouldCount?: boolean;
   amountMinor?: number;
   pricingVersion?: string | null;
   sourceEventId?: string;
@@ -160,25 +160,24 @@ async function makeSponsorshipServices(input?: { initialBalanceMinor?: number })
   ) => {
     events.push({
       kind: 'usage',
-      walletId: request.walletId,
-      action: request.action,
-      succeeded: request.succeeded,
+      walletId: request.resourceId,
+      shouldCount: request.shouldCount,
       ...(request.sourceEventId ? { sourceEventId: request.sourceEventId } : {}),
     });
     return await billingService.recordUsageEvent(ctx, request);
   };
-  billing.recordSponsoredExecutionDebit = async (
+  billing.recordProductExecutionDebit = async (
     ctx: ConsoleBillingContext,
-    request: BillingSponsoredExecutionDebitRequest,
+    request: BillingProductExecutionDebitRequest,
   ) => {
     events.push({
       kind: 'sponsored_execution_debit',
-      walletId: request.walletId,
+      walletId: request.resourceId,
       amountMinor: request.amountMinor,
       ...(request.pricingVersion ? { pricingVersion: request.pricingVersion } : {}),
       sourceEventId: request.sourceEventId,
     });
-    return await billingService.recordSponsoredExecutionDebit(ctx, request);
+    return await billingService.recordProductExecutionDebit(ctx, request);
   };
   billing.events = events;
   return {
@@ -251,7 +250,7 @@ async function expectD1SponsoredDebit(input: {
   amountMinor: number;
 }): Promise<void> {
   expect(input.record?.billingLedgerEntryId).toMatch(/^ble_scr_/);
-  const debits = await input.billing.getSponsoredExecutionDebitsByIds(apiKeyCtx, [
+  const debits = await input.billing.getProductExecutionDebitsByIds(apiKeyCtx, [
     input.record?.billingLedgerEntryId || '',
   ]);
   expect(debits).toHaveLength(1);
@@ -620,7 +619,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('executes a sponsored call and records exact spend', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
@@ -700,7 +701,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('enforces spend caps through the shared pricing and reservation path', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, {
@@ -806,7 +809,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('fails closed when spend caps are configured but pricing is unavailable', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, {
@@ -864,7 +869,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('matches a second non-Tempo EVM template using the richer allowedCalls model', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, {
@@ -950,7 +957,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('derives the canonical selector from functionSignature when the resolved snapshot carries a stale selector', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, {
@@ -1025,7 +1034,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('routes matched sponsorships to the executor configured for the requested chain', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, {
@@ -1130,7 +1141,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('rejects matched calls when no executor is configured for the matched chain', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, {
@@ -1206,7 +1219,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('rejects calls that exceed allowed gas or value bounds even when selector matches', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
@@ -1282,7 +1297,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('replays idempotently for the same idempotencyKey', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
@@ -1344,7 +1361,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('treats identical payloads with different idempotency keys as fresh attempts', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
@@ -1409,7 +1428,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('rejects invalid publishable key and blocked origin', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
@@ -1471,7 +1492,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('uses publishable key origin policy instead of route-level CORS for authorization', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
@@ -1520,7 +1543,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('rejects calls that do not match the active sponsorship policy', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
@@ -1568,7 +1593,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('does not enforce recipient binding for allowlisted dripTo calls', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
@@ -1618,7 +1645,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('requires an explicit idempotencyKey', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
@@ -1665,7 +1694,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('records exact spend for reverted sponsored calls', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
@@ -1728,7 +1759,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('does not charge sponsored debits when the EVM transaction never broadcasts', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
@@ -1792,7 +1825,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('replays reverted attempts with the original failure status', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
@@ -1855,7 +1890,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('requires a published runtime snapshot', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const key = await createPublishableKey(apiKeys);
@@ -1901,7 +1938,9 @@ test.describe('sponsored evm call route', () => {
   });
 
   test('resolves a project-scoped runtime snapshot when the route only provides environmentId', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const { billing, ledger, prepaidReservations } = await makeSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, { projectId: 'project-alpha' });

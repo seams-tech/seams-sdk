@@ -417,7 +417,7 @@ Run the cheapest useful checks after each phase:
    - focused repository tests
 3. Persistence rename:
    - D1 migration smoke tests
-   - `pnpm -C packages/sdk-server-ts run d1:local:prepare` when migrations change
+   - `pnpm -C packages/wallet-server run d1:local:prepare` when migrations change
    - focused relayer tests for wallet registration/auth methods/signers
 4. Registration/route rename:
    - registration wallet-subject/wallet persistence tests

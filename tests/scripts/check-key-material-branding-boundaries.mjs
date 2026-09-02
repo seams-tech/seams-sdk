@@ -90,17 +90,17 @@ function findBalancedCallBlocks(source, callee) {
 
 check('key-version domains use branded parsers at high-risk boundaries', () => {
   const sdkBrands = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.ts',
+    'packages/wallet/src/core/signingEngine/session/keyMaterialBrands.ts',
   );
-  const serverBrands = readRepoSource('packages/sdk-server-ts/src/core/keyMaterialBrands.ts');
+  const serverBrands = readRepoSource('packages/wallet-server/src/core/keyMaterialBrands.ts');
   const serverSealOptions = readRepoSource(
-    'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts',
+    'packages/wallet-server/src/threshold/session/signingSessionSeal/options.ts',
   );
   const serverEmailOtpSeal = readRepoSource(
-    'packages/sdk-server-ts/src/core/authService/emailOtpSeal.ts',
+    'packages/wallet-server/src/core/authService/emailOtpSeal.ts',
   );
   const sdkSealTransportTypes = readRepoSource(
-    'packages/sdk-web/src/core/types/secure-confirm-worker.ts',
+    'packages/wallet/src/core/types/secure-confirm-worker.ts',
   );
 
   for (const source of [sdkBrands, serverBrands]) {
@@ -132,24 +132,24 @@ check('WebAuthn RP ids cannot be confused with NEAR Ed25519 signing-key ids', ()
     'packages/shared-ts/src/utils/walletCapabilityBindings.ts',
   );
   const registrationIntent = readRepoSource('packages/shared-ts/src/utils/registrationIntent.ts');
-  const serverTypes = readRepoSource('packages/sdk-server-ts/src/core/types.ts');
+  const serverTypes = readRepoSource('packages/wallet-server/src/core/types.ts');
   const serverAuthService = readRepoSource(
-    'packages/sdk-server-ts/src/core/authService/AuthService.ts',
+    'packages/wallet-server/src/core/authService/AuthService.ts',
   );
   const serverWebAuthnAuthority = readRepoSource(
-    'packages/sdk-server-ts/src/core/authService/webauthnAuthority.ts',
+    'packages/wallet-server/src/core/authService/webauthnAuthority.ts',
   );
   const serverWebAuthnOidcHelpers = readRepoSource(
-    'packages/sdk-server-ts/src/core/authService/webauthnOidcHelpers.ts',
+    'packages/wallet-server/src/core/authService/webauthnOidcHelpers.ts',
   );
   const walletRegistrationRoutes = readRepoSource(
-    'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
+    'packages/wallet-server/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
   );
   const serverTypecheck = readRepoSource(
-    'packages/sdk-server-ts/src/core/keyMaterialBrands.typecheck.ts',
+    'packages/wallet-server/src/core/keyMaterialBrands.typecheck.ts',
   );
   const sdkTypecheck = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.typecheck.ts',
+    'packages/wallet/src/core/signingEngine/session/keyMaterialBrands.typecheck.ts',
   );
 
   expect(domainIds).toContain("WebAuthnRpId = DomainId<'WebAuthnRpId'>");
@@ -222,16 +222,16 @@ check('EVM-family signing key slot identity cannot fall back to generic wallet k
     'packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId.ts',
   );
   const ecdsaProvisioner = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts',
+    'packages/wallet/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts',
   );
   const emailOtpWorker = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
+    'packages/wallet/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
   );
   const thresholdValidation = readRepoSource(
-    'packages/sdk-server-ts/src/core/ThresholdService/validation.ts',
+    'packages/wallet-server/src/core/ThresholdService/validation.ts',
   );
   const d1RegistrationRecords = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords.ts',
+    'packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords.ts',
   );
 
   expect(sharedEvmFamilyKey).toContain('export type EvmFamilySigningKeySlotId =');

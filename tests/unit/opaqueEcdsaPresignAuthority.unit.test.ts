@@ -2,11 +2,11 @@ import { expect, test } from '@playwright/test';
 import {
   OpaqueEcdsaPresignAuthorityV1,
   type OpaqueEcdsaPresignSessionV1,
-} from '../../packages/sdk-web/src/core/signingEngine/workerManager/workers/opaqueEcdsaPresignAuthority';
+} from '../../packages/wallet/src/core/signingEngine/workerManager/workers/opaqueEcdsaPresignAuthority';
 import {
   FIXED_ECDSA_PRESIGN_PROTOCOL_ID,
   parseEcdsaClientPresignPoolIdentity,
-} from '../../packages/sdk-web/src/core/signingEngine/workerManager/ecdsaPresignPoolIdentity';
+} from '../../packages/wallet/src/core/signingEngine/workerManager/ecdsaPresignPoolIdentity';
 
 function poolIdentity() {
   return parseEcdsaClientPresignPoolIdentity({
@@ -27,6 +27,24 @@ function completedSession(onFree: () => void): OpaqueEcdsaPresignSessionV1 {
   return {
     stage: () => 'done',
     poll: () => ({ stage: 'done', event: 'presign_done', outgoing: [] }),
+    message: () => undefined,
+    start_presign: () => undefined,
+    presignature_big_r_33: () => new Uint8Array(33).fill(7),
+    compute_signature_share: () => new Uint8Array(32).fill(9),
+    free: onFree,
+  };
+}
+
+function completedSessionThatClosesAuthority(
+  authority: OpaqueEcdsaPresignAuthorityV1,
+  onFree: () => void,
+): OpaqueEcdsaPresignSessionV1 {
+  return {
+    stage: () => 'done',
+    poll: () => {
+      authority.close();
+      return { stage: 'done', event: 'presign_done', outgoing: [] };
+    },
     message: () => undefined,
     start_presign: () => undefined,
     presignature_big_r_33: () => new Uint8Array(33).fill(7),
@@ -100,6 +118,58 @@ test.describe('opaque ECDSA presign authority', () => {
     expect(freeCount).toBe(1);
   });
 
+  test('destroys one holder material without closing its sibling and closes all only globally', async () => {
+    let holderAFreeCount = 0;
+    let holderBFreeCount = 0;
+    let holderCFreeCount = 0;
+    let holderDFreeCount = 0;
+    const authority = new OpaqueEcdsaPresignAuthorityV1();
+    const groupPublicKey33 = new Uint8Array(33).fill(2);
+    const expiresAtMs = Date.now() + 60_000;
+    const initialize = (args: { sessionId: string; onFree: () => void }) =>
+      authority.initialize({
+        sessionId: args.sessionId,
+        session: completedSession(args.onFree),
+        poolIdentity: poolIdentity(),
+        groupPublicKey33,
+        expiresAtMs,
+      });
+    const onlineInput = (materialHandle: string) => ({
+      materialHandle,
+      groupPublicKey33: groupPublicKey33.buffer,
+      expectedPresignBigR33: new Uint8Array(33).fill(7).buffer,
+      digest32: new Uint8Array(32).buffer,
+      clientRerandomizationContribution32: new Uint8Array(32).buffer,
+      signingWorkerRerandomizationContribution32: new Uint8Array(32).buffer,
+    });
+
+    const holderA = await initialize({
+      sessionId: 'holder-a',
+      onFree: () => (holderAFreeCount += 1),
+    });
+    const holderB = await initialize({
+      sessionId: 'holder-b',
+      onFree: () => (holderBFreeCount += 1),
+    });
+    const holderAHandle = holderA.presignatureHandle;
+    const holderBHandle = holderB.presignatureHandle;
+    if (!holderAHandle || !holderBHandle) throw new Error('holder material handles are missing');
+
+    expect(await authority.destroyMaterial(holderAHandle)).toBe(true);
+    expect(holderAFreeCount).toBe(1);
+    expect(holderBFreeCount).toBe(0);
+    expect(
+      new Uint8Array(await authority.computeSignatureShare(onlineInput(holderBHandle))),
+    ).toEqual(new Uint8Array(32).fill(9));
+    expect(holderBFreeCount).toBe(1);
+
+    await initialize({ sessionId: 'holder-c', onFree: () => (holderCFreeCount += 1) });
+    await initialize({ sessionId: 'holder-d', onFree: () => (holderDFreeCount += 1) });
+    authority.close();
+    expect(holderCFreeCount).toBe(1);
+    expect(holderDFreeCount).toBe(1);
+  });
+
   test('frees an initialization queued before authority close', async () => {
     let freeCount = 0;
     const authority = new OpaqueEcdsaPresignAuthorityV1();
@@ -115,6 +185,24 @@ test.describe('opaque ECDSA presign authority', () => {
     authority.close();
 
     await expect(initializing).rejects.toThrow('authority was closed');
+    expect(freeCount).toBe(1);
+  });
+
+  test('does not publish material when authority closes during poll', async () => {
+    let freeCount = 0;
+    const authority = new OpaqueEcdsaPresignAuthorityV1();
+
+    await expect(
+      authority.initialize({
+        sessionId: 'session-close-during-poll',
+        session: completedSessionThatClosesAuthority(authority, () => {
+          freeCount += 1;
+        }),
+        poolIdentity: poolIdentity(),
+        groupPublicKey33: new Uint8Array(33).fill(2),
+        expiresAtMs: Date.now() + 60_000,
+      }),
+    ).rejects.toThrow('authority was closed');
     expect(freeCount).toBe(1);
   });
 

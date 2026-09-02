@@ -10,13 +10,13 @@ import type {
 import {
   createEd25519YaoLaneDerivationWorkerWasmV1,
   openEd25519YaoLaneWorkerSourceV1,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/crypto/ed25519YaoLaneWasm';
-import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
+} from '../../packages/wallet/src/core/signingEngine/threshold/crypto/ed25519YaoLaneWasm';
+import type { WorkerOperationContext } from '../../packages/wallet/src/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   SignerWorkerKind,
   SignerWorkerOperationRequest,
   SignerWorkerOperationType,
-} from '../../packages/sdk-web/src/core/signingEngine/workerManager/workerTypes';
+} from '../../packages/wallet/src/core/signingEngine/workerManager/workerTypes';
 import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 import {
   buildR102LaneJob,

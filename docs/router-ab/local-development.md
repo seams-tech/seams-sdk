@@ -41,20 +41,20 @@ Default ports:
 
 | Service          | URL                     |
 | ---------------- | ----------------------- |
-| Gateway          | `http://127.0.0.1:9090` |
-| MPCRouter        | `http://127.0.0.1:9100` |
-| Deriver A Worker | `http://127.0.0.1:9101` |
-| Deriver B Worker | `http://127.0.0.1:9102` |
-| SigningWorker    | `http://127.0.0.1:9103` |
+| Gateway          | `http://127.0.0.1:4100` |
+| MPCRouter        | `http://127.0.0.1:4102` |
+| Deriver A Worker | `http://127.0.0.1:4103` |
+| Deriver B Worker | `http://127.0.0.1:4104` |
+| SigningWorker    | `http://127.0.0.1:4105` |
 
 ```mermaid
 flowchart LR
   C["Client"]
-  R["Gateway :9090"]
-  RW["MPCRouter :9100"]
-  A["Deriver A :9101"]
-  B["Deriver B :9102"]
-  SW["SigningWorker :9103"]
+  R["Gateway :4100"]
+  RW["MPCRouter :4102"]
+  A["Deriver A :4103"]
+  B["Deriver B :4104"]
+  SW["SigningWorker :4105"]
 
   C -->|"setup/export/refresh"| R
   R -->|"strict ECDSA"| RW
@@ -301,7 +301,7 @@ Expected behavior:
 - `router:check` runs setup/activation and normal-signing prepare/finalize
   smoke tests through the already running SDK Router public URL.
 - `router:public-route-smoke` verifies local Caddy forwards
-  `https://localhost:9444` to one Router upstream and POST-probes the Ed25519
+  `https://localhost:4101` to one Router upstream and POST-probes the Ed25519
   normal-signing prepare and Wallet Session issuance routes through that public
   HTTPS origin.
 - `router:evidence` runs the local release-evidence protocol harness for
@@ -325,10 +325,11 @@ pnpm router
 Run those commands in separate terminals. Use `pnpm router:multiplex` for the
 dashboard. `pnpm site` owns
 `https://localhost`; `pnpm router` and `pnpm router:multiplex` start Gateway at
-`127.0.0.1:9090` when it is not already running. They verify
-`https://localhost:9444/.well-known/webauthn` and start the local Caddy proxy
-when that HTTPS endpoint is absent. The production-equivalent Cloudflare
-Workers run on `127.0.0.1:9100-9103` and retain state in
+`127.0.0.1:4100` when it is not already running. They verify
+`https://localhost:4101/.well-known/webauthn` and report whether the proxy from
+`pnpm site` is available. `pnpm site` starts Caddy, the site, the Console, and
+the documentation server. The production-equivalent Cloudflare Workers run on
+`127.0.0.1:4102-4105` and retain state in
 `.local/cloudflare-state/router-ab/<worker-role>`, with one persistence
 directory per production Worker.
 
@@ -341,12 +342,12 @@ Before launch, `pnpm router` stops existing Wrangler process groups whose
 generated config and persistence paths identify them as this repository's local
 Router A/B topology. This handles interrupted launchers and repeated startup
 commands without killing unrelated processes that happen to use another
-topology. A remaining listener on `9100-9103` is reported as a port conflict.
+topology. A remaining listener on `4102-4105` is reported as a port conflict.
 
 `pnpm gateway:server` is the lower-level Gateway command used by the local
 topology launcher. Browser registration testing should use `pnpm router`.
 
-If a browser request through `https://localhost:9444` returns an Express-style
+If a browser request through `https://localhost:4101` returns an Express-style
 `Cannot POST /router-ab/...`, the main Router route table is missing that
 route. Do not fix this with Caddy path selection; Caddy must forward the whole
 origin to Gateway.
@@ -366,7 +367,7 @@ standardizes Router/A/B developer commands there.
 2026-06-14 local development evidence:
 
 - [x] `pnpm build:sdk && pnpm router` starts Gateway, verifies
-      `https://localhost:9444/.well-known/webauthn`, and starts MPCRouter,
+      `https://localhost:4101/.well-known/webauthn`, and starts MPCRouter,
       Deriver A, Deriver B, and SigningWorker after the browser-facing Router
       path is stable.
 - [x] Passkey wallet unlock succeeds against the local stack.
@@ -469,9 +470,9 @@ Release gates before Cloudflare deployment:
 - [x] Add persistent local init mode that materializes free ports when defaults
       are occupied.
 - [x] Make `pnpm router` and `pnpm router:multiplex` auto-start the
-      Gateway at `127.0.0.1:9090` when it is not already running.
+      Gateway at `127.0.0.1:4100` when it is not already running.
 - [x] Make `pnpm router` and `pnpm router:multiplex` verify the
-      `https://localhost:9444/.well-known/webauthn` proxy path before workers
+      `https://localhost:4101/.well-known/webauthn` proxy path before workers
       are marked ready.
 
 ### Phase 7: Cloudflare Parity Checks

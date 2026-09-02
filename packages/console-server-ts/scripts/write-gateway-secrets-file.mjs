@@ -1,10 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { gatewaySecretNames, readBackendLane } from '../../../scripts/deployment-targets.mjs';
+import {
+  consoleSecretNames,
+  gatewaySecretNames,
+  readBackendLane,
+} from '../../../scripts/deployment-targets.mjs';
 
 const OPTIONAL_SECRET_NAMES = [
-  'CONSOLE_INITIAL_OWNER_EMAIL',
   'GITHUB_OAUTH_CALLBACK_URL',
   'GITHUB_OAUTH_CLIENT_ID',
   'GITHUB_OAUTH_CLIENT_SECRET',
@@ -14,11 +17,14 @@ const OPTIONAL_SECRET_NAMES = [
 ];
 
 function main() {
-  const outputPath = readOutputPath(process.argv.slice(2));
+  const { outputPath, profile } = readArguments(process.argv.slice(2));
   const laneId = readLaneId();
   const lane = readBackendLane(laneId);
   requireProvisionedLane(laneId, lane.provisioning);
-  const secrets = readRequiredSecrets(gatewaySecretNames(lane));
+  const secrets =
+    profile === 'console'
+      ? readRequiredSecrets(consoleSecretNames(lane))
+      : readRequiredSecrets(gatewaySecretNames(lane));
   addOptionalSecrets(secrets);
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(secrets)}\n`, {
@@ -28,15 +34,29 @@ function main() {
   process.stdout.write(`${outputPath}\n`);
 }
 
-function readOutputPath(args) {
-  if (args.length !== 2 || args[0] !== '--output') {
-    throw new Error('usage: write-gateway-secrets-file.mjs --output <path>');
+function readArguments(args) {
+  let output = '';
+  let profile = 'gateway';
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === '--output') {
+      output = String(args[index + 1] || '').trim();
+      index += 1;
+      continue;
+    }
+    if (args[index] === '--profile') {
+      profile = String(args[index + 1] || '').trim();
+      index += 1;
+      continue;
+    }
+    throw new Error(
+      'usage: write-gateway-secrets-file.mjs --output <path> [--profile gateway|console]',
+    );
   }
-  const value = String(args[1] || '').trim();
-  if (!value) {
-    throw new Error('--output requires a value');
+  if (!output) throw new Error('--output requires a value');
+  if (profile !== 'gateway' && profile !== 'console') {
+    throw new Error('--profile must be gateway or console');
   }
-  return path.resolve(process.cwd(), value);
+  return { outputPath: path.resolve(process.cwd(), output), profile };
 }
 
 function readLaneId() {

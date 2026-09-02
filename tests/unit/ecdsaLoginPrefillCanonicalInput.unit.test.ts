@@ -2,8 +2,15 @@ import { expect, test } from '@playwright/test';
 import { scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { ecdsaCapabilityHydrationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
+import {
+  ecdsaCapabilityActivationLookupFixture,
+  ecdsaCapabilityHydrationLookupFixture,
+} from './helpers/ecdsaCapabilityManifest.fixtures';
 import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
+import { parseWalletAuthorityId } from '@shared/utils/domainIds';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
+import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 
 // The non-iframe prefill path now takes canonical state: the active manifest
 // selects the capability and the exact sealed runtime supplies session-scoped
@@ -11,8 +18,7 @@ import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSi
 // that cannot run returns a typed skip rather than throwing, because it is an
 // optimisation triggered by unlock and must never fail the unlock.
 
-function resolvedRuntime() {
-  const manifest = ecdsaCapabilityHydrationLookupFixture().active.manifest;
+function resolvedRuntime(manifest = ecdsaCapabilityHydrationLookupFixture().active.manifest) {
   const record = buildEmailOtpEcdsaSealedRuntimeRecordFixture({ manifest });
   const walletId = toWalletId(String(manifest.signer.walletId));
   const resolution = resolveExactEcdsaSealedRuntime({
@@ -29,9 +35,12 @@ function resolvedRuntime() {
 
 function prefillDeps(
   overrides: {
-    getWarmThresholdEcdsaSessionStatus?: Parameters<
+    resolveActiveWalletAuthority?: Parameters<
       typeof scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill
-    >[0]['getWarmThresholdEcdsaSessionStatus'];
+    >[0]['resolveActiveWalletAuthority'];
+    readExactWalletSessionWithOperationCredential?: Parameters<
+      typeof scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill
+    >[0]['readExactWalletSessionWithOperationCredential'];
     poolEnabled?: boolean;
   } = {},
 ) {
@@ -39,8 +48,12 @@ function prefillDeps(
   return {
     materialSourceCalls,
     deps: {
-      getWarmThresholdEcdsaSessionStatus:
-        overrides.getWarmThresholdEcdsaSessionStatus ?? (async () => null),
+      resolveActiveWalletAuthority: overrides.resolveActiveWalletAuthority ?? (async () => null),
+      readExactWalletSessionWithOperationCredential:
+        overrides.readExactWalletSessionWithOperationCredential ??
+        (async () => {
+          throw new Error('exact Wallet Session read must not run in this test');
+        }),
       getSignerWorkerContext: () => {
         throw new Error('prefill must not reach the signer worker in this test');
       },
@@ -54,8 +67,20 @@ function prefillDeps(
   };
 }
 
+function activeAuthorityForManifest(manifest: ReturnType<typeof resolvedRuntime>['manifest']) {
+  const authorityId = parseWalletAuthorityId('authority:ecdsa-login-prefill');
+  if (!authorityId.ok) throw new Error(authorityId.error.message);
+  return {
+    walletId: manifest.signer.walletId,
+    authorityId: authorityId.value,
+    walletAuthMethodId: manifest.signer.authority.walletAuthMethodId,
+    authorityDigestB64u: parseDigestB64u('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'),
+    authorityRevocationEpoch: 0,
+  };
+}
+
 test.describe('ECDSA login presignature prefill canonical input', () => {
-  test('an inactive authorization is a typed skip that never builds material', async () => {
+  test('an unavailable active authority is a typed skip that never builds material', async () => {
     const { manifest, walletId, runtime, record } = resolvedRuntime();
     const { deps, materialSourceCalls } = prefillDeps();
 
@@ -66,21 +91,27 @@ test.describe('ECDSA login presignature prefill canonical input', () => {
       chainTarget: record.ecdsaRestore.chainTarget,
     });
 
-    // Authorization is resolved independently and checked before pool policy
-    // and warm status, so with no active Wallet Session this is the first gate.
     expect(result.status).toBe('skipped');
     if (result.status !== 'skipped') return;
-    expect(result.reason).toBe('missing_wallet_session_jwt');
-    // The threshold-session id is reported as runtime state carried on the
-    // resolved runtime, never looked up from a session record.
+    expect(result.reason).toBe('exact_wallet_session_unavailable');
     expect(result.thresholdSessionId).toBe(runtime.sealedRecord.thresholdSessionId);
     expect(materialSourceCalls).toHaveLength(0);
   });
 
-  test('skips when the warm session is not active, without building material', async () => {
+  test('reads the exact Wallet Session for the resolved authority and method', async () => {
     const { manifest, walletId, runtime, record } = resolvedRuntime();
+    const activeAuthority = activeAuthorityForManifest(manifest);
+    const exactReadInputs: Array<{
+      walletId: typeof activeAuthority.walletId;
+      authorityId: typeof activeAuthority.authorityId;
+      authMethodId: typeof activeAuthority.walletAuthMethodId;
+    }> = [];
     const { deps, materialSourceCalls } = prefillDeps({
-      getWarmThresholdEcdsaSessionStatus: async () => null,
+      resolveActiveWalletAuthority: async () => activeAuthority,
+      readExactWalletSessionWithOperationCredential: async (input) => {
+        exactReadInputs.push(input);
+        return { kind: 'missing' };
+      },
     });
 
     const result = await scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(deps, {
@@ -92,9 +123,86 @@ test.describe('ECDSA login presignature prefill canonical input', () => {
 
     expect(result.status).toBe('skipped');
     if (result.status !== 'skipped') return;
-    // Either the wallet-session authorization or the warm status is missing in
-    // this environment; both are typed skips, not throws.
-    expect(['missing_wallet_session_jwt', 'warm_session_not_active']).toContain(result.reason);
+    expect(result.reason).toBe('exact_wallet_session_unavailable');
+    expect(exactReadInputs).toEqual([
+      {
+        walletId,
+        authorityId: activeAuthority.authorityId,
+        authMethodId: manifest.signer.authority.walletAuthMethodId,
+      },
+    ]);
+    expect(materialSourceCalls).toHaveLength(0);
+  });
+
+  test('a corrupt exact Wallet Session read remains a typed skip', async () => {
+    const { manifest, walletId, runtime, record } = resolvedRuntime();
+    const { deps, materialSourceCalls } = prefillDeps({
+      resolveActiveWalletAuthority: async () => activeAuthorityForManifest(manifest),
+      readExactWalletSessionWithOperationCredential: async () => {
+        throw new Error('stored exact state is corrupt');
+      },
+    });
+
+    const result = await scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(deps, {
+      walletId,
+      manifest,
+      runtime,
+      chainTarget: record.ecdsaRestore.chainTarget,
+    });
+
+    expect(result).toMatchObject({
+      status: 'skipped',
+      reason: 'exact_wallet_session_unavailable',
+      thresholdSessionId: runtime.sealedRecord.thresholdSessionId,
+    });
+    expect(materialSourceCalls).toHaveLength(0);
+  });
+
+  test('accepts the exact active session through the pool-policy gate', async () => {
+    const manifest = ecdsaCapabilityActivationLookupFixture().manifest;
+    const authorityFixture = await buildLinkedDeviceManagementAuthorityFixture({
+      label: 'ecdsa-login-prefill',
+      permissions: buildFullOwnerPermissionsV1(),
+      provenance: 'wallet_registration',
+      keyFamily: 'ecdsa_secp256k1',
+      materialActivation: manifest.activation.materialActivation,
+      identity: {
+        walletId: String(manifest.signer.walletId),
+        authorityId: 'authority:ecdsa-login-prefill',
+        walletAuthMethodId: String(manifest.signer.authority.walletAuthMethodId),
+        rpId: 'prefill.example.test',
+      },
+      expiresAtMs: Date.now() + 60_000,
+    });
+    const { walletId, runtime, record } = resolvedRuntime(manifest);
+    const { deps, materialSourceCalls } = prefillDeps({
+      poolEnabled: false,
+      resolveActiveWalletAuthority: async () => ({
+        walletId,
+        authorityId: authorityFixture.authority.authorityId,
+        walletAuthMethodId: authorityFixture.authMethod.walletAuthMethodId,
+        authorityDigestB64u: authorityFixture.authority.authorityDigestB64u,
+        authorityRevocationEpoch: authorityFixture.authority.revocationEpoch,
+      }),
+      readExactWalletSessionWithOperationCredential: async () => ({
+        kind: 'found',
+        record: authorityFixture.activeWalletSession,
+        operationCredential: authorityFixture.operationCredential,
+      }),
+    });
+
+    const result = await scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(deps, {
+      walletId,
+      manifest,
+      runtime,
+      chainTarget: record.ecdsaRestore.chainTarget,
+    });
+
+    expect(result).toMatchObject({
+      status: 'skipped',
+      reason: 'pool_disabled',
+      thresholdSessionId: runtime.sealedRecord.thresholdSessionId,
+    });
     expect(materialSourceCalls).toHaveLength(0);
   });
 

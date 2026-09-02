@@ -118,6 +118,17 @@ export type WalletAuthAuthorityRef = {
   kind: 'wallet_auth_authority_ref';
   walletId: WalletId;
   authorityDigest: WalletAuthorityBindingDigest;
+  /**
+   * Which wallet auth method issued this authority.
+   *
+   * The digest already proves *what* the authority was, but proving is not
+   * addressing: revoking or pausing one credential has to select every session
+   * that credential issued, and a digest can only be recomputed and compared
+   * one candidate at a time. Carrying the binding id makes that selection a
+   * lookup. It is always derived from the authority rather than supplied, so a
+   * ref whose id disagrees with its digest cannot be built.
+   */
+  walletAuthMethodId: WalletAuthMethodId;
 };
 
 export function parseWalletAuthAuthorityRef(raw: unknown): WalletAuthAuthorityRef | null {
@@ -125,19 +136,23 @@ export function parseWalletAuthAuthorityRef(raw: unknown): WalletAuthAuthorityRe
   const record = raw as Record<string, unknown>;
   const fields = Object.keys(record);
   if (
-    fields.length !== 3 ||
-    !fields.every((field) => ['kind', 'walletId', 'authorityDigest'].includes(field)) ||
+    fields.length !== 4 ||
+    !fields.every((field) =>
+      ['kind', 'walletId', 'authorityDigest', 'walletAuthMethodId'].includes(field),
+    ) ||
     record.kind !== 'wallet_auth_authority_ref'
   ) {
     return null;
   }
   const walletId = parseWalletId(record.walletId);
   const authorityDigest = parseWalletAuthorityBindingDigest(record.authorityDigest);
-  if (!walletId.ok || !authorityDigest.ok) return null;
+  const walletAuthMethodId = parseWalletAuthMethodId(record.walletAuthMethodId);
+  if (!walletId.ok || !authorityDigest.ok || !walletAuthMethodId.ok) return null;
   return {
     kind: 'wallet_auth_authority_ref',
     walletId: walletId.value,
     authorityDigest: authorityDigest.value,
+    walletAuthMethodId: walletAuthMethodId.value,
   };
 }
 
@@ -292,12 +307,6 @@ export type RegistrationWalletCandidate = {
   kind: 'registration_wallet_candidate';
   walletId: WalletId;
   registrationAttemptId: string;
-};
-
-export type ActiveWalletSession = {
-  kind: 'active_wallet_session';
-  authority: WalletAuthAuthority;
-  walletSessionToken: string;
 };
 
 function parseEmailOtpProvider(raw: unknown): EmailOtpProvider | null {
@@ -509,14 +518,17 @@ function parsePasskeyWalletAuthAuthorityObject(
     if (hasAnyOwnField(obj, ['kind', 'rpId', 'credentialIdB64u', 'provider', 'providerUserId'])) {
       return null;
     }
-    const authority = buildPasskeyWalletAuthAuthority({
-      walletId: obj.walletId,
-      rpId: verifierObj.rpId,
-      credentialIdB64u: factorObj.credentialIdB64u,
-    });
+    const walletId = parseWalletId(obj.walletId);
+    const rpId = parseWebAuthnRpId(verifierObj.rpId);
+    const credentialIdB64u = parseWebAuthnCredentialIdB64u(factorObj.credentialIdB64u);
     const bindingId = parseWalletAuthMethodId(obj.bindingId);
-    if (!bindingId.ok || bindingId.value !== authority.bindingId) return null;
-    return authority;
+    if (!walletId.ok || !rpId.ok || !credentialIdB64u.ok || !bindingId.ok) return null;
+    return {
+      walletId: walletId.value,
+      factor: { kind: 'passkey', credentialIdB64u: credentialIdB64u.value },
+      verifier: { kind: 'webauthn', rpId: rpId.value },
+      bindingId: bindingId.value,
+    };
   } catch {
     return null;
   }
@@ -544,15 +556,20 @@ function parseEmailOtpWalletAuthAuthorityObject(
     if (hasAnyOwnField(obj, ['kind', 'rpId', 'credentialIdB64u', 'provider', 'providerUserId'])) {
       return null;
     }
-    const authority = buildEmailOtpWalletAuthAuthority({
-      walletId: obj.walletId,
-      provider: factorObj.provider,
-      providerUserId: factorObj.providerUserId,
-      emailHashHex: verifierObj.emailHashHex,
-    });
+    const walletId = parseWalletId(obj.walletId);
+    const provider = parseEmailOtpProvider(factorObj.provider);
+    const providerUserId = parseEmailOtpProviderUserId(factorObj.providerUserId);
+    const emailHashHex = String(verifierObj.emailHashHex || '').trim();
     const bindingId = parseWalletAuthMethodId(obj.bindingId);
-    if (!bindingId.ok || bindingId.value !== authority.bindingId) return null;
-    return authority;
+    if (!walletId.ok || !provider || !providerUserId.ok || !emailHashHex || !bindingId.ok) {
+      return null;
+    }
+    return {
+      walletId: walletId.value,
+      factor: { kind: 'email_otp', provider, providerUserId: providerUserId.value },
+      verifier: { kind: 'email_otp_wallet_auth_method', emailHashHex },
+      bindingId: bindingId.value,
+    };
   } catch {
     return null;
   }
@@ -614,5 +631,6 @@ export async function walletAuthAuthorityRef(args: {
     authorityDigest: await walletAuthorityBindingDigest({
       authority: args.authority,
     }),
+    walletAuthMethodId: args.authority.bindingId,
   };
 }

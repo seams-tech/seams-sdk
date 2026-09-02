@@ -3,24 +3,24 @@ import {
   resolveExactKeyExportLane,
   resolveEcdsaSessionForExport,
   type ExportLaneSelectionDeps,
-} from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/exportLaneSelection';
+} from '../../packages/wallet/src/core/signingEngine/flows/recovery/exportLaneSelection';
 import {
   thresholdEcdsaChainTargetKey,
   nearAccountRefFromAccountId,
   toWalletId,
   walletSessionRefFromSession,
   type ThresholdEcdsaChainTarget,
-} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+} from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   AvailableSigningLanes,
   ConcreteAvailableEd25519SigningLane,
   ConcreteAvailableEcdsaSigningLane,
-} from '../../packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes';
+} from '../../packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes';
 import {
   buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
-} from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
-import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+} from '../../packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import { toRpId } from '../../packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
   authorizationRequiredCanonicalEcdsaAvailableLane,
@@ -29,6 +29,7 @@ import {
 import { resolveCanonicalPasskeyEcdsaExportMaterialForLane } from '@/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
+import { OwnerRelinkRequiredError } from '../../packages/wallet/src/core/signingEngine/session/identity/ownerLaneScope';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
@@ -117,14 +118,25 @@ function availableLanes(lanes: ConcreteAvailableEcdsaSigningLane[]): AvailableSi
   };
 }
 
+async function readEcdsaLanesFixture(
+  lanes: ConcreteAvailableEcdsaSigningLane[],
+  _args: unknown,
+): Promise<AvailableSigningLanes> {
+  return availableLanes(lanes);
+}
+
 function depsFor(lanes: ConcreteAvailableEcdsaSigningLane[]): ExportLaneSelectionDeps {
+  const read = readEcdsaLanesFixture.bind(undefined, lanes);
   return {
-    readPersistedAvailableSigningLanesForTargets: async () => availableLanes(lanes),
+    readPersistedAvailableSigningLanesForTargets: read,
+    readOwnerScopedAvailableSigningLanesForTargets: read,
   };
 }
 
 function ed25519Lane(
-  overrides: Partial<Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }>> = {},
+  overrides: Partial<
+    Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }>
+  > = {},
 ): Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }> {
   return {
     auth: passkeySigningAuth(),
@@ -147,10 +159,11 @@ function ed25519Lane(
   };
 }
 
-function deferredEd25519Lane(): Extract<
-  ConcreteAvailableEd25519SigningLane,
-  { authorizationState: 'authorization_required' }
-> {
+function deferredEd25519Lane(
+  overrides: Partial<
+    Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorization_required' }>
+  > = {},
+): Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorization_required' }> {
   return {
     auth: passkeySigningAuth(),
     curve: 'ed25519',
@@ -164,71 +177,100 @@ function deferredEd25519Lane(): Extract<
     thresholdSessionId: 'threshold-session-ed25519-export',
     source: 'durable_sealed_record',
     authorizationState: 'authorization_required',
+    ...overrides,
+  };
+}
+
+async function readEd25519LanesFixture(
+  lanes: ConcreteAvailableEd25519SigningLane[],
+  _args: unknown,
+): Promise<AvailableSigningLanes> {
+  const canonicalLane = lanes[0];
+  return {
+    walletId: toWalletId(WALLET_ID),
+    generation: 1,
+    ecdsa: {
+      targets: [],
+      lanesByTarget: {},
+      candidatesByTarget: {},
+    },
+    lanes: {
+      ed25519: {
+        near: canonicalLane || { curve: 'ed25519', chain: 'near', state: 'missing' },
+      },
+    },
+    candidates: {
+      ed25519: {
+        near: lanes,
+      },
+    },
   };
 }
 
 function depsForEd25519(lanes: ConcreteAvailableEd25519SigningLane[]): ExportLaneSelectionDeps {
+  const read = readEd25519LanesFixture.bind(undefined, lanes);
   return {
-    readPersistedAvailableSigningLanesForTargets: async () => ({
-      walletId: toWalletId(WALLET_ID),
-      generation: 1,
-      ecdsa: {
-        targets: [],
-        lanesByTarget: {},
-        candidatesByTarget: {},
+    readPersistedAvailableSigningLanesForTargets: read,
+    readOwnerScopedAvailableSigningLanesForTargets: read,
+  };
+}
+
+async function readTargetLanesFixture(
+  candidatesByTarget: Record<string, ConcreteAvailableEcdsaSigningLane[]>,
+  _args: unknown,
+): Promise<AvailableSigningLanes> {
+  const targets = [EVM_TARGET, TEMPO_TARGET];
+  return {
+    walletId: toWalletId(WALLET_ID),
+    generation: 1,
+    ecdsa: {
+      targets,
+      lanesByTarget: Object.fromEntries(
+        targets.map((target) => {
+          const targetKey = thresholdEcdsaChainTargetKey(target);
+          return [
+            targetKey,
+            candidatesByTarget[targetKey]?.[0] || {
+              curve: 'ecdsa',
+              chainTarget: target,
+              state: 'missing',
+            },
+          ];
+        }),
+      ),
+      candidatesByTarget,
+    },
+    lanes: {
+      ed25519: {
+        near: { curve: 'ed25519', chain: 'near', state: 'missing' },
       },
-      lanes: {
-        ed25519: {
-          near: lanes[0] || { curve: 'ed25519', chain: 'near', state: 'missing' },
-        },
+    },
+    candidates: {
+      ed25519: {
+        near: [],
       },
-      candidates: {
-        ed25519: {
-          near: lanes,
-        },
-      },
-    }),
+    },
   };
 }
 
 function depsForTargets(
   candidatesByTarget: Record<string, ConcreteAvailableEcdsaSigningLane[]>,
 ): ExportLaneSelectionDeps {
+  const read = readTargetLanesFixture.bind(undefined, candidatesByTarget);
   return {
-    readPersistedAvailableSigningLanesForTargets: async () => {
-      const targets = [EVM_TARGET, TEMPO_TARGET];
-      return {
-        walletId: toWalletId(WALLET_ID),
-        generation: 1,
-        ecdsa: {
-          targets,
-          lanesByTarget: Object.fromEntries(
-            targets.map((target) => {
-              const targetKey = thresholdEcdsaChainTargetKey(target);
-              return [
-                targetKey,
-                candidatesByTarget[targetKey]?.[0] || {
-                  curve: 'ecdsa',
-                  chainTarget: target,
-                  state: 'missing',
-                },
-              ];
-            }),
-          ),
-          candidatesByTarget,
-        },
-        lanes: {
-          ed25519: {
-            near: { curve: 'ed25519', chain: 'near', state: 'missing' },
-          },
-        },
-        candidates: {
-          ed25519: {
-            near: [],
-          },
-        },
-      };
-    },
+    readPersistedAvailableSigningLanesForTargets: read,
+    readOwnerScopedAvailableSigningLanesForTargets: read,
+  };
+}
+
+async function readRelinkRequiredLanesFixture(): Promise<AvailableSigningLanes> {
+  throw new OwnerRelinkRequiredError('passkey:localhost:pre-canonical-device');
+}
+
+function relinkRequiredDeps(): ExportLaneSelectionDeps {
+  return {
+    readPersistedAvailableSigningLanesForTargets: readRelinkRequiredLanesFixture,
+    readOwnerScopedAvailableSigningLanesForTargets: readRelinkRequiredLanesFixture,
   };
 }
 
@@ -257,6 +299,22 @@ function expectEd25519ExportMaterialIdentity(lane: ConcreteAvailableEd25519Signi
 }
 
 test.describe('Ed25519 export lane selection', () => {
+  test('returns a typed re-link requirement for a pre-canonical owner enrollment', async () => {
+    await expect(
+      resolveExactKeyExportLane(relinkRequiredDeps(), {
+        kind: 'ed25519',
+        walletSession: walletSessionRefFromSession({
+          walletId: WALLET_ID,
+          walletSessionUserId: WALLET_ID,
+        }),
+        nearAccount: NEAR_ACCOUNT,
+      }),
+    ).resolves.toEqual({
+      kind: 'relink_required',
+      reason: 'missing_canonical_owner_binding',
+    });
+  });
+
   test('selects one exact ready passkey Router A/B lane', async () => {
     const lane = ed25519Lane();
 
@@ -344,8 +402,11 @@ test.describe('Ed25519 export lane selection', () => {
     }
   });
 
-  test('selects deferred durable material without reusable authorization', async () => {
-    const lane = deferredEd25519Lane();
+  test('keeps fresh Email OTP export available when exact session authorization is required', async () => {
+    const lane = deferredEd25519Lane({
+      auth: emailOtpSigningAuth(),
+      source: 'durable_sealed_record',
+    });
 
     await expect(
       resolveExactKeyExportLane(depsForEd25519([lane]), {
@@ -363,27 +424,21 @@ test.describe('Ed25519 export lane selection', () => {
     });
   });
 
-  test('rejects duplicate durable material lanes', async () => {
-    await expect(
-      resolveExactKeyExportLane(depsForEd25519([ed25519Lane(), ed25519Lane()]), {
-        kind: 'ed25519',
-        walletSession: walletSessionRefFromSession({
-          walletId: WALLET_ID,
-          walletSessionUserId: WALLET_ID,
-        }),
-        nearAccount: NEAR_ACCOUNT,
-      }),
-    ).rejects.toThrow('exact Yao lane selection failed');
-  });
-
-  test('rejects same signer and session when material activation differs', async () => {
+  test('uses the canonical current activation when historical owner material remains', async () => {
     const supersededActivation = buildMpcMaterialActivationRefFixture(
       'ed25519-export-lane-superseded',
       WALLET_ID,
     );
+    const currentOwner = ed25519Lane();
     await expect(
       resolveExactKeyExportLane(
-        depsForEd25519([ed25519Lane(), ed25519Lane({ materialActivation: supersededActivation })]),
+        depsForEd25519([
+          currentOwner,
+          deferredEd25519Lane({
+            materialActivation: supersededActivation,
+            thresholdSessionId: 'threshold-session-ed25519-export-superseded',
+          }),
+        ]),
         {
           kind: 'ed25519',
           walletSession: walletSessionRefFromSession({
@@ -393,7 +448,38 @@ test.describe('Ed25519 export lane selection', () => {
           nearAccount: NEAR_ACCOUNT,
         },
       ),
-    ).rejects.toThrow('ambiguous_material');
+    ).resolves.toEqual({
+      kind: 'ed25519',
+      laneIdentity: expectEd25519ExportMaterialIdentity(currentOwner),
+      materialActivation: currentOwner.materialActivation,
+    });
+  });
+
+  test('ignores historical material for the same exact owner credential and signer slot', async () => {
+    const currentOwner = ed25519Lane();
+    const historicalOwner = ed25519Lane({
+      materialActivation: buildMpcMaterialActivationRefFixture(
+        'ed25519-export-lane-historical',
+        WALLET_ID,
+      ),
+      thresholdSessionId: 'threshold-session-ed25519-export-historical',
+      updatedAtMs: 1_700_000_000_000,
+    });
+
+    await expect(
+      resolveExactKeyExportLane(depsForEd25519([currentOwner, historicalOwner]), {
+        kind: 'ed25519',
+        walletSession: walletSessionRefFromSession({
+          walletId: WALLET_ID,
+          walletSessionUserId: WALLET_ID,
+        }),
+        nearAccount: NEAR_ACCOUNT,
+      }),
+    ).resolves.toEqual({
+      kind: 'ed25519',
+      laneIdentity: expectEd25519ExportMaterialIdentity(currentOwner),
+      materialActivation: currentOwner.materialActivation,
+    });
   });
 });
 
@@ -566,34 +652,6 @@ test.describe('ECDSA export lane selection', () => {
     expect(selected).not.toHaveProperty('authorization');
   });
 
-  test('rejects duplicate Email OTP capabilities before AccountMenu export', async () => {
-    const viableLane = ecdsaLane({
-      authMethod: 'email_otp',
-      chainTarget: EVM_TARGET,
-      state: 'deferred',
-      remainingUses: 3,
-      updatedAtMs: 1_800_000_000_000,
-    });
-    const exhaustedLane = ecdsaLane({
-      authMethod: 'email_otp',
-      chainTarget: EVM_TARGET,
-      state: 'exhausted',
-      remainingUses: 0,
-      updatedAtMs: 1_800_000_010_000,
-    });
-
-    await expect(
-      resolveExactKeyExportLane(depsFor([viableLane, exhaustedLane]), {
-        kind: 'ecdsa',
-        walletSession: walletSessionRefFromSession({
-          walletId: WALLET_ID,
-          walletSessionUserId: WALLET_ID,
-        }),
-        chainTarget: EVM_TARGET,
-      }),
-    ).rejects.toThrow('exact lane selection failed: ambiguous_material');
-  });
-
   test('rejects AccountMenu ECDSA export resolution when inventory has multiple ECDSA keys', async () => {
     const requestedKeyLane = ecdsaLane({
       ecdsaThresholdKeyId: 'ecdsa-key-account-menu-1',
@@ -664,11 +722,11 @@ test.describe('ECDSA export lane selection', () => {
     expect(selected.key.ecdsaThresholdKeyId).toBe('ecdsa-key-requested');
   });
 
-  test('rejects stale and ready ECDSA export lanes without auth ranking', async () => {
-    const staleLane = ecdsaLane({
+  test('rejects authorization-required and ready ECDSA export lanes without auth ranking', async () => {
+    const authorizationRequiredLane = authorizationRequiredCanonicalEcdsaAvailableLane({
       authMethod: 'passkey',
-      state: 'exhausted',
-      remainingUses: 0,
+      chainTarget: EVM_TARGET,
+      thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
       updatedAtMs: 1_800_000_001_000,
     });
     const readyDuplicateLane = ecdsaLane({
@@ -676,10 +734,10 @@ test.describe('ECDSA export lane selection', () => {
       updatedAtMs: 1_800_000_000_000,
     });
     await expect(
-      resolveEcdsaSessionForExport(depsFor([staleLane, readyDuplicateLane]), {
+      resolveEcdsaSessionForExport(depsFor([authorizationRequiredLane, readyDuplicateLane]), {
         walletId: WALLET_ID,
         signingTarget: EVM_TARGET,
-        laneIdentity: ecdsaLaneIdentity(staleLane),
+        laneIdentity: ecdsaLaneIdentity(authorizationRequiredLane),
       }),
     ).rejects.toThrow('exact lane selection failed: ambiguous_material');
   });
@@ -696,10 +754,10 @@ test.describe('ECDSA export lane selection', () => {
     expect(selected.laneIdentity.auth).toEqual(lane.auth);
   });
 
-  test('rejects active and exhausted duplicate ECDSA export lanes', async () => {
-    const exhaustedLane = ecdsaLane({
-      state: 'exhausted',
-      remainingUses: 0,
+  test('rejects authorized and authorization-required duplicate ECDSA export lanes', async () => {
+    const authorizationRequiredLane = authorizationRequiredCanonicalEcdsaAvailableLane({
+      chainTarget: EVM_TARGET,
+      thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
       updatedAtMs: 1_800_000_001_000,
     });
     const activeDuplicateLane = ecdsaLane({
@@ -708,10 +766,10 @@ test.describe('ECDSA export lane selection', () => {
       updatedAtMs: 1_800_000_000_000,
     });
     await expect(
-      resolveEcdsaSessionForExport(depsFor([exhaustedLane, activeDuplicateLane]), {
+      resolveEcdsaSessionForExport(depsFor([authorizationRequiredLane, activeDuplicateLane]), {
         walletId: WALLET_ID,
         signingTarget: EVM_TARGET,
-        laneIdentity: ecdsaLaneIdentity(exhaustedLane),
+        laneIdentity: ecdsaLaneIdentity(authorizationRequiredLane),
       }),
     ).rejects.toThrow('exact lane selection failed: ambiguous_material');
   });

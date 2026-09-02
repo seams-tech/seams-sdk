@@ -3,7 +3,7 @@ import {
   EMAIL_OTP_ESCROW_SECRET_LENGTH,
   decodeEmailOtpEscrowSecret32,
   emailOtpCorruptLocalCustodyError,
-} from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/secretEscrow';
+} from '../../packages/wallet/src/core/signingEngine/session/emailOtp/secretEscrow';
 
 function sequentialBytes(length: number): Uint8Array {
   const bytes = new Uint8Array(length);

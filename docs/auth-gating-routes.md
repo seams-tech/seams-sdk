@@ -1,6 +1,6 @@
 # Auth Gating For Current Routes
 
-Date updated: 2026-06-17
+Date updated: 2026-08-30
 
 ## Scope
 
@@ -17,13 +17,12 @@ Every server route should belong to exactly one primary auth plane.
 | --- | --- | --- |
 | Console session + RBAC | Human operator console routes | Console session claims plus role checks |
 | API credential | Machine/browser relay access outside wallet-user sessions | Publishable key or secret key |
-| App session | User wallet management routes | `app_session_v1` |
-| Wallet Session | Product signing and signing-budget routes | Wallet Session JWT or current request-boundary token |
+| Wallet Session | Product signing and signing-budget routes | `WalletSessionOperationCredentialV1` or `HostedWalletSessionOperationCredentialV1` |
 | Router A/B private service | Cross-worker Router A/B internals | Worker binding plus private service/auth guard |
 | Explicit public | Health and readiness | None |
 
-Console auth, API credentials, app sessions, and Wallet Sessions are separate
-auth planes. A route must not silently accept credentials from another plane.
+Console auth, API credentials, and Wallet Sessions are separate auth planes. A
+route must not silently accept credentials from another plane.
 
 ## Router A/B Public Signing
 
@@ -36,7 +35,7 @@ Public Ed25519 and ECDSA signing uses the current Router A/B route families:
 
 Router A/B public signing requirements:
 
-- bearer Wallet Session JWT
+- `Authorization` header carrying the exact Wallet Session operation credential
 - browser `credentials: 'omit'`
 - exact origin CORS behavior for configured origins
 - strict request-body parsing at the Router boundary
@@ -61,19 +60,33 @@ Requirements:
 
 ## Wallet Session Routes
 
-Wallet Session mint, budget, and restore routes may still use request-boundary
-discriminants named around threshold sessions where those values are current
-stored/request protocol names. Core signing logic should normalize those inputs
-to Wallet Session domain state immediately.
+Wallet Session issuance, status, exchange, unlock, and signing-budget routes
+resolve the exact V2 authorization represented by the operation credential and
+its fully scoped identity.
+
+Current session route shapes are:
+
+- `POST /wallet/session/exchange/issue` authenticates with the primary
+  operation credential and creates an origin-bound hosted child exchange.
+- `POST /wallet/session/exchange/redeem` consumes the exchange and returns a
+  `HostedWalletSessionOperationCredentialV1` for the same parent authorization.
+- `POST /wallet/session/status` requires the exact `walletSessionId` and
+  `quotaId` in the request and checks them against the credential's resolved
+  authorization.
+- `POST /wallet/unlock/challenge` and `POST /wallet/unlock/verify` bind the
+  selected exact authority and `walletAuthMethodId` before direct V2 issuance.
+- `POST /wallet/email-otp/challenge` requires the selected exact
+  `walletAuthMethodId`; `/wallet/email-otp/factor-release` binds either the
+  exact Wallet Session credential or the exact method on an OTP grant.
 
 Rules:
 
 - raw request bodies are parsed once at the route boundary
 - current persisted records are normalized before core logic sees them
-- stale compatibility branches need a deletion condition and focused rejection
-  coverage
-- signing budget consumption must bind wallet id, threshold session id, account
-  id, scope, expiry, and operation fingerprint
+- removed legacy shapes are rejected at the request boundary
+- signing budget consumption must bind wallet id, authority id,
+  `walletAuthMethodId`, Wallet Session id, quota id, account id, scope, expiry,
+  and operation fingerprint
 
 ## Deleted Signing Route Families
 
@@ -83,8 +96,8 @@ Historical refactor notes may still mention them as removed implementation
 history.
 
 The zero-tolerance source guards in the Router A/B cleanup plan cover deleted
-public route literals, deleted SDK helper names, and old threshold-session
-signing-auth fields in active SDK signing modules.
+public route literals, deleted SDK helper names, and retired signing-auth fields
+in active SDK signing modules.
 
 ## Billing And Metering
 

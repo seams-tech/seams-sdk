@@ -1,21 +1,24 @@
 import { expect, test } from '@playwright/test';
-import type { RouterAbNormalSigningAdmissionInput } from '../../packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
+import type { RouterAbNormalSigningAdmissionInput } from '../../packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
 import {
   createCloudflareD1ConsoleOnlyServiceBundle,
   createCloudflareD1ConsoleServiceBundle,
-} from '../../packages/console-server-ts/src/router/cloudflare/d1ConsoleServices';
+} from '../../packages/wallet-console-server-ts/src/router/cloudflare/d1ConsoleServices';
+import { createRouterApiWalletProjectionAdapter } from '../../packages/wallet-console-server-ts/src/router/routerApiKeyAuth';
+import { createInMemoryConsoleOrgProjectEnvService } from '../../packages/console-server-ts/src/orgProjectEnv';
+import { createInMemoryConsoleWalletService } from '../../packages/wallet-console-server-ts/src/wallets';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
   D1ResultLike,
-} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
-import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
+} from '../../packages/wallet-server/src/storage/tenantRoute';
+import type { CfExecutionContext } from '../../packages/wallet-server/src/router/cloudflare/runtime/cloudflare.types';
 import localD1DevWorker, {
   buildLocalRouterRequest,
-} from '../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
-import type { SponsoredEvmCallExecutorConfig } from '../../packages/console-server-ts/src/sponsorship/evmExecutorTypes';
-import { resolveStaticSponsoredExecutionPricingFromEnv } from '../../packages/console-server-ts/src/sponsorship/pricing';
-import { getNearSpendCapChainId } from '../../packages/console-shared-ts/src/gasSponsorshipSpendCapTargets';
+} from '../../packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker';
+import type { SponsoredEvmCallExecutorConfig } from '../../packages/wallet-console-server-ts/src/sponsorship/evmExecutorTypes';
+import { resolveStaticSponsoredExecutionPricingFromEnv } from '../../packages/wallet-console-server-ts/src/sponsorship/pricing';
+import { getNearSpendCapChainId } from '../../packages/wallet-console-shared-ts/src/gasSponsorshipSpendCapTargets';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
   applyD1MigrationFiles,
@@ -32,7 +35,7 @@ const LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID = 'signing-worker.local';
 
 test('local Router binding rewrites the origin and preserves authenticated POST requests', async () => {
   const request = buildLocalRouterRequest(
-    'http://127.0.0.1:9090',
+    'http://127.0.0.1:4100',
     new Request('https://router.router-ab.internal/router-ab/ecdsa-derivation/register?attempt=1', {
       method: 'POST',
       headers: {
@@ -43,7 +46,7 @@ test('local Router binding rewrites the origin and preserves authenticated POST 
     }),
   );
 
-  expect(request.url).toBe('http://127.0.0.1:9090/router-ab/ecdsa-derivation/register?attempt=1');
+  expect(request.url).toBe('http://127.0.0.1:4100/router-ab/ecdsa-derivation/register?attempt=1');
   expect(request.method).toBe('POST');
   expect(request.headers.get('authorization')).toBe('Bearer ceremony-token');
   expect(request.headers.get('content-type')).toBe('application/json');
@@ -129,7 +132,7 @@ function firstFakeD1Row<T>(query: string): T | null {
     return { table_count: 44 } as T;
   }
   if (query.includes('sqlite_master') && query.includes('email_otp_registration_attempts')) {
-    return { table_count: 26 } as T;
+    return { table_count: 42 } as T;
   }
   return null;
 }
@@ -260,6 +263,9 @@ function createLocalWorkflowRequest(input: {
   readonly headers?: HeadersInit;
 }): Request {
   const headers = new Headers(input.headers);
+  if (input.path.startsWith('/console/') && !input.path.startsWith('/console/auth/')) {
+    headers.set('x-console-user-id', 'local-workflow-user');
+  }
   let body: string | undefined;
   if (input.body) {
     body = JSON.stringify(input.body);
@@ -271,6 +277,53 @@ function createLocalWorkflowRequest(input: {
     body,
   });
 }
+
+test('local Console sign-out clears the session and refresh stays unauthorized', async () => {
+  const database = new FakeD1Database();
+  const env = createLocalD1WorkflowEnv({
+    consoleDatabase: database,
+    signerDatabase: database,
+  });
+  const ctx = createFakeExecutionContext();
+
+  const missingSession = await localD1DevWorker.fetch(
+    new Request('https://localhost:4101/console/session'),
+    env,
+    ctx,
+  );
+  expect(missingSession.status).toBe(401);
+
+  const invalidGoogleLogin = await localD1DevWorker.fetch(
+    new Request('https://localhost:4101/console/auth/google', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+    env,
+    ctx,
+  );
+  expect(invalidGoogleLogin.status).toBe(400);
+  await expect(readJsonRecord(invalidGoogleLogin)).resolves.toMatchObject({
+    ok: false,
+    code: 'invalid_body',
+  });
+
+  const revoke = await localD1DevWorker.fetch(
+    new Request('https://localhost:4101/console/auth/revoke', { method: 'POST' }),
+    env,
+    ctx,
+  );
+  expect(revoke.status).toBe(200);
+  expect(revoke.headers.get('set-cookie')).toContain('seams-console-jwt=');
+  expect(revoke.headers.get('set-cookie')).toContain('Max-Age=0');
+
+  const refreshed = await localD1DevWorker.fetch(
+    new Request('https://localhost:4101/console/session'),
+    env,
+    ctx,
+  );
+  expect(refreshed.status).toBe(401);
+});
 
 async function callLocalWorkflowWorker(
   env: LocalD1WorkflowEnv,
@@ -395,6 +448,9 @@ test('Cloudflare D1 service bundle wires signer-D1 normal-signing admission into
     expect(typeof bundle.routerApiRouterOptions.apiKeyAuth.authenticate).toBe('function');
     expect(typeof bundle.routerApiRouterOptions.publishableKeyAuth.authenticate).toBe('function');
     expect(typeof bundle.routerApiRouterOptions.apiKeyUsageMeter.recordEvent).toBe('function');
+    expect(typeof bundle.routerApiRouterOptions.walletProjection.recordCreatedWallet).toBe(
+      'function',
+    );
     expect(bundle.routerApiRouterOptions).not.toHaveProperty('wallets');
     expect(bundle.routerApiRouterOptions.routeExtensions.length).toBeGreaterThan(0);
     expect(
@@ -405,6 +461,54 @@ test('Cloudflare D1 service bundle wires signer-D1 normal-signing admission into
   } finally {
     cleanupTemporaryD1Database(signer.tempDir);
   }
+});
+
+test('wallet registration projection resolves the Console environment and upserts its wallet', async () => {
+  const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService({
+    now: () => new Date('2026-08-26T00:00:00.000Z'),
+  });
+  const wallets = createInMemoryConsoleWalletService();
+  const adminContext = {
+    orgId: 'org-wallets',
+    actorUserId: 'test-admin',
+  };
+  await orgProjectEnv.upsertOrganization(adminContext, { name: 'Wallets' });
+  await orgProjectEnv.createProject(adminContext, {
+    id: 'project-wallets',
+    name: 'Wallets Project',
+  });
+  await orgProjectEnv.updateEnvironment(adminContext, 'project-wallets:dev', {
+    signingRootVersion: 'root-v1',
+  });
+  const projection = createRouterApiWalletProjectionAdapter(orgProjectEnv, wallets);
+
+  await projection.recordCreatedWallet({
+    orgId: 'org-wallets',
+    runtimePolicyScope: {
+      orgId: 'org-wallets',
+      projectId: 'project-wallets',
+      envId: 'dev',
+      signingRootVersion: 'root-v1',
+    },
+    walletId: 'wallet-new',
+    occurredAt: '2026-08-26T00:00:00.000Z',
+  });
+
+  await expect(
+    wallets.getWallet(
+      {
+        ...adminContext,
+        projectId: 'project-wallets',
+        environmentId: 'project-wallets:dev',
+      },
+      'wallet-new',
+    ),
+  ).resolves.toMatchObject({
+    id: 'wallet-new',
+    projectId: 'project-wallets',
+    environmentId: 'project-wallets:dev',
+    status: 'ACTIVE',
+  });
 });
 
 test('Cloudflare D1 console-only bundle omits signer custody bindings', async () => {
@@ -532,7 +636,7 @@ test('local D1 Worker ready smoke validates D1 tables and signer-D1 admission', 
     namespace: 'seams-local-test',
     schemas: {
       consoleTables: 44,
-      signerTables: 26,
+      signerTables: 42,
     },
     admission: {
       database: 'SIGNER_DB',
@@ -563,10 +667,10 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
     cors: {
       allowedOrigins: [
         'https://localhost',
-        'https://localhost:8443',
-        'https://localhost:9444',
-        'http://127.0.0.1:9090',
-        'http://localhost:9090',
+        'https://localhost:4002',
+        'https://localhost:4101',
+        'http://127.0.0.1:4100',
+        'http://localhost:4100',
         'http://127.0.0.1:8787',
         'http://localhost:8787',
       ],
@@ -800,7 +904,7 @@ test('local D1 Worker serves console routes through D1 console services', async 
 test('local D1 Worker serves dashboard Google options at the root auth path', async () => {
   const database = new FakeD1Database();
   const response = await localD1DevWorker.fetch(
-    new Request('http://127.0.0.1:9090/auth/google/options', {
+    new Request('http://127.0.0.1:4100/auth/google/options', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: '{}',
@@ -835,7 +939,7 @@ test('local D1 Worker routes dashboard session exchange and state at root paths'
   const ctx = createFakeExecutionContext();
 
   const exchange = await localD1DevWorker.fetch(
-    new Request('http://127.0.0.1:9090/session/exchange', {
+    new Request('http://127.0.0.1:4100/session/exchange', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -858,7 +962,7 @@ test('local D1 Worker routes dashboard session exchange and state at root paths'
   });
 
   const state = await localD1DevWorker.fetch(
-    new Request('http://127.0.0.1:9090/session/state'),
+    new Request('http://127.0.0.1:4100/session/state'),
     env,
     ctx,
   );
@@ -959,7 +1063,7 @@ test('local D1 publishable key creation publishes Tempo sponsorship runtime snap
         kind: 'publishable_key',
         name: 'tempo-snapshot-browser',
         environmentId,
-        allowedOrigins: ['https://localhost:8443'],
+        allowedOrigins: ['https://localhost:4002'],
         rateLimitBucket: 'default_web_v1',
         quotaBucket: 'free_registrations_v1',
       },
@@ -1026,7 +1130,7 @@ test('local D1 Worker runs dashboard, signer, billing, and reconciliation smoke 
       namespace: 'seams-local-workflow-smoke',
       schemas: {
         consoleTables: 44,
-        signerTables: 26,
+        signerTables: 42,
       },
       /* Admission moved to private D1, so readiness names the database it
          proved the policy against rather than a Durable Object binding. */

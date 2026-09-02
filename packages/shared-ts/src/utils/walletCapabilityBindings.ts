@@ -33,11 +33,13 @@ export type PasskeyAuthScope = {
 export type WalletAuthMethodBinding =
   | {
       readonly kind: 'passkey';
+      readonly walletAuthMethodId: WalletAuthMethodId;
       readonly scope: PasskeyAuthScope;
       readonly credentialIdB64u: string;
     }
   | {
       readonly kind: 'email_otp';
+      readonly walletAuthMethodId: WalletAuthMethodId;
       readonly wallet: WalletIdentity;
       readonly emailHashHex: string;
       readonly registrationAuthorityId: string;
@@ -175,6 +177,7 @@ export function buildPasskeyAuthScope(args: {
 }
 
 export function buildPasskeyWalletAuthMethodBinding(args: {
+  walletAuthMethodId: WalletAuthMethodId;
   scope: PasskeyAuthScope;
   credentialIdB64u: string;
 }): WalletAuthMethodBinding {
@@ -182,12 +185,14 @@ export function buildPasskeyWalletAuthMethodBinding(args: {
   if (!credentialIdB64u) throw new Error('credentialIdB64u is required');
   return {
     kind: 'passkey',
+    walletAuthMethodId: args.walletAuthMethodId,
     scope: args.scope,
     credentialIdB64u,
   };
 }
 
 export function buildEmailOtpWalletAuthMethodBinding(args: {
+  walletAuthMethodId: WalletAuthMethodId;
   wallet: WalletIdentity;
   emailHashHex: string;
   registrationAuthorityId: string;
@@ -198,6 +203,7 @@ export function buildEmailOtpWalletAuthMethodBinding(args: {
   if (!registrationAuthorityId) throw new Error('registrationAuthorityId is required');
   return {
     kind: 'email_otp',
+    walletAuthMethodId: args.walletAuthMethodId,
     wallet: args.wallet,
     emailHashHex,
     registrationAuthorityId,
@@ -205,18 +211,7 @@ export function buildEmailOtpWalletAuthMethodBinding(args: {
 }
 
 export function walletAuthMethodBindingId(binding: WalletAuthMethodBinding): WalletAuthMethodId {
-  switch (binding.kind) {
-    case 'passkey':
-      return requireWalletAuthMethodId(
-        `passkey:${binding.scope.rpId}:${binding.credentialIdB64u}`,
-      );
-    case 'email_otp':
-      return requireWalletAuthMethodId(
-        `email_otp:${binding.wallet.walletId}:${binding.emailHashHex}`,
-      );
-  }
-  binding satisfies never;
-  throw new Error('Unsupported wallet auth-method binding');
+  return binding.walletAuthMethodId;
 }
 
 export function walletAuthMethodBindingFromRaw(
@@ -225,6 +220,10 @@ export function walletAuthMethodBindingFromRaw(
   const record = objectRecord(raw);
   if (!record) return missingObject('WalletAuthMethodBinding');
   const kind = trimString(record.kind);
+  const walletAuthMethodId = parseWalletAuthMethodId(record.walletAuthMethodId);
+  if (!walletAuthMethodId.ok) {
+    return { ok: false, error: walletAuthMethodId.error };
+  }
   if (kind === 'passkey') {
     const scope = passkeyAuthScopeFromRaw(record.scope);
     if (!scope.ok) return scope;
@@ -233,6 +232,7 @@ export function walletAuthMethodBindingFromRaw(
     return {
       ok: true,
       value: buildPasskeyWalletAuthMethodBinding({
+        walletAuthMethodId: walletAuthMethodId.value,
         scope: scope.value,
         credentialIdB64u: credentialIdB64u.value,
       }),
@@ -257,6 +257,7 @@ export function walletAuthMethodBindingFromRaw(
     return {
       ok: true,
       value: buildEmailOtpWalletAuthMethodBinding({
+        walletAuthMethodId: walletAuthMethodId.value,
         wallet: wallet.value,
         emailHashHex: emailHashHex.value,
         registrationAuthorityId: registrationAuthorityId.value,

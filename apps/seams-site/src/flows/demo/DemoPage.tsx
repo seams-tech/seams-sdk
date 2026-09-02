@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 
-import { useSeams } from '@seams/sdk/react';
+import { useSeams } from '@seams/wallet/react';
 
 import { AnimatedHeight } from '@/components/AnimatedHeight';
 import { useSetGreeting } from '@/shared/hooks/useSetGreeting';
@@ -15,11 +15,14 @@ import {
   canStartDemoNearTransaction,
   demoNearFundingStatusText,
 } from './demoNearAccountFundingState';
+import { useDemoArcFundingStatus } from './hooks/useDemoArcFundingStatus';
 import { useDemoNearAccountFundingStatus } from './hooks/useDemoNearAccountFundingStatus';
 import { useDemoNearActions } from './hooks/useDemoNearActions';
 import { useDemoTempoFundingStatus } from './hooks/useDemoTempoFundingStatus';
 import { useDemoThresholdSigners } from './hooks/useDemoThresholdSigners';
 import './DemoPage.css';
+
+const CIRCLE_FAUCET_URL = 'https://faucet.circle.com/';
 
 export const DemoPage: React.FC = () => {
   const {
@@ -34,12 +37,9 @@ export const DemoPage: React.FC = () => {
     seams,
   } = useSeams();
 
-  /* the section heading names the credential that will actually confirm the
-     signature: passkey accounts prompt WebAuthn, email-OTP accounts prompt a
-     one-time code */
   const signingHeading =
     currentAuthMethod.kind === 'selected' && currentAuthMethod.binding.kind === 'email_otp'
-      ? 'Sign a transaction with a one-time password (email)'
+      ? 'Sign a transaction'
       : 'Sign a transaction with your passkey';
 
   const [selectedChainId, setSelectedChainId] = useState<DemoChainId>('tempo');
@@ -93,6 +93,29 @@ export const DemoPage: React.FC = () => {
     thresholdOwnerAddress: thresholdSigners.thresholdOwnerAddress,
   });
 
+  const { status: arcFundingStatus, refresh: refreshArcFunding } = useDemoArcFundingStatus({
+    isLoggedIn,
+    thresholdOwnerAddress: thresholdSigners.thresholdOwnerAddress,
+    enabled: selectedChainId === 'arc',
+  });
+
+  const handleFundArcWallet = useCallback(async () => {
+    const address = thresholdSigners.thresholdOwnerAddress;
+    if (!address) return;
+
+    const copyPromise = navigator.clipboard?.writeText(address);
+    window.open(CIRCLE_FAUCET_URL, '_blank', 'noopener,noreferrer');
+    try {
+      if (!copyPromise) throw new Error('Clipboard API unavailable');
+      await copyPromise;
+      toast.success('Wallet address copied. Paste it into Circle Faucet.');
+    } catch {
+      toast.error('Circle Faucet opened, but the wallet address could not be copied.');
+    } finally {
+      refreshArcFunding();
+    }
+  }, [refreshArcFunding, thresholdSigners.thresholdOwnerAddress]);
+
   if (!isLoggedIn || !walletId) {
     return null;
   }
@@ -131,7 +154,7 @@ export const DemoPage: React.FC = () => {
         : null,
       onSign: thresholdSigners.handleSignEvmThresholdTx,
       signLoading: thresholdSigners.evmThresholdSignLoading,
-      canSign: thresholdSigners.canSignEvm,
+      canSign: thresholdSigners.canSignEvm && arcFundingStatus === 'ready',
       signLabel: 'Sign on Arc',
     },
     {
@@ -162,31 +185,33 @@ export const DemoPage: React.FC = () => {
       </div>
 
       <AnimatedHeight>
-      <ChainSigningSection
-        chains={chains}
-        heading={signingHeading}
-        selectedChainId={selectedChainId}
-        onSelectChain={setSelectedChainId}
-        onSignDelegate={nearActions.handleSignDelegateGreeting}
-        delegateLoading={nearActions.delegateLoading}
-        canSignDelegate={nearActions.canSignDelegate}
-        thresholdOwnerAddress={thresholdSigners.thresholdOwnerAddress}
-        onCopyThresholdOwnerAddress={() => {
-          toast.success('Address copied');
-        }}
-        onPrepareTempoFeeToken={async () => {
-          /* re-probe after the funding attempt so the button hides itself
+        <ChainSigningSection
+          chains={chains}
+          heading={signingHeading}
+          selectedChainId={selectedChainId}
+          onSelectChain={setSelectedChainId}
+          onSignDelegate={nearActions.handleSignDelegateGreeting}
+          delegateLoading={nearActions.delegateLoading}
+          canSignDelegate={nearActions.canSignDelegate}
+          nearSignerAvailable={Boolean(nearPublicKey)}
+          thresholdOwnerAddress={thresholdSigners.thresholdOwnerAddress}
+          onFundArcWallet={handleFundArcWallet}
+          onCopyThresholdOwnerAddress={() => {
+            toast.success('Address copied');
+          }}
+          onPrepareTempoFeeToken={async () => {
+            /* re-probe after the funding attempt so the button hides itself
              once the fee token is set and funded */
-          try {
-            await thresholdSigners.handlePrepareTempoFeeToken();
-          } finally {
-            tempoFunding.refresh();
-          }
-        }}
-        tempoFeeTokenPrepareLoading={thresholdSigners.tempoFeeTokenPrepareLoading}
-        tempoPreparationUnavailableReason={thresholdSigners.tempoPreparationUnavailableReason}
-        tempoFundingStatus={tempoFunding.status}
-      />
+            try {
+              await thresholdSigners.handlePrepareTempoFeeToken();
+            } finally {
+              tempoFunding.refresh();
+            }
+          }}
+          tempoFeeTokenPrepareLoading={thresholdSigners.tempoFeeTokenPrepareLoading}
+          tempoPreparationUnavailableReason={thresholdSigners.tempoPreparationUnavailableReason}
+          tempoFundingStatus={tempoFunding.status}
+        />
       </AnimatedHeight>
     </div>
   );

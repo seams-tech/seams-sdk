@@ -1,11 +1,11 @@
 import {
   D1WebAuthnAuthenticatorStore,
   type WebAuthnAuthenticatorRecord,
-} from '../../../packages/sdk-server-ts/src/core/WebAuthnAuthenticatorStore';
+} from '../../../packages/wallet-server/src/core/WebAuthnAuthenticatorStore';
 import {
   D1WebAuthnCredentialBindingStore,
   type WebAuthnCredentialBindingRecord,
-} from '../../../packages/sdk-server-ts/src/core/WebAuthnCredentialBindingStore';
+} from '../../../packages/wallet-server/src/core/WebAuthnCredentialBindingStore';
 import { deriveWebAuthnAuthenticatorDeviceInfo } from '../../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import {
   createTemporaryD1Database,

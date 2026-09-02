@@ -38,8 +38,8 @@
   "guards": {
     "singleOwner": "public_utilities_have_one_threshold_free_evm_crypto_owner",
     "runtime": [
-      "packages/sdk-web/scripts/smoke/smoke-evm-crypto-node-runtime.mjs",
-      "packages/sdk-web/scripts/smoke/smoke-evm-crypto-workers-runtime.mjs"
+      "packages/wallet/scripts/smoke/smoke-evm-crypto-node-runtime.mjs",
+      "packages/wallet/scripts/smoke/smoke-evm-crypto-workers-runtime.mjs"
     ]
   }
 }

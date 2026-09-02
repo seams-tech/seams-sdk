@@ -1,18 +1,17 @@
-import type { SeamsWeb } from '@seams/sdk';
-
-type StartResult = Awaited<ReturnType<SeamsWeb['auth']['beginGoogleEmailOtpWalletAuth']>>;
-type AuthFlow = Extract<StartResult, { ok: true }>['value'];
-type LoginFlow = Extract<AuthFlow, { mode: 'login' }>;
-type SubmitResult = Awaited<ReturnType<LoginFlow['submit']>>;
-type SubmitSuccess = Extract<SubmitResult, { ok: true }>['value'];
+import type {
+  GoogleEmailOtpWalletAuthLoginFlow,
+  GoogleEmailOtpWalletAuthSubmitSuccess,
+  SeamsWeb,
+} from '@seams/wallet';
 
 export async function startGoogleEmailOtpLogin(
   seams: SeamsWeb,
   googleIdToken: string,
-): Promise<LoginFlow> {
+): Promise<GoogleEmailOtpWalletAuthLoginFlow> {
   const started = await seams.auth.beginGoogleEmailOtpWalletAuth({
     idToken: googleIdToken,
     mode: 'login',
+    loginTarget: { kind: 'discoverable' },
   });
   if (!started.ok) {
     throw new Error(started.error.message);
@@ -25,9 +24,9 @@ export async function startGoogleEmailOtpLogin(
 }
 
 export async function submitGoogleEmailOtp(
-  flow: LoginFlow,
+  flow: GoogleEmailOtpWalletAuthLoginFlow,
   otpCode: string,
-): Promise<SubmitSuccess> {
+): Promise<GoogleEmailOtpWalletAuthSubmitSuccess> {
   const submitted = await flow.submit({ otpCode });
   if (!submitted.ok) {
     throw new Error(submitted.error.message);

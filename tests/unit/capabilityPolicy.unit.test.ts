@@ -6,7 +6,7 @@ import {
 import {
   evaluateAuthorizationEvidenceRequirement,
   parseAuthorizationEvidenceRequirement,
-} from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
+} from '../../packages/wallet-server/src/authorization/capabilityPolicy';
 import { buildReusableAuthorizationCoreFixture } from './helpers/authorizationCore.fixtures';
 
 test('flat policy parsing canonicalizes current evidence kinds', () => {

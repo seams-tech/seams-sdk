@@ -38,10 +38,10 @@ export async function installWalletSdkCorsShim(
   const repoRoot = (() => {
     if (process.env.W3A_REPO_ROOT) return process.env.W3A_REPO_ROOT;
     const cwd = process.cwd();
-    if (fs.existsSync(path.join(cwd, 'packages/sdk-web'))) return cwd;
+    if (fs.existsSync(path.join(cwd, 'packages/wallet'))) return cwd;
     return path.resolve(cwd, '..');
   })();
-  const sdkPublicRoot = path.join(repoRoot, 'packages/sdk-web/dist/public');
+  const sdkPublicRoot = path.join(repoRoot, 'packages/wallet/dist/public');
 
   // Prefer BrowserContext glob patterns to ensure reliable matching across transports
   const walletHost = (() => {

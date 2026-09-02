@@ -1,28 +1,34 @@
 import DefaultTheme from 'vitepress/theme';
 import type { Theme } from 'vitepress';
 import type { Mermaid, MermaidConfig } from 'mermaid';
+import { h } from 'vue';
+import SeamsFooter from './SeamsFooter.vue';
+import DocHeader from './DocHeader.vue';
+import SidebarHeader from './SidebarHeader.vue';
 import './custom.css';
 
 function createMermaidRenderer() {
   let mermaidRef: Mermaid | null = null;
 
-  const themeVariables = (): MermaidConfig['themeVariables'] => ({
-    primaryColor: '#edf3fa',
+  const isDark = () => document.documentElement.classList.contains('dark');
+
+  const lightVariables = (): MermaidConfig['themeVariables'] => ({
+    primaryColor: '#e4f0eb',
     primaryTextColor: '#0a0a0a',
-    primaryBorderColor: '#4a6fa5',
+    primaryBorderColor: '#157f5f',
     secondaryColor: '#f5f3f1',
     secondaryTextColor: '#44403b',
     secondaryBorderColor: '#a59f97',
-    tertiaryColor: '#e4f0eb',
+    tertiaryColor: '#eef4f1',
     tertiaryTextColor: '#0a0a0a',
-    tertiaryBorderColor: '#157f5f',
+    tertiaryBorderColor: '#537f75',
     lineColor: '#777169',
     textColor: '#0a0a0a',
     actorTextColor: '#0a0a0a',
     labelTextColor: '#0a0a0a',
     noteTextColor: '#44403b',
-    actorBkg: '#edf3fa',
-    actorBorder: '#4a6fa5',
+    actorBkg: '#e4f0eb',
+    actorBorder: '#157f5f',
     noteBkgColor: '#f7ecdd',
     noteBorderColor: '#b45309',
     clusterBkg: '#f8f8f7',
@@ -30,6 +36,35 @@ function createMermaidRenderer() {
     edgeLabelBackground: '#ffffff',
     fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif",
   });
+
+  const darkVariables = (): MermaidConfig['themeVariables'] => ({
+    background: '#121110',
+    primaryColor: '#173029',
+    primaryTextColor: '#f1ede8',
+    primaryBorderColor: '#6ec7a4',
+    secondaryColor: '#221f1c',
+    secondaryTextColor: '#b5aea5',
+    secondaryBorderColor: '#4a453f',
+    tertiaryColor: '#1b2b25',
+    tertiaryTextColor: '#f1ede8',
+    tertiaryBorderColor: '#6ec7a4',
+    lineColor: '#857e76',
+    textColor: '#f1ede8',
+    actorTextColor: '#f1ede8',
+    labelTextColor: '#f1ede8',
+    noteTextColor: '#f1ede8',
+    actorBkg: '#173029',
+    actorBorder: '#6ec7a4',
+    noteBkgColor: '#2c231a',
+    noteBorderColor: '#e0ac68',
+    clusterBkg: '#1a1917',
+    clusterBorder: '#2d2a27',
+    edgeLabelBackground: '#1a1917',
+    fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif",
+  });
+
+  const themeVariables = (): MermaidConfig['themeVariables'] =>
+    isDark() ? darkVariables() : lightVariables();
 
   const configure = async () => {
     if (!mermaidRef) {
@@ -149,6 +184,12 @@ function createMermaidRenderer() {
 
 const theme: Theme = {
   ...DefaultTheme,
+  Layout: () =>
+    h(DefaultTheme.Layout, null, {
+      'sidebar-nav-before': () => h(SidebarHeader),
+      'doc-before': () => h(DocHeader),
+      'layout-bottom': () => h(SeamsFooter),
+    }),
   enhanceApp: async (ctx) => {
     await DefaultTheme.enhanceApp?.(ctx);
     if (import.meta.env.SSR || typeof window === 'undefined') return;
@@ -161,6 +202,16 @@ const theme: Theme = {
         void rerender();
       }, 0);
     };
+
+    // Diagram colors are baked into the rendered SVG, so redraw them whenever
+    // the appearance toggle flips the root class.
+    let wasDark = document.documentElement.classList.contains('dark');
+    new MutationObserver(() => {
+      const isDark = document.documentElement.classList.contains('dark');
+      if (isDark === wasDark) return;
+      wasDark = isDark;
+      void rerender();
+    }).observe(document.documentElement, { attributeFilter: ['class'] });
   },
 };
 

@@ -87,8 +87,8 @@ test('post-reauth implicit NEAR funding uses subject-bound refreshed authority',
       walletSessionState: {
         thresholdSessionId: 'threshold-session-fresh',
         walletSessionAuth: {
-          kind: 'wallet_session_jwt',
-          walletSessionJwt: 'fresh-wallet-session-jwt',
+          kind: 'wallet_session_opaque',
+          walletSessionToken: 'fresh-wallet-session-token',
         },
         signingLane: {
           identity: {
@@ -107,7 +107,7 @@ test('post-reauth implicit NEAR funding uses subject-bound refreshed authority',
       signatureUses: 1,
     });
 
-    expect(authorizationHeaders).toEqual(['Bearer fresh-wallet-session-jwt']);
+    expect(authorizationHeaders).toEqual(['Bearer fresh-wallet-session-token']);
     expect(result.kind).toBe('context_ready');
     expect(result.transactionContext.nextNonce).toBe('11');
     expect(result.nonceLeases).toEqual([

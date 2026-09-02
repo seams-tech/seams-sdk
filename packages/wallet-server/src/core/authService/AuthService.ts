@@ -1,0 +1,1302 @@
+import { MinimalNearClient, type AccessKeyList } from '../rpcClients/near/NearClient';
+import type { FinalExecutionOutcome } from '@near-js/types';
+import { createAuthServiceConfig } from '../config';
+import { formatGasToTGas, formatYoctoToNear } from '../utils';
+import { toOptionalTrimmedString } from '@shared/utils/validation';
+import {
+  parseRouterAbEd25519NormalSigningState,
+  type RouterAbEd25519NormalSigningState,
+} from '@shared/utils/signingSessionSeal';
+import {
+  EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_ACTIONS,
+  WALLET_EMAIL_OTP_EXPORT_OPERATION,
+  WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+  WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+} from '@shared/utils/emailOtpDomain';
+import { createRouterAbSigningRuntimes } from '../routerAbSigning/createRouterAbSigningRuntimes';
+import type { RouterAbNormalSigningRuntime } from '../routerAbSigning/RouterAbNormalSigningRuntime';
+import type { RouterAbEcdsaPresignRuntime } from '../routerAbSigning/RouterAbEcdsaPresignRuntime';
+import { sha256BytesUtf8 } from '@shared/utils/digests';
+
+import type {
+  AuthServiceConfig,
+  AuthServiceConfigInput,
+  AccountCreationRequest,
+  AccountCreationResult,
+  FundImplicitNearAccountRequest,
+  FundImplicitNearAccountResult,
+  ThresholdRuntimePolicyScope,
+  WebAuthnAuthenticationCredential,
+} from '../types';
+import type { WalletRegistrationFinalizeRequest } from '../registrationContracts';
+import type { GoogleEmailOtpResolutionResult } from './googleEmailOtpRegistration';
+export type {
+  GoogleEmailOtpRegistrationOffer,
+  GoogleEmailOtpRegistrationOfferCandidate,
+  GoogleEmailOtpResolutionMode,
+  GoogleEmailOtpResolutionResult,
+} from './googleEmailOtpRegistration';
+
+import type { SignedDelegate } from '@shared/near/delegate';
+import {
+  parseWebAuthnRpId,
+  type GoogleProviderSubject,
+  type VerifiedGoogleEmail,
+  type WebAuthnRpId,
+} from '@shared/utils/domainIds';
+import type { RegistrationSignerPlan } from '@shared/utils/registrationIntent';
+import { type DelegateActionPolicy, type ExecuteSignedDelegateResult } from '../../delegateAction';
+import { coerceLogger, type NormalizedLogger } from '../logger';
+import {
+  createWebAuthnSyncAccountOptionsWithStores,
+  createWebAuthnLoginOptionsWithStore,
+  listWebAuthnAuthenticatorsForUserWithStores,
+  verifyWebAuthnAuthenticationLiteWithStore,
+  verifyWebAuthnLoginWithStores,
+  verifyWebAuthnRegistrationCredentialForIntent,
+  verifyWebAuthnSyncAccountWithStores,
+  type WebAuthnAuthenticatorListResult,
+  type WebAuthnSyncAccountVerificationRequest,
+  type WebAuthnSyncAccountVerificationResult,
+  type WebAuthnSyncAccountOptionsResult,
+  type WebAuthnLoginVerificationResult,
+} from './webauthn';
+import { randomBase64Url, randomOpaqueId } from './bytes';
+import {
+  isAuthServiceProductionEnvironment,
+  readAuthServiceConfigValue,
+  type AuthServiceConfigSource,
+} from './configValues';
+import {
+  resolveEmailOtpConfig as resolveEmailOtpConfigFromSource,
+  resolveEmailOtpRateLimitPolicies as resolveEmailOtpRateLimitPoliciesFromSource,
+  type EmailOtpConfig,
+} from './emailOtpConfig';
+import {
+  deliverEmailOtpCode as deliverEmailOtpCodeWithDeps,
+  readEmailOtpOutboxEntry as readEmailOtpOutboxEntryWithDeps,
+  type EmailOtpMemoryOutbox,
+  type EmailOtpOutboxReadResult,
+} from './emailOtpDelivery';
+import {
+  createEmailOtpChallengeWithAction as createEmailOtpChallengeWithActionWithStores,
+  pruneExpiredEmailOtpChallengesWithStore,
+  type CreateEmailOtpChallengeWithActionResult,
+} from './emailOtpChallenges';
+import {
+  createEmailOtpChallenge as createEmailOtpChallengeOperation,
+  createEmailOtpEnrollmentChallenge as createEmailOtpEnrollmentChallengeOperation,
+  verifyEmailOtpChallenge as verifyEmailOtpChallengeOperation,
+  type EmailOtpChallengeOperationsInput,
+} from './emailOtpChallengeOperations';
+import { verifyEmailOtpChallengeCode as verifyEmailOtpChallengeCodeWithStores } from './emailOtpChallengeVerification';
+import { verifyEmailOtpEnrollment as verifyEmailOtpEnrollmentWithStores } from './emailOtpRegistrationEnrollment';
+import {
+  createEmailOtpUnlockChallenge as createEmailOtpUnlockChallengeWithStores,
+  verifyEmailOtpUnlockProof as verifyEmailOtpUnlockProofWithStores,
+} from './emailOtpUnlock';
+import {
+  buildVerifiedEmailOtpRegistrationChallengeProof,
+  emailOtpChallengeVerificationIntentFromRequest,
+  emailOtpStoredChallengePurposeMatches,
+  expectedEmailOtpStoredChallengePurpose,
+  parseRawEmailOtpRegistrationChallengeProofInput,
+  readEmailOtpStoredChallengePurpose,
+  type EmailOtpChallengeBindingMismatchCode,
+  type EmailOtpRegistrationChallengeProof,
+  type EmailOtpRegistrationChallengeProofInput,
+  type EmailOtpRegistrationChallengeProofResult,
+  type EmailOtpRegistrationEnrollmentPersistence,
+  type VerifiedEmailOtpChallengeCodeResult,
+  type VerifiedEmailOtpChallengeCodeSuccessBase,
+} from './emailOtpChallengeProof';
+import {
+  createEmailOtpShamirCipherFromConfig,
+  runEmailOtpServerSealOperation,
+  type EmailOtpServerSealRequest,
+  type EmailOtpServerSealResult,
+} from './emailOtpSeal';
+import {
+  isEmailOtpStrongAuthRequiredWithStores,
+  markEmailOtpStrongAuthSatisfiedWithStores,
+  putEmailOtpAuthStateForEnrollmentWithStore,
+  readActiveEmailOtpEnrollmentWithStore,
+  readEmailOtpAuthStateForEnrollmentWithStore,
+  readEmailOtpEnrollmentWithStore,
+  type EmailOtpAuthStatePatch,
+  type EmailOtpAuthStateReadResult,
+  type EmailOtpEnrollmentReadResult,
+  type EmailOtpStrongAuthRequiredResult,
+  type EmailOtpStrongAuthSatisfiedResult,
+} from './emailOtpEnrollment';
+import {
+  consumeEmailOtpGrantWithStore,
+  type EmailOtpGrantConsumeRequest,
+  type EmailOtpGrantConsumeResult,
+} from './emailOtpGrant';
+import { cleanupGoogleEmailOtpRegistrationAttemptsWithStore } from './googleEmailOtpRegistration';
+import {
+  cleanupGoogleEmailOtpDevRegistrationStateForAuthService,
+  completeGoogleEmailOtpRegistrationAttemptForAuthService,
+  consumeGoogleEmailOtpRegistrationAttemptRateLimitForAuthService,
+  failGoogleEmailOtpRegistrationAttemptForAuthService,
+  recordGoogleEmailOtpRegistrationAttemptPublicKeyForAuthService,
+  resolveGoogleEmailOtpSessionForAuthService,
+  resolveOidcWalletIdWithGoogleEmailOtp,
+  validateGoogleEmailOtpRegistrationCandidateWalletForAuthService,
+  type GoogleEmailOtpOperationsInput,
+} from './googleEmailOtpOperations';
+import { consumeEmailOtpRateLimit as consumeEmailOtpRateLimitWithDeps } from './rateLimits';
+import { isObject } from './record';
+import { summarizeThresholdStoreConfig } from './thresholdStoreSummary';
+import { normalizeThresholdRuntimePolicyScope } from './thresholdRuntimePolicy';
+import {
+  buildEcdsaWalletKeysFromBootstrap,
+  toEcdsaDerivationClientBootstrapRequest,
+} from './registrationThresholdHelpers';
+import {
+  createGoogleJwksState,
+  verifyGoogleLoginWithIdentityStore,
+  type GoogleLoginFacadeResult,
+} from './oidcVerification';
+import {
+  githubOAuthPublicConfig,
+  verifyGithubOAuthCodeWithIdentityStore,
+  type GithubOAuthCodeFacadeResult,
+  type GithubOAuthPublicConfig,
+} from './githubOAuth';
+import type { ListIdentitiesResult } from './identity';
+import { isNodeEnvironment as isAuthServiceNodeEnvironment } from './wasm';
+import {
+  createInitialAuthServiceRuntimeState,
+  ensureAuthServiceRuntimeReady,
+  ensureAuthServiceSignerWasmReady,
+  type AuthServiceRuntimeState,
+} from './runtime';
+import { AuthServiceStoreRegistry } from './storeRegistry';
+import { NearAccountOperations } from './nearAccountOperations';
+import { IdentityOperations } from './identityOperations';
+
+import {
+  type EmailOtpWalletEnrollmentRecord,
+  type EmailOtpAuthStateRecord,
+  type EmailOtpChannel,
+  type EmailOtpChallengeAction,
+  type EmailOtpChallengeOperation,
+  type EmailOtpChallengeStore,
+  type EmailOtpLoginChallengeOperation,
+} from '../EmailOtpStores';
+import {
+  validateSecp256k1PublicKey33,
+  verifySecp256k1RecoverableSignatureAgainstPublicKey33,
+} from '../ThresholdService/evmCryptoWasm';
+import { type NearPublicKeyKind } from '../NearPublicKeyStore';
+import {
+  listNearPublicKeysForUserWithStore,
+  recordNearPublicKeyMetadataWithStore,
+  type ListNearPublicKeysResult,
+  type RecordNearPublicKeyMetadataResult,
+} from './nearPublicKeyMetadata';
+import { type LinkIdentityResult, type UnlinkIdentityResult } from '../IdentityStore';
+import type { ThresholdEcdsaChainTarget } from '../thresholdEcdsaChainTarget';
+
+const REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES = 3;
+
+type AuthServiceRouterAbSigningRuntimeState =
+  | {
+      readonly kind: 'uninitialized';
+      readonly normalSigning?: never;
+      readonly ecdsaPresign?: never;
+    }
+  | {
+      readonly kind: 'unconfigured';
+      readonly normalSigning?: never;
+      readonly ecdsaPresign?: never;
+    }
+  | {
+      readonly kind: 'ready';
+      readonly normalSigning: RouterAbNormalSigningRuntime;
+      readonly ecdsaPresign: RouterAbEcdsaPresignRuntime;
+    };
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected variant: ${JSON.stringify(value)}`);
+}
+
+/**
+ * Framework-agnostic NEAR account service
+ * Core business logic for account creation and registration operations
+ */
+export class AuthService {
+  private config: AuthServiceConfig;
+  private nearClient: MinimalNearClient;
+  private runtimeState: AuthServiceRuntimeState = createInitialAuthServiceRuntimeState();
+  private readonly logger: NormalizedLogger;
+  private readonly stores: AuthServiceStoreRegistry;
+  private readonly nearAccounts: NearAccountOperations;
+  private routerAbSigningRuntimeState: AuthServiceRouterAbSigningRuntimeState = {
+    kind: 'uninitialized',
+  };
+  private readonly emailOtpMemoryOutbox: EmailOtpMemoryOutbox = new Map();
+  private registrationRuntimeWarmPromise: Promise<void> | null = null;
+  private readonly googleJwksState = createGoogleJwksState();
+
+  constructor(config: AuthServiceConfigInput) {
+    this.config = createAuthServiceConfig(config);
+    this.logger = coerceLogger(this.config.logger);
+    this.nearClient = new MinimalNearClient(this.config.nearRpcUrl);
+    this.stores = new AuthServiceStoreRegistry({
+      config: this.config,
+      logger: this.logger,
+      isNode: this.isNodeEnvironment.bind(this),
+    });
+    this.nearAccounts = new NearAccountOperations({
+      config: this.config,
+      nearClient: this.nearClient,
+      logger: this.logger,
+      ensureSignerAndRelayerAccount: this._ensureSignerAndRelayerAccount.bind(this),
+      ensureSignerWasm: this.ensureSignerWasm.bind(this),
+      getRelayerPublicKey: () => this.runtimeState.relayerPublicKey,
+    });
+    // Log effective configuration at construction time so operators can
+    // verify wiring immediately when the service is created.
+    this.logger.info(`
+    AuthService initialized with:
+    • networkId: ${this.config.networkId}
+    • nearRpcUrl: ${this.config.nearRpcUrl}
+    • relayerAccount: ${this.config.relayerAccount}
+    • accountInitialBalance: ${this.config.accountInitialBalance} (${formatYoctoToNear(this.config.accountInitialBalance)} NEAR)
+    • createAccountAndRegisterGas: ${this.config.createAccountAndRegisterGas} (${formatGasToTGas(this.config.createAccountAndRegisterGas)})
+    • ${summarizeThresholdStoreConfig(this.config.thresholdStore)}
+    ${
+      this.config.googleOidc?.clientIds?.length
+        ? `• googleOidc: ${this.config.googleOidc.clientIds.length} clientId(s)`
+        : `• googleOidc: not configured`
+    }
+    • githubOAuth: ${this.config.githubOAuth ? 'configured' : 'not configured'}
+    `);
+  }
+
+  async getRelayerAccount(): Promise<{ accountId: string; publicKey: string }> {
+    await this._ensureSignerAndRelayerAccount();
+    return {
+      accountId: this.config.relayerAccount,
+      publicKey: this.runtimeState.relayerPublicKey,
+    };
+  }
+
+  /**
+   * Lightweight config accessor (no RPC) for diagnostics and well-known endpoints.
+   * This is safe to call even when the relayer account has not been warmed/validated yet.
+   */
+  getConfiguredRelayerAccount(): string {
+    return this.config.relayerAccount;
+  }
+
+  isGoogleOidcConfigured(): boolean {
+    return Boolean(this.config.googleOidc?.clientIds?.length);
+  }
+
+  getGoogleOidcPublicConfig(): { configured: boolean; clientId?: string } {
+    const clientId = String(this.config.googleOidc?.clientIds?.[0] || '').trim();
+    return {
+      configured: Boolean(clientId),
+      ...(clientId ? { clientId } : {}),
+    };
+  }
+
+  getGithubOAuthPublicConfig(): GithubOAuthPublicConfig {
+    return githubOAuthPublicConfig(this.config.githubOAuth);
+  }
+
+  private async consumeGoogleEmailOtpRegistrationRateLimitScope(input: {
+    scope: 'googleRegistrationAttempt';
+    action: 'google_email_otp_registration_create' | 'google_email_otp_registration_offer_restart';
+    userId?: string;
+    providerSubject: string;
+    orgId: string;
+    clientIp?: string;
+  }) {
+    return await this.consumeEmailOtpRateLimit(input);
+  }
+
+  private googleEmailOtpOperationsInput(): GoogleEmailOtpOperationsInput {
+    return {
+      config: this.config,
+      identityStore: this.stores.getIdentityStore(),
+      registrationAttemptStore: this.stores.getEmailOtpRegistrationAttemptStore(),
+      walletEnrollmentStore: this.stores.getEmailOtpWalletEnrollmentStore(),
+      readConfigValue: this.readConfigValue.bind(this),
+      isProductionEnvironment: this.isProductionEnvironment(),
+      consumeRateLimit: this.consumeGoogleEmailOtpRegistrationRateLimitScope.bind(this),
+    };
+  }
+
+  async resolveOidcWalletId(input: {
+    providerSubject?: string;
+    sub?: string;
+    email?: string;
+    accountMode?: unknown;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    restartRegistrationOffer?: unknown;
+  }): Promise<string> {
+    return await resolveOidcWalletIdWithGoogleEmailOtp({
+      deps: this.googleEmailOtpOperationsInput(),
+      request: input,
+    });
+  }
+
+  private async cleanupGoogleEmailOtpRegistrationAttempts(nowMs = Date.now()): Promise<void> {
+    await cleanupGoogleEmailOtpRegistrationAttemptsWithStore({
+      registrationAttemptStore: this.stores.getEmailOtpRegistrationAttemptStore(),
+      nowMs,
+    });
+  }
+
+  async consumeGoogleEmailOtpRegistrationAttemptRateLimit(input: {
+    providerSubject?: unknown;
+    email?: unknown;
+    accountMode?: unknown;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    clientIp?: string;
+    providerUserId?: string;
+    restartRegistrationOffer?: unknown;
+  }): Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        code: 'invalid_body' | 'rate_limited';
+        message: string;
+        retryAfterMs?: number;
+        resetAtMs?: number;
+      }
+  > {
+    return await consumeGoogleEmailOtpRegistrationAttemptRateLimitForAuthService({
+      deps: this.googleEmailOtpOperationsInput(),
+      request: input,
+    });
+  }
+
+  async resolveGoogleEmailOtpSession(input: {
+    providerSubject?: string | GoogleProviderSubject;
+    sub?: string;
+    email?: string | VerifiedGoogleEmail;
+    accountMode?: unknown;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    restartRegistrationOffer?: unknown;
+  }): Promise<GoogleEmailOtpResolutionResult> {
+    return await resolveGoogleEmailOtpSessionForAuthService({
+      deps: this.googleEmailOtpOperationsInput(),
+      request: input,
+    });
+  }
+
+  async completeGoogleEmailOtpRegistrationAttempt(input: {
+    registrationAttemptId?: unknown;
+    walletId?: unknown;
+  }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    return await completeGoogleEmailOtpRegistrationAttemptForAuthService({
+      deps: this.googleEmailOtpOperationsInput(),
+      request: input,
+    });
+  }
+
+  async validateGoogleEmailOtpRegistrationCandidateWallet(input: {
+    registrationAttemptId: string;
+    walletId: string;
+    ownerProofBindingDigest: string;
+    providerSubject: string;
+  }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    return await validateGoogleEmailOtpRegistrationCandidateWalletForAuthService({
+      deps: this.googleEmailOtpOperationsInput(),
+      request: input,
+    });
+  }
+
+  async recordGoogleEmailOtpRegistrationAttemptPublicKey(input: {
+    registrationAttemptId?: unknown;
+    walletId?: unknown;
+    finalizedPublicKey?: unknown;
+  }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    return await recordGoogleEmailOtpRegistrationAttemptPublicKeyForAuthService({
+      deps: this.googleEmailOtpOperationsInput(),
+      request: input,
+    });
+  }
+
+  async failGoogleEmailOtpRegistrationAttempt(input: {
+    registrationAttemptId?: unknown;
+    walletId?: unknown;
+    failureCode?: unknown;
+  }): Promise<void> {
+    await failGoogleEmailOtpRegistrationAttemptForAuthService({
+      deps: this.googleEmailOtpOperationsInput(),
+      request: input,
+    });
+  }
+
+  async cleanupGoogleEmailOtpDevRegistrationState(input: {
+    providerSubject?: unknown;
+    walletId?: unknown;
+    orgId?: unknown;
+    nowMs?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        providerSubject: string;
+        expiredRegistrationAttemptsDeleted: number;
+        linkedWalletId?: string;
+        orphanedWalletMappingRemoved: boolean;
+        orphanedWalletMappingSkippedReason?:
+          | 'no_linked_wallet'
+          | 'wallet_id_mismatch'
+          | 'not_relayer_subaccount'
+          | 'active_email_otp_enrollment'
+          | 'mismatched_email_otp_enrollment';
+      }
+    | { ok: false; code: string; message: string }
+  > {
+    return await cleanupGoogleEmailOtpDevRegistrationStateForAuthService({
+      deps: this.googleEmailOtpOperationsInput(),
+      request: input,
+    });
+  }
+
+  async warmRegistrationRuntime(): Promise<void> {
+    if (this.registrationRuntimeWarmPromise) return this.registrationRuntimeWarmPromise;
+
+    this.registrationRuntimeWarmPromise = (async () => {
+      const warmStartedAt = Date.now();
+      const relayerWarmStartedAt = Date.now();
+      await this.getRelayerAccount();
+      this.logger.info(
+        `[AuthService] registration runtime relayer/signer warm completed in ${
+          Date.now() - relayerWarmStartedAt
+        }ms`,
+      );
+
+      const storeWarmStartedAt = Date.now();
+      this.stores.getWebAuthnAuthenticatorStore();
+      this.stores.getWebAuthnCredentialBindingStore();
+      this.stores.getNearPublicKeyStore();
+      this.logger.info(
+        `[AuthService] registration runtime storage warm completed in ${
+          Date.now() - storeWarmStartedAt
+        }ms`,
+      );
+
+      this.logger.info(
+        `[AuthService] registration runtime warm completed in ${Date.now() - warmStartedAt}ms`,
+      );
+    })();
+
+    try {
+      await this.registrationRuntimeWarmPromise;
+    } catch (error) {
+      this.registrationRuntimeWarmPromise = null;
+      throw error;
+    }
+  }
+
+  async viewAccessKeyList(accountId: string): Promise<AccessKeyList> {
+    return await this.nearAccounts.viewAccessKeyList(accountId);
+  }
+
+  async dispatchNearSignedTransactionBorsh(input: {
+    signedTransactionBorshB64u: string;
+  }): Promise<{ rpcResult: FinalExecutionOutcome }> {
+    return await this.nearAccounts.dispatchNearSignedTransactionBorsh(input);
+  }
+
+  getRouterAbNormalSigningRuntime(): RouterAbNormalSigningRuntime | null {
+    const state = this.getRouterAbSigningRuntimeState();
+    return state.kind === 'ready' ? state.normalSigning : null;
+  }
+
+  getRouterAbEcdsaPresignRuntime(): RouterAbEcdsaPresignRuntime | null {
+    const state = this.getRouterAbSigningRuntimeState();
+    return state.kind === 'ready' ? state.ecdsaPresign : null;
+  }
+
+  private getRouterAbSigningRuntimeState(): Exclude<
+    AuthServiceRouterAbSigningRuntimeState,
+    { readonly kind: 'uninitialized' }
+  > {
+    if (this.routerAbSigningRuntimeState.kind === 'uninitialized') {
+      if (!this.config.thresholdStore) {
+        this.routerAbSigningRuntimeState = { kind: 'unconfigured' };
+      } else {
+        const runtimes = createRouterAbSigningRuntimes({
+          authService: this,
+          thresholdStore: this.config.thresholdStore,
+          logger: this.logger,
+          isNode: this.isNodeEnvironment(),
+        });
+        this.routerAbSigningRuntimeState = {
+          kind: 'ready',
+          normalSigning: runtimes.normalSigning,
+          ecdsaPresign: runtimes.ecdsaPresign,
+        };
+      }
+    }
+    return this.routerAbSigningRuntimeState;
+  }
+
+  private isProductionEnvironment(): boolean {
+    return isAuthServiceProductionEnvironment();
+  }
+
+  private readConfigValue(name: string): string {
+    return readAuthServiceConfigValue({
+      thresholdStore: this.config.thresholdStore as AuthServiceConfigSource,
+      name,
+    });
+  }
+
+  private resolveEmailOtpRateLimitPolicies(): {
+    challenge: { limit: number; windowMs: number };
+    verify: { limit: number; windowMs: number };
+    grant: { limit: number; windowMs: number };
+    googleRegistrationAttempt: { limit: number; windowMs: number };
+  } {
+    return resolveEmailOtpRateLimitPoliciesFromSource({
+      thresholdStore: this.config.thresholdStore as AuthServiceConfigSource,
+      production: this.isProductionEnvironment(),
+    });
+  }
+
+  private async consumeEmailOtpRateLimit(args: {
+    scope: 'challenge' | 'verify' | 'grant' | 'googleRegistrationAttempt';
+    action?: string;
+    userId?: string;
+    walletId?: string;
+    providerSubject?: string;
+    orgId?: string;
+    clientIp?: string;
+  }): Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        code: 'rate_limited';
+        message: string;
+        retryAfterMs?: number;
+        resetAtMs?: number;
+      }
+  > {
+    return await consumeEmailOtpRateLimitWithDeps({
+      limiter: this.stores.getEmailOtpRateLimiter(),
+      policies: this.resolveEmailOtpRateLimitPolicies(),
+      scope: args.scope,
+      action: args.action,
+      userId: args.userId,
+      walletId: args.walletId,
+      providerSubject: args.providerSubject,
+      orgId: args.orgId,
+      clientIp: args.clientIp,
+    });
+  }
+
+  private resolveEmailOtpConfig(): EmailOtpConfig {
+    return resolveEmailOtpConfigFromSource({
+      thresholdStore: this.config.thresholdStore as AuthServiceConfigSource,
+      production: this.isProductionEnvironment(),
+    });
+  }
+
+  private createEmailOtpShamirCipher() {
+    return createEmailOtpShamirCipherFromConfig({
+      rootSecretB64u: this.readConfigValue('SIGNING_SESSION_SEAL_ROOT_SECRET_B64U'),
+      currentKeyVersion: this.readConfigValue('SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION'),
+      acceptedWarmKeyVersions: this.readConfigValue(
+        'SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS',
+      )
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    });
+  }
+
+  private async deliverEmailOtpCode(input: {
+    challengeId: string;
+    walletId: string;
+    userId: string;
+    otpChannel: EmailOtpChannel;
+    action: EmailOtpChallengeAction;
+    operation: EmailOtpChallengeOperation;
+    email: string;
+    otpCode: string;
+    expiresAtMs: number;
+  }): Promise<
+    | { ok: true; deliveryMode: 'email_provider' | 'log' | 'memory'; emailHint: string }
+    | { ok: false; code: string; message: string; lockedUntilMs?: number }
+  > {
+    return await deliverEmailOtpCodeWithDeps({
+      config: this.resolveEmailOtpConfig(),
+      production: this.isProductionEnvironment(),
+      logger: this.logger,
+      memoryOutbox: this.emailOtpMemoryOutbox,
+      challengeId: input.challengeId,
+      walletId: input.walletId,
+      userId: input.userId,
+      otpChannel: input.otpChannel,
+      action: input.action,
+      operation: input.operation,
+      email: input.email,
+      otpCode: input.otpCode,
+      expiresAtMs: input.expiresAtMs,
+    });
+  }
+
+  private identityOperations(): IdentityOperations {
+    return new IdentityOperations(this.stores.getIdentityStore());
+  }
+
+  async listIdentities(input: { userId: string }): Promise<ListIdentitiesResult> {
+    return await this.identityOperations().listIdentities(input);
+  }
+
+  async linkIdentity(input: {
+    userId: string;
+    subject: string;
+    allowMoveIfSoleIdentity?: boolean;
+  }): Promise<LinkIdentityResult> {
+    return await this.identityOperations().linkIdentity(input);
+  }
+
+  async unlinkIdentity(input: { userId: string; subject: string }): Promise<UnlinkIdentityResult> {
+    return await this.identityOperations().unlinkIdentity(input);
+  }
+
+  async recordNearPublicKeyMetadata(input: {
+    userId?: unknown;
+    publicKey?: unknown;
+    kind: NearPublicKeyKind;
+    signerSlot?: unknown;
+    credentialIdB64u?: unknown;
+    rpId?: unknown;
+    addedTxHash?: unknown;
+    removedAtMs?: unknown;
+    source?: string;
+  }): Promise<RecordNearPublicKeyMetadataResult> {
+    return await recordNearPublicKeyMetadataWithStore({
+      store: this.stores.getNearPublicKeyStore(),
+      logger: this.logger,
+      userId: input.userId,
+      publicKey: input.publicKey,
+      kind: input.kind,
+      signerSlot: input.signerSlot,
+      credentialIdB64u: input.credentialIdB64u,
+      rpId: input.rpId,
+      addedTxHash: input.addedTxHash,
+      removedAtMs: input.removedAtMs,
+      source: input.source,
+    });
+  }
+
+  async txStatus(txHash: string, senderAccountId: string): Promise<FinalExecutionOutcome> {
+    return await this.nearAccounts.txStatus(txHash, senderAccountId);
+  }
+
+  private async _ensureSignerAndRelayerAccount(): Promise<void> {
+    this.runtimeState = await ensureAuthServiceRuntimeReady({
+      state: this.runtimeState,
+      relayerPrivateKey: this.config.relayerPrivateKey,
+      signerWasmOverride: this.config.signerWasm?.moduleOrPath,
+      logger: this.logger,
+    });
+  }
+
+  private async ensureSignerWasm(): Promise<void> {
+    this.runtimeState = await ensureAuthServiceSignerWasmReady({
+      state: this.runtimeState,
+      signerWasmOverride: this.config.signerWasm?.moduleOrPath,
+      logger: this.logger,
+    });
+  }
+
+  private isNodeEnvironment(): boolean {
+    return isAuthServiceNodeEnvironment();
+  }
+
+  /**
+   * ===== Registration & authentication =====
+   *
+   * Helpers for creating accounts, registering WebAuthn credentials,
+   * and verifying authentication responses.
+   */
+
+  /**
+   * Create a new account with the specified balance
+   */
+  async createAccount(request: AccountCreationRequest): Promise<AccountCreationResult> {
+    return await this.nearAccounts.createAccount(request);
+  }
+
+  async fundImplicitNearAccount(
+    request: FundImplicitNearAccountRequest,
+  ): Promise<FundImplicitNearAccountResult> {
+    return await this.nearAccounts.fundImplicitNearAccount(request);
+  }
+
+  private async verifyRegistrationCredentialForIntent(input: {
+    webauthnRegistration: unknown;
+    expectedChallenge: string;
+    expectedOrigin: string;
+    rpId: WebAuthnRpId;
+  }) {
+    return await verifyWebAuthnRegistrationCredentialForIntent(input);
+  }
+
+  /**
+   * Standard WebAuthn assertion verification for lite flows.
+   *
+   * This verifies:
+   * - the assertion signature against the credential public key stored in relay-private storage,
+   * - the RP ID hash against `rpId`,
+   * - the challenge against `expectedChallenge` (base64url string),
+   * - and that `clientDataJSON.origin` is within the RP ID domain.
+   *
+   * Notes:
+   * - This intentionally does not involve on-chain challenge proofs or `verify_authentication_response`.
+   * - Replay protection is handled by upstream protocol bindings (e.g., unique sessionPolicyDigest32 via sessionId).
+   */
+  async verifyWebAuthnAuthenticationLite(input: {
+    userId: string;
+    rpId: WebAuthnRpId;
+    expectedChallenge: string;
+    webauthn_authentication: WebAuthnAuthenticationCredential;
+    expected_origin: string;
+  }): Promise<{ success: boolean; verified: boolean; code?: string; message?: string }> {
+    await this._ensureSignerAndRelayerAccount();
+    return await verifyWebAuthnAuthenticationLiteWithStore({
+      userId: input.userId,
+      rpId: input.rpId,
+      expectedChallenge: input.expectedChallenge,
+      webauthnAuthentication: input.webauthn_authentication,
+      expectedOrigin: input.expected_origin,
+      authenticatorStore: this.stores.getWebAuthnAuthenticatorStore(),
+      logger: this.logger,
+    });
+  }
+
+  /**
+   * List WebAuthn authenticators for the given user.
+   *
+   * This is relay-private state (no on-chain authenticator registry).
+   * Intended for UI surfaces like "Linked Devices" in the SDK.
+   */
+  async listWebAuthnAuthenticatorsForUser(input: {
+    userId: string;
+    rpId?: string;
+  }): Promise<WebAuthnAuthenticatorListResult> {
+    return await listWebAuthnAuthenticatorsForUserWithStores({
+      userId: input.userId,
+      rpId: String(input.rpId || '').trim(),
+      authenticatorStore: this.stores.getWebAuthnAuthenticatorStore(),
+      credentialBindingStore: this.stores.getWebAuthnCredentialBindingStore(),
+    });
+  }
+
+  async listNearPublicKeysForUser(input: { userId: string }): Promise<ListNearPublicKeysResult> {
+    return await listNearPublicKeysForUserWithStore({
+      store: this.stores.getNearPublicKeyStore(),
+      userId: input.userId,
+    });
+  }
+
+  async createWebAuthnLoginOptions(request: {
+    userId?: unknown;
+    user_id?: unknown;
+    rpId?: unknown;
+    rp_id?: unknown;
+    ttlMs?: unknown;
+    ttl_ms?: unknown;
+  }): Promise<{
+    ok: boolean;
+    challengeId?: string;
+    challengeB64u?: string;
+    expiresAtMs?: number;
+    code?: string;
+    message?: string;
+  }> {
+    return await createWebAuthnLoginOptionsWithStore({
+      request,
+      loginChallengeStore: this.stores.getWebAuthnLoginChallengeStore(),
+    });
+  }
+
+  async verifyWebAuthnLogin(request: {
+    challengeId?: unknown;
+    challenge_id?: unknown;
+    webauthn_authentication?: unknown;
+    expected_origin?: string;
+  }): Promise<WebAuthnLoginVerificationResult> {
+    return await verifyWebAuthnLoginWithStores({
+      request,
+      loginChallengeStore: this.stores.getWebAuthnLoginChallengeStore(),
+      authenticatorStore: this.stores.getWebAuthnAuthenticatorStore(),
+      credentialBindingStore: this.stores.getWebAuthnCredentialBindingStore(),
+      identityStore: this.stores.getIdentityStore(),
+      logger: this.logger,
+    });
+  }
+
+  async createEmailOtpUnlockChallenge(request: {
+    walletId?: unknown;
+    orgId?: unknown;
+    ttlMs?: unknown;
+    ttl_ms?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        walletId: string;
+        challengeId: string;
+        challengeB64u: string;
+        expiresAtMs: number;
+        unlockKeyVersion: string;
+      }
+    | { ok: false; code: string; message: string; lockedUntilMs?: number }
+  > {
+    return await createEmailOtpUnlockChallengeWithStores({
+      request,
+      unlockChallengeStore: this.stores.getEmailOtpUnlockChallengeStore(),
+      readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
+    });
+  }
+
+  async verifyEmailOtpUnlockProof(request: {
+    walletId?: unknown;
+    orgId?: unknown;
+    challengeId?: unknown;
+    unlockProof?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        verified: true;
+        userId: string;
+        walletId: string;
+        providerUserId: string;
+        orgId: string;
+        enrollmentId: string;
+        enrollmentSealKeyVersion: string;
+        unlockKeyVersion: string;
+      }
+    | { ok: false; verified: false; code: string; message: string }
+  > {
+    return await verifyEmailOtpUnlockProofWithStores({
+      request,
+      unlockChallengeStore: this.stores.getEmailOtpUnlockChallengeStore(),
+      readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
+      putAuthStateForEnrollment: this.putEmailOtpAuthStateForEnrollment.bind(this),
+    });
+  }
+
+  private async pruneExpiredEmailOtpChallenges(
+    challengeStore: EmailOtpChallengeStore,
+    nowMs: number,
+  ): Promise<void> {
+    await pruneExpiredEmailOtpChallengesWithStore({
+      challengeStore,
+      memoryOutbox: this.emailOtpMemoryOutbox,
+      nowMs,
+    });
+  }
+
+  private async readEmailOtpAuthStateForEnrollment(
+    enrollmentRecord: EmailOtpWalletEnrollmentRecord,
+  ): Promise<EmailOtpAuthStateReadResult> {
+    return await readEmailOtpAuthStateForEnrollmentWithStore({
+      authStateStore: this.stores.getEmailOtpAuthStateStore(),
+      enrollment: enrollmentRecord,
+    });
+  }
+
+  private async putEmailOtpAuthStateForEnrollment(
+    enrollmentRecord: EmailOtpWalletEnrollmentRecord,
+    patch: EmailOtpAuthStatePatch,
+  ): Promise<EmailOtpAuthStateRecord> {
+    return await putEmailOtpAuthStateForEnrollmentWithStore({
+      authStateStore: this.stores.getEmailOtpAuthStateStore(),
+      enrollment: enrollmentRecord,
+      patch,
+      nowMs: Date.now(),
+    });
+  }
+
+  private async createEmailOtpChallengeWithAction(request: {
+    challengeSubjectId?: unknown;
+    walletId?: unknown;
+    orgId?: unknown;
+    email?: unknown;
+    otpChannel?: unknown;
+    ownerProofBindingDigest?: unknown;
+    clientIp?: unknown;
+    operation?: unknown;
+    reuseActiveChallenge?: unknown;
+    action: EmailOtpChallengeAction;
+  }): Promise<CreateEmailOtpChallengeWithActionResult> {
+    return await createEmailOtpChallengeWithActionWithStores({
+      request,
+      challengeStore: this.stores.getEmailOtpChallengeStore(),
+      memoryOutbox: this.emailOtpMemoryOutbox,
+      readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
+      readEnrollmentAuthState: this.readEmailOtpAuthStateForEnrollment.bind(this),
+      consumeRateLimit: this.consumeEmailOtpRateLimit.bind(this),
+      resolveConfig: this.resolveEmailOtpConfig.bind(this),
+      deliverCode: this.deliverEmailOtpCode.bind(this),
+    });
+  }
+
+  private emailOtpChallengeOperationsInput(): EmailOtpChallengeOperationsInput {
+    return {
+      createChallengeWithAction: this.createEmailOtpChallengeWithAction.bind(this),
+      verifyChallengeCode: this.verifyEmailOtpChallengeCode.bind(this),
+      grantStore: this.stores.getEmailOtpGrantStore(),
+      resolveConfig: this.resolveEmailOtpConfig.bind(this),
+    };
+  }
+
+  async createEmailOtpChallenge(request: {
+    userId?: unknown;
+    walletId?: unknown;
+    orgId?: unknown;
+    email?: unknown;
+    otpChannel?: unknown;
+    ownerProofBindingDigest?: unknown;
+    clientIp?: unknown;
+    operation?: unknown;
+    reuseActiveChallenge?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        challenge: {
+          challengeId: string;
+          issuedAtMs: number;
+          expiresAtMs: number;
+          userId: string;
+          walletId: string;
+          orgId: string;
+          otpChannel: EmailOtpChannel;
+          ownerProofBindingDigest: string;
+          action: typeof WALLET_EMAIL_OTP_ACTIONS.login;
+          operation: EmailOtpLoginChallengeOperation;
+        };
+        delivery: {
+          status: 'sent' | 'reused';
+          mode: 'email_provider' | 'log' | 'memory';
+          emailHint: string;
+        };
+      }
+    | { ok: false; code: string; message: string }
+  > {
+    return await createEmailOtpChallengeOperation(this.emailOtpChallengeOperationsInput(), request);
+  }
+
+  async createEmailOtpEnrollmentChallenge(request: {
+    userId?: unknown;
+    walletId?: unknown;
+    orgId?: unknown;
+    email?: unknown;
+    otpChannel?: unknown;
+    ownerProofBindingDigest?: unknown;
+    clientIp?: unknown;
+    operation?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        challenge: {
+          challengeId: string;
+          issuedAtMs: number;
+          expiresAtMs: number;
+          userId: string;
+          walletId: string;
+          orgId: string;
+          otpChannel: EmailOtpChannel;
+          ownerProofBindingDigest: string;
+          action: typeof WALLET_EMAIL_OTP_ACTIONS.registration;
+          operation: typeof WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
+        };
+        delivery: {
+          mode: 'email_provider' | 'log' | 'memory';
+          emailHint: string;
+        };
+      }
+    | { ok: false; code: string; message: string }
+  > {
+    return await createEmailOtpEnrollmentChallengeOperation(
+      this.emailOtpChallengeOperationsInput(),
+      request,
+    );
+  }
+
+  private async verifyEmailOtpChallengeCode(request: {
+    challengeSubjectId?: unknown;
+    walletId?: unknown;
+    orgId?: unknown;
+    challengeId?: unknown;
+    otpCode?: unknown;
+    otpChannel?: unknown;
+    ownerProofBindingDigest?: unknown;
+    registrationChallengeProof?: EmailOtpRegistrationChallengeProof;
+    allowRegistrationChallengeReroll?: boolean;
+    clientIp?: unknown;
+    expectedAction: EmailOtpChallengeAction;
+    expectedOperation?: EmailOtpChallengeOperation;
+  }): Promise<VerifiedEmailOtpChallengeCodeResult> {
+    return await verifyEmailOtpChallengeCodeWithStores({
+      request,
+      challengeStore: this.stores.getEmailOtpChallengeStore(),
+      walletEnrollmentStore: this.stores.getEmailOtpWalletEnrollmentStore(),
+      memoryOutbox: this.emailOtpMemoryOutbox,
+      logger: this.logger,
+      readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
+      readEnrollmentAuthState: this.readEmailOtpAuthStateForEnrollment.bind(this),
+      putEnrollmentAuthState: this.putEmailOtpAuthStateForEnrollment.bind(this),
+      consumeRateLimit: this.consumeEmailOtpRateLimit.bind(this),
+      resolveConfig: this.resolveEmailOtpConfig.bind(this),
+    });
+  }
+
+  async verifyEmailOtpChallenge(request: {
+    userId?: unknown;
+    walletId?: unknown;
+    orgId?: unknown;
+    challengeId?: unknown;
+    otpCode?: unknown;
+    otpChannel?: unknown;
+    ownerProofBindingDigest?: unknown;
+    clientIp?: unknown;
+    operation?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        challengeId: string;
+        loginGrant: string;
+        grantExpiresAtMs: number;
+        otpChannel: EmailOtpChannel;
+      }
+    | {
+        ok: false;
+        code: string;
+        message: string;
+        attemptsRemaining?: number;
+        lockedUntilMs?: number;
+      }
+  > {
+    return await verifyEmailOtpChallengeOperation(this.emailOtpChallengeOperationsInput(), request);
+  }
+
+  async verifyEmailOtpEnrollment(request: {
+    /** Provider subject that requested the registration OTP. */
+    providerSubject: unknown;
+    walletId: unknown;
+    orgId: unknown;
+    challengeId: unknown;
+    otpCode: unknown;
+    otpChannel: unknown;
+    ownerProofBindingDigest: unknown;
+    /** Email asserted by the registration proof. It must match the challenged email. */
+    proofEmail?: unknown;
+    clientIp?: unknown;
+    enrollmentSealKeyVersion?: unknown;
+    serverSealedFactorCiphertextB64u?: unknown;
+    clientUnlockPublicKeyB64u?: unknown;
+    unlockKeyVersion?: unknown;
+    googleEmailOtpRegistrationAttemptId?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        walletId: string;
+        otpChannel: EmailOtpChannel;
+        enrollment: {
+          createdAtMs: number;
+          updatedAtMs: number;
+          enrollmentSealKeyVersion: string;
+          unlockKeyVersion: string;
+        };
+      }
+    | {
+        ok: false;
+        code: string;
+        message: string;
+        attemptsRemaining?: number;
+        lockedUntilMs?: number;
+      }
+  > {
+    return await verifyEmailOtpEnrollmentWithStores({
+      request,
+      walletStore: this.stores.getWalletStore(),
+      walletEnrollmentStore: this.stores.getEmailOtpWalletEnrollmentStore(),
+      authStateStore: this.stores.getEmailOtpAuthStateStore(),
+      registrationAttemptStore: this.stores.getEmailOtpRegistrationAttemptStore(),
+      identityStore: this.stores.getIdentityStore(),
+      verifyChallengeCode: this.verifyEmailOtpChallengeCode.bind(this),
+    });
+  }
+
+  async readEmailOtpEnrollment(request: {
+    walletId?: unknown;
+    orgId: unknown;
+  }): Promise<EmailOtpEnrollmentReadResult> {
+    return await readEmailOtpEnrollmentWithStore({
+      walletEnrollmentStore: this.stores.getEmailOtpWalletEnrollmentStore(),
+      request,
+    });
+  }
+
+  async readActiveEmailOtpEnrollment(request: {
+    walletId?: unknown;
+    orgId: unknown;
+    providerUserId?: unknown;
+  }): Promise<EmailOtpEnrollmentReadResult> {
+    return await readActiveEmailOtpEnrollmentWithStore({
+      walletEnrollmentStore: this.stores.getEmailOtpWalletEnrollmentStore(),
+      request,
+    });
+  }
+
+  async isEmailOtpStrongAuthRequired(request: {
+    walletId?: unknown;
+  }): Promise<EmailOtpStrongAuthRequiredResult> {
+    return await isEmailOtpStrongAuthRequiredWithStores({
+      walletEnrollmentStore: this.stores.getEmailOtpWalletEnrollmentStore(),
+      authStateStore: this.stores.getEmailOtpAuthStateStore(),
+      request,
+    });
+  }
+
+  async markEmailOtpStrongAuthSatisfied(request: {
+    walletId?: unknown;
+  }): Promise<EmailOtpStrongAuthSatisfiedResult> {
+    return await markEmailOtpStrongAuthSatisfiedWithStores({
+      walletEnrollmentStore: this.stores.getEmailOtpWalletEnrollmentStore(),
+      authStateStore: this.stores.getEmailOtpAuthStateStore(),
+      request,
+      nowMs: Date.now(),
+    });
+  }
+
+  async consumeEmailOtpGrant(
+    request: EmailOtpGrantConsumeRequest,
+  ): Promise<EmailOtpGrantConsumeResult> {
+    return await consumeEmailOtpGrantWithStore({
+      request,
+      grantStore: this.stores.getEmailOtpGrantStore(),
+      consumeRateLimit: this.consumeEmailOtpRateLimit.bind(this),
+      nowMs: Date.now(),
+    });
+  }
+
+  async readEmailOtpOutboxEntry(request: {
+    challengeId?: unknown;
+    userId?: unknown;
+    walletId?: unknown;
+  }): Promise<EmailOtpOutboxReadResult> {
+    return readEmailOtpOutboxEntryWithDeps({
+      config: this.resolveEmailOtpConfig(),
+      memoryOutbox: this.emailOtpMemoryOutbox,
+      request,
+      nowMs: Date.now(),
+    });
+  }
+
+  async removeEmailOtpServerSeal(
+    request: EmailOtpServerSealRequest,
+  ): Promise<EmailOtpServerSealResult> {
+    return await runEmailOtpServerSealOperation({
+      operation: 'remove-server-seal',
+      request,
+      shamir: this.createEmailOtpShamirCipher(),
+    });
+  }
+
+  async applyEmailOtpServerSeal(
+    request: EmailOtpServerSealRequest,
+  ): Promise<EmailOtpServerSealResult> {
+    return await runEmailOtpServerSealOperation({
+      operation: 'apply-server-seal',
+      request,
+      shamir: this.createEmailOtpShamirCipher(),
+    });
+  }
+
+  async verifyGithubOAuthCode(request: { code?: unknown }): Promise<GithubOAuthCodeFacadeResult> {
+    return await verifyGithubOAuthCodeWithIdentityStore({
+      request,
+      config: this.config.githubOAuth,
+      identityStore: this.stores.getIdentityStore(),
+    });
+  }
+
+  async verifyGoogleLogin(request: {
+    idToken?: unknown;
+    id_token?: unknown;
+  }): Promise<GoogleLoginFacadeResult> {
+    return await verifyGoogleLoginWithIdentityStore({
+      request,
+      config: this.config.googleOidc,
+      jwksState: this.googleJwksState,
+      identityStore: this.stores.getIdentityStore(),
+    });
+  }
+
+  async createWebAuthnSyncAccountOptions(request: {
+    rp_id?: unknown;
+    account_id?: unknown;
+    ttl_ms?: unknown;
+    ttlMs?: unknown;
+  }): Promise<WebAuthnSyncAccountOptionsResult> {
+    return await createWebAuthnSyncAccountOptionsWithStores({
+      request,
+      syncChallengeStore: this.stores.getWebAuthnSyncChallengeStore(),
+      credentialBindingStore: this.stores.getWebAuthnCredentialBindingStore(),
+    });
+  }
+
+  async verifyWebAuthnSyncAccount(
+    request: WebAuthnSyncAccountVerificationRequest,
+  ): Promise<WebAuthnSyncAccountVerificationResult> {
+    return await verifyWebAuthnSyncAccountWithStores({
+      request,
+      syncChallengeStore: this.stores.getWebAuthnSyncChallengeStore(),
+      credentialBindingStore: this.stores.getWebAuthnCredentialBindingStore(),
+      authenticatorStore: this.stores.getWebAuthnAuthenticatorStore(),
+      walletStore: this.stores.getWalletStore(),
+      logger: this.logger,
+    });
+  }
+  /**
+   * Account existence helper used by registration flows.
+   */
+  async checkAccountExists(accountId: string): Promise<boolean> {
+    return await this.nearAccounts.checkAccountExists(accountId);
+  }
+
+  /**
+   * ===== Delegate actions & transaction execution =====
+   *
+   * Flows that build and submit on-chain transactions, including NEP-461
+   * SignedDelegate meta-transactions.
+   */
+
+  /**
+   * Execute a NEP-461 SignedDelegate by wrapping it in an outer transaction
+   * from the relayer account. This method is intended to be called by
+   * example relayers (Node/Cloudflare) once a SignedDelegate has been
+   * produced by the signer worker and returned to the application.
+   *
+   * Notes:
+   * - Signature and hash computation are performed by the signer worker.
+   *   This method focuses on expiry/policy enforcement and meta-tx submission.
+   * - Nonce/replay protection is left to the integrator; see docs for guidance.
+   */
+  async executeSignedDelegate(input: {
+    hash: string;
+    signedDelegate: SignedDelegate;
+    policy?: DelegateActionPolicy;
+  }): Promise<ExecuteSignedDelegateResult> {
+    return await this.nearAccounts.executeSignedDelegate(input);
+  }
+}

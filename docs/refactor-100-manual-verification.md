@@ -18,21 +18,22 @@ in the exact manifest before credential promotion.
 
 Recovery codes do not reconstruct authentication-factor secrets. They do not
 recover an old passkey's PRF/private material or an Email OTP device secret.
-The current recovery operation registers one replacement passkey envelope and
-retires the previously active custody envelopes. Treat recovery as a custody
-factor reset. Re-enrol any additional authentication methods after recovery.
+Refactor 114 replaces the current recovery operation with code-only recovery
+for wallets that have exactly one active Passkey owner method. It atomically
+replaces that method and envelope, then uses normal Passkey login to create a
+fresh Wallet Session. Refactor 109C owns later multi-auth recovery policy.
 
 ## Source Audit
 
 | Operating path | Source evidence | Source status |
 | --- | --- | --- |
-| Fresh-device recovery | `RecoveryCapability` exposes bootstrap challenge, verify, prepare, and complete; `WalletRecoveryCoordinator` retains the resumable operation; direct and iframe handlers are wired | Implemented |
+| Fresh-device recovery | Refactor 114 deletes the public bootstrap capability and connects the existing coordinator directly to the hosted wallet-iframe menu | R114 planned |
 | Passkey-authorized `addPasskey` | Existing credential assertion opens the active custody envelope, creates a new PRF credential, reseals the same seed, and atomically finalizes credential plus envelope | Implemented |
 | Email-OTP-authorized `addPasskey` | Explicit authorization union; OTP unlock stays in the Email OTP worker; a bounded two-minute opaque WASM handle crosses prepare/complete; factor bytes are zeroized; direct and iframe handlers are wired | Implemented |
 | Passkey cold unlock | Ordinary login rejoins missing Ed25519 and ECDSA custody material and restores canonical Refactor-90 continuity | Implemented |
 | Email OTP cold unlock | Server-authored capability selection; worker-held factor opens/rejoins custody; Ed25519 cache material and ECDSA continuity are restored | Implemented |
 | Credential management | Public/direct/iframe list, rename, and revoke; activity metadata is separate from envelope AAD; revocation atomically updates auth and custody with a last-active-envelope guard | Implemented |
-| Cross-device wallet recovery | Email OTP bootstrap requires no local wallet session; caller selects the credential being replaced; code opens the wallet seed; every manifest entry is recovered; replacement credential promotion is atomic | Implemented |
+| Cross-device wallet recovery | One code reserves recovery; the server selects the only active Passkey; every manifest entry is recovered; source-factor replacement is atomic; normal login creates a fresh session | R114 planned |
 | Recovery-code rotation | Passkey and Email OTP authorization both regenerate exactly ten codes and a fresh manifest KEK; the server replaces the full recovery set with CAS and re-arms backup acknowledgement | Implemented |
 | Legacy deletion | Separate Email OTP device-escrow routes, services, stores, client calls, root vault, sealed recovery, raw custody-seed registration APIs, deterministic passkey-PRF root API, and stale fixtures are removed | Implemented |
 
@@ -101,23 +102,24 @@ Run once with `existing_passkey` authorization and once with `email_otp`:
 Run for Ed25519-only, ECDSA-only, and mixed wallets from a browser with no local
 wallet state:
 
-1. Request the recovery bootstrap challenge.
-2. Verify Email OTP and confirm the response lists credential IDs and labels
-   without disclosing secrets.
-3. Select the exact credential to replace.
-4. Prepare with one valid wallet recovery code.
-5. Complete from the wallet-origin foreground surface and create the replacement
+1. Open **Recover account** in the hosted wallet-origin menu.
+2. Enter the Wallet ID and one valid recovery code. Confirm no Email OTP,
+   existing Passkey assertion, or old credential selection appears.
+3. Submit preparation, then use the separate user activation to create the replacement
    passkey with PRF support.
-6. Confirm every manifest key set is recovered before finalization.
-7. Confirm one replacement passkey envelope is active and prior active custody
-   envelopes are retired.
-8. Sign with every recovered key family and compare public identities with the
+4. Confirm every manifest key set is recovered before finalization.
+5. Confirm one replacement Passkey auth method and envelope are active, the
+   source method and envelope are revoked, its Wallet Sessions are revoked, and
+   exactly one code is consumed by the same commit.
+6. Sign in normally with the replacement Passkey and confirm a fresh Wallet
+   Session is created.
+7. Sign with every recovered key family and compare public identities with the
    pre-recovery wallet.
-9. Reuse the consumed code and confirm rejection.
-10. Retry the identical finalize payload after a simulated lost response and
+8. Reuse the consumed code and confirm the generic refusal.
+9. Retry the identical finalize payload after a simulated lost response and
     confirm the committed result replays without a second activation.
-11. Cancel after prepare, retry with the same in-memory operation, and confirm
-    the reservation remains usable until expiry.
+10. Cancel after prepare and confirm local secrets are cleared and the code is
+    usable after the reservation expires.
 
 ### F. Full Ten-Code Rotation
 
@@ -136,8 +138,8 @@ Run once with passkey authorization and once with Email OTP authorization:
 
 ### G. Boundary And Failure Checks
 
-1. Use a mismatched wallet ID, organization, RP ID, credential ID, enrollment
-   ID, seal-key version, or authority reference and confirm fail-closed behavior.
+1. Use a mismatched wallet ID, RP ID, reservation, challenge, replacement,
+   seal-key version, or manifest proof and confirm fail-closed behavior.
 2. Attempt direct parent-frame injection of relay URL, session JWT, OTP secret,
    factor bytes, or opaque worker handle and confirm the iframe boundary rejects
    it.

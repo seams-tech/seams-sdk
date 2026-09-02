@@ -108,13 +108,25 @@ export default defineConfig({
 function readStagingOrigins(): typeof EXPECTED_STAGING_ORIGINS {
   const targetsPath = path.join(REPOSITORY_ROOT, 'deployment', 'targets.json');
   const parsed = JSON.parse(readFileSync(targetsPath, 'utf8')) as unknown;
-  if (!isRecord(parsed) || !isRecord(parsed.staging) || !isRecord(parsed.staging.origins)) {
+  if (
+    !isRecord(parsed) ||
+    !isRecord(parsed.staging) ||
+    !isRecord(parsed.staging.site) ||
+    !isRecord(parsed.staging.lanes) ||
+    !isRecord(parsed.staging.lanes.testnet)
+  ) {
     throw new Error('deployment/targets.json is missing staging origins');
   }
-  const origins = parsed.staging.origins;
-  for (const [name, expected] of Object.entries(EXPECTED_STAGING_ORIGINS)) {
-    if (origins[name] !== expected) {
-      throw new Error(`Refactor 93 staging ${name} origin must be exactly ${expected}`);
+  const origins = {
+    gateway: parsed.staging.lanes.testnet.gatewayOrigin,
+    site: parsed.staging.site.origin,
+    wallet: parsed.staging.lanes.testnet.walletOrigin,
+  };
+  for (const name of ['gateway', 'site', 'wallet'] as const) {
+    if (origins[name] !== EXPECTED_STAGING_ORIGINS[name]) {
+      throw new Error(
+        `Refactor 93 staging ${name} origin must be exactly ${EXPECTED_STAGING_ORIGINS[name]}`,
+      );
     }
   }
   return EXPECTED_STAGING_ORIGINS;

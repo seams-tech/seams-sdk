@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { CloudflareD1WalletCustodyCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
-import { commitRegistrationCustody } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/registrationCustodyOutcome';
+import { CloudflareD1WalletCustodyCommitStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import { commitRegistrationCustody } from '../../packages/wallet-server/src/router/domains/passkeyCustody/registrationCustodyOutcome';
 import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,

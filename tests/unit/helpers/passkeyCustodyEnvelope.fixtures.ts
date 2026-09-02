@@ -3,11 +3,13 @@ import {
   PASSKEY_PRF_KEK_VERSION_V1,
   WALLET_CUSTODY_ENVELOPE_VERSION_V2,
   parsePasskeyCustodyEnvelopeRecord,
+  walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement,
   type PasskeyCustodyEnvelopeRecord,
   type PasskeyCustodySecretKind,
   type WalletCustodyCeremonyCommitPayload,
   type WalletCustodyKeySetKind,
 } from '@shared/passkey-custody';
+import { base64UrlEncode } from '@shared/utils/base64';
 
 /**
  * Raw boundary shapes for passkey custody records.
@@ -24,6 +26,9 @@ export type RawRecord = Record<string, unknown>;
 export const DIGEST_B64U = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
 export const ALT_DIGEST_B64U = 'ZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1-f4CBgoM';
 export const NONCE_12_B64U = 'AQIDBAUGBwgJCgsM';
+export const COMMIT_WALLET_AUTH_METHOD_ID = 'wallet-auth-method:commit-fixture';
+export const OWNING_WALLET_AUTH_METHOD_ID = 'wallet-auth-method:owner-fixture';
+export const SIBLING_WALLET_AUTH_METHOD_ID = 'wallet-auth-method:sibling-fixture';
 export const CIPHERTEXT_B64U = 'BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2';
 /**
  * SHA-256 over the decoded `CIPHERTEXT_B64U`. Envelopes must be internally
@@ -32,6 +37,15 @@ export const CIPHERTEXT_B64U = 'BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkq
  */
 export const CIPHERTEXT_DIGEST_B64U = 'GDwUe-76hc4lJXJ3vyFwZWyL0jf_Kk8TXYlyKfS1vHE';
 export const ED25519_PUBLIC_KEY_B64U = 'MjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFE';
+/**
+ * A real point on secp256k1 — the generator, compressed.
+ *
+ * The neighbouring key constants are shaped like keys but are not on the curve,
+ * which is fine wherever a fixture only carries bytes. Anything that reaches
+ * `validateSecp256k1PublicKey33` needs an actual point, so that path uses this.
+ */
+export const VALID_SECP256K1_PUBLIC_KEY_B64U = 'Anm-Zn753LusVaBilc6HCwcCm_zbLc4o2VnygVsW-BeY';
+
 export const SECP256K1_PUBLIC_KEY_B64U = 'AgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEi';
 export const ALT_SECP256K1_PUBLIC_KEY_B64U = 'AwkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJico';
 
@@ -44,6 +58,7 @@ export const NEAR_ED25519_SIGNING_KEY_ID = 'near-ed25519-key-1';
 export const ENROLLMENT_ID = 'enrollment-1';
 export const THRESHOLD_ECDSA_SESSION_ID = 'threshold-ecdsa-session-1';
 export const RECOVERY_KEY_ID = `wallet-rkid-v1-${DIGEST_B64U}`;
+export const RECOVERY_LOCATOR_DIGEST_B64U = DIGEST_B64U;
 
 export const ED25519_WALLET_KEY_ID = 'wallet-key:ed25519:alice.testnet:root-1:v1';
 export const EVM_WALLET_KEY_ID = 'wallet-key:evm-family:alice.testnet:root-1:v1';
@@ -123,6 +138,10 @@ export function rawPasskeyCustodyEnvelope(overrides: RawRecord = {}): RawRecord 
     walletId: WALLET_ID,
     binding: rawWalletCustodySeedBinding(),
     factor: rawPasskeyFactor(),
+    /* Envelopes now record the method that owns them. `unbound` is the
+       pre-109C shape, which is what a raw fixture should default to; the
+       method-bound builders below are for records a live path would write. */
+    ownership: { kind: 'unbound' },
     envelopeVersion: WALLET_CUSTODY_ENVELOPE_VERSION_V2,
     envelopeRevision: 1,
     nonceB64u: NONCE_12_B64U,
@@ -134,6 +153,51 @@ export function rawPasskeyCustodyEnvelope(overrides: RawRecord = {}): RawRecord 
     updatedAtMs: 2_000,
     ...overrides,
   };
+}
+
+export function buildLinkedDevicePasskeyEd25519ExportRootEnvelopeFixture(args: {
+  readonly tag: string;
+  readonly walletId: string;
+  readonly walletKeyId: string;
+  readonly registeredPublicKeyB64u: string;
+  readonly rpId: string;
+  readonly credentialIdB64u: string;
+  readonly deviceId: string;
+  readonly sealedFill: number;
+}): PasskeyCustodyEnvelopeRecord {
+  const fill = args.sealedFill & 0xff;
+  return parsePasskeyCustodyEnvelopeRecord({
+    kind: WALLET_CUSTODY_ENVELOPE_VERSION_V2,
+    envelopeId: `envelope:${args.tag}`,
+    walletId: args.walletId,
+    binding: {
+      kind: 'ed25519_yao_client_root_v1',
+      linkSessionId: `link-session:${args.tag}`,
+      walletKeyId: args.walletKeyId,
+      targetFactor: { kind: 'passkey_prf' },
+      applicationBindingDigestB64u: base64UrlEncode(new Uint8Array(32).fill(21)),
+      registeredPublicKeyB64u: args.registeredPublicKeyB64u,
+      enrollmentId: `enrollment:${args.tag}`,
+      deviceId: args.deviceId,
+      revocationEpoch: 0,
+    },
+    factor: {
+      kind: 'passkey',
+      rpId: args.rpId,
+      credentialIdB64u: args.credentialIdB64u,
+      kekVersion: PASSKEY_PRF_KEK_VERSION_V1,
+    },
+    ownership: { kind: 'method_bound', walletAuthMethodId: `wallet-auth-method:${args.tag}` },
+    envelopeVersion: WALLET_CUSTODY_ENVELOPE_VERSION_V2,
+    envelopeRevision: 1,
+    nonceB64u: base64UrlEncode(new Uint8Array(12).fill(23)),
+    sealedCustodySecretB64u: base64UrlEncode(new Uint8Array(48).fill(fill)),
+    ciphertextDigestB64u: base64UrlEncode(new Uint8Array(32).fill(fill)),
+    aadHashB64u: base64UrlEncode(new Uint8Array(32).fill(24)),
+    lifecycle: { state: 'active', activatedAtMs: 10 },
+    createdAtMs: 10,
+    updatedAtMs: 10,
+  });
 }
 
 export function rawWalletRecoveryEnvelopeEntry(
@@ -187,6 +251,13 @@ export function rawWalletRecoveryEnvelopeSet(overrides: RawRecord = {}): RawReco
   };
 }
 
+export function rawWalletRecoveryCodeLocators(): RawRecord[] {
+  return rawManifestKekWrapSet().map((wrap, index) => ({
+    locatorB64u: `${String.fromCharCode(65 + index)}${RECOVERY_LOCATOR_DIGEST_B64U.slice(1)}`,
+    recoveryKeyId: wrap.recoveryKeyId,
+  }));
+}
+
 /**
  * A parsed envelope record. Built by running the raw shape through the real
  * boundary parser, so a fixture can never encode a record the parser rejects.
@@ -210,6 +281,7 @@ export function buildWalletCustodyCommitPayloadFixture(input: {
   readonly walletId: string;
   readonly keySet?: WalletCustodyKeySetKind;
   readonly keyManifestDigestB64u?: string;
+  readonly registeredPublicKeyB64u?: string;
   readonly origin?: 'establish' | 'join';
 }): WalletCustodyCeremonyCommitPayload {
   const walletId = input.walletId;
@@ -217,9 +289,15 @@ export function buildWalletCustodyCommitPayloadFixture(input: {
     walletId,
     keySet: input.keySet ?? 'evm_family_ecdsa_v1',
     keyManifestDigestB64u: input.keyManifestDigestB64u ?? DIGEST_B64U,
+    ...(input.registeredPublicKeyB64u
+      ? { registeredPublicKeyB64u: input.registeredPublicKeyB64u }
+      : {}),
   } as const;
   if (input.origin === 'join') {
-    return { ...base, registeredPublicKeyB64u: ED25519_PUBLIC_KEY_B64U };
+    return {
+      ...base,
+      registeredPublicKeyB64u: input.registeredPublicKeyB64u ?? ED25519_PUBLIC_KEY_B64U,
+    };
   }
   return {
     ...base,
@@ -234,6 +312,10 @@ export function buildWalletCustodyCommitPayloadFixture(input: {
         factor: rawPasskeyFactor(),
         envelopeRevision: 1,
         binding: rawWalletCustodySeedBinding(),
+        /* The ceremony seals method-bound, and the registration commit reads
+           the owner back out of this exact string, so a fixture without it
+           reproduces a payload no ceremony can now produce. */
+        ownership: { methodBound: { walletAuthMethodId: COMMIT_WALLET_AUTH_METHOD_ID } },
       }),
       envelopeNonceB64u: NONCE_12_B64U,
       sealedCustodySecretB64u: CIPHERTEXT_B64U,
@@ -250,7 +332,76 @@ export function buildWalletCustodyCommitPayloadFixture(input: {
       recoveryEntryCiphertextB64u: CIPHERTEXT_B64U,
       recoveryEntryAadHashB64u: DIGEST_B64U,
     },
-    clientRootPublicKey33B64u: SECP256K1_PUBLIC_KEY_B64U,
+    /* Reaches a real curve check on the add-signer finalize path. */
+    clientRootPublicKey33B64u: VALID_SECP256K1_PUBLIC_KEY_B64U,
     ecdsaReadyStateBlobB64u: CIPHERTEXT_B64U,
   };
+}
+
+export function buildAcknowledgedWalletCustodyCommitPayloadFixture(
+  input: Parameters<typeof buildWalletCustodyCommitPayloadFixture>[0],
+): WalletCustodyCeremonyCommitPayload {
+  const payload = buildWalletCustodyCommitPayloadFixture(input);
+  const establishedCustody = payload.establishedCustody;
+  if (!establishedCustody) {
+    throw new Error('an acknowledged custody fixture must establish custody');
+  }
+  return walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement({
+    ...payload,
+    establishedCustody: {
+      ...establishedCustody,
+      recoveryCodeLocators: establishedCustody.recoveryManifestKekWraps.map((wrap, index) => ({
+        locatorB64u: `${String.fromCharCode(65 + index)}${RECOVERY_LOCATOR_DIGEST_B64U.slice(1)}`,
+        recoveryKeyId: wrap.recoveryKeyId,
+      })),
+    },
+  });
+}
+
+/**
+ * An active, method-bound custody envelope built through the production
+ * builders, for setup that needs a wallet to have live custody.
+ *
+ * Refactor 109C requires every written envelope to name its owning auth
+ * method, so a seed built by hand would either fail the parser or encode a
+ * shape no production path can produce.
+ */
+export function buildActiveMethodBoundPasskeyCustodyEnvelopeFixture(args: {
+  readonly walletId: string;
+  readonly envelopeId: string;
+  readonly rpId: string;
+  readonly credentialIdB64u: string;
+  readonly walletAuthMethodId: string;
+}): PasskeyCustodyEnvelopeRecord {
+  return parsePasskeyCustodyEnvelopeRecord(
+    rawPasskeyCustodyEnvelope({
+      walletId: args.walletId,
+      envelopeId: args.envelopeId,
+      factor: rawPasskeyFactor({
+        rpId: args.rpId,
+        credentialIdB64u: args.credentialIdB64u,
+      }),
+      ownership: { kind: 'method_bound', walletAuthMethodId: args.walletAuthMethodId },
+    }),
+  );
+}
+
+export function buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture(args: {
+  readonly walletId: string;
+  readonly envelopeId: string;
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly walletAuthMethodId: string;
+}): PasskeyCustodyEnvelopeRecord {
+  return parsePasskeyCustodyEnvelopeRecord(
+    rawPasskeyCustodyEnvelope({
+      walletId: args.walletId,
+      envelopeId: args.envelopeId,
+      factor: rawEmailOtpFactor({
+        enrollmentId: args.enrollmentId,
+        enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+      }),
+      ownership: { kind: 'method_bound', walletAuthMethodId: args.walletAuthMethodId },
+    }),
+  );
 }

@@ -3,19 +3,20 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "vite": "vite --host localhost --port 3600",
+    "vite": "vite --host localhost --port 4004",
     "caddy": "bash run_caddy.sh",
     "dev": "concurrently --kill-others --names site,caddy \"pnpm run vite\" \"pnpm run caddy\"",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview --host localhost --port 3600"
+    "preview": "vite preview --host localhost --port 4004"
   },
   "dependencies": {
     "@fontsource/hanken-grotesk": "^5.2.8",
     "@hot-labs/near-connect": "0.11.4",
     "@radix-ui/react-select": "^2.0.0",
     "@seams-internal/console-shared": "workspace:*",
-    "@seams/sdk": "workspace:*",
+    "@seams-internal/wallet-console-shared": "workspace:*",
+    "@seams/wallet": "workspace:*",
     "@tanstack/react-query": "^5.76.1",
     "borsh": "^2.0.0",
     "bs58": "^6.0.0",

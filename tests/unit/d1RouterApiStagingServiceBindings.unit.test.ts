@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import {
   createRouterAbServiceBindingFetch,
   type RouterAbServiceBindingEnv,
-} from '../../packages/console-server-ts/src/router/cloudflare/routerAbServiceBindings';
-import { runRouterAbPrewarmScheduled } from '../../packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker';
+} from '../../packages/wallet-console-server-ts/src/router/cloudflare/routerAbServiceBindings';
+import { runRouterAbPrewarmScheduled } from '../../packages/wallet-console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker';
 
 class RecordingServiceBinding {
   readonly requests: Request[] = [];

@@ -1,16 +1,16 @@
 import type {
   VersionedJsonRecordPutResult,
   VersionedJsonRecordReadResult,
-} from '../../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
-import type { SessionAdapter } from '../../../packages/sdk-server-ts/src/router/framework/routerApi';
+} from '../../../packages/wallet-server/src/router/framework/versionedJsonRecordStore';
+import type { SessionAdapter } from '../../../packages/wallet-server/src/router/framework/routerApi';
 import type {
   RouterAbEd25519YaoRegistrationBackend,
   RouterAbEd25519YaoRegistrationBackendResult,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
 import type {
   RouterAbEd25519YaoRegistrationSideEffectRecordV1,
   RouterAbEd25519YaoRegistrationSideEffectStoreV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
 import {
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionBatchResultV1,
@@ -21,7 +21,7 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 
 type StoredSideEffect<T, P = undefined> = {
   readonly version: number;
@@ -126,32 +126,6 @@ export class RegistrationSideEffectMemoryStore<
     const version = (current?.version ?? 0) + 1;
     this.records.set(key, { version, value: structuredClone(value) });
     return { kind: 'stored', version: String(version) };
-  }
-}
-
-export class UnusedSessionAdapter implements SessionAdapter {
-  async signJwt(): Promise<string> {
-    throw new Error('Session signing is outside this fixture');
-  }
-
-  async verifyJwt(): Promise<never> {
-    throw new Error('Session verification is outside this fixture');
-  }
-
-  async parse(): Promise<never> {
-    throw new Error('Session parsing is outside this fixture');
-  }
-
-  buildSetCookie(): string {
-    throw new Error('Cookie building is outside this fixture');
-  }
-
-  buildClearCookie(): string {
-    throw new Error('Cookie clearing is outside this fixture');
-  }
-
-  async refresh(): Promise<never> {
-    throw new Error('Session refresh is outside this fixture');
   }
 }
 

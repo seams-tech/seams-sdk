@@ -1,10 +1,10 @@
 import {
   isConsoleAuditError,
   type ConsoleAuditService,
-} from '@seams-internal/console-server/audit';
-import type { ConsoleBillingService } from '@seams-internal/console-server/billing';
-import type { ConsoleWebhookService } from '@seams-internal/console-server/webhooks';
-import type { RouterLogger } from '@seams/sdk-server/cloud-host';
+} from '@seams-internal/console-server/audit/index';
+import type { ConsoleBillingService } from '@seams-internal/console-server/billing/index';
+import type { ConsoleWebhookService } from '@seams-internal/console-server/webhooks/index';
+import type { RouterLogger } from '../boundary';
 
 export interface BillingStripePostProcessingDispatchServices {
   readonly billing: ConsoleBillingService;

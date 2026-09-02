@@ -2,8 +2,9 @@ import { expect, test } from '@playwright/test';
 import {
   EMAIL_OTP_ED25519_YAO_REQUESTED_CAPABILITIES_KIND,
   EMAIL_OTP_NO_REQUESTED_CAPABILITIES_KIND,
+  EMAIL_OTP_WALLET_SESSION_REQUESTED_CAPABILITIES_KIND,
   parseWalletUnlockRequestedCapabilitiesRequest,
-} from '../../packages/sdk-server-ts/src/router/domains/walletUnlock/walletUnlockRequestedCapabilitiesValidation';
+} from '../../packages/wallet-server/src/router/domains/walletUnlock/walletUnlockRequestedCapabilitiesValidation';
 
 const BASE_BODY = {
   unlockBackend: 'email_otp',
@@ -20,12 +21,20 @@ function parseRequest(body: Record<string, unknown>) {
 }
 
 test.describe('wallet unlock requested capabilities boundary', () => {
-  test('accepts none and ed25519_yao, rejects unknown fields and kinds', async () => {
+  test('accepts session dispositions and ed25519_yao, rejects unknown fields and kinds', async () => {
     const none = parseRequest({
       ...BASE_BODY,
       requestedCapabilities: { kind: EMAIL_OTP_NO_REQUESTED_CAPABILITIES_KIND },
     });
     expect(none.requestedCapabilities).toEqual({ kind: 'none' });
+
+    const walletSession = parseRequest({
+      ...BASE_BODY,
+      requestedCapabilities: {
+        kind: EMAIL_OTP_WALLET_SESSION_REQUESTED_CAPABILITIES_KIND,
+      },
+    });
+    expect(walletSession.requestedCapabilities).toEqual({ kind: 'wallet_session' });
 
     const ed25519 = parseRequest({
       ...BASE_BODY,
@@ -55,5 +64,23 @@ test.describe('wallet unlock requested capabilities boundary', () => {
       requestedCapabilities: { kind: 'unknown' },
     });
     expect(unknownKind.ok).toBe(false);
+  });
+
+  test('rejects wallet_session with an ECDSA session policy at the request boundary', () => {
+    const parsed = parseWalletUnlockRequestedCapabilitiesRequest({
+      ...BASE_BODY,
+      requestedCapabilities: { kind: EMAIL_OTP_WALLET_SESSION_REQUESTED_CAPABILITIES_KIND },
+      ecdsaSessionPolicy: { kind: 'test-policy' },
+    });
+
+    expect(parsed).toEqual({
+      ok: false,
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_body',
+        message: 'requestedCapabilities.wallet_session cannot include ecdsaSessionPolicy',
+      },
+    });
   });
 });

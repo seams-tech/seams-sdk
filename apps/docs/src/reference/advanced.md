@@ -1,25 +1,22 @@
 ---
 title: Advanced helpers
-description: Low-level identity builders, RPC clients, encoding helpers, and Tempo utilities exported from @seams/sdk/advanced.
+description: Low-level identity builders, RPC clients, encoding helpers, and Tempo utilities exported from @seams/wallet/advanced.
 ---
 
 # Advanced helpers
 
-`@seams/sdk/advanced` exposes low-level tools for integrations that already own
+`@seams/wallet/advanced` exposes low-level tools for integrations that already own
 their lifecycle and trust boundaries.
 
 ```ts [Import example]
-import {
-  nearAccountRefFromAccountId,
-  thresholdEcdsaChainTargetFromConfig,
-  walletSessionRefFromSession,
-} from '@seams/sdk/advanced';
+import { createEvmClient, MinimalNearClient } from '@seams/wallet/advanced';
 ```
 
-## Identity builders
+## Identity builders moved
 
-Use the exported builders to cross from validated application data into exact
-SDK subjects:
+The boundary reference builders are exported from
+[`@seams/wallet`](/reference/core) and `@seams/wallet/react` as well as here. A
+first signing call needs no import from this entrypoint.
 
 - `toWalletId`;
 - `walletSessionRefFromSession`;
@@ -27,9 +24,10 @@ SDK subjects:
 - `thresholdEcdsaChainTargetFromConfig`;
 - `walletIdFromWalletProfile`.
 
-These builders preserve the relationship between wallet, session, account,
-and chain. Construct the reference once, then pass it through the operation that
-requires it.
+They still preserve the relationship between wallet, session, account, and
+chain. Construct the reference once, then pass it through the operation that
+requires it — and prefer `seams.chainTarget(selector)` for chain targets, since
+it can only name a chain your client was configured with.
 
 ## Other exports
 

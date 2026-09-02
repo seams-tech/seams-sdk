@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { verifiedCustodyFactorFromAuthority } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/verifiedCustodyFactor';
+import { verifiedCustodyFactorFromAuthority } from '../../packages/wallet-server/src/router/domains/passkeyCustody/verifiedCustodyFactor';
 import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,

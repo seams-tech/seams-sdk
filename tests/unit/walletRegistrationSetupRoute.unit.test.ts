@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import { CloudflareD1RegistrationCeremonyIntentStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { CloudflareD1RegistrationCeremonyIntentStore } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore';
 import {
   computeWalletRegistrationSetupDigestB64u,
   parseWalletRegistrationSetupClaims,
   verifySignedWalletRegistrationSetup,
-} from '../../packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationSetupPayload';
+} from '../../packages/wallet-server/src/router/domains/walletRegistration/walletRegistrationSetupPayload';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { implicitNearAccountProvisioning } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
@@ -155,6 +155,10 @@ test('setup writes exactly one ceremony row and returns a usable ECDSA preparati
     });
     const ceremony = await store.getCeremony(result.registrationCeremonyId);
     if (!ceremony) throw new Error('Expected the setup ceremony to be stored');
+    expect(result.walletAuthMethodId).toBe(ceremony.foundingWalletAuthMethodId);
+    expect(String(ceremony.foundingWalletAuthorityId)).toMatch(/^wallet-authority:/);
+    expect(String(ceremony.foundingDeviceId)).toMatch(/^device:/);
+    expect(String(ceremony.foundingWalletAuthMethodId)).toMatch(/^wallet-auth-method:/);
     /* No proof can exist yet — setup runs before the authenticator prompt. */
     expect(ceremony.authorityState).toEqual({
       kind: 'awaiting_proof',
@@ -180,6 +184,23 @@ test('two setups are independent ceremonies rather than a replayed one', async (
       setupInput(signer, rpId),
     );
     if (!first.ok || !second.ok) throw new Error('Expected both setups to succeed');
+
+    const store = new CloudflareD1RegistrationCeremonyIntentStore({
+      kind: 'partitioned_d1',
+      database: database as never,
+      scope: SCOPE,
+      keyPrefix: 'gateway-registration:',
+    });
+    const firstCeremony = await store.getCeremony(first.registrationCeremonyId);
+    const secondCeremony = await store.getCeremony(second.registrationCeremonyId);
+    if (!firstCeremony || !secondCeremony) throw new Error('Expected both ceremonies to persist');
+    expect(firstCeremony.foundingWalletAuthorityId).not.toBe(
+      secondCeremony.foundingWalletAuthorityId,
+    );
+    expect(firstCeremony.foundingDeviceId).not.toBe(secondCeremony.foundingDeviceId);
+    expect(firstCeremony.foundingWalletAuthMethodId).not.toBe(
+      secondCeremony.foundingWalletAuthMethodId,
+    );
 
     /* Setup has no earlier leg to reconcile against, so it does not replay:
        each call is a distinct ceremony with a distinct wallet and payload.
@@ -319,8 +340,8 @@ test('setup prepares ECDSA only for a mixed plan, for either auth method', async
         kind: 'email_otp',
         proofKind: 'otp_challenge',
         email: 'setup@example.test',
+        providerSubject: 'provider-subject:setup',
         otpCode: '000000',
-        appSessionJwt: 'app-session',
       },
     ]) {
       const result = await service.walletRegistration.setupWalletRegistration(
@@ -338,7 +359,7 @@ test('setup prepares ECDSA only for a mixed plan, for either auth method', async
 
 test('the setup route definition accepts a publishable key and nothing else', async () => {
   const { createRouterApiRouteDefinitions } =
-    await import('../../packages/sdk-server-ts/src/router/framework/routeDefinitions');
+    await import('../../packages/wallet-server/src/router/framework/routeDefinitions');
   const routes = createRouterApiRouteDefinitions({});
   const setup = routes.find((route) => route.id === 'wallet_registration_setup');
   if (!setup) throw new Error('Expected the setup route definition');
@@ -353,7 +374,7 @@ test('the setup route definition accepts a publishable key and nothing else', as
 
 test('add-signer intent accepts a publishable key and nothing else', async () => {
   const { createRouterApiRouteDefinitions } =
-    await import('../../packages/sdk-server-ts/src/router/framework/routeDefinitions');
+    await import('../../packages/wallet-server/src/router/framework/routeDefinitions');
   const routes = createRouterApiRouteDefinitions({});
   const addSigner = routes.find((route) => route.id === 'wallet_add_signer_intent');
   if (!addSigner) throw new Error('Expected the add-signer intent route definition');

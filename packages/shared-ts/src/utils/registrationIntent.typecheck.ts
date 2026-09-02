@@ -1,6 +1,6 @@
+import { allocateWalletAuthMethodId } from './domainIds';
 import {
   implicitNearAccountProvisioning,
-  normalizeWalletAuthMethodTarget,
   sponsoredNamedNearAccountProvisioning,
   walletIdFromString,
   type AddAuthMethodIntentV1,
@@ -12,13 +12,17 @@ import {
   type RegistrationSignerPlan,
   type RegistrationSignerSetSelection,
   type WalletAuthMethodRecord,
-  type WalletAuthMethodTarget,
+  type WalletAuthMethodRecordV2,
+  type WalletAuthMethodRevocationProof,
 } from './registrationIntent';
 import {
   parseChallengeSubjectId,
   parseEmailOtpChallengeId,
   parseOrgId,
   parseProviderSubject,
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
 } from './domainIds';
 import { parseNamedNearAccountId } from './near';
@@ -34,6 +38,9 @@ const emailOtpChallengeId = unwrapDomainId(parseEmailOtpChallengeId('challenge')
 const orgId = unwrapDomainId(parseOrgId('org_test'));
 const namedNearAccountId = unwrapDomainId(parseNamedNearAccountId('alice.testnet'));
 const webAuthnRpId = unwrapDomainId(parseWebAuthnRpId('wallet.example.test'));
+const webAuthnCredentialIdB64u = unwrapDomainId(parseWebAuthnCredentialIdB64u('credential'));
+const walletAuthMethodId = unwrapDomainId(parseWalletAuthMethodId('wallet-auth-method:opaque'));
+const walletAuthorityId = unwrapDomainId(parseWalletAuthorityId('wallet-authority:opaque'));
 
 const passkeyAuthMethod = {
   kind: 'passkey',
@@ -235,8 +242,13 @@ const ed25519WithLegacyCreateBoolean = {
 } satisfies RegistrationSignerSetSelection;
 void ed25519WithLegacyCreateBoolean;
 
+/* Registration allocates the wallet's first auth method with the intent, so a
+   fixture that omits it is describing an intent the custody seal cannot use. */
+const foundingAuthMethodIdFixture = allocateWalletAuthMethodId('founding-fixture');
+
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('wallet_alice'),
   authMethod: emailOtpAuthMethod,
   signerSelection: ecdsaSignerSetSelection,
@@ -245,6 +257,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('wallet_alice'),
   authMethod: googleSsoRegistrationAuthMethod,
   signerSelection: ed25519SignerSetSelection,
@@ -253,6 +266,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('wallet_alice'),
   authMethod: passkeyAuthMethod,
   signerSelection: ed25519SignerSetSelection,
@@ -261,6 +275,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('wallet_alice'),
   authMethod: passkeyAuthMethod,
   signerSelection: {
@@ -285,6 +300,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('alice.testnet'),
   authMethod: passkeyAuthMethod,
   signerSelection: sponsoredNamedEd25519SignerSetSelection,
@@ -293,6 +309,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('wallet_alice'),
   authMethod: passkeyAuthMethod,
   signerSelection: ed25519SignerSetSelection,
@@ -357,6 +374,7 @@ void ({
 // @ts-expect-error registration intents require explicit authMethod.
 const missingAuthMethod: RegistrationIntentV1 = {
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('wallet_alice'),
   signerSelection: ed25519SignerSetSelection,
   nonceB64u: 'nonce',
@@ -488,45 +506,91 @@ const emailOtpAuthMethodWithRpId = {
 void emailOtpAuthMethodWithRpId;
 
 void ({
-  kind: 'passkey',
+  kind: 'webauthn_assertion',
   rpId: webAuthnRpId,
-  credentialIdB64u: 'credential',
-} satisfies WalletAuthMethodTarget);
+  credential: { id: 'credential' },
+  expectedChallengeDigestB64u: 'challenge-digest',
+} satisfies WalletAuthMethodRevocationProof);
 
 void ({
   kind: 'email_otp',
-  email: 'alice@example.test',
-} satisfies WalletAuthMethodTarget);
+  challengeId: 'challenge-id',
+  otpCode: '123456',
+  ownerProofBindingDigest: 'owner-proof-digest',
+} satisfies WalletAuthMethodRevocationProof);
 
-// @ts-expect-error passkey revoke target cannot carry Email OTP fields.
-const passkeyTargetWithEmail: WalletAuthMethodTarget = {
+const pendingPasskeyMethodV2 = {
+  version: 'wallet_auth_method_v2',
+  walletAuthMethodId,
+  walletId: walletIdFromString('wallet_alice'),
+  walletAuthorityId,
   kind: 'passkey',
+  status: 'pending_local_install',
   rpId: webAuthnRpId,
-  credentialIdB64u: 'credential',
-  email: 'alice@example.test',
-};
-void passkeyTargetWithEmail;
+  credentialIdB64u: webAuthnCredentialIdB64u,
+  credentialPublicKeyB64u: 'public-key',
+  counter: 0,
+  createdAtMs: 1,
+  updatedAtMs: 1,
+} satisfies WalletAuthMethodRecordV2;
+void pendingPasskeyMethodV2;
 
-// @ts-expect-error Email OTP revoke target cannot carry passkey credential ids.
-const emailOtpTargetWithCredential: WalletAuthMethodTarget = {
+const activeEmailOtpMethodV2 = {
+  version: 'wallet_auth_method_v2',
+  walletAuthMethodId,
+  walletId: walletIdFromString('wallet_alice'),
+  walletAuthorityId,
   kind: 'email_otp',
-  email: 'alice@example.test',
-  credentialIdB64u: 'credential',
-};
-void emailOtpTargetWithCredential;
+  status: 'active',
+  emailHashHex: '00',
+  registrationAuthorityId: 'registration-authority',
+  createdAtMs: 1,
+  updatedAtMs: 2,
+  activatedAtMs: 2,
+} satisfies WalletAuthMethodRecordV2;
+void activeEmailOtpMethodV2;
 
-// @ts-expect-error Email OTP revoke target cannot carry passkey RP scope.
-const emailOtpTargetWithRpId: WalletAuthMethodTarget = {
-  kind: 'email_otp',
-  email: 'alice@example.test',
+const methodWithAuthorityId: WalletAuthMethodRecordV2 = {
+  ...pendingPasskeyMethodV2,
+  // @ts-expect-error The opaque method id cannot be replaced with an authority id.
+  walletAuthMethodId: walletAuthorityId,
+};
+void methodWithAuthorityId;
+
+// @ts-expect-error Pending methods cannot carry activation timestamps.
+const pendingMethodWithActivation: WalletAuthMethodRecordV2 = {
+  ...pendingPasskeyMethodV2,
+  activatedAtMs: 2,
+};
+void pendingMethodWithActivation;
+
+// @ts-expect-error Active methods require an activation timestamp.
+const activeMethodWithoutActivation: WalletAuthMethodRecordV2 = {
+  ...pendingPasskeyMethodV2,
+  status: 'active',
+};
+void activeMethodWithoutActivation;
+
+// @ts-expect-error Revoked methods require both lifecycle timestamps.
+const revokedMethodWithoutRevocation: WalletAuthMethodRecordV2 = {
+  ...pendingPasskeyMethodV2,
+  status: 'revoked',
+  activatedAtMs: 2,
+};
+void revokedMethodWithoutRevocation;
+
+// @ts-expect-error Passkey methods cannot carry Email OTP identity fields.
+const passkeyWithEmailFields: WalletAuthMethodRecordV2 = {
+  ...pendingPasskeyMethodV2,
+  emailHashHex: '00',
+};
+void passkeyWithEmailFields;
+
+// @ts-expect-error Email OTP methods cannot carry Passkey identity fields.
+const emailOtpWithPasskeyFields: WalletAuthMethodRecordV2 = {
+  ...activeEmailOtpMethodV2,
   rpId: webAuthnRpId,
 };
-void emailOtpTargetWithRpId;
-
-void normalizeWalletAuthMethodTarget({
-  kind: 'passkey',
-  rpId: webAuthnRpId,
-  credentialIdB64u: 'credential',
-});
+void emailOtpWithPasskeyFields;
 
 export {};

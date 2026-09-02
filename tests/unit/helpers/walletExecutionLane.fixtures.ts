@@ -1,5 +1,8 @@
-import { buildEvmFamilyWalletKeyRecord } from '../../../packages/shared-ts/src/signing-lanes/recordParsers';
-import { buildOwnerPasskeySigningLaneRecord } from '../../../packages/shared-ts/src/signing-lanes/recordParsers';
+import {
+  buildEvmFamilyWalletKeyRecord,
+  buildOwnerPasskeySigningLaneRecord,
+  parseWalletKeyVersion,
+} from '../../../packages/shared-ts/src/signing-lanes/recordParsers';
 import { requireEvmFamilySigningKeySlotId } from '../../../packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId';
 import {
   parseLaneShareEpoch,
@@ -20,7 +23,7 @@ import {
   parseWalletAuthMethodId,
   parseWalletId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
-import type { OwnerWalletExecutionEvidence } from '../../../packages/sdk-server-ts/src/router/domains/signingOperations/walletExecutionAdmission';
+import type { OwnerWalletExecutionEvidence } from '../../../packages/wallet-server/src/router/domains/signingOperations/walletExecutionAdmission';
 
 function parsed<T>(
   result:
@@ -60,7 +63,7 @@ export async function buildOwnerWalletExecutionEvidenceFixture(): Promise<OwnerW
   const walletKey = buildEvmFamilyWalletKeyRecord({
     walletId,
     walletKeyId,
-    walletKeyVersion: 'wallet-key-version:1',
+    walletKeyVersion: parseWalletKeyVersion('wallet-key-version:1'),
     evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
       'wallet-key:evm-family:wallet-authorization:root:version-1',
     ),

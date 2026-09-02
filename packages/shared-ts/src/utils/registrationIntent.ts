@@ -5,17 +5,22 @@ import type {
   EmailOtpProviderUserId,
   OrgId,
   ProviderSubject,
+  WalletAuthorityId,
   WalletAuthMethodId,
   WalletId,
+  WebAuthnCredentialIdB64u,
   WebAuthnRpId,
 } from './domainIds';
 import {
   parseEmailOtpProviderUserId,
+  parseWalletAuthorityId,
   parseWalletAuthMethodId,
   parseWalletId,
+  parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
 } from './domainIds';
 import { base64UrlEncode } from './encoders';
+import { parseDigestB64u, type DigestB64u } from './canonicalPrimitives';
 import type { EmailOtpProvider } from './walletAuthAuthority';
 import type { WebAuthnAuthenticatorDeviceInfo } from './webauthnDeviceInfo';
 import {
@@ -116,19 +121,38 @@ export type AddAuthMethodInput =
       authenticatorOptions?: never;
     };
 
-export type WalletAuthMethodTarget =
+export type WalletAuthMethodRevocationProof =
   | {
-      kind: 'passkey';
+      readonly kind: 'webauthn_assertion';
       rpId: WebAuthnRpId;
-      credentialIdB64u: string;
-      email?: never;
+      credential: unknown;
+      expectedChallengeDigestB64u: string;
     }
   | {
-      kind: 'email_otp';
-      email: string;
-      rpId?: never;
-      credentialIdB64u?: never;
+      readonly kind: 'email_otp';
+      readonly challengeId: string;
+      readonly otpCode: string;
+      readonly ownerProofBindingDigest: string;
     };
+
+export async function computeWalletAuthMethodRevokeOperationFingerprintV1(input: {
+  readonly walletId: WalletId;
+  readonly targetWalletAuthMethodId: WalletAuthMethodId;
+  readonly requestedAtMs: number;
+}): Promise<DigestB64u> {
+  return parseDigestB64u(
+    base64UrlEncode(
+      await sha256BytesUtf8(
+        alphabetizeStringify({
+          version: 'wallet_auth_method_revoke_operation_v1',
+          walletId: String(input.walletId),
+          targetWalletAuthMethodId: String(input.targetWalletAuthMethodId),
+          requestedAtMs: input.requestedAtMs,
+        }),
+      ),
+    ),
+  );
+}
 
 export type RegistrationAuthority =
   | {
@@ -272,6 +296,477 @@ export type WalletAuthMethodRecord =
       credentialPublicKeyB64u?: never;
       counter?: never;
     };
+
+export type WalletAuthMethodLifecycleV1 =
+  | {
+      readonly status: 'pending_local_install';
+      readonly activatedAtMs?: never;
+      readonly revokedAtMs?: never;
+    }
+  | {
+      readonly status: 'active';
+      readonly activatedAtMs: number;
+      readonly revokedAtMs?: never;
+    }
+  | {
+      readonly status: 'revoked';
+      readonly activatedAtMs: number;
+      readonly revokedAtMs: number;
+    };
+
+type WalletAuthMethodDraftCommonV1 = {
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly walletId: WalletId;
+  readonly createdAtMs: number;
+};
+
+export type PasskeyWalletAuthMethodDraftV1 = WalletAuthMethodDraftCommonV1 & {
+  readonly kind: 'passkey';
+  readonly rpId: WebAuthnRpId;
+  readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  readonly credentialPublicKeyB64u: string;
+  readonly counter: number;
+  readonly emailHashHex?: never;
+  readonly registrationAuthorityId?: never;
+};
+
+export type EmailOtpWalletAuthMethodDraftV1 = WalletAuthMethodDraftCommonV1 & {
+  readonly kind: 'email_otp';
+  readonly emailHashHex: string;
+  readonly registrationAuthorityId: string;
+  readonly rpId?: never;
+  readonly credentialIdB64u?: never;
+  readonly credentialPublicKeyB64u?: never;
+  readonly counter?: never;
+};
+
+export type WalletAuthMethodCommonV1 = {
+  readonly version: 'wallet_auth_method_v2';
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly walletId: WalletId;
+  readonly walletAuthorityId: WalletAuthorityId;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+};
+
+export type WalletAuthMethodRecordV2 = WalletAuthMethodCommonV1 &
+  (
+    | (PasskeyWalletAuthMethodDraftV1 & WalletAuthMethodLifecycleV1)
+    | (EmailOtpWalletAuthMethodDraftV1 & WalletAuthMethodLifecycleV1)
+  );
+
+export function buildWalletAuthMethodRecordV2(
+  input: WalletAuthMethodRecordV2,
+): WalletAuthMethodRecordV2 {
+  validateWalletAuthMethodRecordV2(input);
+  if (input.kind === 'passkey') {
+    switch (input.status) {
+      case 'pending_local_install':
+        return {
+          version: 'wallet_auth_method_v2',
+          walletAuthMethodId: input.walletAuthMethodId,
+          walletId: input.walletId,
+          walletAuthorityId: input.walletAuthorityId,
+          kind: 'passkey',
+          status: 'pending_local_install',
+          rpId: input.rpId,
+          credentialIdB64u: input.credentialIdB64u,
+          credentialPublicKeyB64u: input.credentialPublicKeyB64u,
+          counter: input.counter,
+          createdAtMs: input.createdAtMs,
+          updatedAtMs: input.updatedAtMs,
+        };
+      case 'active':
+        return {
+          version: 'wallet_auth_method_v2',
+          walletAuthMethodId: input.walletAuthMethodId,
+          walletId: input.walletId,
+          walletAuthorityId: input.walletAuthorityId,
+          kind: 'passkey',
+          status: 'active',
+          rpId: input.rpId,
+          credentialIdB64u: input.credentialIdB64u,
+          credentialPublicKeyB64u: input.credentialPublicKeyB64u,
+          counter: input.counter,
+          createdAtMs: input.createdAtMs,
+          updatedAtMs: input.updatedAtMs,
+          activatedAtMs: input.activatedAtMs,
+        };
+      case 'revoked':
+        return {
+          version: 'wallet_auth_method_v2',
+          walletAuthMethodId: input.walletAuthMethodId,
+          walletId: input.walletId,
+          walletAuthorityId: input.walletAuthorityId,
+          kind: 'passkey',
+          status: 'revoked',
+          rpId: input.rpId,
+          credentialIdB64u: input.credentialIdB64u,
+          credentialPublicKeyB64u: input.credentialPublicKeyB64u,
+          counter: input.counter,
+          createdAtMs: input.createdAtMs,
+          updatedAtMs: input.updatedAtMs,
+          activatedAtMs: input.activatedAtMs,
+          revokedAtMs: input.revokedAtMs,
+        };
+    }
+  }
+  switch (input.status) {
+    case 'pending_local_install':
+      return {
+        version: 'wallet_auth_method_v2',
+        walletAuthMethodId: input.walletAuthMethodId,
+        walletId: input.walletId,
+        walletAuthorityId: input.walletAuthorityId,
+        kind: 'email_otp',
+        status: 'pending_local_install',
+        emailHashHex: input.emailHashHex,
+        registrationAuthorityId: input.registrationAuthorityId,
+        createdAtMs: input.createdAtMs,
+        updatedAtMs: input.updatedAtMs,
+      };
+    case 'active':
+      return {
+        version: 'wallet_auth_method_v2',
+        walletAuthMethodId: input.walletAuthMethodId,
+        walletId: input.walletId,
+        walletAuthorityId: input.walletAuthorityId,
+        kind: 'email_otp',
+        status: 'active',
+        emailHashHex: input.emailHashHex,
+        registrationAuthorityId: input.registrationAuthorityId,
+        createdAtMs: input.createdAtMs,
+        updatedAtMs: input.updatedAtMs,
+        activatedAtMs: input.activatedAtMs,
+      };
+    case 'revoked':
+      return {
+        version: 'wallet_auth_method_v2',
+        walletAuthMethodId: input.walletAuthMethodId,
+        walletId: input.walletId,
+        walletAuthorityId: input.walletAuthorityId,
+        kind: 'email_otp',
+        status: 'revoked',
+        emailHashHex: input.emailHashHex,
+        registrationAuthorityId: input.registrationAuthorityId,
+        createdAtMs: input.createdAtMs,
+        updatedAtMs: input.updatedAtMs,
+        activatedAtMs: input.activatedAtMs,
+        revokedAtMs: input.revokedAtMs,
+      };
+  }
+}
+
+export function parseWalletAuthMethodRecordV2(raw: unknown): WalletAuthMethodRecordV2 | null {
+  if (!isRecord(raw)) return null;
+  const version = trimString(raw.version);
+  const kind = trimString(raw.kind);
+  const status = trimString(raw.status);
+  if (version !== 'wallet_auth_method_v2' || (kind !== 'passkey' && kind !== 'email_otp')) {
+    return null;
+  }
+  try {
+    const common = parseWalletAuthMethodRecordV2Common(raw);
+    if (kind === 'passkey') {
+      exactWalletAuthMethodV2Fields(raw, 'passkey', status);
+      const rpId = parseWebAuthnRpId(raw.rpId);
+      const credentialIdB64u = parseWebAuthnCredentialIdB64u(raw.credentialIdB64u);
+      if (
+        !rpId.ok ||
+        !credentialIdB64u.ok ||
+        typeof raw.credentialPublicKeyB64u !== 'string' ||
+        !raw.credentialPublicKeyB64u.trim() ||
+        Object.prototype.hasOwnProperty.call(raw, 'emailHashHex') ||
+        Object.prototype.hasOwnProperty.call(raw, 'registrationAuthorityId')
+      ) {
+        return null;
+      }
+      return buildParsedPasskeyWalletAuthMethodRecordV2({
+        common,
+        lifecycle: parseWalletAuthMethodLifecycle(raw),
+        rpId: rpId.value,
+        credentialIdB64u: credentialIdB64u.value,
+        credentialPublicKeyB64u: raw.credentialPublicKeyB64u,
+        counter: parseNonNegativeInteger(raw.counter),
+      });
+    }
+    exactWalletAuthMethodV2Fields(raw, 'email_otp', status);
+    const emailHashHex = trimString(raw.emailHashHex);
+    const registrationAuthorityId = trimString(raw.registrationAuthorityId);
+    if (
+      !emailHashHex ||
+      !registrationAuthorityId ||
+      Object.prototype.hasOwnProperty.call(raw, 'rpId') ||
+      Object.prototype.hasOwnProperty.call(raw, 'credentialIdB64u') ||
+      Object.prototype.hasOwnProperty.call(raw, 'credentialPublicKeyB64u') ||
+      Object.prototype.hasOwnProperty.call(raw, 'counter')
+    ) {
+      return null;
+    }
+    return buildParsedEmailOtpWalletAuthMethodRecordV2({
+      common,
+      lifecycle: parseWalletAuthMethodLifecycle(raw),
+      emailHashHex,
+      registrationAuthorityId,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function parseWalletAuthMethodRecordV2Common(
+  raw: Record<string, unknown>,
+): WalletAuthMethodCommonV1 {
+  const walletAuthMethodId = parseWalletAuthMethodIdRequired(raw.walletAuthMethodId);
+  const walletId = parseWalletIdRequired(raw.walletId);
+  const walletAuthorityId = parseWalletAuthorityIdRequired(raw.walletAuthorityId);
+  const createdAtMs = parseNonNegativeInteger(raw.createdAtMs);
+  const updatedAtMs = parseNonNegativeInteger(raw.updatedAtMs);
+  return {
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId,
+    walletId,
+    walletAuthorityId,
+    createdAtMs,
+    updatedAtMs,
+  };
+}
+
+function validateWalletAuthMethodRecordV2(value: WalletAuthMethodRecordV2): void {
+  if (value.version !== 'wallet_auth_method_v2') {
+    throw new Error('wallet auth method record version is unsupported');
+  }
+  if (!value.walletAuthMethodId || !value.walletId || !value.walletAuthorityId) {
+    throw new Error('wallet auth method record identities are required');
+  }
+  if (!Number.isSafeInteger(value.createdAtMs) || value.createdAtMs < 0) {
+    throw new Error('wallet auth method createdAtMs must be a non-negative safe integer');
+  }
+  if (!Number.isSafeInteger(value.updatedAtMs) || value.updatedAtMs < value.createdAtMs) {
+    throw new Error('wallet auth method updatedAtMs must follow createdAtMs');
+  }
+  if (value.kind === 'passkey') {
+    if (!value.rpId || !value.credentialIdB64u || !value.credentialPublicKeyB64u.trim()) {
+      throw new Error('passkey wallet auth method fields are required');
+    }
+    if (!Number.isSafeInteger(value.counter) || value.counter < 0) {
+      throw new Error('passkey authenticator counter must be non-negative');
+    }
+  } else if (!value.emailHashHex.trim() || !value.registrationAuthorityId.trim()) {
+    throw new Error('email OTP wallet auth method fields are required');
+  }
+  switch (value.status) {
+    case 'pending_local_install':
+      return;
+    case 'active':
+      validateNonNegativeInteger(value.activatedAtMs, 'activatedAtMs');
+      return;
+    case 'revoked':
+      validateNonNegativeInteger(value.activatedAtMs, 'activatedAtMs');
+      validateNonNegativeInteger(value.revokedAtMs, 'revokedAtMs');
+      if (value.revokedAtMs < value.activatedAtMs) {
+        throw new Error('revokedAtMs cannot precede activatedAtMs');
+      }
+      return;
+  }
+}
+
+function parseWalletAuthMethodLifecycle(raw: Record<string, unknown>): WalletAuthMethodLifecycleV1 {
+  switch (raw.status) {
+    case 'pending_local_install':
+      return { status: 'pending_local_install' };
+    case 'active':
+      return {
+        status: 'active',
+        activatedAtMs: parseNonNegativeInteger(raw.activatedAtMs),
+      };
+    case 'revoked':
+      return {
+        status: 'revoked',
+        activatedAtMs: parseNonNegativeInteger(raw.activatedAtMs),
+        revokedAtMs: parseNonNegativeInteger(raw.revokedAtMs),
+      };
+    default:
+      throw new Error('wallet auth method status is unsupported');
+  }
+}
+
+function exactWalletAuthMethodV2Fields(
+  raw: Record<string, unknown>,
+  kind: WalletAuthMethodRecordV2['kind'],
+  status: string,
+): void {
+  const fields = [
+    'version',
+    'walletAuthMethodId',
+    'walletId',
+    'walletAuthorityId',
+    'kind',
+    'status',
+    'createdAtMs',
+    'updatedAtMs',
+  ];
+  if (kind === 'passkey') {
+    fields.push('rpId', 'credentialIdB64u', 'credentialPublicKeyB64u', 'counter');
+  } else {
+    fields.push('emailHashHex', 'registrationAuthorityId');
+  }
+  if (status === 'active') fields.push('activatedAtMs');
+  if (status === 'revoked') fields.push('activatedAtMs', 'revokedAtMs');
+  if (status !== 'pending_local_install' && status !== 'active' && status !== 'revoked') {
+    throw new Error('wallet auth method status is unsupported');
+  }
+  const expected = new Set(fields);
+  const actual = Object.keys(raw);
+  if (actual.length !== fields.length)
+    throw new Error('wallet auth method record has invalid fields');
+  for (const field of actual) {
+    if (!expected.has(field)) throw new Error(`wallet auth method field ${field} is invalid`);
+  }
+}
+
+function buildParsedPasskeyWalletAuthMethodRecordV2(input: {
+  readonly common: WalletAuthMethodCommonV1;
+  readonly lifecycle: WalletAuthMethodLifecycleV1;
+  readonly rpId: WebAuthnRpId;
+  readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  readonly credentialPublicKeyB64u: string;
+  readonly counter: number;
+}): WalletAuthMethodRecordV2 {
+  switch (input.lifecycle.status) {
+    case 'pending_local_install':
+      return {
+        version: 'wallet_auth_method_v2',
+        walletAuthMethodId: input.common.walletAuthMethodId,
+        walletId: input.common.walletId,
+        walletAuthorityId: input.common.walletAuthorityId,
+        kind: 'passkey',
+        status: 'pending_local_install',
+        createdAtMs: input.common.createdAtMs,
+        updatedAtMs: input.common.updatedAtMs,
+        rpId: input.rpId,
+        credentialIdB64u: input.credentialIdB64u,
+        credentialPublicKeyB64u: input.credentialPublicKeyB64u,
+        counter: input.counter,
+      };
+    case 'active':
+      return {
+        version: 'wallet_auth_method_v2',
+        walletAuthMethodId: input.common.walletAuthMethodId,
+        walletId: input.common.walletId,
+        walletAuthorityId: input.common.walletAuthorityId,
+        kind: 'passkey',
+        status: 'active',
+        createdAtMs: input.common.createdAtMs,
+        updatedAtMs: input.common.updatedAtMs,
+        rpId: input.rpId,
+        credentialIdB64u: input.credentialIdB64u,
+        credentialPublicKeyB64u: input.credentialPublicKeyB64u,
+        counter: input.counter,
+        activatedAtMs: input.lifecycle.activatedAtMs,
+      };
+    case 'revoked':
+      return {
+        version: 'wallet_auth_method_v2',
+        walletAuthMethodId: input.common.walletAuthMethodId,
+        walletId: input.common.walletId,
+        walletAuthorityId: input.common.walletAuthorityId,
+        kind: 'passkey',
+        status: 'revoked',
+        createdAtMs: input.common.createdAtMs,
+        updatedAtMs: input.common.updatedAtMs,
+        rpId: input.rpId,
+        credentialIdB64u: input.credentialIdB64u,
+        credentialPublicKeyB64u: input.credentialPublicKeyB64u,
+        counter: input.counter,
+        activatedAtMs: input.lifecycle.activatedAtMs,
+        revokedAtMs: input.lifecycle.revokedAtMs,
+      };
+  }
+}
+
+function buildParsedEmailOtpWalletAuthMethodRecordV2(input: {
+  readonly common: WalletAuthMethodCommonV1;
+  readonly lifecycle: WalletAuthMethodLifecycleV1;
+  readonly emailHashHex: string;
+  readonly registrationAuthorityId: string;
+}): WalletAuthMethodRecordV2 {
+  switch (input.lifecycle.status) {
+    case 'pending_local_install':
+      return {
+        version: 'wallet_auth_method_v2',
+        walletAuthMethodId: input.common.walletAuthMethodId,
+        walletId: input.common.walletId,
+        walletAuthorityId: input.common.walletAuthorityId,
+        kind: 'email_otp',
+        status: 'pending_local_install',
+        createdAtMs: input.common.createdAtMs,
+        updatedAtMs: input.common.updatedAtMs,
+        emailHashHex: input.emailHashHex,
+        registrationAuthorityId: input.registrationAuthorityId,
+      };
+    case 'active':
+      return {
+        version: 'wallet_auth_method_v2',
+        walletAuthMethodId: input.common.walletAuthMethodId,
+        walletId: input.common.walletId,
+        walletAuthorityId: input.common.walletAuthorityId,
+        kind: 'email_otp',
+        status: 'active',
+        createdAtMs: input.common.createdAtMs,
+        updatedAtMs: input.common.updatedAtMs,
+        emailHashHex: input.emailHashHex,
+        registrationAuthorityId: input.registrationAuthorityId,
+        activatedAtMs: input.lifecycle.activatedAtMs,
+      };
+    case 'revoked':
+      return {
+        version: 'wallet_auth_method_v2',
+        walletAuthMethodId: input.common.walletAuthMethodId,
+        walletId: input.common.walletId,
+        walletAuthorityId: input.common.walletAuthorityId,
+        kind: 'email_otp',
+        status: 'revoked',
+        createdAtMs: input.common.createdAtMs,
+        updatedAtMs: input.common.updatedAtMs,
+        emailHashHex: input.emailHashHex,
+        registrationAuthorityId: input.registrationAuthorityId,
+        activatedAtMs: input.lifecycle.activatedAtMs,
+        revokedAtMs: input.lifecycle.revokedAtMs,
+      };
+  }
+}
+
+function parseWalletAuthMethodIdRequired(raw: unknown): WalletAuthMethodId {
+  const parsed = parseWalletAuthMethodId(raw);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function parseWalletIdRequired(raw: unknown): WalletId {
+  const parsed = parseWalletId(raw);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function parseWalletAuthorityIdRequired(raw: unknown): WalletAuthorityId {
+  const parsed = parseWalletAuthorityId(raw);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function parseNonNegativeInteger(raw: unknown): number {
+  if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw < 0) {
+    throw new Error('value must be a non-negative safe integer');
+  }
+  return raw;
+}
+
+function validateNonNegativeInteger(raw: number, label: string): void {
+  if (!Number.isSafeInteger(raw) || raw < 0) {
+    throw new Error(`${label} must be a non-negative safe integer`);
+  }
+}
 
 export function walletAuthMethodRecordId(record: WalletAuthMethodRecord): WalletAuthMethodId {
   const raw =
@@ -428,6 +923,19 @@ export type RegistrationIntentV1 = {
   walletId: WalletId;
   authMethod: RegistrationAuthMethodInput;
   signerSelection: RegistrationSignerSetSelection;
+  /**
+   * The wallet's first auth method, allocated with the intent.
+   *
+   * It has to exist before the custody ceremony runs, because every envelope
+   * the ceremony seals names the method that owns it inside its AAD. Allocated
+   * at finalize — where the record is written — it would be a name the seal
+   * could not have used, and the wallet would register with an envelope owned
+   * by nobody.
+   *
+   * Server-allocated and part of the intent digest, so a client can neither
+   * choose it nor swap it between the seal and the commit.
+   */
+  foundingWalletAuthMethodId: WalletAuthMethodId;
   runtimePolicyScope?: RuntimePolicyScopeLike;
   nonceB64u: string;
 };
@@ -440,13 +948,58 @@ export type AddSignerIntentV1 = {
   nonceB64u: string;
 };
 
-export type AddAuthMethodIntentV1 = {
+/**
+ * Who is starting the ceremony, and therefore what the source has to present.
+ *
+ * One endpoint serves two operations. Refactor 109C's same-device addition
+ * requires a fresh operation-specific source proof; Refactor 103E's
+ * linked-device ceremony start deliberately does not, because Device 1's owner
+ * Wallet Session is the authority and Device 2 holds the factor. Without this
+ * discriminator the endpoint could not tell them apart, so the weaker
+ * requirement applied to both and a same-device addition could be authorized
+ * by a reusable bearer credential.
+ *
+ * The branch lives on the intent rather than the start request because the
+ * intent is what the source proof signs: a caller cannot present a fresh proof
+ * over a same-device intent and then start a linked-device ceremony with it.
+ */
+export type AddAuthMethodIntentSourceV1 = {
+  readonly walletAuthorityId: WalletAuthorityId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly walletSessionId: string;
+  readonly authorityDigestB64u: string;
+  readonly revocationEpoch: number;
+};
+
+type AddAuthMethodIntentCommonV1 = {
   version: 'add_auth_method_intent_v1';
   walletId: WalletId;
   authMethod: AddAuthMethodInput;
+  /**
+   * Allocated by the server when the intent is minted, not when the ceremony
+   * starts.
+   *
+   * A source proof has to name the method it is authorizing the creation of.
+   * While this was allocated in `start` — after the source had already been
+   * authenticated — no proof could bind it, and one authorization could have
+   * been replayed against a different target.
+   */
+  targetWalletAuthMethodId: WalletAuthMethodId;
   runtimePolicyScope?: RuntimePolicyScopeLike;
   nonceB64u: string;
 };
+
+export type AddAuthMethodIntentV1 = AddAuthMethodIntentCommonV1 &
+  (
+    | {
+        readonly caller: 'same_device_addition';
+        readonly source: AddAuthMethodIntentSourceV1;
+      }
+    | {
+        readonly caller: 'linked_device_ceremony';
+        readonly source?: never;
+      }
+  );
 
 export function walletIdFromString(value: string): WalletId {
   const parsed = parseWalletId(value);
@@ -1022,7 +1575,7 @@ export type RegistrationSignerSetSelectionFromPlanOptions = {
 };
 
 const REGISTRATION_NEAR_ED25519_KEY_PURPOSE = 'near_tx';
-const REGISTRATION_NEAR_ED25519_KEY_VERSION = 'router-ab-ed25519-yao-v1';
+export const NEAR_ED25519_YAO_KEY_VERSION_V1 = 'router-ab-ed25519-yao-v1';
 export const REGISTRATION_NEAR_ED25519_YAO_DERIVATION_VERSION = 1;
 
 export function registrationSignerBranchKeyFromString(value: string): RegistrationSignerBranchKey {
@@ -1098,7 +1651,7 @@ function registrationSignerPlanBranchFromRequest(
         signerSlot: signer.signerSlot,
         participantIds: signer.participantIds,
         keyPurpose: REGISTRATION_NEAR_ED25519_KEY_PURPOSE,
-        keyVersion: REGISTRATION_NEAR_ED25519_KEY_VERSION,
+        keyVersion: NEAR_ED25519_YAO_KEY_VERSION_V1,
         derivationVersion: signer.derivationVersion,
       };
     case 'evm_family_ecdsa':
@@ -1598,36 +2151,67 @@ export function normalizeAddAuthMethodInput(raw: unknown): AddAuthMethodInput | 
   return null;
 }
 
-export function normalizeWalletAuthMethodTarget(raw: unknown): WalletAuthMethodTarget | null {
+/**
+ * Parses the caller branch once, at the boundary. Core code below this receives
+ * a branch whose identities are branded and complete, never a partially filled
+ * source it has to re-check.
+ */
+export type AddAuthMethodIntentCallerV1 =
+  | { readonly caller: 'same_device_addition'; readonly source: AddAuthMethodIntentSourceV1 }
+  | { readonly caller: 'linked_device_ceremony' };
+
+export function normalizeAddAuthMethodIntentCaller(
+  raw: unknown,
+): AddAuthMethodIntentCallerV1 | null {
   if (!isRecord(raw)) return null;
-  const kind = trimString(raw.kind);
-  if (kind === 'passkey') {
-    const rpId = parseWebAuthnRpId(raw.rpId);
-    const credentialIdB64u = trimString(raw.credentialIdB64u);
-    if (!rpId.ok || !credentialIdB64u || Object.prototype.hasOwnProperty.call(raw, 'email')) {
-      return null;
-    }
-    return {
-      kind: 'passkey',
-      rpId: rpId.value,
-      credentialIdB64u,
-    };
+  const caller = trimString(raw.caller);
+  if (caller === 'linked_device_ceremony') {
+    if (Object.prototype.hasOwnProperty.call(raw, 'source')) return null;
+    return { caller: 'linked_device_ceremony' };
   }
-  if (kind === 'email_otp') {
-    const email = trimString(raw.email).toLowerCase();
-    if (
-      !email ||
-      Object.prototype.hasOwnProperty.call(raw, 'rpId') ||
-      Object.prototype.hasOwnProperty.call(raw, 'credentialIdB64u')
-    ) {
-      return null;
-    }
-    return {
-      kind: 'email_otp',
-      email,
-    };
+  if (caller !== 'same_device_addition') return null;
+  if (!isRecord(raw.source)) return null;
+  const source = raw.source;
+  const walletAuthorityId = parseWalletAuthorityId(source.walletAuthorityId);
+  const walletAuthMethodId = parseWalletAuthMethodId(source.walletAuthMethodId);
+  const walletSessionId = trimString(source.walletSessionId);
+  const authorityDigestB64u = trimString(source.authorityDigestB64u);
+  const revocationEpoch = source.revocationEpoch;
+  if (
+    !walletAuthorityId.ok ||
+    !walletAuthMethodId.ok ||
+    !walletSessionId ||
+    !authorityDigestB64u ||
+    typeof revocationEpoch !== 'number' ||
+    !Number.isSafeInteger(revocationEpoch) ||
+    revocationEpoch < 0
+  ) {
+    return null;
   }
-  return null;
+  return {
+    caller: 'same_device_addition',
+    source: {
+      walletAuthorityId: walletAuthorityId.value,
+      walletAuthMethodId: walletAuthMethodId.value,
+      walletSessionId,
+      authorityDigestB64u,
+      revocationEpoch,
+    },
+  };
+}
+
+/** True when the two source claims name the same session on the same authority. */
+export function sameAddAuthMethodIntentSourceV1(
+  left: AddAuthMethodIntentSourceV1,
+  right: AddAuthMethodIntentSourceV1,
+): boolean {
+  return (
+    left.walletAuthorityId === right.walletAuthorityId &&
+    left.walletAuthMethodId === right.walletAuthMethodId &&
+    left.walletSessionId === right.walletSessionId &&
+    left.authorityDigestB64u === right.authorityDigestB64u &&
+    left.revocationEpoch === right.revocationEpoch
+  );
 }
 
 export function normalizeEmailOtpRegistrationProof(raw: unknown): EmailOtpRegistrationProof | null {
@@ -1699,3 +2283,18 @@ export function normalizeEmailOtpRegistrationProof(raw: unknown): EmailOtpRegist
   }
   return null;
 }
+
+/** What a client sends to create a wallet's shared Email OTP enrollment. */
+export type WalletEmailOtpEnrollmentMaterialV1 = {
+  enrollmentSealKeyVersion: string;
+  clientUnlockPublicKeyB64u: string;
+  unlockKeyVersion: string;
+  serverSealedFactorCiphertextB64u: string;
+};
+
+export type WalletAddAuthMethodEmailOtpTargetV1 =
+  | { readonly kind: 'existing_enrollment'; readonly enrollment?: never }
+  | {
+      readonly kind: 'new_enrollment';
+      readonly enrollment: WalletEmailOtpEnrollmentMaterialV1;
+    };

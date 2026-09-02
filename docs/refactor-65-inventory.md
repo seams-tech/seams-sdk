@@ -10,10 +10,10 @@ cross-platform folder reorganization.
 
 | Previous root | New root | Owner |
 | --- | --- | --- |
-| `sdk/` | `packages/sdk-web/` | Web SDK package, build scripts, package metadata, distribution config. |
-| `client/src/` | `packages/sdk-web/src/` | Browser SDK source, React exports, plugins, theme, wallet iframe, browser UI, signing engine source still owned by web SDK. |
-| `client/src/core/runtime/` | `packages/sdk-web/src/core/runtime/` | Platform-neutral runtime entrypoint and runtime config/types folded back into the web package source tree. |
-| `server/src/` | `packages/sdk-server-ts/src/` | Server library, route adapters, console services, storage, threshold server code. |
+| `sdk/` | `packages/wallet/` | Web SDK package, build scripts, package metadata, distribution config. |
+| `client/src/` | `packages/wallet/src/` | Browser SDK source, React exports, plugins, theme, wallet iframe, browser UI, signing engine source still owned by web SDK. |
+| `client/src/core/runtime/` | `packages/wallet/src/core/runtime/` | Platform-neutral runtime entrypoint and runtime config/types folded back into the web package source tree. |
+| `server/src/` | `packages/wallet-server/src/` | Server library, route adapters, console services, storage, threshold server code. |
 | `shared/src/` | `packages/shared-ts/src/` | Shared protocol, console, threshold, and utility TypeScript. |
 | `examples/seams-site/` | `apps/web-client/` | Deployable web client. |
 | `examples/relay-server/` | `apps/web-server/` | Deployable web server. |
@@ -25,8 +25,8 @@ cross-platform folder reorganization.
 
 | Package root | Package name | Notes |
 | --- | --- | --- |
-| `packages/sdk-web` | `@seams/sdk` | Public npm package remains the web SDK package for this migration. Server exports are still surfaced through this package. |
-| `packages/sdk-server-ts` | `@seams-internal/sdk-server-ts` | Workspace-private server library source package. |
+| `packages/wallet` | `@seams/wallet` | Public npm package remains the web SDK package for this migration. Server exports are still surfaced through this package. |
+| `packages/wallet-server` | `@seams-internal/sdk-server-ts` | Workspace-private server library source package. |
 | `packages/shared-ts` | `@seams-internal/shared-ts` | Workspace-private shared TypeScript package with package exports for `console/*`, `threshold/*`, and `utils/*`. |
 
 ## Build And Workspace Files
@@ -35,11 +35,11 @@ cross-platform folder reorganization.
 | --- | --- |
 | `pnpm-workspace.yaml` | Added `packages/*` and `apps/*` roots; removed old `sdk` and app example roots. |
 | `package.json` | Updated SDK, site, server, docs, and source-check scripts to the new package/app roots. |
-| `packages/sdk-web/package.json` | Updated type paths from `dist/types/client/src` and `dist/types/server/src` to package-rooted type paths. |
-| `packages/sdk-web/build-paths.ts` | Updated source, wasm, server, shared, and app paths for the new layout. |
-| `packages/sdk-web/build-paths.sh` | Updated shell build paths for the new layout. |
-| `packages/sdk-web/rolldown.config.ts` | Updated entries and aliases from old source roots to package roots. |
-| `packages/sdk-web/tsconfig*.json` | Updated aliases, includes, excludes, and declaration roots. |
+| `packages/wallet/package.json` | Updated type paths from `dist/types/client/src` and `dist/types/server/src` to package-rooted type paths. |
+| `packages/wallet/build-paths.ts` | Updated source, wasm, server, shared, and app paths for the new layout. |
+| `packages/wallet/build-paths.sh` | Updated shell build paths for the new layout. |
+| `packages/wallet/rolldown.config.ts` | Updated entries and aliases from old source roots to package roots. |
+| `packages/wallet/tsconfig*.json` | Updated aliases, includes, excludes, and declaration roots. |
 | `apps/web-client/tsconfig.json` | Updated SDK type paths to the new `sdk-web` type output root. |
 | `tests/tsconfig.playwright.json` | Updated test aliases to the new package roots. |
 
@@ -73,7 +73,7 @@ Validation completed on 2026-06-10:
 - `pnpm -C packages/shared-ts type-check`
 - `pnpm -C apps/docs type-check`
 - `pnpm -C tests exec playwright test -c playwright.source.config.ts ./unit/refactor67ReorgFolders.guard.unit.test.ts --reporter=line`
-- `node packages/sdk-web/scripts/codegen/generate-w3a-components-css.mjs`
-- `node packages/sdk-web/scripts/checks/assert-palette-css.mjs packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/css/w3a-components.css`
+- `node packages/wallet/scripts/codegen/generate-w3a-components-css.mjs`
+- `node packages/wallet/scripts/checks/assert-palette-css.mjs packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/css/w3a-components.css`
 - `cargo metadata --manifest-path crates/seams-embedded/Cargo.toml --format-version 1 --no-deps`
 - `swift test --package-path clients/ios`

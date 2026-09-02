@@ -27,7 +27,7 @@ use router_ab_ed25519_yao_protocol::{
 };
 use serde::Serialize;
 use signer_core::ed25519_yao_derivation::{
-    derive_ed25519_yao_client_contributions_v1, Ed25519YaoClientDerivationRootV1,
+    derive_ed25519_yao_client_contributions_v1, Ed25519YaoClientRootV1,
 };
 use signer_core::near_ed25519_recovery::expand_ed25519_seed;
 use signer_core::near_threshold_frost::compute_threshold_ed25519_group_public_key_2p_from_verifying_shares;
@@ -63,10 +63,12 @@ pub use signing::{
 };
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindings"))]
 pub use wasm::{
-    WasmActivatedClientV1, WasmClientSigningShareV1, WasmCustodyEnvelopeExportSessionV1,
-    WasmEd25519YaoLaneClientV1, WasmEd25519YaoLaneSourceV1, WasmExportedEd25519SeedV1,
+    WasmActivatedClientV1, WasmClientSigningShareV1, WasmEd25519YaoClientRootExportSessionV1,
+    WasmEd25519YaoLaneClientV1, WasmEd25519YaoLaneSourceV1,
+    WasmEd25519YaoSourcePreservingRegistrationSessionV1, WasmExportedEd25519SeedV1,
     WasmLaneCustodySealV1, WasmLaneHolderEcdsaPresignSessionV1, WasmLaneHolderRecipientV1,
-    WasmLaneHolderSigningMaterialV1,
+    WasmLaneHolderSigningMaterialV1, WasmOrdinaryEd25519ActivationClientMaterialV1,
+    WasmWalletCustodySeedExportSessionV1,
 };
 
 type InputHpkeV1 = Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>;
@@ -144,6 +146,42 @@ impl ClientActivationEntropyV1 {
             deriver_a_seal_seed,
             deriver_b_seal_seed,
         })
+    }
+}
+
+/// Purpose-separated entropy for one source-preserving registration request.
+///
+/// Device 2 owns the recipient private key, so Device 1 only needs fresh
+/// sender seeds for the two Deriver input envelopes.
+#[derive(Zeroize, ZeroizeOnDrop)]
+pub struct ClientActivationSourcePreservingEntropyV1 {
+    deriver_a_seal_seed: [u8; 32],
+    deriver_b_seal_seed: [u8; 32],
+}
+
+impl ClientActivationSourcePreservingEntropyV1 {
+    /// Creates two nonzero, distinct HPKE sender seeds.
+    pub fn new(
+        deriver_a_seal_seed: [u8; 32],
+        deriver_b_seal_seed: [u8; 32],
+    ) -> Result<Self, ClientActivationError> {
+        let zero = [0_u8; 32];
+        let valid = !deriver_a_seal_seed.ct_eq(&zero)
+            & !deriver_b_seal_seed.ct_eq(&zero)
+            & !deriver_a_seal_seed.ct_eq(&deriver_b_seal_seed);
+        if !bool::from(valid) {
+            return Err(ClientActivationError::InvalidEntropy);
+        }
+        Ok(Self {
+            deriver_a_seal_seed,
+            deriver_b_seal_seed,
+        })
+    }
+}
+
+impl fmt::Debug for ClientActivationSourcePreservingEntropyV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ClientActivationSourcePreservingEntropyV1([REDACTED])")
     }
 }
 
@@ -337,7 +375,7 @@ pub fn prepare_client_registration_with_root_v1(
     admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
     application: &RouterAbEd25519YaoApplicationBindingFactsV1,
     participant_ids: [u16; 2],
-    root: Ed25519YaoClientDerivationRootV1,
+    root: Ed25519YaoClientRootV1,
     entropy: ClientActivationEntropyV1,
 ) -> Result<PreparedClientActivationV1, ClientActivationError> {
     prepare_client_activation_with_root_v1(
@@ -351,13 +389,83 @@ pub fn prepare_client_registration_with_root_v1(
     )
 }
 
+/// Prepares a source-preserving registration request for a target-owned
+/// recipient. The source root and client contributions remain inside this
+/// function; only recipient-encrypted Deriver inputs are returned.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_client_registration_source_preserving_with_root_v1(
+    admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
+    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
+    participant_ids: [u16; 2],
+    root: &Ed25519YaoClientRootV1,
+    target_client_recipient_public_key: [u8; 32],
+    mut entropy: ClientActivationSourcePreservingEntropyV1,
+) -> Result<RouterAbEd25519YaoActivationExecuteRequestV1, ClientActivationError> {
+    let context = stable_key_derivation_context_v1(application, participant_ids)
+        .map_err(|_| ClientActivationError::DerivationFailed)?;
+    if admission.binding().operation != Ed25519YaoOperationV1::Registration
+        || context.binding_digest() != admission.binding().stable_key_context_binding.into_bytes()
+    {
+        return Err(ClientActivationError::BindingMismatch);
+    }
+    let contributions = derive_ed25519_yao_client_contributions_v1(&root, &context)
+        .map_err(|_| ClientActivationError::DerivationFailed)?;
+    let (deriver_a, deriver_b) = contributions.into_parts();
+    let (deriver_a_y, deriver_a_tau) = deriver_a.into_parts();
+    let (deriver_b_y, deriver_b_tau) = deriver_b.into_parts();
+    let recipients = LocalEd25519YaoActivationRecipientsV1 {
+        client_public_key: target_client_recipient_public_key,
+        signing_worker_public_key: admission.keyset().signing_worker_recipient_public_key(),
+    };
+    let request_a = LocalEd25519YaoActivationDeriverARequestV1 {
+        binding: admission.binding().clone(),
+        application_binding: application.clone(),
+        participant_ids,
+        client_contribution: LocalEd25519YaoClientContributionV1 {
+            y: deriver_a_y.into_bytes(),
+            tau: deriver_a_tau.into_bytes(),
+        },
+        recipients,
+    };
+    let request_b = LocalEd25519YaoActivationDeriverBRequestV1 {
+        binding: admission.binding().clone(),
+        application_binding: application.clone(),
+        participant_ids,
+        client_contribution: LocalEd25519YaoClientContributionV1 {
+            y: deriver_b_y.into_bytes(),
+            tau: deriver_b_tau.into_bytes(),
+        },
+        recipients,
+    };
+    let deriver_a_input = seal_activation_input(
+        Ed25519YaoDeriverRoleV1::DeriverA,
+        admission.keyset().deriver_a_input_public_key(),
+        &mut entropy.deriver_a_seal_seed,
+        admission.binding(),
+        &request_a,
+    )?;
+    let deriver_b_input = seal_activation_input(
+        Ed25519YaoDeriverRoleV1::DeriverB,
+        admission.keyset().deriver_b_input_public_key(),
+        &mut entropy.deriver_b_seal_seed,
+        admission.binding(),
+        &request_b,
+    )?;
+    RouterAbEd25519YaoActivationExecuteRequestV1::new(
+        admission.binding().clone(),
+        deriver_a_input,
+        deriver_b_input,
+    )
+    .map_err(|_| ClientActivationError::InvalidProtocolShape)
+}
+
 /// Prepares recovery from the same Client root while requiring the registered
 /// public key to remain unchanged.
 pub fn prepare_client_recovery_with_root_v1(
     admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
     application: &RouterAbEd25519YaoApplicationBindingFactsV1,
     participant_ids: [u16; 2],
-    root: Ed25519YaoClientDerivationRootV1,
+    root: Ed25519YaoClientRootV1,
     expected_registered_public_key: [u8; 32],
     entropy: ClientActivationEntropyV1,
 ) -> Result<PreparedClientActivationV1, ClientActivationError> {
@@ -390,7 +498,7 @@ fn prepare_client_activation_with_root_v1(
     admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
     application: &RouterAbEd25519YaoApplicationBindingFactsV1,
     participant_ids: [u16; 2],
-    root: Ed25519YaoClientDerivationRootV1,
+    root: Ed25519YaoClientRootV1,
     mut entropy: ClientActivationEntropyV1,
     operation: Ed25519YaoOperationV1,
     continuity: ClientActivationContinuityV1,
@@ -495,7 +603,11 @@ pub fn complete_client_activation_v1(
     )
     .map_err(|_| ClientActivationError::InvalidRecipientPackage)?
     .into_bytes();
-    verify_public_relation(&client_scalar_share, state.participant_ids, result)?;
+    verify_public_relation(
+        &client_scalar_share,
+        state.participant_ids,
+        result.public_receipt(),
+    )?;
     if let ClientActivationContinuityV1::Preserve(expected) = state.continuity {
         if !bool::from(expected.ct_eq(&result.public_receipt().registered_public_key())) {
             return Err(ClientActivationError::PublicKeyContinuityMismatch);
@@ -508,16 +620,91 @@ pub fn complete_client_activation_v1(
     })
 }
 
-/// Prepares the explicit export protocol from a custody-derived Client root.
+/// Completes the two Client-recipient packages for one exact activation.
 ///
-/// The root must come from the wallet custody seed. Factor secrets are
-/// authorization and envelope-opening material; they never define an Ed25519
-/// signing root.
+/// The package pair and public receipt are checked against the admitted
+/// activation binding and exact transcript before either plaintext is
+/// combined. The opened scalar is then checked against the receipt's public
+/// relation before it crosses the local material boundary.
+pub fn complete_client_activation_packages_v1(
+    binding: &router_ab_core::Ed25519YaoCeremonyBindingV1,
+    participant_ids: [u16; 2],
+    public_receipt: &router_ab_core::RouterAbEd25519YaoActivationPublicReceiptV1,
+    recipient_private_key: &[u8; 32],
+    deriver_a_client_package: &Ed25519YaoEncryptedPackageV1,
+    deriver_b_client_package: &Ed25519YaoEncryptedPackageV1,
+) -> Result<(Zeroizing<[u8; 32]>, [u8; 32]), ClientActivationError> {
+    binding
+        .validate()
+        .map_err(|_| ClientActivationError::BindingMismatch)?;
+    if binding.operation != Ed25519YaoOperationV1::Registration {
+        return Err(ClientActivationError::InvalidProtocolShape);
+    }
+    validate_worker_client_package(
+        binding,
+        deriver_a_client_package,
+        Ed25519YaoDeriverRoleV1::DeriverA,
+    )?;
+    validate_worker_client_package(
+        binding,
+        deriver_b_client_package,
+        Ed25519YaoDeriverRoleV1::DeriverB,
+    )?;
+    if deriver_a_client_package.transcript() != deriver_b_client_package.transcript() {
+        return Err(ClientActivationError::InvalidRecipientPackage);
+    }
+    let transcript = deriver_a_client_package.transcript();
+    if public_receipt.material_activation() != &binding.material_activation
+        || public_receipt.transcript() != transcript
+    {
+        return Err(ClientActivationError::BindingMismatch);
+    }
+    let mut deriver_a_plaintext =
+        open_client_package(deriver_a_client_package, recipient_private_key)?;
+    let mut deriver_b_plaintext =
+        open_client_package(deriver_b_client_package, recipient_private_key)?;
+    let deriver_a =
+        ActivationDeriverAClientPackage::from_bytes(core::mem::take(&mut *deriver_a_plaintext))
+            .map_err(|_| ClientActivationError::InvalidRecipientPackage)?;
+    let deriver_b =
+        ActivationDeriverBClientPackage::from_bytes(core::mem::take(&mut *deriver_b_plaintext))
+            .map_err(|_| ClientActivationError::InvalidRecipientPackage)?;
+    let scalar = combine_client_activation_packages(
+        binding.session_id.into_bytes(),
+        transcript,
+        deriver_a,
+        deriver_b,
+    )
+    .map_err(|_| ClientActivationError::InvalidRecipientPackage)?
+    .into_bytes();
+    verify_public_relation(&scalar, participant_ids, public_receipt)?;
+    Ok((Zeroizing::new(scalar), transcript))
+}
+
+fn validate_worker_client_package(
+    binding: &router_ab_core::Ed25519YaoCeremonyBindingV1,
+    package: &Ed25519YaoEncryptedPackageV1,
+    deriver: Ed25519YaoDeriverRoleV1,
+) -> Result<(), ClientActivationError> {
+    package
+        .validate()
+        .map_err(|_| ClientActivationError::InvalidProtocolShape)?;
+    if package.kind() != router_ab_core::Ed25519YaoPackageKindV1::ActivationClient
+        || package.deriver() != deriver
+        || package.session() != binding.session_id.into_bytes()
+    {
+        return Err(ClientActivationError::InvalidRecipientPackage);
+    }
+    Ok(())
+}
+
+/// Prepares the explicit export protocol from an admitted Ed25519 Yao Client
+/// root. Factor secrets authorize opening a sealed root; they never define it.
 pub fn prepare_client_export_with_root_v1(
     admission: &RouterAbEd25519YaoExportAdmissionReceiptV1,
     application: &RouterAbEd25519YaoApplicationBindingFactsV1,
     participant_ids: [u16; 2],
-    root: Ed25519YaoClientDerivationRootV1,
+    root: Ed25519YaoClientRootV1,
     entropy: ClientActivationEntropyV1,
 ) -> Result<PreparedClientExportV1, ClientActivationError> {
     let context = stable_key_derivation_context_v1(application, participant_ids)
@@ -535,7 +722,7 @@ fn prepare_client_export_from_root_v1(
     admission: &RouterAbEd25519YaoExportAdmissionReceiptV1,
     application: &RouterAbEd25519YaoApplicationBindingFactsV1,
     participant_ids: [u16; 2],
-    root: Ed25519YaoClientDerivationRootV1,
+    root: Ed25519YaoClientRootV1,
     mut entropy: ClientActivationEntropyV1,
 ) -> Result<PreparedClientExportV1, ClientActivationError> {
     let context = stable_key_derivation_context_v1(application, participant_ids)
@@ -600,6 +787,10 @@ fn prepare_client_export_from_root_v1(
     })
 }
 
+/// Prepares an owner export from the verified wallet custody seed.
+///
+/// The seed and derived root remain inside this crate. Linked-device export
+/// uses the separate factor-sealed Client-root envelope path.
 pub(crate) fn prepare_client_export_from_custody_seed_v1(
     admission: &RouterAbEd25519YaoExportAdmissionReceiptV1,
     application: &RouterAbEd25519YaoApplicationBindingFactsV1,
@@ -618,7 +809,7 @@ pub(crate) fn prepare_client_export_from_custody_seed_v1(
         admission,
         application,
         participant_ids,
-        Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root),
+        Ed25519YaoClientRootV1::from_secret_bytes(*root),
         entropy,
     )
 }
@@ -808,15 +999,14 @@ fn open_client_package(
     .map_err(|_| ClientActivationError::HpkeFailed)
 }
 
-fn verify_public_relation(
+pub(crate) fn verify_public_relation(
     client_scalar_share: &[u8; 32],
     participant_ids: [u16; 2],
-    result: &RouterAbEd25519YaoActivationResultV1,
+    receipt: &router_ab_core::RouterAbEd25519YaoActivationPublicReceiptV1,
 ) -> Result<(), ClientActivationError> {
     let scalar_option = Scalar::from_canonical_bytes(*client_scalar_share);
     let scalar = scalar_option.unwrap_or(Scalar::ZERO);
     let client_commitment = (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes();
-    let receipt = result.public_receipt();
     let mut valid = scalar_option.is_some();
     valid &= client_commitment.ct_eq(&receipt.joined_client_commitment());
     valid &= receipt

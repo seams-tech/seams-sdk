@@ -8,8 +8,8 @@ import {
   type ConsoleAuthClaims,
   type ConsoleBillingService,
   type ConsoleSponsoredCallService,
-} from '@seams-internal/console-server/router/express-adaptor';
-import { createCloudflareConsoleRouter } from '@seams-internal/console-server/router/cloudflare-adaptor';
+} from '@seams-internal/wallet-console-server/router/express-adaptor';
+import { createCloudflareConsoleRouter } from '@seams-internal/wallet-console-server/router/cloudflare-adaptor';
 import { callCf, fetchJson, makeConsoleAuthAdapter, startExpressRouter } from './helpers';
 
 const baseNow = new Date('2026-03-19T00:00:00.000Z');

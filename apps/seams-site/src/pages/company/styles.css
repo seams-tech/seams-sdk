@@ -76,6 +76,24 @@
   padding: 96px 0;
 }
 
+.company-legal {
+  padding: 40px 0 48px;
+}
+
+.company-legal__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.company-legal__copy {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--h2-smoke);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
 .company-section-head {
   margin-bottom: 48px;
 }

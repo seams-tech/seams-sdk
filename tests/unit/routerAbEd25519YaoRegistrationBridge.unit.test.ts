@@ -1,14 +1,34 @@
 import { expect, test } from '@playwright/test';
 import { alphabetizeStringify, sha256BytesUtf8 } from '../../packages/shared-ts/src/utils/digests';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
+import {
+  buildPasskeyWalletAuthAuthority,
+  type WalletAuthAuthority,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import {
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
+  runRouterAbEd25519YaoRegistrationSideEffectV2,
   runRouterAbEd25519YaoRegistrationSideEffectV1,
   throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1,
   type RouterAbEd25519YaoRegistrationSideEffectClaimV1,
   type RouterAbEd25519YaoRegistrationSideEffectCompletionV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
-import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+  type RouterAbEd25519YaoRegistrationSideEffectRecordV2,
+  type RouterAbEd25519YaoRegistrationSideEffectStoreV2,
+  parseRouterAbEd25519YaoRegistrationSideEffectRecordV2,
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
+import type {
+  VersionedJsonRecordPutResult,
+  VersionedJsonRecordReadResult,
+} from '../../packages/wallet-server/src/router/framework/versionedJsonRecordStore';
+import {
+  parseWalletRegistrationSessionCommitReceiptV2,
+  projectWalletRegistrationSessionCommitReceiptV2,
+} from '../../packages/wallet-server/src/router/cloudflare/d1/registration/walletRegistrationSessionCommitReceipt';
+import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
 import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
 import {
   AlwaysConflictRegistrationBridgePartitionStore,
@@ -16,7 +36,6 @@ import {
   OneConflictRegistrationBridgePartitionStore,
   RegistrationSideEffectMemoryStore,
   UnavailableRouterAbEd25519YaoRegistrationBackend,
-  UnusedSessionAdapter,
 } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
 
 const REQUEST_FINGERPRINT = 'I1f3l6f4R6TT7IqKCMGEjU0RiRkmphAMYj6QJfG5UvQ';
@@ -27,6 +46,94 @@ type TestResponse = {
 };
 
 type PreparedMarker = { readonly kind: 'prepared_test_effect' };
+
+type CredentialFreeReceipt = {
+  readonly kind: 'credential_free_test_receipt';
+  readonly committedIdentity: string;
+};
+
+type CredentialBearingResponse = {
+  readonly ok: true;
+  readonly committedIdentity: string;
+  readonly walletSessionToken: string;
+};
+
+type CredentialFreeStoreRecord = {
+  readonly version: number;
+  readonly value: RouterAbEd25519YaoRegistrationSideEffectRecordV2<
+    CredentialFreeReceipt,
+    PreparedMarker
+  >;
+};
+
+class CredentialFreeRegistrationStore implements RouterAbEd25519YaoRegistrationSideEffectStoreV2<
+  CredentialFreeReceipt,
+  PreparedMarker
+> {
+  readonly records = new Map<string, CredentialFreeStoreRecord>();
+
+  async read(
+    key: string,
+  ): Promise<
+    VersionedJsonRecordReadResult<
+      RouterAbEd25519YaoRegistrationSideEffectRecordV2<CredentialFreeReceipt, PreparedMarker>
+    >
+  > {
+    const record = this.records.get(key);
+    return record
+      ? {
+          kind: 'present',
+          version: String(record.version),
+          value: structuredClone(record.value),
+        }
+      : { kind: 'missing' };
+  }
+
+  async put(
+    key: string,
+    value: RouterAbEd25519YaoRegistrationSideEffectRecordV2<CredentialFreeReceipt, PreparedMarker>,
+    expectedVersion: string | null,
+  ): Promise<VersionedJsonRecordPutResult> {
+    const current = this.records.get(key);
+    if (
+      (expectedVersion === null && current) ||
+      (expectedVersion !== null && String(current?.version) !== expectedVersion)
+    ) {
+      return { kind: 'version_mismatch' };
+    }
+    const version = (current?.version ?? 0) + 1;
+    this.records.set(key, { version, value: structuredClone(value) });
+    return { kind: 'stored', version: String(version) };
+  }
+}
+
+class CredentialFreeReplayProbe {
+  public calls = 0;
+
+  public replay(receipt: CredentialFreeReceipt): CredentialBearingResponse {
+    this.calls += 1;
+    return replayCredentialFreeTestReceipt(receipt);
+  }
+}
+
+function projectCredentialFreeTestReceipt(
+  response: CredentialBearingResponse,
+): CredentialFreeReceipt {
+  return {
+    kind: 'credential_free_test_receipt',
+    committedIdentity: response.committedIdentity,
+  };
+}
+
+function replayCredentialFreeTestReceipt(
+  receipt: CredentialFreeReceipt,
+): CredentialBearingResponse {
+  return {
+    ok: true,
+    committedIdentity: receipt.committedIdentity,
+    walletSessionToken: 'replayed-ephemeral-token',
+  };
+}
 
 async function deriveTestPreparedArtifactFingerprint(prepared: unknown): Promise<string> {
   return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared)));
@@ -113,6 +220,47 @@ function registrationCapabilityFixture() {
   };
 }
 
+function pendingReceiptBoundaryFixture(): Record<string, unknown> {
+  const walletId = walletIdFromString('wallet-registration-receipt-boundary');
+  const rpIdResult = parseWebAuthnRpId('example.com');
+  if (!rpIdResult.ok) throw new Error(rpIdResult.error.message);
+  const credentialIdResult = parseWebAuthnCredentialIdB64u('credential-receipt-boundary');
+  if (!credentialIdResult.ok) throw new Error(credentialIdResult.error.message);
+  const authority: WalletAuthAuthority = buildPasskeyWalletAuthAuthority({
+    walletId,
+    rpId: rpIdResult.value,
+    credentialIdB64u: credentialIdResult.value,
+  });
+  return {
+    kind: 'wallet_registration_session_commit_receipt_v2',
+    operation: 'registration_activate',
+    operationFingerprint: REQUEST_FINGERPRINT,
+    registrationCeremonyId: 'registration-receipt-boundary',
+    walletId,
+    walletAuthMethodId: authority.bindingId,
+    authority,
+    authMethod: {
+      kind: 'passkey',
+      credentialIdB64u: credentialIdResult.value,
+      credentialPublicKeyB64u: 'credential-public-key-receipt-boundary',
+    },
+    expectedOrigin: 'https://app.example.com',
+    registrationDiagnostics: {
+      kind: 'wallet_registration_route_diagnostics_v1',
+      route: 'wallets_register_finalize',
+      entries: [
+        { name: 'registrationIntentLoadMs', durationMs: 1 },
+        { name: 'registrationAuthorityVerifyMs', durationMs: 2 },
+        { name: 'registrationFinalizeReplayCacheMs', durationMs: 3 },
+      ],
+    },
+    committed: {
+      kind: 'near_pending',
+      nearProvisioning: { status: 'near_pending' },
+    },
+  };
+}
+
 test.describe('registration side-effect persistence bridge', () => {
   test('claims before effects and replays the exact terminal response without repeating them', async () => {
     const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedMarker>();
@@ -131,6 +279,196 @@ test.describe('registration side-effect persistence bridge', () => {
       value: { ok: true, receipt: 'wallet-session-receipt' },
     });
     expect(probe.calls).toBe(1);
+  });
+
+  test('stores only a credential-free receipt and rebuilds a fresh replay response', async () => {
+    const store = new CredentialFreeRegistrationStore();
+    let effectCalls = 0;
+    const replayProbe = new CredentialFreeReplayProbe();
+    const input = {
+      kind: 'prepared_resumable' as const,
+      operation: 'registration_activate' as const,
+      key: 'registration-activate:credential-free',
+      requestFingerprint: REQUEST_FINGERPRINT,
+      resumeAfterMs: 1,
+      nowMs: fixedNow,
+      prepare: prepareTestEffect,
+      derivePreparedArtifactFingerprint: deriveTestPreparedArtifactFingerprint,
+      execute: async (): Promise<CredentialBearingResponse> => {
+        effectCalls += 1;
+        return {
+          ok: true,
+          committedIdentity: 'wallet-session-identity',
+          walletSessionToken: 'first-ephemeral-token',
+        };
+      },
+      projectReceipt: projectCredentialFreeTestReceipt,
+      replay: replayProbe.replay.bind(replayProbe),
+    };
+
+    await expect(
+      runRouterAbEd25519YaoRegistrationSideEffectV2<
+        CredentialBearingResponse,
+        CredentialFreeReceipt,
+        PreparedMarker
+      >(store, input),
+    ).resolves.toEqual({
+      kind: 'executed',
+      value: {
+        ok: true,
+        committedIdentity: 'wallet-session-identity',
+        walletSessionToken: 'first-ephemeral-token',
+      },
+    });
+
+    const stored = store.records.get(input.key);
+    expect(stored?.value.kind).toBe('router_ab_ed25519_yao_registration_side_effect_completion_v2');
+    expect(stored?.value).toMatchObject({
+      receipt: {
+        kind: 'credential_free_test_receipt',
+        committedIdentity: 'wallet-session-identity',
+      },
+    });
+    expect(JSON.stringify(stored?.value)).not.toContain('first-ephemeral-token');
+    expect(JSON.stringify(stored?.value)).not.toContain('response');
+
+    await expect(
+      runRouterAbEd25519YaoRegistrationSideEffectV2<
+        CredentialBearingResponse,
+        CredentialFreeReceipt,
+        PreparedMarker
+      >(store, input),
+    ).resolves.toEqual({
+      kind: 'exact_replay',
+      value: {
+        ok: true,
+        committedIdentity: 'wallet-session-identity',
+        walletSessionToken: 'replayed-ephemeral-token',
+      },
+    });
+    expect(effectCalls).toBe(1);
+    expect(replayProbe.calls).toBe(1);
+
+    await expect(
+      runRouterAbEd25519YaoRegistrationSideEffectV2<
+        CredentialBearingResponse,
+        CredentialFreeReceipt,
+        PreparedMarker
+      >(store, {
+        ...input,
+        requestFingerprint: 'B1f3l6f4R6TT7IqKCMGEjU0RiRkmphAMYj6QJfG5UvQ',
+      }),
+    ).resolves.toEqual({ kind: 'request_conflict' });
+    expect(replayProbe.calls).toBe(1);
+  });
+
+  test('refuses a retired credential-bearing completion row instead of replaying it', async () => {
+    const prepared = { kind: 'prepared_test_effect' } as const;
+    const retiredRow = {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+      operation: 'registration_activate',
+      requestFingerprint: REQUEST_FINGERPRINT,
+      preparedArtifactFingerprint: await deriveTestPreparedArtifactFingerprint(prepared),
+      claimedAtMs: fixedNow(),
+      completedAtMs: fixedNow(),
+      prepared,
+      response: {
+        ok: true,
+        committedIdentity: 'retired-committed-identity',
+        walletSessionToken: 'retired-persisted-token',
+      },
+    };
+
+    expect(
+      parseRouterAbEd25519YaoRegistrationSideEffectRecordV2<CredentialFreeReceipt, PreparedMarker>(
+        retiredRow,
+        {
+          operation: 'registration_activate',
+          parsePrepared: (value) =>
+            value &&
+            typeof value === 'object' &&
+            (value as { kind?: unknown }).kind === 'prepared_test_effect'
+              ? { kind: 'prepared_test_effect' }
+              : null,
+          parseReceipt: () => {
+            throw new Error('a retired completion row has no receipt to parse');
+          },
+        },
+      ),
+    ).toBeNull();
+  });
+
+  test('parses the activation pending receipt with exact credential-free keys', async () => {
+    const raw = pendingReceiptBoundaryFixture();
+    const parsed = parseWalletRegistrationSessionCommitReceiptV2(raw, () => {
+      throw new Error('pending receipts have no ready branch');
+    });
+    expect(parsed).toMatchObject({
+      kind: 'wallet_registration_session_commit_receipt_v2',
+      operation: 'registration_activate',
+      committed: {
+        kind: 'near_pending',
+        nearProvisioning: { status: 'near_pending' },
+      },
+      registrationDiagnostics: {
+        entries: [
+          { name: 'registrationIntentLoadMs', durationMs: 1 },
+          { name: 'registrationAuthorityVerifyMs', durationMs: 2 },
+          { name: 'registrationFinalizeReplayCacheMs', durationMs: 3 },
+        ],
+      },
+    });
+    expect(JSON.stringify(parsed)).not.toContain('walletSessionToken');
+  });
+
+  test('persists deterministic terminal errors as credential-free replay receipts', async () => {
+    const receipt = projectWalletRegistrationSessionCommitReceiptV2({
+      operation: 'registration_activate',
+      operationFingerprint: REQUEST_FINGERPRINT,
+      registrationCeremonyId: 'registration-error-receipt',
+      execution: {
+        kind: 'unissued',
+        response: {
+          ok: false,
+          code: 'invalid_registration_state',
+          message: 'Registration cannot be activated from this state',
+          retryAfterMs: 0,
+        },
+      },
+    });
+    expect(
+      parseWalletRegistrationSessionCommitReceiptV2(receipt, () => {
+        throw new Error('error receipts have no signer branch');
+      }),
+    ).toEqual(receipt);
+    expect(JSON.stringify(receipt)).not.toContain('walletSessionToken');
+  });
+
+  test('rejects credential-bearing receipts for activation and deferred NEAR branches', async () => {
+    const activationRaw = pendingReceiptBoundaryFixture();
+    const activationWithCredential = {
+      ...activationRaw,
+      committed: {
+        ...activationRaw.committed,
+        response: { walletSessionToken: 'persisted-bearer' },
+      },
+    };
+    expect(
+      parseWalletRegistrationSessionCommitReceiptV2(activationWithCredential, () => null),
+    ).toBeNull();
+
+    const deferredWithCredential = {
+      ...activationRaw,
+      operation: 'near_provisioning',
+      committed: {
+        kind: 'near_ready',
+        nearProvisioning: { status: 'near_ready' },
+        response: { primaryOperationCredential: 'persisted-credential' },
+      },
+    };
+    expect(
+      parseWalletRegistrationSessionCommitReceiptV2(deferredWithCredential, () => null),
+    ).toBeNull();
   });
 
   test('leaves an uncertain claim durable and never retries an unknown effect', async () => {
@@ -316,7 +654,6 @@ test.describe('registration side-effect persistence bridge', () => {
     const store = new OneConflictRegistrationBridgePartitionStore(delegate);
     const runtime = createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
       signingWorkerId: 'signing-worker-bridge',
-      session: new UnusedSessionAdapter(),
       store,
       registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
     });
@@ -351,7 +688,6 @@ test.describe('registration side-effect persistence bridge', () => {
     let fallbackReads = 0;
     const runtime = createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
       signingWorkerId: 'signing-worker-bridge',
-      session: new UnusedSessionAdapter(),
       store,
       registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
       loadPersistedActiveCapability: async () => {
@@ -378,7 +714,6 @@ test.describe('registration side-effect persistence bridge', () => {
     const store = new AlwaysConflictRegistrationBridgePartitionStore(delegate);
     const runtime = createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
       signingWorkerId: 'signing-worker-bridge',
-      session: new UnusedSessionAdapter(),
       store,
       registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
     });

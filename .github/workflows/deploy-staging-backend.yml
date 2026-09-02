@@ -48,9 +48,11 @@ jobs:
         run: |
           set -euo pipefail
           for component in signing-worker deriver-a deriver-b router; do
-            test -s "crates/router-ab-cloudflare/build/$component/worker/shim.mjs"
+            test -s ".release-artifacts/router-ab-runtime/build/$component/worker/shim.mjs"
           done
-          test -s .release-artifacts/gateway/payload/d1RouterApiWorker.js
+          test -s .release-artifacts/gateway/payload/d1GatewayWorker.js
+          test -s .release-artifacts/console/payload/d1ConsoleStagingWorker.js
+          test -s .release-artifacts/wallet-runtime/payload/d1WalletRuntimeWorker.js
       - name: Upload backend artifact
         uses: actions/upload-artifact@v7
         with:
@@ -61,7 +63,6 @@ jobs:
           compression-level: 0
           path: |
             .release-artifacts
-            crates/router-ab-cloudflare/build
             packages/console-server-ts/.wrangler/generated
 
   preflight:
@@ -81,7 +82,11 @@ jobs:
             environment: staging-deriver-b
           - component: router
             environment: staging-mpc-router
+          - component: wallet-runtime
+            environment: staging-gateway
           - component: gateway
+            environment: staging-gateway
+          - component: console
             environment: staging-gateway
     environment:
       name: ${{ matrix.environment }}
@@ -126,13 +131,13 @@ jobs:
           node-version: '24'
           cache: pnpm
       - name: Install deployment dependencies
-        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server...
+        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server... --filter @seams-internal/wallet-console-server...
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
           name: backend-build-staging-testnet
       - name: Check Gateway build entry
-        run: test -s .release-artifacts/gateway/payload/d1RouterApiWorker.js
+        run: test -s .release-artifacts/gateway/payload/d1GatewayWorker.js
       - name: Apply D1 migrations
         run: pnpm deploy:backend migrate --lane "$DEPLOY_LANE"
 
@@ -172,7 +177,7 @@ jobs:
         with:
           name: backend-build-staging-testnet
       - name: Check Signing Worker build entry
-        run: test -s crates/router-ab-cloudflare/build/signing-worker/worker/shim.mjs
+        run: test -s .release-artifacts/router-ab-runtime/build/signing-worker/worker/shim.mjs
       - name: Deploy Signing Worker
         run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component signing-worker
 
@@ -216,7 +221,7 @@ jobs:
         with:
           name: backend-build-staging-testnet
       - name: Check Deriver A build entry
-        run: test -s crates/router-ab-cloudflare/build/deriver-a/worker/shim.mjs
+        run: test -s .release-artifacts/router-ab-runtime/build/deriver-a/worker/shim.mjs
       - name: Deploy Deriver A
         run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component deriver-a
 
@@ -260,7 +265,7 @@ jobs:
         with:
           name: backend-build-staging-testnet
       - name: Check Deriver B build entry
-        run: test -s crates/router-ab-cloudflare/build/deriver-b/worker/shim.mjs
+        run: test -s .release-artifacts/router-ab-runtime/build/deriver-b/worker/shim.mjs
       - name: Deploy Deriver B
         run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component deriver-b
 
@@ -302,13 +307,13 @@ jobs:
         with:
           name: backend-build-staging-testnet
       - name: Check Router build entry
-        run: test -s crates/router-ab-cloudflare/build/router/worker/shim.mjs
+        run: test -s .release-artifacts/router-ab-runtime/build/router/worker/shim.mjs
       - name: Deploy Router
         run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component router
 
-  deploy_gateway:
-    name: Deploy / staging-testnet / gateway
-    needs: deploy_router
+  deploy_wallet_runtime:
+    name: Deploy / staging-testnet / wallet-runtime
+    needs: [deploy_router, migrate]
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
@@ -316,17 +321,12 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CONSOLE_INITIAL_OWNER_EMAIL: ${{ secrets.CONSOLE_INITIAL_OWNER_EMAIL }}
-      RELAY_SESSION_HMAC_SECRET: ${{ secrets.RELAY_SESSION_HMAC_SECRET }}
       ACCOUNT_ID_DERIVATION_SECRET: ${{ secrets.ACCOUNT_ID_DERIVATION_SECRET }}
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
-      LINKED_DEVICE_OPERATOR_RECOVERY_SECRET: ${{ secrets.LINKED_DEVICE_OPERATOR_RECOVERY_SECRET }}
       LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET: ${{ secrets.LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET }}
       ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: ${{ secrets.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK }}
       STRIPE_API_SK: ${{ secrets.STRIPE_API_SK }}
-      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
-      SPONSORED_EVM_EXECUTORS_JSON: ${{ secrets.SPONSORED_EVM_EXECUTORS_JSON }}
       SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: ${{ secrets.SIGNING_SESSION_SEAL_ROOT_SECRET_B64U }}
     steps:
       - name: Checkout workflow revision
@@ -341,13 +341,96 @@ jobs:
           node-version: '24'
           cache: pnpm
       - name: Install deployment dependencies
-        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server...
+        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server... --filter @seams-internal/wallet-console-server...
+      - name: Download backend artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-build-staging-testnet
+      - name: Check Wallet Runtime build entry
+        run: test -s .release-artifacts/wallet-runtime/payload/d1WalletRuntimeWorker.js
+      - name: Deploy Wallet Runtime
+        run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component wallet-runtime
+
+  deploy_console:
+    name: Deploy / staging-testnet / console
+    needs: [deploy_wallet_runtime]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: staging-gateway
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CONSOLE_INITIAL_OWNER_EMAIL: ${{ secrets.CONSOLE_INITIAL_OWNER_EMAIL }}
+      CONSOLE_SESSION_HMAC_SECRET: ${{ secrets.CONSOLE_SESSION_HMAC_SECRET }}
+      CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U: ${{ secrets.CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U }}
+      CONSOLE_WEBHOOK_SECRET_KEY_B64U: ${{ secrets.CONSOLE_WEBHOOK_SECRET_KEY_B64U }}
+      STRIPE_API_SK: ${{ secrets.STRIPE_API_SK }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      GITHUB_OAUTH_CLIENT_ID: ${{ secrets.GITHUB_OAUTH_CLIENT_ID }}
+      GITHUB_OAUTH_CLIENT_SECRET: ${{ secrets.GITHUB_OAUTH_CLIENT_SECRET }}
+      GITHUB_OAUTH_CALLBACK_URL: ${{ secrets.GITHUB_OAUTH_CALLBACK_URL }}
+      SPONSORED_EVM_EXECUTORS_JSON: ${{ secrets.SPONSORED_EVM_EXECUTORS_JSON }}
+    steps:
+      - name: Checkout workflow revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install deployment dependencies
+        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server... --filter @seams-internal/wallet-console-server...
+      - name: Download backend artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-build-staging-testnet
+      - name: Check Console build entry
+        run: test -s .release-artifacts/console/payload/d1ConsoleStagingWorker.js
+      - name: Deploy Console
+        run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component console
+
+  deploy_gateway:
+    name: Deploy / staging-testnet / gateway
+    needs: [deploy_router, deploy_console]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: staging-gateway
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ACCOUNT_ID_DERIVATION_SECRET: ${{ secrets.ACCOUNT_ID_DERIVATION_SECRET }}
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
+      LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET: ${{ secrets.LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET }}
+      ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: ${{ secrets.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK }}
+      STRIPE_API_SK: ${{ secrets.STRIPE_API_SK }}
+      RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
+      SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: ${{ secrets.SIGNING_SESSION_SEAL_ROOT_SECRET_B64U }}
+    steps:
+      - name: Checkout workflow revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install deployment dependencies
+        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server... --filter @seams-internal/wallet-console-server...
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
           name: backend-build-staging-testnet
       - name: Check Gateway build entry
-        run: test -s .release-artifacts/gateway/payload/d1RouterApiWorker.js
+        run: test -s .release-artifacts/gateway/payload/d1GatewayWorker.js
       - name: Deploy Gateway
         run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component gateway
       - name: Run backend smoke tests

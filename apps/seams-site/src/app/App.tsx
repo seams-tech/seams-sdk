@@ -1,17 +1,6 @@
 import React from 'react';
-import { useTheme } from '@seams/sdk/react';
+import { useTheme } from '@seams/wallet/react';
 
-import { Home2Page, HomePage } from '@/pages/home2/page';
-import { WalletPage } from '@/pages/wallet/page';
-import { EcommercePage } from '@/pages/ecommerce/page';
-import { PricingPage } from '@/pages/pricing/page';
-import { CompanyPage } from '@/pages/company/page';
-import { ContactPage } from '@/pages/contact/page';
-import { DashboardPage } from '@/pages/dashboard/page';
-import { DashboardLoginPage } from '@/pages/dashboard/login/page';
-import { IntendedBehaviourE2EPage } from '@/pages/intended-e2e/page';
-import { NearLoginPage } from '@/pages/near-login/page';
-import { NotFoundPage } from '@/pages/not-found/page';
 import { ToasterThemed } from '@/components/ToasterThemed';
 import { useSiteTheme } from '@/shared/hooks/useSiteTheme';
 import { useBodyLoginStateBridge } from '@/shared/hooks/useBodyLoginStateBridge';
@@ -24,6 +13,39 @@ import {
   FrontendSdkProvider,
   useFrontendRuntime,
 } from '@/context/frontendRuntime';
+
+const HomePage = React.lazy(() =>
+  import('@/pages/home2/page').then((module) => ({ default: module.HomePage })),
+);
+const Home2Page = React.lazy(() =>
+  import('@/pages/home2/page').then((module) => ({ default: module.Home2Page })),
+);
+const WalletPage = React.lazy(() =>
+  import('@/pages/wallet/page').then((module) => ({ default: module.WalletPage })),
+);
+const EcommercePage = React.lazy(() =>
+  import('@/pages/ecommerce/page').then((module) => ({ default: module.EcommercePage })),
+);
+const PricingPage = React.lazy(() =>
+  import('@/pages/pricing/page').then((module) => ({ default: module.PricingPage })),
+);
+const CompanyPage = React.lazy(() =>
+  import('@/pages/company/page').then((module) => ({ default: module.CompanyPage })),
+);
+const ContactPage = React.lazy(() =>
+  import('@/pages/contact/page').then((module) => ({ default: module.ContactPage })),
+);
+const IntendedBehaviourE2EPage = React.lazy(() =>
+  import('@/pages/intended-e2e/page').then((module) => ({
+    default: module.IntendedBehaviourE2EPage,
+  })),
+);
+const NearLoginPage = React.lazy(() =>
+  import('@/pages/near-login/page').then((module) => ({ default: module.NearLoginPage })),
+);
+const NotFoundPage = React.lazy(() =>
+  import('@/pages/not-found/page').then((module) => ({ default: module.NotFoundPage })),
+);
 
 type ThemeTokens = ReturnType<typeof useTheme>['tokens'];
 
@@ -117,37 +139,23 @@ const AppRuntimeBoundary: React.FC = () => {
         return <CompanyPage />;
       case '/contact':
         return <ContactPage />;
-      case '/dashboard/login':
-        return <DashboardLoginPage />;
       case '/__intended-e2e':
         return FRONTEND_CONFIG.enableIntendedE2E ? <IntendedBehaviourE2EPage /> : <NotFoundPage />;
       default:
-        if (
-          pathname === '/dashboard' ||
-          pathname.startsWith('/dashboard/') ||
-          pathname.startsWith('/platform/')
-        ) {
-          return <DashboardPage pathname={pathname} />;
-        }
         return <NotFoundPage />;
     }
   }, [pathname]);
 
   if (pathname === '/near-login') {
     return (
-      <>
+      <React.Suspense fallback={null}>
         <NearLoginPage />
         <ToasterThemed />
-      </>
+      </React.Suspense>
     );
   }
 
-  const dashboardRoute =
-    pathname === '/dashboard/login' ||
-    pathname === '/dashboard' ||
-    pathname.startsWith('/dashboard/') ||
-    pathname.startsWith('/platform/');
-  const sdkNetwork = dashboardRoute ? runtime.selectedNetwork : 'testnet';
+  const sdkNetwork = 'testnet';
 
   return (
     <FrontendSdkProvider
@@ -157,7 +165,7 @@ const AppRuntimeBoundary: React.FC = () => {
       theme={{ theme, tokens: SITE_THEME_TOKEN_OVERRIDES }}
     >
       <DocumentThemeTokenBridge />
-      {page}
+      <React.Suspense fallback={null}>{page}</React.Suspense>
       <VitepressStateSync />
       <ToasterThemed />
     </FrontendSdkProvider>

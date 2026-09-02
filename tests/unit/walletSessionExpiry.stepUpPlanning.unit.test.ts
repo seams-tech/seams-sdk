@@ -1,9 +1,6 @@
 import { expect, test } from '@playwright/test';
-import {
-  buildMpcMaterialActivationRefFixture,
-  buildWalletAuthAuthorityRefFixture,
-} from './helpers/ecdsaMaterialRef.fixtures';
-import { activeEvmFamilyWalletSessionAuthorizationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { canonicalEcdsaAvailableLane } from './helpers/availableSigningLanes.fixtures';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -89,10 +86,18 @@ const ECDSA_MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
   'refactor-92-surface',
   String(WALLET_ID),
 );
-const ECDSA_AUTHORIZATION = activeEvmFamilyWalletSessionAuthorizationFixture({
-  walletId: WALLET_ID,
-  authority: buildWalletAuthAuthorityRefFixture({ walletId: String(WALLET_ID) }),
-});
+const ECDSA_CHAIN_TARGET = {
+  kind: 'evm' as const,
+  namespace: 'eip155' as const,
+  chainId: 5042002,
+  networkSlug: 'arc-testnet',
+};
+const ECDSA_AUTHORIZATION = canonicalEcdsaAvailableLane({
+  walletId: String(WALLET_ID),
+  chainTarget: ECDSA_CHAIN_TARGET,
+  thresholdOwnerAddress: `0x${'12'.repeat(20)}`,
+  authMethod: 'passkey',
+}).authorization;
 
 const TEMPO_PASSKEY_LANE = buildTempoTransactionSigningLane({
   key: ECDSA_KEY,
@@ -119,10 +124,7 @@ const EVM_PASSKEY_LANE = buildEvmTransactionSigningLane({
   walletId: WALLET_ID,
   auth: PASSKEY_AUTH,
   chainTarget: {
-    kind: 'evm',
-    namespace: 'eip155',
-    chainId: 5042002,
-    networkSlug: 'arc-testnet',
+    ...ECDSA_CHAIN_TARGET,
   },
   materialActivation: ECDSA_MATERIAL_ACTIVATION,
   authorization: ECDSA_AUTHORIZATION,
@@ -134,10 +136,7 @@ const EVM_EMAIL_OTP_LANE = buildEvmTransactionSigningLane({
   walletId: WALLET_ID,
   auth: EMAIL_OTP_AUTH,
   chainTarget: {
-    kind: 'evm',
-    namespace: 'eip155',
-    chainId: 5042002,
-    networkSlug: 'arc-testnet',
+    ...ECDSA_CHAIN_TARGET,
   },
   materialActivation: ECDSA_MATERIAL_ACTIVATION,
   authorization: ECDSA_AUTHORIZATION,

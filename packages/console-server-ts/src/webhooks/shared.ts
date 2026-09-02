@@ -1,9 +1,6 @@
-import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
+import { secureRandomBase36, secureRandomBase64Url } from '../boundary';
 import type { WebhookDispatchRequest, WebhookDispatchResult } from './service';
-import {
-  normalizeConsoleWebhookEventCategory,
-  type ConsoleWebhookEventCategory,
-} from '@seams-internal/console-shared/webhookEventCategories';
+import type { WebhookEventCategoryValidation } from './types';
 
 export const DELIVERY_RESPONSE_BODY_MAX_LEN = 2_048;
 const WEBHOOK_DISPATCH_TIMEOUT_MS = 10_000;
@@ -24,22 +21,42 @@ export function truncateResponseBody(input: string | undefined): string | null {
   return input.slice(0, DELIVERY_RESPONSE_BODY_MAX_LEN);
 }
 
+const WEBHOOK_SIGNING_SECRET_BYTES = 32;
+export const WEBHOOK_SIGNING_SECRET_PREFIX = 'whsec_';
+
+/**
+ * `whsec_` is a fixed prefix, so a head-slice preview is the same string for
+ * every endpoint. Show the tail instead — that is the part that identifies
+ * which secret a customer is holding.
+ */
 export function makeSecretPreview(secret: string): string {
-  return `${secret.slice(0, 10)}...`;
+  return `${WEBHOOK_SIGNING_SECRET_PREFIX}...${secret.slice(-4)}`;
 }
 
-export function makeSigningSecret(now: Date): string {
-  return `whsec_${makeId('secret', now)}`;
+/**
+ * The signing secret is an HMAC key an attacker can grind offline against any
+ * captured delivery, so it must be full-entropy random. It deliberately does
+ * NOT embed a timestamp: `createdAt` is public on the endpoint, so any encoded
+ * clock is known plaintext that shrinks the search space.
+ */
+export function makeSigningSecret(): string {
+  return `${WEBHOOK_SIGNING_SECRET_PREFIX}${secureRandomBase64Url(
+    WEBHOOK_SIGNING_SECRET_BYTES,
+    'webhook signing secret',
+  )}`;
 }
 
-export function normalizeEventCategory(eventType: string): ConsoleWebhookEventCategory | null {
+export function normalizeEventCategory(
+  eventType: string,
+  categoryValidation: WebhookEventCategoryValidation,
+): string | null {
   const value = String(eventType || '')
     .trim()
     .toLowerCase();
   if (!value) return null;
   const idx = value.indexOf('.');
   const category = idx === -1 ? value : value.slice(0, idx);
-  return normalizeConsoleWebhookEventCategory(category);
+  return categoryValidation.normalizeCategory(category);
 }
 
 export async function signPayload(secret: string, message: string): Promise<string> {

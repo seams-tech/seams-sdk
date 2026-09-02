@@ -6,7 +6,7 @@ import {
   type HostedAuthMenuExternalAuthRequest,
   type HostedAuthMenuMode,
   type HostedAuthMenuOutcome,
-} from '@seams/sdk/react';
+} from '@seams/wallet/react';
 import React from 'react';
 import { toast } from 'sonner';
 
@@ -14,6 +14,7 @@ import './PasskeyLoginMenu.css';
 import { FRONTEND_CONFIG } from '@/config';
 import { showCopiedDemoEmailOtpToast } from './demoEmailOtpToast';
 import {
+  cancelGoogleIdTokenRequest,
   ensureGoogleIdentityScriptLoaded,
   fetchGoogleAuthOptions,
   requestGoogleIdToken,
@@ -42,16 +43,6 @@ type GoogleSsoReadiness =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function recentUnlocksContainExistingAccount(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  return (
-    (Array.isArray(value.walletIds) && value.walletIds.length > 0) ||
-    (Array.isArray(value.accountIds) && value.accountIds.length > 0) ||
-    (Array.isArray(value.accounts) && value.accounts.length > 0) ||
-    isRecord(value.lastUsedAccount)
-  );
 }
 
 function normalizeBaseUrl(input: unknown): string {
@@ -162,11 +153,17 @@ function handleHostedAuthMenuOutcome(
       console.error('[SeamsAuthMenu]', new Error(outcomeMessage(outcome)));
       toast.error(outcomeMessage(outcome), { id: 'login' });
       return;
-    default: {
-      const exhaustive: never = outcome;
-      throw new Error(`Unknown hosted auth-menu outcome: ${JSON.stringify(exhaustive)}`);
-    }
+    default:
+      throw new Error(`Unknown hosted auth-menu outcome: ${JSON.stringify(outcome)}`);
   }
+}
+
+function handleHostedAuthMenuOutcomeAndCancelGoogleRequest(
+  refreshLoginState: (walletId?: string) => Promise<void>,
+  outcome: HostedAuthMenuOutcome,
+): void {
+  cancelGoogleIdTokenRequest();
+  handleHostedAuthMenuOutcome(outcome, refreshLoginState);
 }
 
 function providerUnavailableEvidence(message: string): HostedAuthMenuExternalAuthEvidence {
@@ -185,16 +182,30 @@ function showHostedDemoEmailOtp(delivery: { otpCode: string }): void {
   });
 }
 
+function registerGoogleIdTokenRequestCancellation(): () => void {
+  return cancelGoogleIdTokenRequest;
+}
+
+function syncAuthMenuContainerLock(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  lockState: 'idle' | 'cleaning_up',
+): void {
+  const container = containerRef.current;
+  if (container) container.inert = lockState === 'cleaning_up';
+}
+
 export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
   const authMenuContainerRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(subscribeToHostedAuthMenuErrors.bind(null, authMenuContainerRef), []);
+  React.useEffect(registerGoogleIdTokenRequestCancellation, []);
   const relayerBaseUrl = React.useMemo(
     () => normalizeBaseUrl(FRONTEND_CONFIG.relayerUrl || FRONTEND_CONFIG.consoleBaseUrl),
     [],
   );
-  const { seams, refreshLoginState } = useSeams();
-  const [existingAccountDetected, setExistingAccountDetected] = React.useState<boolean | null>(
-    props.defaultModeWhenNoDetectedAccount === undefined ? true : null,
+  const { refreshLoginState, walletLockState } = useSeams();
+  React.useEffect(
+    syncAuthMenuContainerLock.bind(null, authMenuContainerRef, walletLockState.kind),
+    [walletLockState.kind],
   );
   const [googleSsoReadiness, setGoogleSsoReadiness] = React.useState<GoogleSsoReadiness>({
     kind: 'checking',
@@ -214,27 +225,6 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
       cancelled = true;
     };
   }, [relayerBaseUrl]);
-
-  React.useEffect(() => {
-    if (props.defaultModeWhenNoDetectedAccount === undefined) {
-      setExistingAccountDetected(true);
-      return;
-    }
-    let cancelled = false;
-    setExistingAccountDetected(null);
-    seams.auth
-      .getRecentUnlocks()
-      .then((recentUnlocks: unknown) => {
-        if (!cancelled)
-          setExistingAccountDetected(recentUnlocksContainExistingAccount(recentUnlocks));
-      })
-      .catch(() => {
-        if (!cancelled) setExistingAccountDetected(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [props.defaultModeWhenNoDetectedAccount, seams]);
 
   const externalAuthBroker = React.useCallback(
     async (
@@ -258,32 +248,32 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
     [googleSsoReadiness],
   );
 
-  if (existingAccountDetected === null) {
-    return (
-      <div ref={authMenuContainerRef} className="passkey-login-container-root">
-        <div className="passkey-login-menu-placeholder" aria-hidden="true" />
-      </div>
-    );
-  }
-
-  const resolvedInitialMode = hostedModeFromReactMode(
-    existingAccountDetected ? undefined : props.defaultModeWhenNoDetectedAccount,
-  );
+  const resolvedInitialMode = hostedModeFromReactMode(props.defaultModeWhenNoDetectedAccount);
 
   return (
-    <div ref={authMenuContainerRef} className="passkey-login-container-root">
-      <HostedSeamsAuthMenu
-        initialMode={resolvedInitialMode}
-        registrationAccountInput="implicit_wallet"
-        showRegistrationInput={false}
-        copy={{
-          login: { subtitle: 'Continue with Passkey or Google SSO' },
-          register: { subtitle: 'Continue with Passkey or Google SSO' },
-        }}
-        externalAuthBroker={externalAuthBroker}
-        onDemoEmailOtp={showHostedDemoEmailOtp}
-        onOutcome={(outcome) => handleHostedAuthMenuOutcome(outcome, refreshLoginState)}
-      />
+    <div
+      ref={authMenuContainerRef}
+      className="passkey-login-container-root"
+      aria-busy={walletLockState.kind === 'cleaning_up'}
+      data-wallet-lock-state={walletLockState.kind}
+    >
+      {walletLockState.kind === 'idle' ? (
+        <HostedSeamsAuthMenu
+          initialMode={resolvedInitialMode}
+          registrationAccountInput="implicit_wallet"
+          showRegistrationInput={false}
+          copy={{
+            login: { subtitle: 'Continue with Passkey or Google SSO' },
+            register: { subtitle: 'Continue with Passkey or Google SSO' },
+          }}
+          externalAuthBroker={externalAuthBroker}
+          onDemoEmailOtp={showHostedDemoEmailOtp}
+          onOutcome={handleHostedAuthMenuOutcomeAndCancelGoogleRequest.bind(
+            null,
+            refreshLoginState,
+          )}
+        />
+      ) : null}
     </div>
   );
 }

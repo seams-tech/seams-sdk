@@ -16,9 +16,9 @@
     "ed25519LocalMaterialB64u": null,
     "ed25519LocalMaterialNonceB64u": null,
     "establishedCustody": {
-      "envelopeAadHashB64u": "KlK9WoM8XVPJSy1TOforj162tyhHk3zvfKTs8KGnfaY",
-      "envelopeBindingJson": "{\"walletId\":\"alice.testnet\",\"envelopeId\":\"wallet-custody-envelope-1\",\"factor\":{\"kind\":\"email_otp\",\"enrollmentId\":\"enrollment-1\",\"enrollmentSealKeyVersion\":\"seal-v1\",\"kekVersion\":\"email_otp_factor_kek_hkdf_sha256_v1\"},\"envelopeRevision\":1,\"binding\":{\"kind\":\"wallet_custody_seed_v1\",\"derivationScheme\":\"wallet_seed_parallel_hkdf_sha256_v1\"}}",
-      "envelopeCiphertextDigestB64u": "M_8O6ad7lqcq1FEB1vd2YCnCVR3XFGfgY1dcjlMs_8E",
+      "envelopeAadHashB64u": "zY0NkocZiiZ5WmCisZCohawta9V_jHBADy8Q84NfGOQ",
+      "envelopeBindingJson": "{\"walletId\":\"alice.testnet\",\"envelopeId\":\"wallet-custody-envelope-1\",\"factor\":{\"kind\":\"email_otp\",\"enrollmentId\":\"enrollment-1\",\"enrollmentSealKeyVersion\":\"seal-v1\",\"kekVersion\":\"email_otp_factor_kek_hkdf_sha256_v1\"},\"envelopeRevision\":1,\"binding\":{\"kind\":\"wallet_custody_seed_v1\",\"derivationScheme\":\"wallet_seed_parallel_hkdf_sha256_v1\"},\"ownership\":{\"methodBound\":{\"walletAuthMethodId\":\"wallet-auth-method:wire-fixture\"}}}",
+      "envelopeCiphertextDigestB64u": "YwBM0mZWOPS7mwApgb2wOAIzZezyWO1FcHYva_xVboE",
       "envelopeId": "wallet-custody-envelope-1",
       "envelopeNonceB64u": "CgoKCgoKCgoKCgoK",
       "recoveryEntryAadHashB64u": "SjLxTyalDwf03C1DWPEiNp-RuGdcX7WcRh7NAUjjgHw",
@@ -86,7 +86,7 @@
           "recoveryKeyId": "wallet-rkid-v1-5n--XHndLnNAxLqfMu5YnMdo82da0QN-b7a85isUH3U"
         }
       ],
-      "sealedCustodySecretB64u": "lZB5gZ9l6lVE2iHJlK0zheA95tmlXwtv89zEX88hY9HSGWHpGS6htNaOt1lU2qY3"
+      "sealedCustodySecretB64u": "lZB5gZ9l6lVE2iHJlK0zheA95tmlXwtv89zEX88hY9HVjz0hQVBqRQln_5dy_Y63"
     },
     "keyManifestDigestB64u": "UWh4QLklmBymCOJEmEC0RyMGhmaqohTdITzNPPRaGpM",
     "keySet": "evm_family_ecdsa_v1",
@@ -148,6 +148,7 @@
     ],
     "rpId": "example.localhost",
     "seedB64u": "ExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExM",
+    "walletAuthMethodId": "wallet-auth-method:wire-fixture",
     "walletId": "alice.testnet"
   },
   "joinCommitPayload": {
@@ -165,8 +166,8 @@
     "walletId": "alice.testnet"
   },
   "joinCustody": {
-    "aadHashB64u": "KlK9WoM8XVPJSy1TOforj162tyhHk3zvfKTs8KGnfaY",
-    "ciphertextDigestB64u": "M_8O6ad7lqcq1FEB1vd2YCnCVR3XFGfgY1dcjlMs_8E",
+    "aadHashB64u": "zY0NkocZiiZ5WmCisZCohawta9V_jHBADy8Q84NfGOQ",
+    "ciphertextDigestB64u": "YwBM0mZWOPS7mwApgb2wOAIzZezyWO1FcHYva_xVboE",
     "envelopeBinding": {
       "binding": {
         "derivationScheme": "wallet_seed_parallel_hkdf_sha256_v1",
@@ -180,10 +181,15 @@
         "kekVersion": "email_otp_factor_kek_hkdf_sha256_v1",
         "kind": "email_otp"
       },
+      "ownership": {
+        "methodBound": {
+          "walletAuthMethodId": "wallet-auth-method:wire-fixture"
+        }
+      },
       "walletId": "alice.testnet"
     },
     "nonceB64u": "CgoKCgoKCgoKCgoK",
-    "sealedCustodySecretB64u": "lZB5gZ9l6lVE2iHJlK0zheA95tmlXwtv89zEX88hY9HSGWHpGS6htNaOt1lU2qY3"
+    "sealedCustodySecretB64u": "lZB5gZ9l6lVE2iHJlK0zheA95tmlXwtv89zEX88hY9HVjz0hQVBqRQln_5dy_Y63"
   },
   "passkeyEnvelopeBinding": {
     "binding": {
@@ -197,6 +203,11 @@
       "kekVersion": "passkey_prf_kek_hkdf_sha256_v1",
       "kind": "passkey",
       "rpId": "example.localhost"
+    },
+    "ownership": {
+      "methodBound": {
+        "walletAuthMethodId": "wallet-auth-method:wire-fixture"
+      }
     },
     "walletId": "alice.testnet"
   },

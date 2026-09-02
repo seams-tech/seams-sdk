@@ -1,3 +1,5 @@
+import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
+import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import { test, expect } from '@playwright/test';
 import { createHmac } from 'node:crypto';
 import {
@@ -33,8 +35,8 @@ import {
   type ConsoleWebhookService,
   type OrganizationAdminPermission,
   type ProjectAccessAssignment,
-} from '@seams-internal/console-server/router/express-adaptor';
-import { createCloudflareConsoleRouter } from '@seams-internal/console-server/router/cloudflare-adaptor';
+} from '@seams-internal/wallet-console-server/router/express-adaptor';
+import { createCloudflareConsoleRouter } from '@seams-internal/wallet-console-server/router/cloudflare-adaptor';
 import {
   callCf,
   fetchJson,
@@ -45,7 +47,7 @@ import {
 import type {
   PostgresTenantStorageRoute,
   TenantStorageRouteResolver,
-} from '../../packages/console-server-ts/src/router/cloudflare/tenantStorageRoute';
+} from '../../packages/wallet-console-server-ts/src/router/cloudflare/tenantStorageRoute';
 import { parseOrgId, type OrgId } from '../../packages/shared-ts/src/utils/domainIds';
 
 function stripeSignatureHeader(secret: string, rawBody: string): string {
@@ -1062,7 +1064,9 @@ test.describe('console router (express)', () => {
   test('GET /console/onboarding/telemetry requires admin or ops role', async () => {
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
-      apiKeys: createInMemoryConsoleApiKeyService(),
+      apiKeys: createInMemoryConsoleApiKeyService({
+        scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+      }),
       billing: createInMemoryConsoleBillingService(),
       organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
@@ -1089,7 +1093,9 @@ test.describe('console router (express)', () => {
   test('GET /console/onboarding/telemetry validates windowMinutes query', async () => {
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
-      apiKeys: createInMemoryConsoleApiKeyService(),
+      apiKeys: createInMemoryConsoleApiKeyService({
+        scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+      }),
       billing: createInMemoryConsoleBillingService(),
       organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
@@ -1121,6 +1127,7 @@ test.describe('console router (express)', () => {
     const approvals = createInMemoryConsoleApprovalService();
     const billing = createInMemoryConsoleBillingService();
     const webhooks = createInMemoryConsoleWebhookService({
+      categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       dispatcher: {
         async dispatch() {
           return {
@@ -1135,7 +1142,9 @@ test.describe('console router (express)', () => {
     const enterpriseIsolation = createInMemoryConsoleEnterpriseIsolationService();
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
-      apiKeys: createInMemoryConsoleApiKeyService(),
+      apiKeys: createInMemoryConsoleApiKeyService({
+        scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+      }),
       billing,
       organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
@@ -1160,7 +1169,7 @@ test.describe('console router (express)', () => {
       trigger: 'SLA_BREACH',
       reason: 'SLA breach',
     });
-    const endpoint = await webhooks.createEndpoint(serviceCtx, {
+    const { endpoint } = await webhooks.createEndpoint(serviceCtx, {
       url: 'https://example.com/ops-cockpit-webhook',
       eventCategories: ['billing'],
     });
@@ -1201,7 +1210,9 @@ test.describe('console router (express)', () => {
     const actorUserId = 'user-ops-cockpit-summary-role-express';
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
-      apiKeys: createInMemoryConsoleApiKeyService(),
+      apiKeys: createInMemoryConsoleApiKeyService({
+        scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+      }),
       billing: createInMemoryConsoleBillingService(),
       organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
@@ -1235,7 +1246,9 @@ test.describe('console router (express)', () => {
       ),
       onboarding: createInMemoryConsoleOnboardingService({
         orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
-        apiKeys: createInMemoryConsoleApiKeyService(),
+        apiKeys: createInMemoryConsoleApiKeyService({
+          scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+        }),
         billing: createInMemoryConsoleBillingService(),
         organizationAccess: createInMemoryConsoleOrganizationAccessService(),
       }),
@@ -1254,7 +1267,9 @@ test.describe('console router (express)', () => {
 
   test('onboarding organization and project steps are idempotent and auditable', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const billing = createInMemoryConsoleBillingService();
     const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
@@ -1351,7 +1366,9 @@ test.describe('console router (express)', () => {
 
   test('onboarding organization step configures org profile and is idempotent', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv,
@@ -1407,7 +1424,9 @@ test.describe('console router (express)', () => {
 
   test('onboarding project step creates default development environment without billing', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const billing = createInMemoryConsoleBillingService();
     const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const onboarding = createInMemoryConsoleOnboardingService({
@@ -2371,6 +2390,7 @@ test.describe('console router (express)', () => {
   test('approval queue mutations emit approval lifecycle webhook events when webhook endpoint is configured', async () => {
     const approvals = createInMemoryConsoleApprovalService();
     const webhooks = createInMemoryConsoleWebhookService({
+      categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       dispatcher: {
         dispatch: async () => ({
           ok: true,
@@ -3199,7 +3219,9 @@ test.describe('console router (express)', () => {
   });
 
   test('new console endpoint mutations enforce role gates', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const auditExports = createInMemoryConsoleAuditExportsService();
     const billing = createInMemoryConsoleBillingService();
     const enterpriseIsolation = createInMemoryConsoleEnterpriseIsolationService();
@@ -4640,7 +4662,9 @@ test.describe('console router (express)', () => {
   });
 
   test('API key lifecycle works and secrets are reveal-once on create/rotate', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const environmentId = 'default-project:prod';
     await seedOrgProjectEnvironment(orgProjectEnv, {
@@ -4723,7 +4747,9 @@ test.describe('console router (express)', () => {
   });
 
   test('API key create validates environment scope against caller org', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(
@@ -4754,7 +4780,9 @@ test.describe('console router (express)', () => {
   });
 
   test('API key create rejects non-future expiresAt timestamp', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(
@@ -4787,7 +4815,9 @@ test.describe('console router (express)', () => {
 
   test('API key mutation routes require project editor access', async () => {
     const orgId = 'org-api-key-rbac';
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({
+      scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+    });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const created = await apiKeys.createApiKey(
       { orgId, actorUserId: 'seed-admin' },
@@ -4844,6 +4874,7 @@ test.describe('console router (express)', () => {
   test('webhook endpoint CRUD, deliveries, and replay flow works', async () => {
     let dispatchCalls = 0;
     const webhooks = createInMemoryConsoleWebhookService({
+      categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       dispatcher: {
         dispatch: async () => {
           dispatchCalls += 1;
@@ -5075,6 +5106,7 @@ test.describe('console router (express)', () => {
   test('webhook endpoint create, update, delete, and replay append audit rows', async () => {
     let dispatchCalls = 0;
     const webhooks = createInMemoryConsoleWebhookService({
+      categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       dispatcher: {
         dispatch: async () => {
           dispatchCalls += 1;
@@ -5261,6 +5293,7 @@ test.describe('console router (express)', () => {
       event: Record<string, unknown>;
     }> = [];
     const webhooks = createInMemoryConsoleWebhookService({
+      categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       observabilityIngestion: makeObservabilityIngestionCollector(ingested),
       endpointDegradedThreshold: 2,
       dispatcher: {
@@ -5331,7 +5364,9 @@ test.describe('console router (express)', () => {
   });
 
   test('webhook mutations require console config mutation role', async () => {
-    const webhooks = createInMemoryConsoleWebhookService();
+    const webhooks = createInMemoryConsoleWebhookService({
+      categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
+    });
     const adminRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       webhooks,
@@ -5432,7 +5467,9 @@ test.describe('console router (express)', () => {
   test('webhook list endpoints reject malformed cursor', async () => {
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
-      webhooks: createInMemoryConsoleWebhookService(),
+      webhooks: createInMemoryConsoleWebhookService({
+        categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
+      }),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -5719,9 +5756,8 @@ test.describe('console router (express)', () => {
       idempotencyKey: 'platform-lookup-credit-express',
     });
     await billing.recordUsageEvent(targetCtx, {
-      walletId: 'wallet-platform-express',
-      action: 'transfer',
-      succeeded: true,
+      resourceId: 'wallet-platform-express',
+      shouldCount: true,
       occurredAt: '2026-02-15T00:00:00.000Z',
       sourceEventId: 'usage-platform-express',
     });
@@ -6116,6 +6152,7 @@ test.describe('console router (express)', () => {
       },
     );
     const webhooks = createInMemoryConsoleWebhookService({
+      categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       dispatcher: {
         dispatch: async () => ({
           ok: true,
@@ -6124,7 +6161,7 @@ test.describe('console router (express)', () => {
         }),
       },
     });
-    const endpoint = await webhooks.createEndpoint(
+    const { endpoint } = await webhooks.createEndpoint(
       { orgId: 'org-1', actorUserId: 'user-1' },
       {
         url: 'https://example.com/billing-transition-express',
@@ -6482,27 +6519,24 @@ test.describe('console router (express)', () => {
       actorUserId: 'admin-activity-user',
     };
     await billing.recordUsageEvent(billingCtx, {
-      walletId: 'wallet_january_1',
-      action: 'transfer',
-      succeeded: true,
+      resourceId: 'wallet_january_1',
+      shouldCount: true,
       sourceEventId: 'usage_january_1',
       occurredAt: '2026-01-09T00:00:00.000Z',
     });
     await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-01' });
     current = new Date('2026-02-20T00:00:00.000Z');
     await billing.recordUsageEvent(billingCtx, {
-      walletId: 'wallet_february_1',
-      action: 'transfer',
-      succeeded: true,
+      resourceId: 'wallet_february_1',
+      shouldCount: true,
       sourceEventId: 'usage_february_1',
       occurredAt: '2026-02-11T00:00:00.000Z',
     });
     await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-02' });
     current = new Date('2026-03-20T00:00:00.000Z');
     await billing.recordUsageEvent(billingCtx, {
-      walletId: 'wallet_march_1',
-      action: 'transfer',
-      succeeded: true,
+      resourceId: 'wallet_march_1',
+      shouldCount: true,
       sourceEventId: 'usage_march_1',
       occurredAt: '2026-03-15T00:00:00.000Z',
     });
@@ -6625,7 +6659,7 @@ test.describe('console router (express)', () => {
       expect(e1.status).toBe(200);
       expect(getPath(e1.json, 'result', 'accepted')).toBe(true);
       expect(getPath(e1.json, 'result', 'counted')).toBe(true);
-      expect(Number(getPath(e1.json, 'result', 'monthlyActiveWallets') || 0)).toBe(1);
+      expect(Number(getPath(e1.json, 'result', 'monthlyActiveResources') || 0)).toBe(1);
       const monthUtc = String(getPath(e1.json, 'result', 'monthUtc') || '');
       expect(monthUtc).toMatch(/^\d{4}-\d{2}$/);
 
@@ -6640,7 +6674,7 @@ test.describe('console router (express)', () => {
         }),
       });
       expect(e2.status).toBe(200);
-      expect(Number(getPath(e2.json, 'result', 'monthlyActiveWallets') || 0)).toBe(1);
+      expect(Number(getPath(e2.json, 'result', 'monthlyActiveResources') || 0)).toBe(1);
 
       const e3 = await fetchJson(`${srv.baseUrl}/console/billing/usage/events`, {
         method: 'POST',
@@ -6653,7 +6687,7 @@ test.describe('console router (express)', () => {
         }),
       });
       expect(e3.status).toBe(200);
-      expect(Number(getPath(e3.json, 'result', 'monthlyActiveWallets') || 0)).toBe(2);
+      expect(Number(getPath(e3.json, 'result', 'monthlyActiveResources') || 0)).toBe(2);
 
       const excluded = await fetchJson(`${srv.baseUrl}/console/billing/usage/events`, {
         method: 'POST',
@@ -6667,7 +6701,7 @@ test.describe('console router (express)', () => {
       });
       expect(excluded.status).toBe(200);
       expect(getPath(excluded.json, 'result', 'counted')).toBe(false);
-      expect(Number(getPath(excluded.json, 'result', 'monthlyActiveWallets') || 0)).toBe(2);
+      expect(Number(getPath(excluded.json, 'result', 'monthlyActiveResources') || 0)).toBe(2);
 
       const duplicate = await fetchJson(`${srv.baseUrl}/console/billing/usage/events`, {
         method: 'POST',
@@ -6682,7 +6716,7 @@ test.describe('console router (express)', () => {
       expect(duplicate.status).toBe(200);
       expect(getPath(duplicate.json, 'result', 'accepted')).toBe(false);
       expect(getPath(duplicate.json, 'result', 'counted')).toBe(false);
-      expect(Number(getPath(duplicate.json, 'result', 'monthlyActiveWallets') || 0)).toBe(2);
+      expect(Number(getPath(duplicate.json, 'result', 'monthlyActiveResources') || 0)).toBe(2);
 
       const usage = await fetchJson(
         `${srv.baseUrl}/console/billing/usage/monthly-active-wallets?monthUtc=${encodeURIComponent(monthUtc)}`,
@@ -6691,9 +6725,9 @@ test.describe('console router (express)', () => {
         },
       );
       expect(usage.status).toBe(200);
-      expect(getPath(usage.json, 'usage', 'usageMetricVersion')).toBe('maw_v1');
+      expect(getPath(usage.json, 'usage', 'usageMetricVersion')).toBe('active_resource_v1');
       expect(getPath(usage.json, 'usage', 'monthUtc')).toBe(monthUtc);
-      expect(Number(getPath(usage.json, 'usage', 'monthlyActiveWallets') || 0)).toBe(2);
+      expect(Number(getPath(usage.json, 'usage', 'monthlyActiveResources') || 0)).toBe(2);
     } finally {
       await srv.close();
     }
@@ -6865,7 +6899,7 @@ test.describe('console router (express)', () => {
       expect(lineItems.status).toBe(200);
       const items = Array.isArray(lineItems.json?.lineItems) ? lineItems.json?.lineItems : [];
       expect(items.length).toBe(1);
-      expect(JSON.stringify(items)).toContain('"itemType":"MAW_USAGE_DEBIT"');
+      expect(JSON.stringify(items)).toContain('"itemType":"ACTIVE_RESOURCE_USAGE_DEBIT"');
     } finally {
       await srv.close();
     }
@@ -6923,7 +6957,7 @@ test.describe('console router (express)', () => {
       expect(getPath(invoiceEvent, 'metadata', 'invoiceId')).toBe(invoiceId);
       expect(getPath(invoiceEvent, 'metadata', 'periodMonthUtc')).toBe('2026-03');
       expect(getPath(invoiceEvent, 'metadata', 'invoiceDocumentType')).toBe('USAGE_STATEMENT');
-      expect(getPath(invoiceEvent, 'metadata', 'monthlyActiveWallets')).toBe(1);
+      expect(getPath(invoiceEvent, 'metadata', 'monthlyActiveResources')).toBe(1);
       expect(getPath(invoiceEvent, 'metadata', 'lineItemCount')).toBe(
         Array.isArray(getPath(generated.json, 'generation', 'lineItems'))
           ? (getPath(generated.json, 'generation', 'lineItems') as any[]).length
@@ -6940,6 +6974,7 @@ test.describe('console router (express)', () => {
   test('billing document generation emits webhook events when webhook endpoint is configured', async () => {
     const billing = createInMemoryConsoleBillingService();
     const webhooks = createInMemoryConsoleWebhookService({
+      categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       dispatcher: {
         dispatch: async () => ({
           ok: true,

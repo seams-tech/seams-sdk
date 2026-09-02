@@ -49,4 +49,4 @@ export function isIpAllowlistMatch(input: {
   }
   return false;
 }
-import { normalizeSourceIp } from '@seams/sdk-server/cloud-host';
+import { normalizeSourceIp } from '../boundary';

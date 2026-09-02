@@ -41,6 +41,9 @@ pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_LINKED_SIGNING_PRIVATE_REQUEST_P
 /// Private Router endpoint for one admitted Ed25519 Yao ceremony execution.
 pub const CLOUDFLARE_ROUTER_ED25519_YAO_EXECUTE_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/router/ed25519-yao/execute";
+/// Private Router endpoint for source-preserving linked-device registration.
+pub const CLOUDFLARE_ROUTER_ED25519_YAO_SOURCE_PRESERVING_EXECUTE_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/router/ed25519-yao/execute-source-preserving";
 /// Private Router endpoint for promoting a verified recovery result.
 pub const CLOUDFLARE_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/router/ed25519-yao/recovery/promote";
@@ -104,6 +107,9 @@ pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH: &st
 /// Private SigningWorker endpoint for one-time explicit-export share delivery.
 pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH: &str =
     "/router-ab/signing-worker/ecdsa-derivation/export-share";
+/// Private SigningWorker endpoint for one active additive-lane export share.
+pub const CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_EXPORT_SHARE_PATH: &str =
+    "/router-ab/signing-worker/ecdsa-derivation/linked-device/export-share";
 /// Private SigningWorker endpoint for validating active ECDSA export material without releasing a share.
 pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PREFLIGHT_PATH: &str =
     "/router-ab/signing-worker/ecdsa-derivation/export-preflight";

@@ -3,13 +3,13 @@ import { isPlainObject } from '@shared/utils/validation';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
-} from '../../packages/sdk-server-ts/src/core/types';
+} from '../../packages/wallet-server/src/core/types';
 import {
   CloudflareVersionedJsonRecordStoreError,
   createCloudflareDurableObjectVersionedJsonRecordStore,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/versionedJsonRecordStore';
-import type { VersionedJsonObject } from '../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
-import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
+} from '../../packages/wallet-server/src/router/cloudflare/durableObjects/versionedJsonRecordStore';
+import type { VersionedJsonObject } from '../../packages/wallet-server/src/router/framework/versionedJsonRecordStore';
+import { ThresholdStoreDurableObject } from '../../packages/wallet-server/src/router/cloudflare/durableObjects/thresholdStore';
 
 type CeremonyRecord = {
   readonly kind: 'test_ceremony_v1';

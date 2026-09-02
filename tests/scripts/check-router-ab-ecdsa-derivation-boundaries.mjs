@@ -46,6 +46,8 @@ const allowedEcdsaClientCeremonyWasmExports = new Set([
   'routerabecdsaclientceremonyv1_explicit_export_request_digest_b64u',
   'routerabecdsaclientceremonyv1_new',
   'routerabecdsaclientceremonyv1_finalize_explicit_export',
+  'routerabecdsaclientceremonyv1_fromRecipientPrivateKey',
+  'routerabecdsaclientceremonyv1_open_committed_role_envelopes',
   'routerabecdsaclientceremonyv1_public_key',
   'routerabecdsaclientceremonyv1_registration_binding',
   'routerabecdsaclientceremonyv1_verify_encrypted_proof_bundles',
@@ -66,6 +68,29 @@ const allowedEcdsaRoleLocalPresignWasmExports = new Set([
   'ecdsarolelocalpresignsessionv1_compute_signature_share',
   'ecdsarolelocalpresignsessionv1_stage',
   'ecdsarolelocalpresignsessionv1_start_presign',
+]);
+
+const allowedEcdsaLinkedHolderWasmExports = new Set([
+  '__wbg_ecdsalinkedholdermaterialv1_free',
+  'ecdsalinkedholdermaterialv1_build_ordinary_export_request',
+  'ecdsalinkedholdermaterialv1_finalize_ordinary_export',
+  'ecdsalinkedholdermaterialv1_new',
+  'ecdsalinkedholdermaterialv1_ordinary_export_request_digest_b64u',
+  'ecdsalinkedholdermaterialv1_start_presign',
+]);
+
+const allowedEcdsaOrdinaryClientMaterialWasmExports = new Set([
+  '__wbg_wasmordinaryecdsaclientmaterialv1_free',
+  'wasmordinaryecdsaclientmaterialv1_activation_id',
+  'wasmordinaryecdsaclientmaterialv1_destroy',
+  'wasmordinaryecdsaclientmaterialv1_take_client_material',
+  'wasmordinaryecdsaclientmaterialv1_transcript',
+]);
+
+const allowedLinkedDeviceSourceContributionWasmExports = new Set([
+  '__wbg_linkeddeviceecdsasourcecontributionsessionv1_free',
+  'linkeddeviceecdsasourcecontributionsessionv1_new',
+  'linkeddeviceecdsasourcecontributionsessionv1_prepare',
 ]);
 
 const requiredEcdsaClientCeremonyTypeMethods = [
@@ -146,7 +171,7 @@ function assertNoOffenders(label, offenders) {
 
 function checkPresignRefillScheduler() {
   const source = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1.ts',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1.ts',
   );
   const schedulerCallCount =
     source.match(/scheduleRouterAbEcdsaDerivationSigningRefill\(\{/g)?.length || 0;
@@ -168,8 +193,8 @@ function checkPresignRefillScheduler() {
 
 function checkNoRuntimeV1DerivationSurfaces() {
   const roots = [
-    'packages/sdk-web/src',
-    'packages/sdk-server-ts/src',
+    'packages/wallet/src',
+    'packages/wallet-server/src',
     'packages/shared-ts/src',
     'wasm/evm_crypto/src',
     'wasm/router_ab_ecdsa_client/src',
@@ -212,8 +237,8 @@ function checkNoRuntimeV1DerivationSurfaces() {
 
 function checkProductionBridgeDoesNotExposeRootMaterial() {
   const relativePaths = [
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge.ts',
+    'packages/wallet-server/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
+    'packages/wallet-server/src/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge.ts',
     'packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts',
   ];
   const forbiddenTokens = [
@@ -279,7 +304,7 @@ function checkEcdsaDerivationClientHasOneExplicitOwner() {
     'wasm/ecdsa_client_signer',
     'wasm/eth_signer',
     'wasm/hss_client_signer',
-    'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts',
+    'packages/wallet/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts',
   ]) {
     assert.equal(
       fs.existsSync(path.join(repoRoot, relativePath)),
@@ -289,8 +314,8 @@ function checkEcdsaDerivationClientHasOneExplicitOwner() {
   }
 
   const roots = [
-    'packages/sdk-web/src',
-    'packages/sdk-web/scripts',
+    'packages/wallet/src',
+    'packages/wallet/scripts',
     'wasm/evm_crypto',
     'wasm/router_ab_ecdsa_client',
     'wasm/router_ab_ecdsa_signing_worker',
@@ -353,7 +378,7 @@ function checkEcdsaDerivationClientHasOneExplicitOwner() {
 
 function checkRegistrationProofVerificationInitializesClientWasm() {
   const source = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts',
+    'packages/wallet/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts',
   );
   const verifyCase = source.indexOf(
     'case EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRegistrationClientProofs:',
@@ -380,8 +405,8 @@ function checkActiveSourceUsesCurrentVocabulary() {
     'crates/router-ab-ecdsa-derivation/src',
     'crates/signer-core/src',
     'packages/console-server-ts/src',
-    'packages/sdk-server-ts/src',
-    'packages/sdk-web/src',
+    'packages/wallet-server/src',
+    'packages/wallet/src',
     'packages/shared-ts/src',
     'wasm/evm_crypto/src',
     'wasm/router_ab_ecdsa_client/src',
@@ -450,7 +475,7 @@ const retiredVocabularyGuardPaths = new Set([
   'tests/scripts/check-key-export-boundaries.mjs',
   'tests/scripts/check-route-lifecycle-domain-boundaries.mjs',
   'tests/scripts/check-router-ab-ecdsa-derivation-boundaries.mjs',
-  'tests/scripts/check-router-ab-server-wallet-session-claim-boundaries.mjs',
+  'tests/scripts/check-router-ab-private-service-boundaries.mjs',
   'tools/ed25519-yao-generator/tests/lifecycle_vectors.rs',
 ]);
 
@@ -565,7 +590,7 @@ function checkRuntimeArtifactsAreNotSourceSurfaces() {
     'tests/test-results/trace.json',
     'tests/playwright-report/index.html',
     'tests/blob-report/report.json',
-    'packages/sdk-server-ts/.wrangler/tmp/worker.js',
+    'packages/wallet-server/.wrangler/tmp/worker.js',
     'wasm/router_ab_ecdsa_derivation_client/target/debug/deps/output.json',
   ]) {
     assert.equal(
@@ -575,7 +600,7 @@ function checkRuntimeArtifactsAreNotSourceSurfaces() {
     );
   }
   assert.equal(
-    isRuntimeArtifactPath('packages/sdk-web/src/core/signingEngine/session/public.ts'),
+    isRuntimeArtifactPath('packages/wallet/src/core/signingEngine/session/public.ts'),
     false,
     'tracked implementation source must remain in the terminology scan',
   );
@@ -652,7 +677,7 @@ function checkRepositorySurfacesUseCurrentVocabulary() {
 
 function checkNormalSigningHasOneRuntimeOwner() {
   const sourceRoots = [
-    path.join(repoRoot, 'packages/sdk-server-ts/src'),
+    path.join(repoRoot, 'packages/wallet-server/src'),
     path.join(repoRoot, 'packages/console-server-ts/src'),
     path.join(repoRoot, 'apps/web-server/src'),
   ];
@@ -685,9 +710,9 @@ function checkNormalSigningHasOneRuntimeOwner() {
   }
 
   const deletedGenericServicePaths = [
-    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
-    'packages/sdk-server-ts/src/core/ThresholdService/createThresholdSigningService.ts',
-    'packages/sdk-server-ts/src/core/ThresholdService/createCloudflareDurableObjectThresholdSigningService.ts',
+    'packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts',
+    'packages/wallet-server/src/core/ThresholdService/createThresholdSigningService.ts',
+    'packages/wallet-server/src/core/ThresholdService/createCloudflareDurableObjectThresholdSigningService.ts',
     'tests/helpers/thresholdServiceTestUtils.ts',
   ];
   for (const relativePath of deletedGenericServicePaths) {
@@ -717,7 +742,7 @@ function checkNormalSigningHasOneRuntimeOwner() {
   }
 
   const privateRoutes = readRepoFile(
-    'packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
+    'packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
   );
   assert.equal(
     privateRoutes.includes('getThresholdSigningService'),
@@ -840,7 +865,7 @@ function generatedTypeScriptFunctionExports(source) {
 
 function checkOpaqueEcdsaClientCeremonySourceBoundary() {
   const roots = [
-    'packages/sdk-web/src',
+    'packages/wallet/src',
     'packages/shared-ts/src',
     'wasm/router_ab_ecdsa_client/src',
   ];
@@ -868,7 +893,7 @@ function checkGeneratedEcdsaDerivationClientArtifactSurface() {
   for (const requiredPath of [wasmPath, generatedJsPath, generatedTypesPath]) {
     assert.ok(
       fs.existsSync(requiredPath),
-      `missing generated ECDSA derivation client artifact: ${path.relative(repoRoot, requiredPath)}; run pnpm -C packages/sdk-web build:wasm`,
+      `missing generated ECDSA derivation client artifact: ${path.relative(repoRoot, requiredPath)}; run pnpm -C packages/wallet build:wasm`,
     );
   }
 
@@ -896,6 +921,9 @@ function checkGeneratedEcdsaDerivationClientArtifactSurface() {
       !allowedEcdsaClientCeremonyWasmExports.has(entry.name) &&
       !allowedEcdsaLaneHolderWasmExports.has(entry.name) &&
       !allowedEcdsaRoleLocalPresignWasmExports.has(entry.name) &&
+      !allowedEcdsaLinkedHolderWasmExports.has(entry.name) &&
+      !allowedEcdsaOrdinaryClientMaterialWasmExports.has(entry.name) &&
+      !allowedLinkedDeviceSourceContributionWasmExports.has(entry.name) &&
       !isAllowedWasmBindgenRuntimeExport(entry.name)
     ) {
       unexpectedExports.push(`${entry.name}:${entry.kind}`);
@@ -924,6 +952,24 @@ function checkGeneratedEcdsaDerivationClientArtifactSurface() {
     );
   }
   for (const requiredExport of allowedEcdsaRoleLocalPresignWasmExports) {
+    assert.ok(
+      namedWasmExports.includes(requiredExport),
+      `generated ECDSA derivation client WASM is missing ${requiredExport}`,
+    );
+  }
+  for (const requiredExport of allowedEcdsaLinkedHolderWasmExports) {
+    assert.ok(
+      namedWasmExports.includes(requiredExport),
+      `generated ECDSA derivation client WASM is missing ${requiredExport}`,
+    );
+  }
+  for (const requiredExport of allowedEcdsaOrdinaryClientMaterialWasmExports) {
+    assert.ok(
+      namedWasmExports.includes(requiredExport),
+      `generated ECDSA derivation client WASM is missing ${requiredExport}`,
+    );
+  }
+  for (const requiredExport of allowedLinkedDeviceSourceContributionWasmExports) {
     assert.ok(
       namedWasmExports.includes(requiredExport),
       `generated ECDSA derivation client WASM is missing ${requiredExport}`,

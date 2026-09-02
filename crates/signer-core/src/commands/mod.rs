@@ -13,7 +13,6 @@ pub use ecdsa_bootstrap::{
     SignerCoreProducerV1,
 };
 
-
 #[cfg(feature = "ecdsa-role-local-client")]
 pub use ecdsa_bootstrap::{
     finalize_ecdsa_client_bootstrap_command_v1, prepare_ecdsa_client_bootstrap_command_v1,

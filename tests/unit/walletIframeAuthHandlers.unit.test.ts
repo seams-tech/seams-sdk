@@ -10,15 +10,17 @@ import { toAccountId } from '@/core/types/accountIds';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBindings';
 import {
-  activeWalletSessionToken,
+  activeHostedWalletSessionOperationCredential,
   clearHostedWalletSessions,
+  recordAdoptedWalletIframeParentOrigin,
   redeemHostedWalletSeamsSession,
 } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import type { WalletAuthenticationRestoreAuth } from '@/SeamsWeb/signingSurface/ports';
 
 const RELAY_URL = 'https://relay.example.test';
 const WALLET_ORIGIN = 'https://wallet.example.test';
-const HOST_WALLET_SESSION_TOKEN = 'wst_host-origin-token';
+const APP_ORIGIN = 'https://app.example.test';
+const HOST_WALLET_SESSION_TOKEN = `wsh_${'h'.repeat(43)}`;
 
 /**
  * Seeds the wallet host's own opaque Wallet Session the way a real hosted handoff does:
@@ -31,19 +33,22 @@ async function seedHostedWalletSession(): Promise<void> {
       JSON.stringify({
         ok: true,
         walletSessionId: 'wallet-session-1',
-        walletSessionToken: HOST_WALLET_SESSION_TOKEN,
-        curve: 'ecdsa',
+        operationCredential: {
+          kind: 'opaque_hosted_wallet_session_operation_credential_v1',
+          token: HOST_WALLET_SESSION_TOKEN,
+          walletSessionId: 'wallet-session-1',
+        },
         expiresAtMs: Date.now() + 60_000,
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   try {
+    recordAdoptedWalletIframeParentOrigin(APP_ORIGIN);
     await redeemHostedWalletSeamsSession(
       {
         exchangeCode: 'exchange-1',
         nonce: 'nonce-1',
-        curve: 'ecdsa',
-        appOrigin: 'https://app.example.test',
+        appOrigin: APP_ORIGIN,
         walletOrigin: WALLET_ORIGIN,
         relayUrl: RELAY_URL,
       },
@@ -169,7 +174,7 @@ test.describe('wallet iframe auth handlers', () => {
     });
   });
 
-  test('rejects a parent-supplied wallet session token on unlock', async () => {
+  test('rejects a parent-supplied Wallet Session credential on unlock', async () => {
     const posted: ChildToParentEnvelope[] = [];
     const unlockCalls: unknown[][] = [];
     const deps = createDeps({
@@ -183,35 +188,40 @@ test.describe('wallet iframe auth handlers', () => {
     });
     const handlers = createAuthWalletIframeHandlers(deps);
 
-    await expect(
-      handlers.PM_UNLOCK!({
-        type: 'PM_UNLOCK',
-        requestId: 'unlock-parent-bearer',
-        payload: {
-          kind: 'custom_options',
-          walletId: 'harbor-current',
-          options: {
-            kind: 'pm_unlock_options_v1',
-            signerSlot: { kind: 'default' },
-            signingSession: { kind: 'default' },
-            unlockSelection: { kind: 'default' },
-            ecdsaKeyFactsInventory: {
-              kind: 'value',
-              value: {
-                mode: 'opaque_wallet_session',
-                curve: 'ecdsa_secp256k1',
-                walletSessionToken: 'wst_parent-supplied-token',
+    const invalidRequest = {
+      type: 'PM_UNLOCK',
+      requestId: 'unlock-parent-bearer',
+      payload: {
+        kind: 'custom_options',
+        walletId: 'harbor-current',
+        options: {
+          kind: 'pm_unlock_options_v1',
+          signerSlot: { kind: 'default' },
+          signingSession: { kind: 'default' },
+          unlockSelection: { kind: 'default' },
+          ecdsaKeyFactsInventory: {
+            kind: 'value',
+            value: {
+              mode: 'wallet_session_operation_credential_v1',
+              operationCredential: {
+                kind: 'opaque_wallet_session_operation_credential_v1',
+                token: `wst_${'p'.repeat(43)}`,
+                walletSessionId: 'wallet-session-parent',
               },
             },
           },
         },
-      }),
-    ).rejects.toThrow('wallet iframe unlock requests must not carry walletSessionToken');
+      },
+    } as unknown as Extract<ParentToChildEnvelope, { type: 'PM_UNLOCK' }>;
+
+    await expect(handlers.PM_UNLOCK!(invalidRequest)).rejects.toThrow(
+      'wallet iframe unlock requests must not carry a Wallet Session bearer',
+    );
 
     expect(unlockCalls).toHaveLength(0);
   });
 
-  test('injects the host-origin wallet session token for opaque key-facts lookups', async () => {
+  test('injects the host-origin exact credential for Wallet Session key-facts lookups', async () => {
     const originalWindow = Reflect.get(globalThis, 'window');
     const posted: ChildToParentEnvelope[] = [];
     const unlockCalls: unknown[][] = [];
@@ -243,7 +253,7 @@ test.describe('wallet iframe auth handlers', () => {
             unlockSelection: { kind: 'default' },
             ecdsaKeyFactsInventory: {
               kind: 'value',
-              value: { mode: 'opaque_wallet_session', curve: 'ecdsa_secp256k1' },
+              value: { mode: 'wallet_session_operation_credential_v1' },
             },
           },
         },
@@ -254,9 +264,12 @@ test.describe('wallet iframe auth handlers', () => {
         'harbor-current',
         expect.objectContaining({
           ecdsaKeyFactsInventory: {
-            mode: 'opaque_wallet_session',
-            curve: 'ecdsa_secp256k1',
-            walletSessionToken: HOST_WALLET_SESSION_TOKEN,
+            mode: 'wallet_session_operation_credential_v1',
+            operationCredential: {
+              kind: 'opaque_hosted_wallet_session_operation_credential_v1',
+              token: HOST_WALLET_SESSION_TOKEN,
+              walletSessionId: 'wallet-session-1',
+            },
           },
         }),
       ]);
@@ -316,52 +329,21 @@ test.describe('wallet iframe auth handlers', () => {
 
     try {
       await seedHostedWalletSession();
-      expect(activeWalletSessionToken('ecdsa', RELAY_URL)).toBe(HOST_WALLET_SESSION_TOKEN);
+      expect(activeHostedWalletSessionOperationCredential(RELAY_URL)).toEqual({
+        kind: 'opaque_hosted_wallet_session_operation_credential_v1',
+        token: HOST_WALLET_SESSION_TOKEN,
+        walletSessionId: 'wallet-session-1',
+      });
 
       const handlers = createAuthWalletIframeHandlers(deps);
       await handlers.PM_LOCK!({ type: 'PM_LOCK', requestId: 'lock-hosted' });
 
-      expect(activeWalletSessionToken('ecdsa', RELAY_URL)).toBeUndefined();
+      expect(activeHostedWalletSessionOperationCredential(RELAY_URL)).toBeUndefined();
     } finally {
       clearHostedWalletSessions();
       if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
       else Reflect.set(globalThis, 'window', originalWindow);
     }
-  });
-
-  test('acknowledges host lock before linked-device cleanup completes', async () => {
-    let releaseCleanup!: () => void;
-    let cleanupCompleted = false;
-    const cleanup = new Promise<void>((resolve) => {
-      releaseCleanup = resolve;
-    });
-    const posted: ChildToParentEnvelope[] = [];
-    const deps = createDeps({
-      currentWalletId: 'harbor-current',
-      posted,
-      onGetWalletSession: (walletId) => loggedInWalletSession(walletId || 'anonymous'),
-      onLock: async () => {
-        await cleanup;
-        cleanupCompleted = true;
-      },
-    });
-    const handlers = createAuthWalletIframeHandlers(deps);
-
-    const handlerPromise = handlers.PM_LOCK!({
-      type: 'PM_LOCK',
-      requestId: 'lock-before-cleanup',
-    });
-    await expect.poll(() => posted.length).toBe(1);
-    expect(posted[0]).toMatchObject({
-      type: 'PM_RESULT',
-      requestId: 'lock-before-cleanup',
-      payload: { ok: true },
-    });
-    expect(cleanupCompleted).toBe(false);
-
-    releaseCleanup();
-    await handlerPromise;
-    await expect.poll(() => cleanupCompleted).toBe(true);
   });
 
   test('passes unscoped wallet-session reads through when host current wallet is cold', async () => {

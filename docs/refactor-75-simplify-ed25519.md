@@ -266,7 +266,7 @@ The restore boundary resolves either `storage_ref` or `inline_sealed_blob`.
 
 Validation:
 
-- [x] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C packages/wallet type-check`
 - [x] Focused source guard inventory test was not added; covered by the existing
       Router A/B source guards and focused classifier tests in Phase 3.
 
@@ -294,7 +294,7 @@ Validation:
 
 Validation:
 
-- [x] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C packages/wallet type-check`
 - [x] focused type fixtures for Ed25519 state branches
 
 ## Phase 3: Isolate Raw Persistence Optionals
@@ -322,7 +322,7 @@ Validation:
 
 Validation:
 
-- [x] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C packages/wallet type-check`
 - [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts --reporter=line`
 - [x] Refactor 74/Router A/B focused source guard coverage:
       `thresholdEd25519.nearSigningQueue.guard.unit.test.ts` and
@@ -367,7 +367,7 @@ Validation:
 
 Validation:
 
-- [x] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C packages/wallet type-check`
 - [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/warmSessionStore.transitions.unit.test.ts --reporter=line`
 
 ## Phase 5: Shrink Active Ready State
@@ -393,7 +393,7 @@ Validation:
 
 Validation:
 
-- [x] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C packages/wallet type-check`
 - [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEd25519.presignPool.unit.test.ts unit/routerAbEd25519.walletSessionState.unit.test.ts --reporter=line`
 - [x] Router A/B normal-signing SDK source guard
 
@@ -416,7 +416,7 @@ Validation:
 
 Validation:
 
-- [x] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C packages/wallet type-check`
 - [x] focused source guards
 - [x] `git diff --check`
 
@@ -441,7 +441,7 @@ Validation:
 Validation:
 
 - [x] `RUN_ROUTER_AB_BUDGET_EVIDENCE=1 pnpm -C tests exec playwright test --reporter=line e2e/routerAb.serverBudgetEvidence.walletIframe.test.ts`
-- [x] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C packages/wallet type-check`
 - [x] targeted Router A/B and Refactor 74 source guards
 
 ## Phase 8: ECDSA Worker Material Parity
@@ -509,7 +509,7 @@ sign-ready before the current worker proves the role-local material handle.
 
 Validation:
 
-- [x] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C packages/wallet type-check`
 - [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEcdsaDerivationNormalSigning.unit.test.ts unit/warmSessionStore.reconnect.unit.test.ts --reporter=line`
 - [x] focused ECDSA source guard
 - [x] Refactor 70 budget evidence harness still passes after ECDSA changes
@@ -663,40 +663,40 @@ Implementation rules:
 
 Inventory:
 
-- `packages/sdk-web/src/core/signingEngine/session/availability/readiness.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/readiness.ts`
   - `consumeRecordPolicyLane`
   - `resolveStatusAfterConsume`
   - `assertThresholdSigningSessionReady`
-- `packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budgetStatusReader.ts`
   - `readTrustedWalletSigningBudgetStatus`
   - `resolveWalletSigningBudgetStatusAuth`
   - `candidates[0]` fallback
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts`
   - persisted record display hints
   - `claim?.remainingUses ?? args.record.remainingUses`
   - `claim?.expiresAtMs ?? args.record.expiresAtMs`
-- `packages/sdk-web/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts`
   - persisted lane summaries and UI-only record policy display data
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/signNear.ts`
   - audit live-status checks that skip restore for runtime-ready lanes
-- `packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts`
+- `packages/wallet/src/SeamsWeb/walletIframe/shared/messages.ts`
   - shared activation message payload parsers
-- `packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts`
+- `packages/wallet/src/SeamsWeb/walletIframe/client/router.ts`
   - registration activation `READY` and `STARTED` handling
-- `packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/near.ts`
+- `packages/wallet/src/SeamsWeb/walletIframe/host/handlers/near.ts`
   - registration activation payload construction and parser use in tests
 
 Grep checklist:
 
 ```bash
 rg -n "basisStatus\\?\\.remainingUses \\?\\?|basisStatus\\?\\.expiresAtMs \\?\\?|trustedBudgetStatus\\?\\.remainingUses \\?\\?|trustedBudgetStatus\\?\\.expiresAtMs \\?\\?" \
-  packages/sdk-web/src/core/signingEngine/session/availability
+  packages/wallet/src/core/signingEngine/session/availability
 
 rg -n "fallbackAuth|recordDerivedAuth|candidates\\[0\\] \\|\\| null" \
-  packages/sdk-web/src/core/signingEngine/session/budget
+  packages/wallet/src/core/signingEngine/session/budget
 
 rg -n "event\\.payload\\?\\.|PM_REGISTRATION_ACTIVATION_READY|PM_REGISTRATION_ACTIVATION_STARTED" \
-  packages/sdk-web/src/SeamsWeb/walletIframe
+  packages/wallet/src/SeamsWeb/walletIframe
 ```
 
 Tests and guards:
@@ -953,7 +953,7 @@ Source guards:
 
 Validation:
 
-- [x] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C packages/wallet type-check`
 - [x] Focused unit tests for budget auth resolution, ECDSA material plan
       branches, and Ed25519 material status conversion.
 - [x] Router A/B normal-signing SDK source guard.

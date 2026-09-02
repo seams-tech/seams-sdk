@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { CloudflareD1WalletCustodyCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
-import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
+import { CloudflareD1WalletCustodyCommitStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import {
   buildWalletCustodyRegistrationRecords,
   commitWalletCustodyRegistration,
   type WalletCustodyCeremonyCommitPayload,
-} from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/walletCustodyRegistrationCommit';
+} from '../../packages/wallet-server/src/router/domains/passkeyCustody/walletCustodyRegistrationCommit';
 import type { WalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
@@ -22,6 +22,7 @@ import {
   WALLET_ID,
   rawPasskeyFactor,
   rawWalletCustodySeedBinding,
+  rawWalletRecoveryCodeLocators,
 } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 /**
@@ -71,6 +72,7 @@ function establishedCustody(overrides: Record<string, unknown> = {}) {
     envelopeAadHashB64u: ALT_DIGEST_B64U,
     envelopeCiphertextDigestB64u: CIPHERTEXT_DIGEST_B64U,
     recoveryManifestKekWraps: Array.from({ length: 10 }, (_, index) => recoveryWrap(index)),
+    recoveryCodeLocators: rawWalletRecoveryCodeLocators(),
     recoveryEntryNonceB64u: NONCE_12_B64U,
     recoveryEntryCiphertextB64u: CIPHERTEXT_B64U,
     recoveryEntryAadHashB64u: DIGEST_B64U,
@@ -85,6 +87,7 @@ function payload(
     walletId: WALLET_ID,
     keySet: 'evm_family_ecdsa_v1',
     keyManifestDigestB64u: DIGEST_B64U,
+    recoveryBackupAcknowledged: true,
     establishedCustody: establishedCustody(),
     clientRootPublicKey33B64u: DIGEST_B64U,
     ecdsaReadyStateBlobB64u: CIPHERTEXT_B64U,
@@ -283,9 +286,11 @@ function racingNearPayload(): WalletCustodyCeremonyCommitPayload {
     establishedCustody: establishedCustody({
       envelopeId: RACING_ENVELOPE_ID,
       envelopeBindingJson: envelopeBindingJson({ envelopeId: RACING_ENVELOPE_ID }),
-      recoveryManifestKekWraps: Array.from({ length: 10 }, (_, index) =>
-        racingRecoveryWrap(index),
-      ),
+      recoveryManifestKekWraps: Array.from({ length: 10 }, (_, index) => racingRecoveryWrap(index)),
+      recoveryCodeLocators: Array.from({ length: 10 }, (_, index) => ({
+        locatorB64u: `${String.fromCharCode(75 + index)}${DIGEST_B64U.slice(1)}`,
+        recoveryKeyId: `wallet-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'KLMNOPQRST'[index]}`,
+      })),
     }),
   });
 }
@@ -337,9 +342,7 @@ test('a second establishing ceremony is told custody exists, and writes nothing'
     // The loser wrote nothing: the winner's recovery set is untouched and the
     // loser's envelope was never stored.
     const stored = await store.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
-    expect(stored?.record.manifestKekWraps[0]?.recoveryKeyId).toBe(
-      recoveryWrap(0).recoveryKeyId,
-    );
+    expect(stored?.record.manifestKekWraps[0]?.recoveryKeyId).toBe(recoveryWrap(0).recoveryKeyId);
     const envelopes = new CloudflareD1PasskeyCustodyEnvelopeStore({
       database,
       scope: TEST_SCOPE,
@@ -379,7 +382,9 @@ test('concurrent establishing ceremonies end with one custody and one loser told
     // One recovery set, and it is the winner's.
     const stored = await store.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
     const winnerWrapId =
-      evm.kind === 'committed' ? recoveryWrap(0).recoveryKeyId : racingRecoveryWrap(0).recoveryKeyId;
+      evm.kind === 'committed'
+        ? recoveryWrap(0).recoveryKeyId
+        : racingRecoveryWrap(0).recoveryKeyId;
     expect(stored?.record.manifestKekWraps[0]?.recoveryKeyId).toBe(winnerWrapId);
   });
 });

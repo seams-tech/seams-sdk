@@ -22,7 +22,7 @@ staging expectation in parentheses where known.
 | Client tail | React context | 2 serial iframe refreshes after return | none |
 
 Client orchestration lives in
-`packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`
+`packages/wallet/src/SeamsWeb/operations/registration/registration.ts`
 (single serial chain; only Email OTP enrollment material overlaps start).
 
 ## 2. Proposed public contract (checkpoint input)

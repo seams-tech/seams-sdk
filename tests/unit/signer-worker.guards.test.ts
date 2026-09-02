@@ -19,7 +19,7 @@ function sourceBetween(source: string, start: string, end: string): string {
 
 test('ECDSA derivation client worker rejects raw secret fields for every request', () => {
   const source = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts',
+    'packages/wallet/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts',
   );
   const fieldPolicy = sourceBetween(
     source,

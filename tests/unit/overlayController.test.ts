@@ -246,6 +246,7 @@ test.describe('OverlayController', () => {
           focusTrap: true,
           identity,
         });
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         const measuredAnimationName = getComputedStyle(dialog, '::backdrop').animationName;
         await new Promise<void>((resolve) => window.setTimeout(resolve, 220));
         const measuredBackdrop = getComputedStyle(dialog, '::backdrop').backgroundColor;
@@ -264,6 +265,238 @@ test.describe('OverlayController', () => {
     expect(result.fallbackBackdrop).toBe('rgba(0, 0, 0, 0)');
     expect(result.measuredAnimationName).toBe('w3a-wallet-overlay-backdrop-in');
     expect(result.measuredBackdrop).toBe('rgba(0, 0, 0, 0.26)');
+  });
+
+  test('reveals a measured request modal directly at its destination geometry', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ path }) => {
+        const mod = await import(path);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        const overlay = new OverlayController({
+          ensureIframe: (mountParent?: HTMLElement) => {
+            if (mountParent && iframe.parentElement !== mountParent) {
+              mountParent.appendChild(iframe);
+            }
+            return iframe;
+          },
+        });
+        overlay.apply({
+          kind: 'compact_auth_menu',
+          presentation: { kind: 'auth_menu_modal', title: 'Wallet recovery codes' },
+          geometry: {
+            kind: 'centered_modal',
+            widthCssPx: 460,
+            heightCssPx: 360,
+            topCssPx: 164,
+            leftCssPx: 282,
+          },
+          focusTrap: true,
+          identity: {
+            kind: 'request_surface_identity_v1',
+            surfaceId: 'auth-menu-surface',
+            requestId: 'auth-menu-request',
+          },
+          authMenuSessionId: 'auth-menu-session',
+        });
+        const identity = {
+          kind: 'request_surface_identity_v1' as const,
+          surfaceId: 'recovery-surface',
+          requestId: 'recovery-request',
+        };
+        overlay.apply({
+          kind: 'compact_request_modal',
+          presentation: { kind: 'modal', title: 'Back up recovery codes' },
+          geometry: {
+            kind: 'provisional_centered_modal',
+            widthCssPx: 560,
+            heightCssPx: 320,
+            topCssPx: 224,
+            leftCssPx: 232,
+          },
+          focusTrap: true,
+          identity,
+        });
+        const dialog = iframe.closest('dialog.w3a-wallet-overlay-dialog');
+        if (!(dialog instanceof HTMLDialogElement)) throw new Error('overlay dialog missing');
+        const provisional = {
+          open: dialog.open,
+          visibility: getComputedStyle(dialog).visibility,
+          iframeRect: iframe.getBoundingClientRect().toJSON(),
+        };
+
+        overlay.apply({
+          kind: 'compact_request_modal',
+          presentation: { kind: 'modal', title: 'Back up recovery codes' },
+          geometry: {
+            kind: 'centered_modal',
+            widthCssPx: 560,
+            heightCssPx: 580,
+            topCssPx: 94,
+            leftCssPx: 232,
+          },
+          focusTrap: true,
+          identity,
+        });
+        const beforeReveal = {
+          open: dialog.open,
+          visibility: getComputedStyle(dialog).visibility,
+          pending: dialog.classList.contains('is-reveal-pending'),
+        };
+
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const surfaceAnimation = dialog
+          .getAnimations()
+          .find(
+            (candidate) =>
+              candidate.effect instanceof KeyframeEffect &&
+              candidate.effect.target === dialog &&
+              candidate.effect.getKeyframes().some((keyframe) => keyframe.transform),
+          );
+        const firstVisibleRect = dialog.getBoundingClientRect().toJSON();
+        const revealed = {
+          visibility: getComputedStyle(dialog).visibility,
+          pending: dialog.classList.contains('is-reveal-pending'),
+          transitionOrigin: dialog.classList.contains('has-transition-origin'),
+          surfaceAnimation: surfaceAnimation !== undefined,
+        };
+
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 220));
+        const backdrop = getComputedStyle(dialog, '::backdrop').backgroundColor;
+        const finalRect = dialog.getBoundingClientRect().toJSON();
+        overlay.dispose();
+        return { provisional, beforeReveal, revealed, firstVisibleRect, finalRect, backdrop };
+      },
+      { path: IMPORT_PATHS.overlay },
+    );
+
+    expect(result.provisional).toMatchObject({
+      open: true,
+      visibility: 'hidden',
+      iframeRect: {
+        width: 560,
+        height: 320,
+      },
+    });
+    expect(result.beforeReveal).toEqual({ open: true, visibility: 'hidden', pending: true });
+    expect(result.revealed).toEqual({
+      visibility: 'visible',
+      pending: false,
+      transitionOrigin: false,
+      surfaceAnimation: false,
+    });
+    expect(result.firstVisibleRect).toMatchObject({
+      top: 94,
+      left: 232,
+      width: 560,
+      height: 580,
+    });
+    expect(result.finalRect).toMatchObject({
+      top: 94,
+      left: 232,
+      width: 560,
+      height: 580,
+    });
+    expect(result.backdrop).toBe('rgba(0, 0, 0, 0.26)');
+  });
+
+  test('resizes one measured request modal when its content size changes', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ path }) => {
+        const mod = await import(path);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        const overlay = new OverlayController({
+          ensureIframe: (mountParent?: HTMLElement) => {
+            if (mountParent && iframe.parentElement !== mountParent) {
+              mountParent.appendChild(iframe);
+            }
+            return iframe;
+          },
+        });
+        const identity = {
+          kind: 'request_surface_identity_v1' as const,
+          surfaceId: 'recovery-surface',
+          requestId: 'recovery-request',
+        };
+        overlay.apply({
+          kind: 'compact_request_modal',
+          presentation: { kind: 'modal', title: 'Wallet recovery codes' },
+          geometry: {
+            kind: 'centered_modal',
+            widthCssPx: 460,
+            heightCssPx: 360,
+            topCssPx: 164,
+            leftCssPx: 282,
+          },
+          focusTrap: true,
+          identity,
+        });
+        const dialog = iframe.closest('dialog.w3a-wallet-overlay-dialog');
+        if (!(dialog instanceof HTMLDialogElement)) throw new Error('overlay dialog missing');
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const dialogBeforeResize = dialog;
+
+        overlay.apply({
+          kind: 'compact_request_modal',
+          presentation: { kind: 'modal', title: 'Wallet recovery codes' },
+          geometry: {
+            kind: 'centered_modal',
+            widthCssPx: 560,
+            heightCssPx: 580,
+            topCssPx: 94,
+            leftCssPx: 232,
+          },
+          focusTrap: true,
+          identity,
+        });
+        const animation = dialog
+          .getAnimations()
+          .find(
+            (candidate) =>
+              candidate.effect instanceof KeyframeEffect && candidate.effect.target === dialog,
+          );
+        if (!animation || !(animation.effect instanceof KeyframeEffect)) {
+          throw new Error('surface morph animation missing');
+        }
+        animation.pause();
+        animation.currentTime = 0;
+        const firstVisibleRect = dialog.getBoundingClientRect().toJSON();
+        const firstKeyframe = animation.effect.getKeyframes()[0];
+        animation.finish();
+        await Promise.resolve();
+        const finalRect = dialog.getBoundingClientRect().toJSON();
+        const sameDialog = dialogBeforeResize === dialog;
+
+        overlay.dispose();
+        return { firstVisibleRect, finalRect, firstKeyframe, sameDialog };
+      },
+      { path: IMPORT_PATHS.overlay },
+    );
+
+    expect(result.sameDialog).toBe(true);
+    expect(result.firstVisibleRect).toMatchObject({
+      top: 164,
+      left: 282,
+      width: 460,
+      height: 360,
+    });
+    expect(result.finalRect).toMatchObject({
+      top: 94,
+      left: 232,
+      width: 560,
+      height: 580,
+    });
+    expect(result.firstKeyframe).toMatchObject({
+      top: '164px',
+      left: '282px',
+      width: '460px',
+      height: '360px',
+    });
+    expect(result.firstKeyframe.transform).toBeUndefined();
+    expect(result.firstKeyframe.opacity).toBeUndefined();
   });
 
   test('keeps a provisional drawer visible for the inner slide-in animation', async ({ page }) => {
@@ -443,7 +676,7 @@ test.describe('OverlayController', () => {
     expect(result.provisionalFilter).toBe('none');
     expect(result.fallbackFilter).toBe('none');
     expect(result.measuredFilter).toContain('drop-shadow');
-    expect(result.authMenuFilter).toBe('none');
+    expect(result.authMenuFilter).toContain('drop-shadow');
     expect(result.measuredWidth).toBeCloseTo(360, 0);
     expect(result.measuredHeight).toBeCloseTo(320, 0);
   });
@@ -463,7 +696,14 @@ test.describe('OverlayController', () => {
             return iframe;
           },
         });
-        const geometry = {
+        const authMenuGeometry = {
+          kind: 'provisional_centered_modal' as const,
+          widthCssPx: 416,
+          heightCssPx: 450,
+          topCssPx: 159,
+          leftCssPx: 304,
+        };
+        const measuredGeometry = {
           kind: 'centered_modal' as const,
           widthCssPx: 360,
           heightCssPx: 320,
@@ -474,7 +714,7 @@ test.describe('OverlayController', () => {
         overlay.apply({
           kind: 'compact_auth_menu',
           presentation: { kind: 'modal', title: 'Choose account' },
-          geometry,
+          geometry: authMenuGeometry,
           focusTrap: true,
           identity: {
             kind: 'request_surface_identity_v1',
@@ -490,6 +730,8 @@ test.describe('OverlayController', () => {
           // Absolute (document-coordinate) positioning scrolls with the page;
           // fixed would float over it.
           position: getComputedStyle(dialog).position,
+          visibility: getComputedStyle(dialog).visibility,
+          provisional: dialog.classList.contains('is-provisional'),
           // A non-modal dialog never enters the top layer, so host chrome can
           // paint above it.
           topLayer: dialog.matches(':modal'),
@@ -498,7 +740,7 @@ test.describe('OverlayController', () => {
         overlay.apply({
           kind: 'compact_request_modal',
           presentation: { kind: 'modal', title: 'Confirm transaction' },
-          geometry,
+          geometry: measuredGeometry,
           focusTrap: true,
           identity: {
             kind: 'request_surface_identity_v1',
@@ -522,6 +764,8 @@ test.describe('OverlayController', () => {
     expect(result.authMenu.inlineClass).toBe(true);
     expect(result.authMenu.zIndex).toBe('auto');
     expect(result.authMenu.position).toBe('absolute');
+    expect(result.authMenu.visibility).toBe('visible');
+    expect(result.authMenu.provisional).toBe(true);
     expect(result.authMenu.topLayer).toBe(false);
     expect(result.modal.inlineClass).toBe(false);
     expect(result.modal.zIndex).toBe('2147483646');

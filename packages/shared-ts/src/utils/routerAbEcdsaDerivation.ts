@@ -32,21 +32,33 @@ import {
   canonicalRouterAbNormalSigningAuthorizationBytes,
   parseRouterAbMpcMaterialActivationRef,
   parseRouterAbNormalSigningAuthorization,
+  routerAbMpcMaterialActivationRefToWire,
+  sameRouterAbMpcMaterialActivationRef,
   type RouterAbMpcMaterialActivationRefWire,
   type RouterAbNormalSigningAuthorizationWire,
 } from './routerAbNormalSigningIdentity';
 import {
   EVM_ECDSA_MPC_OPERATION_KINDS,
   parseMpcWalletSigningQuotaId,
-  parseReusableWalletSessionMintId,
+  parseWalletSessionMintId,
   parseEcdsaAuthorizationSessionId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type EvmEcdsaMpcOperationKind,
   type MpcWalletSigningQuotaId,
-  type ReusableWalletSessionMintId,
+  type WalletSessionMintId,
   type EcdsaAuthorizationSessionId,
+  type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '../authorization/capabilityKinds';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '../device-linking/contracts';
+import {
+  parseActiveWalletSessionV1,
+  parseWalletSessionOperationCredentialV1,
+} from '../device-linking/parsers';
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
@@ -358,7 +370,7 @@ export type RouterAbEcdsaDerivationPublicCapabilityV1 = {
 
 export type RouterAbEcdsaPostRegistrationSessionPolicyV1 = {
   threshold_session_id: ThresholdEcdsaSessionId;
-  wallet_session_mint_id: ReusableWalletSessionMintId;
+  wallet_session_mint_id: WalletSessionMintId;
   ttl_ms: number;
   remaining_uses: number;
   runtime_policy_scope: RuntimePolicyScope;
@@ -386,12 +398,29 @@ export type RouterAbEcdsaPostRegistrationSessionActivationResponseV1 = {
   public_capability: RouterAbEcdsaDerivationPublicCapabilityV1;
   session: {
     authorization_session_id: EcdsaAuthorizationSessionId;
+    authorization_id: WalletSessionAuthorizationId;
     threshold_session_id: ThresholdEcdsaSessionId;
     wallet_session_id: WalletSessionId;
     quota_id: MpcWalletSigningQuotaId;
     expires_at_ms: number;
     remaining_uses: number;
-    wallet_session_token: string;
+    wallet_session: ActiveWalletSessionV1;
+    operation_credential: WalletSessionOperationCredentialV1;
+  };
+  normal_signing: RouterAbEcdsaDerivationNormalSigningStateV1;
+};
+
+export type RouterAbEcdsaCredentialFreeSessionActivationResponseV1 = {
+  kind: 'router_ab_ecdsa_credential_free_session_activated_v1';
+  public_capability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  session: {
+    authorization_session_id: EcdsaAuthorizationSessionId;
+    authorization_id: WalletSessionAuthorizationId;
+    threshold_session_id: ThresholdEcdsaSessionId;
+    wallet_session_id: WalletSessionId;
+    quota_id: MpcWalletSigningQuotaId;
+    expires_at_ms: number;
+    remaining_uses: number;
   };
   normal_signing: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
@@ -725,29 +754,84 @@ export type RouterAbEcdsaOperationStepUpUnsealV1Wire =
       readonly challenge_id: string;
     };
 
+export type RouterAbEcdsaOperationStepUpExportTopologyV1Wire = {
+  readonly signer_set: RouterAbEcdsaDerivationSignerSetV1;
+  readonly deriver_recipient_keys: RouterAbEcdsaRegistrationRecipientKeysV1;
+  readonly router_id: string;
+};
+
 export type RouterAbEcdsaOperationStepUpAuthorizationV1Wire = {
   readonly kind: 'operation_step_up';
   readonly evidence_set_digest: DigestB64u;
   readonly unseal: RouterAbEcdsaOperationStepUpUnsealV1Wire;
 };
 
-export type RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire = {
+type RouterAbEcdsaOperationStepUpAuthorizationResponseBaseV1Wire = {
   readonly ok: true;
   readonly kind: 'verified_step_up';
   readonly authorization: RouterAbEcdsaOperationStepUpAuthorizationV1Wire;
   readonly expires_at_ms: number;
 };
 
+export type RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire =
+  | (RouterAbEcdsaOperationStepUpAuthorizationResponseBaseV1Wire & {
+      readonly operation_kind: 'evm.sign_transaction';
+      readonly export_topology?: never;
+    })
+  | (RouterAbEcdsaOperationStepUpAuthorizationResponseBaseV1Wire & {
+      readonly operation_kind: 'evm.export_key';
+      readonly export_topology: RouterAbEcdsaOperationStepUpExportTopologyV1Wire;
+    });
+
+function parseRouterAbEcdsaOperationStepUpExportTopologyV1(
+  value: unknown,
+): RouterAbEcdsaOperationStepUpExportTopologyV1Wire {
+  const topology = requireRecord(value, 'operationStepUpAuthorizationResponse.export_topology');
+  requireExactKeys(topology, 'operationStepUpAuthorizationResponse.export_topology', [
+    'signer_set',
+    'deriver_recipient_keys',
+    'router_id',
+  ]);
+  const signerSet = parsePostRegistrationSignerSet(
+    topology.signer_set,
+    'operationStepUpAuthorizationResponse.export_topology.signer_set',
+  );
+  const deriverRecipientKeys = parseRegistrationRecipientKeys(
+    topology.deriver_recipient_keys,
+    'operationStepUpAuthorizationResponse.export_topology.deriver_recipient_keys',
+  );
+  if (
+    deriverRecipientKeys.deriver_a.key_epoch !== signerSet.signer_a.key_epoch ||
+    deriverRecipientKeys.deriver_b.key_epoch !== signerSet.signer_b.key_epoch
+  ) {
+    throw new Error(
+      'operationStepUpAuthorizationResponse.export_topology recipient key epochs do not match signer_set',
+    );
+  }
+  return {
+    signer_set: signerSet,
+    deriver_recipient_keys: deriverRecipientKeys,
+    router_id: requireAsciiNonEmptyString(
+      topology.router_id,
+      'operationStepUpAuthorizationResponse.export_topology.router_id',
+    ),
+  };
+}
+
 export function parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1(
   value: unknown,
 ): RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire {
   const response = requireRecord(value, 'operationStepUpAuthorizationResponse');
-  requireExactKeys(response, 'operationStepUpAuthorizationResponse', [
+  const operationKind = requireEcdsaOperationStepUpKind(response.operation_kind);
+  const responseKeys = [
     'ok',
     'kind',
     'authorization',
     'expires_at_ms',
-  ]);
+    'operation_kind',
+    ...(operationKind === 'evm.export_key' ? ['export_topology'] : []),
+  ];
+  requireExactKeys(response, 'operationStepUpAuthorizationResponse', responseKeys);
   if (response.ok !== true || response.kind !== 'verified_step_up') {
     throw new Error('operationStepUpAuthorizationResponse is invalid');
   }
@@ -812,11 +896,19 @@ export function parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1(
     evidence_set_digest: parseDigestB64u(authorization.evidence_set_digest),
     unseal: parsedUnseal,
   };
-  return {
+  const base: RouterAbEcdsaOperationStepUpAuthorizationResponseBaseV1Wire = {
     ok: true,
     kind: 'verified_step_up',
     authorization: parsedAuthorization,
     expires_at_ms: expiresAtMs,
+  };
+  if (operationKind === 'evm.sign_transaction') {
+    return { ...base, operation_kind: 'evm.sign_transaction' };
+  }
+  return {
+    ...base,
+    operation_kind: 'evm.export_key',
+    export_topology: parseRouterAbEcdsaOperationStepUpExportTopologyV1(response.export_topology),
   };
 }
 
@@ -922,6 +1014,15 @@ function requireEcdsaAuthorizationSessionId(
   label: string,
 ): EcdsaAuthorizationSessionId {
   const parsed = parseEcdsaAuthorizationSessionId(value);
+  if (!parsed.ok) throw new Error(`${label} is invalid`);
+  return parsed.value;
+}
+
+function requireWalletSessionAuthorizationId(
+  value: unknown,
+  label: string,
+): WalletSessionAuthorizationId {
+  const parsed = parseWalletSessionAuthorizationId(value);
   if (!parsed.ok) throw new Error(`${label} is invalid`);
   return parsed.value;
 }
@@ -1283,6 +1384,16 @@ function parsePostRegistrationRoleEnvelope<Role extends 'signer_a' | 'signer_b'>
   };
 }
 
+export function parseRouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<
+  Role extends 'signer_a' | 'signer_b',
+>(
+  value: unknown,
+  label: string,
+  expectedRole: Role,
+): RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<Role> {
+  return parsePostRegistrationRoleEnvelope(value, label, expectedRole);
+}
+
 function parseRegistrationLifecycle(value: unknown): RouterAbEcdsaRegistrationLifecycleV1 {
   const label = 'registration.lifecycle';
   const record = requireRecord(value, label);
@@ -1524,7 +1635,7 @@ function parseRouterAbEcdsaExplicitExportForwardedResponseWithV1(
   };
 }
 
-function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
+export function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
   value: unknown,
 ): RouterAbEcdsaSigningWorkerExportShareEnvelopeV1 {
   return parseRouterAbEcdsaSigningWorkerExportShareEnvelopeWithV1(
@@ -1533,7 +1644,7 @@ function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
   );
 }
 
-function parseRouterAbEcdsaSigningWorkerProtocolExportShareEnvelopeV1(
+export function parseRouterAbEcdsaSigningWorkerProtocolExportShareEnvelopeV1(
   value: unknown,
 ): RouterAbEcdsaSigningWorkerExportShareEnvelopeV1 {
   return parseRouterAbEcdsaSigningWorkerExportShareEnvelopeWithV1(
@@ -2147,7 +2258,7 @@ function parsePostRegistrationSessionPolicy(
       record.threshold_session_id,
       `${label}.threshold_session_id`,
     ),
-    wallet_session_mint_id: requireReusableWalletSessionMintId(
+    wallet_session_mint_id: requireWalletSessionMintId(
       record.wallet_session_mint_id,
       `${label}.wallet_session_mint_id`,
     ),
@@ -2173,11 +2284,11 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(
   };
 }
 
-function requireReusableWalletSessionMintId(
+function requireWalletSessionMintId(
   value: unknown,
   label: string,
-): ReusableWalletSessionMintId {
-  const parsed = parseReusableWalletSessionMintId(value);
+): WalletSessionMintId {
+  const parsed = parseWalletSessionMintId(value);
   if (!parsed.ok) throw new Error(`${label} is invalid`);
   return parsed.value;
 }
@@ -2196,6 +2307,20 @@ function publicIdentitiesMatch(
     left.client_share_retry_counter === right.client_share_retry_counter &&
     left.server_share_retry_counter === right.server_share_retry_counter
   );
+}
+
+function activeWalletSessionMatchesEcdsaCapability(
+  session: ActiveWalletSessionV1,
+  capability: RouterAbEcdsaDerivationPublicCapabilityV1,
+): boolean {
+  for (const subject of session.capabilitySubjects) {
+    if (subject.kind !== 'sign' || subject.keyFamily !== 'ecdsa_secp256k1') continue;
+    return sameRouterAbMpcMaterialActivationRef(
+      capability.material_activation,
+      routerAbMpcMaterialActivationRefToWire(subject.materialActivation),
+    );
+  }
+  return false;
 }
 
 export function parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
@@ -2228,12 +2353,95 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
   const sessionRecord = requireRecord(record.session, `${label}.session`);
   requireExactKeys(sessionRecord, `${label}.session`, [
     'authorization_session_id',
+    'authorization_id',
     'threshold_session_id',
     'wallet_session_id',
     'quota_id',
     'expires_at_ms',
     'remaining_uses',
-    'wallet_session_token',
+    'wallet_session',
+    'operation_credential',
+  ]);
+  const normalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1(record.normal_signing);
+  const authorizationId = requireWalletSessionAuthorizationId(
+    sessionRecord.authorization_id,
+    `${label}.session.authorization_id`,
+  );
+  const walletSessionId = requireWalletSessionId(
+    sessionRecord.wallet_session_id,
+    `${label}.session.wallet_session_id`,
+  );
+  const expiresAtMs = requirePositiveUnixMs(
+    sessionRecord.expires_at_ms,
+    `${label}.session.expires_at_ms`,
+  );
+  const walletSession = parseActiveWalletSessionV1(sessionRecord.wallet_session);
+  const operationCredential = parseWalletSessionOperationCredentialV1(
+    sessionRecord.operation_credential,
+  );
+  if (
+    !publicIdentitiesMatch(publicCapability.public_identity, normalSigning.scope.public_identity) ||
+    publicCapability.context.application_binding_digest_b64u !==
+      normalSigning.scope.context.application_binding_digest_b64u ||
+    normalSigning.scope.activation_epoch !== publicCapability.activation_epoch ||
+    !sameServerIdentity(
+      normalSigning.scope.signing_worker,
+      publicCapability.signer_set.selected_server,
+    ) ||
+    walletSession.authorizationId !== authorizationId ||
+    walletSession.walletId !== publicCapability.client_id ||
+    walletSession.expiresAtMs !== expiresAtMs ||
+    !activeWalletSessionMatchesEcdsaCapability(walletSession, publicCapability) ||
+    operationCredential.walletSessionId !== walletSessionId
+  ) {
+    throw new Error(`${label} exact Wallet Session does not match the activated capability`);
+  }
+  return {
+    kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
+    public_capability: publicCapability,
+    session: {
+      authorization_session_id: requireEcdsaAuthorizationSessionId(
+        sessionRecord.authorization_session_id,
+        `${label}.session.authorization_session_id`,
+      ),
+      authorization_id: authorizationId,
+      threshold_session_id: requireThresholdEcdsaSessionId(
+        sessionRecord.threshold_session_id,
+        `${label}.session.threshold_session_id`,
+      ),
+      wallet_session_id: walletSessionId,
+      quota_id: requireMpcWalletSigningQuotaId(sessionRecord.quota_id, `${label}.session.quota_id`),
+      expires_at_ms: expiresAtMs,
+      remaining_uses: requirePositiveCounter(
+        sessionRecord.remaining_uses,
+        `${label}.session.remaining_uses`,
+      ),
+      wallet_session: walletSession,
+      operation_credential: operationCredential,
+    },
+    normal_signing: normalSigning,
+  };
+}
+
+export function parseRouterAbEcdsaCredentialFreeSessionActivationResponseV1(
+  value: unknown,
+): RouterAbEcdsaCredentialFreeSessionActivationResponseV1 {
+  const label = 'credentialFreeSessionActivated';
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, ['kind', 'public_capability', 'session', 'normal_signing']);
+  if (record.kind !== 'router_ab_ecdsa_credential_free_session_activated_v1') {
+    throw new Error(`${label}.kind is invalid`);
+  }
+  const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(record.public_capability);
+  const sessionRecord = requireRecord(record.session, `${label}.session`);
+  requireExactKeys(sessionRecord, `${label}.session`, [
+    'authorization_session_id',
+    'authorization_id',
+    'threshold_session_id',
+    'wallet_session_id',
+    'quota_id',
+    'expires_at_ms',
+    'remaining_uses',
   ]);
   const normalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1(record.normal_signing);
   if (
@@ -2249,12 +2457,16 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
     throw new Error(`${label} normal-signing state does not match public capability`);
   }
   return {
-    kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
+    kind: 'router_ab_ecdsa_credential_free_session_activated_v1',
     public_capability: publicCapability,
     session: {
       authorization_session_id: requireEcdsaAuthorizationSessionId(
         sessionRecord.authorization_session_id,
         `${label}.session.authorization_session_id`,
+      ),
+      authorization_id: requireWalletSessionAuthorizationId(
+        sessionRecord.authorization_id,
+        `${label}.session.authorization_id`,
       ),
       threshold_session_id: requireThresholdEcdsaSessionId(
         sessionRecord.threshold_session_id,
@@ -2272,10 +2484,6 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
       remaining_uses: requirePositiveCounter(
         sessionRecord.remaining_uses,
         `${label}.session.remaining_uses`,
-      ),
-      wallet_session_token: requireAsciiNonEmptyString(
-        sessionRecord.wallet_session_token,
-        `${label}.session.wallet_session_token`,
       ),
     },
     normal_signing: normalSigning,

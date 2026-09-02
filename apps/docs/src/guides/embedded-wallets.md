@@ -9,6 +9,15 @@ Start with [Wallet setup and authentication](/examples/wallet-setup-and-authenti
 to see the provider configuration. An embedded wallet renders in your product
 while its credential and signing runtime stays on a dedicated HTTPS origin.
 
+Use an embedded wallet when your application needs a persistent wallet for each
+user: a marketplace balance, trading account, game inventory, payout account,
+stablecoin account, reward balance, or automated onchain authority. A store
+collecting a one-time payment from an existing wallet usually does not need to
+provision another wallet for that shopper.
+
+Read [platform wallets](/use-cases/platform-wallets) for the customer fit and
+product boundary.
+
 ## Configure the boundary
 
 - Deploy the wallet service and SDK assets at the wallet origin.

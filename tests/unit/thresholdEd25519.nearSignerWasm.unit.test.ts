@@ -5,14 +5,14 @@ import {
   computeThresholdEd25519Nep413SigningDigestWasm,
   decodeThresholdEd25519SignedNearTxBorshWasm,
   deriveThresholdEd25519ClientVerifyingShareWasm,
-} from '../../packages/sdk-web/src/core/signingEngine/chains/near/nearSignerWasm';
+} from '../../packages/wallet/src/core/signingEngine/chains/near/nearSignerWasm';
 import {
   NearSignerWorkerCustomRequestType,
   WorkerRequestType,
   WorkerResponseType,
   type DelegatePayload,
-} from '../../packages/sdk-web/src/core/types/signer-worker';
-import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
+} from '../../packages/wallet/src/core/types/signer-worker';
+import type { WorkerOperationContext } from '../../packages/wallet/src/core/signingEngine/workerManager/executeWorkerOperation';
 
 function recordingWorkerCtx(result: unknown, calls: unknown[]): WorkerOperationContext {
   return {

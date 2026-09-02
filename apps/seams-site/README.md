@@ -1,13 +1,14 @@
 # Seams Site Dev Server
 
-This app runs a dedicated wallet/service origin for local development. The app Vite server owns only the demo application, while Caddy serves the hosted wallet asset tree from the installed `@seams/sdk` package.
+This app runs a dedicated wallet/service origin for local development. The app Vite server owns only the demo application, while Caddy serves the hosted wallet asset tree from the installed `@seams/wallet` package.
 
-- Dev server: `http://localhost:3600`
-- Docs origin (via Caddy): `https://docs.localhost`
-- Wallet origin (via Caddy): `https://localhost:8443`
-- Router API origin (via Caddy): `https://localhost:9444`
+- Dev server: `http://localhost:4004`
+- App origin (via Caddy): `http://localhost:4001`
+- Docs origin (via Caddy): `https://docs.localhost:4003`
+- Wallet origin (via Caddy): `https://localhost:4002`
+- Router API origin (via Caddy): `https://localhost:4101`
 - Service path: `/wallet-service`
-- SDK assets base: `/sdk/*` (served from `node_modules/@seams/sdk/dist/public/sdk`)
+- SDK assets base: `/sdk/*` (served from `node_modules/@seams/wallet/dist/public/sdk`)
 
 ## Usage
 
@@ -17,13 +18,14 @@ This app runs a dedicated wallet/service origin for local development. The app V
 pnpm -C apps/seams-site dev
 ```
 
-- Ensure Caddy is running so localhost TLS endpoints are available. If you are running the main example app (`pnpm run site`), it starts Caddy for you; run `pnpm router` separately so the Router API origin `https://localhost:9444` is available. If wallet assets are missing or stale, refresh them explicitly with `pnpm build:sdk`; after Rust/WASM changes, run `pnpm build:sdk-full`.
+- Run the main example app with `pnpm run site`; it starts foreground Caddy on unprivileged ports and prints the local links. Run `pnpm router` separately so the Router API origin `https://localhost:4101` is available. If wallet assets are missing or stale, refresh them explicitly with `pnpm build:sdk`; after Rust/WASM changes, run `pnpm build:sdk-full`.
 
 Open:
 
-- `https://localhost:8443/wallet-service` – the iframe service page
-- `https://localhost:9444` – Router API origin
-- `https://docs.localhost` – docs site
+- `http://localhost:4001/wallet` – the Seams wallet page
+- `https://localhost:4002/wallet-service` – the iframe service page
+- `https://localhost:4101` – Router API origin
+- `https://docs.localhost:4003` – docs site
 
 ## Production deployment
 
@@ -34,11 +36,11 @@ assets stay on the same release.
 
 ## Notes
 
-- The route `/wallet-service` is served by Caddy from `node_modules/@seams/sdk/dist/public/wallet-service/index.html` and loads `/sdk/wallet-iframe-host-runtime.js` from the same wallet origin.
+- The route `/wallet-service` is served by Caddy from `node_modules/@seams/wallet/dist/public/wallet-service/index.html` and loads `/sdk/wallet-iframe-host-runtime.js` from the same wallet origin.
 - App-origin requests for `/sdk/*`, `/wallet-service`, and `/export-viewer` return 404 through Caddy to catch accidental app-hosted wallet asset dependencies.
 - The wallet origin does not use app COOP, COEP, CORP, or Permissions-Policy defaults for SDK assets. Document routes keep the local `frame-ancestors` policy emitted in the static header manifest.
 - Keep the SDK build current by re-running `pnpm build:sdk` after wallet runtime changes.
-- Docs are served from the VitePress dev server at `https://docs.localhost`.
+- Docs are served from the VitePress dev server at `https://docs.localhost:4003`.
 
 ### Dashboard inline modal scrolling
 

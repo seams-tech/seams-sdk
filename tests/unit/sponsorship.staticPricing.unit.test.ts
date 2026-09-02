@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { getNearSpendCapChainId } from '@seams-internal/console-shared/gasSponsorshipSpendCapTargets';
+import { getNearSpendCapChainId } from '@seams-internal/wallet-console-shared/gasSponsorshipSpendCapTargets';
 import {
   createChainFamilySponsoredExecutionPricingService,
   isSponsorshipSpendCapEnforcementError,
@@ -8,7 +8,7 @@ import {
   type SponsorshipSpendPricingFinalizeInput,
   type SponsorshipSpendPricingQuote,
   type SponsorshipSpendPricingService,
-} from '../../packages/console-server-ts/src/sponsorship';
+} from '../../packages/wallet-console-server-ts/src/sponsorship';
 
 class TaggedPricingService implements SponsorshipSpendPricingService {
   readonly operations: string[] = [];

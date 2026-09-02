@@ -1,28 +1,12 @@
-import { SeamsWebProvider, useSeams, type SeamsConfigsInput } from '@seams/sdk/react';
+import { SeamsWebProvider, seamsTestnetConfig, useSeams } from '@seams/wallet/react';
 
-const seamsConfig = {
-  iframeWallet: {
-    walletOrigin: import.meta.env.VITE_WALLET_ORIGIN,
-    walletServicePath: '/wallet-service',
-    sdkBasePath: '/sdk',
-  },
-  relayerAccount: 'w3a-relayer.testnet',
-  relayer: {
-    url: import.meta.env.VITE_RELAYER_URL,
-  },
-  registration: {
-    mode: 'managed',
-    projectEnvironmentId: import.meta.env.VITE_SEAMS_PROJECT_ENVIRONMENT_ID,
-    publishableKey: import.meta.env.VITE_SEAMS_PUBLISHABLE_KEY,
-  },
-  chains: [
-    {
-      network: 'near-testnet',
-      rpcUrl: 'https://rpc.testnet.near.org',
-      explorerUrl: 'https://testnet.nearblocks.io',
-    },
-  ],
-} satisfies SeamsConfigsInput;
+// Everything else — wallet service path, SDK base path, relayer account, chain
+// RPC and explorer URLs — comes from the SDK defaults.
+const seamsConfig = seamsTestnetConfig({
+  walletOrigin: import.meta.env.VITE_WALLET_ORIGIN,
+  relayerUrl: import.meta.env.VITE_RELAYER_URL,
+  publishableKey: import.meta.env.VITE_SEAMS_PUBLISHABLE_KEY,
+});
 
 function WalletApp() {
   const { loginState } = useSeams();

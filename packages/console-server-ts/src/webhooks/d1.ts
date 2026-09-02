@@ -1,9 +1,6 @@
-import { base64UrlDecode, base64UrlEncode } from '@seams/sdk-server/cloud-host';
-import {
-  normalizeConsoleWebhookEventCategory,
-  type ConsoleWebhookEventCategory,
-} from '@seams-internal/console-shared/webhookEventCategories';
-import type { NormalizedLogger } from '@seams/sdk-server/cloud-host';
+import { base64UrlDecode, base64UrlEncode } from '../boundary';
+
+import type { NormalizedLogger } from '../boundary';
 import {
   d1Integer as toNumber,
   d1ChangedRows,
@@ -11,8 +8,9 @@ import {
   queryD1All as queryRows,
   queryD1One as queryFirstRow,
   type D1Row,
-} from '@seams/sdk-server/cloud-host';
-import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
+} from '../boundary';
+import type { WebhookEventCategoryValidation } from './types';
+import type { D1DatabaseLike } from '../boundary';
 import { ConsoleWebhookError } from './errors';
 import {
   appendConsoleWebhookObservabilitySignals,
@@ -36,10 +34,7 @@ import {
   toDispatchHeaders,
   truncateResponseBody,
 } from './shared';
-import type {
-  ConsoleWebhookService,
-  WebhookDispatchAdapter,
-} from './service';
+import type { ConsoleWebhookService, WebhookDispatchAdapter } from './service';
 import type {
   ConsoleWebhooksContext,
   ConsoleWebhookDelivery,
@@ -50,6 +45,7 @@ import type {
   ConsoleWebhookEndpointStatus,
   ConsoleWebhookPage,
   CreateConsoleWebhookEndpointRequest,
+  CreateConsoleWebhookEndpointResult,
   EmitConsoleWebhookEventRequest,
   EmitConsoleWebhookEventResult,
   ListConsoleWebhookAttemptsRequest,
@@ -57,9 +53,9 @@ import type {
   ListConsoleWebhookDeliveriesRequest,
   ReplayConsoleWebhookDeliveryRequest,
   ReplayConsoleWebhookDeliveryResult,
+  RotateConsoleWebhookSecretResult,
   UpdateConsoleWebhookEndpointRequest,
 } from './types';
-
 
 const WEBHOOK_SECRET_ENVELOPE_VERSION = 'console-webhook-secret:aes-gcm:v1';
 const WEBHOOK_SECRET_AAD_DOMAIN = 'seams/console-webhook-secret/aes-gcm/v1';
@@ -130,6 +126,7 @@ interface D1ConsoleWebhookState {
   readonly secretCipher: ConsoleWebhookSecretCipher;
   readonly observabilityOptions: ConsoleWebhookObservabilityOptions;
   readonly endpointDegradedThreshold: number;
+  readonly categoryValidation: WebhookEventCategoryValidation;
 }
 
 export const CONSOLE_WEBHOOKS_D1_RUNTIME = Symbol('consoleWebhooksD1Runtime');
@@ -151,6 +148,7 @@ export interface D1ConsoleWebhookSchemaOptions {
 export interface D1ConsoleWebhookServiceOptions extends ConsoleWebhookObservabilityOptions {
   readonly database: D1DatabaseLike;
   readonly secretCipher: ConsoleWebhookSecretCipher;
+  readonly categoryValidation: WebhookEventCategoryValidation;
   readonly namespace?: string;
   readonly ensureSchema?: boolean;
   readonly now?: () => Date;
@@ -158,6 +156,7 @@ export interface D1ConsoleWebhookServiceOptions extends ConsoleWebhookObservabil
 }
 
 export interface D1ConsoleWebhookRetryDispatchOptions extends ConsoleWebhookObservabilityOptions {
+  readonly categoryValidation: WebhookEventCategoryValidation;
   readonly database: D1DatabaseLike;
   readonly secretCipher: ConsoleWebhookSecretCipher;
   readonly namespace?: string;
@@ -229,7 +228,6 @@ export const CONSOLE_WEBHOOKS_D1_SCHEMA_SQL = Object.freeze([
       CHECK (length(namespace) > 0),
       CHECK (length(org_id) > 0),
       CHECK (length(endpoint_id) > 0),
-      CHECK (category IN ('wallet', 'policy', 'auth', 'tx', 'billing', 'session')),
       FOREIGN KEY (namespace, org_id, endpoint_id)
         REFERENCES webhook_endpoints(namespace, org_id, id)
         ON DELETE CASCADE
@@ -398,6 +396,7 @@ export async function createD1ConsoleWebhookService(
     now: options.now || defaultNow,
     dispatcher: options.dispatcher || { dispatch: defaultDispatchWebhook },
     secretCipher: options.secretCipher,
+    categoryValidation: options.categoryValidation,
     endpointDegradedThreshold,
     observabilityOptions: {
       observabilityIngestion: options.observabilityIngestion,
@@ -429,7 +428,6 @@ function toIso(ms: number | null): string | null {
   return new Date(ms).toISOString();
 }
 
-
 function toNullableNumber(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -459,7 +457,6 @@ function normalizeWebhookRetryOrgIds(orgIds: readonly string[] | undefined): str
   }
   return out;
 }
-
 
 function computeWebhookRetryBackoffMs(input: {
   readonly attemptCount: number;
@@ -534,11 +531,12 @@ function parsePayload(raw: unknown): Record<string, unknown> {
 
 function normalizeEventCategories(
   input: readonly unknown[] | undefined,
-): ConsoleWebhookEventCategory[] {
-  const out: ConsoleWebhookEventCategory[] = [];
+  categoryValidation: WebhookEventCategoryValidation,
+): string[] {
+  const out: string[] = [];
   const seen = new Set<string>();
   for (const entry of Array.isArray(input) ? input : []) {
-    const value = normalizeConsoleWebhookEventCategory(entry);
+    const value = categoryValidation.normalizeCategory(entry);
     if (!value || seen.has(value)) continue;
     seen.add(value);
     out.push(value);
@@ -548,7 +546,7 @@ function normalizeEventCategories(
 
 function parseEndpointRow(input: {
   readonly row: D1Row;
-  readonly eventCategories: readonly ConsoleWebhookEventCategory[];
+  readonly eventCategories: readonly string[];
 }): StoredWebhookEndpoint {
   const createdAtMs = toNumber(input.row.created_at_ms);
   const updatedAtMs = toNumber(input.row.updated_at_ms);
@@ -789,9 +787,7 @@ class AesGcmConsoleWebhookSecretCipher implements ConsoleWebhookSecretCipher {
       ),
     );
     return {
-      ciphertextB64u: base64UrlEncode(
-        concatBytes([WEBHOOK_SECRET_SEAL_MAGIC, nonce, ciphertext]),
-      ),
+      ciphertextB64u: base64UrlEncode(concatBytes([WEBHOOK_SECRET_SEAL_MAGIC, nonce, ciphertext])),
       keyId: this.keyId,
       envelopeVersion: WEBHOOK_SECRET_ENVELOPE_VERSION,
     };
@@ -805,8 +801,7 @@ class AesGcmConsoleWebhookSecretCipher implements ConsoleWebhookSecretCipher {
       throw new Error(`webhook secret keyId ${input.sealedSecret.keyId} is not configured`);
     }
     const envelope = base64UrlDecode(input.sealedSecret.ciphertextB64u);
-    const minLength =
-      WEBHOOK_SECRET_SEAL_MAGIC.byteLength + WEBHOOK_SECRET_NONCE_LENGTH + 16;
+    const minLength = WEBHOOK_SECRET_SEAL_MAGIC.byteLength + WEBHOOK_SECRET_NONCE_LENGTH + 16;
     if (envelope.byteLength < minLength) throw new Error('webhook secret envelope is too short');
     for (let i = 0; i < WEBHOOK_SECRET_SEAL_MAGIC.byteLength; i += 1) {
       if (envelope[i] !== WEBHOOK_SECRET_SEAL_MAGIC[i]) {
@@ -861,7 +856,8 @@ async function listEndpointCategories(input: {
   readonly namespace: string;
   readonly orgId: string;
   readonly endpointId: string;
-}): Promise<ConsoleWebhookEventCategory[]> {
+  readonly categoryValidation: WebhookEventCategoryValidation;
+}): Promise<string[]> {
   const rows = await queryRows(
     input.database,
     `SELECT category
@@ -872,13 +868,17 @@ async function listEndpointCategories(input: {
       ORDER BY category ASC`,
     [input.namespace, input.orgId, input.endpointId],
   );
-  return normalizeEventCategories(rows.map((row) => row.category));
+  return normalizeEventCategories(
+    rows.map((row) => row.category),
+    input.categoryValidation,
+  );
 }
 
 async function parseEndpointFromRow(input: {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
   readonly row: D1Row;
+  readonly categoryValidation: WebhookEventCategoryValidation;
 }): Promise<StoredWebhookEndpoint> {
   const orgId = String(input.row.org_id || '');
   const endpointId = String(input.row.id || '');
@@ -887,6 +887,7 @@ async function parseEndpointFromRow(input: {
     namespace: input.namespace,
     orgId,
     endpointId,
+    categoryValidation: input.categoryValidation,
   });
   return parseEndpointRow({
     row: input.row,
@@ -899,6 +900,7 @@ async function findEndpoint(input: {
   readonly namespace: string;
   readonly orgId: string;
   readonly endpointId: string;
+  readonly categoryValidation: WebhookEventCategoryValidation;
 }): Promise<StoredWebhookEndpoint | null> {
   const row = await queryFirstRow(
     input.database,
@@ -914,6 +916,7 @@ async function findEndpoint(input: {
     database: input.database,
     namespace: input.namespace,
     row,
+    categoryValidation: input.categoryValidation,
   });
 }
 
@@ -1202,8 +1205,7 @@ async function persistDeliveryAttempt(
         failedAttempts: updated.attemptCount,
         lastResponseStatus: input.attemptResult.responseStatus,
         lastErrorMessage: input.attemptResult.errorMessage,
-        movedToDlqAt:
-          toIso(input.attemptResult.attemptedAtMs) || new Date(0).toISOString(),
+        movedToDlqAt: toIso(input.attemptResult.attemptedAtMs) || new Date(0).toISOString(),
       });
     }
     if (
@@ -1236,6 +1238,7 @@ async function listD1WebhookRetryEndpoints(input: {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
   readonly orgId: string;
+  readonly categoryValidation: WebhookEventCategoryValidation;
 }): Promise<Map<string, StoredWebhookEndpoint>> {
   const rows = await queryRows(
     input.database,
@@ -1252,6 +1255,7 @@ async function listD1WebhookRetryEndpoints(input: {
       database: input.database,
       namespace: input.namespace,
       row,
+      categoryValidation: input.categoryValidation,
     });
     endpoints.set(endpoint.id, endpoint);
   }
@@ -1352,7 +1356,8 @@ function buildD1WebhookRetryExhaustedSignal(input: {
     maxAttempts: input.maxAttempts,
     lastResponseStatus: input.delivery.responseStatus,
     lastErrorMessage: input.delivery.errorMessage,
-    exhaustedAt: input.delivery.lastAttemptAt || toIso(input.nowMs) || new Date(input.nowMs).toISOString(),
+    exhaustedAt:
+      input.delivery.lastAttemptAt || toIso(input.nowMs) || new Date(input.nowMs).toISOString(),
   };
 }
 
@@ -1393,6 +1398,7 @@ export async function runD1ConsoleWebhookRetryDispatch(
     now: nowFn,
     dispatcher,
     secretCipher: options.secretCipher,
+    categoryValidation: options.categoryValidation,
     endpointDegradedThreshold,
     observabilityOptions,
   };
@@ -1415,6 +1421,7 @@ export async function runD1ConsoleWebhookRetryDispatch(
     const nowForQuery = nowFn();
     const nowForQueryMs = nowMs(nowForQuery);
     const endpoints = await listD1WebhookRetryEndpoints({
+      categoryValidation: options.categoryValidation,
       database: options.database,
       namespace,
       orgId,
@@ -1543,6 +1550,7 @@ async function requireEndpoint(input: {
   readonly endpointId: string;
 }): Promise<StoredWebhookEndpoint> {
   const endpoint = await findEndpoint({
+    categoryValidation: input.state.categoryValidation,
     database: input.state.database,
     namespace: input.state.namespace,
     orgId: input.orgId,
@@ -1597,6 +1605,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
             database: this.state.database,
             namespace: this.state.namespace,
             row,
+            categoryValidation: this.state.categoryValidation,
           }),
         ),
       );
@@ -1607,16 +1616,19 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
   async createEndpoint(
     ctx: ConsoleWebhooksContext,
     request: CreateConsoleWebhookEndpointRequest,
-  ): Promise<ConsoleWebhookEndpoint> {
+  ): Promise<CreateConsoleWebhookEndpointResult> {
     const now = this.state.now();
     const endpointId = makeId('wh', now);
-    const signingSecret = makeSigningSecret(now);
+    const signingSecret = makeSigningSecret();
     const sealedSecret = await this.state.secretCipher.sealConsoleWebhookSecret({
       orgId: ctx.orgId,
       endpointId,
       plaintextSecret: signingSecret,
     });
-    const eventCategories = normalizeEventCategories(request.eventCategories);
+    const eventCategories = normalizeEventCategories(
+      request.eventCategories,
+      this.state.categoryValidation,
+    );
     const createdAtMs = nowMs(now);
     await this.state.database.batch([
       this.state.database
@@ -1653,6 +1665,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
       ),
     ]);
     const endpoint = await findEndpoint({
+      categoryValidation: this.state.categoryValidation,
       database: this.state.database,
       namespace: this.state.namespace,
       orgId: ctx.orgId,
@@ -1661,7 +1674,61 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     if (!endpoint) {
       throw new ConsoleWebhookError('internal', 500, 'Failed to create webhook endpoint');
     }
-    return toPublicEndpoint(endpoint);
+    return { endpoint: toPublicEndpoint(endpoint), signingSecret };
+  }
+
+  /**
+   * Mint a replacement signing secret. The plaintext is returned once and only
+   * here; the bumped version counter is what tells a customer which key signed
+   * which of the deliveries already recorded against this endpoint.
+   */
+  async rotateSecret(
+    ctx: ConsoleWebhooksContext,
+    endpointId: string,
+  ): Promise<RotateConsoleWebhookSecretResult | null> {
+    const findArgs = {
+      categoryValidation: this.state.categoryValidation,
+      database: this.state.database,
+      namespace: this.state.namespace,
+      orgId: ctx.orgId,
+      endpointId,
+    };
+    const current = await findEndpoint(findArgs);
+    if (!current) return null;
+    const now = this.state.now();
+    const signingSecret = makeSigningSecret();
+    const sealedSecret = await this.state.secretCipher.sealConsoleWebhookSecret({
+      orgId: ctx.orgId,
+      endpointId,
+      plaintextSecret: signingSecret,
+    });
+    await this.state.database
+      .prepare(
+        `UPDATE webhook_endpoints
+            SET signing_secret_ciphertext_b64u = ?,
+                signing_secret_key_id = ?,
+                signing_secret_envelope_version = ?,
+                secret_version = secret_version + 1,
+                secret_preview = ?,
+                updated_at_ms = ?
+          WHERE namespace = ? AND org_id = ? AND id = ?`,
+      )
+      .bind(
+        sealedSecret.ciphertextB64u,
+        sealedSecret.keyId,
+        sealedSecret.envelopeVersion,
+        makeSecretPreview(signingSecret),
+        nowMs(now),
+        this.state.namespace,
+        ctx.orgId,
+        endpointId,
+      )
+      .run();
+    const endpoint = await findEndpoint(findArgs);
+    if (!endpoint) {
+      throw new ConsoleWebhookError('internal', 500, 'Failed to rotate webhook signing secret');
+    }
+    return { endpoint: toPublicEndpoint(endpoint), signingSecret };
   }
 
   async updateEndpoint(
@@ -1670,6 +1737,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     request: UpdateConsoleWebhookEndpointRequest,
   ): Promise<ConsoleWebhookEndpoint | null> {
     const current = await findEndpoint({
+      categoryValidation: this.state.categoryValidation,
       database: this.state.database,
       namespace: this.state.namespace,
       orgId: ctx.orgId,
@@ -1682,7 +1750,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     const nextStatus = request.status !== undefined ? request.status : current.status;
     const nextEventCategories =
       request.eventCategories !== undefined
-        ? normalizeEventCategories(request.eventCategories)
+        ? normalizeEventCategories(request.eventCategories, this.state.categoryValidation)
         : current.eventCategories;
     const statements = [
       this.state.database
@@ -1717,6 +1785,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     ];
     await this.state.database.batch(statements);
     const updated = await findEndpoint({
+      categoryValidation: this.state.categoryValidation,
       database: this.state.database,
       namespace: this.state.namespace,
       orgId: ctx.orgId,
@@ -1730,6 +1799,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     endpointId: string,
   ): Promise<{ removed: boolean; endpoint: ConsoleWebhookEndpoint | null }> {
     const current = await findEndpoint({
+      categoryValidation: this.state.categoryValidation,
       database: this.state.database,
       namespace: this.state.namespace,
       orgId: ctx.orgId,
@@ -1947,6 +2017,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     request: ReplayConsoleWebhookDeliveryRequest,
   ): Promise<ReplayConsoleWebhookDeliveryResult> {
     const endpoint = await findEndpoint({
+      categoryValidation: this.state.categoryValidation,
       database: this.state.database,
       namespace: this.state.namespace,
       orgId: ctx.orgId,
@@ -2015,15 +2086,11 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     if (!eventType) {
       throw new ConsoleWebhookError('invalid_event_type', 400, 'eventType is required');
     }
-    if (
-      !request.payload ||
-      typeof request.payload !== 'object' ||
-      Array.isArray(request.payload)
-    ) {
+    if (!request.payload || typeof request.payload !== 'object' || Array.isArray(request.payload)) {
       throw new ConsoleWebhookError('invalid_payload', 400, 'payload must be a JSON object');
     }
 
-    const category = normalizeEventCategory(eventType);
+    const category = normalizeEventCategory(eventType, this.state.categoryValidation);
     const eventId = String(request.eventId || '').trim() || makeId('wevt', this.state.now());
     if (!category) {
       return {
@@ -2056,6 +2123,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
           database: this.state.database,
           namespace: this.state.namespace,
           row,
+          categoryValidation: this.state.categoryValidation,
         }),
       );
     }

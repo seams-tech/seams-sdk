@@ -1,34 +1,31 @@
 import { expect, test } from '@playwright/test';
-import type { ClientUserData } from '../../packages/sdk-web/src/core/accountData/near/nearAccountData.types';
-import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
-import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import { Ed25519YaoPageLifecycleOwner } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoPageLifecycleOwner';
+import { toAccountId } from '../../packages/wallet/src/core/types/accountIds';
+import { toWalletId } from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { Ed25519YaoPageLifecycleOwner } from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/yaoPageLifecycleOwner';
 import {
   ED25519_YAO_PUBLIC_CAPABILITY_LANES_KIND_V1,
   ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_KIND_V1,
   IndexedDbEd25519YaoPublicCapabilityReferenceStore,
   parseEd25519YaoPublicCapabilityLanesV1,
   parseEd25519YaoPublicCapabilityReferencesV1,
-  publishEd25519YaoPublicCapabilityReferenceAndLane,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
+} from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import {
   buildMpcMaterialActivationRefFixture,
   buildWalletAuthAuthorityRefFixture,
 } from './helpers/ecdsaMaterialRef.fixtures';
 import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseThresholdEd25519SessionId } from '../../packages/shared-ts/src/utils/domainIds';
-import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { nearEd25519PublicLocatorObservation } from '../../packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface';
+import { toRpId } from '../../packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { nearEd25519PublicLocatorObservation } from '../../packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface';
 import { passkeyEd25519YaoLaneReferenceFromRecovery } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
 import {
-  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyExactEd25519AuthorizationFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
-import { buildRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
-import { resolveNearEd25519YaoCapabilityHydrationV1 } from '../../packages/sdk-web/src/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
-import { buildRestorableMpcMaterialRefInternal } from '../../packages/sdk-web/src/core/signingEngine/session/material/restorableMpcMaterialRef.internal';
-import { resolveEmailOtpEd25519YaoColdRecoveryV1 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoLogin';
+import { rebindRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
+import { resolveNearEd25519YaoCapabilityHydrationV1 } from '../../packages/wallet/src/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
+import { buildRestorableMpcMaterialRefInternal } from '../../packages/wallet/src/core/signingEngine/session/material/restorableMpcMaterialRef.internal';
 
 const APP_STATE_KEY = 'ed25519YaoPublicCapabilityReferencesV1';
 const LANES_APP_STATE_KEY = 'ed25519YaoPublicCapabilityLanesV1';
@@ -54,6 +51,8 @@ class AppStateFixture {
 }
 
 function publicIdentityFixture() {
+  const thresholdSessionId = parseThresholdEd25519SessionId('threshold-ed25519-yao-lifecycle');
+  if (!thresholdSessionId.ok) throw new Error(thresholdSessionId.error.message);
   return {
     walletId: toWalletId('wallet-yao-lifecycle'),
     nearAccountId: toAccountId('wallet-yao-lifecycle.testnet'),
@@ -61,7 +60,7 @@ function publicIdentityFixture() {
       'activation-yao-lifecycle',
       'wallet-yao-lifecycle',
     ),
-    thresholdSessionId: 'threshold-ed25519-yao-lifecycle',
+    thresholdSessionId: thresholdSessionId.value,
     runtimePolicyScope: {
       orgId: 'org-yao-lifecycle',
       projectId: 'project-yao-lifecycle',
@@ -126,54 +125,6 @@ test.describe('Ed25519 Yao public capability lifecycle', () => {
     await store.upsertLane(replacement);
 
     expect(await store.listLanes()).toEqual([replacement]);
-  });
-
-  test('publishes one identity for cold Email OTP recovery and its signing lane', async () => {
-    const appState = new AppStateFixture();
-    const store = new IndexedDbEd25519YaoPublicCapabilityReferenceStore(appState);
-    const identity = publicIdentityFixture();
-    const lane = {
-      ...identity,
-      auth: {
-        kind: 'email_otp' as const,
-        providerSubjectId: 'provider-subject-yao-lifecycle',
-      },
-      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('scope-yao-lifecycle'),
-      signerSlot: 1,
-      remainingUses: 3,
-      expiresAtMs: 1_900_000_000_000,
-    };
-    const user: ClientUserData = {
-      walletId: String(identity.walletId),
-      nearAccountId: identity.nearAccountId,
-      loginDisplayName: 'email-otp-yao-lifecycle',
-      signerSlot: lane.signerSlot,
-      operationalPublicKey: 'ed25519:yao-lifecycle',
-      passkeyCredential: {
-        id: 'email-otp-yao-lifecycle',
-        rawId: 'email-otp-yao-lifecycle',
-      },
-      authMethod: 'email_otp',
-    };
-
-    await publishEd25519YaoPublicCapabilityReferenceAndLane(store, lane);
-
-    expect(await store.list()).toEqual([identity]);
-    const resolved = await resolveEmailOtpEd25519YaoColdRecoveryV1(
-      {
-        listUsers: async () => [user],
-        listPublicCapabilityReferences: store.list.bind(store),
-      },
-      {
-        walletId: identity.walletId,
-        walletSessionUserId: 'provider-subject-yao-lifecycle',
-      },
-    );
-    expect(resolved).toEqual({
-      identity,
-      user,
-      providerSubject: 'provider-subject-yao-lifecycle',
-    });
   });
 
   test('lane projection drives exact signing hydration lookup', async () => {
@@ -241,6 +192,7 @@ test.describe('Ed25519 Yao public capability lifecycle', () => {
       thresholdSessionId: lane.thresholdSessionId,
     });
     expect(wrongLane).toEqual({ kind: 'missing' });
+    if (wrongLane.kind !== 'missing') throw new Error('expected a missing wrong-owner lane');
     expect(
       resolveNearEd25519YaoCapabilityHydrationV1({
         publicLocator: wrongLane,
@@ -251,19 +203,14 @@ test.describe('Ed25519 Yao public capability lifecycle', () => {
     ).toMatchObject({ kind: 'blocked', reason: 'missing_capability' });
   });
 
-  test('passkey unlock lane publication preserves the recovered signing identity', () => {
+  test('passkey unlock lane publication preserves the recovered signing identity', async () => {
     const record = buildPasskeyEd25519SealedSessionRecordFixture();
     const runtime = parseExactEd25519SealedSessionRuntime(record);
     if (!runtime) throw new Error('passkey sealed runtime fixture is invalid');
-    const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(record);
-    const walletSessionJwt = `${authorization.walletSessionTokens.ed25519.walletSessionJwt
-      .split('.')
-      .slice(0, 2)
-      .join('.')}.current`;
-    const walletSessionState = buildRouterAbEd25519WalletSessionStateFromExactRuntime({
+    const authorization = buildPasskeyExactEd25519AuthorizationFixture(record);
+    const walletSessionState = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
       runtime,
-      walletSessionJwt,
-      authority: authorization.authority,
+      authorization,
       nowMs: runtime.expiresAtMs - 1,
     });
     const lane = passkeyEd25519YaoLaneReferenceFromRecovery({
@@ -290,7 +237,7 @@ test.describe('Ed25519 Yao public capability lifecycle', () => {
       'clientScalar',
       'prfFirst',
       'rootShare',
-      'walletSessionJwt',
+      'walletSessionToken',
       'activationPackage',
     ];
 

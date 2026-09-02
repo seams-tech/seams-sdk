@@ -48,6 +48,8 @@ export const ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1 =
   '/router-ab/ed25519/yao/recovery/activate' as const;
 export const ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1 =
   '/router-ab/ed25519/yao/recovery/status' as const;
+export const ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1 =
+  'x-seams-wallet-recovery-challenge-id' as const;
 export const ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1 =
   '/router-ab/ed25519/yao/recovery/bootstrap' as const;
 export const ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 =
@@ -793,7 +795,9 @@ function parsePrimitiveRequestKind(
   }
 }
 
-function parseApplicationBinding(value: unknown): RouterAbEd25519YaoApplicationBindingFactsV1 {
+export function parseRouterAbEd25519YaoApplicationBindingFactsV1(
+  value: unknown,
+): RouterAbEd25519YaoApplicationBindingFactsV1 {
   const record = requireRecord(value, 'application_binding');
   requireExactKeys(record, 'application_binding', [
     'wallet_id',
@@ -865,6 +869,12 @@ function parseParticipantIds(value: unknown): readonly [number, number] {
     throw new Error('participant_ids must be distinct, nonzero, ascending u16 values');
   }
   return [first, second];
+}
+
+export function parseRouterAbEd25519YaoParticipantIdsV1(
+  value: unknown,
+): readonly [number, number] {
+  return parseParticipantIds(value);
 }
 
 function parseAdmittedLifecycle(value: unknown): RouterAbEd25519YaoAdmittedLifecycleV1 {
@@ -1255,7 +1265,9 @@ function parseEncryptedPackage(
   };
 }
 
-function parsePublicReceipt(value: unknown): RouterAbEd25519YaoActivationPublicReceiptV1 {
+export function parseRouterAbEd25519YaoActivationPublicReceiptV1(
+  value: unknown,
+): RouterAbEd25519YaoActivationPublicReceiptV1 {
   const record = requireRecord(value, 'public_receipt');
   requireExactKeys(record, 'public_receipt', [
     'transcript',
@@ -1369,7 +1381,7 @@ function parseRegistrationAdmissionRequestValue(
   ]);
   return {
     scope: parsePublicLifecycleScope(record.scope),
-    application_binding: parseApplicationBinding(record.application_binding),
+    application_binding: parseRouterAbEd25519YaoApplicationBindingFactsV1(record.application_binding),
     participant_ids: parseParticipantIds(record.participant_ids),
   };
 }
@@ -1422,7 +1434,7 @@ function parseRecoveryAdmissionRequestValue(
   return {
     scope,
     active_material_activation: activeMaterialActivation,
-    application_binding: parseApplicationBinding(record.application_binding),
+    application_binding: parseRouterAbEd25519YaoApplicationBindingFactsV1(record.application_binding),
     participant_ids: parseParticipantIds(record.participant_ids),
     active_capability_binding: activeCapabilityBinding,
     replacement_capability_binding: replacementCapabilityBinding,
@@ -1544,7 +1556,7 @@ function parseExportAdmissionRequestValue(
   ]);
   return {
     scope: parsePublicLifecycleScope(record.scope),
-    application_binding: parseApplicationBinding(record.application_binding),
+    application_binding: parseRouterAbEd25519YaoApplicationBindingFactsV1(record.application_binding),
     participant_ids: parseParticipantIds(record.participant_ids),
     registered_public_key: requireBytes32(
       record.registered_public_key,
@@ -1688,7 +1700,7 @@ function parseActivationResultValue(value: unknown): RouterAbEd25519YaoActivatio
     'public_receipt',
   ]);
   const binding = requireActivationBinding(parseCeremonyBinding(record.binding));
-  const receipt = parsePublicReceipt(record.public_receipt);
+  const receipt = parseRouterAbEd25519YaoActivationPublicReceiptV1(record.public_receipt);
   if (
     !sameRouterAbMpcMaterialActivationRef(binding.material_activation, receipt.material_activation)
   ) {
@@ -1751,7 +1763,7 @@ function parseRecoveryActivationRequestValue(
   requireExactKeys(record, 'recovery activation request', ['binding', 'public_receipt']);
   return {
     binding: requireRecoveryBinding(record.binding),
-    public_receipt: parsePublicReceipt(record.public_receipt),
+    public_receipt: parseRouterAbEd25519YaoActivationPublicReceiptV1(record.public_receipt),
   };
 }
 
@@ -1780,7 +1792,7 @@ function parseRecoveryActivationReceiptValue(
   }
   return {
     binding: requireRecoveryBinding(record.binding),
-    public_receipt: parsePublicReceipt(record.public_receipt),
+    public_receipt: parseRouterAbEd25519YaoActivationPublicReceiptV1(record.public_receipt),
     active_capability_binding: activeCapabilityBinding,
     retired_capability_binding: retiredCapabilityBinding,
   };

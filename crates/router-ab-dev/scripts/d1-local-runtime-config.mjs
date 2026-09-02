@@ -4,7 +4,14 @@ import {
   generateKeyPairSync,
   timingSafeEqual,
 } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 
 import { resolveLocalConsoleOrganizationId } from './local-console-identity.mjs';
@@ -49,6 +56,7 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
   assertEqualEnv(routerEnv, 'SIGNING_WORKER_ID', signingWorkerEnv, 'SIGNING_WORKER_ID');
   assertRuntimeHpkeKeysAgree(routerEnv, deriverAEnv, deriverBEnv, signingWorkerEnv);
 
+  mkdirSync(path.dirname(outputConfigPath), { recursive: true });
   let runtimeConfig = applyRuntimePaths(
     readFileSync(sourceConfigPath, 'utf8'),
     repoRoot,
@@ -122,7 +130,6 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
     input.localConsoleEnvironmentId ?? 'local',
   );
 
-  mkdirSync(path.dirname(outputConfigPath), { recursive: true });
   writeFileSync(outputConfigPath, runtimeConfig, { mode: 0o600 });
   chmodSync(outputConfigPath, 0o600);
   return Object.freeze({
@@ -331,30 +338,34 @@ function parseHex32(value, label) {
 }
 
 function applyRuntimePaths(source, repoRoot, outputConfigPath) {
-  const outputDirectory = path.dirname(outputConfigPath);
+  const outputDirectory = realpathSync(path.dirname(outputConfigPath));
+  const normalizedRepoRoot = realpathSync(repoRoot);
   const mainPath = relativeTomlPath(
     outputDirectory,
-    path.join(repoRoot, 'packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts'),
+    path.join(
+      normalizedRepoRoot,
+      'packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts',
+    ),
   );
   const consoleMigrationsPath = relativeTomlPath(
     outputDirectory,
-    path.join(repoRoot, 'packages/console-server-ts/migrations/d1-console'),
+    path.join(normalizedRepoRoot, 'packages/wallet-console-server-ts/migrations/d1-console'),
   );
   const signerMigrationsPath = relativeTomlPath(
     outputDirectory,
-    path.join(repoRoot, 'packages/sdk-server-ts/migrations/d1-signer'),
+    path.join(normalizedRepoRoot, 'packages/wallet-server/migrations/d1-signer'),
   );
   return replaceExactLine(
     replaceExactLine(
       replaceExactLine(
         source,
-        'main = "src/router/cloudflare/d1LocalDevWorker.ts"',
+        'main = "../wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts"',
         `main = ${JSON.stringify(mainPath)}`,
       ),
-      'migrations_dir = "migrations/d1-console"',
+      'migrations_dir = "../wallet-console-server-ts/migrations/d1-console"',
       `migrations_dir = ${JSON.stringify(consoleMigrationsPath)}`,
     ),
-    'migrations_dir = "node_modules/@seams/sdk-server/migrations/d1-signer"',
+    'migrations_dir = "../wallet-console-server-ts/node_modules/@seams/wallet-server/migrations/d1-signer"',
     `migrations_dir = ${JSON.stringify(signerMigrationsPath)}`,
   );
 }

@@ -25,16 +25,16 @@ import {
   buildAuthorizedOperation,
   parseSessionOrigin,
   type AuthorizedOperation,
-} from '../../../packages/sdk-server-ts/src/authorization/domain';
+} from '../../../packages/wallet-server/src/authorization/domain';
 import {
   buildVerifiedWalletOperationPasskeyFactorResult,
   type VerifiedAuthorizationEvidenceSet,
-} from '../../../packages/sdk-server-ts/src/authorization/factorEvidence';
+} from '../../../packages/wallet-server/src/authorization/factorEvidence';
 import { buildCapabilityOperationEnvelope } from '../../../packages/shared-ts/src/authorization/operationFingerprint';
 import {
   buildVaultProxyUseOperation,
   parseVaultProxyDestination,
-} from '../../../packages/sdk-server-ts/src/authorization/vaultProxyUse';
+} from '../../../packages/wallet-server/src/authorization/vaultProxyUse';
 
 export const VAULT_PROXY_FIXTURE_TIME_MS = 1_900_000_000_000;
 

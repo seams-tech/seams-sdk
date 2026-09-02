@@ -22,6 +22,11 @@ import {
   buildMpcMaterialActivationRefFixture,
   buildWalletAuthAuthorityRefFixture,
 } from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
 
 // The manifest owns the exact capability, public facts and material activation;
 // the sealed record owns session-scoped runtime state. This correlation is what
@@ -77,6 +82,46 @@ function resolveInactive(
 }
 
 test.describe('exact ECDSA sealed runtime resolution', () => {
+  test('rebinds a sealed Email OTP runtime to the manifest V2 auth-method id', async () => {
+    const walletId = toWalletId('ecdsa-manifest-fixture-wallet');
+    const baseAuthority = buildEmailOtpWalletAuthAuthority({
+      walletId,
+      provider: 'google',
+      providerUserId: `google:${String(walletId)}`,
+      emailHashHex: 'email-hash',
+    });
+    const walletAuthMethodId = parseWalletAuthMethodId(
+      `email_otp:${String(walletId)}:canonical-method`,
+    );
+    if (!walletAuthMethodId.ok) throw new Error(walletAuthMethodId.error.message);
+    const authority = {
+      walletId: baseAuthority.walletId,
+      factor: baseAuthority.factor,
+      verifier: baseAuthority.verifier,
+      bindingId: walletAuthMethodId.value,
+    };
+    const authorityRef = await walletAuthAuthorityRef({ authority });
+    const manifest = ecdsaCapabilityActivationLookupFixture({ authority: authorityRef }).manifest;
+    const record = buildEmailOtpEcdsaSealedRuntimeRecordFixture({ manifest });
+    const resolution = resolveExactEcdsaSealedRuntime({
+      manifest,
+      walletId,
+      chainTarget: record.ecdsaRestore.chainTarget,
+      sealedRecords: [record],
+    });
+
+    expect(resolution.kind).toBe('resolved');
+    if (resolution.kind !== 'resolved') return;
+    expect(resolution.runtime.authBinding.kind).toBe('email_otp');
+    if (resolution.runtime.authBinding.kind !== 'email_otp') return;
+    expect(resolution.runtime.authBinding.emailOtpAuthority.bindingId).toBe(
+      walletAuthMethodId.value,
+    );
+    await expect(
+      walletAuthAuthorityRef({ authority: resolution.runtime.authBinding.emailOtpAuthority }),
+    ).resolves.toEqual(manifest.signer.authority);
+  });
+
   test('resolves runtime facts from the sealed record bound to the manifest material', () => {
     const manifest = activeManifest();
     const record = buildEmailOtpEcdsaSealedRuntimeRecordFixture({ manifest });
@@ -218,6 +263,50 @@ test.describe('exact ECDSA sealed runtime resolution', () => {
       kind: 'blocked',
       reason: 'binding_mismatch',
     });
+  });
+
+  test('rejects synthesized or mismatched exact worker and auth identities', () => {
+    const manifest = activeManifest();
+    const identityMismatches = [
+      { kind: 'auth_method', authMethod: 'passkey' },
+      { kind: 'binding_digest', bindingDigest: 'synthesized-binding-digest' },
+      { kind: 'key_handle', keyHandle: 'synthesized-key-handle' },
+      { kind: 'ecdsa_threshold_key_id', thresholdKeyId: 'synthesized-threshold-key' },
+      { kind: 'threshold_public_key', publicKeyB64u: 'synthesized-threshold-public-key' },
+      { kind: 'client_verifying_share', shareB64u: 'synthesized-client-verifying-share' },
+      { kind: 'signing_root_id', signingRootId: 'synthesized:signing-root' },
+      { kind: 'signing_root_version', signingRootVersion: 'synthesized-version' },
+      { kind: 'ethereum_address', ethereumAddress: '0x0000000000000000000000000000000000000001' },
+      {
+        kind: 'normal_signing_worker_id',
+        signingWorkerId: 'wallet-session:synthesized-worker',
+      },
+      {
+        kind: 'normal_signing_context',
+        applicationBindingDigestB64u: 'synthesized-application-binding',
+      },
+      {
+        kind: 'normal_signing_server_public_key',
+        publicKeyB64u: 'synthesized-server-public-key',
+      },
+      {
+        kind: 'public_capability_signer_id',
+        signerId: 'authorization:synthesized-signer',
+      },
+      { kind: 'public_capability_router_id', routerId: 'synthesized-router' },
+      { kind: 'relayer_key_id', relayerKeyId: 'synthesized-relayer-key' },
+    ] as const;
+
+    for (const corruption of identityMismatches) {
+      const record = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+        manifest,
+        corruption,
+      });
+      expect(resolve(manifest, [record]), corruption.kind).toEqual({
+        kind: 'blocked',
+        reason: 'binding_mismatch',
+      });
+    }
   });
 
   test('rejects malformed two-party runtime facts', () => {

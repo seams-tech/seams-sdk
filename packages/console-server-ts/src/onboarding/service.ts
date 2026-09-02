@@ -2,7 +2,7 @@ import type { ConsoleApiKeyService } from '../apiKeys/service';
 import type { ConsoleApiKey } from '../apiKeys/types';
 import type { ConsoleBillingService } from '../billing/service';
 import { getBillingLiveEnvironmentReadiness } from '../billing/readiness';
-import { normalizeLogger, type Logger } from '@seams/sdk-server/cloud-host';
+import { normalizeLogger, type Logger } from '../boundary';
 import type {
   ConsoleEnvironment,
   ConsoleOrganization,

@@ -1,26 +1,22 @@
 import { expect, test } from '@playwright/test';
-import type { AuthenticatorPort } from '../../packages/sdk-web/src/core/platform';
-import type { HttpTransport } from '../../packages/sdk-web/src/core/platform/http';
-import type { LaneOperationSourcePortsV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/operations/ports';
-import type { LaneSealedHolderMaterialRepositoryV1 } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
-import type { LinkedDeviceWalletSessionRepositoryV1 } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
-import type { LinkedDeviceExecutionEvidenceRepositoryV1 } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
+import type { AuthenticatorPort } from '../../packages/wallet/src/core/platform';
+import type { HttpTransport } from '../../packages/wallet/src/core/platform/http';
 import {
   createDeviceLinkingFlowPortsV1,
   type DeviceLinkingFlowPortsAssemblyOptionsV1,
-} from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingComposition';
+} from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingComposition';
 import {
   createDeviceLinkingKeyMaterialPortV1,
   type DeviceLinkingWorkerEndpointV1,
-} from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingWorkerChannels';
+} from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingWorkerChannels';
 import {
   resolveWalletHostInternalOptionsV1,
-} from '../../packages/sdk-web/src/SeamsWeb/walletIframe/host/context';
-import type { DeviceLinkingOwnerAuthorizationPortV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingPorts';
+} from '../../packages/wallet/src/SeamsWeb/walletIframe/host/context';
+import type { DeviceLinkingOwnerAuthorizationPortV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingPorts';
 import type {
   LinkSessionOwnerApprovalUpdatesPortV1,
   LinkSessionOwnerAuthenticatedRequestPortV1,
-} from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingOwnerTransport';
+} from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingOwnerTransport';
 
 class IdleWorkerEndpoint {
   addEventListener(): void {}
@@ -62,6 +58,8 @@ class RespondingWorkerEndpoint extends IdleWorkerEndpoint {
             handleId: 'handle-1',
             linkPublicKeyB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
             devicePublicKeyB64u: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE',
+            deliveryRecipientPublicKey65B64u:
+              'BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU',
           },
         },
       } as MessageEvent);
@@ -70,61 +68,8 @@ class RespondingWorkerEndpoint extends IdleWorkerEndpoint {
 }
 
 const unsupported = async (): Promise<never> => {
-  throw new Error('source preparation is outside this composition test');
+  throw new Error('operation is outside this composition test');
 };
-
-function sourceLanePorts(): LaneOperationSourcePortsV1 {
-  return {
-    nowMs: () => 1,
-    reconcileEcdsaActivationJournalV1: unsupported,
-    gateway: {
-      prepareLaneEnrollmentV1: unsupported,
-      resumeLaneProtocolOperationV1: unsupported,
-      recordLaneProtocolCommitV1: unsupported,
-      recordLaneHolderDeliveryV1: unsupported,
-      activateLaneServerMaterialV1: unsupported,
-      commitLaneEnrollmentActivationV1: unsupported,
-      fenceSigningLaneRevocationV1: unsupported,
-      completeSigningLaneRevocationV1: unsupported,
-    },
-    wasm: {
-      ecdsa: { prepareEcdsaAdditiveLaneHolderRoundV1: unsupported },
-      ed25519Yao: { prepare: unsupported, complete: unsupported },
-    },
-    protocolCommitter: {
-      executeAndRecordEcdsaAdditiveLaneV1: unsupported,
-      executeAndRecordEd25519YaoLaneV1: unsupported,
-    },
-  };
-}
-
-function repository(): LaneSealedHolderMaterialRepositoryV1 {
-  return {
-    put: unsupported,
-    get: unsupported,
-    listForEnrollmentV1: unsupported,
-    delete: unsupported,
-  };
-}
-
-function walletSessionRepository(): Pick<
-  LinkedDeviceWalletSessionRepositoryV1,
-  'putExactActiveDeliveryV1'
-> {
-  return {
-    putExactActiveDeliveryV1: unsupported,
-  };
-}
-
-function executionEvidenceRepository(): Pick<
-  LinkedDeviceExecutionEvidenceRepositoryV1,
-  'putExactProvisionedEvidenceV1' | 'readForEnrollmentV1'
-> {
-  return {
-    putExactProvisionedEvidenceV1: unsupported,
-    readForEnrollmentV1: unsupported,
-  };
-}
 
 function ownerAuthorization(): DeviceLinkingOwnerAuthorizationPortV1 {
   return { authenticateOwnerForLinkingV1: unsupported };
@@ -156,13 +101,6 @@ function assemblyOptions(
     ownerRequest: ownerRequest(),
     ownerApprovalUpdates: approvalUpdates(),
     ownerAuthorization: ownerAuthorization(),
-    repository: repository(),
-    walletSessionRepository: walletSessionRepository(),
-    sessionActivation: {
-      activateLinkedDeviceSigningSessionV1: unsupported,
-    },
-    executionEvidenceRepository: executionEvidenceRepository(),
-    sourceLanePorts: sourceLanePorts(),
     workerEndpoint,
     nowMs: () => 1,
     pollIntervalMs: 1_000,
@@ -175,10 +113,6 @@ test('composes direct device-linking ports only from explicit trust-boundary pro
   expect(ports.transport).toBeDefined();
   expect(ports.keyMaterial).toBeDefined();
   expect(ports.targetCredential).toBeDefined();
-  expect(ports.laneProvisioning).toBeDefined();
-  expect(ports.walletSessions).toBeDefined();
-  expect(ports.executionEvidence).toBeDefined();
-  expect(ports.sourcePreparation).toBeDefined();
   expect(JSON.stringify(ports)).not.toContain('privateKey');
   expect(JSON.stringify(ports)).not.toContain('prf');
 });

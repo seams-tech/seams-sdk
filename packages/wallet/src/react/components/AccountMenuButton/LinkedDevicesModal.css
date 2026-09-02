@@ -1,0 +1,513 @@
+.w3a-linked-devices-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(
+    --w3a-z-underlay-backdrop,
+    calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-backdrop-offset, 2))
+  );
+  background: rgb(0 0 0 / 0.26);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: var(--w3a-spacing-sm, 12px);
+  box-sizing: border-box;
+  overflow: auto;
+  animation: w3a-linked-devices-backdrop-opacity 80ms ease-out;
+}
+
+.w3a-linked-devices-modal-content {
+  position: relative;
+  z-index: var(
+    --w3a-z-underlay-content,
+    calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-content-offset, 1))
+  );
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  max-width: 100%;
+  min-width: 0;
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow: hidden;
+  padding: var(--w3a-spacing-lg, 1.5rem);
+  border: none;
+  border-radius: var(--w3a-shape-card, 1.5rem);
+  background: var(--w3a-colors-colorBackground);
+  box-sizing: border-box;
+}
+
+.w3a-linked-devices-modal-content:focus {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .w3a-linked-devices-modal-content {
+    animation: w3a-linked-devices-modal-content-enter 80ms ease-out both;
+  }
+}
+
+.w3a-auth-methods-modal-content {
+  width: min(520px, 100%);
+}
+
+/* The device inventory is two short rows of text; a narrower dialog keeps the
+   metadata lines scannable. */
+.w3a-linked-devices-inventory-content {
+  width: min(500px, 100%);
+}
+
+.w3a-auth-methods-modal-intro {
+  margin: -0.25rem 2.5rem 0.75rem 0;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.w3a-linked-devices-modal-title {
+  margin: 0 2.5rem 0.75rem 0;
+  font-size: 1.3125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--w3a-colors-textPrimary);
+}
+
+.w3a-linked-devices-modal-subtitle {
+  margin: -0.5rem 2.5rem 1rem 0;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.w3a-linked-devices-modal-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--w3a-colors-textMuted);
+  cursor: pointer;
+  padding: 16px;
+  border-radius: 999px;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.w3a-linked-devices-modal-close:hover {
+  color: var(--w3a-colors-textPrimary);
+  background: var(--w3a-colors-surface);
+}
+
+.w3a-linked-devices-modal-close:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.w3a-linked-devices-modal-body {
+  display: grid;
+  min-height: 0;
+  gap: var(--w3a-spacing-sm, 0.5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Both the loading and the loaded state render one card per row, so the box
+   the list occupies does not jump when the devices arrive. */
+.w3a-linked-devices-modal-placeholder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.5rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 0.75rem;
+  background: var(--w3a-colors-surface);
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.w3a-linked-devices-modal-list {
+  display: grid;
+  gap: var(--w3a-spacing-sm, 0.5rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.w3a-linked-devices-modal-item {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 0.75rem;
+  background: var(--w3a-colors-surface);
+}
+
+.w3a-linked-devices-modal-item-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.w3a-linked-devices-modal-item-name {
+  color: var(--w3a-colors-textPrimary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* The state chip carries the only status a person needs; colour reinforces the
+   word rather than replacing it. */
+.w3a-linked-devices-modal-standing {
+  flex: none;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.w3a-linked-devices-modal-standing.tone-active {
+  background: color-mix(in srgb, oklch(0.62 0.15 155), transparent 88%);
+  color: oklch(0.48 0.14 155);
+}
+
+.w3a-linked-devices-modal-standing.tone-pending {
+  background: color-mix(in srgb, oklch(0.72 0.15 85), transparent 88%);
+  color: oklch(0.5 0.13 85);
+}
+
+.w3a-linked-devices-modal-standing.tone-off {
+  background: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 90%);
+  color: var(--w3a-colors-textSecondary);
+}
+
+.theme-dark .w3a-linked-devices-modal-standing.tone-active {
+  color: oklch(0.8 0.14 155);
+}
+
+.theme-dark .w3a-linked-devices-modal-standing.tone-pending {
+  color: oklch(0.82 0.13 85);
+}
+
+.w3a-linked-devices-modal-item-detail {
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+/* The device inventory renders as one bordered group with hairline dividers
+   rather than a stack of cards; the auth-methods modal keeps the card look. */
+.w3a-linked-devices-modal-list--grouped {
+  gap: 0;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 0.75rem;
+  background: var(--w3a-colors-surface);
+  overflow: hidden;
+}
+
+.w3a-linked-devices-modal-item--row {
+  position: relative;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0 0.75rem;
+  padding: 1rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* Divider inset to the row padding so the group reads as one card. */
+.w3a-linked-devices-modal-item--row + .w3a-linked-devices-modal-item--row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 1rem;
+  right: 1rem;
+  border-top: 1px solid var(--w3a-colors-borderPrimary);
+}
+
+.w3a-linked-devices-modal-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 92%);
+  color: var(--w3a-colors-textSecondary);
+}
+
+.w3a-linked-devices-modal-item-content {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+/* Title and chip sit together on the left; the shared rule spreads them. */
+.w3a-linked-devices-modal-item--row .w3a-linked-devices-modal-item-main {
+  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-height: 1.25rem;
+}
+
+.w3a-linked-devices-modal-item--row .w3a-linked-devices-modal-item-name {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+/* Why this row cannot be removed right now, shaped as part of the row. */
+.w3a-linked-devices-modal-hint {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 92%);
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.w3a-linked-devices-modal-hint svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.w3a-linked-devices-modal-remove {
+  align-self: start;
+  margin-top: 2px;
+  color: oklch(0.52 0.17 25);
+}
+
+.theme-dark .w3a-linked-devices-modal-remove {
+  color: oklch(0.74 0.15 25);
+}
+
+.w3a-linked-devices-modal-item--row .w3a-linked-devices-modal-confirm,
+.w3a-linked-devices-modal-item--row .w3a-linked-devices-modal-otp-form {
+  margin-top: 0.6rem;
+}
+
+.w3a-linked-devices-modal-confirm {
+  display: grid;
+  gap: 0.5rem;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.w3a-linked-devices-modal-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.w3a-linked-devices-modal-confirm-actions > button {
+  flex: 1 1 0;
+}
+
+.w3a-linked-devices-modal-add-method {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 0.75rem;
+}
+
+.w3a-linked-devices-modal-add-method h3 {
+  margin: 0;
+  color: var(--w3a-colors-textPrimary);
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.w3a-linked-devices-modal-security-note {
+  margin: 0;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.w3a-linked-devices-modal-otp-form {
+  display: grid;
+  gap: 0.5rem;
+  color: var(--w3a-colors-textPrimary);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.w3a-linked-devices-modal-otp-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 0.6rem;
+  background: var(--w3a-colors-colorBackground);
+  color: var(--w3a-colors-textPrimary);
+  font: inherit;
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+.w3a-linked-devices-modal-otp-input:focus-visible {
+  outline: 2px solid var(--w3a-colors-primary);
+  outline-offset: 2px;
+}
+
+.w3a-linked-devices-modal-secondary,
+.w3a-linked-devices-modal-danger {
+  justify-self: start;
+  min-height: 36px;
+  padding: 0.4rem 0.75rem;
+  border-radius: 0.6rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.w3a-linked-devices-modal-secondary {
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  background: var(--w3a-colors-colorBackground);
+  color: var(--w3a-colors-textPrimary);
+}
+
+.w3a-linked-devices-modal-secondary:hover:not(:disabled) {
+  background: var(--w3a-colors-surface2, var(--w3a-colors-surface));
+}
+
+.w3a-linked-devices-modal-danger {
+  justify-self: stretch;
+  border: 1px solid transparent;
+  background: oklch(0.55 0.19 25);
+  color: #ffffff;
+}
+
+.w3a-linked-devices-modal-danger:hover {
+  background: oklch(0.49 0.19 25);
+}
+
+.w3a-linked-devices-modal-secondary:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.w3a-linked-devices-modal-danger:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.w3a-linked-devices-modal-secondary:focus-visible,
+.w3a-linked-devices-modal-danger:focus-visible {
+  outline: 2px solid var(--w3a-colors-primary);
+  outline-offset: 2px;
+}
+
+.w3a-linked-devices-modal-error {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid color-mix(in srgb, oklch(0.58 0.18 25), transparent 75%);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, oklch(0.58 0.18 25), transparent 93%);
+  color: oklch(0.52 0.17 25);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.theme-dark .w3a-linked-devices-modal-error {
+  color: oklch(0.74 0.15 25);
+}
+
+/* Announced only — a visible copy would shift the card as it changes. */
+.w3a-linked-devices-modal-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes w3a-linked-devices-backdrop-opacity {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes w3a-linked-devices-modal-content-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 480px) {
+  .w3a-linked-devices-modal-backdrop {
+    align-items: flex-start;
+    padding: var(--w3a-spacing-sm, 8px);
+  }
+
+  .w3a-linked-devices-modal-content {
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+    padding: var(--w3a-spacing-md, 1rem);
+    border-radius: var(--w3a-shape-card, 1rem);
+  }
+
+  .w3a-linked-devices-modal-item-main {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  /* Row layout keeps the chip beside the title; it wraps on its own. */
+  .w3a-linked-devices-modal-item--row .w3a-linked-devices-modal-item-main {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .w3a-linked-devices-modal-item--row {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    padding: 0.85rem;
+  }
+
+  .w3a-linked-devices-modal-item-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .w3a-linked-devices-modal-item--row + .w3a-linked-devices-modal-item--row::before {
+    left: 0.85rem;
+    right: 0.85rem;
+  }
+}
+
+@media (max-height: 520px) {
+  .w3a-linked-devices-modal-backdrop {
+    align-items: flex-start;
+  }
+}

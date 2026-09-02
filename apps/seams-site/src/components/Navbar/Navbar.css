@@ -10,7 +10,7 @@
   --navbar-primary: var(--site-action, #000000);
   --navbar-primary-hover: var(--site-action-hover, #262626);
   --navbar-text-button: var(--site-text-button, #ffffff);
-  --navbar-focus: var(--site-focus, #66a3ff);
+  --navbar-focus: var(--site-focus, #4fb894);
   --navbar-access-nav-surface: color-mix(in srgb, var(--navbar-surface3) 82%, transparent);
   --navbar-access-trigger-active: color-mix(in srgb, var(--navbar-surface2) 72%, transparent);
   --navbar-access-panel-surface: color-mix(in srgb, var(--navbar-surface) 94%, var(--navbar-bg) 6%);
@@ -454,6 +454,9 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 .navbar-static__menu-highlight:hover,
 .navbar-static__menu-highlight:focus-visible {
   filter: brightness(1.06);
+  /* the global `a:hover` brand color outranks the card's own white, and the
+     title inherits it; hold white so the card keeps its one text color */
+  color: #ffffff;
 }
 
 .navbar-static__menu-highlight-title {
@@ -506,16 +509,13 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 html[data-w3a-theme='light'] .navbar-static {
   --navbar-shadow-color: rgba(15, 23, 42, 0.34);
   --navbar-access-nav-surface: color-mix(in srgb, var(--navbar-surface) 90%, transparent);
-  --navbar-access-trigger-active: color-mix(
-    in srgb,
-    var(--navbar-surface2) 82%,
-    var(--navbar-primary) 7%
-  );
+  /* same faint wash as the nav triggers (.navbar-static__link:hover), so a
+     dropdown row doesn't read heavier than the trigger that opened it */
+  --navbar-access-trigger-active: rgba(31, 41, 55, 0.05);
   --navbar-access-panel-surface: color-mix(in srgb, var(--navbar-surface) 99%, var(--navbar-bg) 1%);
   --navbar-access-divider: color-mix(in srgb, var(--navbar-border) 46%, transparent);
   --navbar-access-muted: color-mix(in srgb, var(--site-text-secondary) 92%, var(--navbar-text) 8%);
 }
-
 
 .navbar-static__actions {
   display: flex;

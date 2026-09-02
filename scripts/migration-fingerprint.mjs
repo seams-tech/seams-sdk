@@ -43,7 +43,6 @@ export function assertAppliedMigrationSourcesUnchanged({
   previousFingerprint,
   appliedMigrationNames,
   migrations,
-  acceptedPredecessor,
 }) {
   if (previousFingerprint === undefined) return;
   const previouslyAppliedMigrations = migrations.filter((migration) =>
@@ -51,12 +50,6 @@ export function assertAppliedMigrationSourcesUnchanged({
   );
   const appliedFingerprint = digestMigrations(previouslyAppliedMigrations);
   if (appliedFingerprint === previousFingerprint) return;
-  if (
-    acceptedPredecessor?.fingerprint === previousFingerprint &&
-    migrations.some((migration) => migration.name === acceptedPredecessor.bridgeMigrationName) &&
-    !appliedMigrationNames.has(acceptedPredecessor.bridgeMigrationName)
-  )
-    return;
   throw new Error(
     'Applied D1 migration sources changed; add a new forward migration instead of rewriting an applied migration',
   );

@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  BookOpen,
   Bot,
   Building2,
   ChevronDown,
@@ -106,20 +105,20 @@ const productsDropdownPane: DropdownPane = {
   kicker: 'Documentation',
   rows: [
     {
-      title: 'Guides',
-      description: 'Key, credential, policy, and signing architecture',
-      to: '/docs/guides/',
-      icon: BookOpen,
+      title: 'Get Started',
+      description: 'Install the SDK, create a wallet, and sign with policy',
+      to: '/docs/',
+      icon: Rocket,
     },
     {
-      title: 'Tools',
-      description: 'SDK references for auth, sessions, wallet UI, and policy',
-      to: '/docs/reference/',
+      title: 'Tools and Guides',
+      description: 'Auth, sessions, wallet UI, policy, and the SDK reference',
+      to: '/docs/guides/',
       icon: Wrench,
     },
     {
       title: 'Use cases',
-      description: 'Mandates, payments, recovery, and delegated agents',
+      description: 'Mandates, delegated agents, and agent-driven commerce',
       to: '/docs/use-cases/',
       icon: ListChecks,
     },

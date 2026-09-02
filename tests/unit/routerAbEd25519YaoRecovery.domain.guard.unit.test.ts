@@ -16,62 +16,35 @@ import {
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
-import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
-import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   buildRouterAbEd25519YaoRegistrationCapabilityRecordV1,
   InMemoryRouterAbEd25519YaoRecoveryService,
   createRouterAbEd25519YaoRecoveryModule,
+  recoveryAuthorizationBinding,
   type RouterAbEd25519YaoRecoveryAuthorizationAdapter,
   type RouterAbEd25519YaoRecoveryAuthorizationInput,
   type RouterAbEd25519YaoRecoveryAuthorizationResult,
+  type RouterAbEd25519YaoRecoveryAuthorizationBindingV1,
   type RouterAbEd25519YaoRecoveryBackend,
   type RouterAbEd25519YaoRecoveryBackendResult,
   type RouterAbEd25519YaoCapabilityPersistenceV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
-import type { RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
-import type { WalletEd25519YaoActiveCapabilityRecord } from '../../packages/sdk-server-ts/src/core/WalletStore';
-import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
-import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/framework/logger';
-
-function walletSessionClaimsFixture() {
-  const authority = buildPasskeyWalletAuthAuthority({
-    walletId: 'wallet-1',
-    rpId: 'router.example.test',
-    credentialIdB64u: 'recovery-credential-id',
-  });
-  return {
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'owner_wallet_session',
-    sub: 'wallet-1',
-    walletId: 'wallet-1',
-    nearAccountId: 'wallet-1.testnet',
-    nearEd25519SigningKeyId: 'ed25519ks_1',
-    thresholdSessionId: 'wallet-session-1',
-    walletSessionId: 'wallet-session-1',
-    quotaId: 'quota-recovery-1',
-    relayerKeyId: 'signing-worker-1',
-    authority,
-    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
-    runtimePolicyScope: {
-      orgId: 'org-recovery',
-      projectId: 'project-recovery',
-      envId: 'test',
-      signingRootVersion: 'root-epoch-1',
-    },
-    thresholdExpiresAtMs: Date.now() + 60_000,
-    participantIds: [1, 2],
-    routerAbNormalSigning: {
-      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-      signingWorkerId: 'signing-worker-1',
-    },
-  };
-}
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import type { RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../packages/wallet-server/src/core/WalletStore';
+import type { RouterApiWalletSessionAuthorizationV2AdmissionContext } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import { coerceRouterLogger } from '../../packages/wallet-server/src/router/framework/logger';
+import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
 type RecoveryResult = RouterAbEd25519YaoActivationResultV1<'recovery'>;
 type RegistrationResult = RouterAbEd25519YaoActivationResultV1<'registration'>;
+
+const RECOVERY_AUTHORIZATION = {
+  kind: 'wallet_recovery',
+  walletId: 'wallet-1',
+} as const satisfies RouterAbEd25519YaoRecoveryAuthorizationBindingV1;
 
 type ExecutionBehavior =
   | { readonly kind: 'success'; readonly result: RecoveryResult }
@@ -117,19 +90,31 @@ class TestRecoveryBackend implements RouterAbEd25519YaoRecoveryBackend {
 class AllowRecoveryAuthorization implements RouterAbEd25519YaoRecoveryAuthorizationAdapter {
   readonly inputs: RouterAbEd25519YaoRecoveryAuthorizationInput[] = [];
 
+  constructor(private readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext) {}
+
   authorize(
     input: RouterAbEd25519YaoRecoveryAuthorizationInput,
   ): RouterAbEd25519YaoRecoveryAuthorizationResult {
     this.inputs.push(input);
     return {
       ok: true,
-      claims: { kind: 'wallet_session', value: walletSessionClaimsFixture() },
+      authorization: { kind: 'wallet_session_v2', context: this.context },
     };
   }
 }
 
 class RecordingCapabilityPersistence implements RouterAbEd25519YaoCapabilityPersistenceV1 {
   readonly calls: Array<{
+    readonly operation: {
+      readonly kind: 'router_ab_ed25519_yao_capability_replacement_operation_v1';
+      readonly operationId: string;
+      readonly operationFingerprint: string;
+      readonly authorityProjection: {
+        readonly kind:
+          | 'replace_continuity_authority_projections'
+          | 'replace_active_authority_projection';
+      };
+    };
     readonly previous: WalletEd25519YaoActiveCapabilityRecord;
     readonly next: WalletEd25519YaoActiveCapabilityRecord;
   }> = [];
@@ -139,6 +124,11 @@ class RecordingCapabilityPersistence implements RouterAbEd25519YaoCapabilityPers
       readonly kind: 'router_ab_ed25519_yao_capability_replacement_operation_v1';
       readonly operationId: string;
       readonly operationFingerprint: string;
+      readonly authorityProjection: {
+        readonly kind:
+          | 'replace_continuity_authority_projections'
+          | 'replace_active_authority_projection';
+      };
     };
     readonly previous: WalletEd25519YaoActiveCapabilityRecord;
     readonly next: WalletEd25519YaoActiveCapabilityRecord;
@@ -178,6 +168,31 @@ function registrationAdmissionRequest(): RouterAbEd25519YaoRegistrationAdmission
       participant_ids: [1, 2],
     }),
   );
+}
+
+async function exactWalletSessionContextFixture(): Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext> {
+  const exact = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'recovery-domain-guard',
+    permissions: buildFullOwnerPermissionsV1(),
+    provenance: 'wallet_registration',
+    keyFamily: 'ed25519',
+    materialActivation: routerAbMpcMaterialActivationRefFromWire(
+      materialActivation('registration-1'),
+    ),
+    expiresAtMs: Date.now() + 60_000,
+    identity: {
+      walletId: 'wallet-1',
+      authorityId: 'authority:recovery-domain-guard',
+      walletAuthMethodId: 'auth-method:recovery-domain-guard',
+      rpId: 'router.example.test',
+    },
+  });
+  return {
+    authorization: exact.issuedSession,
+    authority: exact.authority,
+    authMethod: exact.authMethod,
+    retiredAtMs: null,
+  };
 }
 
 function registrationBinding(): Record<string, unknown> {
@@ -467,6 +482,10 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
   const backend = new TestRecoveryBackend({ kind: 'success', result });
   const persistence = new RecordingCapabilityPersistence();
   const service = new InMemoryRouterAbEd25519YaoRecoveryService(backend, undefined, persistence);
+  const exactAuthorization = recoveryAuthorizationBinding({
+    kind: 'wallet_session_v2',
+    context: await exactWalletSessionContextFixture(),
+  });
 
   expect(installRegistrationCapability(service)).toMatchObject({
     ok: true,
@@ -507,9 +526,9 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
     }),
   ).toMatchObject({ ok: false, code: 'invalid_lookup' });
 
-  const admitted = await service.admitRecovery(admission);
+  const admitted = await service.admitRecovery(admission, exactAuthorization);
   expect(admitted.ok).toBe(true);
-  expect(await service.admitRecovery(admission)).toEqual(admitted);
+  expect(await service.admitRecovery(admission, exactAuthorization)).toEqual(admitted);
   expect(backend.admitCalls).toBe(1);
   expect(service.installPersistedActiveCapability(registrationCapabilityRecord())).toMatchObject({
     ok: true,
@@ -529,6 +548,7 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
       replacementCapabilitySeed: 22,
       publicKeySeed: 12,
     }),
+    exactAuthorization,
   );
   expect(competingWhileSuspended).toMatchObject({
     ok: false,
@@ -536,9 +556,13 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
   });
   expect(backend.admitCalls).toBe(1);
 
-  const staged = await service.executeRecovery(execution);
+  expect(await service.executeRecovery(execution, RECOVERY_AUTHORIZATION)).toMatchObject({
+    ok: false,
+    code: 'continuity_mismatch',
+  });
+  const staged = await service.executeRecovery(execution, exactAuthorization);
   expect(staged).toEqual({ ok: true, status: 200, value: result });
-  expect(await service.executeRecovery(execution)).toEqual(staged);
+  expect(await service.executeRecovery(execution, exactAuthorization)).toEqual(staged);
   expect(backend.executeCalls).toBe(1);
   expect(service.installPersistedActiveCapability(registrationCapabilityRecord())).toMatchObject({
     ok: true,
@@ -553,13 +577,13 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
     deriver_b_client_package: result.deriver_b_client_package,
     public_receipt: publicReceipt(3, result.binding.material_activation),
   });
-  expect(await service.activateRecovery(conflictingActivation)).toMatchObject({
+  expect(await service.activateRecovery(conflictingActivation, exactAuthorization)).toMatchObject({
     ok: false,
     code: 'binding_mismatch',
   });
   expect(backend.activateCalls).toBe(0);
 
-  const promoted = await service.activateRecovery(activation);
+  const promoted = await service.activateRecovery(activation, exactAuthorization);
   expect(promoted).toEqual({
     ok: true,
     status: 200,
@@ -570,12 +594,16 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
       retired_capability_binding: bytes(20),
     },
   });
-  expect(await service.activateRecovery(activation)).toEqual(promoted);
+  expect(await service.activateRecovery(activation, exactAuthorization)).toEqual(promoted);
   expect(backend.activateCalls).toBe(1);
   expect(resolveWalletCapability(service)).toMatchObject({
     ok: true,
     capability: {
       activeCapabilityBinding: bytes(21),
+      registrationContinuity: {
+        kind: 'recovery',
+        activationTranscript: activation.public_receipt.transcript,
+      },
       registeredPublicKey: bytes(12),
       nearAccountId: 'wallet-1.testnet',
       runtimePolicyScope: {
@@ -589,6 +617,7 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
   });
   expect(persistence.calls).toHaveLength(1);
   expect(persistence.calls[0]).toMatchObject({
+    operation: { authorityProjection: { kind: 'replace_active_authority_projection' } },
     previous: { version: 'wallet_ed25519_yao_registration_capability_v1' },
     next: {
       version: 'wallet_ed25519_yao_recovery_capability_v1',
@@ -616,7 +645,14 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
   });
   expect(resolveWalletCapability(rehydrated)).toMatchObject({
     ok: true,
-    capability: { activeCapabilityBinding: bytes(21), stateEpoch: 2 },
+    capability: {
+      activeCapabilityBinding: bytes(21),
+      registrationContinuity: {
+        kind: 'recovery',
+        activationTranscript: activation.public_receipt.transcript,
+      },
+      stateEpoch: 2,
+    },
   });
 
   const stale = await service.admitRecovery(
@@ -627,6 +663,7 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
       replacementCapabilitySeed: 22,
       publicKeySeed: 12,
     }),
+    exactAuthorization,
   );
   expect(stale).toMatchObject({ ok: false, code: 'capability_retired' });
 }
@@ -649,6 +686,7 @@ async function continuityFailureKeepsCapabilitySuspended(): Promise<void> {
       replacementCapabilitySeed: 22,
       publicKeySeed: 99,
     }),
+    RECOVERY_AUTHORIZATION,
   );
   expect(wrongPublicKey).toMatchObject({ ok: false, code: 'continuity_mismatch' });
   expect(backend.admitCalls).toBe(0);
@@ -662,14 +700,15 @@ async function continuityFailureKeepsCapabilitySuspended(): Promise<void> {
       replacementCapabilitySeed: 22,
       publicKeySeed: 12,
     }),
+    RECOVERY_AUTHORIZATION,
   );
   expect(wrongAccount).toMatchObject({ ok: false, code: 'continuity_mismatch' });
   expect(backend.admitCalls).toBe(0);
 
-  expect((await service.admitRecovery(admission)).ok).toBe(true);
-  const failed = await service.executeRecovery(execution);
+  expect((await service.admitRecovery(admission, RECOVERY_AUTHORIZATION)).ok).toBe(true);
+  const failed = await service.executeRecovery(execution, RECOVERY_AUTHORIZATION);
   expect(failed).toMatchObject({ ok: false, code: 'continuity_mismatch' });
-  expect(await service.executeRecovery(execution)).toEqual(failed);
+  expect(await service.executeRecovery(execution, RECOVERY_AUTHORIZATION)).toEqual(failed);
   expect(backend.executeCalls).toBe(1);
 
   const replacementAttempt = await service.admitRecovery(
@@ -680,6 +719,7 @@ async function continuityFailureKeepsCapabilitySuspended(): Promise<void> {
       replacementCapabilitySeed: 23,
       publicKeySeed: 12,
     }),
+    RECOVERY_AUTHORIZATION,
   );
   expect(replacementAttempt).toMatchObject({ ok: false, code: 'capability_suspended' });
 }
@@ -701,7 +741,9 @@ async function recoveryAcceptsFreshWalletSession(): Promise<void> {
   const service = new InMemoryRouterAbEd25519YaoRecoveryService(backend);
   expect(installRegistrationCapability(service).ok).toBe(true);
 
-  await expect(service.admitRecovery(request)).resolves.toMatchObject({ ok: true });
+  await expect(service.admitRecovery(request, RECOVERY_AUTHORIZATION)).resolves.toMatchObject({
+    ok: true,
+  });
   expect(backend.admitCalls).toBe(1);
 }
 
@@ -748,12 +790,13 @@ function persistedCapabilityRehydratesFreshRuntime(): void {
   });
 }
 
-function recoveryModuleExposesAllFourAuthorizedRoutes(): void {
+async function recoveryModuleExposesAllFourAuthorizedRoutes(): Promise<void> {
   const admission = recoveryAdmissionRequest();
   const execution = recoveryExecuteRequest(admission);
   const backend = new TestRecoveryBackend({ kind: 'success', result: recoveryResult(execution) });
   const service = new InMemoryRouterAbEd25519YaoRecoveryService(backend);
-  const authorization = new AllowRecoveryAuthorization();
+  const context = await exactWalletSessionContextFixture();
+  const authorization = new AllowRecoveryAuthorization(context);
   const module = createRouterAbEd25519YaoRecoveryModule({ service, authorization });
   const extension = module.routeExtensions[0];
   expect(extension?.routes.map(routePath)).toEqual([
@@ -772,7 +815,8 @@ async function warmBootstrapReturnsExactActiveCapabilityWithoutMintingSession():
     ok: true,
     disposition: 'installed',
   });
-  const authorization = new AllowRecoveryAuthorization();
+  const context = await exactWalletSessionContextFixture();
+  const authorization = new AllowRecoveryAuthorization(context);
   const module = createRouterAbEd25519YaoRecoveryModule({ service, authorization });
   const extension = module.routeExtensions[0];
   const route = extension?.routes.find(isWarmRecoveryBootstrapRoute);
@@ -803,14 +847,14 @@ async function warmBootstrapReturnsExactActiveCapabilityWithoutMintingSession():
   });
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({
-    kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
+    kind: 'router_ab_ed25519_yao_v2_session_bootstrap_v1',
     walletId: 'wallet-1',
     nearAccountId: 'wallet-1.testnet',
     nearEd25519SigningKeyId: 'ed25519ks_1',
     signerSlot: 1,
     thresholdSessionId: 'wallet-session-1',
-    walletSessionId: 'wallet-session-1',
-    quotaId: 'quota-recovery-1',
+    walletSessionId: context.authorization.session.walletSessionId,
+    quotaId: context.authorization.quota.quotaId,
     signingWorkerId: 'signing-worker-1',
     participantIds: [1, 2],
     capability: {

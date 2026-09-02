@@ -1,13 +1,12 @@
 import React from 'react';
 import type {
+  HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuOutcome,
   NearProvisioningState,
   NearProvisioningStateChangedEvent,
   WalletSession,
-} from '@seams/sdk';
-import {
-  buildHostedAuthMenuOpenRequest,
-  hostedAuthMenuSessionIdFromBoundary,
-} from '@seams/sdk';
+} from '@seams/wallet';
+import { buildHostedAuthMenuOpenRequest, hostedAuthMenuSessionIdFromBoundary } from '@seams/wallet';
 import {
   ActionType,
   useSeams,
@@ -16,7 +15,7 @@ import {
   type RegisteredNearEd25519Capability,
   type RegistrationResult,
   type RegistrationSignerSetSelection,
-} from '@seams/sdk/react';
+} from '@seams/wallet/react';
 import {
   encodeSignedTransactionBase64,
   nearAccountRefFromAccountId,
@@ -24,16 +23,26 @@ import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
   walletSessionRefFromSession,
-} from '@seams/sdk/advanced';
+} from '@seams/wallet/advanced';
 import { FRONTEND_CONFIG } from '@/config';
+import { resolveEmailOtpRegistrationSession } from './registrationSession';
 
 type IntendedActionName =
   | 'registerPasskeyWallet'
   | 'registerPasskeyEd25519YaoWallet'
+  | 'registerPasskeyEcdsaOnlyWallet'
   | 'addPasskeyEd25519YaoWalletSigner'
+  | 'addEmailOtpAuthMethod'
+  | 'unlockWithAddedEmailOtp'
+  | 'revokeSourceAuthMethod'
+  | 'addPasskeyAuthMethod'
   | 'registerEmailOtpWallet'
+  | 'registerEmailOtpEd25519OnlyWallet'
+  | 'registerEmailOtpEcdsaOnlyWallet'
   | 'awaitNearReady'
   | 'syncPasskeyWallet'
+  | 'recoverPasskeyWallet'
+  | 'recoverGoogleEmailOtpWallet'
   | 'unlockPasskeyWallet'
   | 'unlockEmailOtpWallet'
   | 'signNearTransaction'
@@ -41,6 +50,19 @@ type IntendedActionName =
   | 'signArcEvmTransaction'
   | 'exportEd25519Key'
   | 'exportEcdsaKey';
+
+type IntendedAuthMethodIdentity = {
+  readonly kind: 'passkey' | 'email_otp';
+  readonly walletAuthMethodId: string;
+};
+
+type IntendedRegistrationSignerKind = {
+  readonly kind: 'near_ed25519' | 'evm_family_ecdsa';
+};
+
+function isEvmFamilyEcdsaSigner(signer: IntendedRegistrationSignerKind): boolean {
+  return signer.kind === 'evm_family_ecdsa';
+}
 
 type IntendedLifecycleEvent = {
   index: number;
@@ -167,10 +189,16 @@ type IntendedActionState =
  * ECDSA-ready with NEAR still provisioning, so no NEAR identifier exists yet.
  * Modelled as a closed union so neither branch can borrow the other's fields.
  */
+/* Three readiness states, discriminated explicitly. 'absent' is a wallet whose
+   signer set never included Ed25519: nothing is coming, unlike 'pending'. It
+   forbids the identity and provisioning fields rather than leaving them
+   optional, so a NEAR-less wallet cannot quietly carry a half-filled identity
+   and no caller has to guess which of the three it holds. */
 type PasskeyRegistrationCoreSummary = (
   | {
       kind: 'passkey_registration_success';
       walletId: string;
+      nearReadiness: 'ready';
       nearAccountId: string;
       nearEd25519SigningKeyId: string;
       operationalPublicKey: string;
@@ -179,10 +207,20 @@ type PasskeyRegistrationCoreSummary = (
   | {
       kind: 'passkey_registration_success';
       walletId: string;
+      nearReadiness: 'pending';
       nearProvisioning: IntendedNearProvisioningSummary;
       nearAccountId?: never;
       nearEd25519SigningKeyId?: never;
       operationalPublicKey?: never;
+    }
+  | {
+      kind: 'passkey_registration_success';
+      walletId: string;
+      nearReadiness: 'absent';
+      nearAccountId?: never;
+      nearEd25519SigningKeyId?: never;
+      operationalPublicKey?: never;
+      nearProvisioning?: never;
     }
 ) &
   IntendedEcdsaSessionSummary;
@@ -197,26 +235,54 @@ type Ed25519AddSignerResultSummary = {
   operationalPublicKey: string;
 };
 
+type AddEmailOtpAuthMethodResultSummary = {
+  kind: 'add_email_otp_success';
+  walletAuthMethodId: string;
+  walletId: string;
+  emailAddress: string;
+  authMethod: { kind: 'email_otp'; status: 'active' };
+};
+
+type AddPasskeyAuthMethodResultSummary = {
+  kind: 'add_passkey_success';
+  walletId: string;
+  rpId: string;
+  walletAuthMethodId: string;
+  authMethod: { kind: 'passkey'; status: 'active' };
+};
+
+/* Same three readiness states as the passkey summary, for the same reason: an
+   Email OTP wallet can own an ECDSA-only signer set too. */
 type EmailOtpRegistrationCoreSummary = (
   | {
       kind: 'email_otp_registration_success';
       initialWalletId: string;
       walletId: string;
+      nearReadiness: 'ready';
       nearAccountId: string;
       operationalPublicKey: string;
       nearProvisioning?: never;
-      signingSessionStatus: string;
-      remainingUses: number | null;
+      authenticationKind: 'authenticated';
     }
   | {
       kind: 'email_otp_registration_success';
       initialWalletId: string;
       walletId: string;
+      nearReadiness: 'pending';
       nearProvisioning: IntendedNearProvisioningSummary;
       nearAccountId?: never;
       operationalPublicKey?: never;
-      signingSessionStatus: string;
-      remainingUses: number | null;
+      authenticationKind: 'authenticated';
+    }
+  | {
+      kind: 'email_otp_registration_success';
+      initialWalletId: string;
+      walletId: string;
+      nearReadiness: 'absent';
+      nearAccountId?: never;
+      operationalPublicKey?: never;
+      nearProvisioning?: never;
+      authenticationKind: 'authenticated';
     }
 ) &
   IntendedEcdsaSessionSummary;
@@ -231,14 +297,27 @@ type NearSigningResultSummary = {
   signedTransactionByteLength: number;
 };
 
-type PasskeyUnlockResultSummary = {
-  kind: 'passkey_unlock_success';
-  walletId: string;
-  nearAccountId: string;
-  operationalPublicKey: string;
-  signingSessionStatus: string;
-  remainingUses: number | null;
-};
+type PasskeyUnlockResultSummary =
+  | {
+      kind: 'passkey_unlock_success';
+      walletId: string;
+      nearIdentity: 'ready';
+      nearAccountId: string;
+      operationalPublicKey: string;
+      /** The exact credential selected by the resolved capability projection. */
+      sessionWalletAuthMethodId: string;
+      authenticationKind: 'authenticated';
+    }
+  | {
+      kind: 'passkey_unlock_success';
+      walletId: string;
+      nearIdentity: 'absent';
+      nearAccountId?: never;
+      operationalPublicKey?: never;
+      /** The exact credential selected by the resolved capability projection. */
+      sessionWalletAuthMethodId: string;
+      authenticationKind: 'authenticated';
+    };
 
 type PasskeySyncResultSummary = {
   kind: 'passkey_sync_success';
@@ -252,11 +331,32 @@ type EmailOtpUnlockCoreSummary = {
   walletId: string;
   nearAccountId: string;
   operationalPublicKey: string;
-  signingSessionStatus: string;
-  remainingUses: number | null;
+  sessionWalletAuthMethodId: string;
+  authenticationKind: 'authenticated';
 } & IntendedEcdsaSessionSummary;
 
 type EmailOtpUnlockResultSummary = EmailOtpUnlockCoreSummary & IntendedEcdsaSummary;
+
+/**
+ * Refactor 109C: the Email OTP method just added opened its wallet.
+ *
+ * The hosted Google flow names the selected wallet and returns through its
+ * address-backed Email OTP method. This summary keeps the exact method id so
+ * the contract proves the added credential issued the active session.
+ */
+type RevokeAuthMethodResultSummary = {
+  kind: 'revoke_auth_method_success';
+  walletId: string;
+  walletAuthMethodId: string;
+};
+
+type AddedEmailOtpUnlockResultSummary = {
+  kind: 'added_email_otp_unlock_success';
+  walletId: string;
+  /** The exact credential selected by the resolved capability projection. */
+  sessionWalletAuthMethodId: string;
+  authenticationKind: 'authenticated';
+};
 
 type TempoSigningResultSummary = {
   kind: 'tempo_sign_success';
@@ -293,15 +393,35 @@ type NearProvisioningReadySummary = {
   operationalPublicKey: string;
 };
 
+type PasskeyRecoveryResultSummary = {
+  kind: 'passkey_recovery_success';
+  walletId: string;
+  activeRecoveryCodeCount: number;
+  totalRecoveryCodeCount: number;
+};
+
+type GoogleEmailOtpRecoveryResultSummary = {
+  kind: 'google_email_otp_recovery_success';
+  walletId: string;
+  activeRecoveryCodeCount: number;
+  totalRecoveryCodeCount: number;
+};
+
 type IntendedActionResult =
   | PasskeyRegistrationResultSummary
   | Ed25519AddSignerResultSummary
+  | AddEmailOtpAuthMethodResultSummary
+  | AddPasskeyAuthMethodResultSummary
   | EmailOtpRegistrationResultSummary
   | NearProvisioningReadySummary
+  | PasskeyRecoveryResultSummary
+  | GoogleEmailOtpRecoveryResultSummary
   | NearSigningResultSummary
   | PasskeySyncResultSummary
   | PasskeyUnlockResultSummary
   | EmailOtpUnlockResultSummary
+  | AddedEmailOtpUnlockResultSummary
+  | RevokeAuthMethodResultSummary
   | TempoSigningResultSummary
   | ArcEvmSigningResultSummary
   | Ed25519ExportResultSummary
@@ -358,6 +478,21 @@ type IntendedPageControllerArgs = {
   dispatch: React.Dispatch<IntendedPageAction>;
 };
 
+type IntendedSeams = IntendedPageControllerArgs['seams'];
+
+async function resolveIntendedGoogleExternalAuth(
+  seams: IntendedSeams,
+  idToken: string,
+  request: HostedAuthMenuExternalAuthRequest,
+): Promise<void> {
+  await seams.resolveHostedAuthMenuExternalAuth({
+    kind: 'hosted_auth_menu_external_auth_resolution_v1',
+    authMenuSessionId: request.authMenuSessionId,
+    externalAuthRequestId: request.externalAuthRequestId,
+    evidence: { kind: 'google_id_token', idToken },
+  });
+}
+
 type IntendedEmailOtpCodeRequest =
   | {
       kind: 'challenge';
@@ -390,6 +525,10 @@ type IntendedEmailOtpOutboxSuccess = {
 declare global {
   interface Window {
     __seamsIntendedE2EReadEmailOtpCode?: (input: IntendedEmailOtpCodeRequest) => Promise<string>;
+    __seamsIntendedE2ELockWallet?: () => Promise<void>;
+    __seamsIntendedE2EReadWalletLockState?: () => Promise<{
+      authenticationKind: WalletSession['authentication']['kind'];
+    }>;
   }
 }
 
@@ -513,6 +652,15 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           </button>
           <button
             type="button"
+            data-testid="intended-register-passkey-ecdsa-only"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRegisterPasskeyEcdsaOnlyWallet}
+            style={buttonStyle}
+          >
+            Register ECDSA-only Wallet
+          </button>
+          <button
+            type="button"
             data-testid="intended-register-passkey-ed25519-yao"
             disabled={state.action.status === 'running'}
             onClick={controller.runRegisterPasskeyEd25519YaoWallet}
@@ -522,12 +670,66 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           </button>
           <button
             type="button"
+            data-testid="intended-add-email-otp-auth-method"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runAddEmailOtpAuthMethod}
+            style={buttonStyle}
+          >
+            Add Email Code
+          </button>
+          <button
+            type="button"
+            data-testid="intended-revoke-source-auth-method"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRevokeSourceAuthMethod}
+            style={buttonStyle}
+          >
+            Revoke Source Method
+          </button>
+          <button
+            type="button"
+            data-testid="intended-unlock-added-email-otp"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runUnlockWithAddedEmailOtp}
+            style={buttonStyle}
+          >
+            Unlock With Added Email Code
+          </button>
+          <button
+            type="button"
+            data-testid="intended-add-passkey-auth-method"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runAddPasskeyAuthMethod}
+            style={buttonStyle}
+          >
+            Add Passkey
+          </button>
+          <button
+            type="button"
             data-testid="intended-add-passkey-ed25519-yao-signer"
             disabled={state.action.status === 'running'}
             onClick={controller.runAddPasskeyEd25519YaoWalletSigner}
             style={buttonStyle}
           >
             Add Passkey Ed25519 Yao Signer
+          </button>
+          <button
+            type="button"
+            data-testid="intended-register-email-otp-ecdsa-only"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRegisterEmailOtpEcdsaOnlyWallet}
+            style={buttonStyle}
+          >
+            Register ECDSA-only Email Wallet
+          </button>
+          <button
+            type="button"
+            data-testid="intended-register-email-otp-ed25519-only"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRegisterEmailOtpEd25519OnlyWallet}
+            style={buttonStyle}
+          >
+            Register Ed25519-only Email Wallet
           </button>
           <button
             type="button"
@@ -564,6 +766,24 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
             style={buttonStyle}
           >
             Sync Passkey
+          </button>
+          <button
+            type="button"
+            data-testid="intended-recover-passkey"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRecoverPasskeyWallet}
+            style={buttonStyle}
+          >
+            Recover Passkey
+          </button>
+          <button
+            type="button"
+            data-testid="intended-recover-google-email-otp"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRecoverGoogleEmailOtpWallet}
+            style={buttonStyle}
+          >
+            Recover Google Email OTP
           </button>
           <button
             type="button"
@@ -682,8 +902,36 @@ class IntendedPageController {
     void this.addPasskeyEd25519YaoWalletSigner();
   };
 
+  runAddEmailOtpAuthMethod = (): void => {
+    void this.addEmailOtpAuthMethod();
+  };
+
+  runUnlockWithAddedEmailOtp = (): void => {
+    void this.unlockWithAddedEmailOtp();
+  };
+
+  runRegisterPasskeyEcdsaOnlyWallet = (): void => {
+    void this.registerPasskeyEcdsaOnlyWallet();
+  };
+
+  runRevokeSourceAuthMethod = (): void => {
+    void this.revokeSourceAuthMethod();
+  };
+
+  runAddPasskeyAuthMethod = (): void => {
+    void this.addPasskeyAuthMethod();
+  };
+
   runRegisterEmailOtpWallet = (): void => {
     void this.registerEmailOtpWallet();
+  };
+
+  runRegisterEmailOtpEd25519OnlyWallet = (): void => {
+    void this.registerEmailOtpEd25519OnlyWallet();
+  };
+
+  runRegisterEmailOtpEcdsaOnlyWallet = (): void => {
+    void this.registerEmailOtpEcdsaOnlyWallet();
   };
 
   runAwaitNearReady = (): void => {
@@ -700,6 +948,14 @@ class IntendedPageController {
 
   runSyncPasskeyWallet = (): void => {
     void this.syncPasskeyWallet();
+  };
+
+  runRecoverPasskeyWallet = (): void => {
+    void this.recoverPasskeyWallet();
+  };
+
+  runRecoverGoogleEmailOtpWallet = (): void => {
+    void this.recoverGoogleEmailOtpWallet();
   };
 
   runUnlockEmailOtpWallet = (): void => {
@@ -722,6 +978,18 @@ class IntendedPageController {
     void this.exportEd25519Key();
   };
 
+  lockWalletForIntendedTest = async (): Promise<void> => {
+    await this.seams.auth.lock();
+    await this.refreshLoginState(this.walletId);
+  };
+
+  readWalletLockStateForIntendedTest = async (): Promise<{
+    authenticationKind: WalletSession['authentication']['kind'];
+  }> => {
+    const session = await this.seams.auth.getWalletSession(this.walletId);
+    return { authenticationKind: session.authentication.kind };
+  };
+
   private async registerPasskeyWallet(): Promise<void> {
     const action: IntendedActionName = 'registerPasskeyWallet';
     this.dispatch({ kind: 'action_started', action });
@@ -735,6 +1003,7 @@ class IntendedPageController {
           defaults: this.seams.configs.signing.thresholdEcdsa.provisioningDefaults,
           profile: this.passkeyEcdsaTargetProfile,
         }),
+        recoveryCodeBackup: { kind: 'show_builtin_dialog' },
         onEvent: this.recordLifecycleEvent,
       });
       const registration = assertPasskeyRegistrationSucceeded({
@@ -750,21 +1019,104 @@ class IntendedPageController {
       /* A mixed plan has no NEAR identity yet; a NEAR-only plan does. The two
          summary branches cannot be merged without reintroducing optional
          lifecycle fields. */
-      const summary: PasskeyRegistrationResultSummary = registration.nearProvisioning
-        ? {
-            kind: registration.kind,
-            walletId: registration.walletId,
-            nearProvisioning: registration.nearProvisioning,
-            ...ecdsa,
-          }
-        : {
-            kind: registration.kind,
-            walletId: registration.walletId,
-            nearAccountId: registration.nearAccountId,
-            nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
-            operationalPublicKey: registration.operationalPublicKey,
-            ...ecdsa,
-          };
+      const summary: PasskeyRegistrationResultSummary =
+        registration.nearReadiness === 'pending'
+          ? {
+              kind: registration.kind,
+              walletId: registration.walletId,
+              nearReadiness: 'pending',
+              nearProvisioning: registration.nearProvisioning,
+              ...ecdsa,
+            }
+          : registration.nearReadiness === 'ready'
+            ? {
+                kind: registration.kind,
+                walletId: registration.walletId,
+                nearReadiness: 'ready',
+                nearAccountId: registration.nearAccountId,
+                nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
+                operationalPublicKey: registration.operationalPublicKey,
+                ...ecdsa,
+              }
+            : {
+                kind: registration.kind,
+                walletId: registration.walletId,
+                nearReadiness: 'absent',
+                ...ecdsa,
+              };
+      this.dispatch({ kind: 'action_succeeded', action, result: summary });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  /**
+   * Refactor 109C matrix: a wallet whose signer set is ECDSA only.
+   *
+   * The combined wallets the transition contracts use always have an Ed25519
+   * signer for an added method to inherit. This one has none, so an added
+   * method must correctly claim no Ed25519 rather than fail looking for one.
+   */
+  private async registerPasskeyEcdsaOnlyWallet(): Promise<void> {
+    const action: IntendedActionName = 'registerPasskeyEcdsaOnlyWallet';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const sdkTargets = this.emailOtpEcdsaTargetProfile.sdkTargets;
+      if (sdkTargets.kind !== 'explicit') {
+        throw new Error('ECDSA-only registration requires configured chain targets');
+      }
+      const result = await this.seams.registration.registerWallet({
+        authMethod: { kind: 'passkey', rpId: intendedRegistrationRpId() },
+        wallet: { kind: 'provided', walletId: toWalletId(this.walletId) },
+        signerSelection: {
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'evm_family_ecdsa',
+              chainTargets: [...sdkTargets.targets],
+              participantIds: [1, 2],
+            },
+          ],
+        },
+        options: { onEvent: this.recordLifecycleEvent },
+      });
+      if (!result.success) throw new Error(result.error || 'ECDSA-only registration failed');
+      if (
+        result.kind !== 'wallet_registered' ||
+        result.capabilities.length !== 1 ||
+        result.capabilities[0].kind !== 'evm_family_ecdsa'
+      ) {
+        throw new Error(`ECDSA-only registration returned result kind: ${result.kind}`);
+      }
+      if (String(result.walletId) !== this.walletId) {
+        throw new Error('ECDSA-only registration returned a different wallet');
+      }
+      const ecdsa = requireThresholdEcdsaSessionFields({
+        source: result.capabilities[0],
+        label: 'ECDSA-only registration',
+      });
+      /* The profile follows the configured targets rather than being asserted,
+         and the per-target keys are derived from the threshold address the same
+         way every other registration derives them. */
+      const session: IntendedEcdsaSessionSummary =
+        sdkTargets.targets.length > 1
+          ? {
+              ecdsaTargetProfile: 'tempo_arc',
+              thresholdEcdsaEthereumAddress: ecdsa.thresholdEcdsaEthereumAddress,
+              thresholdEcdsaPublicKeyB64u: ecdsa.thresholdEcdsaPublicKeyB64u,
+            }
+          : {
+              ecdsaTargetProfile: 'tempo',
+              thresholdEcdsaEthereumAddress: ecdsa.thresholdEcdsaEthereumAddress,
+              thresholdEcdsaPublicKeyB64u: ecdsa.thresholdEcdsaPublicKeyB64u,
+            };
+      const summary = {
+        kind: 'passkey_registration_success' as const,
+        walletId: this.walletId,
+        nearReadiness: 'absent' as const,
+        ...session,
+        ecdsaTargetKeys: registrationEcdsaTargetKeys(session),
+      } as PasskeyRegistrationResultSummary;
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
       this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
@@ -794,12 +1146,13 @@ class IntendedPageController {
         expectedWalletId: this.walletId,
         ecdsaTargetProfile: { kind: 'none' },
       });
-      if (registration.nearProvisioning) {
+      if (registration.nearReadiness !== 'ready') {
         throw new Error('Ed25519-only passkey registration must resolve its NEAR identity');
       }
       const summary: PasskeyRegistrationResultSummary = {
         kind: registration.kind,
         walletId: registration.walletId,
+        nearReadiness: 'ready',
         nearAccountId: registration.nearAccountId,
         nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
         operationalPublicKey: registration.operationalPublicKey,
@@ -842,6 +1195,238 @@ class IntendedPageController {
     }
   }
 
+  /**
+   * Refactor 109C: the passkey wallet on screen gains an Email OTP method.
+   *
+   * The address is derived from the wallet so repeated runs against a
+   * persistent local stack do not fight over one provider identity — an
+   * enrollment is per wallet and per identity, and a shared address would make
+   * each run move the previous run's enrollment.
+   */
+  private async addEmailOtpAuthMethod(): Promise<void> {
+    const action: IntendedActionName = 'addEmailOtpAuthMethod';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const walletId = this.walletId;
+      if (!walletId) throw new Error('add-email-code requires a registered wallet');
+      const emailAddress = intendedGoogleEmailAddress(requireGoogleIdToken(this.googleIdToken));
+      intendedEmailOtpChallengeSubjectOverride = emailAddress;
+      const result = await this.seams.registration.addEmailOtp({
+        walletId: toWalletId(walletId),
+        emailAddress,
+        options: { onEvent: this.recordLifecycleEvent },
+      });
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'add_email_otp_success',
+          walletId: String(result.walletId),
+          walletAuthMethodId: String(result.walletAuthMethodId),
+          emailAddress: result.emailAddress,
+          authMethod: result.authMethod,
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  /**
+   * Refactor 109C: retire the method that did the adding, from the added one.
+   *
+   * The sibling that stays is the one just added, so this is the case that
+   * matters: a wallet must not become unopenable because the credential it was
+   * created with was removed.
+   */
+  private async revokeSourceAuthMethod(): Promise<void> {
+    const action: IntendedActionName = 'revokeSourceAuthMethod';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const walletId = this.walletId;
+      if (!walletId) throw new Error('revoke requires a registered wallet');
+      const session = await this.seams.auth.getWalletSession(walletId);
+      if (session.appIdentity.kind !== 'resolved') {
+        throw new Error(`revoke wallet identity is ${session.appIdentity.kind}`);
+      }
+      /* With one method there is nothing to revoke from, whatever the session
+         is doing - say that before asking about the session, so the refusal
+         names the real reason rather than whichever check happened first. */
+      const methods: readonly IntendedAuthMethodIdentity[] = session.appIdentity.authMethods;
+      if (methods.length <= 1) {
+        throw new Error(
+          `revoke needs exactly one sibling to remove, found ${Math.max(methods.length - 1, 0)}`,
+        );
+      }
+      /* Whoever holds the open session is the method to keep. Deriving the
+         target this way needs no memory of the addition, which matters because
+         the page reloads between actions. */
+      const keep = exactWalletAuthMethodIdFromSession(session);
+      const siblings = methods.filter((binding) => String(binding.walletAuthMethodId) !== keep);
+      const [target, ...remaining] = siblings;
+      if (!target || remaining.length > 0) {
+        throw new Error(
+          `revoke needs exactly one sibling to remove, found ${siblings.length} beside the added method`,
+        );
+      }
+      const result = await this.seams.registration.revokeAuthMethod({
+        walletId: toWalletId(walletId),
+        walletAuthMethodId: String(target.walletAuthMethodId),
+      });
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'revoke_auth_method_success',
+          walletId: String(result.walletId),
+          walletAuthMethodId: String(result.walletAuthMethodId),
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  /**
+   * Refactor 109C: unlock through the Email OTP method the wallet just added.
+   *
+   * This uses the same Google menu path as the product. The selected wallet is
+   * sent to `/auth/google/verify`, which resolves its verified-address factor
+   * before the one-use code opens the exact added method.
+   */
+  private async unlockWithAddedEmailOtp(): Promise<void> {
+    const action: IntendedActionName = 'unlockWithAddedEmailOtp';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const walletId = this.walletId;
+      if (!walletId) throw new Error('added email-code unlock requires a registered wallet');
+      const emailAddress = intendedGoogleEmailAddress(requireGoogleIdToken(this.googleIdToken));
+      intendedEmailOtpChallengeSubjectOverride = emailAddress;
+      /* Read before locking: the unlock names the exact method it opens, and
+         once the wallet is locked there is no session left to ask. */
+      const openSession = await this.seams.auth.getWalletSession(walletId);
+      if (openSession.appIdentity.kind !== 'resolved') {
+        throw new Error(`added email-code unlock identity is ${openSession.appIdentity.kind}`);
+      }
+      const methods: readonly IntendedAuthMethodIdentity[] = openSession.appIdentity.authMethods;
+      const emailBindings = methods.filter((binding) => binding.kind === 'email_otp');
+      const [addedBinding, ...extraBindings] = emailBindings;
+      if (!addedBinding || extraBindings.length > 0) {
+        throw new Error(
+          `added email-code unlock needs one email method, found ${emailBindings.length}`,
+        );
+      }
+      await this.seams.auth.lock();
+      await this.unlockEmailOtpWalletWithHostedMenu('intended-unlock-added-email-otp');
+      await this.refreshLoginState(walletId);
+      const unlockedSession = await this.seams.auth.getWalletSession(walletId);
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'added_email_otp_unlock_success',
+          walletId,
+          sessionWalletAuthMethodId: exactWalletAuthMethodIdFromSession(unlockedSession),
+          authenticationKind: requireAuthenticatedWalletSession(unlockedSession, walletId),
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  /** Refactor 109C: an Email OTP wallet adds a Passkey on the same authority. */
+  private async addPasskeyAuthMethod(): Promise<void> {
+    const action: IntendedActionName = 'addPasskeyAuthMethod';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const walletId = this.walletId;
+      if (!walletId) throw new Error('add-passkey requires a registered wallet');
+      /* No source proof is assembled here. The wallet resolves its own selected
+         Email OTP method, sends the intent-bound code, and prompts for it. */
+      const result = await this.seams.registration.addPasskey({
+        walletId: toWalletId(walletId),
+        rpId: intendedRegistrationRpId(),
+        options: { onEvent: this.recordLifecycleEvent },
+      });
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'add_passkey_success',
+          walletId: String(result.walletId),
+          rpId: String(result.rpId),
+          walletAuthMethodId: String(result.walletAuthMethodId),
+          authMethod: result.authMethod,
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  /**
+   * Refactor 109C matrix: an Email OTP wallet whose signer set is Ed25519 only.
+   *
+   * Same registration flow as every other Email OTP wallet; only the signer
+   * set differs, which is the point - a parallel registration variant would
+   * prove something about the variant rather than about this flow.
+   */
+  private async registerEmailOtpEd25519OnlyWallet(): Promise<void> {
+    const action: IntendedActionName = 'registerEmailOtpEd25519OnlyWallet';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const registration = await this.registerEmailOtpWalletWithPublicSdk(
+        intendedEd25519YaoSignerSelection(),
+      );
+      this.walletId = registration.walletId;
+      this.nearAccountId = registration.nearAccountId ?? null;
+      if (registration.ecdsaTargetProfile !== 'none') {
+        throw new Error('Ed25519-only Email OTP registration provisioned an ECDSA signer');
+      }
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: { ...registration, ecdsaTargetKeys: { kind: 'none' } },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  /** Refactor 109C matrix: an Email OTP wallet whose signer set is ECDSA only. */
+  private async registerEmailOtpEcdsaOnlyWallet(): Promise<void> {
+    const action: IntendedActionName = 'registerEmailOtpEcdsaOnlyWallet';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const sdkTargets = this.emailOtpEcdsaTargetProfile.sdkTargets;
+      if (sdkTargets.kind !== 'explicit') {
+        throw new Error('ECDSA-only Email OTP registration requires configured chain targets');
+      }
+      const registration = await this.registerEmailOtpWalletWithPublicSdk({
+        kind: 'signer_set',
+        signers: [
+          {
+            kind: 'evm_family_ecdsa',
+            chainTargets: [...sdkTargets.targets],
+            participantIds: [1, 2],
+          },
+        ],
+      });
+      this.walletId = registration.walletId;
+      this.nearAccountId = registration.nearAccountId ?? null;
+      const ecdsaTargetKeys = registrationEcdsaTargetKeys(registration);
+      const ecdsa = assertEcdsaTargetKeysForSession({ session: registration, ecdsaTargetKeys });
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: { ...registration, ...ecdsa } as EmailOtpRegistrationResultSummary,
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
   private async registerEmailOtpWallet(): Promise<void> {
     const action: IntendedActionName = 'registerEmailOtpWallet';
     this.dispatch({ kind: 'action_started', action });
@@ -854,30 +1439,32 @@ class IntendedPageController {
         session: registration,
         ecdsaTargetKeys,
       });
-      /* Branch on the arm rather than copying members out: deferred NEAR means
-         the result carries either a resolved identity or a provisioning
-         status, never both, and flattening the two into one object loses
-         exactly that guarantee. NEAR identity is read only on the ready arm. */
-      const summary: EmailOtpRegistrationResultSummary = registration.nearProvisioning
-        ? {
-            kind: registration.kind,
-            initialWalletId: registration.initialWalletId,
-            walletId: registration.walletId,
-            nearProvisioning: registration.nearProvisioning,
-            signingSessionStatus: registration.signingSessionStatus,
-            remainingUses: registration.remainingUses,
-            ...ecdsa,
-          }
-        : {
-            kind: registration.kind,
-            initialWalletId: registration.initialWalletId,
-            walletId: registration.walletId,
-            nearAccountId: registration.nearAccountId,
-            operationalPublicKey: registration.operationalPublicKey,
-            signingSessionStatus: registration.signingSessionStatus,
-            remainingUses: registration.remainingUses,
-            ...ecdsa,
-          };
+      /* Branch on the arm rather than copying members out: the result carries a
+         resolved identity, a provisioning status, or neither, and flattening
+         them into one object loses exactly that guarantee. */
+      const common = {
+        kind: registration.kind,
+        initialWalletId: registration.initialWalletId,
+        walletId: registration.walletId,
+        authenticationKind: registration.authenticationKind,
+      };
+      const summary: EmailOtpRegistrationResultSummary =
+        registration.nearReadiness === 'pending'
+          ? {
+              ...common,
+              nearReadiness: 'pending',
+              nearProvisioning: registration.nearProvisioning,
+              ...ecdsa,
+            }
+          : registration.nearReadiness === 'ready'
+            ? {
+                ...common,
+                nearReadiness: 'ready',
+                nearAccountId: registration.nearAccountId,
+                operationalPublicKey: registration.operationalPublicKey,
+                ...ecdsa,
+              }
+            : { ...common, nearReadiness: 'absent', ...ecdsa };
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
       this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
@@ -936,10 +1523,36 @@ class IntendedPageController {
     this.dispatch({ kind: 'action_started', action });
     try {
       await this.seams.auth.lock();
-      const result = await this.seams.auth.unlock(this.walletId, {
-        onEvent: this.recordLifecycleEvent,
-      });
-      const summary = assertPasskeyUnlockSucceeded(result, this.walletId);
+      const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(
+        `intended-passkey-unlock-${crypto.randomUUID()}`,
+      );
+      if (!authMenuSessionId) throw new Error('Passkey unlock auth-menu identity is invalid');
+      const anchorElement = document.querySelector<HTMLElement>(
+        '[data-testid="intended-unlock-passkey"]',
+      );
+      if (!anchorElement) throw new Error('Passkey unlock anchor is unavailable');
+      const outcome = await this.seams.openHostedAuthMenu(
+        buildHostedAuthMenuOpenRequest({
+          authMenuSessionId,
+          initialMode: 'login',
+          loginTarget: { kind: 'wallet', walletId: toWalletId(this.walletId) },
+          registrationAccountInput: 'implicit_wallet',
+          showRegistrationInput: false,
+          showProgress: true,
+          enabledExternalProviders: [],
+        }),
+        anchorElement,
+      );
+      if (outcome.kind !== 'authenticated') {
+        throw new Error(`Passkey unlock ended with ${outcome.kind}`);
+      }
+      if (String(outcome.walletId) !== this.walletId || outcome.method !== 'passkey') {
+        throw new Error('Passkey unlock returned the wrong wallet or auth method');
+      }
+      /* R109C: which credential the session names is the point of an added
+         method - the family alone cannot tell it from the method that added it. */
+      const unlockedSession = await this.seams.auth.getWalletSession(this.walletId);
+      const summary = assertPasskeyUnlockSucceeded(unlockedSession, this.walletId);
       await this.refreshLoginState(summary.walletId);
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
@@ -1005,12 +1618,127 @@ class IntendedPageController {
     }
   }
 
+  private async recoverPasskeyWallet(): Promise<void> {
+    const action: IntendedActionName = 'recoverPasskeyWallet';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(
+        `intended-passkey-recovery-${crypto.randomUUID()}`,
+      );
+      if (!authMenuSessionId) throw new Error('Passkey recovery auth-menu identity is invalid');
+      const anchorElement = document.querySelector<HTMLElement>(
+        '[data-testid="intended-recover-passkey"]',
+      );
+      if (!anchorElement) throw new Error('Passkey recovery anchor is unavailable');
+      const outcome = await this.seams.openHostedAuthMenu(
+        buildHostedAuthMenuOpenRequest({
+          authMenuSessionId,
+          initialMode: 'login',
+          loginTarget: { kind: 'wallet', walletId: toWalletId(this.walletId) },
+          registrationAccountInput: 'implicit_wallet',
+          showRegistrationInput: false,
+          showProgress: true,
+          enabledExternalProviders: [],
+        }),
+        anchorElement,
+      );
+      if (outcome.kind !== 'authenticated') {
+        throw new Error(`Passkey recovery ended with ${outcome.kind}`);
+      }
+      if (String(outcome.walletId) !== this.walletId || outcome.method !== 'passkey') {
+        throw new Error('Passkey recovery returned the wrong wallet or auth method');
+      }
+      await this.refreshLoginState(String(outcome.walletId));
+      const recoveryStatus = await this.seams.recovery.getWalletRecoveryCodeStatus({
+        walletId: String(outcome.walletId),
+      });
+      if (recoveryStatus.kind !== 'ready') {
+        throw new Error(`Recovery-code status is ${recoveryStatus.kind}`);
+      }
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'passkey_recovery_success',
+          walletId: String(outcome.walletId),
+          activeRecoveryCodeCount: recoveryStatus.activeCodeCount,
+          totalRecoveryCodeCount: recoveryStatus.totalCodeCount,
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  private async recoverGoogleEmailOtpWallet(): Promise<void> {
+    const action: IntendedActionName = 'recoverGoogleEmailOtpWallet';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(
+        `intended-google-email-otp-recovery-${crypto.randomUUID()}`,
+      );
+      if (!authMenuSessionId) {
+        throw new Error('Google Email OTP recovery auth-menu identity is invalid');
+      }
+      const anchorElement = document.querySelector<HTMLElement>(
+        '[data-testid="intended-recover-google-email-otp"]',
+      );
+      if (!anchorElement) throw new Error('Google Email OTP recovery anchor is unavailable');
+      const idToken = requireGoogleIdToken(this.googleIdToken);
+      const unsubscribeExternalAuth = this.seams.onHostedAuthMenuExternalAuthRequest(
+        resolveIntendedGoogleExternalAuth.bind(null, this.seams, idToken),
+      );
+      let outcome: HostedAuthMenuOutcome;
+      try {
+        outcome = await this.seams.openHostedAuthMenu(
+          buildHostedAuthMenuOpenRequest({
+            authMenuSessionId,
+            initialMode: 'login',
+            loginTarget: { kind: 'wallet', walletId: toWalletId(this.walletId) },
+            registrationAccountInput: 'implicit_wallet',
+            showRegistrationInput: false,
+            showProgress: true,
+            enabledExternalProviders: ['google'],
+          }),
+          anchorElement,
+        );
+      } finally {
+        unsubscribeExternalAuth();
+      }
+      if (outcome.kind !== 'authenticated') {
+        throw new Error(`Google Email OTP recovery ended with ${outcome.kind}`);
+      }
+      if (String(outcome.walletId) !== this.walletId || outcome.method !== 'google_email_otp') {
+        throw new Error('Google Email OTP recovery returned the wrong wallet or auth method');
+      }
+      await this.refreshLoginState(String(outcome.walletId));
+      const recoveryStatus = await this.seams.recovery.getWalletRecoveryCodeStatus({
+        walletId: String(outcome.walletId),
+      });
+      if (recoveryStatus.kind !== 'ready') {
+        throw new Error(`Recovery-code status is ${recoveryStatus.kind}`);
+      }
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'google_email_otp_recovery_success',
+          walletId: String(outcome.walletId),
+          activeRecoveryCodeCount: recoveryStatus.activeCodeCount,
+          totalRecoveryCodeCount: recoveryStatus.totalCodeCount,
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
   private async unlockEmailOtpWallet(): Promise<void> {
     const action: IntendedActionName = 'unlockEmailOtpWallet';
     this.dispatch({ kind: 'action_started', action });
     try {
       await this.seams.auth.lock();
-      const unlock = await this.unlockEmailOtpWalletWithPublicSdk();
+      const unlock = await this.unlockEmailOtpWalletWithHostedMenu('intended-unlock-email-otp');
       await this.refreshLoginState(unlock.walletId);
       const ecdsaTargetKeys = await this.readEcdsaTargetKeys(this.emailOtpEcdsaTargetProfile.kind);
       const ecdsa = assertEcdsaTargetKeysForSession({
@@ -1022,8 +1750,8 @@ class IntendedPageController {
         walletId: unlock.walletId,
         nearAccountId: unlock.nearAccountId,
         operationalPublicKey: unlock.operationalPublicKey,
-        signingSessionStatus: unlock.signingSessionStatus,
-        remainingUses: unlock.remainingUses,
+        sessionWalletAuthMethodId: unlock.sessionWalletAuthMethodId,
+        authenticationKind: unlock.authenticationKind,
         ...ecdsa,
       };
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
@@ -1173,12 +1901,27 @@ class IntendedPageController {
     };
   }
 
-  private async registerEmailOtpWalletWithPublicSdk(): Promise<EmailOtpRegistrationCoreSummary> {
+  private async registerEmailOtpWalletWithPublicSdk(
+    signerSelection?: RegistrationSignerSetSelection,
+  ): Promise<EmailOtpRegistrationCoreSummary> {
     const idToken = requireGoogleIdToken(this.googleIdToken);
+    /* The profile follows the selection when one is given, and is then used for
+       both the request and the assertion. Asking for ECDSA targets while
+       registering an Ed25519-only set makes the flow expect a threshold address
+       the wallet was never going to have. */
+    const effectiveEcdsaProfile: IntendedEmailOtpEcdsaTargetProfile =
+      signerSelection && !signerSelection.signers.some(isEvmFamilyEcdsaSigner)
+        ? { kind: 'none', sdkTargets: { kind: 'none' }, chainTargets: [] }
+        : this.emailOtpEcdsaTargetProfile;
     const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
       idToken,
       mode: 'register',
-      ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
+      // The harness registers a fresh wallet per run against a persistent
+      // local stack; the fixed Google test subject may already hold one.
+      replaceExistingWallet: true,
+      ecdsaTargets: effectiveEcdsaProfile.sdkTargets,
+      ...(signerSelection ? { signerSelection } : {}),
+      recoveryCodeBackup: { kind: 'show_builtin_dialog' },
       emailOtpAuthPolicy: 'session',
       onEvent: this.recordLifecycleEvent,
     });
@@ -1201,47 +1944,64 @@ class IntendedPageController {
     const nearProvisioning = await this.seams.registration.getNearProvisioningState({
       walletId: completed.value.walletId,
     });
+    const session = await resolveEmailOtpRegistrationSession({
+      walletId: completed.value.walletId,
+      completedSession: completed.value.session,
+      nearProvisioning,
+      auth: this.seams.auth,
+    });
     return assertEmailOtpRegistrationCompleted({
-      completed: completed.value,
+      completed: {
+        ...completed.value,
+        session,
+      },
       initialWalletId,
-      ecdsaTargetProfile: this.emailOtpEcdsaTargetProfile,
+      ecdsaTargetProfile: effectiveEcdsaProfile,
       nearProvisioning,
     });
   }
 
-  private async unlockEmailOtpWalletWithPublicSdk(): Promise<EmailOtpUnlockCoreSummary> {
+  private async unlockEmailOtpWalletWithHostedMenu(
+    anchorTestId: 'intended-unlock-added-email-otp' | 'intended-unlock-email-otp',
+  ): Promise<EmailOtpUnlockCoreSummary> {
+    const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(
+      `intended-google-email-otp-unlock-${crypto.randomUUID()}`,
+    );
+    if (!authMenuSessionId) {
+      throw new Error('Google Email OTP unlock auth-menu identity is invalid');
+    }
+    const anchorElement = document.querySelector<HTMLElement>(`[data-testid="${anchorTestId}"]`);
+    if (!anchorElement) throw new Error('Google Email OTP unlock anchor is unavailable');
     const idToken = requireGoogleIdToken(this.googleIdToken);
-    const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
-      idToken,
-      mode: 'login',
-      ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
-      emailOtpAuthPolicy: 'session',
-      onEvent: this.recordLifecycleEvent,
-    });
-    if (!flowResult.ok) {
-      throw new Error(flowResult.error.message);
+    const unsubscribeExternalAuth = this.seams.onHostedAuthMenuExternalAuthRequest(
+      resolveIntendedGoogleExternalAuth.bind(null, this.seams, idToken),
+    );
+    let outcome: HostedAuthMenuOutcome;
+    try {
+      outcome = await this.seams.openHostedAuthMenu(
+        buildHostedAuthMenuOpenRequest({
+          authMenuSessionId,
+          initialMode: 'login',
+          loginTarget: { kind: 'wallet', walletId: toWalletId(this.walletId) },
+          registrationAccountInput: 'implicit_wallet',
+          showRegistrationInput: false,
+          showProgress: true,
+          enabledExternalProviders: ['google'],
+        }),
+        anchorElement,
+      );
+    } finally {
+      unsubscribeExternalAuth();
     }
-    if (flowResult.value.mode !== 'login') {
-      throw new Error(`Email OTP unlock resolved unexpected mode: ${flowResult.value.mode}`);
+    if (outcome.kind !== 'authenticated') {
+      throw new Error(`Google Email OTP unlock ended with ${outcome.kind}`);
     }
-    if (flowResult.value.walletId !== this.walletId) {
-      throw new Error(`Email OTP unlock wallet mismatch: ${flowResult.value.walletId}`);
+    if (String(outcome.walletId) !== this.walletId || outcome.method !== 'google_email_otp') {
+      throw new Error('Google Email OTP unlock returned the wrong wallet or auth method');
     }
-    const challengeId = googleEmailOtpLoginFlowChallengeId({
-      flowId: flowResult.value.flowId,
-      walletId: this.walletId,
-    });
-    const otpCode = await this.readEmailOtpCodeForChallenge({
-      kind: 'challenge',
-      challengeId,
-      walletId: this.walletId,
-    });
-    const submitted = await flowResult.value.submit({ otpCode });
-    if (!submitted.ok) {
-      throw new Error(submitted.error.message);
-    }
+    const session = await this.seams.auth.getWalletSession(this.walletId);
     return assertEmailOtpUnlockSucceeded({
-      result: submitted.value,
+      result: { walletId: String(outcome.walletId), session },
       expectedWalletId: this.walletId,
       ecdsaTargetProfile: this.emailOtpEcdsaTargetProfile,
     });
@@ -1254,20 +2014,37 @@ class IntendedPageController {
     const url = emailOtpDevOutboxUrl({
       relayerUrl: requireRelayerUrl(this.seams.configs.network.relayer?.url),
     });
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        idToken,
-        walletId,
-        ...(lookup.kind === 'challenge' ? { challengeId: lookup.challengeId } : {}),
-      }),
-    });
-    const json = await response.json();
-    const outbox = parseEmailOtpOutboxSuccess(json);
-    return outbox.otpCode;
+    const readOutbox = async (challengeSubjectId: string | null): Promise<string> => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          idToken,
+          walletId,
+          ...(lookup.kind === 'challenge' ? { challengeId: lookup.challengeId } : {}),
+          /* Only alongside the exact challenge. The route refuses a named
+             subject without one, so the fallback lookup stays on the token's
+             identity. */
+          ...(lookup.kind === 'challenge' && challengeSubjectId ? { challengeSubjectId } : {}),
+        }),
+      });
+      const json = await response.json();
+      return parseEmailOtpOutboxSuccess(json).otpCode;
+    };
+    if (lookup.kind === 'challenge' && intendedEmailOtpChallengeSubjectOverride) {
+      /* The override names the derived address an added Email OTP method
+         challenges under. A method that reuses the founding Google enrollment
+         (a recovery-installed method) challenges under the Google subject, so
+         the same lookup falls back to the token's identity. */
+      try {
+        return await readOutbox(intendedEmailOtpChallengeSubjectOverride);
+      } catch {
+        return await readOutbox(null);
+      }
+    }
+    return await readOutbox(null);
   };
 
   private async signTempoTransactionWithPublicSdk(): Promise<TempoSigningResultSummary> {
@@ -1476,12 +2253,18 @@ function intendedActionResultWalletId(result: IntendedActionResult): string | nu
   switch (result.kind) {
     case 'passkey_registration_success':
     case 'wallet_signer_added':
+    case 'add_email_otp_success':
+    case 'add_passkey_success':
     case 'email_otp_registration_success':
     case 'near_provisioning_ready':
     case 'near_sign_success':
     case 'passkey_unlock_success':
     case 'passkey_sync_success':
+    case 'passkey_recovery_success':
+    case 'google_email_otp_recovery_success':
     case 'email_otp_unlock_success':
+    case 'added_email_otp_unlock_success':
+    case 'revoke_auth_method_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
     case 'ed25519_export_success':
@@ -1499,14 +2282,23 @@ function intendedActionResultNearAccountId(result: IntendedActionResult): string
     case 'email_otp_registration_success':
     case 'near_provisioning_ready':
     case 'near_sign_success':
-    case 'passkey_unlock_success':
     case 'passkey_sync_success':
     case 'email_otp_unlock_success':
     case 'ed25519_export_success':
       return result.nearAccountId ?? null;
+    case 'passkey_unlock_success':
+      return result.nearIdentity === 'ready' ? result.nearAccountId : null;
+    /* An added auth method changes who can unlock the wallet, not which NEAR
+       account it signs for. */
+    case 'add_email_otp_success':
+    case 'add_passkey_success':
+    case 'added_email_otp_unlock_success':
+    case 'revoke_auth_method_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
     case 'ecdsa_export_success':
+    case 'passkey_recovery_success':
+    case 'google_email_otp_recovery_success':
       return null;
     default:
       return assertNever(result);
@@ -1528,7 +2320,13 @@ function intendedActionResultNearSignerSlot(
     case 'near_sign_success':
     case 'passkey_unlock_success':
     case 'passkey_sync_success':
+    case 'passkey_recovery_success':
+    case 'google_email_otp_recovery_success':
     case 'email_otp_unlock_success':
+    case 'added_email_otp_unlock_success':
+    case 'revoke_auth_method_success':
+    case 'add_email_otp_success':
+    case 'add_passkey_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
     case 'ed25519_export_success':
@@ -1822,12 +2620,14 @@ type PendingPasskeyWalletRegistrationResult = Extract<
 type PendingPasskeyRegistrationIdentitySummary = {
   kind: 'passkey_registration_success';
   walletId: string;
+  nearReadiness: 'pending';
   nearProvisioning: IntendedNearProvisioningSummary;
 };
 
 type PasskeyRegistrationIdentitySummary = {
   kind: 'passkey_registration_success';
   walletId: string;
+  nearReadiness: 'ready';
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   operationalPublicKey: string;
@@ -1849,6 +2649,7 @@ function pendingPasskeyRegistrationSummary(args: {
   return {
     kind: 'passkey_registration_success',
     walletId,
+    nearReadiness: 'pending',
     nearProvisioning: registrationNearProvisioningSummary(args.result.nearProvisioning),
   };
 }
@@ -1890,6 +2691,7 @@ function passkeyRegistrationIdentitySummary(args: {
   return {
     kind: 'passkey_registration_success',
     walletId,
+    nearReadiness: 'ready',
     nearAccountId,
     nearEd25519SigningKeyId,
     operationalPublicKey,
@@ -2063,32 +2865,30 @@ function assertEmailOtpRegistrationCompleted(args: {
     source: registrationEcdsaCapability(completed.registration),
     label: 'Email OTP registration',
   });
-  const reusableWalletSession = completed.session.reusableWalletSession;
-  if (reusableWalletSession.kind !== 'active') {
-    throw new Error(
-      `Email OTP registration did not return an active signing session: ${reusableWalletSession.kind}`,
-    );
-  }
+  const authenticationKind = requireAuthenticatedWalletSession(completed.session, walletId);
   const common = {
     kind: 'email_otp_registration_success' as const,
     initialWalletId: args.initialWalletId,
     walletId,
-    signingSessionStatus: reusableWalletSession.kind,
-    remainingUses: reusableWalletSession.remainingUses,
+    authenticationKind,
   };
   if (nearAccountId && operationalPublicKey) {
     return {
       ...common,
+      nearReadiness: 'ready',
       nearAccountId,
       operationalPublicKey,
       ...ecdsa,
     };
   }
+  /* No identity and no provisioning means this wallet's signer set never
+     included Ed25519, which is a shape rather than a failure. */
   if (!args.nearProvisioning) {
-    throw new Error('Email OTP registration returned neither NEAR identity nor provisioning state');
+    return { ...common, nearReadiness: 'absent', ...ecdsa };
   }
   return {
     ...common,
+    nearReadiness: 'pending',
     nearProvisioning: nearProvisioningSummaryStatus(args.nearProvisioning),
     ...ecdsa,
   };
@@ -2178,6 +2978,85 @@ function settleNearProvisioningState(
   }
 }
 
+function requireAuthenticatedWalletSession(
+  session: WalletSession,
+  expectedWalletId: string,
+): 'authenticated' {
+  if (
+    session.authentication.kind !== 'authenticated' ||
+    String(session.authentication.walletId) !== expectedWalletId
+  ) {
+    throw new Error('Wallet session is not authenticated for the expected wallet');
+  }
+  return session.authentication.kind;
+}
+
+function exactWalletAuthMethodIdFromSession(session: WalletSession): string {
+  if (session.appIdentity.kind !== 'resolved') {
+    throw new Error(`Wallet session identity is ${session.appIdentity.kind}`);
+  }
+  const authentication = session.authentication;
+  if (authentication.kind !== 'authenticated') {
+    throw new Error('Wallet session is not authenticated');
+  }
+  if (authentication.walletId !== session.appIdentity.walletId) {
+    throw new Error('Wallet session authentication identity differs from app identity');
+  }
+
+  let projectedWalletAuthMethodId: string | null = null;
+  const projection = session.capabilityProjection;
+  if (projection.kind === 'resolved') {
+    for (const capability of projection.capabilities) {
+      switch (capability.kind) {
+        case 'near_ed25519':
+          break;
+        case 'evm_family_ecdsa': {
+          const walletAuthMethodId = String(capability.subject.authority.walletAuthMethodId).trim();
+          if (!walletAuthMethodId) {
+            throw new Error('ECDSA capability projection has no auth method identity');
+          }
+          if (
+            projectedWalletAuthMethodId !== null &&
+            projectedWalletAuthMethodId !== walletAuthMethodId
+          ) {
+            const listed = projection.capabilities
+              .map((entry) =>
+                entry.kind === 'evm_family_ecdsa'
+                  ? `${JSON.stringify(entry.subject.capability)}=>${String(entry.subject.authority.walletAuthMethodId)}`
+                  : entry.kind,
+              )
+              .join('; ');
+            throw new Error(
+              `Wallet session capability projections disagree on auth method: ${listed}`,
+            );
+          }
+          projectedWalletAuthMethodId = walletAuthMethodId;
+          break;
+        }
+        default:
+          return assertNever(capability);
+      }
+    }
+  }
+
+  const matchingBindings = [];
+  for (const binding of session.appIdentity.authMethods) {
+    const matchesProjectedIdentity =
+      projectedWalletAuthMethodId === null
+        ? binding.kind === authentication.authMethod
+        : String(binding.walletAuthMethodId) === projectedWalletAuthMethodId;
+    if (matchesProjectedIdentity) matchingBindings.push(binding);
+  }
+  if (matchingBindings.length !== 1) {
+    throw new Error('Wallet session does not identify one exact authenticated auth method');
+  }
+  const binding = matchingBindings[0];
+  if (!binding || binding.kind !== authentication.authMethod) {
+    throw new Error('Wallet session capability auth method differs from authentication method');
+  }
+  return String(binding.walletAuthMethodId);
+}
+
 function assertEmailOtpUnlockSucceeded(args: {
   result: {
     walletId: string;
@@ -2212,52 +3091,52 @@ function assertEmailOtpUnlockSucceeded(args: {
     source: appIdentity,
     label: 'Email OTP unlock',
   });
-  const reusableWalletSession = result.session.reusableWalletSession;
-  if (reusableWalletSession.kind !== 'active') {
-    throw new Error(
-      `Email OTP unlock did not return an active signing session: ${reusableWalletSession.kind}`,
-    );
-  }
+  const authenticationKind = requireAuthenticatedWalletSession(result.session, walletId);
   return {
     kind: 'email_otp_unlock_success',
     walletId,
     nearAccountId,
     operationalPublicKey,
-    signingSessionStatus: reusableWalletSession.kind,
-    remainingUses: reusableWalletSession.remainingUses,
+    sessionWalletAuthMethodId: exactWalletAuthMethodIdFromSession(result.session),
+    authenticationKind,
     ...ecdsa,
   };
 }
 
 function assertPasskeyUnlockSucceeded(
-  result: Awaited<ReturnType<ReturnType<typeof useSeams>['seams']['auth']['unlock']>>,
+  session: WalletSession,
   expectedWalletId: string,
 ): PasskeyUnlockResultSummary {
-  if (!result.success) {
-    throw new Error(result.error || 'Passkey unlock failed');
+  if (session.appIdentity.kind !== 'resolved') {
+    throw new Error(`Passkey unlock did not resolve app identity: ${session.appIdentity.kind}`);
   }
-  const nearAccountId = String(result.nearAccountId || '').trim();
-  if (!nearAccountId) {
-    throw new Error('Passkey unlock did not return a NEAR account id');
+  if (String(session.appIdentity.walletId) !== expectedWalletId) {
+    throw new Error('Passkey unlock session wallet mismatch');
   }
-  const operationalPublicKey = String(result.operationalPublicKey || '').trim();
-  if (!operationalPublicKey) {
-    throw new Error('Passkey unlock did not return an operational public key');
-  }
-  const signingSessionStatus = String(result.signingSession?.status || '').trim();
-  if (signingSessionStatus !== 'active') {
-    throw new Error(
-      `Passkey unlock did not return an active signing session: ${signingSessionStatus}`,
-    );
-  }
-  return {
-    kind: 'passkey_unlock_success',
+  const authenticationKind = requireAuthenticatedWalletSession(session, expectedWalletId);
+  const nearAccountId = String(session.appIdentity.nearAccountId || '').trim();
+  const operationalPublicKey = String(session.appIdentity.nearOperationalPublicKey || '').trim();
+  const common = {
+    kind: 'passkey_unlock_success' as const,
     walletId: expectedWalletId,
-    nearAccountId,
-    operationalPublicKey,
-    signingSessionStatus,
-    remainingUses: normalizeOptionalNumber(result.signingSession?.remainingUses),
+    sessionWalletAuthMethodId: exactWalletAuthMethodIdFromSession(session),
+    authenticationKind,
   };
+  if (nearAccountId && operationalPublicKey) {
+    return {
+      ...common,
+      nearIdentity: 'ready',
+      nearAccountId,
+      operationalPublicKey,
+    };
+  }
+  if (!nearAccountId && !operationalPublicKey) {
+    return {
+      ...common,
+      nearIdentity: 'absent',
+    };
+  }
+  throw new Error('Passkey unlock returned an incomplete NEAR identity');
 }
 
 function requireNearAccountId(nearAccountId: string | null): string {
@@ -2318,10 +3197,49 @@ type EmailOtpCodeLookup =
       challengeId?: never;
     };
 
-function emailOtpDevOutboxUrl(input: {
-  relayerUrl: string;
-}): string {
+function emailOtpDevOutboxUrl(input: { relayerUrl: string }): string {
   return new URL('/wallet/email-otp/dev/otp-outbox', input.relayerUrl).href;
+}
+
+/**
+ * The subject the dev outbox should read for a factor added by verified address.
+ *
+ * Module scope, not controller state: the controller is rebuilt on every
+ * render, so the instance the page installed on `window` is not necessarily
+ * the one an action mutated. Only an addition by address sets this; every
+ * other flow's challenges belong to the Google subject the id token carries,
+ * and overriding them would make those unreadable.
+ */
+let intendedEmailOtpChallengeSubjectOverride: string | null = null;
+
+/**
+ * An added Email OTP method must use the same verified email that the hosted
+ * Google sign-in flow can prove. The selected wallet disambiguates repeated
+ * runs that use the fixed intended-test Google identity.
+ */
+function intendedGoogleEmailAddress(idToken: string): string {
+  const payloadSegment = idToken.split('.')[1];
+  if (!payloadSegment) throw new Error('Google ID token payload is unavailable');
+  const payload = JSON.parse(decodeBase64UrlUtf8(payloadSegment)) as unknown;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Google ID token payload is invalid');
+  }
+  const email = String((payload as Record<string, unknown>).email || '')
+    .trim()
+    .toLowerCase();
+  if (!email) throw new Error('Google ID token email is unavailable');
+  return email;
+}
+
+function decodeBase64UrlUtf8(value: string): string {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 function parseEmailOtpCodeLookup(input: IntendedEmailOtpCodeRequest): EmailOtpCodeLookup {
@@ -2338,14 +3256,6 @@ function parseEmailOtpCodeLookup(input: IntendedEmailOtpCodeRequest): EmailOtpCo
     default:
       return assertNever(input);
   }
-}
-
-function googleEmailOtpLoginFlowChallengeId(input: { flowId: string; walletId: string }): string {
-  const prefix = `google-email-otp-login:${input.walletId}:`;
-  if (!input.flowId.startsWith(prefix)) {
-    throw new Error(`Email OTP login flow id does not match wallet ${input.walletId}`);
-  }
-  return requireEmailOtpChallengeId(input.flowId.slice(prefix.length));
 }
 
 function parseEmailOtpOutboxSuccess(raw: unknown): IntendedEmailOtpOutboxSuccess {
@@ -2370,6 +3280,8 @@ function parseEmailOtpOutboxSuccess(raw: unknown): IntendedEmailOtpOutboxSuccess
 function installIntendedE2EHelpers(controller: IntendedPageController): void {
   if (typeof window === 'undefined') return;
   window.__seamsIntendedE2EReadEmailOtpCode = controller.readEmailOtpCodeForChallenge;
+  window.__seamsIntendedE2ELockWallet = controller.lockWalletForIntendedTest;
+  window.__seamsIntendedE2EReadWalletLockState = controller.readWalletLockStateForIntendedTest;
 }
 
 function requireHex(value: unknown, label: string): `0x${string}` {
@@ -2378,12 +3290,6 @@ function requireHex(value: unknown, label: string): `0x${string}` {
     throw new Error(`${label} must be 0x-prefixed hex`);
   }
   return hex as `0x${string}`;
-}
-
-function normalizeOptionalNumber(value: unknown): number | null {
-  if (value == null) return null;
-  const normalized = Number(value);
-  return Number.isFinite(normalized) ? normalized : null;
 }
 
 function normalizeSignedTransactionByteLength(signedTransaction: {

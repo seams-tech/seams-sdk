@@ -200,7 +200,7 @@ Router A/B Ed25519 normal-signing sessions. The value must match the frontend
 
 Router A/B active signing requires the Router server to reach the private SigningWorker:
 
-- `ROUTER_AB_SIGNING_WORKER_URL` (local default: `http://127.0.0.1:9103`)
+- `ROUTER_AB_SIGNING_WORKER_URL` (local default: `http://127.0.0.1:4105`)
 - `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET` (dev-only local value: `dev-router-ab-internal-service-auth`)
 
 Router A/B normal-signing admission is durable in the Cloudflare D1/DO router.
@@ -319,7 +319,7 @@ ROUTER_API_KEY_AUTH_ENABLED=1
 ### Persistence
 
 Staging-required local development uses the Cloudflare D1/DO Worker from the
-installed `@seams/sdk-server` package:
+installed `@seams/wallet-server` package:
 
 ```bash
 pnpm -C packages/console-server-ts run d1:local:prepare

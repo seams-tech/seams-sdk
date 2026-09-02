@@ -7,7 +7,7 @@ import type { WalletAuthenticationState } from '@/core/types/seams';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { parseWalletId } from '@shared/utils/domainIds';
 import {
-  activeHostedWalletAppSessionJwt,
+  clearHostedWalletSessions,
   redeemHostedWalletSeamsSession,
 } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 
@@ -183,7 +183,7 @@ async function seedHostedOidcSession(args: {
   });
   const originalWindow = Reflect.get(globalThis, 'window');
   const cleanup = (): void => {
-    activeHostedWalletAppSessionJwt('https://different-relay.local');
+    clearHostedWalletSessions();
     if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
     else Reflect.set(globalThis, 'window', originalWindow);
   };

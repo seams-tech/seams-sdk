@@ -1,5 +1,5 @@
 export type {
-  ConsoleWebhookEventCategory,
+  WebhookEventCategoryValidation,
   ConsoleWebhooksContext,
   ConsoleWebhookEndpointStatus,
   ConsoleWebhookDeliveryStatus,

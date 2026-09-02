@@ -10,6 +10,8 @@ export const GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION = 4;
 export const DEFAULT_NEAR_INITIAL_BALANCE_YOCTO = '30000000000000000000000';
 export const DEFAULT_RELAY_SESSION_AUDIENCE = 'seams-wallet-session';
 export const DEFAULT_SESSION_COOKIE_NAME = 'seams-jwt';
+export const DEFAULT_CONSOLE_SESSION_AUDIENCE = 'seams-console-session';
+export const DEFAULT_CONSOLE_SESSION_COOKIE_NAME = 'seams-console-jwt';
 export const DEFAULT_EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX = '30';
 export const DEFAULT_EMAIL_OTP_VERIFY_RATE_LIMIT_MAX = '30';
 export const DEFAULT_EMAIL_OTP_GRANT_RATE_LIMIT_MAX = '30';
@@ -19,6 +21,18 @@ export const DEFAULT_EMAIL_OTP_LOCKOUT_TTL_MS = '300000';
 export const DEFAULT_EMAIL_OTP_SENSITIVE_ATTEMPT_RATE_LIMIT_MAX = '5';
 export const GATEWAY_WORKER_COMPATIBILITY_DATE = '2026-07-18';
 export const GATEWAY_WORKER_COMPATIBILITY_FLAGS = Object.freeze(['nodejs_compat']);
+
+export function consoleOriginFor(gatewayOrigin) {
+  const url = new URL(gatewayOrigin);
+  if (!url.hostname.split('.').includes('api')) {
+    throw new Error(`cannot derive console origin from ${gatewayOrigin}`);
+  }
+  const hostname = url.hostname
+    .split('.')
+    .map((label) => (label === 'api' ? 'console' : label))
+    .join('.');
+  return `${url.protocol}//${hostname}`;
+}
 export const GATEWAY_RUNTIME_PROFILE_KINDS = {
   testnetLiveDemo: 'testnet_live_demo',
   testnetService: 'testnet_service',
@@ -669,11 +683,6 @@ function parseNullableString(value, path) {
 function parseNullablePattern(value, pattern, path) {
   if (value === null || value === undefined) return null;
   return requirePattern(value, pattern, path);
-}
-
-function parseNullableObject(value, path) {
-  if (value === null) return null;
-  return structuredClone(requireObject(value, path));
 }
 
 function requireRegistrationKeysMatch(keyset, topology) {

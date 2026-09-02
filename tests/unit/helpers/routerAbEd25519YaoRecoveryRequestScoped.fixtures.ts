@@ -13,19 +13,15 @@ import {
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
-import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
-import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { VersionedJsonRecordReadResult } from '../../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
-import {
-  isRouterAbEd25519OwnerWalletSessionClaims,
-  parseRouterAbEd25519WalletSessionClaims,
-  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-} from '../../../packages/sdk-server-ts/src/core/ThresholdService/validation';
+import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
+import type { RouterApiWalletSessionAuthorizationV2AdmissionContext } from '../../../packages/wallet-server/src/router/framework/authServicePort';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { VersionedJsonRecordReadResult } from '../../../packages/wallet-server/src/router/framework/versionedJsonRecordStore';
+import { buildLinkedDeviceManagementAuthorityFixture } from './linkedDeviceManagement.fixtures';
 import {
   createRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationStateV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import {
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionBatchResultV1,
@@ -33,7 +29,7 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
   type RouterAbEd25519YaoRecoveryAdmissionCommitInputV1,
@@ -43,8 +39,8 @@ import {
   type RouterAbEd25519YaoRecoveryBackend,
   type RouterAbEd25519YaoRecoveryBackendResult,
   type RouterAbEd25519YaoRecoveryExecuteCommitInputV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
-import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/sdk-server-ts/src/core/WalletStore';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/wallet-server/src/core/WalletStore';
 
 const ROOT_SHARE_EPOCH = 'root-recovery-v1';
 const RUNTIME_POLICY_SCOPE = {
@@ -60,13 +56,9 @@ type RecoveryFixtureIdentity = {
   readonly walletId: string;
   readonly nearAccountId: string;
   readonly nearSigningKeyId: string;
-  readonly authorizationId: string;
-  readonly walletSessionId: string;
   readonly thresholdSessionId: string;
-  readonly quotaId: string;
   readonly signingWorkerId: string;
   readonly signerSetId: string;
-  readonly credentialId: string;
   readonly activeCapabilitySeed: number;
   readonly replacementCapabilitySeed: number;
   readonly registeredPublicKeySeed: number;
@@ -78,13 +70,9 @@ const PRIMARY_IDENTITY: RecoveryFixtureIdentity = {
   walletId: 'wallet-recovery-1',
   nearAccountId: 'wallet-recovery-1.testnet',
   nearSigningKeyId: 'ed25519ks_recovery_1',
-  authorizationId: 'authorization-grant-recovery-1',
-  walletSessionId: 'wallet-session-recovery-1',
   thresholdSessionId: 'threshold-session-recovery-1',
-  quotaId: 'wallet-session-quota-recovery-1',
   signingWorkerId: 'signing-worker-recovery-1',
   signerSetId: 'signer-set-recovery-1',
-  credentialId: 'recovery-request-scoped-credential-1',
   activeCapabilitySeed: 20,
   replacementCapabilitySeed: 21,
   registeredPublicKeySeed: 12,
@@ -96,13 +84,9 @@ const SECONDARY_IDENTITY: RecoveryFixtureIdentity = {
   walletId: 'wallet-recovery-2',
   nearAccountId: 'wallet-recovery-2.testnet',
   nearSigningKeyId: 'ed25519ks_recovery_2',
-  authorizationId: 'authorization-grant-recovery-2',
-  walletSessionId: 'wallet-session-recovery-2',
   thresholdSessionId: 'threshold-session-recovery-2',
-  quotaId: 'wallet-session-quota-recovery-2',
   signingWorkerId: 'signing-worker-recovery-2',
   signerSetId: 'signer-set-recovery-2',
-  credentialId: 'recovery-request-scoped-credential-2',
   activeCapabilitySeed: 40,
   replacementCapabilitySeed: 41,
   registeredPublicKeySeed: 42,
@@ -230,16 +214,12 @@ class UnavailableRecoveryBackend implements RouterAbEd25519YaoRecoveryBackend {
 }
 
 class AllowRecoveryAuthorization implements RouterAbEd25519YaoRecoveryAuthorizationAdapter {
-  private readonly claims;
-
-  constructor(identity: RecoveryFixtureIdentity) {
-    this.claims = recoveryClaims(identity);
-  }
+  constructor(private readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext) {}
 
   authorize(
     _input: RouterAbEd25519YaoRecoveryAuthorizationInput,
   ): RouterAbEd25519YaoRecoveryAuthorizationResult {
-    return { ok: true, claims: { kind: 'wallet_session', value: this.claims } };
+    return { ok: true, authorization: { kind: 'wallet_session_v2', context: this.context } };
   }
 }
 
@@ -250,7 +230,7 @@ export async function buildRouterAbEd25519YaoRecoveryRequestScopedFixture(): Pro
     new MemoryPartitionRecordStore(),
   );
   await seedState(store, state, PRIMARY_IDENTITY.lifecycleId);
-  return recoveryFixture(PRIMARY_IDENTITY, store);
+  return await recoveryFixture(PRIMARY_IDENTITY, store);
 }
 
 export async function buildSecondRouterAbEd25519YaoRecoveryRequestScopedFixture(
@@ -270,7 +250,7 @@ export async function buildSecondRouterAbEd25519YaoRecoveryRequestScopedFixture(
   if (committed.kind !== 'stored') {
     throw new Error('secondary recovery fixture state did not commit');
   }
-  return recoveryFixture(SECONDARY_IDENTITY, store);
+  return await recoveryFixture(SECONDARY_IDENTITY, store);
 }
 
 export function buildRouterAbEd25519YaoCapabilityReplacementFixture(
@@ -327,14 +307,15 @@ function capabilityReplacementFixture(
   };
 }
 
-function recoveryFixture(
+async function recoveryFixture(
   identity: RecoveryFixtureIdentity,
   store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-): RouterAbEd25519YaoRecoveryRequestScopedFixture {
+): Promise<RouterAbEd25519YaoRecoveryRequestScopedFixture> {
   const admission = recoveryAdmission(identity);
   const admissionReceipt = recoveryAdmissionReceipt(admission);
   const execution = recoveryExecution(admissionReceipt);
   const executionResult = recoveryExecutionResult(execution, identity.registeredPublicKeySeed);
+  const authorizationContext = await recoveryAuthorizationContext(identity);
   return {
     lifecycleId: identity.lifecycleId,
     admission,
@@ -343,7 +324,7 @@ function recoveryFixture(
     executionResult,
     activation: recoveryActivation(executionResult),
     store,
-    authorization: new AllowRecoveryAuthorization(identity),
+    authorization: new AllowRecoveryAuthorization(authorizationContext),
     capabilities: {
       async resolveActiveCapability() {
         return {
@@ -635,38 +616,31 @@ function publicReceipt(
   };
 }
 
-function recoveryClaims(identity: RecoveryFixtureIdentity) {
-  const authority = buildPasskeyWalletAuthAuthority({
-    walletId: identity.walletId,
-    rpId: 'router.example.test',
-    credentialIdB64u: identity.credentialId,
-  });
-  const claims = parseRouterAbEd25519WalletSessionClaims({
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'owner_wallet_session',
-    sub: identity.walletId,
-    walletId: identity.walletId,
-    nearAccountId: identity.nearAccountId,
-    nearEd25519SigningKeyId: identity.nearSigningKeyId,
-    authorizationId: identity.authorizationId,
-    walletSessionId: identity.walletSessionId,
-    quotaId: identity.quotaId,
-    thresholdSessionId: identity.thresholdSessionId,
-    relayerKeyId: identity.signingWorkerId,
-    authority,
-    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
-    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-    thresholdExpiresAtMs: Date.now() + 60_000,
-    participantIds: [1, 2],
-    routerAbNormalSigning: {
-      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-      signingWorkerId: identity.signingWorkerId,
+async function recoveryAuthorizationContext(
+  identity: RecoveryFixtureIdentity,
+): Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext> {
+  const fixture = await buildLinkedDeviceManagementAuthorityFixture({
+    label: `recovery-request-scoped-${identity.lifecycleId}`,
+    permissions: buildFullOwnerPermissionsV1(),
+    provenance: 'wallet_registration',
+    keyFamily: 'ed25519',
+    materialActivation: routerAbMpcMaterialActivationRefFromWire(
+      registrationAdmission(identity).scope.material_activation,
+    ),
+    expiresAtMs: Date.now() + 60_000,
+    identity: {
+      walletId: identity.walletId,
+      authorityId: `authority:recovery-request-scoped-${identity.lifecycleId}`,
+      walletAuthMethodId: `auth-method:recovery-request-scoped-${identity.lifecycleId}`,
+      rpId: 'router.example.test',
     },
   });
-  if (!claims || !isRouterAbEd25519OwnerWalletSessionClaims(claims)) {
-    throw new Error('recovery fixture Wallet Session claims are invalid');
-  }
-  return claims;
+  return {
+    authorization: fixture.issuedSession,
+    authority: fixture.authority,
+    authMethod: fixture.authMethod,
+    retiredAtMs: null,
+  };
 }
 
 function unavailableRecoveryBackend(): RouterAbEd25519YaoRecoveryBackend {
@@ -682,8 +656,15 @@ function fixtureBackendUnavailable(): RouterAbEd25519YaoRecoveryBackendResult {
   };
 }
 
-function requireParsed<T>(parsed: { ok: true; value: T } | { ok: false; message: string }): T {
-  if (!parsed.ok) throw new Error(parsed.message);
+function requireParsed<T>(
+  parsed:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly message: string }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+): T {
+  if (!parsed.ok) {
+    throw new Error('message' in parsed ? parsed.message : parsed.error.message);
+  }
   return parsed.value;
 }
 

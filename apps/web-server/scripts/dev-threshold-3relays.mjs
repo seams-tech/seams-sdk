@@ -2,6 +2,9 @@
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'node:url';
+
+const rootEnvPath = fileURLToPath(new URL('../../../.env.local', import.meta.url));
 
 function run(cmd, args, opts = {}) {
   const p = spawn(cmd, args, { stdio: 'inherit', ...opts });
@@ -11,7 +14,7 @@ function run(cmd, args, opts = {}) {
   return p;
 }
 
-dotenv.config();
+dotenv.config({ path: rootEnvPath });
 
 const coordinatorSharedSecretB64u =
   String(process.env.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U || '').trim() ||
@@ -28,7 +31,7 @@ const relayerCosignersJson = JSON.stringify([
   { cosignerId: 3, relayerUrl: 'http://127.0.0.1:3002' },
 ]);
 const coordinatorPeersJson = JSON.stringify([
-  { instanceId: 'coordinator-a', relayerUrl: 'https://localhost:9444' },
+  { instanceId: 'coordinator-a', relayerUrl: 'https://localhost:4101' },
 ]);
 
 const commonEnv = {

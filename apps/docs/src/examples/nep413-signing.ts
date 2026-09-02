@@ -1,27 +1,16 @@
-import type { SeamsWeb, SignNEP413MessageResult, SigningFlowEvent } from '@seams/sdk';
-import { nearAccountRefFromAccountId, walletSessionRefFromSession } from '@seams/sdk/advanced';
+import { logWalletEvents, type SeamsWeb } from '@seams/wallet';
 
-function logSigningEvent(event: SigningFlowEvent): void {
-  console.log(event.phase, event.status, event.message);
-}
-
-export async function signCheckoutMessage(
-  seams: SeamsWeb,
-  walletId: string,
-  nearAccountId: string,
-): Promise<SignNEP413MessageResult> {
+export async function signCheckoutMessage(seams: SeamsWeb) {
   const result = await seams.near.signNEP413Message({
-    walletSession: walletSessionRefFromSession({
-      walletId,
-      walletSessionUserId: walletId,
-    }),
-    nearAccount: nearAccountRefFromAccountId(nearAccountId),
+    // Omitting the subject targets the authenticated wallet and its NEAR
+    // account; pass `walletSession` (a wallet id is enough) or `nearAccount` to
+    // name an exact one.
     params: {
       message: 'Approve checkout quote #quote_123',
       recipient: 'merchant.example',
       state: 'quote_123',
     },
-    options: { onEvent: logSigningEvent },
+    options: { onEvent: logWalletEvents() },
   });
 
   if (!result.success) {

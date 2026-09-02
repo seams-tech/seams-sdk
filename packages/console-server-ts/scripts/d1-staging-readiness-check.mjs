@@ -29,35 +29,32 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}
 const consoleD1Database = Object.freeze({
   binding: 'CONSOLE_DB',
   databaseName: 'seams-console-staging-nrt',
-  migrationsDir: 'migrations/d1-console',
+  migrationsDir: '../wallet-console-server-ts/migrations/d1-console',
 });
 const signerD1Database = Object.freeze({
   binding: 'SIGNER_DB',
   databaseName: 'seams-signer-staging-nrt',
-  migrationsDir: 'node_modules/@seams/sdk-server/migrations/d1-signer',
+  migrationsDir:
+    '../wallet-console-server-ts/node_modules/@seams/wallet-server/migrations/d1-signer',
 });
 const requiredD1DatabasesByProfile = Object.freeze({
   console: Object.freeze([consoleD1Database]),
-  gateway: Object.freeze([consoleD1Database, signerD1Database]),
+  gateway: Object.freeze([signerD1Database]),
 });
 
 const stagingProfiles = Object.freeze(['console', 'gateway']);
 const expectedMainByProfile = Object.freeze({
-  console: 'src/router/cloudflare/d1ConsoleStagingWorker.ts',
-  gateway: 'src/router/cloudflare/d1RouterApiStagingWorker.ts',
+  console: '../wallet-console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts',
+  gateway: '../wallet-console-server-ts/src/router/cloudflare/d1GatewayWorker.ts',
 });
 const requiredSecretVarsByProfile = Object.freeze({
   console: Object.freeze(['CONSOLE_SESSION_HMAC_SECRET', 'STRIPE_API_SK']),
   gateway: Object.freeze([
-    /* Sessions are Ed25519-signed with the ceremony key; the legacy
-       RELAY_SESSION_HMAC_SECRET is no longer read by the gateway worker. */
     'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
     'ACCOUNT_ID_DERIVATION_SECRET',
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
-    'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET',
     'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET',
     'SPONSORED_EVM_EXECUTORS_JSON',
-    'STRIPE_API_SK',
   ]),
 });
 const requiredVarsByProfile = Object.freeze({
@@ -79,9 +76,11 @@ const requiredVarsByProfile = Object.freeze({
     'ROUTER_AB_CEREMONY_JWT_ISSUER',
     'ROUTER_AB_CEREMONY_JWT_AUDIENCE',
     'LINKED_DEVICE_WEBAUTHN_RP_ID',
-    'LINKED_DEVICE_WEBAUTHN_ORIGIN',
     'SPONSORED_EXECUTION_REAL_PRICING_JSON',
     'CONSOLE_BASE_URL',
+    'CONSOLE_SESSION_COOKIE_NAME',
+    'CONSOLE_SESSION_ISSUER',
+    'CONSOLE_SESSION_AUDIENCE',
   ]),
 });
 const forbiddenPostgresTokens = Object.freeze([
@@ -101,9 +100,9 @@ const forbiddenPlaintextVars = Object.freeze([
   'STRIPE_WEBHOOK_SECRET',
   'RESEND_API_KEY',
   'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
+  'CONSOLE_WEBHOOK_SECRET_KEY_B64U',
   'ACCOUNT_ID_DERIVATION_SECRET',
   'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
-  'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET',
   'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET',
 ]);
 const forbiddenConsoleProfileTokens = Object.freeze(['SIGNER_DB', 'THRESHOLD_STORE']);

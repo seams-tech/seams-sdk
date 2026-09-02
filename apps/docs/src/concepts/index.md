@@ -5,9 +5,10 @@ description: Learn the architecture, custody, authentication, policy, session, d
 
 # Concepts
 
-Seams is key, credential, and policy infrastructure for digital authority. It
-helps applications prove who is acting, bind what they approved to a typed
-intent, enforce policy before execution, and preserve an audit trail afterward.
+Seams is wallet, credential, and policy infrastructure for applications that
+provision persistent wallets for users or shopping agents. It helps those
+applications prove who is acting, bind what they approved to a typed intent,
+enforce policy before execution, and preserve an audit trail afterward.
 
 ```text
 Prove who is acting.
@@ -19,8 +20,10 @@ Wallet signing is the first execution surface. The same model extends to payment
 rails, merchant APIs, marketplace APIs, agent tools, and delegated device
 actions.
 
-For wallet teams, Seams provides self-hostable threshold embedded wallets that
-deploy to Cloudflare.
+The primary use cases are [platform wallets](/use-cases/platform-wallets),
+[shopping wallet apps](/use-cases/shopping-wallet-apps), and [shopping
+agents](/use-cases/ecommerce-agents). Seams provides self-hostable threshold
+wallet infrastructure that deploys to Cloudflare.
 
 ## System layers
 
@@ -42,9 +45,8 @@ deploy to Cloudflare.
 6. [Sessions](/concepts/sessions/) for signing lanes and bounded runtime authority.
 7. [Auth Methods](/concepts/auth-methods/) for passkeys, Email OTP, and VoiceID.
 8. [Delegation](/concepts/delegation/) for linked devices, agents, and rotation.
-9. [Advanced](/concepts/advanced/) for protocol, ceremony, and deployment details.
 
-## Short version
+## Shopping-agent short version
 
 Give agents permission to act without giving them unlimited authority.
 

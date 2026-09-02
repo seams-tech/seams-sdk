@@ -44,7 +44,7 @@ abort remains an availability behavior outside the cryptographic claim.
 | `cargo test --manifest-path crates/router-ab-dev/Cargo.toml` | 77 passed |
 | `cargo test --manifest-path crates/router-ab-ecdsa-near-oracle-tests/Cargo.toml` | 20 passed |
 | Focused Router A/B ECDSA browser matrix | 43 passed |
-| `pnpm build:prod` in `packages/sdk-web` | passed |
+| `pnpm build:prod` in `packages/wallet` | passed |
 | SDK web and server TypeScript checks | passed |
 | Router A/B derivation and signing-identity source guards | passed |
 | Purpose-built online Wasm budget | 31,615 gzip-9 bytes; 40,000-byte ceiling; passed |

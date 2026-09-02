@@ -10,7 +10,7 @@ import {
   registerVerifiedPasskeyEd25519YaoAddSignerV1,
   type VerifiedPasskeyEd25519AddSignerIntentV1,
   type VerifiedPasskeyEd25519YaoAddSignerInputV1,
-} from '../../packages/sdk-web/src/core/signingEngine/flows/registration/services/passkeyEd25519YaoAddSigner';
+} from '../../packages/wallet/src/core/signingEngine/flows/registration/services/passkeyEd25519YaoAddSigner';
 
 const UNUSED_FETCH: typeof fetch = async (): Promise<Response> => {
   throw new Error('fetch is not expected in this test');

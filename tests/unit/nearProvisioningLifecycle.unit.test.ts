@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   getWalletNearProvisioningState,
   setWalletNearProvisioningState,
-} from '../../packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle';
+} from '../../packages/wallet/src/core/signingEngine/flows/registration/accountLifecycle';
 import {
   publishNearProvisioningState,
   readNearProvisioningState,
@@ -10,17 +10,17 @@ import {
   resetNearProvisioningRegistryForTests,
   runSingleFlightNearProvisioning,
   subscribeToNearProvisioning,
-} from '../../packages/sdk-web/src/core/signingEngine/flows/registration/nearProvisioningRegistry';
+} from '../../packages/wallet/src/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import type {
   NearProvisioningState,
   NearProvisioningWriteV1,
-} from '../../packages/sdk-web/src/core/types/seams';
+} from '../../packages/wallet/src/core/types/seams';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
-import type { ProfileRecord } from '../../packages/sdk-web/src/core/indexedDB/passkeyClientDB.types';
+import type { ProfileRecord } from '../../packages/wallet/src/core/indexedDB/passkeyClientDB.types';
 import {
   createNearProvisioningStateChangedEvent,
   parseSdkLifecycleEvent,
-} from '../../packages/sdk-web/src/core/types/sdkSentEvents';
+} from '../../packages/wallet/src/core/types/sdkSentEvents';
 import { createNearProvisioningProfileRecordFixture } from './helpers/nearProvisioningLifecycle.fixtures';
 
 /**

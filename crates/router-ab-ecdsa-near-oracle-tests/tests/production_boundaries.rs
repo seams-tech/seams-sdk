@@ -308,8 +308,8 @@ fn deleted_generic_backend_and_mapped_share_seam_cannot_return() {
         "crates/signer-core/src/ecdsa_role_local_client/command.rs",
         "crates/signer-core/src/secp256k1.rs",
         "wasm/router_ab_ecdsa_signing_worker/src/derivation.rs",
-        "packages/sdk-server-ts/src/core/types.ts",
-        "packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime.ts",
+        "packages/wallet-server/src/core/types.ts",
+        "packages/wallet-server/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime.ts",
     ] {
         let source = fs::read_to_string(root.join(relative_path))
             .unwrap_or_else(|error| panic!("failed to read {relative_path}: {error}"));

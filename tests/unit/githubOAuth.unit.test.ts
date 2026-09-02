@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { verifyGithubOAuthCodeWithIdentityStore } from '../../packages/sdk-server-ts/src/core/authService/githubOAuth';
-import { createIdentityStore } from '../../packages/sdk-server-ts/src/core/IdentityStore';
-import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
+import { verifyGithubOAuthCodeWithIdentityStore } from '../../packages/wallet-server/src/core/authService/githubOAuth';
+import { createIdentityStore } from '../../packages/wallet-server/src/core/IdentityStore';
+import { normalizeLogger } from '../../packages/wallet-server/src/core/logger';
 
 const CONFIG = {
   clientId: 'github-client-id',

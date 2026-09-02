@@ -21,14 +21,14 @@ responsibilities.
 
 Implemented on 2026-06-10:
 
-- moved the web SDK package from `sdk/` to `packages/sdk-web/`;
-- moved browser SDK source from `client/src/` to `packages/sdk-web/src/`;
+- moved the web SDK package from `sdk/` to `packages/wallet/`;
+- moved browser SDK source from `client/src/` to `packages/wallet/src/`;
 - moved shared TypeScript source from `shared/` to `packages/shared-ts/`;
-- moved server library source from `server/` to `packages/sdk-server-ts/`;
+- moved server library source from `server/` to `packages/wallet-server/`;
 - moved deployable apps from `examples/seams-site`, `examples/relay-server`,
   and `examples/seams-docs` to `apps/web-client`, `apps/web-server`, and
   `apps/docs`;
-- moved `core/runtime/**` into `packages/sdk-web/src/core/runtime`;
+- moved `core/runtime/**` into `packages/wallet/src/core/runtime`;
 - created `clients/ios/` and `crates/seams-embedded/` implementation roots;
 - updated workspace metadata, root scripts, package paths, build paths,
   TypeScript configs, tests, and app imports for the new roots;
@@ -58,8 +58,8 @@ Additional targeted validation completed during the implementation:
 - `pnpm -C packages/shared-ts type-check`
 - `pnpm -C apps/docs type-check`
 - `pnpm -C tests exec playwright test -c playwright.source.config.ts ./unit/refactor67ReorgFolders.guard.unit.test.ts --reporter=line`
-- `node packages/sdk-web/scripts/codegen/generate-w3a-components-css.mjs`
-- `node packages/sdk-web/scripts/checks/assert-palette-css.mjs packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/css/w3a-components.css`
+- `node packages/wallet/scripts/codegen/generate-w3a-components-css.mjs`
+- `node packages/wallet/scripts/checks/assert-palette-css.mjs packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/css/w3a-components.css`
 - `cargo metadata --manifest-path crates/seams-embedded/Cargo.toml --format-version 1 --no-deps`
 - `swift test --package-path clients/ios`
 
@@ -110,8 +110,8 @@ apps/
   docs/
 
 packages/
-  sdk-web/
-  sdk-server-ts/
+  wallet/
+  wallet-server/
   shared-ts/
 
 clients/
@@ -136,9 +136,9 @@ examples/
 
 | Area                   | Target location                      | Notes                                                                                                                                                                                                   |
 | ---------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Web SDK package        | `packages/sdk-web/`                  | Owns `SeamsWeb`, React exports, browser plugins, browser platform adapter, IndexedDB, wallet iframe, browser UI, and web build scripts. The npm package may remain `@seams/sdk` during the source move. |
-| Runtime TS directory   | `packages/sdk-web/src/core/runtime/` | Owns platform-neutral TypeScript runtime composition. It must have no DOM, React, browser storage, wallet iframe, or server route dependencies.                                                         |
-| Server TS package      | `packages/sdk-server-ts/`            | Owns server routes, WebAuthn verifier policy, route adapters, storage adapters, and server wasm bindings currently under `server/src`.                                                                  |
+| Web SDK package        | `packages/wallet/`                  | Owns `SeamsWeb`, React exports, browser plugins, browser platform adapter, IndexedDB, wallet iframe, browser UI, and web build scripts. The npm package may remain `@seams/wallet` during the source move. |
+| Runtime TS directory   | `packages/wallet/src/core/runtime/` | Owns platform-neutral TypeScript runtime composition. It must have no DOM, React, browser storage, wallet iframe, or server route dependencies.                                                         |
+| Server TS package      | `packages/wallet-server/`            | Owns server routes, WebAuthn verifier policy, route adapters, storage adapters, and server wasm bindings currently under `server/src`.                                                                  |
 | Shared TS package      | `packages/shared-ts/`                | Owns protocol/domain TypeScript shared by web SDK, runtime, server, and tests. This can start as a move of `shared/src`.                                                                                |
 | Web client app         | `apps/web-client/`                   | Owns the browser app or site currently represented by `examples/seams-site`. It imports package exports instead of relative source roots.                                                               |
 | Web server app         | `apps/web-server/`                   | Owns the deployable relay/server app currently represented by `examples/relay-server`. It imports server package exports instead of `server/src`.                                                       |
@@ -150,18 +150,18 @@ examples/
 
 ## Package Boundary Rules
 
-1. `packages/sdk-web` may import `packages/shared-ts`, browser-compatible wasm
+1. `packages/wallet` may import `packages/shared-ts`, browser-compatible wasm
    outputs, and browser-only dependencies.
-2. `packages/sdk-web` must not import `packages/sdk-server-ts` or server app
+2. `packages/wallet` must not import `packages/wallet-server` or server app
    code.
-3. `packages/sdk-web/src/core/runtime` may import `packages/shared-ts`,
+3. `packages/wallet/src/core/runtime` may import `packages/shared-ts`,
    generated signer-core schemas, and type-only dependency packages.
-4. `packages/sdk-web/src/core/runtime` must not import React, DOM UI modules,
+4. `packages/wallet/src/core/runtime` must not import React, DOM UI modules,
    IndexedDB, browser platform adapters, wallet iframe code, server routes,
    Node database clients, or deployable apps.
-5. `packages/sdk-server-ts` may import `packages/shared-ts`, generated schemas,
+5. `packages/wallet-server` may import `packages/shared-ts`, generated schemas,
    server dependencies, and signer-core wasm/server bindings.
-6. `packages/sdk-server-ts` must not import `SeamsWeb`, React, wallet iframe
+6. `packages/wallet-server` must not import `SeamsWeb`, React, wallet iframe
    modules, browser storage, or web app code.
 7. `apps/web-client` and `apps/web-server` must consume package exports. They
    must not import implementation files through relative paths such as
@@ -175,10 +175,10 @@ examples/
 
 ## Target Source Layout
 
-### `packages/sdk-web`
+### `packages/wallet`
 
 ```text
-packages/sdk-web/
+packages/wallet/
   package.json
   src/
     index.ts
@@ -198,14 +198,14 @@ packages/sdk-web/
   tsconfig.client-types.json
 ```
 
-`packages/sdk-web/src/SeamsWeb` remains the public browser facade root. Browser
+`packages/wallet/src/SeamsWeb` remains the public browser facade root. Browser
 platform adapters currently under `client/src/core/platform/browser` move under
 the web package because they are implementation details of the browser package.
 
-### `packages/sdk-web/src/core/runtime`
+### `packages/wallet/src/core/runtime`
 
 ```text
-packages/sdk-web/src/core/runtime/
+packages/wallet/src/core/runtime/
   index.ts
   createSigningRuntime.ts
   types.ts
@@ -216,10 +216,10 @@ This directory exposes only neutral contracts and services. If a module needs
 `window`, `document`, `navigator`, `IndexedDBManager`, React, wallet iframe
 routing, browser workers, `pg`, or Express, it belongs somewhere else.
 
-### `packages/sdk-server-ts`
+### `packages/wallet-server`
 
 ```text
-packages/sdk-server-ts/
+packages/wallet-server/
   package.json
   src/
     index.ts
@@ -258,7 +258,7 @@ apps/web-server/
   scripts/
 ```
 
-Move `examples/relay-server` here after `packages/sdk-server-ts` exposes the
+Move `examples/relay-server` here after `packages/wallet-server` exposes the
 route and server helpers it needs.
 
 ### `clients/ios`
@@ -360,13 +360,13 @@ Tasks:
 
 - [ ] Add `packages/README.md` with the package boundary summary.
 - [ ] Add placeholder roots:
-  - [ ] `packages/sdk-web/README.md`;
-  - [ ] `packages/sdk-server-ts/README.md`;
+  - [ ] `packages/wallet/README.md`;
+  - [ ] `packages/wallet-server/README.md`;
   - [ ] `packages/shared-ts/README.md`.
 - [ ] Add future workspace package rows to `pnpm-workspace.yaml` only when each
       root contains a real `package.json`.
 - [ ] Add or reserve aliases for:
-  - [ ] `@seams-internal/sdk-web/*`;
+  - [ ] `@seams-internal/wallet/*`;
   - [ ] `@seams-internal/server/*`;
   - [ ] `@seams-internal/shared/*`.
 - [ ] Keep existing public package exports unchanged in this phase.
@@ -388,15 +388,15 @@ Validation:
 Goals:
 
 - move neutral runtime code out of `client/`;
-- keep `packages/sdk-web/src/core/runtime` as the owner of cross-platform
+- keep `packages/wallet/src/core/runtime` as the owner of cross-platform
   TypeScript runtime composition until a real standalone package exists;
 - keep browser adapters in the web package.
 
 Tasks:
 
 - [ ] Move neutral runtime modules from `client/src/core/runtime/**` to
-      `packages/sdk-web/src/core/runtime/**`.
-- [ ] Keep neutral platform modules in `packages/sdk-web/src/core/platform/**`
+      `packages/wallet/src/core/runtime/**`.
+- [ ] Keep neutral platform modules in `packages/wallet/src/core/platform/**`
       until they can move without broad signing-engine churn.
 - [ ] Move generated signer-core TypeScript schemas only when the destination
       has a real independent owner.
@@ -406,13 +406,13 @@ Tasks:
       web package move. The forwarding file must be listed in the temporary path
       register.
 - [ ] Add guards that reject React, DOM globals, IndexedDB, wallet iframe, and
-      browser adapter imports from `packages/sdk-web/src/core/runtime/**`.
-- [ ] Add guards that reject `packages/sdk-web/src/core/runtime` importing
+      browser adapter imports from `packages/wallet/src/core/runtime/**`.
+- [ ] Add guards that reject `packages/wallet/src/core/runtime` importing
       server routes, Node database clients, or deployable apps.
 
 Acceptance:
 
-- Runtime source has a stable owner under `packages/sdk-web/src/core/runtime`.
+- Runtime source has a stable owner under `packages/wallet/src/core/runtime`.
 - `SigningRuntime` can still be constructed by browser tests with browser
   platform ports.
 - Native and embedded adapter contracts do not point at deleted `client/`
@@ -430,7 +430,7 @@ Validation:
 Goals:
 
 - move browser-owned SDK code from `client/` and `sdk/` into
-  `packages/sdk-web`;
+  `packages/wallet`;
 - keep `SeamsWeb` as the public browser facade;
 - remove `dist/types/client/src/...` from package metadata.
 
@@ -438,8 +438,8 @@ Tasks:
 
 - [ ] Move `sdk/package.json`, `sdk/scripts/**`, `sdk/rolldown.config.ts`,
       `sdk/build-paths.ts`, `sdk/build-paths.sh`, and `sdk/tsconfig*.json` to
-      `packages/sdk-web/`.
-- [ ] Move browser SDK source to `packages/sdk-web/src/**`:
+      `packages/wallet/`.
+- [ ] Move browser SDK source to `packages/wallet/src/**`:
   - [ ] `client/src/index.ts`;
   - [ ] `client/src/advanced.ts`;
   - [ ] `client/src/threshold.ts`;
@@ -456,26 +456,26 @@ Tasks:
 - [ ] Update package exports so type paths point at `dist/types/src/...` or a
       stable package-local type path.
 - [ ] Update root scripts from `pnpm -C sdk ...` to
-      `pnpm -C packages/sdk-web ...`.
+      `pnpm -C packages/wallet ...`.
 - [ ] Update `pnpm-workspace.yaml`.
 - [ ] Add guards that reject new `client/src` imports from
-      `packages/sdk-web/src/**`.
+      `packages/wallet/src/**`.
 - [ ] Delete obsolete forwarding files created for the web move in the same
       phase once all call sites are updated.
 
 Acceptance:
 
-- The web SDK builds from `packages/sdk-web`.
+- The web SDK builds from `packages/wallet`.
 - Public imports continue to expose `SeamsWeb`, React, runtime, plugins, and
   wallet iframe exports according to the package contract.
 - `sdk/` is either deleted or contains only a temporary README pointing at
-  `packages/sdk-web`, listed in the temporary path register.
+  `packages/wallet`, listed in the temporary path register.
 - `client/` contains no web-owned source after this phase.
 
 Validation:
 
-- `pnpm -C packages/sdk-web type-check`
-- `pnpm -C packages/sdk-web build`
+- `pnpm -C packages/wallet type-check`
+- `pnpm -C packages/wallet build`
 - `pnpm -C tests run test:source-guards`
 - package export smoke tests
 - wallet iframe unit tests
@@ -490,30 +490,30 @@ Goals:
 
 Tasks:
 
-- [ ] Move `server/src/**` to `packages/sdk-server-ts/src/**`.
-- [ ] Add `packages/sdk-server-ts/package.json` and package-local tsconfig.
-- [ ] Move server package exports from `packages/sdk-web/package.json` to the
+- [ ] Move `server/src/**` to `packages/wallet-server/src/**`.
+- [ ] Add `packages/wallet-server/package.json` and package-local tsconfig.
+- [ ] Move server package exports from `packages/wallet/package.json` to the
       server package when the package split is accepted.
 - [ ] If a single npm package remains required temporarily, keep server exports
-      in `packages/sdk-web/package.json` as forwarding build entries and list
+      in `packages/wallet/package.json` as forwarding build entries and list
       them in the temporary path register.
 - [ ] Move `examples/relay-server` to `apps/web-server`.
-- [ ] Update app imports to use `packages/sdk-server-ts` exports.
+- [ ] Update app imports to use `packages/wallet-server` exports.
 - [ ] Add guards that reject `SeamsWeb`, React, wallet iframe, browser platform
-      adapters, and browser storage imports from `packages/sdk-server-ts`.
+      adapters, and browser storage imports from `packages/wallet-server`.
 - [ ] Add guards that reject deployable server app code importing package
       implementation files through relative paths.
 
 Acceptance:
 
-- Server library source lives under `packages/sdk-server-ts`.
+- Server library source lives under `packages/wallet-server`.
 - The deployable web server lives under `apps/web-server`.
 - Server tests and route verification policy tests run from the new package
   paths.
 
 Validation:
 
-- `pnpm -C packages/sdk-server-ts type-check`
+- `pnpm -C packages/wallet-server type-check`
 - `pnpm -C apps/web-server type-check`
 - `pnpm -C tests run test:relayer`
 - `pnpm -C tests run test:source-guards`
@@ -535,7 +535,7 @@ Tasks:
   - [ ] web app build or preview scripts.
 - [ ] Update app imports to use package exports.
 - [ ] Move app-specific public assets with the app.
-- [ ] Keep SDK distribution assets under `packages/sdk-web`.
+- [ ] Keep SDK distribution assets under `packages/wallet`.
 - [ ] Decide whether `examples/seams-docs` stays in `examples/` or moves to
       `apps/docs`. Update this plan before moving it.
 
@@ -604,8 +604,8 @@ Tasks:
 
 - [ ] Keep the top-level `tests/` package during the first moves.
 - [ ] Add package-aware test directories:
-  - [ ] `tests/unit/sdk-web/`;
-  - [ ] `tests/unit/sdk-server-ts/`;
+  - [ ] `tests/unit/wallet/`;
+  - [ ] `tests/unit/wallet-server/`;
   - [ ] `tests/integration/web-client/`;
   - [ ] `tests/integration/web-server/`;
   - [ ] `tests/native-replay/`.
@@ -656,9 +656,9 @@ Acceptance:
 
 Validation:
 
-- `pnpm -C packages/sdk-web build`
-- `pnpm -C packages/sdk-web type-check`
-- `pnpm -C packages/sdk-server-ts type-check`
+- `pnpm -C packages/wallet build`
+- `pnpm -C packages/wallet type-check`
+- `pnpm -C packages/wallet-server type-check`
 - `pnpm -C apps/web-client build`
 - `pnpm -C apps/web-server type-check`
 - `pnpm -C tests run test:source-guards`
@@ -671,10 +671,10 @@ is introduced.
 
 | Temporary path or alias                   | Owner phase        | Deletion trigger                                           | Guard        |
 | ----------------------------------------- | ------------------ | ---------------------------------------------------------- | ------------ |
-| `@/* -> client/src/*`                     | Phase 3            | `packages/sdk-web/src/**` imports no `client/src` files    | source guard |
+| `@/* -> client/src/*`                     | Phase 3            | `packages/wallet/src/**` imports no `client/src` files    | source guard |
 | `client/src/runtime.ts` forwarding export | Phase 2            | web package imports runtime package entrypoint directly    | source guard |
-| `sdk/` root                               | Phase 3            | `packages/sdk-web` owns package metadata and build scripts | source guard |
-| `server/src` root                         | Phase 4            | `packages/sdk-server-ts` owns server package source        | source guard |
+| `sdk/` root                               | Phase 3            | `packages/wallet` owns package metadata and build scripts | source guard |
+| `server/src` root                         | Phase 4            | `packages/wallet-server` owns server package source        | source guard |
 | `shared/src` root                         | Phase 4 or earlier | `packages/shared-ts` owns shared TypeScript source         | source guard |
 
 ## Guard Tests
@@ -684,12 +684,12 @@ Add or update guards for:
 - no new deployable app imports from `client/src`, `server/src`, `shared/src`,
   or package implementation files;
 - no React, DOM globals, browser storage, browser platform adapter, or wallet
-  iframe imports from `packages/sdk-web/src/core/runtime/**`;
+  iframe imports from `packages/wallet/src/core/runtime/**`;
 - no server route, Express, `pg`, Node database, or deployable app imports from
-  `packages/sdk-web/src/core/runtime/**`;
-- no server package imports from `packages/sdk-web/src/**`;
+  `packages/wallet/src/core/runtime/**`;
+- no server package imports from `packages/wallet/src/**`;
 - no `SeamsWeb`, React, wallet iframe, browser adapter, or browser storage
-  imports from `packages/sdk-server-ts/src/**`;
+  imports from `packages/wallet-server/src/**`;
 - no npm package implementation imports from `clients/ios/**` or
   `crates/seams-embedded/**`;
 - no package export type path containing `dist/types/client/src`;
@@ -702,11 +702,11 @@ folder names.
 
 Recommended migration:
 
-1. Keep `@seams/sdk` as the web SDK package name while moving source into
-   `packages/sdk-web`.
-2. Keep `@seams/sdk/runtime` as a web package export. Create a separate runtime
+1. Keep `@seams/wallet` as the web SDK package name while moving source into
+   `packages/wallet`.
+2. Keep `@seams/wallet/runtime` as a web package export. Create a separate runtime
    package only when it has an independent dependency closure.
-3. Publish server APIs from `@seams/sdk-server` so server dependencies stay out
+3. Publish server APIs from `@seams/wallet-server` so server dependencies stay out
    of the web SDK package surface.
 4. Add any further published package names in a later plan if product packaging needs
    them. Source boundaries should land first.
@@ -729,10 +729,10 @@ Before merging a phase:
 
 ## Final Target State
 
-- `packages/sdk-web` is the browser TypeScript SDK source root.
-- `packages/sdk-web/src/core/runtime` owns platform-neutral TypeScript runtime
+- `packages/wallet` is the browser TypeScript SDK source root.
+- `packages/wallet/src/core/runtime` owns platform-neutral TypeScript runtime
   composition.
-- `packages/sdk-server-ts` owns server library exports.
+- `packages/wallet-server` owns server library exports.
 - `apps/web-client` owns the deployable web client.
 - `apps/web-server` owns the deployable web server.
 - `clients/ios` owns the native iOS client.

@@ -121,6 +121,7 @@ fn factor_inputs() -> FactorSealInputsV1 {
     use signer_core::passkey_custody::WalletCustodyEnvelopeFactorV1;
     FactorSealInputsV1 {
         envelope_id: "wallet-custody-envelope-1".to_string(),
+        wallet_auth_method_id: "wallet-auth-method:fixture".to_string(),
         factor: WalletCustodyEnvelopeFactorV1::EmailOtp {
             enrollment_id: "enrollment-1".to_string(),
             enrollment_seal_key_version: "seal-v1".to_string(),
@@ -134,6 +135,7 @@ fn replacement_passkey_factor_inputs() -> FactorSealInputsV1 {
     use signer_core::passkey_custody::WalletCustodyEnvelopeFactorV1;
     FactorSealInputsV1 {
         envelope_id: "wallet-custody-recovery-envelope-1".to_string(),
+        wallet_auth_method_id: "wallet-auth-method:fixture".to_string(),
         factor: WalletCustodyEnvelopeFactorV1::Passkey {
             rp_id: "wallet.example".to_string(),
             credential_id_b64u: Base64UrlUnpadded::encode_string(&[0x44; 32]),

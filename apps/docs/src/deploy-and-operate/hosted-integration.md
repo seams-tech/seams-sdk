@@ -5,7 +5,7 @@ description: Serve the Seams wallet service and SDK runtime assets from a dedica
 
 # Hosted integration
 
-The product application imports `@seams/sdk`. A dedicated wallet origin serves
+The product application imports `@seams/wallet`. A dedicated wallet origin serves
 the wallet service, SDK support assets, workers, and export viewer used by the
 isolated iframe.
 
@@ -28,6 +28,6 @@ the runtime assets.
 - Confirm workers and WASM load under the production CSP.
 - Confirm export content remains inside the wallet-origin viewer.
 
-Use the published `@seams/sdk/web/wallet-iframe-client-html` asset only for the
+Use the published `@seams/wallet/web/wallet-iframe-client-html` asset only for the
 supported hosted-wallet build path. Keep package code and hosted assets on the
 same compatible release.

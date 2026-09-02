@@ -147,8 +147,8 @@ Deliverables:
 ### Phase 3. Replace router event writes with metric observation
 
 - remove durable router timing event writes from:
-  - `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`
-  - `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`
+  - `packages/wallet-server/src/router/express/createConsoleRouter.ts`
+  - `packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts`
 - replace them with request metric observation into the rollup store
 - keep incident-specific event builders for billing, approvals, webhooks, and future failure classes
 
@@ -223,9 +223,9 @@ Because we are in development, we should clean this up as if the old approach ne
 
 ## File-level execution map
 
-- `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`
-- `packages/sdk-server-ts/src/router/consoleObservabilityHooks.ts`
+- `packages/wallet-server/src/router/express/createConsoleRouter.ts`
+- `packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts`
+- `packages/wallet-server/src/router/consoleObservabilityHooks.ts`
 - `packages/console-server-ts/src/observability/adapters.ts`
 - `packages/console-server-ts/src/observability/types.ts`
 - `packages/console-server-ts/src/observability/policy.ts`
@@ -354,7 +354,7 @@ Acceptance criteria:
 Completion note:
 
 - shared router observability plumbing now lives in
-  `packages/sdk-server-ts/src/router/consoleObservabilityHooks.ts`
+  `packages/wallet-server/src/router/consoleObservabilityHooks.ts`
 - verified with relayer router parity subset and dashboard observability API wiring subset on 2026-03-12
 
 ### 3. Create a declarative observability policy registry

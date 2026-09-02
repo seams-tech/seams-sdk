@@ -3,21 +3,21 @@ import {
   projectConsoleGasSponsorshipPolicyProjection,
   sortConsoleGasSponsorshipPolicyProjections,
   type ConsoleGasSponsorshipPolicyProjection,
-} from '../../packages/console-server-ts/src/gasSponsorship';
+} from '../../packages/wallet-console-server-ts/src/gasSponsorship';
 import {
   createInMemoryConsolePolicyService,
   type ConsolePolicyService,
-} from '../../packages/console-server-ts/src/policies/service';
+} from '../../packages/wallet-console-server-ts/src/policies/service';
 import {
   createInMemoryConsoleOrgProjectEnvService,
 } from '../../packages/console-server-ts/src/orgProjectEnv/service';
 import {
   createInMemoryConsoleRuntimeSnapshotService,
-} from '../../packages/console-server-ts/src/runtimeSnapshots/service';
+} from '../../packages/wallet-console-server-ts/src/runtimeSnapshots/service';
 import {
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
   ensureTempoOnboardingSponsorshipForExistingEnvironments,
-} from '../../packages/console-server-ts/src/gasSponsorship/seeding';
+} from '../../packages/wallet-console-server-ts/src/gasSponsorship/seeding';
 import {
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
   TEMPO_DRIP_TO_FUNCTION_SIGNATURE,
@@ -25,7 +25,7 @@ import {
   TEMPO_TESTNET_CHAIN_ID,
   TEMPO_TESTNET_ONBOARDING_POLICY_NAME,
   TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID,
-} from '../../packages/console-server-ts/src/gasSponsorship/onboarding';
+} from '../../packages/wallet-console-server-ts/src/gasSponsorship/onboarding';
 
 const ctx = {
   orgId: 'org-dev',

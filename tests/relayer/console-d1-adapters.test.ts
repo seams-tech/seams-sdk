@@ -1,28 +1,30 @@
+import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
+import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import { expect, test } from '@playwright/test';
 import { createD1ConsoleAccountService } from '../../packages/console-server-ts/src/account/d1';
 import { createD1ConsoleApiKeyService } from '../../packages/console-server-ts/src/apiKeys/d1';
-import { createD1ConsoleApprovalService } from '../../packages/console-server-ts/src/approvals/d1';
+import { createD1ConsoleApprovalService } from '../../packages/wallet-console-server-ts/src/approvals/d1';
 import { createD1ConsoleAuditService } from '../../packages/console-server-ts/src/audit/d1';
 import {
   createD1ConsoleBillingService,
   runD1ConsoleBillingMonthlyFinalization,
 } from '../../packages/console-server-ts/src/billing/d1';
-import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/console-server-ts/src/billingPrepaidReservations/d1';
-import { createD1ConsoleKeyExportService } from '../../packages/console-server-ts/src/keyExports/d1';
+import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/wallet-console-server-ts/src/billingPrepaidReservations/d1';
+import { createD1ConsoleKeyExportService } from '../../packages/wallet-console-server-ts/src/keyExports/d1';
 import {
   createD1ConsoleObservabilityIngestionService,
   createD1ConsoleObservabilityService,
 } from '../../packages/console-server-ts/src/observability/d1';
 import { createD1ConsoleOrgProjectEnvService } from '../../packages/console-server-ts/src/orgProjectEnv/d1';
-import { createD1ConsolePolicyService } from '../../packages/console-server-ts/src/policies/d1';
+import { createD1ConsolePolicyService } from '../../packages/wallet-console-server-ts/src/policies/d1';
 import {
   createD1ConsoleRuntimeSnapshotService,
   runD1ConsoleRuntimeSnapshotOutboxDispatch,
-} from '../../packages/console-server-ts/src/runtimeSnapshots/d1';
-import { createD1ConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls/d1';
-import { createD1ConsoleSponsorshipSpendCapService } from '../../packages/console-server-ts/src/sponsorshipSpendCaps/d1';
+} from '../../packages/wallet-console-server-ts/src/runtimeSnapshots/d1';
+import { createD1ConsoleSponsoredCallService } from '../../packages/wallet-console-server-ts/src/sponsoredCalls/d1';
+import { createD1ConsoleSponsorshipSpendCapService } from '../../packages/wallet-console-server-ts/src/sponsorshipSpendCaps/d1';
 import { createD1ConsoleOrganizationAccessService } from '../../packages/console-server-ts/src/teamRbac/d1';
-import { createD1ConsoleWalletService } from '../../packages/console-server-ts/src/wallets/d1';
+import { createD1ConsoleWalletService } from '../../packages/wallet-console-server-ts/src/wallets/d1';
 import {
   createD1ConsoleWebhookService,
   runD1ConsoleWebhookRetryDispatch,
@@ -34,22 +36,22 @@ import {
   D1EmailOtpRegistrationAttemptStore,
   D1EmailOtpUnlockChallengeStore,
   D1EmailOtpWalletEnrollmentStore,
-} from '../../packages/sdk-server-ts/src/core/EmailOtpStores';
-import { D1WebAuthnAuthenticatorStore } from '../../packages/sdk-server-ts/src/core/WebAuthnAuthenticatorStore';
+} from '../../packages/wallet-server/src/core/EmailOtpStores';
+import { D1WebAuthnAuthenticatorStore } from '../../packages/wallet-server/src/core/WebAuthnAuthenticatorStore';
 import {
   deriveWebAuthnAuthenticatorDeviceInfo,
   unknownWebAuthnAuthenticatorDeviceInfo,
 } from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';
-import { D1WebAuthnCredentialBindingStore } from '../../packages/sdk-server-ts/src/core/WebAuthnCredentialBindingStore';
-import { D1WebAuthnLoginChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnLoginChallengeStore';
-import { D1WebAuthnSyncChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnSyncChallengeStore';
-import { D1IdentityStore } from '../../packages/sdk-server-ts/src/core/IdentityStore';
-import { D1NearPublicKeyStore } from '../../packages/sdk-server-ts/src/core/NearPublicKeyStore';
-import { D1WalletAuthMethodStore } from '../../packages/sdk-server-ts/src/core/WalletAuthMethodStore';
-import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/WalletStore';
+import { D1WebAuthnCredentialBindingStore } from '../../packages/wallet-server/src/core/WebAuthnCredentialBindingStore';
+import { D1WebAuthnLoginChallengeStore } from '../../packages/wallet-server/src/core/WebAuthnLoginChallengeStore';
+import { D1WebAuthnSyncChallengeStore } from '../../packages/wallet-server/src/core/WebAuthnSyncChallengeStore';
+import { D1IdentityStore } from '../../packages/wallet-server/src/core/IdentityStore';
+import { D1NearPublicKeyStore } from '../../packages/wallet-server/src/core/NearPublicKeyStore';
+import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/WalletAuthMethodStore';
+import { D1WalletStore } from '../../packages/wallet-server/src/core/WalletStore';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
-import { recordSponsoredExecution } from '../../packages/console-server-ts/src/router/sponsorshipExecution';
+import { recordSponsoredExecution } from '../../packages/wallet-console-server-ts/src/router/sponsorshipExecution';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -86,7 +88,6 @@ import {
   buildRawD1WalletInsertInput,
   buildRawD1EcdsaWalletSignerInsertInput,
   buildRawD1IdentityLinkInsertInput,
-  buildRawD1AppSessionVersionInsertInput,
   buildRawD1EmailOtpChallengeInsertInput,
   buildRawD1EmailOtpGrantInsertInput,
   buildRawD1EmailOtpEnrollmentInsertInput,
@@ -107,7 +108,6 @@ import {
   insertRawD1WalletSignerRecord,
   insertRawD1WalletAuthMethodRecord,
   insertRawD1IdentityLinkRecord,
-  insertRawD1AppSessionVersionRecord,
   insertRawD1EmailOtpChallengeRecord,
   insertRawD1EmailOtpGrantRecord,
   insertRawD1EmailOtpEnrollmentRecord,
@@ -130,12 +130,10 @@ import {
   expectRawD1RuntimeSnapshotInsertRejected,
   expectRawD1RuntimeSnapshotOutboxInsertRejected,
   expectRawD1WebhookEndpointInsertRejected,
-  expectRawD1WebhookEndpointCategoryInsertRejected,
   expectRawD1WalletInsertRejected,
   expectRawD1WalletSignerInsertRejected,
   expectRawD1WalletAuthMethodInsertRejected,
   expectRawD1IdentityLinkInsertRejected,
-  expectRawD1AppSessionVersionInsertRejected,
   createD1AtomicAssessment,
   errorCode,
   createD1WebhookTestSecretCipher,
@@ -408,55 +406,10 @@ test.describe('D1 migration smoke', () => {
       );
       await insertRawD1IdentityLinkRecord(temp.database, buildRawD1IdentityLinkInsertInput({}));
 
-      await expectRawD1AppSessionVersionInsertRejected(
-        temp.database,
-        buildRawD1AppSessionVersionInsertInput({
-          userId: '',
-        }),
-      );
-      await expectRawD1AppSessionVersionInsertRejected(
-        temp.database,
-        buildRawD1AppSessionVersionInsertInput({
-          sessionVersion: '',
-        }),
-      );
-      await expectRawD1AppSessionVersionInsertRejected(
-        temp.database,
-        buildRawD1AppSessionVersionInsertInput({
-          recordJson: JSON.stringify({
-            version: 'wrong_app_session_version',
-            userId: 'wallet-raw-app-session',
-            appSessionVersion: 'app-session-version-raw',
-            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
-            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
-          }),
-        }),
-      );
-      await expectRawD1AppSessionVersionInsertRejected(
-        temp.database,
-        buildRawD1AppSessionVersionInsertInput({
-          recordJson: JSON.stringify({
-            version: 'app_session_version_v1',
-            userId: 'wallet-raw-app-session',
-            appSessionVersion: 'different-session-version',
-            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
-            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
-          }),
-        }),
-      );
-      await insertRawD1AppSessionVersionRecord(
-        temp.database,
-        buildRawD1AppSessionVersionInsertInput({}),
-      );
-
       const identityRow = await temp.database
         .prepare('SELECT COUNT(*) AS record_count FROM identity_links')
         .first<{ record_count?: unknown }>();
-      const sessionVersionRow = await temp.database
-        .prepare('SELECT COUNT(*) AS record_count FROM app_session_versions')
-        .first<{ record_count?: unknown }>();
       expect(Number(identityRow?.record_count || 0)).toBe(1);
-      expect(Number(sessionVersionRow?.record_count || 0)).toBe(1);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }
@@ -489,9 +442,8 @@ test.describe('D1 migration smoke', () => {
             walletId: 'wallet-raw-email-otp',
             orgId: 'org-d1-email-otp-schema',
             otpChannel: 'email_otp',
+            ownerProofBindingDigest: 'owner-proof-binding-raw-email-otp',
             otpCode: '123456',
-            sessionHash: 'session-hash-raw-email-otp',
-            appSessionVersion: 'app-session-raw-email-otp',
             action: 'wallet_email_otp_login',
             operation: 'wallet_unlock',
             createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
@@ -605,12 +557,6 @@ test.describe('D1 migration smoke', () => {
       await expectRawD1EmailOtpRegistrationAttemptInsertRejected(
         temp.database,
         buildRawD1EmailOtpRegistrationAttemptInsertInput({
-          offerWalletIdsJson: JSON.stringify({ walletId: 'wallet-raw-email-otp' }),
-        }),
-      );
-      await expectRawD1EmailOtpRegistrationAttemptInsertRejected(
-        temp.database,
-        buildRawD1EmailOtpRegistrationAttemptInsertInput({
           recordJson: JSON.stringify({
             version: 'google_email_otp_registration_attempt_v1',
             attemptId: 'email-otp-registration-attempt-raw-schema',
@@ -618,7 +564,7 @@ test.describe('D1 migration smoke', () => {
             email: 'raw@example.test',
             walletId: 'different-wallet-id',
             state: 'started',
-            appSessionVersion: 'app-session-raw-email-otp',
+            ownerProofBindingDigest: 'owner-proof-binding-raw-email-otp',
             runtimePolicyScope: {
               orgId: 'org-d1-email-otp-schema',
             },
@@ -734,12 +680,6 @@ test.describe('D1 migration smoke', () => {
       await insertRawD1WebhookEndpointRecord(
         temp.database,
         buildRawD1WebhookEndpointInsertInput({}),
-      );
-      await expectRawD1WebhookEndpointCategoryInsertRejected(
-        temp.database,
-        buildRawD1WebhookEndpointCategoryInsertInput({
-          category: 'unsupported',
-        }),
       );
       await insertRawD1WebhookEndpointCategoryRecord(
         temp.database,
@@ -929,7 +869,7 @@ test.describe('D1 migration smoke', () => {
       await expectRawD1BillingLedgerEntryInsertRejected(
         temp.database,
         buildRawD1BillingLedgerEntryInsertInput({
-          entryType: 'SPONSORED_EXECUTION_DEBIT',
+          entryType: 'PRODUCT_EXECUTION_DEBIT',
           amountMinor: 100,
         }),
       );
@@ -1011,10 +951,10 @@ test.describe('D1 migration smoke', () => {
         .prepare('SELECT COUNT(*) AS record_count FROM billing_ledger_postings')
         .first<{ record_count?: unknown }>();
       const walletRow = await temp.database
-        .prepare('SELECT COUNT(*) AS record_count FROM billing_monthly_active_wallets')
+        .prepare('SELECT COUNT(*) AS record_count FROM billing_monthly_active_resources')
         .first<{ record_count?: unknown }>();
       expect(Number(ledgerRow?.record_count || 0)).toBe(1);
-      expect(Number(postingRow?.record_count || 0)).toBe(1);
+      expect(Number(postingRow?.record_count || 0)).toBe(3);
       expect(Number(walletRow?.record_count || 0)).toBe(1);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
@@ -1202,10 +1142,10 @@ test.describe('D1 adapter contracts', () => {
       ]);
 
       const prodEnvironment = await service.updateEnvironment(primaryCtx, 'project-d1-org:prod', {
-        signingRootVersion: 'signing-root-d1-v2',
+        runtimeVersion: 'runtime-d1-v2',
         name: 'Production Root',
       });
-      expect(prodEnvironment?.signingRootVersion).toBe('signing-root-d1-v2');
+      expect(prodEnvironment?.runtimeVersion).toBe('runtime-d1-v2');
 
       await service.upsertOrganization(secondaryCtx, {
         name: 'D1 Secondary Org',
@@ -1595,6 +1535,7 @@ test.describe('D1 adapter contracts', () => {
     try {
       let nowMsValue = Date.parse('2026-06-27T01:00:00.000Z');
       const service = await createD1ConsoleApiKeyService({
+        scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
         database: temp.database,
         namespace: 'd1-contracts',
         ensureSchema: true,
@@ -2118,6 +2059,7 @@ test.describe('D1 adapter contracts', () => {
       const clock = new TestMutableClock('2026-06-27T02:50:00.000Z');
       const dispatcher = new D1WebhookDispatchHarness();
       const service = await createD1ConsoleWebhookService({
+        categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
         database: temp.database,
         namespace: 'd1-contracts',
         ensureSchema: true,
@@ -2135,7 +2077,7 @@ test.describe('D1 adapter contracts', () => {
         actorUserId: 'user-d1-webhooks-secondary',
       };
 
-      const endpoint = await service.createEndpoint(primaryCtx, {
+      const { endpoint } = await service.createEndpoint(primaryCtx, {
         url: 'https://example.com/d1-webhooks',
         eventCategories: ['billing', 'session', 'billing'],
       });
@@ -2315,6 +2257,7 @@ test.describe('D1 adapter contracts', () => {
       const secretCipher = createD1WebhookTestSecretCipher();
       const initialDispatcher = new D1WebhookDispatchHarness();
       const service = await createD1ConsoleWebhookService({
+        categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
         database: temp.database,
         namespace,
         ensureSchema: true,
@@ -2327,7 +2270,7 @@ test.describe('D1 adapter contracts', () => {
         actorUserId: 'user-d1-webhook-retry',
       };
 
-      const endpoint = await service.createEndpoint(ctx, {
+      const { endpoint } = await service.createEndpoint(ctx, {
         url: 'https://example.com/d1-webhook-retry',
         eventCategories: ['billing'],
       });
@@ -2367,6 +2310,7 @@ test.describe('D1 adapter contracts', () => {
         now: clock.now,
       });
       const retryResult = await runD1ConsoleWebhookRetryDispatch({
+        categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
         database: temp.database,
         namespace,
         orgIds: [orgId],
@@ -3282,8 +3226,8 @@ test.describe('D1 adapter contracts', () => {
 
       await temp.database
         .prepare(
-          `INSERT INTO billing_monthly_active_wallets
-            (namespace, org_id, month_utc, wallet_id, source_event_id, created_at_ms)
+          `INSERT INTO billing_monthly_active_resources
+            (namespace, org_id, month_utc, resource_id, source_event_id, created_at_ms)
            VALUES
             (?, ?, ?, ?, ?, ?)`,
         )
@@ -3328,7 +3272,7 @@ test.describe('D1 adapter contracts', () => {
       const lineItems = await billing.listInvoiceLineItems(ctx, invoices.invoices[0]?.id || '');
       expect(lineItems).toEqual([
         expect.objectContaining({
-          itemType: 'MAW_USAGE_DEBIT',
+          itemType: 'ACTIVE_RESOURCE_USAGE_DEBIT',
           quantity: 1,
           unitAmountMinor: 300,
           amountMinor: 300,
@@ -3467,7 +3411,7 @@ test.describe('D1 adapter contracts', () => {
       expect(summary.reservedMinor).toBe(0);
       expect(summary.activeReservationCount).toBe(0);
 
-      const debits = await billing.getSponsoredExecutionDebitsByIds(ctx, [
+      const debits = await billing.getProductExecutionDebitsByIds(ctx, [
         record.billingLedgerEntryId || '',
       ]);
       expect(debits).toHaveLength(1);
@@ -3515,7 +3459,7 @@ test.describe('D1 adapter contracts', () => {
       expect(duplicate.id).toBe(record.id);
 
       const sponsoredDebitActivity = await billing.listAccountActivity(ctx, {
-        eventType: 'SPONSORED_EXECUTION_DEBIT',
+        eventType: 'PRODUCT_EXECUTION_DEBIT',
         limit: 10,
       });
       expect(sponsoredDebitActivity.entries).toHaveLength(1);
@@ -3673,7 +3617,7 @@ test.describe('D1 adapter contracts', () => {
         creditBalanceMinor: 1000,
       });
       const sponsoredDebitActivity = await billing.listAccountActivity(ctx, {
-        eventType: 'SPONSORED_EXECUTION_DEBIT',
+        eventType: 'PRODUCT_EXECUTION_DEBIT',
         limit: 10,
       });
       expect(sponsoredDebitActivity.entries).toHaveLength(0);

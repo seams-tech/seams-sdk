@@ -11,7 +11,7 @@ function readSource(relativePath: string): string {
 
 function readConfiguredTransactionExecutor(): string {
   const source = readSource(
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
   );
   const functionStart = source.indexOf(
     'async function executeConfiguredEvmFamilyTransactionSigning',
@@ -45,12 +45,12 @@ test.describe('page-refresh EVM-family nonce recovery guard', () => {
   });
 
   test('keeps the fire-and-forget startup path deleted', () => {
-    const source = readSource('packages/sdk-web/src/core/signingEngine/assembly/createManagers.ts');
+    const source = readSource('packages/wallet/src/core/signingEngine/assembly/createManagers.ts');
     expect(source).not.toContain('void nonceCoordinator.recoverDurableLeases()');
   });
 
   test('preserves accepted broadcasts during generic IndexedDB expiry pruning', () => {
-    const source = readSource('packages/sdk-web/src/core/indexedDB/seamsWalletDB/repositories.ts');
+    const source = readSource('packages/wallet/src/core/indexedDB/seamsWalletDB/repositories.ts');
     const pruneStart = source.indexOf('async pruneExpiredNonceLaneLeaseRecords(');
     const pruneEnd = source.indexOf('\n  async withNonceLaneCoordinationLock', pruneStart);
     expect(pruneStart).toBeGreaterThanOrEqual(0);

@@ -1,0 +1,345 @@
+.qr-code-container {
+  padding-top: 0.25rem;
+}
+
+/* Modal Header */
+.qr-header {
+  position: relative;
+  display: grid;
+  place-content: center;
+  padding: 0rem;
+}
+
+/* Sized off the auth menu's own title (21px) rather than louder than it: this
+   heading sits inside the same card, so a heavier scale reads as a second,
+   competing header. */
+.qr-title {
+  font-size: 1.3125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  padding-top: 0rem;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.qr-body {
+  padding: 0rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.w3a-device-link-email-field {
+  display: grid;
+  width: min(100%, 320px);
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.w3a-device-link-factor-options {
+  box-sizing: border-box;
+  display: grid;
+  width: min(100%, 320px);
+  margin: 0;
+  padding: 0;
+  gap: 0.5rem;
+  border: 0;
+}
+
+.w3a-device-link-factor-options > legend {
+  margin-bottom: 0.25rem;
+}
+
+.w3a-device-link-factor-option {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0.625rem 0.75rem;
+  gap: 0.625rem;
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  background: var(--w3a-colors-surface, #ffffff);
+  border: 1px solid var(--w3a-colors-borderPrimary, #cbd5e1);
+  border-radius: 0.75rem;
+  cursor: pointer;
+}
+
+.w3a-device-link-factor-option:has(input:checked) {
+  border-color: var(--w3a-colors-textPrimary, #1e293b);
+  background: var(--w3a-colors-surface2, #f1f5f9);
+}
+
+.w3a-device-link-factor-icon {
+  display: grid;
+  flex: 0 0 22px;
+  place-items: center;
+  color: var(--w3a-colors-textSecondary, #64748b);
+}
+
+.w3a-device-link-factor-icon svg {
+  display: block;
+}
+
+.w3a-device-link-factor-label {
+  flex: 1;
+  text-align: start;
+}
+
+.w3a-device-link-factor-label span {
+  color: var(--w3a-colors-textSecondary, #64748b);
+  font-size: 0.8125rem;
+}
+
+.w3a-device-link-factor-option input {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin: 0 0 0 auto;
+}
+
+.w3a-device-link-factor-option input:focus-visible {
+  outline: 2px solid var(--w3a-colors-primary, #3b82f6);
+  outline-offset: 3px;
+}
+
+.w3a-device-link-email-field .w3a-field-label {
+  color: var(--w3a-colors-textSecondary, #64748b);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.w3a-device-link-email-field input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.65rem 0.75rem;
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  background: var(--w3a-colors-surface, #ffffff);
+  border: 1px solid var(--w3a-colors-borderPrimary, #cbd5e1);
+  border-radius: var(--w3a-shape-control, 10px);
+  font: inherit;
+}
+
+.w3a-device-link-email-field input:focus-visible {
+  outline: 2px solid var(--w3a-colors-primary, #3b82f6);
+  outline-offset: 2px;
+}
+
+.qr-code-section {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* The code always sits on an opaque white plate: the QR PNG is black-on-white,
+   so on a dark theme an unbacked image reads as a raw white rectangle. The
+   plate is a fixed square in both states — the placeholder below occupies the
+   same box, so nothing under it moves when the image arrives. */
+.qr-code-display {
+  display: grid;
+  place-items: center;
+  width: min(100%, 232px);
+  aspect-ratio: 1 / 1;
+  padding: 1rem;
+  border-radius: 1.25rem;
+  background: #ffffff;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.08),
+    0 14px 28px -20px rgba(15, 23, 42, 0.45);
+}
+
+.qr-code-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.05);
+  animation: qr-placeholder-pulse 1.8s ease-in-out infinite;
+}
+
+/* On the white plate a translucent-white spinner track is invisible; state the
+   track against the plate rather than the card. */
+.qr-code-placeholder .w3a-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 3px solid rgba(15, 23, 42, 0.12);
+  border-top-color: var(--w3a-colors-primary, #3b82f6);
+  animation: w3a-spin 0.9s linear infinite;
+}
+
+@keyframes w3a-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes qr-placeholder-pulse {
+  0%,
+  100% {
+    background-color: rgba(15, 23, 42, 0.05);
+  }
+
+  50% {
+    background-color: rgba(15, 23, 42, 0.09);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qr-code-placeholder {
+    animation: none;
+  }
+}
+
+.qr-instruction,
+.qr-status {
+  margin: 0;
+  font-weight: 500;
+  color: var(--w3a-colors-textSecondary, #1e293b);
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.qr-instruction {
+  max-width: 34ch;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+/* The status is a running commentary on the pairing, not a peer of the
+   instruction — one step quieter and smaller so the two lines stack as a
+   hierarchy instead of a paragraph. */
+.qr-status {
+  margin-bottom: 0.25rem;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary, #64748b), transparent 25%);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.animated-ellipsis {
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+}
+
+.animated-ellipsis::after {
+  content: '...';
+  animation: ellipsis 1.5s infinite;
+}
+
+@keyframes ellipsis {
+  0% {
+    content: '...';
+  }
+  25% {
+    content: '';
+  }
+  50% {
+    content: '.';
+  }
+  75% {
+    content: '..';
+  }
+  100% {
+    content: '...';
+  }
+}
+
+.qr-code-image {
+  width: 100%;
+  max-width: 200px;
+  height: auto;
+  border-radius: 0.5rem;
+}
+
+/* Failure view. Same skeleton as the link-device confirmation — badge, title,
+   copy, one control. Styles are restated here because ShowQRCode is also
+   exported standalone, outside SeamsAuthMenu.css. */
+.w3a-link-device-failure {
+  min-height: 300px;
+  width: min(100%, 360px);
+  margin-inline: auto;
+  padding: 2rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+.w3a-link-device-failure-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--w3a-colors-error, #ef4444);
+  background: color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 88%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 80%);
+}
+
+/* The detail is a raw error string, so it is sized and coloured as evidence
+   rather than as prose: quiet, tight, and allowed to break mid-token so a long
+   technical message wraps instead of forcing the card wider. */
+.w3a-link-device-failure-detail {
+  max-width: 34ch;
+  margin: 0;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary, #64748b), transparent 15%);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+/* Values mirror SeamsAuthMenu.css's .w3a-link-device-btn so the button looks
+   the same whether or not that sheet is loaded alongside this one. */
+.w3a-link-device-failure .w3a-link-device-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: min(100%, 280px);
+  margin-top: 0.25rem;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  height: calc(var(--w3a-shape-controlHeight, 44px) - 4px);
+  background: var(--w3a-colors-surface, #f8fafc);
+  border: 1px solid var(--w3a-colors-borderPrimary, #e2e8f0);
+  border-radius: var(--w3a-shape-control, 10px);
+  cursor: pointer;
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.w3a-link-device-failure .w3a-link-device-btn:hover,
+.w3a-link-device-failure .w3a-link-device-btn:focus-visible {
+  background: var(--w3a-colors-surface2, #f1f5f9);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .qr-modal-content {
+    margin: 1rem;
+    max-width: calc(100vw - 2rem);
+  }
+
+  @supports (width: 1dvw) {
+    .qr-modal-content {
+      max-width: calc(100dvw - 2rem);
+    }
+  }
+}

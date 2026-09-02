@@ -55,11 +55,11 @@ pnpm router:multiplex
 
 `pnpm router` and `pnpm router:multiplex` launch the production-equivalent
 MPCRouter, Deriver A, Deriver B, and SigningWorker Cloudflare Workers on
-`127.0.0.1:9100-9103`. They start Gateway at
-`127.0.0.1:9090` when it is not already running. They also verify
-`https://localhost:9444/.well-known/webauthn` and start the local Caddy proxy
-when that HTTPS endpoint is absent. Browser account creation still needs the
-local app from `pnpm site`.
+`127.0.0.1:4102-4105`. They start Gateway at
+`127.0.0.1:4100` when it is not already running. They also verify
+`https://localhost:4101/.well-known/webauthn` and report when the local Caddy
+proxy is unavailable. The local app and Caddy proxy run together under
+`pnpm site`.
 
 Choose the SDK and strict Worker build profile before launching:
 
@@ -82,9 +82,9 @@ optimized strict Workers. `pnpm router` reads the generated build receipt and
 launches the exact profile produced by the preceding build. It does not compile
 Rust/WASM during startup. Use `pnpm router:build` when only the strict Workers
 need rebuilding. Stop a running Router topology before any build command; the
-build refuses to replace artifacts while ports `9100-3` are active.
+build refuses to replace artifacts while ports `4102-5` are active.
 
-Starting `pnpm router` replaces any processes listening on ports `9100-9103`.
+Starting `pnpm router` replaces any processes listening on ports `4102-4105`.
 It stops the existing listeners, waits for the ports to clear, and then claims
 them for the new topology. A port-conflict error means a listener survived both
 graceful and forced shutdown.

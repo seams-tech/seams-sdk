@@ -14,7 +14,7 @@ use signer_core::ed25519_yao_derivation::{
     derive_ed25519_yao_client_contributions_v1, Ed25519YaoApplicationBindingFactsV1,
     Ed25519YaoApplicationBindingKeyCreationSignerSlotV1,
     Ed25519YaoApplicationBindingSigningKeyIdV1, Ed25519YaoApplicationBindingSigningRootIdV1,
-    Ed25519YaoApplicationBindingWalletIdV1, Ed25519YaoClientDerivationRootV1,
+    Ed25519YaoApplicationBindingWalletIdV1, Ed25519YaoClientRootV1,
     Ed25519YaoStableKeyDerivationContextV1,
 };
 
@@ -71,8 +71,8 @@ fn binding(context_binding: [u8; 32]) -> Ed25519YaoCeremonyBindingV1 {
 
 fn deriver_a_config() -> LocalDeriverAWorkerConfigV1 {
     LocalDeriverAWorkerConfigV1 {
-        deriver_a_url: "http://127.0.0.1:9101".to_owned(),
-        deriver_b_url: "http://127.0.0.1:9102".to_owned(),
+        deriver_a_url: "http://127.0.0.1:4103".to_owned(),
+        deriver_b_url: "http://127.0.0.1:4104".to_owned(),
         envelope_hpke_private_key: "a-hpke".to_owned(),
         root_share_wire_secret: "a-wire".to_owned(),
         ed25519_yao_derivation_root_hex: hex::encode([0x22; 32]),
@@ -86,8 +86,8 @@ fn deriver_a_config() -> LocalDeriverAWorkerConfigV1 {
 
 fn deriver_b_config() -> LocalDeriverBWorkerConfigV1 {
     LocalDeriverBWorkerConfigV1 {
-        deriver_b_url: "http://127.0.0.1:9102".to_owned(),
-        deriver_a_url: "http://127.0.0.1:9101".to_owned(),
+        deriver_b_url: "http://127.0.0.1:4104".to_owned(),
+        deriver_a_url: "http://127.0.0.1:4103".to_owned(),
         envelope_hpke_private_key: "b-hpke".to_owned(),
         root_share_wire_secret: "b-wire".to_owned(),
         ed25519_yao_derivation_root_hex: hex::encode([0x33; 32]),
@@ -114,7 +114,7 @@ fn transport_contribution(
 #[test]
 fn role_request_builders_keep_server_roots_separate_and_bind_the_canonical_context() {
     let context = context();
-    let client_root = Ed25519YaoClientDerivationRootV1::from_secret_bytes([0x11; 32]);
+    let client_root = Ed25519YaoClientRootV1::from_secret_bytes([0x11; 32]);
     let (client_a, client_b) = derive_ed25519_yao_client_contributions_v1(&client_root, &context)
         .expect("client KDF")
         .into_parts();

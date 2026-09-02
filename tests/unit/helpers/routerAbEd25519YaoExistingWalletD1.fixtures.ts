@@ -1,13 +1,16 @@
-import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/sdk-server-ts/src/core/WalletStore';
-import { D1WalletStore } from '../../../packages/sdk-server-ts/src/core/d1WalletStore';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/wallet-server/src/core/WalletStore';
+import { D1WalletStore } from '../../../packages/wallet-server/src/core/d1WalletStore';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
-} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
-import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
-import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
-import type { RouterAbEd25519YaoActiveCapabilityLookupV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+} from '../../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
+import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
+import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+import type { RouterAbEd25519YaoActiveCapabilityLookupV1 } from '../../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import { parseWalletId } from '../../../packages/shared-ts/src/utils/domainIds';
+import { buildFullOwnerDelegatedWalletAuthorityV1 } from '../../../packages/shared-ts/src/authorization/delegatedAuthority';
+import { routerAbMpcMaterialActivationRefFromWire } from '../../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
+import { prepareD1WalletAuthorityPutStatement } from '../../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
 import {
   cleanupTemporaryD1Database,
   createTemporaryD1Database,
@@ -16,8 +19,8 @@ import {
 import { applySignerMigrations } from './cloudflareD1RouterApiAuthService.fixtures';
 import {
   UnavailableRouterAbEd25519YaoRegistrationBackend,
-  UnusedSessionAdapter,
 } from './routerAbEd25519YaoRegistrationBridge.fixtures';
+import { buildLinkedDeviceManagementAuthorityFixture } from './linkedDeviceManagement.fixtures';
 
 export type RouterAbEd25519YaoExistingWalletD1Fixture = {
   readonly database: TemporaryD1Database['database'];
@@ -111,6 +114,25 @@ export async function createRouterAbEd25519YaoExistingWalletD1Fixture(
         now: 1_900_000_000_000,
       }),
     );
+    const authority = await buildLinkedDeviceManagementAuthorityFixture({
+      label: 'existing-ed25519-yao',
+      permissions: buildFullOwnerDelegatedWalletAuthorityV1().permissions,
+      provenance: 'wallet_registration',
+      materialActivation: routerAbMpcMaterialActivationRefFromWire(
+        input.capability.activationResult.binding.material_activation,
+      ),
+      identity: {
+        walletId: String(walletId.value),
+        authorityId: 'wallet-authority:existing-ed25519-yao',
+        walletAuthMethodId: 'wallet-auth-method:existing-ed25519-yao',
+        rpId: 'wallet.example.test',
+      },
+    });
+    await prepareD1WalletAuthorityPutStatement({
+      database: temporary.database,
+      scope,
+      authority: authority.authority,
+    }).run();
     const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1({
       database: temporary.database,
       scope,
@@ -118,7 +140,6 @@ export async function createRouterAbEd25519YaoExistingWalletD1Fixture(
     const loader = new PersistedCapabilityLoader(walletStore);
     const runtime = createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
       signingWorkerId: input.capability.admissionRequest.scope.signing_worker_id,
-      session: new UnusedSessionAdapter(),
       store,
       registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
       loadPersistedActiveCapability: loader.load.bind(loader),

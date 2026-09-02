@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
+import type { SeamsWeb } from '@/SeamsWeb';
 import type { SeamsWebContext } from '@/SeamsWeb/signingSurface/types';
+import { AuthMenuController } from '@/SeamsWeb/walletIframe/host/auth-menu/controller';
 import {
   cancelHostedPasskeyPreparation,
   prepareHostedPasskeyAccountSync,
@@ -8,9 +10,15 @@ import {
 import { loginAccountOptions } from '@/SeamsWeb/walletIframe/host/auth-menu/account-options';
 import { AuthMenuSession } from '@/SeamsWeb/walletIframe/host/auth-menu/session';
 import {
+  authMenuLoginAllowsEmailOtp,
+  authMenuLoginAllowsPasskey,
+  isAuthMenuActionable,
+  isAuthMenuActionReady,
+  resolveAuthMenuLoginAccount,
+} from '@/SeamsWeb/walletIframe/host/lit-ui/auth-menu/auth-menu-domain';
+import {
   buildHostedAuthMenuExternalAuthResolution,
   buildHostedAuthMenuOpenRequest,
-  hostedAuthMenuExternalAuthRequestIdFromBoundary,
   hostedAuthMenuSessionIdFromBoundary,
 } from '@/SeamsWeb/walletIframe/shared/messages';
 import { walletIframeRequestIdFromBoundary } from '@/core/types/walletIframeIdentity';
@@ -18,14 +26,38 @@ import { walletIdFromString } from '@shared/utils/registrationIntent';
 import type { AppearanceConfig } from '@/core/types/seams';
 import type { GoogleEmailOtpWalletAuthLoginFlow } from '@/SeamsWeb/publicApi/types';
 import { createLinkDeviceFlowEvent, LinkDeviceEventPhase } from '@/core/types/sdkSentEvents';
+import { classifyLinkedDeviceDeliveryFailureV1 } from '@/SeamsWeb/operations/devices/linkDevice';
+import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
+import { IndexedDBManager } from '@/core/indexedDB';
+import type { HostedRecoveryPort } from '@/SeamsWeb/walletIframe/host/recovery-port';
+import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
 
 type AuthMenuSessionArgs = ConstructorParameters<typeof AuthMenuSession>[0];
-type StartDeviceLinkingCallbacks = Parameters<AuthMenuSessionArgs['startDeviceLinking']>[0];
+type StartDeviceLinkingCallbacks = Parameters<AuthMenuSessionArgs['startDeviceLinking']>[1];
 
 const APPEARANCE = {
   theme: { id: 'default', mode: 'dark', colors: {} },
   palette: 'default',
 } as const satisfies AppearanceConfig;
+
+const PENDING_LOGIN_PREPARATION = new Promise<never>(() => {});
+
+function pendingLoginPreparation(): Promise<never> {
+  return PENDING_LOGIN_PREPARATION;
+}
+
+const UNAVAILABLE_RECOVERY_PORT: HostedRecoveryPort = {
+  targetFor: (kind: WalletRecoveryTargetV1['kind']) =>
+    kind === 'passkey' ? { kind, rpId: 'wallet.example.test' } : { kind, googleProvider: 'google' },
+  prepare: async () => ({ kind: 'refused' }),
+  createPasskey: async () => ({ kind: 'refused' }),
+  finalize: async () => ({ kind: 'refused' }),
+  cancel: async () => {},
+};
+
+async function unavailableRecoveredLogin(): Promise<never> {
+  throw new Error('Recovered login fixture was not configured');
+}
 
 function authMenuSession(
   args: {
@@ -33,11 +65,7 @@ function authMenuSession(
     registrationAccountInput?: 'implicit_wallet' | 'sponsored_named_near_account';
     showRegistrationInput?: boolean;
     providers?: readonly 'google'[];
-    beginGoogleEmailOtp?: (args: {
-      idToken: string;
-      mode: 'login' | 'register';
-      signal: AbortSignal;
-    }) => Promise<GoogleEmailOtpWalletAuthLoginFlow>;
+    beginGoogleEmailOtp?: AuthMenuSessionArgs['beginGoogleEmailOtp'];
     sendToParent?: (message: unknown) => void;
     startDeviceLinking?: AuthMenuSessionArgs['startDeviceLinking'];
   } = {},
@@ -69,8 +97,15 @@ function authMenuSession(
         throw new Error('Device-linking flow fixture was not configured');
       }),
     cancelDeviceLinking: async () => {},
+    recoveryPort: UNAVAILABLE_RECOVERY_PORT,
+    prepareRecoveredLogin: unavailableRecoveredLogin,
     sendToParent: args.sendToParent ?? (() => {}),
   });
+}
+
+function openAndStartPasskeyDeviceLinking(session: AuthMenuSession): void {
+  Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+  Reflect.apply(Reflect.get(session, 'startSelectedDeviceLinking'), session, []);
 }
 
 function googleLoginFlow(
@@ -80,13 +115,14 @@ function googleLoginFlow(
     emailHint: 'g***@example.test',
   },
 ): GoogleEmailOtpWalletAuthLoginFlow {
+  const walletId = walletIdFromString('wallet-google-test');
   const flow: GoogleEmailOtpWalletAuthLoginFlow = {
     kind: 'google_email_otp_wallet_auth_flow_v1',
-    flowId: 'google-flow-test',
+    flowId: `google-email-otp-login:${walletId}:google-flow-test`,
     requestedMode: 'login',
     mode: 'login',
     state: 'challenge_sent',
-    walletId: walletIdFromString('wallet-google-test'),
+    walletId,
     emailHint: 'g***@example.test',
     prompt: {
       title: 'Verify your email',
@@ -125,6 +161,81 @@ function contextForPreparedAccountSync(calls: unknown[]): SeamsWebContext {
 }
 
 test.describe('hosted auth-menu passkey continuation', () => {
+  test('prepares exact wallet sync without reading local capability state', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
+    const originalResolveSelectedWalletAuthority = IndexedDBManager.resolveSelectedWalletAuthority;
+    const walletId = 'river-garden-2fprg7';
+    const resolvedWalletIds: string[] = [];
+    let optionsRequestBody: unknown = null;
+    globalThis.fetch = async (_input, init) => {
+      optionsRequestBody = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          challengeId: 'sync-challenge-local-repair',
+          challengeB64u: 'sync-challenge-local-repair-b64u',
+          credentialIds: ['credential-local-repair'],
+          walletBinding: {
+            walletId,
+            nearAccountId: `${walletId}.testnet`,
+            nearEd25519SigningKeyId: 'ed25519ks_local_repair',
+            rpId: 'wallet.example.test',
+            credentialIdB64u: 'credential-local-repair',
+            signerSlot: 4,
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+    IndexedDBManager.listActiveWalletSigners = async () => {
+      throw new Error('local capability projection is unavailable');
+    };
+    IndexedDBManager.resolveSelectedWalletAuthority = async (requestedWalletId) => {
+      resolvedWalletIds.push(requestedWalletId);
+      return { kind: 'missing_selection' };
+    };
+    try {
+      const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary('auth-menu-local-repair-test');
+      if (!authMenuSessionId) throw new Error('auth-menu session fixture is invalid');
+      const controller = new AuthMenuController({
+        getSeamsWeb: () =>
+          ({ getContext: () => contextForPreparedAccountSync([]) }) as unknown as SeamsWeb,
+        getAppearance: () => APPEARANCE,
+        send: () => {},
+      });
+      const prepared = await Reflect.apply(Reflect.get(controller, 'prepareLogin'), controller, [
+        walletIframeRequestIdFromBoundary('auth-menu-local-repair-request'),
+        authMenuSessionId,
+        { kind: 'abort_signal', signal: new AbortController().signal },
+        null,
+        { walletIds: [], accountIds: [], accounts: [], lastUsedAccount: null },
+        { kind: 'wallet_sync', walletId: walletIdFromString(walletId) },
+      ]);
+
+      expect(prepared).toMatchObject({
+        kind: 'hosted_passkey_account_sync_prepared_v1',
+        challenge: {
+          walletId,
+          syncOptions: {
+            challengeId: 'sync-challenge-local-repair',
+            credentialIds: ['credential-local-repair'],
+          },
+        },
+      });
+      expect(resolvedWalletIds).toEqual([]);
+      expect(optionsRequestBody).toEqual({
+        rp_id: 'wallet.example.test',
+        account_id: walletId,
+      });
+      cancelHostedPasskeyPreparation(prepared);
+    } finally {
+      IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
+      IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelectedWalletAuthority;
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test('prepares sync options before the CTA and starts credential collection inline', async () => {
     const originalFetch = globalThis.fetch;
     const calls: unknown[] = [];
@@ -181,7 +292,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
     let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
     let resolveLinkDevice: ((result: { qrCodeDataURL: string }) => void) | null = null;
     const session = authMenuSession({
-      startDeviceLinking: async (callbacks) => {
+      startDeviceLinking: async (_targetFactor, callbacks) => {
         onEvent = callbacks.onEvent;
         return await new Promise((resolve) => {
           resolveLinkDevice = resolve;
@@ -189,7 +300,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
       },
     });
     const outcome = session.waitForOutcome();
-    Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+    openAndStartPasskeyDeviceLinking(session);
     if (!onEvent) throw new Error('Device-linking flow did not publish its event callback');
     onEvent(
       createLinkDeviceFlowEvent({
@@ -216,13 +327,13 @@ test.describe('hosted auth-menu passkey continuation', () => {
   test('shows a recoverable error when linked activation omits its wallet identity', async () => {
     let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
     const session = authMenuSession({
-      startDeviceLinking: async (callbacks) => {
+      startDeviceLinking: async (_targetFactor, callbacks) => {
         onEvent = callbacks.onEvent;
         return await new Promise<never>(() => {});
       },
     });
 
-    Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+    openAndStartPasskeyDeviceLinking(session);
     if (!onEvent) throw new Error('Device-linking flow did not publish its event callback');
     onEvent(
       createLinkDeviceFlowEvent({
@@ -245,12 +356,136 @@ test.describe('hosted auth-menu passkey continuation', () => {
     session.cleanup();
   });
 
+  test('routes linked delivery recovery to exact-method sign in', async () => {
+    const message =
+      'The linked device is ready. Return to sign in and unlock the new method to finish setup.';
+    let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
+    const session = authMenuSession({
+      startDeviceLinking: async (_targetFactor, callbacks) => {
+        onEvent = callbacks.onEvent;
+        return await new Promise<never>(() => {});
+      },
+    });
+
+    openAndStartPasskeyDeviceLinking(session);
+    if (!onEvent) throw new Error('Device-linking flow did not publish its event callback');
+    onEvent(
+      createLinkDeviceFlowEvent({
+        flowId: 'linked-device-delivery-recovery-test',
+        phase: LinkDeviceEventPhase.FAILED,
+        status: 'failed',
+        message,
+        error: {
+          code: DeviceLinkingErrorCode.DELIVERY_RECOVERY_REQUIRED,
+          message,
+          retryable: false,
+        },
+      }),
+    );
+
+    expect(session.state).toMatchObject({
+      kind: 'link_device',
+      viewModel: {
+        linkDevice: {
+          kind: 'activation_error',
+          message,
+        },
+      },
+    });
+    session.cleanup();
+  });
+
+  test('classifies pre-decryption recipient loss and sealed delivery expiry', () => {
+    expect(
+      classifyLinkedDeviceDeliveryFailureV1(
+        new Error('device-linking key handle is unknown or discarded'),
+      ),
+    ).toBe('recipient_private_handle_lost');
+    expect(
+      classifyLinkedDeviceDeliveryFailureV1(new Error('recipient handle lost before decrypt')),
+    ).toBe('recipient_private_handle_lost');
+    expect(
+      classifyLinkedDeviceDeliveryFailureV1(
+        new Error('linked-device Wallet Session credential delivery is expired'),
+      ),
+    ).toBe('sealed_delivery_expired');
+    expect(classifyLinkedDeviceDeliveryFailureV1(new Error('session expired'))).toBeNull();
+  });
+
+  test('shows an explicit retry state when device linking expires', async () => {
+    let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
+    const session = authMenuSession({
+      startDeviceLinking: async (_targetFactor, callbacks) => {
+        onEvent = callbacks.onEvent;
+        return await new Promise<never>(() => {});
+      },
+    });
+
+    openAndStartPasskeyDeviceLinking(session);
+    if (!onEvent) throw new Error('Device-linking flow did not publish its event callback');
+    onEvent(
+      createLinkDeviceFlowEvent({
+        flowId: 'linked-device-expired-test',
+        phase: LinkDeviceEventPhase.FAILED,
+        status: 'failed',
+        message: 'Device-link session expired',
+        error: {
+          code: 'SESSION_EXPIRED',
+          message: 'Device-link session expired',
+          retryable: false,
+        },
+      }),
+    );
+
+    expect(session.state).toMatchObject({
+      kind: 'link_device',
+      viewModel: {
+        linkDevice: {
+          kind: 'expired',
+          message: 'This linking request expired. Start again to link this device.',
+        },
+      },
+    });
+  });
+
+  test('shows a terminal state when the other device cancels linking', async () => {
+    let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
+    const session = authMenuSession({
+      startDeviceLinking: async (_targetFactor, callbacks) => {
+        onEvent = callbacks.onEvent;
+        return await new Promise<never>(() => {});
+      },
+    });
+
+    openAndStartPasskeyDeviceLinking(session);
+    if (!onEvent) throw new Error('Device-linking flow did not publish its event callback');
+    onEvent(
+      createLinkDeviceFlowEvent({
+        flowId: 'linked-device-owner-cancelled-test',
+        phase: LinkDeviceEventPhase.CANCELLED,
+        status: 'cancelled',
+        message: 'The other device cancelled this linking request.',
+      }),
+    );
+
+    expect(session.state).toMatchObject({
+      kind: 'link_device',
+      viewModel: {
+        linkDevice: {
+          kind: 'cancelled',
+          message:
+            'The other device cancelled this linking request. Return to sign in to try again.',
+        },
+      },
+    });
+  });
+
   test('does not return to the QR screen after linked passkey creation starts', async () => {
     let callbacks: StartDeviceLinkingCallbacks | null = null;
     let resolveLinkDevice: ((result: { qrCodeDataURL: string }) => void) | null = null;
     let resolvePasskey: (() => void) | null = null;
     const session = authMenuSession({
-      startDeviceLinking: async (nextCallbacks) => {
+      startDeviceLinking: async (_targetFactor, nextCallbacks) => {
         callbacks = nextCallbacks;
         return await new Promise((resolve) => {
           resolveLinkDevice = resolve;
@@ -258,9 +493,10 @@ test.describe('hosted auth-menu passkey continuation', () => {
       },
     });
 
-    Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+    openAndStartPasskeyDeviceLinking(session);
     if (!callbacks) throw new Error('Device-linking flow did not publish its callbacks');
-    callbacks.onTargetPasskeyRequired({
+    callbacks.onTargetFactorRequired({
+      kind: 'linked_device_target_passkey_activation_v1',
       createPasskey: async () => {
         await new Promise<void>((resolve) => {
           resolvePasskey = resolve;
@@ -289,6 +525,77 @@ test.describe('hosted auth-menu passkey continuation', () => {
     session.cleanup();
   });
 
+  test('links with Email OTP without starting a Passkey ceremony', async () => {
+    let callbacks: StartDeviceLinkingCallbacks | null = null;
+    let selectedFactor: string | null = null;
+    let sendCalls = 0;
+    const submittedCodes: string[] = [];
+    const session = authMenuSession({
+      startDeviceLinking: async (targetFactor, nextCallbacks) => {
+        selectedFactor = targetFactor.targetFactor.kind;
+        callbacks = nextCallbacks;
+        return await new Promise<never>(() => {});
+      },
+    });
+    const outcome = session.waitForOutcome();
+    Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+    Reflect.apply(Reflect.get(session, 'selectLinkedDeviceTargetFactor'), session, [
+      { kind: 'email_otp' },
+    ]);
+    Reflect.apply(Reflect.get(session, 'changeLinkedDeviceTargetEmailAddress'), session, [
+      'alice@example.test',
+    ]);
+    Reflect.apply(Reflect.get(session, 'startSelectedDeviceLinking'), session, []);
+    if (!callbacks) throw new Error('Device-linking flow did not publish its callbacks');
+    callbacks.onTargetFactorRequired({
+      kind: 'linked_device_target_email_otp_activation_v1',
+      state: { kind: 'sending', maskedEmailHint: 'a***@example.test' },
+      sendCode: async () => {
+        sendCalls += 1;
+      },
+      resendCode: async () => undefined,
+      submitCode: async (otpCode) => {
+        submittedCodes.push(otpCode);
+      },
+    });
+    await Promise.resolve();
+    callbacks.onTargetFactorRequired({
+      kind: 'linked_device_target_email_otp_activation_v1',
+      state: {
+        kind: 'code_input',
+        maskedEmailHint: 'a***@example.test',
+        expiresAtMs: Date.now() + 60_000,
+        resendAvailableAtMs: Date.now(),
+      },
+      sendCode: async () => undefined,
+      resendCode: async () => undefined,
+      submitCode: async (otpCode) => {
+        submittedCodes.push(otpCode);
+      },
+    });
+    Reflect.apply(Reflect.get(session, 'changeLinkedDeviceEmailOtpCode'), session, ['123456']);
+    await Promise.resolve();
+    callbacks.onEvent(
+      createLinkDeviceFlowEvent({
+        flowId: 'linked-device-email-terminal-test',
+        phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
+        status: 'succeeded',
+        message: 'Linked device active',
+        walletId: 'wallet-linked-email-device-test',
+        data: { enrollmentId: 'enrollment-linked-email-device-test' },
+      }),
+    );
+
+    expect(selectedFactor).toBe('email_otp');
+    expect(sendCalls).toBe(1);
+    expect(submittedCodes).toEqual(['123456']);
+    await expect(outcome).resolves.toMatchObject({
+      kind: 'authenticated',
+      walletId: 'wallet-linked-email-device-test',
+      method: 'google_email_otp',
+    });
+  });
+
   test('does not prepare sponsored registration until its required name is entered', () => {
     const session = authMenuSession({
       mode: 'register',
@@ -315,30 +622,205 @@ test.describe('hosted auth-menu passkey continuation', () => {
     session.cleanup();
   });
 
-  test('filters email-OTP-only recent accounts from the passkey selector', () => {
-    const options = loginAccountOptions({
-      walletIds: ['wallet-passkey', 'wallet-email'],
-      accountIds: [],
-      accounts: [
+  test('keeps passkey and Email OTP accounts in their exact selector branches', () => {
+    const options = loginAccountOptions(
+      {
+        walletIds: ['wallet-passkey', 'wallet-email'],
+        accountIds: [],
+        accounts: [
+          {
+            walletId: 'wallet-passkey',
+            nearAccountId: 'passkey.testnet',
+            displayName: 'Passkey wallet',
+            signerSlot: 0,
+            authMethod: 'passkey',
+          },
+          {
+            walletId: 'wallet-email',
+            nearAccountId: 'email.testnet',
+            displayName: 'email@example.com',
+            signerSlot: 0,
+            authMethod: 'email_otp',
+          },
+        ],
+        lastUsedAccount: null,
+      },
+      [
+        { walletId: 'wallet-passkey', authMethod: 'passkey' },
         {
           walletId: 'wallet-passkey',
-          nearAccountId: 'passkey.testnet',
-          displayName: 'Passkey wallet',
-          signerSlot: 0,
-          authMethod: 'passkey',
+          authMethod: 'email_otp',
+          emailAddress: 'n637805@gmail.com',
         },
         {
           walletId: 'wallet-email',
-          nearAccountId: 'email.testnet',
-          displayName: 'Email wallet',
-          signerSlot: 0,
           authMethod: 'email_otp',
+          emailAddress: null,
         },
       ],
-      lastUsedAccount: null,
+    );
+
+    expect(options).toEqual([
+      { walletId: 'wallet-passkey', displayName: 'Passkey wallet', authMethod: 'passkey' },
+      { walletId: 'wallet-email', displayName: 'email@example.com', authMethod: 'email_otp' },
+      { walletId: 'wallet-passkey', displayName: 'n637805@gmail.com', authMethod: 'email_otp' },
+    ]);
+
+    const both = resolveAuthMenuLoginAccount(options, options[0] ?? null);
+    expect(both.kind).toBe('passkey_and_email_otp');
+    expect(authMenuLoginAllowsPasskey(both)).toBe(true);
+    expect(authMenuLoginAllowsEmailOtp(both)).toBe(true);
+
+    const emailOnly = resolveAuthMenuLoginAccount(options, options[1] ?? null);
+    expect(emailOnly.kind).toBe('email_otp');
+    expect(authMenuLoginAllowsPasskey(emailOnly)).toBe(false);
+    expect(authMenuLoginAllowsEmailOtp(emailOnly)).toBe(true);
+
+    const passkeyOnly = resolveAuthMenuLoginAccount(
+      [{ walletId: 'passkey-only', displayName: 'Passkey only', authMethod: 'passkey' }],
+      null,
+    );
+    expect(passkeyOnly.kind).toBe('passkey');
+    expect(authMenuLoginAllowsPasskey(passkeyOnly)).toBe(true);
+    expect(authMenuLoginAllowsEmailOtp(passkeyOnly)).toBe(false);
+  });
+
+  test('targets Google login to the selected wallet', () => {
+    const session = authMenuSession({
+      providers: ['google'],
+    });
+    const selectedAccount = {
+      walletId: 'jade-brook',
+      displayName: 'jade-brook',
+      authMethod: 'passkey',
+    } as const;
+    const emailOtpAccount = {
+      ...selectedAccount,
+      displayName: 'n637805@gmail.com',
+      authMethod: 'email_otp',
+    } as const;
+    session.setLoginPreparation({
+      accountOptions: [selectedAccount, emailOtpAccount],
+      selectedAccount,
+      prepare: async () => {
+        throw new Error('passkey preparation is unused by this assertion');
+      },
+    });
+    const request = session.requestExternalAuth('google');
+    if (!request) throw new Error('external auth request fixture is invalid');
+    expect(session.state).toMatchObject({
+      kind: 'awaiting_external_auth',
+      authTarget: {
+        mode: 'login',
+        loginTarget: { kind: 'wallet', walletId: 'jade-brook' },
+      },
+    });
+    session.cleanup();
+  });
+
+  test('defaults a register-first menu to login when a local wallet is detected', () => {
+    const session = authMenuSession({ mode: 'register' });
+    const localAccount = {
+      walletId: 'jade-brook',
+      displayName: 'jade-brook',
+      authMethod: 'passkey',
+    } as const;
+    session.setLoginPreparation({
+      accountOptions: [localAccount],
+      selectedAccount: localAccount,
+      prepare: pendingLoginPreparation,
     });
 
-    expect(options).toEqual([{ walletId: 'wallet-passkey', displayName: 'Passkey wallet' }]);
+    session.defaultToLoginForDetectedLocalWallet();
+
+    expect(session.state).toMatchObject({
+      viewModel: {
+        kind: 'passkey',
+        mode: 'login',
+        selectedAccount: localAccount,
+      },
+    });
+    session.cleanup();
+  });
+
+  test('keeps a user-selected registration page after local wallet detection completes', () => {
+    const session = authMenuSession();
+    Reflect.apply(Reflect.get(session, 'selectMode'), session, ['register']);
+
+    session.defaultToLoginForDetectedLocalWallet();
+
+    expect(session.state).toMatchObject({
+      viewModel: { kind: 'passkey', mode: 'register' },
+    });
+    session.cleanup();
+  });
+
+  test('selects the exact Email OTP option for a dual-method wallet', () => {
+    const session = authMenuSession({ providers: ['google'] });
+    const passkeyAccount = {
+      walletId: 'cobalt-brook',
+      displayName: 'cobalt-brook',
+      authMethod: 'passkey',
+    } as const;
+    const emailOtpAccount = {
+      ...passkeyAccount,
+      displayName: 'cobalt@example.test',
+      authMethod: 'email_otp',
+    } as const;
+    session.setLoginPreparation({
+      accountOptions: [passkeyAccount, emailOtpAccount],
+      selectedAccount: passkeyAccount,
+      prepare: pendingLoginPreparation,
+    });
+
+    Reflect.apply(Reflect.get(session, 'selectLoginAccount'), session, [
+      emailOtpAccount.walletId,
+      emailOtpAccount.authMethod,
+    ]);
+
+    expect(session.state).toMatchObject({
+      viewModel: { selectedAccount: emailOtpAccount },
+    });
+    session.cleanup();
+  });
+
+  test('keeps Google actionable without preparing passkey login for an Email OTP account', () => {
+    const session = authMenuSession({ providers: ['google'] });
+    let preparationCount = 0;
+    const emailOtpAccount = {
+      walletId: 'wallet-email',
+      displayName: 'email@example.test',
+      authMethod: 'email_otp',
+    } as const;
+    session.setLoginPreparation({
+      accountOptions: [
+        {
+          walletId: 'wallet-passkey',
+          displayName: 'Passkey wallet',
+          authMethod: 'passkey',
+        },
+        emailOtpAccount,
+      ],
+      selectedAccount: emailOtpAccount,
+      prepare: async () => {
+        preparationCount += 1;
+        throw new Error('Email OTP selection must not prepare a passkey login');
+      },
+    });
+
+    expect(preparationCount).toBe(0);
+    expect(session.state.kind).toBe('preparing');
+    if (session.state.kind === 'preparing') {
+      expect(session.state.viewModel).toMatchObject({
+        kind: 'passkey',
+        mode: 'login',
+        selectedAccount: emailOtpAccount,
+        status: { kind: 'idle', interaction: 'actionable' },
+      });
+      expect(isAuthMenuActionable(session.state.viewModel)).toBe(true);
+      expect(isAuthMenuActionReady(session.state.viewModel)).toBe(false);
+    }
+    session.cleanup();
   });
 
   test('requires exact external-auth request identity before starting Google OTP', async () => {
@@ -492,7 +974,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
       const session = authMenuSession({ sendToParent: messages.push.bind(messages) });
       session.setLoginPreparation({
         accountOptions: [],
-        selectedWalletId: null,
+        selectedAccount: null,
         prepare: async (_walletId, cancellation) => {
           preparationCount += 1;
           return await prepareHostedPasskeyAccountSync({

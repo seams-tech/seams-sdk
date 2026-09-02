@@ -1,0 +1,1550 @@
+/**
+ * SeamsWebIframe - Entry Point Layer
+ *
+ * This is the main API that developers interact with when using the WalletIframe system.
+ * It provides the same interface as the regular SeamsWeb for core wallet actions, and routes calls to
+ * a secure iframe for enhanced security and WebAuthn compatibility.
+ *
+ * Key Responsibilities:
+ * - Acts as a transparent proxy to the real SeamsWeb running in the iframe
+ * - Handles hook callbacks (afterCall, onError, onEvent) locally
+ * - Avoids app-origin IndexedDB persistence (no silent fallbacks)
+ * - Manages theme state and user settings synchronization
+ * - Bridges progress events from iframe back to developer callbacks
+ *
+ * Architecture:
+ * - Uses WalletIframeRouter for all iframe communication
+ * - Maintains local state for immediate synchronous access (theme, config)
+ * - Does not fall back to app-origin persistence when the iframe is unavailable
+ */
+
+import { WalletIframeRouter } from './client/router';
+import { walletIframeUnlockRequestFromLoginHooks } from './shared/unlockOptions';
+import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
+import {
+  toWalletId,
+  type NearAccountRef,
+  type ThresholdEcdsaChainTarget,
+  type WalletSessionRef,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { SignedTransaction } from '@/core/rpcClients/near/NearClient';
+import type { PreferencesChangedPayload } from './shared/messages';
+import type {
+  WalletIframeExactSessionIdentity,
+  WalletIframeExactSessionLockResult,
+  WalletIframeExactSessionState,
+} from './shared/exactSessionState';
+import type {
+  ActionResult,
+  DelegateRouterApiResult,
+  GetRecentUnlocksResult,
+  LoginAndCreateSessionResult,
+  WalletSession,
+  RegistrationResult,
+  NearProvisioningState,
+  SignAndSendDelegateActionResult,
+  SignDelegateActionResult,
+  SignTransactionResult,
+  AppearanceConfig,
+  ThemeMode,
+  AppearanceConfigInput,
+  SeamsConfigsReadonly,
+  SeamsConfigsInput,
+} from '@/core/types/seams';
+import type {
+  ActionHooksOptions,
+  DelegateActionHooksOptions,
+  DelegateRelayHooksOptions,
+  KeyExportHooksOptions,
+  LoginHooksOptions,
+  SendTransactionHooksOptions,
+  SignAndSendDelegateActionHooksOptions,
+  SignAndSendTransactionHooksOptions,
+  SignNEP413HooksOptions,
+  SignTransactionHooksOptions,
+  SdkLifecycleEventListener,
+  NearProvisioningStateChangedEvent,
+  SdkLifecycleEvent,
+} from '@/core/types/sdkSentEvents';
+
+import type { ActionArgs, TransactionInput, TxExecutionStatus } from '@/core/types';
+import {
+  type ConfirmationConfig,
+  type WasmSignedDelegate,
+  DEFAULT_CONFIRMATION_CONFIG,
+} from '@/core/types/signer-worker';
+import type { SignNEP413MessageParams, SignNEP413MessageResult } from '@/SeamsWeb/operations/near';
+import { toError } from '@shared/utils/errors';
+import type { WalletUIRegistry } from './host/lit-ui/iframe-lit-element-registry';
+import type { DelegateActionInput, SignedDelegate } from '@/core/types/delegate';
+import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
+import { resolveAppearanceTheme, resolveThemePalette } from '@/core/config/configHelpers';
+import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
+import { configureIndexedDB } from '@/core/indexedDB';
+import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
+import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
+import type {
+  BootstrapThresholdEcdsaSessionArgs,
+  AuthCapability,
+  DevicesCapability,
+  ExecuteEvmFamilyTransactionArgs,
+  ExecuteEvmFamilyTransactionResult,
+  RecoveryCapability,
+  EvmSignerCapability,
+  KeyExportCapability,
+  NearSignerCapability,
+  PreferencesCapability,
+  RegistrationCapability,
+  ReconcileTempoNonceLaneArgs,
+  ReportTempoBroadcastAcceptedArgs,
+  ReportTempoBroadcastRejectedArgs,
+  ReportTempoDroppedOrReplacedArgs,
+  ReportTempoFinalizedArgs,
+  SignEvmTransactionArgs,
+  SignTempoArgs,
+  TempoNonceLaneStatus,
+  TempoSignerCapability,
+} from '@/SeamsWeb';
+import {
+  executeEvmFamilyTransactionLifecycle,
+  withResolvedChainId,
+  type EvmFamilyTransactionSignArgs,
+} from '@/SeamsWeb/operations/tempo/executeEvmFamilyTransaction';
+import {
+  getTempoFeeTokenPreference,
+  setTempoFeeTokenPreference,
+  validateConfiguredTempoFeeToken,
+} from '@/SeamsWeb/operations/tempo/feeTokenPreference';
+import {
+  implicitNearAccountProvisioning,
+  type RegisterWalletInput,
+} from '@shared/utils/registrationIntent';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  buildNearWalletRegistrationSignerSetSelection,
+  resolvePasskeyRegistrationAccountProvisioning,
+} from '@/SeamsWeb/operations/registration/registrationSignerSet';
+import { createServerAllocatedWalletId } from '@shared/utils/registrationIntent';
+import {
+  CAPABILITY_KINDS,
+  EVM_ECDSA_MPC_OPERATION_KINDS,
+  NEAR_ED25519_MPC_OPERATION_KINDS,
+  type NearEd25519MpcOperationKind,
+} from '@shared/authorization/capabilityKinds';
+import { requireBrowserCapabilityOperation } from '@/SeamsWeb/publicApi/capabilitySelection';
+import {
+  resolveConfiguredChainTarget,
+  resolveEvmChainTarget,
+  resolveTempoChainTarget,
+} from '@/SeamsWeb/publicApi/chainTargets';
+import {
+  createCurrentWalletResolver,
+  type CurrentWalletResolver,
+} from '@/SeamsWeb/publicApi/currentWallet';
+import { createKeyExportCapability } from '@/SeamsWeb/publicApi/keyExport';
+import { awaitNearReady } from '@/SeamsWeb/publicApi/awaitNearReady';
+import type { SigningEngineExportKeypairWithUIInput } from '@/core/signingEngine/flows/recovery/public';
+import { requireTempoFeeTokenPreferenceSigningRequest } from '@/core/signingEngine/chains/tempo/feeToken';
+import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
+import type { TempoChainTarget } from '@/core/platform/types';
+
+function resolveRuntimeAppearance(
+  current: AppearanceConfig,
+  input: AppearanceConfigInput,
+): AppearanceConfig {
+  const rawInput = input as Record<string, unknown>;
+  return {
+    theme: resolveAppearanceTheme({
+      value: rawInput.theme,
+      fallback: current.theme,
+      legacyTokens: rawInput.tokens,
+    }),
+    palette: resolveThemePalette({
+      value: rawInput.palette,
+      fallback: current.palette,
+    }),
+  };
+}
+
+function requireIframeNearSigningCapability(
+  configs: SeamsConfigsReadonly,
+  operationKind: NearEd25519MpcOperationKind,
+): void {
+  requireBrowserCapabilityOperation(configs, {
+    capabilityKind: CAPABILITY_KINDS.nearEd25519MpcSigning,
+    operationKind,
+  });
+}
+
+function requireIframeEvmSigningCapability(
+  configs: SeamsConfigsReadonly,
+  chainTarget: ThresholdEcdsaChainTarget,
+): void {
+  requireBrowserCapabilityOperation(configs, {
+    capabilityKind: CAPABILITY_KINDS.evmEcdsaMpcSigning,
+    operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
+    chainTarget,
+  });
+}
+
+function requireIframeKeyExportCapability(
+  configs: SeamsConfigsReadonly,
+  input:
+    | Parameters<KeyExportCapability['resolveExactKeyExportLane']>[0]
+    | Parameters<KeyExportCapability['exportKeypairWithUI']>[0],
+): void {
+  switch (input.kind) {
+    case 'ed25519':
+      requireBrowserCapabilityOperation(configs, {
+        capabilityKind: CAPABILITY_KINDS.nearEd25519MpcSigning,
+        operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.exportKey,
+      });
+      return;
+    case 'ecdsa':
+      requireBrowserCapabilityOperation(configs, {
+        capabilityKind: CAPABILITY_KINDS.evmEcdsaMpcSigning,
+        operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.exportKey,
+        chainTarget: input.chainTarget,
+      });
+      return;
+  }
+}
+
+function deliverNearProvisioningStateChanged(
+  listener: (event: NearProvisioningStateChangedEvent) => void,
+  event: SdkLifecycleEvent,
+): void {
+  if (event.event === 'registration.near_provisioning_changed') listener(event);
+}
+
+export class SeamsWebIframe {
+  readonly configs: SeamsConfigsReadonly;
+  /**
+   * Fills in the wallet for calls that do not name one. Reads the authenticated
+   * session through the router, never the parent-page current-wallet mirror.
+   */
+  private readonly currentWallet: CurrentWalletResolver = createCurrentWalletResolver({
+    getWalletSession: async (walletId) => await this.getWalletSessionDomain(walletId),
+  });
+  private appearance: AppearanceConfig;
+  theme: ThemeMode;
+  private router: WalletIframeRouter;
+  private lastConfirmationConfig: ConfirmationConfig = DEFAULT_CONFIRMATION_CONFIG;
+  private prefsUnsubscribe: (() => void) | null = null;
+  readonly near: NearSignerCapability;
+  readonly tempo: TempoSignerCapability;
+  readonly evm: EvmSignerCapability;
+  readonly auth: AuthCapability;
+  readonly registration: RegistrationCapability;
+  readonly recovery: RecoveryCapability;
+  readonly devices: DevicesCapability;
+  readonly keys: KeyExportCapability;
+  readonly preferences: PreferencesCapability;
+  private currentWalletId: ReturnType<PreferencesCapability['getCurrentWalletId']> = null;
+  private readonly currentWalletListeners = new Set<
+    Parameters<PreferencesCapability['onCurrentWalletChange']>[0]
+  >();
+  private readonly confirmationConfigListeners = new Set<
+    Parameters<PreferencesCapability['onConfirmationConfigChange']>[0]
+  >();
+
+  private applyRemoteCurrentWalletId(walletId: string | null | undefined): void {
+    const normalizedWalletId = String(walletId || '').trim();
+    const nextWalletId = normalizedWalletId ? toWalletId(normalizedWalletId) : null;
+    if (String(this.currentWalletId || '') === String(nextWalletId || '')) return;
+    this.currentWalletId = nextWalletId;
+    for (const listener of this.currentWalletListeners) listener(nextWalletId);
+  }
+
+  private applyRemotePreferences(payload: PreferencesChangedPayload): void {
+    this.applyRemoteCurrentWalletId(payload.walletId);
+    const cfg = payload.confirmationConfig;
+    if (cfg) this.applyRemoteConfirmationConfig(cfg);
+  }
+
+  // Expose a userPreferences shim so API matches SeamsWeb
+  get userPreferences() {
+    return {
+      setConfirmBehavior: (b: 'requireClick' | 'skipClick') => {
+        this.preferences.setConfirmBehavior(b);
+      },
+      setConfirmationConfig: (c: ConfirmationConfig) => {
+        this.preferences.setConfirmationConfig(c);
+      },
+      getConfirmationConfig: () => this.preferences.getConfirmationConfig(),
+    };
+  }
+
+  constructor(configs: SeamsConfigsInput) {
+    this.configs = buildConfigsFromEnv(configs);
+    // In iframe-wallet mode, disable app-origin IndexedDB entirely so no SDK tables are created there.
+    // Wallet iframe host uses canonical DB names within the wallet origin.
+    configureIndexedDB({ mode: 'disabled' });
+
+    const walletOrigin = this.configs.wallet.iframe?.origin;
+    if (!walletOrigin) {
+      throw new Error(
+        '[SeamsWebIframe] wallet.iframe.origin is required to enable the wallet iframe. Configure it to a dedicated origin.',
+      );
+    }
+
+    let parsedWalletOrigin: URL;
+    try {
+      parsedWalletOrigin = new URL(walletOrigin);
+    } catch (err) {
+      throw new Error(
+        `[SeamsWebIframe] Invalid wallet.iframe.origin (${walletOrigin}). Provide an absolute URL.`,
+      );
+    }
+
+    if (typeof window !== 'undefined') {
+      const parentOrigin = window.location.origin;
+      if (parsedWalletOrigin.origin === parentOrigin) {
+        console.warn(
+          '[SeamsWebIframe] wallet.iframe.origin matches the host origin. Isolation is reduced; consider serving the wallet from a dedicated origin.',
+        );
+      }
+    }
+
+    this.appearance = this.configs.ui.appearance;
+    this.theme = this.appearance.theme.mode;
+    this.lastConfirmationConfig = { ...DEFAULT_CONFIRMATION_CONFIG } as ConfirmationConfig;
+    const signingSessionPersistenceMode = this.configs.signing.sessionPersistenceMode;
+    const signingSessionDefaults = this.configs.signing.sessionDefaults;
+    const routerAb = this.configs.signing.routerAb;
+    const routerAbEcdsaDerivationPresignaturePool =
+      this.configs.signing.routerAbEcdsaDerivation.presignaturePool;
+    const provisioningDefaults = this.configs.signing.thresholdEcdsa.provisioningDefaults;
+
+    this.router = new WalletIframeRouter({
+      walletOrigin: parsedWalletOrigin.toString(),
+      servicePath: this.configs.wallet.iframe?.servicePath || '/wallet-service',
+      // Lower connect timeout to reduce initial boot-wait window (25% of this).
+      // With 3_000ms, boot wait caps at ~750ms; improves sub‑second readiness in dev.
+      connectTimeoutMs: 3_000,
+      requestTimeoutMs: 60_000,
+      chains: this.configs.network.chains,
+      relayerAccount: this.configs.network.relayer.accountId,
+      registration: this.configs.registration,
+      signingSessionDefaults,
+      signingSessionPersistenceMode,
+      routerAb,
+      routerAbEcdsaDerivationPresignaturePool,
+      provisioningDefaults,
+      relayer: this.configs.network.relayer,
+      rpIdOverride: this.configs.wallet.iframe?.rpIdOverride,
+      authenticatorOptions: cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
+      appearance: this.appearance,
+    });
+    this.auth = {
+      unlock: async (walletId, options) => await this.unlockDomain(walletId, options),
+      lock: async () => await this.lockDomain(),
+      getWalletSession: async (walletId) => await this.getWalletSessionDomain(walletId),
+      getRecentUnlocks: async () => await this.getRecentUnlocksDomain(),
+      hasPasskeyCredential: async (walletId) => await this.hasPasskeyCredentialDomain(walletId),
+      prefillRouterAbEcdsaDerivationPresignaturePool: async (args) =>
+        await this.prefillRouterAbEcdsaDerivationPresignaturePoolDomain(args),
+      requestEmailOtpChallenge: async (args) => {
+        const result = await this.router.requestEmailOtpChallenge(args);
+        return result;
+      },
+      requestEmailOtpSigningSessionChallenge: async (args) =>
+        await this.router.requestEmailOtpSigningSessionChallenge(args),
+      refreshEmailOtpSigningSession: async (args) =>
+        await this.router.refreshEmailOtpSigningSession(args),
+      loginWithEmailOtpEcdsaCapability: async (args) =>
+        await this.router.loginWithEmailOtpEcdsaCapability(args),
+      unlockAddedEmailOtpWallet: async (args) => await this.router.unlockAddedEmailOtpWallet(args),
+      beginGoogleEmailOtpWalletAuth: async (args) =>
+        await this.router.beginGoogleEmailOtpWalletAuth(args),
+    };
+    this.registration = {
+      resumePendingEcdsaRegistration: async (args) =>
+        await this.resumePendingEcdsaRegistrationDomain(args),
+      getNearProvisioningState: async (args) => await this.getNearProvisioningStateDomain(args),
+      onNearProvisioningStateChanged: (listener) =>
+        this.router.onSdkLifecycleEvent(deliverNearProvisioningStateChanged.bind(null, listener)),
+      awaitNearReady: async (args) =>
+        await awaitNearReady(
+          {
+            getNearProvisioningState: async (input) =>
+              await this.getNearProvisioningStateDomain(input),
+            onNearProvisioningStateChanged: (listener) =>
+              this.router.onSdkLifecycleEvent(
+                deliverNearProvisioningStateChanged.bind(null, listener),
+              ),
+          },
+          { ...args, walletId: String(args.walletId) },
+        ),
+      addWalletSigner: async (args) => await this.addWalletSignerDomain(args),
+      addPasskey: async (args) => await this.addPasskeyDomain(args),
+      addEmailOtp: async (args) => await this.addEmailOtpDomain(args),
+      revokeAuthMethod: async (args) => await this.router.revokeAuthMethod(args),
+      registerWallet: async (args) => await this.registerWalletDomain(args),
+      registerWithEmailOtp: async (args) => await this.registerWalletDomain(args),
+      registerPasskey: async (options) => await this.registerPasskeyDomain(options),
+      requestEmailOtpEnrollmentChallenge: async (args) =>
+        await this.router.requestEmailOtpEnrollmentChallenge(args),
+      enrollEmailOtp: async (args) => await this.router.enrollEmailOtp(args),
+    };
+    this.preferences = {
+      setCurrentWallet: (walletId) => {
+        this.currentWalletId = walletId;
+        for (const listener of this.currentWalletListeners) listener(walletId);
+      },
+      getCurrentWalletId: () => this.currentWalletId,
+      onConfirmationConfigChange: (callback) => {
+        this.confirmationConfigListeners.add(callback);
+        return () => {
+          this.confirmationConfigListeners.delete(callback);
+        };
+      },
+      onCurrentWalletChange: (callback) => {
+        this.currentWalletListeners.add(callback);
+        return () => {
+          this.currentWalletListeners.delete(callback);
+        };
+      },
+      setConfirmBehavior: (behavior) => this.setConfirmBehaviorDomain(behavior),
+      setConfirmationConfig: (config) => this.setConfirmationConfigDomain(config),
+      getConfirmationConfig: () => this.getConfirmationConfigDomain(),
+    };
+
+    this.near = {
+      registerNearWallet: async (args) => {
+        if (!args.authMethod) {
+          throw new Error(
+            '[SeamsWebIframe][near] registerNearWallet requires an explicit authMethod',
+          );
+        }
+        const accountProvisioning =
+          args.accountProvisioning?.kind === 'sponsored_named_account'
+            ? args.accountProvisioning
+            : args.accountProvisioning || implicitNearAccountProvisioning();
+        let wallet: RegisterWalletInput;
+        switch (accountProvisioning.kind) {
+          case 'implicit_account':
+            wallet = args.wallet || { kind: 'server_allocated' };
+            break;
+          case 'sponsored_named_account':
+            if (!args.wallet) {
+              throw new Error(
+                '[SeamsWebIframe][near] sponsored NEAR registration requires a provided walletId',
+              );
+            }
+            wallet = args.wallet;
+            break;
+          default:
+            throw new Error('[SeamsWebIframe][near] unsupported NEAR account provisioning branch');
+        }
+        return await this.registration.registerWallet({
+          wallet,
+          authMethod: args.authMethod,
+          signerSelection: buildNearWalletRegistrationSignerSetSelection({
+            configs: this.configs,
+            accountProvisioning,
+            options: args.options || {},
+          }),
+          options: args.options,
+        });
+      },
+      fundImplicitNearAccountForTesting: async (args) =>
+        await this.router.fundImplicitNearAccountForTesting({
+          walletId: args.walletSession.walletId,
+          nearAccountId: args.nearAccount.accountId,
+          nearPublicKey: args.nearPublicKey,
+        }),
+      // `walletSession`/`nearAccount`/`options` are optional on the public
+      // surface; the *Domain methods keep their required shape, so resolve and
+      // normalize once here at the boundary.
+      executeAction: async (args) =>
+        await this.executeActionDomain({
+          ...args,
+          ...(await this.currentWallet.nearSubject(args)),
+          options: args.options ?? {},
+        }),
+      signAndSendTransaction: async (args) => {
+        return await this.signAndSendTransactionDomain({
+          ...(await this.currentWallet.nearSubject(args)),
+          receiverId: args.receiverId,
+          actions: args.actions,
+          options: args.options ?? {},
+        });
+      },
+      signTransactionWithActions: async (args) =>
+        await this.signTransactionWithActionsDomain({
+          ...args,
+          ...(await this.currentWallet.nearSubject(args)),
+          options: args.options ?? {},
+        }),
+      sendTransaction: async (args) =>
+        await this.sendTransactionDomain({
+          ...args,
+          ...(await this.currentWallet.nearSubject(args)),
+        }),
+      signDelegateAction: async (args) =>
+        await this.signDelegateActionDomain({
+          ...args,
+          ...(await this.currentWallet.nearSubject(args)),
+          options: args.options ?? {},
+        }),
+      sendDelegateActionViaRelayer: async (args) =>
+        await this.sendDelegateActionViaRelayerDomain(args),
+      signAndSendDelegateAction: async (args) =>
+        await this.signAndSendDelegateActionDomain({
+          ...args,
+          ...(await this.currentWallet.nearSubject(args)),
+          options: args.options ?? {},
+        }),
+      signNEP413Message: async (args) =>
+        await this.signNEP413MessageDomain({
+          ...args,
+          ...(await this.currentWallet.nearSubject(args)),
+          options: args.options ?? {},
+        }),
+    };
+    const evmFamilyAdvanced = {
+      reportBroadcastAccepted: async (args: ReportTempoBroadcastAcceptedArgs) =>
+        await this.reportTempoBroadcastAcceptedDomain(args),
+      reportBroadcastRejected: async (args: ReportTempoBroadcastRejectedArgs) =>
+        await this.reportTempoBroadcastRejectedDomain(args),
+      reportFinalized: async (args: ReportTempoFinalizedArgs) =>
+        await this.reportTempoFinalizedDomain(args),
+      reportDroppedOrReplaced: async (args: ReportTempoDroppedOrReplacedArgs) =>
+        await this.reportTempoDroppedOrReplacedDomain(args),
+      reconcileNonceLane: async (args: ReconcileTempoNonceLaneArgs) =>
+        await this.reconcileTempoNonceLaneDomain(args),
+      bootstrapEcdsaSession: async (args: BootstrapThresholdEcdsaSessionArgs) =>
+        await this.bootstrapEcdsaSessionDomain(args),
+    };
+    this.tempo = {
+      // Mirrors `seams.evm`; the deprecated names stay wired to the same code.
+      signTransaction: async (args) => await this.signTempoDomain(args),
+      executeTransaction: async (args) => await this.executeEvmFamilyTransactionDomain(args),
+      advanced: evmFamilyAdvanced,
+      signTempo: async (args) => await this.signTempoDomain(args),
+      getFeeTokenPreference: async (args) =>
+        await getTempoFeeTokenPreference(this.configs.network.chains, args),
+      validateFeeToken: async (args) =>
+        await validateConfiguredTempoFeeToken(this.configs.network.chains, args),
+      setFeeTokenPreference: async (args) =>
+        await setTempoFeeTokenPreference(
+          {
+            chains: this.configs.network.chains,
+            execute: this.executeEvmFamilyTransactionDomain.bind(this),
+          },
+          args,
+        ),
+      executeEvmFamilyTransaction: async (args) =>
+        await this.executeEvmFamilyTransactionDomain(args),
+      reportBroadcastAccepted: async (args) => await this.reportTempoBroadcastAcceptedDomain(args),
+      reportBroadcastRejected: async (args) => await this.reportTempoBroadcastRejectedDomain(args),
+      reportFinalized: async (args) => await this.reportTempoFinalizedDomain(args),
+      reportDroppedOrReplaced: async (args) => await this.reportTempoDroppedOrReplacedDomain(args),
+      reconcileNonceLane: async (args) => await this.reconcileTempoNonceLaneDomain(args),
+      bootstrapEcdsaSession: async (args) => await this.bootstrapEcdsaSessionDomain(args),
+    };
+    this.evm = {
+      // Mirrors `seams.tempo` method for method, on EIP-1559 transactions.
+      executeTransaction: async (args) => await this.executeEvmFamilyTransactionDomain(args),
+      advanced: evmFamilyAdvanced,
+      signTransaction: async (args) => await this.signEvmTransactionDomain(args),
+      registerEvmWallet: async (args) => {
+        if (!args.chainTargets.length) {
+          throw new Error('[SeamsWeb][evm] registerEvmWallet requires at least one chain target');
+        }
+        if (!args.participantIds.length) {
+          throw new Error('[SeamsWeb][evm] registerEvmWallet requires participant ids');
+        }
+        if (!args.authMethod) {
+          throw new Error(
+            '[SeamsWebIframe][evm] registerEvmWallet requires an explicit authMethod',
+          );
+        }
+        return await this.registration.registerWallet({
+          wallet: { kind: 'server_allocated' },
+          authMethod: args.authMethod,
+          signerSelection: {
+            kind: 'signer_set',
+            signers: [
+              {
+                kind: 'evm_family_ecdsa',
+                chainTargets: [...args.chainTargets],
+                participantIds: [...args.participantIds],
+              },
+            ],
+          },
+          options: args.options,
+        });
+      },
+      bootstrapEcdsaSession: async (args) => await this.bootstrapEcdsaSessionDomain(args),
+    };
+    this.recovery = {
+      syncAccount: async (args) => {
+        await this.requireRouterReady();
+        return await this.router.syncAccount({
+          ...(args?.walletId ? { walletId: args.walletId } : {}),
+          onEvent: args?.options?.onEvent,
+        });
+      },
+      getWalletRecoveryCodeStatus: async (args) =>
+        await this.router.getWalletRecoveryCodeStatus({
+          walletId: args.walletId,
+        }),
+      acknowledgeWalletRecoveryCodeBackup: async (args) =>
+        await this.router.acknowledgeWalletRecoveryCodeBackup({
+          walletId: args.walletId,
+        }),
+      requestWalletCustodyEmailOtpChallenge: async (args) =>
+        await this.router.requestWalletCustodyEmailOtpChallenge(args),
+      rotateWalletRecoveryCodes: async (args) =>
+        await this.router.rotateWalletRecoveryCodes({
+          walletId: args.walletId,
+          authorization: args.authorization,
+        }),
+    } satisfies RecoveryCapability;
+    this.devices = {
+      startDevice2LinkingFlow: async (args) => {
+        await this.requireRouterReady();
+        return await this.router.startDevice2LinkingFlow(args);
+      },
+      cancelDeviceLinking: async () => {
+        await this.requireRouterReady();
+        await this.router.cancelDeviceLinking();
+      },
+      scanAndLinkDevice: async (qrData, options) => {
+        await this.requireRouterReady();
+        return await this.router.scanAndLinkDevice({
+          qrData,
+          options: {
+            onEvent: options.onEvent,
+            onEmailOtpBaseFactorRequired: options.onEmailOtpBaseFactorRequired,
+            ...(options.confirmerText ? { confirmerText: options.confirmerText } : {}),
+            ...(options.confirmationConfig
+              ? { confirmationConfig: options.confirmationConfig }
+              : {}),
+          },
+        });
+      },
+      listLinkedDevices: async (args) => {
+        await this.requireRouterReady();
+        return await this.router.listLinkedDevices({
+          walletId: args.walletId,
+          limit: args.limit,
+          cursor: args.cursor,
+        });
+      },
+      revokeLinkedDevice: async (args) => {
+        await this.requireRouterReady();
+        return await this.router.revokeLinkedDevice(args);
+      },
+    };
+    this.keys = createKeyExportCapability({
+      configs: this.configs,
+      currentWallet: this.currentWallet,
+      domain: {
+        resolveExactKeyExportLane: async (input) =>
+          await this.resolveExactKeyExportLaneDomain(input),
+        exportKeypairWithUI: async (input) => await this.exportKeypairWithUIDomain(input),
+      },
+    });
+  }
+
+  private resolveRegistrationRpId(operation: string): WebAuthnRpId {
+    const configured = String(this.configs.wallet.iframe?.rpIdOverride || '').trim();
+    if (configured) {
+      const parsed = parseWebAuthnRpId(configured);
+      if (parsed.ok) return parsed.value;
+      throw new Error(parsed.error.message);
+    }
+    try {
+      const hostname = String(globalThis.location?.hostname || '').trim();
+      if (hostname) {
+        const parsed = parseWebAuthnRpId(hostname);
+        if (parsed.ok) return parsed.value;
+        throw new Error(parsed.error.message);
+      }
+    } catch {}
+    throw new Error(`[SeamsWeb][iframe] ${operation} requires rpId`);
+  }
+
+  async initWalletIframe(): Promise<WalletIframeExactSessionState> {
+    if (!this.prefsUnsubscribe) {
+      this.prefsUnsubscribe =
+        this.router.onPreferencesChanged?.((payload: PreferencesChangedPayload) => {
+          this.applyRemotePreferences(payload);
+        }) || null;
+    }
+    await this.router.init();
+    await this.refreshConfirmationConfig();
+    return this.router.getMirroredExactSessionState();
+  }
+
+  async getWalletIframeExactSessionState(): Promise<WalletIframeExactSessionState> {
+    await this.requireRouterReady();
+    return await this.router.getExactSessionState();
+  }
+
+  async lockWalletIframeExactSession(
+    identity: WalletIframeExactSessionIdentity,
+  ): Promise<WalletIframeExactSessionLockResult> {
+    await this.requireRouterReady();
+    return await this.router.lockExactSession(identity);
+  }
+
+  private async requireRouterReady(): Promise<WalletIframeRouter> {
+    if (!this.router.isReady()) {
+      await this.initWalletIframe();
+    }
+    if (!this.router.isReady()) {
+      throw new Error('[SeamsWebIframe] Wallet iframe is configured but unavailable.');
+    }
+    return this.router;
+  }
+
+  isReady(): boolean {
+    return this.router.isReady();
+  }
+
+  onReady(cb: () => void): () => void {
+    return this.router.onReady(cb);
+  }
+
+  onLoginStatusChanged(
+    cb: (status: { isLoggedIn: boolean; walletId: string | null }) => void,
+  ): () => void {
+    return this.router.onLoginStatusChanged(cb);
+  }
+
+  onSdkLifecycleEvent(listener: SdkLifecycleEventListener): () => void {
+    return this.router.onSdkLifecycleEvent(listener);
+  }
+
+  // === Generic Wallet UI registration/mounting ===
+  registerWalletUI(types: WalletUIRegistry): void {
+    this.router.registerUiTypes(types);
+  }
+  mountWalletUI(params: {
+    key: string;
+    props?: Record<string, unknown>;
+    targetSelector?: string;
+    id?: string;
+  }): void {
+    this.router.mountUiComponent(params);
+  }
+  updateWalletUI(id: string, props?: Record<string, unknown>): void {
+    this.router.updateUiComponent({ id, props });
+  }
+  unmountWalletUI(id: string): void {
+    this.router.unmountUiComponent(id);
+  }
+
+  private async registerPasskeyDomain(
+    options: Parameters<RegistrationCapability['registerPasskey']>[0] = {},
+  ): Promise<RegistrationResult> {
+    if (typeof options === 'string') {
+      throw new Error(
+        '[SeamsWebIframe] registration.registerPasskey no longer accepts a NEAR account id; call registration.registerPasskey(options) for implicit NEAR registration or registerWallet(...) with explicit sponsored accountProvisioning.',
+      );
+    }
+    const { wallet, nearAccountProvisioning, ...registrationOptions } = options || {};
+    const rpId = this.resolveRegistrationRpId('registration.registerPasskey');
+    const provisioningPreference =
+      nearAccountProvisioning ?? this.configs.registration.nearAccountProvisioning;
+    const resolvedWallet =
+      wallet ||
+      (provisioningPreference.kind === 'relayer_named_subaccount'
+        ? { kind: 'provided' as const, walletId: createServerAllocatedWalletId() }
+        : { kind: 'server_allocated' as const });
+    const accountProvisioning = resolvePasskeyRegistrationAccountProvisioning({
+      configs: this.configs,
+      wallet: resolvedWallet,
+      preference: provisioningPreference,
+    });
+    if (accountProvisioning.kind === 'sponsored_named_account') {
+      if (resolvedWallet.kind !== 'provided') {
+        throw new Error(
+          '[SeamsWebIframe] sponsored NEAR registration requires a provided walletId',
+        );
+      }
+      return await this.near.registerNearWallet({
+        wallet: resolvedWallet,
+        accountProvisioning,
+        authMethod: { kind: 'passkey', rpId },
+        options: registrationOptions,
+      });
+    }
+    return await this.near.registerNearWallet({
+      ...(resolvedWallet.kind === 'provided' ? { wallet: resolvedWallet } : {}),
+      accountProvisioning,
+      authMethod: { kind: 'passkey', rpId },
+      options: registrationOptions,
+    });
+  }
+
+  private async getNearProvisioningStateDomain(
+    args: Parameters<RegistrationCapability['getNearProvisioningState']>[0],
+  ): Promise<NearProvisioningState | null> {
+    await this.requireRouterReady();
+    return await this.router.getNearProvisioningState({ walletId: toWalletId(args.walletId) });
+  }
+
+  private async resumePendingEcdsaRegistrationDomain(
+    args: Parameters<RegistrationCapability['resumePendingEcdsaRegistration']>[0],
+  ): Promise<Awaited<ReturnType<RegistrationCapability['resumePendingEcdsaRegistration']>>> {
+    await this.requireRouterReady();
+    return await this.router.resumePendingEcdsaRegistration(args);
+  }
+
+  private async registerWalletDomain(
+    args: Parameters<RegistrationCapability['registerWallet']>[0],
+  ): Promise<RegistrationResult> {
+    try {
+      await this.requireRouterReady();
+      const res = await this.router.registerWallet(args);
+      await args.options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  private async addWalletSignerDomain(
+    args: Parameters<RegistrationCapability['addWalletSigner']>[0],
+  ): Promise<RegistrationResult> {
+    try {
+      await this.requireRouterReady();
+      const res = await this.router.addWalletSigner(args);
+      await args.options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  private async addEmailOtpDomain(
+    args: Parameters<RegistrationCapability['addEmailOtp']>[0],
+  ): Promise<Awaited<ReturnType<RegistrationCapability['addEmailOtp']>>> {
+    try {
+      await this.requireRouterReady();
+      const res = await this.router.addEmailOtp(args);
+      await args.options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  private async addPasskeyDomain(
+    args: Parameters<RegistrationCapability['addPasskey']>[0],
+  ): Promise<Awaited<ReturnType<RegistrationCapability['addPasskey']>>> {
+    try {
+      await this.requireRouterReady();
+      const res = await this.router.addPasskey(args);
+      await args.options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  private async unlockDomain(
+    walletId: string,
+    options?: LoginHooksOptions,
+  ): Promise<LoginAndCreateSessionResult> {
+    try {
+      // Route login request to iframe - similar flow to registerPasskey
+      // The iframe will handle WebAuthn authentication and session creation
+      const res = await this.router.unlock(
+        walletIframeUnlockRequestFromLoginHooks({
+          walletId,
+          options,
+        }),
+      );
+      if (!res.success) {
+        const unlockError = new Error(res.error || 'Login failed');
+        await options?.onError?.(unlockError);
+        await options?.afterCall?.(false, undefined, unlockError);
+        return res;
+      }
+      await options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await options?.onError?.(e);
+      await options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  private async lockDomain(): Promise<void> {
+    await this.router.lock();
+  }
+
+  private async getWalletSessionDomain(walletId?: string): Promise<WalletSession> {
+    const router = await this.requireRouterReady();
+    return await router.getWalletSession(walletId);
+  }
+
+  private resolveNearSigningWalletId(args: { walletSession: WalletSessionRef }): string {
+    return String(args.walletSession.walletId);
+  }
+
+  private async prefillRouterAbEcdsaDerivationPresignaturePoolDomain(args: {
+    walletSession: WalletSessionRef;
+    chainTarget: ThresholdEcdsaChainTarget;
+    waitForPoolReady?: boolean;
+    poolReadyTimeoutMs?: number;
+    poolReadyPollIntervalMs?: number;
+    minRemainingUsesBeforePrefill?: number;
+  }): Promise<RouterAbEcdsaDerivationLoginPresignaturePrefillResult> {
+    await this.requireRouterReady();
+    return await this.router.prefillRouterAbEcdsaDerivationPresignaturePool({
+      walletSession: args.walletSession,
+      options: {
+        chainTarget: args.chainTarget,
+        ...(typeof args.waitForPoolReady === 'boolean'
+          ? { waitForPoolReady: args.waitForPoolReady }
+          : {}),
+        ...(typeof args.poolReadyTimeoutMs === 'number'
+          ? { poolReadyTimeoutMs: args.poolReadyTimeoutMs }
+          : {}),
+        ...(typeof args.poolReadyPollIntervalMs === 'number'
+          ? { poolReadyPollIntervalMs: args.poolReadyPollIntervalMs }
+          : {}),
+        ...(typeof args.minRemainingUsesBeforePrefill === 'number'
+          ? { minRemainingUsesBeforePrefill: args.minRemainingUsesBeforePrefill }
+          : {}),
+      },
+    });
+  }
+
+  private async signTransactionWithActionsDomain(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
+    transaction: TransactionInput;
+    options: SignTransactionHooksOptions;
+  }): Promise<SignTransactionResult> {
+    requireIframeNearSigningCapability(
+      this.configs,
+      NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
+    );
+    try {
+      const walletId = this.resolveNearSigningWalletId(args);
+      // Route transaction signing to iframe
+      // This will:
+      // - Send PM_SIGN_TX_WITH_ACTIONS message to iframe
+      // - Show overlay during user confirmation and WebAuthn phases
+      // - Handle transaction signing in secure iframe context
+      // - Bridge progress events back to parent
+      const res = await this.router.signTransactionWithActions({
+        walletId,
+        nearAccountId: args.nearAccount.accountId,
+        transaction: args.transaction,
+        options: {
+          signerSlot: args.options?.signerSlot,
+          confirmerText: args.options?.confirmerText,
+          confirmationConfig: args.options?.confirmationConfig,
+          onEvent: args.options?.onEvent,
+        },
+      });
+      await args.options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  private async signNEP413MessageDomain(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
+    params: SignNEP413MessageParams;
+    options: SignNEP413HooksOptions;
+  }): Promise<SignNEP413MessageResult> {
+    requireIframeNearSigningCapability(
+      this.configs,
+      NEAR_ED25519_MPC_OPERATION_KINDS.signNep413Message,
+    );
+    try {
+      const walletId = this.resolveNearSigningWalletId(args);
+      const res = await this.router.signNep413Message({
+        walletId,
+        nearAccountId: args.nearAccount.accountId,
+        message: args.params.message,
+        recipient: args.params.recipient,
+        state: args.params.state,
+        options: {
+          signerSlot: args.options?.signerSlot,
+          onEvent: args.options?.onEvent,
+          confirmerText: args.options?.confirmerText,
+          confirmationConfig: args.options?.confirmationConfig,
+        },
+      });
+      await args.options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  private async signDelegateActionDomain(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
+    delegate: DelegateActionInput;
+    options: DelegateActionHooksOptions;
+  }): Promise<SignDelegateActionResult> {
+    requireIframeNearSigningCapability(
+      this.configs,
+      NEAR_ED25519_MPC_OPERATION_KINDS.signDelegateAction,
+    );
+    const options = args.options;
+    try {
+      await this.requireRouterReady();
+      const walletId = this.resolveNearSigningWalletId(args);
+      const res = (await this.router.signDelegateAction({
+        walletId,
+        nearAccountId: args.nearAccount.accountId,
+        delegate: args.delegate,
+        options: {
+          signerSlot: options?.signerSlot,
+          onEvent: options?.onEvent,
+          confirmationConfig: options?.confirmationConfig,
+          confirmerText: options?.confirmerText,
+        },
+      })) as SignDelegateActionResult;
+      await options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  private async sendDelegateActionViaRelayerDomain(args: {
+    relayerUrl: string;
+    signedDelegate: SignedDelegate | WasmSignedDelegate;
+    hash: string;
+    signal?: AbortSignal;
+    options?: DelegateRelayHooksOptions;
+  }): Promise<DelegateRouterApiResult> {
+    const base = args.relayerUrl.replace(/\/+$/, '');
+    const route = (
+      this.configs.network.relayer?.routes?.delegateAction || '/signed-delegate'
+    ).replace(/^\/?/, '/');
+    const endpoint = `${base}${route}`;
+    const { sendDelegateActionViaRelayer, delegateRelayerAuthFromConfigs } =
+      await import('@/SeamsWeb/operations/near');
+    return sendDelegateActionViaRelayer({
+      url: endpoint,
+      payload: {
+        hash: args.hash,
+        signedDelegate: args.signedDelegate,
+      },
+      auth: delegateRelayerAuthFromConfigs(this.configs),
+      signal: args.signal,
+      options: args.options,
+    });
+  }
+
+  private async signAndSendDelegateActionDomain(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
+    delegate: DelegateActionInput;
+    relayerUrl: string;
+    signal?: AbortSignal;
+    options: SignAndSendDelegateActionHooksOptions;
+  }): Promise<SignAndSendDelegateActionResult> {
+    const { nearAccount, delegate, relayerUrl, signal, options } = args;
+
+    const signOptions: DelegateActionHooksOptions | undefined = options
+      ? {
+          signerSlot: options.signerSlot,
+          onEvent: options.onEvent,
+          onError: options.onError,
+          waitUntil: options.waitUntil,
+          confirmationConfig: options.confirmationConfig,
+          confirmerText: options.confirmerText,
+          afterCall: () => {},
+        }
+      : undefined;
+
+    let signResult: SignDelegateActionResult;
+    try {
+      signResult = await this.signDelegateActionDomain({
+        walletSession: args.walletSession,
+        nearAccount,
+        delegate,
+        options: signOptions as DelegateActionHooksOptions,
+      });
+    } catch (error) {
+      const e = toError(error);
+      await options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+
+    const relayOptions: DelegateRelayHooksOptions | undefined = options
+      ? {
+          onEvent: options.onEvent,
+          onError: options.onError,
+        }
+      : undefined;
+
+    let relayResult: DelegateRouterApiResult;
+    try {
+      relayResult = await this.sendDelegateActionViaRelayerDomain({
+        relayerUrl,
+        hash: signResult.hash,
+        signedDelegate: signResult.signedDelegate,
+        signal,
+        options: relayOptions,
+      });
+    } catch (error) {
+      const e = toError(error);
+      await options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+
+    const combined: SignAndSendDelegateActionResult = {
+      signResult,
+      relayResult,
+    };
+
+    const success = relayResult.ok !== false;
+    if (success) {
+      await options?.afterCall?.(true, combined);
+    } else {
+      const relayError = toError(relayResult.error || 'Delegate relay failed');
+      await options?.afterCall?.(false, undefined, relayError);
+    }
+    return combined;
+  }
+
+  private async signTempoDomain(args: SignTempoArgs): Promise<TempoSignedResult> {
+    // Resolve any selector before the request crosses the iframe boundary, so
+    // the wire payload always carries an exact configured target.
+    const chainTarget = resolveTempoChainTarget(this.configs.network.chains, args.chainTarget);
+    const walletSession = await this.currentWallet.walletSession(args.walletSession);
+    requireIframeEvmSigningCapability(this.configs, chainTarget);
+    await this.requireRouterReady();
+    const result = await this.router.signTempo({
+      walletSession,
+      request: args.request,
+      chainTarget,
+      options: {
+        confirmationConfig: args.options?.confirmationConfig,
+        onEvent: args.options?.onEvent,
+      },
+    });
+    if (result.chain !== 'tempo' || result.kind !== 'tempoTransaction') {
+      throw new Error(`[SeamsWebIframe][tempo] expected Tempo result, received ${result.chain}`);
+    }
+    return result;
+  }
+
+  private async signEvmTransactionDomain(args: SignEvmTransactionArgs): Promise<EvmSignedResult> {
+    const chainTarget = resolveEvmChainTarget(this.configs.network.chains, args.chainTarget);
+    const walletSession = await this.currentWallet.walletSession(args.walletSession);
+    requireIframeEvmSigningCapability(this.configs, chainTarget);
+    await this.requireRouterReady();
+    const result = await this.router.signTempo({
+      walletSession,
+      request: args.request,
+      chainTarget,
+      options: {
+        confirmationConfig: args.options?.confirmationConfig,
+        onEvent: args.options?.onEvent,
+      },
+    });
+    if (result.chain !== 'evm' || result.kind !== 'eip1559') {
+      throw new Error(`[SeamsWebIframe][evm] expected EVM result, received ${result.chain}`);
+    }
+    return result;
+  }
+
+  private async signTempoFeeTokenPreferenceDomain(
+    args: EvmFamilyTransactionSignArgs & {
+      request: EvmSigningRequest;
+      chainTarget: TempoChainTarget;
+    },
+  ): Promise<EvmSignedResult> {
+    if (args.chainTarget.kind !== 'tempo') {
+      throw new Error('[SeamsWebIframe][tempo] fee-token preference requires a Tempo target');
+    }
+    const request = requireTempoFeeTokenPreferenceSigningRequest({
+      request: args.request,
+      chainTarget: args.chainTarget,
+    });
+    requireIframeEvmSigningCapability(this.configs, args.chainTarget);
+    await this.requireRouterReady();
+    const result = await this.router.signTempo({
+      walletSession: args.walletSession,
+      request,
+      chainTarget: args.chainTarget,
+      options: {
+        confirmationConfig: args.options?.confirmationConfig,
+        onEvent: args.options?.onEvent,
+      },
+    });
+    if (result.chain !== 'evm' || result.kind !== 'eip1559') {
+      throw new Error(
+        `[SeamsWebIframe][tempo] expected EVM FeeManager result, received ${result.chain}`,
+      );
+    }
+    return result;
+  }
+
+  private async executeEvmFamilyTransactionDomain(
+    args: ExecuteEvmFamilyTransactionArgs,
+  ): Promise<ExecuteEvmFamilyTransactionResult> {
+    return await executeEvmFamilyTransactionLifecycle({
+      lifecycle: {
+        signEvmFamily: async (innerArgs) => {
+          if (innerArgs.request.chain === 'tempo') {
+            if (innerArgs.chainTarget.kind !== 'tempo') {
+              throw new Error('[SeamsWebIframe][tempo] Tempo request requires a Tempo target');
+            }
+            return await this.signTempoDomain({
+              walletSession: innerArgs.walletSession,
+              request: innerArgs.request,
+              chainTarget: innerArgs.chainTarget,
+              options: innerArgs.options,
+            });
+          }
+          if (innerArgs.chainTarget.kind === 'tempo') {
+            return await this.signTempoFeeTokenPreferenceDomain({
+              ...innerArgs,
+              request: innerArgs.request,
+              chainTarget: innerArgs.chainTarget,
+            });
+          }
+          return await this.signEvmTransactionDomain({
+            walletSession: innerArgs.walletSession,
+            request: innerArgs.request,
+            chainTarget: innerArgs.chainTarget,
+            options: innerArgs.options,
+          });
+        },
+        reportBroadcastAccepted: async (innerArgs) =>
+          await this.reportTempoBroadcastAcceptedDomain(innerArgs),
+        reportBroadcastRejected: async (innerArgs) =>
+          await this.reportTempoBroadcastRejectedDomain(innerArgs),
+        reportFinalized: async (innerArgs) => await this.reportTempoFinalizedDomain(innerArgs),
+        reportDroppedOrReplaced: async (innerArgs) =>
+          await this.reportTempoDroppedOrReplacedDomain(innerArgs),
+        reconcileNonceLane: async (innerArgs) =>
+          await this.reconcileTempoNonceLaneDomain(innerArgs),
+      },
+      chains: this.configs.network.chains,
+      input: await (async () => {
+        const chainTarget = resolveConfiguredChainTarget(
+          this.configs.network.chains,
+          args.chainTarget,
+        );
+        return {
+          ...args,
+          chainTarget,
+          walletSession: await this.currentWallet.walletSession(args.walletSession),
+          request: withResolvedChainId(args.request, chainTarget),
+        };
+      })(),
+    });
+  }
+
+  private async reportTempoBroadcastAcceptedDomain(
+    args: ReportTempoBroadcastAcceptedArgs,
+  ): Promise<void> {
+    await this.requireRouterReady();
+    await this.router.reportTempoBroadcastAccepted({
+      walletSession: args.walletSession,
+      signedResult: args.signedResult,
+      txHash: args.txHash,
+      options: {
+        onEvent: args.options?.onEvent,
+      },
+    });
+  }
+
+  private async reportTempoBroadcastRejectedDomain(
+    args: ReportTempoBroadcastRejectedArgs,
+  ): Promise<void> {
+    await this.requireRouterReady();
+    await this.router.reportTempoBroadcastRejected({
+      walletSession: args.walletSession,
+      signedResult: args.signedResult,
+      ...(args.error == null
+        ? {}
+        : {
+            error: (() => {
+              if (typeof args.error === 'string') return { message: args.error };
+              if (args.error instanceof Error) {
+                const code = String((args.error as { code?: unknown }).code || '').trim();
+                return {
+                  ...(code ? { code } : {}),
+                  message: String(args.error.message || ''),
+                };
+              }
+              if (typeof args.error === 'object') {
+                const value = args.error as {
+                  code?: unknown;
+                  message?: unknown;
+                  details?: unknown;
+                };
+                const code = String(value.code || '').trim();
+                const message = String(value.message || '').trim();
+                return {
+                  ...(code ? { code } : {}),
+                  ...(message ? { message } : {}),
+                  ...(value.details !== undefined ? { details: value.details } : {}),
+                };
+              }
+              return { message: String(args.error) };
+            })(),
+          }),
+      options: {
+        onEvent: args.options?.onEvent,
+      },
+    });
+  }
+
+  private async reportTempoFinalizedDomain(args: ReportTempoFinalizedArgs): Promise<void> {
+    await this.requireRouterReady();
+    await this.router.reportTempoFinalized({
+      walletSession: args.walletSession,
+      signedResult: args.signedResult,
+      ...(args.txHash ? { txHash: args.txHash } : {}),
+      ...(args.receiptStatus ? { receiptStatus: args.receiptStatus } : {}),
+      options: {
+        onEvent: args.options?.onEvent,
+      },
+    });
+  }
+
+  private async reportTempoDroppedOrReplacedDomain(
+    args: ReportTempoDroppedOrReplacedArgs,
+  ): Promise<void> {
+    await this.requireRouterReady();
+    await this.router.reportTempoDroppedOrReplaced({
+      walletSession: args.walletSession,
+      signedResult: args.signedResult,
+      reason: args.reason,
+      ...(args.txHash ? { txHash: args.txHash } : {}),
+      options: {
+        onEvent: args.options?.onEvent,
+      },
+    });
+  }
+
+  private async reconcileTempoNonceLaneDomain(
+    args: ReconcileTempoNonceLaneArgs,
+  ): Promise<TempoNonceLaneStatus> {
+    await this.requireRouterReady();
+    return await this.router.reconcileTempoNonceLane({
+      walletSession: args.walletSession,
+      signedResult: args.signedResult,
+      options: {
+        onEvent: args.options?.onEvent,
+      },
+    });
+  }
+
+  private async bootstrapEcdsaSessionDomain(
+    args: BootstrapThresholdEcdsaSessionArgs,
+  ): Promise<ThresholdEcdsaSessionBootstrapResult> {
+    await this.requireRouterReady();
+    return await this.router.bootstrapEcdsaSession(args);
+  }
+
+  private setConfirmBehaviorDomain(behavior: 'requireClick' | 'skipClick'): void {
+    this.applyRemoteConfirmationConfig({ behavior });
+    void this.router
+      .setConfirmBehavior(behavior, this.currentWalletId)
+      .then(() => this.refreshConfirmationConfig())
+      .catch(() => {});
+  }
+  setTheme(next: ThemeMode): void {
+    if (next !== 'light' && next !== 'dark') return;
+    this.setAppearance({
+      theme: {
+        ...this.appearance.theme,
+        mode: next,
+      },
+    });
+  }
+  setAppearance(appearance: AppearanceConfigInput): void {
+    const normalizedAppearance = resolveRuntimeAppearance(this.appearance, appearance);
+    this.appearance = normalizedAppearance;
+    this.theme = normalizedAppearance.theme.mode;
+    void this.router
+      .setAppearance(normalizedAppearance)
+      .then(() => this.refreshConfirmationConfig())
+      .catch(() => {});
+  }
+  private setConfirmationConfigDomain(config: Partial<ConfirmationConfig>): void {
+    this.applyRemoteConfirmationConfig(config);
+    void this.router
+      .setConfirmationConfig(config, this.currentWalletId)
+      .then(() => this.refreshConfirmationConfig())
+      .catch(() => {});
+  }
+  private getConfirmationConfigDomain(): ConfirmationConfig {
+    return this.lastConfirmationConfig;
+  }
+  async prefetchBlockheight(): Promise<void> {
+    await this.router.prefetchBlockheight();
+  }
+  private async getRecentUnlocksDomain(): Promise<GetRecentUnlocksResult> {
+    // In wallet-iframe mode, do not fall back to app-origin persistence.
+    return await this.requireRouterReady()
+      .then(() => this.router.getRecentUnlocks())
+      .catch(() => ({ walletIds: [], accountIds: [], lastUsedAccount: null }));
+  }
+
+  private async hasPasskeyCredentialDomain(walletId: string): Promise<boolean> {
+    return this.router.hasPasskeyCredential(walletId);
+  }
+  private async executeActionDomain(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
+    receiverId: string;
+    actionArgs: ActionArgs | ActionArgs[];
+    options: ActionHooksOptions;
+  }): Promise<ActionResult> {
+    requireIframeNearSigningCapability(
+      this.configs,
+      NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
+    );
+    try {
+      const walletId = this.resolveNearSigningWalletId(args);
+      const res = await this.router.executeAction({
+        walletId,
+        nearAccountId: args.nearAccount.accountId,
+        receiverId: args.receiverId,
+        actionArgs: args.actionArgs,
+        options: args.options,
+      });
+      await args.options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+  private async sendTransactionDomain(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
+    signedTransaction: SignedTransaction;
+    options?: SendTransactionHooksOptions;
+  }): Promise<ActionResult> {
+    // Route via iframe router with PROGRESS bridging
+    const options = args.options;
+    try {
+      const walletId = this.resolveNearSigningWalletId(args);
+      const res = await this.router.sendTransaction({
+        walletId,
+        nearAccountId: args.nearAccount.accountId,
+        signedTransaction: args.signedTransaction,
+        options: {
+          onEvent: options?.onEvent,
+          waitUntil: options?.waitUntil,
+        },
+      });
+      await options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await options?.onError?.(e);
+      await options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  private async exportKeypairWithUIDomain(
+    input: SigningEngineExportKeypairWithUIInput,
+  ): Promise<void> {
+    requireIframeKeyExportCapability(this.configs, input);
+    await this.requireRouterReady();
+    return this.router.exportKeypairWithUI(input);
+  }
+
+  private async resolveExactKeyExportLaneDomain(
+    input: Parameters<KeyExportCapability['resolveExactKeyExportLane']>[0],
+  ): Promise<Awaited<ReturnType<KeyExportCapability['resolveExactKeyExportLane']>>> {
+    requireIframeKeyExportCapability(this.configs, input);
+    await this.requireRouterReady();
+    return await this.router.resolveExactKeyExportLane(input);
+  }
+
+  private async signAndSendTransactionDomain(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
+    receiverId: string;
+    actions: ActionArgs[];
+    options: SignAndSendTransactionHooksOptions;
+  }): Promise<ActionResult> {
+    requireIframeNearSigningCapability(
+      this.configs,
+      NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
+    );
+    const options = args.options;
+    try {
+      const walletId = this.resolveNearSigningWalletId(args);
+      const res = await this.router.signAndSendTransaction({
+        walletId,
+        nearAccountId: args.nearAccount.accountId,
+        transaction: {
+          receiverId: args.receiverId,
+          actions: args.actions,
+        },
+        options,
+      });
+      await options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await options?.onError?.(e);
+      await options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  private applyRemoteConfirmationConfig(cfg: Partial<ConfirmationConfig>): void {
+    this.lastConfirmationConfig = {
+      ...DEFAULT_CONFIRMATION_CONFIG,
+      ...this.lastConfirmationConfig,
+      ...(cfg || {}),
+    } as ConfirmationConfig;
+    for (const listener of this.confirmationConfigListeners) {
+      listener(this.lastConfirmationConfig);
+    }
+  }
+
+  private async refreshConfirmationConfig(): Promise<void> {
+    await this.router
+      .getConfirmationConfig()
+      .then((cfg) => this.applyRemoteConfirmationConfig(cfg))
+      .catch(() => {});
+  }
+}

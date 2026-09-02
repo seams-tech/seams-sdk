@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const caddyfilePath = path.join(repoRoot, 'apps/seams-site/Caddyfile');
-const publicOrigin = process.env.ROUTER_AB_PUBLIC_ROUTER_ORIGIN || 'https://localhost:9444';
-const expectedUpstream = process.env.ROUTER_AB_LOCAL_ROUTER_UPSTREAM || '127.0.0.1:9090';
+const publicOrigin = process.env.ROUTER_AB_PUBLIC_ROUTER_ORIGIN || 'https://localhost:4101';
+const expectedUpstream = process.env.ROUTER_AB_LOCAL_ROUTER_UPSTREAM || '127.0.0.1:4100';
 
 const routeProbes = [
   {
@@ -52,7 +52,7 @@ async function main() {
 
 function assertCaddySingleRouterUpstream() {
   const source = fs.readFileSync(caddyfilePath, 'utf8');
-  const block = extractCaddySiteBlock(source, 'localhost:9444');
+  const block = extractCaddySiteBlock(source, 'localhost:4101');
   const forbiddenMarkers = [
     '@router_ab_public_signing',
     '/router-ab/ed25519/sign',
@@ -64,7 +64,7 @@ function assertCaddySingleRouterUpstream() {
   const offenders = forbiddenMarkers.filter((marker) => block.includes(marker));
   if (offenders.length > 0) {
     throw new Error(
-      `localhost:9444 Caddy block still contains path-split routing: ${offenders.join(', ')}`,
+      `localhost:4101 Caddy block still contains path-split routing: ${offenders.join(', ')}`,
     );
   }
 
@@ -72,11 +72,11 @@ function assertCaddySingleRouterUpstream() {
     (match) => match[1],
   );
   if (upstreams.length !== 1) {
-    throw new Error(`localhost:9444 must have exactly one reverse_proxy; found ${upstreams.length}`);
+    throw new Error(`localhost:4101 must have exactly one reverse_proxy; found ${upstreams.length}`);
   }
   if (upstreams[0] !== expectedUpstream) {
     throw new Error(
-      `localhost:9444 reverse_proxy must point to ${expectedUpstream}; found ${upstreams[0]}`,
+      `localhost:4101 reverse_proxy must point to ${expectedUpstream}; found ${upstreams[0]}`,
     );
   }
   return { upstream: upstreams[0] };

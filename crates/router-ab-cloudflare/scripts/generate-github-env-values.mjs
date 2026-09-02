@@ -705,7 +705,7 @@ function buildGeneratedSecrets(environmentPrefix) {
     internalServiceAuth: `router-ab-internal-service-auth-v1:${randomBase64Url(32)}`,
     relaySessionHmac: randomBase64Url(32),
     accountIdDerivation: randomBase64Url(32),
-    consoleEmailInvitationSecret: randomBase64Url(32),
+    consoleWebhookSecret: randomBase64Url(32),
     ceremonyPrivateJwk: generateCeremonyPrivateJwk(),
     signingSession: {
       rootSecretB64u: randomBase64Url(32),
@@ -1070,6 +1070,7 @@ function buildGatewayEnvironment(input) {
     STRIPE_WEBHOOK_SECRET: manual(`${input.environmentPrefix}-stripe-webhook-signing-secret`),
     CONSOLE_INITIAL_OWNER_EMAIL: manual(`${input.environmentPrefix}-console-initial-owner-email`),
     SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: input.generatedSecrets.signingSession.rootSecretB64u,
+    CONSOLE_WEBHOOK_SECRET_KEY_B64U: input.generatedSecrets.consoleWebhookSecret,
   };
   addMissingGatewaySecrets(secrets, deploymentIdentity.lane, input.environmentPrefix);
   return [
@@ -2285,6 +2286,11 @@ function validateSigningSessionConsistency(outputDocument) {
   const gateway = outputDocument.environments[`${outputDocument.environmentPrefix}-gateway`];
   if (!gateway.secrets.SIGNING_SESSION_SEAL_ROOT_SECRET_B64U) {
     throw new Error('Gateway signing-session seal root secret is missing');
+  }
+  // A console without this key serves 501 on every webhook route, so a
+  // generation that omits it is not a deployable set.
+  if (!gateway.secrets.CONSOLE_WEBHOOK_SECRET_KEY_B64U) {
+    throw new Error('Console webhook secret key is missing');
   }
   for (const name of [
     'VITE_SIGNING_SESSION_SEAL_KEY_VERSION',

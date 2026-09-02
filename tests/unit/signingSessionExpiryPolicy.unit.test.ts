@@ -2,18 +2,18 @@ import { expect, test } from '@playwright/test';
 import {
   DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS,
   PASSKEY_MANAGER_DEFAULT_CONFIGS,
-} from '../../packages/sdk-web/src/core/config/defaultConfigs';
+} from '../../packages/wallet/src/core/config/defaultConfigs';
 import {
   applyWalletSessionStatusToSigningSessionReadiness,
   warmClaimFromRecordPolicy,
-} from '../../packages/sdk-web/src/core/signingEngine/session/availability/readiness';
-import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
+} from '../../packages/wallet/src/core/signingEngine/session/availability/readiness';
+import { SigningSessionIds } from '../../packages/wallet/src/core/signingEngine/session/operationState/types';
 import {
   clampThresholdSessionPolicy,
   DEFAULT_THRESHOLD_SESSION_POLICY,
   DEFAULT_THRESHOLD_SESSION_TTL_MS,
   THRESHOLD_SESSION_POLICY_MAX_TTL_MS,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy';
+} from '../../packages/wallet/src/core/signingEngine/threshold/sessionPolicy';
 
 const DAY_MS = 24 * 60 * 60_000;
 const NOW_MS = 1_900_000_000_000;

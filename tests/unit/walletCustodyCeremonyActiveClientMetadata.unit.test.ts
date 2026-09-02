@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { walletCustodyEd25519ActiveClientMetadataV1 } from '../../packages/sdk-web/src/core/signingEngine/walletCustody/ceremonyActiveClientMetadata';
+import { walletCustodyEd25519ActiveClientMetadataV1 } from '../../packages/wallet/src/core/signingEngine/walletCustody/ceremonyActiveClientMetadata';
 import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 

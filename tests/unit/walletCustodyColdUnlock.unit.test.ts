@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { coldUnlockNearEd25519CustodyV1 } from '../../packages/sdk-web/src/core/signingEngine/walletCustody/coldUnlock';
-import type { PasskeyCustodyEnvelopeFetchResult } from '../../packages/sdk-web/src/core/rpcClients/relayer/passkeyCustodyEnvelope';
+import { coldUnlockNearEd25519CustodyV1 } from '../../packages/wallet/src/core/signingEngine/walletCustody/coldUnlock';
+import type { PasskeyCustodyEnvelopeFetchResult } from '../../packages/wallet/src/core/rpcClients/relayer/passkeyCustodyEnvelope';
 
 /**
  * The cold unlock composition: fetch, project, rejoin, persist.

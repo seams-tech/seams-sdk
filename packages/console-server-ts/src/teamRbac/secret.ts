@@ -1,4 +1,4 @@
-import { secureRandomBase64Url } from '@seams/sdk-server/cloud-host';
+import { secureRandomBase64Url } from '../boundary';
 
 const ORGANIZATION_INVITATION_TOKEN_PREFIX = 'org_inv_v1_';
 

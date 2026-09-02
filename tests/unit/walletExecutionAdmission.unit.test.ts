@@ -2,12 +2,12 @@ import { expect, test } from '@playwright/test';
 import {
   prepareLinkedDeviceWalletExecution,
   prepareOwnerWalletExecution,
-} from '../../packages/sdk-server-ts/src/router/domains/signingOperations/walletExecutionAdmission';
+} from '../../packages/wallet-server/src/router/domains/signingOperations/walletExecutionAdmission';
 import {
   proxyNormalSigningRequestToMpcRouter,
   proxyLinkedDeviceLaneAdmittedNormalSigningRequest,
   proxyOwnerLaneAdmittedNormalSigningRequest,
-} from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/normalSigningRouterProxy';
+} from '../../packages/wallet-server/src/router/transport/fetch/routes/normalSigningRouterProxy';
 import { routerAbMpcMaterialActivationRefToWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';

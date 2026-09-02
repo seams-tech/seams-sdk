@@ -1,54 +1,43 @@
 import {
   buildLinkedDeviceApprovalV1,
-  buildLinkedDeviceEnrollmentChildReceiptV1,
-  buildLinkedDeviceEnrollmentReceiptV1,
-  buildLinkedDeviceEnrollmentTranscriptV1,
-  buildLinkedDeviceTargetCredentialRegistrationV1,
-  buildLinkedDeviceTargetPreparationV1,
-  buildLinkedDeviceHolderDeliveryAcknowledgementV1,
-  buildLinkedDeviceProvisioningCommandV1,
-  buildQrLinkedDeviceSessionPayloadV4,
-  buildStepUpLinkedDeviceOwnerAuthorizationV1,
+  buildWalletSessionLinkedDeviceOwnerAuthorizationV1,
   parseLinkedDeviceSessionClaimRequestV1,
-  parseQrLinkedDeviceSessionPayloadV4,
-  parseLinkedDeviceProvisioningDeliveriesV1,
-  parseLinkedDeviceTargetReadyR102InputV1,
-  parseLinkedDeviceWalletSessionDeliveryV1,
+  parseQrLinkedDeviceSessionPayloadV5,
 } from '../../../packages/shared-ts/src/device-linking/parsers';
+import {
+  buildExactAdministeredSignerManifestV1,
+  type ExactAdministeredSignerManifestV1,
+} from '../../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
+import {
+  LINKED_DEVICE_ECDSA_SOURCE_CONTRIBUTION_ENVELOPE_KIND_V1,
+  parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
+  parseLinkedDeviceOrdinaryMaterialSourceContributionV1,
+} from '../../../packages/shared-ts/src/device-linking/sourceContribution';
+import { routerAbMpcMaterialActivationRefToWire } from '../../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
+import { requireRouterAbEcdsaDerivationNormalSigningStateV1 } from '../../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import type {
   LinkedDeviceApprovalV1,
-  LinkedDeviceEnrollmentKeyBindingV1,
-  LinkedDeviceEnrollmentReceiptV1,
-  LinkedDeviceEnrollmentTranscriptV1,
-  QrLinkedDeviceSessionPayloadV4,
-  LinkedDeviceTargetCredentialRegistrationV1,
-  LinkedDeviceTargetPreparationChildV1,
-  LinkedDeviceTargetPreparationV1,
-  LinkedDeviceTargetHolderRegistrationV1,
-  LinkedDeviceHolderDeliveryAcknowledgementV1,
-  LinkedDeviceProvisioningCommandV1,
-  LinkedDeviceProvisioningDeliveriesV1,
-  LinkedDeviceTargetReadyR102InputV1,
-  LinkedDeviceWalletSessionDeliveryV1,
+  LinkedDeviceApprovedTargetFactorV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
+  LinkedDeviceTargetFactorV1,
+  QrLinkedDeviceSessionPayloadV5,
 } from '../../../packages/shared-ts/src/device-linking/contracts';
-import { computeLinkedDeviceTargetPreparationDigestV1 } from '../../../packages/shared-ts/src/device-linking/digests';
-import { parseAuthorizationEvidenceSetId } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
-import { parseSigningWorkerParticipantId } from '../../../packages/shared-ts/src/signing-lanes/participants';
 import {
-  buildOwnerLaneParticipantContinuityV1,
-  parseWalletSignerId,
-} from '../../../packages/shared-ts/src/signing-lanes/ownerContinuity';
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+} from '../../../packages/shared-ts/src/authorization/capabilityKinds';
 import {
-  parseLaneOperationId,
-  parseLaneOperationIdempotencyKey,
-  parseLaneEnrollmentId,
-  parseLaneShareEpoch,
+  buildFullOwnerDelegatedWalletAuthorityV1,
+  buildSigningOnlyDelegatedWalletAuthorityV1,
+} from '../../../packages/shared-ts/src/authorization/delegatedAuthority';
+import {
   parseLinkedDeviceEnrollmentId,
   parseLinkedDeviceId,
   parseLinkDeviceSessionId,
-  parseSigningLaneId,
   parseWalletKeyId,
 } from '../../../packages/shared-ts/src/signing-lanes/ids';
+import type { WalletKeyId } from '../../../packages/shared-ts/src/signing-lanes/ids';
 import {
   buildMpcMaterialActivationRef,
   parseCapabilityInstanceRef,
@@ -57,31 +46,19 @@ import {
   parseMpcMaterialActivationId,
   parseMpcMaterialOwnerRef,
   parseMpcSigningWorkerRef,
+  parseWalletAuthMethodId,
   parseWalletId,
-  parseWebAuthnCredentialIdB64u,
-  parseWebAuthnRpId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
-import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
-import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../../packages/shared-ts/src/utils/sessionTokens';
-import { DEFAULT_WALLET_SESSION_REMAINING_USES } from '../../../packages/shared-ts/src/threshold/sessionPolicy';
-import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
-import {
-  buildR102HolderDeliveryReceipt,
-  buildR102LaneJob,
-  buildR102EcdsaLaneJob,
-  buildR102ProtocolCommitReceipt,
-  buildR102ManifestChild,
-} from './r102LaneGateway.fixtures';
-import {
-  buildLaneEnrollmentManifestV1,
-  parseRotatableSigningLaneJobV1,
-} from '../../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import type {
-  ActiveLaneProtocolSourceV1,
-  RotatableSigningLaneJobV1,
-} from '../../../packages/shared-ts/src/signing-lanes/rotation';
-import { computeLaneEnrollmentManifestDigestV1 } from '../../../packages/shared-ts/src/signing-lanes/rotationDigests';
-import { parseLaneHolderParticipantRecordV1 } from '../../../packages/shared-ts/src/signing-lanes/participants';
+  MpcMaterialActivationRef,
+  WalletAuthMethodId,
+} from '../../../packages/shared-ts/src/utils/domainIds';
+import { parseEd25519PublicKeyB64u } from '../../../packages/shared-ts/src/passkey-custody/primitives';
+import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
+import {
+  parseDigestB64u,
+  type DigestB64u,
+} from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 
 function required<T>(
   result:
@@ -92,545 +69,46 @@ function required<T>(
   throw new Error(result.error.message);
 }
 
-const DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(7)));
-const R102_RECEIPT_DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32)));
-const PUBLIC_KEY = base64UrlEncode(new Uint8Array(32).fill(8));
+const FIXTURE_DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(7)));
+const PUBLIC_KEY_B64U = base64UrlEncode(new Uint8Array(32).fill(8));
+
+function buildR103EcdsaActivation(suffix: string) {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activationId: `activation:r103-${suffix}`,
+    capability: 'capability:r103',
+    materialOwner: 'wallet:r103',
+    keyBinding: `key-binding:r103-${suffix}`,
+    lifecycleBinding: `lifecycle:r103-${suffix}`,
+    signingWorker: 'worker:r103',
+  };
+}
 
 export type R103DeviceLinkFixture = {
-  readonly payload: QrLinkedDeviceSessionPayloadV4;
+  readonly payload: QrLinkedDeviceSessionPayloadV5;
   readonly claimRequest: ReturnType<typeof parseLinkedDeviceSessionClaimRequestV1>;
   readonly approval: LinkedDeviceApprovalV1;
-  readonly transcript: LinkedDeviceEnrollmentTranscriptV1;
-  readonly receipt: LinkedDeviceEnrollmentReceiptV1;
+  readonly sourceSignerManifest: ExactAdministeredSignerManifestV1;
+  readonly sourceWalletKeyId: WalletKeyId;
+  readonly sourceMaterialActivation: MpcMaterialActivationRef;
+  readonly sourceWalletAuthMethodId: WalletAuthMethodId;
+  readonly packageSetDigestB64u: DigestB64u;
+  /** Approval-time authority digest pinned into the transcript. */
+  readonly sourceAuthorityDigestB64u: DigestB64u;
 };
-
-export type R103TargetCredentialFixture = {
-  readonly preparation: LinkedDeviceTargetPreparationV1;
-  readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
-};
-
-export type R103ProvisioningFixture = {
-  readonly command: LinkedDeviceProvisioningCommandV1;
-  readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
-  readonly acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1;
-};
-
-export type R103ActiveExecutionFixture = {
-  readonly deviceLink: R103DeviceLinkFixture;
-  readonly targetCredential: R103TargetCredentialFixture;
-  readonly provisioning: R103ProvisioningFixture;
-  readonly walletSession: LinkedDeviceWalletSessionDeliveryV1;
-};
-
-export type R103MixedPlannerFixture = {
-  readonly deviceLink: R103DeviceLinkFixture;
-  readonly targetCredential: R103TargetCredentialFixture;
-  readonly sourceJobs: readonly [RotatableSigningLaneJobV1, RotatableSigningLaneJobV1];
-};
-
-/** Mixed-curve owner source and target registration facts for R103 planner tests. */
-export async function buildR103MixedPlannerFixture(): Promise<R103MixedPlannerFixture> {
-  const base = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:r103-mixed' });
-  const ed25519 = buildR102LaneJob('r103-mixed-ed25519');
-  const ecdsa = buildR102EcdsaLaneJob('r103-mixed-ecdsa');
-  const sourceJobs = [ed25519, ecdsa] as const;
-  const orderedKeyBindings = [
-    buildMixedApprovalBinding(ed25519),
-    buildMixedApprovalBinding(ecdsa),
-  ] as const;
-  const approval = buildLinkedDeviceApprovalV1({
-    linkSessionId: base.approval.linkSessionId,
-    walletId: base.approval.walletId,
-    enrollmentId: base.approval.enrollmentId,
-    deviceId: base.approval.deviceId,
-    linkPublicKeyB64u: base.approval.linkPublicKeyB64u,
-    devicePublicKeyB64u: base.approval.devicePublicKeyB64u,
-    permission: base.approval.permission,
-    ownerAuthorization: base.approval.ownerAuthorization,
-    policyDigestB64u: base.approval.policyDigestB64u,
-    operationId: base.approval.operationId,
-    idempotencyKey: base.approval.idempotencyKey,
-    orderedKeyBindings,
-    protocolVersions: [
-      { keyFamily: 'ed25519', version: 'rotatable_signing_lane_protocol_v1' },
-      { keyFamily: 'ecdsa_secp256k1', version: 'rotatable_signing_lane_protocol_v1' },
-    ],
-    approvedAtMs: base.approval.approvedAtMs,
-    expiresAtMs: base.approval.expiresAtMs,
-  });
-  const transcript = buildLinkedDeviceEnrollmentTranscriptV1({
-    linkSessionId: approval.linkSessionId,
-    walletId: approval.walletId,
-    enrollmentId: approval.enrollmentId,
-    deviceId: approval.deviceId,
-    linkPublicKeyB64u: approval.linkPublicKeyB64u,
-    devicePublicKeyB64u: approval.devicePublicKeyB64u,
-    permission: approval.permission,
-    ownerAuthorization: approval.ownerAuthorization,
-    policyDigestB64u: approval.policyDigestB64u,
-    operationId: approval.operationId,
-    idempotencyKey: approval.idempotencyKey,
-    orderedKeyBindings: approval.orderedKeyBindings,
-    protocolVersions: approval.protocolVersions,
-    approvedAtMs: approval.approvedAtMs,
-    expiresAtMs: approval.expiresAtMs,
-  });
-  const deviceLink = { ...base, approval, transcript };
-  const rpId = required(parseWebAuthnRpId('wallet.example.test'));
-  const credentialIdB64u = required(
-    parseWebAuthnCredentialIdB64u(base64UrlEncode(new Uint8Array(32).fill(9))),
-  );
-  const preparation = buildLinkedDeviceTargetPreparationV1({
-    linkSessionId: approval.linkSessionId,
-    walletId: approval.walletId,
-    enrollmentId: approval.enrollmentId,
-    deviceId: approval.deviceId,
-    rpId,
-    userHandleB64u: base64UrlEncode(new Uint8Array(32).fill(10)),
-    challengeB64u: approval.policyDigestB64u,
-    orderedChildren: [
-      buildMixedPreparationChild(ed25519),
-      buildMixedPreparationChild(ecdsa),
-    ] as const,
-    issuedAtMs: 3_003,
-    expiresAtMs: 7_000,
-  });
-  const targetPreparationDigestB64u =
-    await computeLinkedDeviceTargetPreparationDigestV1(preparation);
-  const registration = buildLinkedDeviceTargetCredentialRegistrationV1({
-    linkSessionId: approval.linkSessionId,
-    walletId: approval.walletId,
-    enrollmentId: approval.enrollmentId,
-    deviceId: approval.deviceId,
-    targetPreparationDigestB64u,
-    webauthnRegistration: {
-      kind: 'linked_device_webauthn_registration_v1',
-      credentialIdB64u,
-      authenticatorAttachment: 'platform',
-      clientDataJsonB64u: 'AQID',
-      attestationObjectB64u: 'BAUG',
-      transports: ['internal'],
-    },
-    orderedHolderRegistrations: [
-      buildMixedHolderRegistration(ed25519),
-      buildMixedHolderRegistration(ecdsa),
-    ] as const,
-    registeredAtMs: 3_004,
-  });
-  return { deviceLink, targetCredential: { preparation, registration }, sourceJobs };
-}
-
-function buildMixedApprovalBinding(
-  job: RotatableSigningLaneJobV1,
-): LinkedDeviceEnrollmentKeyBindingV1 {
-  const common = {
-    walletKeyId: job.walletKeyId,
-    keyFamily: job.keyFamily,
-    sourceLaneId: job.source.laneId,
-    sourceLaneShareEpoch: job.source.laneShareEpoch,
-    sourceRevocationEpoch: job.source.revocationEpoch,
-    targetLaneId: job.target.laneId,
-    targetLaneShareEpoch: job.target.laneShareEpoch,
-  };
-  if (job.source.sourceKind === 'owner_registration') {
-    return {
-      ...common,
-      sourceKind: 'owner_registration',
-      sourceLaneKind: job.source.laneKind,
-      ownerParticipantContinuity: job.source.ownerParticipantContinuity,
-    };
-  }
-  return {
-    ...common,
-    sourceKind: 'provisioned_lane',
-    sourceLaneKind: job.source.laneKind,
-    sourceHolderParticipantId: job.source.holderParticipantId,
-    sourceSigningWorkerParticipantId: job.source.signingWorkerParticipantId,
-  };
-}
-
-function buildR103SourceForBinding(
-  source: ActiveLaneProtocolSourceV1,
-  binding: LinkedDeviceEnrollmentKeyBindingV1,
-  materialActivation: ActiveLaneProtocolSourceV1['materialActivation'],
-): ActiveLaneProtocolSourceV1 {
-  const common = {
-    laneId: binding.sourceLaneId,
-    laneShareEpoch: binding.sourceLaneShareEpoch,
-    revocationEpoch: binding.sourceRevocationEpoch,
-    participantBindingDigestB64u: source.participantBindingDigestB64u,
-    materialActivation,
-  };
-  if (binding.sourceKind === 'owner_registration') {
-    if (source.sourceKind !== 'owner_registration') {
-      throw new Error('R103 owner fixture binding source kind mismatch');
-    }
-    return {
-      ...common,
-      sourceKind: 'owner_registration',
-      laneKind: binding.sourceLaneKind,
-      ownerParticipantContinuity: binding.ownerParticipantContinuity,
-    };
-  }
-  if (source.sourceKind !== 'provisioned_lane') {
-    throw new Error('R103 provisioned fixture binding source kind mismatch');
-  }
-  return {
-    ...common,
-    sourceKind: 'provisioned_lane',
-    laneKind: binding.sourceLaneKind,
-    holderParticipantId: binding.sourceHolderParticipantId,
-    signingWorkerParticipantId: binding.sourceSigningWorkerParticipantId,
-    signingWorkerRecipientKeyId: source.signingWorkerRecipientKeyId,
-  };
-}
-
-function buildMixedPreparationChild(
-  job: RotatableSigningLaneJobV1,
-): LinkedDeviceTargetPreparationChildV1 {
-  return {
-    kind: 'linked_device_target_preparation_child_v1',
-    operationId: job.operationId,
-    walletKeyId: job.walletKeyId,
-    keyFamily: job.keyFamily,
-    targetLaneId: job.target.laneId,
-    targetLaneShareEpoch: job.target.laneShareEpoch,
-    targetMaterialActivationId: job.targetMaterialActivationId,
-    targetHolderParticipantId: job.targetHolder.participantId,
-  };
-}
-
-function buildMixedHolderRegistration(
-  job: RotatableSigningLaneJobV1,
-): LinkedDeviceTargetHolderRegistrationV1 {
-  return {
-    kind: 'linked_device_target_holder_registration_v1',
-    operationId: job.operationId,
-    walletKeyId: job.walletKeyId,
-    keyFamily: job.keyFamily,
-    targetLaneId: job.target.laneId,
-    targetLaneShareEpoch: job.target.laneShareEpoch,
-    targetMaterialActivationId: job.targetMaterialActivationId,
-    holderParticipant: parseLaneHolderParticipantRecordV1({
-      kind: 'lane_holder_participant_v1',
-      participantId: job.targetHolder.participantId,
-      custodyBindingId: job.targetHolder.custodyBindingId,
-      custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
-      hpkePublicKeyB64u: job.targetHolder.hpkePublicKeyB64u,
-      hpkePublicKeyDigestB64u: job.targetHolder.hpkePublicKeyDigestB64u,
-      participantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
-    }),
-  };
-}
-
-function buildUnsignedJwt(payload: Readonly<Record<string, unknown>>): string {
-  const header = base64UrlEncode(
-    new TextEncoder().encode(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' })),
-  );
-  const body = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
-  return `${header}.${body}.signature`;
-}
-
-function assertNeverLinkedDeviceKeyFamily(value: never): never {
-  throw new Error(`unsupported linked-device key family: ${String(value)}`);
-}
-
-export function buildR103LinkedWalletSessionDeliveryFixture(
-  fixture: R103DeviceLinkFixture,
-  input: { readonly sessionSuffix?: string } = {},
-): LinkedDeviceWalletSessionDeliveryV1 {
-  const binding = fixture.approval.orderedKeyBindings[0];
-  if (!binding) throw new Error('R103 approval fixture has no key binding');
-  const issuedAtMs = fixture.receipt.activatedAtMs;
-  const expiresAtMs = issuedAtMs + 86_400_000;
-  const sessionSuffix = input.sessionSuffix ? `:${input.sessionSuffix}` : '';
-  const authorizationId = `linked-authorization-r103-delivery${sessionSuffix}`;
-  const walletSessionId = `linked-wallet-session-r103-delivery${sessionSuffix}`;
-  const quotaId = `linked-quota-r103-delivery${sessionSuffix}`;
-  const walletSessionJwt = buildUnsignedJwt({
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'linked_device_wallet_session',
-    sub: `linked-device:${fixture.approval.deviceId}`,
-    tenantId: 'tenant-r103-delivery',
-    walletId: fixture.approval.walletId,
-    enrollmentId: fixture.approval.enrollmentId,
-    deviceId: fixture.approval.deviceId,
-    authorizationId,
-    walletSessionId,
-    quotaId,
-    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
-    permission: fixture.approval.permission,
-    revocationEpoch: binding.sourceRevocationEpoch,
-    issuedAtMs,
-    expiresAtMs,
-    walletKeyId: binding.walletKeyId,
-    iat: Math.floor(issuedAtMs / 1_000),
-    exp: Math.floor(expiresAtMs / 1_000),
-  });
-  switch (binding.keyFamily) {
-    case 'ed25519':
-      return parseLinkedDeviceWalletSessionDeliveryV1({
-        kind: 'linked_device_wallet_session_delivery_v1',
-        tenantId: 'tenant-r103-delivery',
-        walletId: fixture.approval.walletId,
-        enrollmentId: fixture.approval.enrollmentId,
-        deviceId: fixture.approval.deviceId,
-        authorizationId,
-        walletSessionId,
-        quotaId,
-        keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
-        permission: fixture.approval.permission,
-        revocationEpoch: binding.sourceRevocationEpoch,
-        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
-        issuedAtMs,
-        expiresAtMs,
-        nearAccountId: 'alice.testnet',
-        orderedTokens: [
-          {
-            kind: 'linked_device_wallet_session_token_v1',
-            walletKeyId: binding.walletKeyId,
-            keyFamily: 'ed25519',
-            walletSessionJwt,
-            revocationEpoch: binding.sourceRevocationEpoch,
-          },
-        ],
-      });
-    case 'ecdsa_secp256k1':
-      return parseLinkedDeviceWalletSessionDeliveryV1({
-        kind: 'linked_device_wallet_session_delivery_v1',
-        tenantId: 'tenant-r103-delivery',
-        walletId: fixture.approval.walletId,
-        enrollmentId: fixture.approval.enrollmentId,
-        deviceId: fixture.approval.deviceId,
-        authorizationId,
-        walletSessionId,
-        quotaId,
-        keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
-        permission: fixture.approval.permission,
-        revocationEpoch: binding.sourceRevocationEpoch,
-        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
-        issuedAtMs,
-        expiresAtMs,
-        orderedTokens: [
-          {
-            kind: 'linked_device_wallet_session_token_v1',
-            walletKeyId: binding.walletKeyId,
-            keyFamily: 'ecdsa_secp256k1',
-            walletSessionJwt,
-            revocationEpoch: binding.sourceRevocationEpoch,
-          },
-        ],
-      });
-    default:
-      return assertNeverLinkedDeviceKeyFamily(binding.keyFamily);
-  }
-}
-
-export function buildR103ProvisioningFixture(
-  fixture: R103DeviceLinkFixture,
-): R103ProvisioningFixture {
-  const approved = fixture.approval.orderedKeyBindings[0];
-  if (!approved) throw new Error('R103 approval fixture has no child');
-  const source = buildR102LaneJob('r103-provisioning');
-  const job = parseRotatableSigningLaneJobV1({
-    ...source,
-    operationId: fixture.approval.operationId,
-    enrollmentId: fixture.approval.enrollmentId,
-    idempotencyKey: fixture.approval.idempotencyKey,
-    walletId: fixture.approval.walletId,
-    walletKeyId: approved.walletKeyId,
-    source: buildR103SourceForBinding(source.source, approved, {
-      ...source.source.materialActivation,
-      capability: fixture.receipt.orderedChildReceipts[0].materialActivation.capability,
-      materialOwner: fixture.receipt.orderedChildReceipts[0].materialActivation.materialOwner,
-      keyBinding: fixture.receipt.orderedChildReceipts[0].materialActivation.keyBinding,
-      lifecycleBinding: fixture.receipt.orderedChildReceipts[0].materialActivation.lifecycleBinding,
-    }),
-    targetSigningWorker: {
-      ...source.targetSigningWorker,
-      participantId: required(
-        parseSigningWorkerParticipantId(
-          String(fixture.receipt.orderedChildReceipts[0].materialActivation.signingWorker),
-        ),
-      ),
-    },
-    target: {
-      ...source.target,
-      laneId: approved.targetLaneId,
-      laneShareEpoch: approved.targetLaneShareEpoch,
-    },
-    targetMaterialActivationId:
-      fixture.receipt.orderedChildReceipts[0].materialActivation.activationId,
-    authorization: {
-      kind: 'linked_device_enrollment',
-      authorizedOperationId: fixture.approval.operationId,
-      linkedDeviceEnrollmentId: fixture.approval.enrollmentId,
-      linkedDevicePermissionDigestB64u: fixture.approval.policyDigestB64u,
-    },
-    expiresAtMs: fixture.approval.expiresAtMs,
-  });
-  const manifest = buildLaneEnrollmentManifestV1({
-    enrollmentId: required(parseLaneEnrollmentId(String(fixture.approval.enrollmentId))),
-    walletId: fixture.approval.walletId,
-    authorization: job.authorization,
-    orderedChildren: [buildR102ManifestChild(job)],
-    createdAtMs: fixture.approval.approvedAtMs,
-    expiresAtMs: fixture.approval.expiresAtMs,
-  });
-  const deliveries = parseLinkedDeviceProvisioningDeliveriesV1({
-    kind: 'linked_device_provisioning_deliveries_v1',
-    linkSessionId: fixture.approval.linkSessionId,
-    enrollmentId: fixture.approval.enrollmentId,
-    deviceId: fixture.approval.deviceId,
-    manifest,
-    orderedChildren: [
-      {
-        kind: 'linked_device_provisioning_child_v1',
-        job,
-        protocolCommitReceipt: buildR102ProtocolCommitReceipt(job),
-        holderPackage: {
-          kind: 'ed25519_yao_lane_holder_package_set_v1',
-          deriverAEncryptedPackageJson: '{}',
-          deriverBEncryptedPackageJson: '{}',
-        },
-        expectedVersion: 2,
-      },
-    ],
-  });
-  return {
-    command: buildLinkedDeviceProvisioningCommandV1({
-      linkSessionId: fixture.approval.linkSessionId,
-      enrollmentId: fixture.approval.enrollmentId,
-      deviceId: fixture.approval.deviceId,
-    }),
-    deliveries,
-    acknowledgement: buildLinkedDeviceHolderDeliveryAcknowledgementV1({
-      linkSessionId: fixture.approval.linkSessionId,
-      enrollmentId: fixture.approval.enrollmentId,
-      deviceId: fixture.approval.deviceId,
-      orderedHolderDeliveryReceipts: [buildR102HolderDeliveryReceipt(job)],
-      acknowledgedAtMs: 3_500,
-    }),
-  };
-}
-
-export function buildR103TargetReadySourceFixture(fixture: R103DeviceLinkFixture): {
-  readonly targetReady: LinkedDeviceTargetReadyR102InputV1;
-  readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
-} {
-  const deliveries = buildR103ProvisioningFixture(fixture).deliveries;
-  const job = deliveries.orderedChildren[0].job;
-  return {
-    targetReady: parseLinkedDeviceTargetReadyR102InputV1({
-      kind: 'linked_device_target_ready_r102_input_v1',
-      linkSessionId: fixture.approval.linkSessionId,
-      walletId: fixture.approval.walletId,
-      enrollmentId: fixture.approval.enrollmentId,
-      deviceId: fixture.approval.deviceId,
-      manifest: deliveries.manifest,
-      children: [job],
-    }),
-    deliveries,
-  };
-}
-
-export async function buildR103TargetCredentialFixture(
-  fixture: R103DeviceLinkFixture,
-): Promise<R103TargetCredentialFixture> {
-  const binding = fixture.approval.orderedKeyBindings[0];
-  const job = buildR103ProvisioningFixture(fixture).deliveries.orderedChildren[0].job;
-  const rpId = required(parseWebAuthnRpId('wallet.example.test'));
-  const credentialIdB64u = required(
-    parseWebAuthnCredentialIdB64u(base64UrlEncode(new Uint8Array(32).fill(6))),
-  );
-  const preparation = buildLinkedDeviceTargetPreparationV1({
-    linkSessionId: fixture.approval.linkSessionId,
-    walletId: fixture.approval.walletId,
-    enrollmentId: fixture.approval.enrollmentId,
-    deviceId: fixture.approval.deviceId,
-    rpId,
-    userHandleB64u: PUBLIC_KEY,
-    challengeB64u: fixture.approval.policyDigestB64u,
-    orderedChildren: [
-      {
-        kind: 'linked_device_target_preparation_child_v1',
-        operationId: fixture.approval.operationId,
-        walletKeyId: binding.walletKeyId,
-        keyFamily: binding.keyFamily,
-        targetLaneId: binding.targetLaneId,
-        targetLaneShareEpoch: binding.targetLaneShareEpoch,
-        targetMaterialActivationId:
-          fixture.receipt.orderedChildReceipts[0].materialActivation.activationId,
-        targetHolderParticipantId: job.targetHolder.participantId,
-      },
-    ],
-    issuedAtMs: 3_003,
-    expiresAtMs: 7_000,
-  });
-  const registration = buildLinkedDeviceTargetCredentialRegistrationV1({
-    linkSessionId: fixture.approval.linkSessionId,
-    walletId: fixture.approval.walletId,
-    enrollmentId: fixture.approval.enrollmentId,
-    deviceId: fixture.approval.deviceId,
-    targetPreparationDigestB64u: await computeLinkedDeviceTargetPreparationDigestV1(preparation),
-    webauthnRegistration: {
-      kind: 'linked_device_webauthn_registration_v1',
-      credentialIdB64u,
-      authenticatorAttachment: 'platform',
-      clientDataJsonB64u: 'AQID',
-      attestationObjectB64u: 'BAUG',
-      transports: ['internal'],
-    },
-    orderedHolderRegistrations: [
-      {
-        kind: 'linked_device_target_holder_registration_v1',
-        operationId: preparation.orderedChildren[0].operationId,
-        walletKeyId: preparation.orderedChildren[0].walletKeyId,
-        keyFamily: preparation.orderedChildren[0].keyFamily,
-        targetLaneId: preparation.orderedChildren[0].targetLaneId,
-        targetLaneShareEpoch: preparation.orderedChildren[0].targetLaneShareEpoch,
-        targetMaterialActivationId: preparation.orderedChildren[0].targetMaterialActivationId,
-        holderParticipant: {
-          kind: 'lane_holder_participant_v1',
-          ...job.targetHolder,
-        },
-      },
-    ],
-    registeredAtMs: 3_004,
-  });
-  return { preparation, registration };
-}
-
-export async function buildR103ActiveExecutionFixture(
-  input: { readonly linkSessionId?: string } = {},
-): Promise<R103ActiveExecutionFixture> {
-  const base = buildR103DeviceLinkFixture(input);
-  const provisioning = buildR103ProvisioningFixture(base);
-  const manifestDigestB64u = parseDigestB64u(
-    await computeLaneEnrollmentManifestDigestV1(provisioning.deliveries.manifest),
-  );
-  const deviceLink: R103DeviceLinkFixture = {
-    ...base,
-    receipt: buildLinkedDeviceEnrollmentReceiptV1({
-      ...base.receipt,
-      manifestDigestB64u,
-    }),
-  };
-  return {
-    deviceLink,
-    targetCredential: await buildR103TargetCredentialFixture(deviceLink),
-    provisioning,
-    walletSession: buildR103LinkedWalletSessionDeliveryFixture(deviceLink),
-  };
-}
 
 export function buildR103DeviceLinkFixture(
   input: {
     readonly linkSessionId?: string;
     readonly enrollmentId?: string;
     readonly deviceId?: string;
+    readonly targetFactor?: LinkedDeviceTargetFactorV1;
+    readonly targetEmail?: string;
+    readonly issuedAtMs?: number;
+    readonly expiresAtMs?: number;
   } = {},
 ): R103DeviceLinkFixture {
+  const targetFactor = input.targetFactor ?? ({ kind: 'passkey_prf' } as const);
   const linkSessionId = required(
     parseLinkDeviceSessionId(input.linkSessionId ?? 'link-session:r103'),
   );
@@ -640,45 +118,51 @@ export function buildR103DeviceLinkFixture(
   );
   const deviceId = required(parseLinkedDeviceId(input.deviceId ?? 'device:r103'));
   const walletKeyId = required(parseWalletKeyId('wallet-key:r103'));
-  const sourceLaneId = required(parseSigningLaneId('lane:owner:r103'));
-  const targetLaneId = required(parseSigningLaneId('lane:device:r103'));
-  const sourceLaneShareEpoch = required(parseLaneShareEpoch('epoch:owner:r103'));
-  const targetLaneShareEpoch = required(parseLaneShareEpoch('epoch:device:r103'));
-  const operationId = required(parseLaneOperationId('operation:r103'));
-  const idempotencyKey = required(parseLaneOperationIdempotencyKey('idempotency:r103'));
-  const ownerParticipantContinuity = buildOwnerLaneParticipantContinuityV1({
-    signerId: parseWalletSignerId('owner-signer:r103'),
-    participantIds: [1, 2],
-    signingWorkerId: required(parseMpcSigningWorkerRef('worker:owner:r103')),
-    custodyKeyManifestDigestB64u: DIGEST,
-    sourceIdentityDigestB64u: DIGEST,
-  });
-  const payload = parseQrLinkedDeviceSessionPayloadV4({
-    version: 'v4',
+  const targetEmail =
+    targetFactor.kind === 'email_otp' ? (input.targetEmail ?? 'owner@example.test') : undefined;
+  const payload = parseQrLinkedDeviceSessionPayloadV5({
+    version: 'v5',
     purpose: 'linked_device_lane_creation',
     linkSessionId,
-    linkPublicKeyB64u: PUBLIC_KEY,
-    devicePublicKeyB64u: PUBLIC_KEY,
-    requestedPermission: {
-      kind: 'owner_equivalent_signing',
-      administrationScope: 'signing_only',
-      localUserPresence: 'required',
-    },
-    issuedAtMs: 1_000,
-    expiresAtMs: 10_000,
+    linkPublicKeyB64u: PUBLIC_KEY_B64U,
+    devicePublicKeyB64u: PUBLIC_KEY_B64U,
+    requestedPermission: buildSigningOnlyDelegatedWalletAuthorityV1(),
+    targetFactor,
+    ...(targetEmail === undefined ? {} : { targetEmail }),
+    issuedAtMs: input.issuedAtMs ?? 1_000,
+    expiresAtMs: input.expiresAtMs ?? 10_000,
   });
-  const activation = buildMpcMaterialActivationRef({
+  const sourceMaterialActivation = buildMpcMaterialActivationRef({
     activationId: required(parseMpcMaterialActivationId('activation:r103')),
     capability: required(parseCapabilityInstanceRef('capability:r103')),
-    materialOwner: required(parseMpcMaterialOwnerRef('material-owner:r103')),
+    materialOwner: required(parseMpcMaterialOwnerRef('owner:r103')),
     keyBinding: required(parseMpcKeyBindingRef('key-binding:r103')),
     lifecycleBinding: required(parseMpcLifecycleBindingRef('lifecycle:r103')),
-    signingWorker: required(parseMpcSigningWorkerRef('worker-signing:r103')),
+    signingWorker: required(parseMpcSigningWorkerRef('worker:r103')),
   });
-  const ownerAuthorization = buildStepUpLinkedDeviceOwnerAuthorizationV1({
-    evidenceSetId: required(parseAuthorizationEvidenceSetId('evidence:r103')),
-  });
-  const common = {
+  const sourceWalletAuthMethodId = required(parseWalletAuthMethodId('passkey:wallet:r103'));
+  let approvedTargetFactor: LinkedDeviceApprovedTargetFactorV1;
+  if (targetFactor.kind === 'passkey_prf') {
+    approvedTargetFactor = { kind: 'passkey_prf' };
+  } else {
+    if (!payload.targetEmail) throw new Error('Email OTP fixture target email is missing');
+    approvedTargetFactor = {
+      kind: 'email_otp',
+      targetEmail: payload.targetEmail,
+      enrollment: { kind: 'existing_enrollment' },
+      baseWalletAuthMethodId: required(parseWalletAuthMethodId('email-otp:wallet:r103')),
+    };
+  }
+  const sourceSignerManifest = buildExactAdministeredSignerManifestV1([
+    {
+      kind: 'exact_administered_ed25519_signer_v1',
+      keyFamily: 'ed25519',
+      walletId,
+      walletKeyId,
+      registeredPublicKeyB64u: parseEd25519PublicKeyB64u(PUBLIC_KEY_B64U),
+    },
+  ]);
+  const approval = buildLinkedDeviceApprovalV1({
     linkSessionId,
     walletId,
     enrollmentId,
@@ -686,66 +170,168 @@ export function buildR103DeviceLinkFixture(
     linkPublicKeyB64u: payload.linkPublicKeyB64u,
     devicePublicKeyB64u: payload.devicePublicKeyB64u,
     permission: payload.requestedPermission,
-    ownerAuthorization,
-    policyDigestB64u: DIGEST,
-    operationId,
-    idempotencyKey,
-    orderedKeyBindings: [
-      {
-        walletKeyId,
-        keyFamily: 'ed25519' as const,
-        sourceLaneId,
-        sourceLaneKind: 'owner_passkey' as const,
-        sourceKind: 'owner_registration' as const,
-        sourceLaneShareEpoch,
-        sourceRevocationEpoch: 0,
-        ownerParticipantContinuity,
-        targetLaneId,
-        targetLaneShareEpoch,
-      },
-    ] as const,
-    protocolVersions: [
-      { keyFamily: 'ed25519' as const, version: 'rotatable_signing_lane_protocol_v1' as const },
-    ] as const,
+    targetFactor: approvedTargetFactor,
+    ownerAuthorization: buildWalletSessionLinkedDeviceOwnerAuthorizationV1({
+      walletSessionId: required(parseWalletSessionId('ws:r103')),
+      authorizationId: required(parseWalletSessionAuthorizationId('wsa:r103')),
+    }),
     approvedAtMs: 2_000,
-    expiresAtMs: 20_000,
-  };
-  const approval = buildLinkedDeviceApprovalV1(common);
-  const transcript = buildLinkedDeviceEnrollmentTranscriptV1(common);
-  const childReceipt = buildLinkedDeviceEnrollmentChildReceiptV1({
-    enrollmentId,
-    walletId,
-    walletKeyId,
-    keyFamily: 'ed25519',
-    targetLaneId,
-    targetLaneShareEpoch,
-    materialActivation: activation,
-    receiptDigestB64u: R102_RECEIPT_DIGEST,
-    transcriptHashB64u: R102_RECEIPT_DIGEST,
-    deliveredAtMs: 8_000,
-  });
-  const receipt = buildLinkedDeviceEnrollmentReceiptV1({
-    enrollmentId,
-    walletId,
-    deviceId,
-    manifestDigestB64u: DIGEST,
-    aggregateReceiptDigestB64u: DIGEST,
-    orderedChildReceipts: [childReceipt],
-    activatedAtMs: 9_000,
+    expiresAtMs: 9_000,
   });
   const claimRequest = parseLinkedDeviceSessionClaimRequestV1({
     kind: 'linked_device_session_claim_request_v1',
-    payload: buildQrLinkedDeviceSessionPayloadV4({
-      linkSessionId,
-      linkPublicKeyB64u: payload.linkPublicKeyB64u,
-      devicePublicKeyB64u: payload.devicePublicKeyB64u,
-      issuedAtMs: 1_000,
-      expiresAtMs: 10_000,
-    }),
+    payload,
   });
-  return { payload, claimRequest, approval, transcript, receipt };
+  return {
+    payload,
+    claimRequest,
+    approval,
+    sourceSignerManifest,
+    sourceWalletKeyId: walletKeyId,
+    sourceMaterialActivation,
+    sourceWalletAuthMethodId,
+    packageSetDigestB64u: FIXTURE_DIGEST,
+    sourceAuthorityDigestB64u: FIXTURE_DIGEST,
+  };
 }
 
-void DIGEST;
-void PUBLIC_KEY;
-void buildLinkedDeviceEnrollmentReceiptV1;
+export function buildR103OwnerApprovalContextV1(
+  approval: LinkedDeviceApprovalV1,
+  overrides: { readonly keyManifestDigestB64u?: DigestB64u } = {},
+) {
+  return {
+    walletId: approval.walletId,
+    walletSessionId: required(parseWalletSessionId('ws:r103')),
+    authorizationId: required(parseWalletSessionAuthorizationId('wsa:r103')),
+    expiresAtMs: approval.expiresAtMs,
+    permission: buildFullOwnerDelegatedWalletAuthorityV1(),
+    curve: 'ed25519' as const,
+    keyManifestDigestB64u:
+      overrides.keyManifestDigestB64u ??
+      parseDigestB64u('Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE'),
+  };
+}
+
+export function buildR103EcdsaSourceContributionPreparationV1(
+  fixture: R103DeviceLinkFixture,
+): LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1 {
+  const compressedPublicKey = base64UrlEncode(new Uint8Array([2, ...new Uint8Array(32).fill(1)]));
+  const recipientPublicKey = base64UrlEncode(new Uint8Array(32).fill(2));
+  const secondRecipientPublicKey = base64UrlEncode(new Uint8Array(32).fill(3));
+
+  return parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1([
+    {
+      linkSessionId: fixture.approval.linkSessionId,
+      enrollmentId: fixture.approval.enrollmentId,
+      sourceAuthorityId: 'authority:r103',
+      source: {
+        activation: buildR103EcdsaActivation('source'),
+        clientPublicKey33B64u: compressedPublicKey,
+        relayerPublicKey33B64u: compressedPublicKey,
+        thresholdPublicKey33B64u: compressedPublicKey,
+        thresholdEthereumAddress20B64u: base64UrlEncode(new Uint8Array(20).fill(5)),
+      },
+      target: {
+        activation: buildR103EcdsaActivation('target'),
+        targetDeviceId: fixture.approval.deviceId,
+        targetFactorVerificationDigestB64u: fixture.packageSetDigestB64u,
+        clientRecipientPublicKeyB64u: recipientPublicKey,
+        signingWorkerRecipientPublicKeyB64u: secondRecipientPublicKey,
+      },
+    },
+  ]);
+}
+
+export function buildR103EcdsaSourceContributionV1(
+  fixture: R103DeviceLinkFixture,
+): LinkedDeviceOrdinaryMaterialSourceContributionV1 {
+  const preparation = buildR103EcdsaSourceContributionPreparationV1(fixture)[0];
+  if (!preparation || 'kind' in preparation) {
+    throw new Error('R103 ECDSA preparation is missing');
+  }
+  const walletKeyId = fixture.sourceWalletKeyId;
+  const sourceSigner = {
+    activation: preparation.source.activation,
+    clientPublicKey33B64u: preparation.source.clientPublicKey33B64u,
+    relayerPublicKey33B64u: preparation.source.relayerPublicKey33B64u,
+    thresholdPublicKey33B64u: preparation.source.thresholdPublicKey33B64u,
+    thresholdEthereumAddress20B64u: preparation.source.thresholdEthereumAddress20B64u,
+  };
+  const sourceNormalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1({
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
+    scope: {
+      wallet_id: sourceSigner.activation.materialOwner,
+      ecdsa_threshold_key_id: 'ecdsa-threshold-key:r103',
+      signing_root_id: 'signing-root:r103',
+      signing_root_version: 'signing-root-version:r103',
+      context: {
+        application_binding_digest_b64u: fixture.packageSetDigestB64u,
+      },
+      public_identity: {
+        context_binding_b64u: base64UrlEncode(new Uint8Array(32).fill(19)),
+        derivation_client_share_public_key33_b64u: sourceSigner.clientPublicKey33B64u,
+        server_public_key33_b64u: sourceSigner.relayerPublicKey33B64u,
+        threshold_public_key33_b64u: sourceSigner.thresholdPublicKey33B64u,
+        ethereum_address20_b64u: sourceSigner.thresholdEthereumAddress20B64u,
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      material_activation: routerAbMpcMaterialActivationRefToWire(sourceSigner.activation),
+      signing_worker: {
+        server_id: sourceSigner.activation.signingWorker,
+        key_epoch: 'signing-worker-key-epoch:r103',
+        recipient_encryption_key: `x25519:${'ab'.repeat(32)}`,
+      },
+      activation_epoch: 'root-share-epoch:r103',
+    },
+  });
+  const binding = {
+    linkSessionId: preparation.linkSessionId,
+    enrollmentId: preparation.enrollmentId,
+    sourceAuthorityId: preparation.sourceAuthorityId,
+    source: sourceSigner,
+    target: preparation.target,
+    targetClientPublicKey33B64u: base64UrlEncode(
+      new Uint8Array([2, ...new Uint8Array(32).fill(7)]),
+    ),
+  };
+  return parseLinkedDeviceOrdinaryMaterialSourceContributionV1({
+    kind: 'linked_device_ecdsa_source_contribution_v1',
+    keyFamily: 'ecdsa_secp256k1',
+    linkSessionId: preparation.linkSessionId,
+    enrollmentId: preparation.enrollmentId,
+    sourceAuthorityId: preparation.sourceAuthorityId,
+    walletKeyId,
+    targetDeviceId: preparation.target.targetDeviceId,
+    targetFactorVerificationDigestB64u: preparation.target.targetFactorVerificationDigestB64u,
+    sourceSigner,
+    sourceDerivation: {
+      applicationBindingDigestB64u: fixture.packageSetDigestB64u,
+      clientShareRetryCounter: 0,
+      ecdsaThresholdKeyId: 'ecdsa-threshold-key:r103',
+      sourceNormalSigning,
+    },
+    target: preparation.target,
+    package: {
+      binding,
+      encryptedDelta: buildR103EcdsaEnvelope(
+        preparation.target.signingWorkerRecipientPublicKeyB64u,
+        11,
+      ),
+      encryptedTargetClientShare: buildR103EcdsaEnvelope(
+        preparation.target.clientRecipientPublicKeyB64u,
+        13,
+      ),
+    },
+  });
+}
+
+function buildR103EcdsaEnvelope(recipientPublicKeyB64u: string, seed: number) {
+  return {
+    kind: LINKED_DEVICE_ECDSA_SOURCE_CONTRIBUTION_ENVELOPE_KIND_V1,
+    recipientPublicKeyB64u,
+    bindingDigestB64u: base64UrlEncode(new Uint8Array(32).fill(17)),
+    encappedKeyB64u: base64UrlEncode(new Uint8Array(32).fill(seed)),
+    ciphertextB64u: base64UrlEncode(new Uint8Array(32).fill(seed + 1)),
+  };
+}

@@ -222,6 +222,18 @@ export function CompanyPage(): React.JSX.Element {
               <div className="company-resources__list">{resources.map(renderResource)}</div>
             </div>
           </section>
+
+          <section className="company-legal h2-rule" aria-labelledby="company-legal-title">
+            <div className="h2-shell company-legal__inner">
+              <p className="h2-kicker" id="company-legal-title">
+                Legal entity
+              </p>
+              <p className="company-legal__copy">
+                Seams Technologies KK — Tokyo, Japan. Copyright © {new Date().getFullYear()}. All
+                rights reserved.
+              </p>
+            </div>
+          </section>
         </main>
         <H2Footer />
       </div>

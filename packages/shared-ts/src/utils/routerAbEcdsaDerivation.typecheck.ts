@@ -10,10 +10,10 @@ import type {
 } from './routerAbEcdsaDerivation';
 import type { RuntimePolicyScope } from '../threshold/signingRootScope';
 import type { CorrelationId } from './canonicalPrimitives';
-import type { ReusableWalletSessionMintId } from '../authorization/capabilityKinds';
+import type { WalletSessionMintId } from '../authorization/capabilityKinds';
 
 declare const thresholdSessionId: ThresholdEcdsaSessionId;
-declare const walletSessionMintId: ReusableWalletSessionMintId;
+declare const walletSessionMintId: WalletSessionMintId;
 declare const runtimePolicyScope: RuntimePolicyScope;
 declare const activationResponse: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
 declare const activationCorrelationId: CorrelationId;

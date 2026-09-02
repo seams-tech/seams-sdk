@@ -1,231 +1,207 @@
 import { defineConfig, type DefaultTheme } from 'vitepress';
 
 const docsOrigin = (process.env.VITE_DOCS_ORIGIN || 'https://docs.seams.sh').replace(/\/$/, '');
+// The deploy script hands both origins to this build; `pnpm dev` falls back to
+// the local Caddy host so the brand still leads back to the running site.
+const siteOrigin = (process.env.VITE_SITE_ORIGIN || 'https://seams.sh').replace(/\/$/, '');
 
 function pageUrl(page: string): string {
   const route = page.replace(/(?:^|\/)index\.md$/, '').replace(/\.md$/, '');
   return route ? `${docsOrigin}/${route}` : docsOrigin;
 }
 
-const startHereSidebar: DefaultTheme.SidebarItem[] = [
-  {
-    text: 'Get started',
-    items: [
-      { text: 'Overview and install', link: '/' },
-      { text: 'Create a wallet', link: '/getting-started/create-wallet' },
-      { text: 'Sign with policy', link: '/getting-started/sign-with-policy' },
-      {
-        text: 'Devices, export, and recovery',
-        link: '/getting-started/delegate-or-rotate',
-      },
-    ],
-  },
-  {
-    text: 'Continue building',
-    collapsed: true,
-    items: [
-      { text: 'Examples', link: '/examples/' },
-      { text: 'Theme wallet surfaces', link: '/getting-started/theming' },
-    ],
-  },
-];
+const getStartedSection: DefaultTheme.SidebarItem = {
+  text: 'Get started',
+  items: [
+    { text: 'Installation', link: '/' },
+    { text: 'Create a wallet', link: '/getting-started/create-wallet' },
+    { text: 'Sign with policy', link: '/getting-started/sign-with-policy' },
+    {
+      text: 'Devices, export, and recovery',
+      link: '/getting-started/delegate-or-rotate',
+    },
+    { text: 'Theme wallet surfaces', link: '/getting-started/theming' },
+  ],
+};
 
-const examplesSidebar: DefaultTheme.SidebarItem[] = [
-  {
-    text: 'Examples',
-    items: [
-      { text: 'Overview', link: '/examples/' },
-      {
-        text: 'Wallet setup and authentication',
-        link: '/examples/wallet-setup-and-authentication',
-      },
-      { text: 'Signing', link: '/examples/signing' },
-      {
-        text: 'Advanced wallet operations',
-        link: '/examples/advanced-wallet-operations',
-      },
-      { text: 'UI customization', link: '/examples/ui-customization' },
-    ],
-  },
-];
+const guidesSection: DefaultTheme.SidebarItem = {
+  text: 'Guides',
+  items: [
+    { text: 'Overview', link: '/guides/' },
+    { text: 'Authentication', link: '/guides/authentication' },
+    { text: 'Embedded wallets', link: '/guides/embedded-wallets' },
+    { text: 'Policies and mandates', link: '/guides/policies-and-mandates' },
+    {
+      text: 'Wallet sessions and signing lanes',
+      link: '/guides/wallet-sessions-and-signing-lanes',
+    },
+    { text: 'Delegated agents', link: '/guides/delegated-agents' },
+    { text: 'Linked devices', link: '/guides/linked-devices' },
+    {
+      text: 'Recovery, export, and rotation',
+      link: '/guides/recovery-export-and-rotation',
+    },
+    { text: 'Theming', link: '/guides/theming' },
+    {
+      text: 'Examples',
+      collapsed: true,
+      items: [
+        { text: 'Overview', link: '/examples/' },
+        {
+          text: 'Wallet setup and authentication',
+          link: '/examples/wallet-setup-and-authentication',
+        },
+        { text: 'Signing', link: '/examples/signing' },
+        {
+          text: 'Advanced wallet operations',
+          link: '/examples/advanced-wallet-operations',
+        },
+        { text: 'UI customization', link: '/examples/ui-customization' },
+      ],
+    },
+  ],
+};
 
-const guidesSidebar: DefaultTheme.SidebarItem[] = [
-  {
-    text: 'Guides',
-    items: [
-      { text: 'Overview', link: '/guides/' },
-      { text: 'Authentication', link: '/guides/authentication' },
-      { text: 'Embedded wallets', link: '/guides/embedded-wallets' },
-      { text: 'Policies and mandates', link: '/guides/policies-and-mandates' },
-      {
-        text: 'Wallet sessions and signing lanes',
-        link: '/guides/wallet-sessions-and-signing-lanes',
-      },
-      { text: 'Delegated agents', link: '/guides/delegated-agents' },
-      { text: 'Linked devices', link: '/guides/linked-devices' },
-      {
-        text: 'Recovery, export, and rotation',
-        link: '/guides/recovery-export-and-rotation',
-      },
-      { text: 'Theming', link: '/guides/theming' },
-    ],
-  },
-];
+const referenceSection: DefaultTheme.SidebarItem = {
+  text: 'SDK reference',
+  items: [
+    { text: 'Overview', link: '/reference/' },
+    { text: '@seams/wallet', link: '/reference/core' },
+    { text: '@seams/wallet/react', link: '/reference/react' },
+    { text: '@seams/wallet/advanced', link: '/reference/advanced' },
+    { text: '@seams/wallet/threshold', link: '/reference/threshold' },
+    { text: '@seams/wallet/runtime', link: '/reference/runtime' },
+    { text: 'Configuration', link: '/reference/configuration' },
+    { text: 'Results and errors', link: '/reference/results-and-errors' },
+    { text: 'Events and progress', link: '/reference/events-and-progress' },
+  ],
+};
 
-const referenceSidebar: DefaultTheme.SidebarItem[] = [
-  {
-    text: 'SDK reference',
-    items: [
-      { text: 'Overview', link: '/reference/' },
-      { text: '@seams/sdk', link: '/reference/core' },
-      { text: '@seams/sdk/react', link: '/reference/react' },
-      { text: '@seams/sdk/advanced', link: '/reference/advanced' },
-      { text: '@seams/sdk/threshold', link: '/reference/threshold' },
-      { text: '@seams/sdk/runtime', link: '/reference/runtime' },
-      { text: 'Configuration', link: '/reference/configuration' },
-      { text: 'Results and errors', link: '/reference/results-and-errors' },
-      { text: 'Events and progress', link: '/reference/events-and-progress' },
-    ],
-  },
-];
+const conceptsSection: DefaultTheme.SidebarItem = {
+  text: 'Concepts',
+  items: [
+    { text: 'Overview', link: '/concepts/' },
+    { text: 'Architecture', link: '/concepts/architecture' },
+    {
+      text: 'Wallet infrastructure comparison',
+      link: '/concepts/wallet-infrastructure-comparison',
+    },
+    { text: 'Glossary', link: '/concepts/glossary' },
+    {
+      text: 'Auth methods',
+      link: '/concepts/auth-methods/',
+      collapsed: true,
+      items: [
+        { text: 'Auth planes', link: '/concepts/auth-planes' },
+        { text: 'Passkeys', link: '/concepts/auth-methods/passkeys' },
+        { text: 'Email OTP', link: '/concepts/auth-methods/email-otp' },
+        { text: 'VoiceID', link: '/concepts/auth-methods/voiceid' },
+      ],
+    },
+    {
+      text: 'Policy',
+      link: '/concepts/policy/',
+      collapsed: true,
+      items: [
+        { text: 'Mandates', link: '/concepts/policy/mandates' },
+        { text: 'Credentials and proofs', link: '/concepts/policy/credentials-and-proofs' },
+      ],
+    },
+    {
+      text: 'Custody model',
+      link: '/concepts/custody/',
+      collapsed: true,
+      items: [
+        { text: 'Wallet iframe', link: '/concepts/custody/wallet-iframe' },
+        { text: 'Recovery and export', link: '/concepts/custody/recovery-and-export' },
+      ],
+    },
+    {
+      text: 'Sessions',
+      link: '/concepts/sessions/',
+      collapsed: true,
+      items: [
+        { text: 'Signing lanes', link: '/concepts/sessions/signing-lanes' },
+        { text: 'Wallet sessions', link: '/concepts/sessions/wallet-sessions' },
+        { text: 'Sealed refresh', link: '/concepts/sessions/sealed-refresh' },
+        { text: 'Nonce lanes', link: '/concepts/sessions/nonce-lanes' },
+      ],
+    },
+    {
+      text: 'Threshold signing',
+      link: '/concepts/threshold-signing/',
+      collapsed: true,
+      items: [
+        { text: 'Router A/B', link: '/concepts/threshold-signing/router-ab' },
+        { text: 'Router A/B protocol', link: '/concepts/advanced/router-ab-protocol' },
+        { text: 'Streaming Yao A/B', link: '/concepts/threshold-signing/streaming-yao-ab' },
+        {
+          text: 'Blind deterministic derivation',
+          link: '/concepts/threshold-signing/blind-deterministic-derivation',
+        },
+        {
+          text: 'Serverless threshold signing',
+          link: '/concepts/threshold-signing/serverless-threshold-signing',
+        },
+        { text: 'Ed25519', link: '/concepts/threshold-signing/ed25519' },
+        { text: 'EVM ECDSA', link: '/concepts/threshold-signing/evm-ecdsa' },
+      ],
+    },
+    {
+      text: 'Delegation',
+      link: '/concepts/delegation/',
+      collapsed: true,
+      items: [
+        { text: 'Key rotation', link: '/concepts/delegation/key-rotation' },
+        { text: 'Rotation ceremonies', link: '/concepts/advanced/rotation-ceremonies' },
+        { text: 'Linked devices', link: '/concepts/delegation/linked-devices' },
+        { text: 'Delegated agents', link: '/concepts/delegation/delegated-agents' },
+      ],
+    },
+    { text: 'Diagram sources', link: '/concepts/advanced/diagram-sources' },
+  ],
+};
 
-const conceptsSidebar: DefaultTheme.SidebarItem[] = [
-  {
-    text: 'Concepts and security',
-    items: [
-      { text: 'Overview', link: '/concepts/' },
-      { text: 'Architecture', link: '/concepts/architecture' },
-      { text: 'Auth planes', link: '/concepts/auth-planes' },
-      { text: 'Glossary', link: '/concepts/glossary' },
-      {
-        text: 'Wallet infrastructure comparison',
-        link: '/concepts/wallet-infrastructure-comparison',
-      },
-      {
-        text: 'Policy',
-        link: '/concepts/policy/',
-        collapsed: true,
-        items: [
-          { text: 'Overview', link: '/concepts/policy/' },
-          { text: 'Mandates', link: '/concepts/policy/mandates' },
-          { text: 'Credentials and proofs', link: '/concepts/policy/credentials-and-proofs' },
-        ],
-      },
-      {
-        text: 'Custody model',
-        link: '/concepts/custody/',
-        collapsed: true,
-        items: [
-          { text: 'Overview', link: '/concepts/custody/' },
-          { text: 'Wallet iframe', link: '/concepts/custody/wallet-iframe' },
-          { text: 'Recovery and export', link: '/concepts/custody/recovery-and-export' },
-        ],
-      },
-      {
-        text: 'Sessions',
-        link: '/concepts/sessions/',
-        collapsed: true,
-        items: [
-          { text: 'Overview', link: '/concepts/sessions/' },
-          { text: 'Signing lanes', link: '/concepts/sessions/signing-lanes' },
-          { text: 'Wallet sessions', link: '/concepts/sessions/wallet-sessions' },
-          { text: 'Sealed refresh', link: '/concepts/sessions/sealed-refresh' },
-          { text: 'Nonce lanes', link: '/concepts/sessions/nonce-lanes' },
-        ],
-      },
-      {
-        text: 'Threshold signing',
-        link: '/concepts/threshold-signing/',
-        collapsed: true,
-        items: [
-          { text: 'Overview', link: '/concepts/threshold-signing/' },
-          { text: 'Router A/B', link: '/concepts/threshold-signing/router-ab' },
-          { text: 'Streaming Yao A/B', link: '/concepts/threshold-signing/streaming-yao-ab' },
-          {
-            text: 'Blind deterministic derivation',
-            link: '/concepts/threshold-signing/blind-deterministic-derivation',
-          },
-          {
-            text: 'Serverless threshold signing',
-            link: '/concepts/threshold-signing/serverless-threshold-signing',
-          },
-          { text: 'Ed25519', link: '/concepts/threshold-signing/ed25519' },
-          { text: 'EVM ECDSA', link: '/concepts/threshold-signing/evm-ecdsa' },
-        ],
-      },
-      {
-        text: 'Delegation',
-        link: '/concepts/delegation/',
-        collapsed: true,
-        items: [
-          { text: 'Overview', link: '/concepts/delegation/' },
-          { text: 'Key rotation', link: '/concepts/delegation/key-rotation' },
-          { text: 'Linked devices', link: '/concepts/delegation/linked-devices' },
-          { text: 'Delegated agents', link: '/concepts/delegation/delegated-agents' },
-        ],
-      },
-    ],
-  },
-  {
-    text: 'Auth methods',
-    collapsed: true,
-    items: [
-      { text: 'Overview', link: '/concepts/auth-methods/' },
-      { text: 'Passkeys', link: '/concepts/auth-methods/passkeys' },
-      { text: 'Email OTP', link: '/concepts/auth-methods/email-otp' },
-      { text: 'VoiceID', link: '/concepts/auth-methods/voiceid' },
-    ],
-  },
-];
+const deployAndOperateSection: DefaultTheme.SidebarItem = {
+  text: 'Deploy and operate',
+  items: [
+    { text: 'Overview', link: '/deploy-and-operate/' },
+    { text: 'Hosted integration', link: '/deploy-and-operate/hosted-integration' },
+    { text: 'Security boundaries', link: '/deploy-and-operate/security-boundaries' },
+    { text: 'Environment', link: '/deploy-and-operate/environment' },
+    { text: 'Production checklist', link: '/deploy-and-operate/production-checklist' },
+    { text: 'Observability and audit', link: '/deploy-and-operate/observability-and-audit' },
+    { text: 'Route auth and deployment', link: '/concepts/advanced/route-auth-and-deployment' },
+    { text: 'Troubleshooting', link: '/deploy-and-operate/troubleshooting' },
+  ],
+};
 
-const advancedConceptsSidebar: DefaultTheme.SidebarItem[] = [
-  {
-    text: 'Advanced protocol',
-    items: [
-      { text: 'Overview', link: '/concepts/advanced/' },
-      {
-        text: 'Route auth and deployment',
-        link: '/concepts/advanced/route-auth-and-deployment',
-      },
-      { text: 'Router A/B protocol', link: '/concepts/advanced/router-ab-protocol' },
-      { text: 'Rotation ceremonies', link: '/concepts/advanced/rotation-ceremonies' },
-      { text: 'Diagram sources', link: '/concepts/advanced/diagram-sources' },
-    ],
-  },
-];
+const useCasesSection: DefaultTheme.SidebarItem = {
+  text: 'Use cases',
+  items: [
+    { text: 'Overview', link: '/use-cases/' },
+    { text: 'Platform wallets', link: '/use-cases/platform-wallets' },
+    { text: 'Shopping wallet apps', link: '/use-cases/shopping-wallet-apps' },
+    { text: 'Shopping agents', link: '/use-cases/ecommerce-agents' },
+  ],
+};
 
-const deployAndOperateSidebar: DefaultTheme.SidebarItem[] = [
-  {
-    text: 'Deploy and operate',
-    items: [
-      { text: 'Overview', link: '/deploy-and-operate/' },
-      { text: 'Hosted integration', link: '/deploy-and-operate/hosted-integration' },
-      { text: 'Security boundaries', link: '/deploy-and-operate/security-boundaries' },
-      { text: 'Environment', link: '/deploy-and-operate/environment' },
-      { text: 'Production checklist', link: '/deploy-and-operate/production-checklist' },
-      { text: 'Observability and audit', link: '/deploy-and-operate/observability-and-audit' },
-      { text: 'Troubleshooting', link: '/deploy-and-operate/troubleshooting' },
-    ],
-  },
-];
-
-const useCasesSidebar: DefaultTheme.SidebarItem[] = [
-  {
-    text: 'Use cases',
-    items: [
-      { text: 'Overview', link: '/use-cases/' },
-      { text: 'Ecommerce agents', link: '/use-cases/ecommerce-agents' },
-      { text: 'iPhone access passes', link: '/use-cases/iphone-access-passes' },
-      { text: 'Shipping agent credentials', link: '/use-cases/shipping-agent-credentials' },
-      { text: 'Embedded device credentials', link: '/use-cases/embedded-device-credentials' },
-    ],
-  },
+// One sidebar for every route. Top-level areas stay open — they carry no
+// `collapsed`, so VitePress renders them expanded and without a toggle — while
+// the deeper groups inside Guides and Concepts stay collapsible.
+const documentationSidebar: DefaultTheme.SidebarItem[] = [
+  getStartedSection,
+  guidesSection,
+  useCasesSection,
+  conceptsSection,
+  deployAndOperateSection,
+  referenceSection,
 ];
 
 export default defineConfig({
   base: '/',
   cleanUrls: true,
-  appearance: false,
+  appearance: true,
   lastUpdated: true,
   title: 'Seams',
   description: 'Key and credential infrastructure for policy-bound digital authority',
@@ -251,52 +227,37 @@ export default defineConfig({
     ];
   },
   markdown: {
-    theme: 'github-light-high-contrast',
+    theme: {
+      light: 'github-light',
+      dark: 'github-dark',
+    },
     languageAlias: {
       caddy: 'nginx',
     },
   },
   themeConfig: {
-    siteTitle: 'Seams docs',
+    siteTitle: 'docs',
     logo: {
-      src: '/seams-v9/svg/seams-mark-black.svg',
+      light: '/seams-v9/svg/seams-wordmark-hanken-dark.svg',
+      dark: '/seams-v9/svg/seams-wordmark-hanken-white.svg',
       alt: 'Seams',
     },
+    logoLink: `${siteOrigin}/wallet`,
     lastUpdated: { text: 'Last updated' },
     outline: [2, 3],
     search: { provider: 'local' },
     nav: [
-      { text: 'Get started', link: '/' },
-      { text: 'Examples', link: '/examples/' },
-      { text: 'SDK reference', link: '/reference/' },
-      {
-        text: 'More',
-        items: [
-          { text: 'Guides', link: '/guides/' },
-          { text: 'Concepts and security', link: '/concepts/' },
-          { text: 'Deploy and operate', link: '/deploy-and-operate/' },
-          { text: 'Use cases', link: '/use-cases/' },
-        ],
-      },
+      { text: 'Documentation', link: '/', activeMatch: '^/(?!reference)' },
+      { text: 'SDK reference', link: '/reference/', activeMatch: '^/reference/' },
     ],
-    sidebar: {
-      '/getting-started/': startHereSidebar,
-      '/examples/': examplesSidebar,
-      '/guides/': guidesSidebar,
-      '/reference/': referenceSidebar,
-      '/concepts/advanced/': advancedConceptsSidebar,
-      '/concepts/': conceptsSidebar,
-      '/deploy-and-operate/': deployAndOperateSidebar,
-      '/use-cases/': useCasesSidebar,
-      '/': startHereSidebar,
-    },
+    sidebar: documentationSidebar,
   },
   vite: {
     clearScreen: false,
     logLevel: 'info',
     server: {
       host: 'localhost',
-      port: 5222,
+      port: 4006,
       allowedHosts: ['docs.localhost', 'localhost', 'pta-m4.local'],
     },
   },

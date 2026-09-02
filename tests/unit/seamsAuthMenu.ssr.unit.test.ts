@@ -7,7 +7,7 @@ import url from 'node:url';
 test.describe('SSR sanity: SeamsAuthMenu adapter', () => {
   test('imports the public subpath and renders one inert host marker', async () => {
     const here = path.dirname(url.fileURLToPath(import.meta.url));
-    const packageJsonPath = path.resolve(here, '../../packages/sdk-web/package.json');
+    const packageJsonPath = path.resolve(here, '../../packages/wallet/package.json');
     const packageRequire = createRequire(packageJsonPath);
     const React = packageRequire('react');
     const { renderToString } = packageRequire('react-dom/server');
@@ -20,7 +20,7 @@ test.describe('SSR sanity: SeamsAuthMenu adapter', () => {
     const distMarkerCandidates = [path.resolve(path.dirname(packageJsonPath), exportTarget)];
     test.skip(
       distMarkerCandidates.every((candidate) => !fs.existsSync(candidate)),
-      `SDK dist not found at ${distMarkerCandidates[0]}; run pnpm -C packages/sdk-web build:rolldown`,
+      `SDK dist not found at ${distMarkerCandidates[0]}; run pnpm -C packages/wallet build:rolldown`,
     );
 
     expect(typeof (globalThis as any).window).toBe('undefined');

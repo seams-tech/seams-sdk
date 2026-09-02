@@ -641,6 +641,48 @@ pub fn reconstruct_export_key(
     Ok(x_export32)
 }
 
+/// Reconstructs one additive-lane export key from the holder and
+/// SigningWorker scalar shares.
+///
+/// The caller supplies the exact receipt-bound threshold public key and EVM
+/// address. Both are checked after scalar addition so a valid share pair
+/// cannot be redirected to another lane identity.
+pub fn reconstruct_ecdsa_additive_export_key_v1(
+    holder_share32: [u8; 32],
+    signing_worker_share32: [u8; 32],
+    expected_threshold_public_key33: [u8; 33],
+    expected_ethereum_address20: [u8; 20],
+) -> RouterAbEcdsaDerivationResult<[u8; 32]> {
+    let holder_share32 = Zeroizing::new(holder_share32);
+    let signing_worker_share32 = Zeroizing::new(signing_worker_share32);
+    let holder = parse_nonzero_scalar_32_be(holder_share32.as_ref(), "holder_share32")?;
+    let signing_worker =
+        parse_nonzero_scalar_32_be(signing_worker_share32.as_ref(), "signing_worker_share32")?;
+    let export = Option::<NonZeroScalar>::from(NonZeroScalar::new(
+        *holder.as_ref() + *signing_worker.as_ref(),
+    ))
+    .ok_or_else(|| {
+        RouterAbEcdsaDerivationError::invalid_input("additive export key reconstructed to zero")
+    })?;
+    let export32 = nonzero_scalar_to_32_be(&export);
+    let public_key33 = private_key_to_public_key33(&export32, "additive export public key")?;
+    if public_key33 != expected_threshold_public_key33 {
+        return Err(RouterAbEcdsaDerivationError::invalid_input(
+            "additive export public key does not match threshold public key",
+        ));
+    }
+    let ethereum_address20 = vec_to_fixed_20(
+        secp256k1_public_key_33_to_ethereum_address_20(&public_key33)?,
+        "additive export ethereum address",
+    )?;
+    if ethereum_address20 != expected_ethereum_address20 {
+        return Err(RouterAbEcdsaDerivationError::invalid_input(
+            "additive export ethereum address does not match threshold address",
+        ));
+    }
+    Ok(export32)
+}
+
 pub fn public_transcript_digest(
     operation: ServerEvalOperation,
     identity: &PublicIdentity,

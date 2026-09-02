@@ -297,15 +297,19 @@ test('required secrets are derived from enabled capabilities', async () => {
   const targets = module.parseDeploymentTargets(validTargets());
   const staging = targets.backendLanes['staging-testnet'];
   expect(module.componentSecretNames(staging, 'gateway')).toEqual([
-    'RELAY_SESSION_HMAC_SECRET',
     'ACCOUNT_ID_DERIVATION_SECRET',
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
-    'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET',
     'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET',
     'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
     'STRIPE_API_SK',
     'SIGNING_SESSION_SEAL_ROOT_SECRET_B64U',
   ]);
+  expect(module.componentSecretNames(staging, 'console')).toContain(
+    'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
+  );
+  expect(module.componentSecretNames(staging, 'console')).toContain(
+    'CONSOLE_WEBHOOK_SECRET_KEY_B64U',
+  );
   expect(module.componentSecretNames(staging, 'deriver-a')).toEqual([
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
@@ -378,6 +382,12 @@ test('production workflows supply selectable provider credentials as protected s
     'deploy-production-mainnet-backend.yml',
   ]) {
     const workflow = readFileSync(path.join(repoRoot, '.github/workflows', workflowName), 'utf8');
+    expect(workflow).toContain(
+      'CONSOLE_INITIAL_OWNER_EMAIL: ${{ secrets.CONSOLE_INITIAL_OWNER_EMAIL }}',
+    );
+    expect(workflow).toContain(
+      'CONSOLE_SESSION_HMAC_SECRET: ${{ secrets.CONSOLE_SESSION_HMAC_SECRET }}',
+    );
     expect(workflow).toContain('RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}');
     expect(workflow).toContain(
       'EMAIL_OTP_SES_ACCESS_KEY_ID: ${{ secrets.EMAIL_OTP_SES_ACCESS_KEY_ID }}',

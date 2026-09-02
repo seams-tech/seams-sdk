@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { setupBasicPasskeyTest, sdkEsmPath } from '../setup';
 import { ensureComponentModule, mountComponent } from './harness';
+import type { AuthMenuRecoveryViewModel } from '@/SeamsWeb/walletIframe/host/lit-ui/auth-menu/auth-menu-domain';
 
 const AUTH_MENU_MODULE = sdkEsmPath(
   'SeamsWeb/walletIframe/host/lit-ui/auth-menu/seams-auth-menu-surface.js',
@@ -50,8 +51,77 @@ function loginViewModel(status: unknown = { kind: 'idle', interaction: 'actionab
     kind: 'passkey' as const,
     mode: 'login' as const,
     accountOptions: [],
-    selectedWalletId: null,
+    selectedAccount: null,
     status,
+  };
+}
+
+type RecoveryEntryViewModel = Extract<AuthMenuRecoveryViewModel, { readonly stage: 'enter_code' }>;
+
+function recoveryEntryViewModel(
+  overrides: Partial<{
+    recoveryCode: string;
+    recoveryCodeError: string | null;
+  }> = {},
+): RecoveryEntryViewModel {
+  return {
+    appearance: { ...APPEARANCE, theme: { ...APPEARANCE.theme, mode: 'light' as const } },
+    hostname: 'wallet.example.test',
+    closeLabel: 'Close authentication menu',
+    kind: 'recovery',
+    mode: 'login',
+    heading: 'Recover account',
+    subtitle: 'Enter a recovery code to recover your wallet.',
+    ctaLabel: 'Continue',
+    showProgress: true,
+    enabledExternalProviders: [],
+    stage: 'enter_code',
+    recoveryCode: overrides.recoveryCode ?? '',
+    recoveryCodeError: overrides.recoveryCodeError ?? null,
+    status: { kind: 'idle', interaction: 'actionable' },
+  };
+}
+
+function recoveryFinalizingViewModel(): Extract<
+  AuthMenuRecoveryViewModel,
+  { readonly stage: 'finalizing' }
+> {
+  return {
+    ...recoveryEntryViewModel(),
+    walletId: 'wallet-1.test',
+    stage: 'finalizing',
+    recoveryCode: '',
+    status: { kind: 'busy', headline: 'Finishing recovery…' },
+  };
+}
+
+function recoveryGoogleSignInReadyViewModel(): Extract<
+  AuthMenuRecoveryViewModel,
+  { readonly stage: 'sign_in_ready' }
+> {
+  return {
+    ...recoveryEntryViewModel(),
+    subtitle: 'Your Google account is ready to sign in.',
+    ctaLabel: 'Sign in with Google',
+    walletId: 'wallet-1.test',
+    stage: 'sign_in_ready',
+    target: { kind: 'google_email_otp', googleProvider: 'google' },
+    status: { kind: 'idle', interaction: 'actionable' },
+  };
+}
+
+function recoveryPasskeySignInReadyViewModel(): Extract<
+  AuthMenuRecoveryViewModel,
+  { readonly stage: 'sign_in_ready' }
+> {
+  return {
+    ...recoveryEntryViewModel(),
+    subtitle: 'Your account is ready, login again with your Passkey',
+    ctaLabel: 'Sign in with new passkey',
+    walletId: 'wallet-1.test',
+    stage: 'sign_in_ready',
+    target: { kind: 'passkey_prf' },
+    status: { kind: 'idle', interaction: 'actionable' },
   };
 }
 
@@ -61,6 +131,53 @@ async function mountAuthMenu(page: Page, viewModel: unknown) {
     props: { viewModel },
   });
   await page.waitForSelector(`${AUTH_MENU_TAG} [data-auth-menu-close]`, { state: 'attached' });
+}
+
+type AuthMethodAccountOption = Readonly<{
+  walletId: string;
+  displayName: string;
+  authMethod: 'passkey' | 'email_otp';
+}>;
+
+async function readAuthMethodButtonStates(args: {
+  tagName: string;
+  passkeyOption: AuthMethodAccountOption;
+  emailOtpOption: AuthMethodAccountOption;
+}) {
+  const element = document.querySelector(args.tagName) as HTMLElement & {
+    viewModel: Record<string, unknown>;
+    updateComplete?: Promise<unknown>;
+  };
+  const snapshots = [
+    {
+      passkey: !(element.querySelector('[data-auth-menu-primary]') as HTMLButtonElement).disabled,
+      emailOtp: !(element.querySelector('[data-auth-menu-provider="google"]') as HTMLButtonElement)
+        .disabled,
+    },
+  ];
+  element.viewModel = {
+    ...element.viewModel,
+    accountOptions: [args.emailOtpOption],
+    selectedAccount: args.emailOtpOption,
+  };
+  await element.updateComplete;
+  snapshots.push({
+    passkey: !(element.querySelector('[data-auth-menu-primary]') as HTMLButtonElement).disabled,
+    emailOtp: !(element.querySelector('[data-auth-menu-provider="google"]') as HTMLButtonElement)
+      .disabled,
+  });
+  element.viewModel = {
+    ...element.viewModel,
+    accountOptions: [args.passkeyOption, args.emailOtpOption],
+    selectedAccount: args.passkeyOption,
+  };
+  await element.updateComplete;
+  snapshots.push({
+    passkey: !(element.querySelector('[data-auth-menu-primary]') as HTMLButtonElement).disabled,
+    emailOtp: !(element.querySelector('[data-auth-menu-provider="google"]') as HTMLButtonElement)
+      .disabled,
+  });
+  return snapshots;
 }
 
 test.describe('wallet-host Lit auth menu surface', () => {
@@ -127,6 +244,7 @@ test.describe('wallet-host Lit auth menu surface', () => {
       input.value = 'Ledger passkey';
       input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
       (element.querySelector('[data-auth-menu-primary]') as HTMLButtonElement).click();
+      (element.querySelector('[data-recovery-action]') as HTMLButtonElement).click();
       (element.querySelector('[data-auth-menu-close]') as HTMLButtonElement).click();
       return received;
     }, AUTH_MENU_TAG);
@@ -134,8 +252,200 @@ test.describe('wallet-host Lit auth menu surface', () => {
     expect(intents).toEqual([
       { kind: 'passkey_name_changed', passkeyName: 'Ledger passkey' },
       { kind: 'submit', mode: 'register', passkeyName: 'Ledger passkey' },
+      { kind: 'recovery_open' },
       { kind: 'back' },
     ]);
+  });
+
+  test('keeps recovery in the hosted menu with accessible validation and focus return', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 720 });
+    await mountAuthMenu(page, loginViewModel());
+    await page.evaluate((tagName) => {
+      const element = document.querySelector(tagName) as HTMLElement & { intents?: unknown[] };
+      element.intents = [];
+      element.addEventListener('w3a-auth-menu-intent', (event) => {
+        element.intents?.push((event as CustomEvent<unknown>).detail);
+      });
+    }, AUTH_MENU_TAG);
+
+    await page.locator(`${AUTH_MENU_TAG} [data-recovery-action]`).click();
+    expect(
+      await page.evaluate(
+        (tagName) =>
+          (document.querySelector(tagName) as HTMLElement & { intents?: unknown[] }).intents,
+        AUTH_MENU_TAG,
+      ),
+    ).toEqual([{ kind: 'recovery_open' }]);
+
+    await page.evaluate(
+      async ({ tagName, viewModel }) => {
+        const element = document.querySelector(tagName) as HTMLElement & {
+          viewModel: unknown;
+          updateComplete: Promise<unknown>;
+        };
+        element.viewModel = viewModel;
+        await element.updateComplete;
+      },
+      { tagName: AUTH_MENU_TAG, viewModel: recoveryEntryViewModel() },
+    );
+
+    const codeInput = page.locator(`${AUTH_MENU_TAG} [data-recovery-code]`);
+    const recoveryFeedback = page.locator(`${AUTH_MENU_TAG} #w3a-recovery-code-feedback`);
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-title`)).toHaveCSS('text-align', 'center');
+    const recoverySubhead = page.locator(`${AUTH_MENU_TAG} .w3a-subhead`);
+    await expect(recoverySubhead).toHaveText('Enter a recovery code to recover your wallet.');
+    await expect(recoverySubhead).toHaveCSS('text-align', 'center');
+    await expect(recoveryFeedback).toBeEmpty();
+    await expect(recoveryFeedback).toHaveCSS('margin', '4px');
+    await expect(
+      page.locator(`${AUTH_MENU_TAG} .w3a-header + #w3a-recovery-code-feedback`),
+    ).toHaveCount(1);
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-recovery-form`)).toHaveCSS('gap', '8px');
+    await expect(codeInput).toHaveAttribute('aria-invalid', 'false');
+    await expect(codeInput).toHaveCSS('font-size', '16px');
+    await codeInput.fill('ABCD-EFGH');
+
+    await page.evaluate(
+      async ({ tagName, viewModel }) => {
+        const element = document.querySelector(tagName) as HTMLElement & {
+          viewModel: unknown;
+          updateComplete: Promise<unknown>;
+        };
+        element.viewModel = viewModel;
+        await element.updateComplete;
+      },
+      {
+        tagName: AUTH_MENU_TAG,
+        viewModel: recoveryEntryViewModel({
+          recoveryCodeError: 'Enter a recovery code.',
+        }),
+      },
+    );
+    await expect(codeInput).toBeFocused();
+    await expect(codeInput).toHaveAttribute('aria-describedby', 'w3a-recovery-code-feedback');
+    await expect(recoveryFeedback).toHaveCount(1);
+    await expect(recoveryFeedback).toHaveText('Enter a recovery code.');
+    await expect(recoveryFeedback).toHaveClass(/w3a-recovery-error/);
+    await expect(recoveryFeedback).toHaveCSS('text-align', 'center');
+    await expect(recoveryFeedback).toHaveAttribute('aria-hidden', 'false');
+
+    await page.evaluate(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    const intents = await page.evaluate(
+      (tagName) =>
+        (document.querySelector(tagName) as HTMLElement & { intents?: unknown[] }).intents,
+      AUTH_MENU_TAG,
+    );
+    expect(intents).toEqual([
+      { kind: 'recovery_open' },
+      { kind: 'recovery_code_changed', recoveryCode: 'ABCD-EFGH' },
+      { kind: 'back' },
+    ]);
+
+    await page.evaluate(
+      async ({ tagName, viewModel }) => {
+        const element = document.querySelector(tagName) as HTMLElement & {
+          viewModel: unknown;
+          updateComplete: Promise<unknown>;
+        };
+        element.viewModel = viewModel;
+        await element.updateComplete;
+      },
+      { tagName: AUTH_MENU_TAG, viewModel: loginViewModel() },
+    );
+    await expect(page.locator(`${AUTH_MENU_TAG} [data-recovery-action]`)).toBeFocused();
+    const reflow = await page
+      .locator(`${AUTH_MENU_TAG} .w3a-signup-menu-root`)
+      .evaluate((root) => ({
+        clientWidth: root.clientWidth,
+        scrollWidth: root.scrollWidth,
+      }));
+    expect(reflow.clientWidth).toBeGreaterThanOrEqual(318);
+    expect(reflow.scrollWidth).toBeLessThanOrEqual(reflow.clientWidth);
+  });
+
+  test('centers the recovery header across the card at full width', async ({ page }) => {
+    await page.setViewportSize({ width: 420, height: 720 });
+    await mountAuthMenu(page, recoveryEntryViewModel());
+
+    const geometry = await page.locator(`${AUTH_MENU_TAG} .w3a-header`).evaluate((header) => {
+      const root = header.closest('.w3a-signup-menu-root');
+      const title = header.querySelector('.w3a-title');
+      const subhead = header.querySelector('.w3a-subhead');
+      const backButton = root?.querySelector('.w3a-back-button');
+      const inlineCenter = (element: Element): number => {
+        const rect = element.getBoundingClientRect();
+        return rect.left + rect.width / 2;
+      };
+      const blockCenter = (element: Element): number => {
+        const rect = element.getBoundingClientRect();
+        return rect.top + rect.height / 2;
+      };
+      if (!root || !title || !subhead || !backButton) {
+        throw new Error('Recovery header geometry is incomplete');
+      }
+      return {
+        backButtonBlockCenter: blockCenter(backButton),
+        cardCenter: inlineCenter(root),
+        titleBlockCenter: blockCenter(title),
+        titleCenter: inlineCenter(title),
+        subheadCenter: inlineCenter(subhead),
+      };
+    });
+
+    expect(Math.abs(geometry.titleCenter - geometry.cardCenter)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.subheadCenter - geometry.cardCenter)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.backButtonBlockCenter - geometry.titleBlockCenter)).toBeLessThanOrEqual(
+      1,
+    );
+  });
+
+  test('renders recovered Google sign-in as one ready message with the Google icon', async ({
+    page,
+  }) => {
+    await mountAuthMenu(page, recoveryGoogleSignInReadyViewModel());
+
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-subhead`)).toHaveText(
+      'Your Google account is ready to sign in.',
+    );
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-recovery-status`)).toHaveCount(0);
+    const button = page.locator(`${AUTH_MENU_TAG} [data-auth-menu-primary]`);
+    await expect(button).toHaveText('Sign in with Google');
+    await expect(button.locator(':scope > svg[aria-hidden="true"]')).toHaveCount(1);
+  });
+
+  test('renders recovered Passkey sign-in as one ready message', async ({ page }) => {
+    await mountAuthMenu(page, recoveryPasskeySignInReadyViewModel());
+
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-subhead`)).toHaveText(
+      'Your account is ready, login again with your Passkey',
+    );
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-recovery-status`)).toHaveCount(0);
+  });
+
+  test('locks Back and Escape while recovery finalization is irreversible', async ({ page }) => {
+    await mountAuthMenu(page, recoveryFinalizingViewModel());
+    await page.evaluate((tagName) => {
+      const element = document.querySelector(tagName) as HTMLElement & { intents?: unknown[] };
+      element.intents = [];
+      element.addEventListener('w3a-auth-menu-intent', (event) => {
+        element.intents?.push((event as CustomEvent<unknown>).detail);
+      });
+    }, AUTH_MENU_TAG);
+
+    await expect(page.locator(`${AUTH_MENU_TAG} [data-auth-menu-close]`)).toBeDisabled();
+    await page.keyboard.press('Escape');
+
+    expect(
+      await page.evaluate(
+        (tagName) =>
+          (document.querySelector(tagName) as HTMLElement & { intents?: unknown[] }).intents,
+        AUTH_MENU_TAG,
+      ),
+    ).toEqual([]);
   });
 
   test('renders the device-link QR menu and returns through the Back control', async ({ page }) => {
@@ -287,6 +597,8 @@ test.describe('wallet-host Lit auth menu surface', () => {
       return {
         spinnerAnimations: spinnerStyle.animationName,
         spinnerPlayState: spinnerStyle.animationPlayState,
+        spinnerTrack: spinnerStyle.borderRightColor,
+        cardBorder: getComputedStyle(root).borderTopColor,
         resizeSeconds: `${Number.parseFloat(resizeToken) / 1000}s`,
         rootTransition: getComputedStyle(root).transitionDuration,
         switcherTransition: getComputedStyle(switcher).transitionDuration,
@@ -298,6 +610,7 @@ test.describe('wallet-host Lit auth menu surface', () => {
     // freezes it.
     expect(waiting.spinnerAnimations).toContain('w3a-spin');
     expect(waiting.spinnerPlayState).not.toContain('paused');
+    expect(waiting.spinnerTrack).toBe(waiting.cardBorder);
     // Assert the shared token, not a literal: the invariant is that every part
     // of the box settles on ONE duration. A part left on its own timing splits
     // one movement into two, which is the bug this guards. Retuning the
@@ -568,29 +881,177 @@ test.describe('wallet-host Lit auth menu surface', () => {
   });
 
   test('renders a multi-wallet login selector and emits the selected wallet', async ({ page }) => {
+    const walletA = {
+      walletId: 'wallet-a',
+      displayName: 'Wallet A',
+      authMethod: 'passkey',
+    } as const;
+    const walletB = {
+      walletId: 'wallet-b',
+      displayName: 'Wallet B',
+      authMethod: 'email_otp',
+    } as const;
     await mountAuthMenu(page, {
       ...loginViewModel(),
       kind: 'passkey',
-      accountOptions: [
-        { walletId: 'wallet-a', displayName: 'Wallet A' },
-        { walletId: 'wallet-b', displayName: 'Wallet B' },
-      ],
-      selectedWalletId: 'wallet-a',
+      accountOptions: [walletA, walletB],
+      selectedAccount: walletA,
     });
 
-    const selected = await page.evaluate(async (tagName) => {
-      const element = document.querySelector(tagName) as HTMLElement;
-      const received: unknown[] = [];
-      element.addEventListener('w3a-auth-menu-intent', (event) => {
-        received.push((event as CustomEvent<unknown>).detail);
-      });
-      (element.querySelector('.w3a-account-menu-trigger') as HTMLButtonElement).click();
-      await (element as HTMLElement & { updateComplete?: Promise<unknown> }).updateComplete;
-      (element.querySelector('[data-wallet-id="wallet-b"]') as HTMLButtonElement).click();
-      return received;
-    }, AUTH_MENU_TAG);
+    const selectedAccount = page.locator(`${AUTH_MENU_TAG} .w3a-selected-account`);
+    await expect(selectedAccount.locator('.w3a-account-menu-account-primary')).toHaveText(
+      'wallet-a',
+    );
+    await expect(selectedAccount.locator('.w3a-account-menu-account-secondary')).toHaveCount(0);
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-account-menu-trigger`)).toHaveAttribute(
+      'aria-label',
+      'Saved accounts. Selected wallet-a',
+    );
 
-    expect(selected).toEqual([{ kind: 'login_account_selected', walletId: 'wallet-b' }]);
+    const selected = await page.evaluate(
+      async ({ tagName, selectedAccount }) => {
+        const element = document.querySelector(tagName) as HTMLElement & {
+          viewModel: Record<string, unknown>;
+          updateComplete?: Promise<unknown>;
+        };
+        const received: unknown[] = [];
+        element.addEventListener('w3a-auth-menu-intent', (event) => {
+          received.push((event as CustomEvent<unknown>).detail);
+        });
+        (element.querySelector('.w3a-account-menu-trigger') as HTMLButtonElement).click();
+        await element.updateComplete;
+        (element.querySelector('[data-wallet-id="wallet-b"]') as HTMLButtonElement).click();
+        element.viewModel = { ...element.viewModel, selectedAccount };
+        await element.updateComplete;
+        return received;
+      },
+      { tagName: AUTH_MENU_TAG, selectedAccount: walletB },
+    );
+
+    expect(selected).toEqual([
+      { kind: 'login_account_selected', walletId: 'wallet-b', authMethod: 'email_otp' },
+    ]);
+    await expect(selectedAccount.locator('.w3a-account-menu-account-primary')).toHaveText(
+      'Wallet B',
+    );
+    await expect(selectedAccount.locator('.w3a-account-menu-account-secondary')).toHaveText(
+      'wallet-b',
+    );
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-account-menu-trigger`)).toHaveAttribute(
+      'aria-label',
+      'Saved accounts. Selected Wallet B, wallet ID wallet-b',
+    );
+    const selectedAccountLayout = await selectedAccount.evaluate((account) => ({
+      clientHeight: account.clientHeight,
+      clientWidth: account.clientWidth,
+      scrollHeight: account.scrollHeight,
+      scrollWidth: account.scrollWidth,
+    }));
+    expect(selectedAccountLayout.scrollHeight).toBeLessThanOrEqual(
+      selectedAccountLayout.clientHeight,
+    );
+    expect(selectedAccountLayout.scrollWidth).toBeLessThanOrEqual(
+      selectedAccountLayout.clientWidth,
+    );
+  });
+
+  test('keeps the account field tall and close to the auth buttons', async ({ page }) => {
+    const account = {
+      walletId: 'jade-brook',
+      displayName: 'jade-brook',
+      authMethod: 'passkey',
+    } as const;
+    await mountAuthMenu(page, {
+      ...loginViewModel(),
+      accountOptions: [account],
+      selectedAccount: account,
+    });
+
+    const fieldBox = await page.locator(`${AUTH_MENU_TAG} .w3a-input-pill`).boundingBox();
+    const buttonBox = await page
+      .locator(`${AUTH_MENU_TAG} [data-auth-menu-primary]`)
+      .boundingBox();
+    if (!fieldBox || !buttonBox) throw new Error('Auth menu controls were not laid out');
+
+    expect(fieldBox.height).toBe(48);
+    expect(buttonBox.y - (fieldBox.y + fieldBox.height)).toBe(6);
+  });
+
+  test('shows a dual-method wallet in both groups and enables both methods', async ({ page }) => {
+    const passkey = {
+      walletId: 'jade-brook',
+      displayName: 'jade-brook',
+      authMethod: 'passkey',
+    } as const;
+    const emailOtp = {
+      ...passkey,
+      displayName: 'n637805@gmail.com',
+      authMethod: 'email_otp',
+    } as const;
+    await mountAuthMenu(page, {
+      ...loginViewModel(),
+      enabledExternalProviders: ['google'],
+      accountOptions: [passkey],
+      selectedAccount: passkey,
+    });
+
+    const states = await page.evaluate(readAuthMethodButtonStates, {
+      tagName: AUTH_MENU_TAG,
+      passkeyOption: passkey,
+      emailOtpOption: emailOtp,
+    });
+
+    expect(states).toEqual([
+      { passkey: true, emailOtp: false },
+      { passkey: false, emailOtp: true },
+      { passkey: true, emailOtp: true },
+    ]);
+
+    const buttonBackgrounds = await page
+      .locator(`${AUTH_MENU_TAG} .w3a-auth-methods`)
+      .evaluate((methods) => ({
+        passkey: getComputedStyle(
+          methods.querySelector('[data-auth-menu-primary]') as HTMLButtonElement,
+        ).backgroundColor,
+        google: getComputedStyle(
+          methods.querySelector('[data-auth-menu-provider="google"]') as HTMLButtonElement,
+        ).backgroundColor,
+      }));
+    expect(buttonBackgrounds.google).toBe(buttonBackgrounds.passkey);
+
+    await page.locator(`${AUTH_MENU_TAG} .w3a-account-menu-trigger`).click();
+    await expect(
+      page.locator(`${AUTH_MENU_TAG} [data-wallet-id="jade-brook"][data-auth-method="passkey"]`),
+    ).toHaveCount(1);
+    const emailOtpOption = page.locator(
+      `${AUTH_MENU_TAG} [data-wallet-id="jade-brook"][data-auth-method="email_otp"]`,
+    );
+    await expect(emailOtpOption).toHaveCount(1);
+    await expect(emailOtpOption.locator('.w3a-account-menu-account-primary')).toHaveText(
+      'n637805@gmail.com',
+    );
+    await expect(emailOtpOption.locator('.w3a-account-menu-account-secondary')).toHaveText(
+      'jade-brook',
+    );
+    const idleBackground = await emailOtpOption.evaluate(
+      (option) => getComputedStyle(option).backgroundColor,
+    );
+    const dropdownBackground = await page
+      .locator(`${AUTH_MENU_TAG} .w3a-account-menu-popover`)
+      .evaluate((popover) => getComputedStyle(popover).backgroundColor);
+    await emailOtpOption.hover();
+    const hoverBackground = await emailOtpOption.evaluate(async (option) => {
+      await Promise.all(option.getAnimations().map((animation) => animation.finished));
+      return getComputedStyle(option).backgroundColor;
+    });
+    expect(hoverBackground).not.toBe(idleBackground);
+    expect(hoverBackground).not.toBe(dropdownBackground);
+
+    await emailOtpOption.focus();
+    await expect(emailOtpOption).toBeFocused();
+    expect(await emailOtpOption.evaluate((option) => getComputedStyle(option).outlineStyle)).toBe(
+      'solid',
+    );
   });
 
   test('starts a ready login intent from the primary CTA and closes on Escape', async ({

@@ -1,19 +1,19 @@
 import { expect, test } from '@playwright/test';
-import { getNearSpendCapChainId } from '@seams-internal/console-shared/gasSponsorshipSpendCapTargets';
+import { getNearSpendCapChainId } from '@seams-internal/wallet-console-shared/gasSponsorshipSpendCapTargets';
 import {
   evaluateConsolePolicyRules,
   isConsoleGasSponsorshipPolicyRules,
   parseConsolePolicyRulesInput,
   parseStoredConsolePolicyRules,
   validateGasSponsorshipPolicyRulesForPublish,
-} from '../../packages/console-server-ts/src/policies/rules';
+} from '../../packages/wallet-console-server-ts/src/policies/rules';
 import {
   parseCreateConsolePolicyRequest,
   parseListConsolePoliciesRequest,
   parseSimulateConsolePolicyRequest,
   parseUpdateConsolePolicyRequest,
-} from '../../packages/console-server-ts/src/policies/requests';
-import { createInMemoryConsolePolicyService } from '../../packages/console-server-ts/src/policies/service';
+} from '../../packages/wallet-console-server-ts/src/policies/requests';
+import { createInMemoryConsolePolicyService } from '../../packages/wallet-console-server-ts/src/policies/service';
 
 async function expectPolicyError(
   fn: () => unknown | Promise<unknown>,

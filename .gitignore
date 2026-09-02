@@ -25,11 +25,12 @@ packages/console-server-ts/.wrangler/
 
 # Local Wrangler secrets. Use packages/console-server-ts/dev.vars as the checked-in template.
 packages/console-server-ts/.dev.vars
-packages/sdk-server-ts/.dev.vars
+packages/wallet-server/.dev.vars
 packages/console-server-ts/wrangler.d1-staging-console.toml
 packages/console-server-ts/wrangler.d1-staging-gateway.toml
 sqlite/
-packages/sdk-server-ts/.wrangler/
+packages/wallet-server/.wrangler/
+packages/wallet-server/cloudflare-router-ab/
 
 
 # Playwright artifacts

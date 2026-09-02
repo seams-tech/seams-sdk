@@ -1,5 +1,5 @@
 ---
-title: Auth Planes
+title: Auth planes
 description: Separate application login, wallet authority, signing budget, and delegated execution into explicit auth planes.
 ---
 

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { walletCustodyCeremonyStepRunner } from '../../packages/sdk-web/src/core/signingEngine/walletCustody/ceremonyStepRunner';
+import { walletCustodyCeremonyStepRunner } from '../../packages/wallet/src/core/signingEngine/walletCustody/ceremonyStepRunner';
 
 /**
  * The adapter between the worker transport and the ceremony driver.

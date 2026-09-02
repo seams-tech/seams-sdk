@@ -1,8 +1,25 @@
 import { test, expect } from '@playwright/test';
+import { buildWalletServiceHtml as buildWalletHostServiceHtml } from '@/plugins/plugin-utils';
+import { injectImportMap } from '../setup/bootstrap';
 import { buildWalletServiceHtml, initRouter, registerWalletServiceRoute } from './harness';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service';
+
+function buildHostPortCloseProbeHtml(): string {
+  return buildWalletHostServiceHtml('/_test-sdk/esm/sdk').replace(
+    '</body>',
+    `<script>
+      (() => {
+        const close = MessagePort.prototype.close;
+        MessagePort.prototype.close = function () {
+          window.parent.postMessage({ type: 'TEST_HOST_PORT_CLOSED' }, '*');
+          return close.call(this);
+        };
+      })();
+    </script></body>`,
+  );
+}
 
 test.describe('Wallet iframe handshake', () => {
   test.beforeEach(async ({ page }) => {
@@ -13,7 +30,7 @@ test.describe('Wallet iframe handshake', () => {
     const url =
       configured ||
       (process.env.NO_CADDY === '1' || process.env.CI === '1'
-        ? 'http://localhost:3600'
+        ? 'http://localhost:4004'
         : 'https://example.localhost');
     await page.goto(url);
   });
@@ -92,7 +109,10 @@ test.describe('Wallet iframe handshake', () => {
   test('rejects when READY advertises a mismatched protocol version', async ({ page }) => {
     await registerWalletServiceRoute(
       page,
-      buildWalletServiceHtml({ protocolVersion: '0.0.0' }),
+      buildWalletServiceHtml({
+        protocolVersion: '1.0.0',
+        expectedConnectProtocolVersion: null,
+      }),
       WALLET_SERVICE_ROUTE,
     );
     await initRouter(page, { walletOrigin: WALLET_ORIGIN, connectTimeoutMs: 1000 });
@@ -103,13 +123,14 @@ test.describe('Wallet iframe handshake', () => {
         await router.init();
         return { ok: true };
       } catch (err: any) {
-        return { ok: false, name: err?.name, message: err?.message };
+        return { ok: false, code: err?.code, name: err?.name, message: err?.message };
       }
     });
 
     expect(result.ok).toBe(false);
+    expect(result.code).toBe('WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH');
     expect(result.name).toBe('WalletIframeProtocolVersionMismatchError');
-    expect(result.message).toContain('expected 1.0.0, received 0.0.0');
+    expect(result.message).toContain('expected 2.0.0, received 1.0.0');
 
     const readyState = await page.evaluate(() => {
       const router = (window as any).__walletRouter;
@@ -117,5 +138,95 @@ test.describe('Wallet iframe handshake', () => {
     });
 
     expect(readyState).toBe(false);
+  });
+
+  test('rejects when CONNECT advertises an older host SDK protocol version', async ({ page }) => {
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({ expectedConnectProtocolVersion: '3.0.0' }),
+      WALLET_SERVICE_ROUTE,
+    );
+    await initRouter(page, { walletOrigin: WALLET_ORIGIN, connectTimeoutMs: 1000 });
+
+    const result = await page.evaluate(async () => {
+      const router = (window as any).__walletRouter;
+      try {
+        await router.init();
+        return { ok: true };
+      } catch (err: any) {
+        return {
+          ok: false,
+          code: err?.code,
+          name: err?.name,
+          message: err?.message,
+          expectedProtocolVersion: err?.expectedProtocolVersion,
+          receivedProtocolVersion: err?.receivedProtocolVersion,
+        };
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH');
+    expect(result.name).toBe('WalletIframeProtocolVersionMismatchError');
+    expect(result.message).toContain('expected 3.0.0, received 2.0.0');
+    expect(result.expectedProtocolVersion).toBe('3.0.0');
+    expect(result.receivedProtocolVersion).toBe('2.0.0');
+
+    const readyState = await page.evaluate(() => {
+      const router = (window as any).__walletRouter;
+      return router.isReady();
+    });
+
+    expect(readyState).toBe(false);
+  });
+
+  test('closes the transferred port after rejecting a mismatched CONNECT', async ({ page }) => {
+    await injectImportMap(page);
+    await registerWalletServiceRoute(page, buildHostPortCloseProbeHtml(), WALLET_SERVICE_ROUTE);
+
+    const portClosed = await page.evaluate(
+      async ({ walletOrigin }) => {
+        const iframe = document.createElement('iframe');
+        iframe.src = `${walletOrigin}/wallet-service`;
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+        await new Promise<void>((resolve) => {
+          iframe.addEventListener('load', () => resolve(), { once: true });
+        });
+
+        const result = await new Promise<boolean>((resolve) => {
+          let timeout: number | undefined;
+          const onMessage = (event: MessageEvent): void => {
+            if (
+              event.source !== iframe.contentWindow ||
+              event.data?.type !== 'TEST_HOST_PORT_CLOSED'
+            ) {
+              return;
+            }
+            if (timeout !== undefined) window.clearTimeout(timeout);
+            window.removeEventListener('message', onMessage);
+            resolve(true);
+          };
+          window.addEventListener('message', onMessage);
+          timeout = window.setTimeout(() => {
+            window.removeEventListener('message', onMessage);
+            resolve(false);
+          }, 3_000);
+
+          const channel = new MessageChannel();
+          channel.port1.start();
+          iframe.contentWindow?.postMessage(
+            { type: 'CONNECT', payload: { protocolVersion: '1.0.0' } },
+            walletOrigin,
+            [channel.port2],
+          );
+        });
+        iframe.remove();
+        return result;
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
+
+    expect(portClosed).toBe(true);
   });
 });

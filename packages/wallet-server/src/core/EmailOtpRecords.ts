@@ -1,0 +1,531 @@
+import type { ThresholdRuntimePolicyScope } from './types';
+import { toOptionalTrimmedString } from '@shared/utils/validation';
+import {
+  EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_ACTIONS,
+  WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION,
+  WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+  isWalletEmailOtpLoginOperation,
+} from '@shared/utils/emailOtpDomain';
+import type {
+  EmailOtpAuthStateRecord,
+  EmailOtpChallengeRecord,
+  EmailOtpGrantRecord,
+  EmailOtpUnlockChallengeRecord,
+  EmailOtpWalletEnrollmentRecord,
+  GoogleEmailOtpRegistrationAttemptRecord,
+  GoogleEmailOtpRegistrationOfferCandidateRecord,
+  NonEmptyGoogleEmailOtpRegistrationOfferCandidates,
+} from './EmailOtpStores';
+
+function parseJsonRecord(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function toPositiveSafeInt(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function toNonNegativeSafeInt(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) return null;
+  return parsed;
+}
+
+function parseRuntimePolicyScope(raw: unknown): ThresholdRuntimePolicyScope | undefined {
+  const parsed = parseJsonRecord(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+  const obj = parsed as Record<string, unknown>;
+  const orgId = toOptionalTrimmedString(obj.orgId);
+  const projectId = toOptionalTrimmedString(obj.projectId);
+  const envId = toOptionalTrimmedString(obj.envId);
+  const signingRootVersion = toOptionalTrimmedString(obj.signingRootVersion);
+  if (!orgId || !projectId || !envId || !signingRootVersion) return undefined;
+  return { orgId, projectId, envId, signingRootVersion };
+}
+
+function hasOwnRecordField(record: Record<string, unknown>, field: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, field);
+}
+
+function isB64uString(value: string): boolean {
+  return /^[A-Za-z0-9_-]+$/.test(value);
+}
+
+function parseGoogleEmailOtpRegistrationOfferCandidates(
+  raw: unknown,
+): NonEmptyGoogleEmailOtpRegistrationOfferCandidates | null {
+  if (!Array.isArray(raw) || raw.length < 1) return null;
+  const candidates: GoogleEmailOtpRegistrationOfferCandidateRecord[] = [];
+  for (const candidate of raw) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
+    const candidateRecord = candidate as Record<string, unknown>;
+    const candidateId = toOptionalTrimmedString(candidateRecord.candidateId);
+    const candidateWalletId = toOptionalTrimmedString(candidateRecord.walletId);
+    const candidateCollisionCounter = toNonNegativeSafeInt(candidateRecord.collisionCounter);
+    if (!candidateId || !candidateWalletId || candidateCollisionCounter == null) return null;
+    candidates.push({
+      candidateId,
+      walletId: candidateWalletId,
+      collisionCounter: candidateCollisionCounter,
+    });
+  }
+  const [firstCandidate, ...remainingCandidates] = candidates;
+  if (!firstCandidate) return null;
+  return [firstCandidate, ...remainingCandidates];
+}
+
+export function parseCurrentEmailOtpChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
+  const parsed = parseJsonRecord(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const obj = parsed as Record<string, unknown>;
+  const version = toOptionalTrimmedString(obj.version);
+  const challengeId = toOptionalTrimmedString(obj.challengeId);
+  const challengeSubjectId = toOptionalTrimmedString(obj.challengeSubjectId);
+  const walletId = toOptionalTrimmedString(obj.walletId);
+  const orgId = toOptionalTrimmedString(obj.orgId) || undefined;
+  const otpChannel = toOptionalTrimmedString(obj.otpChannel);
+  const email = toOptionalTrimmedString(obj.email);
+  const otpCode = toOptionalTrimmedString(obj.otpCode);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
+  const action = toOptionalTrimmedString(obj.action);
+  const operationRaw = toOptionalTrimmedString(obj.operation);
+  const createdAtMs = toPositiveSafeInt(obj.createdAtMs);
+  const expiresAtMs = toPositiveSafeInt(obj.expiresAtMs);
+  const attemptCount = toNonNegativeSafeInt(obj.attemptCount);
+  const maxAttempts = toPositiveSafeInt(obj.maxAttempts);
+  if (version !== 'email_otp_challenge_v1') return null;
+  if (
+    !challengeId ||
+    !challengeSubjectId ||
+    !walletId ||
+    !email ||
+    !otpCode ||
+    !ownerProofBindingDigest ||
+    !action ||
+    !operationRaw ||
+    !createdAtMs ||
+    !expiresAtMs ||
+    attemptCount == null ||
+    !maxAttempts
+  ) {
+    return null;
+  }
+  if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
+  if (
+    action !== WALLET_EMAIL_OTP_ACTIONS.login &&
+    action !== WALLET_EMAIL_OTP_ACTIONS.registration &&
+    action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap &&
+    action !== WALLET_EMAIL_OTP_ACTIONS.deviceLink
+  ) {
+    return null;
+  }
+  const operation =
+    isWalletEmailOtpLoginOperation(operationRaw) ||
+    operationRaw === WALLET_EMAIL_OTP_REGISTRATION_OPERATION ||
+    operationRaw === WALLET_EMAIL_OTP_UNLOCK_OPERATION ||
+    operationRaw === WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION
+      ? operationRaw
+      : null;
+  if (!operation) return null;
+  return {
+    version: 'email_otp_challenge_v1',
+    challengeId,
+    challengeSubjectId,
+    walletId,
+    ...(orgId ? { orgId } : {}),
+    otpChannel: EMAIL_OTP_CHANNEL,
+    email,
+    otpCode,
+    ownerProofBindingDigest,
+    action,
+    operation,
+    createdAtMs,
+    expiresAtMs,
+    attemptCount,
+    maxAttempts,
+  };
+}
+
+export function parseCurrentEmailOtpChallengeRow(input: {
+  recordJson: unknown;
+  expiresAtMs: unknown;
+}): EmailOtpChallengeRecord | null {
+  const record = parseCurrentEmailOtpChallengeRecord(input.recordJson);
+  const expiresAtMs = toPositiveSafeInt(input.expiresAtMs);
+  if (!record || !expiresAtMs) return null;
+  if (record.expiresAtMs !== expiresAtMs) return null;
+  return record;
+}
+
+export function parseCurrentEmailOtpGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
+  const parsed = parseJsonRecord(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const obj = parsed as Record<string, unknown>;
+  const version = toOptionalTrimmedString(obj.version);
+  const grantToken = toOptionalTrimmedString(obj.grantToken);
+  const userId = toOptionalTrimmedString(obj.userId);
+  const walletId = toOptionalTrimmedString(obj.walletId);
+  const orgId = toOptionalTrimmedString(obj.orgId) || undefined;
+  const challengeId = toOptionalTrimmedString(obj.challengeId);
+  const otpChannel = toOptionalTrimmedString(obj.otpChannel);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
+  const action = toOptionalTrimmedString(obj.action);
+  const issuedAtMs = toPositiveSafeInt(obj.issuedAtMs);
+  const expiresAtMs = toPositiveSafeInt(obj.expiresAtMs);
+  if (
+    version !== 'email_otp_grant_v1' ||
+    !grantToken ||
+    !userId ||
+    !walletId ||
+    !challengeId ||
+    !ownerProofBindingDigest ||
+    !action ||
+    !issuedAtMs ||
+    !expiresAtMs
+  ) {
+    return null;
+  }
+  if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
+  if (
+    action !== WALLET_EMAIL_OTP_ACTIONS.unseal &&
+    action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
+  ) {
+    return null;
+  }
+  return {
+    version: 'email_otp_grant_v1',
+    grantToken,
+    userId,
+    walletId,
+    ...(orgId ? { orgId } : {}),
+    challengeId,
+    otpChannel: EMAIL_OTP_CHANNEL,
+    ownerProofBindingDigest,
+    action,
+    issuedAtMs,
+    expiresAtMs,
+  };
+}
+
+export function parseCurrentEmailOtpGrantRow(input: {
+  recordJson: unknown;
+  expiresAtMs: unknown;
+}): EmailOtpGrantRecord | null {
+  const record = parseCurrentEmailOtpGrantRecord(input.recordJson);
+  const expiresAtMs = toPositiveSafeInt(input.expiresAtMs);
+  if (!record || !expiresAtMs) return null;
+  if (record.expiresAtMs !== expiresAtMs) return null;
+  return record;
+}
+
+export function parseCurrentEmailOtpUnlockChallengeRecord(
+  raw: unknown,
+): EmailOtpUnlockChallengeRecord | null {
+  const parsed = parseJsonRecord(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const obj = parsed as Record<string, unknown>;
+  const version = toOptionalTrimmedString(obj.version);
+  const challengeId = toOptionalTrimmedString(obj.challengeId);
+  const walletId = toOptionalTrimmedString(obj.walletId);
+  const userId = toOptionalTrimmedString(obj.userId);
+  const orgId = toOptionalTrimmedString(obj.orgId) || undefined;
+  const challengeB64u = toOptionalTrimmedString(obj.challengeB64u);
+  const createdAtMs = toPositiveSafeInt(obj.createdAtMs);
+  const expiresAtMs = toPositiveSafeInt(obj.expiresAtMs);
+  if (
+    version !== 'email_otp_unlock_challenge_v1' ||
+    !challengeId ||
+    !walletId ||
+    !userId ||
+    !challengeB64u ||
+    !createdAtMs ||
+    !expiresAtMs
+  ) {
+    return null;
+  }
+  return {
+    version: 'email_otp_unlock_challenge_v1',
+    challengeId,
+    walletId,
+    userId,
+    ...(orgId ? { orgId } : {}),
+    challengeB64u,
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
+export function parseCurrentEmailOtpUnlockChallengeRow(input: {
+  recordJson: unknown;
+  expiresAtMs: unknown;
+}): EmailOtpUnlockChallengeRecord | null {
+  const record = parseCurrentEmailOtpUnlockChallengeRecord(input.recordJson);
+  const expiresAtMs = toPositiveSafeInt(input.expiresAtMs);
+  if (!record || !expiresAtMs) return null;
+  if (record.expiresAtMs !== expiresAtMs) return null;
+  return record;
+}
+
+export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
+  raw: unknown,
+): GoogleEmailOtpRegistrationAttemptRecord | null {
+  const parsed = parseJsonRecord(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const obj = parsed as Record<string, unknown>;
+  const version = toOptionalTrimmedString(obj.version);
+  const attemptId = toOptionalTrimmedString(obj.attemptId);
+  const providerSubject = toOptionalTrimmedString(obj.providerSubject);
+  const email = toOptionalTrimmedString(obj.email);
+  const walletId = toOptionalTrimmedString(obj.walletId);
+  const offerId = toOptionalTrimmedString(obj.offerId);
+  const offerCandidates = parseGoogleEmailOtpRegistrationOfferCandidates(obj.offerCandidates);
+  const selectedCandidateId = toOptionalTrimmedString(obj.selectedCandidateId);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
+  const authProvider = toOptionalTrimmedString(obj.authProvider);
+  const accountIdSlugVersion = toOptionalTrimmedString(obj.accountIdSlugVersion);
+  const walletIdDerivationNonce = toOptionalTrimmedString(obj.walletIdDerivationNonce);
+  const collisionCounter = toNonNegativeSafeInt(obj.collisionCounter);
+  const state = toOptionalTrimmedString(obj.state);
+  const createdAtMs = toPositiveSafeInt(obj.createdAtMs);
+  const updatedAtMs = toPositiveSafeInt(obj.updatedAtMs);
+  const expiresAtMs = toPositiveSafeInt(obj.expiresAtMs);
+  const runtimePolicyScope = parseRuntimePolicyScope(obj.runtimePolicyScope);
+  const finalizedPublicKey = toOptionalTrimmedString(obj.finalizedPublicKey) || undefined;
+  const failureCode = toOptionalTrimmedString(obj.failureCode) || undefined;
+  if (
+    version !== 'google_email_otp_registration_attempt_v1' ||
+    !attemptId ||
+    !providerSubject ||
+    !email ||
+    !walletId ||
+    !offerId ||
+    !offerCandidates ||
+    !selectedCandidateId ||
+    !offerCandidates.some((candidate) => candidate.candidateId === selectedCandidateId) ||
+    !ownerProofBindingDigest ||
+    !authProvider ||
+    accountIdSlugVersion !== 'hmac_readable_v1' ||
+    !walletIdDerivationNonce ||
+    !isB64uString(walletIdDerivationNonce) ||
+    collisionCounter == null ||
+    !state ||
+    !createdAtMs ||
+    !updatedAtMs ||
+    !expiresAtMs
+  ) {
+    return null;
+  }
+  if (
+    state !== 'started' &&
+    state !== 'key_finalized' &&
+    state !== 'active' &&
+    state !== 'abandoned' &&
+    state !== 'failed' &&
+    state !== 'expired'
+  ) {
+    return null;
+  }
+  if (updatedAtMs < createdAtMs) return null;
+  if (state === 'key_finalized' && !finalizedPublicKey) return null;
+  if ((state === 'abandoned' || state === 'failed') && !failureCode) return null;
+  const base = {
+    version: 'google_email_otp_registration_attempt_v1' as const,
+    attemptId,
+    providerSubject,
+    email,
+    walletId,
+    offerId,
+    offerCandidates,
+    selectedCandidateId,
+    ownerProofBindingDigest,
+    authProvider,
+    accountIdSlugVersion: 'hmac_readable_v1' as const,
+    walletIdDerivationNonce,
+    collisionCounter,
+    createdAtMs,
+    updatedAtMs,
+    expiresAtMs,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+  };
+  switch (state) {
+    case 'started':
+      return { ...base, state };
+    case 'key_finalized': {
+      if (!finalizedPublicKey) return null;
+      return { ...base, state, finalizedPublicKey };
+    }
+    case 'active':
+      return { ...base, state, ...(finalizedPublicKey ? { finalizedPublicKey } : {}) };
+    case 'abandoned':
+    case 'failed': {
+      if (!failureCode) return null;
+      return {
+        ...base,
+        state,
+        ...(finalizedPublicKey ? { finalizedPublicKey } : {}),
+        failureCode,
+      };
+    }
+    case 'expired':
+      return {
+        ...base,
+        state,
+        ...(finalizedPublicKey ? { finalizedPublicKey } : {}),
+        ...(failureCode ? { failureCode } : {}),
+      };
+  }
+}
+
+export function parseCurrentGoogleEmailOtpRegistrationAttemptRow(input: {
+  recordJson: unknown;
+  expiresAtMs: unknown;
+  updatedAtMs: unknown;
+}): GoogleEmailOtpRegistrationAttemptRecord | null {
+  const record = parseCurrentGoogleEmailOtpRegistrationAttemptRecord(input.recordJson);
+  const expiresAtMs = toPositiveSafeInt(input.expiresAtMs);
+  const updatedAtMs = toPositiveSafeInt(input.updatedAtMs);
+  if (!record || !expiresAtMs || !updatedAtMs) return null;
+  if (record.expiresAtMs !== expiresAtMs || record.updatedAtMs !== updatedAtMs) return null;
+  return record;
+}
+
+export function parseCurrentEmailOtpWalletEnrollmentRecord(
+  raw: unknown,
+): EmailOtpWalletEnrollmentRecord | null {
+  const parsed = parseJsonRecord(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const obj = parsed as Record<string, unknown>;
+  if (hasOwnRecordField(obj, 'enrollmentEscrowCiphertextB64u')) return null;
+  const version = toOptionalTrimmedString(obj.version);
+  const walletId = toOptionalTrimmedString(obj.walletId);
+  const providerUserId = toOptionalTrimmedString(obj.providerUserId);
+  const orgId = toOptionalTrimmedString(obj.orgId);
+  const verifiedEmail = toOptionalTrimmedString(obj.verifiedEmail)?.toLowerCase() || '';
+  const enrollmentId = toOptionalTrimmedString(obj.enrollmentId);
+  const enrollmentVersion = toOptionalTrimmedString(obj.enrollmentVersion);
+  const enrollmentSealKeyVersion = toOptionalTrimmedString(obj.enrollmentSealKeyVersion);
+  const serverSealedFactorCiphertextB64u = toOptionalTrimmedString(
+    obj.serverSealedFactorCiphertextB64u,
+  );
+  const clientUnlockPublicKeyB64u = toOptionalTrimmedString(obj.clientUnlockPublicKeyB64u);
+  const unlockKeyVersion = toOptionalTrimmedString(obj.unlockKeyVersion);
+  const createdAtMs = toPositiveSafeInt(obj.createdAtMs);
+  const updatedAtMs = toPositiveSafeInt(obj.updatedAtMs);
+  if (
+    version !== 'email_otp_wallet_enrollment_v1' ||
+    !walletId ||
+    !providerUserId ||
+    !orgId ||
+    !verifiedEmail ||
+    !enrollmentId ||
+    !enrollmentVersion ||
+    !enrollmentSealKeyVersion ||
+    !serverSealedFactorCiphertextB64u ||
+    !clientUnlockPublicKeyB64u ||
+    !unlockKeyVersion ||
+    !createdAtMs ||
+    !updatedAtMs
+  ) {
+    return null;
+  }
+  if (updatedAtMs < createdAtMs) return null;
+  return {
+    version: 'email_otp_wallet_enrollment_v1',
+    walletId,
+    providerUserId,
+    orgId,
+    verifiedEmail,
+    enrollmentId,
+    enrollmentVersion,
+    enrollmentSealKeyVersion,
+    serverSealedFactorCiphertextB64u,
+    clientUnlockPublicKeyB64u,
+    unlockKeyVersion,
+    createdAtMs,
+    updatedAtMs,
+  };
+}
+
+export function parseCurrentEmailOtpWalletEnrollmentRow(input: {
+  recordJson: unknown;
+  updatedAtMs: unknown;
+}): EmailOtpWalletEnrollmentRecord | null {
+  const record = parseCurrentEmailOtpWalletEnrollmentRecord(input.recordJson);
+  const updatedAtMs = toPositiveSafeInt(input.updatedAtMs);
+  if (!record || !updatedAtMs) return null;
+  if (record.updatedAtMs !== updatedAtMs) return null;
+  return record;
+}
+
+export function parseCurrentEmailOtpAuthStateRecord(raw: unknown): EmailOtpAuthStateRecord | null {
+  const parsed = parseJsonRecord(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const obj = parsed as Record<string, unknown>;
+  const version = toOptionalTrimmedString(obj.version);
+  const walletId = toOptionalTrimmedString(obj.walletId);
+  const providerUserId = toOptionalTrimmedString(obj.providerUserId);
+  const orgId = toOptionalTrimmedString(obj.orgId);
+  const createdAtMs = toPositiveSafeInt(obj.createdAtMs);
+  const updatedAtMs = toPositiveSafeInt(obj.updatedAtMs);
+  const otpFailureCount =
+    obj.otpFailureCount == null ? undefined : toNonNegativeSafeInt(obj.otpFailureCount);
+  const lastOtpFailureAtMs =
+    obj.lastOtpFailureAtMs == null ? undefined : toPositiveSafeInt(obj.lastOtpFailureAtMs);
+  const otpLockedUntilMs =
+    obj.otpLockedUntilMs == null ? undefined : toPositiveSafeInt(obj.otpLockedUntilMs);
+  const lastEmailOtpLoginAtMs =
+    obj.lastEmailOtpLoginAtMs == null ? undefined : toPositiveSafeInt(obj.lastEmailOtpLoginAtMs);
+  const lastStrongAuthAtMs =
+    obj.lastStrongAuthAtMs == null ? undefined : toPositiveSafeInt(obj.lastStrongAuthAtMs);
+  if (!raw || version !== 'email_otp_auth_state_v1') return null;
+  if (!walletId || !providerUserId || !orgId || !createdAtMs || !updatedAtMs) return null;
+  if (
+    ('otpFailureCount' in obj && obj.otpFailureCount != null && otpFailureCount === undefined) ||
+    ('lastOtpFailureAtMs' in obj &&
+      obj.lastOtpFailureAtMs != null &&
+      lastOtpFailureAtMs === undefined) ||
+    ('otpLockedUntilMs' in obj && obj.otpLockedUntilMs != null && otpLockedUntilMs === undefined) ||
+    ('lastEmailOtpLoginAtMs' in obj &&
+      obj.lastEmailOtpLoginAtMs != null &&
+      lastEmailOtpLoginAtMs === undefined) ||
+    ('lastStrongAuthAtMs' in obj &&
+      obj.lastStrongAuthAtMs != null &&
+      lastStrongAuthAtMs === undefined)
+  ) {
+    return null;
+  }
+  if (updatedAtMs < createdAtMs) return null;
+  return {
+    version: 'email_otp_auth_state_v1',
+    walletId,
+    providerUserId,
+    orgId,
+    createdAtMs,
+    updatedAtMs,
+    ...(otpFailureCount != null ? { otpFailureCount } : {}),
+    ...(lastOtpFailureAtMs != null ? { lastOtpFailureAtMs } : {}),
+    ...(otpLockedUntilMs != null ? { otpLockedUntilMs } : {}),
+    ...(lastEmailOtpLoginAtMs != null ? { lastEmailOtpLoginAtMs } : {}),
+    ...(lastStrongAuthAtMs != null ? { lastStrongAuthAtMs } : {}),
+  };
+}
+
+export function parseCurrentEmailOtpAuthStateRow(input: {
+  recordJson: unknown;
+  updatedAtMs: unknown;
+}): EmailOtpAuthStateRecord | null {
+  const record = parseCurrentEmailOtpAuthStateRecord(input.recordJson);
+  const updatedAtMs = toPositiveSafeInt(input.updatedAtMs);
+  if (!record || !updatedAtMs) return null;
+  if (record.updatedAtMs !== updatedAtMs) return null;
+  return record;
+}

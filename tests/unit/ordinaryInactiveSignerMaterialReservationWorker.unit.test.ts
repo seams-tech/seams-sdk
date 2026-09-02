@@ -1,0 +1,305 @@
+import { expect, test } from '@playwright/test';
+import {
+  createCloudflareOrdinaryInactiveSignerMaterialReservationServiceV1,
+  createUnavailableOrdinaryInactiveSignerMaterialDeactivationPortV1,
+  createUnavailableOrdinaryInactiveSignerMaterialReservationWorkerV1,
+  CloudflareOrdinaryInactiveSignerMaterialDeactivationWorkerV1,
+  type CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1,
+  type CloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1,
+  CloudflareOrdinaryInactiveSignerMaterialReservationWorkerV1,
+} from '../../packages/wallet-server/src/router/cloudflare/signingLanes/cloudflareOrdinaryInactiveSignerMaterialReservation';
+import type {
+  OrdinaryInactiveSignerMaterialDeactivationRequestV1,
+  OrdinaryEcdsaSignerMaterialReservationRequestV1,
+  OrdinaryEd25519SignerMaterialReservationRequestV1,
+} from '../../packages/wallet-server/src/core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import { base64UrlEncode } from '@shared/utils/base64';
+import {
+  buildOrdinaryEcdsaActivationReceiptFixture,
+  buildOrdinaryEcdsaSignerFixture,
+  buildOrdinaryEd25519ActivationReceiptFixture,
+  buildOrdinaryEd25519ClientMaterialFixture,
+  buildOrdinaryEd25519SignerFixture,
+  buildOrdinaryEd25519ReservationPreparationFixture,
+  buildOrdinaryEcdsaReservationPreparationFixture,
+  buildOrdinaryMaterialActivationFixture,
+} from './helpers/ordinarySignerMaterialReservation.fixtures';
+
+class ReservationEndpointFixture
+  implements
+    CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1,
+    CloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1
+{
+  readonly ed25519Calls: OrdinaryEd25519SignerMaterialReservationRequestV1[] = [];
+  readonly ecdsaCalls: OrdinaryEcdsaSignerMaterialReservationRequestV1[] = [];
+  readonly ed25519DeactivationCalls: MpcMaterialActivationRef[] = [];
+  readonly ecdsaDeactivationCalls: MpcMaterialActivationRef[] = [];
+
+  constructor(
+    private readonly ecdsaRecipientPublicKey?: string,
+    private readonly deactivationMaterialActivation?: MpcMaterialActivationRef,
+    private readonly ed25519ParticipantIds?: readonly [number, number],
+  ) {}
+
+  async reserveInactiveEd25519SignerMaterialV1(
+    input: OrdinaryEd25519SignerMaterialReservationRequestV1,
+  ): Promise<unknown> {
+    this.ed25519Calls.push(input);
+    return {
+      kind: 'ordinary_ed25519_signer_material_worker_reservation_v1',
+      keyFamily: 'ed25519',
+      state: 'inactive',
+      signer: input.signer,
+      materialActivation: input.plannedActivationRef,
+      participantIds:
+        this.ed25519ParticipantIds ?? input.preparation.sourceContribution.participantIds,
+      clientMaterial: buildOrdinaryEd25519ClientMaterialFixture('worker-ed25519'),
+      activationReceipt: buildOrdinaryEd25519ActivationReceiptFixture(
+        'worker-ed25519',
+        input.plannedActivationRef,
+      ),
+      serverMaterialReservationId: 'server-reservation-ed25519',
+    };
+  }
+
+  async reserveInactiveEcdsaSignerMaterialV1(
+    input: OrdinaryEcdsaSignerMaterialReservationRequestV1,
+  ): Promise<unknown> {
+    this.ecdsaCalls.push(input);
+    return {
+      kind: 'ordinary_ecdsa_signer_material_worker_reservation_v1',
+      keyFamily: 'ecdsa_secp256k1',
+      state: 'inactive',
+      signer: input.signer,
+      materialActivation: input.plannedActivationRef,
+      activationReceipt: buildOrdinaryEcdsaActivationReceiptFixture(input.preparation, input.signer),
+      clientMaterial: {
+        kind: 'ordinary_ecdsa_client_material_v1',
+        encryptedTargetClientShare: {
+          ...input.preparation.sourceContribution.encryptedTargetClientShare,
+          recipientPublicKeyB64u:
+            this.ecdsaRecipientPublicKey ??
+            input.preparation.sourceContribution.binding.target.clientRecipientPublicKeyB64u,
+        },
+      },
+      serverMaterial: {
+        kind: 'ordinary_ecdsa_inactive_server_material_v1',
+        reservationId: 'server-reservation-ecdsa',
+        encryptedTargetServerShare: input.preparation.sourceContribution.encryptedDelta,
+      },
+    };
+  }
+
+  async deactivateInactiveEd25519SignerMaterialV1(input: {
+    readonly materialActivation: MpcMaterialActivationRef;
+  }): Promise<unknown> {
+    this.ed25519DeactivationCalls.push(input.materialActivation);
+    return {
+      kind: 'ordinary_ed25519_signer_material_deactivation_v1',
+      keyFamily: 'ed25519',
+      state: 'revoked',
+      materialActivation: this.deactivationMaterialActivation ?? input.materialActivation,
+      serverMaterialReservationId: 'server-reservation-ed25519',
+      revokedAtMs: 1_700_000_000_000,
+    };
+  }
+
+  async deactivateInactiveEcdsaSignerMaterialV1(input: {
+    readonly materialActivation: MpcMaterialActivationRef;
+  }): Promise<unknown> {
+    this.ecdsaDeactivationCalls.push(input.materialActivation);
+    return {
+      kind: 'ordinary_ecdsa_signer_material_deactivation_v1',
+      keyFamily: 'ecdsa_secp256k1',
+      state: 'revoked',
+      materialActivation: this.deactivationMaterialActivation ?? input.materialActivation,
+      serverMaterialReservationId: 'server-reservation-ecdsa',
+      revokedAtMs: 1_700_000_000_000,
+    };
+  }
+}
+
+test('ordinary Ed25519 reservation retries by exact activation ref without a second worker call', async () => {
+  const endpoint = new ReservationEndpointFixture();
+  const worker = new CloudflareOrdinaryInactiveSignerMaterialReservationWorkerV1(endpoint);
+  const request = ed25519Request('ed25519', 'activation');
+
+  const first = await worker.reserveInactiveEd25519SignerMaterialV1(request);
+  const second = await worker.reserveInactiveEd25519SignerMaterialV1(request);
+
+  expect(endpoint.ed25519Calls).toHaveLength(1);
+  expect(first).toEqual(second);
+  expect(first.state).toBe('inactive');
+  expect(first.serverMaterial.reservationId).toBe('server-reservation-ed25519');
+  expect(first.activationReceipt.material_activation.activation_id).toBe(
+    request.plannedActivationRef.activationId,
+  );
+});
+
+test('ordinary ECDSA reservation keeps the exact inactive source-contribution envelopes', async () => {
+  const endpoint = new ReservationEndpointFixture();
+  const worker = new CloudflareOrdinaryInactiveSignerMaterialReservationWorkerV1(endpoint);
+  const request = ecdsaRequest('ecdsa', 'activation');
+
+  const result = await worker.reserveInactiveEcdsaSignerMaterialV1(request);
+  const replay = await worker.reserveInactiveEcdsaSignerMaterialV1(request);
+
+  expect(endpoint.ecdsaCalls).toHaveLength(1);
+  expect(replay).toEqual(result);
+  expect(result.state).toBe('inactive');
+  expect(result.clientMaterial.encryptedTargetClientShare.recipientPublicKeyB64u).toBe(
+    request.preparation.sourceContribution.binding.target.clientRecipientPublicKeyB64u,
+  );
+  expect(result.serverMaterial.reservationId).toBe('server-reservation-ecdsa');
+});
+
+test('ordinary ECDSA reservation rejects a Deriver-recipient package', async () => {
+  const endpoint = new ReservationEndpointFixture(
+    base64UrlEncode(new Uint8Array(32).fill(11)),
+  );
+  const worker = new CloudflareOrdinaryInactiveSignerMaterialReservationWorkerV1(endpoint);
+  const request = ecdsaRequest('ecdsa-deriver-recipient', 'activation');
+
+  await expect(worker.reserveInactiveEcdsaSignerMaterialV1(request)).rejects.toThrow(
+    'client share recipient does not match',
+  );
+});
+
+test('ordinary reservation rejects a conflicting signer for an existing activation ref', async () => {
+  const endpoint = new ReservationEndpointFixture();
+  const worker = new CloudflareOrdinaryInactiveSignerMaterialReservationWorkerV1(endpoint);
+  const first = ed25519Request('first', 'same-activation');
+  const conflicting = ed25519Request('conflicting', 'same-activation');
+
+  await worker.reserveInactiveEd25519SignerMaterialV1(first);
+  await expect(worker.reserveInactiveEd25519SignerMaterialV1(conflicting)).rejects.toThrow(
+    'conflicts for activation ref',
+  );
+  expect(endpoint.ed25519Calls).toHaveLength(1);
+});
+
+test('ordinary Ed25519 reservation rejects participant evidence changed by the worker', async () => {
+  const endpoint = new ReservationEndpointFixture(undefined, undefined, [2, 3]);
+  const worker = new CloudflareOrdinaryInactiveSignerMaterialReservationWorkerV1(endpoint);
+
+  await expect(
+    worker.reserveInactiveEd25519SignerMaterialV1(ed25519Request('evidence', 'activation')),
+  ).rejects.toThrow('participant ids do not match');
+});
+
+test('ordinary reservation service composes with the validated worker adapter', async () => {
+  const endpoint = new ReservationEndpointFixture();
+  const service = createCloudflareOrdinaryInactiveSignerMaterialReservationServiceV1({ endpoint });
+  const request = ecdsaRequest('service', 'activation');
+
+  const result = await service.reserveOrdinaryInactiveSignerMaterialV1(request);
+
+  expect(result.kind).toBe('ordinary_ecdsa_signer_material_reservation_v1');
+  expect(result.state).toBe('inactive');
+  expect(result.serverMaterial.reservationId).toBe('server-reservation-ecdsa');
+  expect(result).not.toHaveProperty('activatedAtMs');
+  expect(result.activationReceipt.state).toBe('inactive');
+});
+
+test('unavailable ordinary reservation worker fails closed without an activation fallback', async () => {
+  const worker = createUnavailableOrdinaryInactiveSignerMaterialReservationWorkerV1();
+
+  await expect(
+    worker.reserveInactiveEd25519SignerMaterialV1(ed25519Request('unavailable-ed', 'activation')),
+  ).rejects.toThrow('refusing activation fallback');
+  await expect(
+    worker.reserveInactiveEcdsaSignerMaterialV1(ecdsaRequest('unavailable-ecdsa', 'activation')),
+  ).rejects.toThrow('refusing activation fallback');
+});
+
+test('ordinary deactivation replays the exact terminal ref without a second worker call', async () => {
+  const endpoint = new ReservationEndpointFixture();
+  const worker = new CloudflareOrdinaryInactiveSignerMaterialDeactivationWorkerV1(endpoint);
+  const request = deactivationRequest('ed25519', 'revoked-activation');
+
+  await worker.deactivateOrdinarySignerMaterialV1(request);
+  await worker.deactivateOrdinarySignerMaterialV1(request);
+
+  expect(endpoint.ed25519DeactivationCalls).toHaveLength(1);
+  expect(endpoint.ed25519DeactivationCalls[0]).toEqual(request.materialActivation);
+});
+
+test('ordinary ECDSA deactivation selects the exact family endpoint', async () => {
+  const endpoint = new ReservationEndpointFixture();
+  const worker = new CloudflareOrdinaryInactiveSignerMaterialDeactivationWorkerV1(endpoint);
+
+  await worker.deactivateOrdinarySignerMaterialV1(
+    deactivationRequest('ecdsa_secp256k1', 'ecdsa-revoked-activation'),
+  );
+
+  expect(endpoint.ed25519DeactivationCalls).toHaveLength(0);
+  expect(endpoint.ecdsaDeactivationCalls).toHaveLength(1);
+});
+
+test('ordinary deactivation rejects a terminal response bound to another activation ref', async () => {
+  const endpoint = new ReservationEndpointFixture(
+    undefined,
+    buildOrdinaryMaterialActivationFixture('other'),
+  );
+  const worker = new CloudflareOrdinaryInactiveSignerMaterialDeactivationWorkerV1(endpoint);
+
+  await expect(
+    worker.deactivateOrdinarySignerMaterialV1(
+      deactivationRequest('ed25519', 'expected-activation'),
+    ),
+  ).rejects.toThrow('activation ref does not match');
+});
+
+test('unavailable ordinary deactivation worker fails closed', async () => {
+  const worker = createUnavailableOrdinaryInactiveSignerMaterialDeactivationPortV1();
+
+  await expect(
+    worker.deactivateOrdinarySignerMaterialV1(
+      deactivationRequest('ecdsa_secp256k1', 'unavailable-revocation'),
+    ),
+  ).rejects.toThrow('refusing activation fallback');
+});
+
+function ed25519Request(
+  signerLabel: string,
+  activationLabel: string,
+): OrdinaryEd25519SignerMaterialReservationRequestV1 {
+  return {
+    kind: 'ordinary_ed25519_signer_material_reservation_request_v1',
+    keyFamily: 'ed25519',
+    signer: buildOrdinaryEd25519SignerFixture(signerLabel),
+    plannedActivationRef: buildOrdinaryMaterialActivationFixture(activationLabel),
+    preparation: buildOrdinaryEd25519ReservationPreparationFixture(
+      activationLabel,
+      buildOrdinaryMaterialActivationFixture(activationLabel),
+    ),
+  };
+}
+
+function ecdsaRequest(
+  signerLabel: string,
+  activationLabel: string,
+): OrdinaryEcdsaSignerMaterialReservationRequestV1 {
+  return {
+    kind: 'ordinary_ecdsa_signer_material_reservation_request_v1',
+    keyFamily: 'ecdsa_secp256k1',
+    signer: buildOrdinaryEcdsaSignerFixture(signerLabel),
+    plannedActivationRef: buildOrdinaryMaterialActivationFixture(activationLabel),
+    preparation: buildOrdinaryEcdsaReservationPreparationFixture(
+      activationLabel,
+      buildOrdinaryMaterialActivationFixture(activationLabel),
+    ),
+  };
+}
+
+function deactivationRequest(
+  keyFamily: 'ed25519' | 'ecdsa_secp256k1',
+  activationLabel: string,
+): OrdinaryInactiveSignerMaterialDeactivationRequestV1 {
+  return {
+    keyFamily,
+    materialActivation: buildOrdinaryMaterialActivationFixture(activationLabel),
+    requestedAtMs: 1_700_000_000_000,
+  };
+}

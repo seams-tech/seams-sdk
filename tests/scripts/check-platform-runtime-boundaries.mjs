@@ -28,12 +28,12 @@ const runtimeForbiddenPatterns = [
 
 const getBrowserPlatformIndexedDBAllowList = guardBoundaryEntries([
   {
-    file: 'packages/sdk-web/src/core/platform/index.ts',
+    file: 'packages/wallet/src/core/platform/index.ts',
     owner: 'platform browser adapter barrel',
     reason: 'exports the browser IndexedDB adapter for web assembly consumers',
   },
   {
-    file: 'packages/sdk-web/src/core/platform/browser/createBrowserPlatformRuntime.ts',
+    file: 'packages/wallet/src/core/platform/browser/createBrowserPlatformRuntime.ts',
     owner: 'browser platform adapter',
     reason: 'defines the browser IndexedDB accessor until browser store adapters replace it',
   },
@@ -41,17 +41,17 @@ const getBrowserPlatformIndexedDBAllowList = guardBoundaryEntries([
 
 const browserRuntimeConstructionAllowList = guardBoundaryEntries([
   {
-    file: 'packages/sdk-web/src/core/platform/index.ts',
+    file: 'packages/wallet/src/core/platform/index.ts',
     owner: 'platform browser adapter barrel',
     reason: 'exports the browser platform runtime for web assembly consumers',
   },
   {
-    file: 'packages/sdk-web/src/core/platform/browser/createBrowserPlatformRuntime.ts',
+    file: 'packages/wallet/src/core/platform/browser/createBrowserPlatformRuntime.ts',
     owner: 'browser platform adapter',
     reason: 'defines current browser platform runtime',
   },
   {
-    file: 'packages/sdk-web/src/SeamsWeb/assembly/createBrowserSigningRuntime.ts',
+    file: 'packages/wallet/src/SeamsWeb/assembly/createBrowserSigningRuntime.ts',
     owner: 'browser runtime assembly',
     reason: 'browser web assembly constructs the browser platform runtime for SeamsWeb',
   },
@@ -59,58 +59,58 @@ const browserRuntimeConstructionAllowList = guardBoundaryEntries([
 
 const walletIframeCoreImportAllowList = guardBoundaryEntries([
   {
-    file: 'packages/sdk-web/src/core/config/configBuilder.ts',
+    file: 'packages/wallet/src/core/config/configBuilder.ts',
     owner: 'runtime/web config split',
     reason: 'current resolved SDK config still normalizes iframe wallet fields in core config',
   },
   {
-    file: 'packages/sdk-web/src/core/types/seams.ts',
+    file: 'packages/wallet/src/core/types/seams.ts',
     owner: 'runtime/web config split',
     reason: 'current shared config types still include iframe wallet fields',
   },
   {
-    file: 'packages/sdk-web/src/core/rpcClients/relayer/sealedRefreshCapabilities.ts',
+    file: 'packages/wallet/src/core/rpcClients/relayer/sealedRefreshCapabilities.ts',
     owner: 'web sealed-refresh boundary',
     reason: 'current sealed-refresh exchange types still carry wallet iframe expected-origin data',
   },
   {
-    file: 'packages/sdk-web/src/core/browser/walletIframe/events.ts',
+    file: 'packages/wallet/src/core/browser/walletIframe/events.ts',
     owner: 'browser wallet iframe primitive',
     reason: 'shared browser-platform event constants stay outside wallet iframe implementation',
   },
   {
-    file: 'packages/sdk-web/src/core/browser/walletIframe/host-mode.ts',
+    file: 'packages/wallet/src/core/browser/walletIframe/host-mode.ts',
     owner: 'browser wallet iframe primitive',
     reason: 'shared browser-platform host-mode state stays outside wallet iframe implementation',
   },
   {
-    prefix: 'packages/sdk-web/src/SeamsWeb/',
+    prefix: 'packages/wallet/src/SeamsWeb/',
     owner: 'browser web facade',
     reason: 'current browser facade owns wallet iframe routing',
   },
   {
-    prefix: 'packages/sdk-web/src/SeamsWeb/walletIframe/',
+    prefix: 'packages/wallet/src/SeamsWeb/walletIframe/',
     owner: 'browser wallet iframe implementation',
     reason: 'current wallet iframe implementation imports within its own browser-only tree',
   },
   {
-    prefix: 'packages/sdk-web/src/react/',
+    prefix: 'packages/wallet/src/react/',
     owner: 'browser React entrypoint',
     reason: 'current React hooks coordinate wallet iframe readiness and assets',
   },
   {
-    prefix: 'packages/sdk-web/src/plugins/',
+    prefix: 'packages/wallet/src/plugins/',
     owner: 'browser plugin entrypoints',
     reason: 'current browser plugins import wallet iframe host variants',
   },
   {
-    prefix: 'packages/sdk-web/src/core/signingEngine/uiConfirm/',
+    prefix: 'packages/wallet/src/core/signingEngine/uiConfirm/',
     owner: 'browser confirmation UI',
     reason: 'current confirmation UI modules include iframe-hosted browser UI surfaces',
   },
 ]);
 
-const embeddedRoots = ['packages/sdk-web/src/core/platform/embedded'];
+const embeddedRoots = ['packages/wallet/src/core/platform/embedded'];
 
 const embeddedForbiddenPatterns = [
   /\bWalletIframe\b/,
@@ -134,14 +134,14 @@ const useCaseIndexedDBForbiddenPatterns = [
 ];
 
 const forbiddenNativeFacadePaths = [
-  'packages/sdk-web/src/embedded',
-  'packages/sdk-web/src/embedded.ts',
+  'packages/wallet/src/embedded',
+  'packages/wallet/src/embedded.ts',
 ];
 
 const chainSignerFiles = [
-  'packages/sdk-web/src/SeamsWeb/operations/near/index.ts',
-  'packages/sdk-web/src/SeamsWeb/operations/tempo/index.ts',
-  'packages/sdk-web/src/SeamsWeb/operations/evm/index.ts',
+  'packages/wallet/src/SeamsWeb/operations/near/index.ts',
+  'packages/wallet/src/SeamsWeb/operations/tempo/index.ts',
+  'packages/wallet/src/SeamsWeb/operations/evm/index.ts',
 ];
 
 const chainSignerForbiddenPatterns = [
@@ -265,7 +265,7 @@ function collectPatternViolations(files, patterns, suffix) {
 
 function collectRuntimeViolations() {
   return collectPatternViolations(
-    listTypeScriptFiles('packages/sdk-web/src/core/runtime'),
+    listTypeScriptFiles('packages/wallet/src/core/runtime'),
     runtimeForbiddenPatterns,
     'core runtime import/platform leak',
   );
@@ -273,7 +273,7 @@ function collectRuntimeViolations() {
 
 function collectSigningWarmupViolations() {
   const violations = [];
-  const source = readRepoFile('packages/sdk-web/src/core/signingEngine/assembly/warmup.ts');
+  const source = readRepoFile('packages/wallet/src/core/signingEngine/assembly/warmup.ts');
 
   if (!source.includes('shouldPrewarmWorkers')) {
     violations.push('warmup.ts missing shouldPrewarmWorkers');
@@ -289,7 +289,7 @@ function collectSigningWarmupViolations() {
 
 function collectUseCaseIndexedDBViolations() {
   return collectPatternViolations(
-    listTypeScriptFiles('packages/sdk-web/src/core/signingEngine/useCases'),
+    listTypeScriptFiles('packages/wallet/src/core/signingEngine/useCases'),
     useCaseIndexedDBForbiddenPatterns,
     'use case imports IndexedDB persistence implementation',
   );
@@ -297,7 +297,7 @@ function collectUseCaseIndexedDBViolations() {
 
 function collectBrowserIndexedDBAccessorViolations() {
   const violations = [];
-  const files = listTypeScriptFilesInRoots(['packages/sdk-web/src']);
+  const files = listTypeScriptFilesInRoots(['packages/wallet/src']);
 
   for (const file of files) {
     const source = readRepoFile(file);
@@ -315,7 +315,7 @@ function collectBrowserIndexedDBAccessorViolations() {
 
 function collectBrowserRuntimeConstructionViolations() {
   const violations = [];
-  const files = listTypeScriptFilesInRoots(['packages/sdk-web/src']);
+  const files = listTypeScriptFilesInRoots(['packages/wallet/src']);
 
   for (const file of files) {
     const source = readRepoFile(file);
@@ -348,7 +348,7 @@ function collectNativeFacadeViolations() {
   }
 
   const forbiddenNamePattern = /(?:SeamsEmbedded|EmbeddedSigningSurface)/;
-  const files = listTypeScriptFilesInRoots(['packages/sdk-web/src']);
+  const files = listTypeScriptFilesInRoots(['packages/wallet/src']);
   for (const file of files) {
     if (forbiddenNamePattern.test(file)) {
       violations.push(`${file}: TypeScript native facade name exists`);
@@ -360,7 +360,7 @@ function collectNativeFacadeViolations() {
 
 function collectWalletIframeCoreImportViolations() {
   const violations = [];
-  const files = listTypeScriptFilesInRoots(['packages/sdk-web/src/core']);
+  const files = listTypeScriptFilesInRoots(['packages/wallet/src/core']);
   const forbiddenImportPattern =
     /(?:from\s+|import\s*\(\s*)['"][^'"]*(?:SeamsWeb|core\/WalletIframe)[^'"]*['"]/;
 
@@ -389,8 +389,8 @@ function collectChainSignerRoutingViolations() {
     }
   }
 
-  if (pathExists('packages/sdk-web/src/SeamsWeb/walletIframeRoute.ts')) {
-    violations.push('packages/sdk-web/src/SeamsWeb/walletIframeRoute.ts exists');
+  if (pathExists('packages/wallet/src/SeamsWeb/walletIframeRoute.ts')) {
+    violations.push('packages/wallet/src/SeamsWeb/walletIframeRoute.ts exists');
   }
 
   return violations;

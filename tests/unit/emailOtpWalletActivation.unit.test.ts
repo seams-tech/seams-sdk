@@ -4,6 +4,8 @@ import {
   type EmailOtpWalletPostUnlockActivationDeps,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/walletActivation';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import {
   buildNearEd25519SignerBinding,
@@ -22,6 +24,12 @@ function testNearSigner() {
     nearEd25519SigningKeyId: parseNearEd25519SigningKeyId('ed25519-key-1'),
     signerSlot: 2,
   });
+}
+
+function testWalletAuthMethodId(): WalletAuthMethodId {
+  const parsed = parseWalletAuthMethodId('otp-method-1');
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
 }
 
 class TestActivationPreferences {
@@ -51,6 +59,13 @@ class TestActivationSigningEngine {
     this.calls.push(`activate:${args.walletId}:${args.nearAccountId}:${args.signerSlot}`);
   }
 
+  async markSelectedEmailOtpWalletAuthorityUnlocked(input: {
+    walletId: ReturnType<typeof toWalletId>;
+    walletAuthMethodId: WalletAuthMethodId;
+  }): Promise<void> {
+    this.calls.push(`unlock-authority:${input.walletId}:${input.walletAuthMethodId}`);
+  }
+
   setWalletAuthenticated(args: {
     kind: 'authenticated';
     walletId: ReturnType<typeof toWalletId>;
@@ -78,10 +93,12 @@ test('Email OTP Ed25519 unlock activates the exact NEAR signer', async () => {
   await activateEmailOtpWalletAfterUnlock(activationDeps(calls), {
     kind: 'near_ed25519_wallet',
     signer: testNearSigner(),
+    walletAuthMethodId: testWalletAuthMethodId(),
   });
 
   expect(calls).toEqual([
     'activate:otp-wallet:alice.testnet:2',
+    'unlock-authority:otp-wallet:otp-method-1',
     'authenticate:otp-wallet:email_otp',
   ]);
 });
@@ -93,6 +110,7 @@ test('Email OTP Ed25519 unlock fails when exact signer activation fails', async 
     activateEmailOtpWalletAfterUnlock(activationDeps(calls, 'fails'), {
       kind: 'near_ed25519_wallet',
       signer: testNearSigner(),
+      walletAuthMethodId: testWalletAuthMethodId(),
     }),
   ).rejects.toThrow('profile activation failed');
   expect(calls).toEqual([]);
@@ -103,11 +121,13 @@ test('Email OTP EVM-family ECDSA unlock activates the wallet preference without 
   await activateEmailOtpWalletAfterUnlock(activationDeps(calls), {
     kind: 'evm_family_ecdsa_wallet',
     walletId: toWalletId('otp-wallet'),
+    walletAuthMethodId: testWalletAuthMethodId(),
   });
 
   expect(calls).toEqual([
     'preferences:otp-wallet',
     'preferences:reload',
+    'unlock-authority:otp-wallet:otp-method-1',
     'authenticate:otp-wallet:email_otp',
   ]);
 });

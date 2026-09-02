@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import { parseThresholdEd25519OperationStepUpGrantRequest } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/session/thresholdEd25519RequestValidation';
-import { issueEd25519OperationStepUpAuthorization } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/walletSession';
-import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
-import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
+import { parseThresholdEd25519OperationStepUpGrantRequest } from '../../packages/wallet-server/src/router/domains/ed25519Yao/session/thresholdEd25519RequestValidation';
+import { issueEd25519OperationStepUpAuthorization } from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/walletSession';
+import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/wallet/src/core/rpcClients/relayer/routerAbNormalSigning';
+import type { WebAuthnAuthenticationCredential } from '../../packages/wallet/src/core/types/webauthn';
 
 function passkeyCredential(): WebAuthnAuthenticationCredential {
   return {

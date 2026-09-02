@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   isLocalIntendedYaoFaultTokenV1,
   LocalIntendedYaoFaultControllerV1,
-} from '../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
+} from '../../packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker';
 import { requireLocalIntendedYaoFaultRouterOrigin } from '../e2e/intended-behaviours/harness';
 
 const ROUTER_EXECUTE_URL = 'https://router-ab-mpc-router/router-ab/router/ed25519-yao/execute';
@@ -65,7 +65,7 @@ test(
 );
 
 function acceptManagedLocalRouterOrigin(): void {
-  requireLocalIntendedYaoFaultRouterOrigin('https://localhost:9444');
+  requireLocalIntendedYaoFaultRouterOrigin('https://localhost:4101');
 }
 
 function rejectStagingRouterOrigin(): void {
@@ -78,8 +78,8 @@ function rejectProductionRouterOrigin(): void {
 
 function verifyLocalRouterOriginGuard(): void {
   expect(acceptManagedLocalRouterOrigin).not.toThrow();
-  expect(rejectStagingRouterOrigin).toThrow('requires https://localhost:9444');
-  expect(rejectProductionRouterOrigin).toThrow('requires https://localhost:9444');
+  expect(rejectStagingRouterOrigin).toThrow('requires https://localhost:4101');
+  expect(rejectProductionRouterOrigin).toThrow('requires https://localhost:4101');
 }
 
 test(

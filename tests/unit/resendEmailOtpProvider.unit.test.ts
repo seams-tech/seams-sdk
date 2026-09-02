@@ -4,14 +4,14 @@ import type {
   ConsoleEmailProviderSendRequest,
   ConsoleEmailProviderSendResult,
 } from '../../packages/console-server-ts/src/email/types';
-import { createEmailOtpDeliveryAdapter } from '../../packages/console-server-ts/src/email/otp/emailOtpDeliveryAdapter';
-import { resolveEmailOtpDeliveryProviderFromEnv } from '../../packages/console-server-ts/src/email/otp/emailOtpProviders';
+import { createEmailOtpDeliveryAdapter } from '../../packages/wallet-console-server-ts/src/email/otp/emailOtpDeliveryAdapter';
+import { resolveEmailOtpDeliveryProviderFromEnv } from '../../packages/wallet-console-server-ts/src/email/otp/emailOtpProviders';
 import {
   createResendEmailOtpMessageProvider,
   parseResendEmailOtpProviderConfig,
-} from '../../packages/console-server-ts/src/email/otp/resendEmailOtpProvider';
+} from '../../packages/wallet-console-server-ts/src/email/otp/resendEmailOtpProvider';
 import { createResendConsoleEmailProvider } from '../../packages/console-server-ts/src/email/providers';
-import type { CloudflareD1EmailOtpDeliveryProviderInput } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthConfig';
+import type { CloudflareD1EmailOtpDeliveryProviderInput } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthConfig';
 
 const DELIVERY_INPUT = {
   challengeId: 'challenge-1',

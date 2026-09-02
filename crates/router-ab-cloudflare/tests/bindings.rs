@@ -289,7 +289,6 @@ fn normal_signing_v2_wallet_session(expires_at_ms: u64) -> CloudflareRouterVerif
     CloudflareRouterVerifiedWalletSessionV1::new(
         "user-1",
         "account.near",
-        "authorization-session-1",
         "authorization-1",
         "wallet-session-1",
         "quota-1",
@@ -309,7 +308,6 @@ fn ecdsa_wallet_session(expires_at_ms: u64) -> CloudflareRouterVerifiedWalletSes
     CloudflareRouterVerifiedWalletSessionV1::new(
         "wallet-1",
         "wallet-1",
-        "authorization-session-1",
         "authorization-1",
         "wallet-session-1",
         "quota-1",
@@ -1728,7 +1726,6 @@ fn router_ab_ecdsa_derivation_wallet_session(
     CloudflareRouterVerifiedWalletSessionV1::new(
         "subject-1",
         request.scope.wallet_id.clone(),
-        "authorization-session-ecdsa-1",
         "authorization-ecdsa-1",
         "ecdsa-wallet-session-1",
         "quota-ecdsa-1",
@@ -3429,7 +3426,7 @@ fn router_wallet_session_verifier_accepts_ecdsa_projection() {
         .expect("ECDSA Wallet Session verifies");
 
     assert_eq!(session.account_id, "wallet-1");
-    assert_eq!(session.authorization_session_id, "authorization-session-1");
+    assert_eq!(session.authorization_id, "authorization-1");
     assert_eq!(session.authorization_level, "evm-family");
 }
 
@@ -6727,8 +6724,6 @@ fn router_ab_ecdsa_derivation_admitted_finalize_rejects_owner_wallet_session_aut
 #[test]
 fn router_ab_ecdsa_reusable_authorized_operation_rejects_substitution() {
     let request = router_ab_ecdsa_derivation_digest_signing_finalize_request();
-    let prepare_request = request.prepare_request().expect("prepare request");
-    let wallet_session = router_ab_ecdsa_derivation_wallet_session(&prepare_request);
     let authorized_operation =
         CloudflareRouterEcdsaAuthorizedOperationV1::ReusableWalletSessionAuthorizedOperationV1 {
             authorized_operation_id: "authorized-operation-ecdsa-1".to_owned(),
@@ -6741,10 +6736,7 @@ fn router_ab_ecdsa_reusable_authorized_operation_rejects_substitution() {
             operation_fingerprint_digest: request.operation_digests.intent_digest_b64u.clone(),
         };
     authorized_operation
-        .validate_for_finalize_request_with_session(
-            &request,
-            Some(&wallet_session.authorization_session_id),
-        )
+        .validate_for_finalize_request_with_session(&request, None)
         .expect("matching reusable authorized operation");
 
     let substituted = match authorized_operation {
@@ -6772,10 +6764,7 @@ fn router_ab_ecdsa_reusable_authorized_operation_rejects_substitution() {
         }
     };
     let error = substituted
-        .validate_for_finalize_request_with_session(
-            &request,
-            Some(&wallet_session.authorization_session_id),
-        )
+        .validate_for_finalize_request_with_session(&request, None)
         .expect_err("substituted reusable operation must fail before signing");
     assert_eq!(error.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 }

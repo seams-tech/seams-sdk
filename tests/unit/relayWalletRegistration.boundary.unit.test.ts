@@ -9,12 +9,12 @@ import {
   handleRouterApiWalletAddSignerStart,
   handleRouterApiWalletEcdsaKeyFactsInventory,
   handleRouterApiWalletRegistrationNearProvisioning,
-} from '../../packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes';
+} from '../../packages/wallet-server/src/router/domains/walletRegistration/walletRegistrationRoutes';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
   type RouteDefinition,
-} from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
+} from '../../packages/wallet-server/src/router/framework/routeDefinitions';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '../../packages/shared-ts/src/utils/ecdsaKeyFactsInventory';
 import { ROUTER_AB_PUBLIC_KEYSET_VERSION_V2 } from '../../packages/shared-ts/src/utils/routerAbPublicKeyset';
 import {
@@ -24,10 +24,20 @@ import {
   walletIdFromString,
   type AddSignerIntentV1,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { parseWebAuthnRpId, type WebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWebAuthnRpId,
+  type WebAuthnRpId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
-import { thresholdEcdsaChainTargetKey } from '../../packages/sdk-server-ts/src/core/thresholdEcdsaChainTarget';
+import { thresholdEcdsaChainTargetKey } from '../../packages/wallet-server/src/core/thresholdEcdsaChainTarget';
 import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import {
+  parseDelegatedWalletPermissionSetV1,
+  buildSigningOnlyPermissionsV1,
+} from '../../packages/shared-ts/src/authorization/delegatedAuthority';
+import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 
 const routeDefinitions = createRouterApiRouteDefinitions({
   enableHealthz: true,
@@ -98,9 +108,7 @@ function ecdsaInventoryInputFor(args: {
       walletRegistration: args.authService,
       authService: args.authService,
       session: args.session,
-      ...(args.authorizationSessions
-        ? { authorizationSessions: args.authorizationSessions }
-        : {}),
+      ...(args.authorizationSessions ? { authorizationSessions: args.authorizationSessions } : {}),
     },
   } as unknown as Parameters<typeof handleRouterApiWalletEcdsaKeyFactsInventory>[0];
 }
@@ -152,7 +160,9 @@ function addAuthMethodInputFor(args: {
   session?: Record<string, unknown>;
   apiKeyAuth?: Record<string, unknown>;
   orgProjectEnv?: Record<string, unknown>;
+  authorizationSessions?: Record<string, unknown>;
   walletId?: string;
+  walletAuthMethodId?: string;
   headers?: Record<string, string>;
   origin?: string;
 }) {
@@ -166,7 +176,10 @@ function addAuthMethodInputFor(args: {
       error: () => {},
     },
     origin: args.origin || 'https://wallet.example.test',
-    pathParams: { walletId: args.walletId || 'wallet_alice' },
+    pathParams: {
+      walletId: args.walletId || 'wallet_alice',
+      ...(args.walletAuthMethodId ? { walletAuthMethodId: args.walletAuthMethodId } : {}),
+    },
     route: route(args.routeId),
     services: {
       walletRegistration: args.authService,
@@ -174,6 +187,7 @@ function addAuthMethodInputFor(args: {
       session: args.session || {},
       publishableKeyAuth: args.apiKeyAuth,
       orgProjectEnv: args.orgProjectEnv,
+      ...(args.authorizationSessions ? { authorizationSessions: args.authorizationSessions } : {}),
     },
   } as unknown as Parameters<typeof handleRouterApiWalletAddAuthMethodStart>[0];
 }
@@ -236,10 +250,55 @@ function validEcdsaClientBootstrap() {
   };
 }
 
+function validNearAddSignerCustodyKeySet() {
+  return {
+    kind: 'near_ed25519_v1',
+    keyManifestDigestB64u: b64u(Array(32).fill(3)),
+    registeredPublicKeyB64u: b64u(Array(32).fill(4)),
+  };
+}
+
+function validEcdsaAddSignerCustodyKeySet() {
+  return {
+    kind: 'evm_family_ecdsa_v1',
+    keyManifestDigestB64u: b64u(Array(32).fill(3)),
+    clientRootPublicKey33B64u: b64u([2, ...Array(32).fill(1)]),
+  };
+}
+
 function webAuthnRpId(value: string): WebAuthnRpId {
   const parsed = parseWebAuthnRpId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
+}
+
+function walletAuthMethodId(value: string) {
+  const parsed = parseWalletAuthMethodId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function walletAuthorityId(value: string) {
+  const parsed = parseWalletAuthorityId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function addAuthMethodIntentSource() {
+  return {
+    walletAuthorityId: walletAuthorityId('wallet-authority:source'),
+    walletAuthMethodId: walletAuthMethodId('wallet-auth-method:source'),
+    walletSessionId: 'wallet-session:source',
+    authorityDigestB64u: 'authority-digest:source',
+    revocationEpoch: 0,
+  };
+}
+
+function addAuthMethodIntentCaller() {
+  return {
+    caller: 'same_device_addition' as const,
+    source: addAuthMethodIntentSource(),
+  };
 }
 
 const RP_ID = webAuthnRpId('wallet.example.test');
@@ -298,19 +357,36 @@ function ed25519AddSignerAdmissionRequest() {
   };
 }
 
-function addAuthMethodIntent(kind: 'passkey' | 'email_otp' = 'passkey'): AddAuthMethodIntentV1 {
-  return {
-    version: 'add_auth_method_intent_v1',
+function addAuthMethodIntent(
+  kind: 'passkey' | 'email_otp' = 'passkey',
+  caller: 'same_device_addition' | 'linked_device_ceremony' = 'same_device_addition',
+): AddAuthMethodIntentV1 {
+  const common = {
+    version: 'add_auth_method_intent_v1' as const,
     walletId: walletIdFromString('wallet_alice'),
     authMethod:
       kind === 'passkey'
-        ? { kind: 'passkey', rpId: RP_ID }
+        ? { kind: 'passkey' as const, rpId: RP_ID }
         : {
-            kind: 'email_otp',
+            kind: 'email_otp' as const,
             email: 'alice@example.test',
           },
+    targetWalletAuthMethodId: walletAuthMethodId('wallet-auth-method:target'),
     nonceB64u: 'add-auth-method-nonce',
   };
+  if (caller === 'linked_device_ceremony') {
+    return { ...common, caller };
+  }
+  return {
+    ...common,
+    ...addAuthMethodIntentCaller(),
+  };
+}
+
+function linkDevicesOnlyPermissions() {
+  const parsed = parseDelegatedWalletPermissionSetV1(['link_devices']);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
 }
 
 test.describe('wallet registration route boundaries', () => {
@@ -521,75 +597,8 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
-  test('add-signer start requires app-session signer-provisioning policy', async () => {
-    const intent = ecdsaAddSignerIntent();
-    const digest = await computeAddSignerIntentDigestB64u(intent);
-    let serviceRequest: unknown = null;
-    const response = await handleRouterApiWalletAddSignerStart(
-      addSignerInputFor({
-        routeId: 'wallet_add_signer_start',
-        body: {
-          intent,
-          addSignerIntentGrant: 'wasig_test',
-          addSignerIntentDigestB64u: digest,
-          auth: {
-            kind: 'app_session',
-            policy: {
-              permission: 'wallet_signer_provision',
-              walletId: 'wallet_alice',
-              signerSelection: intent.signerSelection,
-              expiresAtMs: Date.now() + 60_000,
-            },
-          },
-        },
-        authService: {
-          validateAppSessionVersion: async (request: unknown) => {
-            expect(request).toEqual({
-              userId: 'app-user-1',
-              appSessionVersion: 'asv-1',
-            });
-            return { ok: true };
-          },
-          startWalletAddSigner: async (request: unknown) => {
-            serviceRequest = request;
-            return {
-              ok: true,
-              addSignerCeremonyId: 'wasc_1',
-              intent,
-              kind: 'evm_family_ecdsa',
-              ecdsa: { kind: 'evm_family_ecdsa_keygen', targets: [] },
-            };
-          },
-        },
-        session: {
-          parse: async () => ({
-            ok: true,
-            claims: {
-              kind: 'app_session_v1',
-              sub: 'app-user-1',
-              walletId: 'wallet_alice',
-              appSessionVersion: 'asv-1',
-              exp: Math.floor(Date.now() / 1000) + 60,
-            },
-          }),
-        },
-      }),
-    );
-
-    expect(response.status).toBe(200);
-    expect(serviceRequest).toMatchObject({
-      auth: {
-        kind: 'app_session',
-        policy: {
-          permission: 'wallet_signer_provision',
-          walletId: 'wallet_alice',
-          signerSelection: intent.signerSelection,
-        },
-      },
-    });
-  });
-
   test('add-signer finalize normalizes ECDSA payloads', async () => {
+    const custodyKeySet = validEcdsaAddSignerCustodyKeySet();
     let finalizeRequest: unknown = null;
     const finalize = await handleRouterApiWalletAddSignerFinalize(
       addSignerInputFor({
@@ -601,6 +610,7 @@ test.describe('wallet registration route boundaries', () => {
           ecdsa: {
             expectedKeyHandles: [' key-handle-1 '],
           },
+          custodyKeySet,
         },
         authService: {
           finalizeWalletAddSigner: async (request: unknown) => {
@@ -625,11 +635,13 @@ test.describe('wallet registration route boundaries', () => {
       ecdsa: {
         expectedKeyHandles: ['key-handle-1'],
       },
+      custodyKeySet,
     });
   });
 
   test('add-signer finalize forwards the exact Ed25519 Yao activation reference', async () => {
     const sessionId = new Array<number>(32).fill(7);
+    const custodyKeySet = validNearAddSignerCustodyKeySet();
     let finalizeRequest: unknown = null;
     const response = await handleRouterApiWalletAddSignerFinalize(
       addSignerInputFor({
@@ -645,6 +657,7 @@ test.describe('wallet registration route boundaries', () => {
               session_id: sessionId,
             },
           },
+          custodyKeySet,
         },
         authService: {
           finalizeWalletAddSigner: async (request: unknown) => {
@@ -667,6 +680,7 @@ test.describe('wallet registration route boundaries', () => {
           session_id: sessionId,
         },
       },
+      custodyKeySet,
     });
   });
 
@@ -678,6 +692,7 @@ test.describe('wallet registration route boundaries', () => {
         body: {
           walletId: 'wallet_alice',
           authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
+          ...addAuthMethodIntentCaller(),
         },
         headers: {
           authorization: 'Bearer sk_test',
@@ -849,7 +864,7 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
-  test('add-auth-method start rejects threshold-session auth before service dispatch', async () => {
+  test('add-auth-method start rejects wallet-session body facts before service dispatch', async () => {
     const intent = addAuthMethodIntent();
     const digest = await computeAddAuthMethodIntentDigestB64u(intent);
     let called = false;
@@ -864,7 +879,6 @@ test.describe('wallet registration route boundaries', () => {
             kind: 'wallet_session',
             jwt: 'threshold-session-jwt',
           },
-          webauthnRegistration: { id: 'credential' },
         },
         authService: {
           startWalletAddAuthMethod: async () => {
@@ -880,8 +894,132 @@ test.describe('wallet registration route boundaries', () => {
     expect(response.body).toMatchObject({
       ok: false,
       code: 'invalid_body',
-      message: 'add-auth-method auth.kind is unsupported',
+      message: 'wallet_session auth carries no body facts',
     });
+  });
+
+  test('add-auth-method linked-device start admits an exact link_devices credential', async () => {
+    const fixture = await buildLinkedDeviceManagementAuthorityFixture({
+      label: 'route-exact',
+      permissions: linkDevicesOnlyPermissions(),
+      provenance: 'wallet_registration',
+      expiresAtMs: Date.now() + 60_000,
+      identity: {
+        walletId: 'wallet_alice',
+        authorityId: 'authority:route-exact',
+        walletAuthMethodId: 'auth-method:route-exact',
+        rpId: 'wallet.example.test',
+      },
+    });
+    const intent = addAuthMethodIntent('passkey', 'linked_device_ceremony');
+    const digest = await computeAddAuthMethodIntentDigestB64u(intent);
+    const token = String(fixture.operationCredential.token);
+    let exactReadInput: unknown = null;
+    let serviceRequest: unknown = null;
+    const response = await handleRouterApiWalletAddAuthMethodStart(
+      addAuthMethodInputFor({
+        routeId: 'wallet_add_auth_method_start',
+        body: {
+          intent,
+          addAuthMethodIntentGrant: 'waig_1',
+          addAuthMethodIntentDigestB64u: digest,
+          auth: { kind: 'wallet_session' },
+          authority: { kind: 'passkey' },
+        },
+        headers: { authorization: `Bearer ${token}` },
+        authorizationSessions: {
+          tenantId: fixture.issuedSession.session.tenantId,
+          readWalletSessionAuthorizationV2ByOperationCredential: async (input: unknown) => {
+            exactReadInput = input;
+            return {
+              authorization: fixture.issuedSession,
+              authority: fixture.authority,
+              authMethod: fixture.authMethod,
+              retiredAtMs: null,
+            };
+          },
+        },
+        authService: {
+          startWalletAddAuthMethod: async (request: unknown) => {
+            serviceRequest = request;
+            return { ok: true };
+          },
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(exactReadInput).toMatchObject({
+      tenantId: fixture.issuedSession.session.tenantId,
+      token,
+      nowMs: expect.any(Number),
+    });
+    expect(serviceRequest).toMatchObject({
+      walletId: 'wallet_alice',
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: 'wallet_alice',
+      },
+      intent: {
+        caller: 'linked_device_ceremony',
+      },
+      auth: {
+        kind: 'wallet_session',
+        walletSessionId: fixture.issuedSession.session.walletSessionId,
+        authorizationId: fixture.issuedSession.session.authorizationId,
+        rpId: fixture.authMethod.rpId,
+        credentialIdB64u: fixture.authMethod.credentialIdB64u,
+      },
+    });
+  });
+
+  test('add-auth-method linked-device start rejects an exact session without link_devices', async () => {
+    const fixture = await buildLinkedDeviceManagementAuthorityFixture({
+      label: 'route-no-link',
+      permissions: buildSigningOnlyPermissionsV1(),
+      provenance: 'wallet_registration',
+      expiresAtMs: Date.now() + 60_000,
+      identity: {
+        walletId: 'wallet_alice',
+        authorityId: 'authority:route-no-link',
+        walletAuthMethodId: 'auth-method:route-no-link',
+        rpId: 'wallet.example.test',
+      },
+    });
+    const intent = addAuthMethodIntent('passkey', 'linked_device_ceremony');
+    const digest = await computeAddAuthMethodIntentDigestB64u(intent);
+    let serviceCalled = false;
+    const response = await handleRouterApiWalletAddAuthMethodStart(
+      addAuthMethodInputFor({
+        routeId: 'wallet_add_auth_method_start',
+        body: {
+          intent,
+          addAuthMethodIntentGrant: 'waig_1',
+          addAuthMethodIntentDigestB64u: digest,
+          auth: { kind: 'wallet_session' },
+          authority: { kind: 'passkey' },
+        },
+        headers: { authorization: `Bearer ${String(fixture.operationCredential.token)}` },
+        authorizationSessions: {
+          tenantId: fixture.issuedSession.session.tenantId,
+          readWalletSessionAuthorizationV2ByOperationCredential: async () => ({
+            authorization: fixture.issuedSession,
+            authority: fixture.authority,
+            authMethod: fixture.authMethod,
+            retiredAtMs: null,
+          }),
+        },
+        authService: {
+          startWalletAddAuthMethod: async () => {
+            serviceCalled = true;
+            return { ok: true };
+          },
+        },
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(serviceCalled).toBe(false);
   });
 
   test('add-auth-method start validates digest and forwards normalized passkey authority', async () => {
@@ -902,10 +1040,6 @@ test.describe('wallet registration route boundaries', () => {
             rpId: 'wallet.example.test',
             credential,
             expectedChallengeDigestB64u: digest,
-          },
-          webauthnRegistration: {
-            id: 'new-passkey-registration',
-            response: { clientDataJSON: 'client-data' },
           },
         },
         authService: {
@@ -944,10 +1078,6 @@ test.describe('wallet registration route boundaries', () => {
       },
       authority: {
         kind: 'passkey',
-        webauthnRegistration: {
-          id: 'new-passkey-registration',
-          response: { clientDataJSON: 'client-data' },
-        },
       },
     });
   });
@@ -964,13 +1094,10 @@ test.describe('wallet registration route boundaries', () => {
           addAuthMethodIntentGrant: 'waig_1',
           addAuthMethodIntentDigestB64u: digest,
           auth: {
-            kind: 'app_session',
-            policy: {
-              permission: 'wallet_auth_method_provision',
-              walletId: 'wallet_alice',
-              authMethod: intent.authMethod,
-              expiresAtMs: Date.now() + 60_000,
-            },
+            kind: 'webauthn_assertion',
+            rpId: 'wallet.example.test',
+            credential: fakeWebAuthnAuthentication(),
+            expectedChallengeDigestB64u: digest,
           },
           emailOtpRegistrationProof: {
             version: 'email_otp_registration_proof_v1',
@@ -981,23 +1108,10 @@ test.describe('wallet registration route boundaries', () => {
             otpCode: '123456',
             otpChannel: 'email_otp',
             registrationIntentDigestB64u: digest,
-            appSessionVersion: 'v1',
           },
         },
-        session: {
-          parse: async () => ({
-            ok: true,
-            claims: {
-              kind: 'app_session_v1',
-              sub: 'user_1',
-              walletId: 'wallet_alice',
-              appSessionVersion: 'v1',
-              exp: Math.floor(Date.now() / 1000) + 60,
-            },
-          }),
-        },
         authService: {
-          validateAppSessionVersion: async () => ({ ok: true }),
+          verifyWebAuthnAuthenticationLite: async () => ({ success: true, verified: true }),
           startWalletAddAuthMethod: async (request: unknown) => {
             serviceRequest = request;
             return {
@@ -1029,56 +1143,6 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
-  test('add-auth-method start rejects mismatched authority branch', async () => {
-    const intent = addAuthMethodIntent('email_otp');
-    const digest = await computeAddAuthMethodIntentDigestB64u(intent);
-    const response = await handleRouterApiWalletAddAuthMethodStart(
-      addAuthMethodInputFor({
-        routeId: 'wallet_add_auth_method_start',
-        body: {
-          intent,
-          addAuthMethodIntentGrant: 'waig_1',
-          addAuthMethodIntentDigestB64u: digest,
-          auth: {
-            kind: 'app_session',
-            policy: {
-              permission: 'wallet_auth_method_provision',
-              walletId: 'wallet_alice',
-              authMethod: intent.authMethod,
-              expiresAtMs: Date.now() + 60_000,
-            },
-          },
-          webauthnRegistration: { id: 'new-passkey-registration' },
-        },
-        session: {
-          parse: async () => ({
-            ok: true,
-            claims: {
-              kind: 'app_session_v1',
-              sub: 'user_1',
-              walletId: 'wallet_alice',
-              appSessionVersion: 'v1',
-              exp: Math.floor(Date.now() / 1000) + 60,
-            },
-          }),
-        },
-        authService: {
-          validateAppSessionVersion: async () => ({ ok: true }),
-          startWalletAddAuthMethod: async () => {
-            throw new Error('service should not be called');
-          },
-        },
-      }),
-    );
-
-    expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({
-      ok: false,
-      code: 'invalid_body',
-      message: 'new auth-method authority kind must match the requested auth-method kind',
-    });
-  });
-
   test('add-auth-method finalize normalizes ceremony id and forwards request', async () => {
     let finalizeRequest: unknown = null;
     const response = await handleRouterApiWalletAddAuthMethodFinalize(
@@ -1107,47 +1171,38 @@ test.describe('wallet registration route boundaries', () => {
         kind: 'wallet_auth_method_management',
         walletId: 'wallet_alice',
       },
+      authorization: { kind: 'owner' },
       addAuthMethodCeremonyId: 'waac_1',
     });
   });
 
-  test('auth-method revoke validates app-session policy target and forwards request', async () => {
+  test('auth-method revoke verifies and forwards one exact auth-method id', async () => {
     let revokeRequest: unknown = null;
+    let proofRequest: unknown = null;
     const response = await handleRouterApiWalletRevokeAuthMethod(
       addAuthMethodInputFor({
         routeId: 'wallet_revoke_auth_method',
+        walletAuthMethodId: 'wallet-auth-method:target',
         body: {
-          target: {
+          walletId: 'wallet_alice',
+          walletAuthMethodId: 'wallet-auth-method:target',
+          requestedAtMs: 1_000,
+          sourceProof: {
             kind: 'email_otp',
-            email: 'Alice@Example.test',
+            challengeId: 'email-otp-challenge:revoke',
+            otpCode: '123456',
+            ownerProofBindingDigest: 'digest:revoke',
           },
-          auth: {
-            kind: 'app_session',
-            policy: {
-              permission: 'wallet_auth_method_revoke',
-              walletId: 'wallet_alice',
-              target: {
-                kind: 'email_otp',
-                email: 'alice@example.test',
-              },
-              expiresAtMs: Date.now() + 60_000,
-            },
-          },
-        },
-        session: {
-          parse: async () => ({
-            ok: true,
-            claims: {
-              kind: 'app_session_v1',
-              sub: 'user_1',
-              walletId: 'wallet_alice',
-              appSessionVersion: 'v1',
-              exp: Math.floor(Date.now() / 1000) + 60,
-            },
-          }),
         },
         authService: {
-          validateAppSessionVersion: async () => ({ ok: true }),
+          verifyWalletAuthMethodRevokeProof: async (request: unknown) => {
+            proofRequest = request;
+            return {
+              kind: 'authorized',
+              walletAuthMethodId: 'wallet-auth-method:source',
+              verifiedAtMs: 1_001,
+            };
+          },
           revokeWalletAuthMethod: async (request: unknown) => {
             revokeRequest = request;
             return {
@@ -1161,32 +1216,40 @@ test.describe('wallet registration route boundaries', () => {
     );
 
     expect(response.status).toBe(200);
+    expect(proofRequest).toEqual({
+      walletId: 'wallet_alice',
+      targetWalletAuthMethodId: 'wallet-auth-method:target',
+      requestedAtMs: 1_000,
+      sourceProof: {
+        kind: 'email_otp',
+        challengeId: 'email-otp-challenge:revoke',
+        otpCode: '123456',
+        ownerProofBindingDigest: 'digest:revoke',
+      },
+      expectedOrigin: 'https://wallet.example.test',
+    });
     expect(revokeRequest).toEqual({
       subject: {
         kind: 'wallet_auth_method_management',
         walletId: 'wallet_alice',
       },
-      auth: {
-        kind: 'app_session',
-        policy: {
-          permission: 'wallet_auth_method_revoke',
-          walletId: 'wallet_alice',
-          target: {
-            kind: 'email_otp',
-            email: 'alice@example.test',
-          },
-          expiresAtMs: expect.any(Number),
-        },
-      },
-      target: {
-        kind: 'email_otp',
-        email: 'alice@example.test',
-      },
       walletId: 'wallet_alice',
+      walletAuthMethodId: 'wallet-auth-method:target',
+      requestedAtMs: 1_000,
+      sourceProof: {
+        kind: 'email_otp',
+        challengeId: 'email-otp-challenge:revoke',
+        otpCode: '123456',
+        ownerProofBindingDigest: 'digest:revoke',
+      },
+      verifiedSource: {
+        walletAuthMethodId: 'wallet-auth-method:source',
+        verifiedAtMs: 1_001,
+      },
     });
   });
 
-  test('ECDSA key-facts inventory rejects opaque authorization without a bearer token', async () => {
+  test('ECDSA key-facts inventory rejects an operation credential reference without a bearer token', async () => {
     let inventoryCalled = false;
     const response = await handleRouterApiWalletEcdsaKeyFactsInventory(
       ecdsaInventoryInputFor({
@@ -1199,8 +1262,8 @@ test.describe('wallet registration route boundaries', () => {
             },
           ],
           auth: {
-            kind: 'opaque_wallet_session',
-            curve: 'ecdsa_secp256k1',
+            kind: 'opaque_wallet_session_operation_credential_v1',
+            walletSessionId: 'wallet-session:relay-boundary',
           },
         },
         authService: {

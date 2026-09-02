@@ -89,7 +89,7 @@ raw IndexedDB identity fields as authority.
 ## Current Store Inventory
 
 Current `seams_wallet` stores from
-`packages/sdk-web/src/core/indexedDB/schemaNames.ts`:
+`packages/wallet/src/core/indexedDB/schemaNames.ts`:
 
 | Store | Current role | Target disposition |
 | --- | --- | --- |
@@ -413,7 +413,7 @@ Check:
 Run focused checks as phases land:
 
 ```sh
-pnpm -C packages/sdk-web -s type-check
+pnpm -C packages/wallet -s type-check
 pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/walletCapabilityBindings.sourceGuard.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/runtimePostconditions.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/ed25519TransactionLaneSelection.unit.test.ts unit/nearSigning.sessionSelection.unit.test.ts --reporter=line

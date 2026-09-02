@@ -52,6 +52,8 @@ export type WebAuthnCredentialIdB64u = DomainId<'WebAuthnCredentialIdB64u'>;
 // authorization identity.
 export type PasskeyEnvelopeId = DomainId<'PasskeyEnvelopeId'>;
 export type WalletAuthMethodId = DomainId<'WalletAuthMethodId'>;
+// One opaque authority that owns wallet permissions and exact signer activations.
+export type WalletAuthorityId = DomainId<'WalletAuthorityId'>;
 export type WalletAuthorityBindingDigest = DomainId<'WalletAuthorityBindingDigest'>;
 // Opaque identities that keep MPC capability, material, runtime, and lifecycle
 // bindings independent from authorization and wallet-session identities.
@@ -129,15 +131,9 @@ export type SigningLaneId = DomainId<'SigningLaneId'>;
 // custody epochs.
 export type LaneShareEpoch = DomainId<'LaneShareEpoch'>;
 
-// Delegated agent principal that can hold a lane-scoped MPC share.
-export type AgentPrincipalId = DomainId<'AgentPrincipalId'>;
-
 // Linked physical or browser device principal that can hold a lane-scoped MPC
 // share.
 export type LinkedDeviceId = DomainId<'LinkedDeviceId'>;
-
-// Delegated mandate policy identity.
-export type MandatePolicyId = DomainId<'MandatePolicyId'>;
 
 // Immutable identities for one rotatable signing-lane protocol operation and
 // its aggregate enrollment.
@@ -145,15 +141,11 @@ export type LaneOperationId = DomainId<'LaneOperationId'>;
 export type LaneEnrollmentId = DomainId<'LaneEnrollmentId'>;
 export type LaneOperationIdempotencyKey = DomainId<'LaneOperationIdempotencyKey'>;
 export type LinkedDeviceEnrollmentId = DomainId<'LinkedDeviceEnrollmentId'>;
+// One immutable recovery operation that owns the fresh recovered-device authority.
+export type WalletRecoveryOperationId = DomainId<'WalletRecoveryOperationId'>;
 export type Ed25519YaoSuiteId = DomainId<'Ed25519YaoSuiteId'>;
 export type EcdsaRelayerKeyId = DomainId<'EcdsaRelayerKeyId'>;
 export type LaneHolderRecipientHandleV1 = DomainId<'LaneHolderRecipientHandleV1'>;
-
-// Canonical delegated intent digest.
-export type DelegatedIntentDigest = DomainId<'DelegatedIntentDigest'>;
-
-// Idempotency key scoped to a delegated signer request.
-export type DelegatedIdempotencyKey = DomainId<'DelegatedIdempotencyKey'>;
 
 // QR/device-link relay session identity.
 export type LinkDeviceSessionId = DomainId<'LinkDeviceSessionId'>;
@@ -322,8 +314,29 @@ export function parsePasskeyEnvelopeId(raw: unknown): DomainIdParseResult<Passke
   return parseDomainId(raw, 'passkeyEnvelopeId');
 }
 
+/**
+ * Mints a wallet auth-method id.
+ *
+ * Server-side only, and there is exactly one of these because an auth method's
+ * identity is now authenticated data: it goes into the custody envelope's AAD,
+ * so an id minted to a second shape would seal envelopes the parsers reject.
+ * A client never chooses one — registration and every addition receive theirs
+ * from the intent that allocated it.
+ */
+export function allocateWalletAuthMethodId(randomSuffix: string): WalletAuthMethodId {
+  const parsed = parseWalletAuthMethodId(`wallet-auth-method:${randomSuffix}`);
+  if (!parsed.ok) {
+    throw new Error(`Generated wallet auth-method ID is invalid: ${parsed.error.message}`);
+  }
+  return parsed.value;
+}
+
 export function parseWalletAuthMethodId(raw: unknown): DomainIdParseResult<WalletAuthMethodId> {
   return parseDomainId(raw, 'walletAuthMethodId');
+}
+
+export function parseWalletAuthorityId(raw: unknown): DomainIdParseResult<WalletAuthorityId> {
+  return parseDomainId(raw, 'walletAuthorityId');
 }
 
 export function parseWalletAuthorityBindingDigest(
@@ -535,16 +548,8 @@ export function parseLaneShareEpoch(raw: unknown): DomainIdParseResult<LaneShare
   return parseDomainId(raw, 'laneShareEpoch');
 }
 
-export function parseAgentPrincipalId(raw: unknown): DomainIdParseResult<AgentPrincipalId> {
-  return parseDomainId(raw, 'agentPrincipalId');
-}
-
 export function parseLinkedDeviceId(raw: unknown): DomainIdParseResult<LinkedDeviceId> {
   return parseDomainId(raw, 'linkedDeviceId');
-}
-
-export function parseMandatePolicyId(raw: unknown): DomainIdParseResult<MandatePolicyId> {
-  return parseDomainId(raw, 'mandatePolicyId');
 }
 
 export function parseLaneOperationId(raw: unknown): DomainIdParseResult<LaneOperationId> {
@@ -567,6 +572,12 @@ export function parseLinkedDeviceEnrollmentId(
   return parseDomainId(raw, 'linkedDeviceEnrollmentId');
 }
 
+export function parseWalletRecoveryOperationId(
+  raw: unknown,
+): DomainIdParseResult<WalletRecoveryOperationId> {
+  return parseDomainId(raw, 'walletRecoveryOperationId');
+}
+
 export function parseEd25519YaoSuiteId(raw: unknown): DomainIdParseResult<Ed25519YaoSuiteId> {
   return parseDomainId(raw, 'ed25519YaoSuiteId');
 }
@@ -579,18 +590,6 @@ export function parseLaneHolderRecipientHandleV1(
   raw: unknown,
 ): DomainIdParseResult<LaneHolderRecipientHandleV1> {
   return parseDomainId(raw, 'laneHolderRecipientHandle');
-}
-
-export function parseDelegatedIntentDigest(
-  raw: unknown,
-): DomainIdParseResult<DelegatedIntentDigest> {
-  return parseDomainId(raw, 'delegatedIntentDigest');
-}
-
-export function parseDelegatedIdempotencyKey(
-  raw: unknown,
-): DomainIdParseResult<DelegatedIdempotencyKey> {
-  return parseDomainId(raw, 'delegatedIdempotencyKey');
 }
 
 export function parseLinkDeviceSessionId(raw: unknown): DomainIdParseResult<LinkDeviceSessionId> {

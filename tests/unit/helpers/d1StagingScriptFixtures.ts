@@ -146,7 +146,7 @@ export function writeMisScopedConsoleD1StagingConfigFiles(prefix: string): D1Sta
 export function validD1ConsoleStagingConfig(): string {
   return `
 name = "seams-sdk-d1-console-staging"
-main = "src/router/cloudflare/d1ConsoleStagingWorker.ts"
+main = "../wallet-console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts"
 compatibility_date = "2026-04-17"
 compatibility_flags = ["nodejs_compat"]
 
@@ -154,7 +154,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "CONSOLE_DB"
 database_name = "seams-console-staging-nrt"
 database_id = "11111111-1111-4111-8111-111111111111"
-migrations_dir = "migrations/d1-console"
+migrations_dir = "../wallet-console-server-ts/migrations/d1-console"
 
 [vars]
 SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
@@ -169,21 +169,19 @@ required = ["CONSOLE_SESSION_HMAC_SECRET", "STRIPE_API_SK", "STRIPE_WEBHOOK_SECR
 export function validD1GatewayStagingConfig(): string {
   return `
 name = "seams-sdk-d1-gateway-staging"
-main = "src/router/cloudflare/d1RouterApiStagingWorker.ts"
+main = "../wallet-console-server-ts/src/router/cloudflare/d1GatewayWorker.ts"
 compatibility_date = "2026-04-17"
 compatibility_flags = ["nodejs_compat"]
-
-[[d1_databases]]
-binding = "CONSOLE_DB"
-database_name = "seams-console-staging-nrt"
-database_id = "11111111-1111-4111-8111-111111111111"
-migrations_dir = "migrations/d1-console"
 
 [[d1_databases]]
 binding = "SIGNER_DB"
 database_name = "seams-signer-staging-nrt"
 database_id = "22222222-2222-4222-8222-222222222222"
-migrations_dir = "node_modules/@seams/sdk-server/migrations/d1-signer"
+migrations_dir = "../wallet-console-server-ts/node_modules/@seams/wallet-server/migrations/d1-signer"
+
+[[services]]
+binding = "WALLET_CONSOLE"
+service = "seams-sdk-d1-console-staging"
 
 [[services]]
 binding = "SIGNING_WORKER"
@@ -209,10 +207,12 @@ ROUTER_AB_CEREMONY_JWT_KEY_ID = "router-ab-ceremony-staging-r1"
 ROUTER_AB_CEREMONY_JWT_ISSUER = "https://seams-gateway-staging.example"
 ROUTER_AB_CEREMONY_JWT_AUDIENCE = "router-ab"
 LINKED_DEVICE_WEBAUTHN_RP_ID = "wallet.staging.example"
-LINKED_DEVICE_WEBAUTHN_ORIGIN = "https://app.staging.example"
 SPONSORED_EXECUTION_REAL_PRICING_JSON = '{"provider":"outlayer","nearRpcUrl":"https://free.rpc.fastnear.com","oracleContractId":"price-oracle.near","nearUsdPriceId":"c415de8d2efa7db216527dff4b60e8f3a5311c740dadb233e13e12547e226750","maxAgeSeconds":120,"maxLatestToEmaDeviationBps":1000,"cacheTtlMs":60000,"near":{"TESTNET":{"nativeUnitDecimals":24,"estimateFeeAmountYocto":"1000000000000000000000","pricingVersionPrefix":"outlayer-near-testnet"}}}'
 SPONSORED_EXECUTION_STATIC_PRICING_JSON = '{"near":{"TESTNET":{"estimateFeeAmountYocto":"1000000000000000000000","minorPerFeeUnitNumerator":"300","minorPerFeeUnitDenominator":"1000000000000000000000000","pricingVersion":"static-near-testnet-v1"}}}'
 CONSOLE_BASE_URL = "https://console.staging.example"
+CONSOLE_SESSION_COOKIE_NAME = "seams-console-jwt"
+CONSOLE_SESSION_ISSUER = "https://seams-gateway-staging.example/console"
+CONSOLE_SESSION_AUDIENCE = "seams-console-session"
 CONSOLE_EMAIL_RUNTIME_PROFILE = "PRODUCTION"
 CONSOLE_EMAIL_PROVIDER = "RESEND"
 CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID = "console-email-staging-r1"
@@ -222,6 +222,6 @@ CONSOLE_EMAIL_CRON_EXPRESSIONS = "*/5 * * * *"
 crons = ["*/5 * * * *"]
 
 [secrets]
-required = ["ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK", "ACCOUNT_ID_DERIVATION_SECRET", "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET", "LINKED_DEVICE_OPERATOR_RECOVERY_SECRET", "LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET", "SPONSORED_EVM_EXECUTORS_JSON", "STRIPE_API_SK", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY", "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U"]
+required = ["CONSOLE_SESSION_HMAC_SECRET", "ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK", "ACCOUNT_ID_DERIVATION_SECRET", "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET", "LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET", "SPONSORED_EVM_EXECUTORS_JSON", "STRIPE_API_SK", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY", "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U"]
 `;
 }

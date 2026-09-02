@@ -1,25 +1,17 @@
 ---
 title: Sign with policy
-description: Unlock a wallet, then sign NEAR, NEP-413, or EVM-family requests with exact references.
+description: Sign NEAR, NEP-413, or EVM-family requests with exact references and per-transaction approval.
 ---
 
 # Sign with policy
 
-Unlock the wallet before signing. Each request supplies the exact wallet
-session plus the account or chain reference that should authorize it. The
-examples below use the React context for buttons and the `SeamsWeb` client for
-the signing calls.
-
-## Unlock the wallet
-
-Call `unlock` with the `walletId` returned during registration. The result has
-separate NEAR and EVM-family success branches; read `nearAccountId` only from
-the NEAR branch.
-
-<<< ../examples/unlock.ts
-
-The returned wallet session is the authority for the signing examples. Unlock
-again when the session expires or runs out of uses.
+Every request names the subject that authorizes it and the chain it targets.
+Omitted, both resolve to the signed-in wallet and a configured chain; pass them
+explicitly when your product manages more than one wallet or chain at a time.
+No unlock step is required: every request opens the wallet confirmation, and
+the user approves that transaction with the wallet's auth method. The examples
+below use `useWallet` for buttons and the `SeamsWeb` client for standalone
+signing calls.
 
 ## NEAR transaction
 
@@ -28,37 +20,49 @@ Replace the receiver, action, and execution status with values from your app.
 
 <<< ../examples/near-signing.tsx
 
-The example checks the React login state before it creates the account and
-session references. Keep that check next to your sign button so a locked wallet
-cannot start a request.
-
-## NEP-413 message
-
-Use `signNEP413Message` when an application needs a wallet signature for a
-structured off-chain message, such as a checkout quote.
-
-<<< ../examples/nep413-signing.ts
-
-The `recipient` and `state` values bind the message to the service and request
-that created it. Generate them from your application request rather than
-reusing the example values.
+`wallet.near` is `null` until the wallet has a NEAR account, so the check next
+to the sign button is a type guard rather than a convention — a request cannot
+start without one. For an exact subject, call `seams.near.signAndSendTransaction`
+with `walletSession` and `nearAccount` built from
+`walletSessionRefFromSession` and `nearAccountRefFromAccountId`.
 
 ## EVM-family transaction
 
-Build the transaction with your EVM utilities, then pass the typed request and
-an exact threshold-ECDSA chain target to Seams.
+`seams.evm` signs EIP-1559 transactions; `seams.tempo` signs Tempo's EIP-2718
+typed transactions. The two mirror each other — `signTransaction`,
+`executeTransaction`, and an `advanced` group — and stay separate because the
+envelopes and the signed results differ: `seams.evm` yields `txHashHex`,
+`seams.tempo` yields `senderHashHex`.
+
+Build the transaction with your EVM utilities, then name the chain: a configured
+network slug like `'ethereum-sepolia'` resolves to exactly one configured chain,
+and a selector matching two throws and names both rather than picking one.
+`seams.chainTarget(selector)` resolves the same value up front, and an exact
+chain target is still accepted.
 
 <<< ../examples/evm-signing.ts
 
 The example targets Tempo testnet and uses placeholder transaction values.
-Replace the chain, sender, recipient, fees, and data before sending a real
-transaction. A successful call returns the transaction hash.
+Replace the chain, recipient, fees, and data before sending a real transaction.
+`tx.chainId` is filled in from the chain target, and the RPC endpoint comes from
+the chain you configured — neither is repeated on the call. A successful call
+returns the transaction hash.
+
+Use `signTransaction` when your application broadcasts the payload itself; the
+post-broadcast reporting lives on `seams.evm.advanced` and
+`seams.tempo.advanced`.
+
+## Sign with less friction
+
+Per-transaction approval is the right default while you integrate. When your
+product needs a burst of signatures without prompting for each one, provision
+a signing session with `unlock`: read [wallet sessions and signing
+lanes](/guides/wallet-sessions-and-signing-lanes).
 
 ## Handle cancellation and retries
 
-- Treat a cancelled prompt or policy denial as the result of the current
+- Treat a cancelled confirmation or policy denial as the result of the current
   request and show a clear retry action.
-- Unlock again when the wallet session is expired or exhausted.
 - If broadcast status is uncertain, reconcile the transaction or nonce before
   submitting another request.
 - Keep the `onEvent` callback attached while you build progress UI or audit

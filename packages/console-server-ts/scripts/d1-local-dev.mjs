@@ -17,12 +17,9 @@ const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 
 export function resolveD1LocalDevEnvFiles(input = {}) {
-  const resolvedPackageRoot = input.packageRoot || packageRoot;
+  if (input.env?.SEAMS_D1_LOCAL_SKIP_ENV_FILE === '1') return [];
   const resolvedRepoRoot = input.repoRoot || repoRoot;
-  const candidates = [
-    path.join(resolvedRepoRoot, 'packages/sdk-server-ts/.dev.vars'),
-    path.join(resolvedPackageRoot, '.dev.vars'),
-  ];
+  const candidates = [path.join(resolvedRepoRoot, '.env.local')];
   const existing = [];
   for (const candidate of candidates) {
     if (existsSync(candidate)) existing.push(candidate);
@@ -34,7 +31,7 @@ export function buildD1LocalDevWranglerArgs(input = {}) {
   const env = input.env || process.env;
   const config = env.SEAMS_D1_LOCAL_WRANGLER_CONFIG || 'wrangler.d1-local.toml';
   const persistTo = env.SEAMS_D1_LOCAL_PERSIST_TO || '.wrangler/state/seams-d1';
-  const port = env.SEAMS_D1_LOCAL_PORT || '9090';
+  const port = env.SEAMS_D1_LOCAL_PORT || '4100';
   const envFiles = input.envFiles || resolveD1LocalDevEnvFiles(input);
   const localConsoleOrganizationId = env.SEAMS_LOCAL_CONSOLE_ORG_ID
     ? parseLocalConsoleOrganizationId(env.SEAMS_LOCAL_CONSOLE_ORG_ID)
@@ -78,9 +75,7 @@ export function runD1LocalDev(input = {}) {
     packageRoot: resolvedPackageRoot,
   });
   if (envFiles.length === 0) {
-    console.warn(
-      '[d1-local] No .dev.vars file found; private relayer-key routes will report not_configured.',
-    );
+    console.warn('[d1-local] No root .env.local file found; local secrets are not configured.');
   } else {
     printEnvFiles(envFiles);
   }
@@ -102,7 +97,7 @@ function printFriendlyPaths(linkedDatabases) {
 
 function printEnvFiles(envFiles) {
   for (const envFile of envFiles) {
-    console.log(`[d1-local] Loading Wrangler env file ${path.relative(repoRoot, envFile)}`);
+    console.log(`[d1-local] Loading local env file ${path.relative(repoRoot, envFile)}`);
   }
 }
 

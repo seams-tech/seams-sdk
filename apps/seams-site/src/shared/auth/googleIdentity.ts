@@ -24,7 +24,6 @@ export interface GoogleIdentityApi {
   disableAutoSelect?: () => void;
 }
 
-// Raw GIS prompt notifications vary by browser/FedCM mode; guard method reads at this boundary.
 export interface GooglePromptMomentNotification {
   isNotDisplayed?: () => boolean;
   isSkippedMoment?: () => boolean;
@@ -48,15 +47,8 @@ let googleIdentityScriptLoadPromise: Promise<void> | null = null;
 const GOOGLE_ID_TOKEN_TIMEOUT_MS = 20_000;
 const GOOGLE_IDENTITY_SCRIPT_TIMEOUT_MS = 15_000;
 
-type ActiveGoogleIdTokenRequest = {
-  clientId: string;
-  resolve: (token: string) => void;
-  reject: (error: Error) => void;
-  dispose: () => void;
-};
-
 let initializedGoogleClientId: string | null = null;
-let activeGoogleIdTokenRequest: ActiveGoogleIdTokenRequest | null = null;
+let activeGoogleIdTokenRequest: GoogleIdTokenRequest | null = null;
 
 function normalizeRelayBaseUrl(input: unknown): string {
   return String(input || '')
@@ -99,27 +91,8 @@ export async function fetchGoogleAuthOptions(relayerBaseUrl: string): Promise<Go
 
 function makeGooglePromptTimeoutError(): Error {
   return new Error(
-    'Google sign-in did not open or return an id_token. Check popup/FedCM permissions, disable blockers for this local site, then retry.',
+    'Google One Tap did not open or return an id_token. Check FedCM permissions, disable blockers for this site, then retry.',
   );
-}
-
-function readGooglePromptDiagnostics(clientId: string): Record<string, unknown> {
-  return {
-    mode: 'prompt',
-    origin: typeof window !== 'undefined' ? window.location.origin : '',
-    protocol: typeof window !== 'undefined' ? window.location.protocol : '',
-    inIframe: typeof window !== 'undefined' ? window.self !== window.top : false,
-    clientIdSuffix: clientId.slice(-16),
-  };
-}
-
-function logGooglePromptDiagnostics(
-  event: string,
-  diagnostics: Record<string, unknown>,
-  level: 'debug' | 'warn' = 'debug',
-): void {
-  const logger = level === 'warn' ? console.warn : console.debug;
-  logger(`[Google SSO] ${event}`, diagnostics);
 }
 
 export function ensureGoogleIdentityScriptLoaded(): Promise<void> {
@@ -174,14 +147,12 @@ function handleGoogleCredentialResponse(response: GoogleIdCredentialResponse): v
     return;
   }
 
-  activeGoogleIdTokenRequest = null;
-  request.dispose();
   const token = String(response?.credential || '').trim();
   if (!token) {
-    request.reject(new Error('Google sign-in did not return an id_token'));
+    request.fail(new Error('Google sign-in did not return an id_token'));
     return;
   }
-  request.resolve(token);
+  request.succeed(token);
 }
 
 function initializeGoogleIdentityForClientId(input: {
@@ -201,104 +172,96 @@ function initializeGoogleIdentityForClientId(input: {
   initializedGoogleClientId = input.clientId;
 }
 
-function googlePromptMomentFailure(
-  notification: GooglePromptMomentNotification,
-): Error | null {
+function googlePromptFailure(notification: GooglePromptMomentNotification): Error | null {
   if (notification.isNotDisplayed?.()) {
-    const reason = notification.getNotDisplayedReason?.() || 'not_displayed';
-    return new Error(`Google sign-in prompt was not displayed (${reason})`);
+    return new Error(
+      `Google One Tap was not displayed (${notification.getNotDisplayedReason?.() || 'not_displayed'})`,
+    );
   }
   if (notification.isSkippedMoment?.()) {
-    const reason = notification.getSkippedReason?.() || 'skipped';
-    return new Error(`Google sign-in prompt was skipped (${reason})`);
+    return new Error(
+      `Google One Tap was skipped (${notification.getSkippedReason?.() || 'skipped'})`,
+    );
   }
   if (notification.isDismissedMoment?.()) {
-    const reason = notification.getDismissedReason?.() || 'dismissed';
-    return new Error(`Google sign-in prompt was dismissed (${reason})`);
+    return new Error(
+      `Google One Tap was dismissed (${notification.getDismissedReason?.() || 'dismissed'})`,
+    );
   }
   return null;
 }
 
-function handleGooglePromptMoment(
-  finishReject: (input: string | Error) => void,
-  notification: GooglePromptMomentNotification,
-): void {
-  const failure = googlePromptMomentFailure(notification);
-  if (failure) finishReject(failure);
+class GoogleIdTokenRequest {
+  private settled = false;
+  private timeoutId: number | null = null;
+
+  constructor(
+    readonly clientId: string,
+    private readonly googleIdApi: GoogleIdentityApi,
+    private readonly resolvePromise: (token: string) => void,
+    private readonly rejectPromise: (error: Error) => void,
+  ) {}
+
+  start(): void {
+    this.timeoutId = window.setTimeout(this.onTimeout, GOOGLE_ID_TOKEN_TIMEOUT_MS);
+    this.googleIdApi.prompt(this.onPromptMoment);
+  }
+
+  succeed(token: string): void {
+    if (this.settled) return;
+    this.settled = true;
+    this.dispose();
+    this.resolvePromise(token);
+  }
+
+  fail(error: Error): void {
+    if (this.settled) return;
+    this.settled = true;
+    this.dispose();
+    this.rejectPromise(error);
+  }
+
+  private readonly onPromptMoment = (notification: GooglePromptMomentNotification): void => {
+    const failure = googlePromptFailure(notification);
+    if (failure) this.fail(failure);
+  };
+
+  private readonly onTimeout = (): void => {
+    this.fail(makeGooglePromptTimeoutError());
+  };
+
+  private dispose(): void {
+    if (activeGoogleIdTokenRequest === this) activeGoogleIdTokenRequest = null;
+    if (this.timeoutId !== null) window.clearTimeout(this.timeoutId);
+    this.timeoutId = null;
+    try {
+      this.googleIdApi.cancel?.();
+    } catch {}
+  }
 }
 
-function requestGoogleIdTokenWithPrompt(clientId: string): Promise<string> {
+function requestGoogleIdTokenWithOneTap(clientId: string): Promise<string> {
+  const googleIdApi = window.google?.accounts?.id;
+  if (!googleIdApi) return Promise.reject(new Error('Google Identity API is unavailable'));
+  if (activeGoogleIdTokenRequest) {
+    return Promise.reject(new Error('A Google sign-in request is already active'));
+  }
+  initializeGoogleIdentityForClientId({ googleIdApi, clientId });
   return new Promise<string>((resolve, reject) => {
-    const googleIdApi = window.google?.accounts?.id;
-    if (!googleIdApi) {
-      reject(new Error('Google Identity API is unavailable'));
-      return;
-    }
-    if (activeGoogleIdTokenRequest) {
-      reject(new Error('A Google sign-in request is already active'));
-      return;
-    }
-
-    let settled = false;
-    let requestTimeout: number | undefined;
-    const clearTimers = () => {
-      if (requestTimeout !== undefined) window.clearTimeout(requestTimeout);
-      requestTimeout = undefined;
-    };
-    const cancelGooglePrompt = () => {
-      try {
-        googleIdApi.cancel?.();
-      } catch {
-        // Best-effort cleanup; Google Identity does not guarantee cancel availability.
-      }
-    };
-    const finishResolve = (token: string) => {
-      if (settled) return;
-      settled = true;
-      if (activeGoogleIdTokenRequest?.clientId === clientId) {
-        activeGoogleIdTokenRequest = null;
-      }
-      clearTimers();
-      resolve(token);
-    };
-    const finishReject = (input: string | Error) => {
-      if (settled) return;
-      settled = true;
-      if (activeGoogleIdTokenRequest?.clientId === clientId) {
-        activeGoogleIdTokenRequest = null;
-      }
-      clearTimers();
-      cancelGooglePrompt();
-      if (input instanceof Error) {
-        reject(input);
-        return;
-      }
-      reject(new Error(input));
-    };
-
-    requestTimeout = window.setTimeout(() => {
-      finishReject(makeGooglePromptTimeoutError());
-    }, GOOGLE_ID_TOKEN_TIMEOUT_MS);
-
-    initializeGoogleIdentityForClientId({ googleIdApi, clientId });
-    activeGoogleIdTokenRequest = {
-      clientId,
-      resolve: finishResolve,
-      reject: finishReject,
-      dispose: clearTimers,
-    };
-    logGooglePromptDiagnostics(
-      'Google sign-in prompt requested',
-      readGooglePromptDiagnostics(clientId),
-    );
+    const request = new GoogleIdTokenRequest(clientId, googleIdApi, resolve, reject);
+    activeGoogleIdTokenRequest = request;
     try {
-      googleIdApi.prompt(handleGooglePromptMoment.bind(null, finishReject));
+      request.start();
     } catch (error: unknown) {
-      finishReject(error instanceof Error ? error : new Error(String(error)));
+      request.fail(error instanceof Error ? error : new Error(String(error)));
     }
   });
 }
 
+export function cancelGoogleIdTokenRequest(): void {
+  activeGoogleIdTokenRequest?.fail(new Error('Google sign-in was cancelled'));
+}
+
 export async function requestGoogleIdToken(clientId: string): Promise<string> {
-  return await requestGoogleIdTokenWithPrompt(clientId);
+  return await requestGoogleIdTokenWithOneTap(clientId);
 }

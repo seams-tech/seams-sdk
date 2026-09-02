@@ -122,34 +122,34 @@ cross-run artifact inputs.
 
 ### Secrets
 
-| Secret                                          | Used by                  | Notes                                                                                            |
-| ----------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------ |
-| `CLOUDFLARE_API_TOKEN`                          | Pages, Router A/B deploy | Frontend environments use Pages-only tokens; backend role environments use Worker-scoped tokens. |
-| `CLOUDFLARE_ACCOUNT_ID`                         | Pages, Router A/B deploy | Cloudflare account id, scoped to the matching authority environment.                             |
-| `CF_PAGES_PROJECT_VITE`                         | Pages deploy             | Cloudflare Pages project for the app/site surface.                                               |
-| `CF_PAGES_PROJECT_DOCS`                         | Pages deploy             | Cloudflare Pages project for the VitePress documentation surface.                                |
-| `CF_PAGES_PROJECT_WALLET`                       | Pages deploy             | Staging wallet Pages project.                                                                    |
-| `CF_PAGES_PROJECT_WALLET_TESTNET`               | Pages deploy             | Production testnet wallet Pages project; pending production-testnet provisioning.                |
-| `CF_PAGES_PROJECT_WALLET_MAINNET`               | Pages deploy             | Production mainnet wallet Pages project; pending production-mainnet provisioning.                |
-| `DERIVER_A_ROOT_SHARE_WIRE_SECRET`              | Router A/B deploy        | Deriver A root-share wire secret. Written to the Deriver A Worker environment.                   |
-| `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`           | Router A/B deploy        | Deriver A signer-envelope HPKE private key.                                                      |
-| `DERIVER_A_PEER_SIGNING_KEY`                    | Router A/B deploy        | Deriver A private key for A/B peer messages.                                                     |
-| `DERIVER_B_ROOT_SHARE_WIRE_SECRET`              | Router A/B deploy        | Deriver B root-share wire secret. Written to the Deriver B Worker environment.                   |
-| `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`           | Router A/B deploy        | Deriver B signer-envelope HPKE private key.                                                      |
-| `DERIVER_B_PEER_SIGNING_KEY`                    | Router A/B deploy        | Deriver B private key for A/B peer messages.                                                     |
-| `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY` | Router A/B deploy        | SigningWorker server-output HPKE private key.                                                    |
-| `RELAY_SESSION_HMAC_SECRET`                     | Gateway deploy           | Environment-specific browser session signing secret.                                             |
-| `ACCOUNT_ID_DERIVATION_SECRET`                  | Gateway deploy           | Environment-specific account identifier derivation secret.                                       |
-| `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`        | Router A/B and Gateway   | Shared only by Workers inside one environment. Never share it across staging and production.     |
-| `LINKED_DEVICE_OPERATOR_RECOVERY_SECRET`        | Gateway deploy           | Dedicated private operator-recovery secret; keep it distinct from Router internal auth.          |
+| Secret                                          | Used by                  | Notes                                                                                                     |
+| ----------------------------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`                          | Pages, Router A/B deploy | Frontend environments use Pages-only tokens; backend role environments use Worker-scoped tokens.          |
+| `CLOUDFLARE_ACCOUNT_ID`                         | Pages, Router A/B deploy | Cloudflare account id, scoped to the matching authority environment.                                      |
+| `CF_PAGES_PROJECT_VITE`                         | Pages deploy             | Cloudflare Pages project for the app/site surface.                                                        |
+| `CF_PAGES_PROJECT_DOCS`                         | Pages deploy             | Cloudflare Pages project for the VitePress documentation surface.                                         |
+| `CF_PAGES_PROJECT_WALLET`                       | Pages deploy             | Staging wallet Pages project.                                                                             |
+| `CF_PAGES_PROJECT_WALLET_TESTNET`               | Pages deploy             | Production testnet wallet Pages project; pending production-testnet provisioning.                         |
+| `CF_PAGES_PROJECT_WALLET_MAINNET`               | Pages deploy             | Production mainnet wallet Pages project; pending production-mainnet provisioning.                         |
+| `DERIVER_A_ROOT_SHARE_WIRE_SECRET`              | Router A/B deploy        | Deriver A root-share wire secret. Written to the Deriver A Worker environment.                            |
+| `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`           | Router A/B deploy        | Deriver A signer-envelope HPKE private key.                                                               |
+| `DERIVER_A_PEER_SIGNING_KEY`                    | Router A/B deploy        | Deriver A private key for A/B peer messages.                                                              |
+| `DERIVER_B_ROOT_SHARE_WIRE_SECRET`              | Router A/B deploy        | Deriver B root-share wire secret. Written to the Deriver B Worker environment.                            |
+| `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`           | Router A/B deploy        | Deriver B signer-envelope HPKE private key.                                                               |
+| `DERIVER_B_PEER_SIGNING_KEY`                    | Router A/B deploy        | Deriver B private key for A/B peer messages.                                                              |
+| `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY` | Router A/B deploy        | SigningWorker server-output HPKE private key.                                                             |
+| `RELAY_SESSION_HMAC_SECRET`                     | Gateway deploy           | Environment-specific browser session signing secret.                                                      |
+| `ACCOUNT_ID_DERIVATION_SECRET`                  | Gateway deploy           | Environment-specific account identifier derivation secret.                                                |
+| `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`        | Router A/B and Gateway   | Shared only by Workers inside one environment. Never share it across staging and production.              |
 | `LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET`   | Gateway deploy           | Dedicated private HMAC secret for authenticated linked-device target descriptors; minimum 32 UTF-8 bytes. |
-| `ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK`            | Gateway deploy           | Private ceremony JWT signing key for this environment.                                           |
-| `RELAYER_PRIVATE_KEY`                           | Gateway deploy           | Optional funded NEAR relayer key; its public key is derived during startup.                      |
-| `SPONSORED_EVM_EXECUTORS_JSON`                  | Gateway deploy           | Optional environment-specific sponsored EVM executor secrets.                                    |
-| `STRIPE_API_SK`                                 | Gateway deploy           | Required Stripe secret or restricted key for hosted Checkout sessions.                           |
-| `STRIPE_WEBHOOK_SECRET`                         | Gateway deploy           | Required Stripe endpoint signing secret for webhook verification.                                |
-| `RESEND_API_KEY`                                | Gateway deploy           | Required Resend API key for console transactional email.                                         |
-| `CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U`      | Gateway deploy           | Generated 32-byte base64url key for invitation-secret encryption.                                |
+| `ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK`            | Gateway deploy           | Private ceremony JWT signing key for this environment.                                                    |
+| `RELAYER_PRIVATE_KEY`                           | Gateway deploy           | Optional funded NEAR relayer key; its public key is derived during startup.                               |
+| `SPONSORED_EVM_EXECUTORS_JSON`                  | Gateway deploy           | Optional environment-specific sponsored EVM executor secrets.                                             |
+| `STRIPE_API_SK`                                 | Gateway deploy           | Required Stripe secret or restricted key for hosted Checkout sessions.                                    |
+| `STRIPE_WEBHOOK_SECRET`                         | Gateway deploy           | Required Stripe endpoint signing secret for webhook verification.                                         |
+| `RESEND_API_KEY`                                | Gateway deploy           | Required Resend API key for console transactional email.                                                  |
+| `CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U`      | Console deploy           | Generated 32-byte base64url key for invitation-secret encryption.                                         |
+| `CONSOLE_WEBHOOK_SECRET_KEY_B64U`               | Console deploy           | Generated 32-byte base64url key sealing webhook signing secrets at rest. Without it every `/console/webhooks` route answers 501. |
 
 ### Variables
 
@@ -247,8 +247,8 @@ Pages credentials.
 
 The workflow copies SDK runtime assets into the Pages output:
 
-- `packages/sdk-web/dist/esm/sdk/*` -> `apps/seams-site/dist/sdk/*`
-- `packages/sdk-web/dist/workers/*` -> `apps/seams-site/dist/sdk/workers/*`
+- `packages/wallet/dist/esm/sdk/*` -> `apps/seams-site/dist/sdk/*`
+- `packages/wallet/dist/workers/*` -> `apps/seams-site/dist/sdk/workers/*`
 
 That means Pages serves the same runtime assets at `/sdk/*` that were built
 for the commit being deployed.
@@ -447,7 +447,7 @@ target is D1/DO/R2, with no mixed Postgres runtime.
 | Domain                       | Cloudflare binding | Source of schema/state                                      |
 | ---------------------------- | ------------------ | ----------------------------------------------------------- |
 | console/control-plane        | `CONSOLE_DB`       | `packages/console-server-ts/migrations/d1-console`          |
-| signer/runtime metadata      | `SIGNER_DB`        | `packages/sdk-server-ts/migrations/d1-signer`               |
+| signer/runtime metadata      | `SIGNER_DB`        | `packages/wallet-server/migrations/d1-signer`               |
 | threshold/session/admission  | `THRESHOLD_STORE`  | `ThresholdStoreDurableObject` SQLite Durable Object storage |
 | dashboard and recovery files | R2                 | backup/export jobs                                          |
 

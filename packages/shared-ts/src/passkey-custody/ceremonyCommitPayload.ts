@@ -29,6 +29,11 @@ export type WalletCustodyCeremonyRecoveryWrapPayload = {
   readonly aadHashB64u: string;
 };
 
+export type WalletCustodyRecoveryCodeLocatorPayload = {
+  readonly locatorB64u: string;
+  readonly recoveryKeyId: string;
+};
+
 /**
  * The custody records a run writes when it *establishes* custody — the wallet's
  * first key set. Absent when the run joined custody that already existed, which
@@ -49,6 +54,8 @@ export type EstablishedCustodyRecordsPayload = {
   readonly envelopeCiphertextDigestB64u: string;
   /** Ten wraps of one manifest KEK, one per recovery code. */
   readonly recoveryManifestKekWraps: readonly WalletCustodyCeremonyRecoveryWrapPayload[];
+  /** Added by the browser after pairing each issued code with its wrap. */
+  readonly recoveryCodeLocators?: readonly WalletCustodyRecoveryCodeLocatorPayload[];
   readonly recoveryEntryNonceB64u: string;
   readonly recoveryEntryCiphertextB64u: string;
   readonly recoveryEntryAadHashB64u: string;

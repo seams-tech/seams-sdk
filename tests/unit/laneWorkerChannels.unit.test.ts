@@ -3,7 +3,7 @@ import {
   createAuthorizedLaneHolderWorkerRequestHandlerV1,
   createLaneHolderWorkerTransportV1,
   type LaneHolderWorkerEndpointV1,
-} from '../../packages/sdk-web/src/core/signingEngine/workerManager/laneWorkerChannels';
+} from '../../packages/wallet/src/core/signingEngine/workerManager/laneWorkerChannels';
 import type {
   LaneHolderPackageWireV1,
   LaneHolderRecipientWorkerV1,

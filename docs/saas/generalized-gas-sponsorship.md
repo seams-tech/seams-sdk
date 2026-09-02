@@ -328,7 +328,7 @@ does not scale to multiple chains and duplicates data that can be derived.
 Today the codebase has:
 
 - EVM sponsorship centered around [packages/console-server-ts/src/sponsorship/evm.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/evm.ts) and [packages/console-server-ts/src/sponsorship/evmRelay.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/evmRelay.ts)
-- NEAR sponsored execution behavior centered around [packages/sdk-server-ts/src/router/cloudflare/routes/signedDelegate.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/router/cloudflare/routes/signedDelegate.ts)
+- NEAR sponsored execution behavior centered around [packages/wallet-server/src/router/cloudflare/routes/signedDelegate.ts](/Users/pta/Dev/rust/seams-sdk/packages/wallet-server/src/router/cloudflare/routes/signedDelegate.ts)
 
 Both already share some high-level concerns:
 
@@ -707,8 +707,8 @@ Objective:
 
 Primary targets:
 
-- [packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts)
-- [packages/sdk-server-ts/src/router/cloudflare/routes/signedDelegate.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/router/cloudflare/routes/signedDelegate.ts)
+- [packages/wallet-server/src/router/cloudflare/routes/sponsoredEvmCall.ts](/Users/pta/Dev/rust/seams-sdk/packages/wallet-server/src/router/cloudflare/routes/sponsoredEvmCall.ts)
+- [packages/wallet-server/src/router/cloudflare/routes/signedDelegate.ts](/Users/pta/Dev/rust/seams-sdk/packages/wallet-server/src/router/cloudflare/routes/signedDelegate.ts)
 - [packages/console-server-ts/src/sponsoredCalls/types.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsoredCalls/types.ts)
 - shared route metering helpers
 - runtime snapshot payload code
@@ -799,7 +799,7 @@ Primary targets:
 
 - [packages/console-server-ts/src/sponsorship/index.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/index.ts)
 - [packages/console-server-ts/src/sponsorship/evmRelay.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsorship/evmRelay.ts)
-- [packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts)
+- [packages/wallet-server/src/router/cloudflare/routes/sponsoredEvmCall.ts](/Users/pta/Dev/rust/seams-sdk/packages/wallet-server/src/router/cloudflare/routes/sponsoredEvmCall.ts)
 
 Todo:
 
@@ -827,7 +827,7 @@ Exit criteria:
 Primary targets:
 
 - [packages/console-server-ts/src/gasSponsorship/onboarding.ts](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/gasSponsorship/onboarding.ts)
-- [packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts)
+- [packages/wallet-server/src/router/cloudflare/routes/sponsoredEvmCall.ts](/Users/pta/Dev/rust/seams-sdk/packages/wallet-server/src/router/cloudflare/routes/sponsoredEvmCall.ts)
 - [apps/seams-site/src/flows/demo](/Users/pta/Dev/rust/seams-sdk/apps/seams-site/src/flows/demo)
 
 Todo:
@@ -873,7 +873,7 @@ Exit criteria:
 Primary targets:
 
 - [packages/console-server-ts/src/sponsoredCalls](/Users/pta/Dev/rust/seams-sdk/packages/console-server-ts/src/sponsoredCalls)
-- [packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/router/cloudflare/routes/sponsoredEvmCall.ts)
+- [packages/wallet-server/src/router/cloudflare/routes/sponsoredEvmCall.ts](/Users/pta/Dev/rust/seams-sdk/packages/wallet-server/src/router/cloudflare/routes/sponsoredEvmCall.ts)
 - existing spend-cap and billing services
 
 Todo:

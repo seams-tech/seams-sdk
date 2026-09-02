@@ -4,8 +4,8 @@ import {
   type WalletCustodyCeremonyCustodyInput,
   type WalletCustodyCeremonyKeySetInput,
   type WalletCustodyCeremonyStepRunner,
-} from '../../packages/sdk-web/src/core/signingEngine/walletCustody/ceremonyDriver';
-import { buildRecoveredPasskeyCustodyEnvelopeRecord } from '../../packages/sdk-web/src/core/signingEngine/walletCustody/recoveryReplacementEnvelope';
+} from '../../packages/wallet/src/core/signingEngine/walletCustody/ceremonyDriver';
+import { buildRecoveredPasskeyCustodyEnvelopeRecord } from '../../packages/wallet/src/core/signingEngine/walletCustody/recoveryReplacementEnvelope';
 
 /**
  * The driver's job is ordering, key-set dispatch, and cleanup.

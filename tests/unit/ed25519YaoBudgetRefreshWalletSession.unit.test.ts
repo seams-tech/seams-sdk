@@ -5,19 +5,23 @@ import {
   walletAuthAuthorityRef,
 } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
-import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
-import type { Ed25519SessionPolicy } from '../../packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy';
+import type { WebAuthnAuthenticationCredential } from '../../packages/wallet/src/core/types/webauthn';
+import type { Ed25519SessionPolicy } from '../../packages/wallet/src/core/signingEngine/threshold/sessionPolicy';
 import type {
   ThresholdCredentialStorePort,
   ThresholdWebAuthnPromptPort,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/crypto/webauthn';
-import { connectEd25519Session } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/connectSession';
+} from '../../packages/wallet/src/core/signingEngine/threshold/crypto/webauthn';
+import { connectEd25519Session } from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/connectSession';
 import {
   buildThresholdEd25519WebAuthnPrfSecretSource,
   issueEd25519OperationStepUpAuthorization,
   mintEd25519WalletSession,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/walletSession';
-import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
+} from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/walletSession';
+import {
+  parseWalletSessionAlreadyCommittedResponseV1,
+  parseWalletUnlockAlreadyCommittedResponseV1,
+} from '../../packages/shared-ts/src/authorization';
+import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/wallet/src/core/rpcClients/relayer/routerAbNormalSigning';
 
 const PUBLISHABLE_KEY = 'pk_test_refresh';
 const PRF_FIRST_B64U = 'cHJmLWZpcnN0LXNlY3JldA';
@@ -33,6 +37,7 @@ type RefreshFetchCapture = {
 
 let activeRefreshFetchCapture: RefreshFetchCapture | null = null;
 let activeRefreshResponseIncludesRuntimePolicyScope = true;
+let activeRefreshResponseBody: Record<string, unknown> | null = null;
 let activeOperationStepUpFetchCapture: RefreshFetchCapture | null = null;
 let activeOperationStepUpResponseBody: Record<string, unknown> | null = null;
 
@@ -70,25 +75,33 @@ async function refreshWalletSessionFetch(
   capture.body = String(init?.body || '');
   capture.credentials = init?.credentials;
   return new Response(
-    JSON.stringify({
-      ok: true,
-      thresholdSessionId: 'threshold-session-1',
-      walletSessionId: 'wallet-session-1',
-      quotaId: 'quota-1',
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      remainingUses: 3,
-      ...(activeRefreshResponseIncludesRuntimePolicyScope
-        ? {
-            runtimePolicyScope: {
-              orgId: 'org-refresh',
-              projectId: 'project-refresh',
-              envId: 'env-refresh',
-              signingRootVersion: 'root-version-refresh',
-            },
-          }
-        : {}),
-      jwt: 'refreshed-wallet-session-jwt',
-    }),
+    JSON.stringify(
+      activeRefreshResponseBody || {
+        ok: true,
+        sessionKind: 'issued_exact_wallet_session',
+        thresholdSessionId: 'threshold-session-1',
+        walletSessionId: 'wallet-session-1',
+        authorizationId: 'authorization-1',
+        quotaId: 'quota-1',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        remainingUses: 3,
+        ...(activeRefreshResponseIncludesRuntimePolicyScope
+          ? {
+              runtimePolicyScope: {
+                orgId: 'org-refresh',
+                projectId: 'project-refresh',
+                envId: 'env-refresh',
+                signingRootVersion: 'root-version-refresh',
+              },
+            }
+          : {}),
+        operationCredential: {
+          kind: 'opaque_wallet_session_operation_credential_v1',
+          token: `wst_${'R'.repeat(43)}`,
+          walletSessionId: 'wallet-session-1',
+        },
+      },
+    ),
     {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -229,7 +242,7 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
   try {
     const result = await mintEd25519WalletSession({
       relayerUrl: 'https://relay.example.test',
-      sessionKind: 'jwt',
+      sessionKind: 'opaque',
       relayerKeyId: 'ed25519:relayer-key',
       sessionPolicy: refreshSessionPolicyFixture(),
       auth: {
@@ -249,7 +262,12 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
       walletSessionId: 'wallet-session-1',
       quotaId: 'quota-1',
       remainingUses: 3,
-      jwt: 'refreshed-wallet-session-jwt',
+      sessionKind: 'issued_exact_wallet_session',
+      operationCredential: {
+        kind: 'opaque_wallet_session_operation_credential_v1',
+        token: `wst_${'R'.repeat(43)}`,
+        walletSessionId: 'wallet-session-1',
+      },
     });
     expect(capture.authorization).toBe(`Bearer ${PUBLISHABLE_KEY}`);
     expect(capture.credentials).toBe('omit');
@@ -258,9 +276,175 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
     expect(capture.body).toContain('"signature":"signature-b64u"');
     expect(capture.body).not.toContain(PRF_FIRST_B64U);
     expect(capture.body).toContain('"projectEnvironmentId":"env-refresh"');
+    expect(capture.body).toContain('"walletSessionTarget":{"kind":"new_wallet_session"}');
   } finally {
     activeRefreshFetchCapture = null;
+    activeRefreshResponseBody = null;
     activeRefreshResponseIncludesRuntimePolicyScope = true;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Wallet Session mint returns a credential-free already-committed identity', async () => {
+  const originalFetch = globalThis.fetch;
+  const capture: RefreshFetchCapture = {
+    authorization: '',
+    body: '',
+    credentials: undefined,
+  };
+  activeRefreshFetchCapture = capture;
+  activeRefreshResponseBody = {
+    ok: false,
+    code: 'already_committed',
+    message: 'Wallet Session issuance was already committed',
+    next: 'unlock_exact_method',
+    committed: {
+      kind: 'already_committed_wallet_session_v1',
+      walletId: 'wallet:refresh',
+      authorityId: 'authority:refresh',
+      walletAuthMethodId: 'auth-method:refresh',
+      mintId: 'mint:refresh',
+      authorizationId: 'authorization:refresh',
+      walletSessionId: 'wallet-session:refresh',
+      quotaId: 'quota:refresh',
+    },
+  };
+  globalThis.fetch = refreshWalletSessionFetch;
+
+  try {
+    const result = await mintEd25519WalletSession({
+      relayerUrl: 'https://relay.example.test',
+      sessionKind: 'opaque',
+      relayerKeyId: 'ed25519:relayer-key',
+      sessionPolicy: refreshSessionPolicyFixture(),
+      auth: {
+        kind: 'threshold_session_policy_webauthn',
+        policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+          credential: refreshCredentialFixture(),
+          rpId: 'localhost',
+        }),
+      },
+      projectEnvironmentId: 'env-refresh',
+      publishableKey: PUBLISHABLE_KEY,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'already_committed',
+      message: 'Wallet Session issuance was already committed',
+      next: 'unlock_exact_method',
+      committed: {
+        kind: 'already_committed_wallet_session_v1',
+        walletId: 'wallet:refresh',
+        authorityId: 'authority:refresh',
+        walletAuthMethodId: 'auth-method:refresh',
+        mintId: 'mint:refresh',
+        authorizationId: 'authorization:refresh',
+        walletSessionId: 'wallet-session:refresh',
+        quotaId: 'quota:refresh',
+      },
+    });
+    expect(result).not.toHaveProperty('operationCredential');
+    expect(result).not.toHaveProperty('walletSessionToken');
+  } finally {
+    activeRefreshFetchCapture = null;
+    activeRefreshResponseBody = null;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Wallet Session parser normalizes the flat exact-method already-committed response', () => {
+  const flatResponse = {
+    ok: false,
+    unlocked: false,
+    unlockBackend: 'passkey',
+    code: 'already_committed',
+    message: 'Wallet Session unlock is already committed; retry the exact method',
+    kind: 'already_committed',
+    walletId: 'wallet:refresh',
+    authorityId: 'authority:refresh',
+    walletAuthMethodId: 'auth-method:refresh',
+    mintId: 'mint:refresh',
+    authorizationId: 'authorization:refresh',
+    walletSessionId: 'wallet-session:refresh',
+    quotaId: 'quota:refresh',
+    next: 'unlock_exact_method',
+  };
+  expect(parseWalletUnlockAlreadyCommittedResponseV1(flatResponse)).toEqual({
+    ok: false,
+    code: 'already_committed',
+    message: flatResponse.message,
+    next: 'unlock_exact_method',
+    committed: {
+      kind: 'already_committed_wallet_session_v1',
+      walletId: 'wallet:refresh',
+      authorityId: 'authority:refresh',
+      walletAuthMethodId: 'auth-method:refresh',
+      mintId: 'mint:refresh',
+      authorizationId: 'authorization:refresh',
+      walletSessionId: 'wallet-session:refresh',
+      quotaId: 'quota:refresh',
+    },
+  });
+  expect(parseWalletSessionAlreadyCommittedResponseV1(flatResponse)).toBeNull();
+});
+
+test('Wallet Session mint rejects an issued credential bound to another session', async () => {
+  const originalFetch = globalThis.fetch;
+  const capture: RefreshFetchCapture = {
+    authorization: '',
+    body: '',
+    credentials: undefined,
+  };
+  activeRefreshFetchCapture = capture;
+  activeRefreshResponseBody = {
+    ok: true,
+    sessionKind: 'issued_exact_wallet_session',
+    thresholdSessionId: 'threshold-session-1',
+    walletSessionId: 'wallet-session-1',
+    authorizationId: 'authorization-1',
+    quotaId: 'quota-1',
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    remainingUses: 3,
+    runtimePolicyScope: {
+      orgId: 'org-refresh',
+      projectId: 'project-refresh',
+      envId: 'env-refresh',
+      signingRootVersion: 'root-version-refresh',
+    },
+    operationCredential: {
+      kind: 'opaque_wallet_session_operation_credential_v1',
+      token: `wst_${'R'.repeat(43)}`,
+      walletSessionId: 'wallet-session-other',
+    },
+  };
+  globalThis.fetch = refreshWalletSessionFetch;
+
+  try {
+    const result = await mintEd25519WalletSession({
+      relayerUrl: 'https://relay.example.test',
+      sessionKind: 'opaque',
+      relayerKeyId: 'ed25519:relayer-key',
+      sessionPolicy: refreshSessionPolicyFixture(),
+      auth: {
+        kind: 'threshold_session_policy_webauthn',
+        policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+          credential: refreshCredentialFixture(),
+          rpId: 'localhost',
+        }),
+      },
+      projectEnvironmentId: 'env-refresh',
+      publishableKey: PUBLISHABLE_KEY,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'invalid_response',
+      message: 'Wallet Session mint credential does not identify its session',
+    });
+  } finally {
+    activeRefreshFetchCapture = null;
+    activeRefreshResponseBody = null;
     globalThis.fetch = originalFetch;
   }
 });
@@ -311,11 +495,68 @@ test('Ed25519 session connection rejects success without a runtime policy scope'
     expect(result).toEqual({
       ok: false,
       code: 'invalid_response',
-      message: 'Threshold Ed25519 session mint returned incomplete lifecycle metadata',
+      message: 'Wallet Session mint returned invalid lifecycle or policy data',
     });
   } finally {
     activeRefreshFetchCapture = null;
+    activeRefreshResponseBody = null;
     activeRefreshResponseIncludesRuntimePolicyScope = true;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+async function connectRefreshEd25519Session() {
+  const authority = buildPasskeyWalletAuthAuthority({
+    walletId: 'refresh-wallet',
+    rpId: 'localhost',
+    credentialIdB64u: 'credential-id-b64u',
+  });
+  return await connectEd25519Session({
+    credentialStore: unusedCredentialStore,
+    touchIdPrompt: unusedTouchIdPrompt,
+    relayerUrl: 'https://relay.example.test',
+    relayerKeyId: 'ed25519:relayer-key',
+    walletId: 'refresh-wallet',
+    nearAccountId: 'refresh.testnet',
+    nearEd25519SigningKeyId: 'refresh.testnet',
+    authority: {
+      kind: 'wallet_auth_authority',
+      authority,
+    },
+    participantIds: [1, 2],
+    routerAbNormalSigning: {
+      kind: 'router_ab_ed25519_normal_signing_v1',
+      signingWorkerId: 'local-signing-worker',
+    },
+    auth: {
+      kind: 'threshold_session_policy_webauthn',
+      policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+        credential: refreshCredentialFixture(),
+        rpId: 'localhost',
+      }),
+    },
+  });
+}
+
+test('Ed25519 session connection returns the issued operation credential exactly', async () => {
+  const originalFetch = globalThis.fetch;
+  activeRefreshFetchCapture = {
+    authorization: '',
+    body: '',
+    credentials: undefined,
+  };
+  globalThis.fetch = refreshWalletSessionFetch;
+
+  try {
+    const result = await connectRefreshEd25519Session();
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected an issued Ed25519 session');
+    expect(result.sessionKind).toBe('issued_exact_wallet_session');
+    expect(result.operationCredential.walletSessionId).toBe(result.walletSessionId);
+    expect(result).not.toHaveProperty('walletSessionToken');
+  } finally {
+    activeRefreshFetchCapture = null;
+    activeRefreshResponseBody = null;
     globalThis.fetch = originalFetch;
   }
 });
@@ -340,7 +581,7 @@ test('Email OTP Ed25519 step-up sends exact operation proof without material rec
     const authorityRef = await walletAuthAuthorityRef({ authority });
     const result = await issueEd25519OperationStepUpAuthorization({
       relayerUrl: 'https://relay.example.test',
-      credential: { kind: 'app_session_cookie' },
+      credential: { kind: 'operation_step_up' },
       normalSigningRequest: await operationStepUpPrepareRequest(),
       displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
       proof: {
@@ -362,7 +603,7 @@ test('Email OTP Ed25519 step-up sends exact operation proof without material rec
       expiresAtMs: result.expiresAtMs,
       materialRecovery: { kind: 'not_requested' },
     });
-    expect(capture.credentials).toBe('include');
+    expect(capture.credentials).toBe('omit');
     expect(capture.authorization).toBe('');
     const body = JSON.parse(capture.body) as Record<string, unknown>;
     expect(body).toMatchObject({
@@ -424,7 +665,7 @@ test('Email OTP Ed25519 step-up serializes and parses factor-release material re
     const authorityRef = await walletAuthAuthorityRef({ authority });
     const result = await issueEd25519OperationStepUpAuthorization({
       relayerUrl: 'https://relay.example.test',
-      credential: { kind: 'app_session_cookie' },
+      credential: { kind: 'operation_step_up' },
       normalSigningRequest: await operationStepUpPrepareRequest(),
       displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
       proof: {
@@ -501,7 +742,7 @@ test('Ed25519 operation step-up rejects a factor-release response for a request 
     await expect(
       issueEd25519OperationStepUpAuthorization({
         relayerUrl: 'https://relay.example.test',
-        credential: { kind: 'app_session_cookie' },
+        credential: { kind: 'operation_step_up' },
         normalSigningRequest: await operationStepUpPrepareRequest(),
         displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
         proof: {
@@ -553,7 +794,7 @@ test('Ed25519 operation step-up rejects unexpected success-response fields', asy
     await expect(
       issueEd25519OperationStepUpAuthorization({
         relayerUrl: 'https://relay.example.test',
-        credential: { kind: 'app_session_cookie' },
+        credential: { kind: 'operation_step_up' },
         normalSigningRequest: await operationStepUpPrepareRequest(),
         displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
         proof: {

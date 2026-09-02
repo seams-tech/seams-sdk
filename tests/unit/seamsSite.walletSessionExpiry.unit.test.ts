@@ -4,9 +4,9 @@ import {
   createSigningSessionExpiredEvent,
   parseSdkLifecycleEvent,
   SIGNING_SESSION_EXPIRY_DETECTION_SOURCES,
-} from '../../packages/sdk-web/src/core/types/sdkSentEvents';
-import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
+} from '../../packages/wallet/src/core/types/sdkSentEvents';
+import { toWalletId } from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { SigningSessionIds } from '../../packages/wallet/src/core/signingEngine/session/operationState/types';
 
 test('the public expiry parser preserves the event and strips secret fields', () => {
   const event = createSigningSessionExpiredEvent({

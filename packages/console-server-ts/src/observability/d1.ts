@@ -6,8 +6,8 @@ import {
   queryD1All as queryRows,
   queryD1One as queryFirstRow,
   type D1Row,
-} from '@seams/sdk-server/cloud-host';
-import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
+} from '../boundary';
+import type { D1DatabaseLike } from '../boundary';
 import { ConsoleObservabilityError } from './errors';
 import { CONSOLE_OBSERVABILITY_SOURCE_SET, CONSOLE_OBSERVABILITY_SOURCES_SQL } from './policy';
 import { redactConsoleObservabilityMetadata } from './redaction';

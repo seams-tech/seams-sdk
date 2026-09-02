@@ -1,4 +1,4 @@
-import { base64UrlDecode, base64UrlEncode } from '@seams/sdk-server/cloud-host';
+import { base64UrlDecode, base64UrlEncode } from '../boundary';
 
 export const CONSOLE_INVITATION_SECRET_ENVELOPE_VERSION = 'console-invitation-secret:aes-gcm:v1';
 const INVITATION_SECRET_AAD_DOMAIN = 'seams/console-invitation-secret/aes-gcm/v1';

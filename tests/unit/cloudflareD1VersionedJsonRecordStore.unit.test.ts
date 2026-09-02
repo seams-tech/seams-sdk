@@ -3,12 +3,16 @@ import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
   D1ResultLike,
-} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+} from '../../packages/wallet-server/src/storage/tenantRoute';
 import {
   createCloudflareD1VersionedJsonRecordStore,
   type CloudflareD1VersionedJsonRecordScopeV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/versionedJson/d1VersionedJsonRecordStore';
-import type { VersionedJsonObject } from '../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/versionedJson/d1VersionedJsonRecordStore';
+import type { VersionedJsonObject } from '../../packages/wallet-server/src/router/framework/versionedJsonRecordStore';
+import {
+  cleanupTemporaryD1Database,
+  createTemporaryD1Database,
+} from '../helpers/sqliteD1';
 
 type RecordValue = {
   readonly kind: 'test_d1_record_v1';
@@ -297,5 +301,45 @@ test.describe('Cloudflare D1 versioned JSON record store', () => {
       recordJson: '{invalid',
     });
     await expect(store.read('corrupt')).rejects.toThrow('record is invalid');
+  });
+
+  test('lists prefixes literally without compiling caller data as a LIKE pattern', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await temporary.database.exec(`
+        CREATE TABLE router_ab_yao_versioned_json_cas_guard (
+          guard_id INTEGER PRIMARY KEY CHECK (guard_id = 1)
+        );
+        CREATE TABLE router_ab_yao_versioned_json_records (
+          namespace TEXT NOT NULL,
+          org_id TEXT NOT NULL,
+          project_id TEXT NOT NULL,
+          env_id TEXT NOT NULL,
+          record_key TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          record_json TEXT NOT NULL,
+          created_at_ms INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+          updated_at_ms INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+          PRIMARY KEY (namespace, org_id, project_id, env_id, record_key),
+          CHECK (version > 0),
+          CHECK (json_valid(record_json))
+        );
+      `);
+      const store = createCloudflareD1VersionedJsonRecordStore<RecordValue>({
+        database: temporary.database,
+        scope,
+        keyPrefix: 'test-record',
+        encode: encodeRecord,
+        parse: parseRecord,
+      });
+      await store.put('literal%_:match', record('literal', 1), null);
+      await store.put('literalXX:no-match', record('other', 2), null);
+
+      await expect(store.listByKeyPrefix('literal%_')).resolves.toMatchObject([
+        { key: 'literal%_:match', result: { kind: 'present', value: record('literal', 1) } },
+      ]);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
   });
 });

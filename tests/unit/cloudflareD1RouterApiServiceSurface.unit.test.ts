@@ -1,7 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
-import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { createCloudflareRouter } from '../../packages/wallet-server/src/router/cloudflare/runtime/createCloudflareRouter';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWalletId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   requireParsedDomainId,
@@ -14,7 +20,67 @@ import {
   readWebAuthnAuthenticatorRow,
   insertNearPublicKey,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
-import { UnusedSessionAdapter } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
+import {
+  CloudflareD1WebAuthnAuthService,
+  type D1WebAuthnWalletManifestSource,
+} from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnAuthService';
+import { CloudflareD1WebAuthnStore } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
+import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
+import {
+  buildWalletAuthMethodRecordV2,
+  type WalletAuthMethodRecordV2,
+} from '../../packages/shared-ts/src/utils/registrationIntent';
+
+const SYNC_KEY_MANIFEST_DIGEST_B64U = Buffer.alloc(32, 21).toString('base64url');
+const SYNC_SIGNER_SLOT = 4;
+
+function passkeyAuthMethodRecord(input: {
+  readonly walletId: string;
+  readonly credentialIdB64u: string;
+  readonly credentialPublicKeyB64u: string;
+  readonly status: 'active' | 'revoked';
+  readonly updatedAtMs: number;
+}): Extract<WalletAuthMethodRecordV2, { readonly kind: 'passkey' }> {
+  const walletId = requireParsedDomainId(parseWalletId(input.walletId));
+  const credentialIdB64u = requireParsedDomainId(
+    parseWebAuthnCredentialIdB64u(input.credentialIdB64u),
+  );
+  const walletAuthorityId = requireParsedDomainId(
+    parseWalletAuthorityId(`authority:router-api-${input.walletId}`),
+  );
+  const walletAuthMethodId = requireParsedDomainId(
+    parseWalletAuthMethodId(`auth-method:router-api-${input.credentialIdB64u}`),
+  );
+  return buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId,
+    walletAuthorityId,
+    kind: 'passkey',
+    status: input.status,
+    walletId,
+    rpId: requireParsedDomainId(parseWebAuthnRpId('example.com')),
+    credentialIdB64u,
+    credentialPublicKeyB64u: input.credentialPublicKeyB64u,
+    counter: 0,
+    createdAtMs: 100,
+    updatedAtMs: input.updatedAtMs,
+    activatedAtMs: 100,
+    ...(input.status === 'revoked' ? { revokedAtMs: input.updatedAtMs } : {}),
+  });
+}
+
+class RecordingWalletManifestSource implements D1WebAuthnWalletManifestSource {
+  readonly requests: Parameters<
+    D1WebAuthnWalletManifestSource['getEd25519KeyManifestBySlot']
+  >[0][] = [];
+
+  async getEd25519KeyManifestBySlot(
+    input: Parameters<D1WebAuthnWalletManifestSource['getEd25519KeyManifestBySlot']>[0],
+  ): Promise<{ readonly custodyKeyManifestDigestB64u: string }> {
+    this.requests.push(input);
+    return { custodyKeyManifestDigestB64u: SYNC_KEY_MANIFEST_DIGEST_B64U };
+  }
+}
 
 test('Cloudflare D1 WebAuthn login options require and return registered credentials', async () => {
   const { database, tempDir } = createTemporaryD1Database();
@@ -37,6 +103,14 @@ test('Cloudflare D1 WebAuthn login options require and return registered credent
       googleOidcClientId: 'google-client',
       accountIdDerivationSecret: 'test-account-id-derivation-secret',
     });
+    const walletAuthMethodStore = new D1WalletAuthMethodStore({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      ensureSchema: false,
+    });
 
     await expect(
       service.webAuthn.createWebAuthnLoginOptions({
@@ -49,6 +123,15 @@ test('Cloudflare D1 WebAuthn login options require and return registered credent
     });
 
     await insertWebAuthn({ database, ...scope, credentialIdB64u: 'credential-a' });
+    await walletAuthMethodStore.putV2(
+      passkeyAuthMethodRecord({
+        walletId: scope.userId,
+        credentialIdB64u: 'credential-a',
+        credentialPublicKeyB64u: 'credential-public-key-a',
+        status: 'active',
+        updatedAtMs: 100,
+      }),
+    );
     await expect(
       service.webAuthn.createWebAuthnLoginOptions({
         userId: scope.userId,
@@ -58,6 +141,21 @@ test('Cloudflare D1 WebAuthn login options require and return registered credent
       ok: true,
       credentialIds: ['credential-a'],
     });
+    await walletAuthMethodStore.putV2(
+      passkeyAuthMethodRecord({
+        walletId: scope.userId,
+        credentialIdB64u: 'credential-a',
+        credentialPublicKeyB64u: 'credential-public-key-a',
+        status: 'revoked',
+        updatedAtMs: 200,
+      }),
+    );
+    await expect(
+      service.webAuthn.createWebAuthnLoginOptions({
+        userId: scope.userId,
+        rpId: 'example.com',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'unknown_credential' });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -74,17 +172,26 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       envId: 'env-a',
       userId: 'wallet-a',
     };
-    await insertIdentity({ database, ...scope, subject: 'google:alice' });
-    await insertIdentity({ database, ...scope, orgId: 'org-b', subject: 'google:bob' });
-    await insertIdentity({
+    const manifestSource = new RecordingWalletManifestSource();
+    const walletAuthMethodStore = new D1WalletAuthMethodStore({
       database,
-      ...scope,
-      userId: 'linked.testnet',
-      subject: 'wallet:oidc:linked',
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      ensureSchema: false,
     });
-    await insertWebAuthn({ database, ...scope });
-    await insertNearPublicKey({ database, ...scope });
-
+    const syncWebAuthnService = new CloudflareD1WebAuthnAuthService({
+      webAuthnStore: new CloudflareD1WebAuthnStore({
+        database,
+        namespace: scope.namespace,
+        orgId: scope.orgId,
+        projectId: scope.projectId,
+        envId: scope.envId,
+      }),
+      walletManifestSource: manifestSource,
+      walletAuthMethodStore,
+    });
     const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
@@ -101,6 +208,25 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       },
       accountIdDerivationSecret: 'test-account-id-derivation-secret',
     });
+    await insertIdentity({ database, ...scope, subject: 'google:alice' });
+    await insertIdentity({ database, ...scope, orgId: 'org-b', subject: 'google:bob' });
+    await insertIdentity({
+      database,
+      ...scope,
+      userId: 'linked.testnet',
+      subject: 'wallet:oidc:linked',
+    });
+    await insertWebAuthn({ database, ...scope });
+    await walletAuthMethodStore.putV2(
+      passkeyAuthMethodRecord({
+        walletId: scope.userId,
+        credentialIdB64u: 'credential-a',
+        credentialPublicKeyB64u: 'credential-public-key-a',
+        status: 'active',
+        updatedAtMs: 100,
+      }),
+    );
+    await insertNearPublicKey({ database, ...scope });
 
     await expect(service.identity.listIdentities({ userId: scope.userId })).resolves.toEqual({
       ok: true,
@@ -216,8 +342,17 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       ...scope,
       credentialIdB64u: webAuthnFixture.credentialIdB64u,
       credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
-      signerSlot: 4,
+      signerSlot: SYNC_SIGNER_SLOT,
     });
+    await walletAuthMethodStore.putV2(
+      passkeyAuthMethodRecord({
+        walletId: scope.userId,
+        credentialIdB64u: webAuthnFixture.credentialIdB64u,
+        credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
+        status: 'active',
+        updatedAtMs: 100,
+      }),
+    );
     const loginOptions = await service.webAuthn.createWebAuthnLoginOptions({
       userId: scope.userId,
       rpId: 'example.com',
@@ -228,10 +363,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     const loginChallengeId = String(loginOptions.challengeId || '');
     expect(loginChallengeId).not.toBe('');
     expect(loginOptions.challengeB64u).toEqual(expect.any(String));
-    expect(loginOptions.credentialIds).toEqual([
-      'credential-a',
-      webAuthnFixture.credentialIdB64u,
-    ]);
+    expect(loginOptions.credentialIds).toEqual(['credential-a', webAuthnFixture.credentialIdB64u]);
     expect(loginOptions.expiresAtMs).toBeGreaterThan(Date.now());
     const loginChallengeRow = await readWebAuthnChallengeRow({
       database,
@@ -281,6 +413,40 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         credentialIdB64u: webAuthnFixture.credentialIdB64u,
       }),
     ).resolves.toMatchObject({ counter: 1 });
+    const revokedLoginOptions = await service.webAuthn.createWebAuthnLoginOptions({
+      userId: scope.userId,
+      rpId: 'example.com',
+      ttlMs: 60_000,
+    });
+    expect(revokedLoginOptions.ok).toBe(true);
+    if (!revokedLoginOptions.ok) throw new Error(revokedLoginOptions.message);
+    const revokedAssertion = await createWebAuthnAssertion({
+      fixture: webAuthnFixture,
+      rpId: 'example.com',
+      origin: 'https://example.com',
+      challengeB64u: String(revokedLoginOptions.challengeB64u || ''),
+      counter: 2,
+    });
+    await walletAuthMethodStore.putV2(
+      passkeyAuthMethodRecord({
+        walletId: scope.userId,
+        credentialIdB64u: webAuthnFixture.credentialIdB64u,
+        credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
+        status: 'revoked',
+        updatedAtMs: 200,
+      }),
+    );
+    await expect(
+      service.webAuthn.verifyWebAuthnLogin({
+        challengeId: String(revokedLoginOptions.challengeId || ''),
+        webauthn_authentication: revokedAssertion,
+        expected_origin: 'https://example.com',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      verified: false,
+      code: 'unknown_credential',
+    });
     await expect(
       service.webAuthn.createWebAuthnLoginOptions({ userId: 'bad user', rpId: 'example.com' }),
     ).resolves.toMatchObject({
@@ -298,7 +464,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       code: 'unknown_credential',
       message: 'Wallet has no registered passkey credential',
     });
-    const syncOptions = await service.webAuthn.createWebAuthnSyncAccountOptions({
+    const syncOptions = await syncWebAuthnService.createWebAuthnSyncAccountOptions({
       rp_id: 'example.com',
       account_id: scope.userId,
       ttl_ms: 60_000,
@@ -308,7 +474,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     const syncChallengeId = String(syncOptions.challengeId || '');
     expect(syncChallengeId).not.toBe('');
     expect(syncOptions.challengeB64u).toEqual(expect.any(String));
-    expect(syncOptions.credentialIds).toEqual(['credential-a', webAuthnFixture.credentialIdB64u]);
+    expect(syncOptions.credentialIds).toEqual(['credential-a']);
     expect(syncOptions.walletBinding).toEqual({
       walletId: scope.userId,
       nearAccountId: 'near.testnet',
@@ -345,24 +511,17 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       counter: 2,
     });
     await expect(
-      service.webAuthn.verifyWebAuthnSyncAccount({
+      syncWebAuthnService.verifyWebAuthnSyncAccount({
         challengeId: syncChallengeId,
         webauthn_authentication: syncAssertion,
         expected_origin: 'https://example.com',
       }),
     ).resolves.toMatchObject({
-      ok: true,
-      verified: true,
-      accountId: scope.userId,
-      walletId: scope.userId,
-      nearAccountId: 'near.testnet',
-      nearEd25519SigningKeyId: 'ed25519:key',
-      rpId: 'example.com',
-      signerSlot: 4,
-      publicKey: 'ed25519:public',
-      credentialIdB64u: webAuthnFixture.credentialIdB64u,
-      credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
+      ok: false,
+      verified: false,
+      code: 'unknown_credential',
     });
+    expect(manifestSource.requests).toEqual([]);
     await expect(
       readWebAuthnAuthenticatorRow({
         database,
@@ -370,9 +529,9 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         userId: scope.userId,
         credentialIdB64u: webAuthnFixture.credentialIdB64u,
       }),
-    ).resolves.toMatchObject({ counter: 2 });
+    ).resolves.toMatchObject({ counter: 1 });
     await expect(
-      service.webAuthn.createWebAuthnSyncAccountOptions({
+      syncWebAuthnService.createWebAuthnSyncAccountOptions({
         account_id: scope.userId,
       }),
     ).resolves.toMatchObject({
@@ -436,81 +595,82 @@ test('Cloudflare D1 Router API auth service has no Gateway-owned signing runtime
   }
 });
 
-test('Cloudflare D1 R103 composition exposes linked admission and local presence ports', async () => {
+test('Cloudflare D1 full linked-device session composition exposes session and management routes', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
-    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.test'));
+    await applySignerMigrations(database);
     const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: 'seams-local-test',
       orgId: 'org-a',
       projectId: 'project-a',
       envId: 'env-a',
+      relayerAccount: 'relay.local',
+      relayerPublicKey: 'relay-public-key',
       linkedDevice: {
-        execution: {
-          nowV1: () => 5_000,
-          rpId,
-          expectedOrigin: 'https://example.test',
-          logger: normalizeLogger(),
-        },
-      },
-    });
-
-    expect(service.linkedDeviceExecution).toBeDefined();
-    expect(service.linkedDeviceLocalPresence).toBeDefined();
-    expect(service.deviceLinking).toBeUndefined();
-    expect(service.deviceManagement).toBeUndefined();
-    expect(service.deviceLinkingGateway).toBeUndefined();
-  } finally {
-    cleanupTemporaryD1Database(tempDir);
-  }
-});
-
-test('Cloudflare D1 R103 composition owns lane activation and aggregate revocation wiring', async () => {
-  const { database, tempDir } = createTemporaryD1Database();
-  try {
-    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.test'));
-    const inertLaneBinding = {
-      fetch: async () => new Response(null, { status: 503 }),
-    };
-    const inertEd25519YaoKeyset = {
-      deriver_a_input_public_key: new Array<number>(32).fill(0),
-      deriver_b_input_public_key: new Array<number>(32).fill(0),
-      signing_worker_recipient_public_key: new Array<number>(32).fill(0),
-    };
-    const service = createCloudflareD1RouterApiAuthService({
-      database,
-      namespace: 'seams-local-test',
-      orgId: 'org-a',
-      projectId: 'project-a',
-      envId: 'env-a',
-      linkedDevice: {
-        execution: {
-          nowV1: () => 5_000,
-          rpId,
-          expectedOrigin: 'https://example.test',
-          logger: normalizeLogger(),
-        },
         session: {
-          session: new UnusedSessionAdapter(),
-          laneRuntime: {
-            router: inertLaneBinding,
-            signingWorker: inertLaneBinding,
-            internalServiceAuth: 'test-internal-service-auth',
-            ed25519YaoKeyset: inertEd25519YaoKeyset,
-          },
-          operatorRecovery: {
-            operatorSecret: 'operator-recovery-test-secret',
+          readOwnerSourceChildV1: async () => null,
+          targetPasskeyRpId: 'wallet.example.test',
+          targetCredential: () => ({
+            getTargetPreparationV1: async () => {
+              throw new Error('target preparation is outside this surface test');
+            },
+            registerTargetCredentialV1: async () => {
+              throw new Error('target credential is outside this surface test');
+            },
+            buildVerifiedLinkInputV1: async () => {
+              throw new Error('verified link input is outside this surface test');
+            },
+          }),
+          authorityInstallation: {
+            reservationEndpoint: {
+              reserveInactiveEd25519SignerMaterialV1: async () => {
+                throw new Error('reservation is outside this surface test');
+              },
+              reserveInactiveEcdsaSignerMaterialV1: async () => {
+                throw new Error('reservation is outside this surface test');
+              },
+            },
+            activationEndpoint: {
+              activateInactiveEd25519SignerMaterialV1: async () => {
+                throw new Error('activation is outside this surface test');
+              },
+              activateInactiveEcdsaSignerMaterialV1: async () => {
+                throw new Error('activation is outside this surface test');
+              },
+            },
+            deactivationEndpoint: {
+              deactivateInactiveEd25519SignerMaterialV1: async () => {
+                throw new Error('deactivation is outside this surface test');
+              },
+              deactivateInactiveEcdsaSignerMaterialV1: async () => {
+                throw new Error('deactivation is outside this surface test');
+              },
+            },
           },
         },
-        management: {},
       },
     });
-
     expect(service.deviceLinking).toBeDefined();
     expect(service.deviceManagement).toBeDefined();
-    expect(service.deviceLinkingOwnerAuthorization).toBeDefined();
-    expect(service.deviceLinkingLaneGateway).toBeDefined();
+
+    const router = createCloudflareRouter(service);
+    const sessionResponse = await router(
+      new Request('https://example.test/wallet/device-linking/v1/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      }),
+    );
+    expect(sessionResponse.status).toBe(400);
+
+    const managementResponse = await router(
+      new Request(
+        'https://example.test/wallet/device-linking/v1/devices?walletId=wallet:r103&limit=10&cursor=',
+        { method: 'GET' },
+      ),
+    );
+    expect(managementResponse.status).toBe(401);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

@@ -66,7 +66,7 @@ test.describe('EVM-family request boundaries', () => {
     const transactionExecutor = fs.readFileSync(
       path.join(
         repoRoot,
-        'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+        'packages/wallet/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
       ),
       'utf8',
     );
@@ -89,7 +89,7 @@ test.describe('EVM-family request boundaries', () => {
     const signEvmFamilyWithUiConfirmForTempo = fs.readFileSync(
       path.join(
         repoRoot,
-        'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
+        'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
       ),
       'utf8',
     );

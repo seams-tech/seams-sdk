@@ -49,10 +49,11 @@ Status highlights from recent additions:
 
 ## Build & Assets
 
-- `test:intended:ci` builds fresh SDK artifacts before starting local services.
-- `test:intended` assumes the already-running local site/router are serving the
-  SDK artifacts you intend to test; rebuild and restart those services after SDK
-  source changes.
+- `test:intended` and `test:intended:ci` run every selected browser case against
+  a fresh managed Router/D1 namespace. The first case builds SDK artifacts;
+  later cases reuse that build while resetting server state.
+- `test:intended:external` reuses an already-running local site/router for fast
+  single-case iteration. Its D1 state is shared and is not a reliable suite gate.
 - Intended commands and mutation preflight run the Google ID-token preflight
   before Playwright/readiness checks.
 - Dev plugin serves SDK at `/sdk/*` directly from `dist/`
@@ -108,11 +109,15 @@ on the intended runner.
 
 - Root scripts:
   - `pnpm test` → `pnpm -C tests test` (full suite)
+  - `pnpm test:console` → five real-service Console operating paths on a fresh
+    managed local stack
   - `pnpm test:lite` → `pnpm -C tests test:lite` (lite suite; excludes the heavier wallet-iframe sticky-behavior coverage)
   - `pnpm test:inline` → line reporter
-  - `pnpm test:linked-device` → opt-in two-browser Device 2 lifecycle against already-running composed services
-  - `pnpm test:intended` → intended-behaviour lifecycle contract suite against already-running local services
-  - `pnpm test:intended:ci` → intended-behaviour lifecycle contract suite with CI-managed local service startup
+  - `pnpm test:linked-device` → two-browser Device 2 lifecycle with fresh managed state per case
+  - `pnpm test:linked-device:external` → the same suite against already-running composed services
+  - `pnpm test:intended` → intended-behaviour lifecycle contracts with fresh managed state per case
+  - `pnpm test:intended:ci` → the same isolated intended-behaviour gate used by CI
+  - `pnpm test:intended:external` → intended contracts against already-running local services
   - `pnpm ensure:intended-google-token` → accept or refresh the Email OTP Google ID token before intended contracts run
   - `pnpm setup:intended-google-oidc` → create/bind the local Google OIDC service account and mint an Email OTP test ID token
   - `pnpm refresh:intended-google-token` → refresh the one-hour Email OTP Google ID token through service-account impersonation
@@ -134,10 +139,10 @@ Test profiles:
 - Generic e2e scripts exclude `e2e/intended-behaviours/*.contract.test.ts`;
   lifecycle contracts run through `test:intended` or `test:intended:ci`.
   `test:e2e` uses the same generic config and excludes intended contracts.
-- `test:linked-device` is an explicit iteration test. It links Device 2, locks and
-  unlocks its wallet, signs on Tempo, Arc, and NEAR, exhausts reusable authority
-  to exercise passkey step-up, and revokes the enrollment. It is excluded from
-  the routine intended-behaviour command.
+- `test:linked-device` is the focused iteration command for the two-browser
+  contract. The same contract runs in `test:intended` and `test:intended:ci`,
+  where it links Device 2, refreshes, locks and unlocks, signs, exports keys,
+  and verifies revocation against the composed runtime.
 
 - Direct Playwright subset examples:
 
@@ -160,21 +165,21 @@ Intended-behaviour contracts:
 
 ```bash
 pnpm setup:intended-google-oidc
-pnpm router
-pnpm site
 pnpm test:intended
 pnpm test:intended:ci
 ```
 
-Local `test:intended` is fastest for refactor work and assumes the services are
-already running. CI mode resets local Router/D1 state, builds
-`packages/sdk-web/dist`, starts router/site, then runs the same four contracts.
+Both commands reset local Router/D1 state and start router/site separately for
+each selected case. Per-case isolation is required because one real Google
+subject cannot create unrelated wallets in a shared D1 without exercising
+account-replacement semantics. Use `test:intended:external` only for focused
+iteration against a manually started `pnpm router` and `pnpm site` stack.
 Intended commands and mutation preflight run `ensure:intended-google-token`
 before Playwright/readiness checks: a still-valid token is accepted, and an
 expired/missing token is refreshed through
 `SEAMS_INTENDED_GOOGLE_SERVICE_ACCOUNT` when service-account impersonation is
 configured. The intended config, mutation preflight, and CI-managed service
-startup load `.env.intended.local` automatically. Restart already-running local
+startup load the root `.env.local` automatically. Restart already-running local
 router/site services after changing Google OIDC env values so the runtime sees
 `GOOGLE_OIDC_CLIENT_ID`.
 
@@ -203,10 +208,10 @@ Threshold ECDSA lane-key queue matrix (Refactor 22):
 - `SEAMS_INTENDED_GOOGLE_PROJECT_ID`, `SEAMS_INTENDED_GOOGLE_CLIENT_ID`,
   `GOOGLE_OIDC_CLIENT_ID`, optional Google OAuth client secret vars, and
   `SEAMS_INTENDED_GOOGLE_SERVICE_ACCOUNT` are kept in ignored
-  `.env.intended.local`. Run `pnpm setup:intended-google-oidc` once, or pass
+  the root `.env.local`. Run `pnpm setup:intended-google-oidc` once, or pass
   `--client-secret=<secret>` when creating a new local env file, then run
-  `pnpm refresh:intended-google-token` manually when needed. `pnpm test:intended`
-  `pnpm test:intended`, `pnpm test:intended:ci`, and mutation preflight run
+  `pnpm refresh:intended-google-token` manually when needed. `pnpm test:intended`,
+  `pnpm test:intended:ci`, and mutation preflight run
   `pnpm ensure:intended-google-token` first and refresh the one-hour ID token
   automatically when the service account is set.
 - `VERBOSE_TEST_LOGS=1` print captured console logs live
@@ -223,8 +228,9 @@ pnpm build:sdk
   - `e2e/intended-behaviours/*.contract.test.ts` intended registration,
     unlock, signing, step-up, and export lifecycle contracts
   - `e2e/linked-device.operating-path.test.ts` opt-in Device 2 lifecycle contract
-  - `e2e/dashboard.*.apiWiring.test.ts` and
-    `e2e/pricing.checkout.apiWiring.test.ts` dashboard/API wiring smoke tests
+  - `e2e/console/*.operating.test.ts` real-service Console operating paths for
+    routing, onboarding, policy governance, webhooks, and billing
+  - `e2e/pricing.checkout.apiWiring.test.ts` pricing/API wiring smoke test
   - `e2e/cancel_overlay_specs.test.ts` cancel + overlay specs (cancel hides UI)
 
 - Unit

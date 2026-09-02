@@ -15,12 +15,12 @@ function readRepoFile(relativePath: string): string {
 
 function resolveSdkWebPath(packagePath: string): string {
   const normalized = packagePath.replace(/^\.\//, '');
-  return path.join(repoRoot, 'packages/sdk-web', normalized);
+  return path.join(repoRoot, 'packages/wallet', normalized);
 }
 
 function resolveSdkServerPath(packagePath: string): string {
   const normalized = packagePath.replace(/^\.\//, '');
-  return path.join(repoRoot, 'packages/sdk-server-ts', normalized);
+  return path.join(repoRoot, 'packages/wallet-server', normalized);
 }
 
 function isExperimentalExportKey(key: string): boolean {
@@ -65,18 +65,18 @@ const browserSurfacePatterns = [
 
 test.describe('package export contracts', () => {
   test('maps public roots to current web and runtime entries', () => {
-    const packageJson = readJson('packages/sdk-web/package.json');
+    const packageJson = readJson('packages/wallet/package.json');
     const exportsMap = packageJson.exports;
 
     expect(exportsMap['.']?.import).toBe('./dist/esm/index.js');
-    expect(readRepoFile('packages/sdk-web/src/index.ts')).toContain('export { SeamsWeb }');
+    expect(readRepoFile('packages/wallet/src/index.ts')).toContain('export { SeamsWeb }');
     expect(exportsMap['./react']?.import).toBe('./dist/esm/react/index.js');
-    expect(readRepoFile('packages/sdk-web/src/react/index.ts')).toContain('SeamsWebProvider');
+    expect(readRepoFile('packages/wallet/src/react/index.ts')).toContain('SeamsWebProvider');
 
     expect(exportsMap['./runtime']).toEqual({
       import: './dist/esm/runtime.js',
       default: './dist/esm/runtime.js',
-      types: './dist/types/sdk-web/src/runtime.d.ts',
+      types: './dist/types/wallet/src/runtime.d.ts',
     });
     expect(fs.existsSync(resolveSdkWebPath(exportsMap['./runtime'].types))).toBe(true);
 
@@ -90,26 +90,26 @@ test.describe('package export contracts', () => {
   });
 
   test('keeps experimental and signing internals out of stable web exports', () => {
-    const packageJson = readJson('packages/sdk-web/package.json');
-    const rootSource = readRepoFile('packages/sdk-web/src/index.ts');
+    const packageJson = readJson('packages/wallet/package.json');
+    const rootSource = readRepoFile('packages/wallet/src/index.ts');
     const exportKeys = Object.keys(packageJson.exports ?? {});
 
     expect(rootSource).not.toMatch(/^\s*export\s+.*from\s+['"]\.\/core\/signingEngine\//m);
     expect(rootSource).not.toMatch(/^\s*export\s+.*from\s+['"]\.\/utils\/intentDigest/m);
     expect(rootSource).not.toMatch(/^\s*export\s+.*from\s+['"]\.\/threshold['"]/m);
-    expect(fs.existsSync(path.join(repoRoot, 'packages/sdk-web/src/experimental'))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, 'packages/wallet/src/experimental'))).toBe(false);
     expect(exportKeys.filter(isExperimentalExportKey)).toEqual([]);
   });
 
   test('maps SeamsAuthMenu public subpath to the SSR-safe entry', () => {
-    const packageJson = readJson('packages/sdk-web/package.json');
+    const packageJson = readJson('packages/wallet/package.json');
     const exportsMap = packageJson.exports;
     const exportKeys = Object.keys(exportsMap ?? {});
 
     expect(exportsMap['./react/seams-auth-menu']).toEqual({
       import: './dist/esm/react/components/SeamsAuthMenu/public.js',
       default: './dist/esm/react/components/SeamsAuthMenu/public.js',
-      types: './dist/types/sdk-web/src/react/components/SeamsAuthMenu/public.d.ts',
+      types: './dist/types/wallet/src/react/components/SeamsAuthMenu/public.d.ts',
     });
     expect(exportsMap['./react/seams-auth-menu/client']).toBeUndefined();
     expect(exportsMap['./react/seams-auth-menu/skeleton']).toBeUndefined();
@@ -118,48 +118,48 @@ test.describe('package export contracts', () => {
       true,
     );
     expect(exportKeys.filter(isLegacyAuthMenuExportKey)).toEqual([]);
-    expect(readRepoFile('packages/sdk-web/src/react/index.ts')).toContain(
+    expect(readRepoFile('packages/wallet/src/react/index.ts')).toContain(
       "export { SeamsAuthMenu } from './components/SeamsAuthMenu/public';",
     );
   });
 
   test('excludes retired facade names from public web entrypoints', () => {
-    const rootSource = readRepoFile('packages/sdk-web/src/index.ts');
-    const reactSource = readRepoFile('packages/sdk-web/src/react/index.ts');
+    const rootSource = readRepoFile('packages/wallet/src/index.ts');
+    const reactSource = readRepoFile('packages/wallet/src/react/index.ts');
 
     expect(findRetiredFacadeExports(rootSource)).toEqual([]);
     expect(findRetiredFacadeExports(reactSource)).toEqual([]);
   });
 
-  test('maps server roots to @seams/sdk-server entries', () => {
-    const packageJson = readJson('packages/sdk-server-ts/package.json');
+  test('maps server roots to @seams/wallet-server entries', () => {
+    const packageJson = readJson('packages/wallet-server/package.json');
     const exportsMap = packageJson.exports;
 
-    expect(packageJson.name).toBe('@seams/sdk-server');
+    expect(packageJson.name).toBe('@seams/wallet-server');
     expect(packageJson.private).toBeUndefined();
     expect(exportsMap['.']).toEqual({
       import: './dist/esm/index.js',
       default: './dist/esm/index.js',
-      types: './dist/types/sdk-server-ts/src/index.d.ts',
+      types: './dist/types/wallet-server/src/index.d.ts',
     });
     expect(exportsMap['./router/express']).toEqual({
       import: './dist/esm/router/express.js',
       default: './dist/esm/router/express.js',
-      types: './dist/types/sdk-server-ts/src/router/express-adaptor.d.ts',
+      types: './dist/types/wallet-server/src/router/express-adaptor.d.ts',
     });
     expect(exportsMap['./router/cloudflare']).toEqual({
       import: './dist/esm/router/cloudflare.js',
       default: './dist/esm/router/cloudflare.js',
-      types: './dist/types/sdk-server-ts/src/router/cloudflare-adaptor.d.ts',
+      types: './dist/types/wallet-server/src/router/cloudflare-adaptor.d.ts',
     });
     expect(exportsMap['./router/ror']).toEqual({
       import: './dist/esm/router/ror.js',
       default: './dist/esm/router/ror.js',
-      types: './dist/types/sdk-server-ts/src/router/ror-adaptor.d.ts',
+      types: './dist/types/wallet-server/src/router/ror-adaptor.d.ts',
     });
     expect(exportsMap['./console']).toBeUndefined();
     const cloudflareTypes = readRepoFile(
-      'packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types.ts',
+      'packages/wallet-server/src/router/cloudflare/runtime/cloudflare.types.ts',
     );
     expect(cloudflareTypes).toContain('RouterApiCloudflareSignerWorkerEnv');
     expect(cloudflareTypes).toContain('SeamsD1SignerTenantStorageWorkerEnv');
@@ -167,9 +167,9 @@ test.describe('package export contracts', () => {
     expect(cloudflareTypes).not.toContain('SeamsD1ConsoleTenantStorageWorkerEnv');
     expect(cloudflareTypes).not.toContain('interface RouterApiCloudflareWorkerEnv');
     expect(cloudflareTypes).not.toContain('interface SeamsD1DoTenantStorageWorkerEnv');
-    const expressAdaptor = readRepoFile('packages/sdk-server-ts/src/router/express-adaptor.ts');
+    const expressAdaptor = readRepoFile('packages/wallet-server/src/router/express-adaptor.ts');
     const cloudflareAdaptor = readRepoFile(
-      'packages/sdk-server-ts/src/router/cloudflare-adaptor.ts',
+      'packages/wallet-server/src/router/cloudflare-adaptor.ts',
     );
     expect(expressAdaptor).not.toContain('createConsoleRouter');
     expect(expressAdaptor).not.toContain('@seams-internal/console-server');
@@ -180,20 +180,20 @@ test.describe('package export contracts', () => {
     expect(exportsMap['./wasm/signer']).toEqual({
       import: './dist/esm/wasm/signer.js',
       default: './dist/esm/wasm/signer.js',
-      types: './dist/types/sdk-server-ts/src/wasm/signer.d.ts',
+      types: './dist/types/wallet-server/src/wasm/signer.d.ts',
     });
     expect(exportsMap['./internal/*']).toBeUndefined();
-    expect(readRepoFile('packages/sdk-server-ts/src/index.ts')).toContain('export { AuthService }');
-    expect(readRepoFile('packages/sdk-server-ts/src/index.ts')).not.toContain(
+    expect(readRepoFile('packages/wallet-server/src/index.ts')).toContain('export { AuthService }');
+    expect(readRepoFile('packages/wallet-server/src/index.ts')).not.toContain(
       "export * from './console/",
     );
-    expect(fs.existsSync(path.join(repoRoot, 'packages/sdk-server-ts/src/console'))).toBe(false);
-    expect(fs.existsSync(path.join(repoRoot, 'packages/sdk-server-ts/src/router/console.ts'))).toBe(
+    expect(fs.existsSync(path.join(repoRoot, 'packages/wallet-server/src/console'))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, 'packages/wallet-server/src/router/console.ts'))).toBe(
       false,
     );
     expect(
       fs.existsSync(
-        path.join(repoRoot, 'packages/sdk-server-ts/src/router/cloudflare/d1ConsoleServices.ts'),
+        path.join(repoRoot, 'packages/wallet-server/src/router/cloudflare/d1ConsoleServices.ts'),
       ),
     ).toBe(false);
     expect(readJson('packages/console-server-ts/package.json').exports).toEqual({
@@ -209,7 +209,7 @@ test.describe('package export contracts', () => {
       },
     });
     const consoleCloudflareTypes = readRepoFile(
-      'packages/console-server-ts/src/router/cloudflare/cloudflareConsole.types.ts',
+      'packages/wallet-console-server-ts/src/router/cloudflare/cloudflareConsole.types.ts',
     );
     expect(consoleCloudflareTypes).toContain('RouterApiCloudflareConsoleWorkerEnv');
     expect(consoleCloudflareTypes).toContain('SeamsD1ConsoleTenantStorageWorkerEnv');
@@ -217,30 +217,33 @@ test.describe('package export contracts', () => {
     expect(fs.existsSync(path.join(repoRoot, 'packages/shared-ts/src/console'))).toBe(false);
     expect(readJson('packages/console-shared-ts/package.json').exports).toEqual({
       '.': './src/index.ts',
+      './organizationIdentity': './src/organizationIdentity.ts',
+    });
+    expect(readJson('packages/wallet-console-shared-ts/package.json').exports).toEqual({
+      '.': './src/index.ts',
       './apiKeyScopes': './src/apiKeyScopes.ts',
       './gasSponsorshipChains': './src/gasSponsorshipChains.ts',
       './gasSponsorshipSpendCapTargets': './src/gasSponsorshipSpendCapTargets.ts',
-      './organizationIdentity': './src/organizationIdentity.ts',
       './webhookEventCategories': './src/webhookEventCategories.ts',
     });
-    expect(resolveSdkServerPath(exportsMap['.'].import)).toContain('packages/sdk-server-ts');
+    expect(resolveSdkServerPath(exportsMap['.'].import)).toContain('packages/wallet-server');
   });
 
   test('public runtime package export exposes runtime value constructors', async () => {
-    const packageJson = readJson('packages/sdk-web/package.json');
+    const packageJson = readJson('packages/wallet/package.json');
     const runtimeExport = packageJson.exports['./runtime'];
     const runtimeModule = await import(pathToFileURL(resolveSdkWebPath(runtimeExport.import)).href);
 
     expect(typeof runtimeModule.createSigningRuntime).toBe('function');
     expect(typeof runtimeModule.createSigningRuntimeStatePorts).toBe('function');
 
-    const runtimeTypes = readRepoFile('packages/sdk-web/src/runtime.ts');
+    const runtimeTypes = readRepoFile('packages/wallet/src/runtime.ts');
     expect(runtimeTypes).toContain('createSigningRuntime');
     expect(runtimeTypes).toContain('createSigningRuntimeStatePorts');
   });
 
   test('react provider subpath exposes named and default provider exports', async () => {
-    const packageJson = readJson('packages/sdk-web/package.json');
+    const packageJson = readJson('packages/wallet/package.json');
     const providerExport = packageJson.exports['./react/provider'];
     const providerModule = await import(
       pathToFileURL(resolveSdkWebPath(providerExport.import)).href
@@ -252,18 +255,18 @@ test.describe('package export contracts', () => {
 
   test('keeps runtime source entry free of browser surfaces', () => {
     const violations: string[] = [];
-    for (const file of ['packages/sdk-web/src/runtime.ts']) {
+    for (const file of ['packages/wallet/src/runtime.ts']) {
       const source = readRepoFile(file);
       for (const pattern of browserSurfacePatterns) {
         if (pattern.test(source)) violations.push(`${file}: ${pattern}`);
       }
     }
     expect(violations, violations.join('\n')).toEqual([]);
-    expect(fs.existsSync(path.join(repoRoot, 'packages/sdk-web/src/embedded.ts'))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, 'packages/wallet/src/embedded.ts'))).toBe(false);
   });
 
   test('keeps WalletIframe HTML under a web-owned package export', () => {
-    const packageJson = readJson('packages/sdk-web/package.json');
+    const packageJson = readJson('packages/wallet/package.json');
     const exportsMap = packageJson.exports;
 
     expect(exportsMap['./WalletIframe/client/html']).toBeUndefined();
@@ -272,7 +275,7 @@ test.describe('package export contracts', () => {
     expect(exportsMap['./web/wallet-iframe-client-html']).toEqual({
       import: './dist/esm/SeamsWeb/walletIframe/client/html.js',
       default: './dist/esm/SeamsWeb/walletIframe/client/html.js',
-      types: './dist/types/sdk-web/src/SeamsWeb/walletIframe/client/html.d.ts',
+      types: './dist/types/wallet/src/SeamsWeb/walletIframe/client/html.d.ts',
     });
     expect(
       fs.existsSync(resolveSdkWebPath(exportsMap['./web/wallet-iframe-client-html'].types)),
@@ -280,7 +283,7 @@ test.describe('package export contracts', () => {
   });
 
   test('describes package surfaces without stale embedded-only positioning', () => {
-    const packageJson = readJson('packages/sdk-web/package.json');
+    const packageJson = readJson('packages/wallet/package.json');
     expect(packageJson.description).toContain('web');
     expect(packageJson.description).toContain('runtime');
     expect(packageJson.description).toContain('TypeScript');
@@ -293,7 +296,7 @@ test.describe('package export contracts', () => {
   });
 
   test('keeps server-only packages out of hard browser installs', () => {
-    const packageJson = readJson('packages/sdk-web/package.json');
+    const packageJson = readJson('packages/wallet/package.json');
     const serverOnlyPackages = ['pg', '@simplewebauthn/server', 'express'];
 
     for (const packageName of serverOnlyPackages) {
@@ -302,21 +305,21 @@ test.describe('package export contracts', () => {
       expect(packageJson.peerDependenciesMeta?.[packageName]).toBeUndefined();
     }
 
-    const rolldownConfig = readRepoFile('packages/sdk-web/rolldown.config.ts');
+    const rolldownConfig = readRepoFile('packages/wallet/rolldown.config.ts');
     for (const packageName of serverOnlyPackages) {
       expect(rolldownConfig).not.toContain(`'${packageName}'`);
     }
   });
 
-  test('keeps server runtime dependencies on @seams/sdk-server', () => {
-    const packageJson = readJson('packages/sdk-server-ts/package.json');
+  test('keeps server runtime dependencies on @seams/wallet-server', () => {
+    const packageJson = readJson('packages/wallet-server/package.json');
     const serverPackages = ['@simplewebauthn/server', 'express', 'bs58'];
 
     for (const packageName of serverPackages) {
       expect(packageJson.dependencies?.[packageName]).toBeTruthy();
     }
 
-    const rolldownConfig = readRepoFile('packages/sdk-server-ts/rolldown.config.ts');
+    const rolldownConfig = readRepoFile('packages/wallet-server/rolldown.config.ts');
     for (const packageName of serverPackages) {
       expect(rolldownConfig).toContain(`'${packageName}'`);
     }

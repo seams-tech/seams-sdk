@@ -2,20 +2,22 @@
 :root {
   color-scheme: light;
 
-  --vp-c-gray-1: #4d4943;
-  --vp-c-gray-2: #ded9d2;
-  --vp-c-gray-3: #ebe8e4;
-  --vp-c-gray-soft: rgb(109 103 95 / 0.14);
+  --vp-c-gray-1: #3f3f46;
+  --vp-c-gray-2: #e4e4e7;
+  --vp-c-gray-3: #f0f0f1;
+  --vp-c-gray-soft: rgb(113 113 122 / 0.12);
 
-  --vp-c-indigo-1: #4a6fa5;
-  --vp-c-indigo-2: #365f90;
-  --vp-c-indigo-3: #4a6fa5;
-  --vp-c-indigo-soft: rgb(74 111 165 / 0.14);
+  /* VitePress derives --vp-c-brand-* from the indigo slots, so the accent is
+     set here: the docs green. */
+  --vp-c-indigo-1: #15803d;
+  --vp-c-indigo-2: #166534;
+  --vp-c-indigo-3: #16a34a;
+  --vp-c-indigo-soft: rgb(22 163 74 / 0.12);
 
-  --vp-c-green-1: #157f5f;
-  --vp-c-green-2: #157f5f;
-  --vp-c-green-3: #157f5f;
-  --vp-c-green-soft: rgb(21 127 95 / 0.14);
+  --vp-c-green-1: #15803d;
+  --vp-c-green-2: #166534;
+  --vp-c-green-3: #16a34a;
+  --vp-c-green-soft: rgb(22 163 74 / 0.12);
 
   --vp-c-yellow-1: #8a4b08;
   --vp-c-yellow-2: #8a4b08;
@@ -28,15 +30,296 @@
   --vp-c-red-soft: rgb(197 61 50 / 0.14);
 
   --vp-c-bg: #ffffff;
-  --vp-c-bg-alt: #f5f3f1;
+  --vp-c-bg-alt: #f7f7f8;
   --vp-c-bg-elv: #ffffff;
-  --vp-c-bg-soft: #f5f3f1;
-  --vp-c-border: #c3bdb4;
-  --vp-c-divider: #ded9d2;
-  --vp-c-gutter: #ded9d2;
+  --vp-c-bg-soft: #f4f4f5;
+  --vp-c-border: #d4d4d8;
+  --vp-c-divider: #e6e6e7;
+  --vp-c-gutter: #e6e6e7;
   --vp-c-text-1: #0a0a0a;
-  --vp-c-text-2: #4d4943;
-  --vp-c-text-3: #6d675f;
+  --vp-c-text-2: #3f3f46;
+  --vp-c-text-3: #71717a;
+
+  /* Accent surfaces (active markers, rails) take the gradient; accent text
+     stays flat so it keeps its contrast ratio. */
+  --seams-accent-gradient: linear-gradient(180deg, #22c55e 0%, #16a34a 55%, #15803d 100%);
+
+  /* Inline code is body text in a chip, not an accent: black on a lighter
+     grey. Code inside a link keeps the accent so the link still reads as one. */
+  --vp-code-bg: #f4f4f5;
+  --vp-code-color: var(--vp-c-text-1);
+}
+
+/* The same roles on a warm neutral ink, so the two modes read as one brand. */
+.dark {
+  color-scheme: dark;
+
+  --vp-c-gray-1: #a1a1aa;
+  --vp-c-gray-2: #27272a;
+  --vp-c-gray-3: #1f1f22;
+  --vp-c-gray-soft: rgb(161 161 170 / 0.16);
+
+  --vp-c-indigo-1: #4ade80;
+  --vp-c-indigo-2: #86efac;
+  --vp-c-indigo-3: #22c55e;
+  --vp-c-indigo-soft: rgb(74 222 128 / 0.16);
+
+  --vp-c-green-1: #4ade80;
+  --vp-c-green-2: #86efac;
+  --vp-c-green-3: #22c55e;
+  --vp-c-green-soft: rgb(74 222 128 / 0.16);
+
+  --vp-c-yellow-1: #e0ac68;
+  --vp-c-yellow-2: #e0ac68;
+  --vp-c-yellow-3: #c08f4f;
+  --vp-c-yellow-soft: rgb(224 172 104 / 0.16);
+
+  --vp-c-red-1: #e58c81;
+  --vp-c-red-2: #e58c81;
+  --vp-c-red-3: #c76f66;
+  --vp-c-red-soft: rgb(229 140 129 / 0.16);
+
+  --vp-c-bg: #0a0a0b;
+  --vp-c-bg-alt: #141416;
+  --vp-c-bg-elv: #18181b;
+  --vp-c-bg-soft: #18181b;
+  --vp-c-border: #3f3f46;
+  --vp-c-divider: #27272a;
+  --vp-c-gutter: #27272a;
+  --vp-c-text-1: #fafafa;
+  --vp-c-text-2: #a1a1aa;
+  --vp-c-text-3: #71717a;
+
+  --seams-accent-gradient: linear-gradient(180deg, #86efac 0%, #4ade80 55%, #22c55e 100%);
+
+  --vp-code-bg: #1c1c1f;
+  --vp-code-color: var(--vp-c-text-1);
+}
+
+/* The sidebar carries the brand, search, and appearance switch, so the top
+   nav bar has nothing left to show. Zeroing its height collapses the offsets
+   the default theme derives from it. */
+:root {
+  --vp-nav-height: 0px;
+}
+
+.VPNav {
+  display: none;
+}
+
+/* The sidebar shares the content's white and is separated by a rule, not by
+   a tint. */
+.Layout .VPSidebar {
+  background-color: var(--vp-c-bg);
+  border-right: 1px solid var(--vp-c-divider);
+}
+
+/* Sidebar: pull the tree toward the left edge so long entries wrap less. */
+@media (min-width: 960px) {
+  .Layout .VPSidebar {
+    padding-top: 24px;
+    padding-right: 16px;
+    padding-left: 20px;
+  }
+
+  .Layout .VPSidebar .curtain {
+    display: none;
+  }
+
+  .Layout .VPSidebar .group {
+    width: auto;
+  }
+}
+
+.VPSidebar .nav {
+  padding-top: 0;
+}
+
+/* The section headings carry the structure on their own, so drop the rules
+   between groups and tighten the rhythm around each one. */
+.VPSidebar .group,
+.VPSidebar .group + .group {
+  border-top: 0;
+  padding-top: 2px;
+}
+
+.VPSidebar .VPSidebarItem.level-0 {
+  padding-bottom: 20px;
+}
+
+.VPSidebar .VPSidebarItem.level-0.collapsed {
+  padding-bottom: 8px;
+}
+
+/* Section headings read as labels above their items. */
+.VPSidebar .VPSidebarItem.level-0 > .item .text {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.VPSidebar .VPSidebarItem .text {
+  padding: 3px 0;
+  line-height: 22px;
+}
+
+/* Items hang off a continuous indent-guide rule under their heading; nested
+   groups repeat the rule one level in. */
+.VPSidebar .VPSidebarItem .items {
+  margin-left: 4px;
+  border-left: 1px solid var(--vp-c-divider);
+  padding-left: 14px;
+}
+
+/* The active item lights up its segment of the guide rule. */
+.VPSidebar .VPSidebarItem .item .indicator {
+  top: 4px;
+  bottom: 4px;
+  left: -15px;
+  width: 2px;
+  border-radius: 0;
+}
+
+.VPSidebar .VPSidebarItem.level-1.is-active > .item > .indicator,
+.VPSidebar .VPSidebarItem.level-2.is-active > .item > .indicator,
+.VPSidebar .VPSidebarItem.level-3.is-active > .item > .indicator {
+  background: var(--seams-accent-gradient);
+}
+
+/* The outline's active marker is the same rail on the other side. */
+.VPDocAsideOutline .outline-marker {
+  background: var(--seams-accent-gradient);
+}
+
+/* Inline code carries symbol names inside sentences, so it takes weight to
+   stand out now that it no longer takes color. Code blocks keep their own
+   weights from the syntax theme. */
+.vp-doc :not(pre) > code {
+  font-weight: 600;
+}
+
+/* Markdown keeps its H1 so VitePress local search indexes the page title.
+   The layout header renders the visible semantic title. */
+.vp-doc > div > h1:first-child {
+  display: none;
+}
+
+/* The content column starts on body copy; keep it flush with the subtitle. */
+.vp-doc > div > :first-child {
+  margin-top: 0;
+}
+
+/* The default theme paints a fixed gradient strip over the bottom of the
+   outline column; it covers the footer instead of fading the outline. */
+.VPDoc .aside .aside-curtain {
+  display: none;
+}
+
+/* Site footer. The sidebar is fixed to the viewport, so the footer has to be
+   inset by its width on wide screens or its first column is clipped. */
+.seams-docs-footer {
+  /* The outline column is fixed and full height, so it sits over the footer's
+     right half and swallows those clicks unless the footer is raised. */
+  position: relative;
+  z-index: 2;
+  border-top: 1px solid var(--vp-c-divider);
+  background-color: transparent;
+  padding: 20px 24px;
+}
+
+@media (min-width: 768px) {
+  .seams-docs-footer {
+    padding-inline: 32px;
+  }
+}
+
+@media (min-width: 960px) {
+  .seams-docs-footer {
+    padding-left: calc(var(--vp-sidebar-width) + 32px);
+  }
+}
+
+@media (min-width: 1440px) {
+  .seams-docs-footer {
+    padding-right: calc((100vw - var(--vp-layout-max-width)) / 2 + 32px);
+    padding-left: calc((100vw - var(--vp-layout-max-width)) / 2 + var(--vp-sidebar-width) + 32px);
+  }
+}
+
+.seams-docs-footer__inner {
+  display: flex;
+  flex-wrap: wrap;
+  /* The brand and its copyright line sit on the baseline of the tallest
+     column, not at the top of the row. */
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px 40px;
+  margin: 0 auto;
+  max-width: 1104px;
+}
+
+.seams-docs-footer__brand {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.seams-docs-footer__brand-link {
+  display: inline-flex;
+  align-items: center;
+}
+
+.seams-docs-footer__wordmark {
+  display: block;
+  width: auto;
+  height: 16px;
+}
+
+.seams-docs-footer__wordmark--dark,
+.dark .seams-docs-footer__wordmark--light {
+  display: none;
+}
+
+.dark .seams-docs-footer__wordmark--dark {
+  display: block;
+}
+
+.seams-docs-footer__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 40px;
+}
+
+.seams-docs-footer__group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.seams-docs-footer__group h2 {
+  margin: 0 0 2px;
+  color: var(--vp-c-text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.seams-docs-footer__group a {
+  color: var(--vp-c-text-2);
+  font-size: 13px;
+  line-height: 1.5;
+  text-decoration: none;
+}
+
+.seams-docs-footer__group a:hover {
+  color: var(--vp-c-brand-1);
+}
+
+.seams-docs-footer__legal {
+  margin: 0;
+  color: var(--vp-c-text-3);
+  font-size: 12px;
 }
 
 /* Mermaid is generated after VitePress renders the page. These rules provide

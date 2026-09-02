@@ -37,12 +37,12 @@ It does not satisfy the independent construction-review gate.
 
 | Command | Direct result |
 | --- | --- |
-| `pnpm -C packages/sdk-server-ts type-check` | passed |
-| `pnpm -C packages/sdk-server-ts build` | passed, including TypeScript, Rolldown, and Wasm asset copy |
-| `pnpm -C packages/sdk-web type-check` | passed |
-| `pnpm -C packages/sdk-web build:prod` | passed after the missing pinned `wasm-bindgen` CLI was downloaded; the first sandboxed attempt failed only on blocked DNS/download access |
-| `pnpm -C packages/sdk-web check:bundle-size` | passed after the completed build; all expected worker/Wasm outputs were present |
-| `pnpm -C packages/sdk-web check:wasm-exports` | completed successfully as an informational generated-export audit |
+| `pnpm -C packages/wallet-server type-check` | passed |
+| `pnpm -C packages/wallet-server build` | passed, including TypeScript, Rolldown, and Wasm asset copy |
+| `pnpm -C packages/wallet type-check` | passed |
+| `pnpm -C packages/wallet build:prod` | passed after the missing pinned `wasm-bindgen` CLI was downloaded; the first sandboxed attempt failed only on blocked DNS/download access |
+| `pnpm -C packages/wallet check:bundle-size` | passed after the completed build; all expected worker/Wasm outputs were present |
+| `pnpm -C packages/wallet check:wasm-exports` | completed successfully as an informational generated-export audit |
 | `node tests/scripts/check-ecdsa-client-worker-split.mjs` | passed: fixed worker ownership, deleted-symbol, dependency, artifact, and review-corpus digest checks |
 | `node tests/scripts/check-signing-engine-ecdsa-identity-boundaries.mjs` | passed |
 | `node tests/scripts/check-cross-platform-boundaries.mjs` | passed |
@@ -53,7 +53,7 @@ The production build emitted every current ECDSA role-specific Wasm package
 and completed its runtime-entry, hosted-wallet asset, TypeScript, and bundling
 checks. The generated-export report also enumerated ignored local `pkg` caches
 for the deleted experimental `evm_transaction_codec` and `webauthn_p256`
-crates. No corresponding file appeared in `packages/sdk-web/dist`.
+crates. No corresponding file appeared in `packages/wallet/dist`.
 
 ## Registration package closure follow-up
 
@@ -68,7 +68,7 @@ export Wasm.
 | --- | --- |
 | `cargo check --offline --locked --manifest-path wasm/ecdsa_registration_client/Cargo.toml` | passed |
 | `wasm-pack build --locked --target web --out-dir pkg --out-name ecdsa_registration_client --release` | passed |
-| `pnpm -C packages/sdk-web run build:prod` | passed, including TypeScript, production worker bundling, hosted static assets, and the renamed Wasm copies |
+| `pnpm -C packages/wallet run build:prod` | passed, including TypeScript, production worker bundling, hosted static assets, and the renamed Wasm copies |
 | `node tests/scripts/check-router-ab-ecdsa-derivation-boundaries.mjs` | passed, including registration-package dependency, export, and compressed-size ceilings |
 | `node tests/scripts/check-ecdsa-client-worker-split.mjs` | passed |
 | `node tests/scripts/check-ed25519-yao-near-signing-boundaries.mjs` | passed |

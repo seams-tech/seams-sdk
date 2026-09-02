@@ -22,6 +22,8 @@ use crate::error::{CoreResult, SignerCoreError};
 
 pub const PASSKEY_CUSTODY_WRAP_ALG_V1: &str = "chacha20poly1305-hkdf-sha256-v1";
 pub const WALLET_CUSTODY_ENVELOPE_VERSION_V2: &str = "wallet_custody_envelope_v2";
+/// Refactor 109C: an envelope whose owning auth method is part of its AAD.
+pub const WALLET_CUSTODY_ENVELOPE_VERSION_V3: &str = "wallet_custody_envelope_v3";
 pub const PASSKEY_CUSTODY_KEK_VERSION_V1: &str = "passkey_prf_kek_hkdf_sha256_v1";
 pub const EMAIL_OTP_FACTOR_KEK_VERSION_V1: &str = "email_otp_factor_kek_hkdf_sha256_v1";
 pub const WALLET_SEED_DERIVATION_SCHEME_V1: &str = "wallet_seed_parallel_hkdf_sha256_v1";
@@ -45,14 +47,37 @@ const MAX_BINDING_FIELD_LEN: usize = 512;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasskeyCustodySecretKind {
     WalletCustodySeed,
+    Ed25519YaoClientRoot,
     Ed25519LaneHolderShare,
     EcdsaLaneHolderShare,
+}
+
+/// Factor selected during linked-device activation. It is distinct from the
+/// envelope factor record because the latter also carries factor-local KEK
+/// metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum PasskeyCustodyTargetFactorV1 {
+    #[serde(rename = "passkey_prf")]
+    PasskeyPrf,
+    #[serde(rename = "email_otp")]
+    EmailOtp,
+}
+
+impl PasskeyCustodyTargetFactorV1 {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PasskeyPrf => "passkey_prf",
+            Self::EmailOtp => "email_otp",
+        }
+    }
 }
 
 impl PasskeyCustodySecretKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::WalletCustodySeed => "wallet_custody_seed_v1",
+            Self::Ed25519YaoClientRoot => "ed25519_yao_client_root_v1",
             Self::Ed25519LaneHolderShare => "ed25519_lane_holder_share_v1",
             Self::EcdsaLaneHolderShare => "ecdsa_lane_holder_share_v1",
         }
@@ -64,6 +89,7 @@ impl PasskeyCustodySecretKind {
     pub fn parse(value: &str) -> CoreResult<Self> {
         match value {
             "wallet_custody_seed_v1" => Ok(Self::WalletCustodySeed),
+            "ed25519_yao_client_root_v1" => Ok(Self::Ed25519YaoClientRoot),
             "ed25519_lane_holder_share_v1" => Ok(Self::Ed25519LaneHolderShare),
             "ecdsa_lane_holder_share_v1" => Ok(Self::EcdsaLaneHolderShare),
             _ => Err(SignerCoreError::invalid_input(
@@ -96,6 +122,19 @@ pub enum PasskeyCustodySecretBindingV1 {
     /// force a reseal every time a key set arrived.
     #[serde(rename = "wallet_custody_seed_v1", rename_all = "camelCase")]
     WalletCustodySeed { derivation_scheme: String },
+    /// Ed25519 Yao Client export root. It is distinct from both the wallet
+    /// custody seed and ordinary lane-holder material.
+    #[serde(rename = "ed25519_yao_client_root_v1", rename_all = "camelCase")]
+    Ed25519YaoClientRoot {
+        link_session_id: String,
+        wallet_key_id: String,
+        target_factor: PasskeyCustodyTargetFactorV1,
+        application_binding_digest_b64u: String,
+        registered_public_key_b64u: String,
+        enrollment_id: String,
+        device_id: String,
+        revocation_epoch: u64,
+    },
     #[serde(rename = "ed25519_lane_holder_share_v1", rename_all = "camelCase")]
     Ed25519LaneHolderShare {
         #[serde(flatten)]
@@ -118,6 +157,7 @@ impl PasskeyCustodySecretBindingV1 {
     pub fn kind(&self) -> PasskeyCustodySecretKind {
         match self {
             Self::WalletCustodySeed { .. } => PasskeyCustodySecretKind::WalletCustodySeed,
+            Self::Ed25519YaoClientRoot { .. } => PasskeyCustodySecretKind::Ed25519YaoClientRoot,
             Self::Ed25519LaneHolderShare { .. } => PasskeyCustodySecretKind::Ed25519LaneHolderShare,
             Self::EcdsaLaneHolderShare { .. } => PasskeyCustodySecretKind::EcdsaLaneHolderShare,
         }
@@ -127,7 +167,7 @@ impl PasskeyCustodySecretBindingV1 {
     /// custody. The absence is meaningful and is encoded into the AAD.
     pub fn lane(&self) -> Option<&PasskeyCustodyLaneScopeV1> {
         match self {
-            Self::WalletCustodySeed { .. } => None,
+            Self::WalletCustodySeed { .. } | Self::Ed25519YaoClientRoot { .. } => None,
             Self::Ed25519LaneHolderShare { lane, .. } | Self::EcdsaLaneHolderShare { lane, .. } => {
                 Some(lane)
             }
@@ -136,8 +176,8 @@ impl PasskeyCustodySecretBindingV1 {
 }
 
 /// Which enrolled factor sealed this envelope. Factors are interchangeable
-/// unwrap paths to the same custody seed, so each derives its own KEK: the
-/// factor identity is part of the KEK context and the AAD.
+/// unwrap paths to the same custody-secret branch, so each derives its own KEK:
+/// the factor identity is part of the KEK context and the AAD.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 pub enum WalletCustodyEnvelopeFactorV1 {
@@ -185,9 +225,54 @@ impl WalletCustodyEnvelopeFactorV1 {
     }
 }
 
+fn target_factor_matches_envelope(
+    target_factor: &PasskeyCustodyTargetFactorV1,
+    envelope_factor: &WalletCustodyEnvelopeFactorV1,
+) -> bool {
+    matches!(
+        (target_factor, envelope_factor),
+        (
+            PasskeyCustodyTargetFactorV1::PasskeyPrf,
+            WalletCustodyEnvelopeFactorV1::Passkey { .. }
+        ) | (
+            PasskeyCustodyTargetFactorV1::EmailOtp,
+            WalletCustodyEnvelopeFactorV1::EmailOtp { .. }
+        )
+    )
+}
+
 /// Every public fact one envelope is bound to. This carries no authorization
 /// identity and no material-activation reference: those are resolved per
 /// operation at the Refactor 90 boundary, never sealed into custody.
+/// Which envelope generation a binding describes, and therefore whether the
+/// owning auth method is authenticated.
+///
+/// Envelopes used to be addressed by factor alone. That holds while a factor
+/// identifies a method, and Email OTP breaks it: the provider enrollment is
+/// deliberately shared across a wallet's Email methods, so two siblings share
+/// one factor address. Binding the method into the AAD is what stops a stored
+/// envelope from being relabelled to its sibling.
+///
+/// `Unbound` exists only to open envelopes sealed before that binding existed.
+/// It is never written: a successful open is followed by a reseal as
+/// `MethodBound` once the exact method has been authenticated.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub enum PasskeyCustodyEnvelopeOwnershipV1 {
+    Unbound,
+    #[serde(rename_all = "camelCase")]
+    MethodBound { wallet_auth_method_id: String },
+}
+
+impl PasskeyCustodyEnvelopeOwnershipV1 {
+    pub fn envelope_version(&self) -> &'static str {
+        match self {
+            Self::Unbound => WALLET_CUSTODY_ENVELOPE_VERSION_V2,
+            Self::MethodBound { .. } => WALLET_CUSTODY_ENVELOPE_VERSION_V3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PasskeyCustodyEnvelopeBindingV1 {
@@ -198,6 +283,7 @@ pub struct PasskeyCustodyEnvelopeBindingV1 {
     /// ciphertext cannot be replayed into a newer envelope revision.
     pub envelope_revision: u32,
     pub binding: PasskeyCustodySecretBindingV1,
+    pub ownership: PasskeyCustodyEnvelopeOwnershipV1,
 }
 
 /// A sealed envelope's ciphertext plus the digests the server store and the
@@ -334,11 +420,24 @@ pub fn encode_passkey_custody_aad_v1(
 
     let mut out = Vec::new();
     labeled_field(&mut out, b"context", PASSKEY_CUSTODY_AAD_CONTEXT_V1);
+    // The version label is what keeps a V2 envelope's AAD byte-identical to
+    // what it was sealed under. Adding an unconditional field here would make
+    // every already-sealed envelope fail verification, which is
+    // indistinguishable from custody loss.
     labeled_str(
         &mut out,
         b"envelopeVersion",
-        WALLET_CUSTODY_ENVELOPE_VERSION_V2,
+        binding.ownership.envelope_version(),
     );
+    match &binding.ownership {
+        PasskeyCustodyEnvelopeOwnershipV1::Unbound => {}
+        PasskeyCustodyEnvelopeOwnershipV1::MethodBound {
+            wallet_auth_method_id,
+        } => {
+            require_field("walletAuthMethodId", wallet_auth_method_id)?;
+            labeled_str(&mut out, b"walletAuthMethodId", wallet_auth_method_id);
+        }
+    }
     labeled_str(&mut out, b"wrapAlg", PASSKEY_CUSTODY_WRAP_ALG_V1);
     encode_factor(&mut out, &binding.factor)?;
     labeled_str(&mut out, b"walletId", &binding.wallet_id);
@@ -378,6 +477,48 @@ pub fn encode_passkey_custody_aad_v1(
                 )));
             }
             labeled_str(&mut out, b"derivationScheme", derivation_scheme);
+        }
+        PasskeyCustodySecretBindingV1::Ed25519YaoClientRoot {
+            link_session_id,
+            wallet_key_id,
+            target_factor,
+            application_binding_digest_b64u,
+            registered_public_key_b64u,
+            enrollment_id,
+            device_id,
+            revocation_epoch,
+        } => {
+            require_field("linkSessionId", link_session_id)?;
+            require_field("walletKeyId", wallet_key_id)?;
+            require_field("enrollmentId", enrollment_id)?;
+            require_field("deviceId", device_id)?;
+            if !target_factor_matches_envelope(target_factor, &binding.factor) {
+                return Err(SignerCoreError::invalid_input(
+                    "Ed25519 Yao Client-root target factor does not match the envelope factor",
+                ));
+            }
+            let application_binding_digest = require_digest_b64u(
+                "applicationBindingDigestB64u",
+                application_binding_digest_b64u,
+            )?;
+            let registered_public_key =
+                require_public_key_b64u("registeredPublicKeyB64u", registered_public_key_b64u, 32)?;
+            labeled_str(&mut out, b"linkSessionId", link_session_id);
+            labeled_str(&mut out, b"walletKeyId", wallet_key_id);
+            labeled_str(&mut out, b"targetFactor", target_factor.as_str());
+            labeled_str(&mut out, b"enrollmentId", enrollment_id);
+            labeled_str(&mut out, b"deviceId", device_id);
+            labeled_field(
+                &mut out,
+                b"revocationEpoch",
+                &revocation_epoch.to_be_bytes(),
+            );
+            labeled_field(
+                &mut out,
+                b"applicationBindingDigest",
+                &application_binding_digest,
+            );
+            labeled_field(&mut out, b"registeredPublicKey", &registered_public_key);
         }
         PasskeyCustodySecretBindingV1::Ed25519LaneHolderShare {
             near_ed25519_signing_key_id,
@@ -470,9 +611,13 @@ pub fn seal_passkey_custody_secret_v1(
     nonce: &[u8],
     custody_secret: &[u8],
 ) -> CoreResult<SealedPasskeyCustodyEnvelopeV1> {
-    if binding.binding.kind() == PasskeyCustodySecretKind::WalletCustodySeed {
+    if matches!(
+        binding.binding.kind(),
+        PasskeyCustodySecretKind::WalletCustodySeed
+            | PasskeyCustodySecretKind::Ed25519YaoClientRoot
+    ) {
         return Err(SignerCoreError::invalid_input(
-            "a wallet custody seed is sealed through seal_wallet_custody_seed_envelope_v1",
+            "wallet custody seeds and Ed25519 Yao Client roots use dedicated seal operations",
         ));
     }
     seal_custody_secret(prf_first, binding, nonce, custody_secret)
@@ -602,12 +747,21 @@ pub fn reseal_wallet_custody_seed_under_new_factor_v1(
     seal_custody_secret(new_factor_secret, new_binding, nonce, custody_seed)
 }
 
-fn seal_custody_secret(
+pub(crate) fn seal_custody_secret(
     prf_first: &[u8],
     binding: &PasskeyCustodyEnvelopeBindingV1,
     nonce: &[u8],
     custody_secret: &[u8],
 ) -> CoreResult<SealedPasskeyCustodyEnvelopeV1> {
+    // Unbound is a decoding shape, not a writing one. Every envelope this
+    // produces — a first seal, a factor addition, an upgrade reseal — names the
+    // method that owns it, so no path can mint a fresh pre-109C envelope and
+    // reintroduce the ambiguity method binding exists to remove.
+    if matches!(binding.ownership, PasskeyCustodyEnvelopeOwnershipV1::Unbound) {
+        return Err(SignerCoreError::invalid_input(
+            "a sealed envelope must name the auth method that owns it",
+        ));
+    }
     if custody_secret.is_empty() || custody_secret.len() > MAX_CUSTODY_SECRET_LEN {
         return Err(SignerCoreError::invalid_input(
             "custody secret length is invalid",
@@ -698,4 +852,270 @@ fn require_nonce(nonce: &[u8]) -> CoreResult<[u8; PASSKEY_CUSTODY_NONCE_LEN]> {
             "passkey custody nonce must be {PASSKEY_CUSTODY_NONCE_LEN} bytes"
         ))
     })
+}
+
+#[cfg(test)]
+mod r109c_method_bound_envelope_tests {
+    use super::*;
+
+    fn passkey_factor() -> WalletCustodyEnvelopeFactorV1 {
+        WalletCustodyEnvelopeFactorV1::Passkey {
+            rp_id: "wallet.example.test".to_string(),
+            credential_id_b64u: "Y3JlZGVudGlhbA".to_string(),
+            kek_version: PASSKEY_CUSTODY_KEK_VERSION_V1.to_string(),
+        }
+    }
+
+    fn binding(ownership: PasskeyCustodyEnvelopeOwnershipV1) -> PasskeyCustodyEnvelopeBindingV1 {
+        PasskeyCustodyEnvelopeBindingV1 {
+            wallet_id: "wallet:r109c".to_string(),
+            envelope_id: "wallet-custody-envelope:r109c".to_string(),
+            factor: passkey_factor(),
+            envelope_revision: 1,
+            binding: PasskeyCustodySecretBindingV1::WalletCustodySeed {
+                derivation_scheme: WALLET_SEED_DERIVATION_SCHEME_V1.to_string(),
+            },
+            ownership,
+        }
+    }
+
+
+    /// Reproduces a pre-109C seal: same KEK and AAD derivation, without the
+    /// ownership policy the sealer now enforces.
+    fn seal_legacy_unbound_for_test(
+        factor_secret: &[u8],
+        binding: &PasskeyCustodyEnvelopeBindingV1,
+        nonce: &[u8],
+        custody_secret: &[u8],
+    ) -> SealedPasskeyCustodyEnvelopeV1 {
+        let nonce = require_nonce(nonce).expect("nonce");
+        let aad = encode_passkey_custody_aad_v1(binding).expect("aad");
+        let kek = derive_passkey_custody_kek_v1(factor_secret, binding).expect("kek");
+        let cipher = ChaCha20Poly1305::new_from_slice(&kek[..]).expect("cipher");
+        let ciphertext = cipher
+            .encrypt(
+                &Nonce::from(nonce),
+                Payload {
+                    msg: custody_secret,
+                    aad: &aad,
+                },
+            )
+            .expect("legacy seal");
+        SealedPasskeyCustodyEnvelopeV1 {
+            aad_hash: sha256_digest(&aad),
+            ciphertext_digest: sha256_digest(&ciphertext),
+            ciphertext,
+        }
+    }
+
+    fn method_bound(id: &str) -> PasskeyCustodyEnvelopeOwnershipV1 {
+        PasskeyCustodyEnvelopeOwnershipV1::MethodBound {
+            wallet_auth_method_id: id.to_string(),
+        }
+    }
+
+    /// A V2 envelope was sealed before ownership existed. If its AAD changed,
+    /// every already-sealed envelope would fail verification — indistinguishable
+    /// from custody loss — so the unbound encoding must stay byte-identical to
+    /// what it was before ownership was introduced.
+    #[test]
+    fn unbound_aad_carries_no_ownership_and_stays_v2() {
+        let aad = encode_passkey_custody_aad_v1(&binding(
+            PasskeyCustodyEnvelopeOwnershipV1::Unbound,
+        ))
+        .expect("unbound aad");
+        let haystack = String::from_utf8_lossy(&aad).to_string();
+        assert!(haystack.contains(WALLET_CUSTODY_ENVELOPE_VERSION_V2));
+        assert!(!haystack.contains(WALLET_CUSTODY_ENVELOPE_VERSION_V3));
+        assert!(!haystack.contains("walletAuthMethodId"));
+    }
+
+    /// Relabelling a stored envelope to a sibling method has to change the AAD,
+    /// otherwise the row could be pointed at another method and still open. This
+    /// is the whole reason ownership is authenticated rather than indexed.
+    #[test]
+    fn relabelling_a_method_bound_envelope_changes_its_aad() {
+        let owner = encode_passkey_custody_aad_v1(&binding(method_bound(
+            "wallet-auth-method:owner",
+        )))
+        .expect("owner aad");
+        let sibling = encode_passkey_custody_aad_v1(&binding(method_bound(
+            "wallet-auth-method:sibling",
+        )))
+        .expect("sibling aad");
+        assert_ne!(owner, sibling);
+
+        let unbound =
+            encode_passkey_custody_aad_v1(&binding(PasskeyCustodyEnvelopeOwnershipV1::Unbound))
+                .expect("unbound aad");
+        assert_ne!(owner, unbound);
+    }
+
+    /// Behaviour 1: a pre-109C envelope opens under its original AAD, and the
+    /// reseal that follows produces ciphertext bound to the method that just
+    /// authenticated. The seed is unchanged across the upgrade — only its
+    /// wrapping generation moves.
+    #[test]
+    fn an_unbound_envelope_opens_then_reseals_as_method_bound() {
+        let secret = [7u8; 32];
+        let unbound = binding(PasskeyCustodyEnvelopeOwnershipV1::Unbound);
+        let nonce = [1u8; PASSKEY_CUSTODY_NONCE_LEN];
+        // Sealed the way a pre-109C row was: production can no longer write
+        // one, which is the point of behaviour 5, so the fixture reproduces the
+        // old wrapping directly rather than going through the guarded seal.
+        let sealed = seal_legacy_unbound_for_test(&[9u8; 32], &unbound, &nonce, &secret);
+
+        let (_opened, admitted) = open_wallet_custody_seed_envelope_v1(
+            &[9u8; 32],
+            &unbound,
+            &nonce,
+            &sealed.ciphertext,
+            &sealed.aad_hash,
+            &sealed.ciphertext_digest,
+        )
+        .expect("a v2 envelope opens under its original AAD");
+
+        let upgraded = PasskeyCustodyEnvelopeBindingV1 {
+            envelope_id: "wallet-custody-envelope:upgraded".to_string(),
+            ownership: method_bound("wallet-auth-method:owner"),
+            ..unbound.clone()
+        };
+        let resealed = reseal_wallet_custody_seed_under_new_factor_v1(
+            &[9u8; 32],
+            &upgraded,
+            &admitted,
+            &[2u8; PASSKEY_CUSTODY_NONCE_LEN],
+            &secret,
+        )
+        .expect("upgrade reseal");
+        assert_ne!(resealed.aad_hash, sealed.aad_hash);
+
+        let (reopened, _) = open_wallet_custody_seed_envelope_v1(
+            &[9u8; 32],
+            &upgraded,
+            &[2u8; PASSKEY_CUSTODY_NONCE_LEN],
+            &resealed.ciphertext,
+            &resealed.aad_hash,
+            &resealed.ciphertext_digest,
+        )
+        .expect("the upgraded envelope opens as v3");
+        assert_eq!(&reopened[..], &secret[..]);
+    }
+
+    /// The upgrade keeps the envelope's identity and advances its revision, so
+    /// it replaces one row rather than creating a second envelope for the same
+    /// seed. The revision is inside the AAD, which is what stops the superseded
+    /// V2 ciphertext from being replayed into the upgraded row.
+    #[test]
+    fn the_upgrade_is_a_next_revision_reseal_of_the_same_envelope() {
+        let secret = [7u8; 32];
+        let unbound = binding(PasskeyCustodyEnvelopeOwnershipV1::Unbound);
+        let nonce = [1u8; PASSKEY_CUSTODY_NONCE_LEN];
+        let sealed = seal_legacy_unbound_for_test(&[9u8; 32], &unbound, &nonce, &secret);
+        let (_opened, admitted) = open_wallet_custody_seed_envelope_v1(
+            &[9u8; 32],
+            &unbound,
+            &nonce,
+            &sealed.ciphertext,
+            &sealed.aad_hash,
+            &sealed.ciphertext_digest,
+        )
+        .expect("v2 opens");
+
+        let upgraded = PasskeyCustodyEnvelopeBindingV1 {
+            envelope_revision: unbound.envelope_revision + 1,
+            ownership: method_bound("wallet-auth-method:owner"),
+            ..unbound.clone()
+        };
+        assert_eq!(upgraded.envelope_id, unbound.envelope_id);
+
+        let resealed = reseal_wallet_custody_seed_under_new_factor_v1(
+            &[9u8; 32],
+            &upgraded,
+            &admitted,
+            &[2u8; PASSKEY_CUSTODY_NONCE_LEN],
+            &secret,
+        )
+        .expect("upgrade reseal");
+
+        // The old ciphertext cannot be presented as the upgraded row.
+        assert!(open_wallet_custody_seed_envelope_v1(
+            &[9u8; 32],
+            &upgraded,
+            &nonce,
+            &sealed.ciphertext,
+            &sealed.aad_hash,
+            &sealed.ciphertext_digest,
+        )
+        .is_err());
+
+        let (reopened, _) = open_wallet_custody_seed_envelope_v1(
+            &[9u8; 32],
+            &upgraded,
+            &[2u8; PASSKEY_CUSTODY_NONCE_LEN],
+            &resealed.ciphertext,
+            &resealed.aad_hash,
+            &resealed.ciphertext_digest,
+        )
+        .expect("upgraded row opens");
+        assert_eq!(&reopened[..], &secret[..]);
+    }
+
+    /// Behaviour 2: relabelling a stored V3 row to a sibling method does not
+    /// let the sibling open it. The owner is inside the AAD, so the presented
+    /// binding stops reproducing the sealed one.
+    #[test]
+    fn a_sibling_method_cannot_open_a_relabelled_envelope() {
+        let secret = [5u8; 32];
+        let owner = binding(method_bound("wallet-auth-method:owner"));
+        let nonce = [3u8; PASSKEY_CUSTODY_NONCE_LEN];
+        let sealed =
+            seal_wallet_custody_seed_envelope_v1(&[4u8; 32], &owner, &nonce, &secret).expect("seal");
+
+        let relabelled = PasskeyCustodyEnvelopeBindingV1 {
+            ownership: method_bound("wallet-auth-method:sibling"),
+            ..owner.clone()
+        };
+        assert!(open_wallet_custody_seed_envelope_v1(
+            &[4u8; 32],
+            &relabelled,
+            &nonce,
+            &sealed.ciphertext,
+            &sealed.aad_hash,
+            &sealed.ciphertext_digest,
+        )
+        .is_err());
+
+        // And the same row still opens for its real owner, so the refusal is
+        // about ownership rather than a corrupted record.
+        assert!(open_wallet_custody_seed_envelope_v1(
+            &[4u8; 32],
+            &owner,
+            &nonce,
+            &sealed.ciphertext,
+            &sealed.aad_hash,
+            &sealed.ciphertext_digest,
+        )
+        .is_ok());
+    }
+
+    /// Behaviour 5: sealing is method-bound only. An unbound binding may be
+    /// opened, never written, so no path can produce a fresh V2 envelope.
+    #[test]
+    fn sealing_an_unbound_envelope_is_refused() {
+        let sealed = seal_wallet_custody_seed_envelope_v1(
+            &[8u8; 32],
+            &binding(PasskeyCustodyEnvelopeOwnershipV1::Unbound),
+            &[6u8; PASSKEY_CUSTODY_NONCE_LEN],
+            &[1u8; 32],
+        );
+        assert!(sealed.is_err());
+    }
+
+    /// A method-bound envelope must name a method. An empty id would make the
+    /// binding decorative.
+    #[test]
+    fn method_bound_requires_a_method_id() {
+        assert!(encode_passkey_custody_aad_v1(&binding(method_bound(""))).is_err());
+    }
 }

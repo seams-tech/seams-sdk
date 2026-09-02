@@ -9,7 +9,7 @@ use signer_core::ed25519_yao_derivation::{
     derive_ed25519_yao_deriver_b_server_contribution_v1, derive_ed25519_yao_joint_refresh_delta_v1,
     Ed25519YaoApplicationBindingFactsV1, Ed25519YaoApplicationBindingKeyCreationSignerSlotV1,
     Ed25519YaoApplicationBindingSigningKeyIdV1, Ed25519YaoApplicationBindingSigningRootIdV1,
-    Ed25519YaoApplicationBindingWalletIdV1, Ed25519YaoClientDerivationRootV1,
+    Ed25519YaoApplicationBindingWalletIdV1, Ed25519YaoClientRootV1,
     Ed25519YaoDeriverADerivationRootV1, Ed25519YaoDeriverARefreshDeltaContributionV1,
     Ed25519YaoDeriverAServerContributionV1, Ed25519YaoDeriverBDerivationRootV1,
     Ed25519YaoDeriverBRefreshDeltaContributionV1, Ed25519YaoDeriverBServerContributionV1,
@@ -89,7 +89,7 @@ fn production_kdf_matches_the_committed_independent_corpus() {
         decode_hex_32(string(case, &["context", "binding_sha256_hex"]))
     );
 
-    let client_root = Ed25519YaoClientDerivationRootV1::from_secret_bytes(decode_hex_32(string(
+    let client_root = Ed25519YaoClientRootV1::from_secret_bytes(decode_hex_32(string(
         case,
         &["synthetic_roots", "client_root_hex"],
     )));

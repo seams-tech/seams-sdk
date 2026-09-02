@@ -8,11 +8,11 @@ import {
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence';
+import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence';
 import {
   handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1,
   type RouterAbEd25519YaoRecoveryRequestScopedCloudflareInputV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
 import type {
   RouterAbEd25519YaoActiveCapabilityResolverV1,
   RouterAbEd25519YaoCapabilityPersistenceV1,
@@ -20,13 +20,13 @@ import type {
   RouterAbEd25519YaoCapabilityReplacementOperationV1,
   RouterAbEd25519YaoRecoveryBackend,
   RouterAbEd25519YaoRecoveryBackendResult,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitInputV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import {
   buildRouterAbEd25519YaoRecoveryRequestScopedFixture,
   buildRouterAbEd25519YaoCapabilityReplacementFixture,
@@ -351,7 +351,8 @@ test.describe('request-scoped recovery persistence', () => {
         d1.store,
         d1.runtime,
       );
-      expect(activation.status).toBe(200);
+      const activationResponseBody = await activation.clone().json();
+      expect(activation.status, JSON.stringify(activationResponseBody)).toBe(200);
       const activationBody = await activation.clone().text();
       const activationReplay = await runRecoveryRequest(
         fixture,
@@ -384,6 +385,38 @@ test.describe('request-scoped recovery persistence', () => {
         executionCalls: backend.executeCalls,
         activationCalls: backend.activateCalls,
       }).toEqual({ admissionCalls: 1, executionCalls: 1, activationCalls: 1 });
+    } finally {
+      d1.cleanup();
+    }
+  });
+
+  test('rehydrates a pruned capability during direct recovery admission', async () => {
+    const capability = buildRouterAbEd25519YaoCapabilityReplacementFixture();
+    const fixture = await buildRouterAbEd25519YaoRecoveryRequestScopedFixture();
+    const d1 = await createRouterAbEd25519YaoExistingWalletD1Fixture({
+      namespace: `${EXISTING_WALLET_NAMESPACE}-direct-admission`,
+      capability: capability.previous,
+    });
+    try {
+      const initial = await d1.store.load(fixture.lifecycleId);
+      expect(initial.state.recovery.capabilities.size).toBe(0);
+      expect(fixture.admission.active_capability_binding).toEqual(
+        capability.previous.activeCapabilityBinding,
+      );
+
+      const admission = await runRecoveryRequest(
+        fixture,
+        new SuccessfulRecoveryBackend(fixture),
+        ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+        fixture.admission,
+        new AppliedCapabilityPersistence(),
+        d1.store,
+        d1.runtime,
+      );
+
+      const body = await admission.clone().json();
+      expect(admission.status, JSON.stringify(body)).toBe(200);
+      expect(d1.persistedCapabilityLoadCount()).toBe(1);
     } finally {
       d1.cleanup();
     }

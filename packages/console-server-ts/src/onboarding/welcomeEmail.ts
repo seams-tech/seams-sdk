@@ -1,4 +1,4 @@
-import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
+import type { D1DatabaseLike } from '../boundary';
 import { createConsoleEmailOutboxInsertStatement } from '../email/d1';
 import { buildAccountWelcomeEmailV1 } from '../email/templates';
 

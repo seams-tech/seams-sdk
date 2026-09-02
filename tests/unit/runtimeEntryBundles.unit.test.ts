@@ -7,14 +7,14 @@ import { fileURLToPath } from 'node:url';
 import {
   collectRuntimeEntryGraphOffenders,
   collectWalletIframeHostGraphOffenders,
-} from '../../packages/sdk-web/scripts/checks/assert-runtime-entry-bundles.mjs';
+} from '../../packages/wallet/scripts/checks/assert-runtime-entry-bundles.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 test('runtime entry bundle avoids browser implementation modules', () => {
   const output = execFileSync(
     'node',
-    ['packages/sdk-web/scripts/checks/assert-runtime-entry-bundles.mjs'],
+    ['packages/wallet/scripts/checks/assert-runtime-entry-bundles.mjs'],
     {
       cwd: repoRoot,
       encoding: 'utf8',

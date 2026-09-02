@@ -17,7 +17,7 @@ import {
 
 const STORE_SOURCE = fileURLToPath(
   new URL(
-    '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.ts',
+    '../../packages/wallet/src/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.ts',
     import.meta.url,
   ),
 );
@@ -26,13 +26,13 @@ const STORE_MODULE = '/__ecdsa-capability-manifest-store-test.mjs';
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const DERIVATION_WORKER_PATH = path.join(
   REPOSITORY_ROOT,
-  'packages/sdk-web/dist/workers/ecdsa-derivation-client.worker.js',
+  'packages/wallet/dist/workers/ecdsa-derivation-client.worker.js',
 );
 const DERIVATION_WORKER_URL =
   'https://wallet.example.localhost/sdk/workers/ecdsa-derivation-client.worker.js?refactor90-reconciliation';
 const ECDSA_REGISTRATION_CLIENT_WASM_PATH = path.join(
   REPOSITORY_ROOT,
-  'packages/sdk-web/dist/workers/ecdsa_registration_client_bg.wasm',
+  'packages/wallet/dist/workers/ecdsa_registration_client_bg.wasm',
 );
 const ECDSA_REGISTRATION_CLIENT_WASM_URL =
   'https://wallet.example.localhost/sdk/workers/ecdsa_registration_client_bg.wasm';
@@ -811,8 +811,7 @@ test.describe('canonical ECDSA capability manifest store', () => {
       groupPublicKey33B64u: roleFacts.groupPublicKey33B64u,
       ethereumAddress: roleFacts.ethereumAddress,
       clientShareRetryCounter: receipt.ecdsa_activation.public_identity.client_share_retry_counter,
-      relayerShareRetryCounter:
-        receipt.ecdsa_activation.public_identity.server_share_retry_counter,
+      relayerShareRetryCounter: receipt.ecdsa_activation.public_identity.server_share_retry_counter,
     };
     await prepareStoreModulePage(page);
 
@@ -859,8 +858,7 @@ test.describe('canonical ECDSA capability manifest store', () => {
           targetMemberships:
             lookup.kind === 'active' ? lookup.manifest.signer.scope.targetMemberships : null,
           openedKind: opened.kind,
-          readyStateBlobB64u:
-            opened.kind === 'active' ? opened.readyStateBlobB64u : null,
+          readyStateBlobB64u: opened.kind === 'active' ? opened.readyStateBlobB64u : null,
         };
       },
       { storeModule: STORE_MODULE, fixture, custodyPublicFacts },
@@ -1254,6 +1252,45 @@ test.describe('canonical ECDSA capability manifest store', () => {
         });
         if (finalized.kind !== 'committed') {
           throw new Error(`finalization failed: ${finalized.kind}`);
+        }
+        const binding = fixture.prepareInput.activationBinding;
+        const roleFacts = fixture.sealInput.roleLocalPublicFacts;
+        const receipt = fixture.serverCommit.protocolReceipt;
+        const alternateAuthority = {
+          ...finalized.manifest.signer.authority,
+          authorityDigest: 'authority-alternate',
+          walletAuthMethodId: 'wallet-auth-method-alternate',
+        };
+        const alternate = await module.importWalletCustodyEcdsaContinuity({
+          store,
+          authority: alternateAuthority,
+          chainTargets: binding.signer.scope.targetMemberships,
+          walletId: String(binding.signer.walletId),
+          keyHandle: String(binding.roleLocalBinding.keyHandle),
+          ecdsaThresholdKeyId: String(binding.roleLocalBinding.ecdsaThresholdKeyId),
+          signingRootId: String(binding.signer.signingRootId),
+          signingRootVersion: String(binding.signer.signingRootVersion),
+          relayerKeyId: String(binding.roleLocalBinding.relayerKeyId),
+          participantIds: [1, 2],
+          publicCapability: roleFacts.publicCapability,
+          activationReceipt: receipt,
+          runtimePolicyScope: fixture.sealInput.runtimePolicyScope,
+          readyStateBlobB64u: fixture.sealInput.readyStateBlobB64u,
+          publicFacts: {
+            contextBinding32B64u: roleFacts.contextBinding32B64u,
+            derivationClientSharePublicKey33B64u: roleFacts.derivationClientSharePublicKey33B64u,
+            clientVerifyingShare33B64u: roleFacts.derivationClientSharePublicKey33B64u,
+            relayerPublicKey33B64u: roleFacts.relayerPublicKey33B64u,
+            groupPublicKey33B64u: roleFacts.groupPublicKey33B64u,
+            ethereumAddress: roleFacts.ethereumAddress,
+            clientShareRetryCounter:
+              receipt.ecdsa_activation.public_identity.client_share_retry_counter,
+            relayerShareRetryCounter:
+              receipt.ecdsa_activation.public_identity.server_share_retry_counter,
+          },
+        });
+        if (alternate.kind !== 'committed') {
+          throw new Error(`alternate authority import failed: ${alternate.kind}`);
         }
         const materialRef = {
           kind: 'ecdsa_role_local_persisted_material_ref_v1',

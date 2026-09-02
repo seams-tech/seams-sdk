@@ -99,12 +99,9 @@ export type CapabilityId = DomainId<'CapabilityId'>;
 export type CapabilityBindingId = DomainId<'CapabilityBindingId'>;
 export type CapabilityOperationId = DomainId<'CapabilityOperationId'>;
 export type WalletSessionAuthorizationId = DomainId<'WalletSessionAuthorizationId'>;
-export type LinkedDeviceWalletSessionAuthorizationId =
-  DomainId<'LinkedDeviceWalletSessionAuthorizationId'>;
 
 export const AUTHORIZATION_GRANT_KINDS = {
   walletSession: 'wallet_session_authorization',
-  linkedDeviceWalletSession: 'linked_device_wallet_session_authorization_v1',
 } as const;
 
 export type AuthorizationGrantKind =
@@ -115,20 +112,12 @@ export type WalletSessionAuthorizationRef = {
   readonly authorizationId: WalletSessionAuthorizationId;
 };
 
-export type LinkedDeviceWalletSessionAuthorizationRefV1 = {
-  readonly kind: 'linked_device_wallet_session_authorization_v1';
-  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
-};
-export type LinkedDeviceWalletSessionAuthorizationRef = LinkedDeviceWalletSessionAuthorizationRefV1;
-
-/** Each reusable authorization branch carries exactly one authorization identity. */
-export type AuthorizationGrantRef =
-  | WalletSessionAuthorizationRef
-  | LinkedDeviceWalletSessionAuthorizationRefV1;
+/** Each authorization grant carries exactly one Wallet Session authorization identity. */
+export type AuthorizationGrantRef = WalletSessionAuthorizationRef;
 export type AuthorizedOperationId = DomainId<'AuthorizedOperationId'>;
 export type WalletSessionId = DomainId<'WalletSessionId'>;
 export type MpcWalletSigningQuotaId = DomainId<'MpcWalletSigningQuotaId'>;
-export type ReusableWalletSessionMintId = DomainId<'ReusableWalletSessionMintId'>;
+export type WalletSessionMintId = DomainId<'WalletSessionMintId'>;
 export type AuthorizationEvidenceId = DomainId<'AuthorizationEvidenceId'>;
 export type AuthorizationEvidenceSetId = DomainId<'AuthorizationEvidenceSetId'>;
 export type GrantChallengeId = DomainId<'GrantChallengeId'>;
@@ -314,17 +303,6 @@ export function parseAuthorizationGrantRef(
         },
       };
     }
-    case AUTHORIZATION_GRANT_KINDS.linkedDeviceWalletSession: {
-      const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(record.authorizationId);
-      if (!authorizationId.ok) return authorizationId;
-      return {
-        ok: true,
-        value: {
-          kind: AUTHORIZATION_GRANT_KINDS.linkedDeviceWalletSession,
-          authorizationId: authorizationId.value,
-        },
-      };
-    }
     default:
       return invalidResult('authorizationGrantRef.kind is unsupported');
   }
@@ -336,25 +314,10 @@ export function buildAuthorizationGrantRef(
   return { kind: AUTHORIZATION_GRANT_KINDS.walletSession, authorizationId };
 }
 
-export function buildLinkedDeviceWalletSessionAuthorizationRef(
-  authorizationId: LinkedDeviceWalletSessionAuthorizationId,
-): LinkedDeviceWalletSessionAuthorizationRefV1 {
-  return {
-    kind: AUTHORIZATION_GRANT_KINDS.linkedDeviceWalletSession,
-    authorizationId,
-  };
-}
-
 export function parseWalletSessionAuthorizationId(
   value: unknown,
 ): AuthorizationParseResult<WalletSessionAuthorizationId> {
   return parseAuthorizationId(value, 'walletSessionAuthorizationId');
-}
-
-export function parseLinkedDeviceWalletSessionAuthorizationId(
-  value: unknown,
-): AuthorizationParseResult<LinkedDeviceWalletSessionAuthorizationId> {
-  return parseAuthorizationId(value, 'linkedDeviceWalletSessionAuthorizationId');
 }
 
 export function parseAuthorizedOperationId(
@@ -373,10 +336,10 @@ export function parseMpcWalletSigningQuotaId(
   return parseAuthorizationId(value, 'mpcWalletSigningQuotaId');
 }
 
-export function parseReusableWalletSessionMintId(
+export function parseWalletSessionMintId(
   value: unknown,
-): AuthorizationParseResult<ReusableWalletSessionMintId> {
-  return parseAuthorizationId(value, 'reusableWalletSessionMintId');
+): AuthorizationParseResult<WalletSessionMintId> {
+  return parseAuthorizationId(value, 'walletSessionMintId');
 }
 
 export function parseAuthorizationEvidenceId(

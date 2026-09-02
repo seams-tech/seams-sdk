@@ -37,7 +37,7 @@ function assertNoOffenders(label, offenders) {
 
 function checkReactUiDoesNotBranchOnRelayGoogleEmailOtpResolution() {
   const offenders = [];
-  for (const relativePath of listTypeScriptFiles('packages/sdk-web/src/react')) {
+  for (const relativePath of listTypeScriptFiles('packages/wallet/src/react')) {
     if (/\bgoogleEmailOtpResolution\b/.test(readRepoFile(relativePath))) offenders.push(relativePath);
   }
 
@@ -46,7 +46,7 @@ function checkReactUiDoesNotBranchOnRelayGoogleEmailOtpResolution() {
 
 function checkHeadlessFlowOperationDependsOnNarrowPorts() {
   const source = readRepoFile(
-    'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
+    'packages/wallet/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
   );
   const forbiddenPatterns = [
     /\bSeamsWebContext\b/,
@@ -62,7 +62,7 @@ function checkHeadlessFlowOperationDependsOnNarrowPorts() {
 
 function checkStandardRegistrationBranchCannotIssueOtpChallenges() {
   const source = readRepoFile(
-    'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
+    'packages/wallet/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
   );
   const start = source.indexOf('function createGoogleEmailOtpWalletRegistrationFlow');
   const end = source.indexOf('function createGoogleEmailOtpWalletLoginFlow');
@@ -86,7 +86,7 @@ function checkStandardRegistrationBranchCannotIssueOtpChallenges() {
 
 function checkPublicApiLayerDoesNotOwnWalletIframeFlowHandles() {
   const offenders = [];
-  for (const relativePath of listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/publicApi')) {
+  for (const relativePath of listTypeScriptFiles('packages/wallet/src/SeamsWeb/publicApi')) {
     if (/\bflowHandleId\b|googleEmailOtpWalletAuthFlows\b/.test(readRepoFile(relativePath))) {
       offenders.push(relativePath);
     }
@@ -96,9 +96,9 @@ function checkPublicApiLayerDoesNotOwnWalletIframeFlowHandles() {
 }
 
 function checkWalletIframeEmailOtpFlowHandlesAreBoundBeforeConsume() {
-  const hostSource = readRepoFile('packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts');
-  const messagesSource = readRepoFile('packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts');
-  const clientSource = readRepoFile('packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts');
+  const hostSource = readRepoFile('packages/wallet/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts');
+  const messagesSource = readRepoFile('packages/wallet/src/SeamsWeb/walletIframe/shared/messages.ts');
+  const clientSource = readRepoFile('packages/wallet/src/SeamsWeb/walletIframe/client/router.ts');
 
   assert.match(messagesSource, /flowId: string/);
   assert.match(messagesSource, /walletId: string/);

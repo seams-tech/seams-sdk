@@ -1,27 +1,27 @@
 import { ConsoleApiKeyError } from './errors';
-import {
-  API_CREDENTIAL_SCOPES,
-  isApiCredentialScope,
-  type ApiCredentialScope,
-} from "@seams-internal/console-shared/apiKeyScopes";
+
 import {
   readOptionalStringField as readOptionalString,
   readRequiredStringField as readRequiredString,
   requireBodyObject as requireObject,
 } from '../shared/requestParse';
 import type {
+  ApiCredentialScopeValidation,
   CreateConsoleApiKeyRequest,
   RevokeConsoleApiKeyRequest,
   RotateConsoleApiKeyRequest,
   UpdateConsoleApiKeyRequest,
 } from './types';
 
-function parseScopesOrThrow(raw: unknown): ApiCredentialScope[] {
+function parseScopesOrThrow(
+  raw: unknown,
+  scopeValidation: ApiCredentialScopeValidation,
+): string[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new ConsoleApiKeyError('invalid_body', 400, 'Field scopes must be a non-empty array');
   }
 
-  const out: ApiCredentialScope[] = [];
+  const out: string[] = [];
   const seen = new Set<string>();
   for (const valueRaw of raw) {
     const value = String(valueRaw || '').trim();
@@ -32,11 +32,11 @@ function parseScopesOrThrow(raw: unknown): ApiCredentialScope[] {
         'Field scopes must contain non-empty strings',
       );
     }
-    if (!isApiCredentialScope(value)) {
+    if (!scopeValidation.isKnownScope(value)) {
       throw new ConsoleApiKeyError(
         'invalid_body',
         400,
-        `Invalid secret_key scope: ${value}. Allowed scopes: ${API_CREDENTIAL_SCOPES.join(', ')}`,
+        `Invalid secret_key scope: ${value}. Allowed scopes: ${scopeValidation.describeAllowedScopes()}`,
       );
     }
     const key = value.toLowerCase();
@@ -159,7 +159,10 @@ function parseUpdateExpiresAtOrThrow(raw: unknown): string | null | undefined {
   return parseOptionalExpiresAtOrThrow(raw) || null;
 }
 
-export function parseCreateConsoleApiKeyRequest(body: unknown): CreateConsoleApiKeyRequest {
+export function parseCreateConsoleApiKeyRequest(
+  body: unknown,
+  scopeValidation: ApiCredentialScopeValidation,
+): CreateConsoleApiKeyRequest {
   const obj = requireObject(body, (code, status, message) => new ConsoleApiKeyError(code, status, message));
   const kind = readRequiredString(
     obj,
@@ -183,7 +186,7 @@ export function parseCreateConsoleApiKeyRequest(body: unknown): CreateConsoleApi
     assertFieldAbsent(obj, 'quotaBucket', kind);
     assertFieldAbsent(obj, 'riskPolicy', kind);
     assertFieldAbsent(obj, 'paymentPolicy', kind);
-    const scopes = parseScopesOrThrow(obj.scopes);
+    const scopes = parseScopesOrThrow(obj.scopes, scopeValidation);
     const ipAllowlist = parseIpAllowlistOrThrow(obj.ipAllowlist);
     return {
       kind,
@@ -237,13 +240,16 @@ export function parseRotateConsoleApiKeyRequest(body: unknown): RotateConsoleApi
   };
 }
 
-export function parseUpdateConsoleApiKeyRequest(body: unknown): UpdateConsoleApiKeyRequest {
+export function parseUpdateConsoleApiKeyRequest(
+  body: unknown,
+  scopeValidation: ApiCredentialScopeValidation,
+): UpdateConsoleApiKeyRequest {
   const obj = requireObject(
     body,
     (code, status, message) => new ConsoleApiKeyError(code, status, message),
   );
   const name = obj.name === undefined ? undefined : readOptionalString(obj, 'name');
-  const scopes = obj.scopes === undefined ? undefined : parseScopesOrThrow(obj.scopes);
+  const scopes = obj.scopes === undefined ? undefined : parseScopesOrThrow(obj.scopes, scopeValidation);
   const ipAllowlist =
     obj.ipAllowlist === undefined ? undefined : parseIpAllowlistOrThrow(obj.ipAllowlist);
   const allowedOrigins =

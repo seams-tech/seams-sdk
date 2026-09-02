@@ -1,4 +1,8 @@
-import { parseWalletId, parseWebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  parseWalletAuthMethodId,
+  parseWalletId,
+  parseWebAuthnRpId,
+} from '@shared/utils/domainIds';
 import {
   deriveRouterAbEd25519YaoExportAuthorizationDigestV1,
   deriveRouterAbEd25519YaoExportConfirmationDigestV1,
@@ -24,35 +28,30 @@ import {
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
-import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   registrationIntentGrantFromString,
   walletIdFromString,
   type RegistrationIntentV1,
 } from '@shared/utils/registrationIntent';
-import {
-  parseRouterAbEd25519WalletSessionClaims,
-  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-} from '../../../packages/sdk-server-ts/src/core/ThresholdService/validation';
-import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/sdk-server-ts/src/core/WalletStore';
-import { D1WalletStore } from '../../../packages/sdk-server-ts/src/core/d1WalletStore';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/wallet-server/src/core/WalletStore';
+import { D1WalletStore } from '../../../packages/wallet-server/src/core/d1WalletStore';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
-} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
-import type { CfExecutionContext } from '../../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
-import { createEd25519SessionAdapter } from '../../../packages/console-server-ts/src/router/cloudflare/d1StagingSession';
-import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
-import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
-import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
-import type { D1DatabaseLike } from '../../../packages/sdk-server-ts/src/storage/tenantRoute';
-import type { CloudflareServiceBindingFetcher } from '../../../packages/console-server-ts/src/router/cloudflare/routerAbServiceBindings';
-import localD1DevWorker from '../../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
+} from '../../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
+import type { CfExecutionContext } from '../../../packages/wallet-server/src/router/cloudflare/runtime/cloudflare.types';
+import { createEd25519SessionAdapter } from '../../../packages/wallet-console-server-ts/src/router/cloudflare/d1StagingSession';
+import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
+import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+import type { D1DatabaseLike } from '../../../packages/wallet-server/src/storage/tenantRoute';
+import type { CloudflareServiceBindingFetcher } from '../../../packages/wallet-console-server-ts/src/router/cloudflare/routerAbServiceBindings';
+import localD1DevWorker from '../../../packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker';
 import {
   UnavailableRouterAbEd25519YaoRegistrationBackend,
-  UnusedSessionAdapter,
 } from './routerAbEd25519YaoRegistrationBridge.fixtures';
+import { buildRouterAbEd25519WalletSessionClaimsFixture } from './routerAbEd25519WalletSessionClaims.fixtures';
 
 const NAMESPACE = 'seams-local-yao-persistence';
 const ORG_ID = 'org_abcdefgh1234';
@@ -62,7 +61,7 @@ const SIGNING_WORKER_ID = 'signing-worker.local';
 const ROOT_SHARE_EPOCH = 'root-local-yao-v1';
 const SIGNING_ROOT_ID = `${PROJECT_ID}:${ENV_ID}`;
 const EXPIRES_AT_MS = 4_102_444_800_000;
-const LOCAL_CEREMONY_ISSUER = 'http://127.0.0.1:9090';
+const LOCAL_CEREMONY_ISSUER = 'http://127.0.0.1:4100';
 const LOCAL_CEREMONY_AUDIENCE = 'router-ab';
 const LOCAL_CEREMONY_KEY_ID = 'local-router-ab-r1';
 const LOCAL_CEREMONY_PRIVATE_JWK = {
@@ -369,7 +368,6 @@ export async function bindLocalYaoRegistrationIntent(input: {
   });
   const runtime = createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
     signingWorkerId: SIGNING_WORKER_ID,
-    session: new UnusedSessionAdapter(),
     store,
     registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
   });
@@ -507,11 +505,17 @@ export function localYaoOrigin(): string {
 
 function registrationIntent(walletId: ReturnType<typeof walletIdFromString>): RegistrationIntentV1 {
   const rpId = parseWebAuthnRpId('wallet.local');
-  if (!rpId.ok) throw new Error(rpId.error.message);
+  const foundingWalletAuthMethodId = parseWalletAuthMethodId(
+    'wallet-auth-method:local-yao-registration',
+  );
+  if (!rpId.ok || !foundingWalletAuthMethodId.ok) {
+    throw new Error('local Yao registration auth identity is invalid');
+  }
   return {
     version: 'registration_intent_v1',
     walletId,
     authMethod: { kind: 'passkey', rpId: rpId.value },
+    foundingWalletAuthMethodId: foundingWalletAuthMethodId.value,
     signerSelection: {
       kind: 'signer_set',
       signers: [
@@ -672,17 +676,13 @@ async function persistLocalCapability(
 async function issueLocalWalletSessionToken(
   capability: WalletEd25519YaoActiveCapabilityRecord,
 ): Promise<string> {
-  const nowSeconds = Math.floor(Date.now() / 1000);
   const authority = buildEmailOtpWalletAuthAuthority({
     walletId: localWalletId(),
     provider: 'google',
     providerUserId: EMAIL_PROVIDER_SUBJECT_ID,
     emailHashHex: 'ab'.repeat(32),
   });
-  const claims = parseRouterAbEd25519WalletSessionClaims({
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'owner_wallet_session',
-    sub: localWalletId(),
+  const claims = buildRouterAbEd25519WalletSessionClaimsFixture({
     walletId: localWalletId(),
     nearAccountId: capability.nearAccountId,
     nearEd25519SigningKeyId:
@@ -693,18 +693,14 @@ async function issueLocalWalletSessionToken(
     quotaId: localWalletSessionQuotaId(),
     relayerKeyId: SIGNING_WORKER_ID,
     authority,
-    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
     runtimePolicyScope: localRuntimePolicyScope(),
     thresholdExpiresAtMs: Date.now() + 120_000,
-    iat: nowSeconds,
-    exp: nowSeconds + 120,
     participantIds: [1, 2],
-    routerAbNormalSigning: {
+    normalSigning: {
       kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
       signingWorkerId: SIGNING_WORKER_ID,
     },
   });
-  if (!claims) throw new Error('Local Wallet Session claims are invalid');
   return await createEd25519SessionAdapter({
     privateJwk: LOCAL_CEREMONY_PRIVATE_JWK,
     issuer: LOCAL_CEREMONY_ISSUER,

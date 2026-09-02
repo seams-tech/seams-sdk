@@ -2,16 +2,15 @@ import { expect, test } from '@playwright/test';
 import {
   parseCurrentSigningSessionSealIdempotencyRouteResult,
   parseCurrentSigningSessionSealIdempotencyStoredEntry,
-} from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/idempotencyRecords';
+} from '../../packages/wallet-server/src/threshold/session/signingSessionSeal/idempotencyRecords';
 
 test.describe('signing session seal idempotency records', () => {
-  test('preserves current success idempotency result fields including zero remaining uses', () => {
+  test('preserves current success idempotency result fields', () => {
     const parsed = parseCurrentSigningSessionSealIdempotencyRouteResult({
       ok: true,
       ciphertext: 'sealed:ciphertext-b64u',
       keyVersion: 'signing-session-seal-kek-2026-02-r1',
       expiresAtMs: 123_456,
-      remainingUses: 0,
     });
 
     expect(parsed).toEqual({
@@ -19,7 +18,6 @@ test.describe('signing session seal idempotency records', () => {
       ciphertext: 'sealed:ciphertext-b64u',
       keyVersion: 'signing-session-seal-kek-2026-02-r1',
       expiresAtMs: 123_456,
-      remainingUses: 0,
     });
   });
 
@@ -64,7 +62,7 @@ test.describe('signing session seal idempotency records', () => {
         result: {
           ok: true,
           ciphertext: 'sealed:ciphertext-b64u',
-          remainingUses: -1,
+          remainingUses: 1,
         },
         expiresAtMs: 987_654,
       }),

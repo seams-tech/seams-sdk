@@ -1,0 +1,97 @@
+{
+  "name": "@seams/wallet-server",
+  "version": "0.5.0",
+  "type": "module",
+  "description": "Seams server TypeScript SDK for NEAR and EVM-family wallets",
+  "main": "./dist/esm/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/wallet-server/src/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./dist/types/wallet-server/src/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "default": "./dist/esm/index.js"
+    },
+    "./router/express": {
+      "types": "./dist/types/wallet-server/src/router/express-adaptor.d.ts",
+      "import": "./dist/esm/router/express.js",
+      "default": "./dist/esm/router/express.js"
+    },
+    "./router/cloudflare": {
+      "types": "./dist/types/wallet-server/src/router/cloudflare-adaptor.d.ts",
+      "import": "./dist/esm/router/cloudflare.js",
+      "default": "./dist/esm/router/cloudflare.js"
+    },
+    "./router/ror": {
+      "types": "./dist/types/wallet-server/src/router/ror-adaptor.d.ts",
+      "import": "./dist/esm/router/ror.js",
+      "default": "./dist/esm/router/ror.js"
+    },
+    "./storage/tenant-route": {
+      "types": "./dist/types/wallet-server/src/storage/tenantRoute.d.ts",
+      "import": "./dist/esm/storage/tenantRoute.js",
+      "default": "./dist/esm/storage/tenantRoute.js"
+    },
+    "./wasm/signer": {
+      "types": "./dist/types/wallet-server/src/wasm/signer.d.ts",
+      "import": "./dist/esm/wasm/signer.js",
+      "default": "./dist/esm/wasm/signer.js"
+    },
+    "./cloud-host": {
+      "types": "./dist/types/wallet-server/src/cloud-host.d.ts",
+      "import": "./dist/esm/cloud-host.js",
+      "default": "./dist/esm/cloud-host.js"
+    },
+    "./migrations/d1-signer/*": "./migrations/d1-signer/*"
+  },
+  "files": [
+    "cloudflare-router-ab/",
+    "dist/",
+    "migrations/d1-signer/",
+    "src/README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node ./scripts/rewrite-declaration-imports.mjs && rolldown -c rolldown.config.ts && node ./scripts/copy-wasm-assets.mjs",
+    "package:cloudflare-runtime": "node ./scripts/copy-cloudflare-router-runtime.mjs",
+    "prepack": "pnpm run package:cloudflare-runtime",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "seams",
+    "wallet",
+    "server",
+    "NEAR",
+    "EVM",
+    "blockchain",
+    "passkey",
+    "typescript",
+    "sdk"
+  ],
+  "author": "web3authn.org",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/web3-authn/sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/web3-authn/sdk/issues"
+  },
+  "homepage": "https://github.com/web3-authn",
+  "dependencies": {
+    "@simplewebauthn/server": "^13.2.2",
+    "bs58": "^6.0.0",
+    "express": "^4.21.2",
+    "tslib": "^2.8.1"
+  },
+  "devDependencies": {
+    "@near-js/types": "^2.4.0",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.19.9",
+    "rolldown": "^1.0.0-beta.27",
+    "typescript": "^5.8.3"
+  }
+}

@@ -252,9 +252,20 @@ function findMethodDeclarationAndBody(source, methodName) {
   return bodyBlock ? source.slice(methodStart, bodyOpenIndex) + bodyBlock : null;
 }
 
-function expectRequiredFields(block, fields, context) {
+function expectRequiredFields(block, fields, context, options = {}) {
+  // `defaultable` fields must still be DECLARED — the point of this check is
+  // that an ECDSA input is addressed by a wallet session and by nothing else —
+  // but they may be optional, in which case the SDK fills them from the
+  // authenticated wallet. Declaring them optional does not open an alternative
+  // subject: the `forbidden` list and the nearAccountId check below still run.
+  const defaultable = new Set(options.defaultable || []);
   return fields
-    .filter((field) => !new RegExp(`\\b${field}\\s*(?::|,)`).test(block))
+    .filter((field) => {
+      const pattern = defaultable.has(field)
+        ? new RegExp(`\\b${field}\\s*(?:\\?:|:|,)`)
+        : new RegExp(`\\b${field}\\s*(?::|,)`);
+      return !pattern.test(block);
+    })
     .map((field) => `${context} is missing required ${field}`);
 }
 
@@ -280,7 +291,7 @@ function assertNoOffenders(offenders, context) {
 
 function isRefactor84LinkDeviceStub(relativePath, source) {
   return (
-    relativePath === 'packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts' &&
+    relativePath === 'packages/wallet/src/SeamsWeb/operations/devices/linkDevice.ts' &&
     source.includes('LINK_DEVICE_REFACTOR_84_MESSAGE') &&
     source.includes('Linked-device lane creation is disabled until refactor 84 lands')
   );
@@ -288,13 +299,13 @@ function isRefactor84LinkDeviceStub(relativePath, source) {
 
 function checkEmailOtpEcdsaExportAuthorizationUsesWalletSessionIdentity() {
   const confirmationSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportConfirmation.ts',
+    'packages/wallet/src/core/signingEngine/flows/recovery/keyExportConfirmation.ts',
   );
   const emailOtpExportPromptSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/otpPrompt/exportAuthorization.ts',
+    'packages/wallet/src/core/signingEngine/stepUpConfirmation/otpPrompt/exportAuthorization.ts',
   );
   const ecdsaExportSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow.ts',
+    'packages/wallet/src/core/signingEngine/flows/recovery/ecdsaExportFlow.ts',
   );
   const nearAccountBranchIndex = confirmationSource.indexOf("kind: 'near_account_export_auth'");
   const nearAccountBranch =
@@ -334,7 +345,7 @@ function checkEmailOtpEcdsaExportAuthorizationUsesWalletSessionIdentity() {
 
 function checkBrowserSigningSurfaceDoesNotDeriveEcdsaSubjectFromAccounts() {
   const source = readRepoFile(
-    'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+    'packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
   );
   const methodNames = [
     'signEvmFamily',
@@ -440,13 +451,13 @@ function checkPublicSdkSignerFixturesUseDomainShapedCalls() {
 
 function checkOptionalLifecycleFieldsStayBehindNarrowBoundaries() {
   const searchRoots = [
-    'packages/sdk-web/src/core/signingEngine/session/warmCapabilities',
-    'packages/sdk-web/src/core/signingEngine/session/passkey',
-    'packages/sdk-web/src/core/signingEngine/session/emailOtp',
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily',
+    'packages/wallet/src/core/signingEngine/session/warmCapabilities',
+    'packages/wallet/src/core/signingEngine/session/passkey',
+    'packages/wallet/src/core/signingEngine/session/emailOtp',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily',
   ];
   const optionalLifecycleFieldAllowlist = new Set([
-    'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
+    'packages/wallet/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
   ]);
   const offenders = [];
   const pattern =
@@ -472,7 +483,7 @@ function checkOldWarmEcdsaLifecycleSymbolsStayDeleted() {
   const offenders = [];
   const pattern =
     /\bEnsureWarmEcdsaCapabilityReadyArgs\b|\bResolveWarmEcdsaBootstrapRequestArgs\b|\bWarmEcdsaBootstrapRequest\b|\bProvisionWarmEcdsaCapabilityArgs\b|\bbuildProvisionWarmEcdsaCapabilityArgs\b/;
-  for (const relativePath of listTsFiles('packages/sdk-web/src/core/signingEngine')) {
+  for (const relativePath of listTsFiles('packages/wallet/src/core/signingEngine')) {
     const source = readRepoFile(relativePath);
     if (pattern.test(source)) {
       offenders.push(relativePath);
@@ -496,10 +507,10 @@ function checkEcdsaProvisionPlansOnlyComeFromBuilders() {
   ];
   const offenders = [];
 
-  for (const relativePath of listTsFiles('packages/sdk-web/src/core/signingEngine')) {
+  for (const relativePath of listTsFiles('packages/wallet/src/core/signingEngine')) {
     if (
       relativePath ===
-        'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts' ||
+        'packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts' ||
       relativePath.endsWith('.typecheck.ts')
     ) {
       continue;
@@ -527,7 +538,7 @@ function checkEcdsaProvisionPlansOnlyComeFromBuilders() {
 }
 
 function checkServerBudgetStatusRoutesStayParserOwned() {
-  const routeFiles = ['packages/sdk-server-ts/src/router/transport/fetch/routes/sessions.ts'];
+  const routeFiles = ['packages/wallet-server/src/router/transport/fetch/routes/sessions.ts'];
   const offenders = [];
   for (const relativePath of routeFiles) {
     const source = readRepoFile(relativePath);
@@ -547,12 +558,12 @@ function checkServerBudgetStatusRoutesStayParserOwned() {
 
 function checkRawEcdsaIdentityParsingStaysOutOfInternals() {
   const searchRoots = [
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily',
-    'packages/sdk-web/src/core/signingEngine/session/passkey',
-    'packages/sdk-web/src/core/signingEngine/session/warmCapabilities',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily',
+    'packages/wallet/src/core/signingEngine/session/passkey',
+    'packages/wallet/src/core/signingEngine/session/warmCapabilities',
   ];
   const rawIdentityParsingAllowlist = new Set([
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
   ]);
   const offenders = [];
   const patterns = [
@@ -589,7 +600,7 @@ function checkRawEcdsaIdentityParsingStaysOutOfInternals() {
 }
 
 function checkWalletUnlockKeepsRawEcdsaParsingAtBoundaries() {
-  const loginSource = readRepoFile('packages/sdk-web/src/SeamsWeb/operations/auth/login.ts');
+  const loginSource = readRepoFile('packages/wallet/src/SeamsWeb/operations/auth/login.ts');
   const offenders = [];
   for (const forbidden of [
     'metadata.sharedEvmFamilyKey',
@@ -611,7 +622,7 @@ function checkWalletUnlockKeepsRawEcdsaParsingAtBoundaries() {
 }
 
 function checkPrepareParsersDeriveSigningRootFromRuntimePolicyScope() {
-  const relativePath = 'packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts';
+  const relativePath = 'packages/wallet/src/SeamsWeb/operations/devices/linkDevice.ts';
   const source = readRepoFile(relativePath);
   if (isRefactor84LinkDeviceStub(relativePath, source)) return;
 
@@ -628,11 +639,11 @@ function checkPrepareParsersDeriveSigningRootFromRuntimePolicyScope() {
 
 function checkNearAccountToEcdsaSubjectDerivationsStayOutOfSigningPaths() {
   const guardedRoots = [
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily',
-    'packages/sdk-web/src/core/signingEngine/session/passkey',
-    'packages/sdk-web/src/core/signingEngine/session/warmCapabilities',
-    'packages/sdk-web/src/core/signingEngine/threshold/ecdsa',
-    'packages/sdk-web/src/core/rpcClients/evm',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily',
+    'packages/wallet/src/core/signingEngine/session/passkey',
+    'packages/wallet/src/core/signingEngine/session/warmCapabilities',
+    'packages/wallet/src/core/signingEngine/threshold/ecdsa',
+    'packages/wallet/src/core/rpcClients/evm',
   ];
   const accountToSubjectPattern =
     /toWalletId\(\s*(?:(?:args|input|request)\.)?(?:nearAccountId|accountId)\s*\)/;
@@ -655,14 +666,14 @@ function checkNearAccountToEcdsaSubjectDerivationsStayOutOfSigningPaths() {
 
 function checkNearAccountIdResidueStaysOutOfEcdsaOnlyPaths() {
   const forbiddenPaths = [
-    'packages/sdk-web/src/SeamsWeb/operations/evm',
-    'packages/sdk-web/src/SeamsWeb/operations/tempo',
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily',
-    'packages/sdk-web/src/core/signingEngine/nonce/evmNonceLane.ts',
-    'packages/sdk-web/src/core/signingEngine/chains/evm',
-    'packages/sdk-web/src/core/signingEngine/threshold/ecdsa',
-    'packages/sdk-web/src/core/rpcClients/evm',
-    'packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm.ts',
+    'packages/wallet/src/SeamsWeb/operations/evm',
+    'packages/wallet/src/SeamsWeb/operations/tempo',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily',
+    'packages/wallet/src/core/signingEngine/nonce/evmNonceLane.ts',
+    'packages/wallet/src/core/signingEngine/chains/evm',
+    'packages/wallet/src/core/signingEngine/threshold/ecdsa',
+    'packages/wallet/src/core/rpcClients/evm',
+    'packages/wallet-server/src/core/ThresholdService/evmCryptoWasm.ts',
   ];
   const offenders = [];
   for (const relativePath of forbiddenPaths.flatMap((entry) => listSourceFiles(entry))) {
@@ -677,8 +688,8 @@ function checkNearAccountIdResidueStaysOutOfEcdsaOnlyPaths() {
 
 function checkThresholdServerLogsDoNotEmitRawSecretMaterial() {
   const roots = [
-    'packages/sdk-server-ts/src/core/ThresholdService',
-    'packages/sdk-server-ts/src/threshold/session/signingSessionSeal',
+    'packages/wallet-server/src/core/ThresholdService',
+    'packages/wallet-server/src/threshold/session/signingSessionSeal',
   ];
   const forbiddenFields = [
     'ciphertext',
@@ -715,13 +726,13 @@ function checkThresholdServerLogsDoNotEmitRawSecretMaterial() {
 
 function checkStrictEcdsaActivationBranchesOnlyComeFromBuilders() {
   const allowedFiles = new Set([
-    'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts',
-    'packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsaSession.ts',
+    'packages/wallet/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts',
+    'packages/wallet/src/core/signingEngine/useCases/provisionEcdsaSession.ts',
   ]);
   const offenders = [];
   const pattern =
     /kind:\s*'(passkey_ecdsa_activation|email_otp_ecdsa_activation|wallet_session_reconnect)'/;
-  for (const relativePath of listTsFiles('packages/sdk-web/src/core/signingEngine')) {
+  for (const relativePath of listTsFiles('packages/wallet/src/core/signingEngine')) {
     if (relativePath.endsWith('.typecheck.ts')) {
       continue;
     }
@@ -742,8 +753,8 @@ function checkStrictActivationSessionStateAvoidsCastEscapes() {
   const pattern =
     /\bas (?:ThresholdEcdsaActivationRequest|ThresholdEcdsaPasskeyActivationRequest|ThresholdEcdsaEmailOtpActivationRequest|ThresholdEcdsaWalletSessionReconnectRequest|PasskeyEcdsaActivation|EmailOtpEcdsaActivation|WalletSessionEcdsaActivation|PreparedEvmFamilyEcdsaSigningSession|EcdsaSessionProvisionPlan)\b/;
   for (const relativePath of [
-    ...listTsFiles('packages/sdk-web/src/core/signingEngine/session/passkey'),
-    ...listTsFiles('packages/sdk-web/src/core/signingEngine/flows/signEvmFamily'),
+    ...listTsFiles('packages/wallet/src/core/signingEngine/session/passkey'),
+    ...listTsFiles('packages/wallet/src/core/signingEngine/flows/signEvmFamily'),
   ]) {
     const source = readRepoFile(relativePath);
     if (pattern.test(source)) {
@@ -760,7 +771,7 @@ function checkMpcHydrationProofsAvoidCastEscapes() {
     /\bas (?:MpcMaterialActivationRef|RestorableMpcMaterialRef|MpcCapabilityPublicReauthAnchor|MpcCapabilityHydrationPlan|MpcUseLiveRuntimeHydrationPlan|MpcRehydrateMaterialActivationHydrationPlan|MpcReauthorizePublicAnchorHydrationPlan|MpcBlockedCapabilityHydrationPlan)\b/;
   const files = [
     'packages/shared-ts/src/utils/domainIds.ts',
-    ...listTsFiles('packages/sdk-web/src/core/signingEngine'),
+    ...listTsFiles('packages/wallet/src/core/signingEngine'),
   ];
   for (const relativePath of files) {
     if (pattern.test(readRepoFile(relativePath))) {
@@ -776,16 +787,16 @@ function checkRestorableMpcMaterialConstructionStaysProtocolOwned() {
   const constructorName = 'buildRestorableMpcMaterialRefInternal';
   const internalModule = 'restorableMpcMaterialRef.internal';
   const allowedConstructorFiles = new Set([
-    'packages/sdk-web/src/core/signingEngine/session/material/restorableMpcMaterialRef.internal.ts',
-    'packages/sdk-web/src/core/signingEngine/session/material/ecdsaCapabilityHydration.ts',
-    'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoLocalMaterial.ts',
+    'packages/wallet/src/core/signingEngine/session/material/restorableMpcMaterialRef.internal.ts',
+    'packages/wallet/src/core/signingEngine/session/material/ecdsaCapabilityHydration.ts',
+    'packages/wallet/src/core/signingEngine/session/passkey/ed25519YaoLocalMaterial.ts',
   ]);
   const allowedInternalImports = new Set([
-    'packages/sdk-web/src/core/signingEngine/session/material/mpcCapabilityHydration.ts',
-    'packages/sdk-web/src/core/signingEngine/session/material/ecdsaCapabilityHydration.ts',
-    'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoLocalMaterial.ts',
+    'packages/wallet/src/core/signingEngine/session/material/mpcCapabilityHydration.ts',
+    'packages/wallet/src/core/signingEngine/session/material/ecdsaCapabilityHydration.ts',
+    'packages/wallet/src/core/signingEngine/session/passkey/ed25519YaoLocalMaterial.ts',
   ]);
-  for (const relativePath of listTsFiles('packages/sdk-web/src')) {
+  for (const relativePath of listTsFiles('packages/wallet/src')) {
     const source = readRepoFile(relativePath);
     if (source.includes(constructorName) && !allowedConstructorFiles.has(relativePath)) {
       offenders.push(`${relativePath} constructs generic restorable MPC material`);
@@ -805,9 +816,9 @@ function checkStrictActivationSessionBuildersAvoidBroadSpreadShortcuts() {
   const offenders = [];
   const pattern = /\.\.\.(?:baseArgs|args\.signingAuthPlan|activation|effectivePlan)\b/;
   for (const relativePath of [
-    'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts',
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/requireEvmFamilyStepUpAuth.ts',
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
+    'packages/wallet/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily/requireEvmFamilyStepUpAuth.ts',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
   ]) {
     const source = readRepoFile(relativePath);
     if (pattern.test(source)) {
@@ -819,11 +830,15 @@ function checkStrictActivationSessionBuildersAvoidBroadSpreadShortcuts() {
 }
 
 function checkPublicSdkEcdsaInputsStayWalletSessionShaped() {
-  const source = readRepoFile('packages/sdk-web/src/SeamsWeb/publicApi/types.ts');
+  const source = readRepoFile('packages/wallet/src/SeamsWeb/publicApi/types.ts');
   const namedDeclarations = [
     {
       name: 'SignTempoArgs',
       required: ['walletSession', 'chainTarget'],
+      // `walletSession` may be omitted, in which case the SDK resolves the
+      // AUTHENTICATED wallet (never the mutable `preferences` current-wallet
+      // pointer). No alternative subject field is permitted either way.
+      defaultable: ['walletSession'],
       forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
       allowNeverTripwire: true,
     },
@@ -837,6 +852,7 @@ function checkPublicSdkEcdsaInputsStayWalletSessionShaped() {
       name: 'ExecuteEvmFamilyTransactionArgs',
       declarationNames: ['ExecuteEvmFamilyTransactionBaseArgs', 'ExecuteEvmFamilyTransactionArgs'],
       required: ['walletSession', 'chainTarget'],
+      defaultable: ['walletSession'],
       forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
       allowNeverTripwire: true,
     },
@@ -854,7 +870,7 @@ function checkPublicSdkEcdsaInputsStayWalletSessionShaped() {
     },
     {
       name: 'ExportKeypairWithUIInput',
-      sourcePath: 'packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportFlow.ts',
+      sourcePath: 'packages/wallet/src/core/signingEngine/flows/recovery/keyExportFlow.ts',
       declarationNames: ['SigningEngineExportKeypairWithUIInput'],
       required: ['walletSession', 'chainTarget'],
       forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
@@ -889,7 +905,9 @@ function checkPublicSdkEcdsaInputsStayWalletSessionShaped() {
       .map((name) => findTypeDeclaration(declarationSource, name))
       .join('\n');
     offenders.push(
-      ...expectRequiredFields(block, declaration.required, declaration.name),
+      ...expectRequiredFields(block, declaration.required, declaration.name, {
+        defaultable: declaration.defaultable,
+      }),
       ...declaration.forbidden.flatMap((field) => expectNoField(block, field, declaration.name)),
       ...expectNoNearAccountId(block, declaration.name, {
         allowNeverTripwire: declaration.allowNeverTripwire,
@@ -908,7 +926,7 @@ function checkPublicSdkEcdsaInputsStayWalletSessionShaped() {
 }
 
 function checkEcdsaIframePayloadsStayWalletSessionShaped() {
-  const source = readRepoFile('packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts');
+  const source = readRepoFile('packages/wallet/src/SeamsWeb/walletIframe/shared/messages.ts');
   const namedDeclarations = [
     {
       name: 'PMSignTempoPayload',
@@ -963,7 +981,7 @@ function checkEcdsaIframePayloadsStayWalletSessionShaped() {
 }
 
 function checkActiveSdkEcdsaKeyRefsRejectSigningRootIdentityFields() {
-  const source = readRepoFile('packages/sdk-web/src/core/signingEngine/interfaces/signing.ts');
+  const source = readRepoFile('packages/wallet/src/core/signingEngine/interfaces/signing.ts');
   const keyRefBlock = findTypeDeclaration(source, 'KeyRef');
   const offenders = [];
 
@@ -986,11 +1004,11 @@ function checkActiveSdkEcdsaKeyRefsRejectSigningRootIdentityFields() {
 
 function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
   const clientSource = readRepoFile(
-    'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
+    'packages/wallet/src/core/rpcClients/relayer/thresholdEcdsa.ts',
   );
-  const serverSource = readRepoFile('packages/sdk-server-ts/src/core/types.ts');
+  const serverSource = readRepoFile('packages/wallet-server/src/core/types.ts');
   const ecdsaDerivationClientSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts',
+    'packages/wallet/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts',
   );
   const offenders = [];
   const requiredRoleLocalBootstrapFields = [
@@ -1010,17 +1028,17 @@ function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
   for (const { source, file, typeName } of [
     {
       source: clientSource,
-      file: 'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
+      file: 'packages/wallet/src/core/rpcClients/relayer/thresholdEcdsa.ts',
       typeName: 'ThresholdEcdsaDerivationRoleLocalBootstrapRequest',
     },
     {
       source: clientSource,
-      file: 'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
+      file: 'packages/wallet/src/core/rpcClients/relayer/thresholdEcdsa.ts',
       typeName: 'ThresholdEcdsaDerivationRoleLocalBootstrapBodyBase',
     },
     {
       source: serverSource,
-      file: 'packages/sdk-server-ts/src/core/types.ts',
+      file: 'packages/wallet-server/src/core/types.ts',
       typeName: 'EcdsaDerivationClientBootstrapRequestBase',
     },
   ]) {
@@ -1044,38 +1062,38 @@ function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
     ...expectRequiredFields(
       ecdsaClientContextBlock,
       ['walletId', 'ecdsaThresholdKeyId', 'signingRootId', 'signingRootVersion'],
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
+      'packages/wallet/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ),
     ...expectNoField(
       ecdsaClientContextBlock,
       'rpId',
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
+      'packages/wallet/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ),
     ...expectNoField(
       ecdsaClientContextBlock,
       'chainTarget',
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
+      'packages/wallet/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ),
     ...expectNoField(
       ecdsaClientContextBlock,
       'keyPurpose',
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
+      'packages/wallet/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ),
     ...expectNoField(
       ecdsaClientContextBlock,
       'keyVersion',
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
+      'packages/wallet/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ),
     ...expectNoNearAccountId(
       ecdsaClientContextBlock,
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
+      'packages/wallet/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ),
   );
 
   for (const [block, context] of [
     [
       ecdsaClientContextBlock,
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
+      'packages/wallet/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ],
   ]) {
     for (const field of ['thresholdSessionId']) {
@@ -1093,7 +1111,7 @@ function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
 
 function checkEcdsaDerivationWasmPackageExportsStayRoleLocal() {
   const clientDts = readRepoFile(
-    'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.d.ts',
+    'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.d.ts',
   );
   const serverDts = readRepoFile(
     'wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.d.ts',

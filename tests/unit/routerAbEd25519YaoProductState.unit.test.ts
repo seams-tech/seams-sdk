@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   createRouterAbEd25519YaoProductRegistrationStateV1,
   parseRouterAbEd25519YaoProductRegistrationStateV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 
 test('Ed25519 Yao product state survives the Durable Object structured-clone boundary', () => {
   const state = createRouterAbEd25519YaoProductRegistrationStateV1();

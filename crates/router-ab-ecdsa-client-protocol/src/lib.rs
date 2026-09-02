@@ -23,6 +23,8 @@ mod activation;
 mod export_share;
 #[cfg(feature = "hpke")]
 mod lane_resharing;
+#[cfg(feature = "hpke")]
+mod linked_device_source_contribution;
 mod material_possession;
 #[cfg(feature = "hpke")]
 mod post_registration;
@@ -56,6 +58,16 @@ pub use lane_resharing::{
 };
 #[cfg(feature = "hpke")]
 pub use lane_resharing::{open_ecdsa_lane_payload_v1, seal_ecdsa_lane_payload_v1};
+#[cfg(feature = "hpke")]
+pub use linked_device_source_contribution::{
+    open_linked_device_ecdsa_source_contribution_v1,
+    seal_linked_device_ecdsa_source_contribution_v1,
+    LinkedDeviceEcdsaEncryptedSourceContributionV1, LinkedDeviceEcdsaSourceContributionBindingV1,
+    LinkedDeviceEcdsaSourceContributionPackageV1, LinkedDeviceEcdsaSourceContributionPreparationV1,
+    LinkedDeviceEcdsaSourceSignerIdentityV1, LinkedDeviceEcdsaTargetRecipientPreparationV1,
+    LINKED_DEVICE_SOURCE_CONTRIBUTION_BINDING_DOMAIN_V1,
+    LINKED_DEVICE_SOURCE_CONTRIBUTION_ENVELOPE_DOMAIN_V1,
+};
 pub use material_possession::{
     sign_ecdsa_wallet_recovery_material_possession_proof_v1,
     verify_ecdsa_client_material_possession_proof_v1,
@@ -268,6 +280,118 @@ impl EcdsaSignerEnvelopeHpkePayloadV1 {
         out.extend_from_slice(&(SIGNER_ENVELOPE_HPKE_TAG_LEN_V1 as u32).to_be_bytes());
         push_bytes(&mut out, &self.ciphertext_and_tag);
         Ok(out)
+    }
+}
+
+/// Decodes one canonical signer-envelope HPKE payload received at the
+/// browser worker boundary.
+#[cfg(feature = "hpke")]
+pub fn decode_ecdsa_signer_envelope_hpke_payload_v1(
+    bytes: &[u8],
+) -> Result<EcdsaSignerEnvelopeHpkePayloadV1, EcdsaClientProtocolError> {
+    let mut decoder = SignerEnvelopeDecoderV1::new(bytes);
+    decoder.expect_bytes(SIGNER_ENVELOPE_HPKE_PAYLOAD_VERSION_V1)?;
+    decoder.expect_bytes(SIGNER_ENVELOPE_HPKE_ALGORITHM_V1)?;
+    let recipient_role = decoder.read_role()?;
+    let key_epoch = decoder.read_string()?;
+    let recipient_public_key = decoder.read_string()?;
+    let aad_digest = decoder.read_fixed::<32>()?;
+    let encapped_key = decoder.read_fixed::<32>()?;
+    let tag_len = decoder.read_u32()?;
+    if tag_len as usize != SIGNER_ENVELOPE_HPKE_TAG_LEN_V1 {
+        return Err(EcdsaClientProtocolError::InvalidShape);
+    }
+    let ciphertext_and_tag = decoder.read_bytes()?.to_vec();
+    decoder.finish()?;
+    let payload = EcdsaSignerEnvelopeHpkePayloadV1 {
+        recipient_role,
+        key_epoch,
+        recipient_public_key,
+        aad_digest,
+        encapped_key,
+        ciphertext_and_tag,
+    };
+    payload.canonical_bytes()?;
+    Ok(payload)
+}
+
+#[cfg(feature = "hpke")]
+struct SignerEnvelopeDecoderV1<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+#[cfg(feature = "hpke")]
+impl<'a> SignerEnvelopeDecoderV1<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn finish(&self) -> Result<(), EcdsaClientProtocolError> {
+        if self.offset == self.bytes.len() {
+            Ok(())
+        } else {
+            Err(EcdsaClientProtocolError::InvalidShape)
+        }
+    }
+
+    fn expect_bytes(&mut self, expected: &[u8]) -> Result<(), EcdsaClientProtocolError> {
+        if self.read_bytes()? == expected {
+            Ok(())
+        } else {
+            Err(EcdsaClientProtocolError::InvalidShape)
+        }
+    }
+
+    fn read_role(&mut self) -> Result<EcdsaDeriverRoleV1, EcdsaClientProtocolError> {
+        match self.read_bytes()? {
+            b"signer_a" => Ok(EcdsaDeriverRoleV1::A),
+            b"signer_b" => Ok(EcdsaDeriverRoleV1::B),
+            _ => Err(EcdsaClientProtocolError::InvalidShape),
+        }
+    }
+
+    fn read_string(&mut self) -> Result<String, EcdsaClientProtocolError> {
+        core::str::from_utf8(self.read_bytes()?)
+            .map(str::to_owned)
+            .map_err(|_| EcdsaClientProtocolError::InvalidShape)
+    }
+
+    fn read_fixed<const N: usize>(&mut self) -> Result<[u8; N], EcdsaClientProtocolError> {
+        self.read_bytes()?
+            .try_into()
+            .map_err(|_| EcdsaClientProtocolError::InvalidShape)
+    }
+
+    fn read_u32(&mut self) -> Result<u32, EcdsaClientProtocolError> {
+        let end = self
+            .offset
+            .checked_add(4)
+            .ok_or(EcdsaClientProtocolError::InvalidShape)?;
+        if end > self.bytes.len() {
+            return Err(EcdsaClientProtocolError::InvalidShape);
+        }
+        let value = u32::from_be_bytes(
+            self.bytes[self.offset..end]
+                .try_into()
+                .map_err(|_| EcdsaClientProtocolError::InvalidShape)?,
+        );
+        self.offset = end;
+        Ok(value)
+    }
+
+    fn read_bytes(&mut self) -> Result<&'a [u8], EcdsaClientProtocolError> {
+        let length = self.read_u32()? as usize;
+        let end = self
+            .offset
+            .checked_add(length)
+            .ok_or(EcdsaClientProtocolError::InvalidShape)?;
+        if end > self.bytes.len() {
+            return Err(EcdsaClientProtocolError::InvalidShape);
+        }
+        let value = &self.bytes[self.offset..end];
+        self.offset = end;
+        Ok(value)
     }
 }
 
@@ -729,6 +853,11 @@ mod tests {
         let payload =
             seal_ecdsa_signer_envelope_v1(&recipient, &aad, b"canonical-signer-input", [0x52; 32])
                 .expect("seal");
+        let decoded = decode_ecdsa_signer_envelope_hpke_payload_v1(
+            &payload.canonical_bytes().expect("canonical payload"),
+        )
+        .expect("decode");
+        assert_eq!(decoded, payload);
         assert_eq!(
             open_ecdsa_signer_envelope_v1(&payload, &aad, &private_key).expect("open"),
             b"canonical-signer-input",

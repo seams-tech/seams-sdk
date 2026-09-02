@@ -4,7 +4,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Fingerprint,
-  Github,
   KeyRound,
   ListChecks,
   Lock,
@@ -13,15 +12,13 @@ import {
   Share2,
   ShieldCheck,
   Smartphone,
-  Twitter,
   Wallet,
 } from 'lucide-react';
-import { Theme, useSeams, type AuthMenuMode, type WalletShapeId } from '@seams/sdk/react';
+import { Theme, useSeams, type AuthMenuMode, type WalletShapeId } from '@seams/wallet/react';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import { EcosystemLattice } from '@/components/h2/EcosystemLattice';
 import { NETWORK_MARKS, NetworkMarkLockup } from '@/components/icons/NetworkMarks';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
-import { useRevealOnIdle } from '@/shared/hooks/useRevealOnIdle';
 import {
   DEMO_THEME_PRESETS,
   demoIframeAppearance,
@@ -51,6 +48,71 @@ const productForks = [
   { label: 'API', to: '/docs/concepts/', chip: 'h2-fork__chip--api' },
 ];
 
+/* Grab-and-drag horizontal scrolling for a single-line chip row. Dragging only
+   engages past a small threshold, so a plain click still selects a chip; the
+   click that trails a real drag is swallowed on the way up. */
+function useDragScroll<T extends HTMLElement>(): React.RefObject<T | null> {
+  const ref = React.useRef<T>(null);
+
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    let startX = 0;
+    let startScroll = 0;
+    let down = false;
+    let dragging = false;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      down = true;
+      dragging = false;
+      startX = event.clientX;
+      startScroll = el.scrollLeft;
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!down) return;
+      const dx = event.clientX - startX;
+      if (!dragging) {
+        if (Math.abs(dx) < 4) return;
+        dragging = true;
+        el.classList.add('is-dragging');
+        el.setPointerCapture(event.pointerId);
+      }
+      el.scrollLeft = startScroll - dx;
+    };
+
+    const onPointerEnd = (event: PointerEvent) => {
+      if (dragging) {
+        const swallowClick = (click: MouseEvent) => {
+          click.stopPropagation();
+          click.preventDefault();
+        };
+        el.addEventListener('click', swallowClick, true);
+        window.setTimeout(() => el.removeEventListener('click', swallowClick, true), 0);
+      }
+      if (el.hasPointerCapture(event.pointerId)) el.releasePointerCapture(event.pointerId);
+      down = false;
+      dragging = false;
+      el.classList.remove('is-dragging');
+    };
+
+    el.addEventListener('pointerdown', onPointerDown);
+    el.addEventListener('pointermove', onPointerMove);
+    el.addEventListener('pointerup', onPointerEnd);
+    el.addEventListener('pointercancel', onPointerEnd);
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown);
+      el.removeEventListener('pointermove', onPointerMove);
+      el.removeEventListener('pointerup', onPointerEnd);
+      el.removeEventListener('pointercancel', onPointerEnd);
+    };
+  }, []);
+
+  return ref;
+}
+
 export type H2DemoHeroProps = {
   title?: React.ReactNode;
   sub?: React.ReactNode;
@@ -73,13 +135,13 @@ export function H2DemoHero({
   ),
   authDefaultModeWhenNoDetectedAccount,
 }: H2DemoHeroProps = {}): React.JSX.Element {
-  const show = useRevealOnIdle();
   const { linkProps } = useSiteRouter();
   const { seams, loginState } = useSeams();
   const [demoPage, setDemoPage] = React.useState(0);
   const [demoTheme, setDemoTheme] = React.useState<DemoThemeId>('paper');
   // Corner shape is independent from the selected color palette.
   const [demoShape, setDemoShape] = React.useState<WalletShapeId>('square');
+  const themeTrackRef = useDragScroll<HTMLDivElement>();
   const activePreset =
     DEMO_THEME_PRESETS.find((theme) => theme.id === demoTheme) ?? DEMO_THEME_PRESETS[0];
   const activeWalletId = loginState?.isLoggedIn ? loginState.walletId || '' : '';
@@ -146,35 +208,38 @@ export function H2DemoHero({
             {/* SDK card renders in its own px; scoped scaling keeps the designed
                 hero proportion now that the page-level zoom is gone */}
             <div className="h2-sdk-zoom">
-              {show ? (
-                <React.Suspense fallback={<div className="h2-demo__placeholder" />}>
-                  <DemoPasskeyColumnLazy
-                    currentPage={demoPage}
-                    onCurrentPageChange={setDemoPage}
-                    defaultModeWhenNoDetectedAccount={authDefaultModeWhenNoDetectedAccount}
-                  />
-                </React.Suspense>
-              ) : (
-                <div className="h2-demo__placeholder" />
-              )}
+              <React.Suspense fallback={<div className="h2-demo__placeholder" />}>
+                <DemoPasskeyColumnLazy
+                  currentPage={demoPage}
+                  onCurrentPageChange={setDemoPage}
+                  defaultModeWhenNoDetectedAccount={authDefaultModeWhenNoDetectedAccount}
+                />
+              </React.Suspense>
             </div>
           </Theme>
-          <div className="h2-themeswitch" role="group" aria-label="Preview theme">
-            {DEMO_THEME_PRESETS.map((theme) => (
-              <button
-                key={theme.id}
-                type="button"
-                className={`h2-themeswitch__btn${demoTheme === theme.id ? ' is-active' : ''}`}
-                aria-pressed={demoTheme === theme.id}
-                onClick={() => setDemoTheme(theme.id)}
-              >
-                <span className="h2-themeswitch__swatch" style={{ background: theme.swatch }} />
-                {theme.label}
-              </button>
-            ))}
+          <div className="h2-themeswitch">
+            <span className="h2-themeswitch__label">Themes</span>
+            <div
+              ref={themeTrackRef}
+              className="h2-themeswitch__track"
+              role="group"
+              aria-label="Preview theme"
+            >
+              {DEMO_THEME_PRESETS.map((theme) => (
+                <button
+                  key={theme.id}
+                  type="button"
+                  className={`h2-themeswitch__btn${demoTheme === theme.id ? ' is-active' : ''}`}
+                  aria-pressed={demoTheme === theme.id}
+                  onClick={() => setDemoTheme(theme.id)}
+                >
+                  <span className="h2-themeswitch__swatch" style={{ background: theme.swatch }} />
+                  {theme.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="h2-shapeswitch" role="group" aria-label="Corner shape">
-            <span className="h2-shapeswitch__label">Corners</span>
             {(
               [
                 { id: 'square', label: 'Sharp' },
@@ -184,7 +249,10 @@ export function H2DemoHero({
               <button
                 key={s.id}
                 type="button"
-                className={`h2-shapeswitch__btn${demoShape === s.id ? ' is-active' : ''}`}
+                /* the chip wears the corner style it selects */
+                className={`h2-shapeswitch__btn h2-shapeswitch__btn--${s.id}${
+                  demoShape === s.id ? ' is-active' : ''
+                }`}
                 aria-pressed={demoShape === s.id}
                 onClick={() => setDemoShape(s.id)}
               >
@@ -297,60 +365,163 @@ export function H2Trusted(): React.JSX.Element {
 
 /* ---------- platform pillars ---------- */
 
+type DrawPathProps = React.ComponentPropsWithoutRef<'path'>;
+type DrawRectProps = React.ComponentPropsWithoutRef<'rect'>;
+type DrawCircleProps = React.ComponentPropsWithoutRef<'circle'>;
+
+function drawLayerClassName(className: string | undefined, layer: 'base' | 'overlay'): string {
+  const prefix = className ? `${className} ` : '';
+  return `${prefix}h2-draw__${layer}`;
+}
+
+function setDrawLength(element: SVGGeometryElement | null): void {
+  if (!element) return;
+  element.style.setProperty('--h2-draw-length', `${Math.ceil(element.getTotalLength()) + 2}px`);
+}
+
+function DrawPath({ className, ...props }: DrawPathProps): React.JSX.Element {
+  return (
+    <>
+      <path {...props} pathLength={undefined} className={drawLayerClassName(className, 'base')} />
+      <path
+        {...props}
+        pathLength={undefined}
+        ref={setDrawLength}
+        className={drawLayerClassName(className, 'overlay')}
+      />
+    </>
+  );
+}
+
+function DrawRect({ className, ...props }: DrawRectProps): React.JSX.Element {
+  return (
+    <>
+      <rect {...props} pathLength={undefined} className={drawLayerClassName(className, 'base')} />
+      <rect
+        {...props}
+        pathLength={undefined}
+        ref={setDrawLength}
+        className={drawLayerClassName(className, 'overlay')}
+      />
+    </>
+  );
+}
+
+function DrawCircle({ className, ...props }: DrawCircleProps): React.JSX.Element {
+  return (
+    <>
+      <circle {...props} pathLength={undefined} className={drawLayerClassName(className, 'base')} />
+      <circle
+        {...props}
+        pathLength={undefined}
+        ref={setDrawLength}
+        className={drawLayerClassName(className, 'overlay')}
+      />
+    </>
+  );
+}
+
 /* Two-lane MPC diagram (wallet page security section): the shares converge
-   through a policy gate into the one green output. */
+   through a policy gate into one signed output. */
 export function MpcSplitDiagram(): React.JSX.Element {
   return (
     <svg
       className="h2-mpc"
       viewBox="0 0 560 300"
       role="img"
-      aria-label="share_a on the user's device and share_b on your infrastructure combine through a policy check into a signature"
+      aria-label="A key split into two shares, one on the user's device and one in your infrastructure, combines through a policy check into a signature; 2-of-2 threshold, neither share signs alone"
     >
       {/* input lanes */}
       <text className="h2-mpc__kicker" x="28" y="54">
         USER{'’'}S DEVICE
       </text>
-      <rect className="h2-mpc__node" x="24" y="64" width="128" height="44" rx="12" />
-      <text className="h2-mpc__label" x="88" y="91" textAnchor="middle">
-        share_a
-      </text>
+      <DrawRect
+        className="h2-mpc__node"
+        x="24"
+        y="64"
+        width="128"
+        height="44"
+        rx="12"
+        pathLength="1"
+      />
+      <DrawPath
+        className="h2-mpc__share-key-outline"
+        d="M82 86 A13 13 0 0 0 56 86 A13 13 0 0 0 82 86 M82 86 H123 V82 M98 86 V80 M106 86 V82"
+        pathLength="1"
+      />
+      <DrawPath
+        className="h2-mpc__share-key-detail"
+        d="M58 80 Q66 80 69 86 M58 92 Q66 92 69 86"
+        pathLength="1"
+      />
 
       <text className="h2-mpc__kicker" x="28" y="196">
         YOUR INFRASTRUCTURE
       </text>
-      <rect className="h2-mpc__node" x="24" y="206" width="128" height="44" rx="12" />
-      <text className="h2-mpc__label" x="88" y="233" textAnchor="middle">
-        share_b
-      </text>
+      <DrawRect
+        className="h2-mpc__node"
+        x="24"
+        y="206"
+        width="128"
+        height="44"
+        rx="12"
+        pathLength="1"
+      />
+      <DrawPath
+        className="h2-mpc__share-key-outline"
+        d="M82 86 A13 13 0 0 0 56 86 A13 13 0 0 0 82 86 M82 86 H123 V82 M98 86 V80 M106 86 V82"
+        transform="translate(0 142)"
+        pathLength="1"
+      />
+      <DrawPath
+        className="h2-mpc__share-key-detail"
+        d="M80 80 Q72 80 69 86 M80 92 Q72 92 69 86"
+        transform="translate(0 142)"
+        pathLength="1"
+      />
 
-      {/* dashed connectors converging on the gate */}
-      <path className="h2-mpc__flow" d="M152 86 C214 86 226 148 268 151" />
-      <path className="h2-mpc__flow" d="M152 228 C214 228 226 166 268 159" />
+      {/* The two lanes keep distinct rhythms until their gate terminals. */}
+      <DrawCircle className="h2-mpc__terminal" cx="152" cy="86" r="2.5" />
+      <DrawCircle className="h2-mpc__terminal" cx="152" cy="228" r="2.5" />
+      <DrawPath className="h2-mpc__flow h2-mpc__flow--device" d="M152 86 C214 86 226 148 268 151" />
+      <DrawPath
+        className="h2-mpc__flow h2-mpc__flow--infrastructure"
+        d="M152 228 C214 228 226 166 268 159"
+      />
+      <DrawCircle className="h2-mpc__terminal" cx="268" cy="151" r="2.5" />
+      <DrawCircle className="h2-mpc__terminal" cx="268" cy="159" r="2.5" />
 
       {/* policy gate */}
-      <path
+      <DrawPath className="h2-mpc__guide" d="M300 112 V196" />
+      <DrawPath
         className="h2-mpc__gate"
-        d="M300 122 L328 132 V152 C328 168 316 180 300 186 C284 180 272 168 272 152 V132 Z"
+        d="M300 122 L328 132 V152 C328 168 316 180 300 186 C284 180 272 168 272 152 V132 L300 122"
+        pathLength="1"
       />
-      <path className="h2-mpc__gate-check" d="M290 152 L297 159 L311 143" />
+      <DrawPath className="h2-mpc__gate-check" d="M290 152 L297 159 L311 143" pathLength="1" />
       <text className="h2-mpc__gatelabel" x="300" y="206" textAnchor="middle">
         policy check
       </text>
 
-      {/* signed output: the only green element */}
-      <path className="h2-mpc__out" d="M334 154 H414" />
-      <path className="h2-mpc__out" d="M408 148 L415 154 L408 160" />
-      <rect
+      {/* The approved path stays monochrome with the rest of the diagram. */}
+      <DrawPath className="h2-mpc__out" d="M334 154 H414" pathLength="1" />
+      <DrawPath className="h2-mpc__out" d="M408 148 L415 154 L408 160" pathLength="1" />
+      <DrawRect
         className="h2-mpc__node h2-mpc__node--result"
         x="420"
         y="132"
         width="128"
         height="44"
         rx="12"
+        pathLength="1"
       />
-      <text className="h2-mpc__label h2-mpc__label--result" x="484" y="159" textAnchor="middle">
-        signature
+      <DrawPath
+        className="h2-mpc__signature-mark"
+        d="M450 161 C457 147 463 146 460 161 C469 153 476 148 473 160 C481 153 487 153 492 160 C499 166 506 151 514 157 M451 165 C471 162 493 164 518 161"
+        pathLength="1"
+      />
+      <text className="h2-mpc__resultlabel" x="484" y="206" textAnchor="middle">
+        Signed transaction
       </text>
 
       <text className="h2-mpc__note" x="280" y="284" textAnchor="middle">
@@ -374,44 +545,47 @@ export function SplitKeyVisual(): React.JSX.Element {
       <svg className="h2-splitkey__stack" viewBox="0 0 168 194" aria-hidden>
         <defs>
           <linearGradient id="h2sk-slab-a" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#dde8e4" />
-            <stop offset="100%" stopColor="#a9c6be" />
+            <stop offset="0%" stopColor="#eeebe7" />
+            <stop offset="100%" stopColor="#d3cec7" />
           </linearGradient>
           <linearGradient id="h2sk-slab-b" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#bed5ce" />
-            <stop offset="100%" stopColor="#7fa79d" />
+            <stop offset="0%" stopColor="#dfdad3" />
+            <stop offset="100%" stopColor="#b6b0a7" />
           </linearGradient>
           <linearGradient id="h2sk-slab-c" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#9fbfb7" />
-            <stop offset="100%" stopColor="#537f75" />
+            <stop offset="0%" stopColor="#c8c2b9" />
+            <stop offset="100%" stopColor="#948d84" />
           </linearGradient>
         </defs>
         {/* each slab: an offset underside that reads as the slab's edge and
             contact shadow, under a white-outlined sage face. Drawn bottom-up,
             and the 54u pitch is shorter than the 68u diamond, so each slab
             overlaps and occludes the tip of the one beneath it */}
-        <path d="M84 122 L152 156 L84 190 L16 156 Z" fill="#416760" />
+        <path d="M84 122 L152 156 L84 190 L16 156 Z" fill="#7a736b" />
         <path
           d="M84 114 L152 148 L84 182 L16 148 Z"
           fill="url(#h2sk-slab-c)"
           stroke="#ffffff"
-          strokeWidth="2"
+          strokeWidth="1"
+          vectorEffect="non-scaling-stroke"
           strokeLinejoin="round"
         />
-        <path d="M84 68 L152 102 L84 136 L16 102 Z" fill="#648d83" />
+        <path d="M84 68 L152 102 L84 136 L16 102 Z" fill="#a29b91" />
         <path
           d="M84 60 L152 94 L84 128 L16 94 Z"
           fill="url(#h2sk-slab-b)"
           stroke="#ffffff"
-          strokeWidth="2"
+          strokeWidth="1"
+          vectorEffect="non-scaling-stroke"
           strokeLinejoin="round"
         />
-        <path d="M84 14 L152 48 L84 82 L16 48 Z" fill="#8fafa6" />
+        <path d="M84 14 L152 48 L84 82 L16 48 Z" fill="#c0b9b1" />
         <path
           d="M84 6 L152 40 L84 74 L16 40 Z"
           fill="url(#h2sk-slab-a)"
           stroke="#ffffff"
-          strokeWidth="2"
+          strokeWidth="1"
+          vectorEffect="non-scaling-stroke"
           strokeLinejoin="round"
         />
       </svg>
@@ -879,9 +1053,34 @@ function LineArt({ children }: { children: React.ReactNode }): React.JSX.Element
   );
 }
 
+/* the right column pages between the capability grid and the signing diagram */
+const securityViews = ['Custody primitives', 'Threshold signing'];
+type SecurityView = 0 | 1;
+const securityViewDurationMs = [6000, 6000] as const;
+
+function nextSecurityView(view: SecurityView): SecurityView {
+  return view === 0 ? 1 : 0;
+}
+
 export function H2Security(): React.JSX.Element {
+  const [view, setView] = React.useState<SecurityView>(0);
+
+  React.useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const timeout = window.setTimeout(
+      () => setView((currentView) => nextSecurityView(currentView)),
+      securityViewDurationMs[view],
+    );
+
+    return () => window.clearTimeout(timeout);
+  }, [view]);
+
   return (
-    <section className="h2-section h2-rule" aria-labelledby="h2-security-title">
+    <section
+      className="h2-section h2-rule h2-section--pagerfoot"
+      aria-labelledby="h2-security-title"
+    >
       <div className="h2-shell">
         <div className="h2-security">
           <div>
@@ -918,72 +1117,187 @@ export function H2Security(): React.JSX.Element {
                 retained in the audit trail.
               </p>
             </div>
-            <div className="h2-security__diagram">
+          </div>
+          <div className="h2-security__stage">
+            <div
+              className={`h2-security__view${view === 0 ? ' is-active' : ''}`}
+              aria-hidden={view !== 0}
+            >
+              <div className="h2-security__grid">
+                <div className="h2-security__cell">
+                  {/* nested isometric cube: dashed hidden edges, faint-filled inner cube */}
+                  <LineArt>
+                    <DrawPath
+                      className="h2-lineart__primary"
+                      d="M50 12 L80 27 L80 63 L50 78 L20 63 L20 27 L50 12"
+                      pathLength="1"
+                    />
+                    <DrawPath
+                      className="h2-lineart__hidden"
+                      d="M50 12 L50 48 M50 48 L20 63 M50 48 L80 63"
+                    />
+                    <DrawPath
+                      className="h2-lineart__share"
+                      d="M50 36 L63 42.5 L63 58 L50 64.5 L37 58 L37 42.5 L50 36"
+                      pathLength="1"
+                    />
+                    <DrawPath
+                      className="h2-lineart__secondary"
+                      d="M37 42.5 L50 49 L63 42.5 M50 49 L50 64.5"
+                      pathLength="1"
+                    />
+                    <DrawPath
+                      className="h2-lineart__secondary"
+                      d="M20 27 L50 42 L80 27 M50 42 L50 78"
+                      pathLength="1"
+                    />
+                    <g className="h2-lineart__markers">
+                      <DrawCircle className="h2-lineart__marker" cx="50" cy="12" r="1.6" />
+                      <DrawCircle className="h2-lineart__marker" cx="20" cy="27" r="1.6" />
+                      <DrawCircle className="h2-lineart__marker" cx="80" cy="27" r="1.6" />
+                      <DrawCircle className="h2-lineart__marker" cx="20" cy="63" r="1.6" />
+                      <DrawCircle className="h2-lineart__marker" cx="80" cy="63" r="1.6" />
+                      <DrawCircle className="h2-lineart__marker" cx="50" cy="78" r="1.6" />
+                    </g>
+                  </LineArt>
+                  <span>Split-key custody</span>
+                </div>
+                <div className="h2-security__cell">
+                  {/* double-outline shield on a dotted axis */}
+                  <LineArt>
+                    <DrawPath className="h2-lineart__guide" d="M50 4 V96" />
+                    <DrawPath
+                      className="h2-lineart__primary"
+                      d="M50 12 L81 22 V48 C81 66 68 78 50 86 C32 78 19 66 19 48 V22 L50 12"
+                      fill="var(--h2-bg)"
+                      pathLength="1"
+                    />
+                    <DrawPath
+                      className="h2-lineart__hidden"
+                      d="M50 20 L74 28 V48 C74 61 64 71 50 77 C36 71 26 61 26 48 V28 L50 20"
+                    />
+                    <DrawPath
+                      className="h2-lineart__accent"
+                      d="M38 48 L47 57 L63 39"
+                      pathLength="1"
+                    />
+                    <g className="h2-lineart__markers">
+                      <DrawCircle className="h2-lineart__marker" cx="50" cy="12" r="1.6" />
+                      <DrawCircle className="h2-lineart__marker" cx="50" cy="86" r="1.6" />
+                    </g>
+                  </LineArt>
+                  <span>Policy engine</span>
+                </div>
+                <div className="h2-security__cell">
+                  {/* technical key: concentric head, construction circle + crosshair */}
+                  <LineArt>
+                    <DrawPath className="h2-lineart__guide" d="M36 8 V68 M6 38 H66" />
+                    <DrawCircle className="h2-lineart__hidden" cx="36" cy="38" r="22" />
+                    <DrawCircle
+                      className="h2-lineart__primary"
+                      cx="36"
+                      cy="38"
+                      r="15"
+                      fill="var(--h2-bg)"
+                      pathLength="1"
+                    />
+                    <DrawCircle
+                      className="h2-lineart__secondary"
+                      cx="36"
+                      cy="38"
+                      r="8"
+                      pathLength="1"
+                    />
+                    <DrawPath
+                      className="h2-lineart__primary"
+                      d="M47 49 L82 84 M62 64 L71 55 M71 73 L80 64"
+                      pathLength="1"
+                    />
+                    <g className="h2-lineart__markers">
+                      <DrawCircle className="h2-lineart__marker" cx="36" cy="16" r="1.4" />
+                      <DrawCircle className="h2-lineart__marker" cx="14" cy="38" r="1.4" />
+                      <DrawCircle className="h2-lineart__marker" cx="58" cy="38" r="1.4" />
+                    </g>
+                  </LineArt>
+                  <span>Scoped credentials</span>
+                </div>
+                <div className="h2-security__cell">
+                  {/* layered ledger: offset sheets with dashed projection guides */}
+                  <LineArt>
+                    <DrawPath
+                      className="h2-lineart__secondary"
+                      d="M34 10 H78 V74 H34 V10"
+                      pathLength="1"
+                    />
+                    <DrawPath
+                      className="h2-lineart__guide"
+                      d="M34 10 L24 24 M78 10 L68 24 M78 74 L68 88 M34 74 L24 88"
+                    />
+                    <DrawPath
+                      className="h2-lineart__primary"
+                      d="M24 24 H68 V88 H24 V24"
+                      fill="var(--h2-bg)"
+                      pathLength="1"
+                    />
+                    <DrawPath
+                      className="h2-lineart__secondary"
+                      d="M34 40 H60 M34 49 H60 M34 58 H60 M34 67 H50"
+                      pathLength="1"
+                    />
+                    <g className="h2-lineart__markers">
+                      <DrawCircle className="h2-lineart__marker" cx="29" cy="40" r="1.3" />
+                      <DrawCircle className="h2-lineart__marker" cx="29" cy="49" r="1.3" />
+                      <DrawCircle className="h2-lineart__marker" cx="29" cy="58" r="1.3" />
+                      <DrawCircle className="h2-lineart__marker" cx="29" cy="67" r="1.3" />
+                    </g>
+                  </LineArt>
+                  <span>Audit log</span>
+                </div>
+              </div>
+            </div>
+            <div
+              className={`h2-security__view${view === 1 ? ' is-active' : ''}`}
+              aria-hidden={view !== 1}
+            >
               <MpcSplitDiagram />
             </div>
           </div>
-          <div className="h2-security__grid">
-            <div className="h2-security__cell">
-              {/* nested isometric cube: dashed hidden edges, faint-filled inner cube */}
-              <LineArt>
-                <path d="M50 12 L80 27 L80 63 L50 78 L20 63 L20 27 Z" />
-                <path
-                  d="M50 12 L50 48 M50 48 L20 63 M50 48 L80 63"
-                  strokeDasharray="2.5 3"
-                  opacity="0.5"
-                />
-                <path
-                  d="M50 36 L63 42.5 L63 58 L50 64.5 L37 58 L37 42.5 Z"
-                  fill="var(--h2-taupe)"
-                />
-                <path d="M37 42.5 L50 49 L63 42.5 M50 49 L50 64.5" />
-                <path d="M20 27 L50 42 L80 27 M50 42 L50 78" />
-              </LineArt>
-              <span>Split-key custody</span>
-            </div>
-            <div className="h2-security__cell">
-              {/* double-outline shield on a dotted axis */}
-              <LineArt>
-                <path d="M50 4 V96" strokeDasharray="2.5 3" opacity="0.4" />
-                <path
-                  d="M50 12 L81 22 V48 C81 66 68 78 50 86 C32 78 19 66 19 48 V22 Z"
-                  fill="var(--h2-bg)"
-                />
-                <path
-                  d="M50 20 L74 28 V48 C74 61 64 71 50 77 C36 71 26 61 26 48 V28 Z"
-                  opacity="0.7"
-                />
-                <path d="M38 48 L47 57 L63 39" />
-              </LineArt>
-              <span>Policy engine</span>
-            </div>
-            <div className="h2-security__cell">
-              {/* technical key: concentric head, construction circle + crosshair */}
-              <LineArt>
-                <path d="M36 8 V68 M6 38 H66" strokeDasharray="2.5 3" opacity="0.4" />
-                <circle cx="36" cy="38" r="22" strokeDasharray="2.5 3" opacity="0.4" />
-                <circle cx="36" cy="38" r="15" fill="var(--h2-bg)" />
-                <circle cx="36" cy="38" r="8" />
-                <path d="M47 49 L82 84 M62 64 L71 55 M71 73 L80 64" />
-              </LineArt>
-              <span>Scoped credentials</span>
-            </div>
-            <div className="h2-security__cell">
-              {/* layered ledger: offset sheets with dashed projection guides */}
-              <LineArt>
-                <path d="M34 10 H78 V74 H34 Z" opacity="0.7" />
-                <path
-                  d="M34 10 L24 24 M78 10 L68 24 M78 74 L68 88 M34 74 L24 88"
-                  strokeDasharray="2.5 3"
-                  opacity="0.5"
-                />
-                <path d="M24 24 H68 V88 H24 Z" fill="var(--h2-bg)" />
-                <path d="M32 40 H60 M32 49 H60 M32 58 H60 M32 67 H50" />
-              </LineArt>
-              <span>Audit log</span>
-            </div>
-          </div>
         </div>
+      </div>
+      {/* pager straddles the section's bottom rule, centered on the page */}
+      <div className="h2-security__progress" aria-hidden="true">
+        <span
+          key={view}
+          className="h2-security__progress-fill"
+          style={{ animationDuration: `${securityViewDurationMs[view]}ms` }}
+        />
+      </div>
+      <div className="h2-pager" role="group" aria-label="Custody views">
+        <button
+          type="button"
+          className="h2-pager__btn"
+          aria-label="Previous custody view"
+          onClick={() => setView((currentView) => nextSecurityView(currentView))}
+        >
+          <ChevronLeft aria-hidden />
+        </button>
+        <span className="h2-pager__dots">
+          {securityViews.map((name, i) => (
+            <span
+              key={name}
+              className={`h2-pager__dot${i === view ? ' is-active' : ''}`}
+              title={name}
+            />
+          ))}
+        </span>
+        <button
+          type="button"
+          className="h2-pager__btn"
+          aria-label="Next custody view"
+          onClick={() => setView((currentView) => nextSecurityView(currentView))}
+        >
+          <ChevronRight aria-hidden />
+        </button>
       </div>
     </section>
   );
@@ -991,75 +1305,59 @@ export function H2Security(): React.JSX.Element {
 
 /* ---------- get started band (stacked two-column rows) ---------- */
 
+/* The console band's two screens: the legend rows and the stage cards are
+   driven from one list so a label can never name the screen beside it. */
+const CONSOLE_SCREENS = [
+  {
+    id: 'overview' as const,
+    label: 'Overview',
+    blurb: 'Wallets, approvals, and team activity at a glance',
+    src: '/wallet-preview/wallet-console-dashboard.png',
+  },
+  {
+    id: 'audit' as const,
+    label: 'Audit logs',
+    blurb: 'Every action attributed, timestamped, and exportable',
+    src: '/wallet-preview/wallet-console-audit.png',
+  },
+];
+
 export function H2Start(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
   const dashboardProps = linkProps('/dashboard');
   const docsProps = linkProps('/docs/concepts/');
   const contactProps = linkProps('/contact/');
+  /* Which console screen sits in front. CSS `:has(:hover)` cannot express
+     this: it only knows what the pointer is on *now*, so leaving either card
+     snapped the stage back to its rest state and the right screen animated
+     forward on every mouse-out. Holding the last hover here leaves the card
+     the reader was just looking at in front. */
+  const [consoleFocus, setConsoleFocus] = React.useState<'overview' | 'audit'>('audit');
 
   return (
-    <section className="h2-section h2-rule" aria-labelledby="h2-start-title">
+    <section
+      className="h2-section h2-section--flush-bottom h2-rule"
+      aria-labelledby="h2-start-title"
+    >
       <div className="h2-shell">
         <div className="h2-eco__head h2-starthead">
           <div>
             <h2 id="h2-start-title" className="h2-display h2-eco__title">
-              Start in the dashboard, or build it into your product
+              Start in the wallet console, or build it into your product
             </h2>
-          </div>
-          <a className="h2-btn h2-btn--outline" href={docsProps.href} onClick={docsProps.onClick}>
-            Explore docs
-          </a>
-        </div>
-      </div>
-
-      {/* row 1: merchant dashboard */}
-      <div className="h2-startrow h2-rule">
-        <div className="h2-shell h2-startrow__grid">
-          <div className="h2-startrow__text">
-            <h3>Merchant dashboard</h3>
-            <p>
-              Create a store account, set policy, and invite staff and agents, no code required.
-              Planning a marketplace or fleet rollout? We&rsquo;ll help.
-            </p>
-            <div className="h2-startrow__ctas">
-              <a
-                className="h2-btn h2-btn--primary"
-                href={dashboardProps.href}
-                onClick={dashboardProps.onClick}
-              >
-                Open dashboard
-              </a>
-              <a
-                className="h2-btn h2-btn--outline"
-                href={contactProps.href}
-                onClick={contactProps.onClick}
-              >
-                Talk to us
-              </a>
-            </div>
-          </div>
-          <div className="h2-startrow__visual">
-            <div className="h2-mockcard h2-mockcard--wide">
-              <p className="h2-mockcard__title">Store overview</p>
-              <div className="h2-mockrow">
-                <span className="h2-mockrow__main">Store policy</span>
-                <span className="h2-chip h2-chip--green">Active</span>
-              </div>
-              <div className="h2-mockrow">
-                <span className="h2-mockrow__main">2 agents · 3 staff</span>
-                <span className="h2-chip h2-chip--plain">Scoped</span>
-              </div>
-              <div className="h2-mockrow">
-                <span className="h2-mockrow__main">Pending approvals</span>
-                <span className="h2-chip h2-chip--amber">1</span>
-              </div>
-            </div>
+            <a
+              className="h2-btn h2-btn--primary h2-starthead__cta"
+              href={docsProps.href}
+              onClick={docsProps.onClick}
+            >
+              Explore documentation
+            </a>
           </div>
         </div>
       </div>
 
-      {/* row 2: accounts & wallets API */}
-      <div className="h2-startrow h2-rule">
+      {/* row 1: accounts & wallets API */}
+      <div className="h2-startrow h2-rule h2-rule--midtick">
         <div className="h2-shell h2-startrow__grid">
           <div className="h2-startrow__text">
             <h3>Accounts &amp; Wallets API</h3>
@@ -1081,28 +1379,34 @@ export function H2Start(): React.JSX.Element {
           <div className="h2-code h2-code--lg" aria-label="Register a wallet with the SDK">
             <span className="tok-kw">import</span>
             {' { SeamsClient } '}
-            <span className="tok-kw">from</span> <span className="tok-str">'@seams/sdk'</span>
+            <span className="tok-kw">from</span> <span className="tok-str">'@seams/wallet'</span>
             {';\n\n'}
             <span className="tok-kw">const</span>
             {' seams = '}
             <span className="tok-kw">new</span>
-            {' SeamsClient({ apiKey: '}
+            {' SeamsClient({ '}
+            <span className="tok-prop">apiKey</span>
+            {': '}
             <span className="tok-str">'YOUR_API_KEY'</span>
             {' });\n\n'}
             <span className="tok-kw">const</span>
             {' account = '}
             <span className="tok-kw">await</span>
-            {' seams.register({\n  method: '}
+            {' seams.register({\n  '}
+            <span className="tok-prop">method</span>
+            {': '}
             <span className="tok-str">'passkey'</span>
-            {',\n  policy: '}
+            {',\n  '}
+            <span className="tok-prop">policy</span>
+            {': '}
             <span className="tok-str">'starter-store'</span>
             {',\n});'}
           </div>
         </div>
       </div>
 
-      {/* row 3: policy & delegation API */}
-      <div className="h2-startrow h2-rule">
+      {/* row 2: policy & delegation API */}
+      <div className="h2-startrow h2-rule h2-rule--midtick">
         <div className="h2-shell h2-startrow__grid">
           <div className="h2-startrow__text">
             <h3>Policy &amp; Delegation API</h3>
@@ -1125,15 +1429,25 @@ export function H2Start(): React.JSX.Element {
             <span className="tok-kw">const</span>
             {' grant = '}
             <span className="tok-kw">await</span>
-            {' seams.delegation.grant({\n  to: '}
+            {' seams.delegation.grant({\n  '}
+            <span className="tok-prop">to</span>
+            {': '}
             <span className="tok-str">'support-agent'</span>
-            {',\n  scopes: ['}
+            {',\n  '}
+            <span className="tok-prop">scopes</span>
+            {': ['}
             <span className="tok-str">'refunds:issue'</span>
             {', '}
             <span className="tok-str">'emails:send'</span>
-            {'],\n  limit: { perAction: '}
+            {'],\n  '}
+            <span className="tok-prop">limit</span>
+            {': { '}
+            <span className="tok-prop">perAction</span>
+            {': '}
             <span className="tok-str">'¥10,000'</span>
-            {', expires: '}
+            {', '}
+            <span className="tok-prop">expires</span>
+            {': '}
             <span className="tok-str">'30d'</span>
             {' },\n});\n\n'}
             <span className="tok-cm">{'// risky actions route to the owner\n'}</span>
@@ -1141,6 +1455,86 @@ export function H2Start(): React.JSX.Element {
             {' seams.approvals.require('}
             <span className="tok-str">'discounts:over-10'</span>
             {');'}
+          </div>
+        </div>
+      </div>
+
+      {/* row 3: wallet console — two console pages staged side by side,
+          the right one cropped by the panel (elevenlabs.io-style band) */}
+      <div className="h2-startrow h2-rule h2-rule--midtick">
+        <div className="h2-shell h2-consoleband">
+          <div className="h2-startrow__text">
+            <h3 className="h2-consoleband__title">Wallet console</h3>
+            <p>
+              Manage wallets, signing policy, team access, and pending approvals from one dashboard.
+              Invite staff and agents without writing code.
+            </p>
+            <div className="h2-startrow__ctas">
+              <a
+                className="h2-btn h2-btn--primary"
+                href={dashboardProps.href}
+                onClick={dashboardProps.onClick}
+              >
+                Open wallet console
+              </a>
+              <a
+                className="h2-btn h2-btn--outline"
+                href={contactProps.href}
+                onClick={contactProps.onClick}
+              >
+                Talk to us
+              </a>
+            </div>
+          </div>
+          {/* The legend doubles as the control: each row brings its own screen
+              to the front, so the labels are the same affordance as hovering
+              the cards themselves. `aria-pressed` rather than tabs — both
+              screens stay on stage, only their order changes. */}
+          <div
+            className="h2-startrow__notes h2-consoleband__legend"
+            role="group"
+            aria-label="Bring a console screen to the front"
+          >
+            {CONSOLE_SCREENS.map((screen) => {
+              const selected = consoleFocus === screen.id;
+              return (
+                <button
+                  key={screen.id}
+                  type="button"
+                  className={`h2-consoleband__tab${selected ? ' is-active' : ''}`}
+                  aria-pressed={selected}
+                  onClick={() => setConsoleFocus(screen.id)}
+                >
+                  <span className="h2-consoleband__tab-copy">
+                    <strong>{screen.label}</strong>
+                    <span>{screen.blurb}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div
+            className="h2-consoleband__stage"
+            data-focus={consoleFocus}
+            role="img"
+            aria-label="Wallet console overview and audit log pages"
+          >
+            {CONSOLE_SCREENS.map((screen) => (
+              <div
+                key={screen.id}
+                className={`h2-consoleband__screen h2-consoleband__screen--${screen.id}`}
+                onPointerEnter={() => setConsoleFocus(screen.id)}
+              >
+                <img
+                  src={screen.src}
+                  alt=""
+                  width={2970}
+                  height={1680}
+                  loading="lazy"
+                  decoding="async"
+                />
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -1209,19 +1603,27 @@ export function H2Faq(): React.JSX.Element {
 
 /* ---------- footer ---------- */
 
-const footerGroups = [
+type H2FooterLink = {
+  label: string;
+  to: string;
+  external?: boolean;
+};
+
+const footerGroups: { heading: string; links: H2FooterLink[] }[] = [
   {
     heading: 'Products',
     links: [
       { label: 'Embedded Wallet', to: '/wallet' },
       { label: 'Ecommerce Agents', to: '/ecommerce' },
       { label: 'Custody Model', to: '/docs/concepts/custody/' },
+      { label: 'Wallet Sessions', to: '/docs/concepts/sessions/wallet-sessions' },
     ],
   },
   {
     heading: 'Platform',
     links: [
       { label: 'Authentication', to: '/docs/concepts/auth-methods/' },
+      { label: 'Passkeys', to: '/docs/concepts/auth-methods/passkeys' },
       { label: 'Wallets & Signatures', to: '/docs/concepts/threshold-signing/' },
       { label: 'Permissions & Policy', to: '/docs/concepts/policy/mandates' },
     ],
@@ -1231,13 +1633,29 @@ const footerGroups = [
     links: [
       { label: 'Documentation', to: '/docs/concepts/' },
       { label: 'Architecture', to: '/docs/concepts/architecture' },
+      { label: 'Wallet Iframe', to: '/docs/concepts/custody/wallet-iframe' },
+    ],
+  },
+  {
+    heading: 'Resources',
+    links: [
+      { label: 'Guides', to: '/docs/guides/' },
+      { label: 'Use Cases', to: '/docs/use-cases/' },
       { label: 'Pricing', to: '/pricing/' },
+    ],
+  },
+  {
+    heading: 'Socials',
+    links: [
+      { label: 'X', to: 'https://x.com/lowerarchy', external: true },
+      { label: 'GitHub', to: 'https://github.com/seams-tech', external: true },
     ],
   },
   {
     heading: 'Company',
     links: [
       { label: 'About', to: '/company/' },
+      { label: 'Blog', to: '/company/#blog' },
       { label: 'Contact', to: '/contact/' },
     ],
   },
@@ -1256,40 +1674,27 @@ export function H2Footer(): React.JSX.Element {
               <SeamsWordmark height={20} />
             </a>
           </div>
-          {footerGroups.map((group) => (
-            <div className="h2-footer__col" key={group.heading}>
-              <h3>{group.heading}</h3>
-              {group.links.map((link) => {
-                const props = linkProps(link.to);
-                return (
-                  <a key={link.label} href={props.href} onClick={props.onClick}>
-                    {link.label}
-                  </a>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-        <div className="h2-footer__bottom">
-          <span>Copyright © {new Date().getFullYear()} Seams Technologies KK. Tokyo.</span>
-          <span className="h2-footer__socials">
-            <a
-              href="https://x.com/lowerarchy"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="X"
-            >
-              <Twitter size={14} aria-hidden />
-            </a>
-            <a
-              href="https://github.com/seams-tech"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="GitHub"
-            >
-              <Github size={14} aria-hidden />
-            </a>
-          </span>
+
+          <div className="h2-footer__links">
+            {footerGroups.map((group) => (
+              <div className="h2-footer__col" key={group.heading}>
+                <h3>{group.heading}</h3>
+                {group.links.map((link) => {
+                  const props = linkProps(link.to);
+                  return (
+                    <a
+                      key={link.label}
+                      href={props.href}
+                      onClick={props.onClick}
+                      {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : null)}
+                    >
+                      {link.label}
+                    </a>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </footer>

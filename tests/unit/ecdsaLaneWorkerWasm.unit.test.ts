@@ -4,20 +4,30 @@ import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import {
   createEcdsaLaneDerivationWorkerWasmV1,
   parseEcdsaAdditiveLaneHolderPreparationV1,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaLaneWasm';
-import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
+} from '../../packages/wallet/src/core/signingEngine/threshold/crypto/ecdsaLaneWasm';
+import { prepareLinkedDeviceEcdsaSourceContributionWasm } from '../../packages/wallet/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm';
+import type { WorkerOperationContext } from '../../packages/wallet/src/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   EcdsaDerivationClientCustomRequestType,
   EcdsaDerivationClientCustomResponseType,
-} from '../../packages/sdk-web/src/core/signingEngine/workerManager/workerTypes';
-import { parsePrepareEcdsaAdditiveLaneHolderRequestV1 } from '../../packages/sdk-web/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
+} from '../../packages/wallet/src/core/signingEngine/workerManager/workerTypes';
+import { buildMpcMaterialActivationRef } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parsePrepareEcdsaAdditiveLaneHolderRequestV1,
+  parsePrepareLinkedDeviceEcdsaSourceContributionRequestV1,
+  parsePrepareLinkedDeviceEcdsaSourceContributionResultV1,
+} from '../../packages/wallet/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 import {
   prepareEcdsaLaneHolderInWorkerV1,
   resolveExactEcdsaLaneSourceMaterialV1,
   type EcdsaLaneHolderSessionFactoryV1,
   type EcdsaLaneHolderSessionPortV1,
-} from '../../packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsaLaneHolderWorkerRuntime';
-import { buildR102EcdsaLaneJob } from './helpers/r102LaneGateway.fixtures';
+} from '../../packages/wallet/src/core/signingEngine/workerManager/workers/ecdsaLaneHolderWorkerRuntime';
+import {
+  buildR102EcdsaLaneJob,
+  buildR102ServerActivationReceipt,
+} from './helpers/r102LaneGateway.fixtures';
+import { LINKED_DEVICE_ECDSA_SOURCE_CONTRIBUTION_ENVELOPE_KIND_V1 } from '../../packages/shared-ts/src/device-linking/sourceContribution';
 
 const DIGEST_B64U = base64UrlEncode(new Uint8Array(32));
 const SECP256K1_GENERATOR_B64U = base64UrlEncode(
@@ -25,6 +35,10 @@ const SECP256K1_GENERATOR_B64U = base64UrlEncode(
     Buffer.from('0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798', 'hex'),
   ),
 );
+const SOURCE_RECIPIENT_B64U = base64UrlEncode(new Uint8Array(32).fill(9));
+const TARGET_RECIPIENT_B64U = base64UrlEncode(new Uint8Array(32).fill(10));
+const ENVELOPE_KEY_B64U = base64UrlEncode(new Uint8Array(32).fill(11));
+const ENVELOPE_CIPHERTEXT_B64U = base64UrlEncode(new Uint8Array(32).fill(12));
 
 function ecdsaJob(): EcdsaAdditiveLaneJobV1 {
   const job = buildR102EcdsaLaneJob('derivation-worker');
@@ -59,6 +73,71 @@ function laneRequest(job: EcdsaAdditiveLaneJobV1) {
     kind: 'prepare_ecdsa_additive_lane_holder_v1',
     job,
     holderCommittedAtMs: 2_000,
+  });
+}
+
+function sourceContributionRequest() {
+  const job = ecdsaJob();
+  const targetActivationId =
+    buildR102ServerActivationReceipt(job).targetMaterialActivation.activationId;
+  const targetActivation = buildMpcMaterialActivationRef({
+    activationId: targetActivationId,
+    capability: job.source.materialActivation.capability,
+    materialOwner: job.source.materialActivation.materialOwner,
+    keyBinding: job.source.materialActivation.keyBinding,
+    lifecycleBinding: job.source.materialActivation.lifecycleBinding,
+    signingWorker: job.source.materialActivation.signingWorker,
+  });
+  return parsePrepareLinkedDeviceEcdsaSourceContributionRequestV1({
+    kind: 'prepare_linked_device_ecdsa_source_contribution_v1',
+    preparation: {
+      linkSessionId: 'link-session-r103-ecdsa',
+      enrollmentId: 'enrollment-r103-ecdsa',
+      sourceAuthorityId: 'authority-r103-ecdsa',
+      source: {
+        activation: job.source.materialActivation,
+        clientPublicKey33B64u: SECP256K1_GENERATOR_B64U,
+        relayerPublicKey33B64u: SECP256K1_GENERATOR_B64U,
+        thresholdPublicKey33B64u: SECP256K1_GENERATOR_B64U,
+        thresholdEthereumAddress20B64u: base64UrlEncode(new Uint8Array(20).fill(13)),
+      },
+      target: {
+        activation: targetActivation,
+        targetDeviceId: 'device-r103-ecdsa',
+        targetFactorVerificationDigestB64u: DIGEST_B64U,
+        clientRecipientPublicKeyB64u: SOURCE_RECIPIENT_B64U,
+        signingWorkerRecipientPublicKeyB64u: TARGET_RECIPIENT_B64U,
+      },
+    },
+  });
+}
+
+function sourceContributionResult(
+  request: ReturnType<typeof sourceContributionRequest>,
+): ReturnType<typeof parsePrepareLinkedDeviceEcdsaSourceContributionResultV1> {
+  const { preparation } = request;
+  const binding = {
+    linkSessionId: preparation.linkSessionId,
+    enrollmentId: preparation.enrollmentId,
+    sourceAuthorityId: preparation.sourceAuthorityId,
+    source: preparation.source,
+    target: preparation.target,
+    targetClientPublicKey33B64u: SECP256K1_GENERATOR_B64U,
+  };
+  const envelope = (recipientPublicKeyB64u: string) => ({
+    kind: LINKED_DEVICE_ECDSA_SOURCE_CONTRIBUTION_ENVELOPE_KIND_V1,
+    recipientPublicKeyB64u,
+    bindingDigestB64u: DIGEST_B64U,
+    encappedKeyB64u: ENVELOPE_KEY_B64U,
+    ciphertextB64u: ENVELOPE_CIPHERTEXT_B64U,
+  });
+  return parsePrepareLinkedDeviceEcdsaSourceContributionResultV1({
+    kind: 'linked_device_ecdsa_source_contribution_package_v1',
+    package: {
+      binding,
+      encryptedDelta: envelope(TARGET_RECIPIENT_B64U),
+      encryptedTargetClientShare: envelope(SOURCE_RECIPIENT_B64U),
+    },
   });
 }
 
@@ -99,6 +178,21 @@ function recordingWorkerContext(args: {
       args.calls.push(call);
       return {
         type: EcdsaDerivationClientCustomResponseType.PrepareEcdsaAdditiveLaneHolderSuccess,
+        payload: args.payload,
+      } as never;
+    },
+  };
+}
+
+function recordingSourceWorkerContext(args: {
+  readonly calls: unknown[];
+  readonly payload: ReturnType<typeof sourceContributionResult>;
+}): WorkerOperationContext {
+  return {
+    async requestWorkerOperation(call) {
+      args.calls.push(call);
+      return {
+        type: EcdsaDerivationClientCustomResponseType.PrepareLinkedDeviceEcdsaSourceContributionSuccess,
         payload: args.payload,
       } as never;
     },
@@ -219,5 +313,40 @@ test.describe('ECDSA lane derivation-worker WASM port', () => {
         holderCommittedAtMs: '2000',
       }),
     ).toThrow('holderCommittedAtMs is invalid');
+  });
+
+  test('routes linked-device ECDSA source preparation through the derivation worker', async () => {
+    const calls: unknown[] = [];
+    const preparation = sourceContributionRequest();
+    const result = await prepareLinkedDeviceEcdsaSourceContributionWasm({
+      preparation: preparation.preparation,
+      workerCtx: recordingSourceWorkerContext({
+        calls,
+        payload: sourceContributionResult(preparation),
+      }),
+    });
+
+    expect(result.kind).toBe('linked_device_ecdsa_source_contribution_package_v1');
+    expect(calls).toEqual([
+      {
+        kind: 'ecdsaDerivationClient',
+        request: {
+          type: EcdsaDerivationClientCustomRequestType.PrepareLinkedDeviceEcdsaSourceContribution,
+          payload: preparation,
+          timeoutMs: 20_000,
+        },
+      },
+    ]);
+    expect(JSON.stringify(calls)).not.toContain('stateBlobB64u');
+  });
+
+  test('rejects a state blob extension at the linked-device source boundary', () => {
+    const preparation = sourceContributionRequest();
+    expect(() =>
+      parsePrepareLinkedDeviceEcdsaSourceContributionRequestV1({
+        ...preparation,
+        stateBlobB64u: 'forbidden-secret',
+      }),
+    ).toThrow('invalid fields');
   });
 });

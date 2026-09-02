@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedBy": "@seams/sdk CSS audit",
+  "generatedBy": "@seams/wallet CSS audit",
   "files": {
     "apps/seams-site/src/app.css": ["#12161d", "#171b22", "#2a2f38", "#f3f5f8", "#fff"],
     "apps/seams-site/src/components/ArrowRightAnim.css": [],

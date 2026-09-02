@@ -1,0 +1,458 @@
+import type { AppearanceConfig, GetRecentUnlocksResult } from '@/core/types/seams';
+import type { SeamsWeb } from '@/SeamsWeb';
+import type {
+  ChildToParentEnvelope,
+  HostedAuthMenuCancelPayload,
+  HostedAuthMenuExternalAuthResolution,
+  HostedAuthMenuLoginTarget,
+  HostedAuthMenuOpenRequest,
+} from '../../shared/messages';
+import { AuthMenuSession } from './session';
+import '../lit-ui/auth-menu/seams-auth-menu-surface';
+import { prepareHostedPasskeyRegistration } from '@/SeamsWeb/operations/registration/registration';
+import {
+  buildNearWalletRegistrationSignerSetSelection,
+  resolvePasskeyRegistrationAccountProvisioning,
+} from '@/SeamsWeb/operations/registration/registrationSignerSet';
+import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  walletIframeRequestIdFromBoundary,
+  type WalletIframeRequestId,
+} from '@/core/types/walletIframeIdentity';
+import type { WebAuthnPromptCancellation } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
+import {
+  prepareHostedPasskeyAccountSync,
+  createHostedPasskeyContext,
+  prepareHostedPasskeyLogin,
+  type HostedPasskeyPrepared,
+} from './passkey';
+import type { GoogleEmailOtpWalletAuthFlow } from '@/SeamsWeb/publicApi/types';
+import { defaultLoginAccount, loginAccountOptions, passkeyRecentWalletId } from './account-options';
+import { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
+import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
+import type {
+  StartDevice2LinkingTargetV1,
+  StartDevice2LinkingFlowArgs,
+  StartDevice2LinkingFlowResults,
+} from '@/core/types/linkDevice';
+import { listLocalLoginAuthMethods } from '@/SeamsWeb/operations/auth/login';
+import { preloadWalletHostRegistrationSurface } from '../runtimeLoader';
+import type {
+  HostedRecoveryEmailOtpVerified,
+  HostedRecoveryCredentialCreated,
+  HostedRecoveryFailure,
+  HostedRecoveryFinalizationOperation,
+  HostedRecoveryGoogleVerified,
+  HostedRecoveryPort,
+  HostedRecoveryPrepared,
+  HostedRecoveryTargetKind,
+} from '../recovery-port';
+import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
+
+type GetSeamsWeb = () => SeamsWeb;
+
+async function loadHostedRecoveryPort(getSeamsWeb: GetSeamsWeb): Promise<HostedRecoveryPort> {
+  const recoveryEntrypoint = await import('../recovery-entrypoint');
+  const seamsWeb = getSeamsWeb();
+  return recoveryEntrypoint.createHostedRecoveryPort({
+    context: seamsWeb.getContext(),
+    relayUrl: String(seamsWeb.configs.network.relayer.url),
+  });
+}
+
+class LazyHostedRecoveryPort implements HostedRecoveryPort {
+  private portPromise: Promise<HostedRecoveryPort> | null = null;
+
+  constructor(private readonly getSeamsWeb: GetSeamsWeb) {}
+
+  targetFor(kind: HostedRecoveryTargetKind): WalletRecoveryTargetV1 {
+    if (kind === 'google_email_otp') return { kind, googleProvider: 'google' };
+    const rpId = parseWebAuthnRpId(this.getSeamsWeb().getContext().signingEngine.getRpId());
+    if (!rpId.ok) throw new Error(`wallet recovery RP ID ${rpId.error.message}`);
+    return { kind, rpId: rpId.value };
+  }
+
+  async prepare(input: {
+    readonly recoveryCode: string;
+    readonly target: WalletRecoveryTargetV1;
+    readonly signal: AbortSignal;
+  }): Promise<HostedRecoveryPrepared | HostedRecoveryFailure> {
+    return await (await this.port()).prepare(input);
+  }
+
+  async createPasskey(
+    operation: HostedRecoveryPrepared,
+  ): Promise<HostedRecoveryCredentialCreated | HostedRecoveryFailure> {
+    return await (await this.port()).createPasskey(operation);
+  }
+
+  async verifyGoogle(
+    operation: HostedRecoveryPrepared,
+    idToken: string,
+  ): Promise<HostedRecoveryGoogleVerified | HostedRecoveryFailure> {
+    return await (await this.port()).verifyGoogle(operation, idToken);
+  }
+
+  async verifyEmailOtp(
+    operation: HostedRecoveryGoogleVerified,
+    input: { readonly challengeId: string; readonly otpCode: string },
+  ): Promise<HostedRecoveryEmailOtpVerified | HostedRecoveryFailure> {
+    return await (await this.port()).verifyEmailOtp(operation, input);
+  }
+
+  async finalize(
+    operation: HostedRecoveryFinalizationOperation,
+  ): Promise<
+    | {
+        readonly kind: 'ready_for_sign_in';
+        readonly walletId: HostedRecoveryCredentialCreated['walletId'];
+      }
+    | HostedRecoveryFailure
+  > {
+    return await (await this.port()).finalize(operation);
+  }
+
+  async cancel(
+    operation:
+      | HostedRecoveryPrepared
+      | HostedRecoveryCredentialCreated
+      | HostedRecoveryGoogleVerified
+      | HostedRecoveryEmailOtpVerified,
+  ): Promise<void> {
+    await (await this.port()).cancel(operation);
+  }
+
+  private port(): Promise<HostedRecoveryPort> {
+    this.portPromise ??= loadHostedRecoveryPort(this.getSeamsWeb);
+    return this.portPromise;
+  }
+}
+
+export type AuthMenuControllerDeps = {
+  readonly getSeamsWeb: () => SeamsWeb;
+  readonly getAppearance: () => AppearanceConfig;
+  readonly send: (message: ChildToParentEnvelope) => void;
+};
+
+function trustedHostHostname(): string {
+  try {
+    const referrer = document.referrer.trim();
+    if (referrer) {
+      const hostname = new URL(referrer).hostname.trim();
+      if (hostname) return hostname;
+    }
+  } catch {}
+  return window.location.hostname || 'Wallet';
+}
+
+function requestedWalletIdForLoginTarget(target: HostedAuthMenuLoginTarget): string | null {
+  switch (target.kind) {
+    case 'discoverable':
+      return null;
+    case 'wallet':
+    case 'wallet_sync':
+      return String(target.walletId);
+  }
+}
+
+function ignoreRegistrationPreloadFailure(): void {}
+
+function resolveOnNextTask(resolve: () => void): void {
+  window.setTimeout(resolve, 0);
+}
+
+function yieldAfterAuthMenuMount(): Promise<void> {
+  return new Promise(resolveOnNextTask);
+}
+
+export class AuthMenuController {
+  private readonly sessions = new Map<
+    HostedAuthMenuOpenRequest['authMenuSessionId'],
+    AuthMenuSession
+  >();
+
+  constructor(private readonly deps: AuthMenuControllerDeps) {}
+
+  get activeSessionCount(): number {
+    return this.sessions.size;
+  }
+
+  async open(args: {
+    request: HostedAuthMenuOpenRequest;
+    requestId: string | undefined;
+  }): Promise<import('../../shared/messages').HostedAuthMenuOutcome> {
+    if (!args.requestId) throw new Error('Hosted auth-menu open request requires requestId');
+    const requestId = walletIframeRequestIdFromBoundary(args.requestId);
+    if (this.sessions.has(args.request.authMenuSessionId)) {
+      throw new Error('Hosted auth-menu session is already active');
+    }
+    const session = new AuthMenuSession({
+      request: args.request,
+      requestId,
+      appearance: this.deps.getAppearance(),
+      hostname: trustedHostHostname(),
+      beginGoogleEmailOtp: async ({ idToken, authTarget, signal }) =>
+        await this.beginGoogleEmailOtp({ idToken, authTarget, signal }),
+      startDeviceLinking: this.startDeviceLinking,
+      cancelDeviceLinking: this.cancelDeviceLinking,
+      recoveryPort: new LazyHostedRecoveryPort(this.deps.getSeamsWeb),
+      prepareRecoveredLogin: this.prepareRecoveredLogin.bind(
+        this,
+        requestId,
+        args.request.authMenuSessionId,
+      ),
+      sendToParent: this.deps.send,
+    });
+    const outcomePromise = session.waitForOutcome();
+    const requestedWalletId = requestedWalletIdForLoginTarget(args.request.loginTarget);
+    this.sessions.set(args.request.authMenuSessionId, session);
+    try {
+      session.mount();
+      await yieldAfterAuthMenuMount();
+      if (args.request.initialMode === 'register') {
+        void preloadWalletHostRegistrationSurface().catch(ignoreRegistrationPreloadFailure);
+      }
+      session.setRegistrationPreparation((registrationValue, cancellation) =>
+        this.prepareRegistration(
+          args.request,
+          requestId,
+          session.identity.authMenuSessionId,
+          registrationValue,
+          cancellation,
+        ),
+      );
+      if (requestedWalletId) {
+        await this.bootstrapLoginAccounts(session, requestId, args.request.loginTarget);
+      } else {
+        session.setLoginPreparation({
+          accountOptions: [],
+          selectedAccount: null,
+          prepare: (walletId, cancellation) =>
+            this.prepareLogin(
+              requestId,
+              session.identity.authMenuSessionId,
+              cancellation,
+              walletId,
+              null,
+              args.request.loginTarget,
+            ),
+        });
+        void this.bootstrapLoginAccounts(session, requestId, args.request.loginTarget);
+      }
+      return await outcomePromise;
+    } finally {
+      session.cleanup();
+      this.sessions.delete(args.request.authMenuSessionId);
+    }
+  }
+
+  private async bootstrapLoginAccounts(
+    session: AuthMenuSession,
+    requestId: WalletIframeRequestId,
+    loginTarget: HostedAuthMenuLoginTarget,
+  ): Promise<void> {
+    const [recentUnlocks, localAuthMethods] = await Promise.all([
+      this.deps
+        .getSeamsWeb()
+        .auth.getRecentUnlocks()
+        .catch(() => null),
+      listLocalLoginAuthMethods().catch(() => []),
+    ]);
+    if (session.state.kind === 'complete') return;
+    const requestedWalletId = requestedWalletIdForLoginTarget(loginTarget);
+    const discoveredOptions = loginAccountOptions(recentUnlocks, localAuthMethods);
+    const accountOptions = requestedWalletId
+      ? discoveredOptions.filter((option) => option.walletId === requestedWalletId)
+      : discoveredOptions;
+    const resolvedAccountOptions =
+      accountOptions.length > 0 || !requestedWalletId
+        ? accountOptions
+        : [
+            {
+              walletId: requestedWalletId,
+              displayName: requestedWalletId,
+              authMethod: WALLET_AUTH_METHODS.passkey,
+            },
+          ];
+    session.setLoginPreparation({
+      accountOptions: resolvedAccountOptions,
+      selectedAccount: requestedWalletId
+        ? (resolvedAccountOptions[0] ?? null)
+        : defaultLoginAccount(recentUnlocks, resolvedAccountOptions),
+      prepare: (walletId, cancellation) =>
+        this.prepareLogin(
+          requestId,
+          session.identity.authMenuSessionId,
+          cancellation,
+          walletId,
+          recentUnlocks,
+          loginTarget,
+        ),
+    });
+    if (localAuthMethods.length > 0) {
+      session.defaultToLoginForDetectedLocalWallet();
+    }
+  }
+
+  private async prepareLogin(
+    requestId: WalletIframeRequestId,
+    authMenuSessionId: HostedAuthMenuOpenRequest['authMenuSessionId'],
+    cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>,
+    walletId: string | null,
+    recentUnlocks: GetRecentUnlocksResult | null,
+    loginTarget: HostedAuthMenuLoginTarget,
+  ): Promise<HostedPasskeyPrepared> {
+    const context = createHostedPasskeyContext(this.deps.getSeamsWeb().getContext());
+    const localUnlocks =
+      recentUnlocks ??
+      (await this.deps
+        .getSeamsWeb()
+        .auth.getRecentUnlocks()
+        .catch(() => null));
+    const localAuthMethods = await listLocalLoginAuthMethods().catch(() => []);
+    const localPasskey = localAuthMethods.find(
+      (method) => method.authMethod === WALLET_AUTH_METHODS.passkey,
+    );
+    const selectedWalletId =
+      walletId || passkeyRecentWalletId(localUnlocks) || localPasskey?.walletId || null;
+    if (loginTarget.kind === 'wallet_sync') {
+      return await prepareHostedPasskeyAccountSync({
+        context,
+        walletId: String(loginTarget.walletId),
+        authMenuSessionId,
+        requestId,
+        cancellation,
+      });
+    }
+    if (selectedWalletId) {
+      return await prepareHostedPasskeyLogin({
+        context,
+        walletId: selectedWalletId,
+        authMenuSessionId,
+        requestId,
+        cancellation,
+      });
+    }
+    return await prepareHostedPasskeyAccountSync({
+      context,
+      walletId: selectedWalletId,
+      authMenuSessionId,
+      requestId,
+      cancellation,
+    });
+  }
+
+  private async prepareRecoveredLogin(
+    requestId: WalletIframeRequestId,
+    authMenuSessionId: HostedAuthMenuOpenRequest['authMenuSessionId'],
+    walletId: WalletId,
+    cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>,
+  ): Promise<HostedPasskeyPrepared> {
+    return await prepareHostedPasskeyLogin({
+      context: createHostedPasskeyContext(this.deps.getSeamsWeb().getContext()),
+      walletId: String(walletId),
+      authMenuSessionId,
+      requestId,
+      cancellation,
+    });
+  }
+
+  private async beginGoogleEmailOtp(args: {
+    idToken: string;
+    authTarget:
+      | { readonly mode: 'register' }
+      | {
+          readonly mode: 'login';
+          readonly loginTarget: import('@/SeamsWeb/publicApi/types').GoogleEmailOtpWalletAuthLoginTarget;
+        };
+    signal: AbortSignal;
+  }): Promise<GoogleEmailOtpWalletAuthFlow> {
+    if (args.signal.aborted) throw new Error('Google sign-in was cancelled');
+    const result = await this.deps.getSeamsWeb().auth.beginGoogleEmailOtpWalletAuth({
+      idToken: args.idToken,
+      ...args.authTarget,
+    });
+    if (!result.ok) throw new Error(result.error.message);
+    const flow = result.value;
+    if (args.signal.aborted) {
+      await flow.cancel().catch(() => {});
+      throw new Error('Google sign-in was cancelled');
+    }
+    return flow;
+  }
+
+  private startDeviceLinking = async (
+    target: StartDevice2LinkingTargetV1,
+    callbacks: {
+      readonly onEvent: (event: LinkDeviceFlowEvent) => void;
+      readonly onTargetFactorRequired: NonNullable<
+        NonNullable<StartDevice2LinkingFlowArgs['options']>['onTargetFactorRequired']
+      >;
+    },
+  ): Promise<StartDevice2LinkingFlowResults> =>
+    await this.deps.getSeamsWeb().devices.startDevice2LinkingFlow({
+      ...target,
+      options: callbacks,
+    });
+
+  private cancelDeviceLinking = async (): Promise<void> =>
+    await this.deps.getSeamsWeb().devices.cancelDeviceLinking();
+
+  private async prepareRegistration(
+    request: HostedAuthMenuOpenRequest,
+    requestId: WalletIframeRequestId,
+    authMenuSessionId: HostedAuthMenuOpenRequest['authMenuSessionId'],
+    registrationValue: string,
+    cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>,
+  ): Promise<
+    import('@/SeamsWeb/operations/registration/registration').HostedPasskeyRegistrationPrepared
+  > {
+    const context = this.deps.getSeamsWeb().getContext();
+    const parsedRpId = parseWebAuthnRpId(String(context.signingEngine.getRpId() || ''));
+    if (!parsedRpId.ok) throw new Error(parsedRpId.error.message);
+    const wallet = { kind: 'provided' as const, walletId: walletIdFromString(registrationValue) };
+    const accountProvisioning = resolvePasskeyRegistrationAccountProvisioning({
+      configs: context.configs,
+      wallet,
+      preference:
+        request.registrationAccountInput === 'sponsored_named_near_account'
+          ? { kind: 'relayer_named_subaccount' }
+          : { kind: 'implicit_account' },
+    });
+    const signerSelection = buildNearWalletRegistrationSignerSetSelection({
+      configs: context.configs,
+      accountProvisioning,
+      options: {},
+    });
+    return await prepareHostedPasskeyRegistration({
+      context,
+      wallet,
+      signerSelection,
+      authMethod: { kind: 'passkey', rpId: parsedRpId.value },
+      authMenuSessionId,
+      requestId,
+      cancellation,
+      options: {},
+    });
+  }
+
+  cancel(payload: HostedAuthMenuCancelPayload): boolean {
+    const session = this.sessions.get(payload.authMenuSessionId);
+    if (!session || session.identity.requestId !== payload.requestId) return false;
+    session.cancel(payload.reason);
+    return true;
+  }
+
+  resolveExternalAuth(resolution: HostedAuthMenuExternalAuthResolution): boolean {
+    const session = this.sessions.get(resolution.authMenuSessionId);
+    if (!session || session.identity.requestId !== resolution.requestId) return false;
+    return session.acceptExternalAuthResolution(resolution);
+  }
+
+  cancelByRequestId(requestId: string, reason: 'connection_closed' | 'component_unmounted'): void {
+    for (const session of this.sessions.values()) {
+      if (session.identity.requestId === requestId) session.cancel(reason);
+    }
+  }
+}

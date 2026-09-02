@@ -1,5 +1,19 @@
-import type { LaneShareEpoch, SigningLaneId, WalletKeyId } from '../signing-lanes/ids';
-import { parseLaneShareEpoch, parseSigningLaneId, parseWalletKeyId } from '../signing-lanes/ids';
+import type {
+  LaneShareEpoch,
+  LinkedDeviceEnrollmentId,
+  LinkedDeviceId,
+  LinkDeviceSessionId,
+  SigningLaneId,
+  WalletKeyId,
+} from '../signing-lanes/ids';
+import {
+  parseLaneShareEpoch,
+  parseLinkedDeviceEnrollmentId,
+  parseLinkedDeviceId,
+  parseLinkDeviceSessionId,
+  parseSigningLaneId,
+  parseWalletKeyId,
+} from '../signing-lanes/ids';
 import type { EvmFamilySigningKeySlotId } from '../signing-lanes/evmFamilySigningKeySlotId';
 import { requireEvmFamilySigningKeySlotId } from '../signing-lanes/evmFamilySigningKeySlotId';
 import type { ThresholdEcdsaSessionId } from '../utils/domainIds';
@@ -26,6 +40,7 @@ import {
  */
 export type PasskeyCustodySecretKind =
   | 'wallet_custody_seed_v1'
+  | 'ed25519_yao_client_root_v1'
   | 'ed25519_lane_holder_share_v1'
   | 'ecdsa_lane_holder_share_v1';
 
@@ -57,6 +72,27 @@ export type PasskeyCustodySecretBinding =
       evmFamilySigningKeySlotId?: never;
       clientRootPublicKey33B64u?: never;
       walletKeyId?: never;
+      laneId?: never;
+      laneShareEpoch?: never;
+      participantBindingDigestB64u?: never;
+      thresholdSessionId?: never;
+      thresholdPublicKey33B64u?: never;
+    }
+  | {
+      kind: 'ed25519_yao_client_root_v1';
+      linkSessionId: LinkDeviceSessionId;
+      walletKeyId: WalletKeyId;
+      targetFactor: Ed25519YaoClientRootTargetFactorV1;
+      applicationBindingDigestB64u: DigestB64u;
+      registeredPublicKeyB64u: Ed25519PublicKeyB64u;
+      enrollmentId: LinkedDeviceEnrollmentId;
+      deviceId: LinkedDeviceId;
+      revocationEpoch: number;
+      derivationScheme?: never;
+      keyManifestDigestB64u?: never;
+      nearEd25519SigningKeyId?: never;
+      evmFamilySigningKeySlotId?: never;
+      clientRootPublicKey33B64u?: never;
       laneId?: never;
       laneShareEpoch?: never;
       participantBindingDigestB64u?: never;
@@ -97,6 +133,10 @@ export type PasskeyCustodySecretBinding =
       clientRootPublicKey33B64u?: never;
     };
 
+export type Ed25519YaoClientRootTargetFactorV1 =
+  | { readonly kind: 'passkey_prf' }
+  | { readonly kind: 'email_otp' };
+
 export type PasskeyCustodySecretBindingOfKind<TKind extends PasskeyCustodySecretKind> = Extract<
   PasskeyCustodySecretBinding,
   { kind: TKind }
@@ -116,6 +156,29 @@ export function buildWalletCustodySeedBinding(): PasskeyCustodySecretBindingOfKi
   return {
     kind: 'wallet_custody_seed_v1',
     derivationScheme: WALLET_SEED_DERIVATION_SCHEME_V1,
+  };
+}
+
+export function buildEd25519YaoClientRootBinding(args: {
+  linkSessionId: LinkDeviceSessionId;
+  walletKeyId: WalletKeyId;
+  targetFactor: Ed25519YaoClientRootTargetFactorV1;
+  applicationBindingDigestB64u: DigestB64u;
+  registeredPublicKeyB64u: Ed25519PublicKeyB64u;
+  enrollmentId: LinkedDeviceEnrollmentId;
+  deviceId: LinkedDeviceId;
+  revocationEpoch: number;
+}): PasskeyCustodySecretBindingOfKind<'ed25519_yao_client_root_v1'> {
+  return {
+    kind: 'ed25519_yao_client_root_v1',
+    linkSessionId: args.linkSessionId,
+    walletKeyId: args.walletKeyId,
+    targetFactor: args.targetFactor,
+    applicationBindingDigestB64u: args.applicationBindingDigestB64u,
+    registeredPublicKeyB64u: args.registeredPublicKeyB64u,
+    enrollmentId: args.enrollmentId,
+    deviceId: args.deviceId,
+    revocationEpoch: args.revocationEpoch,
   };
 }
 
@@ -162,6 +225,17 @@ const LANE_SCOPE_FIELDS = ['kind', 'walletKeyId', 'laneId', 'laneShareEpoch'] as
 const ALLOWED_FIELDS_BY_KIND: Record<PasskeyCustodySecretKind, readonly string[]> = {
   // No lane scope: owner custody is wallet-scoped.
   wallet_custody_seed_v1: ['kind', 'derivationScheme'],
+  ed25519_yao_client_root_v1: [
+    'kind',
+    'linkSessionId',
+    'walletKeyId',
+    'targetFactor',
+    'applicationBindingDigestB64u',
+    'registeredPublicKeyB64u',
+    'enrollmentId',
+    'deviceId',
+    'revocationEpoch',
+  ],
   ed25519_lane_holder_share_v1: [
     ...LANE_SCOPE_FIELDS,
     'nearEd25519SigningKeyId',
@@ -185,6 +259,7 @@ const ALL_BRANCH_FIELDS: readonly string[] = Array.from(
 function requireCustodySecretKind(value: unknown, label: string): PasskeyCustodySecretKind {
   if (
     value === 'wallet_custody_seed_v1' ||
+    value === 'ed25519_yao_client_root_v1' ||
     value === 'ed25519_lane_holder_share_v1' ||
     value === 'ecdsa_lane_holder_share_v1'
   ) {
@@ -198,6 +273,25 @@ type LaneScope = {
   laneId: SigningLaneId;
   laneShareEpoch: LaneShareEpoch;
 };
+
+function requireNonNegativeSafeInteger(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative safe integer`);
+  }
+  return value;
+}
+
+function parseEd25519YaoClientRootTargetFactor(
+  value: unknown,
+  label: string,
+): Ed25519YaoClientRootTargetFactorV1 {
+  const record = requireRecord(value, label);
+  rejectUnknownFields(record, ['kind'], label);
+  if (record.kind === 'passkey_prf' || record.kind === 'email_otp') {
+    return { kind: record.kind };
+  }
+  throw new Error(`${label}.kind must be passkey_prf or email_otp`);
+}
 
 function requireLaneScope(record: Record<string, unknown>, label: string): LaneScope {
   const walletKeyId = parseWalletKeyId(record.walletKeyId);
@@ -241,6 +335,35 @@ export function parsePasskeyCustodySecretBinding(
         throw new Error(`${label}.derivationScheme must be ${WALLET_SEED_DERIVATION_SCHEME_V1}`);
       }
       return buildWalletCustodySeedBinding();
+    }
+    case 'ed25519_yao_client_root_v1': {
+      const linkSessionId = parseLinkDeviceSessionId(record.linkSessionId);
+      if (!linkSessionId.ok) throw new Error(`${label}.linkSessionId ${linkSessionId.error.message}`);
+      const walletKeyId = parseWalletKeyId(record.walletKeyId);
+      if (!walletKeyId.ok) throw new Error(`${label}.walletKeyId ${walletKeyId.error.message}`);
+      const enrollmentId = parseLinkedDeviceEnrollmentId(record.enrollmentId);
+      if (!enrollmentId.ok) throw new Error(`${label}.enrollmentId ${enrollmentId.error.message}`);
+      const deviceId = parseLinkedDeviceId(record.deviceId);
+      if (!deviceId.ok) throw new Error(`${label}.deviceId ${deviceId.error.message}`);
+      return buildEd25519YaoClientRootBinding({
+        linkSessionId: linkSessionId.value,
+        walletKeyId: walletKeyId.value,
+        targetFactor: parseEd25519YaoClientRootTargetFactor(record.targetFactor, `${label}.targetFactor`),
+        applicationBindingDigestB64u: parseDigestField(
+          record.applicationBindingDigestB64u,
+          `${label}.applicationBindingDigestB64u`,
+        ),
+        registeredPublicKeyB64u: parseEd25519PublicKeyB64u(
+          record.registeredPublicKeyB64u,
+          `${label}.registeredPublicKeyB64u`,
+        ),
+        enrollmentId: enrollmentId.value,
+        deviceId: deviceId.value,
+        revocationEpoch: requireNonNegativeSafeInteger(
+          record.revocationEpoch,
+          `${label}.revocationEpoch`,
+        ),
+      });
     }
     case 'ed25519_lane_holder_share_v1': {
       const lane = requireLaneScope(record, label);

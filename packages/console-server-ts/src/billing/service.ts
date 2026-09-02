@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
+import { secureRandomBase36 } from '../boundary';
 import { ConsoleBillingError } from './errors';
 import { resolveCreditPackAmountMinorOrThrow } from './creditPacks';
 import {
@@ -33,16 +33,15 @@ import type {
   BillingAccountActivityResult,
   BillingManualAdjustmentRequest,
   BillingManualAdjustmentResult,
-  BillingMonthlyActiveWallets,
+  BillingMonthlyActiveResources,
   BillingOverview,
   BillingRefund,
   BillingRefundReconcileRequest,
   BillingRefundRequest,
   BillingRefundResult,
-  BillingSponsoredExecutionDebitEntry,
-  BillingSponsoredExecutionDebitRequest,
-  BillingSponsoredExecutionDebitResult,
-  BillingUsageAction,
+  BillingProductExecutionDebitEntry,
+  BillingProductExecutionDebitRequest,
+  BillingProductExecutionDebitResult,
   BillingUsageEventRequest,
   BillingUsageEventResult,
   GenerateMonthlyInvoiceRequest,
@@ -68,26 +67,26 @@ export interface ConsoleBillingRefundSupportContext extends ConsoleBillingContex
 
 export interface ConsoleBillingService {
   getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview>;
-  getSponsoredExecutionDebitsByIds(
+  getProductExecutionDebitsByIds(
     ctx: ConsoleBillingContext,
     ledgerEntryIds: string[],
-  ): Promise<BillingSponsoredExecutionDebitEntry[]>;
+  ): Promise<BillingProductExecutionDebitEntry[]>;
   listAccountActivity(
     ctx: ConsoleBillingContext,
     request?: BillingAccountActivityRequest,
   ): Promise<BillingAccountActivityResult>;
-  getMonthlyActiveWallets(
+  getMonthlyActiveResources(
     ctx: ConsoleBillingContext,
     monthUtc?: string,
-  ): Promise<BillingMonthlyActiveWallets>;
+  ): Promise<BillingMonthlyActiveResources>;
   recordUsageEvent(
     ctx: ConsoleBillingContext,
     request: BillingUsageEventRequest,
   ): Promise<BillingUsageEventResult>;
-  recordSponsoredExecutionDebit(
+  recordProductExecutionDebit(
     ctx: ConsoleBillingContext,
-    request: BillingSponsoredExecutionDebitRequest,
-  ): Promise<BillingSponsoredExecutionDebitResult>;
+    request: BillingProductExecutionDebitRequest,
+  ): Promise<BillingProductExecutionDebitResult>;
   listInvoices(ctx: ConsoleBillingContext): Promise<BillingInvoice[]>;
   listInvoicesPage(
     ctx: ConsoleBillingContext,
@@ -149,14 +148,14 @@ export interface ConsoleBillingService {
 }
 
 interface OrgBillingStore {
-  monthlyActiveWallets: number;
+  monthlyActiveResources: number;
   lowBalanceThresholdMinor: number;
   purchases: Map<string, BillingCreditPurchase>;
   refunds: Map<string, BillingRefund>;
   disputes: Map<string, BillingDispute>;
   ledgerEntries: BillingLedgerEntry[];
   usageEventSourceIds: Set<string>;
-  monthlyActiveWalletsByMonth: Map<string, Set<string>>;
+  monthlyActiveResourcesByMonth: Map<string, Set<string>>;
   statementProjectionCreatedAtByMonth: Map<string, string>;
 }
 
@@ -166,13 +165,7 @@ export interface InMemoryConsoleBillingServiceOptions {
   consoleBaseUrl?: string;
 }
 
-const BILLABLE_USAGE_ACTIONS = new Set<BillingUsageAction>([
-  'transfer',
-  'swap',
-  'approve',
-  'contract_call',
-]);
-const MAW_USAGE_DEBIT_MINOR = 300;
+const ACTIVE_RESOURCE_USAGE_DEBIT_MINOR = 300;
 const DEFAULT_LOW_BALANCE_THRESHOLD_MINOR = 2000;
 const DEFAULT_INVOICE_LIST_LIMIT = 25;
 const MAX_INVOICE_LIST_LIMIT = 100;
@@ -269,35 +262,35 @@ function buildInvoiceLineItems(input: {
   orgId: string;
   invoiceId: string;
   periodMonthUtc: string;
-  monthlyActiveWallets: number;
-  sponsoredExecutionDebitMinor: number;
+  monthlyActiveResources: number;
+  productExecutionDebitMinor: number;
   createdAt: string;
 }): BillingInvoiceLineItem[] {
   const items: BillingInvoiceLineItem[] = [];
-  if (input.monthlyActiveWallets > 0) {
+  if (input.monthlyActiveResources > 0) {
     items.push(
       makeInvoiceLineItem({
         orgId: input.orgId,
         invoiceId: input.invoiceId,
         periodMonthUtc: input.periodMonthUtc,
-        itemType: 'MAW_USAGE_DEBIT',
-        description: `Monthly Active Wallets (${input.periodMonthUtc})`,
-        quantity: input.monthlyActiveWallets,
-        unitAmountMinor: MAW_USAGE_DEBIT_MINOR,
+        itemType: 'ACTIVE_RESOURCE_USAGE_DEBIT',
+        description: `Monthly Active Resources (${input.periodMonthUtc})`,
+        quantity: input.monthlyActiveResources,
+        unitAmountMinor: ACTIVE_RESOURCE_USAGE_DEBIT_MINOR,
         createdAt: input.createdAt,
       }),
     );
   }
-  if (input.sponsoredExecutionDebitMinor > 0) {
+  if (input.productExecutionDebitMinor > 0) {
     items.push(
       makeInvoiceLineItem({
         orgId: input.orgId,
         invoiceId: input.invoiceId,
         periodMonthUtc: input.periodMonthUtc,
-        itemType: 'SPONSORED_EXECUTION_DEBIT',
-        description: `Sponsored execution spend (${input.periodMonthUtc})`,
+        itemType: 'PRODUCT_EXECUTION_DEBIT',
+        description: `Product execution spend (${input.periodMonthUtc})`,
         quantity: 1,
-        unitAmountMinor: input.sponsoredExecutionDebitMinor,
+        unitAmountMinor: input.productExecutionDebitMinor,
         createdAt: input.createdAt,
       }),
     );
@@ -1027,12 +1020,12 @@ export function createInMemoryConsoleBillingService(
     monthUtc: string,
   ): BillingInvoice | null {
     const usageDebitEntries = getLedgerEntriesForMonth(store, monthUtc, 'USAGE_DEBIT');
-    const sponsoredDebitEntries = getLedgerEntriesForMonth(
+    const productExecutionDebitEntries = getLedgerEntriesForMonth(
       store,
       monthUtc,
-      'SPONSORED_EXECUTION_DEBIT',
+      'PRODUCT_EXECUTION_DEBIT',
     );
-    const debitEntries = [...usageDebitEntries, ...sponsoredDebitEntries];
+    const debitEntries = [...usageDebitEntries, ...productExecutionDebitEntries];
     const createdAt =
       store.statementProjectionCreatedAtByMonth.get(monthUtc) ||
       debitEntries
@@ -1129,13 +1122,13 @@ export function createInMemoryConsoleBillingService(
       ];
     }
 
-    const monthlyActiveWallets = getLedgerEntriesForMonth(
+    const monthlyActiveResources = getLedgerEntriesForMonth(
       store,
       invoice.periodMonthUtc,
       'USAGE_DEBIT',
     ).length;
-    const sponsoredExecutionDebitMinor = Math.abs(
-      getLedgerEntriesForMonth(store, invoice.periodMonthUtc, 'SPONSORED_EXECUTION_DEBIT').reduce(
+    const productExecutionDebitMinor = Math.abs(
+      getLedgerEntriesForMonth(store, invoice.periodMonthUtc, 'PRODUCT_EXECUTION_DEBIT').reduce(
         (total, entry) => total + entry.amountMinor,
         0,
       ),
@@ -1144,8 +1137,8 @@ export function createInMemoryConsoleBillingService(
       orgId: invoice.orgId,
       invoiceId: invoice.id,
       periodMonthUtc: invoice.periodMonthUtc,
-      monthlyActiveWallets,
-      sponsoredExecutionDebitMinor,
+      monthlyActiveResources,
+      productExecutionDebitMinor,
       createdAt: invoice.createdAt,
     });
   }
@@ -1184,14 +1177,14 @@ export function createInMemoryConsoleBillingService(
     }
 
     const store: OrgBillingStore = {
-      monthlyActiveWallets: 0,
+      monthlyActiveResources: 0,
       lowBalanceThresholdMinor: DEFAULT_LOW_BALANCE_THRESHOLD_MINOR,
       purchases: new Map(),
       refunds: new Map(),
       disputes: new Map(),
       ledgerEntries: [],
       usageEventSourceIds: new Set(),
-      monthlyActiveWalletsByMonth: new Map(),
+      monthlyActiveResourcesByMonth: new Map(),
       statementProjectionCreatedAtByMonth: new Map(),
     };
     ensureCurrentPeriodStatementSeed(store, nowFn());
@@ -1298,16 +1291,16 @@ export function createInMemoryConsoleBillingService(
     return settledPurchase;
   }
 
-  function ensureMonthlyWalletSet(store: OrgBillingStore, monthUtc: string): Set<string> {
-    const existing = store.monthlyActiveWalletsByMonth.get(monthUtc);
+  function ensureMonthlyResourceSet(store: OrgBillingStore, monthUtc: string): Set<string> {
+    const existing = store.monthlyActiveResourcesByMonth.get(monthUtc);
     if (existing) return existing;
     const created = new Set<string>();
-    store.monthlyActiveWalletsByMonth.set(monthUtc, created);
+    store.monthlyActiveResourcesByMonth.set(monthUtc, created);
     return created;
   }
 
-  function getMonthlyActiveWalletCount(store: OrgBillingStore, monthUtc: string): number {
-    return ensureMonthlyWalletSet(store, monthUtc).size;
+  function getMonthlyActiveResourceCount(store: OrgBillingStore, monthUtc: string): number {
+    return ensureMonthlyResourceSet(store, monthUtc).size;
   }
 
   function resolveWebhookStore(
@@ -1328,8 +1321,7 @@ export function createInMemoryConsoleBillingService(
       if (!store) return null;
       const purchase =
         Array.from(store.purchases.values()).find(
-          (entry) =>
-            checkoutSessionRef && entry.providerCheckoutSessionRef === checkoutSessionRef,
+          (entry) => checkoutSessionRef && entry.providerCheckoutSessionRef === checkoutSessionRef,
         ) || null;
       return {
         orgId: requestedOrgId,
@@ -1346,8 +1338,7 @@ export function createInMemoryConsoleBillingService(
     for (const [orgId, store] of Array.from(orgStores.entries())) {
       const purchase =
         Array.from(store.purchases.values()).find(
-          (entry) =>
-            checkoutSessionRef && entry.providerCheckoutSessionRef === checkoutSessionRef,
+          (entry) => checkoutSessionRef && entry.providerCheckoutSessionRef === checkoutSessionRef,
         ) || null;
       if (!purchase) continue;
       if (match) {
@@ -1586,14 +1577,14 @@ export function createInMemoryConsoleBillingService(
       const now = nowFn();
       const store = ensureOrgStore(ctx.orgId);
       const currentMonthUtc = formatCurrentMonthUtc(now);
-      store.monthlyActiveWallets = getMonthlyActiveWalletCount(store, currentMonthUtc);
+      store.monthlyActiveResources = getMonthlyActiveResourceCount(store, currentMonthUtc);
       const projectedInvoices = listProjectedInvoices(store, ctx.orgId, now);
       const creditBalanceMinor = getMemoryStoreBalance(store);
 
       return {
-        usageMetricVersion: 'maw_v1',
+        usageMetricVersion: 'active_resource_v1',
         currentMonthUtc,
-        monthlyActiveWallets: store.monthlyActiveWallets,
+        monthlyActiveResources: store.monthlyActiveResources,
         creditBalanceMinor,
         lowBalanceThresholdMinor: store.lowBalanceThresholdMinor,
         liveEnvironmentState: resolveBillingLiveEnvironmentState({
@@ -1606,10 +1597,10 @@ export function createInMemoryConsoleBillingService(
       };
     },
 
-    async getSponsoredExecutionDebitsByIds(
+    async getProductExecutionDebitsByIds(
       ctx: ConsoleBillingContext,
       ledgerEntryIds: string[],
-    ): Promise<BillingSponsoredExecutionDebitEntry[]> {
+    ): Promise<BillingProductExecutionDebitEntry[]> {
       const store = ensureOrgStore(ctx.orgId);
       const ids = Array.from(
         new Set(
@@ -1621,8 +1612,8 @@ export function createInMemoryConsoleBillingService(
       if (ids.length === 0) return [];
       const wanted = new Set(ids);
       return sortLedgerEntriesByMostRecent(store.ledgerEntries).filter(
-        (entry): entry is BillingSponsoredExecutionDebitEntry =>
-          entry.type === 'SPONSORED_EXECUTION_DEBIT' && wanted.has(entry.id),
+        (entry): entry is BillingProductExecutionDebitEntry =>
+          entry.type === 'PRODUCT_EXECUTION_DEBIT' && wanted.has(entry.id),
       );
     },
 
@@ -1646,22 +1637,22 @@ export function createInMemoryConsoleBillingService(
       };
     },
 
-    async getMonthlyActiveWallets(
+    async getMonthlyActiveResources(
       ctx: ConsoleBillingContext,
       monthUtc?: string,
-    ): Promise<BillingMonthlyActiveWallets> {
+    ): Promise<BillingMonthlyActiveResources> {
       const store = ensureOrgStore(ctx.orgId);
       const resolvedMonth = monthUtc
         ? parseMonthUtcOrThrow(monthUtc)
         : formatCurrentMonthUtc(nowFn());
-      const monthlyActiveWallets = getMonthlyActiveWalletCount(store, resolvedMonth);
+      const monthlyActiveResources = getMonthlyActiveResourceCount(store, resolvedMonth);
       if (resolvedMonth === formatCurrentMonthUtc(nowFn())) {
-        store.monthlyActiveWallets = monthlyActiveWallets;
+        store.monthlyActiveResources = monthlyActiveResources;
       }
       return {
-        usageMetricVersion: 'maw_v1',
+        usageMetricVersion: 'active_resource_v1',
         monthUtc: resolvedMonth,
-        monthlyActiveWallets,
+        monthlyActiveResources,
       };
     },
 
@@ -1679,7 +1670,7 @@ export function createInMemoryConsoleBillingService(
           accepted: false,
           counted: false,
           monthUtc,
-          monthlyActiveWallets: getMonthlyActiveWalletCount(store, monthUtc),
+          monthlyActiveResources: getMonthlyActiveResourceCount(store, monthUtc),
           debitAppliedMinor: 0,
           creditBalanceMinor: getMemoryStoreBalance(store),
           statementId: statement?.id || null,
@@ -1691,21 +1682,17 @@ export function createInMemoryConsoleBillingService(
         throw new ConsoleBillingError('invalid_usage_event', 400, 'Invalid occurredAt value');
       }
       const monthUtc = monthUtcFromEpochMs(occurredAtMs);
-      const counted =
-        BILLABLE_USAGE_ACTIONS.has(request.action) &&
-        request.succeeded &&
-        !request.isSimulation &&
-        !request.isInternalRetry;
+      const counted = request.shouldCount;
       if (request.sourceEventId) {
         store.usageEventSourceIds.add(request.sourceEventId);
       }
       let debitAppliedMinor = 0;
       if (counted) {
-        const monthSet = ensureMonthlyWalletSet(store, monthUtc);
-        const alreadyCounted = monthSet.has(request.walletId);
-        monthSet.add(request.walletId);
+        const monthSet = ensureMonthlyResourceSet(store, monthUtc);
+        const alreadyCounted = monthSet.has(request.resourceId);
+        monthSet.add(request.resourceId);
         if (!alreadyCounted) {
-          debitAppliedMinor = MAW_USAGE_DEBIT_MINOR;
+          debitAppliedMinor = ACTIVE_RESOURCE_USAGE_DEBIT_MINOR;
           ensureStatementProjectionSeed(store, monthUtc, new Date(occurredAtMs));
           appendMemoryLedgerEntry(store, {
             now: new Date(occurredAtMs),
@@ -1713,7 +1700,7 @@ export function createInMemoryConsoleBillingService(
             type: 'USAGE_DEBIT',
             amountMinor: -debitAppliedMinor,
             currency: 'USD',
-            description: `MAW usage debit for wallet ${request.walletId}`,
+            description: `active-resource usage debit for resource ${request.resourceId}`,
             monthUtc,
             relatedInvoiceId: makeUsageStatementId(monthUtc),
             relatedPurchaseId: null,
@@ -1721,46 +1708,46 @@ export function createInMemoryConsoleBillingService(
             actorType: 'USER',
             actorUserId: ctx.actorUserId,
             reasonCode: 'usage_debit',
-            note: `Usage debit recorded for wallet ${request.walletId}`,
+            note: `Usage debit recorded for resource ${request.resourceId}`,
             idempotencyKey: request.sourceEventId
               ? `usage_debit:${request.sourceEventId}`
-              : `usage_debit:${monthUtc}:${request.walletId}:${occurredAtMs}`,
+              : `usage_debit:${monthUtc}:${request.resourceId}:${occurredAtMs}`,
           });
         }
       }
 
-      const monthlyActiveWallets = getMonthlyActiveWalletCount(store, monthUtc);
+      const monthlyActiveResources = getMonthlyActiveResourceCount(store, monthUtc);
       const statement = getProjectedUsageStatement(store, ctx.orgId, monthUtc);
       if (monthUtc === formatCurrentMonthUtc(nowFn())) {
-        store.monthlyActiveWallets = monthlyActiveWallets;
+        store.monthlyActiveResources = monthlyActiveResources;
       }
       return {
         accepted: true,
         counted,
         monthUtc,
-        monthlyActiveWallets,
+        monthlyActiveResources,
         debitAppliedMinor,
         creditBalanceMinor: getMemoryStoreBalance(store),
         statementId: statement?.id || null,
       };
     },
 
-    async recordSponsoredExecutionDebit(
+    async recordProductExecutionDebit(
       ctx: ConsoleBillingContext,
-      request: BillingSponsoredExecutionDebitRequest,
-    ): Promise<BillingSponsoredExecutionDebitResult> {
+      request: BillingProductExecutionDebitRequest,
+    ): Promise<BillingProductExecutionDebitResult> {
       const store = ensureOrgStore(ctx.orgId);
       const sourceEventId = String(request.sourceEventId || '').trim();
       if (!sourceEventId) {
         throw new ConsoleBillingError(
-          'invalid_sponsored_execution_debit',
+          'invalid_product_execution_debit',
           400,
           'sourceEventId is required',
         );
       }
       if (!Number.isInteger(request.amountMinor) || request.amountMinor <= 0) {
         throw new ConsoleBillingError(
-          'invalid_sponsored_execution_debit',
+          'invalid_product_execution_debit',
           400,
           'amountMinor must be a positive integer',
         );
@@ -1768,7 +1755,7 @@ export function createInMemoryConsoleBillingService(
       const occurredAtMs = request.occurredAt ? Date.parse(request.occurredAt) : nowFn().getTime();
       if (!Number.isFinite(occurredAtMs)) {
         throw new ConsoleBillingError(
-          'invalid_sponsored_execution_debit',
+          'invalid_product_execution_debit',
           400,
           'Invalid occurredAt value',
         );
@@ -1776,7 +1763,7 @@ export function createInMemoryConsoleBillingService(
       const monthUtc = monthUtcFromEpochMs(occurredAtMs);
       const existing = findLedgerEntryBySourceEventIdAndType(
         store,
-        'SPONSORED_EXECUTION_DEBIT',
+        'PRODUCT_EXECUTION_DEBIT',
         sourceEventId,
       );
       const existingStatement = getProjectedUsageStatement(store, ctx.orgId, monthUtc);
@@ -1795,17 +1782,17 @@ export function createInMemoryConsoleBillingService(
       const entry = appendMemoryLedgerEntry(store, {
         now,
         orgId: ctx.orgId,
-        type: 'SPONSORED_EXECUTION_DEBIT',
+        type: 'PRODUCT_EXECUTION_DEBIT',
         amountMinor: -request.amountMinor,
         currency: 'USD',
-        description: `Sponsored execution debit for ${request.walletId}`,
+        description: `Product execution debit for ${request.resourceId}`,
         monthUtc,
         relatedInvoiceId: makeUsageStatementId(monthUtc),
         relatedPurchaseId: null,
         sourceEventId,
         actorType: 'SYSTEM',
         actorUserId: ctx.actorUserId,
-        reasonCode: 'sponsored_execution_debit',
+        reasonCode: 'product_execution_debit',
         note:
           String(request.note || '').trim() ||
           [
@@ -1814,8 +1801,8 @@ export function createInMemoryConsoleBillingService(
           ]
             .filter(Boolean)
             .join(' · ') ||
-          `Sponsored execution debit recorded for ${request.walletId}`,
-        idempotencyKey: `sponsored_execution_debit:${sourceEventId}`,
+          `Product execution debit recorded for ${request.resourceId}`,
+        idempotencyKey: `product_execution_debit:${sourceEventId}`,
       });
       const statement = getProjectedUsageStatement(store, ctx.orgId, monthUtc);
       return {
@@ -1956,7 +1943,7 @@ export function createInMemoryConsoleBillingService(
         );
       }
       const nextLineItems = getProjectedInvoiceLineItems(store, invoice);
-      const monthlyActiveWallets = getLedgerEntriesForMonth(
+      const monthlyActiveResources = getLedgerEntriesForMonth(
         store,
         periodMonthUtc,
         'USAGE_DEBIT',
@@ -1966,9 +1953,9 @@ export function createInMemoryConsoleBillingService(
         generated: false,
         invoice,
         lineItems: sortLineItems(nextLineItems),
-        monthlyActiveWallets,
+        monthlyActiveResources,
         pricing: {
-          mawUnitPriceMinor: MAW_USAGE_DEBIT_MINOR,
+          activeResourceUnitPriceMinor: ACTIVE_RESOURCE_USAGE_DEBIT_MINOR,
         },
       };
     },

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { buildWalletEd25519SignerId } from '../../packages/sdk-server-ts/src/core/WalletStore';
+import { buildWalletEd25519SignerId } from '../../packages/wallet-server/src/core/WalletStore';
 
 test('Ed25519 signer identity requires the exact backend signer slot', () => {
   expect(

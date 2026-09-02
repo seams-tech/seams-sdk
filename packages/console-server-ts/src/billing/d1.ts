@@ -1,16 +1,12 @@
-import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
+import { secureRandomBase36 } from '../boundary';
 import {
   d1Integer as toNumber,
   d1ChangedRows,
   queryD1All,
   queryD1One,
   type D1Row,
-} from '@seams/sdk-server/cloud-host';
-import type {
-  D1DatabaseLike,
-  D1PreparedStatementLike,
-  D1ResultLike,
-} from '@seams/sdk-server/cloud-host';
+} from '../boundary';
+import type { D1DatabaseLike, D1PreparedStatementLike, D1ResultLike } from '../boundary';
 import { normalizeManualAdjustmentRequest } from './adjustments';
 import { resolveCreditPackAmountMinorOrThrow } from './creditPacks';
 import { ConsoleBillingError } from './errors';
@@ -67,17 +63,16 @@ import type {
   BillingLedgerDebitPosting,
   BillingManualAdjustmentRequest,
   BillingManualAdjustmentResult,
-  BillingMonthlyActiveWallets,
+  BillingMonthlyActiveResources,
   BillingOverview,
   BillingRefund,
   BillingRefundReconcileRequest,
   BillingRefundRequest,
   BillingRefundResult,
   BillingRefundStatus,
-  BillingSponsoredExecutionDebitEntry,
-  BillingSponsoredExecutionDebitRequest,
-  BillingSponsoredExecutionDebitResult,
-  BillingUsageAction,
+  BillingProductExecutionDebitEntry,
+  BillingProductExecutionDebitRequest,
+  BillingProductExecutionDebitResult,
   BillingUsageEventRequest,
   BillingUsageEventResult,
   GenerateMonthlyInvoiceRequest,
@@ -91,18 +86,12 @@ import type {
   StripeWebhookEventResult,
 } from './types';
 
-const MAW_USAGE_DEBIT_MINOR = 300;
+const ACTIVE_RESOURCE_USAGE_DEBIT_MINOR = 300;
 const DEFAULT_LOW_BALANCE_THRESHOLD_MINOR = 2000;
 const DEFAULT_INVOICE_LIST_LIMIT = 25;
 const MAX_INVOICE_LIST_LIMIT = 100;
 const DEFAULT_ACCOUNT_ACTIVITY_LIMIT = 25;
 const MAX_ACCOUNT_ACTIVITY_LIMIT = 100;
-const BILLABLE_USAGE_ACTIONS = new Set<BillingUsageAction>([
-  'transfer',
-  'swap',
-  'approve',
-  'contract_call',
-]);
 
 export const CONSOLE_BILLING_D1_RUNTIME = Symbol('consoleBillingD1Runtime');
 
@@ -333,7 +322,7 @@ function parseLedgerEntryType(value: unknown): BillingLedgerEntry['type'] {
   switch (normalized) {
     case 'CREDIT_PURCHASE':
     case 'USAGE_DEBIT':
-    case 'SPONSORED_EXECUTION_DEBIT':
+    case 'PRODUCT_EXECUTION_DEBIT':
     case 'MANUAL_ADJUSTMENT':
     case 'REFUND':
     case 'DISPUTE_OPENED':
@@ -354,7 +343,7 @@ function parseLedgerAccountCode(value: unknown): BillingLedgerAccountCode {
     case 'org_prepaid_liability':
     case 'stripe_cash_clearing':
     case 'revenue_usage':
-    case 'revenue_sponsored_execution':
+    case 'revenue_product_execution':
     case 'manual_adjustment_clearing':
     case 'stripe_dispute_clearing':
       return normalized;
@@ -690,12 +679,7 @@ async function buildLowBalanceStateStatements(input: {
                AND entry.id = ?
           )`,
     )
-    .bind(
-      input.createdAtMs,
-      input.state.namespace,
-      input.orgId,
-      input.ledgerEntryId,
-    );
+    .bind(input.createdAtMs, input.state.namespace, input.orgId, input.ledgerEntryId);
   const armStatement = input.state.database
     .prepare(
       `UPDATE billing_accounts
@@ -713,12 +697,7 @@ async function buildLowBalanceStateStatements(input: {
                AND entry.id = ?
           )`,
     )
-    .bind(
-      input.createdAtMs,
-      input.state.namespace,
-      input.orgId,
-      input.ledgerEntryId,
-    );
+    .bind(input.createdAtMs, input.state.namespace, input.orgId, input.ledgerEntryId);
   const recipients = await loadBillingEmailOwnerRecipients(input.state, input.orgId);
   if (recipients.length === 0 || !input.state.emailConsoleBaseUrl) {
     return [resetStatement, armStatement];
@@ -878,8 +857,8 @@ function parseInvoiceLineItemType(value: unknown): BillingInvoiceLineItemType {
   const normalized = String(value || '').trim();
   switch (normalized) {
     case 'CREDIT_TOP_UP':
-    case 'MAW_USAGE_DEBIT':
-    case 'SPONSORED_EXECUTION_DEBIT':
+    case 'ACTIVE_RESOURCE_USAGE_DEBIT':
+    case 'PRODUCT_EXECUTION_DEBIT':
     case 'MANUAL_ADJUSTMENT':
       return normalized;
     default:
@@ -1170,9 +1149,7 @@ function parseDispute(row: D1Row): BillingDispute {
   );
 }
 
-function parseStripePostProcessingOutboxItem(
-  row: D1Row,
-): BillingStripePostProcessingOutboxItem {
+function parseStripePostProcessingOutboxItem(row: D1Row): BillingStripePostProcessingOutboxItem {
   let rawPayload: unknown;
   try {
     rawPayload = JSON.parse(String(row.payload_json || ''));
@@ -1286,12 +1263,12 @@ function invoiceLineItemsForStatement(input: {
   invoice: BillingInvoice;
   entries: readonly BillingLedgerEntry[];
 }): BillingInvoiceLineItem[] {
-  const sponsoredMinor = Math.abs(
+  const productExecutionMinor = Math.abs(
     input.entries
       .filter(
         (entry) =>
           entry.monthUtc === input.invoice.periodMonthUtc &&
-          entry.type === 'SPONSORED_EXECUTION_DEBIT',
+          entry.type === 'PRODUCT_EXECUTION_DEBIT',
       )
       .reduce((total, entry) => total + entry.amountMinor, 0),
   );
@@ -1309,25 +1286,25 @@ function invoiceLineItemsForStatement(input: {
       orgId: input.invoice.orgId,
       invoiceId: input.invoice.id,
       periodMonthUtc: input.invoice.periodMonthUtc,
-      itemType: 'MAW_USAGE_DEBIT',
-      description: `Monthly Active Wallets (${input.invoice.periodMonthUtc})`,
-      quantity: Math.max(1, Math.floor(usageMinor / MAW_USAGE_DEBIT_MINOR)),
-      unitAmountMinor: MAW_USAGE_DEBIT_MINOR,
+      itemType: 'ACTIVE_RESOURCE_USAGE_DEBIT',
+      description: `Monthly Active Resources (${input.invoice.periodMonthUtc})`,
+      quantity: Math.max(1, Math.floor(usageMinor / ACTIVE_RESOURCE_USAGE_DEBIT_MINOR)),
+      unitAmountMinor: ACTIVE_RESOURCE_USAGE_DEBIT_MINOR,
       amountMinor: usageMinor,
       createdAt: input.invoice.createdAt,
     });
   }
-  if (sponsoredMinor > 0) {
+  if (productExecutionMinor > 0) {
     items.push({
-      id: `ili_${input.invoice.id}_sponsored_execution_debit`,
+      id: `ili_${input.invoice.id}_product_execution_debit`,
       orgId: input.invoice.orgId,
       invoiceId: input.invoice.id,
       periodMonthUtc: input.invoice.periodMonthUtc,
-      itemType: 'SPONSORED_EXECUTION_DEBIT',
-      description: `Sponsored execution spend (${input.invoice.periodMonthUtc})`,
+      itemType: 'PRODUCT_EXECUTION_DEBIT',
+      description: `Product execution spend (${input.invoice.periodMonthUtc})`,
       quantity: 1,
-      unitAmountMinor: sponsoredMinor,
-      amountMinor: sponsoredMinor,
+      unitAmountMinor: productExecutionMinor,
+      amountMinor: productExecutionMinor,
       createdAt: input.invoice.createdAt,
     });
   }
@@ -1579,7 +1556,7 @@ async function listAllStatementLedgerEntries(input: {
   });
 }
 
-async function countMonthlyActiveWallets(input: {
+async function countMonthlyActiveResources(input: {
   database: D1DatabaseLike;
   namespace: string;
   orgId: string;
@@ -1587,14 +1564,14 @@ async function countMonthlyActiveWallets(input: {
 }): Promise<number> {
   const row = await queryD1One(
     input.database,
-    `SELECT COUNT(*) AS wallet_count
-       FROM billing_monthly_active_wallets
+    `SELECT COUNT(*) AS resource_count
+       FROM billing_monthly_active_resources
       WHERE namespace = ?
         AND org_id = ?
         AND month_utc = ?`,
     [input.namespace, input.orgId, input.monthUtcValue],
   );
-  return Math.max(0, toNumber(row?.wallet_count));
+  return Math.max(0, toNumber(row?.resource_count));
 }
 
 async function listPersistedInvoices(input: {
@@ -1989,7 +1966,7 @@ function buildPurchaseReceiptStatements(input: {
 function buildUsageStatementLineItems(input: {
   invoice: BillingInvoice;
   usageDebitMinor: number;
-  sponsoredExecutionDebitMinor: number;
+  productExecutionDebitMinor: number;
   createdAtMs: number;
 }): BillingInvoiceLineItem[] {
   const items: BillingInvoiceLineItem[] = [];
@@ -1999,25 +1976,25 @@ function buildUsageStatementLineItems(input: {
       orgId: input.invoice.orgId,
       invoiceId: input.invoice.id,
       periodMonthUtc: input.invoice.periodMonthUtc,
-      itemType: 'MAW_USAGE_DEBIT',
-      description: `Monthly Active Wallet usage (${input.invoice.periodMonthUtc})`,
-      quantity: Math.max(1, Math.round(input.usageDebitMinor / MAW_USAGE_DEBIT_MINOR)),
-      unitAmountMinor: MAW_USAGE_DEBIT_MINOR,
+      itemType: 'ACTIVE_RESOURCE_USAGE_DEBIT',
+      description: `Monthly Active Resource usage (${input.invoice.periodMonthUtc})`,
+      quantity: Math.max(1, Math.round(input.usageDebitMinor / ACTIVE_RESOURCE_USAGE_DEBIT_MINOR)),
+      unitAmountMinor: ACTIVE_RESOURCE_USAGE_DEBIT_MINOR,
       amountMinor: input.usageDebitMinor,
       createdAt: toIso(input.createdAtMs),
     });
   }
-  if (input.sponsoredExecutionDebitMinor > 0) {
+  if (input.productExecutionDebitMinor > 0) {
     items.push({
-      id: `ili_${input.invoice.id}_sponsored_execution_debit`,
+      id: `ili_${input.invoice.id}_product_execution_debit`,
       orgId: input.invoice.orgId,
       invoiceId: input.invoice.id,
       periodMonthUtc: input.invoice.periodMonthUtc,
-      itemType: 'SPONSORED_EXECUTION_DEBIT',
-      description: `Sponsored execution spend (${input.invoice.periodMonthUtc})`,
+      itemType: 'PRODUCT_EXECUTION_DEBIT',
+      description: `Product execution spend (${input.invoice.periodMonthUtc})`,
       quantity: 1,
-      unitAmountMinor: input.sponsoredExecutionDebitMinor,
-      amountMinor: input.sponsoredExecutionDebitMinor,
+      unitAmountMinor: input.productExecutionDebitMinor,
+      amountMinor: input.productExecutionDebitMinor,
       createdAt: toIso(input.createdAtMs),
     });
   }
@@ -2108,10 +2085,10 @@ function d1LedgerEntryInsertSourceSql(insertGuard: LedgerEntryInsertInput['inser
   return `${sourceSql} WHERE changes() = 1`;
 }
 
-function buildSponsoredExecutionDebitInsert(input: {
+function buildProductExecutionDebitInsert(input: {
   state: D1ConsoleBillingState;
   ctx: ConsoleBillingContext;
-  request: BillingSponsoredExecutionDebitRequest;
+  request: BillingProductExecutionDebitRequest;
   entryId: string;
   occurredAtMs: number;
   insertGuard?: LedgerEntryInsertInput['insertGuard'];
@@ -2122,16 +2099,16 @@ function buildSponsoredExecutionDebitInsert(input: {
     namespace: input.state.namespace,
     orgId: input.ctx.orgId,
     entryId: input.entryId,
-    type: 'SPONSORED_EXECUTION_DEBIT',
+    type: 'PRODUCT_EXECUTION_DEBIT',
     amountMinor: -input.request.amountMinor,
-    description: `Sponsored execution debit for ${input.request.walletId}`,
+    description: `Product execution debit for ${input.request.resourceId}`,
     monthUtc: eventMonthUtc,
     relatedInvoiceId: makeUsageStatementId(input.ctx.orgId, eventMonthUtc),
     relatedPurchaseId: null,
     sourceEventId,
     actorType: 'SYSTEM',
     actorUserId: input.ctx.actorUserId,
-    reasonCode: 'sponsored_execution_debit',
+    reasonCode: 'product_execution_debit',
     note:
       normalizeOptionalString(input.request.note) ||
       [
@@ -2140,17 +2117,17 @@ function buildSponsoredExecutionDebitInsert(input: {
       ]
         .filter(Boolean)
         .join(' | ') ||
-      `Sponsored execution debit recorded for ${input.request.walletId}`,
-    idempotencyKey: `sponsored_execution_debit:${sourceEventId}`,
+      `Product execution debit recorded for ${input.request.resourceId}`,
+    idempotencyKey: `product_execution_debit:${sourceEventId}`,
     createdAtMs: input.occurredAtMs,
     insertGuard: input.insertGuard,
   });
 }
 
-async function buildSponsoredExecutionDebitStatements(input: {
+async function buildProductExecutionDebitStatements(input: {
   state: D1ConsoleBillingState;
   ctx: ConsoleBillingContext;
-  request: BillingSponsoredExecutionDebitRequest;
+  request: BillingProductExecutionDebitRequest;
   entryId: string;
   occurredAtMs: number;
   insertGuard?: LedgerEntryInsertInput['insertGuard'];
@@ -2159,7 +2136,7 @@ async function buildSponsoredExecutionDebitStatements(input: {
   notificationStatements: D1PreparedStatementLike[];
 }> {
   return {
-    ledgerStatement: buildSponsoredExecutionDebitInsert(input),
+    ledgerStatement: buildProductExecutionDebitInsert(input),
     notificationStatements: await buildLowBalanceStateStatements({
       state: input.state,
       orgId: input.ctx.orgId,
@@ -2169,9 +2146,9 @@ async function buildSponsoredExecutionDebitStatements(input: {
   };
 }
 
-function normalizeSponsoredDebit(input: {
+function normalizeProductDebit(input: {
   now: Date;
-  request: BillingSponsoredExecutionDebitRequest;
+  request: BillingProductExecutionDebitRequest;
 }): { sourceEventId: string; amountMinor: number; occurredAtMs: number } {
   const sourceEventId = normalizeRequiredString(input.request.sourceEventId, 'sourceEventId');
   const amountMinor = normalizePositiveInteger(input.request.amountMinor, 'amountMinor');
@@ -2180,7 +2157,7 @@ function normalizeSponsoredDebit(input: {
     : nowMs(input.now);
   if (!Number.isFinite(occurredAtMs)) {
     throw new ConsoleBillingError(
-      'invalid_sponsored_execution_debit',
+      'invalid_product_execution_debit',
       400,
       'Invalid occurredAt value',
     );
@@ -2188,23 +2165,23 @@ function normalizeSponsoredDebit(input: {
   return { sourceEventId, amountMinor, occurredAtMs };
 }
 
-export async function recordSponsoredExecutionDebitD1(input: {
+export async function recordProductExecutionDebitD1(input: {
   state: D1ConsoleBillingState;
   ctx: ConsoleBillingContext;
-  request: BillingSponsoredExecutionDebitRequest;
+  request: BillingProductExecutionDebitRequest;
   entryId?: string;
 }): Promise<{
-  result: BillingSponsoredExecutionDebitResult;
+  result: BillingProductExecutionDebitResult;
   ledgerEntry: BillingLedgerEntry | null;
 }> {
   const currentNow = input.state.now();
-  const normalized = normalizeSponsoredDebit({ now: currentNow, request: input.request });
+  const normalized = normalizeProductDebit({ now: currentNow, request: input.request });
   const existing = await loadLedgerEntryBySourceEventAndType({
     database: input.state.database,
     namespace: input.state.namespace,
     orgId: input.ctx.orgId,
     sourceEventId: normalized.sourceEventId,
-    type: 'SPONSORED_EXECUTION_DEBIT',
+    type: 'PRODUCT_EXECUTION_DEBIT',
   });
   const eventMonthUtc = monthUtcFromMs(normalized.occurredAtMs);
   if (existing) {
@@ -2228,7 +2205,7 @@ export async function recordSponsoredExecutionDebitD1(input: {
   }
 
   const entryId = input.entryId || makeId('ble', new Date(normalized.occurredAtMs));
-  const statements = await buildSponsoredExecutionDebitStatements({
+  const statements = await buildProductExecutionDebitStatements({
     state: input.state,
     ctx: input.ctx,
     request: { ...input.request, amountMinor: normalized.amountMinor },
@@ -2255,7 +2232,7 @@ export async function recordSponsoredExecutionDebitD1(input: {
       namespace: input.state.namespace,
       orgId: input.ctx.orgId,
       sourceEventId: normalized.sourceEventId,
-      type: 'SPONSORED_EXECUTION_DEBIT',
+      type: 'PRODUCT_EXECUTION_DEBIT',
     }));
   const account = await loadBillingAccount({
     database: input.state.database,
@@ -2276,10 +2253,10 @@ export async function recordSponsoredExecutionDebitD1(input: {
   };
 }
 
-export async function createSponsoredExecutionDebitD1Statements(input: {
+export async function createProductExecutionDebitD1Statements(input: {
   runtime: ConsoleBillingD1Runtime;
   ctx: ConsoleBillingContext;
-  request: BillingSponsoredExecutionDebitRequest;
+  request: BillingProductExecutionDebitRequest;
   entryId: string;
   occurredAtMs: number;
   insertGuard?: LedgerEntryInsertInput['insertGuard'];
@@ -2287,7 +2264,7 @@ export async function createSponsoredExecutionDebitD1Statements(input: {
   ledgerStatement: D1PreparedStatementLike;
   notificationStatements: D1PreparedStatementLike[];
 }> {
-  return await buildSponsoredExecutionDebitStatements({
+  return await buildProductExecutionDebitStatements({
     state: {
       database: input.runtime.database,
       namespace: input.runtime.namespace,
@@ -2310,27 +2287,27 @@ async function getUsageStatementTotals(input: {
   periodMonthUtc: string;
 }): Promise<{
   usageDebitMinor: number;
-  sponsoredExecutionDebitMinor: number;
+  productExecutionDebitMinor: number;
   amountDueMinor: number;
 }> {
   const row = await queryD1One(
     input.state.database,
     `SELECT
         COALESCE(SUM(CASE WHEN entry_type = 'USAGE_DEBIT' THEN ABS(amount_minor) ELSE 0 END), 0) AS usage_debit_minor,
-        COALESCE(SUM(CASE WHEN entry_type = 'SPONSORED_EXECUTION_DEBIT' THEN ABS(amount_minor) ELSE 0 END), 0) AS sponsored_execution_debit_minor
+        COALESCE(SUM(CASE WHEN entry_type = 'PRODUCT_EXECUTION_DEBIT' THEN ABS(amount_minor) ELSE 0 END), 0) AS product_execution_debit_minor
        FROM billing_ledger_entries
       WHERE namespace = ?
         AND org_id = ?
-        AND entry_type IN ('USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT')
+        AND entry_type IN ('USAGE_DEBIT', 'PRODUCT_EXECUTION_DEBIT')
         AND month_utc = ?`,
     [input.state.namespace, input.orgId, input.periodMonthUtc],
   );
   const usageDebitMinor = Math.max(0, toNumber(row?.usage_debit_minor));
-  const sponsoredExecutionDebitMinor = Math.max(0, toNumber(row?.sponsored_execution_debit_minor));
+  const productExecutionDebitMinor = Math.max(0, toNumber(row?.product_execution_debit_minor));
   return {
     usageDebitMinor,
-    sponsoredExecutionDebitMinor,
-    amountDueMinor: usageDebitMinor + sponsoredExecutionDebitMinor,
+    productExecutionDebitMinor,
+    amountDueMinor: usageDebitMinor + productExecutionDebitMinor,
   };
 }
 
@@ -2338,7 +2315,7 @@ async function reconcileUsageDebitCoverageD1(input: {
   state: D1ConsoleBillingState;
   ctx: ConsoleBillingContext;
   periodMonthUtc: string;
-  monthlyActiveWallets: number;
+  monthlyActiveResources: number;
   createdAtMs: number;
 }): Promise<void> {
   const totals = await getUsageStatementTotals({
@@ -2347,7 +2324,7 @@ async function reconcileUsageDebitCoverageD1(input: {
     periodMonthUtc: input.periodMonthUtc,
   });
   const targetUsageDebitMinor =
-    Math.max(0, Math.trunc(input.monthlyActiveWallets)) * MAW_USAGE_DEBIT_MINOR;
+    Math.max(0, Math.trunc(input.monthlyActiveResources)) * ACTIVE_RESOURCE_USAGE_DEBIT_MINOR;
   const missingAmountMinor = Math.max(0, targetUsageDebitMinor - totals.usageDebitMinor);
   if (missingAmountMinor <= 0) return;
 
@@ -2366,7 +2343,7 @@ async function reconcileUsageDebitCoverageD1(input: {
         entryId,
         type: 'USAGE_DEBIT',
         amountMinor: -missingAmountMinor,
-        description: `Reconciled MAW usage debit coverage (${input.periodMonthUtc})`,
+        description: `Reconciled active-resource usage debit coverage (${input.periodMonthUtc})`,
         monthUtc: input.periodMonthUtc,
         relatedInvoiceId: makeUsageStatementId(input.ctx.orgId, input.periodMonthUtc),
         relatedPurchaseId: null,
@@ -2374,7 +2351,7 @@ async function reconcileUsageDebitCoverageD1(input: {
         actorType: 'SYSTEM',
         actorUserId: input.ctx.actorUserId,
         reasonCode: 'usage_statement_reconciliation',
-        note: `Reconciled ${Math.round(missingAmountMinor / MAW_USAGE_DEBIT_MINOR)} missing MAW debit(s) into the monthly usage statement.`,
+        note: `Reconciled ${Math.round(missingAmountMinor / ACTIVE_RESOURCE_USAGE_DEBIT_MINOR)} missing active-resource debit(s) into the monthly usage statement.`,
         idempotencyKey: `usage_statement:${input.ctx.orgId}:${input.periodMonthUtc}`,
         createdAtMs: input.createdAtMs,
       }),
@@ -2421,7 +2398,7 @@ async function syncUsageStatementD1(input: {
   const lineItems = buildUsageStatementLineItems({
     invoice: seedInvoice,
     usageDebitMinor: totals.usageDebitMinor,
-    sponsoredExecutionDebitMinor: totals.sponsoredExecutionDebitMinor,
+    productExecutionDebitMinor: totals.productExecutionDebitMinor,
     createdAtMs: input.createdAtMs,
   });
   await input.state.database.batch([
@@ -2482,7 +2459,7 @@ async function generateMonthlyInvoiceD1(input: {
   periodMonthUtc: string;
 }): Promise<GenerateMonthlyInvoiceResult> {
   const createdAtMs = nowMs(input.state.now());
-  const monthlyActiveWallets = await countMonthlyActiveWallets({
+  const monthlyActiveResources = await countMonthlyActiveResources({
     database: input.state.database,
     namespace: input.state.namespace,
     orgId: input.ctx.orgId,
@@ -2492,7 +2469,7 @@ async function generateMonthlyInvoiceD1(input: {
     state: input.state,
     ctx: input.ctx,
     periodMonthUtc: input.periodMonthUtc,
-    monthlyActiveWallets,
+    monthlyActiveResources,
     createdAtMs,
   });
   const invoiceId = makeUsageStatementId(input.ctx.orgId, input.periodMonthUtc);
@@ -2524,8 +2501,8 @@ async function generateMonthlyInvoiceD1(input: {
     generated,
     invoice: synced.invoice,
     lineItems: sortLineItems(synced.lineItems),
-    monthlyActiveWallets,
-    pricing: { mawUnitPriceMinor: MAW_USAGE_DEBIT_MINOR },
+    monthlyActiveResources,
+    pricing: { activeResourceUnitPriceMinor: ACTIVE_RESOURCE_USAGE_DEBIT_MINOR },
   };
 }
 
@@ -2774,8 +2751,7 @@ async function finalizeRefundD1(input: {
       orgId: input.refund.orgId,
       createdAtMs: input.updatedAtMs,
     });
-    const balanceAfterMinor =
-      accountBeforeRefund.creditBalanceMinor - input.refund.amountMinor;
+    const balanceAfterMinor = accountBeforeRefund.creditBalanceMinor - input.refund.amountMinor;
     const refundEmailStatements = await buildRefundResultEmailStatements({
       state: input.state,
       refund: input.refund,
@@ -3023,8 +2999,8 @@ async function createRefundD1(input: {
   let insertResult;
   try {
     insertResult = await input.state.database
-    .prepare(
-      `INSERT INTO billing_refunds (
+      .prepare(
+        `INSERT INTO billing_refunds (
         namespace,
         org_id,
         id,
@@ -3100,23 +3076,23 @@ async function createRefundD1(input: {
           ),
           0
         )`,
-    )
-    .bind(
-      input.state.namespace,
-      refundId,
-      request.amountMinor,
-      request.reason,
-      input.ctx.actorUserId,
-      request.idempotencyKey,
-      nowMs(currentNow),
-      nowMs(currentNow),
-      input.state.namespace,
-      input.ctx.orgId,
-      purchase.id,
-      request.amountMinor,
-      request.amountMinor,
-    )
-    .run();
+      )
+      .bind(
+        input.state.namespace,
+        refundId,
+        request.amountMinor,
+        request.reason,
+        input.ctx.actorUserId,
+        request.idempotencyKey,
+        nowMs(currentNow),
+        nowMs(currentNow),
+        input.state.namespace,
+        input.ctx.orgId,
+        purchase.id,
+        request.amountMinor,
+        request.amountMinor,
+      )
+      .run();
   } catch (error: unknown) {
     if (!isD1ConstraintError(error)) throw error;
     const concurrent = await loadRefundByIdempotencyKey({
@@ -3554,6 +3530,35 @@ async function processStripeWebhookEventD1(input: {
     [input.state.namespace, eventId],
   );
   if (processed) {
+    if (
+      input.request.eventType === 'checkout.session.completed' ||
+      input.request.eventType === 'checkout.session.expired'
+    ) {
+      const resolved = await findCreditPurchaseForStripeEvent({
+        database: input.state.database,
+        namespace: input.state.namespace,
+        orgId: input.request.orgId,
+        checkoutSessionRef: input.request.checkoutSessionId,
+      });
+      const purchase = resolved?.purchase || null;
+      const invoice =
+        resolved && purchase?.relatedInvoiceId
+          ? await loadPersistedInvoiceById({
+              database: input.state.database,
+              namespace: input.state.namespace,
+              orgId: resolved.orgId,
+              invoiceId: purchase.relatedInvoiceId,
+            })
+          : null;
+      return {
+        accepted: false,
+        purchase,
+        invoice,
+        refunds: [],
+        dispute: null,
+        orgId: resolved?.orgId || normalizeOptionalString(processed.org_id),
+      };
+    }
     return {
       accepted: false,
       purchase: null,
@@ -3642,12 +3647,7 @@ async function processStripeWebhookEventD1(input: {
               AND id = ?
               AND status = 'PENDING'`,
         )
-        .bind(
-          nowMs(currentNow),
-          input.state.namespace,
-          currentOrgId,
-          resolved.purchase.id,
-        )
+        .bind(nowMs(currentNow), input.state.namespace, currentOrgId, resolved.purchase.id)
         .run();
       const purchase = await loadCreditPurchaseById({
         database: input.state.database,
@@ -3742,7 +3742,7 @@ async function processStripeWebhookEventD1(input: {
   const statements: D1PreparedStatementLike[] = [
     input.state.database
       .prepare(
-      `INSERT INTO stripe_webhook_events
+        `INSERT INTO stripe_webhook_events
         (namespace, event_id, provider_ref, org_id, processed_at_ms)
        VALUES
         (?, ?, ?, ?, ?)
@@ -3820,7 +3820,7 @@ export async function createD1ConsoleBillingService(
         orgId: ctx.orgId,
         createdAtMs: nowMs(currentNow),
       });
-      const monthlyActiveWallets = await countMonthlyActiveWallets({
+      const monthlyActiveResources = await countMonthlyActiveResources({
         database: state.database,
         namespace: state.namespace,
         orgId: ctx.orgId,
@@ -3842,9 +3842,9 @@ export async function createD1ConsoleBillingService(
         .filter((entry) => entry.type === 'CREDIT_PURCHASE')
         .reduce((total, entry) => total + entry.amountMinor, 0);
       return {
-        usageMetricVersion: 'maw_v1',
+        usageMetricVersion: 'active_resource_v1',
         currentMonthUtc,
-        monthlyActiveWallets,
+        monthlyActiveResources,
         creditBalanceMinor: account.creditBalanceMinor,
         lowBalanceThresholdMinor: account.lowBalanceThresholdMinor,
         liveEnvironmentState: resolveBillingLiveEnvironmentState({
@@ -3857,10 +3857,10 @@ export async function createD1ConsoleBillingService(
       };
     },
 
-    async getSponsoredExecutionDebitsByIds(
+    async getProductExecutionDebitsByIds(
       ctx: ConsoleBillingContext,
       ledgerEntryIds: string[],
-    ): Promise<BillingSponsoredExecutionDebitEntry[]> {
+    ): Promise<BillingProductExecutionDebitEntry[]> {
       const ids = Array.from(
         new Set(ledgerEntryIds.map((entryId) => String(entryId || '').trim()).filter(Boolean)),
       );
@@ -3872,7 +3872,7 @@ export async function createD1ConsoleBillingService(
            FROM billing_ledger_entries
           WHERE namespace = ?
             AND org_id = ?
-            AND entry_type = 'SPONSORED_EXECUTION_DEBIT'
+            AND entry_type = 'PRODUCT_EXECUTION_DEBIT'
             AND id IN (${placeholders})
           ORDER BY created_at_ms DESC, id DESC`,
         [state.namespace, ctx.orgId, ...ids],
@@ -3884,8 +3884,8 @@ export async function createD1ConsoleBillingService(
         rows,
       });
       return entries.filter(
-        (entry): entry is BillingSponsoredExecutionDebitEntry =>
-          entry.type === 'SPONSORED_EXECUTION_DEBIT',
+        (entry): entry is BillingProductExecutionDebitEntry =>
+          entry.type === 'PRODUCT_EXECUTION_DEBIT',
       );
     },
 
@@ -3910,23 +3910,23 @@ export async function createD1ConsoleBillingService(
       return { entries };
     },
 
-    async getMonthlyActiveWallets(
+    async getMonthlyActiveResources(
       ctx: ConsoleBillingContext,
       inputMonthUtc?: string,
-    ): Promise<BillingMonthlyActiveWallets> {
+    ): Promise<BillingMonthlyActiveResources> {
       const monthUtcValue = inputMonthUtc
         ? normalizeMonthUtc(inputMonthUtc)
         : monthUtc(state.now());
-      const monthlyActiveWallets = await countMonthlyActiveWallets({
+      const monthlyActiveResources = await countMonthlyActiveResources({
         database: state.database,
         namespace: state.namespace,
         orgId: ctx.orgId,
         monthUtcValue,
       });
       return {
-        usageMetricVersion: 'maw_v1',
+        usageMetricVersion: 'active_resource_v1',
         monthUtc: monthUtcValue,
-        monthlyActiveWallets,
+        monthlyActiveResources,
       };
     },
 
@@ -3937,11 +3937,11 @@ export async function createD1ConsoleBillingService(
       return await recordUsageEventD1({ state, ctx, request });
     },
 
-    async recordSponsoredExecutionDebit(
+    async recordProductExecutionDebit(
       ctx: ConsoleBillingContext,
-      request: BillingSponsoredExecutionDebitRequest,
-    ): Promise<BillingSponsoredExecutionDebitResult> {
-      return (await recordSponsoredExecutionDebitD1({ state, ctx, request })).result;
+      request: BillingProductExecutionDebitRequest,
+    ): Promise<BillingProductExecutionDebitResult> {
+      return (await recordProductExecutionDebitD1({ state, ctx, request })).result;
     },
 
     async listInvoices(ctx: ConsoleBillingContext): Promise<BillingInvoice[]> {
@@ -4359,9 +4359,7 @@ export async function createD1ConsoleBillingService(
       const eventId = normalizeRequiredString(input.eventId, 'eventId');
       const completedAtMs = nowMs(state.now());
       const column =
-        input.effect === 'audit'
-          ? 'audit_completed_at_ms'
-          : 'customer_webhook_completed_at_ms';
+        input.effect === 'audit' ? 'audit_completed_at_ms' : 'customer_webhook_completed_at_ms';
       await state.database
         .prepare(
           `UPDATE billing_stripe_post_processing_outbox
@@ -4562,26 +4560,22 @@ async function recordUsageEventD1(input: {
     throw new ConsoleBillingError('invalid_usage_event', 400, 'Invalid occurredAt value');
   }
   const monthUtcValue = monthUtcFromMs(occurredAtMs);
-  const counted =
-    BILLABLE_USAGE_ACTIONS.has(input.request.action) &&
-    input.request.succeeded &&
-    !input.request.isSimulation &&
-    !input.request.isInternalRetry;
+  const counted = input.request.shouldCount;
   let debitAppliedMinor = 0;
   if (counted) {
     const sourceEventId = normalizeOptionalString(input.request.sourceEventId);
-    const existingWallet = await queryD1One(
+    const existingResource = await queryD1One(
       input.state.database,
-      `SELECT wallet_id
-         FROM billing_monthly_active_wallets
+      `SELECT resource_id
+         FROM billing_monthly_active_resources
         WHERE namespace = ?
           AND org_id = ?
           AND month_utc = ?
-          AND wallet_id = ?
+          AND resource_id = ?
         LIMIT 1`,
-      [input.state.namespace, input.ctx.orgId, monthUtcValue, input.request.walletId],
+      [input.state.namespace, input.ctx.orgId, monthUtcValue, input.request.resourceId],
     );
-    if (!existingWallet) {
+    if (!existingResource) {
       const entryId = makeId('ble', new Date(occurredAtMs));
       const notificationStatements = await buildLowBalanceStateStatements({
         state: input.state,
@@ -4592,8 +4586,8 @@ async function recordUsageEventD1(input: {
       await input.state.database.batch([
         input.state.database
           .prepare(
-            `INSERT INTO billing_monthly_active_wallets
-              (namespace, org_id, month_utc, wallet_id, source_event_id, created_at_ms)
+            `INSERT INTO billing_monthly_active_resources
+              (namespace, org_id, month_utc, resource_id, source_event_id, created_at_ms)
              VALUES
               (?, ?, ?, ?, ?, ?)`,
           )
@@ -4601,7 +4595,7 @@ async function recordUsageEventD1(input: {
             input.state.namespace,
             input.ctx.orgId,
             monthUtcValue,
-            input.request.walletId,
+            input.request.resourceId,
             sourceEventId,
             occurredAtMs,
           ),
@@ -4610,8 +4604,8 @@ async function recordUsageEventD1(input: {
           orgId: input.ctx.orgId,
           entryId,
           type: 'USAGE_DEBIT',
-          amountMinor: -MAW_USAGE_DEBIT_MINOR,
-          description: `MAW usage debit for wallet ${input.request.walletId}`,
+          amountMinor: -ACTIVE_RESOURCE_USAGE_DEBIT_MINOR,
+          description: `active-resource usage debit for resource ${input.request.resourceId}`,
           monthUtc: monthUtcValue,
           relatedInvoiceId: makeUsageStatementId(input.ctx.orgId, monthUtcValue),
           relatedPurchaseId: null,
@@ -4619,18 +4613,18 @@ async function recordUsageEventD1(input: {
           actorType: 'USER',
           actorUserId: input.ctx.actorUserId,
           reasonCode: 'usage_debit',
-          note: `Usage debit recorded for wallet ${input.request.walletId}`,
+          note: `Usage debit recorded for resource ${input.request.resourceId}`,
           idempotencyKey: sourceEventId
             ? `usage_debit:${sourceEventId}`
-            : `usage_debit:${monthUtcValue}:${input.request.walletId}:${occurredAtMs}`,
+            : `usage_debit:${monthUtcValue}:${input.request.resourceId}:${occurredAtMs}`,
           createdAtMs: occurredAtMs,
         }),
         ...notificationStatements,
       ]);
-      debitAppliedMinor = MAW_USAGE_DEBIT_MINOR;
+      debitAppliedMinor = ACTIVE_RESOURCE_USAGE_DEBIT_MINOR;
     }
   }
-  const monthlyActiveWallets = await countMonthlyActiveWallets({
+  const monthlyActiveResources = await countMonthlyActiveResources({
     database: input.state.database,
     namespace: input.state.namespace,
     orgId: input.ctx.orgId,
@@ -4646,7 +4640,7 @@ async function recordUsageEventD1(input: {
     accepted: true,
     counted,
     monthUtc: monthUtcValue,
-    monthlyActiveWallets,
+    monthlyActiveResources,
     debitAppliedMinor,
     creditBalanceMinor: account.creditBalanceMinor,
     statementId: makeUsageStatementId(input.ctx.orgId, monthUtcValue),

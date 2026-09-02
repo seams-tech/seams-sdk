@@ -1,0 +1,2150 @@
+:host,
+seams-auth-menu-surface {
+  display: block;
+  inline-size: 100dvw;
+  max-inline-size: min(100dvw, 420px);
+  --w3a-spacing-sm: 0.5rem;
+  --w3a-spacing-md: 1rem;
+  --w3a-spacing-lg: 1.5rem;
+  /* Two curves, no more — mixed generic eases read as cheap.
+     --w3a-ease-out decelerates an entering view.
+     --w3a-ease-settle is the container's resize curve: a critically damped
+     spring, i.e. bounce 0. Overshoot was the wrong instinct here. An elastic
+     curve on a box whose height is sampled across the iframe boundary spends
+     its most legible frames past the target and then walks back, which reads
+     as slop rather than life; the references this is modelled on use bounce 0
+     for every state change and reserve motion character for enters. Front-load
+     the distance instead: ~80% of the travel lands in the first ~40% of the
+     duration, so the deceleration stays readable at 200ms. */
+  /* One duration for the whole box. Every part of the card's geometry reads
+     from this, so header, switcher and root can never settle at different
+     rates and split one movement into two. --w3a-duration-enter matches it
+     so the incoming view finishes with the box rather than trailing it. */
+  /* The card's height floor. The waiting view derives its own floor from this
+     so the two can never drift apart — see .w3a-waiting. */
+  --w3a-menu-min-block-size: 250px;
+  --w3a-duration-resize: 200ms;
+  --w3a-duration-enter: 200ms;
+  --w3a-ease-out: cubic-bezier(0.25, 1, 0.5, 1);
+  --w3a-ease-settle: cubic-bezier(0.32, 0.72, 0, 1);
+  /* The card's height is a composite: the content switcher animates px -> px
+     (syncContentHeight measures .w3a-content-sizer and writes an explicit
+     height), while the header collapses `height: auto` -> `0px`, which is not
+     interpolable. So one part of the box eased and the other stepped, and the
+     sum read as a jump followed by a glide rather than one curve. Making
+     keyword sizes interpolable puts the header on the same settle as the
+     switcher, so the whole card moves as a single easing.
+     Chromium-only for now; elsewhere the header keeps stepping and the
+     switcher keeps easing, i.e. exactly today's behaviour. */
+  interpolate-size: allow-keywords;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--w3a-colors-textPrimary);
+  font-family: var(
+    --w3a-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif
+  );
+}
+
+/* Root container */
+.w3a-no-animation {
+  animation: none !important;
+  transition: none !important;
+}
+
+.w3a-signup-menu-root {
+  /* CSS sentinel (used by tests/diagnostics to confirm stylesheet is applied) */
+  --w3a-seams-auth-menu-css-ready: 1;
+  --w3a-seams-auth-menu-padding-top: calc(var(--w3a-spacing-lg) + 4px);
+  position: relative;
+  box-sizing: border-box;
+  /* relative position to anchor back button */
+  width: min(100dvw, 420px);
+  max-width: 100dvw;
+  min-width: min(330px, 100dvw);
+  min-height: var(--w3a-menu-min-block-size, 250px);
+  color: var(--w3a-colors-textPrimary);
+  font-family: var(
+    --w3a-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif
+  );
+  background: var(--w3a-colors-colorBackground);
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: var(--w3a-shape-card, 16px);
+  /* No box-shadow here: the iframe clips it at its layout edge (the surface
+     only extends 16px past the card). The elevation is painted by the host
+     page instead — a drop-shadow on the wallet iframe in overlay-styles.ts —
+     which follows the card's silhouette and can extend past the iframe. The
+     variable remains as an escape hatch for embedders. */
+  box-shadow: var(--w3a-seams-auth-menu-shadow, none);
+  padding: var(--w3a-spacing-lg);
+  padding-top: var(--w3a-seams-auth-menu-padding-top);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  transition:
+    min-height var(--w3a-duration-resize, 200ms)
+      var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1)),
+    padding var(--w3a-duration-resize, 200ms) var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1)),
+    border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Back button */
+.w3a-back-button {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+  line-height: 0;
+  border-radius: 50%;
+  color: var(--w3a-colors-textPrimary);
+  background: transparent;
+  cursor: pointer;
+  border: none;
+  z-index: 20;
+  transition:
+    transform 120ms ease,
+    background-color 160ms ease,
+    opacity 220ms ease;
+  opacity: 0;
+  pointer-events: none;
+  filter: blur(0.2px);
+}
+
+.w3a-back-button.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  filter: none;
+}
+
+.w3a-signup-menu-root[data-scan-device='true'] .w3a-back-button.is-visible,
+.w3a-signup-menu-root[data-waiting='true'] .w3a-back-button.is-visible,
+.w3a-signup-menu-root[data-otp-prompt='true'] .w3a-back-button.is-visible {
+  z-index: 30;
+}
+
+.w3a-back-button:hover {
+  transform: scale(1.02);
+  background: var(--w3a-colors-surface);
+}
+
+.w3a-back-button:active {
+  transform: scale(0.96);
+}
+
+/* Header */
+.w3a-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  opacity: 1;
+  height: auto;
+  overflow: hidden;
+  transition:
+    opacity 120ms ease-out,
+    height var(--w3a-duration-resize, 200ms) var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1)),
+    padding var(--w3a-duration-resize, 200ms) var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1)),
+    margin var(--w3a-duration-resize, 200ms) var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1));
+  pointer-events: auto;
+  position: relative;
+}
+
+/* Hide the generic menu header when a sub-state renders its own header
+   (waiting / scan / OTP code / wallet-naming) — otherwise two headers stack
+   with a dead gap between them. */
+/* Entering the loading view is the one resize on the critical path of a
+   ceremony the user just initiated — snappier than the browsing-speed default.
+   The override lives on the root, so every geometry transition inside (header,
+   switcher, content area) retimes together; leaving the state restores the
+   default in the same style recalc that starts the return transition. */
+.w3a-signup-menu-root[data-waiting='true'] {
+  --w3a-duration-resize: 150ms;
+}
+
+.w3a-signup-menu-root[data-waiting='true'] .w3a-header,
+.w3a-signup-menu-root[data-scan-device='true'] .w3a-header,
+.w3a-signup-menu-root[data-otp-prompt='true'] .w3a-header,
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-header {
+  opacity: 0;
+  height: 0px;
+  padding-top: 0px;
+  padding-bottom: 0px;
+  margin-top: 0px;
+  margin-bottom: 0px;
+  pointer-events: none;
+}
+
+/* Adjust content area when header is hidden */
+.w3a-signup-menu-root[data-waiting='true'] .w3a-content-area,
+.w3a-signup-menu-root[data-scan-device='true'] .w3a-content-area,
+.w3a-signup-menu-root[data-otp-prompt='true'] .w3a-content-area,
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-content-area {
+  flex: 1 1 auto;
+  /* The switcher's box is what animates during a resize; the content inside
+     keeps its intrinsic height. Centre it in that animating box so the message
+     holds the centre line instead of riding the shrinking top edge downward.
+     Centring here rather than stretching the sizer is deliberate: the sizer's
+     scrollHeight is what drives the animation, so stretching it would feed its
+     own height back into the measurement. */
+  justify-content: center;
+  transition: height var(--w3a-duration-resize, 200ms)
+    var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+/* Specific height adjustments for different states */
+.w3a-signup-menu-root[data-scan-device='true'] {
+  min-height: 280px;
+}
+
+.w3a-signup-menu-root[data-otp-prompt='true'] {
+  min-height: 270px;
+}
+
+.w3a-title {
+  font-size: 21px;
+  font-weight: 600;
+  margin: 0.5rem 0.75rem;
+  text-wrap: balance;
+}
+
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-header {
+  padding-left: 44px;
+}
+
+.w3a-subhead {
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 20%);
+  margin: 0;
+  margin-bottom: 1rem;
+  margin-left: 0.75rem;
+  text-wrap: pretty;
+}
+
+/* Content switcher container */
+.w3a-content-switcher {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* ensure smooth height animations without spillover */
+  transition: height var(--w3a-duration-resize, 200ms)
+    var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+.w3a-content-switcher:has(.w3a-account-menu.is-open) {
+  overflow: visible;
+}
+
+/* Content area container */
+.w3a-content-area {
+  position: relative;
+  /* do not force-stretch; let content define intrinsic height */
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  transition: height var(--w3a-duration-resize, 200ms)
+    var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+/* Intrinsic sizer wrapper inside content area used for height measurement */
+.w3a-content-sizer {
+  display: block;
+  width: 100%;
+}
+
+/* Default content */
+.w3a-signin-menu {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0px;
+  width: 100%;
+}
+
+.w3a-signup-menu-root[data-recovery='true'] .w3a-signin-menu {
+  padding-block-start: calc(var(--w3a-spacing-md) + 0rem);
+}
+
+.w3a-signup-menu-root[data-recovery='true'] .w3a-title,
+.w3a-signup-menu-root[data-recovery='true'] .w3a-subhead {
+  text-align: center;
+}
+
+.w3a-signup-menu-root[data-recovery='true'] .w3a-header {
+  justify-content: center;
+}
+
+.w3a-signup-menu-root[data-recovery='true'] .w3a-back-button {
+  top: calc(var(--w3a-seams-auth-menu-padding-top) + var(--w3a-spacing-md));
+}
+
+.w3a-signup-menu-root[data-recovery='true'] .w3a-header > div {
+  inline-size: 100%;
+}
+
+.w3a-signup-menu-root[data-recovery='true'] .w3a-subhead {
+  margin-inline: 0;
+}
+
+/* Enter recipe: opacity + blur + a small rise. No scale — scaling a text block
+   re-rasterizes glyphs mid-animation and shimmers. Exits stay instant: an
+   outgoing view doesn't deserve the attention an incoming one gets. */
+@keyframes content-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.w3a-auth-methods {
+  margin-top: 12px;
+}
+
+.w3a-passkey-row + .w3a-auth-methods {
+  margin-top: 6px;
+}
+
+.w3a-auth-method-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.w3a-auth-method-note {
+  margin: 10px 0 0;
+  padding: 0 0.25rem;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.w3a-social-stack {
+  margin-top: 0;
+}
+
+.w3a-social-provider {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.w3a-social-helper {
+  margin-top: 0;
+}
+
+.w3a-auth-method-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: var(--w3a-shape-controlHeight, 44px);
+  padding: 0.5rem 1rem;
+  border-radius: var(--w3a-shape-control, 10px);
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  background: var(--w3a-colors-surface);
+  color: var(--w3a-colors-textPrimary);
+  font-family: var(
+    --w3a-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif
+  );
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 120ms ease,
+    box-shadow 160ms ease,
+    border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    min-height 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.w3a-auth-method-badge {
+  --w3a-auth-method-badge-background: var(
+    --w3a-colors-lastUsedBadgeBackground,
+    var(--w3a-colors-success)
+  );
+  --w3a-auth-method-badge-text: var(--w3a-colors-lastUsedBadgeText, var(--w3a-colors-textButton));
+  --w3a-auth-method-badge-border: var(
+    --w3a-colors-lastUsedBadgeBorder,
+    var(--w3a-colors-colorBackground)
+  );
+  position: absolute;
+  inset-block-start: -0.42rem;
+  inset-inline-end: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.18rem 0.5rem;
+  border: 1px solid var(--w3a-auth-method-badge-border);
+  border-radius: 999px;
+  background: var(--w3a-auth-method-badge-background);
+  color: var(--w3a-auth-method-badge-text);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--w3a-colors-textPrimary), transparent 72%),
+    0 6px 14px -10px var(--w3a-auth-method-badge-background);
+  pointer-events: none;
+}
+
+.w3a-auth-method-btn:hover:not(:disabled),
+.w3a-auth-method-btn:focus-visible {
+  background: var(--w3a-colors-surface2);
+  box-shadow: var(--w3a-shadows-sm);
+}
+
+/* Press acknowledgement. Lives in the existing transform transition, so a
+   released or moved pointer retargets mid-flight instead of finishing a
+   stale keyframe. */
+.w3a-auth-method-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.w3a-auth-method-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.w3a-auth-method-btn-primary {
+  background: var(--w3a-colors-buttonBackground, var(--w3a-colors-primary, #3b82f6));
+  border-color: transparent;
+  color: var(--w3a-colors-textButton, white);
+}
+
+.w3a-auth-method-btn-primary:hover:not(:disabled),
+.w3a-auth-method-btn-primary:focus-visible {
+  background: var(--w3a-colors-buttonHoverBackground, var(--w3a-colors-primaryHover, #2563eb));
+  color: var(--w3a-colors-textButton, white);
+}
+
+.w3a-auth-method-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.w3a-auth-method-btn .w3a-auth-method-arrow > .HoverArrow {
+  position: relative;
+  margin-top: 0.1rem;
+  margin-left: 0;
+  stroke-width: 2;
+  fill: none;
+  stroke: currentColor;
+}
+
+.w3a-auth-method-btn .w3a-auth-method-arrow > .HoverArrow .HoverArrow__linePath {
+  opacity: 0;
+  filter: none;
+  transform: scaleX(1);
+  transform-origin: right center;
+  transition:
+    opacity 120ms cubic-bezier(0.215, 0.61, 0.355, 1),
+    filter 120ms cubic-bezier(0.215, 0.61, 0.355, 1),
+    transform 120ms cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+
+.w3a-auth-method-btn .w3a-auth-method-arrow > .HoverArrow .HoverArrow__tipPath {
+  transition: transform 120ms cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+
+.w3a-auth-method-btn:hover:not(:disabled)
+  .w3a-auth-method-arrow
+  > .HoverArrow
+  .HoverArrow__linePath,
+.w3a-auth-method-btn:focus-visible .w3a-auth-method-arrow > .HoverArrow .HoverArrow__linePath {
+  opacity: 1;
+  filter: none;
+  transform: scaleX(1);
+}
+
+.w3a-auth-method-btn:hover:not(:disabled) .w3a-auth-method-arrow > .HoverArrow .HoverArrow__tipPath,
+.w3a-auth-method-btn:focus-visible .w3a-auth-method-arrow > .HoverArrow .HoverArrow__tipPath {
+  transform: translateX(3px);
+}
+
+.w3a-otp-prompt {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  /* Floor, not a target: real content still grows the card. Sized so the OTP
+     view (title, delivery line, six slots, helper, resend) sits comfortably
+     without the ~2.5rem of dead air it used to reserve. padding-top stays —
+     it clears the absolute-positioned back button. */
+  min-height: 230px;
+  padding-top: 42px;
+  justify-content: center;
+  animation: content-enter var(--w3a-duration-enter, 200ms) var(--w3a-ease-out, ease-out);
+}
+
+.w3a-otp-prompt-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+  margin: 0 0 4px;
+}
+
+.w3a-otp-title {
+  color: var(--w3a-colors-textPrimary);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.w3a-otp-description,
+.w3a-otp-helper {
+  margin: 0;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 25%);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  text-align: center;
+  text-wrap: pretty;
+  /* A status line, not a hero: fade + focus only, no positional motion. */
+  animation: status-enter 200ms var(--w3a-ease-out, ease-out) both;
+}
+
+@keyframes status-enter {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+.w3a-otp-account {
+  box-sizing: border-box;
+  align-self: center;
+  width: min(100%, 360px);
+  /* rounded shapes inset the label/value further so the corner curve does not
+     crowd them; square keeps the 12px fallback */
+  padding: 8px 12px 8px var(--w3a-shape-boxPaddingInlineStart, 12px);
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary), transparent 18%);
+  border-radius: var(--w3a-shape-box, 10px);
+  background: color-mix(in srgb, var(--w3a-colors-surface), transparent 12%);
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+
+.w3a-otp-account-label {
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 12%);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.w3a-otp-account-value {
+  color: var(--w3a-colors-textPrimary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w3a-otp-reroll {
+  align-self: center;
+  border: 0;
+  background: transparent;
+  color: var(--w3a-colors-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0 8px;
+}
+
+.w3a-otp-reroll:disabled {
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 20%);
+  cursor: not-allowed;
+}
+
+/* Registration (wallet-naming): with the generic header hidden, this block's
+   own title is the sole header. Anchor it to the top, left-align everything to
+   share one edge with the wallet field, and match the title to the auth-card
+   header scale (not larger). */
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-prompt {
+  justify-content: flex-start;
+  min-height: 0;
+}
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-prompt-copy {
+  text-align: left;
+}
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-title {
+  font-size: 21px;
+  font-weight: 600;
+}
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-description,
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-helper {
+  text-align: left;
+}
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-account {
+  align-self: stretch;
+  width: 100%;
+}
+
+.w3a-otp-code-field {
+  box-sizing: border-box;
+  position: relative;
+  width: 100%;
+  max-width: 40rem;
+  margin-inline: auto;
+  padding: 3px 4px;
+  cursor: text;
+}
+
+.w3a-otp-code-field[data-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.w3a-otp-input {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0.01;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-family: var(
+    --w3a-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif
+  );
+  font-size: 16px;
+  outline: none;
+}
+
+.w3a-otp-slots {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: clamp(6px, 1.5vw, 10px);
+  width: 100%;
+  pointer-events: none;
+}
+
+.w3a-otp-slot {
+  aspect-ratio: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--w3a-colors-borderPrimary), var(--w3a-colors-surface) 68%);
+  color: var(--w3a-colors-textPrimary);
+  font-family: var(
+    --w3a-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif
+  );
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1;
+  /* Equal-width digits: a slot's glyph can't nudge its neighbours as the
+     code fills in. */
+  font-variant-numeric: tabular-nums;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.w3a-otp-slot.is-filled {
+  background: color-mix(in srgb, var(--w3a-colors-surface), var(--w3a-colors-textPrimary) 6%);
+}
+
+.w3a-otp-code-field:focus-within .w3a-otp-slot {
+  border-color: var(--w3a-colors-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-primary), transparent 72%);
+}
+
+.w3a-recovery-key-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.w3a-recovery-key-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.w3a-recovery-key-label-row .w3a-field-label {
+  margin-bottom: 0;
+}
+
+.w3a-recovery-key-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--w3a-colors-surface), transparent 6%);
+  color: var(--w3a-colors-textPrimary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  outline: none;
+  text-transform: uppercase;
+}
+
+.w3a-recovery-key-input::placeholder {
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 20%);
+}
+
+.w3a-recovery-key-input:focus {
+  border-color: var(--w3a-colors-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-primary), transparent 72%);
+}
+
+.w3a-recovery-key-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.w3a-recovery-key-scan {
+  border: 0;
+  background: transparent;
+  color: var(--w3a-colors-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.w3a-recovery-key-scan:disabled {
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 20%);
+  cursor: not-allowed;
+}
+
+.w3a-otp-resend {
+  align-self: center;
+  border: 0;
+  background: transparent;
+  color: var(--w3a-colors-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 2px 8px;
+}
+
+.w3a-otp-resend:disabled {
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 20%);
+  cursor: not-allowed;
+}
+
+/* Passkey row */
+.w3a-passkey-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 0;
+  z-index: 4;
+}
+
+.w3a-input-pill {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  padding: 0rem 1rem;
+  height: calc(var(--w3a-shape-fieldHeight, 44px) + 4px);
+  gap: 8px;
+  /* field treatment comes from the shape preset: square is a bordered
+     surface (border carries the affordance), rounded is a tinted pill */
+  border: 1px solid var(--w3a-shape-fieldBorder, var(--w3a-colors-borderPrimary));
+  background: var(--w3a-shape-fieldBackground, var(--w3a-colors-surface));
+  border-radius: var(--w3a-shape-field, 10px);
+  box-shadow: none;
+  overflow: visible;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background-color 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* border-only focus: outward rings clip against the content switcher's
+   overflow:hidden, so the 1px border carries the focus state instead */
+.w3a-input-pill:focus-within {
+  border-color: var(--w3a-colors-focus, var(--w3a-colors-primary));
+}
+
+.w3a-input-wrap {
+  position: relative;
+  flex: 1;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  /* allow input to shrink inside flex container without clipping */
+}
+
+.w3a-input {
+  width: 100%;
+  height: 32px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--w3a-colors-textPrimary);
+  font-size: 16px;
+  padding: 0;
+  min-width: 0;
+  /* prevent overflow clipping in flex layouts */
+}
+
+/* Absolute status message anchored to bottom-right of the input area */
+.w3a-input::placeholder {
+  /* Improve contrast for placeholders on dark */
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 35%);
+  opacity: 0.95;
+}
+
+.w3a-input:read-only {
+  cursor: default;
+}
+
+.w3a-postfix {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  color: var(--w3a-colors-textSecondary);
+  font-size: 16px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+  /* React enables once measured */
+  transition: left 32ms var(--w3a-ease-out, cubic-bezier(0.25, 1, 0.5, 1));
+}
+
+.w3a-postfix.is-existing {
+  color: var(--w3a-colors-success);
+}
+
+/* On focus, keep postfix subtle for readability */
+.w3a-input:focus ~ .w3a-postfix {
+  color: var(--w3a-colors-textMuted);
+}
+
+.w3a-account-menu {
+  position: static;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.w3a-input-action-trigger,
+.w3a-account-menu-trigger {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--w3a-colors-surface2), transparent 58%);
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 18%);
+  cursor: pointer;
+  outline: none;
+  padding: 0;
+  line-height: 0;
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    transform 120ms ease;
+}
+
+.w3a-input-action-trigger:hover:not(:disabled),
+.w3a-input-action-trigger:focus-visible,
+.w3a-account-menu-trigger:hover:not(:disabled),
+.w3a-account-menu-trigger:focus-visible,
+.w3a-account-menu.is-open .w3a-account-menu-trigger {
+  background: color-mix(in srgb, var(--w3a-colors-surface2), transparent 18%);
+  color: color-mix(in srgb, var(--w3a-colors-textPrimary), var(--w3a-colors-primary) 18%);
+  box-shadow: none;
+}
+
+.w3a-input-action-trigger:active:not(:disabled),
+.w3a-account-menu-trigger:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.w3a-input-action-trigger:disabled,
+.w3a-account-menu-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.w3a-input-action-icon,
+.w3a-account-dropdown-arrow {
+  width: 21px;
+  height: 21px;
+  display: block;
+  pointer-events: none;
+  transition: color 160ms ease;
+}
+
+.w3a-input-action-icon {
+  fill: none;
+  stroke: currentColor;
+}
+
+.w3a-account-dropdown-arrow {
+  fill: currentColor;
+}
+
+.w3a-account-menu-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  /* a hair wider than the input so their edges don't optically collide */
+  left: -1px;
+  width: calc(100% + 2px);
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary), transparent 8%);
+  /* control radius + 2px, capped so the rounded preset stays list-friendly */
+  border-radius: min(calc(var(--w3a-shape-control, 10px) + 2px), 20px);
+  background: var(--w3a-colors-colorBackground);
+  box-shadow: var(--w3a-shadows-lg);
+  z-index: 20;
+  animation: content-enter 180ms var(--w3a-ease-out, ease-out);
+}
+
+.w3a-account-menu-group + .w3a-account-menu-group {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary), transparent 45%);
+}
+
+.w3a-account-menu-group-label {
+  padding: 2px 10px 6px;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 12%);
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.w3a-account-menu-option {
+  width: 100%;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--w3a-shape-item, 8px);
+  background: transparent;
+  color: var(--w3a-colors-textPrimary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 650;
+  text-align: left;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.w3a-account-menu-option:hover {
+  background: var(--w3a-colors-surface2);
+}
+
+.w3a-account-menu-option:focus-visible {
+  background: var(--w3a-colors-surface2);
+  outline: 2px solid var(--w3a-colors-focus, var(--w3a-colors-primary));
+  outline-offset: -2px;
+}
+
+.w3a-account-menu-option.is-selected {
+  background: color-mix(in srgb, var(--w3a-colors-primary), transparent 84%);
+  color: var(--w3a-colors-textPrimary);
+}
+
+.w3a-account-menu-check {
+  position: relative;
+  width: 16px;
+  height: 16px;
+}
+
+.w3a-account-menu-option.is-selected .w3a-account-menu-check::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 9px;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.w3a-account-menu-account {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.w3a-account-menu-account-primary,
+.w3a-account-menu-account-secondary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w3a-account-menu-account-secondary {
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 12%);
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.w3a-selected-account {
+  width: 100%;
+  align-content: center;
+}
+
+.w3a-selected-account .w3a-account-menu-account-primary {
+  font-size: 0.84rem;
+  font-weight: 650;
+  line-height: 1.15;
+}
+
+/* Waiting state */
+.w3a-waiting {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: transparent;
+  text-align: center;
+  /* Fill the card rather than just the message. The root carries a height
+     floor, so a shorter waiting box sat top-anchored inside a taller card:
+     justify-content centred the message in the BOX, and the box's own dead
+     space below it put the message above the card's true centre. While the
+     card animated its height, the message then rode the moving top edge
+     downward instead of holding still. Matching the card's inner height makes
+     the box and the card the same thing, so centring in one centres in both. */
+  min-height: calc(
+    var(--w3a-menu-min-block-size, 250px) - var(--w3a-seams-auth-menu-padding-top) -
+      var(--w3a-spacing-lg)
+  );
+}
+
+/* No enter animation on the waiting view: arriving here is instant, so the
+   spinner is already turning the moment the state flips. The spinner keeps
+   only its rotation (see .w3a-spinner) — do not add an `animation:` shorthand
+   on this selector, it would shadow the rotation and freeze it. */
+
+.w3a-waiting-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  /* Deliberately longer than --w3a-duration-enter and than the 150ms resize
+     into this view: the box arrives first and the wording settles into it,
+     rather than both landing at once. `both` holds opacity 0 before the first
+     frame so the text cannot flash at full opacity.
+     This lives on the message wrapper, never on .w3a-waiting — the spinner is
+     a sibling there, and an `animation` shorthand on the parent would shadow
+     its rotation and freeze it. */
+  animation: fade-in 250ms var(--w3a-ease-out, ease-out) both;
+  /* Centring is recomputed by layout on every frame of the resize, so the
+     block's offset lands on fractional pixels and the glyphs re-rasterise at a
+     slightly different rounded position each frame — seen as jitter. Promoting
+     the block to its own layer lets the compositor interpolate that sub-pixel
+     offset instead of re-rendering the text at each rounded step.
+     This is the sanctioned use of will-change: a compositable property, added
+     only after observing the stutter. The layout-property will-change
+     declarations removed elsewhere in this file were neither. */
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+.w3a-waiting-text {
+  font-size: 18px;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.w3a-waiting-subtext {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 25%);
+}
+
+.w3a-waiting-sdk-events {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 15%);
+}
+
+.w3a-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 3px solid var(--w3a-colors-borderPrimary);
+  border-top-color: var(--w3a-colors-primary);
+  animation: w3a-spin 0.9s linear infinite;
+}
+
+/* Scan device content wrapper */
+.qr-code-container {
+  padding-top: 0.25rem;
+}
+
+/* The plate carries 1rem of its own padding around the code, so the title can
+   sit tight against it and still read as separated from the QR modules. */
+.qr-header {
+  position: relative;
+  display: grid;
+  place-content: center;
+  padding: 0;
+}
+
+/* Sized off the menu's own title (21px) rather than louder than it: this heading
+   sits inside the same card, so a heavier scale reads as a second, competing
+   header. Shared with the link-device confirmation and failure views so every
+   sub-view of this flow speaks at one volume. */
+.qr-title {
+  margin: 0;
+  padding-top: 0;
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  font-size: 1.3125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+.qr-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  padding: 0;
+}
+
+/* One tight gap for the whole stack: the three text lines read as a single
+   block, and the title sits close under the code plate. */
+.qr-code-section {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* The code always sits on an opaque white plate: the QR PNG is black-on-white,
+   so on a dark theme an unbacked image reads as a raw white rectangle. The
+   plate is a fixed square in both states — the placeholder below occupies the
+   same box, so nothing under it moves when the image arrives. */
+.qr-code-display {
+  display: grid;
+  place-items: center;
+  width: min(100%, 232px);
+  aspect-ratio: 1 / 1;
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 1.25rem;
+  background: #ffffff;
+}
+
+.qr-code-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.05);
+  animation: qr-placeholder-pulse 1.8s ease-in-out infinite;
+}
+
+/* On the white plate the spinner's default translucent-white track is invisible;
+   restate the track against the plate rather than the card. */
+.qr-code-placeholder .w3a-spinner {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+  border-color: rgba(15, 23, 42, 0.12);
+  border-top-color: var(--w3a-colors-primary);
+}
+
+@keyframes qr-placeholder-pulse {
+  0%,
+  100% {
+    background-color: rgba(15, 23, 42, 0.05);
+  }
+
+  50% {
+    background-color: rgba(15, 23, 42, 0.09);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qr-code-placeholder {
+    animation: none;
+  }
+}
+
+.qr-instruction,
+.qr-status {
+  margin: 0;
+  color: var(--w3a-colors-textSecondary, #1e293b);
+  font-weight: 500;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.qr-instruction {
+  max-width: 34ch;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+/* The status is a running commentary on the pairing, not a peer of the
+   instruction — one step quieter and smaller so the two lines stack as a
+   hierarchy instead of a paragraph. */
+.qr-status {
+  margin-bottom: 0.25rem;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary, #64748b), transparent 25%);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.animated-ellipsis {
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+}
+
+.animated-ellipsis::after {
+  content: '...';
+  animation: ellipsis 1.5s infinite;
+}
+
+@keyframes ellipsis {
+  0% {
+    content: '...';
+  }
+  25% {
+    content: '';
+  }
+  50% {
+    content: '.';
+  }
+  75% {
+    content: '..';
+  }
+  100% {
+    content: '...';
+  }
+}
+
+.qr-code-image {
+  width: 100%;
+  max-width: 200px;
+  height: auto;
+  border-radius: 0.5rem;
+  animation: content-enter var(--w3a-duration-enter, 200ms) var(--w3a-ease-out, ease-out);
+  animation-fill-mode: both;
+}
+
+.w3a-scan-device-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: transparent;
+  text-align: center;
+  min-height: 260px;
+  width: 100%;
+  overflow: hidden;
+  animation: content-enter var(--w3a-duration-enter, 200ms) var(--w3a-ease-out, ease-out);
+  animation-fill-mode: both;
+}
+
+/* Ensure QR code content stays within bounds */
+.w3a-scan-device-content .qr-code-container,
+.w3a-scan-device-content .qr-modal-backdrop,
+.w3a-scan-device-content .qr-modal-content {
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.w3a-link-device-confirmation {
+  min-height: 260px;
+  width: min(100%, 360px);
+  margin-inline: auto;
+  padding: 1.5rem 0.5rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.875rem;
+  text-align: center;
+  animation: content-enter var(--w3a-duration-enter, 200ms) var(--w3a-ease-out, ease-out);
+  animation-fill-mode: both;
+}
+
+/* These sub-views title with a full instruction sentence, not a short heading,
+   so they speak one size quieter than the QR view's .qr-title. */
+.w3a-link-device-confirmation .qr-title {
+  max-width: 26ch;
+  font-size: 1.0625rem;
+  line-height: 1.35;
+}
+
+/* Dot-ring badge for the passkey confirmation. One geometry for both states:
+   while waiting the dots sweep like a clock spinner; once approved they settle
+   into a faint ring and the check strokes itself in. Monochrome on purpose —
+   nothing here should claim success louder than the flow has earned. */
+.w3a-link-device-dot-ring {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  color: var(--w3a-colors-textSecondary, #64748b);
+}
+
+.w3a-link-device-dot-ring > span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: rotate(calc(var(--dot-index) * 30deg)) translateY(-18px);
+}
+
+.w3a-link-device-dot-ring.is-waiting > span {
+  animation: w3a-link-dot-sweep 1s linear infinite;
+  animation-delay: calc((var(--dot-index) - 12) / 12 * 1s);
+}
+
+.w3a-link-device-dot-ring.is-idle > span,
+.w3a-link-device-dot-ring.is-approved > span {
+  opacity: 0.25;
+}
+
+/* The badge's centre. A view can hand the ring a glyph (the envelope, for the
+   email code) to name what is being waited on; the check replaces it on
+   approval so the two never stack. */
+.w3a-link-device-dot-ring-glyph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  transition: opacity 160ms ease;
+}
+
+.w3a-link-device-dot-ring.is-approved .w3a-link-device-dot-ring-glyph {
+  opacity: 0;
+}
+
+.w3a-link-device-dot-ring-check {
+  position: absolute;
+  inset: 0;
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  opacity: 0;
+}
+
+.w3a-link-device-dot-ring.is-approved .w3a-link-device-dot-ring-check {
+  opacity: 1;
+  stroke-dasharray: 23;
+  stroke-dashoffset: 0;
+  animation: w3a-link-check-draw 450ms var(--w3a-ease-out, ease-out) 150ms both;
+}
+
+@keyframes w3a-link-dot-sweep {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.12;
+  }
+}
+
+@keyframes w3a-link-check-draw {
+  from {
+    stroke-dashoffset: 23;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w3a-link-device-dot-ring.is-waiting > span {
+    animation: none;
+    opacity: 0.45;
+  }
+
+  .w3a-link-device-dot-ring.is-approved .w3a-link-device-dot-ring-check {
+    animation: none;
+  }
+}
+
+.w3a-link-device-confirmation-copy {
+  max-width: 30ch;
+  margin: 0;
+  color: var(--w3a-colors-textSecondary, #64748b);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.w3a-link-device-confirmation .w3a-link-device-btn {
+  width: min(100%, 280px);
+  margin-top: 0.25rem;
+}
+
+.w3a-link-device-factor-options {
+  width: min(100%, 280px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 0.5rem;
+  text-align: start;
+}
+
+.w3a-link-device-factor-options label {
+  min-height: 44px;
+  padding: 0.625rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  border: 1px solid var(--w3a-colors-borderPrimary, #d7dde5);
+  border-radius: 0.75rem;
+  cursor: pointer;
+}
+
+.w3a-link-device-factor-options label:has(input:checked) {
+  border-color: var(--w3a-colors-textPrimary, #1e293b);
+  background: var(--w3a-colors-surface2, #f1f5f9);
+}
+
+.w3a-auth-method-choice-label {
+  flex: 1;
+}
+
+.w3a-link-device-factor-options input {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin: 0 0 0 auto;
+}
+
+.w3a-link-device-factor-options input:focus-visible {
+  outline: 2px solid var(--w3a-colors-focusRing, #2563eb);
+  outline-offset: 3px;
+}
+
+.w3a-link-device-target-email {
+  width: min(100%, 280px);
+  display: grid;
+  gap: 0.375rem;
+  text-align: start;
+}
+
+.w3a-link-device-target-email .w3a-field-label {
+  color: var(--w3a-colors-textSecondary, #64748b);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.w3a-link-device-target-email input {
+  min-height: 44px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  background: var(--w3a-colors-surface, #ffffff);
+  border: 1px solid var(--w3a-colors-borderPrimary, #d7dde5);
+  border-radius: var(--w3a-shape-control, 10px);
+  font: inherit;
+}
+
+.w3a-link-device-target-email input:focus-visible {
+  outline: 2px solid var(--w3a-colors-focusRing, #2563eb);
+  outline-offset: 2px;
+}
+
+.w3a-link-device-inline-error {
+  width: min(100%, 280px);
+  margin: 0;
+  color: var(--w3a-colors-error, #ef4444);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  text-align: start;
+}
+
+.w3a-link-device-confirmation .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Failure view. Same skeleton as the approved-device confirmation — badge,
+   title, copy, one control — so the flow's two end states are the same shape
+   and only the colour of the badge changes. */
+.w3a-link-device-failure {
+  gap: 0.75rem;
+}
+
+/* A flat disc, sized to the dot-ring badge the other link views use, so the
+   failure frame sits where the confirmation frame sat. No halo or drop shadow:
+   the tint and the glyph carry the tone on their own. */
+.w3a-link-device-failure-icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--w3a-colors-error, #ef4444);
+  background: color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 90%);
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 80%);
+}
+
+/* The detail is a raw error string, so it is sized and coloured as evidence
+   rather than as prose: quiet, tight, and allowed to break mid-token so a long
+   technical message wraps instead of forcing the card wider. */
+.w3a-link-device-failure-detail {
+  width: min(100%, 320px);
+  margin: 0;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 84%);
+  border-radius: calc(var(--w3a-shape-card, 16px) - 6px);
+  background: color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 94%);
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary, #64748b), transparent 15%);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+/* Email-OTP variant of the link-device confirmation. Same skeleton as the
+   passkey view — badge, title, copy, controls — so the two ways of finishing a
+   link read as one flow and only the badge's centre changes. */
+.w3a-link-device-email-otp {
+  gap: 0.625rem;
+}
+
+/* The masked address is the one fact the user has to check, so it leaves the
+   sentence and becomes an object: a quiet pill directly under the title. */
+.w3a-link-device-email-chip {
+  box-sizing: border-box;
+  max-width: min(100%, 260px);
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary, #d7dde5), transparent 25%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--w3a-colors-surface, #f1f5f9), transparent 45%);
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.w3a-link-device-email-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w3a-link-device-email-status {
+  max-width: 30ch;
+  margin: 0;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary, #64748b), transparent 15%);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.45;
+  text-wrap: pretty;
+  animation: status-enter 200ms var(--w3a-ease-out, ease-out) both;
+}
+
+/* A rejected or expired code is not a failure of the flow, so the error tone
+   stays inside the type and the slot borders — no red banner, no red badge
+   ring that would outrank the still-usable input below it. */
+.w3a-link-device-email-otp[data-tone='error'] .w3a-link-device-email-status {
+  color: color-mix(in srgb, var(--w3a-colors-error, #ef4444), var(--w3a-colors-textPrimary) 20%);
+}
+
+.w3a-link-device-email-otp[data-tone='error'] .w3a-link-device-dot-ring {
+  color: color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 45%);
+}
+
+.w3a-link-device-email-otp[data-tone='error'] .w3a-link-device-dot-ring-glyph {
+  color: var(--w3a-colors-error, #ef4444);
+}
+
+/* Six slots at card width read as a keypad; capped so they stay finger-sized
+   rather than stretching to the full 360px card. */
+.w3a-link-device-email-otp .w3a-otp-code-field {
+  width: min(100%, 296px);
+  margin-block: 0.125rem;
+}
+
+/* Tinted against the surface rather than toward transparency: a translucent
+   red washes out to nothing on the dark theme, where the card is already
+   near-black. */
+.w3a-link-device-email-otp[data-tone='error'] .w3a-otp-slot {
+  border-color: color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 45%);
+  background: color-mix(in srgb, var(--w3a-colors-error, #ef4444), var(--w3a-colors-surface) 82%);
+}
+
+.w3a-link-device-email-otp[data-otp-phase='incorrect'] .w3a-otp-slots {
+  animation: w3a-otp-reject 320ms var(--w3a-ease-out, ease-out) both;
+}
+
+/* Quiet neutral under an ink button: a brand-blue link below a black primary
+   reads as a second, competing call to action. */
+.w3a-link-device-email-otp .w3a-otp-resend {
+  margin-top: -0.125rem;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 30%);
+  font-size: 0.8125rem;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition:
+    color 160ms ease,
+    text-decoration-color 160ms ease;
+}
+
+.w3a-link-device-email-otp .w3a-otp-resend:hover:not(:disabled),
+.w3a-link-device-email-otp .w3a-otp-resend:focus-visible {
+  color: var(--w3a-colors-textPrimary);
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+}
+
+@keyframes w3a-otp-reject {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-5px);
+  }
+  45% {
+    transform: translateX(4px);
+  }
+  70% {
+    transform: translateX(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w3a-link-device-email-otp[data-otp-phase='incorrect'] .w3a-otp-slots {
+    animation: none;
+  }
+}
+
+/* Status message row */
+.w3a-status-row {
+  position: absolute;
+  font-size: 0.75rem;
+  bottom: -10px;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.w3a-status-message {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Section divider */
+.w3a-section-divider {
+  display: flex;
+  align-items: center;
+  margin: var(--w3a-spacing-md) 0;
+  position: relative;
+}
+
+.w3a-section-divider::before,
+.w3a-section-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--w3a-colors-borderSecondary);
+}
+
+.w3a-section-divider-text {
+  padding: 0 var(--w3a-spacing-sm);
+  font-size: 12px;
+  color: var(--w3a-colors-textSecondary);
+  font-weight: 500;
+  background: var(--w3a-colors-colorBackground);
+}
+
+/* Labels and helper text */
+.w3a-field-label {
+  font-size: 16px;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 35%);
+  /* left margin matches the OTP code field's inner padding so the label's
+     edge lines up with the first code slot */
+  margin: 8px 2px 6px 4px;
+  font-weight: 700;
+}
+
+/* Tooltip for account existence status */
+.w3a-input-wrap .w3a-tooltip {
+  position: absolute;
+  right: 0;
+  padding: 4px 8px;
+  border-radius: var(--w3a-shape-item, 8px);
+  font-size: 0.7rem;
+  background: var(--w3a-colors-surface2);
+  color: var(--w3a-colors-textPrimary);
+  opacity: 0;
+  transform: translateX(50px) scale(0.9);
+  pointer-events: none;
+  transition:
+    opacity 180ms ease,
+    transform 200ms ease;
+  z-index: 2;
+}
+
+.w3a-input-wrap .w3a-tooltip.is-visible {
+  opacity: 0.8;
+  transform: translateX(0px) scale(1);
+}
+
+.w3a-input-wrap .w3a-tooltip.is-error {
+  color: var(--w3a-colors-error);
+  background: var(--w3a-colors-colorBackground);
+  /* background: color-mix(in srgb, var(--w3a-colors-error), transparent 90%); */
+}
+
+.w3a-input-wrap .w3a-tooltip.is-success {
+  color: var(--w3a-colors-blue400);
+  background: var(--w3a-colors-colorBackground);
+  /* background: color-mix(in srgb, var(--w3a-colors-blue400), transparent 90%); */
+}
+
+@keyframes w3a-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes w3a-ellipsis-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0;
+  }
+
+  40% {
+    opacity: 1;
+  }
+}
+
+.w3a-ellipsis {
+  display: inline-block;
+}
+
+.w3a-ellipsis-dot {
+  display: inline-block;
+  opacity: 0;
+  animation: w3a-ellipsis-dot 1.2s infinite;
+}
+
+.w3a-ellipsis-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.w3a-ellipsis-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w3a-ellipsis-dot {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* Button System */
+.w3a-scan-device-row {
+  padding-bottom: 1px;
+}
+
+.w3a-secondary-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.w3a-signup-menu-root > .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.w3a-recovery-form,
+.w3a-recovery-confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 0.75rem 0.25rem;
+}
+
+.w3a-recovery-form {
+  gap: 8px;
+}
+
+.w3a-recovery-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.w3a-recovery-field .w3a-field-label {
+  margin: 0 0 6px;
+}
+
+.w3a-recovery-input {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-block-size: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: var(--w3a-shape-control, 10px);
+  outline: none;
+  background: var(--w3a-colors-surface);
+  color: var(--w3a-colors-textPrimary);
+  font: inherit;
+  font-size: 16px;
+}
+
+.w3a-recovery-code-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
+.w3a-recovery-input:focus-visible {
+  border-color: var(--w3a-colors-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-primary), transparent 72%);
+}
+
+@media (forced-colors: active) {
+  .w3a-recovery-input:focus-visible,
+  .w3a-link-device-btn:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
+.w3a-recovery-input[aria-invalid='true'] {
+  border-color: var(--w3a-colors-error);
+}
+
+.w3a-recovery-error,
+.w3a-recovery-status {
+  min-block-size: 1.25em;
+  margin: 5px 0 0;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.w3a-recovery-error {
+  color: var(--w3a-colors-error);
+  text-align: center;
+}
+
+#w3a-recovery-code-feedback {
+  margin: 4px;
+}
+
+@media (max-width: 320px) {
+  .w3a-signup-menu-root {
+    padding-inline: 1rem;
+  }
+
+  .w3a-recovery-form,
+  .w3a-recovery-confirmation {
+    padding-inline: 0;
+  }
+}
+
+.w3a-auth-intent-switch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  margin: 1rem 0 0;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 10%);
+  font-size: 0.84rem;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.w3a-auth-intent-switch button,
+.w3a-auth-intent-switch-action {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--w3a-colors-primary);
+  font: inherit;
+  font-weight: 700;
+}
+
+.w3a-auth-intent-switch button {
+  cursor: pointer;
+}
+
+.w3a-auth-intent-switch button:hover,
+.w3a-auth-intent-switch button:focus-visible {
+  color: var(--w3a-colors-primaryHover);
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.w3a-link-device-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  overflow: hidden;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  /* match .w3a-auth-method-btn's min-height so stacked options align */
+  height: var(--w3a-shape-controlHeight, 44px);
+  width: 100%;
+  max-width: 100%;
+  background: var(--w3a-colors-surface) !important;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: var(--w3a-shape-control, 10px);
+  cursor: pointer;
+  color: var(--w3a-colors-textPrimary);
+  font-family: var(
+    --w3a-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif
+  );
+  font-weight: 500;
+  font-size: 0.875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Hover/focus elevated state (theme-reactive via CSS vars) */
+.w3a-link-device-btn:hover:not(:disabled),
+.w3a-link-device-btn:focus-visible {
+  background: var(--w3a-colors-surface2) !important;
+}
+
+.w3a-link-device-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-primary), transparent 72%);
+}
+
+.w3a-link-device-btn-primary {
+  background: var(--w3a-colors-buttonBackground, var(--w3a-colors-primary, #3b82f6)) !important;
+  border-color: transparent;
+  border-radius: var(--w3a-shape-control, 10px);
+  color: var(--w3a-colors-textButton, white);
+}
+
+.w3a-link-device-btn-primary:hover:not(:disabled),
+.w3a-link-device-btn-primary:focus-visible {
+  background: var(
+    --w3a-colors-buttonHoverBackground,
+    var(--w3a-colors-primaryHover, #2563eb)
+  ) !important;
+  color: var(--w3a-colors-textButton, white);
+}
+
+.w3a-link-device-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.w3a-auth-method-choice-btn {
+  justify-content: flex-start;
+  min-height: 48px;
+  height: auto;
+  padding-inline: 0.875rem;
+  text-align: start;
+}
+
+.w3a-auth-method-choice-icon {
+  display: grid;
+  flex: 0 0 22px;
+  place-items: center;
+  color: var(--w3a-colors-textSecondary, #64748b);
+}
+
+.w3a-auth-method-choice-icon svg {
+  display: block;
+}
+
+/* The link-device confirmations commit in ink, not in brand blue: these views
+   are the end of a flow the user is already inside, so the one control reads
+   as "the next step" rather than as an offer. Derived from the text colour so
+   it inverts with the theme — near-black on light, near-white on dark — which
+   is what "black button" has to mean on a card that is itself near-black. */
+.w3a-link-device-confirmation .w3a-link-device-btn-primary {
+  background: color-mix(in srgb, var(--w3a-colors-textPrimary, #1e293b), #000000 25%) !important;
+  border-color: transparent;
+  color: var(--w3a-colors-colorBackground, #ffffff);
+}
+
+.w3a-link-device-confirmation .w3a-link-device-btn-primary:hover:not(:disabled),
+.w3a-link-device-confirmation .w3a-link-device-btn-primary:focus-visible {
+  background: color-mix(
+    in srgb,
+    var(--w3a-colors-textPrimary, #1e293b),
+    var(--w3a-colors-colorBackground, #ffffff) 14%
+  ) !important;
+  color: var(--w3a-colors-colorBackground, #ffffff);
+}
+
+.w3a-link-device-confirmation .w3a-link-device-btn-primary:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-textPrimary), transparent 78%);
+}
+
+.w3a-signup-menu-root {
+  box-sizing: border-box;
+}
+
+.w3a-signup-menu-root *,
+.w3a-signup-menu-root *::before,
+.w3a-signup-menu-root *::after {
+  box-sizing: border-box;
+}
+
+/* No enter animation on the sign-in/sign-up rows. These re-render on every
+   mode toggle, so an opacity 0 -> 1 fade re-fires on content that is largely
+   unchanged and reads as a flash. The host dialog's own 150ms height
+   transition carries the toggle; the rows simply swap. */

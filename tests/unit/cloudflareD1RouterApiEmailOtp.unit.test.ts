@@ -1,31 +1,32 @@
 import { expect, test } from '@playwright/test';
 import { isoCBOR } from '@simplewebauthn/server/helpers';
 import { createHash } from 'node:crypto';
-import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
   EcdsaDerivationClientBootstrapRequest,
   EcdsaDerivationServerBootstrapResponse,
-} from '../../packages/sdk-server-ts/src/core/types';
+} from '../../packages/wallet-server/src/core/types';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
-} from '../../packages/sdk-server-ts/src/core/registrationContracts';
+} from '../../packages/wallet-server/src/core/registrationContracts';
 import type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import { emailOtpChallengeResponseBody } from '../../packages/sdk-server-ts/src/router/domains/emailOtp/emailOtpSessionRouteHelpers';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { emailOtpChallengeResponseBody } from '../../packages/wallet-server/src/router/domains/emailOtp/emailOtpSessionRouteHelpers';
 import {
   parseGoogleEmailOtpRegistrationAttemptRecord,
   parseGoogleEmailOtpRegistrationAttemptRow,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1GoogleEmailOtpRegistrationRecords';
-import { parseD1RegistrationIntent } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1GoogleEmailOtpRegistrationRecords';
+import { parseD1RegistrationIntent } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import {
   parseOrgId,
+  parseWalletAuthMethodId,
   parseProviderSubject,
   parseWebAuthnRpId,
   parseWalletId,
@@ -36,7 +37,7 @@ import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/ut
 import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
+} from '../../packages/wallet-server/src/core/ThresholdService/evmCryptoWasm';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -105,8 +106,6 @@ import {
   readWebAuthnAuthenticatorRow,
   insertNearPublicKey,
   insertSignerWallet,
-  testWalletAuthMethodIdentity,
-  insertWalletAuthMethod,
   readWalletAuthMethodRecord,
   readSignerWalletRecord,
   readWalletSignerRecord,
@@ -408,6 +407,66 @@ test('Cloudflare D1 Router API auth service rate-limits Google Email OTP registr
     expect(second.code).toBe('rate_limited');
     expect(second.retryAfterMs).toBeGreaterThan(0);
     expect(second.resetAtMs).toBeGreaterThan(Date.now());
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 Google login resolves a selected wallet added under its verified email', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const walletId = 'selected-wallet.testnet';
+    const verifiedEmail = 'alice@example.test';
+    const googleSubject = 'google:selected-user';
+    await insertEmailOtpEnrollment({
+      database,
+      ...scope,
+      walletId,
+      providerUserId: verifiedEmail,
+      verifiedEmail,
+    });
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      relayerAccount: 'relay.local',
+      accountIdDerivationSecret: 'test-account-id-derivation-secret',
+    });
+    const resolved = await service.identity.resolveGoogleEmailOtpSession({
+      providerSubject: googleSubject,
+      email: verifiedEmail.toUpperCase(),
+      accountMode: 'login',
+      loginWalletId: walletId,
+      appSessionVersion: 'app-session-v1',
+      runtimePolicyScope: {
+        orgId: scope.orgId,
+        projectId: scope.projectId,
+        envId: scope.envId,
+        signingRootVersion: 'root-v1',
+      },
+    });
+
+    expect(resolved).toEqual({
+      ok: true,
+      mode: 'existing_wallet',
+      walletId,
+      providerSubject: verifiedEmail,
+      email: verifiedEmail,
+      hasEmailOtpEnrollment: true,
+    });
+    await expect(service.identity.listIdentities({ userId: walletId })).resolves.toEqual({
+      ok: true,
+      subjects: [`wallet:${googleSubject}`],
+    });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -1279,7 +1338,6 @@ test('Cloudflare D1 Router API auth service verifies Email OTP unlock proofs onc
       projectId: scope.projectId,
       envId: scope.envId,
     });
-
     const challenge = await service.walletUnlock.createEmailOtpUnlockChallenge({
       walletId: 'email-wallet.testnet',
       orgId: scope.orgId,
@@ -1333,6 +1391,60 @@ test('Cloudflare D1 Router API auth service verifies Email OTP unlock proofs onc
       ok: true,
       required: true,
       walletId: 'email-wallet.testnet',
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Email OTP unlock rejects a selected auth method outside the verified enrollment identity', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    await insertEmailOtpEnrollment({ database, ...scope });
+    await database
+      .prepare(
+        `UPDATE email_otp_wallet_enrollments
+            SET record_json = json_set(record_json, '$.serverSealedFactorCiphertextB64u', ?)
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND wallet_id = ?`,
+      )
+      .bind(
+        'server-sealed-factor',
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        'email-wallet.testnet',
+      )
+      .run();
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+    });
+    const walletAuthMethodId = parseWalletAuthMethodId('wallet-auth-method:email-selected');
+    if (!walletAuthMethodId.ok) throw new Error(walletAuthMethodId.error.message);
+
+    await expect(
+      service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        walletAuthMethodId: walletAuthMethodId.value,
+        providerUserId: 'google:email-user',
+      }),
+    ).resolves.toEqual({
+      kind: 'rejected',
+      code: 'unauthorized',
+      message: 'Verified Email OTP does not identify an active wallet auth method',
     });
   } finally {
     cleanupTemporaryD1Database(tempDir);

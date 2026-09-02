@@ -1,4 +1,12 @@
-import type { ApiCredentialScope } from "@seams-internal/console-shared/apiKeyScopes";
+/**
+ * Product-supplied scope catalog. Core stores normalized scope strings and
+ * validates membership only through this port; the composed product owns the
+ * vocabulary.
+ */
+export interface ApiCredentialScopeValidation {
+  isKnownScope(value: string): boolean;
+  describeAllowedScopes(): string;
+}
 
 export type ConsoleApiKeyStatus = 'ACTIVE' | 'REVOKED';
 export type ConsoleCredentialKind = 'secret_key' | 'publishable_key';
@@ -11,7 +19,7 @@ export interface ConsoleApiKey {
   orgId: string;
   name: string;
   environmentId: string;
-  scopes?: ApiCredentialScope[];
+  scopes?: string[];
   ipAllowlist?: string[];
   allowedOrigins?: string[];
   rateLimitBucket?: string | null;
@@ -34,7 +42,7 @@ export interface CreateConsoleSecretKeyRequest {
   kind: 'secret_key';
   name: string;
   environmentId: string;
-  scopes: ApiCredentialScope[];
+  scopes: string[];
   ipAllowlist?: string[];
   expiresAt?: string;
 }
@@ -61,7 +69,7 @@ export interface RotateConsoleApiKeyRequest {
 
 export interface UpdateConsoleApiKeyRequest {
   name?: string;
-  scopes?: ApiCredentialScope[];
+  scopes?: string[];
   ipAllowlist?: string[];
   allowedOrigins?: string[];
   rateLimitBucket?: string;
@@ -103,7 +111,7 @@ export type ConsolePublishableKeyAuthFailureCode =
 export interface AuthenticateConsoleApiKeyRequest {
   secret: string;
   endpoint: string;
-  requiredScopes: ApiCredentialScope[];
+  requiredScopes: string[];
   sourceIp?: string;
   environmentId?: string;
 }

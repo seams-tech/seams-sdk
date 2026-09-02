@@ -79,7 +79,7 @@ runtime and protocol are implemented.
 
 The current implementation splits one interaction across two documents:
 
-- `packages/sdk-web/src/react/components/SeamsAuthMenu/client.tsx` renders the
+- `packages/wallet/src/react/components/SeamsAuthMenu/client.tsx` renders the
   visible menu in the app document;
 - `useSeamsAuthMenuController.ts` owns mode, account lookup, registration draft,
   social, OTP, and callback-driven operation state;
@@ -337,7 +337,7 @@ new menu session.
 Create the internal element under the wallet host, for example:
 
 ```text
-packages/sdk-web/src/SeamsWeb/walletIframe/host/lit-ui/auth-menu/
+packages/wallet/src/SeamsWeb/walletIframe/host/lit-ui/auth-menu/
   seams-auth-menu-surface.ts
   auth-menu-controller.ts
   auth-menu-domain.ts
@@ -560,10 +560,10 @@ the public types, message schema, and lifecycle behavior have landed:
 pnpm test:lit-components
 pnpm test:wallet-iframe
 pnpm test:intended
-pnpm -C packages/sdk-web type-check
-pnpm -C packages/sdk-web build:rolldown
-pnpm -C packages/sdk-web check:runtime-entry-bundles
-pnpm -C packages/sdk-web check:bundle-size
+pnpm -C packages/wallet type-check
+pnpm -C packages/wallet build:rolldown
+pnpm -C packages/wallet check:runtime-entry-bundles
+pnpm -C packages/wallet check:bundle-size
 ```
 
 ## Acceptance Criteria

@@ -1,11 +1,15 @@
-import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
-import { d1Number as toNumber, d1ChangedRows, formatD1ExecStatement, queryD1All, queryD1One, type D1Row } from '@seams/sdk-server/cloud-host';
-import type {
-  D1DatabaseLike,
-  D1PreparedStatementLike,
-} from '@seams/sdk-server/cloud-host';
+import { secureRandomBase36 } from '../boundary';
+import {
+  d1Number as toNumber,
+  d1ChangedRows,
+  formatD1ExecStatement,
+  queryD1All,
+  queryD1One,
+  type D1Row,
+} from '../boundary';
+import type { D1DatabaseLike, D1PreparedStatementLike } from '../boundary';
 import { ConsoleOrgProjectEnvError } from './errors';
-import { DEFAULT_CONSOLE_SIGNING_ROOT_VERSION } from './types';
+import { DEFAULT_CONSOLE_RUNTIME_VERSION } from './types';
 import type {
   ConsoleEnvironment,
   ConsoleEnvironmentStatus,
@@ -98,7 +102,7 @@ export const CONSOLE_ORG_PROJECT_ENV_D1_SCHEMA_SQL = Object.freeze([
       org_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
       env_key TEXT NOT NULL,
-      signing_root_version TEXT NOT NULL DEFAULT 'default',
+      runtime_version TEXT NOT NULL DEFAULT 'default',
       name TEXT NOT NULL,
       status TEXT NOT NULL,
       created_at_ms INTEGER NOT NULL,
@@ -135,9 +139,7 @@ export function getConsoleOrgProjectEnvD1Runtime(
 ): ConsoleOrgProjectEnvD1Runtime | null {
   if (!service || typeof service !== 'object') return null;
   return (
-    (service as Partial<ConsoleOrgProjectEnvD1Service>)[
-      CONSOLE_ORG_PROJECT_ENV_D1_RUNTIME
-    ] || null
+    (service as Partial<ConsoleOrgProjectEnvD1Service>)[CONSOLE_ORG_PROJECT_ENV_D1_RUNTIME] || null
   );
 }
 
@@ -157,7 +159,6 @@ function nowMs(now: Date): number {
 function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
-
 
 function normalizeOptionalString(value: unknown): string | null {
   const normalized = String(value || '').trim();
@@ -201,15 +202,11 @@ function defaultEnvironmentId(projectId: string, key: ConsoleEnvironmentKey): st
   return `${projectId}:${key}`;
 }
 
-function normalizeSigningRootVersion(input: unknown, fallback?: string): string {
+function normalizeRuntimeVersion(input: unknown, fallback?: string): string {
   const normalized = String(input || '').trim();
   if (normalized) return normalized;
   if (fallback) return fallback;
-  throw new ConsoleOrgProjectEnvError(
-    'invalid_signing_root_version',
-    400,
-    'signingRootVersion is required',
-  );
+  throw new ConsoleOrgProjectEnvError('invalid_runtime_version', 400, 'runtimeVersion is required');
 }
 
 function makeResourceId(prefix: string, now: Date): string {
@@ -291,10 +288,7 @@ function parseEnvironmentRow(row: D1Row): ConsoleEnvironment {
     orgId: String(row.org_id || ''),
     projectId: String(row.project_id || ''),
     key: parseEnvironmentKey(row.env_key),
-    signingRootVersion: normalizeSigningRootVersion(
-      row.signing_root_version,
-      DEFAULT_CONSOLE_SIGNING_ROOT_VERSION,
-    ),
+    runtimeVersion: normalizeRuntimeVersion(row.runtime_version, DEFAULT_CONSOLE_RUNTIME_VERSION),
     name: String(row.name || ''),
     status: parseEnvironmentStatus(row.status),
     createdAt: toIso(toNumber(row.created_at_ms)),
@@ -359,7 +353,6 @@ function sortEnvironments(items: readonly ConsoleEnvironment[]): ConsoleEnvironm
     return right.createdAt.localeCompare(left.createdAt);
   });
 }
-
 
 function isD1ConstraintError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || '');
@@ -525,7 +518,7 @@ function buildDefaultEnvironmentInserts(input: {
       input.database
         .prepare(
           `INSERT INTO environments
-            (namespace, id, org_id, project_id, env_key, signing_root_version, name, status, created_at_ms, updated_at_ms)
+            (namespace, id, org_id, project_id, env_key, runtime_version, name, status, created_at_ms, updated_at_ms)
            VALUES
             (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
@@ -535,7 +528,7 @@ function buildDefaultEnvironmentInserts(input: {
           input.orgId,
           input.projectId,
           key,
-          DEFAULT_CONSOLE_SIGNING_ROOT_VERSION,
+          DEFAULT_CONSOLE_RUNTIME_VERSION,
           environmentNameFromKey(key),
           defaultEnvironmentStatus(key, input.liveEnvironmentsEnabled),
           input.createdAtMs,
@@ -913,10 +906,7 @@ export async function createD1ConsoleOrgProjectEnvService(
       return rows.map(parseProjectRow);
     },
 
-    async createProject(
-      ctx,
-      request: CreateConsoleProjectRequest,
-    ): Promise<ConsoleProject> {
+    async createProject(ctx, request: CreateConsoleProjectRequest): Promise<ConsoleProject> {
       return await createProjectInD1({ database, namespace, ctx, now, request });
     },
 
@@ -1081,7 +1071,7 @@ export async function createD1ConsoleOrgProjectEnvService(
         await database
           .prepare(
             `INSERT INTO environments
-              (namespace, id, org_id, project_id, env_key, signing_root_version, name, status, created_at_ms, updated_at_ms)
+              (namespace, id, org_id, project_id, env_key, runtime_version, name, status, created_at_ms, updated_at_ms)
              VALUES
               (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
@@ -1091,10 +1081,7 @@ export async function createD1ConsoleOrgProjectEnvService(
             ctx.orgId,
             request.projectId,
             request.key,
-            normalizeSigningRootVersion(
-              request.signingRootVersion,
-              DEFAULT_CONSOLE_SIGNING_ROOT_VERSION,
-            ),
+            normalizeRuntimeVersion(request.runtimeVersion, DEFAULT_CONSOLE_RUNTIME_VERSION),
             request.name || environmentNameFromKey(request.key),
             request.status || 'ACTIVE',
             currentNowMs,
@@ -1146,24 +1133,21 @@ export async function createD1ConsoleOrgProjectEnvService(
         );
       }
       const nextName = request.name || String(current.name || '');
-      const nextSigningRootVersion =
-        request.signingRootVersion !== undefined
-          ? normalizeSigningRootVersion(request.signingRootVersion)
-          : normalizeSigningRootVersion(
-              current.signing_root_version,
-              DEFAULT_CONSOLE_SIGNING_ROOT_VERSION,
-            );
+      const nextRuntimeVersion =
+        request.runtimeVersion !== undefined
+          ? normalizeRuntimeVersion(request.runtimeVersion)
+          : normalizeRuntimeVersion(current.runtime_version, DEFAULT_CONSOLE_RUNTIME_VERSION);
       await database
         .prepare(
           `UPDATE environments
               SET name = ?,
-                  signing_root_version = ?,
+                  runtime_version = ?,
                   updated_at_ms = ?
             WHERE namespace = ?
               AND org_id = ?
               AND id = ?`,
         )
-        .bind(nextName, nextSigningRootVersion, nowMs(now()), namespace, ctx.orgId, environmentId)
+        .bind(nextName, nextRuntimeVersion, nowMs(now()), namespace, ctx.orgId, environmentId)
         .run();
       return await loadEnvironment({ database, namespace, orgId: ctx.orgId, environmentId });
     },

@@ -1,11 +1,12 @@
+import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
 import { expect, test } from '@playwright/test';
 import { createInMemoryConsoleApiKeyService } from '../../packages/console-server-ts/src/apiKeys';
-import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/console-server-ts/src/runtimeSnapshots';
-import { createInMemoryConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls';
-import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
-import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
-import { createConsoleRouterApiRouteExtensions } from '../../packages/console-server-ts/src/router/routeExtensions';
-import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/console-server-ts/src/router/routerApiKeyAuth';
+import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/wallet-console-server-ts/src/runtimeSnapshots';
+import { createInMemoryConsoleSponsoredCallService } from '../../packages/wallet-console-server-ts/src/sponsoredCalls';
+import type { RouterApiServiceBag } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import { createCloudflareRouter } from '../../packages/wallet-server/src/router/cloudflare/runtime/createCloudflareRouter';
+import { createConsoleRouterApiRouteExtensions } from '../../packages/wallet-console-server-ts/src/router/routeExtensions';
+import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/wallet-console-server-ts/src/router/routerApiKeyAuth';
 import { callCf } from '../relayer/helpers';
 
 function makeUnexpectedRouterApiServiceValue(path: string): unknown {
@@ -47,7 +48,9 @@ function makeRouterApiServiceBagFixture(): RouterApiServiceBag {
 }
 
 function makeSponsoredOptions() {
-  const apiKeys = createInMemoryConsoleApiKeyService();
+  const apiKeys = createInMemoryConsoleApiKeyService({
+    scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+  });
   const sponsorAddress = '0x2222222222222222222222222222222222222222' as const;
   const sponsorPrivateKeyHex =
     '0x1111111111111111111111111111111111111111111111111111111111111111' as const;
@@ -60,10 +63,10 @@ function makeSponsoredOptions() {
           accepted: true,
           counted: true,
           monthUtc: '2026-03',
-          monthlyActiveWallets: 1,
+          monthlyActiveResources: 1,
         };
       },
-      async recordSponsoredExecutionDebit() {
+      async recordProductExecutionDebit() {
         return {
           accepted: true,
           debitAppliedMinor: 0,

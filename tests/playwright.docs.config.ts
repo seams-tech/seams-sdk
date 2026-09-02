@@ -9,12 +9,12 @@ export default defineConfig({
   reporter: 'line',
   use: {
     ...devices['Desktop Chrome'],
-    baseURL: process.env.DOCS_BASE_URL ?? 'http://127.0.0.1:5222',
+    baseURL: process.env.DOCS_BASE_URL ?? 'http://127.0.0.1:4006',
     ignoreHTTPSErrors: true,
   },
   webServer: {
     command: 'pnpm -C ../apps/docs preview --host 127.0.0.1',
-    url: 'http://127.0.0.1:5222',
+    url: 'http://127.0.0.1:4006',
     reuseExistingServer: true,
     timeout: 30_000,
   },

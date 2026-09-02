@@ -7,28 +7,28 @@ test.describe('modularity lazy signer loading', () => {
     const nearSigningSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',
+        '../packages/wallet/src/core/signingEngine/flows/signNear/signNear.ts',
       ),
       'utf8',
     );
     const nearSigningFlowSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/flows/signNear/nearSigningFlow.ts',
+        '../packages/wallet/src/core/signingEngine/flows/signNear/nearSigningFlow.ts',
       ),
       'utf8',
     );
     const evmSigningSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
+        '../packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
       ),
       'utf8',
     );
     const signerLoaderSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signerLoader.ts',
+        '../packages/wallet/src/core/signingEngine/flows/signEvmFamily/signerLoader.ts',
       ),
       'utf8',
     );
@@ -61,21 +61,21 @@ test.describe('modularity lazy signer loading', () => {
     const evmAdapterSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/chains/evm/evmAdapter.ts',
+        '../packages/wallet/src/core/signingEngine/chains/evm/evmAdapter.ts',
       ),
       'utf8',
     );
     const tempoAdapterSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/chains/tempo/tempoAdapter.ts',
+        '../packages/wallet/src/core/signingEngine/chains/tempo/tempoAdapter.ts',
       ),
       'utf8',
     );
     const signerLoaderSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signerLoader.ts',
+        '../packages/wallet/src/core/signingEngine/flows/signEvmFamily/signerLoader.ts',
       ),
       'utf8',
     );

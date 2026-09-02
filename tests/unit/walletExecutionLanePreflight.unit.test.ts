@@ -2,26 +2,24 @@ import { expect, test } from '@playwright/test';
 import {
   handleOwnerWalletExecutionLanePreflight,
   OWNER_WALLET_EXECUTION_LANE_PREFLIGHT_PATH,
-} from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/walletExecutionLanePreflight';
+} from '../../packages/wallet-server/src/router/transport/fetch/routes/walletExecutionLanePreflight';
 import {
   resolveActiveOwnerWalletExecutionLane,
   type WalletExecutionLaneProjectionSource,
-} from '../../packages/sdk-server-ts/src/core/signingLanes/WalletExecutionLaneProjection';
-import type { RouterApiWalletRegistrationService } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
-import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/framework/routerApi';
-import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/createFetchRouter';
-import { normalizeWalletAuthMethod } from '../../packages/sdk-server-ts/src/core/d1WalletAuthMethodStore';
+} from '../../packages/wallet-server/src/core/signingLanes/WalletExecutionLaneProjection';
+import type { RouterApiWalletRegistrationService } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import type { RouterApiWalletSessionAuthorizationV2AdmissionContext } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import type { SessionAdapter } from '../../packages/wallet-server/src/router/framework/routerApi';
+import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/createFetchRouter';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
-import { walletAuthMethodRecordId } from '../../packages/shared-ts/src/utils/registrationIntent';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
-import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
-import { buildRouterAbEd25519WalletSessionClaimsFixture } from './helpers/routerAbEd25519WalletSessionClaims.fixtures';
 import { buildRouterAbEd25519YaoCapabilityReplacementFixture } from './helpers/routerAbEd25519YaoRecoveryRequestScoped.fixtures';
+import { buildFullOwnerPermissionsV1 } from '../../packages/shared-ts/src/authorization/delegatedAuthority';
+import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 
 function required<T>(
   result:
@@ -71,6 +69,20 @@ test('owner execution-lane preflight authenticates the Wallet Session and serial
   const materialActivation = routerAbMpcMaterialActivationRefFromWire(
     capability.activationResult.public_receipt.material_activation,
   );
+  const exact = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'owner-execution-lane-preflight',
+    permissions: buildFullOwnerPermissionsV1(),
+    provenance: 'wallet_registration',
+    keyFamily: 'ed25519',
+    materialActivation,
+    expiresAtMs: Date.now() + 60_000,
+    identity: {
+      walletId: fixture.walletId,
+      authorityId: 'authority:owner-execution-lane-preflight',
+      walletAuthMethodId: 'wallet-auth-method:owner-execution-lane-preflight',
+      rpId: 'router.example.test',
+    },
+  });
   const signer = buildYaoEd25519WalletSignerRecord({
     walletId,
     nearAccountId: fixture.nearAccountId,
@@ -90,54 +102,30 @@ test('owner execution-lane preflight authenticates the Wallet Session and serial
     custodyKeyManifestDigestB64u: Buffer.alloc(32, 21).toString('base64url'),
     now: 1_900_000_000_000,
   });
-  const authMethod = normalizeWalletAuthMethod({
-    version: 'wallet_auth_method_v1',
-    kind: 'passkey',
-    status: 'active',
-    walletId,
-    rpId: 'router.example.test',
-    credentialIdB64u: 'recovery-request-scoped-credential-1',
-    credentialPublicKeyB64u: 'public-key-r101-preflight',
-    counter: 0,
-    createdAtMs: 1_900_000_000_000,
-    updatedAtMs: 1_900_000_000_000,
-  });
-  if (!authMethod) throw new Error('preflight auth method fixture is invalid');
+  const authMethod = exact.authMethod;
   const projectionResult = await resolveActiveOwnerWalletExecutionLane({
     source: {
       listWalletAuthMethods: async () => [authMethod],
       listWalletSigners: async () => [signer],
     } satisfies WalletExecutionLaneProjectionSource,
     walletId,
-    walletAuthMethodId: walletAuthMethodRecordId(authMethod),
+    walletAuthMethodId: authMethod.walletAuthMethodId,
     expectedMaterialActivation: materialActivation,
   });
   if (projectionResult.kind !== 'projected') {
     throw new Error(`projection fixture refused: ${projectionResult.reason}`);
   }
 
-  const authority = buildPasskeyWalletAuthAuthority({
-    walletId: fixture.walletId,
-    rpId: 'router.example.test',
-    credentialIdB64u: 'recovery-request-scoped-credential-1',
-  });
-  const claims = buildRouterAbEd25519WalletSessionClaimsFixture({
-    walletId: fixture.walletId,
-    nearAccountId: fixture.nearAccountId,
-    nearEd25519SigningKeyId: fixture.nearSigningKeyId,
-    relayerKeyId: fixture.signingWorkerId,
-    participantIds: [1, 2],
-    thresholdExpiresAtMs: Date.now() + 60_000,
-    runtimePolicyScope: capability.runtimePolicyScope,
-    normalSigning: {
-      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-      signingWorkerId: fixture.signingWorkerId,
-    },
-    authority,
-    walletSessionId: fixture.walletSessionId,
-    quotaId: fixture.quotaId,
-    thresholdSessionId: fixture.thresholdSessionId,
-  });
+  const admissionContext: RouterApiWalletSessionAuthorizationV2AdmissionContext = {
+    authorization: exact.issuedSession,
+    authority: exact.authority,
+    authMethod: exact.authMethod,
+    retiredAtMs: null,
+  };
+  const authorizationSessions = {
+    tenantId: exact.issuedSession.session.tenantId,
+    readWalletSessionAuthorizationV2ByOperationCredential: async () => admissionContext,
+  };
 
   let received:
     | Parameters<RouterApiWalletRegistrationService['resolveActiveOwnerWalletExecutionLane']>[0]
@@ -168,14 +156,17 @@ test('owner execution-lane preflight authenticates the Wallet Session and serial
     },
   );
   const response = await handleOwnerWalletExecutionLanePreflight(
-    context(request, sessionWithClaims(claims), { walletRegistration }),
+    context(request, sessionWithClaims({}), {
+      walletRegistration,
+      authorizationSessions,
+    }),
   );
 
   expect(response?.status).toBe(200);
   expect(received?.walletId).toBe(walletId);
   expect(received?.authorization).toEqual({
     kind: 'wallet_auth_method',
-    walletAuthMethodId: walletAuthMethodRecordId(authMethod),
+    walletAuthMethodId: authMethod.walletAuthMethodId,
   });
   await expect(response?.json()).resolves.toMatchObject({
     ok: true,
