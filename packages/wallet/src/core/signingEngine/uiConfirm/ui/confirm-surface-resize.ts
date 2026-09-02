@@ -27,6 +27,7 @@ import {
   type LitTreeResizeBeginDetail,
   type LitTreeResizeDriver,
 } from './lit-events';
+import { W3A_TX_CONFIRMER_ID } from './registry';
 
 export const CONFIRM_SURFACE_MODE_ATTR = 'data-w3a-confirm-surface';
 export const CONFIRM_SURFACE_MODE_WALLET_IFRAME = 'wallet-iframe';
@@ -97,13 +98,22 @@ export function isWalletIframeConfirmSurface(element: Element): boolean {
 function createHostHeightPin(element: HTMLElement): HostHeightPin | null {
   if (typeof CSSStyleSheet !== 'function' || !('adoptedStyleSheets' in document)) return null;
   let sheet: CSSStyleSheet | null = null;
-  const release = () => element.classList.remove(CONFIRM_SURFACE_PINNED_CLASS);
+  const release = () => {
+    element.classList.remove(CONFIRM_SURFACE_PINNED_CLASS);
+    document.documentElement.classList.remove(CONFIRM_SURFACE_PINNED_CLASS);
+  };
   return {
     set(px) {
       try {
         if (!sheet) sheet = new CSSStyleSheet();
+        // While pinned the document deliberately overflows its frame (the host
+        // is taller than the box on open, its content taller than the host on
+        // close). A classic scrollbar appearing for those frames would narrow
+        // the content, re-wrap text, and post a spurious measurement, so the
+        // document must not scroll until the pin comes off.
         sheet.replaceSync(
-          `.${CONFIRM_SURFACE_PINNED_CLASS}{height:${Math.max(0, Math.round(px))}px}`,
+          `${W3A_TX_CONFIRMER_ID}.${CONFIRM_SURFACE_PINNED_CLASS}{height:${Math.max(0, Math.round(px))}px}` +
+            `html.${CONFIRM_SURFACE_PINNED_CLASS}{overflow:hidden}`,
         );
         if (!document.adoptedStyleSheets.includes(sheet)) {
           document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
@@ -112,6 +122,7 @@ function createHostHeightPin(element: HTMLElement): HostHeightPin | null {
         return false;
       }
       element.classList.add(CONFIRM_SURFACE_PINNED_CLASS);
+      document.documentElement.classList.add(CONFIRM_SURFACE_PINNED_CLASS);
       return true;
     },
     release,

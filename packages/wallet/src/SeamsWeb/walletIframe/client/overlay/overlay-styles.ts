@@ -237,6 +237,7 @@ function cssScale(value: number): string {
 
 const drawerGeometryRuleId = (dialogId: string): string => `${dialogId}::drawer`;
 const authMenuGeometryRuleId = (dialogId: string): string => `${dialogId}::auth-menu`;
+const iframeGeometryRuleId = (dialogId: string): string => `${dialogId}::iframe`;
 
 function ensureDialogId(dialog: HTMLDialogElement): string {
   const currentId = dialog.id;
@@ -384,6 +385,35 @@ export function clearDialogGeometry(dialog: HTMLDialogElement): void {
   manager.deleteDynamicRule(id);
   manager.deleteDynamicRule(drawerGeometryRuleId(id));
   manager.deleteDynamicRule(authMenuGeometryRuleId(id));
+  manager.deleteDynamicRule(iframeGeometryRuleId(id));
+}
+
+/**
+ * Hold the iframe at a size of its own, independent of the dialog, for the
+ * instant between writing a request modal's destination geometry and starting
+ * the ease that travels there. Reading the destination rectangle is a layout,
+ * and a cross-origin iframe laid out at the destination is told that size at
+ * once — one frame of the final box before the ease snaps it back to the
+ * origin, which content inside the frame reads as arrival. Pinned to the
+ * origin while the rectangle is read, the frame learns nothing until the ease
+ * itself moves it.
+ */
+export function pinDialogIframe(
+  dialog: HTMLDialogElement,
+  size: { widthCssPx: number; heightCssPx: number },
+): void {
+  ensureOverlayDialog(dialog);
+  const id = ensureDialogId(dialog);
+  getStyleManager().setDynamicDeclarations(
+    iframeGeometryRuleId(id),
+    `#${id}.${CLASS_DIALOG} iframe.${CLASS_IFRAME}`,
+    { width: cssPx(size.widthCssPx), height: cssPx(size.heightCssPx) },
+  );
+}
+
+export function releaseDialogIframe(dialog: HTMLDialogElement): void {
+  const id = ensureDialogId(dialog);
+  getStyleManager().deleteDynamicRule(iframeGeometryRuleId(id));
 }
 
 export const OverlayStyleClasses = {
