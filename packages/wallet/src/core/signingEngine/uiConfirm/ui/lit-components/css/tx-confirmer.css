@@ -423,6 +423,24 @@ w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'][data-w3a-confirm-vari
   box-shadow: none;
 }
 
+/* Inside the measured host box the viewport IS the card: the parent sizes the
+   iframe to the content it was told about. A cap in vh therefore chases the
+   box — every ease grows the viewport, which grows the capped block, which
+   posts a larger measurement, which grows the box again — and each round
+   re-lays the interior out instantly while the box trails behind. Content in
+   this surface must have an intrinsic height, so the caps are fixed here. */
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'] w3a-tx-tree .file-content {
+  max-height: 12rem;
+}
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe']
+  w3a-tx-tree
+  .tooltip-tree-root.scrollable-root {
+  max-height: 20rem;
+}
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'] .action-content {
+  max-height: 16rem;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

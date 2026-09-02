@@ -333,6 +333,13 @@ so the card fills exactly the room the box has made. A box that does not hug
 the host (clamped, full-viewport fallback, standalone surface) leaves the tree
 to its own transition, which cannot be clipped there.
 
+For the same reason, nothing inside a measured modal may size itself in
+viewport units: inside the iframe the viewport *is* the box the parent just
+sized to the content, so a `max-height: 40vh` block grows on every ease, posts
+a larger measurement, and the box chases it while the interior re-lays out
+instantly (`tx-confirmer.css` pins those caps to rem values under
+`data-w3a-confirm-surface='wallet-iframe'`).
+
 ## Ownership and lifecycle
 
 1. The router normalizes a request's presentation, allocates its existing
