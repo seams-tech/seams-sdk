@@ -27,6 +27,7 @@ strict-worker-router-entrypoint = ["workers-rs"]
 strict-worker-deriver-a-entrypoint = ["workers-rs"]
 strict-worker-deriver-b-entrypoint = ["workers-rs"]
 strict-worker-signing-worker-entrypoint = ["workers-rs"]
+strict-worker-tenant-root-control-plane-entrypoint = ["workers-rs"]
 workers-rs = [
     "dep:wasm-bindgen",
     "dep:worker",

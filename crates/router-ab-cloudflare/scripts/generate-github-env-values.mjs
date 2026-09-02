@@ -818,6 +818,7 @@ function buildEnvironments(input) {
     buildDeriverAEnvironment(input),
     buildDeriverBEnvironment(input),
     buildSigningWorkerEnvironment(input),
+    buildTenantRootControlPlaneEnvironment(input),
   ]);
 }
 
@@ -1220,6 +1221,10 @@ function buildMpcRouterEnvironment(input) {
           variables.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX,
         ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX:
           variables.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX,
+        ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON,
+        ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
         ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON: JSON.stringify(input.projectPolicy),
       },
       optionalVariables: {},
@@ -1250,6 +1255,8 @@ function buildDeriverAEnvironment(input) {
     input.deployment.secrets.DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY;
   secrets.DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY =
     input.deployment.secrets.DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY;
+  secrets.DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY =
+    input.deployment.secrets.DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY;
   return [
     environmentName,
     {
@@ -1276,6 +1283,12 @@ function buildDeriverAEnvironment(input) {
           variables.ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION,
         ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY,
+        ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON,
+        ROUTER_AB_DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID:
+          variables.ROUTER_AB_DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID,
+        ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
       },
       optionalVariables: {},
       secrets,
@@ -1301,6 +1314,8 @@ function buildDeriverBEnvironment(input) {
     input.deployment.secrets.DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY;
   secrets.DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY =
     input.deployment.secrets.DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY;
+  secrets.DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY =
+    input.deployment.secrets.DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY;
   return [
     environmentName,
     {
@@ -1327,6 +1342,41 @@ function buildDeriverBEnvironment(input) {
           variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION,
         ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY,
+        ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON,
+        ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID:
+          variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID,
+        ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
+      },
+      optionalVariables: {},
+      secrets,
+    },
+  ];
+}
+
+function buildTenantRootControlPlaneEnvironment(input) {
+  // Sole holder of the R120 issuer private signing key. Provisioned as its own
+  // GitHub Environment so it can carry a separate deployment token/pipeline;
+  // no shared backend workflow job references it.
+  const environmentName = `${input.environmentPrefix}-tenant-root-control-plane`;
+  const variables = input.deployment.variables;
+  const secrets = buildWorkerDeploymentSecrets(
+    input.environmentPrefix,
+    environmentName,
+    input.generatedSecrets.internalServiceAuth,
+  );
+  secrets.TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY =
+    input.deployment.secrets.TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY;
+  return [
+    environmentName,
+    {
+      purpose: 'Tenant-root control-plane Worker',
+      variables: {
+        ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID:
+          variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID,
+        ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON,
       },
       optionalVariables: {},
       secrets,

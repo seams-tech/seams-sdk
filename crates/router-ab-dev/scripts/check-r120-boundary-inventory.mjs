@@ -240,6 +240,7 @@ function classifyPath(path) {
     path.includes('wrangler') ||
     path.includes('/deployment-env/') ||
     path.includes('/deployment/') ||
+    path.startsWith('deployment/') ||
     path.includes('/env/') ||
     path.includes('/.env') ||
     path.endsWith('/env.rs') ||

@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import {
   assertExpectedWorkerServices,
+  assertEd25519IssuerKeySet,
+  assertEd25519RoleKeySet,
+  assertExpectedDurableObjectBindings,
   validateDeploymentKeyPairs,
 } from '../../scripts/deploy-backend.mjs';
 
@@ -329,9 +332,313 @@ test('deployment key generation provisions distinct role-local tenant-root provi
   }
 });
 
+test('deployment key generation provisions one tenant-root control-plane issuer key', () => {
+  const result = runCommand(deploymentKeyGeneratorScript, [
+    '--lane',
+    'staging-testnet',
+    '--show-secrets',
+    '--json',
+  ]);
+  expect(result.status).toBe(0);
+  const output = JSON.parse(result.stdout) as {
+    readonly variables: Readonly<Record<string, string>>;
+    readonly secrets: Readonly<Record<string, string>>;
+  };
+  const keyId = output.variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID;
+  const keySetText =
+    output.variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON;
+  const seed = output.secrets.TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY;
+  // The id carries the complete public-key hex, so it names exactly one key.
+  expect(keyId).toMatch(/^control-plane-issuer-[0-9a-f]{64}$/u);
+  expect(keyId.length).toBeLessThanOrEqual(256);
+  // Exact wire shape of TenantRootCreationIssuerKeySetWireV1: one key, two fields.
+  const keySet = JSON.parse(keySetText) as {
+    readonly keys: readonly {
+      readonly issuer_key_id: string;
+      readonly verifying_key_hex: string;
+    }[];
+  };
+  expect(Object.keys(keySet)).toEqual(['keys']);
+  expect(keySet.keys).toHaveLength(1);
+  expect(Object.keys(keySet.keys[0])).toEqual(['issuer_key_id', 'verifying_key_hex']);
+  expect(keySet.keys[0].issuer_key_id).toBe(keyId);
+  expect(keySet.keys[0].verifying_key_hex).toMatch(/^[0-9a-f]{64}$/u);
+  expect(keyId).toBe(`control-plane-issuer-${keySet.keys[0].verifying_key_hex}`);
+  // The seed reproduces the published verifying key.
+  expect(() =>
+    assertEd25519IssuerKeySet(
+      'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY',
+      'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID',
+      'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
+      {
+        TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY: seed,
+        TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID: keyId,
+        TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON: keySetText,
+      },
+    ),
+  ).not.toThrow();
+  // --apply must not place these: it targets one generic environment, while the
+  // issuer seed belongs only in *-tenant-root-control-plane.
+  const notApplied = (JSON.parse(result.stdout) as { readonly notApplied: readonly string[] })
+    .notApplied;
+  // Every R120 role-local value: the Deriver role creation keys and the issuer
+  // key, variables first then secrets, exactly as the generator orders them.
+  expect(notApplied).toEqual([
+    'ROUTER_AB_DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
+    'ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
+    'ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
+    'ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID',
+    'ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
+    'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY',
+    'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY',
+    'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY',
+  ]);
+
+  // The seed is never printed without --show-secrets.
+  const redacted = runCommand(deploymentKeyGeneratorScript, [
+    '--lane',
+    'staging-testnet',
+    '--json',
+  ]);
+  const redactedOutput = JSON.parse(redacted.stdout) as {
+    readonly secrets: Readonly<Record<string, string>>;
+  };
+  expect(redactedOutput.secrets.TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY).toBe('<redacted>');
+});
+
+test('deployment key generation provisions role-local Deriver creation signing keys', () => {
+  const result = runCommand(deploymentKeyGeneratorScript, [
+    '--lane',
+    'staging-testnet',
+    '--show-secrets',
+    '--json',
+  ]);
+  expect(result.status).toBe(0);
+  const output = JSON.parse(result.stdout) as {
+    readonly variables: Readonly<Record<string, string>>;
+    readonly secrets: Readonly<Record<string, string>>;
+    readonly notApplied: readonly string[];
+  };
+  const keySet = JSON.parse(
+    output.variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
+  ) as {
+    readonly keys: readonly {
+      readonly role: string;
+      readonly signing_key_id: string;
+      readonly verifying_key_hex: string;
+    }[];
+  };
+  // Exact wire shape of TenantRootCreationRoleVerifyingKeySetWireV1: one entry per role.
+  expect(Object.keys(keySet)).toEqual(['keys']);
+  expect(keySet.keys.map((entry) => entry.role)).toEqual(['deriver_a', 'deriver_b']);
+  for (const [entry, role, R] of [
+    [keySet.keys[0], 'deriver_a', 'A'],
+    [keySet.keys[1], 'deriver_b', 'B'],
+  ] as const) {
+    expect(Object.keys(entry)).toEqual(['role', 'signing_key_id', 'verifying_key_hex']);
+    expect(entry.verifying_key_hex).toMatch(/^[0-9a-f]{64}$/u);
+    expect(entry.signing_key_id).toBe(
+      `${role.replace('_', '-')}-tenant-root-creation-${entry.verifying_key_hex}`,
+    );
+    expect(output.variables[`ROUTER_AB_DERIVER_${R}_TENANT_ROOT_CREATION_SIGNING_KEY_ID`]).toBe(
+      entry.signing_key_id,
+    );
+    expect(() =>
+      assertEd25519RoleKeySet(
+        `DERIVER_${R}_TENANT_ROOT_CREATION_SIGNING_KEY`,
+        `DERIVER_${R}_TENANT_ROOT_CREATION_SIGNING_KEY_ID`,
+        'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
+        role,
+        {
+          [`DERIVER_${R}_TENANT_ROOT_CREATION_SIGNING_KEY`]:
+            output.secrets[`DERIVER_${R}_TENANT_ROOT_CREATION_SIGNING_KEY`],
+          [`DERIVER_${R}_TENANT_ROOT_CREATION_SIGNING_KEY_ID`]: entry.signing_key_id,
+          ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
+            output.variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
+        },
+      ),
+    ).not.toThrow();
+  }
+  // Role keys are distinct from each other, from the A/B peer keys (the Rust
+  // loader rejects reuse), and from the issuer key.
+  const allPublic = new Set([
+    keySet.keys[0].verifying_key_hex,
+    keySet.keys[1].verifying_key_hex,
+    output.variables.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX,
+    output.variables.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX,
+    (
+      JSON.parse(
+        output.variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON,
+      ) as {
+        keys: { verifying_key_hex: string }[];
+      }
+    ).keys[0].verifying_key_hex,
+  ]);
+  expect(allPublic.size).toBe(5);
+  // Role-local: never applied by this single-environment script.
+  expect(output.notApplied).toEqual(
+    expect.arrayContaining([
+      'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY',
+      'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY',
+      'ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
+    ]),
+  );
+  // A's seed does not verify as B, nor under B's id.
+  expect(() =>
+    assertEd25519RoleKeySet(
+      'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY',
+      'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
+      'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
+      'deriver_b',
+      {
+        DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY:
+          output.secrets.DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY,
+        DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID: keySet.keys[0].signing_key_id,
+        ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
+          output.variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
+      },
+    ),
+  ).toThrow(/does not publish/u);
+});
+
+test('issuer key-set validation fails closed on every mismatch', () => {
+  const good = JSON.parse(
+    runCommand(deploymentKeyGeneratorScript, [
+      '--lane',
+      'staging-testnet',
+      '--show-secrets',
+      '--json',
+    ]).stdout,
+  ) as {
+    readonly variables: Readonly<Record<string, string>>;
+    readonly secrets: Readonly<Record<string, string>>;
+  };
+  const env = {
+    TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY:
+      good.secrets.TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY,
+    TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID:
+      good.variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID,
+    TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:
+      good.variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON,
+  };
+  const check = (overrides: Readonly<Record<string, string>>) => () =>
+    assertEd25519IssuerKeySet(
+      'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY',
+      'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID',
+      'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
+      { ...env, ...overrides },
+    );
+  expect(check({})).not.toThrow();
+  // A different seed does not match the published key.
+  const other = JSON.parse(
+    runCommand(deploymentKeyGeneratorScript, [
+      '--lane',
+      'staging-testnet',
+      '--show-secrets',
+      '--json',
+    ]).stdout,
+  ) as { readonly secrets: Readonly<Record<string, string>> };
+  expect(
+    check({
+      TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY:
+        other.secrets.TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY,
+    }),
+  ).toThrow(/TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY does not match/u);
+  // A key id absent from the set, a malformed seed, malformed JSON, an extra
+  // top-level field, and a duplicated id all fail closed.
+  expect(
+    check({ TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID: 'control-plane-issuer-unknown' }),
+  ).toThrow(/does not contain/u);
+  expect(check({ TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY: 'AAAA' })).toThrow(/32-byte/u);
+  expect(check({ TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON: '{' })).toThrow(
+    /valid JSON/u,
+  );
+  const parsed = JSON.parse(env.TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON) as {
+    keys: { issuer_key_id: string; verifying_key_hex: string }[];
+  };
+  expect(
+    check({
+      TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON: JSON.stringify({ ...parsed, extra: 1 }),
+    }),
+  ).toThrow(/between one and 32 keys/u);
+  expect(
+    check({
+      TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON: JSON.stringify({
+        keys: [parsed.keys[0], parsed.keys[0]],
+      }),
+    }),
+  ).toThrow(/repeats issuer key id/u);
+});
+
 test('backend deployment accepts components that do not own deployment key pairs', () => {
   expect(() => validateDeploymentKeyPairs('wallet-runtime', {})).not.toThrow();
   expect(() => validateDeploymentKeyPairs('console', {})).not.toThrow();
+  // The control plane DOES own a key pair: its issuer seed must reproduce the
+  // verifying key published under its active key id.
+  expect(() => validateDeploymentKeyPairs('tenant-root-control-plane', {})).toThrow(
+    /TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY is required/u,
+  );
+});
+
+test('durable object binding validation pins ownership and the target Router', () => {
+  const lane = {
+    id: 'staging-testnet',
+    resources: { router: { workerName: 'router-ab-mpc-router-staging' } },
+  };
+  const external = `
+[[env.staging.durable_objects.bindings]]
+name = "ROUTER_TENANT_ROOT_CREATION_DO"
+class_name = "RouterAbTenantRootCreationDurableObject"
+script_name = "router-ab-mpc-router-staging"
+`;
+  expect(() => assertExpectedDurableObjectBindings(lane, 'deriver-a', external)).not.toThrow();
+  // The Signing Worker has no tenant-root role, so it is not checked.
+  expect(() => assertExpectedDurableObjectBindings(lane, 'signing-worker', '')).not.toThrow();
+
+  // A missing binding orphans tenant-root state.
+  expect(() => assertExpectedDurableObjectBindings(lane, 'deriver-a', '')).toThrow(
+    /must bind ROUTER_TENANT_ROOT_CREATION_DO/u,
+  );
+  // A wrong Router points the Deriver at another deployment's object.
+  expect(() =>
+    assertExpectedDurableObjectBindings(
+      lane,
+      'deriver-a',
+      external.replace('router-ab-mpc-router-staging', 'router-ab-mpc-router-testnet'),
+    ),
+  ).toThrow(/must bind ROUTER_TENANT_ROOT_CREATION_DO to script router-ab-mpc-router-staging/u);
+  // A renamed class silently orphans storage.
+  expect(() =>
+    assertExpectedDurableObjectBindings(
+      lane,
+      'deriver-a',
+      external.replace('RouterAbTenantRootCreationDurableObject', 'RouterAbRenamedDurableObject'),
+    ),
+  ).toThrow(/RouterAbTenantRootCreationDurableObject/u);
+  // A non-owner must never declare the class migration.
+  expect(() =>
+    assertExpectedDurableObjectBindings(
+      lane,
+      'deriver-a',
+      `${external}\n[[migrations]]\nnew_sqlite_classes = ["RouterAbTenantRootCreationDurableObject"]\n`,
+    ),
+  ).toThrow(/must not declare a Durable Object migration it does not own/u);
+
+  // The Router owns the class: inline binding form, and no script_name.
+  const owner = `
+[durable_objects]
+bindings = [
+  { name = "ROUTER_TENANT_ROOT_CREATION_DO", class_name = "RouterAbTenantRootCreationDurableObject" },
+]
+`;
+  expect(() => assertExpectedDurableObjectBindings(lane, 'router', owner)).not.toThrow();
+  expect(() =>
+    assertExpectedDurableObjectBindings(
+      lane,
+      'router',
+      owner.replace('" }', '", script_name = "router-ab-mpc-router-staging" }'),
+    ),
+  ).toThrow(/must not set script_name/u);
 });
 
 test('backend service binding validation rejects a wrong service hidden by a later block', () => {
@@ -341,6 +648,7 @@ test('backend service binding validation rejects a wrong service hidden by a lat
       deriverA: { workerName: 'router-ab-deriver-a-testnet' },
       deriverB: { workerName: 'router-ab-deriver-b-testnet' },
       signingWorker: { workerName: 'router-ab-signing-worker-testnet' },
+      tenantRootControlPlane: { workerName: 'router-ab-tenant-root-control-plane-testnet' },
     },
   };
   const section = `

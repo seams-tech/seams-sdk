@@ -20,7 +20,7 @@ use crate::{
 #[cfg(feature = "workers-rs")]
 mod ecdsa_presign_live_session;
 #[cfg(any(feature = "workers-rs", test))]
-mod tenant_root_creation;
+pub(crate) mod tenant_root_creation;
 #[cfg(any(feature = "workers-rs", test))]
 #[cfg(feature = "workers-rs")]
 mod worker_storage;

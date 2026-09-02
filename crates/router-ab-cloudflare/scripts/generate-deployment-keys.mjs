@@ -33,9 +33,15 @@ Options:
   --repo <owner/repo>
                     Pass an explicit repository to gh.
 
-This command generates deployment identity and operational-encryption keys. It
-does not generate DERIVER_A_ROOT_SHARE_WIRE_SECRET or
-DERIVER_B_ROOT_SHARE_WIRE_SECRET.`);
+This command generates deployment identity, operational-encryption,
+tenant-root control-plane issuer, and Deriver role creation signing keys. It
+does not generate
+DERIVER_A_ROOT_SHARE_WIRE_SECRET or DERIVER_B_ROOT_SHARE_WIRE_SECRET.
+
+--apply does not place the tenant-root control-plane issuer values: it applies
+to one generic environment, and the issuer seed must reach only the
+*-tenant-root-control-plane environment. generate-github-env-values.mjs places
+them per Worker.`);
   process.exit(laneId ? 0 : 1);
 }
 
@@ -51,6 +57,21 @@ const signingWorkerServerOutput = generateX25519KeyPair();
 const signingWorkerPrivateD1Kek = generateX25519KeyPair();
 const deriverAPeer = generateEd25519KeyPair();
 const deriverBPeer = generateEd25519KeyPair();
+// R120: one versioned issuer key per deployment environment. The private seed
+// is held only by the tenant-root control-plane Worker; the public keyset is
+// the trust anchor for Router, Deriver A, and Deriver B. The id carries the
+// complete public-key hex, so it names exactly one key: 85 characters, inside
+// the 256-character issuer key id limit.
+const controlPlaneIssuer = generateEd25519KeyPair();
+const controlPlaneIssuerKeyId = `control-plane-issuer-${controlPlaneIssuer.publicKeyHex}`;
+// R120 Deriver role creation signing keys: each Deriver signs its own public
+// commitments and installation evidence. Distinct from the A/B peer signing
+// keys (the Rust loader rejects reuse) and role-local: A's seed reaches only
+// the deriver-a environment, B's only deriver-b.
+const deriverATenantRootCreation = generateEd25519KeyPair();
+const deriverBTenantRootCreation = generateEd25519KeyPair();
+const deriverATenantRootCreationKeyId = `deriver-a-tenant-root-creation-${deriverATenantRootCreation.publicKeyHex}`;
+const deriverBTenantRootCreationKeyId = `deriver-b-tenant-root-creation-${deriverBTenantRootCreation.publicKeyHex}`;
 
 const variables = {
   ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: deriverAEnvelope.publicKey,
@@ -80,6 +101,33 @@ const variables = {
   ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION: 'epoch-1',
   ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: deriverAPeer.publicKeyHex,
   ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: deriverBPeer.publicKeyHex,
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID: deriverATenantRootCreationKeyId,
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID: deriverBTenantRootCreationKeyId,
+  // Exact wire shape of TenantRootCreationRoleVerifyingKeySetWireV1 (deny_unknown_fields).
+  ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON: JSON.stringify({
+    keys: [
+      {
+        role: 'deriver_a',
+        signing_key_id: deriverATenantRootCreationKeyId,
+        verifying_key_hex: deriverATenantRootCreation.publicKeyHex,
+      },
+      {
+        role: 'deriver_b',
+        signing_key_id: deriverBTenantRootCreationKeyId,
+        verifying_key_hex: deriverBTenantRootCreation.publicKeyHex,
+      },
+    ],
+  }),
+  ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID: controlPlaneIssuerKeyId,
+  // Exact wire shape of TenantRootCreationIssuerKeySetWireV1 (deny_unknown_fields).
+  ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON: JSON.stringify({
+    keys: [
+      {
+        issuer_key_id: controlPlaneIssuerKeyId,
+        verifying_key_hex: controlPlaneIssuer.publicKeyHex,
+      },
+    ],
+  }),
 };
 
 const secrets = {
@@ -95,7 +143,32 @@ const secrets = {
   DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${deriverBTenantRootManagedBackup.privateKeyHex}`,
   SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: `hpke-x25519-server-output-private-v1:${signingWorkerServerOutput.privateKeyHex}`,
   SIGNING_WORKER_PRIVATE_D1_KEK: `hpke-x25519-server-output-private-v1:${signingWorkerPrivateD1Kek.privateKeyHex}`,
+  // base64url 32-byte Ed25519 seeds, the same encoding as the peer signing keys.
+  DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY: deriverATenantRootCreation.signingSeedB64u,
+  DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY: deriverBTenantRootCreation.signingSeedB64u,
+  TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY: controlPlaneIssuer.signingSeedB64u,
 };
+
+// R120 control-plane values are NOT applied by this low-level generator.
+// The issuer private seed must reach only the *-tenant-root-control-plane
+// GitHub Environment, and this script derives one generic environment name for
+// every value it applies. generate-github-env-values.mjs is topology-aware and
+// places these into the correct per-Worker environments.
+// The Deriver role creation seeds are role-local for the same reason: this
+// script applies every value to one environment, which would place A's and
+// B's seeds together.
+const CONTROL_PLANE_OUTPUT_ONLY_VARIABLES = [
+  'ROUTER_AB_DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
+  'ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
+  'ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
+  'ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID',
+  'ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
+];
+const CONTROL_PLANE_OUTPUT_ONLY_SECRETS = [
+  'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY',
+  'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY',
+  'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY',
+];
 
 const output = {
   lane: laneId,
@@ -104,10 +177,16 @@ const output = {
   variables,
   secrets: showSecrets ? secrets : redactObject(secrets),
   notGenerated: ['DERIVER_A_ROOT_SHARE_WIRE_SECRET', 'DERIVER_B_ROOT_SHARE_WIRE_SECRET'],
+  notApplied: [...CONTROL_PLANE_OUTPUT_ONLY_VARIABLES, ...CONTROL_PLANE_OUTPUT_ONLY_SECRETS],
 };
 
 if (apply) {
-  applyGithubEnvironmentValues(environmentName, variables, secrets, repo);
+  applyGithubEnvironmentValues(
+    environmentName,
+    omitKeys(variables, CONTROL_PLANE_OUTPUT_ONLY_VARIABLES),
+    omitKeys(secrets, CONTROL_PLANE_OUTPUT_ONLY_SECRETS),
+    repo,
+  );
 }
 
 if (json) {
@@ -149,6 +228,10 @@ function generateEd25519KeyPair() {
     publicKeyHex: publicBytes.toString('hex'),
     signingSeedB64u: encodeBase64Url(seedBytes),
   };
+}
+
+function omitKeys(values, omitted) {
+  return Object.fromEntries(Object.entries(values).filter(([name]) => !omitted.includes(name)));
 }
 
 function applyGithubEnvironmentValues(environmentName, vars, secretValues, repoName) {
@@ -209,6 +292,11 @@ function printHumanOutput(data, options) {
   }
   console.log('\nNot generated by this command:');
   for (const name of data.notGenerated) {
+    console.log(`- ${name}`);
+  }
+  console.log('\nNot applied by --apply (placed per-Worker by generate-github-env-values.mjs;');
+  console.log('the issuer seed belongs only in the tenant-root-control-plane environment):');
+  for (const name of data.notApplied) {
     console.log(`- ${name}`);
   }
 }

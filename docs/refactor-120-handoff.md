@@ -39,6 +39,14 @@ and dormant persistence foundation is substantially built:
   tenant, root, role, and epoch fields;
 - exact R103F integration through the final `dev` cutover.
 
+The current uncommitted trust-boundary slice has renamed the public issuer
+anchor to `TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON`, added the
+private issuer binding name, permitted the public anchor in both Derivers, and
+added focused ownership-matrix tests. It has also started
+`CloudflareWorkerRoleV1::TenantRootControlPlane`. The public anchor is currently
+permitted and pinned in Derivers; it becomes required only when the Deriver
+command verifier reads it.
+
 The last completed slice reconstructs an online provider artifact from a
 validated active D1 row:
 
@@ -67,7 +75,44 @@ still editing the worktree.
 
 Do these in order. Keep each slice compiling before moving on.
 
-### 1. Refresh activation admission
+### 1. Control-plane issuer and verifier trust anchors
+
+Finish the `CloudflareWorkerRoleV1::TenantRootControlPlane` branch and add one
+internal `router-ab-tenant-root-control-plane` Worker. Use the existing Worker
+role enum so every role-sensitive match makes an explicit allow/deny decision;
+do not introduce a parallel role enum or boolean exception. The Worker owns the
+routine R120 issuer private key through the Secret binding named by
+`TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING`; no other Worker may
+receive that secret or binding. The Router calls it through a
+`TENANT_ROOT_CONTROL_PLANE` service binding. Give the issuer Worker a direct
+external `ROUTER_TENANT_ROOT_CREATION_DO` binding so it reads authoritative
+state instead of trusting Router-supplied lifecycle fields.
+
+The issuer must validate exact tenant authorization and construct canonical
+capabilities, role commands, refresh commands, and activation receipts from the
+persisted DO state. Do not expose a raw-payload signing method.
+
+Rename the public trust anchor to
+`TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON`, require it in Router and
+both Derivers, and keep it absent from SigningWorker. Delete the old
+Router-prefixed symbol and configuration rather than retaining a compatibility
+alias. Each Deriver must decode and verify the signed command package locally,
+using its locally configured expected role and authority.
+
+Do not retain a `RETIRED_*` constant or special parser for the old environment
+name. Once the new keyset reader is required, an old-only deployment fails
+closed because the required new trust anchor is missing.
+
+Add focused boot/configuration tests proving:
+
+- the issuer private-key binding is accepted only by the control-plane Worker;
+- Router and both Derivers require the bounded public keyset;
+- SigningWorker rejects the public keyset and every non-issuer Worker rejects
+  issuer private-key material;
+- unknown, substituted, or retired issuer key IDs fail closed; and
+- the issuer rejects stale revisions and caller-assembled payloads.
+
+### 2. Refresh activation admission
 
 Finish the smallest authenticated refresh-only activation boundary in:
 
@@ -83,7 +128,7 @@ atomically. Exact replay returns the same admission; changed receipt or
 revision fails closed. Do not update the active epoch until both role-private
 D1 mutations have committed.
 
-### 2. Self-contained Router-attested role command
+### 3. Self-contained issuer-authenticated role command
 
 `TenantRootRoleCreationCommandV1` already signs the operation, identity,
 lineage, Started-journal digest, context digest, role, session, nonce,
@@ -101,7 +146,7 @@ Primary files:
 - `crates/router-ab-core/src/derivation/tenant_root_creation_role_command.rs`
 - `crates/router-ab-core/tests/tenant_root_creation_role_command.rs`
 
-### 3. Live role-separated creation
+### 4. Live role-separated creation
 
 Wire a private bounded call graph:
 
@@ -119,17 +164,20 @@ scalars.
 Expected small source boundary:
 
 - `crates/router-ab-cloudflare/src/paths.rs`
-- `crates/router-ab-cloudflare/src/strict_worker/router.rs`
 - `crates/router-ab-cloudflare/src/strict_worker/deriver.rs`
 - `crates/router-ab-cloudflare/src/durable_object/tenant_root_creation.rs`
-- the Deriver-to-Router service binding in the relevant Wrangler manifest
+- both Deriver Wrangler manifests
 
-Use service bindings and existing internal-service authentication. Carry only
-plain structured-clone/JSON public wires. The first role attempt that returns
-before the commitment pair is complete is burned; never persist a scalar to
-make it resumable.
+Give each Deriver a direct external `ROUTER_TENANT_ROOT_CREATION_DO` namespace
+binding whose environment-specific `script_name` names the Router Worker. Keep
+the Durable Object class, namespace, migration, and storage owned by the Router
+manifest. Do not add a Deriver-to-Router proxy route. Carry only bounded
+canonical public wires. The DO independently verifies every signed command,
+role, authority, revision, and public-evidence mutation. The first role attempt
+that returns before the commitment pair is complete is burned; never persist a
+scalar to make it resumable.
 
-### 4. ECDSA V2 production boundary
+### 5. ECDSA V2 production boundary
 
 Add and then cut over the ECDSA request boundary so
 `StableTenantDerivationContextV2` is the only threshold-PRF input and
@@ -148,7 +196,7 @@ PRF bytes. Prove:
 Keep existing durable `RootShareEpoch` fields for already-created ECDSA wallet
 material. Do not translate them into `TenantRootShareEpoch`.
 
-### 5. Deletion and broader cutover
+### 6. Deletion and broader cutover
 
 Remove deployment-wide root-share Secret bindings only after the live ECDSA
 path and the Phase 0-approved Ed25519 V2 path both use tenant roots. The
@@ -163,6 +211,10 @@ the Phase 5 release matrix.
 
 - Keep A/B scalars role-local and zeroizing. Public commitments may meet;
   secrets may not.
+- Keep the routine issuer private key exclusive to the dedicated control-plane
+  Worker. Router and Derivers hold only its public verifying keyset.
+- Treat direct external Durable Object bindings as reachability. Every mutation
+  remains authorized by exact signed inputs and authoritative object state.
 - Use exact canonical bytes for signatures, replay digests, D1 receipts, and DO
   checkpoints. Never reconstruct a signed payload from a looser record.
 - D1 mutation and the command `executed` checkpoint are one atomic batch.

@@ -19,6 +19,7 @@ type BackendResources = {
   readonly deriverA: Readonly<Record<string, unknown>>;
   readonly deriverB: Readonly<Record<string, unknown>>;
   readonly signingWorker: Readonly<Record<string, unknown>>;
+  readonly tenantRootControlPlane: Readonly<Record<string, unknown>>;
 };
 
 type GatewayDeploymentConfig = {
@@ -318,6 +319,7 @@ test('required secrets are derived from enabled capabilities', async () => {
     'DERIVER_A_ROLE_PRIVATE_D1_KEK',
     'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
     'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+    'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY',
   ]);
 
   const mainnet = targets.backendLanes['production-mainnet'];

@@ -168,6 +168,7 @@ mod tests {
         deriver_a_calls: usize,
         deriver_b_calls: usize,
         signing_worker_calls: usize,
+        tenant_root_control_plane_calls: usize,
     }
 
     impl CountingServiceTransport {
@@ -177,6 +178,9 @@ mod tests {
                 CloudflareWorkerRoleV1::DeriverA => self.deriver_a_calls += 1,
                 CloudflareWorkerRoleV1::DeriverB => self.deriver_b_calls += 1,
                 CloudflareWorkerRoleV1::SigningWorker => self.signing_worker_calls += 1,
+                CloudflareWorkerRoleV1::TenantRootControlPlane => {
+                    self.tenant_root_control_plane_calls += 1
+                }
             }
         }
     }

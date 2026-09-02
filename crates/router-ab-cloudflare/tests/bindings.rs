@@ -51,9 +51,11 @@ use router_ab_cloudflare::{
     parse_cloudflare_signer_envelope_hpke_decrypt_key_binding_v1,
     parse_cloudflare_signer_envelope_hpke_public_key_set_v1,
     parse_cloudflare_signer_envelope_hpke_rotation_public_key_set_v1,
-    parse_cloudflare_signing_worker_bindings_v1, parse_cloudflare_worker_bindings_v1,
-    seal_cloudflare_signer_envelope_hpke_payload_v1, validate_cloudflare_deriver_peer_request_v1,
-    validate_cloudflare_deriver_peer_response_v1,
+    parse_cloudflare_signing_worker_bindings_v1,
+    parse_cloudflare_tenant_root_control_plane_bindings_v1,
+    parse_cloudflare_tenant_root_control_plane_issuer_signing_key_binding_v1,
+    parse_cloudflare_worker_bindings_v1, seal_cloudflare_signer_envelope_hpke_payload_v1,
+    validate_cloudflare_deriver_peer_request_v1, validate_cloudflare_deriver_peer_response_v1,
     validate_cloudflare_peer_signing_key_matches_request_v1,
     validate_cloudflare_router_ab_ecdsa_derivation_activation_refresh_request_for_router_payload_v1,
     validate_cloudflare_router_ab_ecdsa_derivation_export_request_for_router_payload_v1,
@@ -138,9 +140,9 @@ use router_ab_cloudflare::{
     CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1,
     CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1,
     CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1,
-    CloudflareSigningWorkerRuntimeV1, CloudflareWorkerBindingsV1, CloudflareWorkerRoleV1,
-    EcdsaVerifiedClientActivationFactsV1, PoolRecord, TombstoneReason,
-    CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1,
+    CloudflareSigningWorkerRuntimeV1, CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
+    CloudflareWorkerBindingsV1, CloudflareWorkerRoleV1, EcdsaVerifiedClientActivationFactsV1,
+    PoolRecord, TombstoneReason, CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1,
     CLOUDFLARE_SERVER_OUTPUT_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1,
     CLOUDFLARE_SIGNER_ENVELOPE_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1,
     DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV, DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -161,6 +163,7 @@ use router_ab_cloudflare::{
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH_ENV,
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING_ENV,
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY_ENV,
+    TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
 };
 use router_ab_core::{
     ab_peer_message_authentication_input_digest_v1, decode_recipient_proof_bundle_ciphertext_v1,
@@ -766,6 +769,7 @@ fn router_runtime() -> CloudflareRouterWorkerRuntimeV1 {
             peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
             peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
             peer(CloudflareWorkerRoleV1::SigningWorker, "SIGNING_WORKER"),
+            issuer_verifying_keys(),
         )
         .expect("router bindings"),
     )
@@ -788,6 +792,7 @@ fn router_runtime_with_project_policy(
             peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
             peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
             peer(CloudflareWorkerRoleV1::SigningWorker, "SIGNING_WORKER"),
+            issuer_verifying_keys(),
         )
         .expect("router bindings"),
     )
@@ -2517,8 +2522,28 @@ fn configured_project_policy_json(allowed_work_kinds: &str, allow_normal_signing
     )
 }
 
+/// The published control-plane issuer anchor every verifier Worker requires.
+static ISSUER_VERIFYING_KEYS_JSON: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let verifying = SigningKey::from_bytes(&[0x51; 32])
+        .verifying_key()
+        .to_bytes();
+    let hex: String = verifying.iter().map(|byte| format!("{byte:02x}")).collect();
+    format!(
+        "{{\"keys\":[{{\"issuer_key_id\":\"control-plane-issuer-v1\",\"verifying_key_hex\":\"{hex}\"}}]}}"
+    )
+});
+
+fn issuer_verifying_keys() -> CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1 {
+    CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1::decode(&ISSUER_VERIFYING_KEYS_JSON)
+        .expect("issuer verifying keys")
+}
+
 fn router_env() -> CloudflareEnvMapV1 {
     CloudflareEnvMapV1::new(vec![
+        (
+            TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+            ISSUER_VERIFYING_KEYS_JSON.as_str(),
+        ),
         (ROUTER_JWT_ISSUER_ENV, "https://issuer.example"),
         (ROUTER_JWT_AUDIENCE_ENV, "router-ab"),
         (ROUTER_JWT_JWKS_JSON_ENV, test_router_jwks_json()),
@@ -2530,6 +2555,10 @@ fn router_env() -> CloudflareEnvMapV1 {
 
 fn router_env_with_public_keyset() -> CloudflareEnvMapV1 {
     CloudflareEnvMapV1::new(vec![
+        (
+            TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+            ISSUER_VERIFYING_KEYS_JSON.as_str(),
+        ),
         (ROUTER_JWT_ISSUER_ENV, "https://issuer.example"),
         (ROUTER_JWT_AUDIENCE_ENV, "router-ab"),
         (ROUTER_JWT_JWKS_JSON_ENV, test_router_jwks_json()),
@@ -2590,6 +2619,10 @@ fn router_admission_bindings() -> CloudflareRouterAdmissionBindingsV1 {
 fn deriver_a_env() -> CloudflareEnvMapV1 {
     CloudflareEnvMapV1::new(vec![
         (
+            TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+            ISSUER_VERIFYING_KEYS_JSON.to_string(),
+        ),
+        (
             DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
             "DERIVER_A_ROOT_SHARE_WIRE_SECRET".to_string(),
         ),
@@ -2627,6 +2660,10 @@ fn deriver_a_env() -> CloudflareEnvMapV1 {
 
 fn deriver_b_env() -> CloudflareEnvMapV1 {
     CloudflareEnvMapV1::new(vec![
+        (
+            TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+            ISSUER_VERIFYING_KEYS_JSON.to_string(),
+        ),
         (
             DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
             "DERIVER_B_ROOT_SHARE_WIRE_SECRET".to_string(),
@@ -2699,6 +2736,7 @@ fn router_bindings_accept_stateless_router_peers() {
         peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
         peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
         peer(CloudflareWorkerRoleV1::SigningWorker, "SIGNING_WORKER"),
+        issuer_verifying_keys(),
     )
     .expect("router bindings");
     let startup = CloudflareWorkerBindingsV1::router(bindings).expect("router startup");
@@ -2807,6 +2845,7 @@ fn router_worker_runtime_normalizes_public_request_into_admission_plan() {
             peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
             peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
             peer(CloudflareWorkerRoleV1::SigningWorker, "SIGNING_WORKER"),
+            issuer_verifying_keys(),
         )
         .expect("router bindings"),
     )
@@ -2843,6 +2882,7 @@ fn router_worker_runtime_builds_forward_plan_for_accepted_admission() {
             peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
             peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
             peer(CloudflareWorkerRoleV1::SigningWorker, "SIGNING_WORKER"),
+            issuer_verifying_keys(),
         )
         .expect("router bindings"),
     )
@@ -2878,6 +2918,7 @@ fn router_worker_runtime_builds_stop_plan_for_rejected_admission() {
             peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
             peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
             peer(CloudflareWorkerRoleV1::SigningWorker, "SIGNING_WORKER"),
+            issuer_verifying_keys(),
         )
         .expect("router bindings"),
     )
@@ -4012,6 +4053,7 @@ fn router_runtime_project_policy_rejects_identity_mismatch() {
             peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
             peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
             peer(CloudflareWorkerRoleV1::SigningWorker, "SIGNING_WORKER"),
+            issuer_verifying_keys(),
         )
         .expect("router bindings"),
     )
@@ -7711,6 +7753,7 @@ fn router_worker_runtime_rejects_expired_public_request() {
             peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
             peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
             peer(CloudflareWorkerRoleV1::SigningWorker, "SIGNING_WORKER"),
+            issuer_verifying_keys(),
         )
         .expect("router bindings"),
     )
@@ -7736,6 +7779,7 @@ fn deriver_a_bindings_accept_role_private_secrets() {
         deriver_a_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
+        issuer_verifying_keys(),
     )
     .expect("signer a bindings");
     let startup = CloudflareWorkerBindingsV1::deriver_a(bindings).expect("signer a startup");
@@ -7764,6 +7808,7 @@ fn deriver_a_bindings_reject_b_root_share_wire_secret() {
         deriver_a_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
+        issuer_verifying_keys(),
     )
     .expect_err("signer a must reject signer b root-share wire secret");
 
@@ -7778,6 +7823,7 @@ fn deriver_a_bindings_reject_b_envelope_decrypt_key() {
         deriver_a_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
+        issuer_verifying_keys(),
     )
     .expect_err("signer a must reject signer b decrypt key");
 
@@ -7792,6 +7838,7 @@ fn deriver_a_bindings_reject_b_peer_signing_key() {
         deriver_b_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
+        issuer_verifying_keys(),
     )
     .expect_err("signer a must reject signer b peer signing key");
 
@@ -7806,6 +7853,7 @@ fn deriver_b_bindings_accept_role_private_secrets() {
         deriver_b_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
+        issuer_verifying_keys(),
     )
     .expect("signer b bindings");
     let startup = CloudflareWorkerBindingsV1::deriver_b(bindings).expect("signer b startup");
@@ -7821,6 +7869,7 @@ fn deriver_b_bindings_reject_a_root_share_wire_secret() {
         deriver_b_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
+        issuer_verifying_keys(),
     )
     .expect_err("signer b must reject signer a root-share wire secret");
 
@@ -7835,6 +7884,7 @@ fn deriver_b_bindings_reject_a_envelope_decrypt_key() {
         deriver_b_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
+        issuer_verifying_keys(),
     )
     .expect_err("signer b must reject signer a decrypt key");
 
@@ -7849,6 +7899,7 @@ fn deriver_b_bindings_reject_a_peer_signing_key() {
         deriver_a_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
+        issuer_verifying_keys(),
     )
     .expect_err("signer b must reject signer a peer signing key");
 
@@ -7885,6 +7936,7 @@ fn deriver_a_runtime_exposes_role_private_secrets_and_peer() {
             deriver_a_peer_signing_key(),
             cloudflare_peer_verifying_key_set(),
             peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
+            issuer_verifying_keys(),
         )
         .expect("signer a bindings"),
     )
@@ -7933,6 +7985,7 @@ fn deriver_b_runtime_exposes_role_private_secrets_and_peer() {
             deriver_b_peer_signing_key(),
             cloudflare_peer_verifying_key_set(),
             peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
+            issuer_verifying_keys(),
         )
         .expect("signer b bindings"),
     )
@@ -9270,4 +9323,320 @@ fn env_parser_rejects_deriver_b_env_with_server_output_key() {
         .expect_err("signer b env must reject server-output key");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
+}
+
+// --- R120 tenant-root control-plane Worker ---------------------------------
+//
+// | Material                        | Owner                             |
+// |---------------------------------|-----------------------------------|
+// | issuer private signing key      | control-plane Worker only         |
+// | issuer public verifying keyset  | Router, Deriver A, Deriver B      |
+
+fn tenant_root_control_plane_env() -> CloudflareEnvMapV1 {
+    CloudflareEnvMapV1::new(vec![
+        (
+            router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID_ENV,
+            "control-plane-issuer-v1".to_string(),
+        ),
+        (
+            router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
+            "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY".to_string(),
+        ),
+        (
+            TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+            ISSUER_VERIFYING_KEYS_JSON.to_string(),
+        ),
+    ])
+}
+
+#[test]
+fn control_plane_bindings_parse_and_describe_only_the_issuer_secret() {
+    let bindings =
+        parse_cloudflare_tenant_root_control_plane_bindings_v1(&tenant_root_control_plane_env())
+            .expect("control-plane bindings");
+    assert_eq!(
+        bindings.issuer_signing_key.signing_key_id(),
+        "control-plane-issuer-v1"
+    );
+    assert_eq!(
+        bindings.issuer_signing_key.binding_name(),
+        "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY"
+    );
+    // The issuer holds its own published anchor so it can prove at boot that
+    // its Secret derives the key registered under its active id.
+    assert!(bindings
+        .issuer_verifying_keys
+        .for_issuer_key_id("control-plane-issuer-v1")
+        .is_some());
+
+    let parsed = parse_cloudflare_worker_bindings_v1(
+        CloudflareWorkerRoleV1::TenantRootControlPlane,
+        &tenant_root_control_plane_env(),
+    )
+    .expect("worker bindings");
+    assert_eq!(
+        parsed.worker_role(),
+        CloudflareWorkerRoleV1::TenantRootControlPlane
+    );
+    assert!(matches!(
+        parsed,
+        router_ab_cloudflare::CloudflareWorkerBindingsV1::TenantRootControlPlane { .. }
+    ));
+}
+
+#[test]
+fn issuer_signing_secret_is_accepted_only_by_the_control_plane_worker() {
+    // The parser itself refuses every other role before reading Env.
+    for worker_role in [
+        CloudflareWorkerRoleV1::Router,
+        CloudflareWorkerRoleV1::DeriverA,
+        CloudflareWorkerRoleV1::DeriverB,
+        CloudflareWorkerRoleV1::SigningWorker,
+    ] {
+        let err = parse_cloudflare_tenant_root_control_plane_issuer_signing_key_binding_v1(
+            worker_role,
+            &tenant_root_control_plane_env(),
+        )
+        .expect_err("only the control plane may parse the issuer signing secret");
+        assert_eq!(
+            err.code(),
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "{}",
+            worker_role.as_str()
+        );
+    }
+
+    // And every other Worker's own startup parser rejects the binding at boot.
+    for worker_role in [
+        CloudflareWorkerRoleV1::Router,
+        CloudflareWorkerRoleV1::DeriverA,
+        CloudflareWorkerRoleV1::DeriverB,
+        CloudflareWorkerRoleV1::SigningWorker,
+    ] {
+        let env = CloudflareEnvMapV1::new(vec![(
+            router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
+            "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY",
+        )]);
+        let err = parse_cloudflare_worker_bindings_v1(worker_role, &env)
+            .expect_err("non-issuer Workers must reject the issuer private binding");
+        assert_eq!(
+            err.code(),
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "{}",
+            worker_role.as_str()
+        );
+    }
+}
+
+#[test]
+fn control_plane_rejects_every_scalar_and_router_auth_config() {
+    for (key, value) in [
+        // Deriver scalar and Secret material.
+        (
+            DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
+            "DERIVER_A_ROOT_SHARE_WIRE_SECRET",
+        ),
+        (
+            DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
+            "DERIVER_B_ROOT_SHARE_WIRE_SECRET",
+        ),
+        (
+            DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+            "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY",
+        ),
+        (
+            DERIVER_B_PEER_SIGNING_KEY_BINDING_ENV,
+            "DERIVER_B_PEER_SIGNING_KEY",
+        ),
+        (
+            router_ab_cloudflare::DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_BINDING_ENV,
+            "DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY",
+        ),
+        (
+            router_ab_cloudflare::DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING_ENV,
+            "DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY",
+        ),
+        // SigningWorker material.
+        (
+            SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING_ENV,
+            "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY",
+        ),
+        // Router authorization configuration: the issuer validates from
+        // authenticated capabilities and DO state, never raw credentials.
+        (ROUTER_JWT_ISSUER_ENV, "https://issuer.example"),
+        (ROUTER_JWT_JWKS_JSON_ENV, "{}"),
+        (ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV, "{}"),
+    ] {
+        let mut entries = vec![
+            (
+                router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID_ENV,
+                "control-plane-issuer-v1",
+            ),
+            (
+                router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
+                "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY",
+            ),
+        ];
+        entries.push((key, value));
+        let err = parse_cloudflare_worker_bindings_v1(
+            CloudflareWorkerRoleV1::TenantRootControlPlane,
+            &CloudflareEnvMapV1::new(entries),
+        )
+        .expect_err("control plane must reject foreign material");
+        assert_eq!(
+            err.code(),
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "{key}"
+        );
+    }
+}
+
+#[test]
+fn control_plane_requires_its_active_issuer_key_id_to_be_published() {
+    // Missing anchor: the issuer cannot boot without its own published set.
+    let mut entries: Vec<(&str, String)> = vec![
+        (
+            router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID_ENV,
+            "control-plane-issuer-v1".to_string(),
+        ),
+        (
+            router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
+            "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY".to_string(),
+        ),
+    ];
+    parse_cloudflare_worker_bindings_v1(
+        CloudflareWorkerRoleV1::TenantRootControlPlane,
+        &CloudflareEnvMapV1::new(entries.clone()),
+    )
+    .expect_err("issuer requires its published anchor");
+
+    // An anchor that does not publish the active key id fails closed: an issuer
+    // signing under an unpublished id could never be verified.
+    entries.push((
+        TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+        ISSUER_VERIFYING_KEYS_JSON.to_string(),
+    ));
+    let mut foreign = entries.clone();
+    foreign[0].1 = "control-plane-issuer-unpublished".to_string();
+    let err = parse_cloudflare_worker_bindings_v1(
+        CloudflareWorkerRoleV1::TenantRootControlPlane,
+        &CloudflareEnvMapV1::new(foreign),
+    )
+    .expect_err("unpublished active key id");
+    assert_eq!(
+        err.code(),
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+    );
+
+    // A malformed anchor fails at boot, not at first verification.
+    let mut malformed = entries.clone();
+    malformed[2].1 = "{\"keys\":[]}".to_string();
+    parse_cloudflare_worker_bindings_v1(
+        CloudflareWorkerRoleV1::TenantRootControlPlane,
+        &CloudflareEnvMapV1::new(malformed),
+    )
+    .expect_err("empty published set");
+
+    // The matching configuration parses.
+    parse_cloudflare_worker_bindings_v1(
+        CloudflareWorkerRoleV1::TenantRootControlPlane,
+        &CloudflareEnvMapV1::new(entries),
+    )
+    .expect("published active issuer key id");
+}
+
+#[test]
+fn control_plane_issuer_binding_must_be_control_plane_scoped_and_complete() {
+    // Missing key ID.
+    let err =
+        parse_cloudflare_tenant_root_control_plane_bindings_v1(&CloudflareEnvMapV1::new(vec![(
+            router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
+            "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY",
+        )]))
+        .expect_err("key id is required");
+    assert_ne!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
+
+    // Missing binding name.
+    parse_cloudflare_tenant_root_control_plane_bindings_v1(&CloudflareEnvMapV1::new(vec![(
+        router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID_ENV,
+        "control-plane-issuer-v1",
+    )]))
+    .expect_err("binding name is required");
+
+    // A binding name that is not control-plane scoped: an operator must not be
+    // able to point the issuer at a Deriver's or Router's Secret.
+    for foreign in [
+        "DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY",
+        "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET",
+        "ISSUER_SIGNING_KEY",
+    ] {
+        let err =
+            parse_cloudflare_tenant_root_control_plane_bindings_v1(&CloudflareEnvMapV1::new(vec![
+                (
+                    router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID_ENV,
+                    "control-plane-issuer-v1",
+                ),
+                (
+                    router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
+                    foreign,
+                ),
+            ]))
+            .expect_err("foreign binding name must be rejected");
+        assert_eq!(
+            err.code(),
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "{foreign}"
+        );
+    }
+}
+
+#[test]
+fn every_verifier_worker_requires_the_published_issuer_anchor_at_boot() {
+    // A signed creation command is verified at each Worker's own boundary, so a
+    // missing or malformed anchor must fail the Worker at startup rather than
+    // at first verification.
+    for (worker_role, env) in [
+        (CloudflareWorkerRoleV1::Router, router_env()),
+        (CloudflareWorkerRoleV1::DeriverA, deriver_a_env()),
+        (CloudflareWorkerRoleV1::DeriverB, deriver_b_env()),
+    ] {
+        parse_cloudflare_worker_bindings_v1(worker_role, &env)
+            .expect("published anchor parses at boot");
+
+        let without: Vec<(String, String)> = env
+            .entries()
+            .iter()
+            .filter(|(key, _)| {
+                key.as_str() != TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        parse_cloudflare_worker_bindings_v1(worker_role, &CloudflareEnvMapV1::new(without.clone()))
+            .expect_err("missing published anchor must fail closed");
+
+        for malformed in [
+            "",
+            "{}",
+            "not json",
+            "{\"keys\":[]}",
+            // Not a valid Ed25519 point.
+            "{\"keys\":[{\"issuer_key_id\":\"k\",\"verifying_key_hex\":\"00000000000000000000000000000000000000000000000000000000000000ff\"}]}",
+            // Duplicated issuer key id.
+            "{\"keys\":[{\"issuer_key_id\":\"k\",\"verifying_key_hex\":\"0000000000000000000000000000000000000000000000000000000000000000\"},{\"issuer_key_id\":\"k\",\"verifying_key_hex\":\"0000000000000000000000000000000000000000000000000000000000000000\"}]}",
+            // Unknown field: the wire denies them.
+            "{\"keys\":[],\"extra\":1}",
+        ] {
+            let mut entries = without.clone();
+            entries.push((
+                TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV.to_string(),
+                malformed.to_string(),
+            ));
+            assert!(
+                parse_cloudflare_worker_bindings_v1(worker_role, &CloudflareEnvMapV1::new(entries))
+                    .is_err(),
+                "{} must reject a malformed published anchor",
+                worker_role.as_str()
+            );
+        }
+    }
 }

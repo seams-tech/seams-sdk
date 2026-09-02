@@ -9,6 +9,15 @@ pub const CLOUDFLARE_ROUTER_PUBLIC_KEYSET_WELL_KNOWN_PATH: &str = "/.well-known/
 pub const CLOUDFLARE_ROUTER_PUBLIC_KEYSET_PATH: &str = "/router-ab/keyset";
 /// Authenticated internal endpoint that initializes one deployed Worker isolate.
 pub const CLOUDFLARE_INTERNAL_PREWARM_PATH: &str = "/internal/prewarm";
+/// Tenant-root control-plane issuer operation: mint one role creation command.
+///
+/// Private, internal-service-authenticated. The request names only an
+/// identity, a custody lineage, and a role; every other command field is
+/// derived by the issuer from authoritative Durable Object state and its own
+/// local key configuration, so a caller cannot select authority, revision,
+/// session, nonce, time window, or signing key.
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_PRIVATE_REQUEST_PATH: &str =
+    "/tenant-root-control-plane/creation/v1/role-command";
 /// Public Router endpoint for normal signing through the active SigningWorker.
 pub const CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH: &str = "/router-ab/ed25519/sign";
 /// Public Router endpoint for preparing normal-signing round-1 material.
@@ -273,12 +282,12 @@ fn cloudflare_deriver_peer_url(
     match peer.peer_role {
         CloudflareWorkerRoleV1::DeriverA => Ok(deriver_a_url),
         CloudflareWorkerRoleV1::DeriverB => Ok(deriver_b_url),
-        CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker => {
-            Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                message,
-            ))
-        }
+        CloudflareWorkerRoleV1::Router
+        | CloudflareWorkerRoleV1::SigningWorker
+        | CloudflareWorkerRoleV1::TenantRootControlPlane => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            message,
+        )),
     }
 }
 
@@ -292,7 +301,8 @@ fn cloudflare_signing_worker_url(
         CloudflareWorkerRoleV1::SigningWorker => Ok(service_url),
         CloudflareWorkerRoleV1::Router
         | CloudflareWorkerRoleV1::DeriverA
-        | CloudflareWorkerRoleV1::DeriverB => Err(RouterAbProtocolError::new(
+        | CloudflareWorkerRoleV1::DeriverB
+        | CloudflareWorkerRoleV1::TenantRootControlPlane => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
             message,
         )),

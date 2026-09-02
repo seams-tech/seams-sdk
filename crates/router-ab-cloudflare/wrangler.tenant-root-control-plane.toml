@@ -1,0 +1,58 @@
+name = "router-ab-tenant-root-control-plane"
+main = "build/tenant-root-control-plane/worker/shim.mjs"
+compatibility_date = "2026-06-12"
+workers_dev = false
+
+[build]
+command = "cargo install -q worker-build --version 0.8.4 && bash ./scripts/build-strict-worker.sh tenant-root-control-plane"
+
+# The control plane reads authoritative tenant-root lifecycle state directly
+# from the Router-owned creation Durable Object. Class, namespace, migrations
+# and storage stay owned by the Router manifest; this is an external binding.
+[[durable_objects.bindings]]
+name = "ROUTER_TENANT_ROOT_CREATION_DO"
+class_name = "RouterAbTenantRootCreationDurableObject"
+script_name = "router-ab-mpc-router"
+
+[vars]
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
+TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING = "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY"
+TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID = "control-plane-issuer-v1"
+
+[env.staging]
+name = "router-ab-tenant-root-control-plane-staging"
+workers_dev = false
+
+[[env.staging.durable_objects.bindings]]
+name = "ROUTER_TENANT_ROOT_CREATION_DO"
+class_name = "RouterAbTenantRootCreationDurableObject"
+script_name = "router-ab-mpc-router-staging"
+
+[env.staging.vars]
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
+TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING = "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY"
+TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID = "control-plane-issuer-v1"
+
+[env.production-testnet]
+name = "router-ab-tenant-root-control-plane-testnet"
+workers_dev = false
+
+[[env.production-testnet.durable_objects.bindings]]
+name = "ROUTER_TENANT_ROOT_CREATION_DO"
+class_name = "RouterAbTenantRootCreationDurableObject"
+script_name = "router-ab-mpc-router-testnet"
+
+[env.production-testnet.vars]
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
+TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING = "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY"
+TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID = "control-plane-issuer-v1"
+
+[observability]
+enabled = true
+  [observability.logs]
+  enabled = true
+  head_sampling_rate = 1
+  invocation_logs = true
+  [observability.traces]
+  enabled = true
+  head_sampling_rate = 1

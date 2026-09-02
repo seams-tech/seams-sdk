@@ -5977,19 +5977,20 @@ mod tests {
     use router_ab_core::{
         resolve_active_tenant_root_pair_binding_v1, MpcPrfSigningRootShareWireV1,
         RouterAbDerivationError, StableTenantDerivationContextV2,
-        TenantRootAcceptedPermanentLossAuthorizationBindingV1, TenantRootActivationReceiptTransitionV1,
-        TenantRootActiveRoleBindingV1, TenantRootActiveRoleResolutionV1,
-        TenantRootActiveRoleRowKeyV1, TenantRootBackupPolicyV1, TenantRootCanaryCurveFamilyV1,
-        TenantRootCanaryReceiptsV1, TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1,
-        TenantRootControlPlaneAuthorityIdV1, TenantRootCreationJournalV1,
-        TenantRootDerivationNonceV1, TenantRootDerivationOperationIdV1,
-        TenantRootDerivationSessionIdV1, TenantRootDeriverIdentitiesV1, TenantRootEmptyCreationV1,
-        TenantRootManagedBackupBindingV1, TenantRootManagedBackupSealRequestV1,
-        TenantRootOnlineRoleShareBindingV1, TenantRootOnlineRoleShareSealRequestV1,
-        TenantRootProviderCanaryReceiptBindingV1, TenantRootRoleBackupReceiptsV1,
-        TenantRootRoleCreationCommandV1, TenantRootRoleInstallationReceiptsV1,
-        TenantRootRoleRefreshCommandV1, TenantRootSealedOnlineRoleShareV1,
-        TenantRootShareInstallationEvidenceV1, TenantRootShareInstallationTranscriptV1,
+        TenantRootAcceptedPermanentLossAuthorizationBindingV1,
+        TenantRootActivationReceiptTransitionV1, TenantRootActiveRoleBindingV1,
+        TenantRootActiveRoleResolutionV1, TenantRootActiveRoleRowKeyV1, TenantRootBackupPolicyV1,
+        TenantRootCanaryCurveFamilyV1, TenantRootCanaryReceiptsV1, TenantRootCeremonyContextV1,
+        TenantRootCeremonyEpochsV1, TenantRootControlPlaneAuthorityIdV1,
+        TenantRootCreationJournalV1, TenantRootDerivationNonceV1,
+        TenantRootDerivationOperationIdV1, TenantRootDerivationSessionIdV1,
+        TenantRootDeriverIdentitiesV1, TenantRootEmptyCreationV1, TenantRootManagedBackupBindingV1,
+        TenantRootManagedBackupSealRequestV1, TenantRootOnlineRoleShareBindingV1,
+        TenantRootOnlineRoleShareSealRequestV1, TenantRootProviderCanaryReceiptBindingV1,
+        TenantRootRoleBackupReceiptsV1, TenantRootRoleCreationCommandV1,
+        TenantRootRoleInstallationReceiptsV1, TenantRootRoleRefreshCommandV1,
+        TenantRootSealedOnlineRoleShareV1, TenantRootShareInstallationEvidenceV1,
+        TenantRootShareInstallationTranscriptV1,
         TenantRootSignedAcceptedPermanentLossAuthorizationV1, TenantRootSignedActivationReceiptV1,
         TenantRootSignedManagedBackupV1, TenantRootSignedProviderCanaryReceiptV1,
         TenantRootSignedShareInstallationEvidenceV1,
@@ -7586,14 +7587,12 @@ mod tests {
         let expected_key_ref = pending.epoch_wrapping_key_ref().to_owned();
         let expected_evidence_digest =
             record_installation_evidence_digest(&pending).expect("installation evidence digest");
-        assert!(
-            CloudflareStoredTenantRootRoleShareV1 {
-                record: pending.clone(),
-                revision: 1,
-            }
-            .into_online_role_share_artifact()
-            .is_err()
-        );
+        assert!(CloudflareStoredTenantRootRoleShareV1 {
+            record: pending.clone(),
+            revision: 1,
+        }
+        .into_online_role_share_artifact()
+        .is_err());
         let share = SigningRootShare::from_canonical_bytes(
             TwoPartyDeriverRole::DeriverA.share_id(),
             Scalar::from(17_u64).to_bytes(),

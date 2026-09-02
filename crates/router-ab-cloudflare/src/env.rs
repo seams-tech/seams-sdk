@@ -8,7 +8,7 @@ use router_ab_core::{
     TenantRootManagedBackupSealRequestV1, TenantRootManagedRestoreRoleV1,
     TenantRootSignedManagedBackupV1, TwoPartyDeriverRole,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
@@ -111,8 +111,29 @@ pub const ROUTER_JWT_JWKS_JSON_ENV: &str = "ROUTER_JWT_JWKS_JSON";
 /// Router project-policy bootstrap JSON env key.
 pub const ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV: &str = "ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON";
 /// Retained Ed25519 issuer-key set trusted for initial tenant-root creation capabilities.
-pub const ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON_ENV: &str =
-    "ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON";
+///
+/// This is a public trust anchor owned by the tenant-root control plane, not
+/// Router configuration. The Router, Deriver A and Deriver B all require it:
+/// each verifies a signed creation command at its own boundary, because a
+/// `VerifiedTenantRootRoleCreationCommandV1` is a process-local proof token and
+/// cannot be serialized by one Worker and trusted by another. It stays
+/// forbidden in the Signing Worker, which has no tenant-root lifecycle role.
+pub const TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV: &str =
+    "TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON";
+/// Tenant-root control-plane issuer private signing-key Secret binding name.
+///
+/// Only the dedicated `tenant-root-control-plane` Worker may hold this. It is
+/// a deployment authority, versioned per environment, never a per-tenant
+/// custody secret, and is forbidden in every other Worker.
+pub const TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV: &str =
+    "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING";
+/// Tenant-root control-plane issuer signing key ID env key.
+///
+/// Names which entry of the versioned public keyset the issuer currently signs
+/// with. Retired key IDs stay in the public set for durable verification while
+/// the issuer stops signing with them.
+pub const TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID_ENV: &str =
+    "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID";
 /// Retained role signing-key set used to verify tenant-root installation evidence.
 pub const ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON_ENV: &str =
     "ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON";
@@ -181,7 +202,54 @@ pub const CLOUDFLARE_SIGNER_ENVELOPE_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1: &str =
 pub const CLOUDFLARE_SERVER_OUTPUT_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1: &str =
     "hpke-x25519-server-output-private-v1:";
 
+/// Everything the tenant-root control-plane Worker must never receive.
+///
+/// It is the sole holder of the issuer private signing key, so that binding is
+/// the one thing absent from this list. It is Router-shaped in every scalar
+/// and Secret it cannot see, and additionally cannot see Router authorization
+/// configuration: the issuer validates tenant authorization from authenticated
+/// capabilities and authoritative Durable Object state, never from raw
+/// credentials.
+pub(crate) const TENANT_ROOT_CONTROL_PLANE_FORBIDDEN_ENV_KEYS: &[&str] = &[
+    ROUTER_JWT_ISSUER_ENV,
+    ROUTER_JWT_AUDIENCE_ENV,
+    ROUTER_JWT_JWKS_JSON_ENV,
+    ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
+    SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING_ENV,
+    SIGNING_WORKER_PRESIGN_SESSION_DO_OBJECT_ENV,
+    SIGNING_WORKER_PRESIGN_SESSION_DO_KEY_PREFIX_ENV,
+    SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
+    DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
+    DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_A_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_B_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_A_PEER_SIGNING_KEY_BINDING_ENV,
+    DERIVER_A_PEER_SIGNING_KEY_EPOCH_ENV,
+    DERIVER_B_PEER_SIGNING_KEY_BINDING_ENV,
+    DERIVER_B_PEER_SIGNING_KEY_EPOCH_ENV,
+    DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_BINDING_ENV,
+    DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
+    DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_BINDING_ENV,
+    DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
+    DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF_ENV,
+    DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY_ENV,
+    DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID_ENV,
+    DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV,
+    DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV,
+    DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF_ENV,
+    DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY_ENV,
+    DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID_ENV,
+    DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV,
+    DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV,
+    DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
+];
 pub(crate) const ROUTER_FORBIDDEN_ENV_KEYS: &[&str] = &[
+    TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
     SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING_ENV,
     SIGNING_WORKER_PRESIGN_SESSION_DO_OBJECT_ENV,
     SIGNING_WORKER_PRESIGN_SESSION_DO_KEY_PREFIX_ENV,
@@ -220,7 +288,7 @@ pub(crate) const DERIVER_A_FORBIDDEN_ENV_KEYS: &[&str] = &[
     ROUTER_JWT_AUDIENCE_ENV,
     ROUTER_JWT_JWKS_JSON_ENV,
     ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
-    ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON_ENV,
+    TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
     DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
     DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
     DERIVER_B_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -246,7 +314,7 @@ pub(crate) const DERIVER_B_FORBIDDEN_ENV_KEYS: &[&str] = &[
     ROUTER_JWT_AUDIENCE_ENV,
     ROUTER_JWT_JWKS_JSON_ENV,
     ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
-    ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON_ENV,
+    TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
     DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
     SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING_ENV,
     SIGNING_WORKER_PRESIGN_SESSION_DO_OBJECT_ENV,
@@ -271,7 +339,8 @@ pub(crate) const SIGNING_WORKER_FORBIDDEN_ENV_KEYS: &[&str] = &[
     ROUTER_JWT_AUDIENCE_ENV,
     ROUTER_JWT_JWKS_JSON_ENV,
     ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
-    ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON_ENV,
+    TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+    TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
     DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
     DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
     DERIVER_A_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -355,30 +424,30 @@ impl CloudflareTenantRootOperationalRotationProviderConfigV1 {
         for (field, value) in [
             (
                 "tenant-root online epoch wrapping-key reference",
-                self.online_epoch_wrapping_key_ref.as_str(),
+                self.online_epoch_wrapping_key_ref(),
             ),
             (
                 "tenant-root managed-backup provider id",
-                self.backup_provider_id.as_str(),
+                self.backup_provider_id(),
             ),
             (
                 "tenant-root managed-backup key version",
-                self.backup_key_version.as_str(),
+                self.backup_key_version(),
             ),
         ] {
             validate_operational_descriptor(field, value)?;
         }
-        validate_operational_secret_binding_name(self.role, &self.online_secret_binding_name)?;
-        validate_operational_secret_binding_name(self.role, &self.backup_secret_binding_name)?;
+        validate_operational_secret_binding_name(self.role(), self.online_secret_binding_name())?;
+        validate_operational_secret_binding_name(self.role(), self.backup_secret_binding_name())?;
         if self.online_secret_binding_name == self.backup_secret_binding_name {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ForbiddenLocalBinding,
                 "tenant-root online and managed-backup Secret bindings must be distinct",
             ));
         }
-        if self.online_epoch_wrapping_key_ref == self.backup_provider_id
-            || self.online_epoch_wrapping_key_ref == self.backup_key_version
-            || self.backup_provider_id == self.backup_key_version
+        if self.online_epoch_wrapping_key_ref() == self.backup_provider_id()
+            || self.online_epoch_wrapping_key_ref() == self.backup_key_version()
+            || self.backup_provider_id() == self.backup_key_version()
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
@@ -391,10 +460,10 @@ impl CloudflareTenantRootOperationalRotationProviderConfigV1 {
                 "tenant-root online and managed-backup public keys must be distinct",
             ));
         }
-        if decode_cloudflare_tenant_root_operational_hpke_public_key_v1(&self.online_public_key)?
+        if decode_cloudflare_tenant_root_operational_hpke_public_key_v1(self.online_public_key())?
             != self.online_public_key_bytes
             || decode_cloudflare_tenant_root_operational_hpke_public_key_v1(
-                &self.backup_public_key,
+                self.backup_public_key(),
             )? != self.backup_public_key_bytes
         {
             return Err(RouterAbProtocolError::new(
@@ -403,6 +472,36 @@ impl CloudflareTenantRootOperationalRotationProviderConfigV1 {
             ));
         }
         Ok(())
+    }
+
+    /// Returns the role this operational provider configuration is local to.
+    pub(crate) fn role(&self) -> TwoPartyDeriverRole {
+        self.role
+    }
+
+    /// Returns the online epoch wrapping-key reference descriptor.
+    pub(crate) fn online_epoch_wrapping_key_ref(&self) -> &str {
+        &self.online_epoch_wrapping_key_ref
+    }
+
+    /// Returns the online HPKE public-key descriptor.
+    pub(crate) fn online_public_key(&self) -> &str {
+        &self.online_public_key
+    }
+
+    /// Returns the managed-backup provider id descriptor.
+    pub(crate) fn backup_provider_id(&self) -> &str {
+        &self.backup_provider_id
+    }
+
+    /// Returns the managed-backup key version descriptor.
+    pub(crate) fn backup_key_version(&self) -> &str {
+        &self.backup_key_version
+    }
+
+    /// Returns the managed-backup HPKE public-key descriptor.
+    pub(crate) fn backup_public_key(&self) -> &str {
+        &self.backup_public_key
     }
 
     /// Returns the online Secret binding name.
@@ -472,7 +571,9 @@ pub(crate) fn parse_cloudflare_tenant_root_operational_rotation_provider_config_
             DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
             DERIVER_B_FORBIDDEN_ENV_KEYS,
         ),
-        CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker => {
+        CloudflareWorkerRoleV1::Router
+        | CloudflareWorkerRoleV1::SigningWorker
+        | CloudflareWorkerRoleV1::TenantRootControlPlane => {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ForbiddenLocalBinding,
                 "this Worker cannot access tenant-root operational provider Secrets",
@@ -1017,6 +1118,286 @@ pub(crate) fn decode_cloudflare_tenant_root_creation_role_signing_secret_v1(
     Ok(CloudflareTenantRootCreationRoleSigningSecretV1::new(secret))
 }
 
+/// Non-secret descriptor of the control-plane issuer's Ed25519 signing Secret.
+///
+/// Holds the Secret *binding name* and the retained key ID, never the seed.
+/// Only the tenant-root control-plane Worker may construct one from Env.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareTenantRootControlPlaneIssuerSigningKeyBindingV1 {
+    signing_key_id: String,
+    binding_name: String,
+}
+
+impl CloudflareTenantRootControlPlaneIssuerSigningKeyBindingV1 {
+    /// Creates a validated issuer key-ID-bound Secret binding descriptor.
+    pub fn new(
+        signing_key_id: impl Into<String>,
+        binding_name: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let binding = Self {
+            signing_key_id: signing_key_id.into(),
+            binding_name: binding_name.into(),
+        };
+        binding.validate()?;
+        Ok(binding)
+    }
+
+    /// Validates the key ID and binding name.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        validate_tenant_root_identifier(
+            "tenant-root control-plane issuer signing key ID",
+            &self.signing_key_id,
+        )?;
+        validate_tenant_root_identifier(
+            "tenant-root control-plane issuer signing Secret binding name",
+            &self.binding_name,
+        )?;
+        if !self
+            .binding_name
+            .starts_with(TENANT_ROOT_CONTROL_PLANE_SECRET_BINDING_PREFIX_V1)
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root control-plane issuer signing Secret binding must be control-plane scoped",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the retained issuer signing key identifier.
+    pub fn signing_key_id(&self) -> &str {
+        &self.signing_key_id
+    }
+
+    /// Returns the Cloudflare Secret binding name.
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TenantRootCreationIssuerKeySetWireV1 {
+    keys: Vec<TenantRootCreationIssuerKeyWireV1>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TenantRootCreationIssuerKeyWireV1 {
+    issuer_key_id: String,
+    verifying_key_hex: String,
+}
+
+/// Decodes the bounded control-plane issuer verifying key set.
+///
+/// Config parsing, so it lives with the other Env decoders rather than in the
+/// Durable Object: the Router, both Derivers, and the control plane all read
+/// this same published anchor.
+pub(crate) fn decode_issuer_verifying_keys(
+    json: &str,
+) -> RouterAbProtocolResult<BTreeMap<String, [u8; 32]>> {
+    let wire: TenantRootCreationIssuerKeySetWireV1 =
+        serde_json::from_str(json).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("tenant-root creation issuer key set JSON is invalid: {error}"),
+            )
+        })?;
+    if wire.keys.is_empty() || wire.keys.len() > 32 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root creation issuer key set must contain between one and 32 keys",
+        ));
+    }
+    let mut keys = BTreeMap::new();
+    for entry in wire.keys {
+        if !valid_config_key_id(&entry.issuer_key_id) {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root creation issuer key id is invalid",
+            ));
+        }
+        let verifying_key = decode_lower_hex_32(&entry.verifying_key_hex)?;
+        ed25519_dalek::VerifyingKey::from_bytes(&verifying_key).map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root creation issuer verifying key is not a valid Ed25519 point",
+            )
+        })?;
+        if keys.insert(entry.issuer_key_id, verifying_key).is_some() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root creation issuer key id is duplicated",
+            ));
+        }
+    }
+    Ok(keys)
+}
+
+fn valid_config_key_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 256
+        && value.trim() == value
+        && !value.chars().any(char::is_control)
+}
+
+const TENANT_ROOT_CONTROL_PLANE_SECRET_BINDING_PREFIX_V1: &str = "TENANT_ROOT_CONTROL_PLANE_";
+
+/// Bounded, validated control-plane issuer verifying key set.
+///
+/// The published trust anchor, held by the Router, Deriver A, Deriver B, and
+/// the control plane. Parsed once at startup so a malformed set fails the
+/// Worker at boot rather than at first verification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1 {
+    keys: BTreeMap<String, [u8; 32]>,
+}
+
+impl CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1 {
+    /// Decodes and validates the published key set.
+    pub fn decode(json: &str) -> RouterAbProtocolResult<Self> {
+        Ok(Self {
+            keys: decode_issuer_verifying_keys(json)?,
+        })
+    }
+
+    /// Revalidates the retained key set.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        if self.keys.is_empty() || self.keys.len() > 32 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root creation issuer key set must contain between one and 32 keys",
+            ));
+        }
+        for (issuer_key_id, verifying_key) in &self.keys {
+            if !valid_config_key_id(issuer_key_id) {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "tenant-root creation issuer key id is invalid",
+                ));
+            }
+            VerifyingKey::from_bytes(verifying_key).map_err(|_| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "tenant-root creation issuer verifying key is not a valid Ed25519 point",
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Returns the verifying key retained for one issuer key id.
+    ///
+    /// Retired ids stay present so previously issued durable artifacts keep
+    /// verifying.
+    pub fn for_issuer_key_id(&self, issuer_key_id: &str) -> Option<&[u8; 32]> {
+        self.keys.get(issuer_key_id)
+    }
+
+    /// Returns the retained key set.
+    pub const fn keys(&self) -> &BTreeMap<String, [u8; 32]> {
+        &self.keys
+    }
+}
+
+/// Parses the published control-plane issuer verifying key set from Env.
+pub(crate) fn parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(
+    env: &impl CloudflareEnvReaderV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1> {
+    CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1::decode(&read_required_raw_env_text(
+        env,
+        TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+    )?)
+}
+
+/// Decodes the control-plane issuer signing Secret into a zeroizing seed.
+///
+/// Same encoding as the Deriver role-signing Secrets: unpadded base64url over
+/// exactly 32 bytes.
+pub(crate) fn decode_cloudflare_tenant_root_control_plane_issuer_signing_secret_v1(
+    secret_value: &str,
+) -> RouterAbProtocolResult<Zeroizing<[u8; 32]>> {
+    let mut bytes =
+        match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(secret_value.as_bytes()) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "tenant-root control-plane issuer Secret must be unpadded base64url",
+                ));
+            }
+        };
+    if bytes.len() != 32 {
+        bytes.zeroize();
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root control-plane issuer Secret must decode to 32 bytes",
+        ));
+    }
+    let mut seed = [0_u8; 32];
+    seed.copy_from_slice(&bytes);
+    bytes.zeroize();
+    Ok(Zeroizing::new(seed))
+}
+
+/// Proves the issuer Secret derives the public key published under its active key ID.
+///
+/// The active key ID is local configuration; a caller can never select it. A
+/// retired key ID stays in the published set so previously issued durable
+/// artifacts keep verifying, but it can no longer be the active one, so this
+/// check is what stops a retired private key from continuing to sign.
+pub fn validate_cloudflare_tenant_root_control_plane_issuer_key_provenance_v1(
+    binding: &CloudflareTenantRootControlPlaneIssuerSigningKeyBindingV1,
+    published: &CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
+    secret_value: &str,
+) -> RouterAbProtocolResult<()> {
+    binding.validate()?;
+    published.validate()?;
+    let Some(expected) = published.for_issuer_key_id(binding.signing_key_id()) else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root control-plane active issuer key ID is not in the published verifying key set",
+        ));
+    };
+    let seed = decode_cloudflare_tenant_root_control_plane_issuer_signing_secret_v1(secret_value)?;
+    let derived = SigningKey::from_bytes(&seed).verifying_key().to_bytes();
+    if derived != *expected {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root control-plane issuer Secret does not match its published verifying key",
+        ));
+    }
+    Ok(())
+}
+
+/// Parses the tenant-root control-plane Worker's issuer signing Secret binding.
+///
+/// Fails closed for every other Worker role before touching Env: the issuer
+/// private key has exactly one owner.
+pub fn parse_cloudflare_tenant_root_control_plane_issuer_signing_key_binding_v1(
+    worker_role: CloudflareWorkerRoleV1,
+    env: &impl CloudflareEnvReaderV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneIssuerSigningKeyBindingV1> {
+    if worker_role != CloudflareWorkerRoleV1::TenantRootControlPlane {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "only the tenant-root control-plane Worker may hold the issuer signing Secret",
+        ));
+    }
+    crate::reject_forbidden_env_keys(
+        worker_role,
+        env,
+        TENANT_ROOT_CONTROL_PLANE_FORBIDDEN_ENV_KEYS,
+    )?;
+    CloudflareTenantRootControlPlaneIssuerSigningKeyBindingV1::new(
+        read_required_raw_env_text(env, TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID_ENV)?,
+        read_required_raw_env_text(
+            env,
+            TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
+        )?,
+    )
+}
+
 /// Parses the current Deriver's dormant tenant-root role-signing Secret binding.
 pub(crate) fn parse_cloudflare_tenant_root_creation_role_signing_key_binding_v1(
     worker_role: CloudflareWorkerRoleV1,
@@ -1035,7 +1416,9 @@ pub(crate) fn parse_cloudflare_tenant_root_creation_role_signing_key_binding_v1(
             DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
             DERIVER_B_FORBIDDEN_ENV_KEYS,
         ),
-        CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker => {
+        CloudflareWorkerRoleV1::Router
+        | CloudflareWorkerRoleV1::SigningWorker
+        | CloudflareWorkerRoleV1::TenantRootControlPlane => {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ForbiddenLocalBinding,
                 "this Worker cannot access tenant-root role-signing Secrets",
@@ -1399,6 +1782,313 @@ mod tests {
         )
     }
 
+    /// The R120 tenant-root control-plane key ownership matrix.
+    ///
+    /// | Material | Owner |
+    /// |---|---|
+    /// | issuer private signing key | dedicated control-plane Worker only |
+    /// | issuer public verifying keyset | Router, Deriver A, Deriver B |
+    ///
+    /// The forbidden-env lists are the enforcement point, so they are pinned
+    /// here: before this test the four lists had no coverage at all, and a
+    /// change to any of them was silent.
+    #[test]
+    fn tenant_root_control_plane_key_ownership_matrix_is_exact() {
+        for (worker_role, forbidden) in [
+            (
+                CloudflareWorkerRoleV1::Router,
+                crate::env::ROUTER_FORBIDDEN_ENV_KEYS,
+            ),
+            (
+                CloudflareWorkerRoleV1::DeriverA,
+                crate::env::DERIVER_A_FORBIDDEN_ENV_KEYS,
+            ),
+            (
+                CloudflareWorkerRoleV1::DeriverB,
+                crate::env::DERIVER_B_FORBIDDEN_ENV_KEYS,
+            ),
+            (
+                CloudflareWorkerRoleV1::SigningWorker,
+                crate::env::SIGNING_WORKER_FORBIDDEN_ENV_KEYS,
+            ),
+        ] {
+            // The private issuer key is forbidden in every Worker in this
+            // deployment. Only the dedicated control-plane Worker holds it.
+            assert!(
+                forbidden.contains(&TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV),
+                "{} must never receive the issuer private signing binding",
+                worker_role.as_str()
+            );
+
+            // The public verifying anchor is required wherever a signed
+            // creation command is verified, and forbidden where it is not.
+            let anchor_forbidden =
+                forbidden.contains(&TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV);
+            match worker_role {
+                CloudflareWorkerRoleV1::SigningWorker => assert!(
+                    anchor_forbidden,
+                    "the Signing Worker has no tenant-root lifecycle role"
+                ),
+                CloudflareWorkerRoleV1::Router
+                | CloudflareWorkerRoleV1::DeriverA
+                | CloudflareWorkerRoleV1::DeriverB => assert!(
+                    !anchor_forbidden,
+                    "{} verifies signed creation commands at its own boundary and requires the public anchor",
+                    worker_role.as_str()
+                ),
+                CloudflareWorkerRoleV1::TenantRootControlPlane => assert!(
+                    !anchor_forbidden,
+                    "the issuer holds its own public set to preflight that its signing key id is trusted"
+                ),
+            }
+        }
+    }
+
+    /// A public trust anchor is not Router configuration.
+    ///
+    /// Router *configuration and authorization state* stays forbidden in both
+    /// Derivers; the control-plane public keyset does not, because a
+    /// `VerifiedTenantRootRoleCreationCommandV1` is a process-local proof token
+    /// that one Worker cannot serialize for another to trust.
+    #[test]
+    fn router_configuration_stays_forbidden_in_derivers_but_the_public_anchor_does_not() {
+        for forbidden in [
+            crate::env::DERIVER_A_FORBIDDEN_ENV_KEYS,
+            crate::env::DERIVER_B_FORBIDDEN_ENV_KEYS,
+        ] {
+            for router_config in [
+                ROUTER_JWT_ISSUER_ENV,
+                ROUTER_JWT_AUDIENCE_ENV,
+                ROUTER_JWT_JWKS_JSON_ENV,
+                ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
+            ] {
+                assert!(
+                    forbidden.contains(&router_config),
+                    "Router configuration {router_config} must not leak into a Deriver"
+                );
+            }
+            assert!(!forbidden.contains(&TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV));
+            // The role verifying keyset is the existing precedent for a shared
+            // public anchor that a Deriver legitimately reads.
+            assert!(!forbidden.contains(&ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON_ENV));
+        }
+    }
+
+    /// Boot-time enforcement, not just list membership.
+    #[test]
+    fn each_worker_rejects_the_issuer_private_binding_and_accepts_the_public_anchor() {
+        for (worker_role, forbidden) in [
+            (
+                CloudflareWorkerRoleV1::Router,
+                crate::env::ROUTER_FORBIDDEN_ENV_KEYS,
+            ),
+            (
+                CloudflareWorkerRoleV1::DeriverA,
+                crate::env::DERIVER_A_FORBIDDEN_ENV_KEYS,
+            ),
+            (
+                CloudflareWorkerRoleV1::DeriverB,
+                crate::env::DERIVER_B_FORBIDDEN_ENV_KEYS,
+            ),
+        ] {
+            let with_private_key = CloudflareEnvMapV1::new(vec![(
+                TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
+                "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY",
+            )]);
+            let error = crate::reject_forbidden_env_keys(worker_role, &with_private_key, forbidden)
+                .expect_err("issuer private binding must be rejected");
+            assert_eq!(
+                error.code(),
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding
+            );
+
+            let with_public_anchor = CloudflareEnvMapV1::new(vec![(
+                TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+                "{}",
+            )]);
+            crate::reject_forbidden_env_keys(worker_role, &with_public_anchor, forbidden)
+                .expect("public verifying anchor must be accepted");
+        }
+
+        // The Signing Worker rejects both.
+        for key in [
+            TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
+            TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+        ] {
+            let env = CloudflareEnvMapV1::new(vec![(key, "x")]);
+            assert_eq!(
+                crate::reject_forbidden_env_keys(
+                    CloudflareWorkerRoleV1::SigningWorker,
+                    &env,
+                    crate::env::SIGNING_WORKER_FORBIDDEN_ENV_KEYS,
+                )
+                .expect_err("signing worker must reject tenant-root control-plane keys")
+                .code(),
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding
+            );
+        }
+    }
+
+    fn issuer_key_set(
+        entries: &[(&str, [u8; 32])],
+    ) -> CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1 {
+        CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1::decode(&issuer_key_set_json(entries))
+            .expect("issuer key set")
+    }
+
+    fn issuer_key_set_json(entries: &[(&str, [u8; 32])]) -> String {
+        let keys: Vec<String> = entries
+            .iter()
+            .map(|(id, key)| {
+                format!(
+                    "{{\"issuer_key_id\":\"{id}\",\"verifying_key_hex\":\"{}\"}}",
+                    lower_hex(key)
+                )
+            })
+            .collect();
+        format!("{{\"keys\":[{}]}}", keys.join(","))
+    }
+
+    fn issuer_binding(key_id: &str) -> CloudflareTenantRootControlPlaneIssuerSigningKeyBindingV1 {
+        CloudflareTenantRootControlPlaneIssuerSigningKeyBindingV1::new(
+            key_id,
+            "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY",
+        )
+        .expect("issuer binding")
+    }
+
+    fn seed_b64u(seed: &[u8; 32]) -> String {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(seed)
+    }
+
+    /// The issuer Secret must derive the key published under its active key ID.
+    #[test]
+    fn issuer_key_provenance_requires_the_secret_to_match_its_published_active_key() {
+        let seed = [0x51_u8; 32];
+        let verifying = SigningKey::from_bytes(&seed).verifying_key().to_bytes();
+        let key_id = "control-plane-issuer-v1";
+
+        validate_cloudflare_tenant_root_control_plane_issuer_key_provenance_v1(
+            &issuer_binding(key_id),
+            &issuer_key_set(&[(key_id, verifying)]),
+            &seed_b64u(&seed),
+        )
+        .expect("matching issuer Secret");
+
+        // A different Secret under the same published key id fails closed.
+        let other = [0x52_u8; 32];
+        assert_eq!(
+            validate_cloudflare_tenant_root_control_plane_issuer_key_provenance_v1(
+                &issuer_binding(key_id),
+                &issuer_key_set(&[(key_id, verifying)]),
+                &seed_b64u(&other),
+            )
+            .expect_err("substituted Secret")
+            .code(),
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+        );
+
+        // A substituted published key under the same id fails closed.
+        let foreign = SigningKey::from_bytes(&other).verifying_key().to_bytes();
+        assert!(
+            validate_cloudflare_tenant_root_control_plane_issuer_key_provenance_v1(
+                &issuer_binding(key_id),
+                &issuer_key_set(&[(key_id, foreign)]),
+                &seed_b64u(&seed),
+            )
+            .is_err()
+        );
+
+        // An active key id absent from the published set fails closed.
+        assert!(
+            validate_cloudflare_tenant_root_control_plane_issuer_key_provenance_v1(
+                &issuer_binding("control-plane-issuer-unknown"),
+                &issuer_key_set(&[(key_id, verifying)]),
+                &seed_b64u(&seed),
+            )
+            .is_err()
+        );
+
+        // Malformed Secret encodings fail closed.
+        for bad in ["", "not-base64url!", &seed_b64u(&seed)[..40]] {
+            assert!(
+                validate_cloudflare_tenant_root_control_plane_issuer_key_provenance_v1(
+                    &issuer_binding(key_id),
+                    &issuer_key_set(&[(key_id, verifying)]),
+                    bad,
+                )
+                .is_err()
+            );
+        }
+    }
+
+    /// A retained non-active key still verifies; only the active one signs.
+    ///
+    /// This proves a configuration property, not an operational guarantee: the
+    /// configured active key ID, its Secret, and the published key must agree,
+    /// and a non-active published key is still available for verification.
+    ///
+    /// It does NOT prevent an operator from restoring an old seed and selecting
+    /// its retained ID again. Retirement is an operational invariant enforced by
+    /// deployment, not by this check: change the active ID, replace or delete
+    /// the old Secret, and retain only its public key so previously issued
+    /// durable artifacts keep verifying.
+    #[test]
+    fn a_retained_non_active_issuer_key_still_verifies_while_only_the_active_key_signs() {
+        let retained_seed = [0x61_u8; 32];
+        let active_seed = [0x62_u8; 32];
+        let retained = SigningKey::from_bytes(&retained_seed)
+            .verifying_key()
+            .to_bytes();
+        let active = SigningKey::from_bytes(&active_seed)
+            .verifying_key()
+            .to_bytes();
+        let published = issuer_key_set(&[
+            ("control-plane-issuer-retained", retained),
+            ("control-plane-issuer-active", active),
+        ]);
+
+        // Both keys stay available for verification of durable artifacts.
+        assert_eq!(
+            published.for_issuer_key_id("control-plane-issuer-retained"),
+            Some(&retained)
+        );
+        assert_eq!(
+            published.for_issuer_key_id("control-plane-issuer-active"),
+            Some(&active)
+        );
+
+        // The active configuration must carry the matching active Secret.
+        validate_cloudflare_tenant_root_control_plane_issuer_key_provenance_v1(
+            &issuer_binding("control-plane-issuer-active"),
+            &published,
+            &seed_b64u(&active_seed),
+        )
+        .expect("active issuer key");
+
+        // With the active Secret installed, the retained ID cannot be selected:
+        // the Secret does not derive it. Deleting the retained Secret is what
+        // makes that permanent; this check only enforces the agreement.
+        assert!(
+            validate_cloudflare_tenant_root_control_plane_issuer_key_provenance_v1(
+                &issuer_binding("control-plane-issuer-retained"),
+                &published,
+                &seed_b64u(&active_seed),
+            )
+            .is_err()
+        );
+
+        // Stated plainly: restoring the retained seed alongside its retained ID
+        // is again a consistent configuration. Nothing here forbids it, which is
+        // exactly why retirement requires removing the Secret.
+        validate_cloudflare_tenant_root_control_plane_issuer_key_provenance_v1(
+            &issuer_binding("control-plane-issuer-retained"),
+            &published,
+            &seed_b64u(&retained_seed),
+        )
+        .expect("a restored retained Secret is still a consistent configuration");
+    }
+
     fn operational_env(
         worker_role: CloudflareWorkerRoleV1,
         online_seed: u8,
@@ -1431,14 +2121,18 @@ mod tests {
                 DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV,
                 DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
             ),
-            CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker => {
+            CloudflareWorkerRoleV1::Router
+            | CloudflareWorkerRoleV1::SigningWorker
+            | CloudflareWorkerRoleV1::TenantRootControlPlane => {
                 panic!("operational provider requires a Deriver role")
             }
         };
         let role_prefix = match worker_role {
             CloudflareWorkerRoleV1::DeriverA => "DERIVER_A",
             CloudflareWorkerRoleV1::DeriverB => "DERIVER_B",
-            CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker => {
+            CloudflareWorkerRoleV1::Router
+            | CloudflareWorkerRoleV1::SigningWorker
+            | CloudflareWorkerRoleV1::TenantRootControlPlane => {
                 unreachable!()
             }
         };
@@ -1851,7 +2545,9 @@ mod tests {
             let expected_role = match worker_role {
                 CloudflareWorkerRoleV1::DeriverA => TwoPartyDeriverRole::DeriverA,
                 CloudflareWorkerRoleV1::DeriverB => TwoPartyDeriverRole::DeriverB,
-                CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker => {
+                CloudflareWorkerRoleV1::Router
+                | CloudflareWorkerRoleV1::SigningWorker
+                | CloudflareWorkerRoleV1::TenantRootControlPlane => {
                     unreachable!()
                 }
             };

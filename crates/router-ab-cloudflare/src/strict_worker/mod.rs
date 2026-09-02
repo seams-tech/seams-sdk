@@ -2,7 +2,8 @@
     feature = "strict-worker-router-entrypoint",
     feature = "strict-worker-deriver-a-entrypoint",
     feature = "strict-worker-deriver-b-entrypoint",
-    feature = "strict-worker-signing-worker-entrypoint"
+    feature = "strict-worker-signing-worker-entrypoint",
+    feature = "strict-worker-tenant-root-control-plane-entrypoint"
 ))]
 
 use crate::cloudflare_router_error_status;
@@ -228,6 +229,8 @@ mod deriver;
 mod router;
 #[cfg(feature = "strict-worker-signing-worker-entrypoint")]
 mod signing_worker;
+#[cfg(feature = "strict-worker-tenant-root-control-plane-entrypoint")]
+mod tenant_root_control_plane;
 #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
 use deriver::handle_strict_deriver_a_fetch_v1;
 #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
@@ -236,6 +239,8 @@ use deriver::handle_strict_deriver_b_fetch_v1;
 use router::handle_strict_router_fetch_v1;
 #[cfg(feature = "strict-worker-signing-worker-entrypoint")]
 use signing_worker::handle_strict_signing_worker_fetch_v1;
+#[cfg(feature = "strict-worker-tenant-root-control-plane-entrypoint")]
+use tenant_root_control_plane::handle_strict_tenant_root_control_plane_fetch_v1;
 
 /// Deployable workers-rs fetch entrypoint for strict Router/A/B proof-bundle Workers.
 #[worker::event(fetch)]
@@ -255,6 +260,10 @@ pub async fn fetch(request: Request, env: Env, _ctx: Context) -> worker::Result<
     #[cfg(feature = "strict-worker-signing-worker-entrypoint")]
     {
         return handle_strict_signing_worker_fetch_v1(request, env).await;
+    }
+    #[cfg(feature = "strict-worker-tenant-root-control-plane-entrypoint")]
+    {
+        return handle_strict_tenant_root_control_plane_fetch_v1(request, env).await;
     }
 }
 

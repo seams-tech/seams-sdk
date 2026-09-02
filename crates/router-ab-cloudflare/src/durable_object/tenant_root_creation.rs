@@ -52,6 +52,12 @@ use crate::{
 #[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
 pub(crate) const CLOUDFLARE_TENANT_ROOT_CREATION_JOURNAL_PATH: &str =
     "/router-ab/internal/tenant-root/creation/v1/journal";
+/// Reads the persisted Started journal, its issuer capability, and public
+/// creation progress. Public evidence only: no scalar, share, or sealed
+/// material is ever stored here, so nothing private can be returned.
+#[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
+pub(crate) const CLOUDFLARE_TENANT_ROOT_CREATION_JOURNAL_READ_PATH: &str =
+    "/router-ab/internal/tenant-root/creation/v1/journal/read";
 #[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
 pub(crate) const CLOUDFLARE_TENANT_ROOT_CREATION_COMMITMENT_RENDEZVOUS_PATH: &str =
     "/router-ab/internal/tenant-root/creation/v1/commitment-rendezvous";
@@ -174,6 +180,21 @@ struct LoadedTenantRootRefreshRequestV1 {
     role_keys: TenantRootCreationRoleVerifyingKeysV1,
     issuer_keys: BTreeMap<String, [u8; 32]>,
     now_ms: u64,
+}
+
+/// Fails closed unless `encoded` is exactly the base64url of `expected`.
+pub(crate) fn require_base64url_matches(
+    field: &str,
+    encoded: &str,
+    expected: &[u8],
+) -> RouterAbProtocolResult<()> {
+    let decoded = decode_canonical_base64url(field, encoded, expected.len(), encoded.len().max(4))?;
+    if decoded.as_slice() != expected {
+        return Err(malformed_input(format!(
+            "{field} does not match the persisted tenant-root creation value"
+        )));
+    }
+    Ok(())
 }
 
 fn authority_id_from_object_id(
@@ -396,15 +417,15 @@ pub(crate) struct CloudflareTenantRootCreationJournalRecordV1 {
 }
 
 #[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
-struct ValidatedTenantRootCreationJournalV1 {
-    record: CloudflareTenantRootCreationJournalRecordV1,
-    journal: TenantRootCreationJournalV1,
-    identity_digest: TenantRootIdentityDigestV1,
-    custody_lineage: router_ab_core::TenantRootCustodyLineageId,
-    ceremony_context: TenantRootCeremonyContextV1,
-    revision: u64,
-    journal_digest: TenantRootProtocolDigestV1,
-    capability: VerifiedTenantRootCreationCapabilityV1,
+pub(crate) struct ValidatedTenantRootCreationJournalV1 {
+    pub(crate) record: CloudflareTenantRootCreationJournalRecordV1,
+    pub(crate) journal: TenantRootCreationJournalV1,
+    pub(crate) identity_digest: TenantRootIdentityDigestV1,
+    pub(crate) custody_lineage: router_ab_core::TenantRootCustodyLineageId,
+    pub(crate) ceremony_context: TenantRootCeremonyContextV1,
+    pub(crate) revision: u64,
+    pub(crate) journal_digest: TenantRootProtocolDigestV1,
+    pub(crate) capability: VerifiedTenantRootCreationCapabilityV1,
 }
 
 impl ValidatedTenantRootCreationJournalV1 {
@@ -435,6 +456,33 @@ pub(crate) struct CloudflareTenantRootCreationJournalResponseV1 {
     pub(crate) revision: u64,
     pub(crate) journal_digest_b64u: String,
     pub(crate) capability_digest_b64u: String,
+}
+
+/// Asks the Durable Object for its persisted creation state.
+///
+/// Identity and lineage are carried so the object can fail closed if a caller
+/// reached the wrong object: the stored journal must name exactly this pair.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootCreationJournalReadRequestV1 {
+    pub(crate) identity_digest_b64u: String,
+    pub(crate) custody_lineage_b64u: String,
+}
+
+/// Persisted creation state, public evidence only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootCreationJournalReadResponseV1 {
+    /// Exact canonical Started journal bytes as persisted.
+    pub(crate) journal_b64u: String,
+    /// Exact canonical issuer capability bytes as persisted.
+    pub(crate) creation_capability_b64u: String,
+    /// Control-plane revision the Started journal authenticates.
+    pub(crate) revision: u64,
+    /// Roles whose signed public commitment has already reached this object.
+    pub(crate) committed_roles: Vec<CloudflareTenantRootCreationInstallationRoleV1>,
+    /// Whether an installation checkpoint exists: creation is finalizing or done.
+    pub(crate) installation_checkpointed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1339,7 +1387,7 @@ enum TenantRootCreationJournalEvaluationV1 {
     Replay(CloudflareTenantRootCreationJournalResponseV1),
 }
 
-fn validate_creation_record(
+pub(crate) fn validate_creation_record(
     record: CloudflareTenantRootCreationJournalRecordV1,
     authority_id: TenantRootControlPlaneAuthorityIdV1,
     trusted_issuer_verifying_keys: &BTreeMap<String, [u8; 32]>,
@@ -1458,7 +1506,7 @@ impl CloudflareTenantRootCreationInstallationRoleV1 {
         }
     }
 
-    const fn to_protocol(self) -> TwoPartyDeriverRole {
+    pub(crate) const fn to_protocol(self) -> TwoPartyDeriverRole {
         match self {
             Self::DeriverA => TwoPartyDeriverRole::DeriverA,
             Self::DeriverB => TwoPartyDeriverRole::DeriverB,
@@ -1468,7 +1516,7 @@ impl CloudflareTenantRootCreationInstallationRoleV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-enum CloudflareTenantRootCreationCommitmentRendezvousStateV1 {
+pub(crate) enum CloudflareTenantRootCreationCommitmentRendezvousStateV1 {
     OneRoleCommitted {
         role: CloudflareTenantRootCreationInstallationRoleV1,
         signed_commitment_b64u: String,
@@ -1481,12 +1529,12 @@ enum CloudflareTenantRootCreationCommitmentRendezvousStateV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CloudflareTenantRootCreationCommitmentRendezvousRecordV1 {
-    journal_digest_b64u: String,
-    identity_digest_b64u: String,
-    custody_lineage_b64u: String,
-    ceremony_context_digest_b64u: String,
-    state: CloudflareTenantRootCreationCommitmentRendezvousStateV1,
+pub(crate) struct CloudflareTenantRootCreationCommitmentRendezvousRecordV1 {
+    pub(crate) journal_digest_b64u: String,
+    pub(crate) identity_digest_b64u: String,
+    pub(crate) custody_lineage_b64u: String,
+    pub(crate) ceremony_context_digest_b64u: String,
+    pub(crate) state: CloudflareTenantRootCreationCommitmentRendezvousStateV1,
 }
 
 #[derive(Debug)]
@@ -2304,6 +2352,28 @@ impl worker::DurableObject for RouterAbTenantRootCreationDurableObject {
                     Err(error) => tenant_root_creation_do_error_response(error),
                 }
             }
+            CLOUDFLARE_TENANT_ROOT_CREATION_JOURNAL_READ_PATH => {
+                if !request_has_json_content_type(&request)? {
+                    return worker::Response::error(
+                        "tenant-root creation read request requires JSON",
+                        415,
+                    );
+                }
+                let parsed = match decode_bounded_json_request::<
+                    CloudflareTenantRootCreationJournalReadRequestV1,
+                >(
+                    &mut request, TENANT_ROOT_CREATION_REQUEST_MAX_BYTES_V1
+                )
+                .await
+                {
+                    Ok(value) => value,
+                    Err(error) => return tenant_root_creation_do_error_response(error),
+                };
+                match self.read_creation_journal(parsed).await {
+                    Ok(response) => worker::Response::from_json(&response),
+                    Err(error) => tenant_root_creation_do_error_response(error),
+                }
+            }
             CLOUDFLARE_TENANT_ROOT_CREATION_COMMITMENT_RENDEZVOUS_PATH => {
                 if !request_has_json_content_type(&request)? {
                     return worker::Response::error(
@@ -2421,17 +2491,116 @@ impl worker::DurableObject for RouterAbTenantRootCreationDurableObject {
     }
 }
 
+/// Projects validated creation state into the public read response.
+///
+/// Pure so the projection is testable without a Durable Object: the caller's
+/// identity and lineage must match the persisted journal, and only bytes that
+/// are already public evidence are returned.
+pub(crate) fn build_creation_journal_read_response(
+    request: &CloudflareTenantRootCreationJournalReadRequestV1,
+    journal: &ValidatedTenantRootCreationJournalV1,
+    rendezvous: Option<&CloudflareTenantRootCreationCommitmentRendezvousRecordV1>,
+    installation_checkpointed: bool,
+) -> RouterAbProtocolResult<CloudflareTenantRootCreationJournalReadResponseV1> {
+    require_base64url_matches(
+        "tenant-root creation read identity digest",
+        &request.identity_digest_b64u,
+        journal.identity_digest.as_bytes(),
+    )?;
+    require_base64url_matches(
+        "tenant-root creation read custody lineage",
+        &request.custody_lineage_b64u,
+        journal.custody_lineage.as_bytes(),
+    )?;
+    let committed_roles = match rendezvous.map(|record| &record.state) {
+        None => Vec::new(),
+        Some(CloudflareTenantRootCreationCommitmentRendezvousStateV1::OneRoleCommitted {
+            role,
+            ..
+        }) => vec![*role],
+        Some(CloudflareTenantRootCreationCommitmentRendezvousStateV1::BothRolesCommitted {
+            ..
+        }) => vec![
+            CloudflareTenantRootCreationInstallationRoleV1::DeriverA,
+            CloudflareTenantRootCreationInstallationRoleV1::DeriverB,
+        ],
+    };
+    Ok(CloudflareTenantRootCreationJournalReadResponseV1 {
+        journal_b64u: journal.record.journal_b64u.clone(),
+        creation_capability_b64u: journal.record.creation_capability_b64u.clone(),
+        revision: journal.journal.revision(),
+        committed_roles,
+        installation_checkpointed,
+    })
+}
+
 #[cfg(feature = "workers-rs")]
 impl RouterAbTenantRootCreationDurableObject {
+    /// Serves the persisted creation state to an authenticated internal caller.
+    pub(crate) async fn read_creation_journal(
+        &self,
+        request: CloudflareTenantRootCreationJournalReadRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootCreationJournalReadResponseV1> {
+        let issuer_keys_json = read_required_worker_var(
+            &self.env,
+            crate::TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+        )?;
+        let issuer_keys = crate::env::decode_issuer_verifying_keys(&issuer_keys_json)?;
+        let authority_id = authority_id_from_object_id(&self.authority_object_id)?;
+        let journal_record = storage_get_optional::<CloudflareTenantRootCreationJournalRecordV1>(
+            &self.storage,
+            TENANT_ROOT_CREATION_JOURNAL_STORAGE_KEY_V1,
+        )
+        .await
+        .map_err(durable_storage_protocol_error)?
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root creation read has no Started journal",
+            )
+        })?;
+        let journal = validate_creation_record(journal_record, authority_id, &issuer_keys)
+            .map_err(stored_record_error)?;
+        let rendezvous =
+            storage_get_optional::<CloudflareTenantRootCreationCommitmentRendezvousRecordV1>(
+                &self.storage,
+                TENANT_ROOT_CREATION_COMMITMENT_RENDEZVOUS_STORAGE_KEY_V1,
+            )
+            .await
+            .map_err(durable_storage_protocol_error)?;
+        // Progress is only reported from a rendezvous record that still
+        // validates against this journal and the role keys; a corrupt record
+        // fails the read rather than mis-reporting which roles committed.
+        if let Some(record) = &rendezvous {
+            let role_keys = read_tenant_root_creation_role_verifying_keys(&self.env)?;
+            validate_creation_commitment_rendezvous(record.clone(), &journal, &role_keys)
+                .map_err(stored_record_error)?;
+        }
+        let installation_checkpointed =
+            storage_get_optional::<CloudflareTenantRootCreationInstallationCheckpointV1>(
+                &self.storage,
+                TENANT_ROOT_CREATION_INSTALLATION_CHECKPOINT_STORAGE_KEY_V1,
+            )
+            .await
+            .map_err(durable_storage_protocol_error)?
+            .is_some();
+        build_creation_journal_read_response(
+            &request,
+            &journal,
+            rendezvous.as_ref(),
+            installation_checkpointed,
+        )
+    }
+
     async fn load_role_creation_request(
         &self,
         command_b64u: &str,
     ) -> RouterAbProtocolResult<LoadedTenantRootRoleCreationRequestV1> {
         let issuer_keys_json = read_required_worker_var(
             &self.env,
-            crate::ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON_ENV,
+            crate::TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
         )?;
-        let issuer_keys = decode_issuer_verifying_keys(&issuer_keys_json)?;
+        let issuer_keys = crate::env::decode_issuer_verifying_keys(&issuer_keys_json)?;
         let authority_id = TenantRootControlPlaneAuthorityIdV1::from_bytes(decode_lower_hex_32(
             "tenant-root creation Durable Object id",
             &self.authority_object_id,
@@ -2474,9 +2643,9 @@ impl RouterAbTenantRootCreationDurableObject {
     ) -> RouterAbProtocolResult<CloudflareTenantRootCreationJournalResponseV1> {
         let verifying_keys_json = read_required_worker_var(
             &self.env,
-            crate::ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON_ENV,
+            crate::TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
         )?;
-        let verifying_keys = decode_issuer_verifying_keys(&verifying_keys_json)?;
+        let verifying_keys = crate::env::decode_issuer_verifying_keys(&verifying_keys_json)?;
         let authority_id = TenantRootControlPlaneAuthorityIdV1::from_bytes(decode_lower_hex_32(
             "tenant-root creation Durable Object id",
             &self.authority_object_id,
@@ -2743,9 +2912,9 @@ impl RouterAbTenantRootCreationDurableObject {
         }
         let issuer_keys_json = read_required_worker_var(
             &self.env,
-            crate::ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON_ENV,
+            crate::TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
         )?;
-        let issuer_keys = decode_issuer_verifying_keys(&issuer_keys_json)?;
+        let issuer_keys = crate::env::decode_issuer_verifying_keys(&issuer_keys_json)?;
         let candidate = refresh_active_state_record_from_verified_receipt(
             activation_receipt,
             lifecycle_revision,
@@ -2818,9 +2987,9 @@ impl RouterAbTenantRootCreationDurableObject {
         )?);
         let issuer_keys_json = read_required_worker_var(
             &self.env,
-            crate::ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON_ENV,
+            crate::TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
         )?;
-        let issuer_keys = decode_issuer_verifying_keys(&issuer_keys_json)?;
+        let issuer_keys = crate::env::decode_issuer_verifying_keys(&issuer_keys_json)?;
         let record = storage_get_optional::<CloudflareTenantRootRefreshActiveStateRecordV1>(
             &self.storage,
             TENANT_ROOT_REFRESH_ACTIVE_STATE_STORAGE_KEY_V1,
@@ -2844,9 +3013,9 @@ impl RouterAbTenantRootCreationDurableObject {
         let active = self.load_authoritative_active_refresh_state().await?;
         let issuer_keys_json = read_required_worker_var(
             &self.env,
-            crate::ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON_ENV,
+            crate::TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
         )?;
-        let issuer_keys = decode_issuer_verifying_keys(&issuer_keys_json)?;
+        let issuer_keys = crate::env::decode_issuer_verifying_keys(&issuer_keys_json)?;
         let role_keys = read_tenant_root_creation_role_verifying_keys(&self.env)?;
         let candidate_bytes = decode_canonical_base64url(
             "tenant-root signed refresh commitment",
@@ -2891,9 +3060,9 @@ impl RouterAbTenantRootCreationDurableObject {
         let active = self.load_authoritative_active_refresh_state().await?;
         let issuer_keys_json = read_required_worker_var(
             &self.env,
-            crate::ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON_ENV,
+            crate::TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
         )?;
-        let issuer_keys = decode_issuer_verifying_keys(&issuer_keys_json)?;
+        let issuer_keys = crate::env::decode_issuer_verifying_keys(&issuer_keys_json)?;
         let role_keys = read_tenant_root_creation_role_verifying_keys(&self.env)?;
         let candidate_bytes = decode_canonical_base64url(
             "tenant-root signed refresh installation evidence",
@@ -3395,7 +3564,7 @@ fn request_has_json_content_type(request: &worker::Request) -> worker::Result<bo
 }
 
 #[cfg(feature = "workers-rs")]
-async fn decode_bounded_json_request<T: DeserializeOwned>(
+pub(crate) async fn decode_bounded_json_request<T: DeserializeOwned>(
     request: &mut worker::Request,
     max_bytes: usize,
 ) -> RouterAbProtocolResult<T> {
@@ -3439,7 +3608,10 @@ async fn decode_bounded_creation_request(
 }
 
 #[cfg(feature = "workers-rs")]
-fn read_required_worker_var(env: &worker::Env, name: &str) -> RouterAbProtocolResult<String> {
+pub(crate) fn read_required_worker_var(
+    env: &worker::Env,
+    name: &str,
+) -> RouterAbProtocolResult<String> {
     let value = env.var(name).map_err(|error| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MissingLocalBinding,
@@ -3471,70 +3643,8 @@ fn read_tenant_root_creation_role_verifying_keys(
     Ok(role_keys)
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct TenantRootCreationIssuerKeySetWireV1 {
-    keys: Vec<TenantRootCreationIssuerKeyWireV1>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct TenantRootCreationIssuerKeyWireV1 {
-    issuer_key_id: String,
-    verifying_key_hex: String,
-}
-
-fn decode_issuer_verifying_keys(json: &str) -> RouterAbProtocolResult<BTreeMap<String, [u8; 32]>> {
-    let wire: TenantRootCreationIssuerKeySetWireV1 =
-        serde_json::from_str(json).map_err(|error| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                format!("tenant-root creation issuer key set JSON is invalid: {error}"),
-            )
-        })?;
-    if wire.keys.is_empty() || wire.keys.len() > 32 {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "tenant-root creation issuer key set must contain between one and 32 keys",
-        ));
-    }
-    let mut keys = BTreeMap::new();
-    for entry in wire.keys {
-        if !valid_config_key_id(&entry.issuer_key_id) {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "tenant-root creation issuer key id is invalid",
-            ));
-        }
-        let verifying_key = decode_lower_hex_32(
-            "tenant-root creation issuer verifying key",
-            &entry.verifying_key_hex,
-        )?;
-        ed25519_dalek::VerifyingKey::from_bytes(&verifying_key).map_err(|_| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "tenant-root creation issuer verifying key is not a valid Ed25519 point",
-            )
-        })?;
-        if keys.insert(entry.issuer_key_id, verifying_key).is_some() {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "tenant-root creation issuer key id is duplicated",
-            ));
-        }
-    }
-    Ok(keys)
-}
-
-fn valid_config_key_id(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 256
-        && value.trim() == value
-        && !value.chars().any(char::is_control)
-}
-
 #[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
-fn decode_lower_hex_32(field: &str, value: &str) -> RouterAbProtocolResult<[u8; 32]> {
+pub(crate) fn decode_lower_hex_32(field: &str, value: &str) -> RouterAbProtocolResult<[u8; 32]> {
     if value.len() != 64
         || value
             .bytes()
@@ -3561,7 +3671,7 @@ fn lower_hex_nibble(byte: u8) -> u8 {
     }
 }
 
-fn decode_canonical_base64url(
+pub(crate) fn decode_canonical_base64url(
     field: &str,
     value: &str,
     max_decoded_bytes: usize,
@@ -5121,6 +5231,106 @@ mod tests {
                 &capability.canonical_bytes().expect("capability bytes"),
             ),
         }
+    }
+
+    fn read_request(
+        journal: &ValidatedTenantRootCreationJournalV1,
+    ) -> CloudflareTenantRootCreationJournalReadRequestV1 {
+        CloudflareTenantRootCreationJournalReadRequestV1 {
+            identity_digest_b64u: encode_base64url_bytes_v1(journal.identity_digest.as_bytes()),
+            custody_lineage_b64u: encode_base64url_bytes_v1(journal.custody_lineage.as_bytes()),
+        }
+    }
+
+    fn rendezvous_with(
+        state: CloudflareTenantRootCreationCommitmentRendezvousStateV1,
+    ) -> CloudflareTenantRootCreationCommitmentRendezvousRecordV1 {
+        CloudflareTenantRootCreationCommitmentRendezvousRecordV1 {
+            journal_digest_b64u: String::new(),
+            identity_digest_b64u: String::new(),
+            custody_lineage_b64u: String::new(),
+            ceremony_context_digest_b64u: String::new(),
+            state,
+        }
+    }
+
+    /// The read projection returns exactly the persisted public bytes and the
+    /// creation progress the issuer must respect, and nothing else.
+    #[test]
+    fn creation_journal_read_projects_exact_bytes_and_progress() {
+        let record = record(0x11, 0x21, authority(0x44), 1_000_000, 1_030_000);
+        let journal = validate_creation_record(record.clone(), authority(0x44), &verifying_keys())
+            .expect("validated journal");
+        let request = read_request(&journal);
+
+        let fresh =
+            build_creation_journal_read_response(&request, &journal, None, false).expect("fresh");
+        assert_eq!(fresh.journal_b64u, record.journal_b64u);
+        assert_eq!(
+            fresh.creation_capability_b64u,
+            record.creation_capability_b64u
+        );
+        assert_eq!(fresh.revision, journal.journal.revision());
+        assert!(fresh.committed_roles.is_empty());
+        assert!(!fresh.installation_checkpointed);
+
+        let one = rendezvous_with(
+            CloudflareTenantRootCreationCommitmentRendezvousStateV1::OneRoleCommitted {
+                role: CloudflareTenantRootCreationInstallationRoleV1::DeriverB,
+                signed_commitment_b64u: String::new(),
+            },
+        );
+        let one_committed =
+            build_creation_journal_read_response(&request, &journal, Some(&one), false)
+                .expect("one committed");
+        assert_eq!(
+            one_committed.committed_roles,
+            vec![CloudflareTenantRootCreationInstallationRoleV1::DeriverB]
+        );
+
+        let both = rendezvous_with(
+            CloudflareTenantRootCreationCommitmentRendezvousStateV1::BothRolesCommitted {
+                deriver_a_signed_commitment_b64u: String::new(),
+                deriver_b_signed_commitment_b64u: String::new(),
+            },
+        );
+        let finalizing =
+            build_creation_journal_read_response(&request, &journal, Some(&both), true)
+                .expect("both committed");
+        assert_eq!(
+            finalizing.committed_roles,
+            vec![
+                CloudflareTenantRootCreationInstallationRoleV1::DeriverA,
+                CloudflareTenantRootCreationInstallationRoleV1::DeriverB,
+            ]
+        );
+        assert!(finalizing.installation_checkpointed);
+    }
+
+    /// A caller that reached the wrong object fails closed on identity or lineage.
+    #[test]
+    fn creation_journal_read_rejects_a_foreign_identity_or_lineage() {
+        let record = record(0x11, 0x21, authority(0x44), 1_000_000, 1_030_000);
+        let journal = validate_creation_record(record, authority(0x44), &verifying_keys())
+            .expect("validated journal");
+        let honest = read_request(&journal);
+
+        let mut foreign_identity = honest.clone();
+        foreign_identity.identity_digest_b64u = encode_base64url_bytes_v1(&[0x99; 32]);
+        assert!(
+            build_creation_journal_read_response(&foreign_identity, &journal, None, false).is_err()
+        );
+
+        let mut foreign_lineage = honest.clone();
+        foreign_lineage.custody_lineage_b64u = encode_base64url_bytes_v1(&[0x98; 16]);
+        assert!(
+            build_creation_journal_read_response(&foreign_lineage, &journal, None, false).is_err()
+        );
+
+        // Malformed encodings fail closed rather than comparing loosely.
+        let mut malformed = honest;
+        malformed.identity_digest_b64u = "not base64url!".to_owned();
+        assert!(build_creation_journal_read_response(&malformed, &journal, None, false).is_err());
     }
 
     fn verifying_key() -> [u8; 32] {
@@ -6683,7 +6893,7 @@ mod tests {
             lower_hex(&verifying_key())
         );
         assert_eq!(
-            decode_issuer_verifying_keys(&key_json)
+            crate::env::decode_issuer_verifying_keys(&key_json)
                 .expect("issuer key set")
                 .get(ISSUER_KEY_ID),
             Some(&verifying_key())
@@ -6693,7 +6903,7 @@ mod tests {
             lower_hex(&verifying_key()),
             lower_hex(&verifying_key())
         );
-        assert!(decode_issuer_verifying_keys(&duplicate).is_err());
+        assert!(crate::env::decode_issuer_verifying_keys(&duplicate).is_err());
         let invalid_point_bytes = (0_u8..=u8::MAX)
             .map(|marker| [marker; 32])
             .find(|candidate| ed25519_dalek::VerifyingKey::from_bytes(candidate).is_err())
@@ -6702,7 +6912,7 @@ mod tests {
             "{{\"keys\":[{{\"issuer_key_id\":\"{ISSUER_KEY_ID}\",\"verifying_key_hex\":\"{}\"}}]}}",
             lower_hex(&invalid_point_bytes)
         );
-        assert!(decode_issuer_verifying_keys(&invalid_point).is_err());
+        assert!(crate::env::decode_issuer_verifying_keys(&invalid_point).is_err());
     }
 
     #[test]

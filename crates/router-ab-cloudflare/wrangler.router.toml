@@ -27,6 +27,10 @@ service = "router-ab-deriver-b"
 binding = "SIGNING_WORKER"
 service = "router-ab-signing-worker"
 
+[[services]]
+binding = "TENANT_ROOT_CONTROL_PLANE"
+service = "router-ab-tenant-root-control-plane"
+
 [vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
 ROUTER_JWT_AUDIENCE = "router-ab"
@@ -57,6 +61,10 @@ service = "router-ab-deriver-b-staging"
 [[env.staging.services]]
 binding = "SIGNING_WORKER"
 service = "router-ab-signing-worker-staging"
+
+[[env.staging.services]]
+binding = "TENANT_ROOT_CONTROL_PLANE"
+service = "router-ab-tenant-root-control-plane-staging"
 
 [env.staging.vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
@@ -94,6 +102,10 @@ service = "router-ab-deriver-b-testnet"
 [[env.production-testnet.services]]
 binding = "SIGNING_WORKER"
 service = "router-ab-signing-worker-testnet"
+
+[[env.production-testnet.services]]
+binding = "TENANT_ROOT_CONTROL_PLANE"
+service = "router-ab-tenant-root-control-plane-testnet"
 
 [env.production-testnet.vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"

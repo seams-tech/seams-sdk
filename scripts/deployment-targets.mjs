@@ -23,6 +23,7 @@ export const BACKEND_COMPONENTS = Object.freeze([
   'deriver-a',
   'deriver-b',
   'router',
+  'tenant-root-control-plane',
   'wallet-runtime',
   'gateway',
   'console',
@@ -36,6 +37,7 @@ const DEPLOYMENT_RESOURCE_NAMES = Object.freeze([
   'deriverA',
   'deriverB',
   'signingWorker',
+  'tenantRootControlPlane',
 ]);
 const GATEWAY_BASE_SECRET_NAMES = Object.freeze([
   'ACCOUNT_ID_DERIVATION_SECRET',
@@ -171,6 +173,7 @@ export function componentSecretNames(lane, component) {
         'DERIVER_A_ROLE_PRIVATE_D1_KEK',
         'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
         'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+        'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY',
       ];
     case 'deriver-b':
       return [
@@ -181,9 +184,16 @@ export function componentSecretNames(lane, component) {
         'DERIVER_B_ROLE_PRIVATE_D1_KEK',
         'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
         'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+        'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY',
       ];
     case 'router':
       return ['ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET'];
+    case 'tenant-root-control-plane':
+      // Sole holder of the R120 issuer private signing key.
+      return [
+        'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
+        'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY',
+      ];
     default:
       throw new Error('Unsupported backend component: ' + component);
   }
@@ -443,6 +453,10 @@ function parseResources(value, pathName) {
     deriverA: parseWorkerResource(resources.deriverA, pathName + '.deriverA'),
     deriverB: parseWorkerResource(resources.deriverB, pathName + '.deriverB'),
     signingWorker: parseWorkerResource(resources.signingWorker, pathName + '.signingWorker'),
+    tenantRootControlPlane: parseWorkerResource(
+      resources.tenantRootControlPlane,
+      pathName + '.tenantRootControlPlane',
+    ),
   });
 }
 
@@ -569,6 +583,7 @@ function assertUniqueResourceNames(lanes) {
       lane.resources.deriverA.workerName,
       lane.resources.deriverB.workerName,
       lane.resources.signingWorker.workerName,
+      lane.resources.tenantRootControlPlane.workerName,
     );
   }
   assertUnique(names, 'backend resource names');

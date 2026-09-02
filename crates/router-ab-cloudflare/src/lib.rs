@@ -71,8 +71,21 @@ pub use ordinary_inactive_signer_material::{
 mod tenant_root_role_d1;
 #[cfg(feature = "workers-rs")]
 pub use tenant_root_role_d1::*;
+// The issuer reads and re-validates Durable Object state, so it is compiled
+// exactly where the Durable Object module is.
+#[cfg(any(feature = "workers-rs", test))]
+mod tenant_root_control_plane;
 mod tenant_root_cutover_lifecycle;
 mod tenant_root_operational_provider;
+#[cfg(feature = "workers-rs")]
+pub use tenant_root_control_plane::handle_cloudflare_tenant_root_control_plane_role_creation_command_v1;
+#[cfg(any(feature = "workers-rs", test))]
+pub use tenant_root_control_plane::{
+    CloudflareTenantRootControlPlaneRoleCreationCommandRequestV1,
+    CloudflareTenantRootControlPlaneRoleCreationCommandResponseV1,
+    CloudflareTenantRootControlPlaneRoleV1,
+    TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_REQUEST_MAX_BYTES_V1,
+};
 #[allow(dead_code)]
 mod tenant_root_role_runtime;
 pub use tenant_root_cutover_lifecycle::*;
@@ -96,6 +109,7 @@ pub use signing_worker::*;
 mod env;
 pub use env::*;
 use env::{
+    parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1,
     DERIVER_A_FORBIDDEN_ENV_KEYS, DERIVER_B_FORBIDDEN_ENV_KEYS, ROUTER_FORBIDDEN_ENV_KEYS,
     SIGNING_WORKER_FORBIDDEN_ENV_KEYS,
 };
@@ -344,6 +358,11 @@ impl CloudflareEnvMapV1 {
         self.entries.len()
     }
 
+    /// Returns the retained key/value entries.
+    pub const fn entries(&self) -> &BTreeMap<String, String> {
+        &self.entries
+    }
+
     /// Returns whether there are no entries.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
@@ -376,6 +395,14 @@ pub enum CloudflareWorkerRoleV1 {
     DeriverB,
     /// Dedicated normal-signing worker that owns active SigningWorker output.
     SigningWorker,
+    /// Internal tenant-root control-plane Worker.
+    ///
+    /// Sole holder of the R120 issuer private signing key. It validates exact
+    /// tenant authorization and authoritative Durable Object lifecycle state,
+    /// then constructs and signs canonical one-use commands, capabilities and
+    /// receipts. It never receives a scalar, a lane holder share, or Router
+    /// authorization configuration, and exposes no raw-payload signing method.
+    TenantRootControlPlane,
 }
 
 impl CloudflareWorkerRoleV1 {
@@ -386,6 +413,7 @@ impl CloudflareWorkerRoleV1 {
             Self::DeriverA => "deriver_a",
             Self::DeriverB => "deriver_b",
             Self::SigningWorker => "signing_worker",
+            Self::TenantRootControlPlane => "tenant_root_control_plane",
         }
     }
 }
@@ -1631,6 +1659,11 @@ pub struct CloudflareRouterBindingsV1 {
     pub deriver_b: CloudflarePeerBindingV1,
     /// SigningWorker peer binding.
     pub signing_worker: CloudflarePeerBindingV1,
+    /// Published control-plane issuer verifying keys.
+    ///
+    /// A signed creation command is verified at this Worker's own boundary, so
+    /// the anchor is parsed at startup rather than per request.
+    pub issuer_verifying_keys: CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
 }
 
 impl CloudflareRouterBindingsV1 {
@@ -1640,12 +1673,14 @@ impl CloudflareRouterBindingsV1 {
         deriver_a: CloudflarePeerBindingV1,
         deriver_b: CloudflarePeerBindingV1,
         signing_worker: CloudflarePeerBindingV1,
+        issuer_verifying_keys: CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
     ) -> RouterAbProtocolResult<Self> {
         let bindings = Self {
             admission,
             deriver_a,
             deriver_b,
             signing_worker,
+            issuer_verifying_keys,
         };
         bindings.validate()?;
         Ok(bindings)
@@ -1656,7 +1691,8 @@ impl CloudflareRouterBindingsV1 {
         self.admission.validate()?;
         require_peer_role(&self.deriver_a, CloudflareWorkerRoleV1::DeriverA)?;
         require_peer_role(&self.deriver_b, CloudflareWorkerRoleV1::DeriverB)?;
-        require_peer_role(&self.signing_worker, CloudflareWorkerRoleV1::SigningWorker)
+        require_peer_role(&self.signing_worker, CloudflareWorkerRoleV1::SigningWorker)?;
+        self.issuer_verifying_keys.validate()
     }
 }
 
@@ -1673,6 +1709,11 @@ pub struct CloudflareDeriverABindingsV1 {
     pub peer_verifying_keys: CloudflareSignerPeerVerifyingKeySetV1,
     /// Deriver B peer binding.
     pub deriver_b: CloudflarePeerBindingV1,
+    /// Published control-plane issuer verifying keys.
+    ///
+    /// A signed creation command is verified at this Worker's own boundary, so
+    /// the anchor is parsed at startup rather than per request.
+    pub issuer_verifying_keys: CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
 }
 
 impl CloudflareDeriverABindingsV1 {
@@ -1683,6 +1724,7 @@ impl CloudflareDeriverABindingsV1 {
         peer_signing_key: CloudflareSignerPeerSigningKeyBindingV1,
         peer_verifying_keys: CloudflareSignerPeerVerifyingKeySetV1,
         deriver_b: CloudflarePeerBindingV1,
+        issuer_verifying_keys: CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
     ) -> RouterAbProtocolResult<Self> {
         let bindings = Self {
             root_share_wire_secret,
@@ -1690,6 +1732,7 @@ impl CloudflareDeriverABindingsV1 {
             peer_signing_key,
             peer_verifying_keys,
             deriver_b,
+            issuer_verifying_keys,
         };
         bindings.validate()?;
         Ok(bindings)
@@ -1704,7 +1747,8 @@ impl CloudflareDeriverABindingsV1 {
         self.peer_signing_key
             .validate_visible_to(CloudflareWorkerRoleV1::DeriverA)?;
         self.peer_verifying_keys.validate()?;
-        require_peer_role(&self.deriver_b, CloudflareWorkerRoleV1::DeriverB)
+        require_peer_role(&self.deriver_b, CloudflareWorkerRoleV1::DeriverB)?;
+        self.issuer_verifying_keys.validate()
     }
 }
 
@@ -1752,6 +1796,11 @@ pub struct CloudflareDeriverBBindingsV1 {
     pub peer_verifying_keys: CloudflareSignerPeerVerifyingKeySetV1,
     /// Deriver A peer binding.
     pub deriver_a: CloudflarePeerBindingV1,
+    /// Published control-plane issuer verifying keys.
+    ///
+    /// A signed creation command is verified at this Worker's own boundary, so
+    /// the anchor is parsed at startup rather than per request.
+    pub issuer_verifying_keys: CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
 }
 
 impl CloudflareDeriverBBindingsV1 {
@@ -1762,6 +1811,7 @@ impl CloudflareDeriverBBindingsV1 {
         peer_signing_key: CloudflareSignerPeerSigningKeyBindingV1,
         peer_verifying_keys: CloudflareSignerPeerVerifyingKeySetV1,
         deriver_a: CloudflarePeerBindingV1,
+        issuer_verifying_keys: CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
     ) -> RouterAbProtocolResult<Self> {
         let bindings = Self {
             root_share_wire_secret,
@@ -1769,6 +1819,7 @@ impl CloudflareDeriverBBindingsV1 {
             peer_signing_key,
             peer_verifying_keys,
             deriver_a,
+            issuer_verifying_keys,
         };
         bindings.validate()?;
         Ok(bindings)
@@ -1783,7 +1834,8 @@ impl CloudflareDeriverBBindingsV1 {
         self.peer_signing_key
             .validate_visible_to(CloudflareWorkerRoleV1::DeriverB)?;
         self.peer_verifying_keys.validate()?;
-        require_peer_role(&self.deriver_a, CloudflareWorkerRoleV1::DeriverA)
+        require_peer_role(&self.deriver_a, CloudflareWorkerRoleV1::DeriverA)?;
+        self.issuer_verifying_keys.validate()
     }
 }
 
@@ -1811,6 +1863,62 @@ pub enum CloudflareWorkerBindingsV1 {
         /// SigningWorker bindings.
         bindings: CloudflareSigningWorkerBindingsV1,
     },
+    /// Tenant-root control-plane Worker bindings.
+    TenantRootControlPlane {
+        /// Control-plane bindings.
+        bindings: CloudflareTenantRootControlPlaneBindingsV1,
+    },
+}
+
+/// Tenant-root control-plane Worker bindings.
+///
+/// The control plane holds exactly one Secret of its own: the issuer signing
+/// key. Its Durable Object and service bindings are resolved per request from
+/// Env, as the Router's are, so nothing else is retained here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareTenantRootControlPlaneBindingsV1 {
+    /// Issuer signing Secret descriptor (binding name and key ID, never the seed).
+    pub issuer_signing_key: CloudflareTenantRootControlPlaneIssuerSigningKeyBindingV1,
+    /// Published control-plane issuer verifying keys.
+    ///
+    /// The issuer holds its own published set so it can prove at boot that its
+    /// Secret derives the key registered under its active key ID.
+    pub issuer_verifying_keys: CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
+}
+
+impl CloudflareTenantRootControlPlaneBindingsV1 {
+    /// Creates validated control-plane bindings.
+    pub fn new(
+        issuer_signing_key: CloudflareTenantRootControlPlaneIssuerSigningKeyBindingV1,
+        issuer_verifying_keys: CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let bindings = Self {
+            issuer_signing_key,
+            issuer_verifying_keys,
+        };
+        bindings.validate()?;
+        Ok(bindings)
+    }
+
+    /// Validates all bindings.
+    ///
+    /// The active issuer key ID must be present in the published set: an issuer
+    /// configured to sign under an unpublished id could never be verified.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.issuer_signing_key.validate()?;
+        self.issuer_verifying_keys.validate()?;
+        if self
+            .issuer_verifying_keys
+            .for_issuer_key_id(self.issuer_signing_key.signing_key_id())
+            .is_none()
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root control-plane active issuer key ID is not in the published verifying key set",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl CloudflareWorkerBindingsV1 {
@@ -1840,6 +1948,14 @@ impl CloudflareWorkerBindingsV1 {
         Ok(Self::SigningWorker { bindings })
     }
 
+    /// Creates a tenant-root control-plane Worker startup branch.
+    pub fn tenant_root_control_plane(
+        bindings: CloudflareTenantRootControlPlaneBindingsV1,
+    ) -> RouterAbProtocolResult<Self> {
+        bindings.validate()?;
+        Ok(Self::TenantRootControlPlane { bindings })
+    }
+
     /// Returns the Worker role.
     pub fn worker_role(&self) -> CloudflareWorkerRoleV1 {
         match self {
@@ -1847,6 +1963,7 @@ impl CloudflareWorkerBindingsV1 {
             Self::DeriverA { .. } => CloudflareWorkerRoleV1::DeriverA,
             Self::DeriverB { .. } => CloudflareWorkerRoleV1::DeriverB,
             Self::SigningWorker { .. } => CloudflareWorkerRoleV1::SigningWorker,
+            Self::TenantRootControlPlane { .. } => CloudflareWorkerRoleV1::TenantRootControlPlane,
         }
     }
 }
@@ -1873,6 +1990,73 @@ pub struct CloudflareDeriverBWorkerRuntimeV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareSigningWorkerRuntimeV1 {
     bindings: CloudflareSigningWorkerBindingsV1,
+}
+
+/// Thin tenant-root control-plane Worker runtime context after startup validation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareTenantRootControlPlaneRuntimeV1 {
+    bindings: CloudflareTenantRootControlPlaneBindingsV1,
+}
+
+impl CloudflareTenantRootControlPlaneRuntimeV1 {
+    /// Creates a control-plane runtime context from parsed bindings.
+    pub fn new(
+        bindings: CloudflareTenantRootControlPlaneBindingsV1,
+    ) -> RouterAbProtocolResult<Self> {
+        bindings.validate()?;
+        Ok(Self { bindings })
+    }
+
+    /// Parses and validates a real Cloudflare Worker Env for control-plane startup.
+    ///
+    /// Fails closed on any forbidden key, a missing issuer Secret, a binding
+    /// name that is not control-plane scoped, or an issuer Secret that does not
+    /// derive the public key published under the configured active key ID.
+    #[cfg(feature = "workers-rs")]
+    pub fn from_worker_env(env: &worker::Env) -> RouterAbProtocolResult<Self> {
+        let CloudflareWorkerBindingsV1::TenantRootControlPlane { bindings } =
+            parse_cloudflare_worker_bindings_from_worker_env_v1(
+                CloudflareWorkerRoleV1::TenantRootControlPlane,
+                env,
+            )?
+        else {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root control-plane Env parsing returned wrong binding branch",
+            ));
+        };
+        let runtime = Self::new(bindings)?;
+        runtime.require_issuer_key_provenance(env)?;
+        Ok(runtime)
+    }
+
+    /// Proves at boot that the issuer Secret matches its published active key.
+    #[cfg(feature = "workers-rs")]
+    fn require_issuer_key_provenance(&self, env: &worker::Env) -> RouterAbProtocolResult<()> {
+        let binding = &self.bindings.issuer_signing_key;
+        let secret = env.secret(binding.binding_name()).map_err(|err| {
+            worker_binding_error(
+                worker_binding_error_code(&err, binding.binding_name()),
+                binding.binding_name(),
+                "secret",
+                err,
+            )
+        })?;
+        let mut secret_value = secret.to_string();
+        let result =
+            crate::env::validate_cloudflare_tenant_root_control_plane_issuer_key_provenance_v1(
+                binding,
+                &self.bindings.issuer_verifying_keys,
+                &secret_value,
+            );
+        secret_value.zeroize();
+        result
+    }
+
+    /// Returns validated control-plane bindings.
+    pub fn bindings(&self) -> &CloudflareTenantRootControlPlaneBindingsV1 {
+        &self.bindings
+    }
 }
 
 /// Input for loading a synchronous signer host from async Cloudflare resources.
@@ -8572,12 +8756,15 @@ pub fn validate_cloudflare_signer_private_request_v1(
                 "private signer request payload branch does not match Worker role",
             ))
         }
-        (CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker, _) => {
-            Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidRole,
-                "this Worker has no private signer payload branch",
-            ))
-        }
+        (
+            CloudflareWorkerRoleV1::Router
+            | CloudflareWorkerRoleV1::SigningWorker
+            | CloudflareWorkerRoleV1::TenantRootControlPlane,
+            _,
+        ) => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "this Worker has no private signer payload branch",
+        )),
     }
 }
 
@@ -13287,7 +13474,25 @@ pub fn parse_cloudflare_worker_bindings_v1(
         CloudflareWorkerRoleV1::SigningWorker => CloudflareWorkerBindingsV1::signing_worker(
             parse_cloudflare_signing_worker_bindings_v1(env)?,
         ),
+        CloudflareWorkerRoleV1::TenantRootControlPlane => {
+            CloudflareWorkerBindingsV1::tenant_root_control_plane(
+                parse_cloudflare_tenant_root_control_plane_bindings_v1(env)?,
+            )
+        }
     }
+}
+
+/// Parses tenant-root control-plane Worker bindings from an Env reader.
+pub fn parse_cloudflare_tenant_root_control_plane_bindings_v1(
+    env: &impl CloudflareEnvReaderV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneBindingsV1> {
+    CloudflareTenantRootControlPlaneBindingsV1::new(
+        parse_cloudflare_tenant_root_control_plane_issuer_signing_key_binding_v1(
+            CloudflareWorkerRoleV1::TenantRootControlPlane,
+            env,
+        )?,
+        parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(env)?,
+    )
 }
 
 /// Parses Router Worker bindings from an Env reader.
@@ -13316,6 +13521,7 @@ pub fn parse_cloudflare_router_bindings_v1(
             CloudflareWorkerRoleV1::SigningWorker,
             SIGNING_WORKER_PEER_BINDING_ENV,
         )?,
+        parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(env)?,
     )
 }
 
@@ -13452,12 +13658,12 @@ pub fn parse_cloudflare_signer_envelope_hpke_decrypt_key_binding_v1(
             DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH_ENV,
             DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
         ),
-        CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker => {
-            Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidRole,
-                "this Worker cannot parse a signer-envelope HPKE decrypt key",
-            ))
-        }
+        CloudflareWorkerRoleV1::Router
+        | CloudflareWorkerRoleV1::SigningWorker
+        | CloudflareWorkerRoleV1::TenantRootControlPlane => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "this Worker cannot parse a signer-envelope HPKE decrypt key",
+        )),
     }
 }
 
@@ -13484,12 +13690,12 @@ pub fn parse_cloudflare_signer_envelope_hpke_decrypt_key_binding_set_v1(
             DERIVER_B_PREVIOUS_ENVELOPE_HPKE_KEY_EPOCH_ENV,
             DERIVER_B_PREVIOUS_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
         ),
-        CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker => {
-            Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidRole,
-                "this Worker cannot parse a signer-envelope HPKE decrypt-key rotation set",
-            ))
-        }
+        CloudflareWorkerRoleV1::Router
+        | CloudflareWorkerRoleV1::SigningWorker
+        | CloudflareWorkerRoleV1::TenantRootControlPlane => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "this Worker cannot parse a signer-envelope HPKE decrypt-key rotation set",
+        )),
     }
 }
 
@@ -13524,6 +13730,7 @@ pub fn parse_cloudflare_deriver_a_bindings_v1(
             CloudflareWorkerRoleV1::DeriverB,
             DERIVER_B_PEER_BINDING_ENV,
         )?,
+        parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(env)?,
     )
 }
 
@@ -13583,6 +13790,7 @@ pub fn parse_cloudflare_deriver_b_bindings_v1(
             CloudflareWorkerRoleV1::DeriverA,
             DERIVER_A_PEER_BINDING_ENV,
         )?,
+        parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(env)?,
     )
 }
 
@@ -13656,6 +13864,9 @@ pub fn validate_cloudflare_worker_env_bindings_v1(
         CloudflareWorkerBindingsV1::SigningWorker { bindings } => {
             require_worker_durable_object(env, &bindings.presign_session)?;
             require_worker_server_output_hpke_secret(env, &bindings.server_output_decrypt_key)
+        }
+        CloudflareWorkerBindingsV1::TenantRootControlPlane { bindings } => {
+            require_worker_secret_binding_name(env, bindings.issuer_signing_key.binding_name())
         }
     }
 }
@@ -13923,12 +14134,12 @@ fn expected_signer_private_request_kind_v1(
     match worker_role {
         CloudflareWorkerRoleV1::DeriverA => Ok(WireMessageKindV1::RouterToSignerA),
         CloudflareWorkerRoleV1::DeriverB => Ok(WireMessageKindV1::RouterToSignerB),
-        CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker => {
-            Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidRole,
-                "this Worker has no private signer request kind",
-            ))
-        }
+        CloudflareWorkerRoleV1::Router
+        | CloudflareWorkerRoleV1::SigningWorker
+        | CloudflareWorkerRoleV1::TenantRootControlPlane => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "this Worker has no private signer request kind",
+        )),
     }
 }
 
@@ -13938,12 +14149,12 @@ fn cloudflare_worker_signer_role_v1(
     match worker_role {
         CloudflareWorkerRoleV1::DeriverA => Ok(Role::SignerA),
         CloudflareWorkerRoleV1::DeriverB => Ok(Role::SignerB),
-        CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker => {
-            Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidRole,
-                "this Worker has no signer plaintext role",
-            ))
-        }
+        CloudflareWorkerRoleV1::Router
+        | CloudflareWorkerRoleV1::SigningWorker
+        | CloudflareWorkerRoleV1::TenantRootControlPlane => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "this Worker has no signer plaintext role",
+        )),
     }
 }
 
@@ -13984,12 +14195,12 @@ fn expected_signer_peer_request_kind_v1(
     match worker_role {
         CloudflareWorkerRoleV1::DeriverA => Ok(WireMessageKindV1::SignerBToSignerA),
         CloudflareWorkerRoleV1::DeriverB => Ok(WireMessageKindV1::SignerAToSignerB),
-        CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker => {
-            Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidRole,
-                "this Worker has no direct A/B peer request kind",
-            ))
-        }
+        CloudflareWorkerRoleV1::Router
+        | CloudflareWorkerRoleV1::SigningWorker
+        | CloudflareWorkerRoleV1::TenantRootControlPlane => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "this Worker has no direct A/B peer request kind",
+        )),
     }
 }
 
@@ -13999,12 +14210,12 @@ fn expected_signer_peer_response_kind_v1(
     match worker_role {
         CloudflareWorkerRoleV1::DeriverA => Ok(WireMessageKindV1::SignerAToSignerB),
         CloudflareWorkerRoleV1::DeriverB => Ok(WireMessageKindV1::SignerBToSignerA),
-        CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker => {
-            Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidRole,
-                "this Worker has no direct A/B peer response kind",
-            ))
-        }
+        CloudflareWorkerRoleV1::Router
+        | CloudflareWorkerRoleV1::SigningWorker
+        | CloudflareWorkerRoleV1::TenantRootControlPlane => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "this Worker has no direct A/B peer response kind",
+        )),
     }
 }
 

@@ -957,3 +957,252 @@ impl<'a> RoleCreationCommandWireDecoderV1<'a> {
         Ok(())
     }
 }
+
+const TENANT_ROOT_ROLE_CREATION_COMMAND_PACKAGE_DOMAIN_V1: &[u8] =
+    b"tenant_root_role_creation_command_package_v1";
+
+/// Maximum canonical wire size accepted for one self-contained role package.
+///
+/// The package carries the exact signed command plus the public Started
+/// journal and ceremony context preimages its digests commit to, so it is
+/// bounded well above the command's own limit.
+pub const TENANT_ROOT_ROLE_CREATION_COMMAND_PACKAGE_MAX_BYTES_V1: usize = 64 * 1024;
+
+/// A self-contained Router-attested role creation command.
+///
+/// `TenantRootRoleCreationCommandV1` commits to its Started journal and
+/// ceremony context by digest only, so verifying it requires both preimages.
+/// The Started event already retains the exact canonical ceremony-context
+/// bytes it was opened with, so the journal is the *only* preimage that has to
+/// travel: the context is recovered from it. Carrying the context as a second
+/// wire field would add a substitutable surface for a value the journal
+/// already fixes.
+///
+/// This lets a Deriver that holds no Router-local state reach
+/// [`VerifiedTenantRootRoleCreationCommandV1`] through the existing verifier.
+///
+/// The package adds no signed surface and no second verifier. Every binding is
+/// still checked by [`TenantRootRoleCreationCommandV1::verify`]; the package
+/// only transports the material that verifier already demands.
+///
+/// The package is unauthenticated until [`Self::verify`] runs. It carries no
+/// role authority of its own: `expected_role` is a required caller input, never
+/// read from the command under verification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TenantRootRoleCreationCommandPackageV1 {
+    started_journal: TenantRootCreationJournalV1,
+    command: TenantRootRoleCreationCommandV1,
+}
+
+impl TenantRootRoleCreationCommandPackageV1 {
+    /// Packages a signed command with the public Started journal preimage.
+    ///
+    /// This performs no authentication. It rejects only a package whose carried
+    /// journal cannot be the one the command commits to, so a malformed package
+    /// fails before it reaches the wire.
+    pub fn new(
+        started_journal: TenantRootCreationJournalV1,
+        command: TenantRootRoleCreationCommandV1,
+    ) -> RouterAbDerivationResult<Self> {
+        let package = Self {
+            started_journal,
+            command,
+        };
+        package.require_carried_preimages()?;
+        Ok(package)
+    }
+
+    /// Recovers the ceremony context the Started journal was opened with.
+    ///
+    /// The Started event retains the exact canonical context bytes, so this is
+    /// a decode of material the journal digest already commits to, never an
+    /// independent input.
+    pub fn creation_context(&self) -> RouterAbDerivationResult<TenantRootCeremonyContextV1> {
+        let TenantRootCreationJournalV1::Started(started_event) = &self.started_journal;
+        TenantRootCeremonyContextV1::decode_canonical_bytes(
+            started_event.ceremony_context_canonical_bytes(),
+        )
+    }
+
+    fn require_carried_preimages(&self) -> RouterAbDerivationResult<()> {
+        if self.started_journal.digest()? != self.command.started_journal_digest() {
+            return Err(replay_mismatch(
+                "tenant-root role creation package journal is not the command's journal preimage",
+            ));
+        }
+        if self.creation_context()?.digest()? != self.command.creation_context_digest() {
+            return Err(replay_mismatch(
+                "tenant-root role creation package journal context is not the command's context preimage",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the exact canonical package bytes.
+    pub fn canonical_bytes(&self) -> RouterAbDerivationResult<Vec<u8>> {
+        let mut bytes = Vec::new();
+        push_package_field(&mut bytes, TENANT_ROOT_ROLE_CREATION_COMMAND_PACKAGE_DOMAIN_V1)?;
+        push_package_field(&mut bytes, &self.started_journal.canonical_bytes()?)?;
+        push_package_field(&mut bytes, &self.command.canonical_bytes()?)?;
+        Ok(bytes)
+    }
+
+    /// Decodes an exact canonical package, rejecting trailing or short input.
+    pub fn decode_canonical_bytes(bytes: &[u8]) -> RouterAbDerivationResult<Self> {
+        if bytes.is_empty() || bytes.len() > TENANT_ROOT_ROLE_CREATION_COMMAND_PACKAGE_MAX_BYTES_V1 {
+            return Err(malformed(
+                "tenant-root role creation package wire length is invalid",
+            ));
+        }
+        let mut decoder = RoleCreationPackageWireDecoderV1::new(bytes);
+        decoder.require_domain(TENANT_ROOT_ROLE_CREATION_COMMAND_PACKAGE_DOMAIN_V1)?;
+        let started_journal = TenantRootCreationJournalV1::decode_canonical_bytes(
+            decoder.field("tenant-root role creation package Started journal")?,
+        )?;
+        let command = TenantRootRoleCreationCommandV1::decode_canonical_bytes(
+            decoder.field("tenant-root role creation package command")?,
+        )?;
+        decoder.finish()?;
+        Self::new(started_journal, command)
+    }
+
+    /// Verifies the packaged command through the existing command verifier.
+    ///
+    /// `expected_role`, `expected_authority_id`, `expected_issuer_key_id` and
+    /// `trusted_issuer_verifying_key` are caller-supplied authority. None of
+    /// them may be taken from the package: a caller that derives its expected
+    /// role from the command under verification defeats the role binding.
+    pub fn verify(
+        &self,
+        expected_role: TwoPartyDeriverRole,
+        expected_authority_id: TenantRootControlPlaneAuthorityIdV1,
+        expected_issuer_key_id: &str,
+        trusted_issuer_verifying_key: &[u8; 32],
+    ) -> RouterAbDerivationResult<VerifiedTenantRootRoleCreationCommandPackageV1> {
+        self.require_carried_preimages()?;
+        let creation_context = self.creation_context()?;
+        let command = self.command.verify(
+            &self.started_journal,
+            &creation_context,
+            expected_role,
+            expected_authority_id,
+            expected_issuer_key_id,
+            trusted_issuer_verifying_key,
+        )?;
+        Ok(VerifiedTenantRootRoleCreationCommandPackageV1 {
+            command,
+            creation_context,
+        })
+    }
+}
+
+/// An authenticated role creation package.
+///
+/// Holding this value is proof that the packaged command verified against the
+/// carried journal and context preimages under a caller-supplied role,
+/// authority, and trusted issuer key.
+#[derive(Debug)]
+pub struct VerifiedTenantRootRoleCreationCommandPackageV1 {
+    command: VerifiedTenantRootRoleCreationCommandV1,
+    creation_context: TenantRootCeremonyContextV1,
+}
+
+impl VerifiedTenantRootRoleCreationCommandPackageV1 {
+    /// Returns the verified command authorization.
+    pub const fn command(&self) -> &VerifiedTenantRootRoleCreationCommandV1 {
+        &self.command
+    }
+
+    /// Returns the verified ceremony context.
+    pub const fn creation_context(&self) -> &TenantRootCeremonyContextV1 {
+        &self.creation_context
+    }
+
+    /// Consumes this package into its verified command authorization.
+    pub fn into_command(self) -> VerifiedTenantRootRoleCreationCommandV1 {
+        self.command
+    }
+}
+
+fn push_package_field(bytes: &mut Vec<u8>, value: &[u8]) -> RouterAbDerivationResult<()> {
+    if value.is_empty() {
+        return Err(RouterAbDerivationError::new(
+            RouterAbDerivationErrorCode::EmptyField,
+            "tenant-root role creation package field is required",
+        ));
+    }
+    let length = u32::try_from(value.len())
+        .map_err(|_| malformed("tenant-root role creation package field is too long"))?;
+    let new_len = bytes
+        .len()
+        .checked_add(4)
+        .and_then(|length| length.checked_add(value.len()))
+        .ok_or_else(|| malformed("tenant-root role creation package wire length overflows"))?;
+    if new_len > TENANT_ROOT_ROLE_CREATION_COMMAND_PACKAGE_MAX_BYTES_V1 {
+        return Err(malformed(
+            "tenant-root role creation package wire is too long",
+        ));
+    }
+    bytes.extend_from_slice(&length.to_be_bytes());
+    bytes.extend_from_slice(value);
+    Ok(())
+}
+
+struct RoleCreationPackageWireDecoderV1<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> RoleCreationPackageWireDecoderV1<'a> {
+    const fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn field(&mut self, name: &'static str) -> RouterAbDerivationResult<&'a [u8]> {
+        let length_end = self
+            .offset
+            .checked_add(4)
+            .ok_or_else(|| malformed("tenant-root role creation package wire offset overflows"))?;
+        let length_bytes = self.bytes.get(self.offset..length_end).ok_or_else(|| {
+            malformed("tenant-root role creation package field length is truncated")
+        })?;
+        let length = u32::from_be_bytes(
+            length_bytes
+                .try_into()
+                .expect("fixed four-byte role creation package field length"),
+        ) as usize;
+        let value_end = length_end
+            .checked_add(length)
+            .ok_or_else(|| malformed("tenant-root role creation package field length overflows"))?;
+        let value = self
+            .bytes
+            .get(length_end..value_end)
+            .ok_or_else(|| malformed("tenant-root role creation package field is truncated"))?;
+        self.offset = value_end;
+        if value.is_empty() {
+            return Err(RouterAbDerivationError::new(
+                RouterAbDerivationErrorCode::EmptyField,
+                format!("{name} is required"),
+            ));
+        }
+        Ok(value)
+    }
+
+    fn require_domain(&mut self, expected: &[u8]) -> RouterAbDerivationResult<()> {
+        if self.field("tenant-root role creation package domain")? != expected {
+            return Err(malformed(
+                "tenant-root role creation package domain is invalid",
+            ));
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> RouterAbDerivationResult<()> {
+        if self.offset != self.bytes.len() {
+            return Err(malformed(
+                "tenant-root role creation package wire has trailing bytes",
+            ));
+        }
+        Ok(())
+    }
+}

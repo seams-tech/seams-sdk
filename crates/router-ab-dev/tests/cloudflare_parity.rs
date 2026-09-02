@@ -335,6 +335,65 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     signing_worker.assert_local(
         "SIGNING_WORKER_PRIVATE_STORAGE_PATH=.router-ab-local/signing-worker/role-private.sqlite",
     );
+
+    // R120: each Deriver reads authoritative creation state through its own
+    // external binding to the Router-owned Durable Object. The Router keeps the
+    // class and migrations; the Derivers name the matching Router script per env
+    // and declare no migrations of their own.
+    for deriver in [&deriver_a, &deriver_b] {
+        deriver.assert_wrangler("name = \"ROUTER_TENANT_ROOT_CREATION_DO\"");
+        deriver.assert_wrangler("class_name = \"RouterAbTenantRootCreationDurableObject\"");
+        deriver.assert_wrangler("script_name = \"router-ab-mpc-router\"");
+        deriver.assert_wrangler("script_name = \"router-ab-mpc-router-staging\"");
+        deriver.assert_wrangler("script_name = \"router-ab-mpc-router-testnet\"");
+        deriver.assert_wrangler_absent("[[migrations]]");
+        deriver.assert_wrangler_absent("new_sqlite_classes");
+    }
+    // The Router owns the class: it declares the migration and no script_name.
+    router.assert_wrangler("[[migrations]]");
+    router.assert_wrangler("new_sqlite_classes = [\"RouterAbTenantRootCreationDurableObject\"]");
+    router.assert_wrangler_absent("script_name");
+
+    // R120 tenant-root control plane: sole holder of the issuer private
+    // signing key; reads authoritative lifecycle state through an external
+    // binding to the Router-owned creation Durable Object.
+    let control_plane = ManifestPair {
+        local: include_str!("../env/tenant-root-control-plane.local.example"),
+        wrangler: include_str!("../../router-ab-cloudflare/wrangler.tenant-root-control-plane.toml"),
+    };
+    control_plane.assert_local("ROUTER_AB_LOCAL_WORKER_ROLE=tenant-root-control-plane");
+    control_plane.assert_wrangler("name = \"router-ab-tenant-root-control-plane\"");
+    control_plane.assert_wrangler("name = \"router-ab-tenant-root-control-plane-staging\"");
+    control_plane.assert_wrangler("name = \"router-ab-tenant-root-control-plane-testnet\"");
+    control_plane.assert_wrangler_absent("[env.production]");
+    control_plane.assert_wrangler_absent("ROUTER_AB_WORKER_ROLE");
+    control_plane.assert_wrangler(
+        "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING = \"TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY\"",
+    );
+    control_plane.assert_wrangler(
+        "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID = \"control-plane-issuer-v1\"",
+    );
+    // External DO binding: the Router keeps the class; every env names the
+    // matching Router script.
+    control_plane.assert_wrangler("name = \"ROUTER_TENANT_ROOT_CREATION_DO\"");
+    control_plane.assert_wrangler("class_name = \"RouterAbTenantRootCreationDurableObject\"");
+    control_plane.assert_wrangler("script_name = \"router-ab-mpc-router\"");
+    control_plane.assert_wrangler("script_name = \"router-ab-mpc-router-staging\"");
+    control_plane.assert_wrangler("script_name = \"router-ab-mpc-router-testnet\"");
+    // It owns no migrations, no D1, no shares, and no Router auth config.
+    control_plane.assert_wrangler_absent("[[migrations]]");
+    control_plane.assert_wrangler_absent("d1_databases");
+    control_plane.assert_wrangler_absent("ROOT_SHARE");
+    control_plane.assert_wrangler_absent("ROUTER_JWT");
+    control_plane.assert_wrangler_absent("ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON");
+    control_plane.assert_local("TENANT_ROOT_CONTROL_PLANE_URL=http://127.0.0.1:4106");
+    control_plane.assert_local("TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID=local-control-plane-issuer-v1");
+    control_plane.assert_local("TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY=");
+
+    // The Router reaches the control plane through a service binding in every env.
+    router.assert_wrangler("service = \"router-ab-tenant-root-control-plane\"");
+    router.assert_wrangler("service = \"router-ab-tenant-root-control-plane-staging\"");
+    router.assert_wrangler("service = \"router-ab-tenant-root-control-plane-testnet\"");
 }
 
 struct ManifestPair {

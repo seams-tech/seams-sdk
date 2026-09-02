@@ -4,9 +4,9 @@ set -euo pipefail
 
 role="${1:-}"
 case "$role" in
-  router|deriver-a|deriver-b|signing-worker) ;;
+  router|deriver-a|deriver-b|signing-worker|tenant-root-control-plane) ;;
   *)
-    echo "usage: build-strict-worker.sh <router|deriver-a|deriver-b|signing-worker>" >&2
+    echo "usage: build-strict-worker.sh <router|deriver-a|deriver-b|signing-worker|tenant-root-control-plane>" >&2
     exit 2
     ;;
 esac

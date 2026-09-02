@@ -298,6 +298,37 @@ remain curve-specific lifecycle operations.
     preface-only readiness exchange, zero additional client-to-service round
     trips, and no more than 10 ms added warm p95 end-to-end latency in any
     measured derivation-ceremony cohort.
+48. One dedicated internal tenant-root control-plane Worker owns the routine
+    R120 issuer signing key. The Router, Deriver A, Deriver B, SigningWorker,
+    Durable Object storage, D1, tenant backups, and clients never receive that
+    private key.
+49. The control-plane Worker is not a blind signing oracle. It validates the
+    exact tenant authorization, reads the authoritative identity/lineage
+    Durable Object state, and constructs each canonical capability, role
+    command, refresh command, or activation receipt from that verified state.
+    A Router-provided raw payload is never a signable input.
+50. The Router and both Derivers independently trust the same versioned public
+    issuer-key set through
+    `TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON`. The old
+    Router-prefixed verifier configuration is deleted. The SigningWorker does
+    not consume this keyset, and every issuer private-key binding remains
+    forbidden outside the control-plane Worker.
+51. Each Deriver reaches the Router-owned tenant-root Durable Object through a
+    direct external Durable Object namespace binding whose `script_name` names
+    the Router Worker for that environment. The Router remains the sole class,
+    namespace, migration, and storage owner. No Router proxy route or public
+    HTTP route is added.
+52. Possession of the external Durable Object binding grants reachability only.
+    The object derives its name from the locally verified identity digest and
+    custody lineage and verifies the exact command, expected role, authority,
+    revision, signatures, and public evidence before every mutation. No
+    serialized `Verified*` token or caller assertion substitutes for local
+    verification.
+53. The routine issuer key is one versioned key per deployment environment,
+    not per tenant. Retired public keys remain available for durable
+    verification while the retired private key stops signing immediately.
+    Accepted-loss, deletion, and issuer-key recovery keep their separate
+    operator or dual-authority credentials.
 
 ## Refactor 103F Compatibility
 
@@ -704,6 +735,68 @@ Each Deriver private store contains:
 The control plane stores only public lifecycle state, commitments, transcript
 digests, canary results, and receipts.
 
+### Control-plane issuer and Cloudflare binding ownership
+
+The routine R120 issuer private key lives in one dedicated internal
+`router-ab-tenant-root-control-plane` Worker. Its active signing-key ID is
+non-secret configuration. Its 32-byte Ed25519 signing key is a Worker Secret
+reachable only through the binding named by
+`TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING`. The Router calls this
+Worker through the `TENANT_ROOT_CONTROL_PLANE` service binding. The issuer
+Worker has no public route.
+
+The Worker is represented by
+`CloudflareWorkerRoleV1::TenantRootControlPlane`. Extending the existing
+exhaustive role enum forces every secret-visibility, peer-message, startup,
+route, and deployment match to decide what this Worker may access. R120 does
+not introduce a parallel role enum or boolean role flag.
+
+The issuer Worker independently validates the exact tenant authorization and
+reads the authoritative Router-owned Durable Object state before it signs. It
+builds the canonical wire from the verified authorization, persisted journal
+or active-state record, expected revision, identity, custody lineage, role,
+session, nonce, authority, and bounded validity window. It never signs an
+opaque byte string or a caller-assembled command payload. Compromise of the
+Router therefore does not reveal the signing key and cannot turn the issuer
+Worker into an unrestricted command-signing endpoint.
+
+The public trust anchor is
+`TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON`. The Router, Deriver A,
+and Deriver B parse this bounded key-ID-to-Ed25519-key map once at their
+configuration boundary. Each Deriver selects its expected role and authority
+from role-local trusted configuration and locally decodes and verifies every
+signed command package before generating or installing a share. A process-local
+`Verified*` Rust token never crosses a Worker boundary. The SigningWorker does
+not need this trust anchor.
+
+The private signing-key binding is allowed only in the control-plane Worker and
+hard-fails every other Worker at boot. The public verifier keyset is required
+in the Router and both Derivers and remains forbidden in the SigningWorker.
+The obsolete
+`ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON` configuration is
+removed rather than accepted as an alias.
+
+The control-plane Worker and both Derivers receive an external
+`ROUTER_TENANT_ROOT_CREATION_DO` namespace binding with the Router Worker as
+the environment-specific `script_name`. This grants direct access to the
+Router-owned object without a Router proxy hop:
+
+```text
+Router --service binding--> tenant-root control-plane issuer
+                                  |
+                                  +--external DO binding--+
+                                                           v
+Deriver A --external DO binding----------------> Router-owned tenant-root DO
+Deriver B --external DO binding----------------> Router-owned tenant-root DO
+```
+
+Only the Router manifest declares the Durable Object migration. Callers derive
+the object name from the verified identity digest and custody lineage and use
+the existing bounded public-evidence APIs. The object verifies all signed
+authority and lifecycle inputs itself. A configured binding, shared internal
+transport secret, request header, or Router assertion never authorizes a
+mutation by itself.
+
 ## Initial Tenant-Root Creation
 
 Initial creation must avoid a process that observes both shares.
@@ -769,7 +862,7 @@ A dormant crate-private Router caller derives the same object, checks the
 capability authority before dispatch, and verifies the returned revision plus
 both request digests. The dormant boundary accepts a bounded issuer
 verifying-key set by key ID through
-`ROUTER_TENANT_ROOT_CREATION_ISSUER_VERIFYING_KEYS_JSON_ENV`; production
+`TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV`; production
 deployment provisioning and rotation rollout for that set remain open.
 
 `expected_control_plane_revision` always names the exact lifecycle state from
@@ -1751,8 +1844,8 @@ review confidence.
 | Wallet-server orchestration                   | `packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa.ts`; Ed25519 registration, recovery, export, and capability domains; D1 registration and capability persistence                                                                                                                                                                                                        | Route bodies, database rows, and service results are parsed at separate boundaries; current checks sometimes equate root epoch with signing-root version                                                                                                                                 |
 | Wallet SDK and browser workers                | wallet registration, recovery, export, local material, presign-pool, relayer RPC, and worker modules under `packages/wallet/src`                                                                                                                                                                                                                                                                | IndexedDB records, Worker messages, WASM calls, and response parsers do not share a single compiler boundary with Rust or the server                                                                                                                                                     |
 | Role-private persistence                      | `crates/router-ab-cloudflare/migrations/deriver-a`, `deriver-b`; `tenant_root_role_d1.rs`; `ed25519_yao_role_d1.rs`; strict Deriver runtime adapters                                                                                                                                                                                                                                      | Dormant schemas now include encrypted tenant-root lifecycle rows and one-use command-replay rows with execution checkpoints and terminal receipts; provider-backed key destruction, live orchestration, and runtime fault evidence remain open                                  |
-| Control plane and coordination                | `crates/router-ab-cloudflare/src/router_coordinator.rs`, `durable_object/mod.rs`, `durable_object/tenant_root_creation.rs`, `ecdsa_pool_lifecycle.rs`, `ed25519_yao_lifecycle.rs`                                                                                                                                                                                                                | The creation and refresh Durable Object binding/migration, input-gated journal, authoritative public active-state projection, and public-evidence-only A/B commitment/installation checkpoints are dormant; exact replay/fence semantics and atomic mutations are implemented, with no activation consumer or role-runtime creation handler, while live lock, alarm, retry, crash, and orchestration semantics remain runtime work |
-| Deployment and secrets                        | `crates/router-ab-cloudflare/src/env.rs`; both Wrangler files; deployment key generators; `scripts/deployment-targets.mjs`; environment examples; `docs/deployment`                                                                                                                                                                                                                             | The dormant creation binding and code-level issuer/role-key parsers with exact key-ID retention are present; production role-verifying-key provisioning/configuration and deployment rotation rollout, live public caller/configuration, per-tenant key provisioning, and cutover evidence remain open                                      |
+| Control plane and coordination                | `crates/router-ab-cloudflare/src/router_coordinator.rs`, `durable_object/mod.rs`, `durable_object/tenant_root_creation.rs`, `ecdsa_pool_lifecycle.rs`, `ed25519_yao_lifecycle.rs`; the future dedicated tenant-root control-plane Worker                                                                                                                                                             | The creation and refresh Durable Object binding/migration, input-gated journal, authoritative public active-state projection, and public-evidence-only A/B commitment/installation checkpoints are dormant; exact replay/fence semantics and atomic mutations are implemented. The dedicated non-blind issuer Worker, direct issuer/Deriver external DO bindings, activation consumer, live lock, alarm, retry, crash, and orchestration semantics remain runtime work |
+| Deployment and secrets                        | `crates/router-ab-cloudflare/src/env.rs`; Router, Deriver A, Deriver B, SigningWorker, and future control-plane Wrangler files; deployment key generators; `scripts/deployment-targets.mjs`; environment examples; `docs/deployment`                                                                                              | The private routine issuer key must exist only in the dedicated control-plane Worker. The shared public `TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON` trust anchor belongs in Router and both Derivers, remains absent from SigningWorker, and replaces the Router-prefixed name. External DO bindings use the Router `script_name` in each environment while migrations remain Router-only. Provisioning, key rotation, boot guards, and deployment evidence remain open |
 | Local/dev parity                              | `crates/router-ab-dev/src/local_ecdsa_root_shares.rs`, local Router/worker coordinators, SQLite schema and seed scripts, strict local runtime config                                                                                                                                                                                                                                            | Local fixtures can silently preserve the deployment-wide root model and mask Cloudflare-only failures                                                                                                                                                                                    |
 | Persistence consumers                         | R103F final signer-D1 stores; ECDSA capability manifests; Ed25519 local metadata; device-link source contributions; recovery key manifests                                                                                                                                                                                                                                                      | Existing stable signing-root metadata must remain readable while `TenantRootShareEpoch` and custody lineage stay absent; these surfaces are verification-only unless the plan is amended after R103F                                                                                     |
 | Vectors, fixtures, and generation             | `crates/router-ab-core/fixtures`; Router A/B Rust tests; Yao formal-verification fixtures; `wasm/wallet_custody_ceremony/tests/wire_fixtures.rs`; shared TypeScript and top-level test helpers                                                                                                                                                                                                  | Generated JSON and hand-written fixtures compile independently, while stale snapshots can preserve retired semantics                                                                                                                                                                     |
@@ -2212,11 +2305,18 @@ Phase 0 execution status on 2026-08-29:
       source-bound A/B managed-backup artifacts or the dual-authority
       accepted-loss authorization, both provider canaries, and retains the
       exact signed activation bytes for lifecycle and D1 consumption.
-- [ ] Orchestrate distributed tenant-root creation through the role runtimes and
-      control-plane activation lifecycle.
-- [ ] Provision dedicated creation-signing keys and integrate provider-specific
-      key create/destroy/probe operations for production activation; the
-      dormant Cloudflare operational adapter remains test-only.
+- [ ] Orchestrate distributed tenant-root creation through the role runtimes,
+      direct external Router-owned Durable Object bindings, the dedicated
+      non-blind control-plane issuer Worker, and the control-plane activation
+      lifecycle. Every Worker locally verifies signed canonical inputs before
+      constructing a process-local verified token.
+- [ ] Provision the versioned routine control-plane issuer key only in the
+      dedicated issuer Worker; provision the shared public verifier keyset in
+      Router and both Derivers; keep both absent from SigningWorker as
+      appropriate; delete the Router-prefixed verifier configuration; and
+      integrate provider-specific key create/destroy/probe operations for
+      production activation. The dormant Cloudflare operational adapter
+      remains test-only.
 - [x] Orchestrate dedicated tenant recovery resharing from the active shares.
 - [x] Add the native role-encrypted recovery packages, externally trusted
       signatures, and signed public recovery manifest.
@@ -3027,9 +3127,11 @@ have exact replay/fence semantics and no activation or cutover consumer.
 These slices have no public caller or role-runtime creation handler. Exact
 role-plus-`signing_key_id` retention is implemented in the dormant parser.
 Production role-key provisioning/configuration and deployment rotation rollout
-remain open. Dedicated creation-signing-key provisioning, provider key
+remain open. The dedicated non-blind control-plane issuer Worker, its exclusive
+private signing-key Secret, the shared public verifier trust anchor, direct
+external DO bindings for the issuer and both Derivers, provider key
 create/destroy/probe integration, live Durable Object orchestration, production
-route/transport wiring, provider qualification, and release evidence remain
+transport wiring, provider qualification, and release evidence remain
 required. The dormant Cloudflare `operational_rotation_v1` HPKE adapter is not
 persisted or provisioned through Env/Wrangler, and no public route, production
 transport, activation, or cutover consumes it. Wrangler provisioning remains
