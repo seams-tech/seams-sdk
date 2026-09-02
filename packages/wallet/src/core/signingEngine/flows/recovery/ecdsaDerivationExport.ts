@@ -468,7 +468,7 @@ async function executeEcdsaDerivationExport(
         kind: 'finalize_router_ab_ecdsa_explicit_export_v1',
         ceremonyId,
         clientProofFinalization: {
-          kind: 'finalize_encrypted_client_proof_bundles_v1',
+          kind: 'finalize_encrypted_client_proof_bundles_v2',
           bundles: forwarded.value.response.bundles,
         },
         signingWorkerExport: forwarded.value.signing_worker_export,

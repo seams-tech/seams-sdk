@@ -567,7 +567,9 @@ function verifyRouterAbEcdsaRegistrationClientProofs(
     if (proofTranscriptDigest !== active.registrationBinding.transcriptDigestB64u) {
       throw new Error('Router A/B ECDSA client proof bundles changed the ceremony transcript');
     }
-    active.ceremony.verify_encrypted_proof_bundles(JSON.stringify(request.clientProofFinalization));
+    active.ceremony.verify_encrypted_proof_bundles(
+      JSON.stringify(request.clientProofFinalization),
+    );
   } catch (error: unknown) {
     closeRouterAbEcdsaRegistrationCeremonyState(ceremonyId, active);
     throw error;
@@ -1136,7 +1138,9 @@ async function finalizeRouterAbEcdsaExplicitExport(
     throw new Error('ECDSA explicit export finalization requires an active export ceremony');
   }
   try {
-    active.ceremony.verify_encrypted_proof_bundles(JSON.stringify(request.clientProofFinalization));
+    active.ceremony.verify_stable_encrypted_proof_bundles(
+      JSON.stringify(request.clientProofFinalization),
+    );
     const exportBinding = {
       wallet_id: String(request.publicFacts.walletId),
       key_handle: request.publicFacts.keyHandle,

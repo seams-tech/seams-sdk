@@ -10,6 +10,7 @@ import type {
   RouterAbEcdsaRegistrationRecipientKeysV1,
   RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
   RouterAbEcdsaSigningWorkerExportShareBindingV1,
+  RouterAbEcdsaStableClientProofFinalizationV2,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   EcdsaRoleLocalPersistedMaterialRef,
@@ -460,7 +461,7 @@ export type CreateRouterAbEcdsaPostRegistrationCeremonyResultV1 =
 export type FinalizeRouterAbEcdsaExplicitExportRequestV1 = {
   readonly kind: 'finalize_router_ab_ecdsa_explicit_export_v1';
   readonly ceremonyId: string;
-  readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
+  readonly clientProofFinalization: RouterAbEcdsaStableClientProofFinalizationV2;
   readonly signingWorkerExport: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1;
   readonly authorizationKind: RouterAbEcdsaSigningWorkerExportShareBindingV1['authorization_kind'];
   readonly authorizationId: RouterAbEcdsaSigningWorkerExportShareBindingV1['authorization_id'];

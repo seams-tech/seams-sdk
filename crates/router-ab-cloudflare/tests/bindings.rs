@@ -4534,6 +4534,7 @@ fn router_ab_ecdsa_derivation_deriver_export_private_request_accepts_matching_pa
         CloudflareWorkerRoleV1::DeriverA,
         export_request,
         bootstrap,
+        tenant_root_registration_transport_fixture(),
     )
     .expect("Router A/B ECDSA derivation export private request");
 
@@ -4563,6 +4564,7 @@ fn router_ab_ecdsa_derivation_deriver_export_private_request_rejects_payload_dri
         CloudflareWorkerRoleV1::DeriverA,
         export_request,
         bootstrap,
+        tenant_root_registration_transport_fixture(),
     )
     .expect_err("payload drift must fail");
 

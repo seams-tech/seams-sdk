@@ -490,7 +490,6 @@ async fn handle_strict_deriver_fetch_v1(
             &preloaded.host,
             export_request,
             runtime.envelope_decrypt_key(),
-            runtime.peer_signing_key(),
             &preloaded.root_share_metadata,
             now_unix_ms,
         )
