@@ -435,6 +435,7 @@ async fn handle_strict_deriver_fetch_v1(
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
         let signer_bootstrap = authenticated.bootstrap;
+        let tenant_root_custody_binding = authenticated.tenant_root_custody_binding;
         timing.mark("preload", preload_started_at_ms);
         let execute_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
         let response =
@@ -444,8 +445,8 @@ async fn handle_strict_deriver_fetch_v1(
                 &preloaded.host,
                 registration_request,
                 signer_bootstrap,
+                tenant_root_custody_binding,
                 runtime.envelope_decrypt_key(),
-                runtime.peer_signing_key(),
                 &preloaded.root_share_metadata,
                 now_unix_ms,
             )

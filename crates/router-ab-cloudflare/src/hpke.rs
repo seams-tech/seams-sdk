@@ -230,6 +230,35 @@ pub fn open_cloudflare_recipient_proof_bundle_hpke_payload_v1(
     envelope: &RecipientProofBundleCiphertextV1,
     private_key_bytes: &[u8],
 ) -> RouterAbProtocolResult<RecipientProofBundlePayloadV1> {
+    let plaintext =
+        open_cloudflare_recipient_proof_bundle_hpke_plaintext_v1(envelope, private_key_bytes)?;
+    let payload = decode_recipient_proof_bundle_payload_v1(&plaintext)?;
+    verify_recipient_proof_bundle_ciphertext_payload_v1(envelope, &payload)?;
+    Ok(payload)
+}
+
+/// Opens one Cloudflare HPKE envelope carrying a stable tenant-root proof bundle.
+pub fn open_cloudflare_recipient_proof_bundle_hpke_payload_v2(
+    envelope: &RecipientProofBundleCiphertextV1,
+    private_key_bytes: &[u8],
+    expected_transcript_digest: PublicDigest32,
+) -> RouterAbProtocolResult<router_ab_core::MpcPrfStableRecipientProofBundlePayloadV2> {
+    let plaintext =
+        open_cloudflare_recipient_proof_bundle_hpke_plaintext_v1(envelope, private_key_bytes)?;
+    let payload =
+        router_ab_core::decode_mpc_prf_stable_recipient_proof_bundle_payload_v2(&plaintext)?;
+    router_ab_core::verify_recipient_proof_bundle_ciphertext_payload_v2(
+        envelope,
+        &payload,
+        expected_transcript_digest,
+    )?;
+    Ok(payload)
+}
+
+fn open_cloudflare_recipient_proof_bundle_hpke_plaintext_v1(
+    envelope: &RecipientProofBundleCiphertextV1,
+    private_key_bytes: &[u8],
+) -> RouterAbProtocolResult<Vec<u8>> {
     envelope.validate()?;
     if envelope.algorithm != RecipientOutputEncryptionAlgorithmV1::HpkeX25519HkdfSha256Aes256GcmV1 {
         return Err(RouterAbProtocolError::new(
@@ -253,17 +282,76 @@ pub fn open_cloudflare_recipient_proof_bundle_hpke_payload_v1(
     let encapped_key =
         CloudflareHpkeKemV1::enc_from_bytes(encapped_key).map_err(map_cloudflare_hpke_error)?;
     let aad = encode_recipient_proof_bundle_ciphertext_aad_v1(envelope)?;
-    let plaintext = CloudflareHpkeSuiteV1::open_base(
+    CloudflareHpkeSuiteV1::open_base(
         &encapped_key,
         &private_key,
         CLOUDFLARE_HPKE_RECIPIENT_PROOF_BUNDLE_INFO_V1,
         &aad,
         ciphertext,
     )
-    .map_err(map_cloudflare_hpke_error)?;
-    let payload = decode_recipient_proof_bundle_payload_v1(&plaintext)?;
-    verify_recipient_proof_bundle_ciphertext_payload_v1(envelope, &payload)?;
-    Ok(payload)
+    .map_err(map_cloudflare_hpke_error)
+}
+
+/// Opens and combines V2 server proof bundles for one tenant-root ECDSA activation.
+#[cfg(feature = "workers-rs")]
+pub fn cloudflare_server_output_material_record_from_ecdsa_activation_request_v2(
+    request: &CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1,
+    private_key_bytes: &[u8],
+) -> RouterAbProtocolResult<CloudflareServerOutputMaterialRecordV1> {
+    request.validate()?;
+    let activation_context = &request.pending.activation_context;
+    let selected_server = &activation_context.signer_set().selected_server;
+    let deriver_a_envelope = decode_cloudflare_recipient_proof_bundle_wire_v1(
+        "deriver_a_bundle",
+        &request.pending.activation.deriver_a_bundle,
+        Role::SignerA,
+        Role::Server,
+        OpenedShareKind::XServerBase,
+    )?;
+    let deriver_b_envelope = decode_cloudflare_recipient_proof_bundle_wire_v1(
+        "deriver_b_server_bundle",
+        &request.pending.activation.deriver_b_server_bundle,
+        Role::SignerB,
+        Role::Server,
+        OpenedShareKind::XServerBase,
+    )?;
+    let deriver_a_payload = open_cloudflare_recipient_proof_bundle_hpke_payload_v2(
+        &deriver_a_envelope,
+        private_key_bytes,
+        activation_context.transcript_digest(),
+    )?;
+    let deriver_b_payload = open_cloudflare_recipient_proof_bundle_hpke_payload_v2(
+        &deriver_b_envelope,
+        private_key_bytes,
+        activation_context.transcript_digest(),
+    )?;
+    let stable_context = request
+        .pending
+        .registration
+        .to_threshold_prf_request()?
+        .stable_tenant_derivation_context()?;
+    let plan =
+        router_ab_core::plan_mpc_prf_stable_purpose_binding_from_authenticated_custody_digest_v2(
+            &stable_context,
+            request.pending.tenant_root_custody_binding_digest,
+            threshold_prf::PrfPurpose::RouterAbXServerBaseV1,
+        )
+        .map_err(map_root_share_to_protocol)?;
+    let output =
+        router_ab_core::combine_mpc_prf_stable_recipient_output_from_proof_bundle_payloads_v2(
+            &plan,
+            deriver_a_payload,
+            deriver_b_payload,
+            Role::Server,
+            &selected_server.server_id,
+        )?;
+    CloudflareServerOutputMaterialRecordV1::new(
+        activation_context.transcript_digest(),
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        selected_server.server_id.clone(),
+        CloudflareSecretMaterial32V1::from_secret_material(&output.output_material),
+    )
 }
 
 /// Opens encrypted server proof bundles into a serializable server-output material record.

@@ -88,9 +88,9 @@ pub use post_registration::{
 #[cfg(feature = "hpke")]
 pub use recipient_proof::{
     decode_ecdsa_client_proof_bundle_envelope_v1, ecdsa_client_prf_public_context_v1,
-    open_ecdsa_client_proof_bundle_v1, pair_ecdsa_opened_client_proof_bundles_v1,
-    EcdsaClientProofBundleEnvelopeV1, EcdsaOpenedClientProofBundlePairV1,
-    EcdsaOpenedClientProofBundleV1,
+    open_ecdsa_client_proof_bundle_v1, open_ecdsa_client_proof_bundle_v2,
+    pair_ecdsa_opened_client_proof_bundles_v1, EcdsaClientProofBundleEnvelopeV1,
+    EcdsaOpenedClientProofBundlePairV1, EcdsaOpenedClientProofBundleV1,
 };
 #[cfg(feature = "hpke")]
 pub use registration::{
@@ -119,7 +119,11 @@ const SIGNER_ENVELOPE_HPKE_TAG_LEN_V1: usize = 16;
 const PRF_INPUT_DOMAIN_V1: &[u8] = b"threshold-prf/input";
 const PRF_PARTIAL_CONTEXT_DOMAIN_V1: &[u8] = b"threshold-prf/partial-context";
 const PRF_DLEQ_DOMAIN_V1: &[u8] = b"threshold-prf/dleq";
+const PRF_DLEQ_BOUND_DOMAIN_V1: &[u8] = b"threshold-prf/dleq-bound/v1";
 const PRF_SUITE_V1: &[u8] = b"threshold-prf/ristretto255-sha512";
+const ECDSA_STABLE_CONTEXT_DOMAIN_V1: &[u8] = b"router-ab-ecdsa-derivation/context/v1";
+const ECDSA_STABLE_CONTEXT_SCHEME_ID_V1: &[u8] = b"router-ab-ecdsa-derivation-v1";
+const ECDSA_STABLE_CONTEXT_CURVE_V1: &[u8] = b"secp256k1";
 
 /// One Deriver role in the fixed all(2) protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -458,6 +462,78 @@ pub struct EcdsaRoleBoundPrfProofV1 {
     pub proof: EcdsaPrfPublicProofBundleV1,
 }
 
+/// Public stable tenant-root PRF context used for client output verification.
+///
+/// The context bytes contain only the refresh-invariant application binding.
+/// The custody digest is retained separately for the bound DLEQ transcript.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EcdsaStablePrfPublicContextV2 {
+    stable_context_digest: [u8; 32],
+    custody_binding_digest: [u8; 32],
+    context_bytes: Vec<u8>,
+}
+
+impl EcdsaStablePrfPublicContextV2 {
+    /// Builds the canonical stable context and its independent proof binding.
+    pub fn new(application_binding_digest: [u8; 32], custody_binding_digest: [u8; 32]) -> Self {
+        let context_bytes = stable_context_bytes(&application_binding_digest);
+        let stable_context_digest = Sha256::digest(&context_bytes).into();
+        Self {
+            stable_context_digest,
+            custody_binding_digest,
+            context_bytes,
+        }
+    }
+
+    /// Returns the digest of the exact stable context bytes.
+    pub fn stable_context_digest(&self) -> [u8; 32] {
+        self.stable_context_digest
+    }
+
+    /// Returns the independent custody digest bound into the DLEQ proof.
+    pub fn custody_binding_digest(&self) -> [u8; 32] {
+        self.custody_binding_digest
+    }
+
+    /// Returns the exact stable context bytes supplied to threshold-PRF.
+    pub fn canonical_context_bytes(&self) -> &[u8] {
+        &self.context_bytes
+    }
+}
+
+/// Canonical public proof material for one stable tenant-root client partial.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EcdsaStablePrfPublicProofBundleV2 {
+    /// Digest of the exact stable PRF context bytes.
+    pub stable_context_digest: [u8; 32],
+    /// Digest of the custody record bound into the DLEQ proof.
+    pub custody_binding_digest: [u8; 32],
+    /// Fixed-width threshold-PRF proof material.
+    pub proof: EcdsaPrfPublicProofBundleV1,
+}
+
+/// One role-bound stable tenant-root client proof bundle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EcdsaRoleBoundStablePrfProofV2 {
+    /// Deriver role that produced this proof.
+    pub role: EcdsaDeriverRoleV1,
+    /// Stable tenant-root proof material.
+    pub proof: EcdsaStablePrfPublicProofBundleV2,
+}
+
+/// Decrypted V2 stable tenant-root proof bundle addressed to the client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EcdsaOpenedClientProofBundleV2 {
+    /// Exact outer Router transcript digest.
+    pub transcript_digest: [u8; 32],
+    /// Exact producing signer identity.
+    pub signer: EcdsaSignerIdentityV1,
+    /// Exact client recipient identity.
+    pub recipient_identity: String,
+    /// Stable tenant-root proof material.
+    pub proof: EcdsaStablePrfPublicProofBundleV2,
+}
+
 /// Client-ready recipient-encrypted proof bundle.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -536,6 +612,72 @@ pub fn verify_ecdsa_prf_public_dleq_proof_v1(
         return Ok(());
     }
     Err(EcdsaClientProtocolError::InvalidDleqProof)
+}
+
+/// Verifies one stable tenant-root client partial against its bound custody
+/// digest and public root-share commitment.
+pub fn verify_ecdsa_stable_prf_public_dleq_proof_v2(
+    context: &EcdsaStablePrfPublicContextV2,
+    bundle: &EcdsaStablePrfPublicProofBundleV2,
+) -> Result<(), EcdsaClientProtocolError> {
+    if bundle.stable_context_digest != context.stable_context_digest
+        || bundle.custody_binding_digest != context.custody_binding_digest
+    {
+        return Err(EcdsaClientProtocolError::ContextMismatch);
+    }
+    let proof = &bundle.proof;
+    let partial_share_id = u16::from_be_bytes([proof.partial_wire[0], proof.partial_wire[1]]);
+    let commitment_share_id =
+        u16::from_be_bytes([proof.commitment_wire[0], proof.commitment_wire[1]]);
+    if partial_share_id == 0 || partial_share_id != commitment_share_id {
+        return Err(EcdsaClientProtocolError::InvalidDleqProof);
+    }
+    let expected_context_tag = prf_context_tag_v2(context)?;
+    if !bool::from(proof.partial_wire[2..34].ct_eq(&expected_context_tag)) {
+        return Err(EcdsaClientProtocolError::ContextMismatch);
+    }
+    let partial_point = decompress_ristretto(&proof.partial_wire[34..66])?;
+    let commitment_point = decompress_ristretto(&proof.commitment_wire[2..34])?;
+    let challenge = canonical_scalar(&proof.proof_wire[0..32])?;
+    let response = canonical_scalar(&proof.proof_wire[32..64])?;
+    let input_point = prf_input_point_v2(context)?;
+    let nonce_g = (response * RISTRETTO_BASEPOINT_POINT) - (challenge * commitment_point);
+    let nonce_p = (response * input_point) - (challenge * partial_point);
+    let expected_challenge = prf_dleq_challenge_v2(
+        context,
+        &expected_context_tag,
+        partial_share_id,
+        &input_point,
+        &commitment_point,
+        &partial_point,
+        &nonce_g,
+        &nonce_p,
+    )?;
+    if bool::from(challenge.to_bytes().ct_eq(&expected_challenge.to_bytes())) {
+        return Ok(());
+    }
+    Err(EcdsaClientProtocolError::InvalidDleqProof)
+}
+
+/// Verifies and combines the exact Deriver A/B stable tenant-root client
+/// proof bundles.
+pub fn finalize_ecdsa_stable_prf_two_party_output_v2(
+    context: &EcdsaStablePrfPublicContextV2,
+    deriver_a: &EcdsaRoleBoundStablePrfProofV2,
+    deriver_b: &EcdsaRoleBoundStablePrfProofV2,
+) -> Result<[u8; 32], EcdsaClientProtocolError> {
+    if deriver_a.role != EcdsaDeriverRoleV1::A || deriver_b.role != EcdsaDeriverRoleV1::B {
+        return Err(EcdsaClientProtocolError::InvalidDleqProof);
+    }
+    if proof_share_id(&deriver_a.proof.proof) != 1 || proof_share_id(&deriver_b.proof.proof) != 2 {
+        return Err(EcdsaClientProtocolError::InvalidDleqProof);
+    }
+    verify_ecdsa_stable_prf_public_dleq_proof_v2(context, &deriver_a.proof)?;
+    verify_ecdsa_stable_prf_public_dleq_proof_v2(context, &deriver_b.proof)?;
+    let partial_a = decompress_ristretto(&deriver_a.proof.proof.partial_wire[34..66])?;
+    let partial_b = decompress_ristretto(&deriver_b.proof.proof.partial_wire[34..66])?;
+    let combined = (Scalar::from(2_u64) * partial_a) - partial_b;
+    prf_output_v2(context, &combined)
 }
 
 fn finalize_role_bound_ecdsa_prf_two_party_output_v1(
@@ -645,6 +787,20 @@ fn digest32(bytes: &[u8]) -> Result<[u8; 32], EcdsaClientProtocolError> {
         .map_err(|_| EcdsaClientProtocolError::InvalidShape)
 }
 
+fn stable_context_bytes(application_binding_digest: &[u8; 32]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(ECDSA_STABLE_CONTEXT_DOMAIN_V1);
+    push_len16(&mut bytes, ECDSA_STABLE_CONTEXT_SCHEME_ID_V1)
+        .expect("fixed stable-context scheme id fits u16");
+    push_len16(&mut bytes, ECDSA_STABLE_CONTEXT_CURVE_V1)
+        .expect("fixed stable-context curve id fits u16");
+    bytes.extend_from_slice(application_binding_digest);
+    bytes.push(2);
+    bytes.extend_from_slice(&1_u16.to_be_bytes());
+    bytes.extend_from_slice(&2_u16.to_be_bytes());
+    bytes
+}
+
 fn prf_input_point(
     context: &EcdsaPrfPublicContextV1,
 ) -> Result<RistrettoPoint, EcdsaClientProtocolError> {
@@ -699,11 +855,87 @@ fn prf_dleq_challenge(
     nonce_g: &RistrettoPoint,
     nonce_p: &RistrettoPoint,
 ) -> Result<Scalar, EcdsaClientProtocolError> {
+    prf_dleq_challenge_for(
+        context.purpose.wire_label(),
+        context_tag,
+        None,
+        share_id,
+        input_point,
+        commitment_point,
+        partial_point,
+        nonce_g,
+        nonce_p,
+    )
+}
+
+fn prf_input_point_v2(
+    context: &EcdsaStablePrfPublicContextV2,
+) -> Result<RistrettoPoint, EcdsaClientProtocolError> {
+    prf_input_point(&stable_prf_context_v1(context))
+}
+
+fn prf_context_tag_v2(
+    context: &EcdsaStablePrfPublicContextV2,
+) -> Result<[u8; 32], EcdsaClientProtocolError> {
+    prf_context_tag(&stable_prf_context_v1(context))
+}
+
+fn prf_output_v2(
+    context: &EcdsaStablePrfPublicContextV2,
+    point: &RistrettoPoint,
+) -> Result<[u8; 32], EcdsaClientProtocolError> {
+    prf_output(&stable_prf_context_v1(context), point)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prf_dleq_challenge_v2(
+    context: &EcdsaStablePrfPublicContextV2,
+    context_tag: &[u8; 32],
+    share_id: u16,
+    input_point: &RistrettoPoint,
+    commitment_point: &RistrettoPoint,
+    partial_point: &RistrettoPoint,
+    nonce_g: &RistrettoPoint,
+    nonce_p: &RistrettoPoint,
+) -> Result<Scalar, EcdsaClientProtocolError> {
+    prf_dleq_challenge_for(
+        EcdsaPrfPurposeV1::XClientBase.wire_label(),
+        context_tag,
+        Some(&context.custody_binding_digest),
+        share_id,
+        input_point,
+        commitment_point,
+        partial_point,
+        nonce_g,
+        nonce_p,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prf_dleq_challenge_for(
+    purpose_wire_label: &[u8],
+    context_tag: &[u8; 32],
+    proof_binding_digest: Option<&[u8; 32]>,
+    share_id: u16,
+    input_point: &RistrettoPoint,
+    commitment_point: &RistrettoPoint,
+    partial_point: &RistrettoPoint,
+    nonce_g: &RistrettoPoint,
+    nonce_p: &RistrettoPoint,
+) -> Result<Scalar, EcdsaClientProtocolError> {
     let mut transcript = Vec::new();
-    push_len16(&mut transcript, PRF_DLEQ_DOMAIN_V1)?;
+    let domain = if proof_binding_digest.is_some() {
+        PRF_DLEQ_BOUND_DOMAIN_V1
+    } else {
+        PRF_DLEQ_DOMAIN_V1
+    };
+    push_len16(&mut transcript, domain)?;
     push_len16(&mut transcript, PRF_SUITE_V1)?;
-    push_len16(&mut transcript, context.purpose.wire_label())?;
+    push_len16(&mut transcript, purpose_wire_label)?;
     transcript.extend_from_slice(context_tag);
+    if let Some(proof_binding_digest) = proof_binding_digest {
+        transcript.extend_from_slice(proof_binding_digest);
+    }
     transcript.extend_from_slice(&share_id.to_be_bytes());
     transcript.extend_from_slice(RISTRETTO_BASEPOINT_POINT.compress().as_bytes());
     transcript.extend_from_slice(input_point.compress().as_bytes());
@@ -717,6 +949,13 @@ fn prf_dleq_challenge(
         .try_into()
         .map_err(|_| EcdsaClientProtocolError::InvalidShape)?;
     Ok(Scalar::from_bytes_mod_order_wide(&wide))
+}
+
+fn stable_prf_context_v1(context: &EcdsaStablePrfPublicContextV2) -> EcdsaPrfPublicContextV1 {
+    EcdsaPrfPublicContextV1 {
+        purpose: EcdsaPrfPurposeV1::XClientBase,
+        context_bytes: context.context_bytes.clone(),
+    }
 }
 
 fn prf_transcript(
@@ -868,5 +1107,98 @@ mod tests {
             open_ecdsa_signer_envelope_v1(&payload, &drifted, &private_key),
             Err(EcdsaClientProtocolError::InvalidShape),
         );
+    }
+
+    #[test]
+    fn stable_client_prf_combines_bound_proofs_and_rejects_custody_substitution() {
+        let context = EcdsaStablePrfPublicContextV2::new([0x17; 32], [0x28; 32]);
+        let deriver_a = stable_proof_for_test(
+            EcdsaDeriverRoleV1::A,
+            Scalar::from_bytes_mod_order([0x31; 32]),
+            Scalar::from_bytes_mod_order([0x41; 32]),
+            &context,
+        );
+        let deriver_b = stable_proof_for_test(
+            EcdsaDeriverRoleV1::B,
+            Scalar::from_bytes_mod_order([0x32; 32]),
+            Scalar::from_bytes_mod_order([0x42; 32]),
+            &context,
+        );
+        let output =
+            finalize_ecdsa_stable_prf_two_party_output_v2(&context, &deriver_a, &deriver_b)
+                .expect("stable client proof pair combines");
+        assert_eq!(
+            output,
+            finalize_ecdsa_stable_prf_two_party_output_v2(
+                &EcdsaStablePrfPublicContextV2::new([0x17; 32], [0x28; 32]),
+                &deriver_a,
+                &deriver_b,
+            )
+            .expect("same stable context reproduces output"),
+        );
+        let rotated_custody = EcdsaStablePrfPublicContextV2::new([0x17; 32], [0x29; 32]);
+        assert_eq!(
+            verify_ecdsa_stable_prf_public_dleq_proof_v2(
+                &rotated_custody,
+                &EcdsaStablePrfPublicProofBundleV2 {
+                    stable_context_digest: context.stable_context_digest(),
+                    custody_binding_digest: context.custody_binding_digest(),
+                    proof: deriver_a.proof.proof.clone(),
+                },
+            ),
+            Err(EcdsaClientProtocolError::ContextMismatch),
+        );
+    }
+
+    fn stable_proof_for_test(
+        role: EcdsaDeriverRoleV1,
+        share: Scalar,
+        blind: Scalar,
+        context: &EcdsaStablePrfPublicContextV2,
+    ) -> EcdsaRoleBoundStablePrfProofV2 {
+        let share_id = match role {
+            EcdsaDeriverRoleV1::A => 1_u16,
+            EcdsaDeriverRoleV1::B => 2_u16,
+        };
+        let input_point = prf_input_point_v2(context).expect("stable input point");
+        let context_tag = prf_context_tag_v2(context).expect("stable context tag");
+        let partial_point = share * input_point;
+        let commitment_point = share * RISTRETTO_BASEPOINT_POINT;
+        let nonce_g = blind * RISTRETTO_BASEPOINT_POINT;
+        let nonce_p = blind * input_point;
+        let challenge = prf_dleq_challenge_v2(
+            context,
+            &context_tag,
+            share_id,
+            &input_point,
+            &commitment_point,
+            &partial_point,
+            &nonce_g,
+            &nonce_p,
+        )
+        .expect("stable challenge");
+        let response = blind + (challenge * share);
+        let mut partial_wire = [0_u8; 66];
+        partial_wire[..2].copy_from_slice(&share_id.to_be_bytes());
+        partial_wire[2..34].copy_from_slice(&context_tag);
+        partial_wire[34..].copy_from_slice(partial_point.compress().as_bytes());
+        let mut commitment_wire = [0_u8; 34];
+        commitment_wire[..2].copy_from_slice(&share_id.to_be_bytes());
+        commitment_wire[2..].copy_from_slice(commitment_point.compress().as_bytes());
+        let mut proof_wire = [0_u8; 64];
+        proof_wire[..32].copy_from_slice(&challenge.to_bytes());
+        proof_wire[32..].copy_from_slice(&response.to_bytes());
+        EcdsaRoleBoundStablePrfProofV2 {
+            role,
+            proof: EcdsaStablePrfPublicProofBundleV2 {
+                stable_context_digest: context.stable_context_digest(),
+                custody_binding_digest: context.custody_binding_digest(),
+                proof: EcdsaPrfPublicProofBundleV1 {
+                    partial_wire,
+                    commitment_wire,
+                    proof_wire,
+                },
+            },
+        }
     }
 }

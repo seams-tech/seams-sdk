@@ -202,7 +202,7 @@ use router_ab_core::{
     RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbEd25519SigningPayloadV2,
     RouterAbEd25519TwoPartyFrostFinalizeProtocolV2, RouterAbNearNetworkIdV2,
     RouterAbNearTransactionIntentV1, TenantRootDerivationNonceV1,
-    TenantRootDerivationOperationIdV1, TenantRootDerivationSessionIdV1,
+    TenantRootDerivationOperationIdV1, TenantRootDerivationSessionIdV1, TenantRootProtocolDigestV1,
 };
 use router_ab_ecdsa_derivation::derive_relayer_share_for_client_public;
 use router_ab_ecdsa_online::{
@@ -1421,6 +1421,7 @@ fn router_ab_ecdsa_derivation_activation_request(
     .expect("Router A/B ECDSA derivation SigningWorker proof-bundle activation");
     let pending = CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1::new(
         registration,
+        TenantRootProtocolDigestV1::from_bytes([0x55; 32]).expect("custody binding digest"),
         router_payload,
         activation,
     )

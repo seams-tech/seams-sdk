@@ -141,6 +141,8 @@ pub(crate) use validation::{
 };
 mod hpke;
 #[cfg(feature = "workers-rs")]
+pub use hpke::cloudflare_server_output_material_record_from_ecdsa_activation_request_v2;
+#[cfg(feature = "workers-rs")]
 use hpke::CloudflareHpkeGetrandomRngV1;
 #[cfg(test)]
 use hpke::{
@@ -155,6 +157,7 @@ pub use hpke::{
     encode_cloudflare_server_output_hpke_private_key_secret_v1,
     encode_cloudflare_signer_envelope_hpke_private_key_secret_v1,
     open_cloudflare_recipient_proof_bundle_hpke_payload_v1,
+    open_cloudflare_recipient_proof_bundle_hpke_payload_v2,
     open_cloudflare_signer_envelope_hpke_payload_v1,
     seal_cloudflare_signer_envelope_hpke_payload_v1, CloudflareHpkeRecipientOutputEncryptorV1,
     CloudflareHpkeRecipientProofBundleEncryptorV1, CloudflareSecretMaterial32V1,
@@ -333,21 +336,29 @@ use router_ab_core::{
     SignerEnvelopeHpkePayloadV1, SignerIdentityV1, SignerInputPlaintextV1, SignerKeyStore,
     SignerSetV1, SigningRootShareStore, SigningWorkerActivationContextV1,
     TenantRootDerivationNonceV1, TenantRootDerivationOperationIdV1,
-    TenantRootDerivationSessionIdV1, TenantRootSignedActivationReceiptV1, WireMessageKindV1,
-    WireMessageV1, MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
-    TENANT_ROOT_ACTIVATION_RECEIPT_MAX_BYTES_V1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
+    TenantRootDerivationSessionIdV1, TenantRootProtocolDigestV1,
+    TenantRootSignedActivationReceiptV1, WireMessageKindV1, WireMessageV1,
+    MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN, TENANT_ROOT_ACTIVATION_RECEIPT_MAX_BYTES_V1,
+    TENANT_ROOT_MAX_LIFETIME_MS_V1,
 };
 #[cfg(feature = "workers-rs")]
 use router_ab_core::{
-    MpcPrfOutputRequestV1, RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
+    evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2,
+    plan_mpc_prf_stable_purpose_binding_v2,
+    resolve_authoritative_active_tenant_root_pair_binding_v1, MpcPrfOutputRequestV1,
+    MpcPrfStablePartialProofBundleV2, MpcPrfStableRecipientProofBundlePayloadV2,
+    MpcPrfStableThresholdSignerInputV2, RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
     RouterAbEcdsaDerivationRegistrationPurposeV1, SignerInputQuorumPolicyV1,
+    TenantRootActiveRoleBindingV1, TenantRootActiveRoleResolutionV1, TenantRootActiveRoleRowKeyV1,
     TenantRootCustodyBindingV1, TenantRootCustodyLineageId, TenantRootDeriverIdentitiesV1,
-    TenantRootIdentityDigestV1, TenantRootProtocolDigestV1, TwoPartyDeriverRole,
+    TenantRootIdentityDigestV1, TenantRootManagedRestoreRoleV1, TwoPartyDeriverRole,
     VerifiedTenantRootOnlineRoleShareV1, VerifiedTenantRootSignedActivationReceiptV1,
 };
 use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+#[cfg(feature = "workers-rs")]
+use threshold_prf::PrfPurpose;
 #[cfg(feature = "workers-rs")]
 use zeroize::Zeroize;
 
@@ -3224,6 +3235,8 @@ impl CloudflareSigningWorkerRecipientProofBundleActivationRequestV1 {
 pub struct CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1 {
     /// Typed Router A/B ECDSA derivation registration/bootstrap request admitted by Router.
     pub registration: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+    /// Digest of the Router-authenticated tenant-root custody binding.
+    pub tenant_root_custody_binding_digest: TenantRootProtocolDigestV1,
     /// Public context needed to verify and open SigningWorker proof bundles.
     pub activation_context: SigningWorkerActivationContextV1,
     /// Opaque SigningWorker proof bundles from Deriver A and Deriver B.
@@ -3234,6 +3247,7 @@ impl CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1 {
     /// Creates a pending activation from Router public context and encrypted server bundles.
     pub fn new(
         registration: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+        tenant_root_custody_binding_digest: TenantRootProtocolDigestV1,
         router_payload: RouterToSignerPayloadV1,
         activation: CloudflareSigningWorkerRecipientProofBundleActivationV1,
     ) -> RouterAbProtocolResult<Self> {
@@ -3243,6 +3257,7 @@ impl CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1 {
             SigningWorkerActivationContextV1::from_router_payload(&router_payload)?;
         let request = Self {
             registration,
+            tenant_root_custody_binding_digest,
             activation_context,
             activation,
         };
@@ -5558,6 +5573,10 @@ where
 {
     let total_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
     request.validate_at(now_unix_ms)?;
+    let tenant_root_custody_binding_digest = tenant_root_custody_binding
+        .authenticate_for_registration(env, &request, now_unix_ms)?
+        .digest()
+        .map_err(map_root_share_to_protocol)?;
     let public_request = request.to_threshold_prf_request()?;
     let trusted_admission = derive_cloudflare_router_trusted_admission_from_worker_jwt_v1(
         runtime,
@@ -5649,6 +5668,7 @@ where
             let pending_activation =
                 CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1::new(
                     request.clone(),
+                    tenant_root_custody_binding_digest,
                     router_payload,
                     CloudflareSigningWorkerRecipientProofBundleActivationV1::new(
                         deriver_a_response.server_bundle,
@@ -8784,8 +8804,8 @@ pub async fn activate_cloudflare_router_ab_ecdsa_derivation_signing_worker_outpu
         env,
         runtime.server_output_decrypt_key(),
     )?;
-    let material = cloudflare_server_output_material_record_from_activation_request_v1(
-        &generic_activation,
+    let material = cloudflare_server_output_material_record_from_ecdsa_activation_request_v2(
+        &activation,
         &private_key_bytes,
     );
     private_key_bytes.zeroize();
@@ -10103,6 +10123,108 @@ pub fn evaluate_cloudflare_validated_mpc_prf_batch_output_v1(
     .map_err(map_derivation_to_protocol)
 }
 
+/// Evaluates the two stable tenant-root outputs for one authenticated Deriver request.
+#[cfg(feature = "workers-rs")]
+pub fn evaluate_cloudflare_authenticated_stable_mpc_prf_outputs_v2(
+    host: &CloudflarePreloadedSignerHostV1,
+    request: &CloudflareValidatedSignerPrivateRequestV1,
+    registration_request: &RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+    custody_binding: &TenantRootCustodyBindingV1,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<(
+    MpcPrfStablePartialProofBundleV2,
+    MpcPrfStablePartialProofBundleV2,
+)> {
+    host.validate()?;
+    request.router_payload().validate()?;
+    request
+        .signer_input()
+        .validate()
+        .map_err(map_derivation_to_protocol)?;
+    registration_request.validate_at(now_unix_ms)?;
+    custody_binding
+        .validate_at(now_unix_ms)
+        .map_err(map_root_share_to_protocol)?;
+
+    let signer_role = cloudflare_worker_signer_role_v1(request.worker_role())?;
+    if request.signer_input().recipient_role != signer_role {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "validated signer input role does not match Worker role",
+        ));
+    }
+    let active_pair = cloudflare_active_tenant_root_pair_from_custody_binding_v1(custody_binding)?;
+    let stable_context = registration_request
+        .to_threshold_prf_request()?
+        .stable_tenant_derivation_context()?;
+    let signing_root_share_wire =
+        host.signing_root_share_wire(signer_role, &request.signer_input().root_share_epoch)?;
+
+    let evaluate = |purpose| {
+        let plan =
+            plan_mpc_prf_stable_purpose_binding_v2(&stable_context, custody_binding, purpose)
+                .map_err(map_derivation_to_protocol)?;
+        let input = MpcPrfStableThresholdSignerInputV2::new(
+            plan,
+            custody_binding,
+            &active_pair,
+            signer_role,
+            signing_root_share_wire.clone(),
+            now_unix_ms,
+        )
+        .map_err(map_derivation_to_protocol)?;
+        evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2(
+            input,
+            &mut CloudflareSignerProofGetrandomRngV1,
+        )
+        .map_err(map_derivation_to_protocol)
+    };
+
+    Ok((
+        evaluate(PrfPurpose::RouterAbXClientBaseV1)?,
+        evaluate(PrfPurpose::RouterAbXServerBaseV1)?,
+    ))
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_active_tenant_root_pair_from_custody_binding_v1(
+    custody_binding: &TenantRootCustodyBindingV1,
+) -> RouterAbProtocolResult<router_ab_core::TenantRootActiveRootPairV1> {
+    let identity_digest = custody_binding.identity_digest();
+    let role_binding = |role, commitment: &router_ab_core::MpcPrfShareCommitmentWireV1| {
+        TenantRootActiveRoleBindingV1::new(
+            TenantRootActiveRoleRowKeyV1::new(
+                identity_digest,
+                custody_binding.custody_lineage(),
+                custody_binding.epoch(),
+                role,
+            ),
+            commitment.clone(),
+            custody_binding.activation_receipt_digest(),
+        )
+        .map(TenantRootActiveRoleResolutionV1::Active)
+        .map_err(map_root_share_to_protocol)
+    };
+    let deriver_a = role_binding(
+        TenantRootManagedRestoreRoleV1::DeriverA,
+        custody_binding.commitments().deriver_a(),
+    )?;
+    let deriver_b = role_binding(
+        TenantRootManagedRestoreRoleV1::DeriverB,
+        custody_binding.commitments().deriver_b(),
+    )?;
+    resolve_authoritative_active_tenant_root_pair_binding_v1(
+        identity_digest,
+        custody_binding,
+        &deriver_a,
+        &deriver_b,
+    )
+    .map_err(map_root_share_to_protocol)?
+    .require_active()
+    .map(Clone::clone)
+    .map_err(map_root_share_to_protocol)
+}
+
 /// Builds a signed A/B proof-batch peer wire message from a real signer batch output.
 pub fn build_cloudflare_ecdsa_threshold_prf_proof_batch_peer_message_v1(
     signing_key_bytes: &[u8; 32],
@@ -10187,6 +10309,79 @@ pub fn cloudflare_recipient_proof_bundle_response_from_ab_proof_batch_v1(
     Ok(response)
 }
 
+/// Builds the existing opaque delivery envelope from stable tenant-root proofs.
+#[cfg(feature = "workers-rs")]
+pub fn cloudflare_recipient_proof_bundle_response_from_stable_outputs_v2(
+    router_payload: &RouterToSignerPayloadV1,
+    signer: SignerIdentityV1,
+    client_output: &MpcPrfStablePartialProofBundleV2,
+    server_output: &MpcPrfStablePartialProofBundleV2,
+    encryptor: &mut impl RecipientProofBundleEncryptorV1,
+) -> RouterAbProtocolResult<CloudflareSignerRecipientProofBundleResponseV1> {
+    router_payload.validate()?;
+    signer.validate()?;
+    let client_bundle = cloudflare_stable_recipient_proof_bundle_wire_message_v2(
+        router_payload,
+        signer.clone(),
+        Role::Client,
+        &router_payload.transcript_metadata().client_id,
+        &router_payload
+            .transcript_metadata()
+            .client_ephemeral_public_key,
+        client_output,
+        encryptor,
+    )?;
+    let server_bundle = cloudflare_stable_recipient_proof_bundle_wire_message_v2(
+        router_payload,
+        signer.clone(),
+        Role::Server,
+        &router_payload.signer_set().selected_server.server_id,
+        &router_payload
+            .signer_set()
+            .selected_server
+            .recipient_encryption_key,
+        server_output,
+        encryptor,
+    )?;
+    let response = CloudflareSignerRecipientProofBundleResponseV1::new(
+        signer.role,
+        client_bundle,
+        server_bundle,
+    )?;
+    response.validate_for_router_payload(router_payload)?;
+    Ok(response)
+}
+
+#[cfg(feature = "workers-rs")]
+#[allow(clippy::too_many_arguments)]
+fn cloudflare_stable_recipient_proof_bundle_wire_message_v2(
+    router_payload: &RouterToSignerPayloadV1,
+    signer: SignerIdentityV1,
+    recipient_role: Role,
+    recipient_identity: &str,
+    recipient_encryption_key: &str,
+    output: &MpcPrfStablePartialProofBundleV2,
+    encryptor: &mut impl RecipientProofBundleEncryptorV1,
+) -> RouterAbProtocolResult<WireMessageV1> {
+    let payload = MpcPrfStableRecipientProofBundlePayloadV2::from_stable_partial(
+        signer,
+        recipient_role,
+        recipient_identity,
+        output,
+    )?;
+    let request = RecipientProofBundleEncryptionRequestV1::new_stable_v2(
+        &payload,
+        recipient_encryption_key,
+        router_payload.transcript_digest(),
+    )?;
+    let envelope = encryptor.encrypt_recipient_proof_bundle_v1(request)?;
+    WireMessageV1::new(
+        WireMessageKindV1::RecipientProofBundle,
+        router_payload.transcript_digest(),
+        CanonicalWireBytesV1::new(envelope.canonical_bytes()?)?,
+    )
+}
+
 /// Builds a strict opaque client proof bundle from one signer proof batch.
 pub fn cloudflare_client_recipient_proof_bundle_response_from_ab_proof_batch_v1(
     router_payload: &RouterToSignerPayloadV1,
@@ -10239,6 +10434,35 @@ pub fn handle_cloudflare_validated_mpc_prf_recipient_proof_bundle_signer_request
     cloudflare_recipient_proof_bundle_response_from_ab_proof_batch_v1(
         request.router_payload(),
         local_proof_batch,
+        encryptor,
+    )
+}
+
+/// Handles one authenticated registration through the stable tenant-root PRF.
+#[cfg(feature = "workers-rs")]
+pub fn handle_cloudflare_authenticated_stable_mpc_prf_signer_request_v2(
+    host: &CloudflarePreloadedSignerHostV1,
+    registration_request: &RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+    custody_binding: &TenantRootCustodyBindingV1,
+    request: &CloudflareValidatedSignerPrivateRequestV1,
+    now_unix_ms: u64,
+    encryptor: &mut impl RecipientProofBundleEncryptorV1,
+) -> RouterAbProtocolResult<CloudflareSignerRecipientProofBundleResponseV1> {
+    let local_role = cloudflare_worker_signer_role_v1(request.worker_role())?;
+    let (local_signer, _, _) = cloudflare_signer_identities_for_request_v1(request, local_role)?;
+    let (client_output, server_output) =
+        evaluate_cloudflare_authenticated_stable_mpc_prf_outputs_v2(
+            host,
+            request,
+            registration_request,
+            custody_binding,
+            now_unix_ms,
+        )?;
+    cloudflare_recipient_proof_bundle_response_from_stable_outputs_v2(
+        request.router_payload(),
+        local_signer,
+        &client_output,
+        &server_output,
         encryptor,
     )
 }
@@ -10603,8 +10827,8 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_registrati
     host: &CloudflarePreloadedSignerHostV1,
     registration_request: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     bootstrap: CloudflareSignerPrivateBootstrapRequestV1,
+    tenant_root_custody_binding: TenantRootCustodyBindingV1,
     envelope_decrypt_keys: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1,
-    peer_signing_key: &CloudflareSignerPeerSigningKeyBindingV1,
     root_share_metadata: &CloudflareRootShareStartupMetadataV1,
     now_unix_ms: u64,
 ) -> RouterAbProtocolResult<CloudflareSignerRecipientProofBundleResponseV1> {
@@ -10632,22 +10856,15 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_registrati
         &registration_request,
         validated.router_payload(),
     )?;
-    validate_cloudflare_peer_signing_key_matches_request_v1(
-        worker_role,
-        peer_signing_key,
-        &validated,
-    )?;
-    let mut peer_signing_key_bytes =
-        load_cloudflare_deriver_peer_signing_key_bytes_v1(env, peer_signing_key)?;
     let mut encryptor = CloudflareHpkeRecipientProofBundleEncryptorV1::new();
-    let response = handle_cloudflare_validated_mpc_prf_recipient_proof_bundle_signer_request_v1(
+    let response = handle_cloudflare_authenticated_stable_mpc_prf_signer_request_v2(
         host,
-        &peer_signing_key_bytes,
+        &registration_request,
+        &tenant_root_custody_binding,
         &validated,
+        now_unix_ms,
         &mut encryptor,
-    );
-    peer_signing_key_bytes.zeroize();
-    let response = response?;
+    )?;
     validate_cloudflare_signer_recipient_proof_bundle_private_response_v1(
         worker_role,
         validated.message(),
@@ -15611,11 +15828,14 @@ mod tests {
         decode_recipient_proof_bundle_payload_v1,
         verify_recipient_proof_bundle_ciphertext_payload_v1, EcdsaThresholdPrfProofBatchPayloadV1,
         MpcPrfDleqProofWireV1, MpcPrfPartialBindingV1, MpcPrfPartialProofBundleV1,
-        MpcPrfPartialWireV1, MpcPrfShareCommitmentWireV1, MpcPrfSignerPartialV1, OpenedShareKind,
+        MpcPrfPartialWireV1, MpcPrfShareCommitmentWireV1, MpcPrfSignerPartialV1,
+        MpcPrfStableProofBundleWireV2, MpcPrfStableRecipientProofBundlePayloadV2, OpenedShareKind,
         RecipientProofBundleEncryptionRequestV1, RecipientProofBundlePayloadV1, RootShareEpoch,
-        SecretMaterial32, SignerIdentityV1, MPC_PRF_COMMITMENT_WIRE_V1_LEN,
-        MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN, MPC_PRF_PARTIAL_WIRE_V1_LEN,
+        SecretMaterial32, SignerIdentityV1, TenantRootProtocolDigestV1,
+        MPC_PRF_COMMITMENT_WIRE_V1_LEN, MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN,
+        MPC_PRF_PARTIAL_WIRE_V1_LEN,
     };
+    use threshold_prf::PrfPurpose;
 
     #[test]
     fn cloudflare_hpke_recipient_output_encryptor_round_trips() {
@@ -15722,6 +15942,68 @@ mod tests {
         )
         .expect("proof bundle opens through Cloudflare helper");
         assert_eq!(opened, payload);
+    }
+
+    #[test]
+    fn cloudflare_hpke_stable_recipient_proof_bundle_round_trips() {
+        let (recipient_private_key, recipient_public_key) =
+            CloudflareHpkeKemV1::derive_key_pair(&[0x45; 32]).expect("recipient keypair derives");
+        let recipient_public_key = format!(
+            "x25519:{}",
+            lower_hex(&CloudflareHpkeKemV1::pk_to_bytes(&recipient_public_key))
+        );
+        let payload = MpcPrfStableRecipientProofBundlePayloadV2::new(
+            signer(Role::SignerA, "signer-a"),
+            Role::Client,
+            "client",
+            MpcPrfStableProofBundleWireV2::new(
+                TenantRootProtocolDigestV1::from_bytes([0x31; 32]).expect("stable context digest"),
+                TenantRootProtocolDigestV1::from_bytes([0x32; 32]).expect("custody binding digest"),
+                PrfPurpose::RouterAbXClientBaseV1,
+                Role::SignerA,
+                MpcPrfPartialWireV1::new(fixed_share_wire_bytes(
+                    Role::SignerA,
+                    0x33,
+                    MPC_PRF_PARTIAL_WIRE_V1_LEN,
+                ))
+                .expect("partial wire"),
+                MpcPrfShareCommitmentWireV1::new(fixed_share_wire_bytes(
+                    Role::SignerA,
+                    0x34,
+                    MPC_PRF_COMMITMENT_WIRE_V1_LEN,
+                ))
+                .expect("commitment wire"),
+                MpcPrfDleqProofWireV1::new(vec![0x35; MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN])
+                    .expect("proof wire"),
+            )
+            .expect("stable proof bundle"),
+        )
+        .expect("stable recipient payload");
+        let outer_transcript_digest = digest(0x36);
+        let request = RecipientProofBundleEncryptionRequestV1::new_stable_v2(
+            &payload,
+            recipient_public_key,
+            outer_transcript_digest,
+        )
+        .expect("stable encryption request");
+        let envelope = CloudflareHpkeRecipientProofBundleEncryptorV1::new()
+            .encrypt_recipient_proof_bundle_v1(request)
+            .expect("stable proof bundle encrypts");
+        let private_key_bytes = CloudflareHpkeKemV1::sk_to_bytes(&recipient_private_key);
+        let opened = open_cloudflare_recipient_proof_bundle_hpke_payload_v2(
+            &envelope,
+            &private_key_bytes,
+            outer_transcript_digest,
+        )
+        .expect("stable proof bundle opens");
+
+        assert_eq!(opened, payload);
+        assert!(open_cloudflare_recipient_proof_bundle_hpke_payload_v2(
+            &envelope,
+            &private_key_bytes,
+            digest(0x37),
+        )
+        .is_err());
     }
 
     #[test]

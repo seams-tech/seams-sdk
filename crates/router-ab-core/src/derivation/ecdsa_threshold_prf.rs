@@ -92,6 +92,29 @@ pub fn plan_mpc_prf_stable_purpose_binding_v2(
     custody_binding: &TenantRootCustodyBindingV1,
     purpose: PrfPurpose,
 ) -> RouterAbDerivationResult<MpcPrfStablePurposeBindingPlanV2> {
+    custody_binding.validate()?;
+    let stable_context_digest = stable_context.digest()?;
+    if custody_binding.stable_context_digest() != stable_context_digest {
+        return Err(RouterAbDerivationError::new(
+            RouterAbDerivationErrorCode::TranscriptMismatch,
+            "tenant-root custody binding does not match stable derivation context",
+        ));
+    }
+    let custody_binding_digest = custody_binding.digest()?;
+
+    plan_mpc_prf_stable_purpose_binding_from_authenticated_custody_digest_v2(
+        stable_context,
+        custody_binding_digest,
+        purpose,
+    )
+}
+
+/// Plans stable threshold-PRF input from a custody digest authenticated by the caller.
+pub fn plan_mpc_prf_stable_purpose_binding_from_authenticated_custody_digest_v2(
+    stable_context: &StableTenantDerivationContextV2,
+    custody_binding_digest: crate::derivation::TenantRootProtocolDigestV1,
+    purpose: PrfPurpose,
+) -> RouterAbDerivationResult<MpcPrfStablePurposeBindingPlanV2> {
     if matches!(
         &purpose,
         PrfPurpose::Ed25519DeriverAContributionRoot | PrfPurpose::Ed25519DeriverBContributionRoot
@@ -101,16 +124,8 @@ pub fn plan_mpc_prf_stable_purpose_binding_v2(
             "stable tenant PRF purpose must be an ECDSA Router/A/B purpose",
         ));
     }
-    custody_binding.validate()?;
     let stable_context_digest = stable_context.digest()?;
-    if custody_binding.stable_context_digest() != stable_context_digest {
-        return Err(RouterAbDerivationError::new(
-            RouterAbDerivationErrorCode::TranscriptMismatch,
-            "tenant-root custody binding does not match stable derivation context",
-        ));
-    }
     let threshold_prf_context_bytes = stable_context.canonical_context_bytes();
-    let custody_binding_digest = custody_binding.digest()?;
 
     Ok(MpcPrfStablePurposeBindingPlanV2 {
         purpose,

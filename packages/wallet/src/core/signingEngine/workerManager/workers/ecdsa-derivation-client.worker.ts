@@ -100,6 +100,7 @@ import {
   type RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
   type RouterAbEcdsaRegistrationRequestFactsV1,
   type RouterAbEcdsaRegistrationRequestV1,
+  type RouterAbEcdsaStableClientProofFinalizationV2,
   type RouterAbEcdsaRegistrationActivationReceiptV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
@@ -467,7 +468,7 @@ function parseRouterAbEcdsaRegistrationBinding(
   };
 }
 
-function proofTranscriptDigestB64u(input: RouterAbEcdsaClientProofFinalizationV1): string {
+function proofTranscriptDigestB64u(input: RouterAbEcdsaStableClientProofFinalizationV2): string {
   const signerA = input.bundles.signerA.transcriptDigestB64u;
   const signerB = input.bundles.signerB.transcriptDigestB64u;
   if (signerA !== signerB) {

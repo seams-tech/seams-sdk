@@ -4,46 +4,50 @@ use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use router_ab_core::{
     combine_mpc_prf_stable_proof_bundles_with_threshold_backend_v2,
+    combine_mpc_prf_stable_recipient_output_from_proof_bundle_payloads_v2,
+    decode_mpc_prf_stable_recipient_proof_bundle_payload_v2,
     evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2,
+    plan_mpc_prf_stable_purpose_binding_from_authenticated_custody_digest_v2,
     plan_mpc_prf_stable_purpose_binding_v2, resolve_active_tenant_root_pair_binding_v1,
     resolve_authoritative_active_tenant_root_pair_binding_v1,
     verify_mpc_prf_stable_partial_with_threshold_backend_v2, MpcPrfSigningRootShareWireV1,
-    MpcPrfStablePurposeBindingPlanV2, MpcPrfStableThresholdCombineInputV2,
-    MpcPrfStableThresholdSignerInputV2, Role, StableTenantDerivationContextV2,
-    TenantRootAcceptedLossReceiptV1, TenantRootAcceptedPermanentLossAuthorizationBindingV1,
-    TenantRootActivationReceiptTransitionV1, TenantRootActivePairMismatchV1,
-    TenantRootActivePairResolutionV1, TenantRootActiveRoleBindingV1,
-    TenantRootActiveRoleResolutionV1, TenantRootActiveRoleRowKeyV1, TenantRootActiveRootPairV1,
-    TenantRootBackupPolicyV1, TenantRootCanaryCurveFamilyV1, TenantRootCanaryReceiptsV1,
-    TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1,
-    TenantRootCeremonySessionIdV1, TenantRootCleanupIncompleteCreationV1,
-    TenantRootControlPlaneAuthorityIdV1, TenantRootCreationFailureV1,
-    TenantRootCreationRecoveryActionV1, TenantRootCreationStateV1, TenantRootCustodyBindingV1,
-    TenantRootCustodyLineageId, TenantRootDeletedReceiptV1, TenantRootDeletionActiveV1,
-    TenantRootDeletionAuthorizationV1, TenantRootDeletionDrainReceiptV1,
-    TenantRootDeletionEvidenceV1, TenantRootDeletionFenceReceiptV1, TenantRootDeletionStateV1,
-    TenantRootDerivationNonceV1, TenantRootDerivationOperationIdV1,
-    TenantRootDerivationSessionIdV1, TenantRootDeriverIdentitiesV1, TenantRootDestructionCommandV1,
-    TenantRootDestructionFailureV1, TenantRootDestructionProfileV1,
-    TenantRootDestructionProgressReceiptV1, TenantRootEmptyCreationV1,
-    TenantRootEpochCommitmentsV1, TenantRootFailedBeforeActivationCreationV1,
-    TenantRootIdentityDigestV1, TenantRootIdentityV1, TenantRootLifecycleReceiptDigestV1,
-    TenantRootManagedRestoreAvailableV1, TenantRootManagedRestoreCapabilityV1,
-    TenantRootManagedRestoreCleanupFailureV1, TenantRootManagedRestoreCleanupReceiptV1,
-    TenantRootManagedRestoreFailureV1, TenantRootManagedRestoreInstallationReceiptV1,
-    TenantRootManagedRestoreInstallingV1, TenantRootManagedRestorePeerVerificationReceiptV1,
-    TenantRootManagedRestoreRoleV1, TenantRootManagedRestoreStateV1,
-    TenantRootManagedRoleDestructionReceiptV1, TenantRootManagedRoleDestructionReceiptsV1,
-    TenantRootOperationalErasureClaimV1, TenantRootOperationalRoleRemovalReceiptV1,
-    TenantRootOperationalRoleRemovalReceiptsV1, TenantRootPendingCleanupFailureV1,
-    TenantRootPendingCleanupReceiptV1, TenantRootProtocolDigestV1,
-    TenantRootProviderCanaryReceiptBindingV1, TenantRootRefreshFailureV1,
-    TenantRootRefreshRecoveryActionV1, TenantRootRefreshStateV1, TenantRootRoleBackupReceiptsV1,
-    TenantRootRoleInstallationReceiptsV1, TenantRootRoleRetirementReceiptsV1,
-    TenantRootRoleUnavailableReceiptV1, TenantRootServiceCleanupReceiptV1, TenantRootShareEpoch,
-    TenantRootShareInstallationEvidenceV1, TenantRootShareInstallationTranscriptV1,
-    TenantRootSignedAcceptedPermanentLossAuthorizationV1, TenantRootSignedProviderCanaryReceiptV1,
-    TenantRootSignedShareInstallationEvidenceV1,
+    MpcPrfStablePurposeBindingPlanV2, MpcPrfStableRecipientProofBundlePayloadV2,
+    MpcPrfStableThresholdCombineInputV2, MpcPrfStableThresholdSignerInputV2, PublicDigest32,
+    RecipientProofBundleEncryptionRequestV1, Role, SignerIdentityV1,
+    StableTenantDerivationContextV2, TenantRootAcceptedLossReceiptV1,
+    TenantRootAcceptedPermanentLossAuthorizationBindingV1, TenantRootActivationReceiptTransitionV1,
+    TenantRootActivePairMismatchV1, TenantRootActivePairResolutionV1,
+    TenantRootActiveRoleBindingV1, TenantRootActiveRoleResolutionV1, TenantRootActiveRoleRowKeyV1,
+    TenantRootActiveRootPairV1, TenantRootBackupPolicyV1, TenantRootCanaryCurveFamilyV1,
+    TenantRootCanaryReceiptsV1, TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1,
+    TenantRootCeremonyNonceV1, TenantRootCeremonySessionIdV1,
+    TenantRootCleanupIncompleteCreationV1, TenantRootControlPlaneAuthorityIdV1,
+    TenantRootCreationFailureV1, TenantRootCreationRecoveryActionV1, TenantRootCreationStateV1,
+    TenantRootCustodyBindingV1, TenantRootCustodyLineageId, TenantRootDeletedReceiptV1,
+    TenantRootDeletionActiveV1, TenantRootDeletionAuthorizationV1,
+    TenantRootDeletionDrainReceiptV1, TenantRootDeletionEvidenceV1,
+    TenantRootDeletionFenceReceiptV1, TenantRootDeletionStateV1, TenantRootDerivationNonceV1,
+    TenantRootDerivationOperationIdV1, TenantRootDerivationSessionIdV1,
+    TenantRootDeriverIdentitiesV1, TenantRootDestructionCommandV1, TenantRootDestructionFailureV1,
+    TenantRootDestructionProfileV1, TenantRootDestructionProgressReceiptV1,
+    TenantRootEmptyCreationV1, TenantRootEpochCommitmentsV1,
+    TenantRootFailedBeforeActivationCreationV1, TenantRootIdentityDigestV1, TenantRootIdentityV1,
+    TenantRootLifecycleReceiptDigestV1, TenantRootManagedRestoreAvailableV1,
+    TenantRootManagedRestoreCapabilityV1, TenantRootManagedRestoreCleanupFailureV1,
+    TenantRootManagedRestoreCleanupReceiptV1, TenantRootManagedRestoreFailureV1,
+    TenantRootManagedRestoreInstallationReceiptV1, TenantRootManagedRestoreInstallingV1,
+    TenantRootManagedRestorePeerVerificationReceiptV1, TenantRootManagedRestoreRoleV1,
+    TenantRootManagedRestoreStateV1, TenantRootManagedRoleDestructionReceiptV1,
+    TenantRootManagedRoleDestructionReceiptsV1, TenantRootOperationalErasureClaimV1,
+    TenantRootOperationalRoleRemovalReceiptV1, TenantRootOperationalRoleRemovalReceiptsV1,
+    TenantRootPendingCleanupFailureV1, TenantRootPendingCleanupReceiptV1,
+    TenantRootProtocolDigestV1, TenantRootProviderCanaryReceiptBindingV1,
+    TenantRootRefreshFailureV1, TenantRootRefreshRecoveryActionV1, TenantRootRefreshStateV1,
+    TenantRootRoleBackupReceiptsV1, TenantRootRoleInstallationReceiptsV1,
+    TenantRootRoleRetirementReceiptsV1, TenantRootRoleUnavailableReceiptV1,
+    TenantRootServiceCleanupReceiptV1, TenantRootShareEpoch, TenantRootShareInstallationEvidenceV1,
+    TenantRootShareInstallationTranscriptV1, TenantRootSignedAcceptedPermanentLossAuthorizationV1,
+    TenantRootSignedProviderCanaryReceiptV1, TenantRootSignedShareInstallationEvidenceV1,
     VerifiedTenantRootInitialCreationActivationEvidenceBundleV1,
     VerifiedTenantRootProviderCanaryReceiptV1, VerifiedTenantRootShareInstallationEvidenceV1,
     VerifiedTenantRootSignedShareInstallationEvidenceWireV1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
@@ -2490,6 +2494,13 @@ fn custody_binding_changes_with_the_active_epoch_while_stable_context_remains_ex
         PrfPurpose::RouterAbXClientBaseV1,
     )
     .unwrap();
+    let recipient_plan = plan_mpc_prf_stable_purpose_binding_from_authenticated_custody_digest_v2(
+        &stable_context,
+        binding_one.digest().unwrap(),
+        PrfPurpose::RouterAbXClientBaseV1,
+    )
+    .unwrap();
+    assert_eq!(recipient_plan, plan_one);
     assert_eq!(
         plan_one.threshold_prf_context_bytes(),
         stable_bytes.as_slice()
@@ -2567,6 +2578,99 @@ fn custody_binding_changes_with_the_active_epoch_while_stable_context_remains_ex
     )
     .is_err());
 
+    let signer_a = SignerIdentityV1::new(Role::SignerA, "deriver-a", "key-epoch-1").unwrap();
+    let signer_b = SignerIdentityV1::new(Role::SignerB, "deriver-b", "key-epoch-1").unwrap();
+    let epoch_one_client_a = MpcPrfStableRecipientProofBundlePayloadV2::from_stable_partial(
+        signer_a.clone(),
+        Role::Client,
+        "client-1",
+        &epoch_one_a,
+    )
+    .unwrap();
+    let epoch_one_client_b = MpcPrfStableRecipientProofBundlePayloadV2::from_stable_partial(
+        signer_b.clone(),
+        Role::Client,
+        "client-1",
+        &epoch_one_b,
+    )
+    .unwrap();
+    let epoch_one_client_a_bytes = epoch_one_client_a.canonical_bytes();
+    let epoch_one_client_b_bytes = epoch_one_client_b.canonical_bytes();
+    let epoch_one_client_a_decoded =
+        decode_mpc_prf_stable_recipient_proof_bundle_payload_v2(&epoch_one_client_a_bytes).unwrap();
+    let epoch_one_client_b_decoded =
+        decode_mpc_prf_stable_recipient_proof_bundle_payload_v2(&epoch_one_client_b_bytes).unwrap();
+    assert_eq!(
+        epoch_one_client_a_decoded.canonical_bytes(),
+        epoch_one_client_a_bytes
+    );
+    assert_eq!(
+        epoch_one_client_b_decoded.canonical_bytes(),
+        epoch_one_client_b_bytes
+    );
+    let encryption_request = RecipientProofBundleEncryptionRequestV1::new_stable_v2(
+        &epoch_one_client_a,
+        "recipient-key",
+        PublicDigest32::new([0x99; 32]),
+    )
+    .unwrap();
+    assert_eq!(
+        encryption_request.payload_digest(),
+        epoch_one_client_a.digest()
+    );
+    assert_eq!(
+        encryption_request.transcript_digest(),
+        PublicDigest32::new([0x99; 32])
+    );
+    assert_eq!(
+        encryption_request.plaintext(),
+        epoch_one_client_a.canonical_bytes().as_slice()
+    );
+    let mut trailing_bytes = epoch_one_client_a_bytes.clone();
+    trailing_bytes.push(0);
+    assert!(decode_mpc_prf_stable_recipient_proof_bundle_payload_v2(&trailing_bytes).is_err());
+    let epoch_one_wire_output =
+        combine_mpc_prf_stable_recipient_output_from_proof_bundle_payloads_v2(
+            &plan_one,
+            epoch_one_client_a_decoded,
+            epoch_one_client_b_decoded,
+            Role::Client,
+            "client-1",
+        )
+        .unwrap();
+
+    let epoch_two_client_a = MpcPrfStableRecipientProofBundlePayloadV2::from_stable_partial(
+        signer_a,
+        Role::Client,
+        "client-1",
+        &epoch_two_a,
+    )
+    .unwrap();
+    let epoch_two_client_b = MpcPrfStableRecipientProofBundlePayloadV2::from_stable_partial(
+        signer_b,
+        Role::Client,
+        "client-1",
+        &epoch_two_b,
+    )
+    .unwrap();
+    let epoch_two_client_a_decoded = decode_mpc_prf_stable_recipient_proof_bundle_payload_v2(
+        &epoch_two_client_a.canonical_bytes(),
+    )
+    .unwrap();
+    let epoch_two_client_b_decoded = decode_mpc_prf_stable_recipient_proof_bundle_payload_v2(
+        &epoch_two_client_b.canonical_bytes(),
+    )
+    .unwrap();
+    let epoch_two_wire_output =
+        combine_mpc_prf_stable_recipient_output_from_proof_bundle_payloads_v2(
+            &plan_two,
+            epoch_two_client_a_decoded,
+            epoch_two_client_b_decoded,
+            Role::Client,
+            "client-1",
+        )
+        .unwrap();
+
     let epoch_one_output = combine_mpc_prf_stable_proof_bundles_with_threshold_backend_v2(
         MpcPrfStableThresholdCombineInputV2 {
             purpose_plan: plan_one,
@@ -2593,6 +2697,14 @@ fn custody_binding_changes_with_the_active_epoch_while_stable_context_remains_ex
     );
     assert_eq!(
         epoch_one_output.output_material,
+        epoch_two_output.output_material
+    );
+    assert_eq!(
+        epoch_one_wire_output.output_material,
+        epoch_one_output.output_material
+    );
+    assert_eq!(
+        epoch_two_wire_output.output_material,
         epoch_two_output.output_material
     );
 

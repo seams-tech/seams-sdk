@@ -1646,7 +1646,7 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
           bootstrapOwner: 'wallet_custody',
           ceremonyId,
           clientProofFinalization: {
-            kind: 'finalize_encrypted_client_proof_bundles_v1',
+            kind: 'finalize_encrypted_client_proof_bundles_v2',
             bundles: responded.ecdsa.strictResult.response.bundles,
           },
         },

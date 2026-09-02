@@ -56,6 +56,7 @@ pub use self::diagnostics::redacted_diagnostic;
 pub use self::ecdsa_stable_context::StableTenantDerivationContextV2;
 pub use self::ecdsa_threshold_prf::{
     plan_mpc_prf_combine_v1, plan_mpc_prf_partial_verification_v1, plan_mpc_prf_purpose_binding_v1,
+    plan_mpc_prf_stable_purpose_binding_from_authenticated_custody_digest_v2,
     plan_mpc_prf_stable_purpose_binding_v2, MpcPrfCombinePlanV1, MpcPrfCombinerInputV1,
     MpcPrfDleqProofWireV1, MpcPrfOutputPurposeV1, MpcPrfOutputRequestV1, MpcPrfPartialBindingV1,
     MpcPrfPartialProofBundleV1, MpcPrfPartialVerificationInputV1, MpcPrfPartialVerificationPlanV1,

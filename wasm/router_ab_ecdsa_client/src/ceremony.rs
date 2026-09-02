@@ -25,7 +25,9 @@ use signer_core::ecdsa_role_local_client::{
 use wasm_bindgen::prelude::*;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::client_proof_verifier::finalize_encrypted_client_proof_output_v1;
+use crate::client_proof_verifier::{
+    finalize_encrypted_client_proof_output_v1, finalize_encrypted_client_proof_output_v2,
+};
 use crate::encoders::base64_url_encode;
 
 /// Rust-owned client ceremony whose X25519 private key never crosses WASM.
@@ -177,10 +179,20 @@ impl RouterAbEcdsaClientCeremonyV1 {
 
     /// Verifies strict client proof bundles and discards the protocol output inside wasm.
     pub fn verify_encrypted_proof_bundles(&self, input_json: &str) -> Result<(), JsValue> {
-        let mut output = finalize_encrypted_client_proof_output_v1(
-            input_json,
-            self.active_keypair()?.private_key_bytes(),
-        )
+        let mut output = match &self.registration_binding {
+            Some(binding) => finalize_encrypted_client_proof_output_v2(
+                input_json,
+                self.active_keypair()?.private_key_bytes(),
+                decode_fixed_base64::<32>(
+                    &binding.application_binding_digest_b64u,
+                    "registration application binding digest",
+                )?,
+            ),
+            None => finalize_encrypted_client_proof_output_v1(
+                input_json,
+                self.active_keypair()?.private_key_bytes(),
+            ),
+        }
         .map_err(js_error)?;
         output.zeroize();
         Ok(())
