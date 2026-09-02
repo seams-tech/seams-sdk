@@ -28,7 +28,7 @@
     "d1:local:dev": "pnpm run d1:local:prepare && pnpm run d1:local:serve",
     "d1:local:serve": "pnpm run d1:local:ensure-wasm && node ./scripts/d1-local-dev.mjs",
     "d1:local:migrate:console": "wrangler d1 migrations apply seams-console --local --persist-to \"${SEAMS_D1_LOCAL_PERSIST_TO:-.wrangler/state/seams-d1}\" --config \"${SEAMS_D1_LOCAL_WRANGLER_CONFIG:-wrangler.d1-local.toml}\"",
-    "d1:local:migrate:signer": "wrangler d1 migrations apply seams-signer --local --persist-to \"${SEAMS_D1_LOCAL_PERSIST_TO:-.wrangler/state/seams-d1}\" --config \"${SEAMS_D1_LOCAL_WRANGLER_CONFIG:-wrangler.d1-local.toml}\"",
+    "d1:local:migrate:signer": "node ./scripts/d1-local-migrate-signer.mjs",
     "d1:local:prepare": "pnpm run d1:local:migrate:console && pnpm run d1:local:migrate:signer && pnpm run d1:local:paths",
     "d1:local:paths": "node ./scripts/d1-local-friendly-paths.mjs",
     "d1:local:reset": "node ./scripts/d1-local-reset.mjs",
