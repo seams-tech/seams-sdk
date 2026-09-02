@@ -2,7 +2,7 @@
 
 Date created: August 21, 2026
 
-Last reconciled: August 29, 2026 (landed Console operating suite)
+Last reconciled: September 2, 2026 (post-R120 deployment boundary)
 
 Status: planned. This is private `seams-monorepo` work and begins after
 Refactors 105B and 99B complete.
@@ -25,6 +25,12 @@ workflows. It consumes exact published versions of `@seams/wallet` and
 The public `seams-wallet` repository owns no Console route, Console session,
 customer database, private service binding, or deployment configuration.
 Refactor 105C moves no additional source into the public repository.
+
+Refactor 120 is already complete through the R105B prerequisite. Its
+tenant-root control plane, Router/Deriver role stores, and key authorities stay
+inside the Wallet system. Console sees the resulting Wallet service target and
+artifact version only; tenant-root identity, lineage, epoch, key references,
+and lifecycle state never enter Console configuration or data models.
 
 R105C composes Wallet only. Satyr Ecommerce Agents and any other future product
 remain private, but they receive no placeholder route, entitlement, or generic
@@ -49,7 +55,8 @@ customer Console contains no platform-operator route or credential.
 1. [Refactor 105B](./refactor-105B-github-split.md) is complete:
    `seams-wallet` is public, both npm packages are published, and
    `seams-monorepo` builds and deploys from exact package versions without a
-   public source checkout.
+   public source checkout. Its extraction baseline is the `dev` commit created
+   after Refactor 120 completed and merged.
 2. [Refactor 99B](./refactor-99B-MPC-control-plane.md) is complete:
    `admin.seams.sh`, operator authentication, MPC configuration, telemetry,
    and operator audit have independent private ownership.
@@ -235,15 +242,18 @@ explicit site Console origin is in use.
 system pipeline. It contains Wallet Gateway/Runtime, hosted Wallet Pages,
 signer D1, Router A/B workers and role D1s, Wallet origins and networks,
 relayer configuration, protocol keys, root shares, ceremony material, and
-signing-session configuration. The Console generator cannot read or write its
-secret values.
+signing-session configuration. It also contains the R120 tenant-root
+control-plane target and role-specific online-sealing, managed-backup,
+role-creation, and issuer-key references. The Console generator cannot read or
+write its secret values.
 
 The Console pipeline consumes one parsed, read-only handoff per Wallet network:
 network name, public origin where required, exact service binding name, runtime
 environment identity, and deployed artifact/runtime version. The handoff
-contains no secret. The Console-to-Wallet control port uses the private service
-binding itself as the deployment capability; Wallet cryptographic or runtime
-secrets are never copied into a Console environment.
+contains no secret or tenant-root lifecycle field. The Console-to-Wallet
+control port uses the private service binding itself as the deployment
+capability; Wallet cryptographic or runtime secrets are never copied into a
+Console environment.
 
 Retire the current paired generation model:
 
@@ -260,9 +270,9 @@ Retire the current paired generation model:
 
 Console uses the protected GitHub environments `staging-console` and
 `production-console`. Wallet-system environments remain lane/role-specific,
-such as `<lane>-gateway`, `<lane>-mpc-router`, `<lane>-deriver-a`,
-`<lane>-deriver-b`, and `<lane>-signing-worker`. No environment is shared by
-both pipelines.
+such as `<lane>-gateway`, `<lane>-tenant-root-control-plane`,
+`<lane>-mpc-router`, `<lane>-deriver-a`, `<lane>-deriver-b`, and
+`<lane>-signing-worker`. No environment is shared by both pipelines.
 
 Console rotation cannot generate Router A/B identities, root shares, ceremony
 keys, signing-session material, relayer keys, or Wallet service credentials.
@@ -479,6 +489,8 @@ path exist.
   write credentials;
 - Console consumes only a non-secret Wallet service handoff and cannot
   overwrite Wallet-system configuration;
+- Console stores no R120 tenant-root identity, lineage, epoch, key reference,
+  or lifecycle state;
 - the existing five-test `pnpm test:console` operating suite targets the
   canonical Console topology and runs from the private composed manager;
 - old lane Console authorities, derived origins, inactive product placeholders,
