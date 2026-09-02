@@ -2,9 +2,11 @@
 
 Date created: September 2, 2026
 
-Status: planning. Phase 0 landed on `dev` (`ebbee5947`, `81da06b7a`,
-`00e911025`, `110fa381b`, `73358e2d2`, `1f096fe52`, `2d84f9eb4`); Phases 1–3
-are open.
+Status: phases 0–3 landed on `dev`, plus the CI gate. Phase 0:
+`ebbee5947`, `81da06b7a`, `00e911025`, `110fa381b`, `73358e2d2`, `1f096fe52`,
+`2d84f9eb4`. Phase 1: `9f17bfdf2`, `c57d47f6d`. Phase 2: `ea2c36e8f`,
+`2c9f57b0c`. Phase 3: `04b25d4bd`. Gate: `39f89017a`. Remaining: the
+standalone-surface audit noted under phase 1.
 
 ## Decision
 
@@ -80,6 +82,19 @@ Components inside foreground surfaces that still own some motion of their own:
 1. **One owner of motion.** The parent's ease is the only size animation of a
    measured modal. Content announces a target and then fills the box the
    parent has made, frame by frame.
+   - **Clamp before announcing.** A host measures itself synchronously while
+     the announcement is dispatched, so an element already laid out at its new
+     height reports the change as having happened, and the box is sent a delta
+     the content has taken already. `announceClampedSurfaceResize()` owns
+     clamp, announce, and release so no caller can get the order wrong.
+   - **One reflow per change.** Nested components each see the same render.
+     The outermost clamped element owns the motion; an inner clamp makes the
+     height the outer measures short by exactly the inner's growth, which
+     sends the box to the wrong size and makes it correct itself afterwards.
+   - **Measure after children have rendered.** Nested components update in
+     their own microtasks, so a height read in `updated` is short by whatever
+     a child adds a moment later. Waiting a frame is free once the element is
+     clamped: it is showing its pre-change height either way.
 2. **One measurement per change.** The host pins itself to the destination so
    the reporter posts it once. A stream of intermediate sizes makes the box
    chase a moving target.
@@ -144,48 +159,51 @@ never retargets on its own.
 
 ### Phase 1 — one seam, all mutators
 
-- [ ] Rename `lit-tree-resize-begin` → `lit-surface-resize-begin` in
+- [x] Rename `lit-tree-resize-begin` → `lit-surface-resize-begin` in
       `lit-events.ts`; add `announceSurfaceResize` to
       `confirm-surface-resize.ts`; make `TxTree` call it instead of building
       the detail itself.
-- [ ] Route the bytes ↔ decoded toggle in `TxTree` through the seam: measure the
+- [x] Route the bytes ↔ decoded toggle in `TxTree` through the seam: measure the
       `.file-content-shell` before and after `updateComplete`, clamp it with a
       CSS variable, announce the delta.
-- [ ] Route `tx-confirm-content` / `viewer-modal` discrete swaps (error banner,
+- [x] Route `tx-confirm-content` / `viewer-modal` discrete swaps (error banner,
       OTP prompt, loading → content) through the seam at the confirmer level.
-- [ ] Set `resize: none` on `.file-content` under the wallet-iframe surface and
+- [x] Set `resize: none` on `.file-content` under the wallet-iframe surface and
       keep the rem cap plus inner scroll; a box that eases 180ms behind the
       pointer cannot follow a drag.
 - [ ] Audit `RecoveryCodeBackup` and `ExportPrivateKey` viewers for height
       transitions or viewport units inside measured boxes; fix or document.
+      Neither renders into a hugged box today, so nothing there can be clipped
+      by one, which is why this is the phase 1 item left open.
 
 ### Phase 2 — invariants as failing tests
 
-- [ ] Extend `confirmSurface.treeGrowth.integration.test.ts` with a
+- [x] Extend `confirmSurface.treeGrowth.integration.test.ts` with a
       viewport-invariance check: with no pin active, resize the parent box to
       two heights and assert the host's natural height is identical (catches
       any `vh` cap or height media query without enumerating selectors).
-- [ ] Add a no-streaming assertion to the same test: during any toggle the
+- [x] Add a no-streaming assertion to the same test: during any toggle the
       child posts exactly one measurement.
-- [ ] Add the bytes-toggle and error-banner paths to the same test once routed.
-- [ ] Add a parent unit test to `tests/unit/overlayController.test.ts`: right
+- [x] Add the bytes-toggle and error-banner paths to the same test once routed.
+- [x] Add a parent unit test to `tests/unit/overlayController.test.ts`: right
       after a measured→measured `apply()`, the iframe's rectangle still equals
       the origin; after the animation finishes it equals the destination.
-- [ ] Keep `tests/lit-components/confirm-surface-resize.test.ts` as the
+- [x] Keep `tests/lit-components/confirm-surface-resize.test.ts` as the
       scripted-box suite (blip, instant parent, stall, unclaimed path).
 
 ### Phase 3 — canaries for what tests cannot enumerate
 
-- [ ] Streaming detector in `surface-measurement-reporter.ts`, dev builds only:
-      more than three measurements within 100ms with no announced motion in
-      flight logs a warning naming the surface. It is the symptom of every
-      variant of this defect.
-- [ ] Built-in trace: expose the per-frame sampler used during the R108
+- [x] Streaming detector in `surface-measurement-reporter.ts`: one warning per
+      surface when four measurements land within 150ms. That is the symptom of
+      every variant of this defect, and a single console line is cheap enough
+      to leave in production, where the original bug lived.
+- [x] Built-in trace: expose the per-frame sampler used during the R108
       investigation as `window.__w3aSurfaceMotion.trace()` in dev builds so the
-      next investigation starts with numbers.
-- [ ] Blip counter on the choreographer (frames held at target that then
-      reversed), asserted zero by the headless guard once the origin pin is in
-      the built dist.
+      next investigation starts with numbers. Shipped in every build rather
+      than dev-only: the defect it diagnoses was only ever visible in a real
+      browser.
+- [x] Blip counter on the choreographer (frames held at target that then
+      reversed), asserted zero by the cross-boundary guard.
 
 ## Boundary Contract
 
@@ -197,12 +215,11 @@ message types and no parent viewport in the child.
 
 ## CI Gate
 
-`validate-repository.yml` runs a curated list of unit tests today and neither
-the wallet-iframe nor the lit-components suites. Add
-`wallet-iframe/confirmSurface.treeGrowth.integration.test.ts` and
-`lit-components/confirm-surface-resize.test.ts` to that curated step after
-`build:prod`; both take under ten seconds. The guard is only a fence if it
-runs on every change.
+`validate-repository.yml` ran a curated list of unit tests and neither browser
+suite. A "measured-surface motion gates" step now runs the cross-boundary
+guard, the scripted-box choreographer suite, and the overlay controller unit
+tests after `build:prod`; the three take about 35 seconds together. The guard
+is only a fence if it runs on every change.
 
 ## Non-Goals
 
