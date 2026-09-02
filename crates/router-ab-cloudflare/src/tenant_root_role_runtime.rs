@@ -12,8 +12,9 @@ use router_ab_core::{
     VerifiedTenantRootRoleCreationCommandV1, VerifiedTenantRootSignedActivationReceiptV1,
 };
 use router_ab_core::{
-    PendingTenantRootInitialRoleAttemptV1, RouterAbDerivationError, RouterAbDerivationErrorCode,
-    RouterAbDerivationResult, TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1,
+    PendingTenantRootInitialRoleAttemptV1, PendingTenantRootRefreshRoleAttemptV1,
+    RouterAbDerivationError, RouterAbDerivationErrorCode, RouterAbDerivationResult,
+    TenantRootActiveRoleBindingV1, TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1,
     TenantRootControlPlaneAuthorityIdV1, TenantRootCustodyLineageId, TenantRootIdentityDigestV1,
     TenantRootManagedBackupSealRequestV1, TenantRootOnlineRoleShareSealRequestV1,
     TenantRootRoleCreationCommandPackageV1, TenantRootSealedOnlineRoleShareV1,
@@ -22,11 +23,19 @@ use router_ab_core::{
     VerifiedTenantRootCreationCommitmentPairV1, VerifiedTenantRootCreationCommitmentV1,
     VerifiedTenantRootInitialRoleAttemptV1, VerifiedTenantRootManagedBackupShareV1,
     VerifiedTenantRootManagedBackupV1, VerifiedTenantRootOnlineRoleShareV1,
-    VerifiedTenantRootRefreshRoleAttemptV1, VerifiedTenantRootRoleCreationCommandPackageV1,
+    VerifiedTenantRootRoleCreationCommandPackageV1, VerifiedTenantRootRoleRefreshCommandV1,
     VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
+};
+#[cfg(feature = "workers-rs")]
+use router_ab_core::{
+    VerifiedTenantRootRefreshCommitmentPairV1, VerifiedTenantRootRefreshRoleAttemptV1,
 };
 #[cfg(any(feature = "workers-rs", test))]
 use zeroize::Zeroizing;
+
+#[cfg(feature = "workers-rs")]
+use threshold_prf::RootShareRefreshContributionWire;
+use threshold_prf::SigningRootShare;
 
 #[cfg(feature = "workers-rs")]
 use sha2::{Digest, Sha256};
@@ -427,6 +436,87 @@ pub(crate) enum TenantRootRoleCreationCompletionV1 {
         provider_canary_receipt: Vec<u8>,
         peer: Box<TenantRootPeerRoleOutcomeV1>,
     },
+}
+
+/// One role's outcome for a refresh ceremony, before persistence.
+// The committed variant owns the coefficient and current share; the sealed
+// variant owns the provider-backed pending-row input after finalization.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
+pub(crate) enum TenantRootRoleRefreshProgressV1 {
+    Committed {
+        pending: PendingTenantRootRefreshRoleAttemptV1,
+    },
+    #[cfg(feature = "workers-rs")]
+    Sealed {
+        signed_commitment: Vec<u8>,
+        input: Box<CloudflareTenantRootRefreshInputV1>,
+    },
+}
+
+/// Starts one role-local refresh attempt from already-verified public state
+/// and the provider-opened current share.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn begin_tenant_root_role_refresh_v1<R>(
+    command: VerifiedTenantRootRoleRefreshCommandV1,
+    context: TenantRootCeremonyContextV1,
+    active_binding: TenantRootActiveRoleBindingV1,
+    current_share: SigningRootShare,
+    role_signing_key_bytes: &[u8; 32],
+    expected_role_verifying_key_bytes: &[u8; 32],
+    now_ms: u64,
+    rng: &mut R,
+) -> RouterAbProtocolResult<TenantRootRoleRefreshProgressV1>
+where
+    R: rand_core_06::RngCore + rand_core_06::CryptoRng,
+{
+    let pending = PendingTenantRootRefreshRoleAttemptV1::new(
+        command,
+        context,
+        active_binding,
+        current_share,
+        role_signing_key_bytes,
+        expected_role_verifying_key_bytes,
+        now_ms,
+        rng,
+    )
+    .map_err(candidate_derivation_error)?;
+    Ok(TenantRootRoleRefreshProgressV1::Committed { pending })
+}
+
+/// Finalizes a live refresh attempt and seals its next-epoch share for the
+/// role-private pending-row insertion path.
+#[cfg(feature = "workers-rs")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn finalize_tenant_root_role_refresh_v1<Online, R>(
+    pending: PendingTenantRootRefreshRoleAttemptV1,
+    commitment_pair: VerifiedTenantRootRefreshCommitmentPairV1,
+    peer_contribution: RootShareRefreshContributionWire,
+    identity: TenantRootIdentityV1,
+    provider_config: &TenantRootRoleRuntimeProviderConfigV1,
+    online_provider: &mut Online,
+    staged_at_ms: u64,
+    rng: &mut R,
+) -> RouterAbProtocolResult<TenantRootRoleRefreshProgressV1>
+where
+    Online: TenantRootOnlineRoleShareProviderV1,
+    R: rand_core_06::RngCore + rand_core_06::CryptoRng,
+{
+    let signed_commitment = pending.commitment_bytes().to_vec();
+    let finalized = pending
+        .finalize(commitment_pair, peer_contribution, rng)
+        .map_err(candidate_derivation_error)?;
+    let input = compose_refresh_tenant_root_role_runtime_v1(
+        finalized,
+        identity,
+        provider_config,
+        online_provider,
+        staged_at_ms,
+    )?;
+    Ok(TenantRootRoleRefreshProgressV1::Sealed {
+        signed_commitment,
+        input: Box::new(input),
+    })
 }
 
 /// Executes one role's part of a creation ceremony.
@@ -2422,6 +2512,32 @@ pub(crate) mod tests {
     }
 
     #[cfg(feature = "workers-rs")]
+    fn begun_refresh_pending(
+        context: &TenantRootCeremonyContextV1,
+        role: TwoPartyDeriverRole,
+        coefficient_seed: u8,
+    ) -> PendingTenantRootRefreshRoleAttemptV1 {
+        let signing_key = role_key(role);
+        let signing_key_bytes = signing_key.to_bytes();
+        let verifying_key_bytes = signing_key.verifying_key().to_bytes();
+        let progress = begin_tenant_root_role_refresh_v1(
+            refresh_command(context, role),
+            context.clone(),
+            refresh_active_binding(role),
+            refresh_share(role),
+            &signing_key_bytes,
+            &verifying_key_bytes,
+            ISSUED_AT_MS + 10,
+            &mut ChaCha20Rng::from_seed([coefficient_seed; 32]),
+        )
+        .expect("started refresh role attempt");
+        let TenantRootRoleRefreshProgressV1::Committed { pending } = progress else {
+            panic!("refresh start should expose a pending commitment");
+        };
+        pending
+    }
+
+    #[cfg(feature = "workers-rs")]
     fn verified_refresh_commitment(
         pending: &PendingTenantRootRefreshRoleAttemptV1,
     ) -> router_ab_core::VerifiedTenantRootRefreshCommitmentV1 {
@@ -2866,6 +2982,79 @@ pub(crate) mod tests {
             TwoPartyDeriverRole::DeriverA.share_id()
         );
         assert!(format!("{input:?}").contains("CloudflareTenantRootRefreshInputV1"));
+    }
+
+    #[cfg(feature = "workers-rs")]
+    #[test]
+    fn refresh_role_progresses_from_commitment_to_composed_input() {
+        let context = refresh_context();
+        let role = TwoPartyDeriverRole::DeriverA;
+        let pending = begun_refresh_pending(&context, role, 0x51);
+
+        let peer_pending = refresh_pending(&context, role.peer(), 0x61);
+        let pair = VerifiedTenantRootRefreshCommitmentPairV1::new(
+            verified_refresh_commitment(&pending),
+            verified_refresh_commitment(&peer_pending),
+        )
+        .expect("verified refresh commitment pair");
+        let config =
+            TenantRootRoleRuntimeProviderConfigV1::new(ONLINE_REF, BACKUP_PROVIDER, BACKUP_VERSION)
+                .expect("provider config");
+        let mut provider = InMemoryProvider::new();
+        let progress = finalize_tenant_root_role_refresh_v1(
+            pending,
+            pair,
+            peer_pending.contribution_for_peer(),
+            identity(),
+            &config,
+            &mut provider,
+            ISSUED_AT_MS + 11,
+            &mut ChaCha20Rng::from_seed([0x71; 32]),
+        )
+        .expect("finalized refresh role attempt");
+
+        let TenantRootRoleRefreshProgressV1::Sealed {
+            signed_commitment,
+            input,
+        } = progress
+        else {
+            panic!("refresh finalization should expose a composed input");
+        };
+        assert!(!signed_commitment.is_empty());
+        assert_eq!(provider.online_role, Some(role));
+        assert!(format!("{input:?}").contains("CloudflareTenantRootRefreshInputV1"));
+    }
+
+    #[cfg(feature = "workers-rs")]
+    #[test]
+    fn refresh_role_refuses_a_contribution_from_the_wrong_peer() {
+        let context = refresh_context();
+        let role = TwoPartyDeriverRole::DeriverA;
+        let pending = begun_refresh_pending(&context, role, 0x51);
+        let peer_pending = refresh_pending(&context, role.peer(), 0x61);
+        let pair = VerifiedTenantRootRefreshCommitmentPairV1::new(
+            verified_refresh_commitment(&pending),
+            verified_refresh_commitment(&peer_pending),
+        )
+        .expect("verified refresh commitment pair");
+        let wrong_peer_contribution = pending.contribution_for_peer();
+        let config =
+            TenantRootRoleRuntimeProviderConfigV1::new(ONLINE_REF, BACKUP_PROVIDER, BACKUP_VERSION)
+                .expect("provider config");
+        let mut provider = InMemoryProvider::new();
+        assert!(finalize_tenant_root_role_refresh_v1(
+            pending,
+            pair,
+            wrong_peer_contribution,
+            identity(),
+            &config,
+            &mut provider,
+            ISSUED_AT_MS + 11,
+            &mut ChaCha20Rng::from_seed([0x71; 32]),
+        )
+        .is_err());
+        assert_eq!(provider.online_role, None);
+        assert!(provider.online_share.is_none());
     }
 
     #[cfg(feature = "workers-rs")]
