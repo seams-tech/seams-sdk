@@ -2156,18 +2156,23 @@ count toward progress.
 
 ### Milestone 2: use tenant roots for production derivation
 
-- [ ] Resolve exactly one active tenant-root pair from authenticated deployment
-      configuration for each tenant; callers cannot select identity, lineage,
-      role, or epoch.
-- [ ] Switch ECDSA derivation to `StableTenantDerivationContextV2` and remove
+- [ ] Persist one server-authoritative custody lineage for each canonical
+      tenant-root identity and resolve it through the private Console service
+      binding. Browser requests, JWT claims, and signer D1 cannot select the
+      identity, lineage, role, or epoch.
+- [ ] Make one live ECDSA registration load both active role-private shares and
+      derive through `StableTenantDerivationContextV2`. Remove
       `RootShareEpoch` from threshold-PRF input bytes.
-- [ ] Version and wire the Ed25519 outer protocol so A and B consume only their
-      target PRF outputs while the existing Yao circuit remains byte-identical.
-- [ ] Regenerate the affected Rust/WASM/TypeScript bindings and vectors once,
-      then delete the replaced deployment-root derivation adapter, Secrets,
-      configuration, and dead protocol variants.
-- [ ] Prove one existing ECDSA wallet and one existing Ed25519 wallet keep the
-      same public keys and addresses through the new server path.
+- [ ] Regenerate only the ECDSA bindings and vectors changed by that operating
+      path, then delete the ECDSA deployment-root adapter so registration has
+      no fallback.
+- [ ] Prove that ECDSA registration preserves the expected public key and
+      address through the live server path.
+
+Ed25519 outer-protocol wiring and continuity move to the next implementation
+slice. Refresh, recovery, release-wide cleanup, dashboards, and broad evidence
+generation remain in Milestones 3 and 4; they do not block this ECDSA vertical
+path or count toward its completion.
 
 ### Milestone 3: make refresh and recovery operational
 

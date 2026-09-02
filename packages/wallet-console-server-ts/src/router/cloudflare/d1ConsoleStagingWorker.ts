@@ -47,11 +47,19 @@ import {
 import { requireStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
 import { createCloudflareCron, resolveCloudflareConsoleEmailDispatchCronOptions } from './cron';
 import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.types';
+import type { CloudflareServiceBindingFetcher } from './routerAbServiceBindings';
+import { createD1TenantRootCreationGrantServiceV1 } from '../../tenantRootCreation/d1';
+import { tenantRootIdentityDigestB64uV1 } from '../../tenantRootCreation/grantSigner';
+import { createTenantRootCreationConsoleRouteV1 } from '../../tenantRootCreation/consoleRoute';
 
 interface CloudflareD1ConsoleStagingEnv
   extends CloudflareD1StagingSessionEnv, RouterApiCloudflareConsoleWorkerEnv {
   readonly CONSOLE_DB: D1DatabaseLike;
   readonly WALLET_RUNTIME: WalletRuntimeServiceBinding;
+  readonly MPC_ROUTER: CloudflareServiceBindingFetcher;
+  readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
+  readonly TENANT_ROOT_GRANT_AUTHORITY_SIGNING_KEY_ID?: string;
+  readonly TENANT_ROOT_GRANT_AUTHORITY_SIGNING_SEED?: string;
   readonly SEAMS_TENANT_STORAGE_NAMESPACE?: string;
   readonly CONSOLE_BASE_URL?: string;
   readonly CONSOLE_SESSION_HMAC_SECRET?: string;
@@ -114,6 +122,7 @@ const CONSOLE_STAGING_READY_TABLES = Object.freeze([
   'runtime_snapshot_outbox',
   'console_email_outbox',
   'console_email_deliveries',
+  'tenant_root_creation_grants',
 ]);
 
 async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise<FetchHandler> {
@@ -211,7 +220,25 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
         : {}),
     }),
   );
-  // Private service-binding target: exactly the four declared Wallet Console
+  const tenantRootGrants = createD1TenantRootCreationGrantServiceV1({
+    database: env.CONSOLE_DB,
+    namespace,
+  });
+  const tenantRootCreationRoute = createTenantRootCreationConsoleRouteV1({
+    auth,
+    orgProjectEnv: bundle.orgProjectEnv,
+    grants: tenantRootGrants,
+    router: {
+      fetch: (input, init) => env.MPC_ROUTER.fetch(new Request(input, init)),
+    },
+    internalServiceAuthSecret: requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET'),
+    grantAuthorityKeyId: requireEnvString(env, 'TENANT_ROOT_GRANT_AUTHORITY_SIGNING_KEY_ID'),
+    grantAuthoritySigningSeedB64u: requireEnvString(
+      env,
+      'TENANT_ROOT_GRANT_AUTHORITY_SIGNING_SEED',
+    ),
+  });
+  // Private service-binding target: exactly the five declared Wallet Console
   // operations, served ahead of the console router.
   const opsHandler = createWalletConsoleOpsHandler({
     apiKeyAuth: createRouterApiKeyAuthAdapter(bundle.apiKeys),
@@ -221,10 +248,24 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
       wallets: bundle.wallets,
     }),
     projectEnvironments: createWalletProjectEnvironmentResolver(bundle.orgProjectEnv),
+    tenantRootActiveLineage: {
+      async resolveActiveLineage(identity) {
+        const identityDigestB64u = await tenantRootIdentityDigestB64uV1(identity);
+        const record = await tenantRootGrants.findActiveLineageByIdentity({
+          identity,
+          identityDigestB64u,
+        });
+        return record
+          ? { identityDigestB64u, custodyLineageB64u: record.custodyLineageB64u }
+          : null;
+      },
+    },
   });
   const routerWithOps: FetchHandler = async (request, workerEnv, ctx) => {
     const opsResponse = await opsHandler(request);
     if (opsResponse) return opsResponse;
+    const tenantRootCreationResponse = await tenantRootCreationRoute(request);
+    if (tenantRootCreationResponse) return tenantRootCreationResponse;
     const relayResponse = await relayHandler(request, ctx);
     if (relayResponse) return relayResponse;
     return await router(request, workerEnv, ctx);
