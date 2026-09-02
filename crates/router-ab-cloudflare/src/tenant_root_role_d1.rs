@@ -3065,6 +3065,78 @@ impl CloudflareTenantRootRoleShareStoreV1 {
     }
 
     /// Reserves one exact pending-cleanup command.
+    /// Reserves a cleanup that a control-plane authorization permits.
+    ///
+    /// This is the authorized path. The raw `reserve_cleanup_pending` below
+    /// takes a caller-supplied scope and asks no one's permission, so it can
+    /// only be reached from inside this store; every external cleanup must
+    /// present a signed command naming the exact row.
+    ///
+    /// The scope is derived from the command's own nonce, not the ceremony's,
+    /// so a cleanup is a distinct one-use command from the creation it undoes.
+    /// A replayed creation command therefore cannot authorize deleting the
+    /// share it created.
+    pub(crate) async fn reserve_authorized_cleanup(
+        &self,
+        authorization: &router_ab_core::VerifiedTenantRootRoleCleanupCommandV1,
+        pending: CloudflareStoredTenantRootRoleShareV1,
+        reserved_at_ms: u64,
+    ) -> worker::Result<CloudflareTenantRootCleanupPendingDecisionV1> {
+        validate_pending_stored_record(&self.cipher, &pending)?;
+        // The authorization must name the row this store actually holds, at the
+        // exact revision it holds it. Anything else is a different row.
+        let record_role = tenant_root_protocol_role_of(pending.record.role);
+        if authorization.role() != record_role {
+            return Err(store_error(
+                "tenant-root cleanup authorization names another role",
+            ));
+        }
+        if authorization.identity_digest()
+            != pending
+                .record
+                .identity()
+                .digest()
+                .map_err(|error| store_error(error.message()))?
+            || authorization.custody_lineage() != pending.record.custody_lineage
+            || authorization.epoch() != pending.record.epoch
+        {
+            return Err(store_error(
+                "tenant-root cleanup authorization does not name this pending row",
+            ));
+        }
+        if authorization.expected_row_revision() != pending.revision {
+            return Err(store_error(
+                "tenant-root cleanup authorization was issued for a different row revision",
+            ));
+        }
+        authorization
+            .require_fresh(reserved_at_ms)
+            .map_err(|error| store_error(error.message()))?;
+
+        let key = TenantRootCommandReplayKeyV1::new(
+            authorization.identity_digest(),
+            authorization.custody_lineage(),
+            // The cleanup's own session coordinate is its nonce, which makes
+            // its replay key disjoint from the creation command's.
+            router_ab_core::TenantRootCeremonySessionIdV1::from_bytes(
+                authorization.nonce().as_bytes()[..16]
+                    .try_into()
+                    .expect("sixteen nonce bytes"),
+            )
+            .map_err(|error| store_error(error.message()))?,
+            authorization.nonce(),
+            record_role,
+        );
+        let scope = TenantRootCommandScopeV1::new(
+            key,
+            authorization.epoch(),
+            TENANT_ROOT_AUTHORIZED_CLEANUP_CONTROL_PLANE_REVISION_V1,
+        )
+        .map_err(|error| store_error(error.message()))?;
+        self.reserve_cleanup_pending(scope, pending, reserved_at_ms)
+            .await
+    }
+
     async fn reserve_cleanup_pending(
         &self,
         scope: TenantRootCommandScopeV1,
@@ -4849,6 +4921,20 @@ fn tenant_root_creation_probe_role_keys(
         entry(CloudflareTenantRootDeriverRoleV1::DeriverB, "deriver_b"),
     ))
     .map_err(|error| store_error(error.message()))
+}
+
+/// Control-plane revision an authorized cleanup executes under.
+///
+/// Cleanup undoes an initial insertion, so it acts at the same control-plane
+/// revision that authorized the creation it is clearing.
+const TENANT_ROOT_AUTHORIZED_CLEANUP_CONTROL_PLANE_REVISION_V1: u64 = 1;
+
+/// Maps a stored record's role to its protocol role.
+fn tenant_root_protocol_role_of(role: CloudflareTenantRootDeriverRoleV1) -> TwoPartyDeriverRole {
+    match role {
+        CloudflareTenantRootDeriverRoleV1::DeriverA => TwoPartyDeriverRole::DeriverA,
+        CloudflareTenantRootDeriverRoleV1::DeriverB => TwoPartyDeriverRole::DeriverB,
+    }
 }
 
 /// Issuer key used only by the workerd-gated creation probe.
