@@ -340,6 +340,24 @@ a larger measurement, and the box chases it while the interior re-lays out
 instantly (`tx-confirmer.css` pins those caps to rem values under
 `data-w3a-confirm-surface='wallet-iframe'`).
 
+Invariants for anything that changes the height of a measured modal:
+
+1. The parent's ease is the only size motion. Content never animates its own
+   layout height while the box hugs it; it announces the target and then fills
+   the box the parent has made, frame by frame.
+2. One measurement per change. The host pins itself to the target so the
+   reporter posts the destination once; a stream of intermediate sizes makes
+   the box chase a moving target.
+3. Content height is intrinsic. No `vh`/`vw` caps and no viewport media
+   queries inside the surface; the viewport is derived from the content.
+4. Never trust a single frame of the box. The parent lays out the destination
+   before its ease starts and the frame receives that size for one frame;
+   landing requires intermediate sizes or a box that stays put.
+5. Prove it across the real boundary. Same-process harnesses cannot see the
+   destination blip; `wallet-iframe/confirmSurface.treeGrowth.integration.test.ts`
+   samples both sides per frame with the real router, iframe origin, and
+   confirmer.
+
 ## Ownership and lifecycle
 
 1. The router normalizes a request's presentation, allocates its existing
