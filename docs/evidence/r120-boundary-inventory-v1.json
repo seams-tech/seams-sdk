@@ -29,9 +29,9 @@
     "root_metadata_digest",
     "circuit_digest"
   ],
-  "totalFiles": 941,
-  "totalHits": 17951,
-  "classificationDigestSha256": "539c169022046f69a1e31d71b5ee2a34f1360492a108b41bb3324d5b93bf24c5",
+  "totalFiles": 943,
+  "totalHits": 18021,
+  "classificationDigestSha256": "ac7f5685b7aff8c777893e8281dd2cc26b810e9ef407ffd92c426ec947031858",
   "generatedArtifactDigestSha256": "f681b31eefbbc145b965523d81a960539eb9e59c3e116fa8897f35cf8fdc8ee4",
   "categorySummary": {
     "deployment": {
@@ -43,8 +43,8 @@
       "hitCount": 823
     },
     "test fixture": {
-      "fileCount": 387,
-      "hitCount": 5439
+      "fileCount": 388,
+      "hitCount": 5462
     },
     "generated artifact": {
       "fileCount": 28,
@@ -59,12 +59,12 @@
       "hitCount": 2246
     },
     "custody binding": {
-      "fileCount": 36,
-      "hitCount": 5128
+      "fileCount": 37,
+      "hitCount": 5173
     },
     "stable derivation": {
       "fileCount": 18,
-      "hitCount": 332
+      "hitCount": 334
     },
     "wire": {
       "fileCount": 45,
@@ -1981,9 +1981,9 @@
     {
       "path": "crates/router-ab-core/src/derivation/mod.rs",
       "category": "stable derivation",
-      "hitCount": 96,
+      "hitCount": 98,
       "firstLine": 18,
-      "lastLine": 172,
+      "lastLine": 174,
       "terms": [
         "PrfPurpose",
         "RootShareEpoch",
@@ -1991,7 +1991,7 @@
         "TenantRootShareEpoch",
         "tenant_root"
       ],
-      "matchesDigestSha256": "24b23755634cf6fdd75a689fba0dc5bc062d09ed04c278baccfe2a19461d4344"
+      "matchesDigestSha256": "72c2f6d40550896948e35718d7e9c8bc17185639751b33640c9ffffb0977bc31"
     },
     {
       "path": "crates/router-ab-core/src/derivation/scope.rs",
@@ -2113,6 +2113,18 @@
       "matchesDigestSha256": "3e8038f6bd2990d3816d109e106fd72bb78fe0666d95c4dd29bb2e309778cdea"
     },
     {
+      "path": "crates/router-ab-core/src/derivation/tenant_root_creation_grant.rs",
+      "category": "custody binding",
+      "hitCount": 45,
+      "firstLine": 28,
+      "lastLine": 385,
+      "terms": [
+        "TenantRoot",
+        "tenant_root"
+      ],
+      "matchesDigestSha256": "d56867050063d709a1154a65273f19318befff40664105adaf5f52eb624325d4"
+    },
+    {
       "path": "crates/router-ab-core/src/derivation/tenant_root_creation_journal.rs",
       "category": "custody binding",
       "hitCount": 51,
@@ -2129,14 +2141,14 @@
       "category": "custody binding",
       "hitCount": 128,
       "firstLine": 8,
-      "lastLine": 1122,
+      "lastLine": 1126,
       "terms": [
         "RootShareEpoch",
         "TenantRoot",
         "TenantRootShareEpoch",
         "tenant_root"
       ],
-      "matchesDigestSha256": "708fc9ac0854f8cc35ad7adf2e0c86ee35df23c3e94914e9d3d09bf2f18af4b9"
+      "matchesDigestSha256": "3461f4c3dbce032a2c0379ef98b8a5543852875180074dcb83ec0e977a682553"
     },
     {
       "path": "crates/router-ab-core/src/derivation/tenant_root_custody_binding.rs",
@@ -2887,6 +2899,18 @@
       "matchesDigestSha256": "b4bfbdeddd3adaf25c850c32c68ded33e6883c5ee9800c0f8824bed0de69f5f8"
     },
     {
+      "path": "crates/router-ab-core/tests/tenant_root_creation_grant.rs",
+      "category": "test fixture",
+      "hitCount": 23,
+      "firstLine": 9,
+      "lastLine": 241,
+      "terms": [
+        "TenantRoot",
+        "tenant_root"
+      ],
+      "matchesDigestSha256": "c5d2da90dc91bad645b05b8db20a3620ac88800031f581d4a148deaa64450a83"
+    },
+    {
       "path": "crates/router-ab-core/tests/tenant_root_creation_journal.rs",
       "category": "test fixture",
       "hitCount": 47,
@@ -2905,14 +2929,14 @@
       "category": "test fixture",
       "hitCount": 96,
       "firstLine": 5,
-      "lastLine": 901,
+      "lastLine": 914,
       "terms": [
         "RootShareEpoch",
         "TenantRoot",
         "TenantRootShareEpoch",
         "tenant_root"
       ],
-      "matchesDigestSha256": "274565c848a5b11ae9b751fc0f757121ad36515ac25b53c20f1fc6aa29a60446"
+      "matchesDigestSha256": "ac557be8cd8df9f9f2fc5260956b175d85a8d48f1e0242da9b3a5ab8485fa05f"
     },
     {
       "path": "crates/router-ab-core/tests/tenant_root_initial_role_attempt.rs",

@@ -9,8 +9,7 @@ use router_ab_core::{
     VerifiedTenantRootRoleCreationCommandPackageV1, VerifiedTenantRootRoleCreationCommandV1,
     TENANT_ROOT_ROLE_CREATION_COMMAND_EPOCH_V1,
     TENANT_ROOT_ROLE_CREATION_COMMAND_EXPECTED_REVISION_V1,
-    TENANT_ROOT_ROLE_CREATION_COMMAND_MAX_BYTES_V1,
-    TENANT_ROOT_ROLE_CREATION_COMMAND_OPERATION_V1,
+    TENANT_ROOT_ROLE_CREATION_COMMAND_MAX_BYTES_V1, TENANT_ROOT_ROLE_CREATION_COMMAND_OPERATION_V1,
     TENANT_ROOT_ROLE_CREATION_COMMAND_PACKAGE_MAX_BYTES_V1,
 };
 use threshold_prf::TwoPartyDeriverRole;
@@ -454,7 +453,11 @@ fn package(
 fn encode_package_parts(journal_bytes: &[u8], command_bytes: &[u8]) -> Vec<u8> {
     let mut bytes = Vec::new();
     for field in [PACKAGE_DOMAIN, journal_bytes, command_bytes] {
-        bytes.extend_from_slice(&u32::try_from(field.len()).expect("field length").to_be_bytes());
+        bytes.extend_from_slice(
+            &u32::try_from(field.len())
+                .expect("field length")
+                .to_be_bytes(),
+        );
         bytes.extend_from_slice(field);
     }
     bytes
@@ -483,7 +486,10 @@ fn package_round_trip_verifies_through_the_existing_command_verifier() {
         assert_eq!(verified.command().role(), role);
         // The context is recovered from the journal, never carried separately.
         assert_eq!(verified.creation_context(), &context);
-        assert_eq!(decoded.creation_context().expect("recovered context"), context);
+        assert_eq!(
+            decoded.creation_context().expect("recovered context"),
+            context
+        );
         assert_eq!(
             verified.command().operation(),
             TENANT_ROOT_ROLE_CREATION_COMMAND_OPERATION_V1
@@ -667,7 +673,9 @@ fn package_authority_and_issuer_substitutions_fail_closed() {
                 TwoPartyDeriverRole::DeriverA,
                 authority(),
                 ISSUER_KEY_ID,
-                &SigningKey::from_bytes(&[0x42; 32]).verifying_key().to_bytes(),
+                &SigningKey::from_bytes(&[0x42; 32])
+                    .verifying_key()
+                    .to_bytes(),
             )
             .expect_err("untrusted issuer key")
             .code(),
@@ -744,10 +752,14 @@ fn every_package_wire_mutation_fails_closed() {
 
     // Empty and oversized wires.
     assert!(TenantRootRoleCreationCommandPackageV1::decode_canonical_bytes(&[]).is_err());
-    assert!(TenantRootRoleCreationCommandPackageV1::decode_canonical_bytes(
-        &vec![0u8; TENANT_ROOT_ROLE_CREATION_COMMAND_PACKAGE_MAX_BYTES_V1 + 1]
-    )
-    .is_err());
+    assert!(
+        TenantRootRoleCreationCommandPackageV1::decode_canonical_bytes(&vec![
+            0u8;
+            TENANT_ROOT_ROLE_CREATION_COMMAND_PACKAGE_MAX_BYTES_V1
+                + 1
+        ])
+        .is_err()
+    );
 }
 
 // --- Tenant, lineage and nonce separation --------------------------------
@@ -780,8 +792,9 @@ fn ceremony_for(
         "deriver-b-signing-key-9",
     )
     .expect("ceremony context");
-    let journal = TenantRootCreationJournalV1::started(identity, lineage(lineage_seed), context.clone())
-        .expect("Started journal");
+    let journal =
+        TenantRootCreationJournalV1::started(identity, lineage(lineage_seed), context.clone())
+            .expect("Started journal");
     (context, journal)
 }
 

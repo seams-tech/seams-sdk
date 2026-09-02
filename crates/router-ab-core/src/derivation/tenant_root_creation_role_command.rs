@@ -1041,7 +1041,10 @@ impl TenantRootRoleCreationCommandPackageV1 {
     /// Returns the exact canonical package bytes.
     pub fn canonical_bytes(&self) -> RouterAbDerivationResult<Vec<u8>> {
         let mut bytes = Vec::new();
-        push_package_field(&mut bytes, TENANT_ROOT_ROLE_CREATION_COMMAND_PACKAGE_DOMAIN_V1)?;
+        push_package_field(
+            &mut bytes,
+            TENANT_ROOT_ROLE_CREATION_COMMAND_PACKAGE_DOMAIN_V1,
+        )?;
         push_package_field(&mut bytes, &self.started_journal.canonical_bytes()?)?;
         push_package_field(&mut bytes, &self.command.canonical_bytes()?)?;
         Ok(bytes)
@@ -1049,7 +1052,8 @@ impl TenantRootRoleCreationCommandPackageV1 {
 
     /// Decodes an exact canonical package, rejecting trailing or short input.
     pub fn decode_canonical_bytes(bytes: &[u8]) -> RouterAbDerivationResult<Self> {
-        if bytes.is_empty() || bytes.len() > TENANT_ROOT_ROLE_CREATION_COMMAND_PACKAGE_MAX_BYTES_V1 {
+        if bytes.is_empty() || bytes.len() > TENANT_ROOT_ROLE_CREATION_COMMAND_PACKAGE_MAX_BYTES_V1
+        {
             return Err(malformed(
                 "tenant-root role creation package wire length is invalid",
             ));
