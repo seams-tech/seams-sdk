@@ -82,3 +82,55 @@ fn cloudflare_route_boundaries_do_not_decode_signer_plaintext() {
         }
     }
 }
+
+/// The creation probe's deterministic issuer key must be unreachable in a
+/// release build.
+///
+/// It is a real Ed25519 signing key that mints valid tenant-root creation
+/// commands. A release binary that could reference it would accept probe-issued
+/// commands as production authorization, so every definition and every use must
+/// sit behind `#[cfg(debug_assertions)]`.
+#[test]
+fn the_creation_probe_issuer_key_cannot_be_referenced_in_release_builds() {
+    let source = read_src_file("tenant_root_role_d1.rs");
+    let marker = "TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_V1";
+    let mut sites = 0_usize;
+    for (index, line) in source.lines().enumerate() {
+        if !line.contains(marker) {
+            continue;
+        }
+        sites += 1;
+        // Walk back to the nearest attribute or item boundary and require a
+        // debug_assertions gate to cover this line.
+        let preceding: Vec<&str> = source.lines().take(index + 1).collect();
+        let gated = preceding
+            .iter()
+            .rev()
+            .take(40)
+            .any(|prior| prior.contains("#[cfg(debug_assertions)]"));
+        assert!(
+            gated,
+            "line {} references {marker} without a debug_assertions gate: {line}",
+            index + 1
+        );
+    }
+    assert!(
+        sites > 0,
+        "the guard found no references to {marker}; it has been renamed and this test is stale"
+    );
+
+    // The key must never be named by production configuration paths.
+    //
+    // Read these files directly: read_src_file("lib.rs") aggregates every .rs
+    // under src/, so asking it whether "lib.rs" contains the marker always says
+    // yes and proves nothing.
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    for forbidden in ["env.rs", "lib.rs", "tenant_root_role_runtime.rs"] {
+        let contents =
+            std::fs::read_to_string(src_dir.join(forbidden)).expect("source file should read");
+        assert!(
+            !contents.contains(marker),
+            "{forbidden} references the probe issuer key"
+        );
+    }
+}

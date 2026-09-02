@@ -1860,6 +1860,22 @@ pub(crate) struct CloudflareTenantRootInitialCreationExecutedCommandV1 {
     evidence: VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
 }
 
+impl CloudflareTenantRootInitialCreationExecutedCommandV1 {
+    /// Returns the executed command this insertion must be terminalized under.
+    ///
+    /// The caller signs its terminal receipt against this token and verifies
+    /// the result with it, which is what binds the receipt to the exact
+    /// insertion rather than to the role generally.
+    pub(crate) const fn executed(&self) -> &ExecutedTenantRootCommandV1 {
+        &self.executed
+    }
+
+    /// Returns the installation evidence this insertion attests.
+    pub(crate) fn evidence_bytes(&self) -> &[u8] {
+        self.evidence.canonical_bytes()
+    }
+}
+
 impl fmt::Debug for CloudflareTenantRootInitialCreationExecutedCommandV1 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -2376,6 +2392,12 @@ const TENANT_ROOT_ROLE_D1_INTEGRATION_ENV: &str = "ROUTER_AB_TENANT_ROOT_ROLE_D1
 pub enum CloudflareTenantRootRoleD1IntegrationRequestV1 {
     /// Runs the complete pending-to-active-to-retired lifecycle through the Rust store.
     RunLifecycle,
+    /// Runs the creation-specific reserve, insert, terminalize, and replay path.
+    ///
+    /// Exercises the creation wrappers the generic lifecycle probe never
+    /// reaches, driving a real ceremony so the terminal receipt comes from the
+    /// production sequence rather than fixture bytes.
+    RunInitialCreation,
 }
 
 /// Receipt proving that the real Rust role-store adapter completed its lifecycle probe.
@@ -2409,6 +2431,9 @@ pub async fn run_cloudflare_tenant_root_role_d1_integration_v1(
     match request {
         CloudflareTenantRootRoleD1IntegrationRequestV1::RunLifecycle => {
             run_cloudflare_tenant_root_role_d1_lifecycle_integration_v1(env).await
+        }
+        CloudflareTenantRootRoleD1IntegrationRequestV1::RunInitialCreation => {
+            run_cloudflare_tenant_root_initial_creation_integration_v1(env).await
         }
     }
 }
@@ -4475,6 +4500,443 @@ async fn run_cloudflare_tenant_root_role_d1_lifecycle_integration_v1(
     })
 }
 
+/// One probe ceremony's sealed creation input plus the public bytes A needs.
+#[cfg(debug_assertions)]
+struct TenantRootCreationProbeCeremonyV1 {
+    input: CloudflareTenantRootInitialCreationInputV1,
+    own_package: Vec<u8>,
+    evidence: Vec<u8>,
+    context: router_ab_core::TenantRootCeremonyContextV1,
+    authority_id: router_ab_core::TenantRootControlPlaneAuthorityIdV1,
+}
+
+/// Builds one complete ceremony through the production entry point.
+///
+/// The peer leg runs first only to produce a real peer commitment; its share is
+/// dropped and never persisted. This role's leg then runs through
+/// `execute_tenant_root_role_creation_v1`, the same function a live Deriver
+/// calls, so the probe exercises production admission, finalization, and
+/// sealing rather than a parallel fixture path.
+#[cfg(debug_assertions)]
+fn tenant_root_creation_probe_ceremony(
+    env: &Env,
+    role: CloudflareTenantRootDeriverRoleV1,
+    session_seed: u8,
+    now_ms: u64,
+) -> worker::Result<TenantRootCreationProbeCeremonyV1> {
+    let protocol_role = tenant_root_creation_probe_protocol_role(role);
+    let peer_protocol_role = protocol_role.peer();
+    let peer_role_id = match role {
+        CloudflareTenantRootDeriverRoleV1::DeriverA => CloudflareTenantRootDeriverRoleV1::DeriverB,
+        CloudflareTenantRootDeriverRoleV1::DeriverB => CloudflareTenantRootDeriverRoleV1::DeriverA,
+    };
+
+    let identity = tenant_root_creation_probe_identity()?;
+    let context = tenant_root_creation_probe_context(session_seed)?;
+    let journal = router_ab_core::TenantRootCreationJournalV1::started(
+        identity,
+        context.custody_lineage(),
+        context.clone(),
+    )
+    .map_err(|error| store_error(error.message()))?;
+    let authority_id = router_ab_core::TenantRootControlPlaneAuthorityIdV1::from_bytes([0x56; 32]);
+
+    let package_for = |protocol: TwoPartyDeriverRole| -> worker::Result<Vec<u8>> {
+        let signed =
+            tenant_root_creation_probe_signed_command(protocol, &journal, &context, authority_id)?;
+        router_ab_core::TenantRootRoleCreationCommandPackageV1::new(journal.clone(), signed)
+            .and_then(|package| package.canonical_bytes())
+            .map_err(|error| store_error(error.message()))
+    };
+    let own_package = package_for(protocol_role)?;
+    let peer_package = package_for(peer_protocol_role)?;
+
+    let role_keys = tenant_root_creation_probe_role_keys()?;
+    let trusted_issuer = tenant_root_creation_probe_issuer_keys()?;
+    let provider_config = tenant_root_creation_probe_provider_config()?;
+    let worker_role = match role {
+        CloudflareTenantRootDeriverRoleV1::DeriverA => crate::CloudflareWorkerRoleV1::DeriverA,
+        CloudflareTenantRootDeriverRoleV1::DeriverB => crate::CloudflareWorkerRoleV1::DeriverB,
+    };
+    let mut rng = crate::CloudflareSignerProofGetrandomRngV1;
+
+    // Peer leg: commit only. Its share dies with this scope.
+    let mut peer_online =
+        crate::env::load_cloudflare_tenant_root_operational_rotation_provider_v1(env, worker_role)
+            .map_err(|error| store_error(error.message()))?;
+    let mut peer_backup =
+        crate::env::load_cloudflare_tenant_root_operational_rotation_provider_v1(env, worker_role)
+            .map_err(|error| store_error(error.message()))?;
+    let peer_signer = crate::env::cloudflare_tenant_root_creation_role_signer_for_probe_v1(
+        peer_protocol_role,
+        tenant_root_role_d1_integration_role_signing_key_id(peer_role_id),
+        tenant_root_role_d1_integration_role_signing_key(peer_role_id),
+    );
+    let peer_progress = crate::tenant_root_role_runtime::execute_tenant_root_role_creation_v1(
+        &peer_package,
+        None,
+        peer_protocol_role,
+        authority_id,
+        &trusted_issuer,
+        &role_keys,
+        &peer_signer,
+        tenant_root_role_d1_integration_role_signing_key(peer_role_id).as_bytes(),
+        &provider_config,
+        &mut peer_online,
+        &mut peer_backup,
+        now_ms,
+        &mut rng,
+    )
+    .map_err(|error| store_error(error.message()))?;
+    let peer_commitment = match peer_progress {
+        crate::tenant_root_role_runtime::TenantRootRoleCreationProgressV1::Committed {
+            pending,
+        } => pending.commitment_bytes().to_vec(),
+        _ => {
+            return Err(store_error(
+                "peer probe leg sealed without a peer commitment",
+            ))
+        }
+    };
+
+    // This role's leg: admit, finalize, seal, through the production entry point.
+    let mut online =
+        crate::env::load_cloudflare_tenant_root_operational_rotation_provider_v1(env, worker_role)
+            .map_err(|error| store_error(error.message()))?;
+    let mut backup =
+        crate::env::load_cloudflare_tenant_root_operational_rotation_provider_v1(env, worker_role)
+            .map_err(|error| store_error(error.message()))?;
+    let signer = crate::env::cloudflare_tenant_root_creation_role_signer_for_probe_v1(
+        protocol_role,
+        tenant_root_role_d1_integration_role_signing_key_id(role),
+        tenant_root_role_d1_integration_role_signing_key(role),
+    );
+    let progress = crate::tenant_root_role_runtime::execute_tenant_root_role_creation_v1(
+        &own_package,
+        Some(&peer_commitment),
+        protocol_role,
+        authority_id,
+        &trusted_issuer,
+        &role_keys,
+        &signer,
+        tenant_root_role_d1_integration_role_signing_key(role).as_bytes(),
+        &provider_config,
+        &mut online,
+        &mut backup,
+        now_ms,
+        &mut rng,
+    )
+    .map_err(|error| store_error(error.message()))?;
+    match progress {
+        crate::tenant_root_role_runtime::TenantRootRoleCreationProgressV1::Sealed {
+            signed_installation_evidence,
+            input,
+            ..
+        } => Ok(TenantRootCreationProbeCeremonyV1 {
+            input: *input,
+            own_package,
+            evidence: signed_installation_evidence,
+            context,
+            authority_id,
+        }),
+        _ => Err(store_error(
+            "own probe leg did not seal against the peer commitment",
+        )),
+    }
+}
+
+/// Exercises the creation-specific store path against a real role-private D1.
+///
+/// The receipt comes through the production sequence -- reserve, insert, sign
+/// against the executed command, verify locally with that same token, complete
+/// -- so nothing here fabricates a receipt. Run this probe in each Deriver to
+/// prove both roles' wrappers; a single Worker only owns its own store.
+#[cfg(debug_assertions)]
+async fn run_cloudflare_tenant_root_initial_creation_integration_v1(
+    env: &Env,
+) -> worker::Result<CloudflareTenantRootRoleD1IntegrationReceiptV1> {
+    let store = CloudflareTenantRootRoleShareStoreV1::from_env(env)?;
+    let role = store.cipher.role;
+    let reserved_at_ms = TENANT_ROOT_CREATION_PROBE_ISSUED_AT_MS_V1 + 4;
+
+    // 1. The full happy path: reserve, insert, terminalize.
+    let completed = tenant_root_creation_probe_ceremony(env, role, 0x54, reserved_at_ms - 2)?;
+    let pending_command = match store
+        .reserve_initial_creation_pending(completed.input, reserved_at_ms)
+        .await?
+    {
+        CloudflareTenantRootInitialCreationDecisionV1::Execute { command } => command,
+        _ => {
+            return Err(store_error(
+                "fresh initial creation did not return an executable command",
+            ));
+        }
+    };
+    let (stored, executed) = store
+        .insert_initial_creation_pending(pending_command, reserved_at_ms)
+        .await?;
+    let receipt = tenant_root_role_d1_integration_success_receipt(
+        role,
+        executed.executed(),
+        executed.evidence_bytes(),
+        reserved_at_ms + 1,
+    )?;
+    let committed_bytes = match store.complete_initial_creation(executed, receipt).await? {
+        CloudflareTenantRootCommandTerminalCommitV1::Committed { receipt_bytes } => receipt_bytes,
+        CloudflareTenantRootCommandTerminalCommitV1::Replay { .. } => {
+            return Err(store_error(
+                "a first initial-creation completion reported a replay",
+            ));
+        }
+    };
+
+    // 2. Exact replay returns the identical receipt.
+    let replay_input = tenant_root_creation_probe_ceremony(env, role, 0x54, reserved_at_ms - 2)?;
+    match store
+        .reserve_initial_creation_pending(replay_input.input, reserved_at_ms + 2)
+        .await?
+    {
+        CloudflareTenantRootInitialCreationDecisionV1::ReplayCompleted { receipt_bytes } => {
+            if receipt_bytes != committed_bytes {
+                return Err(store_error(
+                    "exact initial-creation replay returned different receipt bytes",
+                ));
+            }
+        }
+        _ => {
+            return Err(store_error(
+                "exact initial-creation replay was not recognised",
+            ))
+        }
+    }
+
+    // 3. Exact replay AFTER the issuer command expired still reconciles.
+    //    Freshness gates only the first durable reservation.
+    let expired_input = tenant_root_creation_probe_ceremony(env, role, 0x54, reserved_at_ms - 2)?;
+    match store
+        .reserve_initial_creation_pending(
+            expired_input.input,
+            TENANT_ROOT_CREATION_PROBE_EXPIRES_AT_MS_V1 + 60_000,
+        )
+        .await?
+    {
+        CloudflareTenantRootInitialCreationDecisionV1::ReplayCompleted { receipt_bytes } => {
+            if receipt_bytes != committed_bytes {
+                return Err(store_error(
+                    "post-expiry initial-creation replay returned different receipt bytes",
+                ));
+            }
+        }
+        _ => {
+            return Err(store_error(
+                "post-expiry exact initial-creation replay was not recognised",
+            ));
+        }
+    }
+
+    // 4. A different ceremony for the same tenant is a different command and
+    //    must not reconcile against the completed one.
+    let changed = tenant_root_creation_probe_ceremony(env, role, 0x64, reserved_at_ms - 2)?;
+    match store
+        .reserve_initial_creation_pending(changed.input, reserved_at_ms + 3)
+        .await
+    {
+        Ok(CloudflareTenantRootInitialCreationDecisionV1::ReplayCompleted { .. }) => {
+            return Err(store_error(
+                "a changed creation package replayed the prior receipt",
+            ));
+        }
+        Ok(CloudflareTenantRootInitialCreationDecisionV1::Execute { .. }) | Err(_) => {}
+        Ok(_) => {
+            return Err(store_error(
+                "a changed creation package produced an unexpected decision",
+            ));
+        }
+    }
+
+    // 5. Execution-checkpoint resume: reserve, do not insert, reserve again.
+    let resume = tenant_root_creation_probe_ceremony(env, role, 0x74, reserved_at_ms - 2)?;
+    match store
+        .reserve_initial_creation_pending(resume.input, reserved_at_ms + 4)
+        .await?
+    {
+        CloudflareTenantRootInitialCreationDecisionV1::Execute { .. } => {}
+        _ => return Err(store_error("a fresh resume ceremony was not executable")),
+    }
+    let resume_again = tenant_root_creation_probe_ceremony(env, role, 0x74, reserved_at_ms - 2)?;
+    match store
+        .reserve_initial_creation_pending(resume_again.input, reserved_at_ms + 5)
+        .await?
+    {
+        CloudflareTenantRootInitialCreationDecisionV1::ResumeExecution { .. }
+        | CloudflareTenantRootInitialCreationDecisionV1::InProgress => {}
+        _ => {
+            return Err(store_error(
+                "an unexecuted reservation did not offer resume or report in progress",
+            ));
+        }
+    }
+
+    // 6. The receipt A would receive verifies under the remote attestation path.
+    crate::tenant_root_role_runtime::verify_tenant_root_peer_persistence_v1(
+        &committed_bytes,
+        &completed.own_package,
+        &completed.evidence,
+        tenant_root_creation_probe_protocol_role(role),
+        completed.authority_id,
+        &tenant_root_creation_probe_issuer_keys()?,
+        &tenant_root_creation_probe_role_keys()?,
+        &completed.context,
+    )
+    .map_err(|error| store_error(error.message()))?;
+
+    Ok(CloudflareTenantRootRoleD1IntegrationReceiptV1 {
+        role,
+        retired_epoch: 0,
+        retired_revision: 0,
+        active_epoch: stored.record.epoch.get().get(),
+        active_revision: stored.revision,
+        cleanup_epoch: 0,
+        command_receipt_digest_hex: encode_hex(&Sha256::digest(&committed_bytes)),
+    })
+}
+
+/// The probe's published issuer keyset.
+#[cfg(debug_assertions)]
+fn tenant_root_creation_probe_issuer_keys(
+) -> worker::Result<crate::env::CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1> {
+    crate::env::CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1::decode(&format!(
+        "{{\"keys\":[{{\"issuer_key_id\":\"{TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_ID_V1}\",\"verifying_key_hex\":\"{}\"}}]}}",
+        encode_hex(
+            SigningKey::from_bytes(&TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_V1)
+                .verifying_key()
+                .as_bytes()
+        )
+    ))
+    .map_err(|error| store_error(error.message()))
+}
+
+/// The probe's sealing provider descriptors.
+#[cfg(debug_assertions)]
+fn tenant_root_creation_probe_provider_config(
+) -> worker::Result<crate::tenant_root_role_runtime::TenantRootRoleRuntimeProviderConfigV1> {
+    crate::tenant_root_role_runtime::TenantRootRoleRuntimeProviderConfigV1::new(
+        "workerd://tenant-root-creation-probe/epoch-1",
+        "r120-creation-probe-backup",
+        "r120-creation-probe-backup/epoch-1",
+    )
+    .map_err(|error| store_error(error.message()))
+}
+
+/// The probe's published role keyset, matching the ceremony's key IDs.
+#[cfg(debug_assertions)]
+fn tenant_root_creation_probe_role_keys(
+) -> worker::Result<crate::env::TenantRootCreationRoleVerifyingKeysV1> {
+    let entry = |role: CloudflareTenantRootDeriverRoleV1, label: &str| {
+        format!(
+            "{{\"role\":\"{label}\",\"signing_key_id\":\"{}\",\"verifying_key_hex\":\"{}\"}}",
+            tenant_root_role_d1_integration_role_signing_key_id(role),
+            encode_hex(
+                tenant_root_role_d1_integration_role_signing_key(role)
+                    .verifying_key()
+                    .as_bytes()
+            )
+        )
+    };
+    crate::env::decode_role_verifying_keys(&format!(
+        "{{\"keys\":[{},{}]}}",
+        entry(CloudflareTenantRootDeriverRoleV1::DeriverA, "deriver_a"),
+        entry(CloudflareTenantRootDeriverRoleV1::DeriverB, "deriver_b"),
+    ))
+    .map_err(|error| store_error(error.message()))
+}
+
+/// Issuer key used only by the workerd-gated creation probe.
+///
+/// The probe must produce a genuinely issuer-signed command so the production
+/// verification path runs. This key exists only in a debug build behind the
+/// integration env flag.
+#[cfg(debug_assertions)]
+const TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_V1: [u8; 32] = [0x4d; 32];
+#[cfg(debug_assertions)]
+const TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_ID_V1: &str = "tenant-root-creation-probe-issuer-v1";
+#[cfg(debug_assertions)]
+const TENANT_ROOT_CREATION_PROBE_ISSUED_AT_MS_V1: u64 = 1_000_000;
+#[cfg(debug_assertions)]
+const TENANT_ROOT_CREATION_PROBE_EXPIRES_AT_MS_V1: u64 = 1_030_000;
+
+/// Builds the probe's ceremony context, shared by both roles.
+#[cfg(debug_assertions)]
+fn tenant_root_creation_probe_context(
+    session_seed: u8,
+) -> worker::Result<router_ab_core::TenantRootCeremonyContextV1> {
+    let identity = tenant_root_creation_probe_identity()?;
+    router_ab_core::TenantRootCeremonyContextV1::new(
+        identity
+            .digest()
+            .map_err(|error| store_error(error.message()))?,
+        TenantRootCustodyLineageId::from_bytes([0x53; 16])
+            .map_err(|error| store_error(error.message()))?,
+        router_ab_core::TenantRootCeremonyEpochsV1::create(),
+        router_ab_core::TenantRootCeremonySessionIdV1::from_bytes([session_seed; 16])
+            .map_err(|error| store_error(error.message()))?,
+        router_ab_core::TenantRootCeremonyNonceV1::from_bytes([session_seed ^ 0x0f; 32])
+            .map_err(|error| store_error(error.message()))?,
+        TENANT_ROOT_CREATION_PROBE_ISSUED_AT_MS_V1,
+        TENANT_ROOT_CREATION_PROBE_EXPIRES_AT_MS_V1,
+        tenant_root_role_d1_integration_role_signing_key_id(
+            CloudflareTenantRootDeriverRoleV1::DeriverA,
+        ),
+        tenant_root_role_d1_integration_role_signing_key_id(
+            CloudflareTenantRootDeriverRoleV1::DeriverB,
+        ),
+    )
+    .map_err(|error| store_error(error.message()))
+}
+
+#[cfg(debug_assertions)]
+fn tenant_root_creation_probe_identity() -> worker::Result<TenantRootIdentityV1> {
+    TenantRootIdentityV1::new(
+        "r120-creation-probe-org",
+        "r120-creation-probe-project",
+        "workerd",
+        "r120-creation-probe-root",
+        "v1",
+    )
+    .map_err(|error| store_error(error.message()))
+}
+
+/// Signs and verifies one role's creation command, as the issuer would.
+#[cfg(debug_assertions)]
+fn tenant_root_creation_probe_signed_command(
+    role: TwoPartyDeriverRole,
+    journal: &router_ab_core::TenantRootCreationJournalV1,
+    context: &router_ab_core::TenantRootCeremonyContextV1,
+    authority_id: router_ab_core::TenantRootControlPlaneAuthorityIdV1,
+) -> worker::Result<router_ab_core::TenantRootRoleCreationCommandV1> {
+    router_ab_core::TenantRootRoleCreationCommandV1::sign(
+        journal,
+        context,
+        role,
+        authority_id,
+        TENANT_ROOT_CREATION_PROBE_ISSUED_AT_MS_V1 + 1,
+        TENANT_ROOT_CREATION_PROBE_EXPIRES_AT_MS_V1 - 1,
+        TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_ID_V1,
+        &TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_V1,
+    )
+    .map_err(|error| store_error(error.message()))
+}
+
+#[cfg(debug_assertions)]
+fn tenant_root_creation_probe_protocol_role(
+    role: CloudflareTenantRootDeriverRoleV1,
+) -> TwoPartyDeriverRole {
+    match role {
+        CloudflareTenantRootDeriverRoleV1::DeriverA => TwoPartyDeriverRole::DeriverA,
+        CloudflareTenantRootDeriverRoleV1::DeriverB => TwoPartyDeriverRole::DeriverB,
+    }
+}
+
 #[cfg(debug_assertions)]
 fn tenant_root_role_d1_integration_role_signing_key(
     role: CloudflareTenantRootDeriverRoleV1,
@@ -6209,7 +6671,7 @@ mod tests {
     }
 
     fn test_refresh_evidence(
-        context: &TenantRootCeremonyContextV1,
+        context: &router_ab_core::TenantRootCeremonyContextV1,
         role: TwoPartyDeriverRole,
     ) -> VerifiedTenantRootSignedShareInstallationEvidenceWireV1 {
         let (signing_seed, proof_seed) = match role {
@@ -6220,7 +6682,7 @@ mod tests {
     }
 
     fn test_refresh_evidence_with_seeds(
-        context: &TenantRootCeremonyContextV1,
+        context: &router_ab_core::TenantRootCeremonyContextV1,
         role: TwoPartyDeriverRole,
         signing_seed: u8,
         proof_seed: u8,
@@ -6259,7 +6721,7 @@ mod tests {
         command: VerifiedTenantRootRoleRefreshCommandV1,
         evidence: VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
         identity: TenantRootIdentityV1,
-        sealed_context: &TenantRootCeremonyContextV1,
+        sealed_context: &router_ab_core::TenantRootCeremonyContextV1,
         sealed_evidence: &VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
         sealed_role: TwoPartyDeriverRole,
     ) -> worker::Result<CloudflareTenantRootRefreshInputV1> {
@@ -6426,7 +6888,7 @@ mod tests {
     }
 
     fn test_signed_installation_evidence(
-        context: &TenantRootCeremonyContextV1,
+        context: &router_ab_core::TenantRootCeremonyContextV1,
         role: TwoPartyDeriverRole,
         scalar_a: u64,
         scalar_b: u64,
@@ -6449,7 +6911,7 @@ mod tests {
     }
 
     fn test_verified_managed_backup(
-        context: &TenantRootCeremonyContextV1,
+        context: &router_ab_core::TenantRootCeremonyContextV1,
         role: TwoPartyDeriverRole,
         scalar: u64,
         backup_seed: u8,
@@ -6496,7 +6958,7 @@ mod tests {
     }
 
     fn test_verified_provider_canary(
-        context: &TenantRootCeremonyContextV1,
+        context: &router_ab_core::TenantRootCeremonyContextV1,
         transition: TenantRootActivationReceiptTransitionV1,
         target_epoch: TenantRootShareEpoch,
         commitments: &TenantRootEpochCommitmentsV1,
@@ -6741,7 +7203,7 @@ mod tests {
     }
 
     fn test_verified_accepted_loss_authorization(
-        context: &TenantRootCeremonyContextV1,
+        context: &router_ab_core::TenantRootCeremonyContextV1,
         target_commitments: &TenantRootEpochCommitmentsV1,
         installation_receipts: TenantRootRoleInstallationReceiptsV1,
         variant: u8,
@@ -7323,7 +7785,7 @@ mod tests {
     }
 
     fn test_initial_creation_evidence(
-        context: &TenantRootCeremonyContextV1,
+        context: &router_ab_core::TenantRootCeremonyContextV1,
         role: TwoPartyDeriverRole,
     ) -> VerifiedTenantRootSignedShareInstallationEvidenceWireV1 {
         let share_a = SigningRootShare::from_canonical_bytes(
@@ -7347,7 +7809,7 @@ mod tests {
     }
 
     fn signed_installation_evidence_wire(
-        context: &TenantRootCeremonyContextV1,
+        context: &router_ab_core::TenantRootCeremonyContextV1,
         role: TwoPartyDeriverRole,
         share: &SigningRootShare,
         peer: &SigningRootShare,
@@ -7382,7 +7844,7 @@ mod tests {
     }
 
     fn test_sealed_online_share(
-        context: &TenantRootCeremonyContextV1,
+        context: &router_ab_core::TenantRootCeremonyContextV1,
         evidence: &VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
         role: TwoPartyDeriverRole,
     ) -> TenantRootSealedOnlineRoleShareV1 {
