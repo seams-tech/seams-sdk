@@ -279,9 +279,13 @@ export class TxTree extends LitElementWithProps {
 
   private animateOpen(details: HTMLDetailsElement, body: HTMLElement) {
     this._animating.add(details);
-    // Prepare closed state and open the details element
-    body.classList.add('anim-h');
+    // Collapse first, and without a transition: the browser keeps a resolved
+    // height for the content of a closed <details>, so `.anim-h` on its own
+    // would tween from that old height down to 0 and the node would open at
+    // nearly full size. `anim-h-hold` pins the start; the reflow commits it.
+    body.classList.add('anim-h', 'anim-h-hold');
     details.open = true;
+    void body.offsetHeight;
 
     requestAnimationFrame(() => {
       const targetPx = body.scrollHeight;
@@ -292,13 +296,13 @@ export class TxTree extends LitElementWithProps {
       // Drive animation via host CSS variable; avoid inline styles
       this.setCssVars({ '--w3a-tree__anim-target': target });
       // Activate transition to target height
+      body.classList.remove('anim-h-hold');
       body.classList.add('anim-h-active');
       let done = false;
       const cleanup = () => {
         if (done) return;
         done = true;
-        body.classList.remove('anim-h');
-        body.classList.remove('anim-h-active');
+        body.classList.remove('anim-h', 'anim-h-active', 'anim-h-hold');
         this._animating.delete(details);
         this.handleToggle({ nodeId: details.dataset.nodeId, open: details.open });
       };
@@ -320,16 +324,16 @@ export class TxTree extends LitElementWithProps {
     this._animating.add(details);
     const startPx = body.scrollHeight;
     const start = `${startPx}px`;
-    // Pin current height, then transition to 0 using classes
+    // Pin the current height without a transition, then let it tween to 0.
     this.setCssVars({ '--w3a-tree__anim-target': start });
-    body.classList.add('anim-h');
-    body.classList.add('anim-h-active');
+    body.classList.add('anim-h', 'anim-h-active', 'anim-h-hold');
     // Force reflow to ensure start height is applied
     void body.offsetHeight;
     if (this.beginHostDrivenResize(details, body, { open: false, deltaCssPx: startPx })) {
       return;
     }
     requestAnimationFrame(() => {
+      body.classList.remove('anim-h-hold');
       body.classList.remove('anim-h-active');
       let done = false;
       const cleanup = () => {
@@ -337,7 +341,7 @@ export class TxTree extends LitElementWithProps {
         done = true;
         body.removeEventListener('transitionend', onEnd);
         details.open = false;
-        body.classList.remove('anim-h');
+        body.classList.remove('anim-h', 'anim-h-hold');
         this._animating.delete(details);
         this.handleToggle({ nodeId: details.dataset.nodeId, open: details.open });
       };
@@ -379,7 +383,7 @@ export class TxTree extends LitElementWithProps {
       state.finished = true;
       if (state.safety !== null) window.clearTimeout(state.safety);
       if (!open) details.open = false;
-      body.classList.remove('anim-h', 'anim-h-active', 'anim-h-driven');
+      body.classList.remove('anim-h', 'anim-h-active', 'anim-h-driven', 'anim-h-hold');
       this._animating.delete(details);
       this.handleToggle({ nodeId: details.dataset.nodeId, open: details.open });
     };
