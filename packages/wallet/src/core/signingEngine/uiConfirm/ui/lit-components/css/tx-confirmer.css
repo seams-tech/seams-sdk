@@ -417,6 +417,16 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
     0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
+/* An element held at a driven height while the host box travels to its new
+   size (confirm-surface-resize.ts). Content below the current height is
+   clipped, which is what "revealed by the box" means. The variable is written
+   by the owning component through a constructable stylesheet, because the
+   wallet origin ships style-src-attr 'none'. */
+.w3a-surface-height-driven {
+  overflow: hidden;
+  height: var(--w3a-surface-height-driven-target, auto);
+}
+
 /* The host dialog paints compact modal elevation outside the iframe bounds. */
 w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'][data-w3a-confirm-variant='modal']
   .modal-container-root {

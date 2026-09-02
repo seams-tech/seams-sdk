@@ -44,6 +44,10 @@ export const CONFIRM_SURFACE_PINNED_CLASS = 'w3a-confirm-surface-pinned';
  * otherwise also size `<html>`.
  */
 export const CONFIRM_SURFACE_PINNED_ROOT_CLASS = 'w3a-confirm-surface-pinned-root';
+/** Marks an element whose height is being driven through a motion. */
+export const CONFIRM_SURFACE_HEIGHT_DRIVEN_CLASS = 'w3a-surface-height-driven';
+/** The CSS variable the class above reads. Components own the write (CSP). */
+export const CONFIRM_SURFACE_HEIGHT_DRIVEN_VAR = '--w3a-surface-height-driven-target';
 
 /** Frames the box may sit still, after it has moved, before its motion counts as over. */
 const SETTLED_FRAMES_AFTER_MOTION = 8;
@@ -144,6 +148,72 @@ export function announceSurfaceResize(
     claim,
   });
   return driver !== null;
+}
+
+/**
+ * Announce the height change a re-render is about to make.
+ *
+ * A component renders new content and then finds out what it cost: capture the
+ * height before the DOM is written, commit after it is written and before the
+ * frame is painted. Lit's `willUpdate` and `updated` are exactly those two
+ * points and run in one task, so a change that grows the card never reaches
+ * the screen — or the surface reporter — at its natural height.
+ */
+export type SurfaceHeightReflow = {
+  /** Record the current height. Call from `willUpdate`. */
+  capture(): void;
+  /** Measure the new height and announce the change. Call from `updated`. */
+  commit(): void;
+  /** Release any clamp this reflow still holds. */
+  dispose(): void;
+};
+
+export function createSurfaceHeightReflow(args: {
+  readonly reason?: string;
+  /** The element whose height changes, resolved fresh on every call. */
+  element: () => HTMLElement | null;
+  /** Hold the element at this height, or release it when given null. */
+  setHeightCssPx(px: number | null): void;
+}): SurfaceHeightReflow {
+  let capturedCssPx: number | null = null;
+  let clampedElement: HTMLElement | null = null;
+
+  const release = (): void => {
+    const element = clampedElement;
+    clampedElement = null;
+    if (!element) return;
+    element.classList.remove(CONFIRM_SURFACE_HEIGHT_DRIVEN_CLASS);
+    args.setHeightCssPx(null);
+  };
+
+  return {
+    capture(): void {
+      const element = args.element();
+      capturedCssPx = element ? element.getBoundingClientRect().height : null;
+    },
+    commit(): void {
+      const fromCssPx = capturedCssPx;
+      capturedCssPx = null;
+      const element = args.element();
+      if (!element || fromCssPx === null) return;
+      // A motion already owns this surface. Let it land: the reporter picks up
+      // whatever this render changed when the pin comes off, so the parent
+      // still eases once rather than chasing two overlapping motions.
+      if (document.documentElement.classList.contains(CONFIRM_SURFACE_PINNED_ROOT_CLASS)) return;
+      announceSurfaceResize(element, {
+        ...(args.reason ? { reason: args.reason } : {}),
+        fromCssPx,
+        toCssPx: element.getBoundingClientRect().height,
+        onClaimed: () => {
+          clampedElement = element;
+          element.classList.add(CONFIRM_SURFACE_HEIGHT_DRIVEN_CLASS);
+        },
+        setHeightCssPx: (px) => args.setHeightCssPx(px),
+        finish: release,
+      });
+    },
+    dispose: release,
+  };
 }
 
 export type ConfirmSurfaceResizeChoreographer = {

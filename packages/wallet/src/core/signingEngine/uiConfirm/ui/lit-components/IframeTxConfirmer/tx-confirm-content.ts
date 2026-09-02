@@ -8,13 +8,15 @@ import type { UserConfirmSecurityContext } from '@/core/types';
 import TxTree from '../TxTree';
 import { buildDisplayTreeFromModel, buildDisplayTreeFromTxPayloads } from '../TxTree/tx-tree-utils';
 import { ensureExternalStyles } from '../css/css-loader';
+import {
+  createSurfaceHeightReflow,
+  CONFIRM_SURFACE_HEIGHT_DRIVEN_VAR,
+  type SurfaceHeightReflow,
+} from '../../confirm-surface-resize';
 import { W3A_TX_TREE_ID } from '../../registry';
 import type { ThemeMode } from '../../confirm-ui-types';
 import type { AppearanceConfig } from '@/core/types/seams';
-import type {
-  TxDisplayModel,
-  TxDisplayOperation,
-} from '@/core/signingEngine/interfaces/display';
+import type { TxDisplayModel, TxDisplayOperation } from '@/core/signingEngine/interfaces/display';
 
 /**
  * Shared confirmation content surface used by both Modal and Drawer containers.
@@ -23,6 +25,20 @@ import type {
  * - Does not own backdrop, focus traps, or ESC handling
  */
 export class TxConfirmContentElement extends LitElementWithProps {
+  /**
+   * The transaction body grows on its own once ABI decoding resolves, which
+   * in a hugged box is a card that changes height with no user action behind
+   * it. Announce it like any other change so the box leads.
+   */
+  private readonly _heightReflow: SurfaceHeightReflow = createSurfaceHeightReflow({
+    reason: 'tx-body',
+    element: () => this.querySelector<HTMLElement>('.txc-root'),
+    setHeightCssPx: (px) =>
+      this.setCssVars({
+        [CONFIRM_SURFACE_HEIGHT_DRIVEN_VAR]: px === null ? 'auto' : `${px}px`,
+      }),
+  });
+
   // Fail fast in dev if nested custom elements are not defined
   static requiredChildTags = [W3A_TX_TREE_ID];
   static keepDefinitions = [TxTree];
@@ -147,6 +163,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
   }
 
   disconnectedCallback(): void {
+    this._heightReflow.dispose();
     this._cancelConfirmArm();
     this.removeEventListener('pointerdown', this._stopDragStart as EventListener);
     this.removeEventListener('mousedown', this._stopDragStart as EventListener);
@@ -190,6 +207,8 @@ export class TxConfirmContentElement extends LitElementWithProps {
 
   protected willUpdate(changed: PropertyValues): void {
     super.willUpdate(changed);
+    // Nothing to compare against before the first render.
+    if (this.hasUpdated) this._heightReflow.capture();
     if (changed.has('txSigningRequests') || changed.has('model')) {
       // Build the tree before render so the first painted frame already has
       // the tx body and does not grow a frame later.
@@ -199,6 +218,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
 
   updated(changed: PropertyValues) {
     super.updated(changed);
+    this._heightReflow.commit();
     if (changed.has('theme') || changed.has('appearance')) {
       this.applyAppearanceTokenVars();
     }
@@ -331,9 +351,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
             </div>`
           : null}
         <div class="actions">
-          <button class="cancel" @click=${this.onCancel}>
-            ${this.cancelText}
-          </button>
+          <button class="cancel" @click=${this.onCancel}>${this.cancelText}</button>
           <button
             class="confirm ${this.loading ? 'loading' : ''}"
             @click=${this.onConfirm}

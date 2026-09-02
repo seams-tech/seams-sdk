@@ -7,6 +7,11 @@ import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
 
 import TxTree from '../TxTree';
 import { ensureExternalStyles } from '../css/css-loader';
+import {
+  createSurfaceHeightReflow,
+  CONFIRM_SURFACE_HEIGHT_DRIVEN_VAR,
+  type SurfaceHeightReflow,
+} from '../../confirm-surface-resize';
 import TxConfirmContentElement from './tx-confirm-content';
 import type { ThemeMode } from '../../confirm-ui-types';
 import type { AppearanceConfig } from '@/core/types/seams';
@@ -68,6 +73,21 @@ function formatEmailOtpResendError(error: unknown): string {
  * Built with Lit with strict CSP for XSS protection and reactive updates.
  */
 export class ModalTxConfirmElement extends LitElementWithProps implements ConfirmUIElement {
+  /**
+   * Swaps inside the card — the error banner, the Email OTP prompt, loading
+   * giving way to content — change its height as abruptly as a tree node does,
+   * and in a hugged box the parent must move before they land. Capture the
+   * height before each render, announce the change after it.
+   */
+  private readonly _heightReflow: SurfaceHeightReflow = createSurfaceHeightReflow({
+    reason: 'confirm-body',
+    element: () => this.querySelector<HTMLElement>('.modal-container-root'),
+    setHeightCssPx: (px) =>
+      this.setCssVars({
+        [CONFIRM_SURFACE_HEIGHT_DRIVEN_VAR]: px === null ? 'auto' : `${px}px`,
+      }),
+  });
+
   static requiredChildTags = ['w3a-tx-confirm-content'];
   static strictChildDefinitions = true;
   // Prevent bundlers from dropping nested custom element definitions used via templates
@@ -526,8 +546,15 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
 
   private _ownsThemeAttr = false;
 
+  willUpdate(changedProperties: PropertyValues) {
+    super.willUpdate(changedProperties);
+    // Nothing to compare against before the first render.
+    if (this.hasUpdated) this._heightReflow.capture();
+  }
+
   updated(changedProperties: PropertyValues) {
     super.updated(changedProperties);
+    this._heightReflow.commit();
     if (changedProperties.has('theme') || changedProperties.has('appearance')) {
       this.applyAppearanceTokenVars();
     }
@@ -579,6 +606,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   // Dynamic style application removed; CSS variables come from tx-confirmer.css
 
   disconnectedCallback() {
+    this._heightReflow.dispose();
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('message', this._onWindowMessage as EventListener);
     if (this._otpResendTimer != null) window.clearInterval(this._otpResendTimer);
