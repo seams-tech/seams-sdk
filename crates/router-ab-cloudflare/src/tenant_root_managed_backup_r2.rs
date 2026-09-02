@@ -2,7 +2,8 @@ use sha2::{Digest, Sha256};
 
 use router_ab_core::{
     TenantRootCustodyLineageId, TenantRootIdentityDigestV1, TenantRootManagedBackupBindingV1,
-    TenantRootManagedRestoreRoleV1, TenantRootShareEpoch, VerifiedTenantRootManagedBackupV1,
+    TenantRootManagedRestoreRoleV1, TenantRootShareEpoch, TenantRootSignedManagedBackupV1,
+    VerifiedTenantRootManagedBackupV1,
 };
 
 #[cfg(feature = "workers-rs")]
@@ -133,6 +134,45 @@ impl CloudflareTenantRootManagedBackupStoreV1 {
             object_key,
             artifact_digest,
         })
+    }
+
+    pub(crate) async fn get_verified(
+        &self,
+        coordinates: TenantRootManagedBackupObjectCoordinatesV1,
+        trusted_role_verifying_key: &[u8; 32],
+    ) -> worker::Result<VerifiedTenantRootManagedBackupV1> {
+        self.require_role(coordinates.role)?;
+        let object = self
+            .bucket
+            .get(coordinates.object_key())
+            .execute()
+            .await?
+            .ok_or_else(|| backup_store_error("managed-backup object does not exist"))?;
+        let bytes = object
+            .body()
+            .ok_or_else(|| backup_store_error("managed-backup object has no body"))?
+            .bytes()
+            .await?;
+        let signed = TenantRootSignedManagedBackupV1::decode_canonical_bytes(&bytes)
+            .map_err(|error| backup_store_error(error.message()))?;
+        if TenantRootManagedBackupObjectCoordinatesV1::from_binding(signed.binding()) != coordinates
+        {
+            return Err(backup_store_error(
+                "managed-backup artifact does not match its object coordinates",
+            ));
+        }
+        signed
+            .verify(signed.binding(), trusted_role_verifying_key)
+            .map_err(|error| backup_store_error(error.message()))
+    }
+
+    /// Deletes one role-local backup object by its complete object coordinates.
+    pub(crate) async fn delete_coordinates(
+        &self,
+        coordinates: TenantRootManagedBackupObjectCoordinatesV1,
+    ) -> worker::Result<()> {
+        self.require_role(coordinates.role)?;
+        self.bucket.delete(coordinates.object_key()).await
     }
 
     fn require_role(&self, role: TenantRootManagedRestoreRoleV1) -> worker::Result<()> {

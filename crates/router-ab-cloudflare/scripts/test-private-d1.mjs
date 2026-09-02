@@ -13,10 +13,16 @@ const internalAuthSecret = 'private-d1-integration-auth';
 const roleD1Binding = 'DERIVER_ROLE_PRIVATE_DB';
 const managedBackupR2Binding = 'TENANT_ROOT_MANAGED_BACKUP_BUCKET';
 const signingWorkerD1Binding = 'SIGNING_WORKER_PRIVATE_DB';
+const tenantRootCreationDoBinding = 'ROUTER_TENANT_ROOT_CREATION_DO';
+const tenantRootCreationDoClass = 'RouterAbTenantRootCreationDurableObject';
+const tenantRootCreationPath = '/router-ab/internal/tenant-root/creation/v1/create';
+const tenantRootRoleCreationPath =
+  '/router-ab/internal/deriver/tenant-root/creation/v1/create-role-share';
 const deriverAMigrationsPath = join(packageRoot, 'migrations/deriver-a');
 const deriverBMigrationsPath = join(packageRoot, 'migrations/deriver-b');
 const signingWorkerMigrationsPath = join(packageRoot, 'migrations/signing-worker');
 let capturedSigningWorkerDelivery;
+let dropNextTenantRootPeerResponse = false;
 const tenantRootRoleIntegrationPath = '/router-ab/deriver/tenant-root-role-d1/integration';
 
 function loadFixture() {
@@ -57,7 +63,14 @@ function deriverAWorker(fixture) {
     }),
     d1Databases: { [roleD1Binding]: 'deriver-a-private-d1' },
     r2Buckets: { [managedBackupR2Binding]: 'deriver-a-managed-backup' },
-    serviceBindings: { DERIVER_B: 'deriver-b' },
+    durableObjects: {
+      [tenantRootCreationDoBinding]: {
+        className: tenantRootCreationDoClass,
+        scriptName: 'router',
+        useSQLite: true,
+      },
+    },
+    serviceBindings: { DERIVER_B: forwardDeriverBWithOptionalLostResponse },
   };
 }
 
@@ -69,6 +82,13 @@ function deriverBWorker(fixture) {
     }),
     d1Databases: { [roleD1Binding]: 'deriver-b-private-d1' },
     r2Buckets: { [managedBackupR2Binding]: 'deriver-b-managed-backup' },
+    durableObjects: {
+      [tenantRootCreationDoBinding]: {
+        className: tenantRootCreationDoClass,
+        scriptName: 'router',
+        useSQLite: true,
+      },
+    },
     serviceBindings: { DERIVER_A: 'deriver-a' },
   };
 }
@@ -89,10 +109,34 @@ function signingWorker(name, databaseId, fixture) {
 function routerWorker(fixture) {
   return {
     ...strictWorker('router', 'router', fixture.router_env),
+    durableObjects: {
+      [tenantRootCreationDoBinding]: {
+        className: tenantRootCreationDoClass,
+        useSQLite: true,
+      },
+    },
     serviceBindings: {
       DERIVER_A: 'deriver-a',
       DERIVER_B: 'deriver-b',
       SIGNING_WORKER: captureSigningWorkerDelivery,
+      TENANT_ROOT_CONTROL_PLANE: 'tenant-root-control-plane',
+    },
+  };
+}
+
+function tenantRootControlPlaneWorker(fixture) {
+  return {
+    ...strictWorker(
+      'tenant-root-control-plane',
+      'tenant-root-control-plane',
+      fixture.tenant_root_control_plane_env,
+    ),
+    durableObjects: {
+      [tenantRootCreationDoBinding]: {
+        className: tenantRootCreationDoClass,
+        scriptName: 'router',
+        useSQLite: true,
+      },
     },
   };
 }
@@ -101,6 +145,20 @@ async function captureSigningWorkerDelivery(request, miniflare) {
   capturedSigningWorkerDelivery = await request.clone().text();
   const worker = await miniflare.getWorker('fixture-signing-worker');
   return worker.fetch(request);
+}
+
+async function forwardDeriverBWithOptionalLostResponse(request, miniflare) {
+  const worker = await miniflare.getWorker('deriver-b');
+  const response = await worker.fetch(request);
+  if (
+    dropNextTenantRootPeerResponse &&
+    new URL(request.url).pathname === tenantRootRoleCreationPath &&
+    response.ok
+  ) {
+    dropNextTenantRootPeerResponse = false;
+    return new Response('simulated lost Deriver B response', { status: 503 });
+  }
+  return response;
 }
 
 async function applyMigrations(miniflare, binding, workerName, migrationsPath) {
@@ -390,43 +448,83 @@ async function runTenantRootRoleLifecycle(worker, expectedRole) {
   });
 }
 
-/// Runs the creation-specific probe, which exercises the wrappers the
-/// lifecycle probe never reaches.
-///
-/// Miniflare gives each run its own in-process workerd and its own D1, so no
-/// port or persisted database is shared with a developer stack.
-async function runTenantRootInitialCreation(worker, expectedRole) {
-  const response = await postWorkerJson(worker, tenantRootRoleIntegrationPath, {
-    kind: 'run_initial_creation',
-  });
-  const bytes = await expectOk(response, `${expectedRole} Rust role-store initial creation`);
-  const receipt = JSON.parse(bytes.toString('utf8'));
-  assert.equal(receipt.role, expectedRole, 'creation probe ran as the wrong role');
-  assert.equal(receipt.activeEpoch, 1, 'initial creation must persist epoch 1');
-  assert.equal(receipt.retiredEpoch, 0, 'initial creation retires nothing');
-  assert.equal(receipt.cleanupEpoch, 2, 'authorized cleanup must remove the exact pending epoch');
-  assert.match(
-    receipt.commandReceiptDigestHex,
-    /^[0-9a-f]{64}$/u,
-    'the probe must report a real terminal-receipt digest',
+async function testTenantRootCreationOperatingPath(topology, fixture, databases) {
+  const router = await topology.getWorker('router');
+  dropNextTenantRootPeerResponse = true;
+  const interrupted = await postWorkerJson(
+    router,
+    tenantRootCreationPath,
+    fixture.tenant_root_creation.interrupted,
   );
-  return receipt;
-}
-
-async function testTenantRootRoleStoreAdapter(topology, databases) {
-  const deriverA = await topology.getWorker('deriver-a');
-  const deriverB = await topology.getWorker('deriver-b');
-  // Both roles' creation-specific wrappers, against their own real D1.
-  const creationA = await runTenantRootInitialCreation(deriverA, 'deriver_a');
-  const creationB = await runTenantRootInitialCreation(deriverB, 'deriver_b');
+  const interruptedBody = (await responseBytes(interrupted)).toString('utf8');
   assert.notEqual(
-    creationA.commandReceiptDigestHex,
-    creationB.commandReceiptDigestHex,
-    'each role must terminalize its own distinct receipt',
+    interrupted.status,
+    200,
+    `simulated lost peer response must interrupt the creation: ${interruptedBody}`,
   );
+  assert.equal(dropNextTenantRootPeerResponse, false, 'the simulated loss must be consumed once');
+
+  const strandedA = await databases.deriverA
+    .prepare("SELECT COUNT(*) AS count FROM tenant_root_role_shares WHERE lifecycle = 'pending'")
+    .first();
+  const strandedB = await databases.deriverB
+    .prepare("SELECT COUNT(*) AS count FROM tenant_root_role_shares WHERE lifecycle = 'pending'")
+    .first();
+  assert.equal(strandedA.count, 0, 'A must not persist after losing the peer response');
+  assert.equal(strandedB.count, 1, 'B must persist before its response is lost');
 
   const backupBucketA = await topology.getR2Bucket(managedBackupR2Binding, 'deriver-a');
   const backupBucketB = await topology.getR2Bucket(managedBackupR2Binding, 'deriver-b');
+  assert.equal((await backupBucketA.list()).objects.length, 0);
+  assert.equal((await backupBucketB.list()).objects.length, 1);
+
+  const cleanup = await postWorkerJson(
+    router,
+    tenantRootCreationPath,
+    fixture.tenant_root_creation.interrupted,
+  );
+  const cleanupBody = (await responseBytes(cleanup)).toString('utf8');
+  assert.notEqual(cleanup.status, 200, 'the abandoned lineage must require a fresh grant');
+  assert.match(cleanupBody, /fresh grant is required/u);
+  assert.equal(
+    (
+      await databases.deriverB
+        .prepare(
+          "SELECT COUNT(*) AS count FROM tenant_root_role_shares WHERE lifecycle = 'pending'",
+        )
+        .first()
+    ).count,
+    0,
+    "authorized cleanup must remove B's exact pending row",
+  );
+  assert.equal(
+    (await backupBucketB.list()).objects.length,
+    0,
+    "authorized cleanup must remove B's exact managed backup",
+  );
+
+  const firstBytes = await expectOk(
+    await postWorkerJson(router, tenantRootCreationPath, fixture.tenant_root_creation.fresh),
+    'fresh-lineage tenant-root creation operating path',
+  );
+  const first = JSON.parse(firstBytes.toString('utf8'));
+  assert.equal(first.revision, 1, 'tenant-root genesis must start at revision 1');
+  assert.deepEqual(
+    first.status.kind,
+    'ready',
+    'Router must not return before both role installations are checkpointed',
+  );
+
+  const replayBytes = await expectOk(
+    await postWorkerJson(router, tenantRootCreationPath, fixture.tenant_root_creation.fresh),
+    'tenant-root creation exact retry',
+  );
+  assert.deepEqual(
+    replayBytes,
+    firstBytes,
+    'the same signed grant must replay the exact completed response bytes',
+  );
+
   const [backupsA, backupsB] = await Promise.all([backupBucketA.list(), backupBucketB.list()]);
   assert.equal(backupsA.objects.length, 1, 'Deriver A must persist one managed backup');
   assert.equal(backupsB.objects.length, 1, 'Deriver B must persist one managed backup');
@@ -441,6 +539,8 @@ async function testTenantRootRoleStoreAdapter(topology, databases) {
     'Deriver B must write only under its role-private prefix',
   );
 
+  const deriverA = await topology.getWorker('deriver-a');
+  const deriverB = await topology.getWorker('deriver-b');
   await assertTenantRootRoleLifecyclePendingActivation(deriverA, 'deriver_a');
   await assertTenantRootRoleLifecyclePendingActivation(deriverB, 'deriver_b');
 
@@ -597,6 +697,7 @@ async function main() {
       routerWorker(fixture),
       deriverAWorker(fixture),
       deriverBWorker(fixture),
+      tenantRootControlPlaneWorker(fixture),
       signingWorker('fixture-signing-worker', 'fixture-signing-worker-d1', fixture),
     ],
   });
@@ -610,7 +711,7 @@ async function main() {
     await testTenantRootRoleSchema(databases.deriverB, 'deriver_b');
     await testTenantRootCommandReplayCasGuard(databases.deriverA, 'deriver_a');
     await testTenantRootCommandReplayCasGuard(databases.deriverB, 'deriver_b');
-    await testTenantRootRoleStoreAdapter(topology, databases);
+    await testTenantRootCreationOperatingPath(topology, fixture, databases);
     await applyMigrations(
       topology,
       signingWorkerD1Binding,

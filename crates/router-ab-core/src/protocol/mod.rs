@@ -8,6 +8,7 @@ mod ecdsa_threshold_prf_request;
 mod ed25519_yao;
 mod ed25519_yao_lane;
 mod ed25519_yao_lane_dispatch;
+mod ed25519_yao_outer;
 mod ed25519_yao_router;
 mod engine;
 mod envelope;
@@ -55,6 +56,16 @@ pub use self::ed25519_yao_lane::{
 };
 pub use self::ed25519_yao_lane_dispatch::{
     RouterAbEd25519YaoLaneDispatchRequestV1, RouterAbEd25519YaoLaneDispatchResponseV1,
+};
+pub use self::ed25519_yao_outer::{
+    Ed25519YaoDeriverAPrefaceInFlightV2, Ed25519YaoDeriverAPrefaceReadyV2,
+    Ed25519YaoDeriverAToBTargetProofPayloadV2, Ed25519YaoDeriverBPrefaceInFlightV2,
+    Ed25519YaoDeriverBPrefaceReadyV2, Ed25519YaoDeriverBToATargetProofPayloadV2,
+    Ed25519YaoOuterBindingV2, Ed25519YaoOuterProtocolVersionV2, Ed25519YaoPairSessionIdV2,
+    Ed25519YaoPrefaceBurnReasonV2, Ed25519YaoPrefaceStateV2, RouterAbEd25519YaoPrefaceRequestV2,
+    ED25519_YAO_OUTER_MAX_CLOCK_SKEW_MS_V2, ED25519_YAO_OUTER_MAX_LIFETIME_MS_V2,
+    ED25519_YAO_OUTER_NONCE_LEN_V2, ED25519_YAO_OUTER_TARGET_PROOF_MAX_BYTES_V2,
+    ROUTER_AB_ED25519_YAO_OUTER_PROTOCOL_ID_V2,
 };
 pub use self::ed25519_yao_router::{
     ed25519_yao_encrypted_input_digest_v1, ed25519_yao_input_pair_digest_v1,

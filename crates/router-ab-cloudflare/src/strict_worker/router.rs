@@ -5,8 +5,24 @@ use super::cors::{
     cloudflare_router_public_keyset_response_v1,
 };
 use super::*;
+use crate::durable_object::tenant_root_creation::{
+    decode_bounded_json_request, derive_tenant_root_creation_authority_object_v1,
+    execute_cloudflare_router_tenant_root_creation_cleanup_call_v1,
+    execute_cloudflare_router_tenant_root_creation_initial_activation_call_v1,
+};
+use crate::tenant_root_control_plane::{
+    execute_cloudflare_tenant_root_control_plane_initial_activation_service_call_v1,
+    CloudflareTenantRootControlPlaneInitialActivationRequestV1,
+};
+use crate::tenant_root_role_runtime::CloudflareTenantRootCreateRoleV1;
 use crate::{
+    execute_cloudflare_deriver_tenant_root_cleanup_pending_service_call_v1,
+    execute_cloudflare_deriver_tenant_root_create_role_share_service_call_v1,
+    execute_cloudflare_deriver_tenant_root_initial_activation_service_call_v1,
     execute_cloudflare_signing_worker_linked_device_ecdsa_finalize_service_call_v1,
+    execute_cloudflare_tenant_root_control_plane_cleanup_command_service_call_v1,
+    execute_cloudflare_tenant_root_control_plane_create_tenant_root_service_call_v1,
+    execute_cloudflare_tenant_root_control_plane_role_creation_command_service_call_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_internal_step_up_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_internal_step_up_request_v1,
     handle_cloudflare_router_normal_signing_finalize_internal_linked_device_request_v2,
@@ -15,11 +31,234 @@ use crate::{
     handle_cloudflare_router_normal_signing_prepare_internal_step_up_request_v2,
     parse_cloudflare_router_authorized_ed25519_prepare_request_v2_json,
     parse_cloudflare_router_authorized_linked_device_ecdsa_finalize_request_v1_json,
+    CloudflareDeriverTenantRootCleanupPendingRequestV1,
+    CloudflareDeriverTenantRootCreateRoleShareRequestV1,
+    CloudflareDeriverTenantRootCreateRoleShareResponseV1,
+    CloudflareDeriverTenantRootInitialActivationRequestV1,
     CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
     CloudflareRouterEcdsaAcceptedCapabilityBindingV1,
     CloudflareRouterEd25519AcceptedAuthorizedOperationV1,
     CloudflareRouterEd25519AcceptedCapabilityBindingV1, CloudflareRouterEd25519JwksJwtVerifierV1,
+    CloudflareTenantRootControlPlaneCleanupCommandRequestV1,
+    CloudflareTenantRootControlPlaneCreateTenantRootRequestV1,
+    CloudflareTenantRootControlPlaneCreateTenantRootResponseV1,
+    CloudflareTenantRootControlPlaneRoleCreationCommandRequestV1,
+    CloudflareTenantRootControlPlaneRoleV1, CloudflareTenantRootCreationStatusV1,
+    CLOUDFLARE_ROUTER_TENANT_ROOT_CREATION_PRIVATE_REQUEST_PATH,
+    TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_REQUEST_MAX_BYTES_V1,
 };
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn coordinate_cloudflare_router_tenant_root_creation_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    request: CloudflareTenantRootControlPlaneCreateTenantRootRequestV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneCreateTenantRootResponseV1> {
+    let genesis = execute_cloudflare_tenant_root_control_plane_create_tenant_root_service_call_v1(
+        env, &request,
+    )
+    .await?;
+    match &genesis.status {
+        CloudflareTenantRootCreationStatusV1::Ready { .. } => return Ok(genesis),
+        CloudflareTenantRootCreationStatusV1::Abandoned { .. } => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "tenant-root creation was abandoned; a fresh grant is required",
+            ));
+        }
+        CloudflareTenantRootCreationStatusV1::OneRoleInstalled { role } => {
+            let cleanup =
+                execute_cloudflare_tenant_root_control_plane_cleanup_command_service_call_v1(
+                    env,
+                    &CloudflareTenantRootControlPlaneCleanupCommandRequestV1 {
+                        identity_digest_b64u: genesis.identity_digest_b64u.clone(),
+                        custody_lineage_b64u: genesis.custody_lineage_b64u.clone(),
+                    },
+                )
+                .await?;
+            if cleanup.role != *role {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                    "tenant-root cleanup command names a different installed role",
+                ));
+            }
+            let cleanup_command_bytes = crate::decode_base64url_bytes_v1(
+                "tenant-root cleanup command",
+                &cleanup.cleanup_command_b64u,
+            )?;
+            let cleanup_command =
+                router_ab_core::TenantRootRoleCleanupCommandV1::decode_canonical_bytes(
+                    &cleanup_command_bytes,
+                )
+                .map_err(|error| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        format!("tenant-root cleanup command was malformed: {error}"),
+                    )
+                })?;
+            let claimed_target = cleanup_command.claimed_target();
+            let expected_role = role.to_protocol();
+            let (authority_id, _) = derive_tenant_root_creation_authority_object_v1(
+                env,
+                claimed_target.identity_digest,
+                claimed_target.custody_lineage,
+            )?;
+            let reader = crate::CloudflareWorkerEnvReaderV1::new(env);
+            let issuer_keys =
+                crate::env::parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(
+                    &reader,
+                )?;
+            let issuer_key_id = cleanup_command.issuer_key_id().to_owned();
+            let issuer_key = issuer_keys
+                .for_issuer_key_id(&issuer_key_id)
+                .ok_or_else(|| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                        "tenant-root cleanup command issuer is not trusted by the Router",
+                    )
+                })?;
+            let verified_cleanup = cleanup_command
+                .verify(
+                    &claimed_target,
+                    expected_role,
+                    authority_id,
+                    &issuer_key_id,
+                    issuer_key,
+                )
+                .map_err(|error| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                        format!("tenant-root cleanup command verification failed: {error}"),
+                    )
+                })?;
+            let deriver = match role {
+                CloudflareTenantRootControlPlaneRoleV1::DeriverA => &runtime.bindings().deriver_a,
+                CloudflareTenantRootControlPlaneRoleV1::DeriverB => &runtime.bindings().deriver_b,
+            };
+            let cleaned = execute_cloudflare_deriver_tenant_root_cleanup_pending_service_call_v1(
+                env,
+                deriver,
+                &CloudflareDeriverTenantRootCleanupPendingRequestV1 {
+                    cleanup_command_b64u: cleanup.cleanup_command_b64u,
+                },
+            )
+            .await?;
+            let cleanup_receipt = crate::decode_base64url_bytes_v1(
+                "tenant-root cleanup terminal receipt",
+                &cleaned.cleanup_receipt_b64u,
+            )?;
+            execute_cloudflare_router_tenant_root_creation_cleanup_call_v1(
+                env,
+                &verified_cleanup,
+                &cleanup_receipt,
+            )
+            .await?;
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "tenant-root partial creation was cleaned; a fresh grant is required",
+            ));
+        }
+        CloudflareTenantRootCreationStatusV1::Pending => {}
+    }
+
+    let command_request = |role| CloudflareTenantRootControlPlaneRoleCreationCommandRequestV1 {
+        identity_digest_b64u: genesis.identity_digest_b64u.clone(),
+        custody_lineage_b64u: genesis.custody_lineage_b64u.clone(),
+        role,
+    };
+    let deriver_a =
+        execute_cloudflare_tenant_root_control_plane_role_creation_command_service_call_v1(
+            env,
+            &command_request(CloudflareTenantRootControlPlaneRoleV1::DeriverA),
+        )
+        .await?;
+    let deriver_b =
+        execute_cloudflare_tenant_root_control_plane_role_creation_command_service_call_v1(
+            env,
+            &command_request(CloudflareTenantRootControlPlaneRoleV1::DeriverB),
+        )
+        .await?;
+
+    let completed = execute_cloudflare_deriver_tenant_root_create_role_share_service_call_v1(
+        env,
+        &runtime.bindings().deriver_a,
+        &CloudflareDeriverTenantRootCreateRoleShareRequestV1::Initiator {
+            role_creation_command_package_b64u: deriver_a.role_creation_command_package_b64u,
+            peer_role_creation_command_package_b64u: deriver_b.role_creation_command_package_b64u,
+        },
+    )
+    .await?;
+    let CloudflareDeriverTenantRootCreateRoleShareResponseV1::Completed {
+        role: CloudflareTenantRootCreateRoleV1::DeriverA,
+        deriver_a_signed_installation_evidence_b64u,
+        deriver_b_signed_installation_evidence_b64u,
+        deriver_a_signed_managed_backup_b64u,
+        deriver_b_signed_managed_backup_b64u,
+        ecdsa_provider_canary_receipt_b64u,
+        ed25519_provider_canary_receipt_b64u,
+        ..
+    } = completed
+    else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root creation initiator response names the wrong role",
+        ));
+    };
+
+    let issued_activation =
+        execute_cloudflare_tenant_root_control_plane_initial_activation_service_call_v1(
+            env,
+            &CloudflareTenantRootControlPlaneInitialActivationRequestV1 {
+                deriver_a_signed_installation_evidence_b64u,
+                deriver_b_signed_installation_evidence_b64u,
+                deriver_a_signed_managed_backup_b64u,
+                deriver_b_signed_managed_backup_b64u,
+                ecdsa_provider_canary_receipt_b64u,
+                ed25519_provider_canary_receipt_b64u,
+            },
+        )
+        .await?;
+    let activation_receipt_bytes = crate::decode_base64url_bytes_v1(
+        "tenant-root initial activation receipt",
+        &issued_activation.activation_receipt_b64u,
+    )?;
+    execute_cloudflare_router_tenant_root_creation_initial_activation_call_v1(
+        env,
+        &activation_receipt_bytes,
+    )
+    .await?;
+    let role_activation = CloudflareDeriverTenantRootInitialActivationRequestV1 {
+        activation_receipt_b64u: issued_activation.activation_receipt_b64u,
+    };
+    execute_cloudflare_deriver_tenant_root_initial_activation_service_call_v1(
+        env,
+        &runtime.bindings().deriver_a,
+        &role_activation,
+    )
+    .await?;
+    execute_cloudflare_deriver_tenant_root_initial_activation_service_call_v1(
+        env,
+        &runtime.bindings().deriver_b,
+        &role_activation,
+    )
+    .await?;
+
+    let completed_state =
+        execute_cloudflare_tenant_root_control_plane_create_tenant_root_service_call_v1(
+            env, &request,
+        )
+        .await?;
+    if !matches!(
+        completed_state.status,
+        CloudflareTenantRootCreationStatusV1::Ready { .. }
+    ) {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "tenant-root creation returned before both role installations were checkpointed",
+        ));
+    }
+    Ok(completed_state)
+}
 use router_ab_core::{
     PublicDigest32, RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
@@ -192,6 +431,34 @@ pub(super) async fn handle_strict_router_fetch_v1(
     let path = request.path();
     if path == CLOUDFLARE_INTERNAL_PREWARM_PATH {
         return handle_router_prewarm_v1(&request, &env).await;
+    }
+    if path == CLOUDFLARE_ROUTER_TENANT_ROOT_CREATION_PRIVATE_REQUEST_PATH {
+        if let Err(err) = require_cloudflare_internal_service_auth_request_v1(&request, &env) {
+            return cloudflare_private_service_auth_error_response_v1(err);
+        }
+        if request.method() != Method::Post {
+            return Response::error("tenant-root creation route requires POST", 405);
+        }
+        let runtime = match CloudflareRouterWorkerRuntimeV1::from_worker_env(&env) {
+            Ok(runtime) => runtime,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let parsed: CloudflareTenantRootControlPlaneCreateTenantRootRequestV1 =
+            match decode_bounded_json_request(
+                &mut request,
+                TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_REQUEST_MAX_BYTES_V1,
+            )
+            .await
+            {
+                Ok(value) => value,
+                Err(err) => return cloudflare_protocol_error_response_v1(err),
+            };
+        return match coordinate_cloudflare_router_tenant_root_creation_v1(&env, &runtime, parsed)
+            .await
+        {
+            Ok(response) => Response::from_json(&response),
+            Err(err) => cloudflare_protocol_error_response_v1(err),
+        };
     }
     if is_cloudflare_router_public_keyset_path(&path) {
         if request.method() == Method::Options {

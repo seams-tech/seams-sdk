@@ -229,6 +229,24 @@ impl TenantRootRoleCleanupCommandV1 {
         Ok(command)
     }
 
+    /// Returns the target row coordinates claimed by this command.
+    ///
+    /// This projection is untrusted until [`Self::verify`] succeeds. Use it
+    /// only to locate the candidate local row before verification; it grants
+    /// no authorization to clean that row.
+    pub fn claimed_target(&self) -> TenantRootRoleCleanupTargetV1 {
+        TenantRootRoleCleanupTargetV1 {
+            identity_digest: self.data.identity_digest,
+            custody_lineage: self.data.custody_lineage,
+            role: self.data.role,
+            epoch: self.data.epoch,
+            expected_row_revision: self.data.expected_row_revision,
+            session_id: self.data.session_id,
+            ceremony_nonce: self.data.ceremony_nonce,
+            installation_evidence_digest: self.data.installation_evidence_digest,
+        }
+    }
+
     /// Returns the issuer key id this command names.
     pub fn issuer_key_id(&self) -> &str {
         &self.data.issuer_key_id

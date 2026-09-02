@@ -5,9 +5,11 @@ use hpke_ng::{DhKemX25519HkdfSha256, Kem};
 use router_ab_core::{
     ExecutedTenantRootCommandV1, PendingTenantRootInitialRoleAttemptV1, RouterAbDerivationError,
     RouterAbDerivationErrorCode, RouterAbDerivationResult, RouterAbProtocolError,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult, TenantRootCeremonyContextV1,
-    TenantRootCommandTerminalReceiptV1, TenantRootManagedBackupSealRequestV1,
-    TenantRootManagedRestoreRoleV1, TenantRootSignedManagedBackupV1, TwoPartyDeriverRole,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult, TenantRootCanaryCurveFamilyV1,
+    TenantRootCeremonyContextV1, TenantRootCommandTerminalReceiptV1,
+    TenantRootManagedBackupSealRequestV1, TenantRootManagedRestoreRoleV1,
+    TenantRootProviderCanaryReceiptBindingV1, TenantRootSignedManagedBackupV1,
+    TenantRootSignedProviderCanaryReceiptV1, TwoPartyDeriverRole,
     VerifiedTenantRootCommandSuccessReceiptV1, VerifiedTenantRootCreationCommitmentPairV1,
     VerifiedTenantRootInitialRoleAttemptV1, VerifiedTenantRootRoleCreationCommandV1,
 };
@@ -1162,6 +1164,27 @@ impl CloudflareTenantRootCreationRoleSignerV1 {
         }
         let role_seed = Zeroizing::new(self.signing_key.to_bytes());
         TenantRootSignedManagedBackupV1::sign(request, ciphertext, &role_seed)
+    }
+
+    /// Signs one role-constrained provider canary without exposing the role seed.
+    pub(crate) fn sign_provider_canary(
+        &self,
+        binding: TenantRootProviderCanaryReceiptBindingV1,
+    ) -> RouterAbDerivationResult<TenantRootSignedProviderCanaryReceiptV1> {
+        let expected_family = match self.role {
+            TwoPartyDeriverRole::DeriverA => TenantRootCanaryCurveFamilyV1::Ecdsa,
+            TwoPartyDeriverRole::DeriverB => TenantRootCanaryCurveFamilyV1::Ed25519,
+        };
+        if binding.curve_family() != expected_family
+            || binding.signing_key_id() != self.signing_key_id
+        {
+            return Err(RouterAbDerivationError::new(
+                RouterAbDerivationErrorCode::SignerIdentityMismatch,
+                "tenant-root provider canary binding does not match role signer",
+            ));
+        }
+        let role_seed = Zeroizing::new(self.signing_key.to_bytes());
+        TenantRootSignedProviderCanaryReceiptV1::sign(binding, &role_seed)
     }
 }
 

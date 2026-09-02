@@ -1,8 +1,20 @@
 use super::*;
-use crate::tenant_root_role_runtime::CloudflareDeriverTenantRootCreateRoleShareRequestV1;
-use crate::{
-    CloudflarePeerBindingV1, CLOUDFLARE_DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_PATH,
+use crate::tenant_root_role_runtime::{
+    CloudflareDeriverTenantRootCleanupPendingRequestV1,
+    CloudflareDeriverTenantRootCreateRoleShareRequestV1,
+    CloudflareDeriverTenantRootInitialActivationRequestV1,
 };
+use crate::{
+    build_cloudflare_preloaded_signer_host_with_root_share_wire_v1, cloudflare_now_unix_ms_v1,
+    cloudflare_random_bytes_v1, load_cloudflare_active_tenant_root_role_share_v1,
+    map_root_share_to_protocol, CloudflareAuthenticatedSignerPrivateBootstrapRequestV1,
+    CloudflarePeerBindingV1, CloudflareRootShareStartupMetadataV1,
+    CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PENDING_PRIVATE_REQUEST_PATH,
+    CLOUDFLARE_DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_PATH,
+    CLOUDFLARE_DERIVER_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_PATH,
+};
+use router_ab_core::MpcPrfSigningRootShareWireV1;
+use zeroize::Zeroizing;
 
 #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
 pub(super) async fn handle_strict_deriver_a_fetch_v1(
@@ -132,6 +144,23 @@ impl StrictDeriverRuntimeV1 {
         }
     }
 
+    async fn preload_host(
+        &self,
+        env: &Env,
+        input: CloudflareSignerHostPreloadInputV1,
+    ) -> RouterAbProtocolResult<CloudflarePreloadedSignerHostV1> {
+        match self {
+            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
+            Self::DeriverA(runtime) => {
+                preload_cloudflare_deriver_a_host_v1(env, runtime, input).await
+            }
+            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
+            Self::DeriverB(runtime) => {
+                preload_cloudflare_deriver_b_host_v1(env, runtime, input).await
+            }
+        }
+    }
+
     fn envelope_decrypt_key(&self) -> &CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1 {
         match self {
             #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
@@ -159,32 +188,17 @@ impl StrictDeriverRuntimeV1 {
         }
     }
 
-    async fn preload_host(
-        &self,
-        env: &Env,
-        input: CloudflareSignerHostPreloadInputV1,
-    ) -> RouterAbProtocolResult<CloudflarePreloadedSignerHostV1> {
-        match self {
-            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
-            Self::DeriverA(runtime) => {
-                preload_cloudflare_deriver_a_host_v1(env, runtime, input).await
-            }
-            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
-            Self::DeriverB(runtime) => {
-                preload_cloudflare_deriver_b_host_v1(env, runtime, input).await
-            }
-        }
-    }
-
     fn route_error_message(&self) -> String {
         format!(
-            "{} strict Worker route must be served at {}, {}, {}, {}, or {}",
+            "{} strict Worker route must be served at {}, {}, {}, {}, {}, {}, or {}",
             self.label(),
             self.bootstrap_private_path(),
             self.registration_private_path(),
             self.export_private_path(),
             self.refresh_private_path(),
             CLOUDFLARE_DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_PATH,
+            CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PENDING_PRIVATE_REQUEST_PATH,
+            CLOUDFLARE_DERIVER_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_PATH,
         )
     }
 }
@@ -257,6 +271,54 @@ async fn handle_strict_deriver_fetch_v1(
             worker_role,
             runtime.tenant_root_peer(),
             creation_request,
+            now_unix_ms,
+        )
+        .await
+        {
+            Ok(response) => Response::from_json(&response),
+            Err(error) => cloudflare_protocol_error_response_v1(error),
+        };
+    }
+
+    if path == CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PENDING_PRIVATE_REQUEST_PATH {
+        let cleanup_request: CloudflareDeriverTenantRootCleanupPendingRequestV1 =
+            match parse_strict_deriver_json_v1(
+                &mut request,
+                format!("Router A/B strict {label} tenant-root pending cleanup"),
+            )
+            .await?
+            {
+                Ok(parsed) => parsed,
+                Err(response) => return Ok(response),
+            };
+        return match crate::tenant_root_role_runtime::handle_cloudflare_deriver_tenant_root_cleanup_pending_v1(
+            &env,
+            worker_role,
+            cleanup_request,
+            now_unix_ms,
+        )
+        .await
+        {
+            Ok(response) => Response::from_json(&response),
+            Err(error) => cloudflare_protocol_error_response_v1(error),
+        };
+    }
+
+    if path == CLOUDFLARE_DERIVER_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_PATH {
+        let activation_request: CloudflareDeriverTenantRootInitialActivationRequestV1 =
+            match parse_strict_deriver_json_v1(
+                &mut request,
+                format!("Router A/B strict {label} tenant-root initial activation"),
+            )
+            .await?
+            {
+                Ok(parsed) => parsed,
+                Err(response) => return Ok(response),
+            };
+        return match crate::tenant_root_role_runtime::handle_cloudflare_deriver_tenant_root_initial_activation_v1(
+            &env,
+            worker_role,
+            activation_request,
             now_unix_ms,
         )
         .await
@@ -593,6 +655,81 @@ async fn preload_strict_deriver_host_v1(
     let verifying_keys = runtime.peer_verifying_keys_for_signer_set(&preload_plan.signer_set)?;
     let preload_input = preload_plan.to_host_preload_input(Vec::new(), verifying_keys, 0)?;
     let host = runtime.preload_host(env, preload_input).await?;
+    Ok((preload_plan, host))
+}
+
+#[cfg(any(
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
+))]
+async fn preload_strict_deriver_request_with_authenticated_binding_v1(
+    env: &Env,
+    runtime: &StrictDeriverRuntimeV1,
+    authenticated_request: &CloudflareAuthenticatedSignerPrivateBootstrapRequestV1,
+) -> RouterAbProtocolResult<StrictDeriverPreloadedRequestV1> {
+    let (preload_plan, host) = preload_strict_deriver_host_with_authenticated_binding_v1(
+        env,
+        runtime,
+        authenticated_request,
+    )
+    .await?;
+    let root_share_metadata = host
+        .root_share_startup_metadata(runtime.protocol_role(), &preload_plan.root_share_epoch)?
+        .clone();
+    Ok(StrictDeriverPreloadedRequestV1 {
+        host,
+        root_share_metadata,
+    })
+}
+
+#[cfg(any(
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
+))]
+async fn preload_strict_deriver_host_with_authenticated_binding_v1(
+    env: &Env,
+    runtime: &StrictDeriverRuntimeV1,
+    authenticated_request: &CloudflareAuthenticatedSignerPrivateBootstrapRequestV1,
+) -> RouterAbProtocolResult<(
+    CloudflareSignerHostPreloadPlanV1,
+    CloudflarePreloadedSignerHostV1,
+)> {
+    let bootstrap = &authenticated_request.bootstrap;
+    let preload_plan = CloudflareSignerHostPreloadPlanV1::from_private_bootstrap(
+        runtime.worker_role(),
+        bootstrap,
+    )?;
+    let verifying_keys = runtime.peer_verifying_keys_for_signer_set(&preload_plan.signer_set)?;
+    let preload_input = preload_plan.to_host_preload_input(Vec::new(), verifying_keys, 0)?;
+    let tenant_root_share = load_cloudflare_active_tenant_root_role_share_v1(
+        env,
+        runtime.worker_role(),
+        authenticated_request.tenant_root_custody_binding(),
+    )
+    .await?;
+    let (_, share_wire) = tenant_root_share.into_parts();
+    let signing_root_share_wire =
+        MpcPrfSigningRootShareWireV1::new(Zeroizing::new(share_wire.to_bytes()).to_vec())
+            .map_err(map_root_share_to_protocol)?;
+    let root_share_metadata = CloudflareRootShareStartupMetadataV1::new(
+        preload_plan.signer_set_id.clone(),
+        runtime.protocol_role(),
+        preload_plan.local_signer.signer_id.clone(),
+        preload_plan.local_signer.key_epoch.clone(),
+        preload_plan.root_share_epoch.clone(),
+        format!(
+            "tenant-root-role-private-d1/{}/active",
+            runtime.worker_role().as_str()
+        ),
+    )?;
+    let host = build_cloudflare_preloaded_signer_host_with_root_share_wire_v1(
+        cloudflare_now_unix_ms_v1()?,
+        runtime.protocol_role(),
+        preload_input,
+        root_share_metadata,
+        signing_root_share_wire,
+        cloudflare_random_bytes_v1(0)?,
+    )?;
     Ok((preload_plan, host))
 }
 

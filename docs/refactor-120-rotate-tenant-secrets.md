@@ -2140,17 +2140,19 @@ count toward progress.
       retains the independently sealed online share.
 - [x] Reject a reserved cleanup replay immediately when its recomputed command
       digest differs from the stored digest.
-- [ ] Wire the private Router -> Deriver A -> Deriver B flow using the existing
+- [x] Wire the private Router -> Deriver A -> Deriver B flow using the existing
       strict request/response unions and internal authentication. Keep both
       live scalars inside their owning bounded requests.
-- [ ] Persist B, verify B's public evidence and terminal receipt at A, persist A,
+- [x] Persist B, verify B's public evidence and terminal receipt at A, persist A,
       then checkpoint both public installation evidences in the Router-owned
       Durable Object. Activation remains impossible until both role records and
       backup objects exist.
-- [ ] Add one isolated-workerd operating-path test covering successful creation,
+- [x] Add one isolated-workerd operating-path test covering successful creation,
       exact retry, interruption after B persistence, authorized cleanup, and a
       fresh retry. Delete dormant creation helpers made unreachable by this
-      path.
+      path. The test forces B's successful response to be lost after its D1,
+      R2, and public installation checkpoints commit, then proves the exact B
+      row and backup are removed before a new lineage succeeds.
 
 ### Milestone 2: use tenant roots for production derivation
 

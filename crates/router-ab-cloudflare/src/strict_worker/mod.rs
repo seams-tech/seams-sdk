@@ -149,7 +149,8 @@ use crate::{
     feature = "strict-worker-router-entrypoint",
     feature = "strict-worker-deriver-a-entrypoint",
     feature = "strict-worker-deriver-b-entrypoint",
-    feature = "strict-worker-signing-worker-entrypoint"
+    feature = "strict-worker-signing-worker-entrypoint",
+    feature = "strict-worker-tenant-root-control-plane-entrypoint"
 ))]
 use crate::{
     cloudflare_private_service_auth_error_response_v1,

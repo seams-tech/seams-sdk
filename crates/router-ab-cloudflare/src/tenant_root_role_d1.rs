@@ -2290,7 +2290,6 @@ pub enum CloudflareTenantRootCleanupPendingDecisionV1 {
     ReplayFailed { failure_receipt_bytes: Vec<u8> },
 }
 
-#[allow(dead_code)]
 pub(crate) enum CloudflareTenantRootAuthorizedCleanupDecisionV1 {
     Execute {
         command: CloudflareTenantRootAuthorizedCleanupPendingCommandV1,
@@ -3016,17 +3015,58 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         ))
     }
 
-    /// Resolves all active rows for one authenticated logical tenant root.
+    /// Loads the one active role share authorized by the control-plane binding.
     ///
-    /// Every active row for the authenticated identity is loaded and opened through
-    /// the validated row parser. A row for another role therefore fails closed at
-    /// this store boundary instead of being hidden by the query. No caller supplies
-    /// a lineage or epoch, and more than one active row never selects a winner.
-    pub async fn load_active(
+    /// The store's configured role supplies the role selector. Identity, lineage,
+    /// epoch, commitment, and activation receipt all come from the authenticated
+    /// custody binding; no caller can choose them independently.
+    pub(crate) async fn load_active(
+        &self,
+        custody_binding: &TenantRootCustodyBindingV1,
+    ) -> worker::Result<CloudflareStoredTenantRootRoleShareV1> {
+        custody_binding
+            .validate()
+            .map_err(|error| store_error(error.message()))?;
+        let active = self
+            .load_active_resolution(custody_binding.identity_digest())
+            .await?
+            .require_active()?;
+        let observed = active_binding_from_stored(&active)?;
+        let expected_role = self.cipher.role.managed_restore_role();
+        let expected_commitment = match expected_role {
+            TenantRootManagedRestoreRoleV1::DeriverA => custody_binding.commitments().deriver_a(),
+            TenantRootManagedRestoreRoleV1::DeriverB => custody_binding.commitments().deriver_b(),
+        };
+        if observed.identity_digest() != custody_binding.identity_digest()
+            || observed.custody_lineage() != custody_binding.custody_lineage()
+            || observed.epoch() != custody_binding.epoch()
+            || observed.role() != expected_role
+            || observed.share_commitment() != expected_commitment
+            || observed.activation_receipt_digest() != custody_binding.activation_receipt_digest()
+        {
+            return Err(store_error(
+                "tenant-root active role share does not match authenticated custody binding",
+            ));
+        }
+        Ok(active)
+    }
+
+    /// Observes all active rows for the debug lifecycle probe.
+    async fn observe_active(
         &self,
         identity: &TenantRootIdentityV1,
     ) -> worker::Result<CloudflareTenantRootActiveRoleShareV1> {
-        let identity_digest_hex = identity_digest_hex(identity)?;
+        let identity_digest = identity
+            .digest()
+            .map_err(|error| store_error(error.message()))?;
+        self.load_active_resolution(identity_digest).await
+    }
+
+    async fn load_active_resolution(
+        &self,
+        identity_digest: TenantRootIdentityDigestV1,
+    ) -> worker::Result<CloudflareTenantRootActiveRoleShareV1> {
+        let identity_digest_hex = encode_hex(identity_digest.as_bytes());
         let rows = self
             .session
             .prepare(LOAD_ACTIVE_SQL)
@@ -3046,9 +3086,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             observed.push(active_binding_from_stored(entry)?);
         }
         let resolution = resolve_active_tenant_root_role_binding_v1(
-            identity
-                .digest()
-                .map_err(|error| store_error(error.message()))?,
+            identity_digest,
             self.cipher.role.managed_restore_role(),
             &observed,
         )
@@ -3128,8 +3166,32 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         self.open_row(row)
     }
 
+    pub(crate) async fn load_initial_pending_for_activation(
+        &self,
+        identity_digest: TenantRootIdentityDigestV1,
+        custody_lineage: TenantRootCustodyLineageId,
+    ) -> worker::Result<CloudflareStoredTenantRootRoleShareV1> {
+        let stored = self
+            .load_epoch_by_identity_digest(
+                identity_digest,
+                custody_lineage,
+                TenantRootShareEpoch::INITIAL,
+            )
+            .await?
+            .ok_or_else(|| store_error("tenant-root initial pending role share does not exist"))?;
+        if !matches!(
+            stored.record.lifecycle(),
+            CloudflareTenantRootRoleShareLifecycleV1::Pending(_)
+        ) {
+            return Err(store_error(
+                "tenant-root initial activation requires a pending role share",
+            ));
+        }
+        Ok(stored)
+    }
+
     /// Reserves one exact initial-activation command.
-    async fn reserve_activate_initial_pending(
+    pub(crate) async fn reserve_activate_initial_pending(
         &self,
         scope: TenantRootCommandScopeV1,
         pending: CloudflareStoredTenantRootRoleShareV1,
@@ -3462,6 +3524,64 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         }
     }
 
+    /// Executes one authorized cleanup and returns its exact terminal receipt bytes.
+    pub(crate) async fn persist_authorized_cleanup(
+        &self,
+        authorization: VerifiedTenantRootRoleCleanupCommandV1,
+        role_signer: &CloudflareTenantRootCreationRoleSignerV1,
+        reserved_at_ms: u64,
+        executed_at_ms: u64,
+        terminal_at_ms: u64,
+    ) -> worker::Result<Vec<u8>> {
+        if role_signer.role() != authorization.role() {
+            return Err(store_error(
+                "tenant-root cleanup receipt signer does not match the authorized role",
+            ));
+        }
+        let authorization_bytes = authorization
+            .canonical_bytes()
+            .map_err(|error| store_error(error.message()))?;
+        let decision = self
+            .reserve_authorized_cleanup(authorization, reserved_at_ms)
+            .await?;
+        let executed = match decision {
+            CloudflareTenantRootAuthorizedCleanupDecisionV1::Execute { command }
+            | CloudflareTenantRootAuthorizedCleanupDecisionV1::ResumeExecution { command } => {
+                self.execute_authorized_cleanup(command, executed_at_ms)
+                    .await?
+            }
+            CloudflareTenantRootAuthorizedCleanupDecisionV1::ResumeCompletion { executed } => {
+                executed
+            }
+            CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayCompleted { receipt_bytes } => {
+                return Ok(receipt_bytes);
+            }
+            CloudflareTenantRootAuthorizedCleanupDecisionV1::InProgress => {
+                return Err(store_error(
+                    "tenant-root authorized cleanup is already in progress",
+                ));
+            }
+            CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayFailed { .. } => {
+                return Err(store_error(
+                    "tenant-root authorized cleanup previously failed",
+                ));
+            }
+        };
+        let receipt = role_signer
+            .sign_verified_success_terminal_receipt(
+                &executed.executed,
+                &authorization_bytes,
+                terminal_at_ms,
+            )
+            .map_err(|error| store_error(error.message()))?;
+        match self.complete_authorized_cleanup(executed, receipt).await? {
+            CloudflareTenantRootCommandTerminalCommitV1::Committed { receipt_bytes }
+            | CloudflareTenantRootCommandTerminalCommitV1::Replay { receipt_bytes } => {
+                Ok(receipt_bytes)
+            }
+        }
+    }
+
     async fn reserve_cleanup_pending(
         &self,
         scope: TenantRootCommandScopeV1,
@@ -3666,6 +3786,22 @@ impl CloudflareTenantRootRoleShareStoreV1 {
     ) -> worker::Result<CloudflareTenantRootCommandTerminalCommitV1> {
         let CloudflareTenantRootInitialCreationExecutedCommandV1 { executed, evidence } = executed;
         validate_initial_creation_success_receipt_payload(&evidence, &receipt)?;
+        self.complete_command(executed, receipt).await
+    }
+
+    /// Commits the initial-activation receipt whose payload is the exact
+    /// issuer-signed activation receipt consumed by the lifecycle transition.
+    pub(crate) async fn complete_initial_activation(
+        &self,
+        executed: ExecutedTenantRootCommandV1,
+        activation: &CloudflareTenantRootActivationV1,
+        receipt: VerifiedTenantRootCommandSuccessReceiptV1,
+    ) -> worker::Result<CloudflareTenantRootCommandTerminalCommitV1> {
+        if receipt.payload_bytes() != activation.activation_receipt_bytes() {
+            return Err(store_error(
+                "tenant-root initial activation receipt payload does not match its exact activation receipt",
+            ));
+        }
         self.complete_command(executed, receipt).await
     }
 
@@ -3953,7 +4089,6 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         .await
     }
 
-    #[allow(dead_code)]
     pub(crate) async fn execute_authorized_cleanup(
         &self,
         command: CloudflareTenantRootAuthorizedCleanupPendingCommandV1,
@@ -3970,7 +4105,6 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         })
     }
 
-    #[allow(dead_code)]
     pub(crate) async fn complete_authorized_cleanup(
         &self,
         executed: CloudflareTenantRootAuthorizedCleanupExecutedCommandV1,
@@ -4804,7 +4938,7 @@ async fn run_cloudflare_tenant_root_role_d1_lifecycle_integration_v1(
     )?;
 
     let loaded_active = store
-        .load_active(activated.record().identity())
+        .observe_active(activated.record().identity())
         .await?
         .require_active()?;
     if loaded_active != activated {

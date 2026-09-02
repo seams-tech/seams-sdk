@@ -79,6 +79,16 @@ fn a_cleanup_command_round_trips_and_authorizes_exactly_one_row() {
     assert!(verified.require_fresh(EXPIRES_AT_MS).is_err());
 }
 
+#[test]
+fn a_decoded_cleanup_command_projects_its_exact_claimed_target() {
+    let expected = target(TwoPartyDeriverRole::DeriverA, 7);
+    let signed = sign(&expected, &ISSUER_SEED);
+    let bytes = signed.canonical_bytes().expect("canonical");
+    let decoded = TenantRootRoleCleanupCommandV1::decode_canonical_bytes(&bytes).expect("decoded");
+
+    assert_eq!(decoded.claimed_target(), expected);
+}
+
 /// The row must not have moved. A revision bump means a different row state,
 /// and an authorization for the old one must not destroy the new one.
 #[test]

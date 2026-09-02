@@ -7,7 +7,8 @@ use super::{
     RouterAbDerivationResult, StableTenantDerivationContextV2, TenantRootActiveRefreshV1,
     TenantRootCustodyLineageId, TenantRootEpochCommitmentsV1, TenantRootIdentityDigestV1,
     TenantRootLifecycleReceiptDigestV1, TenantRootProtocolDigestV1, TenantRootShareEpoch,
-    TENANT_ROOT_MAX_CLOCK_SKEW_MS_V1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
+    VerifiedTenantRootSignedActivationReceiptV1, TENANT_ROOT_MAX_CLOCK_SKEW_MS_V1,
+    TENANT_ROOT_MAX_LIFETIME_MS_V1,
 };
 
 const TENANT_ROOT_CUSTODY_BINDING_DOMAIN_V1: &[u8] = b"seams/tenant-root-custody-binding/v1";
@@ -217,6 +218,53 @@ impl TenantRootCustodyBindingV1 {
             derivers,
             commitments: active.current().verified().commitments().clone(),
             activation_receipt_digest: active.current().activation_receipt_digest(),
+            operation_id,
+            session_id,
+            nonce,
+            issued_at_ms,
+            expires_at_ms,
+            stable_context_digest: stable_context.digest()?,
+            outer_transcript_digest,
+        };
+        binding.validate()?;
+        Ok(binding)
+    }
+
+    /// Binds the active epoch authenticated by one issuer-verified activation receipt.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_verified_activation_receipt(
+        activation_receipt: &VerifiedTenantRootSignedActivationReceiptV1,
+        derivers: TenantRootDeriverIdentitiesV1,
+        operation_id: TenantRootDerivationOperationIdV1,
+        session_id: TenantRootDerivationSessionIdV1,
+        nonce: TenantRootDerivationNonceV1,
+        issued_at_ms: u64,
+        expires_at_ms: u64,
+        stable_context: &StableTenantDerivationContextV2,
+        outer_transcript_digest: TenantRootProtocolDigestV1,
+    ) -> RouterAbDerivationResult<Self> {
+        let (identity_digest, custody_lineage, epoch, commitments) =
+            match activation_receipt.binding() {
+                super::TenantRootActivationReceiptBindingV1::InitialCreation(binding) => (
+                    binding.identity_digest(),
+                    binding.custody_lineage(),
+                    binding.epoch(),
+                    binding.commitments().clone(),
+                ),
+                super::TenantRootActivationReceiptBindingV1::RefreshSwap(binding) => (
+                    binding.identity_digest(),
+                    binding.custody_lineage(),
+                    binding.next_epoch(),
+                    binding.next_commitments().clone(),
+                ),
+            };
+        let binding = Self {
+            identity_digest,
+            custody_lineage,
+            epoch,
+            derivers,
+            commitments,
+            activation_receipt_digest: activation_receipt.digest(),
             operation_id,
             session_id,
             nonce,

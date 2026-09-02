@@ -1,9 +1,11 @@
+use base64::Engine;
 use router_ab_cloudflare::{
     CloudflareEd25519YaoPairPrepareRequestV1, CloudflareEd25519YaoPairWorkV1,
 };
 use router_ab_core::{
     ed25519_yao_recipient_set_digest_v1, LocalServiceRoleV1, MpcMaterialActivationRefV1,
-    RootShareEpoch, RouterEd25519YaoGatewayExecuteRequestV1,
+    RootShareEpoch, RouterEd25519YaoGatewayExecuteRequestV1, TenantRootCreationGrantNonceV1,
+    TenantRootCreationGrantV1, TenantRootCustodyLineageId, TenantRootIdentityV1,
 };
 use router_ab_dev::{
     admit_local_ed25519_yao_registration_v1, derive_local_ed25519_yao_recipient_key_pair_v1,
@@ -24,8 +26,17 @@ use signer_core::ed25519_yao_derivation::{
     Ed25519YaoStableKeyDerivationContextV1,
 };
 use std::collections::BTreeMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const INTERNAL_AUTH_SECRET: &str = "private-d1-integration-auth";
+const TENANT_ROOT_ISSUER_KEY_ID: &str = "miniflare-tenant-root-control-plane-issuer-v1";
+const TENANT_ROOT_ISSUER_SEED: [u8; 32] = [0xc1; 32];
+const TENANT_ROOT_GRANT_KEY_ID: &str = "miniflare-tenant-root-grant-authority-v1";
+const TENANT_ROOT_GRANT_SEED: [u8; 32] = [0xc2; 32];
+const TENANT_ROOT_ROLE_A_KEY_ID: &str = "miniflare-tenant-root-role-a-v1";
+const TENANT_ROOT_ROLE_B_KEY_ID: &str = "miniflare-tenant-root-role-b-v1";
+const TENANT_ROOT_ROLE_A_SEED: [u8; 32] = [0xa4; 32];
+const TENANT_ROOT_ROLE_B_SEED: [u8; 32] = [0xb4; 32];
 
 #[derive(Serialize)]
 struct RequestFixture {
@@ -41,8 +52,21 @@ struct PrivateD1Fixture {
     deriver_a_env: BTreeMap<String, String>,
     deriver_b_env: BTreeMap<String, String>,
     signing_worker_env: BTreeMap<String, String>,
+    tenant_root_control_plane_env: BTreeMap<String, String>,
+    tenant_root_creation: TenantRootCreationFixture,
     role_retry: RequestFixture,
     activation: RequestFixture,
+}
+
+#[derive(Serialize)]
+struct TenantRootCreationFixture {
+    interrupted: TenantRootCreationRequestFixture,
+    fresh: TenantRootCreationRequestFixture,
+}
+
+#[derive(Serialize)]
+struct TenantRootCreationRequestFixture {
+    creation_grant_b64u: String,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -65,6 +89,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         deriver_a_env: cloudflare_deriver_a_env(deriver_a_local, router_local)?,
         deriver_b_env: cloudflare_deriver_b_env(deriver_b_local, router_local)?,
         signing_worker_env: cloudflare_signing_worker_env(signing_worker_local)?,
+        tenant_root_control_plane_env: cloudflare_tenant_root_control_plane_env(deriver_a_local)?,
+        tenant_root_creation: tenant_root_creation_fixture()?,
         role_retry: request_fixture(
             "role-private-d1-retry",
             [0x31; 32],
@@ -82,6 +108,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     println!("{}", serde_json::to_string(&fixture)?);
     Ok(())
+}
+
+fn tenant_root_creation_fixture() -> Result<TenantRootCreationFixture, Box<dyn std::error::Error>> {
+    let now_ms = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())?;
+    let identity =
+        TenantRootIdentityV1::new("org-miniflare", "project-r120", "test", "root-main", "v1")?;
+    Ok(TenantRootCreationFixture {
+        interrupted: tenant_root_creation_request(&identity, [0x22; 16], [0x33; 32], now_ms)?,
+        fresh: tenant_root_creation_request(&identity, [0x23; 16], [0x34; 32], now_ms)?,
+    })
+}
+
+fn tenant_root_creation_request(
+    identity: &TenantRootIdentityV1,
+    lineage: [u8; 16],
+    nonce: [u8; 32],
+    now_ms: u64,
+) -> Result<TenantRootCreationRequestFixture, Box<dyn std::error::Error>> {
+    let grant = TenantRootCreationGrantV1::sign(
+        identity,
+        TenantRootCustodyLineageId::from_bytes(lineage)?,
+        TenantRootCreationGrantNonceV1::from_bytes(nonce)?,
+        now_ms,
+        now_ms + 60_000,
+        TENANT_ROOT_GRANT_KEY_ID,
+        &TENANT_ROOT_GRANT_SEED,
+    )?;
+    Ok(TenantRootCreationRequestFixture {
+        creation_grant_b64u: base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(grant.canonical_bytes()?),
+    })
 }
 
 fn local_env_maps(
@@ -257,6 +314,10 @@ fn cloudflare_router_env(
         "TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON".into(),
         cloudflare_tenant_root_control_plane_issuer_verifying_keys_json()?,
     );
+    env.insert(
+        "ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON".into(),
+        cloudflare_tenant_root_role_verifying_keys_json(),
+    );
     Ok(env)
 }
 
@@ -400,6 +461,28 @@ fn insert_cloudflare_deriver_tenant_root_env(
         cloudflare_tenant_root_control_plane_issuer_verifying_keys_json()?,
     );
     env.insert(
+        "ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON".into(),
+        cloudflare_tenant_root_role_verifying_keys_json(),
+    );
+    let (role_key_id, role_seed) = if lower == "a" {
+        (TENANT_ROOT_ROLE_A_KEY_ID, TENANT_ROOT_ROLE_A_SEED)
+    } else {
+        (TENANT_ROOT_ROLE_B_KEY_ID, TENANT_ROOT_ROLE_B_SEED)
+    };
+    let role_binding = format!("DERIVER_{suffix}_TENANT_ROOT_CREATION_SIGNING_KEY");
+    env.insert(
+        format!("DERIVER_{suffix}_TENANT_ROOT_CREATION_SIGNING_KEY_BINDING"),
+        role_binding.clone(),
+    );
+    env.insert(
+        format!("DERIVER_{suffix}_TENANT_ROOT_CREATION_SIGNING_KEY_ID"),
+        role_key_id.into(),
+    );
+    env.insert(
+        role_binding,
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(role_seed),
+    );
+    env.insert(
         format!("DERIVER_{suffix}_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF"),
         format!("miniflare-tenant-root-{lower}-online-epoch-1"),
     );
@@ -447,11 +530,81 @@ fn insert_cloudflare_deriver_tenant_root_env(
 /// Builds the published control-plane issuer keyset descriptor.
 fn cloudflare_tenant_root_control_plane_issuer_verifying_keys_json(
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let verifying_key = ed25519_dalek::SigningKey::from_bytes(&[0xc1; 32]).verifying_key();
+    let verifying_key =
+        ed25519_dalek::SigningKey::from_bytes(&TENANT_ROOT_ISSUER_SEED).verifying_key();
     Ok(format!(
-        "{{\"keys\":[{{\"issuer_key_id\":\"miniflare-tenant-root-control-plane-issuer-v1\",\"verifying_key_hex\":\"{}\"}}]}}",
+        "{{\"keys\":[{{\"issuer_key_id\":\"{TENANT_ROOT_ISSUER_KEY_ID}\",\"verifying_key_hex\":\"{}\"}}]}}",
         hex::encode(verifying_key.as_bytes())
     ))
+}
+
+fn cloudflare_tenant_root_role_verifying_keys_json() -> String {
+    let a = ed25519_dalek::SigningKey::from_bytes(&TENANT_ROOT_ROLE_A_SEED).verifying_key();
+    let b = ed25519_dalek::SigningKey::from_bytes(&TENANT_ROOT_ROLE_B_SEED).verifying_key();
+    format!(
+        "{{\"keys\":[{{\"role\":\"deriver_a\",\"signing_key_id\":\"{TENANT_ROOT_ROLE_A_KEY_ID}\",\"verifying_key_hex\":\"{}\"}},{{\"role\":\"deriver_b\",\"signing_key_id\":\"{TENANT_ROOT_ROLE_B_KEY_ID}\",\"verifying_key_hex\":\"{}\"}}]}}",
+        hex::encode(a.as_bytes()),
+        hex::encode(b.as_bytes()),
+    )
+}
+
+fn cloudflare_tenant_root_control_plane_env(
+    deriver_local: &BTreeMap<String, String>,
+) -> Result<BTreeMap<String, String>, Box<dyn std::error::Error>> {
+    let grant_key = ed25519_dalek::SigningKey::from_bytes(&TENANT_ROOT_GRANT_SEED).verifying_key();
+    Ok(BTreeMap::from([
+        (
+            "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING".into(),
+            "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET".into(),
+        ),
+        (
+            "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET".into(),
+            INTERNAL_AUTH_SECRET.into(),
+        ),
+        (
+            "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING".into(),
+            "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY".into(),
+        ),
+        (
+            "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID".into(),
+            TENANT_ROOT_ISSUER_KEY_ID.into(),
+        ),
+        (
+            "TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY".into(),
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(TENANT_ROOT_ISSUER_SEED),
+        ),
+        (
+            "TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON".into(),
+            cloudflare_tenant_root_control_plane_issuer_verifying_keys_json()?,
+        ),
+        (
+            "TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON".into(),
+            format!(
+                "{{\"keys\":[{{\"issuer_key_id\":\"{TENANT_ROOT_GRANT_KEY_ID}\",\"verifying_key_hex\":\"{}\"}}]}}",
+                hex::encode(grant_key.as_bytes()),
+            ),
+        ),
+        (
+            "ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON".into(),
+            cloudflare_tenant_root_role_verifying_keys_json(),
+        ),
+        (
+            "DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID".into(),
+            TENANT_ROOT_ROLE_A_KEY_ID.into(),
+        ),
+        (
+            "DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID".into(),
+            TENANT_ROOT_ROLE_B_KEY_ID.into(),
+        ),
+        (
+            "DERIVER_A_PEER_VERIFYING_KEY_HEX".into(),
+            required(deriver_local, "DERIVER_A_PEER_VERIFYING_KEY"),
+        ),
+        (
+            "DERIVER_B_PEER_VERIFYING_KEY_HEX".into(),
+            required(deriver_local, "DERIVER_B_PEER_VERIFYING_KEY"),
+        ),
+    ]))
 }
 
 fn cloudflare_signing_worker_env(

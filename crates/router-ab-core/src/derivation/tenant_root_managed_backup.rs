@@ -290,6 +290,11 @@ impl TenantRootSignedManagedBackupV1 {
         Ok(artifact)
     }
 
+    /// Returns the exact public binding authenticated by this signed artifact.
+    pub const fn binding(&self) -> &TenantRootManagedBackupBindingV1 {
+        &self.binding
+    }
+
     /// Decodes and verifies one canonical signed managed-backup artifact.
     pub fn decode_and_verify_canonical_bytes(
         bytes: &[u8],

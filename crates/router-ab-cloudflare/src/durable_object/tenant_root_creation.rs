@@ -8,24 +8,25 @@ use router_ab_core::{
     resolve_active_tenant_root_pair_binding_v1, verify_tenant_root_creation_evidence_v1,
     verify_tenant_root_refresh_installation_transition_v1, MpcPrfShareCommitmentWireV1,
     RouterAbDerivationError, RouterAbDerivationErrorCode, TenantRootActivationReceiptBindingV1,
-    TenantRootActiveRoleBindingV1, TenantRootActiveRoleResolutionV1, TenantRootActiveRoleRowKeyV1,
-    TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1, TenantRootCeremonySessionIdV1,
-    TenantRootCommandReplayKeyV1, TenantRootCommandTerminalReceiptV1,
-    TenantRootControlPlaneAuthorityIdV1, TenantRootCreationCapabilityV1,
-    TenantRootCreationJournalV1, TenantRootCustodyLineageId, TenantRootEpochCommitmentsV1,
-    TenantRootIdentityDigestV1, TenantRootIdentityV1, TenantRootLifecycleReceiptDigestV1,
-    TenantRootManagedRestoreRoleV1, TenantRootProtocolDigestV1,
+    TenantRootActivationReceiptTransitionV1, TenantRootActiveRoleBindingV1,
+    TenantRootActiveRoleResolutionV1, TenantRootActiveRoleRowKeyV1, TenantRootCeremonyContextV1,
+    TenantRootCeremonyEpochsV1, TenantRootCeremonySessionIdV1, TenantRootCommandReplayKeyV1,
+    TenantRootCommandTerminalReceiptV1, TenantRootControlPlaneAuthorityIdV1,
+    TenantRootCreationCapabilityV1, TenantRootCreationJournalV1, TenantRootCustodyLineageId,
+    TenantRootEpochCommitmentsV1, TenantRootIdentityDigestV1, TenantRootIdentityV1,
+    TenantRootLifecycleReceiptDigestV1, TenantRootManagedRestoreRoleV1, TenantRootProtocolDigestV1,
     TenantRootRefreshCommitmentCheckpointActiveBindingV1,
     TenantRootRefreshCommitmentCheckpointEvaluationV1,
     TenantRootRefreshCommitmentCheckpointOutcomeV1, TenantRootRefreshCommitmentCheckpointScopeV1,
     TenantRootRefreshCommitmentCheckpointStateV1, TenantRootRefreshCommitmentCheckpointV1,
     TenantRootRoleCleanupCommandV1, TenantRootRoleCleanupTargetV1, TenantRootRoleCreationCommandV1,
-    TenantRootRoleRefreshCommandV1, TenantRootShareEpoch, TenantRootSignedActivationReceiptV1,
-    TenantRootSignedCreationCommitmentV1, TenantRootSignedRefreshCommitmentV1,
-    TenantRootSignedShareInstallationEvidenceV1, TwoPartyDeriverRole,
-    VerifiedTenantRootCreationCapabilityV1, VerifiedTenantRootCreationCommitmentPairV1,
-    VerifiedTenantRootCreationCommitmentV1, VerifiedTenantRootRefreshCommitmentPairV1,
-    VerifiedTenantRootRefreshCommitmentV1, VerifiedTenantRootRoleCreationCommandV1,
+    TenantRootRoleInstallationReceiptsV1, TenantRootRoleRefreshCommandV1, TenantRootShareEpoch,
+    TenantRootSignedActivationReceiptV1, TenantRootSignedCreationCommitmentV1,
+    TenantRootSignedRefreshCommitmentV1, TenantRootSignedShareInstallationEvidenceV1,
+    TwoPartyDeriverRole, VerifiedTenantRootCreationCapabilityV1,
+    VerifiedTenantRootCreationCommitmentPairV1, VerifiedTenantRootCreationCommitmentV1,
+    VerifiedTenantRootRefreshCommitmentPairV1, VerifiedTenantRootRefreshCommitmentV1,
+    VerifiedTenantRootRoleCleanupCommandV1, VerifiedTenantRootRoleCreationCommandV1,
     VerifiedTenantRootRoleRefreshCommandV1,
     VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
     TENANT_ROOT_COMMAND_TERMINAL_RECEIPT_MAX_BYTES_V1,
@@ -63,6 +64,12 @@ pub(crate) const CLOUDFLARE_TENANT_ROOT_CREATION_JOURNAL_PATH: &str =
 #[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
 pub(crate) const CLOUDFLARE_TENANT_ROOT_CREATION_JOURNAL_READ_PATH: &str =
     "/router-ab/internal/tenant-root/creation/v1/journal/read";
+#[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
+pub(crate) const CLOUDFLARE_TENANT_ROOT_CREATION_INITIAL_ACTIVATION_PATH: &str =
+    "/router-ab/internal/tenant-root/creation/v1/initial-activation";
+#[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
+pub(crate) const CLOUDFLARE_TENANT_ROOT_CREATION_ACTIVE_STATE_READ_PATH: &str =
+    "/router-ab/internal/tenant-root/creation/v1/active-state";
 #[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
 pub(crate) const CLOUDFLARE_TENANT_ROOT_CREATION_COMMITMENT_RENDEZVOUS_PATH: &str =
     "/router-ab/internal/tenant-root/creation/v1/commitment-rendezvous";
@@ -138,6 +145,16 @@ const TENANT_ROOT_CREATION_REQUEST_MAX_BYTES_V1: usize =
         + TENANT_ROOT_CREATION_CAPABILITY_MAX_BASE64URL_BYTES_V1
         + 128;
 #[cfg(feature = "workers-rs")]
+const TENANT_ROOT_CREATION_INITIAL_ACTIVATION_REQUEST_MAX_BYTES_V1: usize =
+    TENANT_ROOT_REFRESH_ACTIVE_RECEIPT_MAX_BASE64URL_BYTES_V1 + 128;
+#[cfg(feature = "workers-rs")]
+const TENANT_ROOT_CREATION_INITIAL_ACTIVATION_RESPONSE_MAX_BYTES_V1: usize = 1024;
+#[cfg(feature = "workers-rs")]
+const TENANT_ROOT_CREATION_ACTIVE_STATE_READ_REQUEST_MAX_BYTES_V1: usize = 256;
+#[cfg(feature = "workers-rs")]
+const TENANT_ROOT_CREATION_ACTIVE_STATE_READ_RESPONSE_MAX_BYTES_V1: usize =
+    TENANT_ROOT_REFRESH_ACTIVE_RECEIPT_MAX_BASE64URL_BYTES_V1 + 512;
+#[cfg(feature = "workers-rs")]
 const TENANT_ROOT_CREATION_COMMITMENT_REQUEST_MAX_BYTES_V1: usize =
     TENANT_ROOT_ROLE_CREATION_COMMAND_MAX_BASE64URL_BYTES_V1
         + TENANT_ROOT_CREATION_COMMITMENT_MAX_BASE64URL_BYTES_V1
@@ -152,6 +169,8 @@ const TENANT_ROOT_CREATION_CLEANUP_REQUEST_MAX_BYTES_V1: usize =
     TENANT_ROOT_ROLE_CLEANUP_COMMAND_MAX_BASE64URL_BYTES_V1
         + TENANT_ROOT_COMMAND_TERMINAL_RECEIPT_MAX_BASE64URL_BYTES_V1
         + 128;
+#[cfg(feature = "workers-rs")]
+const TENANT_ROOT_CREATION_CLEANUP_RESPONSE_MAX_BYTES_V1: usize = 1024;
 #[cfg(feature = "workers-rs")]
 #[allow(dead_code)]
 const TENANT_ROOT_CREATION_COMMITMENT_RESPONSE_MAX_BYTES_V1: usize =
@@ -507,6 +526,50 @@ pub(crate) struct CloudflareTenantRootCreationJournalReadRequestV1 {
     pub(crate) custody_lineage_b64u: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootCreationInitialActivationRequestV1 {
+    pub(crate) activation_receipt_b64u: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootCreationInitialActivationResponseV1 {
+    pub(crate) activation_receipt_digest_b64u: String,
+    pub(crate) lifecycle_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootCreationActiveStateReadRequestV1 {
+    pub(crate) identity_digest_b64u: String,
+    pub(crate) custody_lineage_b64u: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootCreationActiveStateReadResponseV1 {
+    pub(crate) activation_receipt_b64u: String,
+    pub(crate) activation_receipt_digest_b64u: String,
+    pub(crate) identity_digest_b64u: String,
+    pub(crate) custody_lineage_b64u: String,
+    pub(crate) lifecycle_revision: u64,
+}
+
+/// Public installation progress from one fully validated checkpoint.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum CloudflareTenantRootCreationInstallationCheckpointReadStateV1 {
+    None,
+    OneRoleReady {
+        role: CloudflareTenantRootCreationInstallationRoleV1,
+        signed_evidence_b64u: String,
+    },
+    BothRolesReady {
+        root_commitment_b64u: String,
+    },
+}
+
 /// Persisted creation state, public evidence only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -519,8 +582,9 @@ pub(crate) struct CloudflareTenantRootCreationJournalReadResponseV1 {
     pub(crate) revision: u64,
     /// Roles whose signed public commitment has already reached this object.
     pub(crate) committed_roles: Vec<CloudflareTenantRootCreationInstallationRoleV1>,
-    /// Whether an installation checkpoint exists: creation is finalizing or done.
-    pub(crate) installation_checkpointed: bool,
+    /// Validated public installation checkpoint, when one exists.
+    pub(crate) installation_checkpoint:
+        CloudflareTenantRootCreationInstallationCheckpointReadStateV1,
     /// Whether the sole installed role was removed and this ceremony was abandoned.
     pub(crate) cleanup_checkpointed: bool,
 }
@@ -1426,6 +1490,208 @@ pub(crate) async fn execute_cloudflare_router_tenant_root_creation_installation_
     validate_installation_response_v1(&response, command, evidence)
 }
 
+/// Sends one verified cleanup command and its exact successful terminal receipt
+/// to the Router-owned creation object.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn execute_cloudflare_router_tenant_root_creation_cleanup_call_v1(
+    env: &worker::Env,
+    command: &VerifiedTenantRootRoleCleanupCommandV1,
+    receipt_bytes: &[u8],
+) -> RouterAbProtocolResult<CloudflareTenantRootCreationCleanupResponseV1> {
+    let receipt = TenantRootCommandTerminalReceiptV1::decode_canonical_bytes(receipt_bytes)
+        .map_err(candidate_derivation_error)?;
+    let TenantRootCommandTerminalReceiptV1::Success(receipt) = receipt else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root creation cleanup requires a successful terminal receipt",
+        ));
+    };
+    let receipt_digest = receipt.digest().map_err(candidate_derivation_error)?;
+    let command_bytes = command
+        .canonical_bytes()
+        .map_err(candidate_derivation_error)?;
+    let (authority_id, _) = derive_tenant_root_creation_authority_object_v1(
+        env,
+        command.identity_digest(),
+        command.custody_lineage(),
+    )?;
+    let request = CloudflareTenantRootCreationCleanupRequestV1 {
+        cleanup_command_b64u: encode_base64url_bytes_v1(&command_bytes),
+        cleanup_receipt_b64u: encode_base64url_bytes_v1(receipt_bytes),
+    };
+    let response: CloudflareTenantRootCreationCleanupResponseV1 =
+        execute_cloudflare_router_tenant_root_creation_private_call_v1(
+            env,
+            authority_id,
+            command.identity_digest(),
+            command.custody_lineage(),
+            CLOUDFLARE_TENANT_ROOT_CREATION_CLEANUP_CHECKPOINT_PATH,
+            "tenant-root creation cleanup checkpoint",
+            &request,
+            TENANT_ROOT_CREATION_CLEANUP_REQUEST_MAX_BYTES_V1,
+            TENANT_ROOT_CREATION_CLEANUP_RESPONSE_MAX_BYTES_V1,
+        )
+        .await?;
+    if response.role.to_protocol() != command.role() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root creation cleanup response role does not match its command",
+        ));
+    }
+    validate_response_digest(
+        "tenant-root creation cleanup response receipt digest",
+        &response.cleanup_receipt_digest_b64u,
+        receipt_digest,
+    )?;
+    Ok(response)
+}
+
+/// Sends a control-plane initial-activation receipt to the Router-owned
+/// creation object for authoritative persistence.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn execute_cloudflare_router_tenant_root_creation_initial_activation_call_v1(
+    env: &worker::Env,
+    receipt_bytes: &[u8],
+) -> RouterAbProtocolResult<CloudflareTenantRootCreationInitialActivationResponseV1> {
+    let receipt = TenantRootSignedActivationReceiptV1::decode_canonical_bytes(receipt_bytes)
+        .map_err(candidate_derivation_error)?;
+    if receipt.transition() != TenantRootActivationReceiptTransitionV1::InitialCreation {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root initial activation persistence requires an initial-creation receipt",
+        ));
+    }
+    let receipt_digest = receipt.digest().map_err(candidate_derivation_error)?;
+    let (authority_id, _) = derive_tenant_root_creation_authority_object_v1(
+        env,
+        receipt.identity_digest(),
+        receipt.custody_lineage(),
+    )?;
+    let request = CloudflareTenantRootCreationInitialActivationRequestV1 {
+        activation_receipt_b64u: encode_base64url_bytes_v1(receipt_bytes),
+    };
+    let response: CloudflareTenantRootCreationInitialActivationResponseV1 =
+        execute_cloudflare_router_tenant_root_creation_private_call_v1(
+            env,
+            authority_id,
+            receipt.identity_digest(),
+            receipt.custody_lineage(),
+            CLOUDFLARE_TENANT_ROOT_CREATION_INITIAL_ACTIVATION_PATH,
+            "tenant-root initial activation",
+            &request,
+            TENANT_ROOT_CREATION_INITIAL_ACTIVATION_REQUEST_MAX_BYTES_V1,
+            TENANT_ROOT_CREATION_INITIAL_ACTIVATION_RESPONSE_MAX_BYTES_V1,
+        )
+        .await?;
+    let response_digest = decode_lifecycle_receipt_digest(
+        "tenant-root initial activation response receipt digest",
+        &response.activation_receipt_digest_b64u,
+    )?;
+    if response_digest != receipt_digest {
+        return Err(malformed_input(
+            "tenant-root initial activation response receipt digest does not match the submitted receipt",
+        ));
+    }
+    if response.lifecycle_revision != receipt.result_control_plane_revision() {
+        return Err(malformed_input(
+            "tenant-root initial activation response revision does not match the submitted receipt",
+        ));
+    }
+    Ok(response)
+}
+
+/// Reads the Router-owned active state and returns its issuer-verified receipt.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn execute_cloudflare_router_tenant_root_creation_active_state_read_call_v1(
+    env: &worker::Env,
+    identity_digest: TenantRootIdentityDigestV1,
+    custody_lineage: TenantRootCustodyLineageId,
+) -> RouterAbProtocolResult<router_ab_core::VerifiedTenantRootSignedActivationReceiptV1> {
+    let (authority_id, _) =
+        derive_tenant_root_creation_authority_object_v1(env, identity_digest, custody_lineage)?;
+    let request = CloudflareTenantRootCreationActiveStateReadRequestV1 {
+        identity_digest_b64u: encode_base64url_bytes_v1(identity_digest.as_bytes()),
+        custody_lineage_b64u: custody_lineage.to_base64url(),
+    };
+    let response: CloudflareTenantRootCreationActiveStateReadResponseV1 =
+        execute_cloudflare_router_tenant_root_creation_private_call_v1(
+            env,
+            authority_id,
+            identity_digest,
+            custody_lineage,
+            CLOUDFLARE_TENANT_ROOT_CREATION_ACTIVE_STATE_READ_PATH,
+            "tenant-root active-state read",
+            &request,
+            TENANT_ROOT_CREATION_ACTIVE_STATE_READ_REQUEST_MAX_BYTES_V1,
+            TENANT_ROOT_CREATION_ACTIVE_STATE_READ_RESPONSE_MAX_BYTES_V1,
+        )
+        .await?;
+    let response_identity_digest =
+        TenantRootIdentityDigestV1::from_bytes(decode_fixed_base64url_32(
+            "tenant-root active-state response identity digest",
+            &response.identity_digest_b64u,
+        )?);
+    if response_identity_digest != identity_digest {
+        return Err(malformed_input(
+            "tenant-root active-state response identity digest does not match the request",
+        ));
+    }
+    let response_custody_lineage = decode_lineage_b64u(
+        "tenant-root active-state response custody lineage",
+        &response.custody_lineage_b64u,
+    )?;
+    if response_custody_lineage != custody_lineage {
+        return Err(malformed_input(
+            "tenant-root active-state response custody lineage does not match the request",
+        ));
+    }
+    let receipt_bytes = decode_canonical_base64url(
+        "tenant-root active-state response activation receipt",
+        &response.activation_receipt_b64u,
+        TENANT_ROOT_REFRESH_ACTIVE_RECEIPT_MAX_BYTES_V1,
+        TENANT_ROOT_REFRESH_ACTIVE_RECEIPT_MAX_BASE64URL_BYTES_V1,
+    )?;
+    let receipt = TenantRootSignedActivationReceiptV1::decode_canonical_bytes(&receipt_bytes)
+        .map_err(candidate_derivation_error)?;
+    let issuer_keys_json = read_required_worker_var(
+        env,
+        crate::TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+    )?;
+    let issuer_keys = crate::env::decode_issuer_verifying_keys(&issuer_keys_json)?;
+    let issuer_verifying_key = issuer_keys.get(receipt.issuer_key_id()).ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root active-state response receipt issuer is not trusted",
+        )
+    })?;
+    let receipt = receipt
+        .verify_issuer_signature(issuer_verifying_key)
+        .map_err(candidate_authorization_error)?;
+    if receipt.identity_digest() != identity_digest || receipt.custody_lineage() != custody_lineage
+    {
+        return Err(malformed_input(
+            "tenant-root active-state response receipt does not match the request",
+        ));
+    }
+    let response_receipt_digest = decode_lifecycle_receipt_digest(
+        "tenant-root active-state response receipt digest",
+        &response.activation_receipt_digest_b64u,
+    )?;
+    if response_receipt_digest != receipt.digest() {
+        return Err(malformed_input(
+            "tenant-root active-state response receipt digest does not match its receipt",
+        ));
+    }
+    if response.lifecycle_revision == 0
+        || response.lifecycle_revision < receipt.result_control_plane_revision()
+    {
+        return Err(malformed_input(
+            "tenant-root active-state response lifecycle revision is invalid",
+        ));
+    }
+    Ok(receipt)
+}
+
 #[cfg(feature = "workers-rs")]
 #[allow(dead_code)]
 fn tenant_root_creation_identity_v1(
@@ -2016,7 +2282,7 @@ enum ValidatedTenantRootCreationInstallationStateV1 {
     },
 }
 
-struct ValidatedTenantRootCreationInstallationCheckpointV1 {
+pub(crate) struct ValidatedTenantRootCreationInstallationCheckpointV1 {
     state: ValidatedTenantRootCreationInstallationStateV1,
 }
 
@@ -2107,6 +2373,116 @@ fn validate_installation_checkpoint(
         }
     };
     Ok(ValidatedTenantRootCreationInstallationCheckpointV1 { state })
+}
+
+fn decode_and_verify_initial_activation_receipt(
+    encoded: &str,
+    issuer_keys: &BTreeMap<String, [u8; 32]>,
+) -> RouterAbProtocolResult<router_ab_core::VerifiedTenantRootSignedActivationReceiptV1> {
+    let bytes = decode_canonical_base64url(
+        "tenant-root initial activation receipt",
+        encoded,
+        TENANT_ROOT_REFRESH_ACTIVE_RECEIPT_MAX_BYTES_V1,
+        TENANT_ROOT_REFRESH_ACTIVE_RECEIPT_MAX_BASE64URL_BYTES_V1,
+    )?;
+    let receipt = TenantRootSignedActivationReceiptV1::decode_canonical_bytes(&bytes)
+        .map_err(candidate_derivation_error)?;
+    let issuer_key_id = receipt.issuer_key_id();
+    let issuer_verifying_key = issuer_keys.get(issuer_key_id).ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root initial activation receipt issuer is not trusted",
+        )
+    })?;
+    receipt
+        .verify_issuer_signature(issuer_verifying_key)
+        .map_err(candidate_authorization_error)
+}
+
+fn validate_initial_activation_receipt_against_creation_state(
+    activation_receipt: &router_ab_core::VerifiedTenantRootSignedActivationReceiptV1,
+    journal: &ValidatedTenantRootCreationJournalV1,
+    installation: &ValidatedTenantRootCreationInstallationCheckpointV1,
+) -> RouterAbProtocolResult<()> {
+    if activation_receipt.transition() != TenantRootActivationReceiptTransitionV1::InitialCreation {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root initial activation requires an initial-creation receipt",
+        ));
+    }
+    let ceremony_context_digest = journal
+        .ceremony_context
+        .digest()
+        .map_err(candidate_derivation_error)?;
+    let expected_revision = journal.revision.checked_add(1).ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root creation journal revision cannot advance for activation",
+        )
+    })?;
+    let result_revision = expected_revision.checked_add(1).ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root activation result revision cannot advance",
+        )
+    })?;
+    if activation_receipt.identity_digest() != journal.identity_digest
+        || activation_receipt.custody_lineage() != journal.custody_lineage
+        || activation_receipt.context_digest() != ceremony_context_digest
+        || activation_receipt.expected_control_plane_revision() != expected_revision
+        || activation_receipt.result_control_plane_revision() != result_revision
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root initial activation receipt does not match the creation journal",
+        ));
+    }
+
+    let ValidatedTenantRootCreationInstallationStateV1::BothRolesReady {
+        deriver_a,
+        deriver_b,
+        root_commitment,
+    } = &installation.state
+    else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root initial activation requires BothRolesReady installation state",
+        ));
+    };
+    let verified_pair =
+        verify_tenant_root_creation_evidence_v1(deriver_a.evidence(), deriver_b.evidence())
+            .map_err(candidate_derivation_error)?;
+    let commitments = TenantRootEpochCommitmentsV1::from_verified(verified_pair)
+        .map_err(candidate_derivation_error)?;
+    let installation_receipts = TenantRootRoleInstallationReceiptsV1::new(
+        deriver_a
+            .lifecycle_receipt_digest()
+            .map_err(candidate_derivation_error)?,
+        deriver_b
+            .lifecycle_receipt_digest()
+            .map_err(candidate_derivation_error)?,
+    )
+    .map_err(candidate_derivation_error)?;
+    if commitments.root_commitment() != root_commitment {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root initial activation installation root commitment is invalid",
+        ));
+    }
+    let TenantRootActivationReceiptBindingV1::InitialCreation(receipt_binding) =
+        activation_receipt.binding()
+    else {
+        unreachable!("initial activation transition selects the initial binding");
+    };
+    if receipt_binding.commitments() != &commitments
+        || receipt_binding.installation_receipts() != installation_receipts
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root initial activation receipt does not match the installation checkpoint",
+        ));
+    }
+    Ok(())
 }
 
 fn evaluate_installation_checkpoint(
@@ -2711,6 +3087,62 @@ impl worker::DurableObject for RouterAbTenantRootCreationDurableObject {
                     Err(error) => tenant_root_creation_do_error_response(error),
                 }
             }
+            CLOUDFLARE_TENANT_ROOT_CREATION_INITIAL_ACTIVATION_PATH => {
+                if !request_has_json_content_type(&request)? {
+                    return worker::Response::error(
+                        "tenant-root initial activation request requires JSON",
+                        415,
+                    );
+                }
+                let parsed = match decode_bounded_json_request::<
+                    CloudflareTenantRootCreationInitialActivationRequestV1,
+                >(
+                    &mut request,
+                    TENANT_ROOT_CREATION_INITIAL_ACTIVATION_REQUEST_MAX_BYTES_V1,
+                )
+                .await
+                {
+                    Ok(value) => value,
+                    Err(_) => {
+                        return worker::Response::error(
+                            "tenant-root initial activation request rejected",
+                            400,
+                        )
+                    }
+                };
+                match self.persist_initial_activation(parsed).await {
+                    Ok(response) => worker::Response::from_json(&response),
+                    Err(error) => tenant_root_creation_do_error_response(error),
+                }
+            }
+            CLOUDFLARE_TENANT_ROOT_CREATION_ACTIVE_STATE_READ_PATH => {
+                if !request_has_json_content_type(&request)? {
+                    return worker::Response::error(
+                        "tenant-root active-state read request requires JSON",
+                        415,
+                    );
+                }
+                let parsed = match decode_bounded_json_request::<
+                    CloudflareTenantRootCreationActiveStateReadRequestV1,
+                >(
+                    &mut request,
+                    TENANT_ROOT_CREATION_ACTIVE_STATE_READ_REQUEST_MAX_BYTES_V1,
+                )
+                .await
+                {
+                    Ok(value) => value,
+                    Err(_) => {
+                        return worker::Response::error(
+                            "tenant-root active-state read request rejected",
+                            400,
+                        )
+                    }
+                };
+                match self.read_authoritative_active_state(parsed).await {
+                    Ok(response) => worker::Response::from_json(&response),
+                    Err(error) => tenant_root_creation_do_error_response(error),
+                }
+            }
             CLOUDFLARE_TENANT_ROOT_CREATION_COMMITMENT_RENDEZVOUS_PATH => {
                 if !request_has_json_content_type(&request)? {
                     return worker::Response::error(
@@ -2861,11 +3293,32 @@ impl worker::DurableObject for RouterAbTenantRootCreationDurableObject {
 /// Pure so the projection is testable without a Durable Object: the caller's
 /// identity and lineage must match the persisted journal, and only bytes that
 /// are already public evidence are returned.
+fn creation_installation_checkpoint_read_state_v1(
+    checkpoint: Option<&ValidatedTenantRootCreationInstallationCheckpointV1>,
+) -> CloudflareTenantRootCreationInstallationCheckpointReadStateV1 {
+    let Some(checkpoint) = checkpoint else {
+        return CloudflareTenantRootCreationInstallationCheckpointReadStateV1::None;
+    };
+    match &checkpoint.state {
+        ValidatedTenantRootCreationInstallationStateV1::OneRoleReady { role, evidence } => {
+            CloudflareTenantRootCreationInstallationCheckpointReadStateV1::OneRoleReady {
+                role: CloudflareTenantRootCreationInstallationRoleV1::from_protocol(*role),
+                signed_evidence_b64u: encode_base64url_bytes_v1(evidence.canonical_bytes()),
+            }
+        }
+        ValidatedTenantRootCreationInstallationStateV1::BothRolesReady {
+            root_commitment, ..
+        } => CloudflareTenantRootCreationInstallationCheckpointReadStateV1::BothRolesReady {
+            root_commitment_b64u: encode_base64url_bytes_v1(root_commitment),
+        },
+    }
+}
+
 pub(crate) fn build_creation_journal_read_response(
     request: &CloudflareTenantRootCreationJournalReadRequestV1,
     journal: &ValidatedTenantRootCreationJournalV1,
     rendezvous: Option<&CloudflareTenantRootCreationCommitmentRendezvousRecordV1>,
-    installation_checkpointed: bool,
+    installation_checkpoint: Option<&ValidatedTenantRootCreationInstallationCheckpointV1>,
     cleanup_checkpointed: bool,
 ) -> RouterAbProtocolResult<CloudflareTenantRootCreationJournalReadResponseV1> {
     require_base64url_matches(
@@ -2896,7 +3349,9 @@ pub(crate) fn build_creation_journal_read_response(
         creation_capability_b64u: journal.record.creation_capability_b64u.clone(),
         revision: journal.journal.revision(),
         committed_roles,
-        installation_checkpointed,
+        installation_checkpoint: creation_installation_checkpoint_read_state_v1(
+            installation_checkpoint,
+        ),
         cleanup_checkpointed,
     })
 }
@@ -2935,22 +3390,45 @@ impl RouterAbTenantRootCreationDurableObject {
             )
             .await
             .map_err(durable_storage_protocol_error)?;
-        // Progress is only reported from a rendezvous record that still
-        // validates against this journal and the role keys; a corrupt record
-        // fails the read rather than mis-reporting which roles committed.
-        if let Some(record) = &rendezvous {
-            let role_keys = read_tenant_root_creation_role_verifying_keys(&self.env)?;
-            validate_creation_commitment_rendezvous(record.clone(), &journal, &role_keys)
-                .map_err(stored_record_error)?;
-        }
-        let installation_checkpointed =
+        let installation_record =
             storage_get_optional::<CloudflareTenantRootCreationInstallationCheckpointV1>(
                 &self.storage,
                 TENANT_ROOT_CREATION_INSTALLATION_CHECKPOINT_STORAGE_KEY_V1,
             )
             .await
-            .map_err(durable_storage_protocol_error)?
-            .is_some();
+            .map_err(durable_storage_protocol_error)?;
+        let role_keys = if rendezvous.is_some() || installation_record.is_some() {
+            Some(read_tenant_root_creation_role_verifying_keys(&self.env)?)
+        } else {
+            None
+        };
+        // Progress is only reported from records that validate against the
+        // Started journal and retained role keys. A corrupt record fails the
+        // read rather than producing a misleading lifecycle projection.
+        if let (Some(record), Some(role_keys)) = (&rendezvous, role_keys.as_ref()) {
+            validate_creation_commitment_rendezvous(record.clone(), &journal, role_keys)
+                .map_err(stored_record_error)?;
+        }
+        let installation_checkpoint = match installation_record {
+            None => None,
+            Some(record) => {
+                let role_keys = role_keys.as_ref().ok_or_else(|| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        "tenant-root installation checkpoint has no role-key set",
+                    )
+                })?;
+                let commitments = require_complete_creation_commitment_rendezvous(
+                    rendezvous.clone(),
+                    &journal,
+                    role_keys,
+                )?;
+                Some(
+                    validate_installation_checkpoint(record, &journal, role_keys, &commitments)
+                        .map_err(stored_record_error)?,
+                )
+            }
+        };
         let cleanup_checkpointed =
             storage_get_optional::<CloudflareTenantRootCreationCleanupCheckpointV1>(
                 &self.storage,
@@ -2963,9 +3441,44 @@ impl RouterAbTenantRootCreationDurableObject {
             &request,
             &journal,
             rendezvous.as_ref(),
-            installation_checkpointed,
+            installation_checkpoint.as_ref(),
             cleanup_checkpointed,
         )
+    }
+
+    async fn read_authoritative_active_state(
+        &self,
+        request: CloudflareTenantRootCreationActiveStateReadRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootCreationActiveStateReadResponseV1> {
+        let identity_digest = TenantRootIdentityDigestV1::from_bytes(decode_fixed_base64url_32(
+            "tenant-root active-state read identity digest",
+            &request.identity_digest_b64u,
+        )?);
+        let custody_lineage = decode_lineage_b64u(
+            "tenant-root active-state read custody lineage",
+            &request.custody_lineage_b64u,
+        )?;
+        let _authority_id = authority_id_from_object_id(&self.authority_object_id)?;
+        require_tenant_root_creation_authority_object_v1(
+            &self.env,
+            &self.authority_object_id,
+            identity_digest,
+            custody_lineage,
+        )?;
+        let active = self.load_authoritative_active_refresh_state().await?;
+        if active.identity_digest != identity_digest || active.custody_lineage != custody_lineage {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root active state does not match the requested identity and custody lineage",
+            ));
+        }
+        Ok(CloudflareTenantRootCreationActiveStateReadResponseV1 {
+            activation_receipt_b64u: active.record.activation_receipt_b64u,
+            activation_receipt_digest_b64u: active.record.activation_receipt_digest_b64u,
+            identity_digest_b64u: active.record.identity_digest_b64u,
+            custody_lineage_b64u: active.record.custody_lineage_b64u,
+            lifecycle_revision: active.record.lifecycle_revision,
+        })
     }
 
     async fn load_role_creation_request(
@@ -3452,6 +3965,214 @@ impl RouterAbTenantRootCreationDurableObject {
         outcome
     }
 
+    pub(crate) async fn persist_initial_activation(
+        &self,
+        request: CloudflareTenantRootCreationInitialActivationRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootCreationInitialActivationResponseV1> {
+        let issuer_keys_json = read_required_worker_var(
+            &self.env,
+            crate::TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+        )?;
+        let issuer_keys = crate::env::decode_issuer_verifying_keys(&issuer_keys_json)?;
+        let authority_id = authority_id_from_object_id(&self.authority_object_id)?;
+        let activation_receipt = decode_and_verify_initial_activation_receipt(
+            &request.activation_receipt_b64u,
+            &issuer_keys,
+        )?;
+        require_tenant_root_creation_authority_object_v1(
+            &self.env,
+            &self.authority_object_id,
+            activation_receipt.identity_digest(),
+            activation_receipt.custody_lineage(),
+        )?;
+        if activation_receipt.binding().authority_id() != authority_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root initial activation receipt authority does not match its Durable Object",
+            ));
+        }
+
+        let role_keys = read_tenant_root_creation_role_verifying_keys(&self.env)?;
+        let receipt_digest = activation_receipt.digest();
+        let lifecycle_revision = activation_receipt.result_control_plane_revision();
+        let outcome: Rc<RefCell<Option<RouterAbProtocolResult<()>>>> = Rc::new(RefCell::new(None));
+        let outcome_for_transaction = Rc::clone(&outcome);
+        self.storage
+            .transaction(move |transaction| async move {
+                let journal_record =
+                    match transaction_get_optional::<CloudflareTenantRootCreationJournalRecordV1>(
+                        &transaction,
+                        TENANT_ROOT_CREATION_JOURNAL_STORAGE_KEY_V1,
+                    )
+                    .await
+                    {
+                        Ok(Some(record)) => record,
+                        Ok(None) => {
+                            outcome_for_transaction.replace(Some(Err(RouterAbProtocolError::new(
+                                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                                "tenant-root initial activation has no Started journal",
+                            ))));
+                            return Ok(());
+                        }
+                        Err(error) => return Err(error),
+                    };
+                let journal =
+                    match validate_creation_record(journal_record, authority_id, &issuer_keys) {
+                        Ok(journal) => journal,
+                        Err(error) => {
+                            outcome_for_transaction.replace(Some(Err(stored_record_error(error))));
+                            return Ok(());
+                        }
+                    };
+                let commitment_record = match transaction_get_optional::<
+                    CloudflareTenantRootCreationCommitmentRendezvousRecordV1,
+                >(
+                    &transaction,
+                    TENANT_ROOT_CREATION_COMMITMENT_RENDEZVOUS_STORAGE_KEY_V1,
+                )
+                .await
+                {
+                    Ok(record) => record,
+                    Err(error) => return Err(error),
+                };
+                let commitments = match require_complete_creation_commitment_rendezvous(
+                    commitment_record,
+                    &journal,
+                    &role_keys,
+                ) {
+                    Ok(commitments) => commitments,
+                    Err(error) => {
+                        outcome_for_transaction.replace(Some(Err(error)));
+                        return Ok(());
+                    }
+                };
+                let installation_record = match transaction_get_optional::<
+                    CloudflareTenantRootCreationInstallationCheckpointV1,
+                >(
+                    &transaction,
+                    TENANT_ROOT_CREATION_INSTALLATION_CHECKPOINT_STORAGE_KEY_V1,
+                )
+                .await
+                {
+                    Ok(Some(record)) => record,
+                    Ok(None) => {
+                        outcome_for_transaction.replace(Some(Err(RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                            "tenant-root initial activation has no installation checkpoint",
+                        ))));
+                        return Ok(());
+                    }
+                    Err(error) => return Err(error),
+                };
+                let installation = match validate_installation_checkpoint(
+                    installation_record,
+                    &journal,
+                    &role_keys,
+                    &commitments,
+                ) {
+                    Ok(installation) => installation,
+                    Err(error) => {
+                        outcome_for_transaction.replace(Some(Err(stored_record_error(error))));
+                        return Ok(());
+                    }
+                };
+                let cleanup_checkpointed = match transaction_get_optional::<
+                    CloudflareTenantRootCreationCleanupCheckpointV1,
+                >(
+                    &transaction,
+                    TENANT_ROOT_CREATION_CLEANUP_CHECKPOINT_STORAGE_KEY_V1,
+                )
+                .await
+                {
+                    Ok(cleanup) => cleanup.is_some(),
+                    Err(error) => return Err(error),
+                };
+                if cleanup_checkpointed {
+                    outcome_for_transaction.replace(Some(Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::ConflictingPair,
+                        "tenant-root initial activation cannot follow creation cleanup",
+                    ))));
+                    return Ok(());
+                }
+                if let Err(error) = validate_initial_activation_receipt_against_creation_state(
+                    &activation_receipt,
+                    &journal,
+                    &installation,
+                ) {
+                    outcome_for_transaction.replace(Some(Err(error)));
+                    return Ok(());
+                }
+                let candidate = match refresh_active_state_record_from_verified_receipt(
+                    activation_receipt,
+                    lifecycle_revision,
+                ) {
+                    Ok(candidate) => candidate,
+                    Err(error) => {
+                        outcome_for_transaction.replace(Some(Err(error)));
+                        return Ok(());
+                    }
+                };
+                let result = Self::persist_authoritative_active_state_in_transaction_v1(
+                    &transaction,
+                    candidate,
+                    authority_id,
+                    &issuer_keys,
+                )
+                .await;
+                outcome_for_transaction.replace(Some(result));
+                Ok(())
+            })
+            .await
+            .map_err(durable_storage_protocol_error)?;
+        let outcome = outcome.borrow_mut().take().ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root initial activation transaction did not produce an outcome",
+            )
+        })?;
+        outcome?;
+        Ok(CloudflareTenantRootCreationInitialActivationResponseV1 {
+            activation_receipt_digest_b64u: encode_base64url_bytes_v1(receipt_digest.as_bytes()),
+            lifecycle_revision,
+        })
+    }
+
+    /// Applies the authoritative active-state write inside an existing
+    /// Durable Object transaction. The transaction owns exact replay/conflict
+    /// handling for every activation path.
+    #[cfg(feature = "workers-rs")]
+    async fn persist_authoritative_active_state_in_transaction_v1(
+        transaction: &worker::Transaction,
+        candidate: CloudflareTenantRootRefreshActiveStateRecordV1,
+        authority_id: TenantRootControlPlaneAuthorityIdV1,
+        issuer_keys: &BTreeMap<String, [u8; 32]>,
+    ) -> RouterAbProtocolResult<()> {
+        let existing = transaction_get_optional::<CloudflareTenantRootRefreshActiveStateRecordV1>(
+            transaction,
+            TENANT_ROOT_REFRESH_ACTIVE_STATE_STORAGE_KEY_V1,
+        )
+        .await
+        .map_err(durable_storage_protocol_error)?;
+        let Some(existing) = existing else {
+            transaction
+                .put(TENANT_ROOT_REFRESH_ACTIVE_STATE_STORAGE_KEY_V1, &candidate)
+                .await
+                .map_err(durable_storage_protocol_error)?;
+            return Ok(());
+        };
+        let existing_validated =
+            validate_refresh_active_state_record(existing, authority_id, issuer_keys)
+                .map_err(stored_refresh_record_error)?;
+        let existing_projection = refresh_active_state_projection(&existing_validated.record);
+        if existing_projection == refresh_active_state_projection(&candidate) {
+            Ok(())
+        } else {
+            Err(refresh_replay_conflict(
+                "tenant-root refresh active state conflicts with the accepted activation receipt",
+            ))
+        }
+    }
+
     /// Persists the public active state only from an already issuer-verified
     /// activation receipt. Checkpoint routes never call this method.
     #[allow(dead_code)]
@@ -3485,52 +4206,18 @@ impl RouterAbTenantRootCreationDurableObject {
             activation_receipt,
             lifecycle_revision,
         )?;
-        let candidate_projection = refresh_active_state_projection(&candidate);
         let outcome: Rc<RefCell<Option<RouterAbProtocolResult<()>>>> = Rc::new(RefCell::new(None));
         let outcome_for_transaction = Rc::clone(&outcome);
         self.storage
             .transaction(move |transaction| async move {
-                let existing = match transaction_get_optional::<
-                    CloudflareTenantRootRefreshActiveStateRecordV1,
-                >(
+                let result = Self::persist_authoritative_active_state_in_transaction_v1(
                     &transaction,
-                    TENANT_ROOT_REFRESH_ACTIVE_STATE_STORAGE_KEY_V1,
-                )
-                .await
-                {
-                    Ok(existing) => existing,
-                    Err(error) => return Err(error),
-                };
-                let Some(existing) = existing else {
-                    transaction
-                        .put(
-                            TENANT_ROOT_REFRESH_ACTIVE_STATE_STORAGE_KEY_V1,
-                            &candidate,
-                        )
-                        .await?;
-                    outcome_for_transaction.replace(Some(Ok(())));
-                    return Ok(());
-                };
-                let existing_validated = match validate_refresh_active_state_record(
-                    existing,
+                    candidate,
                     authority_id,
                     &issuer_keys,
-                ) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        outcome_for_transaction.replace(Some(Err(stored_refresh_record_error(error))));
-                        return Ok(());
-                    }
-                };
-                let existing_projection =
-                    refresh_active_state_projection(&existing_validated.record);
-                if existing_projection == candidate_projection {
-                    outcome_for_transaction.replace(Some(Ok(())));
-                } else {
-                    outcome_for_transaction.replace(Some(Err(refresh_replay_conflict(
-                        "tenant-root refresh active state conflicts with the accepted activation receipt",
-                    ))));
-                }
+                )
+                .await;
+                outcome_for_transaction.replace(Some(result));
                 Ok(())
             })
             .await
@@ -5829,7 +6516,7 @@ mod tests {
             .expect("validated journal");
         let request = read_request(&journal);
 
-        let fresh = build_creation_journal_read_response(&request, &journal, None, false, false)
+        let fresh = build_creation_journal_read_response(&request, &journal, None, None, false)
             .expect("fresh");
         assert_eq!(fresh.journal_b64u, record.journal_b64u);
         assert_eq!(
@@ -5838,7 +6525,10 @@ mod tests {
         );
         assert_eq!(fresh.revision, journal.journal.revision());
         assert!(fresh.committed_roles.is_empty());
-        assert!(!fresh.installation_checkpointed);
+        assert_eq!(
+            fresh.installation_checkpoint,
+            CloudflareTenantRootCreationInstallationCheckpointReadStateV1::None
+        );
         assert!(!fresh.cleanup_checkpointed);
 
         let one = rendezvous_with(
@@ -5848,7 +6538,7 @@ mod tests {
             },
         );
         let one_committed =
-            build_creation_journal_read_response(&request, &journal, Some(&one), false, false)
+            build_creation_journal_read_response(&request, &journal, Some(&one), None, false)
                 .expect("one committed");
         assert_eq!(
             one_committed.committed_roles,
@@ -5861,23 +6551,106 @@ mod tests {
                 deriver_b_signed_commitment_b64u: String::new(),
             },
         );
-        let finalizing =
-            build_creation_journal_read_response(&request, &journal, Some(&both), true, false)
-                .expect("both committed");
+        let (one_checkpoint, commitments) = deriver_b_installation_checkpoint(&journal, 1_010_000);
+        let expected_evidence = match &one_checkpoint.state {
+            CloudflareTenantRootCreationInstallationStateV1::OneRoleReady {
+                signed_evidence_b64u,
+                ..
+            } => signed_evidence_b64u.clone(),
+            CloudflareTenantRootCreationInstallationStateV1::BothRolesReady { .. } => {
+                panic!("expected one installation record")
+            }
+        };
+        let one_checkpoint_for_read = validate_installation_checkpoint(
+            one_checkpoint.clone(),
+            &journal,
+            &role_keys(),
+            &commitments,
+        )
+        .expect("one installation checkpoint");
+        let one_read = build_creation_journal_read_response(
+            &request,
+            &journal,
+            Some(&both),
+            Some(&one_checkpoint_for_read),
+            false,
+        )
+        .expect("one ready");
         assert_eq!(
-            finalizing.committed_roles,
+            one_read.committed_roles,
             vec![
                 CloudflareTenantRootCreationInstallationRoleV1::DeriverA,
                 CloudflareTenantRootCreationInstallationRoleV1::DeriverB,
             ]
         );
-        assert!(finalizing.installation_checkpointed);
-        assert!(!finalizing.cleanup_checkpointed);
+        let CloudflareTenantRootCreationInstallationCheckpointReadStateV1::OneRoleReady {
+            role,
+            signed_evidence_b64u,
+        } = one_read.installation_checkpoint
+        else {
+            panic!("expected one installation checkpoint");
+        };
+        assert_eq!(
+            role,
+            CloudflareTenantRootCreationInstallationRoleV1::DeriverB
+        );
+        assert_eq!(signed_evidence_b64u, expected_evidence);
+        assert!(!one_read.cleanup_checkpointed);
 
-        let abandoned =
-            build_creation_journal_read_response(&request, &journal, Some(&both), true, true)
-                .expect("abandoned");
-        assert!(abandoned.installation_checkpointed);
+        let command_a = role_creation_command(&journal, TwoPartyDeriverRole::DeriverA);
+        let both_checkpoint = match evaluate_installation_checkpoint(
+            Some(one_checkpoint),
+            installation_wire(&journal, TwoPartyDeriverRole::DeriverA, 12, 19, 0x61),
+            &command_a,
+            &journal,
+            &role_keys(),
+            &commitments,
+            1_010_000,
+        )
+        .expect("both installation checkpoints")
+        {
+            TenantRootCreationInstallationEvaluationV1::Commit { checkpoint, .. } => checkpoint,
+            other => panic!("unexpected installation checkpoint outcome: {other:?}"),
+        };
+        let expected_root = match &both_checkpoint.state {
+            CloudflareTenantRootCreationInstallationStateV1::BothRolesReady {
+                root_commitment_b64u,
+                ..
+            } => root_commitment_b64u.clone(),
+            CloudflareTenantRootCreationInstallationStateV1::OneRoleReady { .. } => {
+                panic!("expected both installation record")
+            }
+        };
+        let both_checkpoint =
+            validate_installation_checkpoint(both_checkpoint, &journal, &role_keys(), &commitments)
+                .expect("both installation checkpoint");
+        let completed = build_creation_journal_read_response(
+            &request,
+            &journal,
+            Some(&both),
+            Some(&both_checkpoint),
+            false,
+        )
+        .expect("both ready");
+        assert!(matches!(
+            completed.installation_checkpoint,
+            CloudflareTenantRootCreationInstallationCheckpointReadStateV1::BothRolesReady {
+                root_commitment_b64u
+            } if root_commitment_b64u == expected_root
+        ));
+
+        let abandoned = build_creation_journal_read_response(
+            &request,
+            &journal,
+            Some(&both),
+            Some(&both_checkpoint),
+            true,
+        )
+        .expect("abandoned");
+        assert!(matches!(
+            abandoned.installation_checkpoint,
+            CloudflareTenantRootCreationInstallationCheckpointReadStateV1::BothRolesReady { .. }
+        ));
         assert!(abandoned.cleanup_checkpointed);
     }
 
@@ -5895,7 +6668,7 @@ mod tests {
             &foreign_identity,
             &journal,
             None,
-            false,
+            None,
             false
         )
         .is_err());
@@ -5906,7 +6679,7 @@ mod tests {
             &foreign_lineage,
             &journal,
             None,
-            false,
+            None,
             false
         )
         .is_err());
@@ -5915,7 +6688,7 @@ mod tests {
         let mut malformed = honest;
         malformed.identity_digest_b64u = "not base64url!".to_owned();
         assert!(
-            build_creation_journal_read_response(&malformed, &journal, None, false, false).is_err()
+            build_creation_journal_read_response(&malformed, &journal, None, None, false).is_err()
         );
     }
 

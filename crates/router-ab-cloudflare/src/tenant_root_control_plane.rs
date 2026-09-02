@@ -7,12 +7,18 @@
 //! request types name *what* to issue, never the bytes to sign.
 
 use router_ab_core::{
+    TenantRootActivationReceiptTransitionV1, TenantRootCanaryCurveFamilyV1,
     TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1,
     TenantRootCeremonySessionIdV1, TenantRootControlPlaneAuthorityIdV1,
     TenantRootCreationCapabilityNonceV1, TenantRootCreationCapabilityV1,
-    TenantRootCreationJournalV1, TenantRootRoleCreationCommandPackageV1,
-    TenantRootRoleCreationCommandV1, VerifiedTenantRootCreationGrantV1,
-    TENANT_ROOT_MAX_LIFETIME_MS_V1,
+    TenantRootCreationJournalV1, TenantRootManagedRestoreRoleV1, TenantRootProtocolDigestV1,
+    TenantRootRoleCleanupCommandV1, TenantRootRoleCleanupTargetV1,
+    TenantRootRoleCreationCommandPackageV1, TenantRootRoleCreationCommandV1, TenantRootShareEpoch,
+    TenantRootSignedActivationReceiptV1, TenantRootSignedManagedBackupV1,
+    TenantRootSignedProviderCanaryReceiptV1, TenantRootSignedShareInstallationEvidenceV1,
+    VerifiedTenantRootCreationGrantV1, VerifiedTenantRootInitialCreationActivationEvidenceBundleV1,
+    TENANT_ROOT_ACTIVATION_RECEIPT_MAX_BYTES_V1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
+    TENANT_ROOT_PROVIDER_CANARY_RECEIPT_MAX_BYTES_V1,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -20,6 +26,7 @@ use threshold_prf::TwoPartyDeriverRole;
 use zeroize::Zeroizing;
 
 use crate::durable_object::tenant_root_creation::{
+    CloudflareTenantRootCreationInstallationCheckpointReadStateV1,
     CloudflareTenantRootCreationInstallationRoleV1,
     CloudflareTenantRootCreationJournalReadResponseV1, ValidatedTenantRootCreationJournalV1,
 };
@@ -27,6 +34,7 @@ use crate::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolRe
 
 /// Maximum accepted request size for the role creation command operation.
 pub const TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_REQUEST_MAX_BYTES_V1: usize = 2 * 1024;
+pub const TENANT_ROOT_CONTROL_PLANE_CLEANUP_COMMAND_REQUEST_MAX_BYTES_V1: usize = 2 * 1024;
 
 /// Role label on the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +49,13 @@ impl CloudflareTenantRootControlPlaneRoleV1 {
         match self {
             Self::DeriverA => TwoPartyDeriverRole::DeriverA,
             Self::DeriverB => TwoPartyDeriverRole::DeriverB,
+        }
+    }
+
+    pub(crate) const fn from_protocol(role: TwoPartyDeriverRole) -> Self {
+        match role {
+            TwoPartyDeriverRole::DeriverA => Self::DeriverA,
+            TwoPartyDeriverRole::DeriverB => Self::DeriverB,
         }
     }
 }
@@ -70,8 +85,42 @@ pub struct CloudflareTenantRootControlPlaneRoleCreationCommandResponseV1 {
     pub role_creation_command_package_b64u: String,
 }
 
+/// Router -> control plane: issue cleanup for the one stranded role, if any.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareTenantRootControlPlaneCleanupCommandRequestV1 {
+    pub identity_digest_b64u: String,
+    pub custody_lineage_b64u: String,
+}
+
+/// Control plane -> Router: exact issuer-signed cleanup authorization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareTenantRootControlPlaneCleanupCommandResponseV1 {
+    pub role: CloudflareTenantRootControlPlaneRoleV1,
+    pub cleanup_command_b64u: String,
+}
+
 /// Maximum accepted request size for the genesis operation.
 pub const TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_REQUEST_MAX_BYTES_V1: usize = 32 * 1024;
+
+/// Maximum accepted request size for initial activation evidence.
+pub(crate) const TENANT_ROOT_CONTROL_PLANE_INITIAL_ACTIVATION_REQUEST_MAX_BYTES_V1: usize =
+    256 * 1024;
+const TENANT_ROOT_CONTROL_PLANE_INITIAL_ACTIVATION_RESPONSE_MAX_BYTES_V1: usize = 32 * 1024;
+
+/// Router -> control plane: issue the signed initial-activation receipt from
+/// exact public installation, managed-backup, and provider-canary wires.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootControlPlaneInitialActivationRequestV1 {
+    pub(crate) deriver_a_signed_installation_evidence_b64u: String,
+    pub(crate) deriver_b_signed_installation_evidence_b64u: String,
+    pub(crate) deriver_a_signed_managed_backup_b64u: String,
+    pub(crate) deriver_b_signed_managed_backup_b64u: String,
+    pub(crate) ecdsa_provider_canary_receipt_b64u: String,
+    pub(crate) ed25519_provider_canary_receipt_b64u: String,
+}
 
 /// Router -> control plane: open a tenant root under a signed grant.
 ///
@@ -93,15 +142,44 @@ pub struct CloudflareTenantRootControlPlaneCreateTenantRootResponseV1 {
     pub revision: u64,
     pub journal_digest_b64u: String,
     pub capability_digest_b64u: String,
+    pub status: CloudflareTenantRootCreationStatusV1,
     /// True when this exact creation had already been persisted.
     pub replayed: bool,
+}
+
+/// Control plane -> Router: the exact signed initial-activation receipt.
+///
+/// The receipt contains the complete verified evidence binding. Keeping the
+/// transport projection to canonical bytes prevents a second, weaker metadata
+/// shape from becoming an activation authority.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareTenantRootControlPlaneInitialActivationReceiptResponseV1 {
+    pub activation_receipt_b64u: String,
+}
+
+/// Exhaustive durable state of one tenant-root creation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareTenantRootCreationStatusV1 {
+    Pending,
+    OneRoleInstalled {
+        role: CloudflareTenantRootControlPlaneRoleV1,
+    },
+    Ready {
+        root_commitment_b64u: String,
+    },
+    Abandoned {
+        role: CloudflareTenantRootControlPlaneRoleV1,
+    },
 }
 
 /// Public creation progress the issuer must respect before minting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TenantRootCreationProgressV1 {
     pub(crate) committed_roles: Vec<TwoPartyDeriverRole>,
-    pub(crate) installation_checkpointed: bool,
+    pub(crate) installation_checkpoint:
+        CloudflareTenantRootCreationInstallationCheckpointReadStateV1,
     pub(crate) cleanup_checkpointed: bool,
 }
 
@@ -115,7 +193,7 @@ impl TenantRootCreationProgressV1 {
                 .iter()
                 .map(|role: &CloudflareTenantRootCreationInstallationRoleV1| role.to_protocol())
                 .collect(),
-            installation_checkpointed: response.installation_checkpointed,
+            installation_checkpoint: response.installation_checkpoint.clone(),
             cleanup_checkpointed: response.cleanup_checkpointed,
         }
     }
@@ -151,6 +229,40 @@ fn derivation(error: router_ab_core::RouterAbDerivationError) -> RouterAbProtoco
     )
 }
 
+/// Signs an initial-activation receipt from a fully verified evidence bundle.
+///
+/// Evidence collection and lifecycle mutation stay outside this boundary. A
+/// caller must supply the core bundle, whose constructor already enforces both
+/// role installations, the selected availability branch, and both canaries.
+pub(crate) fn issue_tenant_root_initial_activation_receipt_v1(
+    bundle: &VerifiedTenantRootInitialCreationActivationEvidenceBundleV1,
+    activated_at_ms: u64,
+    authority_id: TenantRootControlPlaneAuthorityIdV1,
+    issuer_key_id: &str,
+    issuer_seed: &Zeroizing<[u8; 32]>,
+) -> RouterAbProtocolResult<TenantRootSignedActivationReceiptV1> {
+    TenantRootSignedActivationReceiptV1::sign_initial_creation(
+        bundle,
+        activated_at_ms,
+        authority_id,
+        issuer_key_id,
+        issuer_seed,
+    )
+    .map_err(derivation)
+}
+
+/// Projects an issued receipt onto the strict service-binding wire.
+pub(crate) fn initial_activation_receipt_response_v1(
+    receipt: TenantRootSignedActivationReceiptV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneInitialActivationReceiptResponseV1> {
+    let receipt_bytes = receipt.canonical_bytes().map_err(derivation)?;
+    Ok(
+        CloudflareTenantRootControlPlaneInitialActivationReceiptResponseV1 {
+            activation_receipt_b64u: crate::encode_base64url_bytes_v1(&receipt_bytes),
+        },
+    )
+}
+
 /// Mints one role creation command from authoritative state.
 ///
 /// Fail-closed conditions, in order: creation already checkpointed; the role
@@ -167,9 +279,12 @@ pub(crate) fn issue_tenant_root_role_creation_command_v1(
             "tenant-root creation was abandoned and cleaned; no further role command may be issued",
         ));
     }
-    if issuance.progress.installation_checkpointed {
+    if !matches!(
+        issuance.progress.installation_checkpoint,
+        CloudflareTenantRootCreationInstallationCheckpointReadStateV1::None
+    ) {
         return Err(refused(
-            "tenant-root creation is already checkpointed; no further role command may be issued",
+            "tenant-root creation already installed a role; cleanup or completion must finish first",
         ));
     }
     if issuance.progress.committed_roles.contains(&issuance.role) {
@@ -365,8 +480,16 @@ pub(crate) fn authorize_tenant_root_creation_v1(
 
 #[cfg(feature = "workers-rs")]
 pub use live::{
+    handle_cloudflare_tenant_root_control_plane_cleanup_command_v1,
     handle_cloudflare_tenant_root_control_plane_create_tenant_root_v1,
     handle_cloudflare_tenant_root_control_plane_role_creation_command_v1,
+};
+
+#[cfg(feature = "workers-rs")]
+#[allow(unused_imports)]
+pub(crate) use live::{
+    execute_cloudflare_tenant_root_control_plane_initial_activation_service_call_v1,
+    handle_cloudflare_tenant_root_control_plane_initial_activation_v1,
 };
 
 #[cfg(feature = "workers-rs")]
@@ -485,6 +608,45 @@ mod live {
         Ok((authority_id, parsed))
     }
 
+    fn creation_status(
+        state: &CloudflareTenantRootCreationJournalReadResponseV1,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootCreationStatusV1> {
+        match (&state.installation_checkpoint, state.cleanup_checkpointed) {
+            (CloudflareTenantRootCreationInstallationCheckpointReadStateV1::None, false) => {
+                Ok(CloudflareTenantRootCreationStatusV1::Pending)
+            }
+            (
+                CloudflareTenantRootCreationInstallationCheckpointReadStateV1::OneRoleReady {
+                    role,
+                    ..
+                },
+                false,
+            ) => Ok(CloudflareTenantRootCreationStatusV1::OneRoleInstalled {
+                role: CloudflareTenantRootControlPlaneRoleV1::from_protocol(role.to_protocol()),
+            }),
+            (
+                CloudflareTenantRootCreationInstallationCheckpointReadStateV1::BothRolesReady {
+                    root_commitment_b64u,
+                },
+                false,
+            ) => Ok(CloudflareTenantRootCreationStatusV1::Ready {
+                root_commitment_b64u: root_commitment_b64u.clone(),
+            }),
+            (
+                CloudflareTenantRootCreationInstallationCheckpointReadStateV1::OneRoleReady {
+                    role,
+                    ..
+                },
+                true,
+            ) => Ok(CloudflareTenantRootCreationStatusV1::Abandoned {
+                role: CloudflareTenantRootControlPlaneRoleV1::from_protocol(role.to_protocol()),
+            }),
+            _ => Err(refused(
+                "tenant-root creation Durable Object returned an invalid cleanup state",
+            )),
+        }
+    }
+
     /// The typed issuer operation: mint one role creation command.
     pub async fn handle_cloudflare_tenant_root_control_plane_role_creation_command_v1(
         request: CloudflareTenantRootControlPlaneRoleCreationCommandRequestV1,
@@ -582,6 +744,139 @@ mod live {
         )
     }
 
+    /// Issues cleanup for the exact sole role installation recorded by the DO.
+    pub async fn handle_cloudflare_tenant_root_control_plane_cleanup_command_v1(
+        request: CloudflareTenantRootControlPlaneCleanupCommandRequestV1,
+        env: &worker::Env,
+        runtime: &CloudflareTenantRootControlPlaneRuntimeV1,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneCleanupCommandResponseV1> {
+        let identity_digest = TenantRootIdentityDigestV1::from_bytes(
+            decode_canonical_base64url(
+                "tenant-root cleanup identity digest",
+                &request.identity_digest_b64u,
+                32,
+                48,
+            )?
+            .as_slice()
+            .try_into()
+            .map_err(|_| refused("tenant-root cleanup identity digest length is invalid"))?,
+        );
+        let custody_lineage = TenantRootCustodyLineageId::from_bytes(
+            decode_canonical_base64url(
+                "tenant-root cleanup custody lineage",
+                &request.custody_lineage_b64u,
+                16,
+                24,
+            )?
+            .as_slice()
+            .try_into()
+            .map_err(|_| refused("tenant-root cleanup custody lineage length is invalid"))?,
+        )
+        .map_err(derivation)?;
+        let (authority_id, read) =
+            read_creation_state(env, identity_digest, custody_lineage).await?;
+        if read.cleanup_checkpointed {
+            return Err(refused(
+                "tenant-root creation is already abandoned and cleaned",
+            ));
+        }
+        let record = CloudflareTenantRootCreationJournalRecordV1 {
+            journal_b64u: read.journal_b64u.clone(),
+            creation_capability_b64u: read.creation_capability_b64u.clone(),
+        };
+        let journal = validate_creation_record(
+            record,
+            authority_id,
+            runtime.bindings().issuer_verifying_keys.keys(),
+        )?;
+        if journal.identity_digest != identity_digest || journal.custody_lineage != custody_lineage
+        {
+            return Err(refused(
+                "tenant-root cleanup state does not name the requested identity and lineage",
+            ));
+        }
+        let CloudflareTenantRootCreationInstallationCheckpointReadStateV1::OneRoleReady {
+            role,
+            signed_evidence_b64u,
+        } = read.installation_checkpoint
+        else {
+            return Err(refused(
+                "tenant-root cleanup requires exactly one installed role",
+            ));
+        };
+        let role = role.to_protocol();
+        let evidence_bytes = decode_canonical_base64url(
+            "tenant-root cleanup installation evidence",
+            &signed_evidence_b64u,
+            router_ab_core::TENANT_ROOT_SIGNED_SHARE_INSTALLATION_EVIDENCE_MAX_BYTES_V1,
+            router_ab_core::TENANT_ROOT_SIGNED_SHARE_INSTALLATION_EVIDENCE_MAX_BYTES_V1 * 2,
+        )?;
+        let (expected_key_id, verifying_key) = match role {
+            TwoPartyDeriverRole::DeriverA => (
+                runtime.bindings().deriver_a_signing_key_id.as_str(),
+                &runtime.bindings().deriver_a_verifying_key,
+            ),
+            TwoPartyDeriverRole::DeriverB => (
+                runtime.bindings().deriver_b_signing_key_id.as_str(),
+                &runtime.bindings().deriver_b_verifying_key,
+            ),
+        };
+        if journal.ceremony_context.signing_key_id(role) != expected_key_id {
+            return Err(refused(
+                "tenant-root cleanup evidence names a retired role signing key",
+            ));
+        }
+        let evidence =
+            TenantRootSignedShareInstallationEvidenceV1::decode_and_verify_canonical_bytes(
+                &evidence_bytes,
+                verifying_key,
+            )
+            .map_err(derivation)?;
+        if evidence.evidence().transcript().context() != &journal.ceremony_context
+            || evidence.evidence().transcript().role() != role
+        {
+            return Err(refused(
+                "tenant-root cleanup evidence belongs to a different ceremony or role",
+            ));
+        }
+        let installation_evidence_digest =
+            TenantRootProtocolDigestV1::from_bytes(Sha256::digest(&evidence_bytes).into())
+                .map_err(derivation)?;
+        let target = TenantRootRoleCleanupTargetV1 {
+            identity_digest,
+            custody_lineage,
+            role,
+            epoch: TenantRootShareEpoch::INITIAL,
+            expected_row_revision: 1,
+            session_id: journal.ceremony_context.session_id(),
+            ceremony_nonce: journal.ceremony_context.nonce(),
+            installation_evidence_digest,
+        };
+        let mut nonce_hasher = Sha256::new();
+        nonce_hasher.update(b"seams/tenant-root/creation-cleanup-nonce/v1");
+        nonce_hasher.update(journal.journal_digest.as_bytes());
+        nonce_hasher.update(installation_evidence_digest.as_bytes());
+        let cleanup_nonce = TenantRootCeremonyNonceV1::from_bytes(nonce_hasher.finalize().into())
+            .map_err(derivation)?;
+        let seed = load_issuer_seed(env, runtime)?;
+        let command = TenantRootRoleCleanupCommandV1::sign(
+            &target,
+            authority_id,
+            cleanup_nonce,
+            journal.ceremony_context.issued_at_ms(),
+            journal.ceremony_context.expires_at_ms(),
+            runtime.bindings().issuer_signing_key.signing_key_id(),
+            &seed,
+        )
+        .map_err(derivation)?;
+        Ok(CloudflareTenantRootControlPlaneCleanupCommandResponseV1 {
+            role: CloudflareTenantRootControlPlaneRoleV1::from_protocol(role),
+            cleanup_command_b64u: encode_base64url_bytes_v1(
+                &command.canonical_bytes().map_err(derivation)?,
+            ),
+        })
+    }
+
     fn refused_owned(message: String) -> RouterAbProtocolError {
         RouterAbProtocolError::new(RouterAbProtocolErrorCode::ForbiddenLocalBinding, message)
     }
@@ -605,6 +900,314 @@ mod live {
             decode_cloudflare_tenant_root_control_plane_issuer_signing_secret_v1(&secret_value);
         secret_value.zeroize();
         seed
+    }
+
+    const TENANT_ROOT_SIGNED_MANAGED_BACKUP_MAX_BYTES_V1: usize = 72 * 1024;
+
+    fn decode_verified_installation_evidence_v1(
+        field: &'static str,
+        encoded: &str,
+        expected_role: TwoPartyDeriverRole,
+        expected_signing_key_id: &str,
+        verifying_key: &[u8; 32],
+    ) -> RouterAbProtocolResult<
+        router_ab_core::VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
+    > {
+        let bytes = decode_canonical_base64url(
+            field,
+            encoded,
+            router_ab_core::TENANT_ROOT_SIGNED_SHARE_INSTALLATION_EVIDENCE_MAX_BYTES_V1,
+            router_ab_core::TENANT_ROOT_SIGNED_SHARE_INSTALLATION_EVIDENCE_MAX_BYTES_V1 * 2,
+        )?;
+        let signed = TenantRootSignedShareInstallationEvidenceV1::decode_canonical_bytes(&bytes)
+            .map_err(derivation)?;
+        if signed.role() != expected_role || signed.signing_key_id() != expected_signing_key_id {
+            return Err(refused(
+                "tenant-root installation evidence names the wrong role signing key",
+            ));
+        }
+        TenantRootSignedShareInstallationEvidenceV1::decode_and_verify_canonical_bytes(
+            &bytes,
+            verifying_key,
+        )
+        .map_err(derivation)
+    }
+
+    fn decode_verified_managed_backup_v1(
+        field: &'static str,
+        encoded: &str,
+        expected_role: TenantRootManagedRestoreRoleV1,
+        expected_signing_key_id: &str,
+        verifying_key: &[u8; 32],
+    ) -> RouterAbProtocolResult<router_ab_core::VerifiedTenantRootManagedBackupV1> {
+        let bytes = decode_canonical_base64url(
+            field,
+            encoded,
+            TENANT_ROOT_SIGNED_MANAGED_BACKUP_MAX_BYTES_V1,
+            TENANT_ROOT_SIGNED_MANAGED_BACKUP_MAX_BYTES_V1 * 2,
+        )?;
+        let signed =
+            TenantRootSignedManagedBackupV1::decode_canonical_bytes(&bytes).map_err(derivation)?;
+        if signed.binding().role() != expected_role
+            || signed.binding().role_signing_key_id() != expected_signing_key_id
+        {
+            return Err(refused(
+                "tenant-root managed backup names the wrong role signing key",
+            ));
+        }
+        signed
+            .verify(signed.binding(), verifying_key)
+            .map_err(derivation)
+    }
+
+    fn decode_verified_provider_canary_v1(
+        field: &'static str,
+        encoded: &str,
+        expected_family: TenantRootCanaryCurveFamilyV1,
+        expected_signing_key_id: &str,
+        verifying_key: &[u8; 32],
+    ) -> RouterAbProtocolResult<router_ab_core::VerifiedTenantRootProviderCanaryReceiptV1> {
+        let bytes = decode_canonical_base64url(
+            field,
+            encoded,
+            TENANT_ROOT_PROVIDER_CANARY_RECEIPT_MAX_BYTES_V1,
+            TENANT_ROOT_PROVIDER_CANARY_RECEIPT_MAX_BYTES_V1 * 2,
+        )?;
+        let signed = TenantRootSignedProviderCanaryReceiptV1::decode_canonical_bytes(&bytes)
+            .map_err(derivation)?;
+        if signed.curve_family() != expected_family
+            || signed.signing_key_id() != expected_signing_key_id
+        {
+            return Err(refused(
+                "tenant-root provider canary names the wrong role signing key",
+            ));
+        }
+        signed
+            .verify(signed.binding(), verifying_key)
+            .map_err(derivation)
+    }
+
+    /// Verifies the six public activation artifacts and issues the exact receipt.
+    pub(crate) async fn handle_cloudflare_tenant_root_control_plane_initial_activation_v1(
+        request: CloudflareTenantRootControlPlaneInitialActivationRequestV1,
+        env: &worker::Env,
+        runtime: &CloudflareTenantRootControlPlaneRuntimeV1,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneInitialActivationReceiptResponseV1>
+    {
+        let bindings = runtime.bindings();
+        let deriver_a_installation = decode_verified_installation_evidence_v1(
+            "tenant-root Deriver A installation evidence",
+            &request.deriver_a_signed_installation_evidence_b64u,
+            TwoPartyDeriverRole::DeriverA,
+            &bindings.deriver_a_signing_key_id,
+            &bindings.deriver_a_verifying_key,
+        )?;
+        let deriver_b_installation = decode_verified_installation_evidence_v1(
+            "tenant-root Deriver B installation evidence",
+            &request.deriver_b_signed_installation_evidence_b64u,
+            TwoPartyDeriverRole::DeriverB,
+            &bindings.deriver_b_signing_key_id,
+            &bindings.deriver_b_verifying_key,
+        )?;
+        let deriver_a_backup = decode_verified_managed_backup_v1(
+            "tenant-root Deriver A managed backup",
+            &request.deriver_a_signed_managed_backup_b64u,
+            TenantRootManagedRestoreRoleV1::DeriverA,
+            &bindings.deriver_a_signing_key_id,
+            &bindings.deriver_a_verifying_key,
+        )?;
+        let deriver_b_backup = decode_verified_managed_backup_v1(
+            "tenant-root Deriver B managed backup",
+            &request.deriver_b_signed_managed_backup_b64u,
+            TenantRootManagedRestoreRoleV1::DeriverB,
+            &bindings.deriver_b_signing_key_id,
+            &bindings.deriver_b_verifying_key,
+        )?;
+        let ecdsa_canary = decode_verified_provider_canary_v1(
+            "tenant-root ECDSA provider canary",
+            &request.ecdsa_provider_canary_receipt_b64u,
+            TenantRootCanaryCurveFamilyV1::Ecdsa,
+            &bindings.deriver_a_signing_key_id,
+            &bindings.deriver_a_verifying_key,
+        )?;
+        let ed25519_canary = decode_verified_provider_canary_v1(
+            "tenant-root Ed25519 provider canary",
+            &request.ed25519_provider_canary_receipt_b64u,
+            TenantRootCanaryCurveFamilyV1::Ed25519,
+            &bindings.deriver_b_signing_key_id,
+            &bindings.deriver_b_verifying_key,
+        )?;
+        let bundle = VerifiedTenantRootInitialCreationActivationEvidenceBundleV1::from_verified_managed_backups(
+            deriver_a_installation,
+            deriver_b_installation,
+            deriver_a_backup,
+            deriver_b_backup,
+            ecdsa_canary,
+            ed25519_canary,
+            2,
+            3,
+        )
+        .map_err(derivation)?;
+        let activated_at_ms = crate::cloudflare_now_unix_ms_v1()?;
+        let (authority_id, _) = derive_tenant_root_creation_authority_object_v1(
+            env,
+            bundle.identity_digest(),
+            bundle.custody_lineage(),
+        )?;
+        let issuer_binding = &bindings.issuer_signing_key;
+        let issuer_seed = load_issuer_seed(env, runtime)?;
+        let receipt = super::issue_tenant_root_initial_activation_receipt_v1(
+            &bundle,
+            activated_at_ms,
+            authority_id,
+            issuer_binding.signing_key_id(),
+            &issuer_seed,
+        )?;
+        super::initial_activation_receipt_response_v1(receipt)
+    }
+
+    async fn read_bounded_initial_activation_response_body_v1(
+        response: &mut worker::Response,
+        max_bytes: usize,
+        label: &str,
+    ) -> RouterAbProtocolResult<Vec<u8>> {
+        use futures::StreamExt;
+
+        if let Ok(mut stream) = response.stream() {
+            let mut body = Vec::new();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|error| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        format!("{label} response body read failed: {error}"),
+                    )
+                })?;
+                let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        format!("{label} response body length overflows"),
+                    )
+                })?;
+                if next_len > max_bytes {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        format!("{label} response exceeds its maximum size"),
+                    ));
+                }
+                body.extend_from_slice(&chunk);
+            }
+            return Ok(body);
+        }
+
+        let body = response.bytes().await.map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("{label} response body read failed: {error}"),
+            )
+        })?;
+        if body.len() > max_bytes {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("{label} response exceeds its maximum size"),
+            ));
+        }
+        Ok(body)
+    }
+
+    /// Sends the typed activation request over the private control-plane binding.
+    pub(crate) async fn execute_cloudflare_tenant_root_control_plane_initial_activation_service_call_v1(
+        env: &worker::Env,
+        request: &CloudflareTenantRootControlPlaneInitialActivationRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneInitialActivationReceiptResponseV1>
+    {
+        let label = "tenant-root control-plane initial activation request";
+        let request_body = crate::cloudflare_service_json_request_body_v1(label, request)?;
+        if request_body.len() > TENANT_ROOT_CONTROL_PLANE_INITIAL_ACTIVATION_REQUEST_MAX_BYTES_V1 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("{label} exceeds its maximum size"),
+            ));
+        }
+        let fetcher = env
+            .service(crate::TENANT_ROOT_CONTROL_PLANE_SERVICE_BINDING_V1)
+            .map_err(|error| {
+                crate::worker_binding_error(
+                    crate::worker_binding_error_code(
+                        &error,
+                        crate::TENANT_ROOT_CONTROL_PLANE_SERVICE_BINDING_V1,
+                    ),
+                    crate::TENANT_ROOT_CONTROL_PLANE_SERVICE_BINDING_V1,
+                    "service",
+                    error,
+                )
+            })?;
+        let headers = worker::Headers::new();
+        headers
+            .set("content-type", "application/json")
+            .map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    format!("{label} request headers failed: {error}"),
+                )
+            })?;
+        crate::set_cloudflare_internal_service_auth_header_v1(env, &headers, label)?;
+        let mut init = worker::RequestInit::new();
+        init.with_method(worker::Method::Post)
+            .with_headers(headers)
+            .with_body(Some(worker::wasm_bindgen::JsValue::from_str(&request_body)));
+        let request_for_fetch = worker::Request::new_with_init(
+            crate::cloudflare_tenant_root_control_plane_initial_activation_service_url(),
+            &init,
+        )
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("{label} request construction failed: {error}"),
+            )
+        })?;
+        let mut response = fetcher
+            .fetch_request(request_for_fetch)
+            .await
+            .map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    format!("{label} request failed: {error}"),
+                )
+            })?;
+        let status = response.status_code();
+        let response_body = read_bounded_initial_activation_response_body_v1(
+            &mut response,
+            TENANT_ROOT_CONTROL_PLANE_INITIAL_ACTIVATION_RESPONSE_MAX_BYTES_V1,
+            label,
+        )
+        .await?;
+        if !(200..=299).contains(&status) {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("{label} service returned HTTP status {status}"),
+            ));
+        }
+        let parsed: CloudflareTenantRootControlPlaneInitialActivationReceiptResponseV1 =
+            serde_json::from_slice(&response_body).map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    format!("{label} response JSON parse failed: {error}"),
+                )
+            })?;
+        let receipt_bytes = decode_canonical_base64url(
+            "tenant-root initial activation receipt",
+            &parsed.activation_receipt_b64u,
+            TENANT_ROOT_ACTIVATION_RECEIPT_MAX_BYTES_V1,
+            TENANT_ROOT_ACTIVATION_RECEIPT_MAX_BYTES_V1 * 2,
+        )?;
+        let receipt = TenantRootSignedActivationReceiptV1::decode_canonical_bytes(&receipt_bytes)
+            .map_err(derivation)?;
+        if receipt.transition() != TenantRootActivationReceiptTransitionV1::InitialCreation {
+            return Err(refused(
+                "tenant-root control-plane returned a non-initial activation receipt",
+            ));
+        }
+        Ok(parsed)
     }
 
     /// The genesis operation: open a tenant root under a signed grant.
@@ -670,12 +1273,16 @@ mod live {
             &authorized.capability,
         )
         .await?;
+        let (_, current) =
+            read_creation_state(env, verified.identity_digest(), verified.custody_lineage())
+                .await?;
         Ok(CloudflareTenantRootControlPlaneCreateTenantRootResponseV1 {
             identity_digest_b64u: encode_base64url_bytes_v1(verified.identity_digest().as_bytes()),
             custody_lineage_b64u: encode_base64url_bytes_v1(verified.custody_lineage().as_bytes()),
             revision: persisted.revision,
             journal_digest_b64u: persisted.journal_digest_b64u,
             capability_digest_b64u: persisted.capability_digest_b64u,
+            status: creation_status(&current)?,
             replayed: matches!(
                 persisted.outcome,
                 CloudflareTenantRootCreationJournalOutcomeV1::Replay
@@ -691,13 +1298,26 @@ mod tests {
         validate_creation_record, CloudflareTenantRootCreationJournalRecordV1,
     };
     use crate::encode_base64url_bytes_v1;
+    use curve25519_dalek::scalar::Scalar;
     use ed25519_dalek::SigningKey;
+    use rand_chacha::ChaCha20Rng;
+    use rand_core_06::SeedableRng;
     use router_ab_core::{
+        TenantRootActivationReceiptTransitionV1, TenantRootCanaryCurveFamilyV1,
         TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1, TenantRootCeremonySessionIdV1,
         TenantRootCreationCapabilityNonceV1, TenantRootCreationCapabilityV1,
-        TenantRootCustodyLineageId, TenantRootIdentityV1,
+        TenantRootCustodyLineageId, TenantRootEpochCommitmentsV1, TenantRootIdentityV1,
+        TenantRootManagedBackupBindingV1, TenantRootManagedBackupSealRequestV1,
+        TenantRootProviderCanaryReceiptBindingV1, TenantRootShareInstallationEvidenceV1,
+        TenantRootShareInstallationTranscriptV1, TenantRootSignedManagedBackupV1,
+        TenantRootSignedProviderCanaryReceiptV1, TenantRootSignedShareInstallationEvidenceV1,
+        VerifiedTenantRootInitialCreationActivationEvidenceBundleV1,
     };
     use std::collections::BTreeMap;
+    use threshold_prf::{
+        prove_root_share_knowledge, SigningRootShare, SigningRootShareCommitment,
+        SigningRootShareWire,
+    };
 
     const ISSUER_KEY_ID: &str = "control-plane-issuer-active";
     const ISSUER_SEED: [u8; 32] = [0x51; 32];
@@ -776,7 +1396,8 @@ mod tests {
     fn fresh() -> TenantRootCreationProgressV1 {
         TenantRootCreationProgressV1 {
             committed_roles: Vec::new(),
-            installation_checkpointed: false,
+            installation_checkpoint:
+                CloudflareTenantRootCreationInstallationCheckpointReadStateV1::None,
             cleanup_checkpointed: false,
         }
     }
@@ -1221,7 +1842,11 @@ mod tests {
 
         let abandoned = TenantRootCreationProgressV1 {
             committed_roles: vec![TwoPartyDeriverRole::DeriverB],
-            installation_checkpointed: true,
+            installation_checkpoint:
+                CloudflareTenantRootCreationInstallationCheckpointReadStateV1::OneRoleReady {
+                    role: CloudflareTenantRootCreationInstallationRoleV1::DeriverB,
+                    signed_evidence_b64u: "evidence".to_owned(),
+                },
             cleanup_checkpointed: true,
         };
         assert_eq!(
@@ -1239,7 +1864,10 @@ mod tests {
 
         let checkpointed = TenantRootCreationProgressV1 {
             committed_roles: Vec::new(),
-            installation_checkpointed: true,
+            installation_checkpoint:
+                CloudflareTenantRootCreationInstallationCheckpointReadStateV1::BothRolesReady {
+                    root_commitment_b64u: "root".to_owned(),
+                },
             cleanup_checkpointed: false,
         };
         assert_eq!(
@@ -1257,7 +1885,8 @@ mod tests {
 
         let a_committed = TenantRootCreationProgressV1 {
             committed_roles: vec![TwoPartyDeriverRole::DeriverA],
-            installation_checkpointed: false,
+            installation_checkpoint:
+                CloudflareTenantRootCreationInstallationCheckpointReadStateV1::None,
             cleanup_checkpointed: false,
         };
         assert!(issue(
@@ -1364,6 +1993,253 @@ mod tests {
                 smuggled
             )
             .is_err()
+        );
+    }
+
+    const ACTIVATION_ISSUER_SEED: [u8; 32] = [0x51; 32];
+    const ACTIVATION_CANARY_SEED: [u8; 32] = [0x71; 32];
+
+    fn activation_context() -> TenantRootCeremonyContextV1 {
+        let identity = TenantRootIdentityV1::new(
+            "activation-org",
+            "activation-project",
+            "production",
+            "root-main",
+            "v1",
+        )
+        .expect("identity");
+        TenantRootCeremonyContextV1::new(
+            identity.digest().expect("identity digest"),
+            TenantRootCustodyLineageId::from_bytes([0x23; 16]).expect("lineage"),
+            TenantRootCeremonyEpochsV1::create(),
+            TenantRootCeremonySessionIdV1::from_bytes([0x24; 16]).expect("session"),
+            TenantRootCeremonyNonceV1::from_bytes([0x25; 32]).expect("nonce"),
+            CEREMONY_ISSUED_AT_MS,
+            CEREMONY_EXPIRES_AT_MS,
+            "deriver-a-signing-key-7",
+            "deriver-b-signing-key-9",
+        )
+        .expect("context")
+    }
+
+    fn activation_share(role: TwoPartyDeriverRole, scalar: u64) -> SigningRootShare {
+        SigningRootShare::from_canonical_bytes(role.share_id(), Scalar::from(scalar).to_bytes())
+            .expect("share")
+    }
+
+    fn activation_role_signing_key(role: TwoPartyDeriverRole) -> SigningKey {
+        SigningKey::from_bytes(match role {
+            TwoPartyDeriverRole::DeriverA => &[0x61; 32],
+            TwoPartyDeriverRole::DeriverB => &[0x62; 32],
+        })
+    }
+
+    fn activation_role_signing_key_id(role: TwoPartyDeriverRole) -> &'static str {
+        match role {
+            TwoPartyDeriverRole::DeriverA => "deriver-a-signing-key-7",
+            TwoPartyDeriverRole::DeriverB => "deriver-b-signing-key-9",
+        }
+    }
+
+    fn activation_installation(
+        context: TenantRootCeremonyContextV1,
+        role: TwoPartyDeriverRole,
+        share: &SigningRootShare,
+        peer: &SigningRootShare,
+        proof_seed: u8,
+    ) -> router_ab_core::VerifiedTenantRootSignedShareInstallationEvidenceWireV1 {
+        let transcript = TenantRootShareInstallationTranscriptV1::new(
+            context,
+            role,
+            SigningRootShareCommitment::from_share(share),
+            SigningRootShareCommitment::from_share(peer),
+        )
+        .expect("installation transcript");
+        let proof = prove_root_share_knowledge(
+            share,
+            &transcript.canonical_bytes().expect("transcript bytes"),
+            &mut ChaCha20Rng::from_seed([proof_seed; 32]),
+        )
+        .expect("knowledge proof");
+        let evidence = TenantRootShareInstallationEvidenceV1::new(transcript, proof)
+            .expect("installation evidence");
+        let signing_key = activation_role_signing_key(role);
+        let signed =
+            TenantRootSignedShareInstallationEvidenceV1::sign(evidence, &signing_key.to_bytes())
+                .expect("signed installation evidence");
+        let bytes = signed.canonical_bytes().expect("installation bytes");
+        TenantRootSignedShareInstallationEvidenceV1::decode_and_verify_canonical_bytes(
+            &bytes,
+            signing_key.verifying_key().as_bytes(),
+        )
+        .expect("verified installation evidence")
+    }
+
+    fn activation_commitments(
+        share_a: &SigningRootShare,
+        share_b: &SigningRootShare,
+    ) -> TenantRootEpochCommitmentsV1 {
+        TenantRootEpochCommitmentsV1::new(
+            router_ab_core::MpcPrfShareCommitmentWireV1::new(
+                SigningRootShareCommitment::from_share(share_a)
+                    .to_bytes()
+                    .to_vec(),
+            )
+            .expect("A commitment"),
+            router_ab_core::MpcPrfShareCommitmentWireV1::new(
+                SigningRootShareCommitment::from_share(share_b)
+                    .to_bytes()
+                    .to_vec(),
+            )
+            .expect("B commitment"),
+        )
+        .expect("commitments")
+    }
+
+    fn activation_backup(
+        installation: &router_ab_core::VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
+        share: &SigningRootShare,
+        role: TwoPartyDeriverRole,
+    ) -> router_ab_core::VerifiedTenantRootManagedBackupV1 {
+        let binding = TenantRootManagedBackupBindingV1::from_verified_installation_evidence(
+            installation,
+            format!("backup-provider-{}", role.as_str()),
+            format!("kms/tenant-root/{}/epoch-1/v1", role.as_str()),
+            activation_role_signing_key_id(role),
+            CEREMONY_ISSUED_AT_MS,
+        )
+        .expect("backup binding");
+        let share_wire = router_ab_core::MpcPrfSigningRootShareWireV1::new(
+            SigningRootShareWire::from_share(share).to_bytes().to_vec(),
+        )
+        .expect("share wire");
+        let request = TenantRootManagedBackupSealRequestV1::new(binding.clone(), share_wire)
+            .expect("backup seal request");
+        let signing_key = activation_role_signing_key(role);
+        let ciphertext = match role {
+            TwoPartyDeriverRole::DeriverA => vec![0xa5; 96],
+            TwoPartyDeriverRole::DeriverB => vec![0xb5; 96],
+        };
+        let signed =
+            TenantRootSignedManagedBackupV1::sign(request, ciphertext, &signing_key.to_bytes())
+                .expect("signed managed backup");
+        signed
+            .verify(&binding, signing_key.verifying_key().as_bytes())
+            .expect("verified managed backup")
+    }
+
+    fn activation_canary(
+        context: &TenantRootCeremonyContextV1,
+        commitments: &TenantRootEpochCommitmentsV1,
+        family: TenantRootCanaryCurveFamilyV1,
+    ) -> router_ab_core::VerifiedTenantRootProviderCanaryReceiptV1 {
+        let binding = TenantRootProviderCanaryReceiptBindingV1::new(
+            context.identity_digest(),
+            context.custody_lineage(),
+            TenantRootActivationReceiptTransitionV1::InitialCreation,
+            TenantRootShareEpoch::INITIAL,
+            commitments.clone(),
+            family,
+            format!("kms/tenant-root/{}/canary-v1", family.as_str()),
+            CEREMONY_ISSUED_AT_MS + 10,
+            TenantRootControlPlaneAuthorityIdV1::from_bytes([0x72; 32]),
+            "control-plane-canary-v1",
+            CEREMONY_ISSUED_AT_MS,
+            CEREMONY_EXPIRES_AT_MS,
+        )
+        .expect("canary binding");
+        let signed =
+            TenantRootSignedProviderCanaryReceiptV1::sign(binding.clone(), &ACTIVATION_CANARY_SEED)
+                .expect("signed canary");
+        signed
+            .verify(
+                &binding,
+                &SigningKey::from_bytes(&ACTIVATION_CANARY_SEED)
+                    .verifying_key()
+                    .to_bytes(),
+            )
+            .expect("verified canary")
+    }
+
+    fn activation_bundle() -> VerifiedTenantRootInitialCreationActivationEvidenceBundleV1 {
+        let context = activation_context();
+        let share_a = activation_share(TwoPartyDeriverRole::DeriverA, 12);
+        let share_b = activation_share(TwoPartyDeriverRole::DeriverB, 19);
+        let installation_a = activation_installation(
+            context.clone(),
+            TwoPartyDeriverRole::DeriverA,
+            &share_a,
+            &share_b,
+            0x31,
+        );
+        let installation_b = activation_installation(
+            context.clone(),
+            TwoPartyDeriverRole::DeriverB,
+            &share_b,
+            &share_a,
+            0x32,
+        );
+        let commitments = activation_commitments(&share_a, &share_b);
+        let backup_a = activation_backup(&installation_a, &share_a, TwoPartyDeriverRole::DeriverA);
+        let backup_b = activation_backup(&installation_b, &share_b, TwoPartyDeriverRole::DeriverB);
+        let canary_ecdsa =
+            activation_canary(&context, &commitments, TenantRootCanaryCurveFamilyV1::Ecdsa);
+        let canary_ed25519 = activation_canary(
+            &context,
+            &commitments,
+            TenantRootCanaryCurveFamilyV1::Ed25519,
+        );
+        VerifiedTenantRootInitialCreationActivationEvidenceBundleV1::from_verified_managed_backups(
+            installation_a,
+            installation_b,
+            backup_a,
+            backup_b,
+            canary_ecdsa,
+            canary_ed25519,
+            2,
+            3,
+        )
+        .expect("verified initial activation evidence")
+    }
+
+    #[test]
+    fn initial_activation_issuance_returns_the_exact_typed_receipt_wire() {
+        let bundle = activation_bundle();
+        let activated_at_ms = CEREMONY_ISSUED_AT_MS + 20;
+        let receipt = issue_tenant_root_initial_activation_receipt_v1(
+            &bundle,
+            activated_at_ms,
+            authority(),
+            ISSUER_KEY_ID,
+            &Zeroizing::new(ACTIVATION_ISSUER_SEED),
+        )
+        .expect("issued initial activation receipt");
+        let receipt_bytes = receipt.canonical_bytes().expect("receipt bytes");
+        let verified = receipt
+            .clone()
+            .verify_initial_creation(
+                &bundle,
+                activated_at_ms,
+                authority(),
+                ISSUER_KEY_ID,
+                &SigningKey::from_bytes(&ACTIVATION_ISSUER_SEED)
+                    .verifying_key()
+                    .to_bytes(),
+            )
+            .expect("receipt verifies against the complete bundle");
+        assert_eq!(
+            verified.transition(),
+            TenantRootActivationReceiptTransitionV1::InitialCreation
+        );
+
+        let response = initial_activation_receipt_response_v1(receipt).expect("typed response");
+        assert_eq!(
+            crate::decode_base64url_bytes_v1(
+                "initial activation receipt",
+                &response.activation_receipt_b64u
+            )
+            .expect("response receipt bytes"),
+            receipt_bytes
         );
     }
 }
