@@ -436,6 +436,9 @@ impl VerifiedTenantRootCreationCommitmentPairV1 {
 }
 
 /// Signed public commitment sent before either role reveals a refresh contribution.
+///
+/// The recipient binding belongs to the role that owns this commitment: it is the
+/// one-use HPKE receiver that opens the peer's contribution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TenantRootRefreshCommitmentTranscriptV1 {
     context: TenantRootCeremonyContextV1,
@@ -494,12 +497,12 @@ impl TenantRootRefreshCommitmentTranscriptV1 {
         self.commitment
     }
 
-    /// Returns the exact peer HPKE recipient key identifier authenticated by this transcript.
+    /// Returns this role's exact one-use HPKE receiver key identifier.
     pub fn recipient_key_id(&self) -> &str {
         &self.recipient_key_id
     }
 
-    /// Returns the exact peer HPKE recipient public key authenticated by this transcript.
+    /// Returns this role's exact one-use HPKE receiver public key.
     pub const fn recipient_public_key(&self) -> TenantRootRefreshHpkePublicKeyV1 {
         self.recipient_public_key
     }
@@ -721,12 +724,12 @@ impl VerifiedTenantRootRefreshCommitmentV1 {
         self.signed.signing_key_id()
     }
 
-    /// Returns the exact peer HPKE recipient key identifier authenticated by this commitment.
+    /// Returns this role's exact one-use HPKE receiver key identifier.
     pub fn recipient_key_id(&self) -> &str {
         self.signed.transcript().recipient_key_id()
     }
 
-    /// Returns the exact peer HPKE recipient public key authenticated by this commitment.
+    /// Returns this role's exact one-use HPKE receiver public key.
     pub const fn recipient_public_key(&self) -> TenantRootRefreshHpkePublicKeyV1 {
         self.signed.transcript().recipient_public_key()
     }
@@ -807,6 +810,9 @@ impl VerifiedTenantRootRefreshCommitmentPairV1 {
 }
 
 /// Exact authenticated data for one recipient-specific encrypted refresh contribution.
+///
+/// The source coefficient commitment comes from the source role's commitment. The
+/// recipient key binding comes from the peer role's commitment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TenantRootRefreshContributionAadV1 {
     verified_commitment: VerifiedTenantRootRefreshCommitmentV1,
@@ -818,53 +824,32 @@ impl TenantRootRefreshContributionAadV1 {
     /// Builds Deriver A's contribution to Deriver B after the two-role commit barrier.
     pub fn deriver_a_to_b(
         verified_commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
-        recipient_key_id: impl Into<String>,
-        recipient_public_key: TenantRootRefreshHpkePublicKeyV1,
     ) -> RouterAbDerivationResult<Self> {
-        Self::new(
-            verified_commitments,
-            TwoPartyDeriverRole::DeriverA,
-            recipient_key_id,
-            recipient_public_key,
-        )
+        Self::new(verified_commitments, TwoPartyDeriverRole::DeriverA)
     }
 
     /// Builds Deriver B's contribution to Deriver A after the two-role commit barrier.
     pub fn deriver_b_to_a(
         verified_commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
-        recipient_key_id: impl Into<String>,
-        recipient_public_key: TenantRootRefreshHpkePublicKeyV1,
     ) -> RouterAbDerivationResult<Self> {
-        Self::new(
-            verified_commitments,
-            TwoPartyDeriverRole::DeriverB,
-            recipient_key_id,
-            recipient_public_key,
-        )
+        Self::new(verified_commitments, TwoPartyDeriverRole::DeriverB)
     }
 
     fn new(
         verified_commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
         source: TwoPartyDeriverRole,
-        recipient_key_id: impl Into<String>,
-        recipient_public_key: TenantRootRefreshHpkePublicKeyV1,
     ) -> RouterAbDerivationResult<Self> {
+        let source_commitment = verified_commitments.commitment_for(source);
+        let recipient_commitment = verified_commitments.commitment_for(source.peer());
         let aad = Self {
-            verified_commitment: verified_commitments.commitment_for(source),
-            recipient_key_id: recipient_key_id.into(),
-            recipient_public_key,
+            verified_commitment: source_commitment,
+            recipient_key_id: recipient_commitment.recipient_key_id().to_owned(),
+            recipient_public_key: recipient_commitment.recipient_public_key(),
         };
         require_key_id(
             "tenant-root refresh HPKE recipient key id",
             &aad.recipient_key_id,
         )?;
-        if aad.recipient_key_id != aad.verified_commitment.recipient_key_id()
-            || aad.recipient_public_key != aad.verified_commitment.recipient_public_key()
-        {
-            return Err(malformed(
-                "tenant-root refresh HPKE recipient does not match its signed commitment",
-            ));
-        }
         Ok(aad)
     }
 
