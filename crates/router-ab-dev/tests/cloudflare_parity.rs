@@ -252,10 +252,6 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     deriver_a.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
     deriver_a.assert_wrangler("binding = \"DERIVER_B\"");
     deriver_a.assert_wrangler("binding = \"DERIVER_ROLE_PRIVATE_DB\"");
-    deriver_a.assert_wrangler_absent("DERIVER_A_ROOT_SHARE_DO_BINDING");
-    deriver_a.assert_wrangler(
-        "DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING = \"DERIVER_A_ROOT_SHARE_WIRE_SECRET\"",
-    );
     deriver_a.assert_wrangler(
         "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = \"DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY\"",
     );
@@ -263,13 +259,9 @@ fn local_env_templates_match_wrangler_startup_manifests() {
         .assert_wrangler("DERIVER_A_PEER_SIGNING_KEY_BINDING = \"DERIVER_A_PEER_SIGNING_KEY\"");
     deriver_a.assert_local("DERIVER_B_URL=http://127.0.0.1:4104");
     deriver_a.assert_local("DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY=");
-    deriver_a.assert_local("DERIVER_A_ROOT_SHARE_WIRE_SECRET=");
     deriver_a.assert_local("DERIVER_A_PEER_SIGNING_KEY=");
     deriver_a.assert_local(
         "DERIVER_A_ROLE_PRIVATE_STORAGE_PATH=.router-ab-local/deriver-a/role-private.sqlite",
-    );
-    deriver_a.assert_local(
-        "DERIVER_A_SEALED_ROOT_SHARES_PATH=.router-ab-local/deriver-a/sealed-root-shares.sqlite",
     );
 
     let deriver_b = ManifestPair {
@@ -285,10 +277,6 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     deriver_b.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
     deriver_b.assert_wrangler("binding = \"DERIVER_A\"");
     deriver_b.assert_wrangler("binding = \"DERIVER_ROLE_PRIVATE_DB\"");
-    deriver_b.assert_wrangler_absent("DERIVER_B_ROOT_SHARE_DO_BINDING");
-    deriver_b.assert_wrangler(
-        "DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING = \"DERIVER_B_ROOT_SHARE_WIRE_SECRET\"",
-    );
     deriver_b.assert_wrangler(
         "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = \"DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY\"",
     );
@@ -296,13 +284,9 @@ fn local_env_templates_match_wrangler_startup_manifests() {
         .assert_wrangler("DERIVER_B_PEER_SIGNING_KEY_BINDING = \"DERIVER_B_PEER_SIGNING_KEY\"");
     deriver_b.assert_local("DERIVER_A_URL=http://127.0.0.1:4103");
     deriver_b.assert_local("DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY=");
-    deriver_b.assert_local("DERIVER_B_ROOT_SHARE_WIRE_SECRET=");
     deriver_b.assert_local("DERIVER_B_PEER_SIGNING_KEY=");
     deriver_b.assert_local(
         "DERIVER_B_ROLE_PRIVATE_STORAGE_PATH=.router-ab-local/deriver-b/role-private.sqlite",
-    );
-    deriver_b.assert_local(
-        "DERIVER_B_SEALED_ROOT_SHARES_PATH=.router-ab-local/deriver-b/sealed-root-shares.sqlite",
     );
 
     let signing_worker = ManifestPair {

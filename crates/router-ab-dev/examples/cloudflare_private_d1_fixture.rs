@@ -383,14 +383,6 @@ fn cloudflare_deriver_env(
             ),
         ),
         (
-            format!("DERIVER_{suffix}_ROOT_SHARE_WIRE_SECRET_BINDING"),
-            format!("DERIVER_{suffix}_ROOT_SHARE_WIRE_SECRET"),
-        ),
-        (
-            format!("DERIVER_{suffix}_ROOT_SHARE_WIRE_SECRET"),
-            required(local, &format!("DERIVER_{suffix}_ROOT_SHARE_WIRE_SECRET")),
-        ),
-        (
             format!("DERIVER_{suffix}_ENVELOPE_HPKE_PRIVATE_KEY_BINDING"),
             format!("DERIVER_{suffix}_ENVELOPE_HPKE_PRIVATE_KEY"),
         ),

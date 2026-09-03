@@ -47,13 +47,9 @@ use std::{
 };
 
 mod local_dev_http;
-mod local_ecdsa_root_shares;
 mod local_ed25519_yao_api;
 mod local_ed25519_yao_delivery;
 
-pub use local_ecdsa_root_shares::{
-    local_ecdsa_root_share_package_v1, LocalEcdsaRootSharePackageV1,
-};
 mod local_ed25519_yao_input;
 mod local_ed25519_yao_pair;
 mod local_ed25519_yao_profiles;
@@ -210,10 +206,6 @@ pub const LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1: &str =
 /// Deriver B envelope HPKE private-key env key.
 pub const LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1: &str =
     "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY";
-/// Deriver A root-share wire secret env key.
-pub const LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1: &str = "DERIVER_A_ROOT_SHARE_WIRE_SECRET";
-/// Deriver B root-share wire secret env key.
-pub const LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1: &str = "DERIVER_B_ROOT_SHARE_WIRE_SECRET";
 /// Deriver A Ed25519 Yao server-contribution root env key.
 pub const LOCAL_DERIVER_A_ED25519_YAO_DERIVATION_ROOT_ENV_V1: &str =
     "DERIVER_A_ED25519_YAO_DERIVATION_ROOT";
@@ -240,12 +232,6 @@ pub const LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1: &str =
 /// Deriver B role-private SQLite path env key.
 pub const LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1: &str =
     "DERIVER_B_ROLE_PRIVATE_STORAGE_PATH";
-/// Deriver A sealed root-share storage path env key.
-pub const LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1: &str =
-    "DERIVER_A_SEALED_ROOT_SHARES_PATH";
-/// Deriver B sealed root-share storage path env key.
-pub const LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1: &str =
-    "DERIVER_B_SEALED_ROOT_SHARES_PATH";
 /// SigningWorker server-output HPKE private-key env key.
 pub const LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1: &str =
     "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY";
@@ -417,38 +403,30 @@ pub(crate) fn local_router_ab_internal_service_auth_matches_v1(
 const LOCAL_ROUTER_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
-    LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
-    LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1,
     LOCAL_DERIVER_A_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_B_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
     LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
-    LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
-    LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_SIGNING_WORKER_PRIVATE_STORAGE_PATH_ENV_V1,
 ];
 
 const LOCAL_DERIVER_A_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
-    LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1,
     LOCAL_DERIVER_B_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
-    LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_SIGNING_WORKER_PRIVATE_STORAGE_PATH_ENV_V1,
 ];
 
 const LOCAL_DERIVER_B_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
-    LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
     LOCAL_DERIVER_A_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
-    LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_SIGNING_WORKER_PRIVATE_STORAGE_PATH_ENV_V1,
 ];
@@ -456,16 +434,12 @@ const LOCAL_DERIVER_B_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
 const LOCAL_SIGNING_WORKER_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
-    LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
-    LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1,
     LOCAL_DERIVER_A_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_B_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
     LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
-    LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
-    LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
 ];
 
 /// Router local worker config after raw env parsing.
@@ -500,8 +474,6 @@ pub struct LocalDeriverAWorkerConfigV1 {
     pub deriver_b_url: String,
     /// Deriver A envelope HPKE private key.
     pub envelope_hpke_private_key: String,
-    /// Deriver A root-share wire secret.
-    pub root_share_wire_secret: String,
     /// Deriver A Ed25519 Yao server-contribution root.
     pub ed25519_yao_derivation_root_hex: String,
     /// Deriver A peer signing key.
@@ -512,8 +484,6 @@ pub struct LocalDeriverAWorkerConfigV1 {
     pub deriver_b_peer_verifying_key: String,
     /// Deriver A role-private SQLite path.
     pub role_private_storage_path: String,
-    /// Deriver A sealed root-share storage path.
-    pub sealed_root_shares_path: String,
 }
 
 /// Deriver B local worker config after raw env parsing.
@@ -525,8 +495,6 @@ pub struct LocalDeriverBWorkerConfigV1 {
     pub deriver_a_url: String,
     /// Deriver B envelope HPKE private key.
     pub envelope_hpke_private_key: String,
-    /// Deriver B root-share wire secret.
-    pub root_share_wire_secret: String,
     /// Deriver B Ed25519 Yao server-contribution root.
     pub ed25519_yao_derivation_root_hex: String,
     /// Deriver B peer signing key.
@@ -537,8 +505,6 @@ pub struct LocalDeriverBWorkerConfigV1 {
     pub deriver_b_peer_verifying_key: String,
     /// Deriver B role-private SQLite path.
     pub role_private_storage_path: String,
-    /// Deriver B sealed root-share storage path.
-    pub sealed_root_shares_path: String,
 }
 
 /// SigningWorker local worker config after raw env parsing.
@@ -698,7 +664,6 @@ pub fn local_env_materialization_plan_v1(
     seed: &[u8],
 ) -> RouterAbProtocolResult<LocalEnvMaterializationPlanV1> {
     require_non_empty("local env materialization seed", &hex::encode(seed))?;
-    let root_shares = local_ecdsa_root_share_package_v1(seed)?;
     let plan = LocalEnvMaterializationPlanV1 {
         directories: vec![
             LOCAL_DERIVER_A_STATE_DIR_V1.to_owned(),
@@ -712,7 +677,6 @@ pub fn local_env_materialization_plan_v1(
                 contents: materialize_template_v1(
                     include_str!("../env/router.local.example"),
                     seed,
-                    &root_shares,
                 )?,
             },
             LocalEnvMaterializedFileV1 {
@@ -721,7 +685,6 @@ pub fn local_env_materialization_plan_v1(
                 contents: materialize_template_v1(
                     include_str!("../env/deriver-a.local.example"),
                     seed,
-                    &root_shares,
                 )?,
             },
             LocalEnvMaterializedFileV1 {
@@ -730,7 +693,6 @@ pub fn local_env_materialization_plan_v1(
                 contents: materialize_template_v1(
                     include_str!("../env/deriver-b.local.example"),
                     seed,
-                    &root_shares,
                 )?,
             },
             LocalEnvMaterializedFileV1 {
@@ -739,7 +701,6 @@ pub fn local_env_materialization_plan_v1(
                 contents: materialize_template_v1(
                     include_str!("../env/signing-worker.local.example"),
                     seed,
-                    &root_shares,
                 )?,
             },
         ],
@@ -850,10 +811,6 @@ pub fn parse_local_worker_role_config_for_role_v1(
                         &env,
                         LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
                     )?,
-                    root_share_wire_secret: required_env_v1(
-                        &env,
-                        LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
-                    )?,
                     ed25519_yao_derivation_root_hex: required_hex_32_env_v1(
                         &env,
                         LOCAL_DERIVER_A_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
@@ -874,10 +831,6 @@ pub fn parse_local_worker_role_config_for_role_v1(
                         &env,
                         LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
                     )?,
-                    sealed_root_shares_path: required_env_v1(
-                        &env,
-                        LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
-                    )?,
                 },
             ))
         }
@@ -890,10 +843,6 @@ pub fn parse_local_worker_role_config_for_role_v1(
                     envelope_hpke_private_key: required_hex_32_env_v1(
                         &env,
                         LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
-                    )?,
-                    root_share_wire_secret: required_env_v1(
-                        &env,
-                        LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1,
                     )?,
                     ed25519_yao_derivation_root_hex: required_hex_32_env_v1(
                         &env,
@@ -914,10 +863,6 @@ pub fn parse_local_worker_role_config_for_role_v1(
                     role_private_storage_path: required_env_v1(
                         &env,
                         LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
-                    )?,
-                    sealed_root_shares_path: required_env_v1(
-                        &env,
-                        LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
                     )?,
                 },
             ))
@@ -2317,21 +2262,9 @@ fn map_local_http_io_error_v1(error: std::io::Error) -> RouterAbProtocolError {
     )
 }
 
-fn materialize_template_v1(
-    template: &str,
-    seed: &[u8],
-    root_shares: &LocalEcdsaRootSharePackageV1,
-) -> RouterAbProtocolResult<String> {
+fn materialize_template_v1(template: &str, seed: &[u8]) -> RouterAbProtocolResult<String> {
     require_non_empty("local env materialization template", template)?;
     let mut contents = template.to_owned();
-    contents = contents.replace(
-        "dev-only-deriver-a-root-share-wire-secret",
-        &root_shares.deriver_a_root_share_wire_secret,
-    );
-    contents = contents.replace(
-        "dev-only-deriver-b-root-share-wire-secret",
-        &root_shares.deriver_b_root_share_wire_secret,
-    );
     for (placeholder, label) in [
         (
             "dev-only-deriver-a-peer-signing-key",

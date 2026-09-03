@@ -300,7 +300,6 @@ function strictRoleSecretFile(role, env) {
     case 'deriver-a':
       return [
         internalAuthSecret,
-        `DERIVER_A_ROOT_SHARE_WIRE_SECRET=${requiredEnv(env.deriverAEnv, 'DERIVER_A_ROOT_SHARE_WIRE_SECRET')}`,
         `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY=${versionedHexSecret(
           requiredEnv(env.deriverAEnv, 'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY'),
           'hpke-x25519-private-v1:',
@@ -315,7 +314,6 @@ function strictRoleSecretFile(role, env) {
     case 'deriver-b':
       return [
         internalAuthSecret,
-        `DERIVER_B_ROOT_SHARE_WIRE_SECRET=${requiredEnv(env.deriverBEnv, 'DERIVER_B_ROOT_SHARE_WIRE_SECRET')}`,
         `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY=${versionedHexSecret(
           requiredEnv(env.deriverBEnv, 'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY'),
           'hpke-x25519-private-v1:',

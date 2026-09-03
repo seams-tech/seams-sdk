@@ -102,14 +102,13 @@ See `docs/router-ab/local-development.md` for the full local-development flow.
 - Cloudflare version upload evidence: `pnpm router:deploy:upload -- --env staging`
 - Public keyset discovery: `/v1/router-ab/keyset`
 
-`wallet-core:deploy:env-prepare` generates one matched deployment generation:
-Router A/B role identities, root-share wire secrets, internal service
-authentication, ceremony signing material, Gateway secrets, and signing-session
-seal material. The lower-level `router:deploy:keygen` command generates role
-identity keys only; `router:deploy:root-share-keygen` generates a matched root-share
-pair for controlled rotation or inspection. The Router or self-host relay serves
-the public keyset for SDK prefetch. The deployment workflow performs its
-component-scoped preflight before any remote mutation.
+`wallet-core:deploy:env-prepare` generates the deployment identities, internal
+service authentication, ceremony signing material, Gateway secrets, and
+signing-session seal material. Tenant root shares are created and rotated by the
+role-separated tenant-root protocol; they are never generated as deployment
+secrets. The Router or self-host relay serves the public keyset for SDK prefetch.
+The deployment workflow performs its component-scoped preflight before any
+remote mutation.
 
 ## Architecture
 

@@ -345,13 +345,11 @@ fn deriver_a_config() -> LocalDeriverAWorkerConfigV1 {
         deriver_a_url: "http://127.0.0.1:1".to_owned(),
         deriver_b_url: "http://127.0.0.1:2".to_owned(),
         envelope_hpke_private_key: "local-test".to_owned(),
-        root_share_wire_secret: "local-test".to_owned(),
         ed25519_yao_derivation_root_hex: "22".repeat(32),
         peer_signing_key: "local-test".to_owned(),
         deriver_a_peer_verifying_key: "local-test".to_owned(),
         deriver_b_peer_verifying_key: "local-test".to_owned(),
         role_private_storage_path: "/tmp/local-test-a-root".to_owned(),
-        sealed_root_shares_path: "/tmp/local-test-a-sealed".to_owned(),
     }
 }
 
@@ -360,13 +358,11 @@ fn deriver_b_config() -> LocalDeriverBWorkerConfigV1 {
         deriver_b_url: "http://127.0.0.1:2".to_owned(),
         deriver_a_url: "http://127.0.0.1:1".to_owned(),
         envelope_hpke_private_key: "local-test".to_owned(),
-        root_share_wire_secret: "local-test".to_owned(),
         ed25519_yao_derivation_root_hex: "33".repeat(32),
         peer_signing_key: "local-test".to_owned(),
         deriver_a_peer_verifying_key: "local-test".to_owned(),
         deriver_b_peer_verifying_key: "local-test".to_owned(),
         role_private_storage_path: "/tmp/local-test-b-root".to_owned(),
-        sealed_root_shares_path: "/tmp/local-test-b-sealed".to_owned(),
     }
 }
 
