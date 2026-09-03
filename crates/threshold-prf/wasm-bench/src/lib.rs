@@ -519,28 +519,20 @@ fn run_r120_tenant_root_outer_protocol_vector() -> Result<(), RouterAbDerivation
         context.clone(),
         &coefficient_a,
         &signing_a,
-        "deriver-b-hpke-key-8",
-        hpke_b.public_key(),
+        "deriver-a-hpke-key-8",
+        hpke_a.public_key(),
     )?;
     let commitment_b = r120_verified_refresh_commitment(
         context.clone(),
         &coefficient_b,
         &signing_b,
-        "deriver-a-hpke-key-8",
-        hpke_a.public_key(),
-    )?;
-    let commitment_pair =
-        router_ab_core::VerifiedTenantRootRefreshCommitmentPairV1::new(commitment_a, commitment_b)?;
-    let aad_a_to_b = TenantRootRefreshContributionAadV1::deriver_a_to_b(
-        &commitment_pair,
         "deriver-b-hpke-key-8",
         hpke_b.public_key(),
     )?;
-    let aad_b_to_a = TenantRootRefreshContributionAadV1::deriver_b_to_a(
-        &commitment_pair,
-        "deriver-a-hpke-key-8",
-        hpke_a.public_key(),
-    )?;
+    let commitment_pair =
+        router_ab_core::VerifiedTenantRootRefreshCommitmentPairV1::new(commitment_a, commitment_b)?;
+    let aad_a_to_b = TenantRootRefreshContributionAadV1::deriver_a_to_b(&commitment_pair)?;
+    let aad_b_to_a = TenantRootRefreshContributionAadV1::deriver_b_to_a(&commitment_pair)?;
 
     let contribution_a_for_b = coefficient_a.contribution_for(TwoPartyDeriverRole::DeriverB);
     let encrypted_a = seal_tenant_root_refresh_contribution_v1(

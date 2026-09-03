@@ -6350,21 +6350,13 @@ fn verify_refresh_contribution_wire(
     let signed = TenantRootSignedRefreshContributionV1::decode_canonical_bytes(bytes)
         .map_err(candidate_derivation_error)?;
     let role = signed.envelope().source();
-    let commitment = match role {
-        TwoPartyDeriverRole::DeriverA => commitments.deriver_a(),
-        TwoPartyDeriverRole::DeriverB => commitments.deriver_b(),
-    };
     let aad = match role {
-        TwoPartyDeriverRole::DeriverA => TenantRootRefreshContributionAadV1::deriver_a_to_b(
-            commitments,
-            commitment.recipient_key_id(),
-            commitment.recipient_public_key(),
-        ),
-        TwoPartyDeriverRole::DeriverB => TenantRootRefreshContributionAadV1::deriver_b_to_a(
-            commitments,
-            commitment.recipient_key_id(),
-            commitment.recipient_public_key(),
-        ),
+        TwoPartyDeriverRole::DeriverA => {
+            TenantRootRefreshContributionAadV1::deriver_a_to_b(commitments)
+        }
+        TwoPartyDeriverRole::DeriverB => {
+            TenantRootRefreshContributionAadV1::deriver_b_to_a(commitments)
+        }
     }
     .map_err(candidate_derivation_error)?;
     if aad.context() != context {
@@ -8272,21 +8264,13 @@ mod tests {
             Scalar::from(scalar).to_bytes(),
         )
         .expect("refresh coefficient");
-        let commitment = match role {
-            TwoPartyDeriverRole::DeriverA => commitments.deriver_a(),
-            TwoPartyDeriverRole::DeriverB => commitments.deriver_b(),
-        };
         let aad = match role {
-            TwoPartyDeriverRole::DeriverA => TenantRootRefreshContributionAadV1::deriver_a_to_b(
-                commitments,
-                commitment.recipient_key_id(),
-                commitment.recipient_public_key(),
-            ),
-            TwoPartyDeriverRole::DeriverB => TenantRootRefreshContributionAadV1::deriver_b_to_a(
-                commitments,
-                commitment.recipient_key_id(),
-                commitment.recipient_public_key(),
-            ),
+            TwoPartyDeriverRole::DeriverA => {
+                TenantRootRefreshContributionAadV1::deriver_a_to_b(commitments)
+            }
+            TwoPartyDeriverRole::DeriverB => {
+                TenantRootRefreshContributionAadV1::deriver_b_to_a(commitments)
+            }
         }
         .expect("refresh contribution AAD");
         let envelope = seal_tenant_root_refresh_contribution_v1(
