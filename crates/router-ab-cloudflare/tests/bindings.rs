@@ -789,7 +789,7 @@ fn signer_set() -> SignerSetV1 {
 fn transcript_metadata() -> RouterTranscriptMetadataV1 {
     RouterTranscriptMetadataV1::new(
         "near-mainnet",
-        "ed25519:account-public-key",
+        ecdsa_application_binding_digest_b64u(),
         "router-1",
         "client-1",
         "x25519:client-ephemeral-public-key",
@@ -863,6 +863,10 @@ fn encode_jwt_segment(value: &serde_json::Value) -> String {
 
 fn b64u(bytes: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn ecdsa_application_binding_digest_b64u() -> String {
+    b64u(&[0x42; 32])
 }
 
 fn sha256_public_digest(bytes: &[u8]) -> PublicDigest32 {
@@ -1093,7 +1097,7 @@ fn ecdsa_derivation_client_share_public_key33() -> [u8; 33] {
 }
 
 fn router_ab_ecdsa_derivation_context() -> RouterAbEcdsaDerivationStableKeyContextV1 {
-    RouterAbEcdsaDerivationStableKeyContextV1::new(b64u(&[0x42; 32]))
+    RouterAbEcdsaDerivationStableKeyContextV1::new(ecdsa_application_binding_digest_b64u())
         .expect("Router A/B ECDSA derivation context")
 }
 
@@ -2022,7 +2026,7 @@ fn ecdsa_threshold_prf_request_with_hpke_envelopes(
         lifecycle,
         signer_set,
         "near-mainnet",
-        "ed25519:account-public-key",
+        ecdsa_application_binding_digest_b64u(),
         "router-1",
         "client-1",
         "x25519:client-ephemeral-public-key",
@@ -2350,7 +2354,7 @@ fn ecdsa_threshold_prf_request(expires_at_ms: u64) -> EcdsaThresholdPrfRequestV1
         lifecycle,
         signer_set,
         "near-mainnet",
-        "ed25519:account-public-key",
+        ecdsa_application_binding_digest_b64u(),
         "router-1",
         "client-1",
         "x25519:client-ephemeral-public-key",
@@ -2923,7 +2927,7 @@ fn trusted_admission_rejects_preauth_for_non_registration_work() {
         lifecycle,
         signer_set,
         "near-mainnet",
-        "ed25519:account-public-key",
+        ecdsa_application_binding_digest_b64u(),
         "router-1",
         "client-1",
         "x25519:client-ephemeral-public-key",
