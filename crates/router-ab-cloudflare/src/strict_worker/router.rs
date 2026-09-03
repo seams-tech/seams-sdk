@@ -10,19 +10,28 @@ use crate::durable_object::tenant_root_creation::{
     execute_cloudflare_router_tenant_root_creation_active_state_read_call_v1,
     execute_cloudflare_router_tenant_root_creation_cleanup_call_v1,
     execute_cloudflare_router_tenant_root_creation_initial_activation_call_v1,
+    execute_cloudflare_router_tenant_root_refresh_activation_call_v1,
 };
 use crate::tenant_root_control_plane::{
     execute_cloudflare_tenant_root_control_plane_initial_activation_service_call_v1,
     CloudflareTenantRootControlPlaneInitialActivationRequestV1,
+    CloudflareTenantRootControlPlaneRefreshActivationRequestV1,
 };
-use crate::tenant_root_role_runtime::CloudflareTenantRootCreateRoleV1;
+use crate::tenant_root_role_runtime::{
+    CloudflareDeriverTenantRootRefreshActivationRequestV1,
+    CloudflareDeriverTenantRootRefreshRequestV1, CloudflareTenantRootCreateRoleV1,
+};
 use crate::{
     execute_cloudflare_deriver_tenant_root_cleanup_pending_service_call_v1,
     execute_cloudflare_deriver_tenant_root_create_role_share_service_call_v1,
     execute_cloudflare_deriver_tenant_root_initial_activation_service_call_v1,
+    execute_cloudflare_deriver_tenant_root_refresh_activation_service_call_v1,
+    execute_cloudflare_deriver_tenant_root_refresh_service_call_v1,
     execute_cloudflare_signing_worker_linked_device_ecdsa_finalize_service_call_v1,
     execute_cloudflare_tenant_root_control_plane_cleanup_command_service_call_v1,
     execute_cloudflare_tenant_root_control_plane_create_tenant_root_service_call_v1,
+    execute_cloudflare_tenant_root_control_plane_refresh_activation_service_call_v1,
+    execute_cloudflare_tenant_root_control_plane_refresh_commands_service_call_v1,
     execute_cloudflare_tenant_root_control_plane_role_creation_command_service_call_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_internal_step_up_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_internal_step_up_request_v1,
@@ -43,11 +52,21 @@ use crate::{
     CloudflareTenantRootControlPlaneCleanupCommandRequestV1,
     CloudflareTenantRootControlPlaneCreateTenantRootRequestV1,
     CloudflareTenantRootControlPlaneCreateTenantRootResponseV1,
+    CloudflareTenantRootControlPlaneRefreshCommandsRequestV1,
     CloudflareTenantRootControlPlaneRoleCreationCommandRequestV1,
     CloudflareTenantRootControlPlaneRoleV1, CloudflareTenantRootCreationStatusV1,
     CLOUDFLARE_ROUTER_TENANT_ROOT_CREATION_PRIVATE_REQUEST_PATH,
+    CLOUDFLARE_ROUTER_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_PATH,
     TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_REQUEST_MAX_BYTES_V1,
+    TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_REQUEST_MAX_BYTES_V1,
 };
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+#[derive(Debug, serde::Serialize)]
+struct CloudflareRouterTenantRootRefreshResponseV1 {
+    activation_receipt_digest_b64u: String,
+    lifecycle_revision: u64,
+}
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
 async fn finish_cloudflare_router_tenant_root_initial_activation_v1(
@@ -319,6 +338,79 @@ async fn coordinate_cloudflare_router_tenant_root_creation_v1(
     }
     Ok(completed_state)
 }
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    request: CloudflareTenantRootControlPlaneRefreshCommandsRequestV1,
+) -> RouterAbProtocolResult<CloudflareRouterTenantRootRefreshResponseV1> {
+    let issued = execute_cloudflare_tenant_root_control_plane_refresh_commands_service_call_v1(
+        env, &request,
+    )
+    .await?;
+    let deriver_a_request = CloudflareDeriverTenantRootRefreshRequestV1 {
+        refresh_context_b64u: issued.refresh_context_b64u.clone(),
+        role_refresh_command_b64u: issued.deriver_a_refresh_command_b64u,
+    };
+    let deriver_b_request = CloudflareDeriverTenantRootRefreshRequestV1 {
+        refresh_context_b64u: issued.refresh_context_b64u,
+        role_refresh_command_b64u: issued.deriver_b_refresh_command_b64u,
+    };
+    let (deriver_a, deriver_b) = futures::try_join!(
+        execute_cloudflare_deriver_tenant_root_refresh_service_call_v1(
+            env,
+            &runtime.bindings().deriver_a,
+            &deriver_a_request,
+        ),
+        execute_cloudflare_deriver_tenant_root_refresh_service_call_v1(
+            env,
+            &runtime.bindings().deriver_b,
+            &deriver_b_request,
+        ),
+    )?;
+    let issued_activation =
+        execute_cloudflare_tenant_root_control_plane_refresh_activation_service_call_v1(
+            env,
+            &CloudflareTenantRootControlPlaneRefreshActivationRequestV1 {
+                deriver_a_signed_installation_evidence_b64u: deriver_a
+                    .signed_installation_evidence_b64u,
+                deriver_b_signed_installation_evidence_b64u: deriver_b
+                    .signed_installation_evidence_b64u,
+                deriver_a_signed_managed_backup_b64u: deriver_a.signed_managed_backup_b64u,
+                deriver_b_signed_managed_backup_b64u: deriver_b.signed_managed_backup_b64u,
+                ecdsa_provider_canary_receipt_b64u: deriver_a.provider_canary_receipt_b64u,
+                ed25519_provider_canary_receipt_b64u: deriver_b.provider_canary_receipt_b64u,
+            },
+        )
+        .await?;
+    let role_activation = CloudflareDeriverTenantRootRefreshActivationRequestV1 {
+        activation_receipt_b64u: issued_activation.activation_receipt_b64u.clone(),
+    };
+    futures::try_join!(
+        execute_cloudflare_deriver_tenant_root_refresh_activation_service_call_v1(
+            env,
+            &runtime.bindings().deriver_a,
+            &role_activation,
+        ),
+        execute_cloudflare_deriver_tenant_root_refresh_activation_service_call_v1(
+            env,
+            &runtime.bindings().deriver_b,
+            &role_activation,
+        ),
+    )?;
+    let activation_receipt = crate::decode_base64url_bytes_v1(
+        "tenant-root refresh activation receipt",
+        &issued_activation.activation_receipt_b64u,
+    )?;
+    let activated =
+        execute_cloudflare_router_tenant_root_refresh_activation_call_v1(env, &activation_receipt)
+            .await?;
+    Ok(CloudflareRouterTenantRootRefreshResponseV1 {
+        activation_receipt_digest_b64u: activated.activation_receipt_digest_b64u,
+        lifecycle_revision: activated.lifecycle_revision,
+    })
+}
 use router_ab_core::{
     PublicDigest32, RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
@@ -514,6 +606,34 @@ pub(super) async fn handle_strict_router_fetch_v1(
                 Err(err) => return cloudflare_protocol_error_response_v1(err),
             };
         return match coordinate_cloudflare_router_tenant_root_creation_v1(&env, &runtime, parsed)
+            .await
+        {
+            Ok(response) => Response::from_json(&response),
+            Err(err) => cloudflare_protocol_error_response_v1(err),
+        };
+    }
+    if path == CLOUDFLARE_ROUTER_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_PATH {
+        if let Err(err) = require_cloudflare_internal_service_auth_request_v1(&request, &env) {
+            return cloudflare_private_service_auth_error_response_v1(err);
+        }
+        if request.method() != Method::Post {
+            return Response::error("tenant-root refresh route requires POST", 405);
+        }
+        let runtime = match CloudflareRouterWorkerRuntimeV1::from_worker_env(&env) {
+            Ok(runtime) => runtime,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let parsed: CloudflareTenantRootControlPlaneRefreshCommandsRequestV1 =
+            match decode_bounded_json_request(
+                &mut request,
+                TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_REQUEST_MAX_BYTES_V1,
+            )
+            .await
+            {
+                Ok(value) => value,
+                Err(err) => return cloudflare_protocol_error_response_v1(err),
+            };
+        return match coordinate_cloudflare_router_tenant_root_refresh_v1(&env, &runtime, parsed)
             .await
         {
             Ok(response) => Response::from_json(&response),

@@ -113,6 +113,11 @@ impl PendingTenantRootRefreshRoleAttemptV1 {
         self.command.role()
     }
 
+    /// Returns the verified public command retained by this live attempt.
+    pub const fn command(&self) -> &VerifiedTenantRootRoleRefreshCommandV1 {
+        &self.command
+    }
+
     /// Returns the exact verified local refresh commitment token.
     pub const fn commitment(&self) -> &VerifiedTenantRootRefreshCommitmentV1 {
         &self.commitment

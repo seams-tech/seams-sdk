@@ -116,6 +116,7 @@ use tenant_root_role_runtime::{
     CloudflareDeriverTenantRootInitialActivationResponseV1,
     CloudflareDeriverTenantRootRefreshActivationRequestV1,
     CloudflareDeriverTenantRootRefreshActivationResponseV1,
+    CloudflareDeriverTenantRootRefreshRequestV1, CloudflareDeriverTenantRootRefreshResponseV1,
 };
 mod tenant_root_revision_manifest;
 pub use tenant_root_revision_manifest::*;
@@ -211,6 +212,7 @@ use paths::{
     cloudflare_deriver_tenant_root_create_role_share_service_url,
     cloudflare_deriver_tenant_root_initial_activation_service_url,
     cloudflare_deriver_tenant_root_refresh_activation_service_url,
+    cloudflare_deriver_tenant_root_refresh_service_url,
     cloudflare_router_ab_ecdsa_derivation_deriver_export_service_url,
     cloudflare_router_ab_ecdsa_derivation_deriver_refresh_service_url,
     cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_url,
@@ -14729,6 +14731,45 @@ pub(crate) async fn execute_cloudflare_deriver_tenant_root_create_role_share_ser
         request,
     )
     .await
+}
+
+/// Executes one role-local tenant-root refresh over a Deriver service binding.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn execute_cloudflare_deriver_tenant_root_refresh_service_call_v1(
+    env: &worker::Env,
+    peer: &CloudflarePeerBindingV1,
+    request: &CloudflareDeriverTenantRootRefreshRequestV1,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootRefreshResponseV1> {
+    peer.validate()?;
+    let response: CloudflareDeriverTenantRootRefreshResponseV1 = post_service_json(
+        env,
+        &peer.binding_name,
+        cloudflare_deriver_tenant_root_refresh_service_url(peer)?,
+        "tenant-root role refresh request",
+        request,
+    )
+    .await?;
+    let expected_role = match peer.peer_role {
+        CloudflareWorkerRoleV1::DeriverA => {
+            tenant_root_role_runtime::CloudflareTenantRootCreateRoleV1::DeriverA
+        }
+        CloudflareWorkerRoleV1::DeriverB => {
+            tenant_root_role_runtime::CloudflareTenantRootCreateRoleV1::DeriverB
+        }
+        _ => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root refresh can target only a Deriver",
+            ));
+        }
+    };
+    if response.role != expected_role {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root refresh response names the wrong role",
+        ));
+    }
+    Ok(response)
 }
 
 /// Sends one authorized pending-share cleanup to its owning Deriver.

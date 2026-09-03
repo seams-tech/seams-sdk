@@ -3,18 +3,23 @@ use base64::Engine;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use hpke_ng::{DhKemX25519HkdfSha256, Kem};
 use router_ab_core::{
-    ExecutedTenantRootCommandV1, PendingTenantRootInitialRoleAttemptV1, RouterAbDerivationError,
-    RouterAbDerivationErrorCode, RouterAbDerivationResult, RouterAbProtocolError,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult, TenantRootCanaryCurveFamilyV1,
+    ExecutedTenantRootCommandV1, PendingTenantRootInitialRoleAttemptV1,
+    PendingTenantRootRefreshRoleAttemptV1, RouterAbDerivationError, RouterAbDerivationErrorCode,
+    RouterAbDerivationResult, RouterAbProtocolError, RouterAbProtocolErrorCode,
+    RouterAbProtocolResult, TenantRootActiveRoleBindingV1, TenantRootCanaryCurveFamilyV1,
     TenantRootCeremonyContextV1, TenantRootCommandTerminalReceiptV1,
-    TenantRootManagedBackupSealRequestV1, TenantRootManagedRestoreRoleV1,
-    TenantRootProviderCanaryReceiptBindingV1, TenantRootSignedManagedBackupV1,
-    TenantRootSignedProviderCanaryReceiptV1, TwoPartyDeriverRole,
+    TenantRootEncryptedRefreshContributionV1, TenantRootManagedBackupSealRequestV1,
+    TenantRootManagedRestoreRoleV1, TenantRootProviderCanaryReceiptBindingV1,
+    TenantRootRefreshContributionAadV1, TenantRootRefreshHpkePublicKeyV1,
+    TenantRootSignedManagedBackupV1, TenantRootSignedProviderCanaryReceiptV1,
+    TenantRootSignedRefreshContributionV1, TwoPartyDeriverRole,
     VerifiedTenantRootCommandSuccessReceiptV1, VerifiedTenantRootCreationCommitmentPairV1,
     VerifiedTenantRootInitialRoleAttemptV1, VerifiedTenantRootRoleCreationCommandV1,
+    VerifiedTenantRootRoleRefreshCommandV1,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use threshold_prf::SigningRootShare;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 #[cfg(feature = "workers-rs")]
@@ -1114,6 +1119,53 @@ impl CloudflareTenantRootCreationRoleSignerV1 {
     {
         let seed = Zeroizing::new(self.signing_key.to_bytes());
         pending.finalize(pair, &seed, rng)
+    }
+
+    /// Starts one role-local refresh attempt without exposing the signing seed.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn begin_refresh_role_attempt<R>(
+        &self,
+        command: VerifiedTenantRootRoleRefreshCommandV1,
+        context: TenantRootCeremonyContextV1,
+        active_binding: TenantRootActiveRoleBindingV1,
+        current_share: SigningRootShare,
+        recipient_key_id: impl Into<String>,
+        recipient_public_key: TenantRootRefreshHpkePublicKeyV1,
+        now_ms: u64,
+        rng: &mut R,
+    ) -> RouterAbDerivationResult<PendingTenantRootRefreshRoleAttemptV1>
+    where
+        R: rand_core_06::RngCore + rand_core_06::CryptoRng,
+    {
+        let seed = Zeroizing::new(self.signing_key.to_bytes());
+        PendingTenantRootRefreshRoleAttemptV1::new(
+            command,
+            context,
+            active_binding,
+            current_share,
+            &seed,
+            &self.verifying_key_bytes(),
+            recipient_key_id,
+            recipient_public_key,
+            now_ms,
+            rng,
+        )
+    }
+
+    /// Signs one recipient-bound encrypted refresh contribution.
+    pub(crate) fn sign_refresh_contribution(
+        &self,
+        aad: &TenantRootRefreshContributionAadV1,
+        envelope: TenantRootEncryptedRefreshContributionV1,
+    ) -> RouterAbDerivationResult<TenantRootSignedRefreshContributionV1> {
+        if aad.source() != self.role {
+            return Err(RouterAbDerivationError::new(
+                RouterAbDerivationErrorCode::SignerIdentityMismatch,
+                "tenant-root refresh contribution source does not match role signer",
+            ));
+        }
+        let seed = Zeroizing::new(self.signing_key.to_bytes());
+        TenantRootSignedRefreshContributionV1::sign(aad, envelope, &seed)
     }
 
     /// Signs and locally verifies one successful terminal receipt for an
