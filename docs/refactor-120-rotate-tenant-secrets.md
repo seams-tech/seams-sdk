@@ -2156,14 +2156,14 @@ count toward progress.
 
 ### Milestone 2: use tenant roots for production derivation
 
-- [ ] Persist one server-authoritative custody lineage for each canonical
+- [x] Persist one server-authoritative custody lineage for each canonical
       tenant-root identity and resolve it through the private Console service
       binding. Browser requests, JWT claims, and signer D1 cannot select the
       identity, lineage, role, or epoch.
-- [ ] Make one live ECDSA registration load both active role-private shares and
+- [x] Make one live ECDSA registration load both active role-private shares and
       derive through `StableTenantDerivationContextV2`. Remove
       `RootShareEpoch` from threshold-PRF input bytes.
-- [ ] Regenerate only the ECDSA bindings and vectors changed by that operating
+- [x] Regenerate only the ECDSA bindings and vectors changed by that operating
       path, then delete the ECDSA deployment-root adapter so registration has
       no fallback.
 - [ ] Prove that ECDSA registration preserves the expected public key and
