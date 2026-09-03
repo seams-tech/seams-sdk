@@ -2297,6 +2297,57 @@ export class CloudflareD1WalletRegistrationService {
     }
   }
 
+  async resolveActiveEd25519TenantRoot(input: {
+    readonly walletId: string;
+    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly identityDigestB64u: string;
+        readonly custodyLineageB64u: string;
+      }
+    | {
+        readonly ok: false;
+        readonly code: 'not_found' | 'invalid_state' | 'internal';
+        readonly message: string;
+      }
+  > {
+    const activeMaterial = await this.resolveEd25519MaterialActivation(input);
+    if (!activeMaterial.ok) return activeMaterial;
+
+    const identity = resolveTenantRootIdentityV1({
+      kind: 'ed25519_b5_active_material',
+      activeMaterial,
+    });
+    if (!identity.ok) {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: identity.message,
+      };
+    }
+
+    try {
+      const tenantRoot = await this.tenantRootCustodyLineage.resolveActiveLineage(
+        identity.identity,
+      );
+      if (!tenantRoot) {
+        return {
+          ok: false,
+          code: 'not_found',
+          message: 'Ed25519 tenant root is not active',
+        };
+      }
+      return { ok: true, ...tenantRoot };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: error instanceof Error ? error.message : 'Ed25519 tenant-root lookup failed',
+      };
+    }
+  }
+
   async resolveActiveEcdsaTenantRoot(input: {
     readonly walletId: string;
     readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
