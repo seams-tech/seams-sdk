@@ -393,8 +393,17 @@ impl<'socket> CloudflareEd25519YaoWebSocketTransportV1<'socket> {
         read_preface_wire(&mut self.events).await
     }
 
-    fn mark_yao_started(&mut self) {
-        self.phase = CloudflareEd25519YaoWebSocketPhaseV1::YaoStarted;
+    fn require_target_preface(&mut self) -> Result<(), CloudflareEd25519YaoWebSocketErrorV1> {
+        match self.phase {
+            CloudflareEd25519YaoWebSocketPhaseV1::PrefaceComplete => {
+                self.phase = CloudflareEd25519YaoWebSocketPhaseV1::YaoStarted;
+                Ok(())
+            }
+            CloudflareEd25519YaoWebSocketPhaseV1::YaoStarted => Ok(()),
+            CloudflareEd25519YaoWebSocketPhaseV1::Initial => {
+                Err(CloudflareEd25519YaoWebSocketErrorV1::InvalidState)
+            }
+        }
     }
 
     /// Delivers B's durably committed sealed result before closing the socket.
@@ -404,6 +413,7 @@ impl<'socket> CloudflareEd25519YaoWebSocketTransportV1<'socket> {
     ) -> Result<CloudflareEd25519YaoWebSocketCompletionV1, CloudflareEd25519YaoWebSocketErrorV1>
     {
         if self.side != CloudflareEd25519YaoWebSocketSideV1::DeriverB
+            || self.phase != CloudflareEd25519YaoWebSocketPhaseV1::YaoStarted
             || self.encoder.is_some()
             || self.decoder.is_some()
             || sealed_completion.is_empty()
@@ -477,7 +487,7 @@ impl YaoDuplexTransport for CloudflareEd25519YaoWebSocketTransportV1<'_> {
     type Completion = CloudflareEd25519YaoWebSocketCompletionV1;
 
     async fn send(&mut self, message: WireMessage) -> Result<Option<YaoInboundEvent>, Self::Error> {
-        self.mark_yao_started();
+        self.require_target_preface()?;
         let envelope = Zeroizing::new(
             self.encoder
                 .as_mut()
@@ -492,7 +502,7 @@ impl YaoDuplexTransport for CloudflareEd25519YaoWebSocketTransportV1<'_> {
     }
 
     async fn receive(&mut self) -> Result<YaoInboundEvent, Self::Error> {
-        self.mark_yao_started();
+        self.require_target_preface()?;
         match self.events.next().await {
             Some(Ok(WebsocketEvent::Message(message))) => {
                 let data = message.as_ref().data();
@@ -517,7 +527,7 @@ impl YaoDuplexTransport for CloudflareEd25519YaoWebSocketTransportV1<'_> {
     async fn close_local_direction(
         &mut self,
     ) -> Result<(DirectionalEofEvidence, Option<YaoInboundEvent>), Self::Error> {
-        self.mark_yao_started();
+        self.require_target_preface()?;
         let evidence = self
             .encoder
             .take()
@@ -531,7 +541,10 @@ impl YaoDuplexTransport for CloudflareEd25519YaoWebSocketTransportV1<'_> {
     }
 
     async fn finish(mut self) -> Result<Self::Completion, Self::Error> {
-        if self.encoder.is_some() || self.decoder.is_some() {
+        if self.phase != CloudflareEd25519YaoWebSocketPhaseV1::YaoStarted
+            || self.encoder.is_some()
+            || self.decoder.is_some()
+        {
             return Err(CloudflareEd25519YaoWebSocketErrorV1::InvalidState);
         }
         let peer_sealed_completion = if self.side == CloudflareEd25519YaoWebSocketSideV1::DeriverA {
