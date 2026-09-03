@@ -24,7 +24,8 @@ use router_ab_core::{
     TenantRootRoleInstallationReceiptsV1, TenantRootSealedOnlineRoleShareV1, TenantRootShareEpoch,
     TenantRootSignedAcceptedPermanentLossAuthorizationV1, TenantRootSignedActivationReceiptV1,
     TwoPartyDeriverRole, VerifiedTenantRootCommandFailureReceiptV1,
-    VerifiedTenantRootCommandSuccessReceiptV1, VerifiedTenantRootManagedBackupV1,
+    VerifiedTenantRootCommandSuccessReceiptV1, VerifiedTenantRootManagedBackupShareV1,
+    VerifiedTenantRootManagedBackupV1, VerifiedTenantRootManagedRestoreCapabilityV1,
     VerifiedTenantRootRoleCleanupCommandV1, VerifiedTenantRootRoleCreationCommandV1,
     VerifiedTenantRootRoleRefreshCommandV1, VerifiedTenantRootSignedActivationReceiptV1,
     VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
@@ -241,12 +242,28 @@ impl fmt::Debug for CloudflareTenantRootSealedRoleShareV1 {
     }
 }
 
+/// Provenance of a pending role-local tenant-root share.
+///
+/// Restore material remains a pending input until the mandatory forward
+/// refresh replaces it. Keeping that provenance in the encrypted record lets
+/// every activation boundary reject a direct restore-to-active transition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum CloudflareTenantRootPendingShareOriginV1 {
+    Ceremony,
+    ManagedRestore {
+        capability_digest: TenantRootLifecycleReceiptDigestV1,
+        backup_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+    },
+}
+
 /// Pending role-local tenant-root installation evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CloudflareTenantRootPendingShareV1 {
     installation_evidence_digest: TenantRootLifecycleReceiptDigestV1,
     staged_at_ms: u64,
+    origin: CloudflareTenantRootPendingShareOriginV1,
 }
 
 impl CloudflareTenantRootPendingShareV1 {
@@ -265,9 +282,38 @@ impl CloudflareTenantRootPendingShareV1 {
         installation_evidence_digest: TenantRootLifecycleReceiptDigestV1,
         staged_at_ms: u64,
     ) -> worker::Result<Self> {
+        Self::from_stored_digest_with_origin(
+            installation_evidence_digest,
+            staged_at_ms,
+            CloudflareTenantRootPendingShareOriginV1::Ceremony,
+        )
+    }
+
+    fn from_managed_restore(
+        installation_evidence_digest: TenantRootLifecycleReceiptDigestV1,
+        capability_digest: TenantRootLifecycleReceiptDigestV1,
+        backup_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+        staged_at_ms: u64,
+    ) -> worker::Result<Self> {
+        Self::from_stored_digest_with_origin(
+            installation_evidence_digest,
+            staged_at_ms,
+            CloudflareTenantRootPendingShareOriginV1::ManagedRestore {
+                capability_digest,
+                backup_receipt_digest,
+            },
+        )
+    }
+
+    fn from_stored_digest_with_origin(
+        installation_evidence_digest: TenantRootLifecycleReceiptDigestV1,
+        staged_at_ms: u64,
+        origin: CloudflareTenantRootPendingShareOriginV1,
+    ) -> worker::Result<Self> {
         let pending = Self {
             installation_evidence_digest,
             staged_at_ms,
+            origin,
         };
         pending.validate()?;
         Ok(pending)
@@ -280,6 +326,39 @@ impl CloudflareTenantRootPendingShareV1 {
     pub const fn installation_evidence_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
         self.installation_evidence_digest
     }
+
+    fn is_managed_restore(&self) -> bool {
+        matches!(
+            &self.origin,
+            CloudflareTenantRootPendingShareOriginV1::ManagedRestore { .. }
+        )
+    }
+
+    fn managed_restore_digests(
+        &self,
+    ) -> Option<(
+        TenantRootLifecycleReceiptDigestV1,
+        TenantRootLifecycleReceiptDigestV1,
+    )> {
+        match &self.origin {
+            CloudflareTenantRootPendingShareOriginV1::Ceremony => None,
+            CloudflareTenantRootPendingShareOriginV1::ManagedRestore {
+                capability_digest,
+                backup_receipt_digest,
+            } => Some((*capability_digest, *backup_receipt_digest)),
+        }
+    }
+}
+
+fn require_pending_activation_source(
+    pending: &CloudflareTenantRootPendingShareV1,
+) -> worker::Result<()> {
+    if pending.is_managed_restore() {
+        return Err(store_error(
+            "managed-restore material must pass through the mandatory forward refresh before activation",
+        ));
+    }
+    Ok(())
 }
 
 /// Exact availability evidence accepted before a role share may activate.
@@ -413,14 +492,12 @@ impl CloudflareTenantRootActivationV1 {
         activation_receipt: VerifiedTenantRootSignedActivationReceiptV1,
     ) -> worker::Result<Self> {
         record.validate()?;
-        if !matches!(
-            record.lifecycle(),
-            CloudflareTenantRootRoleShareLifecycleV1::Pending(_)
-        ) {
+        let CloudflareTenantRootRoleShareLifecycleV1::Pending(pending) = record.lifecycle() else {
             return Err(store_error(
                 "tenant-root activation requires a pending role-share record",
             ));
-        }
+        };
+        require_pending_activation_source(pending)?;
         let binding = verified_backup.binding();
         validate_activation_receipt_against_backup(&activation_receipt, verified_backup)?;
         let availability = CloudflareTenantRootAvailabilityEvidenceV1::CurrentRoleBackup {
@@ -445,14 +522,12 @@ impl CloudflareTenantRootActivationV1 {
         activation_receipt: VerifiedTenantRootSignedActivationReceiptV1,
     ) -> worker::Result<Self> {
         record.validate()?;
-        if !matches!(
-            record.lifecycle(),
-            CloudflareTenantRootRoleShareLifecycleV1::Pending(_)
-        ) {
+        let CloudflareTenantRootRoleShareLifecycleV1::Pending(pending) = record.lifecycle() else {
             return Err(store_error(
                 "tenant-root activation requires a pending role-share record",
             ));
-        }
+        };
+        require_pending_activation_source(pending)?;
         let availability = accepted_loss_availability_from_verified_receipt(
             &activation_receipt,
             record.role.managed_restore_role(),
@@ -603,6 +678,7 @@ impl CloudflareTenantRootActiveShareV1 {
         pending: CloudflareTenantRootPendingShareV1,
         activation: CloudflareTenantRootActivationV1,
     ) -> worker::Result<Self> {
+        require_pending_activation_source(&pending)?;
         let active = Self {
             pending,
             activation,
@@ -613,6 +689,7 @@ impl CloudflareTenantRootActiveShareV1 {
 
     fn validate(&self) -> worker::Result<()> {
         self.pending.validate()?;
+        require_pending_activation_source(&self.pending)?;
         self.activation.validate()?;
         if self.activation.activated_at_ms < self.pending.staged_at_ms {
             return Err(store_error(
@@ -898,17 +975,21 @@ impl CloudflareTenantRootRoleShareRecordV1 {
         activation: CloudflareTenantRootActivationV1,
         updated_at_ms: u64,
     ) -> worker::Result<Self> {
-        activation.validate_for_record(&self)?;
         require_lifecycle_progression(
             "tenant-root activation",
             self.updated_at_ms,
             activation.activated_at_ms,
             updated_at_ms,
         )?;
-        let CloudflareTenantRootRoleShareLifecycleV1::Pending(pending) = self.lifecycle else {
+        let CloudflareTenantRootRoleShareLifecycleV1::Pending(pending) = &self.lifecycle else {
             return Err(store_error(
                 "only a pending tenant-root role share can become active",
             ));
+        };
+        require_pending_activation_source(pending)?;
+        activation.validate_for_record(&self)?;
+        let CloudflareTenantRootRoleShareLifecycleV1::Pending(pending) = self.lifecycle else {
+            unreachable!("pending lifecycle was checked before activation");
         };
         let active = CloudflareTenantRootActiveShareV1::from_pending(pending, activation)?;
         self.lifecycle = CloudflareTenantRootRoleShareLifecycleV1::Active(active);
@@ -1189,6 +1270,7 @@ enum TenantRootRoleD1LifecycleWireV1 {
 struct TenantRootRoleD1PendingWireV1 {
     installation_evidence_digest: TenantRootLifecycleReceiptDigestV1,
     staged_at_ms: u64,
+    origin: CloudflareTenantRootPendingShareOriginV1,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1275,9 +1357,10 @@ impl TenantRootRoleD1LifecycleWireV1 {
 
 impl TenantRootRoleD1PendingWireV1 {
     fn into_pending(self) -> worker::Result<CloudflareTenantRootPendingShareV1> {
-        CloudflareTenantRootPendingShareV1::from_stored_digest(
+        CloudflareTenantRootPendingShareV1::from_stored_digest_with_origin(
             self.installation_evidence_digest,
             self.staged_at_ms,
+            self.origin,
         )
     }
 }
@@ -2592,6 +2675,144 @@ pub async fn run_cloudflare_tenant_root_role_d1_integration_v1(
     }
 }
 
+/// Role-local restore input that retains only the verified capability and the
+/// pending record metadata. The opened backup share is consumed while the
+/// provider-sealed online ciphertext is copied into the encrypted D1 record;
+/// plaintext share bytes never enter this type or persistence.
+pub(crate) struct CloudflareTenantRootManagedRestoreStagingInputV1 {
+    capability: VerifiedTenantRootManagedRestoreCapabilityV1,
+    scope: TenantRootCommandScopeV1,
+    record: CloudflareTenantRootRoleShareRecordV1,
+}
+
+impl fmt::Debug for CloudflareTenantRootManagedRestoreStagingInputV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CloudflareTenantRootManagedRestoreStagingInputV1")
+            .field("capability", &self.capability)
+            .field("scope", &self.scope)
+            .field("record", &self.record)
+            .finish()
+    }
+}
+
+impl CloudflareTenantRootManagedRestoreStagingInputV1 {
+    /// Consumes verified restore authorization and opened backup material into
+    /// one role-bound, non-active pending record.
+    pub(crate) fn from_verified_material(
+        capability: VerifiedTenantRootManagedRestoreCapabilityV1,
+        restored_share: VerifiedTenantRootManagedBackupShareV1,
+        identity: TenantRootIdentityV1,
+        sealed_online_share: TenantRootSealedOnlineRoleShareV1,
+        scope: TenantRootCommandScopeV1,
+        staged_at_ms: u64,
+    ) -> worker::Result<Self> {
+        let backup_binding = restored_share.binding();
+        let sealed_binding = sealed_online_share.binding();
+        let identity_digest = identity
+            .digest()
+            .map_err(|error| store_error(error.message()))?;
+        let protocol_role = protocol_role_for_managed_restore(backup_binding.role());
+        if capability.identity_digest() != identity_digest
+            || capability.identity_digest() != backup_binding.identity_digest()
+            || capability.custody_lineage() != backup_binding.custody_lineage()
+            || capability.role() != backup_binding.role()
+            || capability.epoch() != backup_binding.epoch()
+        {
+            return Err(store_error(
+                "tenant-root managed-restore material does not match its capability",
+            ));
+        }
+        if scope.key().identity_digest() != capability.identity_digest()
+            || scope.key().custody_lineage() != capability.custody_lineage()
+            || scope.key().role() != protocol_role
+            || scope.epoch() != capability.epoch()
+        {
+            return Err(store_error(
+                "tenant-root managed-restore command scope does not match its capability",
+            ));
+        }
+        if sealed_binding.identity_digest() != backup_binding.identity_digest()
+            || sealed_binding.custody_lineage() != backup_binding.custody_lineage()
+            || sealed_binding.role() != protocol_role
+            || sealed_binding.epoch() != backup_binding.epoch()
+            || sealed_binding.share_commitment() != backup_binding.share_commitment()
+            || sealed_binding.installation_evidence_digest()
+                != backup_binding.installation_receipt_digest()
+        {
+            return Err(store_error(
+                "tenant-root managed-restore sealed share does not match its opened backup",
+            ));
+        }
+        if staged_at_ms < capability.issued_at_ms() {
+            return Err(store_error(
+                "tenant-root managed-restore staging predates its capability",
+            ));
+        }
+        let role = match backup_binding.role() {
+            TenantRootManagedRestoreRoleV1::DeriverA => CloudflareTenantRootDeriverRoleV1::DeriverA,
+            TenantRootManagedRestoreRoleV1::DeriverB => CloudflareTenantRootDeriverRoleV1::DeriverB,
+        };
+        let pending = CloudflareTenantRootPendingShareV1::from_managed_restore(
+            backup_binding.installation_receipt_digest(),
+            capability.capability_digest(),
+            restored_share.receipt_digest(),
+            staged_at_ms,
+        )?;
+        let sealed_share =
+            CloudflareTenantRootSealedRoleShareV1::new(sealed_online_share.ciphertext())?;
+        let record = CloudflareTenantRootRoleShareRecordV1::new(
+            CloudflareTenantRootRoleShareRecordInputV1 {
+                identity,
+                custody_lineage: backup_binding.custody_lineage(),
+                epoch: backup_binding.epoch(),
+                role,
+                sealed_share,
+                share_commitment: backup_binding.share_commitment().clone(),
+                epoch_wrapping_key_ref: sealed_binding.epoch_wrapping_key_ref().to_owned(),
+                lifecycle: CloudflareTenantRootRoleShareLifecycleV1::Pending(pending),
+                created_at_ms: staged_at_ms,
+                updated_at_ms: staged_at_ms,
+            },
+        )?;
+        validate_managed_restore_staging_record(&record, capability.capability_digest())?;
+        Ok(Self {
+            capability,
+            scope,
+            record,
+        })
+    }
+}
+
+/// Executable role-local managed-restore staging insertion.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct CloudflareTenantRootManagedRestoreStagingPendingCommandV1 {
+    command: CloudflareTenantRootInsertPendingCommandV1,
+}
+
+/// Durable decision for one managed-restore staging reservation.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CloudflareTenantRootManagedRestoreStagingDecisionV1 {
+    /// The caller owns the newly reserved pending insertion and may execute it once.
+    Execute {
+        command: CloudflareTenantRootManagedRestoreStagingPendingCommandV1,
+    },
+    /// An identical command already owns this role-local session.
+    InProgress,
+    /// The reservation is durable and execution may be resumed.
+    ResumeExecution {
+        command: CloudflareTenantRootManagedRestoreStagingPendingCommandV1,
+    },
+    /// The pending-row mutation is checkpointed and may be terminalized by the caller.
+    ResumeCompletion {
+        executed: ExecutedTenantRootCommandV1,
+    },
+    /// Return the exact prior successful receipt bytes.
+    ReplayCompleted { receipt_bytes: Vec<u8> },
+    /// Return the exact prior failure receipt bytes.
+    ReplayFailed { failure_receipt_bytes: Vec<u8> },
+}
+
 impl CloudflareTenantRootRoleShareStoreV1 {
     /// Resolves the private D1 binding and role-local record cipher per request.
     pub fn from_env(env: &Env) -> worker::Result<Self> {
@@ -2702,6 +2923,77 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             } => Ok(CloudflareTenantRootInsertPendingDecisionV1::ReplayFailed {
                 failure_receipt_bytes,
             }),
+        }
+    }
+
+    /// Reserves one role-local managed-restore staging insertion.
+    ///
+    /// The capability is fresh only for a first-seen replay key. Exact retries
+    /// reconcile through the durable command row, including after capability
+    /// expiry, while the row itself remains pending for forward refresh.
+    pub(crate) async fn reserve_managed_restore_staging(
+        &self,
+        staging: CloudflareTenantRootManagedRestoreStagingInputV1,
+        reserved_at_ms: u64,
+    ) -> worker::Result<CloudflareTenantRootManagedRestoreStagingDecisionV1> {
+        let CloudflareTenantRootManagedRestoreStagingInputV1 {
+            capability,
+            scope,
+            record,
+        } = staging;
+        let capability_digest = capability.capability_digest();
+        validate_managed_restore_staging_record(&record, capability_digest)?;
+        validate_command_scope_for_record(
+            &scope,
+            &record,
+            1,
+            "tenant-root managed-restore staging",
+        )?;
+        let replay_exists = self.load_command_replay(scope.key()).await?.is_some();
+        if !replay_exists {
+            capability
+                .require_fresh(reserved_at_ms)
+                .map_err(|error| store_error(error.message()))?;
+        }
+        let operation_payload_digest = insert_pending_payload_digest(&record, 1)?;
+        match self
+            .reserve_insert_pending_with_payload_digest(
+                scope,
+                record,
+                reserved_at_ms,
+                operation_payload_digest,
+                None,
+            )
+            .await?
+        {
+            CloudflareTenantRootInsertPendingDecisionV1::Execute { command } => Ok(
+                CloudflareTenantRootManagedRestoreStagingDecisionV1::Execute {
+                    command: CloudflareTenantRootManagedRestoreStagingPendingCommandV1 { command },
+                },
+            ),
+            CloudflareTenantRootInsertPendingDecisionV1::InProgress => {
+                Ok(CloudflareTenantRootManagedRestoreStagingDecisionV1::InProgress)
+            }
+            CloudflareTenantRootInsertPendingDecisionV1::ResumeExecution { command } => Ok(
+                CloudflareTenantRootManagedRestoreStagingDecisionV1::ResumeExecution {
+                    command: CloudflareTenantRootManagedRestoreStagingPendingCommandV1 { command },
+                },
+            ),
+            CloudflareTenantRootInsertPendingDecisionV1::ResumeCompletion { executed } => Ok(
+                CloudflareTenantRootManagedRestoreStagingDecisionV1::ResumeCompletion { executed },
+            ),
+            CloudflareTenantRootInsertPendingDecisionV1::ReplayCompleted { receipt_bytes } => Ok(
+                CloudflareTenantRootManagedRestoreStagingDecisionV1::ReplayCompleted {
+                    receipt_bytes,
+                },
+            ),
+            CloudflareTenantRootInsertPendingDecisionV1::ReplayFailed {
+                failure_receipt_bytes,
+            } => Ok(
+                CloudflareTenantRootManagedRestoreStagingDecisionV1::ReplayFailed {
+                    failure_receipt_bytes,
+                },
+            ),
         }
     }
 
@@ -3151,6 +3443,39 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             },
             executed,
         ))
+    }
+
+    /// Executes one reserved managed-restore staging insertion.
+    pub(crate) async fn insert_managed_restore_pending(
+        &self,
+        command: CloudflareTenantRootManagedRestoreStagingPendingCommandV1,
+        executed_at_ms: u64,
+    ) -> worker::Result<(
+        CloudflareStoredTenantRootRoleShareV1,
+        ExecutedTenantRootCommandV1,
+    )> {
+        let CloudflareTenantRootManagedRestoreStagingPendingCommandV1 { command } = command;
+        let expected_payload_digest = insert_pending_payload_digest(&command.record, 1)?;
+        if command.operation_payload_digest != expected_payload_digest {
+            return Err(store_error(
+                "managed-restore staging command payload does not match its pending record",
+            ));
+        }
+        let capability_digest = match &command.record.lifecycle {
+            CloudflareTenantRootRoleShareLifecycleV1::Pending(pending) => pending
+                .managed_restore_digests()
+                .map(|(capability_digest, _)| capability_digest)
+                .ok_or_else(|| {
+                    store_error("managed-restore staging command lost restore provenance")
+                })?,
+            _ => {
+                return Err(store_error(
+                    "managed-restore staging command requires a pending record",
+                ));
+            }
+        };
+        validate_managed_restore_staging_record(&command.record, capability_digest)?;
+        self.insert_pending(command, executed_at_ms).await
     }
 
     /// Loads the one active role share authorized by the control-plane binding.
@@ -6056,7 +6381,7 @@ fn tenant_root_creation_probe_cleanup_authorization(
         *record_installation_evidence_digest(&pending.record)?.as_bytes(),
     )
     .map_err(|error| store_error(error.message()))?;
-    let target = router_ab_core::TenantRootRoleCleanupTargetV1 {
+    let target = router_ab_core::TenantRootRoleCleanupTargetV1::Pending {
         identity_digest: pending
             .record
             .identity()
@@ -6740,6 +7065,13 @@ fn protocol_role_for_cloudflare(role: CloudflareTenantRootDeriverRoleV1) -> TwoP
     }
 }
 
+fn protocol_role_for_managed_restore(role: TenantRootManagedRestoreRoleV1) -> TwoPartyDeriverRole {
+    match role {
+        TenantRootManagedRestoreRoleV1::DeriverA => TwoPartyDeriverRole::DeriverA,
+        TenantRootManagedRestoreRoleV1::DeriverB => TwoPartyDeriverRole::DeriverB,
+    }
+}
+
 fn validate_initial_creation_role_signer(
     creation: &CloudflareTenantRootInitialCreationInputV1,
     role_signer: &CloudflareTenantRootCreationRoleSignerV1,
@@ -7215,7 +7547,11 @@ fn validate_authorized_cleanup_pending(
         || authorization.custody_lineage() != pending.record.custody_lineage
         || authorization.epoch() != pending.record.epoch
         || authorization.expected_row_revision() != pending.revision
-        || authorization.installation_evidence_digest().as_bytes() != evidence_digest.as_bytes()
+        || authorization
+            .pending_installation_evidence_digest()
+            .map_err(|error| store_error(error.message()))?
+            .as_bytes()
+            != evidence_digest.as_bytes()
     {
         return Err(store_error(
             "tenant-root cleanup authorization does not name the authoritative pending row",
@@ -7287,7 +7623,21 @@ fn push_pending_public_payload(
     pending: &CloudflareTenantRootPendingShareV1,
 ) -> worker::Result<()> {
     push_command_field(bytes, pending.installation_evidence_digest.as_bytes())?;
-    push_command_u64(bytes, pending.staged_at_ms)
+    push_command_u64(bytes, pending.staged_at_ms)?;
+    match &pending.origin {
+        CloudflareTenantRootPendingShareOriginV1::Ceremony => {
+            push_command_field(bytes, b"ceremony")?;
+        }
+        CloudflareTenantRootPendingShareOriginV1::ManagedRestore {
+            capability_digest,
+            backup_receipt_digest,
+        } => {
+            push_command_field(bytes, b"managed_restore")?;
+            push_command_field(bytes, capability_digest.as_bytes())?;
+            push_command_field(bytes, backup_receipt_digest.as_bytes())?;
+        }
+    }
+    Ok(())
 }
 
 fn push_active_public_payload(
@@ -7602,6 +7952,29 @@ fn validate_pending_stored_record(
     if stored.revision <= 0 {
         return Err(store_error(
             "tenant-root role-private revision must be positive",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_managed_restore_staging_record(
+    record: &CloudflareTenantRootRoleShareRecordV1,
+    capability_digest: TenantRootLifecycleReceiptDigestV1,
+) -> worker::Result<()> {
+    record.validate()?;
+    let CloudflareTenantRootRoleShareLifecycleV1::Pending(pending) = record.lifecycle() else {
+        return Err(store_error(
+            "managed-restore material must be stored as a pending role-share record",
+        ));
+    };
+    let Some((stored_capability_digest, _)) = pending.managed_restore_digests() else {
+        return Err(store_error(
+            "managed-restore staging record is missing restore provenance",
+        ));
+    };
+    if stored_capability_digest != capability_digest {
+        return Err(store_error(
+            "managed-restore staging record capability digest does not match its input",
         ));
     }
     Ok(())
@@ -9759,6 +10132,65 @@ mod tests {
         let old_row =
             row_from_record_with_schema(&cipher, &record, "tenant-root-role-private-d1/v1");
         assert!(cipher.open(&old_row).is_err());
+    }
+
+    #[test]
+    fn managed_restore_pending_provenance_survives_d1_wire_and_cannot_activate() {
+        let mut record = record(CloudflareTenantRootDeriverRoleV1::DeriverA);
+        let activation = current_backup_activation_for_record(&record, 0x88, 0x89, 40);
+        let capability_digest = lifecycle_receipt(0x91).expect("capability digest");
+        let backup_receipt_digest = lifecycle_receipt(0x92).expect("backup receipt digest");
+        let installation_evidence_digest =
+            record_installation_evidence_digest(&record).expect("installation evidence digest");
+        let pending = CloudflareTenantRootPendingShareV1::from_managed_restore(
+            installation_evidence_digest,
+            capability_digest,
+            backup_receipt_digest,
+            30,
+        )
+        .expect("managed-restore pending state");
+        record.lifecycle = CloudflareTenantRootRoleShareLifecycleV1::Pending(pending);
+        record.updated_at_ms = 30;
+        record.validate().expect("managed-restore pending record");
+
+        let wire = serde_json::to_value(&record).expect("managed-restore record wire");
+        let decoded = serde_json::from_value::<TenantRootRoleD1RecordWireV1>(wire)
+            .expect("strict managed-restore record wire");
+        let round_tripped = decoded.into_record().expect("round-tripped record");
+        assert_eq!(round_tripped, record);
+        let CloudflareTenantRootRoleShareLifecycleV1::Pending(pending) = round_tripped.lifecycle()
+        else {
+            panic!("managed-restore record must remain pending");
+        };
+        assert_eq!(
+            pending.managed_restore_digests(),
+            Some((capability_digest, backup_receipt_digest))
+        );
+
+        assert!(record.into_active(activation, 40).is_err());
+    }
+
+    #[test]
+    fn managed_restore_provenance_changes_the_replay_payload_digest() {
+        let ceremony = record(CloudflareTenantRootDeriverRoleV1::DeriverA);
+        let mut restore = ceremony.clone();
+        let installation_evidence_digest =
+            record_installation_evidence_digest(&restore).expect("installation evidence digest");
+        restore.lifecycle = CloudflareTenantRootRoleShareLifecycleV1::Pending(
+            CloudflareTenantRootPendingShareV1::from_managed_restore(
+                installation_evidence_digest,
+                lifecycle_receipt(0x93).expect("capability digest"),
+                lifecycle_receipt(0x94).expect("backup receipt digest"),
+                30,
+            )
+            .expect("managed-restore pending state"),
+        );
+        restore.updated_at_ms = 30;
+        let ceremony_digest =
+            insert_pending_payload_digest(&ceremony, 1).expect("ceremony insertion payload digest");
+        let restore_digest =
+            insert_pending_payload_digest(&restore, 1).expect("restore insertion payload digest");
+        assert_ne!(ceremony_digest, restore_digest);
     }
 
     #[test]
