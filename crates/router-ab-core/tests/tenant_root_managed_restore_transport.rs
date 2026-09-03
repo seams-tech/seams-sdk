@@ -5,8 +5,9 @@ use router_ab_core::{
     TenantRootLifecycleReceiptDigestV1, TenantRootManagedRestoreAvailableV1,
     TenantRootManagedRestoreCapabilityV1, TenantRootManagedRestoreRoleV1,
     TenantRootRoleUnavailableReceiptV1, TenantRootShareEpoch,
-    TenantRootSignedManagedRestoreCapabilityV1,
-    TENANT_ROOT_MANAGED_RESTORE_CAPABILITY_OPERATION_V1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
+    TenantRootSignedManagedRestoreCapabilityV1, TenantRootSignedManagedRestoreRoleUnavailableV1,
+    TENANT_ROOT_MANAGED_RESTORE_CAPABILITY_OPERATION_V1,
+    TENANT_ROOT_MANAGED_RESTORE_PUBLIC_STATE_OPERATION_V1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
 };
 use threshold_prf::TwoPartyDeriverRole;
 
@@ -227,4 +228,131 @@ fn restore_capability_lifetime_is_frozen() {
         &ISSUER_KEY_BYTES,
     )
     .is_err());
+}
+
+#[test]
+fn signed_public_state_round_trips_and_reconstructs_unavailable_binding() {
+    let (state, active) = unavailable_state();
+    let signed = TenantRootSignedManagedRestoreRoleUnavailableV1::sign(
+        &state,
+        "control-plane-issuer-v1",
+        &[0x41; 32],
+    )
+    .expect("signed public state");
+    let bytes = signed.canonical_bytes().expect("canonical public state");
+    let decoded = TenantRootSignedManagedRestoreRoleUnavailableV1::decode_canonical_bytes(&bytes)
+        .expect("decoded public state");
+    assert_eq!(decoded, signed);
+    assert_eq!(
+        decoded.operation(),
+        TENANT_ROOT_MANAGED_RESTORE_PUBLIC_STATE_OPERATION_V1
+    );
+    assert_eq!(decoded.identity(), active.identity());
+    assert_eq!(decoded.lifecycle_revision(), state.revision());
+
+    let verifying_key = SigningKey::from_bytes(&[0x41; 32])
+        .verifying_key()
+        .to_bytes();
+    let verified = decoded
+        .verify("control-plane-issuer-v1", &verifying_key)
+        .expect("verified public state");
+    assert_eq!(verified.canonical_bytes(), bytes.as_slice());
+    assert_eq!(verified.unavailable_role(), state.unavailable_role());
+    assert_eq!(verified.lifecycle_revision(), state.revision());
+    assert_eq!(verified.state().active().identity(), active.identity());
+    assert_eq!(
+        verified.state().active().activation_receipt_digest(),
+        active.activation_receipt_digest()
+    );
+
+    let capability = TenantRootSignedManagedRestoreCapabilityV1::sign(
+        capability(&active),
+        ISSUER_KEY_ID,
+        &ISSUER_KEY_BYTES,
+    )
+    .expect("signed capability");
+    let capability = capability
+        .verify(
+            verified.state(),
+            ISSUER_KEY_ID,
+            &SigningKey::from_bytes(&ISSUER_KEY_BYTES)
+                .verifying_key()
+                .to_bytes(),
+        )
+        .expect("verified capability");
+    let restoring = verified
+        .start_restore(capability, ISSUED_AT_MS + 1)
+        .expect("restore begins from verified public state");
+    assert!(matches!(
+        restoring,
+        router_ab_core::TenantRootManagedRestoreInstallingV1::RestoringA(_)
+    ));
+}
+
+#[test]
+fn public_state_cleanup_fence_round_trips_and_mutation_fails_closed() {
+    let (state, active) = unavailable_state();
+    let capability = capability(&active);
+    let restoring = match state
+        .start_restore(capability.clone(), ISSUED_AT_MS + 1)
+        .expect("restore begins")
+    {
+        router_ab_core::TenantRootManagedRestoreInstallingV1::RestoringA(restoring) => restoring,
+        router_ab_core::TenantRootManagedRestoreInstallingV1::RestoringB(_) => {
+            panic!("Deriver A outage selected the wrong restore branch")
+        }
+    };
+    let state = restoring
+        .fail_with_cleanup(
+            router_ab_core::TenantRootManagedRestoreFailureV1::new(digest(0x93), 1_024_000)
+                .expect("failure"),
+            router_ab_core::TenantRootManagedRestoreCleanupReceiptV1::new(
+                digest(0x94),
+                TenantRootManagedRestoreRoleV1::DeriverA,
+                1_025_000,
+            )
+            .expect("cleanup"),
+        )
+        .expect("cleaned state");
+    let signed = TenantRootSignedManagedRestoreRoleUnavailableV1::sign(
+        &state,
+        "control-plane-issuer-v1",
+        &[0x41; 32],
+    )
+    .expect("signed cleanup-fenced state");
+    let bytes = signed
+        .canonical_bytes()
+        .expect("canonical cleanup-fenced state");
+    let verifying_key = SigningKey::from_bytes(&[0x41; 32])
+        .verifying_key()
+        .to_bytes();
+    let verified =
+        TenantRootSignedManagedRestoreRoleUnavailableV1::decode_and_verify_canonical_bytes(
+            &bytes,
+            "control-plane-issuer-v1",
+            &verifying_key,
+        )
+        .expect("verified cleanup-fenced state");
+    assert_eq!(verified.lifecycle_revision(), state.revision());
+    assert!(matches!(
+        verified.state().prior_attempt_cleanup_fence(),
+        router_ab_core::TenantRootManagedRestorePriorAttemptCleanupFenceV1::Cleaned { .. }
+    ));
+
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert!(
+        TenantRootSignedManagedRestoreRoleUnavailableV1::decode_canonical_bytes(&trailing).is_err()
+    );
+
+    let mut tampered_signature = bytes;
+    let last = tampered_signature.len() - 1;
+    tampered_signature[last] ^= 1;
+    let decoded = TenantRootSignedManagedRestoreRoleUnavailableV1::decode_canonical_bytes(
+        &tampered_signature,
+    )
+    .expect("tampered signature remains structurally canonical");
+    assert!(decoded
+        .verify("control-plane-issuer-v1", &verifying_key)
+        .is_err());
 }

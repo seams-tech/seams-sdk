@@ -1416,6 +1416,89 @@ impl TenantRootActiveRefreshV1 {
         self.current.activation_time_ms()
     }
 
+    /// Rebuilds the public active refresh state from one issuer-verified receipt.
+    ///
+    /// The receipt carries every public epoch fact retained by active state.
+    /// The caller supplies the server-resolved identity because an identity
+    /// digest cannot be expanded back into its canonical identity fields.
+    pub fn from_verified_activation_receipt(
+        identity: TenantRootIdentityV1,
+        activation: VerifiedTenantRootSignedActivationReceiptV1,
+        lifecycle_revision: u64,
+    ) -> RouterAbDerivationResult<Self> {
+        let identity_digest = identity.digest()?;
+        if identity_digest != activation.identity_digest() {
+            return Err(malformed(
+                "tenant-root active identity does not match its activation receipt",
+            ));
+        }
+        if lifecycle_revision == 0 {
+            return Err(malformed(
+                "tenant-root active lifecycle revision must be positive",
+            ));
+        }
+        if lifecycle_revision < activation.result_control_plane_revision() {
+            return Err(malformed(
+                "tenant-root active lifecycle revision predates activation receipt",
+            ));
+        }
+
+        let backup_receipts = activation
+            .availability()
+            .current_role_backup_receipts()
+            .ok_or_else(|| {
+                malformed(
+                    "tenant-root managed restore requires current-role backups in the active receipt",
+                )
+            })?;
+        let backup_policy = TenantRootBackupPolicyV1::CurrentRoleBackups(backup_receipts);
+        let custody_lineage = activation.custody_lineage();
+        let (transition, epoch, commitments, installation_receipts, canary_receipts) =
+            match activation.binding() {
+                TenantRootActivationReceiptBindingV1::InitialCreation(binding) => (
+                    TenantRootEpochTransitionV1::InitialCreation,
+                    binding.epoch(),
+                    binding.commitments().clone(),
+                    binding.installation_receipts(),
+                    binding.canary_receipts(),
+                ),
+                TenantRootActivationReceiptBindingV1::RefreshSwap(binding) => (
+                    TenantRootEpochTransitionV1::Refresh {
+                        previous_epoch: binding.current_epoch(),
+                    },
+                    binding.next_epoch(),
+                    binding.next_commitments().clone(),
+                    binding.installation_receipts(),
+                    binding.canary_receipts(),
+                ),
+            };
+        let pending = PendingTenantRootEpochV1 {
+            transition,
+            epoch,
+            ceremony_digest: activation.context_digest(),
+            issued_at_ms: activation.issued_at_ms(),
+            expires_at_ms: activation.expires_at_ms(),
+        };
+        let verified = VerifiedTenantRootEpochV1 {
+            pending,
+            commitments,
+            installation_receipts,
+            backup_policy,
+            canary_receipts,
+            verified_at_ms: activation.activated_at_ms(),
+        };
+        let current = ActiveTenantRootEpochV1 {
+            verified,
+            activation: TenantRootActivationReceiptProjectionV1::from_verified(activation),
+        };
+        Ok(Self {
+            identity,
+            custody_lineage,
+            current,
+            revision: lifecycle_revision,
+        })
+    }
+
     pub(crate) fn resume_at_revision(mut self, revision: u64) -> RouterAbDerivationResult<Self> {
         if revision < self.revision {
             return Err(malformed(

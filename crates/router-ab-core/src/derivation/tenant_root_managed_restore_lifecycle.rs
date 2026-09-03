@@ -62,6 +62,11 @@ impl TenantRootRoleUnavailableReceiptV1 {
         self.role
     }
 
+    /// Returns the signed role-unavailability receipt digest.
+    pub const fn digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.digest
+    }
+
     /// Returns the observation time.
     pub const fn unavailable_at_ms(&self) -> u64 {
         self.unavailable_at_ms
@@ -204,6 +209,41 @@ impl TenantRootManagedRestoreInstallationReceiptV1 {
         self.role
     }
 
+    /// Returns the signed installation receipt digest.
+    pub const fn digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.digest
+    }
+
+    /// Returns the consumed capability digest.
+    pub const fn capability_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.capability_digest
+    }
+
+    /// Returns the tenant-root identity bound by the installation.
+    pub const fn identity_digest(&self) -> TenantRootIdentityDigestV1 {
+        self.identity_digest
+    }
+
+    /// Returns the custody lineage bound by the installation.
+    pub const fn custody_lineage(&self) -> TenantRootCustodyLineageId {
+        self.custody_lineage
+    }
+
+    /// Returns the installed active epoch.
+    pub const fn epoch(&self) -> TenantRootShareEpoch {
+        self.epoch
+    }
+
+    /// Returns the active activation receipt digest.
+    pub const fn activation_receipt_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.activation_receipt_digest
+    }
+
+    /// Returns the installed role's public share commitment.
+    pub const fn share_commitment(&self) -> &MpcPrfShareCommitmentWireV1 {
+        &self.share_commitment
+    }
+
     /// Returns the installation time.
     pub const fn installed_at_ms(&self) -> u64 {
         self.installed_at_ms
@@ -277,6 +317,16 @@ impl TenantRootManagedRestoreFailureV1 {
             failed_at_ms,
         })
     }
+
+    /// Returns the signed failure receipt digest.
+    pub const fn digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.digest
+    }
+
+    /// Returns the failure time.
+    pub const fn failed_at_ms(&self) -> u64 {
+        self.failed_at_ms
+    }
 }
 
 /// Proof that the failed role-local restore installation was removed.
@@ -304,6 +354,21 @@ impl TenantRootManagedRestoreCleanupReceiptV1 {
             role,
             cleaned_at_ms,
         })
+    }
+
+    /// Returns the signed cleanup receipt digest.
+    pub const fn digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.digest
+    }
+
+    /// Returns the cleaned role.
+    pub const fn role(&self) -> TenantRootManagedRestoreRoleV1 {
+        self.role
+    }
+
+    /// Returns the cleanup completion time.
+    pub const fn cleaned_at_ms(&self) -> u64 {
+        self.cleaned_at_ms
     }
 }
 
@@ -431,6 +496,43 @@ impl TenantRootRoleUnavailabilityEvidenceV1 {
     }
 }
 
+/// Public projection of one failed role-local restore attempt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "evidence", rename_all = "snake_case")]
+pub enum TenantRootManagedRestorePriorAttemptV1 {
+    /// The role failed before it returned an installation receipt.
+    Installing {
+        /// The one-use capability consumed by the attempt.
+        capability: TenantRootManagedRestoreCapabilityV1,
+        /// Time at which the role-local restore began.
+        started_at_ms: u64,
+    },
+    /// The role returned an installation receipt before the attempt failed.
+    Installed {
+        /// The one-use capability consumed by the attempt.
+        capability: TenantRootManagedRestoreCapabilityV1,
+        /// The role-local installation receipt retained by the fence.
+        installation: TenantRootManagedRestoreInstallationReceiptV1,
+    },
+}
+
+/// Public proof that a previous restore attempt was completely cleaned.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "evidence", rename_all = "snake_case")]
+pub enum TenantRootManagedRestorePriorAttemptCleanupFenceV1 {
+    /// No prior restore capability has been consumed for this outage.
+    None,
+    /// A consumed capability and its failed installation were removed.
+    Cleaned {
+        /// The failed attempt retained for replay fencing.
+        attempt: TenantRootManagedRestorePriorAttemptV1,
+        /// The signed failure receipt.
+        failure: TenantRootManagedRestoreFailureV1,
+        /// The signed complete-cleanup receipt.
+        cleanup: TenantRootManagedRestoreCleanupReceiptV1,
+    },
+}
+
 /// Stable state with both active role shares available.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -491,14 +593,138 @@ pub struct TenantRootManagedRestoreRoleUnavailableV1 {
 }
 
 impl TenantRootManagedRestoreRoleUnavailableV1 {
+    /// Returns the public active state retained while the role is unavailable.
+    pub const fn active(&self) -> &TenantRootActiveRefreshV1 {
+        &self.active
+    }
+
     /// Returns the only role eligible for managed recovery.
     pub fn unavailable_role(&self) -> TenantRootManagedRestoreRoleV1 {
         self.evidence.observed().role
     }
 
+    /// Returns the exact signed role-unavailability observation.
+    pub fn unavailable_receipt(&self) -> TenantRootRoleUnavailableReceiptV1 {
+        self.evidence.observed()
+    }
+
     /// Returns the authoritative lifecycle revision.
     pub const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Returns the prior-attempt cleanup fence carried by this state.
+    pub fn prior_attempt_cleanup_fence(
+        &self,
+    ) -> TenantRootManagedRestorePriorAttemptCleanupFenceV1 {
+        match &self.evidence {
+            TenantRootRoleUnavailabilityEvidenceV1::Observed(_) => {
+                TenantRootManagedRestorePriorAttemptCleanupFenceV1::None
+            }
+            TenantRootRoleUnavailabilityEvidenceV1::RestoreAttemptCleaned {
+                attempt,
+                failure,
+                cleanup,
+                ..
+            } => TenantRootManagedRestorePriorAttemptCleanupFenceV1::Cleaned {
+                attempt: match attempt.as_ref() {
+                    TenantRootManagedRestoreFailedAttemptV1::Installing {
+                        capability,
+                        started_at_ms,
+                    } => TenantRootManagedRestorePriorAttemptV1::Installing {
+                        capability: capability.clone(),
+                        started_at_ms: *started_at_ms,
+                    },
+                    TenantRootManagedRestoreFailedAttemptV1::Installed {
+                        capability,
+                        installation,
+                    } => TenantRootManagedRestorePriorAttemptV1::Installed {
+                        capability: capability.clone(),
+                        installation: installation.clone(),
+                    },
+                },
+                failure: *failure,
+                cleanup: *cleanup,
+            },
+        }
+    }
+
+    /// Reconstructs the exact role-unavailable state from authenticated public projections.
+    pub fn from_public_projection(
+        active: TenantRootActiveRefreshV1,
+        unavailable: TenantRootRoleUnavailableReceiptV1,
+        cleanup_fence: TenantRootManagedRestorePriorAttemptCleanupFenceV1,
+        revision: u64,
+    ) -> RouterAbDerivationResult<Self> {
+        TenantRootManagedRestoreAvailableV1::new(active.clone())?;
+        if unavailable.unavailable_at_ms < active.activation_time_ms() {
+            return Err(malformed(
+                "tenant-root role unavailability cannot predate active-epoch activation",
+            ));
+        }
+        if revision <= active.revision() {
+            return Err(malformed(
+                "tenant-root role-unavailable revision must advance active state",
+            ));
+        }
+
+        let observed = TenantRootRoleUnavailabilityEvidenceV1::Observed(unavailable);
+        let evidence = match cleanup_fence {
+            TenantRootManagedRestorePriorAttemptCleanupFenceV1::None => observed,
+            TenantRootManagedRestorePriorAttemptCleanupFenceV1::Cleaned {
+                attempt,
+                failure,
+                cleanup,
+            } => {
+                let attempt = match attempt {
+                    TenantRootManagedRestorePriorAttemptV1::Installing {
+                        capability,
+                        started_at_ms,
+                    } => {
+                        validate_capability(&active, &observed, &capability, started_at_ms)?;
+                        TenantRootManagedRestoreFailedAttemptV1::Installing {
+                            capability,
+                            started_at_ms,
+                        }
+                    }
+                    TenantRootManagedRestorePriorAttemptV1::Installed {
+                        capability,
+                        installation,
+                    } => {
+                        validate_capability(
+                            &active,
+                            &observed,
+                            &capability,
+                            capability.issued_at_ms(),
+                        )?;
+                        let core = TenantRootManagedRestoreInstallingCoreV1 {
+                            active: active.clone(),
+                            evidence: observed.clone(),
+                            capability: capability.clone(),
+                            started_at_ms: capability.issued_at_ms(),
+                            revision: active.revision(),
+                        };
+                        validate_installation(&core, &installation)?;
+                        TenantRootManagedRestoreFailedAttemptV1::Installed {
+                            capability,
+                            installation,
+                        }
+                    }
+                };
+                validate_failure_order(&attempt, failure, cleanup.role, cleanup.cleaned_at_ms)?;
+                TenantRootRoleUnavailabilityEvidenceV1::RestoreAttemptCleaned {
+                    observed: unavailable,
+                    attempt: Box::new(attempt),
+                    failure,
+                    cleanup,
+                }
+            }
+        };
+        Ok(Self {
+            active,
+            evidence,
+            revision,
+        })
     }
 
     /// Validates a capability's immutable state binding before signature use.
