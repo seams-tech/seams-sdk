@@ -75,8 +75,7 @@ pub use local_dev_http::{
 pub use local_ed25519_yao_api::{
     build_local_activation_deriver_a_v1, build_local_activation_deriver_a_with_server_v1,
     build_local_activation_deriver_b_v1, build_local_activation_deriver_b_with_server_v1,
-    build_local_export_deriver_a_v1, build_local_export_deriver_a_with_server_v1,
-    build_local_export_deriver_b_v1, build_local_export_deriver_b_with_server_v1,
+    build_local_export_deriver_a_with_server_v1, build_local_export_deriver_b_with_server_v1,
     build_local_refresh_deriver_a_v1, build_local_refresh_deriver_b_v1,
     derive_local_ed25519_yao_deriver_a_initial_contribution_v1,
     derive_local_ed25519_yao_deriver_b_initial_contribution_v1,

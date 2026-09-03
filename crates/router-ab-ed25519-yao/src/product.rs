@@ -82,32 +82,6 @@ pub fn build_product_activation_deriver_b_v1(
     build_product_activation_deriver_b_with_server_v1(request, server)
 }
 
-/// Builds one fixed export Deriver A role from the A-only root and request.
-pub fn build_product_export_deriver_a_v1(
-    root: [u8; 32],
-    request: LocalEd25519YaoExportDeriverARequestV1,
-) -> Result<(Ed25519YaoCeremonyBindingV1, ExportDeriverA), AdapterError> {
-    let server = derive_ed25519_yao_deriver_a_server_contribution_from_root_v1(
-        root,
-        &request.application_binding,
-        request.participant_ids,
-    )?;
-    build_product_export_deriver_a_with_server_v1(request, server)
-}
-
-/// Builds one fixed export Deriver B role from the B-only root and request.
-pub fn build_product_export_deriver_b_v1(
-    root: [u8; 32],
-    request: LocalEd25519YaoExportDeriverBRequestV1,
-) -> Result<(Ed25519YaoCeremonyBindingV1, ExportDeriverB), AdapterError> {
-    let server = derive_ed25519_yao_deriver_b_server_contribution_from_root_v1(
-        root,
-        &request.application_binding,
-        request.participant_ids,
-    )?;
-    build_product_export_deriver_b_with_server_v1(request, server)
-}
-
 /// Builds the selected lane-materialization Deriver A from A-only stable roots.
 pub fn build_product_lane_deriver_a_v1<R>(
     root: [u8; 32],

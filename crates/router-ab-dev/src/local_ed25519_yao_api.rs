@@ -89,30 +89,6 @@ pub fn build_local_activation_deriver_b_with_server_v1(
     build_product_activation_deriver_b_with_server_v1(request, server).map_err(map_adapter_error)
 }
 
-pub fn build_local_export_deriver_a_v1(
-    config: &LocalDeriverAWorkerConfigV1,
-    request: LocalEd25519YaoExportDeriverARequestV1,
-) -> RouterAbProtocolResult<(Ed25519YaoCeremonyBindingV1, ExportDeriverA)> {
-    let server = derive_local_ed25519_yao_deriver_a_initial_contribution_v1(
-        config,
-        &request.application_binding,
-        request.participant_ids,
-    )?;
-    build_local_export_deriver_a_with_server_v1(request, server)
-}
-
-pub fn build_local_export_deriver_b_v1(
-    config: &LocalDeriverBWorkerConfigV1,
-    request: LocalEd25519YaoExportDeriverBRequestV1,
-) -> RouterAbProtocolResult<(Ed25519YaoCeremonyBindingV1, ExportDeriverB)> {
-    let server = derive_local_ed25519_yao_deriver_b_initial_contribution_v1(
-        config,
-        &request.application_binding,
-        request.participant_ids,
-    )?;
-    build_local_export_deriver_b_with_server_v1(request, server)
-}
-
 pub fn build_local_export_deriver_a_with_server_v1(
     request: LocalEd25519YaoExportDeriverARequestV1,
     server: Ed25519YaoDeriverAServerContributionV1,
