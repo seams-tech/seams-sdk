@@ -2474,7 +2474,7 @@ static ROLE_VERIFYING_KEYS_JSON: std::sync::LazyLock<String> = std::sync::LazyLo
             .collect()
     };
     format!(
-        "{{\"keys\":[{{\"role\":\"deriver_a\",\"signing_key_id\":\"deriver-a-signing-key-7\",\"verifying_key_hex\":\"{}\"}},{{\"role\":\"deriver_b\",\"signing_key_id\":\"deriver-b-signing-key-9\",\"verifying_key_hex\":\"{}\"}}]}}",
+        "{{\"active_deriver_a_signing_key_id\":\"deriver-a-signing-key-7\",\"active_deriver_b_signing_key_id\":\"deriver-b-signing-key-9\",\"keys\":[{{\"role\":\"deriver_a\",\"signing_key_id\":\"deriver-a-signing-key-7\",\"verifying_key_hex\":\"{}\"}},{{\"role\":\"deriver_b\",\"signing_key_id\":\"deriver-b-signing-key-9\",\"verifying_key_hex\":\"{}\"}}]}}",
         hex(0xa1),
         hex(0xb1)
     )
@@ -8418,14 +8418,6 @@ fn tenant_root_control_plane_env() -> CloudflareEnvMapV1 {
             GRANT_AUTHORITY_VERIFYING_KEYS_JSON.to_string(),
         ),
         (
-            router_ab_cloudflare::DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
-            "deriver-a-signing-key-7".to_string(),
-        ),
-        (
-            router_ab_cloudflare::DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
-            "deriver-b-signing-key-9".to_string(),
-        ),
-        (
             router_ab_cloudflare::ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON_ENV,
             ROLE_VERIFYING_KEYS_JSON.to_string(),
         ),
@@ -8528,6 +8520,14 @@ fn control_plane_rejects_every_scalar_and_router_auth_config() {
             "DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY",
         ),
         (
+            router_ab_cloudflare::DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
+            "deriver-a-signing-key-7",
+        ),
+        (
+            router_ab_cloudflare::DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
+            "deriver-b-signing-key-9",
+        ),
+        (
             router_ab_cloudflare::DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING_ENV,
             "DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY",
         ),
@@ -8604,65 +8604,8 @@ fn control_plane_env_with(key: &str, value: &str) -> CloudflareEnvMapV1 {
     CloudflareEnvMapV1::new(entries)
 }
 
-/// A configured role signing ID must exist in the published keyset under its
-/// own role: otherwise a typo mints a ceremony no Deriver can ever execute.
-#[test]
-fn control_plane_role_signing_ids_must_be_published_under_their_roles() {
-    let base: Vec<(String, String)> = tenant_root_control_plane_env()
-        .entries()
-        .iter()
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect();
-    let with = |key: &str, value: &str| -> CloudflareEnvMapV1 {
-        let mut next = base.clone();
-        next.iter_mut()
-            .find(|(name, _)| name == key)
-            .expect("fixture entry")
-            .1 = value.to_string();
-        CloudflareEnvMapV1::new(next)
-    };
-    let parse = |env: &CloudflareEnvMapV1| {
-        parse_cloudflare_worker_bindings_v1(CloudflareWorkerRoleV1::TenantRootControlPlane, env)
-    };
-
-    // The matching configuration parses and resolves both roles' keys.
-    parse(&CloudflareEnvMapV1::new(base.clone())).expect("published role IDs");
-
-    // An ID absent from the keyset.
-    assert_eq!(
-        parse(&with(
-            router_ab_cloudflare::DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
-            "deriver-a-signing-key-typo",
-        ))
-        .expect_err("unpublished role signing ID")
-        .code(),
-        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
-    );
-
-    // An ID published for the OTHER role: present in the keyset, wrong role.
-    assert!(parse(&with(
-        router_ab_cloudflare::DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
-        "deriver-b-signing-key-9",
-    ))
-    .is_err());
-    assert!(parse(&with(
-        router_ab_cloudflare::DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
-        "deriver-a-signing-key-7",
-    ))
-    .is_err());
-
-    // A missing keyset fails the Worker at boot.
-    let without: Vec<(String, String)> = base
-        .iter()
-        .filter(|(key, _)| {
-            key != router_ab_cloudflare::ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON_ENV
-        })
-        .cloned()
-        .collect();
-    assert!(parse(&CloudflareEnvMapV1::new(without)).is_err());
-}
-
-/// The issuer names both roles' public signing key IDs, and never their Secrets.
+/// The public role keyset names both role signing IDs, and the control plane
+/// never receives their Secret or duplicate ID bindings.
 #[test]
 fn the_control_plane_holds_role_signing_key_ids_but_never_their_bindings() {
     let bindings = parse_cloudflare_worker_bindings_v1(
@@ -8722,14 +8665,6 @@ fn control_plane_requires_its_active_issuer_key_id_to_be_published() {
         (
             router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON_ENV,
             GRANT_AUTHORITY_VERIFYING_KEYS_JSON.to_string(),
-        ),
-        (
-            router_ab_cloudflare::DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
-            "deriver-a-signing-key-7".to_string(),
-        ),
-        (
-            router_ab_cloudflare::DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
-            "deriver-b-signing-key-9".to_string(),
         ),
         (
             router_ab_cloudflare::ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON_ENV,

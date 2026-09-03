@@ -45,6 +45,9 @@ pub const CLOUDFLARE_DERIVER_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_PATH: &str =
 /// Private Deriver endpoint for staging one issuer-authorized managed restore.
 pub const CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/internal/deriver/tenant-root/restore/v1/stage";
+/// Private Deriver endpoint for executing one managed-restore forward refresh.
+pub const CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_FORWARD_REFRESH_PRIVATE_REQUEST_PATH:
+    &str = "/router-ab/internal/deriver/tenant-root/restore/v1/forward-refresh";
 pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_PRIVATE_REQUEST_PATH: &str =
     "/tenant-root-control-plane/creation/v1/create";
 pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_PRIVATE_REQUEST_PATH: &str =

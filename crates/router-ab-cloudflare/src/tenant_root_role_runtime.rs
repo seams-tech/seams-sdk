@@ -73,6 +73,8 @@ use crate::tenant_root_role_d1::{
     CloudflareTenantRootInitialCreationPersistenceOutcomeV1,
     CloudflareTenantRootInitialCreationPreflightV1,
     CloudflareTenantRootInitialCreationShareInputV1,
+    CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1,
+    CloudflareTenantRootManagedRestoreForwardRefreshProvenanceV1,
     CloudflareTenantRootManagedRestoreStagingDecisionV1,
     CloudflareTenantRootManagedRestoreStagingInputV1,
     CloudflareTenantRootRefreshAdmissionDecisionV1, CloudflareTenantRootRefreshArtifactMetadataV1,
@@ -456,6 +458,20 @@ pub struct CloudflareDeriverTenantRootRefreshActivationResponseV1 {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CloudflareDeriverTenantRootRefreshRequestV1 {
+    pub refresh_context_b64u: String,
+    pub role_refresh_command_b64u: String,
+}
+
+/// Router -> Deriver: execute a refresh whose current role share was restored.
+///
+/// The public state and restore capability re-authenticate the previous active
+/// pair. The refresh command remains a separate issuer-signed authorization;
+/// both are required before the restored pending row can be opened as a source.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareDeriverTenantRootManagedRestoreForwardRefreshRequestV1 {
+    pub public_state_b64u: String,
+    pub restore_capability_b64u: String,
     pub refresh_context_b64u: String,
     pub role_refresh_command_b64u: String,
 }
@@ -1892,7 +1908,28 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_activation_v1(
             .require_fresh(now_ms)
             .map_err(candidate_derivation_error)?;
     }
-    validate_tenant_root_refresh_activation_rows_v1(&verified, &active, &pending, role)?;
+    let managed_restore_provenance = match active.record().lifecycle() {
+        CloudflareTenantRootRoleShareLifecycleV1::Pending(_) => Some(
+            store
+                .managed_restore_forward_refresh_provenance(&active)
+                .map_err(|error| {
+                    tenant_root_store_error_v1(
+                        "tenant-root managed-restore forward-refresh provenance",
+                        error,
+                    )
+                })?,
+        ),
+        CloudflareTenantRootRoleShareLifecycleV1::Active(_) => None,
+        CloudflareTenantRootRoleShareLifecycleV1::Retired(_) => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "tenant-root refresh activation current row is retired",
+            ));
+        }
+    };
+    if managed_restore_provenance.is_none() {
+        validate_tenant_root_refresh_activation_rows_v1(&verified, &active, &pending, role)?;
+    }
 
     let backup_role = tenant_root_managed_restore_role_v1(role);
     let backup_store =
@@ -1931,6 +1968,20 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_activation_v1(
     let activation_for_completion = activation.clone();
     let activated_at_ms = activation.activated_at_ms();
     let updated_at_ms = now_ms.max(activated_at_ms);
+    if let Some(provenance) = managed_restore_provenance {
+        return complete_managed_restore_forward_refresh_activation_v1(
+            &store,
+            scope,
+            active,
+            pending,
+            activation,
+            provenance,
+            &role_signer,
+            updated_at_ms,
+            now_ms,
+        )
+        .await;
+    }
     let retirement = CloudflareTenantRootRetirementV1::new(
         activation.activation_receipt_digest(),
         updated_at_ms,
@@ -2068,6 +2119,185 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_activation_v1(
         activation_terminal_receipt_b64u: crate::encode_base64url_bytes_v1(&terminal_bytes),
         retired_epoch: retired_epoch.get().get(),
         retired_revision: retired.revision(),
+        active_epoch: active_epoch.get().get(),
+        active_revision: active.revision(),
+    })
+}
+
+#[cfg(feature = "workers-rs")]
+async fn complete_managed_restore_forward_refresh_activation_v1(
+    store: &CloudflareTenantRootRoleShareStoreV1,
+    scope: TenantRootCommandScopeV1,
+    restored_pending: CloudflareStoredTenantRootRoleShareV1,
+    refresh_pending: CloudflareStoredTenantRootRoleShareV1,
+    activation: CloudflareTenantRootActivationV1,
+    provenance: CloudflareTenantRootManagedRestoreForwardRefreshProvenanceV1,
+    role_signer: &CloudflareTenantRootCreationRoleSignerV1,
+    updated_at_ms: u64,
+    now_ms: u64,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootRefreshActivationResponseV1> {
+    let identity_digest = restored_pending
+        .record()
+        .identity()
+        .digest()
+        .map_err(candidate_derivation_error)?;
+    let custody_lineage = restored_pending.record().custody_lineage();
+    let restored_epoch = restored_pending.record().epoch();
+    let restored_revision = restored_pending.revision();
+    let active_epoch = refresh_pending.record().epoch();
+    let activation_receipt_bytes = activation.activation_receipt_bytes().to_vec();
+    let activation_for_completion = activation.clone();
+    let decision = store
+        .reserve_managed_restore_forward_refresh(
+            scope,
+            restored_pending,
+            refresh_pending,
+            activation,
+            provenance.capability_digest(),
+            provenance.backup_receipt_digest(),
+            provenance.installation_receipt_digest(),
+            updated_at_ms,
+            now_ms,
+        )
+        .await
+        .map_err(|error| {
+            tenant_root_store_error_v1(
+                "tenant-root managed-restore forward-refresh activation reservation",
+                error,
+            )
+        })?;
+    let terminal_bytes = match decision {
+        CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1::Execute { command }
+        | CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1::ResumeExecution { command } =>
+        {
+            let (_, executed) = store
+                .execute_managed_restore_forward_refresh(command, now_ms)
+                .await
+                .map_err(|error| {
+                    tenant_root_store_error_v1(
+                        "tenant-root managed-restore forward-refresh activation execution",
+                        error,
+                    )
+                })?;
+            let terminal_receipt = role_signer
+                .sign_verified_success_terminal_receipt(
+                    &executed,
+                    &activation_receipt_bytes,
+                    updated_at_ms,
+                )
+                .map_err(candidate_derivation_error)?;
+            match store
+                .complete_managed_restore_forward_refresh(
+                    executed,
+                    &activation_for_completion,
+                    terminal_receipt,
+                )
+                .await
+                .map_err(|error| {
+                    tenant_root_store_error_v1(
+                        "tenant-root managed-restore forward-refresh activation completion",
+                        error,
+                    )
+                })? {
+                CloudflareTenantRootCommandTerminalCommitV1::Committed { receipt_bytes }
+                | CloudflareTenantRootCommandTerminalCommitV1::Replay { receipt_bytes } => {
+                    receipt_bytes
+                }
+            }
+        }
+        CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1::ResumeCompletion {
+            executed,
+        } => {
+            let terminal_receipt = role_signer
+                .sign_verified_success_terminal_receipt(
+                    &executed,
+                    &activation_receipt_bytes,
+                    updated_at_ms,
+                )
+                .map_err(candidate_derivation_error)?;
+            match store
+                .complete_managed_restore_forward_refresh(
+                    executed,
+                    &activation_for_completion,
+                    terminal_receipt,
+                )
+                .await
+                .map_err(|error| {
+                    tenant_root_store_error_v1(
+                        "tenant-root managed-restore forward-refresh activation completion",
+                        error,
+                    )
+                })? {
+                CloudflareTenantRootCommandTerminalCommitV1::Committed { receipt_bytes }
+                | CloudflareTenantRootCommandTerminalCommitV1::Replay { receipt_bytes } => {
+                    receipt_bytes
+                }
+            }
+        }
+        CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1::ReplayCompleted {
+            receipt_bytes,
+        } => receipt_bytes,
+        CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1::InProgress => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "tenant-root managed-restore forward refresh activation is already in progress",
+            ));
+        }
+        CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1::ReplayFailed { .. } => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "tenant-root managed-restore forward refresh activation previously failed",
+            ));
+        }
+    };
+    if store
+        .load_epoch_by_identity_digest(identity_digest, custody_lineage, restored_epoch)
+        .await
+        .map_err(|error| {
+            tenant_root_store_error_v1(
+                "tenant-root managed-restore forward-refresh source reload",
+                error,
+            )
+        })?
+        .is_some()
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "tenant-root managed-restore forward-refresh source was not deleted",
+        ));
+    }
+    let active = store
+        .load_epoch_by_identity_digest(identity_digest, custody_lineage, active_epoch)
+        .await
+        .map_err(|error| {
+            tenant_root_store_error_v1(
+                "tenant-root managed-restore forward-refresh active reload",
+                error,
+            )
+        })?
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "tenant-root managed-restore forward refresh did not retain its active successor",
+            )
+        })?;
+    if active.active_activation_receipt_bytes().map_err(|error| {
+        tenant_root_store_error_v1(
+            "tenant-root managed-restore forward-refresh active receipt",
+            error,
+        )
+    })? != activation_for_completion.activation_receipt_bytes()
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore forward-refresh active successor receipt changed",
+        ));
+    }
+    Ok(CloudflareDeriverTenantRootRefreshActivationResponseV1 {
+        role: CloudflareTenantRootCreateRoleV1::from_protocol(role_signer.role()),
+        activation_terminal_receipt_b64u: crate::encode_base64url_bytes_v1(&terminal_bytes),
+        retired_epoch: restored_epoch.get().get(),
+        retired_revision: restored_revision,
         active_epoch: active_epoch.get().get(),
         active_revision: active.revision(),
     })
@@ -2536,6 +2766,57 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_v1(
             ));
         }
     };
+    let identity = active.record().identity().clone();
+    let sealed = active
+        .into_online_role_share_artifact()
+        .map_err(|error| tenant_root_store_error_v1("tenant-root active share artifact", error))?;
+    execute_tenant_root_refresh_from_source_v1(
+        env,
+        worker_role,
+        role,
+        command,
+        context,
+        active_pair,
+        verified_activation.result_control_plane_revision(),
+        command_issuer_key,
+        active_binding,
+        identity,
+        sealed,
+        admission,
+        &role_keys,
+        &role_signer,
+        &store,
+        now_ms,
+    )
+    .await
+}
+
+/// Continues a refresh from a verified role-share source.
+///
+/// Normal refreshes and managed-restore forward refreshes share the provider
+/// protocol after source selection. Keeping that selection outside this
+/// helper prevents a restored pending record from entering the normal active
+/// share path.
+#[cfg(feature = "workers-rs")]
+#[allow(clippy::too_many_arguments)]
+async fn execute_tenant_root_refresh_from_source_v1(
+    env: &worker::Env,
+    worker_role: crate::CloudflareWorkerRoleV1,
+    role: TwoPartyDeriverRole,
+    command: VerifiedTenantRootRoleRefreshCommandV1,
+    context: TenantRootCeremonyContextV1,
+    active_pair: TenantRootActiveRootPairV1,
+    active_control_plane_revision: u64,
+    command_issuer_key: &[u8; 32],
+    active_binding: TenantRootActiveRoleBindingV1,
+    identity: TenantRootIdentityV1,
+    sealed: TenantRootSealedOnlineRoleShareV1,
+    admission: crate::tenant_root_role_d1::CloudflareTenantRootRefreshAdmissionV1,
+    role_keys: &TenantRootCreationRoleVerifyingKeysV1,
+    role_signer: &CloudflareTenantRootCreationRoleSignerV1,
+    store: &CloudflareTenantRootRoleShareStoreV1,
+    now_ms: u64,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootRefreshResponseV1> {
     let checkpoint_command =
         TenantRootRoleRefreshCommandV1::decode_canonical_bytes(command.canonical_bytes())
             .map_err(candidate_derivation_error)?;
@@ -2545,17 +2826,13 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_v1(
             &active_pair,
             &context,
             role,
-            verified_activation.result_control_plane_revision(),
-            authority_id,
+            active_control_plane_revision,
+            command.authority_id(),
             &checkpoint_command_issuer_key_id,
             command_issuer_key,
         )
         .map_err(candidate_derivation_error)?;
 
-    let identity = active.record().identity().clone();
-    let sealed = active
-        .into_online_role_share_artifact()
-        .map_err(|error| tenant_root_store_error_v1("tenant-root active share artifact", error))?;
     let mut online_provider =
         crate::env::load_cloudflare_tenant_root_operational_rotation_provider_v1(env, worker_role)?;
     let opened = open_tenant_root_online_role_share_v1(sealed, &mut online_provider)
@@ -2564,7 +2841,7 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_v1(
     let current_share = share_wire.to_share().map_err(|_| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
-            "tenant-root active role share wire is invalid",
+            "tenant-root refresh source role share wire is invalid",
         )
     })?;
     let mut rng = crate::CloudflareSignerProofGetrandomRngV1;
@@ -2596,7 +2873,7 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_v1(
         )
         .map_err(candidate_derivation_error)?;
     let pair =
-        await_refresh_commitment_pair_v1(env, pending.command(), &pending, &context, &role_keys)
+        await_refresh_commitment_pair_v1(env, pending.command(), &pending, &context, role_keys)
             .await?;
     let local_aad = match role {
         TwoPartyDeriverRole::DeriverA => TenantRootRefreshContributionAadV1::deriver_a_to_b(&pair),
@@ -2622,7 +2899,7 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_v1(
         &signed,
         role,
         &pair,
-        &role_keys,
+        role_keys,
         &recipient,
     )
     .await?;
@@ -2634,7 +2911,7 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_v1(
         crate::env::load_cloudflare_tenant_root_operational_rotation_provider_v1(env, worker_role)?;
     let (refresh, managed_backup, provider_canary_receipt) = seal_refresh_role_for_persistence_v1(
         finalized,
-        &role_signer,
+        role_signer,
         identity,
         &provider_config,
         &mut online_provider,
@@ -2649,15 +2926,15 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_v1(
     .map_err(candidate_derivation_error)?;
     let evidence_context = evidence.evidence().transcript().context();
     let expected_provider_canary_binding = TenantRootProviderCanaryReceiptBindingV1::new(
-        raw_command.identity_digest(),
-        raw_command.custody_lineage(),
+        checkpoint_command.identity_digest(),
+        checkpoint_command.custody_lineage(),
         TenantRootActivationReceiptTransitionV1::RefreshSwap,
-        raw_command.next_epoch(),
+        checkpoint_command.next_epoch(),
         tenant_root_epoch_commitments_v1(&evidence).map_err(candidate_derivation_error)?,
         tenant_root_provider_canary_curve_family_v1(role),
         provider_config.online_epoch_wrapping_key_ref.clone(),
         now_ms,
-        raw_command.authority_id(),
+        checkpoint_command.authority_id(),
         role_signer.signing_key_id().to_owned(),
         evidence_context.issued_at_ms(),
         evidence_context.expires_at_ms(),
@@ -2691,8 +2968,8 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_v1(
         &managed_backup,
         &provider_canary_receipt,
         &expected_provider_canary_binding,
-        &store,
-        &role_signer,
+        store,
+        role_signer,
         executed,
         now_ms,
         None,
@@ -3977,6 +4254,355 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_managed_restore_v1(
     })
 }
 
+/// Executes the mandatory forward refresh for one staged managed restore.
+///
+/// The previous active pair is reconstructed from the independently verified
+/// public state, while the current role's sealed source and all restore
+/// provenance are loaded from the authenticated pending D1 row. The source is
+/// opened only for this refresh and cannot enter a normal signing path.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn handle_cloudflare_deriver_tenant_root_managed_restore_forward_refresh_v1(
+    env: &worker::Env,
+    worker_role: crate::CloudflareWorkerRoleV1,
+    request: CloudflareDeriverTenantRootManagedRestoreForwardRefreshRequestV1,
+    now_ms: u64,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootRefreshResponseV1> {
+    let role = tenant_root_creation_protocol_role_v1(worker_role)?;
+    let managed_role = tenant_root_managed_restore_role_v1(role);
+    let public_state_bytes = crate::decode_base64url_bytes_v1(
+        "tenant-root managed-restore forward-refresh public state",
+        &request.public_state_b64u,
+    )?;
+    let signed_public_state =
+        TenantRootSignedManagedRestoreRoleUnavailableV1::decode_canonical_bytes(
+            &public_state_bytes,
+        )
+        .map_err(candidate_derivation_error)?;
+    let reader = crate::CloudflareWorkerEnvReaderV1::new(env);
+    let issuer_keys =
+        crate::env::parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(&reader)?;
+    let issuer_key_id = signed_public_state.issuer_key_id().to_owned();
+    let issuer_key = issuer_keys
+        .for_issuer_key_id(&issuer_key_id)
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root managed-restore forward-refresh public-state issuer is not trusted by this Deriver",
+            )
+        })?;
+    let verified_public_state = signed_public_state
+        .verify(&issuer_key_id, issuer_key)
+        .map_err(candidate_derivation_error)?;
+
+    let capability_bytes = crate::decode_base64url_bytes_v1(
+        "tenant-root managed-restore forward-refresh capability",
+        &request.restore_capability_b64u,
+    )?;
+    let signed_capability =
+        TenantRootSignedManagedRestoreCapabilityV1::decode_canonical_bytes(&capability_bytes)
+            .map_err(candidate_derivation_error)?;
+    if signed_capability.issuer_key_id() != verified_public_state.issuer_key_id() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore forward-refresh capability and public state use different issuers",
+        ));
+    }
+    let capability = signed_capability
+        .verify(
+            verified_public_state.state(),
+            verified_public_state.issuer_key_id(),
+            issuer_key,
+        )
+        .map_err(candidate_derivation_error)?;
+    if verified_public_state.unavailable_role() != managed_role || capability.role() != managed_role
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore forward-refresh authorization does not belong to this Deriver",
+        ));
+    }
+
+    let active_receipt = TenantRootSignedActivationReceiptV1::decode_canonical_bytes(
+        verified_public_state
+            .state()
+            .active()
+            .activation_receipt_bytes(),
+    )
+    .map_err(candidate_derivation_error)?;
+    let verified_active_receipt = active_receipt
+        .verify_issuer_signature(issuer_key)
+        .map_err(candidate_derivation_error)?;
+    if verified_active_receipt.digest() != capability.activation_receipt_digest() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore capability does not match the public state's active receipt",
+        ));
+    }
+    let active_control_plane_revision = verified_active_receipt.result_control_plane_revision();
+    let active_pair =
+        TenantRootActiveRootPairV1::from_verified_activation_receipt(&verified_active_receipt)
+            .map_err(candidate_derivation_error)?;
+
+    let command_bytes = crate::decode_base64url_bytes_v1(
+        "tenant-root managed-restore forward-refresh command",
+        &request.role_refresh_command_b64u,
+    )?;
+    let raw_command = TenantRootRoleRefreshCommandV1::decode_canonical_bytes(&command_bytes)
+        .map_err(candidate_derivation_error)?;
+    let context_bytes = crate::decode_base64url_bytes_v1(
+        "tenant-root managed-restore forward-refresh context",
+        &request.refresh_context_b64u,
+    )?;
+    let context = TenantRootCeremonyContextV1::decode_canonical_bytes(&context_bytes)
+        .map_err(candidate_derivation_error)?;
+    validate_raw_refresh_context_binding_v1(&raw_command, &context, role)?;
+    let (authority_id, _) =
+        crate::durable_object::tenant_root_creation::derive_tenant_root_creation_authority_object_v1(
+            env,
+            raw_command.identity_digest(),
+            raw_command.custody_lineage(),
+        )?;
+    if raw_command.authority_id() != authority_id {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore forward-refresh command names a foreign control-plane authority",
+        ));
+    }
+
+    let role_keys =
+        crate::env::parse_cloudflare_tenant_root_creation_role_verifying_keys_v1(&reader)?;
+    let (_, role_signer) =
+        crate::env::load_cloudflare_tenant_root_creation_role_signing_key_v1(env, worker_role)?;
+    if context.signing_key_id(role) != role_signer.signing_key_id() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore forward-refresh context does not name this Deriver's active role signer",
+        ));
+    }
+    let command_issuer_key = issuer_keys
+        .for_issuer_key_id(raw_command.issuer_key_id())
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root managed-restore forward-refresh command issuer is not trusted by this Deriver",
+            )
+        })?;
+    let command = raw_command
+        .verify(
+            &active_pair,
+            &context,
+            role,
+            active_control_plane_revision,
+            authority_id,
+            raw_command.issuer_key_id(),
+            command_issuer_key,
+        )
+        .map_err(candidate_derivation_error)?;
+
+    let store = CloudflareTenantRootRoleShareStoreV1::from_env(env)
+        .map_err(|error| tenant_root_store_error_v1("tenant-root role store lookup", error))?;
+    let admission = match store
+        .admit_refresh(&command, now_ms)
+        .await
+        .map_err(|error| {
+            tenant_root_store_error_v1(
+                "tenant-root managed-restore forward-refresh admission",
+                error,
+            )
+        })? {
+        CloudflareTenantRootRefreshAdmissionDecisionV1::Execute { admission } => {
+            context
+                .validate_at(now_ms)
+                .map_err(candidate_derivation_error)?;
+            command
+                .require_fresh(now_ms)
+                .map_err(candidate_derivation_error)?;
+            admission
+        }
+        CloudflareTenantRootRefreshAdmissionDecisionV1::ResumeExecution {
+            admission,
+            durable_state,
+        } => {
+            validate_refresh_admitted_state_v1(&command, &durable_state)?;
+            admission
+        }
+        CloudflareTenantRootRefreshAdmissionDecisionV1::ResumeCompletion {
+            admission,
+            durable_state,
+        } => {
+            return resume_tenant_root_refresh_completion_v1(
+                env,
+                role,
+                &command,
+                admission,
+                durable_state,
+                &role_keys,
+                &role_signer,
+                &store,
+                now_ms,
+            )
+            .await;
+        }
+        CloudflareTenantRootRefreshAdmissionDecisionV1::ReplayCompleted {
+            receipt_bytes,
+            durable_state,
+        } => {
+            return replay_completed_tenant_root_refresh_v1(
+                env,
+                role,
+                &command,
+                receipt_bytes,
+                durable_state,
+            )
+            .await;
+        }
+        CloudflareTenantRootRefreshAdmissionDecisionV1::ReplayFailed { .. } => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "tenant-root managed-restore forward refresh previously failed",
+            ));
+        }
+    };
+    let restored_pending = store
+        .load_epoch_by_identity_digest(
+            capability.identity_digest(),
+            capability.custody_lineage(),
+            capability.epoch(),
+        )
+        .await
+        .map_err(|error| {
+            tenant_root_store_error_v1(
+                "tenant-root managed-restore forward-refresh source lookup",
+                error,
+            )
+        })?
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "tenant-root managed-restore forward-refresh source pending row does not exist",
+            )
+        })?;
+    let source_provenance = store
+        .managed_restore_forward_refresh_provenance(&restored_pending)
+        .map_err(|error| {
+            tenant_root_store_error_v1(
+                "tenant-root managed-restore forward-refresh source provenance",
+                error,
+            )
+        })?;
+    if source_provenance.capability_digest() != capability.capability_digest() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore forward-refresh capability does not match its pending source",
+        ));
+    }
+    let expected_binding = match role {
+        TwoPartyDeriverRole::DeriverA => active_pair.deriver_a(),
+        TwoPartyDeriverRole::DeriverB => active_pair.deriver_b(),
+    };
+    if restored_pending.record().share_commitment() != expected_binding.share_commitment()
+        || restored_pending
+            .record()
+            .identity()
+            .digest()
+            .map_err(candidate_derivation_error)?
+            != capability.identity_digest()
+        || restored_pending.record().custody_lineage() != capability.custody_lineage()
+        || restored_pending.record().epoch() != capability.epoch()
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore forward-refresh source does not match the verified active pair",
+        ));
+    }
+
+    let backup_store =
+        crate::tenant_root_managed_backup_r2::CloudflareTenantRootManagedBackupStoreV1::from_env(
+            env,
+            managed_role,
+        )
+        .map_err(|error| tenant_root_store_error_v1("tenant-root backup store lookup", error))?;
+    let managed_backup = backup_store
+        .get_verified(
+            crate::tenant_root_managed_backup_r2::TenantRootManagedBackupObjectCoordinatesV1::new(
+                capability.identity_digest(),
+                capability.custody_lineage(),
+                managed_role,
+                capability.epoch(),
+            ),
+            &role_signer.verifying_key_bytes(),
+        )
+        .await
+        .map_err(|error| {
+            tenant_root_store_error_v1(
+                "tenant-root managed-restore forward-refresh backup lookup",
+                error,
+            )
+        })?;
+    let backup_binding = managed_backup.binding();
+    if backup_binding.identity_digest() != capability.identity_digest()
+        || backup_binding.custody_lineage() != capability.custody_lineage()
+        || backup_binding.role() != managed_role
+        || backup_binding.epoch() != capability.epoch()
+        || backup_binding.share_commitment() != expected_binding.share_commitment()
+        || backup_binding.installation_receipt_digest()
+            != source_provenance.installation_receipt_digest()
+        || managed_backup.receipt_digest() != source_provenance.backup_receipt_digest()
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore forward-refresh backup provenance does not match its source",
+        ));
+    }
+    let source = store
+        .load_managed_restore_forward_refresh_source(
+            capability.identity_digest(),
+            capability.custody_lineage(),
+            capability.epoch(),
+            source_provenance.capability_digest(),
+            managed_backup.receipt_digest(),
+            source_provenance.installation_receipt_digest(),
+        )
+        .await
+        .map_err(|error| {
+            tenant_root_store_error_v1(
+                "tenant-root managed-restore forward-refresh source verification",
+                error,
+            )
+        })?;
+    if source.capability_digest() != capability.capability_digest()
+        || source.backup_receipt_digest() != managed_backup.receipt_digest()
+        || source.installation_receipt_digest() != backup_binding.installation_receipt_digest()
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore forward-refresh source provenance changed during verification",
+        ));
+    }
+
+    let active_binding = expected_binding.clone();
+    let identity = verified_public_state.state().active().identity().clone();
+    execute_tenant_root_refresh_from_source_v1(
+        env,
+        worker_role,
+        role,
+        command,
+        context,
+        active_pair,
+        active_control_plane_revision,
+        command_issuer_key,
+        active_binding,
+        identity,
+        source.into_online_role_share_artifact(),
+        admission,
+        &role_keys,
+        &role_signer,
+        &store,
+        now_ms,
+    )
+    .await
+}
+
 /// Operations needed by one role-local online-share provider.
 pub(crate) trait TenantRootOnlineRoleShareProviderV1 {
     fn seal_online_role_share(
@@ -4999,7 +5625,7 @@ pub(crate) mod tests {
         key_b: SigningKey,
     ) -> crate::CloudflareTenantRootCreationRoleSignerV1 {
         let key_set = format!(
-            r#"{{"keys":[{{"role":"deriver_a","signing_key_id":"deriver-a-signing-key-7","verifying_key_hex":"{}"}},{{"role":"deriver_b","signing_key_id":"deriver-b-signing-key-9","verifying_key_hex":"{}"}}]}}"#,
+            r#"{{"active_deriver_a_signing_key_id":"deriver-a-signing-key-7","active_deriver_b_signing_key_id":"deriver-b-signing-key-9","keys":[{{"role":"deriver_a","signing_key_id":"deriver-a-signing-key-7","verifying_key_hex":"{}"}},{{"role":"deriver_b","signing_key_id":"deriver-b-signing-key-9","verifying_key_hex":"{}"}}]}}"#,
             hex(&key_a.verifying_key().to_bytes()),
             hex(&key_b.verifying_key().to_bytes()),
         );
@@ -5769,7 +6395,9 @@ pub(crate) mod admission_tests {
                 .collect()
         };
         crate::env::decode_role_verifying_keys(&format!(
-            "{{\"keys\":[{{\"role\":\"deriver_a\",\"signing_key_id\":\"{}\",\"verifying_key_hex\":\"{}\"}},{{\"role\":\"deriver_b\",\"signing_key_id\":\"{}\",\"verifying_key_hex\":\"{}\"}}]}}",
+            "{{\"active_deriver_a_signing_key_id\":\"{}\",\"active_deriver_b_signing_key_id\":\"{}\",\"keys\":[{{\"role\":\"deriver_a\",\"signing_key_id\":\"{}\",\"verifying_key_hex\":\"{}\"}},{{\"role\":\"deriver_b\",\"signing_key_id\":\"{}\",\"verifying_key_hex\":\"{}\"}}]}}",
+            signing_key_id(TwoPartyDeriverRole::DeriverA),
+            signing_key_id(TwoPartyDeriverRole::DeriverB),
             signing_key_id(TwoPartyDeriverRole::DeriverA),
             hex(TwoPartyDeriverRole::DeriverA),
             signing_key_id(TwoPartyDeriverRole::DeriverB),
@@ -6333,6 +6961,35 @@ pub(crate) mod live_execution_tests {
         let response_json = serde_json::to_value(&response).expect("response json");
         assert_eq!(response_json["status"], "staged_for_forward_refresh");
         assert!(!response_json.to_string().contains("activation"));
+    }
+
+    #[test]
+    fn managed_restore_forward_refresh_request_requires_exact_inputs() {
+        let request = CloudflareDeriverTenantRootManagedRestoreForwardRefreshRequestV1 {
+            public_state_b64u: "state".to_owned(),
+            restore_capability_b64u: "capability".to_owned(),
+            refresh_context_b64u: "context".to_owned(),
+            role_refresh_command_b64u: "command".to_owned(),
+        };
+        let json = serde_json::to_value(&request).expect("forward-refresh request json");
+        assert_eq!(json["public_state_b64u"], "state");
+        assert_eq!(json["restore_capability_b64u"], "capability");
+        assert_eq!(json["refresh_context_b64u"], "context");
+        assert_eq!(json["role_refresh_command_b64u"], "command");
+
+        for smuggled in [
+            r#"{"public_state_b64u":"state","restore_capability_b64u":"capability","refresh_context_b64u":"context","role_refresh_command_b64u":"command","role":"deriver_a"}"#,
+            r#"{"public_state_b64u":"state","restore_capability_b64u":"capability","refresh_context_b64u":"context"}"#,
+            r#"{"public_state_b64u":"state","restore_capability_b64u":"capability","role_refresh_command_b64u":"command"}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<
+                    CloudflareDeriverTenantRootManagedRestoreForwardRefreshRequestV1,
+                >(smuggled)
+                .is_err(),
+                "managed-restore forward-refresh request must reject {smuggled}"
+            );
+        }
     }
 
     #[test]

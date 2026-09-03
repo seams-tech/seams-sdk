@@ -2633,58 +2633,46 @@ mod tests {
         )
         .expect("pair binding");
         let pair_digest = pair_binding.pair_digest().bytes;
-        let request = CloudflareEd25519YaoPairPrepareRequestV1 {
-            pair_binding,
-            work: router_ab_cloudflare::CloudflareEd25519YaoPairWorkV1::Ceremony,
-            input: input_b,
-        };
         let mut state = LocalEd25519YaoWorkerStateV1::default();
-        let signing_key_material =
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x91; 32]);
-        let receipt = prepare_local_pair_role_v1(
-            &mut state,
-            Ed25519YaoDeriverRoleV1::DeriverB,
-            &request,
-            &hex::encode([0x81; 32]),
-            &signing_key_material,
-        )
-        .expect("prepared B pair");
+        let root_metadata_digest = [0x81; 32];
+        let mut lifecycle = LocalEd25519YaoPairLifecycleV1::default();
+        let receipt = lifecycle
+            .prepare_role(
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                &pair_binding,
+                input_b.clone(),
+                root_metadata_digest,
+                1,
+                100,
+                LocalEd25519YaoPairSigningKeysV1 {
+                    deriver_a: [0x91; 32],
+                    deriver_b: [0x91; 32],
+                },
+            )
+            .expect("prepared B pair");
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&[0x91; 32]);
         verify_local_pair_readiness_receipt_v1(&receipt, signing_key.verifying_key().to_bytes())
             .expect("receipt uses the canonical local peer seed");
-        let prepared = state
-            .pair_roles
-            .remove(&pair_digest)
-            .expect("prepared record");
-        let LocalEd25519YaoPairRoleRecordV1::Prepared {
-            session,
-            pair_digest,
-            pair_binding,
-            input_digest,
-            root_metadata_digest,
-            expires_at_ms,
-            input,
-            receipt: _,
-        } = prepared
-        else {
-            panic!("expected prepared record");
-        };
+        let input_digest = router_ab_core::ed25519_yao_encrypted_input_digest_v1(&input_b)
+            .expect("input digest")
+            .bytes;
         state.pair_roles.insert(
             pair_digest,
             LocalEd25519YaoPairRoleRecordV1::Running {
-                session,
+                session: pair_binding.session(),
                 pair_digest,
-                pair_binding,
+                pair_binding: Box::new(pair_binding.clone()),
+                tenant_root: Box::new(test_tenant_root_context(&pair_binding)),
                 input_digest,
                 root_metadata_digest,
-                expires_at_ms,
+                expires_at_ms: 100,
                 execution_id: [0x91; 32],
-                input,
+                input: Box::new(input_b),
                 receipt: Box::new(receipt),
             },
         );
         let lookup = CloudflareEd25519YaoPairLookupRequestV1 {
-            session,
+            session: pair_binding.session(),
             pair_digest,
         };
         assert!(matches!(
@@ -2697,62 +2685,46 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn pair_start_acceptance_accepts_the_peer_root_when_role_roots_differ() {
-        let binding = ceremony(
-            11,
-            Ed25519YaoOperationV1::Registration,
-            ExpensiveWorkKindV1::RegistrationPrepare,
-            12,
-        );
-        let pair_binding = Ed25519YaoInputPairBindingV1::new(
-            Ed25519YaoCeremonyIdentityV1::from_binding(binding.clone()).expect("pair identity"),
-            PublicDigest32::new([0xa1; 32]),
-            PublicDigest32::new([0xb1; 32]),
-            PublicDigest32::new([0xc1; 32]),
-            PublicDigest32::new([0xd1; 32]),
+    fn test_tenant_root_context(
+        pair_binding: &Ed25519YaoInputPairBindingV1,
+    ) -> router_ab_cloudflare::CloudflareEd25519YaoTenantRootContextV2 {
+        let pair_session = router_ab_core::Ed25519YaoPairSessionIdV2::new(pair_binding.session())
+            .expect("pair session");
+        let outer_binding = router_ab_core::Ed25519YaoOuterBindingV2::new(
+            pair_session,
+            pair_binding.binding().stable_key_context_binding,
+            PublicDigest32::new([0x41; 32]),
+            [0x42; 16],
+            1,
+            100,
         )
-        .expect("pair binding");
-        let execution_id =
-            Ed25519YaoExecutionIdV1::new(pair_binding.pair_digest().bytes).expect("execution id");
-        let a_root =
-            local_pair_root_metadata_digest_v1(&hex::encode([0x81; 32])).expect("A root digest");
-        let b_root =
-            local_pair_root_metadata_digest_v1(&hex::encode([0x82; 32])).expect("B root digest");
-        assert_ne!(a_root, b_root);
-        let signing_key_material =
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x91; 32]);
-        let now_ms = crate::local_now_unix_ms_v1().expect("clock");
-        let acceptance = sign_local_pair_start_acceptance_v1(
-            Ed25519YaoDeriverRoleV1::DeriverB,
-            binding.session_id.into_bytes(),
-            pair_binding.pair_digest().bytes,
-            execution_id,
-            b_root,
-            now_ms,
-            now_ms.checked_add(60_000).expect("expiry"),
-            &signing_key_material,
-        )
-        .expect("signed B acceptance");
-        let verifying_key = ed25519_dalek::SigningKey::from_bytes(&[0x91; 32])
-            .verifying_key()
-            .to_bytes();
-        validate_local_pair_start_acceptance_v1(
-            &acceptance,
-            &pair_binding,
-            execution_id,
-            b_root,
-            &hex::encode(verifying_key),
-        )
-        .expect("peer-root acceptance validates");
-        assert!(validate_local_pair_start_acceptance_v1(
-            &acceptance,
-            &pair_binding,
-            execution_id,
-            a_root,
-            &hex::encode(verifying_key),
-        )
-        .is_err());
+        .expect("outer binding");
+        router_ab_cloudflare::CloudflareEd25519YaoTenantRootContextV2 {
+            custody_binding: router_ab_cloudflare::CloudflareTenantRootCustodyBindingWireV1 {
+                activation_receipt_b64u: "AQ".to_owned(),
+                operation_id: router_ab_core::TenantRootDerivationOperationIdV1::from_bytes(
+                    [0x43; 16],
+                )
+                .expect("operation id"),
+                session_id: router_ab_core::TenantRootDerivationSessionIdV1::from_bytes(
+                    [0x44; 16],
+                )
+                .expect("session id"),
+                nonce: router_ab_core::TenantRootDerivationNonceV1::from_bytes([0x45; 32])
+                    .expect("nonce"),
+                issued_at_ms: 1,
+                expires_at_ms: 100,
+            },
+            outer_binding,
+            application: router_ab_core::RouterAbEd25519YaoApplicationBindingFactsV1::new(
+                pair_binding.binding().lifecycle.account_id.clone(),
+                "local-key",
+                "local-root",
+                1,
+            )
+            .expect("application"),
+            participant_ids: [1, 2],
+        }
     }
 
     #[test]

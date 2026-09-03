@@ -1,7 +1,25 @@
+use base64::Engine;
+use curve25519_dalek::scalar::Scalar;
+use ed25519_dalek::SigningKey;
+use rand_core::OsRng;
+use router_ab_cloudflare::{
+    CloudflareRouterEd25519YaoExecuteRequestV2, CloudflareTenantRootCoordinatesV1,
+};
 use router_ab_core::{
-    LocalHttpPathV1, LocalServiceRoleV1, MpcMaterialActivationRefV1, RootShareEpoch,
-    RouterEd25519YaoExecuteResultV1, RouterEd25519YaoExecuteSuccessV1,
-    RouterEd25519YaoGatewayExecuteTargetV2,
+    LocalHttpPathV1, LocalServiceRoleV1, MpcMaterialActivationRefV1, MpcPrfShareCommitmentWireV1,
+    RootShareEpoch, RouterEd25519YaoExecuteResultV1, RouterEd25519YaoExecuteSuccessV1,
+    RouterEd25519YaoGatewayExecuteTargetV2, TenantRootActivationReceiptTransitionV1,
+    TenantRootCanaryCurveFamilyV1, TenantRootCeremonyContextV1,
+    TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1, TenantRootCeremonySessionIdV1,
+    TenantRootControlPlaneAuthorityIdV1, TenantRootCustodyLineageId, TenantRootEpochCommitmentsV1,
+    TenantRootIdentityDigestV1, TenantRootManagedBackupBindingV1,
+    TenantRootManagedBackupSealRequestV1, TenantRootProviderCanaryReceiptBindingV1,
+    TenantRootShareEpoch, TenantRootShareInstallationEvidenceV1,
+    TenantRootShareInstallationTranscriptV1, TenantRootSignedActivationReceiptV1,
+    TenantRootSignedManagedBackupV1, TenantRootSignedProviderCanaryReceiptV1,
+    TenantRootSignedShareInstallationEvidenceV1,
+    VerifiedTenantRootInitialCreationActivationEvidenceBundleV1,
+    VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
 };
 use router_ab_dev::{
     admit_local_ed25519_yao_registration_v1, generate_local_ed25519_yao_recipient_key_pair_v1,
@@ -16,6 +34,8 @@ use router_ab_dev::{
     LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1, LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH,
 };
 use serde::Serialize;
+use serde_json::json;
+use sha2::{Digest, Sha256};
 use signer_core::ed25519_yao_derivation::{
     derive_ed25519_yao_client_contributions_v1, Ed25519YaoApplicationBindingFactsV1,
     Ed25519YaoApplicationBindingKeyCreationSignerSlotV1,
@@ -24,7 +44,7 @@ use signer_core::ed25519_yao_derivation::{
     Ed25519YaoStableKeyDerivationContextV1,
 };
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
@@ -33,6 +53,10 @@ use std::{
     sync::{Mutex, MutexGuard, OnceLock},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+use threshold_prf::{
+    prove_root_share_knowledge, SigningRootShare, SigningRootShareCommitment, SigningRootShareWire,
+    TwoPartyDeriverRole,
 };
 
 fn router_ab_dev_source() -> String {
@@ -368,12 +392,14 @@ fn product_topology_completes_local_ed25519_yao_registration(
     let deriver_a_url = format!("http://127.0.0.1:{}", free_port()?);
     let deriver_b_url = format!("http://127.0.0.1:{}", free_port()?);
     let signing_worker_url = format!("http://127.0.0.1:{}", free_port()?);
+    let tenant_root_fixture = product_tenant_root_fixture()?;
     let router_env = write_product_worker_envs(
         &temp,
         &router_url,
         &deriver_a_url,
         &deriver_b_url,
         &signing_worker_url,
+        &tenant_root_fixture,
     )?;
 
     let mut router = ChildGuard::spawn_in_root(
@@ -405,7 +431,7 @@ fn product_topology_completes_local_ed25519_yao_registration(
     wait_for_health(&deriver_b_url, deriver_b.child_mut())?;
     wait_for_health(&signing_worker_url, signing_worker.child_mut())?;
 
-    let request = product_registration_request(&router_env)?;
+    let request = product_registration_request(&router_env, &tenant_root_fixture)?;
     let started = Instant::now();
     let (status, body) = post_json_to_path_with_headers(
         &router_url,
@@ -446,9 +472,10 @@ fn product_topology_completes_local_ed25519_yao_registration(
 
 fn product_registration_request(
     router_env: &str,
-) -> Result<RouterEd25519YaoGatewayExecuteTargetV2, Box<dyn std::error::Error>> {
+    tenant_root_fixture: &ProductTenantRootFixture,
+) -> Result<CloudflareRouterEd25519YaoExecuteRequestV2, Box<dyn std::error::Error>> {
     let application = Ed25519YaoApplicationBindingFactsV1::new(
-        Ed25519YaoApplicationBindingWalletIdV1::parse("wallet-product-benchmark")?,
+        Ed25519YaoApplicationBindingWalletIdV1::parse("account-product-benchmark")?,
         Ed25519YaoApplicationBindingSigningKeyIdV1::parse("ed25519ks_product_benchmark")?,
         Ed25519YaoApplicationBindingSigningRootIdV1::parse("project:local")?,
         Ed25519YaoApplicationBindingKeyCreationSignerSlotV1::new(1)?,
@@ -458,7 +485,7 @@ fn product_registration_request(
     let (client_a, client_b) =
         derive_ed25519_yao_client_contributions_v1(&client_root, &context)?.into_parts();
     let application_binding = RouterAbEd25519YaoApplicationBindingFactsV1::new(
-        "wallet-product-benchmark",
+        "account-product-benchmark",
         "ed25519ks_product_benchmark",
         "project:local",
         1,
@@ -522,11 +549,16 @@ fn product_registration_request(
         &request_b,
         x25519_public_key_from_env(router_env, "DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY")?,
     )?;
-    Ok(RouterEd25519YaoGatewayExecuteTargetV2::registration(
-        admission.binding,
-        input_a,
-        input_b,
-    )?)
+    Ok(CloudflareRouterEd25519YaoExecuteRequestV2 {
+        tenant_root: tenant_root_fixture.coordinates.clone(),
+        application: tenant_root_fixture.application.clone(),
+        participant_ids: tenant_root_fixture.participant_ids,
+        target: RouterEd25519YaoGatewayExecuteTargetV2::registration(
+            admission.binding,
+            input_a,
+            input_b,
+        )?,
+    })
 }
 
 fn x25519_public_key_from_env(
@@ -633,6 +665,7 @@ fn write_product_worker_envs(
     deriver_a_url: &str,
     deriver_b_url: &str,
     signing_worker_url: &str,
+    tenant_root_fixture: &ProductTenantRootFixture,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let seed = fresh_nonzero_bytes_32()?;
     let plan = local_env_materialization_plan_v1(&seed)?;
@@ -647,12 +680,342 @@ fn write_product_worker_envs(
             .replace("http://127.0.0.1:4103", deriver_a_url)
             .replace("http://127.0.0.1:4104", deriver_b_url)
             .replace("http://127.0.0.1:4105", signing_worker_url);
+        let contents = match file.role {
+            LocalServiceRoleV1::Router => contents.replace(
+                "LOCAL_TENANT_ROOT_BINDINGS_JSON={}",
+                &format!(
+                    "LOCAL_TENANT_ROOT_BINDINGS_JSON={}",
+                    tenant_root_fixture.router_bindings_json
+                ),
+            ),
+            LocalServiceRoleV1::DeriverA => contents.replace(
+                "LOCAL_TENANT_ROOT_ROLE_SHARES_JSON={}",
+                &format!(
+                    "LOCAL_TENANT_ROOT_ROLE_SHARES_JSON={}",
+                    tenant_root_fixture.role_shares_a_json
+                ),
+            ),
+            LocalServiceRoleV1::DeriverB => contents.replace(
+                "LOCAL_TENANT_ROOT_ROLE_SHARES_JSON={}",
+                &format!(
+                    "LOCAL_TENANT_ROOT_ROLE_SHARES_JSON={}",
+                    tenant_root_fixture.role_shares_b_json
+                ),
+            ),
+            LocalServiceRoleV1::SigningWorker => contents,
+        };
         if file.role == LocalServiceRoleV1::Router {
             router_env = Some(contents.clone());
         }
         fs::write(root.join(file.path), contents)?;
     }
     router_env.ok_or_else(|| "local env plan is missing Router file".into())
+}
+
+struct ProductTenantRootFixture {
+    coordinates: CloudflareTenantRootCoordinatesV1,
+    application: RouterAbEd25519YaoApplicationBindingFactsV1,
+    participant_ids: [u16; 2],
+    router_bindings_json: String,
+    role_shares_a_json: String,
+    role_shares_b_json: String,
+}
+
+fn product_tenant_root_fixture() -> Result<ProductTenantRootFixture, Box<dyn std::error::Error>> {
+    const ISSUER_SIGNING_KEY_BYTES: [u8; 32] = [0x31; 32];
+    const CANARY_SIGNING_KEY_BYTES: [u8; 32] = [0x41; 32];
+    let participant_ids = [1, 2];
+    let application = RouterAbEd25519YaoApplicationBindingFactsV1::new(
+        "account-product-benchmark",
+        "ed25519ks_product_benchmark",
+        "project:local",
+        1,
+    )?;
+    let identity = TenantRootIdentityDigestV1::from_bytes([0x71; 32]);
+    let lineage = TenantRootCustodyLineageId::from_bytes([0x72; 16])?;
+    let issued_at_ms = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())?;
+    let expires_at_ms = issued_at_ms
+        .checked_add(300_000)
+        .ok_or("tenant-root fixture expiry overflow")?;
+    let context = TenantRootCeremonyContextV1::new(
+        identity,
+        lineage,
+        TenantRootCeremonyEpochsV1::create(),
+        TenantRootCeremonySessionIdV1::from_bytes([0x73; 16])?,
+        TenantRootCeremonyNonceV1::from_bytes([0x74; 32])?,
+        issued_at_ms,
+        expires_at_ms,
+        "local-deriver-a-signing-key",
+        "local-deriver-b-signing-key",
+    )?;
+    let share_a = product_share(TwoPartyDeriverRole::DeriverA, 7)?;
+    let share_b = product_share(TwoPartyDeriverRole::DeriverB, 11)?;
+    let commitments = TenantRootEpochCommitmentsV1::new(
+        product_share_commitment(&share_a)?,
+        product_share_commitment(&share_b)?,
+    )?;
+    let installation_a = product_installation(
+        context.clone(),
+        TwoPartyDeriverRole::DeriverA,
+        &share_a,
+        &share_b,
+    )?;
+    let installation_b = product_installation(
+        context.clone(),
+        TwoPartyDeriverRole::DeriverB,
+        &share_b,
+        &share_a,
+    )?;
+    let backup_a =
+        product_managed_backup(&installation_a, &share_a, TwoPartyDeriverRole::DeriverA)?;
+    let backup_b =
+        product_managed_backup(&installation_b, &share_b, TwoPartyDeriverRole::DeriverB)?;
+    let canary_a = product_provider_canary(
+        &context,
+        &commitments,
+        TenantRootCanaryCurveFamilyV1::Ecdsa,
+        "local-canary-ecdsa",
+        &CANARY_SIGNING_KEY_BYTES,
+    )?;
+    let canary_b = product_provider_canary(
+        &context,
+        &commitments,
+        TenantRootCanaryCurveFamilyV1::Ed25519,
+        "local-canary-ed25519",
+        &CANARY_SIGNING_KEY_BYTES,
+    )?;
+    let bundle =
+        VerifiedTenantRootInitialCreationActivationEvidenceBundleV1::from_verified_managed_backups(
+            installation_a,
+            installation_b,
+            backup_a,
+            backup_b,
+            canary_a,
+            canary_b,
+            2,
+            3,
+        )?;
+    let signed_receipt = TenantRootSignedActivationReceiptV1::sign_initial_creation(
+        &bundle,
+        issued_at_ms,
+        TenantRootControlPlaneAuthorityIdV1::from_bytes([0x44; 32]),
+        "local-tenant-root-issuer",
+        &ISSUER_SIGNING_KEY_BYTES,
+    )?;
+    let receipt_bytes = signed_receipt.canonical_bytes()?;
+    let receipt_digest: [u8; 32] = Sha256::digest(&receipt_bytes).into();
+    let identity_b64u = encode_product_base64url(identity.as_bytes());
+    let lineage_b64u = lineage.to_base64url();
+    let coordinates = CloudflareTenantRootCoordinatesV1 {
+        identity_digest_b64u: identity_b64u.clone(),
+        custody_lineage_b64u: lineage_b64u.clone(),
+    };
+    let coordinate_key = format!("{identity_b64u}|{lineage_b64u}");
+    let mut router_bindings = BTreeMap::new();
+    router_bindings.insert(
+        coordinate_key.clone(),
+        json!({
+            "activation_receipt_b64u": encode_product_base64url(&receipt_bytes),
+            "issuer_verifying_key_hex": hex::encode(
+                SigningKey::from_bytes(&ISSUER_SIGNING_KEY_BYTES)
+                    .verifying_key()
+                    .to_bytes(),
+            ),
+            "application": application,
+            "participant_ids": participant_ids,
+            "deriver_a_identity": "local-deriver-a",
+            "deriver_b_identity": "local-deriver-b",
+        }),
+    );
+    let router_bindings_json = serde_json::to_string(&router_bindings)?;
+    let role_shares_a_json = product_role_share_json(
+        &coordinate_key,
+        identity_b64u.as_str(),
+        lineage_b64u.as_str(),
+        TwoPartyDeriverRole::DeriverA,
+        &share_a,
+        &context,
+        &receipt_digest,
+    )?;
+    let role_shares_b_json = product_role_share_json(
+        &coordinate_key,
+        identity_b64u.as_str(),
+        lineage_b64u.as_str(),
+        TwoPartyDeriverRole::DeriverB,
+        &share_b,
+        &context,
+        &receipt_digest,
+    )?;
+    Ok(ProductTenantRootFixture {
+        coordinates,
+        application,
+        participant_ids,
+        router_bindings_json,
+        role_shares_a_json,
+        role_shares_b_json,
+    })
+}
+
+fn encode_product_base64url(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn product_share(
+    role: TwoPartyDeriverRole,
+    scalar: u64,
+) -> Result<SigningRootShare, Box<dyn std::error::Error>> {
+    Ok(SigningRootShare::from_canonical_bytes(
+        role.share_id(),
+        Scalar::from(scalar).to_bytes(),
+    )?)
+}
+
+fn product_share_commitment(
+    share: &SigningRootShare,
+) -> Result<MpcPrfShareCommitmentWireV1, Box<dyn std::error::Error>> {
+    Ok(MpcPrfShareCommitmentWireV1::new(
+        SigningRootShareCommitment::from_share(share)
+            .to_bytes()
+            .to_vec(),
+    )?)
+}
+
+fn product_installation(
+    context: TenantRootCeremonyContextV1,
+    role: TwoPartyDeriverRole,
+    share: &SigningRootShare,
+    peer: &SigningRootShare,
+) -> Result<VerifiedTenantRootSignedShareInstallationEvidenceWireV1, Box<dyn std::error::Error>> {
+    let transcript = TenantRootShareInstallationTranscriptV1::new(
+        context,
+        role,
+        SigningRootShareCommitment::from_share(share),
+        SigningRootShareCommitment::from_share(peer),
+    )?;
+    let mut rng = OsRng;
+    let proof = prove_root_share_knowledge(share, &transcript.canonical_bytes()?, &mut rng)?;
+    let evidence = TenantRootShareInstallationEvidenceV1::new(transcript, proof)?;
+    let signing_key = product_role_signing_key(role);
+    let signed =
+        TenantRootSignedShareInstallationEvidenceV1::sign(evidence, signing_key.as_bytes())?;
+    let bytes = signed.canonical_bytes()?;
+    Ok(
+        TenantRootSignedShareInstallationEvidenceV1::decode_and_verify_canonical_bytes(
+            &bytes,
+            signing_key.verifying_key().as_bytes(),
+        )?,
+    )
+}
+
+fn product_role_signing_key(role: TwoPartyDeriverRole) -> SigningKey {
+    let byte = match role {
+        TwoPartyDeriverRole::DeriverA => 0x51,
+        TwoPartyDeriverRole::DeriverB => 0x61,
+    };
+    SigningKey::from_bytes(&[byte; 32])
+}
+
+fn product_managed_backup(
+    installation: &VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
+    share: &SigningRootShare,
+    role: TwoPartyDeriverRole,
+) -> Result<router_ab_core::VerifiedTenantRootManagedBackupV1, Box<dyn std::error::Error>> {
+    let context = installation.evidence().transcript().context();
+    let share_wire = router_ab_core::MpcPrfSigningRootShareWireV1::new(
+        SigningRootShareWire::from_share(share).to_bytes().to_vec(),
+    )?;
+    let binding = TenantRootManagedBackupBindingV1::from_verified_installation_evidence(
+        installation,
+        format!("local-backup-provider-{}", role.as_str()),
+        format!("local-backup-key-{}", role.as_str()),
+        context.signing_key_id(role),
+        context.issued_at_ms(),
+    )?;
+    let request = TenantRootManagedBackupSealRequestV1::new(binding.clone(), share_wire)?;
+    let signing_key = product_role_signing_key(role);
+    let signed = TenantRootSignedManagedBackupV1::sign(
+        request,
+        vec![
+            match role {
+                TwoPartyDeriverRole::DeriverA => 0xa5,
+                TwoPartyDeriverRole::DeriverB => 0xb5,
+            };
+            96
+        ],
+        signing_key.as_bytes(),
+    )?;
+    let bytes = signed.canonical_bytes()?;
+    Ok(
+        TenantRootSignedManagedBackupV1::decode_and_verify_canonical_bytes(
+            &bytes,
+            &binding,
+            signing_key.verifying_key().as_bytes(),
+        )?,
+    )
+}
+
+fn product_provider_canary(
+    context: &TenantRootCeremonyContextV1,
+    commitments: &TenantRootEpochCommitmentsV1,
+    family: TenantRootCanaryCurveFamilyV1,
+    provider_key_version_ref: &str,
+    signing_key_bytes: &[u8; 32],
+) -> Result<router_ab_core::VerifiedTenantRootProviderCanaryReceiptV1, Box<dyn std::error::Error>> {
+    let binding = TenantRootProviderCanaryReceiptBindingV1::new(
+        context.identity_digest(),
+        context.custody_lineage(),
+        TenantRootActivationReceiptTransitionV1::InitialCreation,
+        TenantRootShareEpoch::INITIAL,
+        commitments.clone(),
+        family,
+        provider_key_version_ref,
+        context.issued_at_ms(),
+        TenantRootControlPlaneAuthorityIdV1::from_bytes([0x44; 32]),
+        "local-canary-signing-key",
+        context.issued_at_ms(),
+        context.expires_at_ms(),
+    )?;
+    let signed = TenantRootSignedProviderCanaryReceiptV1::sign(binding.clone(), signing_key_bytes)?;
+    Ok(signed.verify(
+        &binding,
+        SigningKey::from_bytes(signing_key_bytes)
+            .verifying_key()
+            .as_bytes(),
+    )?)
+}
+
+fn product_role_share_json(
+    coordinate_key: &str,
+    identity_b64u: &str,
+    lineage_b64u: &str,
+    role: TwoPartyDeriverRole,
+    share: &SigningRootShare,
+    context: &TenantRootCeremonyContextV1,
+    receipt_digest: &[u8; 32],
+) -> Result<String, Box<dyn std::error::Error>> {
+    let installation_evidence_digest = context.digest()?;
+    let mut shares = BTreeMap::new();
+    shares.insert(
+        format!("{coordinate_key}|1"),
+        json!({
+            "identity_digest_b64u": identity_b64u,
+            "custody_lineage_b64u": lineage_b64u,
+            "role": role.as_str(),
+            "epoch": 1,
+            "share_commitment_b64u": encode_product_base64url(
+                SigningRootShareCommitment::from_share(share).to_bytes().as_ref(),
+            ),
+            "epoch_wrapping_key_ref": format!("local-epoch-wrap-{}", role.as_str()),
+            "installation_evidence_digest_b64u": encode_product_base64url(
+                installation_evidence_digest.as_bytes(),
+            ),
+            "share_wire_b64u": encode_product_base64url(
+                SigningRootShareWire::from_share(share).to_bytes().as_ref(),
+            ),
+            "activation_receipt_digest_b64u": encode_product_base64url(receipt_digest),
+        }),
+    );
+    Ok(serde_json::to_string(&shares)?)
 }
 
 fn write_deriver_envs_to_roots(

@@ -208,12 +208,15 @@ fn pair_http_error(message: &'static str) -> RouterAbProtocolError {
 
 #[cfg(test)]
 mod tests {
+    use crate::LocalTenantRootResolverConfigV1;
+
     use super::*;
     use router_ab_core::{
         Ed25519YaoCeremonyBindingV1, Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedInputV1,
         Ed25519YaoInputKindV1, Ed25519YaoOperationV1, Ed25519YaoSessionIdV1,
         Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1,
         MpcMaterialActivationRefV1, RootShareEpoch,
+        RouterEd25519YaoGatewayExecuteTargetV2,
     };
 
     fn request_fixture() -> RouterEd25519YaoGatewayExecuteTargetV2 {
@@ -270,31 +273,18 @@ mod tests {
     }
 
     #[test]
-    fn canonical_request_decodes_into_exact_role_inputs() {
+    fn direct_gateway_target_is_rejected_without_server_envelope() {
         let request = request_fixture();
         let encoded = serde_json::to_vec(&request).expect("request JSON");
-        let encoded_text = std::str::from_utf8(&encoded).expect("request JSON is UTF-8");
-        assert!(!encoded_text.contains("\"authority\""));
-        assert!(!encoded_text.contains("\"pair_binding\""));
-        let recipient_set_digest = PublicDigest32::new([0xa1; 32]);
-        let dispatch = decode_local_router_ed25519_yao_execute_request_v1(
+        let error = decode_local_router_ed25519_yao_execute_request_v1(
             &encoded,
-            recipient_set_digest,
+            PublicDigest32::new([0xa1; 32]),
             1,
             100,
+            &LocalTenantRootResolverConfigV1::default(),
         )
-        .expect("request should decode");
-        assert_eq!(dispatch.operation, Ed25519YaoOperationV1::Registration);
-        assert_eq!(dispatch.deriver_a_input.ciphertext(), &[0x91; 16]);
-        assert_eq!(dispatch.deriver_b_input.ciphertext(), &[0x92; 16]);
-        assert_eq!(
-            dispatch.pair_binding.recipient_set_digest(),
-            recipient_set_digest
-        );
-        assert_eq!(
-            dispatch.authority.authority_digest(),
-            dispatch.pair_binding.authorization_digest()
-        );
+        .expect_err("direct client target must not reach dispatch");
+        assert_eq!(error.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
     }
 
     #[test]
@@ -304,6 +294,7 @@ mod tests {
             PublicDigest32::new([0xa1; 32]),
             1,
             100,
+            &LocalTenantRootResolverConfigV1::default(),
         )
         .expect_err("unknown fields must be rejected");
         assert_eq!(

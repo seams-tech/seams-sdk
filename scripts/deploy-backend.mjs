@@ -831,12 +831,9 @@ function componentRuntimeRequirements(lane, component) {
       return [
         'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID',
         'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
-        // Genesis: the authorities this issuer accepts, and the public role
-        // signing key IDs it names in each ceremony it opens.
+        // Genesis: the authorities this issuer accepts and the retained public
+        // role keyset whose active selectors name each ceremony signer.
         'TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON',
-        'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
-        'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
-        // The anchor those IDs are resolved against at boot.
         'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
       ];
     case 'gateway':
@@ -1282,10 +1279,6 @@ function deployTenantRootControlPlane(lane) {
     `TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:${requireEnvironmentValue('TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON')}`,
     '--var',
     `TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON:${requireEnvironmentValue('TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON')}`,
-    '--var',
-    `DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID:${requireEnvironmentValue('DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID')}`,
-    '--var',
-    `DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID:${requireEnvironmentValue('DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID')}`,
     '--var',
     `ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:${requireEnvironmentValue('ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON')}`,
   );

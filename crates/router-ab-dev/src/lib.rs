@@ -1008,7 +1008,7 @@ fn parse_local_tenant_root_role_shares_json_v1(
         }
         if shares
             .insert(
-                format!("{}|{}", key, key_epoch),
+                key,
                 LocalTenantRootRoleShareV1 {
                     binding,
                     share_wire,
@@ -3024,19 +3024,6 @@ fn materialize_template_v1(template: &str, seed: &[u8]) -> RouterAbProtocolResul
             .verifying_key()
             .to_bytes();
         contents = contents.replace(placeholder, &hex::encode(verifying_key));
-    }
-    for (placeholder, label) in [
-        (
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "deriver-a-ed25519-yao-derivation-root",
-        ),
-        (
-            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "deriver-b-ed25519-yao-derivation-root",
-        ),
-    ] {
-        let material = local_generated_secret_bytes_v1(label, seed)?;
-        contents = contents.replace(placeholder, &hex::encode(material));
     }
     for (private_placeholder, public_placeholder, label) in [
         (

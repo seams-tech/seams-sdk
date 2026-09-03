@@ -11,10 +11,11 @@ use router_ab_core::{
     TenantRootActivationReceiptTransitionV1, TenantRootActiveRoleBindingV1,
     TenantRootActiveRoleResolutionV1, TenantRootActiveRoleRowKeyV1, TenantRootCeremonyContextV1,
     TenantRootCeremonyEpochsV1, TenantRootCeremonySessionIdV1, TenantRootCommandReplayKeyV1,
-    TenantRootCommandTerminalReceiptV1, TenantRootControlPlaneAuthorityIdV1,
-    TenantRootCreationCapabilityV1, TenantRootCreationJournalV1, TenantRootCustodyLineageId,
-    TenantRootEpochCommitmentsV1, TenantRootIdentityDigestV1, TenantRootIdentityV1,
-    TenantRootLifecycleReceiptDigestV1, TenantRootManagedRestoreRoleV1, TenantRootProtocolDigestV1,
+    TenantRootCommandSuccessReceiptV1, TenantRootCommandTerminalReceiptV1,
+    TenantRootControlPlaneAuthorityIdV1, TenantRootCreationCapabilityV1,
+    TenantRootCreationJournalV1, TenantRootCustodyLineageId, TenantRootEpochCommitmentsV1,
+    TenantRootIdentityDigestV1, TenantRootIdentityV1, TenantRootLifecycleReceiptDigestV1,
+    TenantRootManagedRestoreRoleV1, TenantRootProtocolDigestV1,
     TenantRootRefreshCommitmentCheckpointActiveBindingV1,
     TenantRootRefreshCommitmentCheckpointEvaluationV1,
     TenantRootRefreshCommitmentCheckpointOutcomeV1, TenantRootRefreshCommitmentCheckpointScopeV1,
@@ -244,6 +245,64 @@ struct LoadedTenantRootRefreshRequestV1 {
     role_keys: TenantRootCreationRoleVerifyingKeysV1,
     issuer_keys: BTreeMap<String, [u8; 32]>,
     now_ms: u64,
+}
+
+#[cfg(feature = "workers-rs")]
+struct LoadedTenantRootRefreshInstallationRequestV1 {
+    active: ValidatedTenantRootRefreshActiveStateV1,
+    context: TenantRootCeremonyContextV1,
+    command: VerifiedTenantRootRoleRefreshCommandV1,
+    candidate_bytes: Vec<u8>,
+    terminal_receipt: VerifiedTenantRootRefreshInstallationReceiptV1,
+    role_keys: TenantRootCreationRoleVerifyingKeysV1,
+    issuer_keys: BTreeMap<String, [u8; 32]>,
+    now_ms: u64,
+}
+
+struct VerifiedTenantRootRefreshInstallationReceiptV1 {
+    receipt: TenantRootCommandSuccessReceiptV1,
+}
+
+impl VerifiedTenantRootRefreshInstallationReceiptV1 {
+    fn new(
+        receipt: TenantRootCommandSuccessReceiptV1,
+        candidate_bytes: &[u8],
+        command: &VerifiedTenantRootRoleRefreshCommandV1,
+        context: &TenantRootCeremonyContextV1,
+        role_keys: &TenantRootCreationRoleVerifyingKeysV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let trusted_role_key = role_keys
+            .for_role_and_key_id(command.role(), context.signing_key_id(command.role()))?;
+        receipt
+            .verify_remote_public(
+                command.scope().key(),
+                candidate_bytes,
+                command.issued_at_ms(),
+                context.signing_key_id(command.role()),
+                trusted_role_key,
+            )
+            .map_err(candidate_derivation_error)?;
+        Ok(Self { receipt })
+    }
+
+    fn require_matches(
+        &self,
+        candidate_bytes: &[u8],
+        command: &VerifiedTenantRootRoleRefreshCommandV1,
+        context: &TenantRootCeremonyContextV1,
+    ) -> RouterAbProtocolResult<()> {
+        if self.receipt.key() != command.scope().key()
+            || self.receipt.payload_bytes() != candidate_bytes
+            || self.receipt.role_signing_key_id() != context.signing_key_id(command.role())
+            || self.receipt.terminal_at_ms() < command.issued_at_ms()
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root refresh terminal receipt does not match its command and evidence",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(feature = "workers-rs")]
@@ -4810,7 +4869,7 @@ impl RouterAbTenantRootCreationDurableObject {
     async fn load_refresh_installation_request(
         &self,
         request: CloudflareTenantRootRefreshInstallationRequestV1,
-    ) -> RouterAbProtocolResult<LoadedTenantRootRefreshRequestV1> {
+    ) -> RouterAbProtocolResult<LoadedTenantRootRefreshInstallationRequestV1> {
         let active = self.load_authoritative_active_refresh_state().await?;
         let issuer_keys_json = read_required_worker_var(
             &self.env,
@@ -4860,7 +4919,7 @@ impl RouterAbTenantRootCreationDurableObject {
                 "tenant-root refresh terminal receipt is not canonical",
             ));
         }
-        let success = match &terminal_receipt {
+        let success = match terminal_receipt {
             TenantRootCommandTerminalReceiptV1::Success(receipt) => receipt,
             TenantRootCommandTerminalReceiptV1::Failure(_) => {
                 return Err(RouterAbProtocolError::new(
@@ -4869,23 +4928,20 @@ impl RouterAbTenantRootCreationDurableObject {
                 ));
             }
         };
-        let trusted_role_key = role_keys
-            .for_role_and_key_id(command.role(), context.signing_key_id(command.role()))?;
-        success
-            .verify_remote_public(
-                command.scope().key(),
-                &candidate_bytes,
-                command.issued_at_ms(),
-                context.signing_key_id(command.role()),
-                trusted_role_key,
-            )
-            .map_err(candidate_derivation_error)?;
+        let terminal_receipt = VerifiedTenantRootRefreshInstallationReceiptV1::new(
+            success,
+            &candidate_bytes,
+            &command,
+            &context,
+            &role_keys,
+        )?;
         let now_ms = crate::cloudflare_now_unix_ms_v1()?;
-        Ok(LoadedTenantRootRefreshRequestV1 {
+        Ok(LoadedTenantRootRefreshInstallationRequestV1 {
             active,
             context,
             command,
             candidate_bytes,
+            terminal_receipt,
             role_keys,
             issuer_keys,
             now_ms,
@@ -5221,6 +5277,7 @@ impl RouterAbTenantRootCreationDurableObject {
         let context = loaded.context;
         let role_keys = loaded.role_keys;
         let issuer_keys = loaded.issuer_keys;
+        let terminal_receipt = loaded.terminal_receipt;
         let expected_authority_id = authority_id_from_object_id(&self.authority_object_id)?;
         let now_ms = loaded.now_ms;
         let outcome: Rc<
@@ -5357,6 +5414,7 @@ impl RouterAbTenantRootCreationDurableObject {
                     &role_keys,
                     &commitment_state,
                     expected_authority_id,
+                    &terminal_receipt,
                     now_ms,
                 ) {
                     Ok(TenantRootRefreshInstallationCheckpointEvaluationV1::Commit {
@@ -7053,6 +7111,7 @@ fn evaluate_refresh_installation_checkpoint(
     role_keys: &TenantRootCreationRoleVerifyingKeysV1,
     commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
     expected_authority_id: TenantRootControlPlaneAuthorityIdV1,
+    terminal_receipt: &VerifiedTenantRootRefreshInstallationReceiptV1,
     _now_ms: u64,
 ) -> RouterAbProtocolResult<TenantRootRefreshInstallationCheckpointEvaluationV1> {
     require_refresh_fence_matches_command(&active.record.fence, command)?;
@@ -7060,6 +7119,7 @@ fn evaluate_refresh_installation_checkpoint(
     let encoded_candidate = encode_base64url_bytes_v1(candidate_bytes);
     let candidate =
         validate_refresh_installation_evidence_candidate(&encoded_candidate, context, role_keys)?;
+    terminal_receipt.require_matches(candidate_bytes, command, context)?;
     if candidate.evidence().transcript().role() != command.role() {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::ForbiddenLocalBinding,
@@ -8131,6 +8191,8 @@ mod tests {
         deriver_b_verifying_key: [u8; 32],
     ) -> TenantRootCreationRoleVerifyingKeysV1 {
         let key_json = serde_json::json!({
+            "active_deriver_a_signing_key_id": deriver_a_key_id,
+            "active_deriver_b_signing_key_id": deriver_b_key_id,
             "keys": [
                 {
                     "role": "deriver_a",
@@ -8377,6 +8439,43 @@ mod tests {
                 .expect("installation evidence key"),
         )
         .expect("verified installation evidence")
+    }
+
+    fn refresh_installation_terminal_receipt(
+        command: &VerifiedTenantRootRoleRefreshCommandV1,
+        evidence: &VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
+    ) -> VerifiedTenantRootRefreshInstallationReceiptV1 {
+        let role = command.role();
+        let context = evidence.evidence().transcript().context();
+        let receipt = match TenantRootCommandTerminalReceiptV1::sign_success(
+            TenantRootCommandReplayKeyV1::new(
+                command.identity_digest(),
+                command.custody_lineage(),
+                command.session_id(),
+                command.nonce(),
+                role,
+            ),
+            TenantRootProtocolDigestV1::from_bytes([0x91; 32]).expect("receipt digest"),
+            evidence.canonical_bytes().to_vec(),
+            command.issued_at_ms(),
+            context.signing_key_id(role),
+            &role_signing_key(role).to_bytes(),
+        )
+        .expect("terminal receipt")
+        {
+            TenantRootCommandTerminalReceiptV1::Success(receipt) => receipt,
+            TenantRootCommandTerminalReceiptV1::Failure(_) => {
+                unreachable!("sign_success returns a success receipt")
+            }
+        };
+        VerifiedTenantRootRefreshInstallationReceiptV1::new(
+            receipt,
+            evidence.canonical_bytes(),
+            command,
+            context,
+            &role_keys(),
+        )
+        .expect("verified terminal receipt")
     }
 
     #[test]
@@ -8640,6 +8739,8 @@ mod tests {
             refresh_installation_wire(&context, TwoPartyDeriverRole::DeriverA, 30, 55, 0x61);
         let exact_b =
             refresh_installation_wire(&context, TwoPartyDeriverRole::DeriverB, 55, 30, 0x62);
+        let exact_a_receipt = refresh_installation_terminal_receipt(&command_a, &exact_a);
+        let exact_b_receipt = refresh_installation_terminal_receipt(&command_b, &exact_b);
         let first = evaluate_refresh_installation_checkpoint(
             None,
             exact_a.canonical_bytes(),
@@ -8649,6 +8750,7 @@ mod tests {
             &role_keys(),
             &commitments,
             authority(0x71),
+            &exact_a_receipt,
             1_000_100,
         )
         .expect("first exact role installation");
@@ -8667,6 +8769,7 @@ mod tests {
             &role_keys(),
             &commitments,
             authority(0x71),
+            &exact_b_receipt,
             1_000_100,
         )
         .expect("complete exact role installation")
@@ -8689,6 +8792,8 @@ mod tests {
                 peer_scalar,
                 proof_seed,
             );
+            let substituted_a_receipt =
+                refresh_installation_terminal_receipt(&command_a, &substituted_a);
             let first = evaluate_refresh_installation_checkpoint(
                 None,
                 substituted_a.canonical_bytes(),
@@ -8698,6 +8803,7 @@ mod tests {
                 &role_keys(),
                 &commitments,
                 authority(0x71),
+                &substituted_a_receipt,
                 1_000_100,
             )
             .expect("substituted first role installation is retained pending its peer");
@@ -8714,6 +8820,8 @@ mod tests {
                 share_scalar,
                 proof_seed.wrapping_add(1),
             );
+            let substituted_b_receipt =
+                refresh_installation_terminal_receipt(&command_b, &substituted_b);
             let error = evaluate_refresh_installation_checkpoint(
                 Some(first_checkpoint),
                 substituted_b.canonical_bytes(),
@@ -8723,12 +8831,188 @@ mod tests {
                 &role_keys(),
                 &commitments,
                 authority(0x71),
+                &substituted_b_receipt,
                 1_000_100,
             )
             .err()
             .expect("substituted role commitment must conflict at pair completion");
             assert_eq!(error.code(), RouterAbProtocolErrorCode::ConflictingPair);
         }
+    }
+
+    #[test]
+    fn refresh_installation_checkpoint_recovers_after_terminal_d1_commit() {
+        const EXPIRED_NOW_MS: u64 = 1_030_001;
+        let mut active = validated_active_refresh_state();
+        let context = refresh_context(&active);
+        let commitments = refresh_commitment_pair(&context);
+        let command = refresh_command(&active, &context, TwoPartyDeriverRole::DeriverA);
+        active.record.fence = refresh_reserved_fence(
+            &active.record.fence,
+            refresh_attempt_from_command(&command).expect("refresh attempt"),
+        )
+        .expect("reserved refresh fence");
+        let evidence =
+            refresh_installation_wire(&context, TwoPartyDeriverRole::DeriverA, 30, 55, 0x71);
+        let terminal_receipt = refresh_installation_terminal_receipt(&command, &evidence);
+
+        let evaluation = evaluate_refresh_installation_checkpoint(
+            None,
+            evidence.canonical_bytes(),
+            &command,
+            &active,
+            &context,
+            &role_keys(),
+            &commitments,
+            authority(0x71),
+            &terminal_receipt,
+            EXPIRED_NOW_MS,
+        )
+        .expect("terminal D1 receipt permits checkpoint recovery");
+        match evaluation {
+            TenantRootRefreshInstallationCheckpointEvaluationV1::Commit {
+                checkpoint,
+                fence: CloudflareTenantRootRefreshFenceV1::Executed { .. },
+                outcome:
+                    CloudflareTenantRootRefreshInstallationResponseOutcomeV1::WaitingForPeer {
+                        role: CloudflareTenantRootCreationInstallationRoleV1::DeriverA,
+                    },
+            } => {
+                validate_refresh_installation_checkpoint(
+                    checkpoint,
+                    &refresh_checkpoint_scope(&command, &active, &context, authority(0x71))
+                        .expect("refresh checkpoint scope"),
+                    &context,
+                    &role_keys(),
+                    &commitments,
+                    &active.commitments,
+                )
+                .expect("recovered installation checkpoint");
+            }
+            TenantRootRefreshInstallationCheckpointEvaluationV1::Commit { .. } => {
+                panic!("terminal D1 recovery must execute the refresh fence")
+            }
+            TenantRootRefreshInstallationCheckpointEvaluationV1::Replay(_) => {
+                panic!("missing checkpoint must commit after terminal D1 recovery")
+            }
+        }
+    }
+
+    #[test]
+    fn refresh_installation_checkpoint_replays_exact_terminal_receipt_after_expiry() {
+        const FRESH_NOW_MS: u64 = 1_000_100;
+        const EXPIRED_NOW_MS: u64 = 1_030_001;
+        let mut active = validated_active_refresh_state();
+        let context = refresh_context(&active);
+        let commitments = refresh_commitment_pair(&context);
+        let command = refresh_command(&active, &context, TwoPartyDeriverRole::DeriverA);
+        active.record.fence = refresh_reserved_fence(
+            &active.record.fence,
+            refresh_attempt_from_command(&command).expect("refresh attempt"),
+        )
+        .expect("reserved refresh fence");
+        let evidence =
+            refresh_installation_wire(&context, TwoPartyDeriverRole::DeriverA, 30, 55, 0x72);
+        let terminal_receipt = refresh_installation_terminal_receipt(&command, &evidence);
+        let first = evaluate_refresh_installation_checkpoint(
+            None,
+            evidence.canonical_bytes(),
+            &command,
+            &active,
+            &context,
+            &role_keys(),
+            &commitments,
+            authority(0x71),
+            &terminal_receipt,
+            FRESH_NOW_MS,
+        )
+        .expect("first installation checkpoint");
+        let checkpoint = match first {
+            TenantRootRefreshInstallationCheckpointEvaluationV1::Commit { checkpoint, .. } => {
+                checkpoint
+            }
+            TenantRootRefreshInstallationCheckpointEvaluationV1::Replay(_) => {
+                panic!("first installation must commit")
+            }
+        };
+
+        assert!(matches!(
+            evaluate_refresh_installation_checkpoint(
+                Some(checkpoint),
+                evidence.canonical_bytes(),
+                &command,
+                &active,
+                &context,
+                &role_keys(),
+                &commitments,
+                authority(0x71),
+                &terminal_receipt,
+                EXPIRED_NOW_MS,
+            )
+            .expect("exact retry after expiry"),
+            TenantRootRefreshInstallationCheckpointEvaluationV1::Replay(
+                CloudflareTenantRootRefreshInstallationResponseOutcomeV1::WaitingForPeer {
+                    role: CloudflareTenantRootCreationInstallationRoleV1::DeriverA,
+                }
+            )
+        ));
+    }
+
+    #[test]
+    fn refresh_installation_checkpoint_rejects_mismatched_terminal_receipt_context() {
+        let mut active = validated_active_refresh_state();
+        let context = refresh_context(&active);
+        let commitments = refresh_commitment_pair(&context);
+        let command = refresh_command(&active, &context, TwoPartyDeriverRole::DeriverA);
+        active.record.fence = refresh_reserved_fence(
+            &active.record.fence,
+            refresh_attempt_from_command(&command).expect("refresh attempt"),
+        )
+        .expect("reserved refresh fence");
+        let evidence =
+            refresh_installation_wire(&context, TwoPartyDeriverRole::DeriverA, 30, 55, 0x73);
+        let foreign_context = TenantRootCeremonyContextV1::new(
+            context.identity_digest(),
+            context.custody_lineage(),
+            context.epochs().clone(),
+            TenantRootCeremonySessionIdV1::from_bytes([0x62; 16]).expect("foreign session"),
+            context.nonce(),
+            context.issued_at_ms(),
+            context.expires_at_ms(),
+            context.signing_key_id(TwoPartyDeriverRole::DeriverA),
+            context.signing_key_id(TwoPartyDeriverRole::DeriverB),
+        )
+        .expect("foreign context");
+        let foreign_command =
+            refresh_command(&active, &foreign_context, TwoPartyDeriverRole::DeriverA);
+        let foreign_evidence = refresh_installation_wire(
+            &foreign_context,
+            TwoPartyDeriverRole::DeriverA,
+            30,
+            55,
+            0x74,
+        );
+        let foreign_receipt =
+            refresh_installation_terminal_receipt(&foreign_command, &foreign_evidence);
+
+        let error = evaluate_refresh_installation_checkpoint(
+            None,
+            evidence.canonical_bytes(),
+            &command,
+            &active,
+            &context,
+            &role_keys(),
+            &commitments,
+            authority(0x71),
+            &foreign_receipt,
+            1_030_001,
+        )
+        .err()
+        .expect("foreign terminal receipt must fail closed");
+        assert_eq!(
+            error.code(),
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding
+        );
     }
 
     fn creation_commitment_wire(
@@ -10220,6 +10504,8 @@ mod tests {
             .verifying_key()
             .to_bytes();
         let key_json = serde_json::json!({
+            "active_deriver_a_signing_key_id": "deriver-a-signing-key-7",
+            "active_deriver_b_signing_key_id": "deriver-b-signing-key-9",
             "keys": [
                 {
                     "role": "deriver_a",
@@ -10293,6 +10579,8 @@ mod tests {
         .is_err());
 
         let duplicate = serde_json::json!({
+            "active_deriver_a_signing_key_id": "deriver-a-signing-key-7",
+            "active_deriver_b_signing_key_id": "deriver-b-signing-key-9",
             "keys": [
                 {
                     "role": "deriver_a",
@@ -10315,6 +10603,8 @@ mod tests {
         assert!(decode_role_verifying_keys(&duplicate).is_err());
 
         let missing_role = serde_json::json!({
+            "active_deriver_a_signing_key_id": "deriver-a-signing-key-7",
+            "active_deriver_b_signing_key_id": "deriver-b-signing-key-9",
             "keys": [
                 {
                     "role": "deriver_a",

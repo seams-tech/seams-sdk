@@ -7,7 +7,7 @@ use router_ab_core::{
     PendingTenantRootRefreshRoleAttemptV1, RouterAbDerivationError, RouterAbDerivationErrorCode,
     RouterAbDerivationResult, RouterAbProtocolError, RouterAbProtocolErrorCode,
     RouterAbProtocolResult, TenantRootActiveRoleBindingV1, TenantRootCanaryCurveFamilyV1,
-    TenantRootCeremonyContextV1, TenantRootCommandTerminalReceiptV1,
+    TenantRootCeremonyContextV1, TenantRootCommandTerminalReceiptV1, TenantRootDeriverIdentitiesV1,
     TenantRootEncryptedRefreshContributionV1, TenantRootManagedBackupSealRequestV1,
     TenantRootManagedRestoreRoleV1, TenantRootProviderCanaryReceiptBindingV1,
     TenantRootRefreshContributionAadV1, TenantRootRefreshHpkePublicKeyV1,
@@ -239,11 +239,13 @@ pub(crate) const TENANT_ROOT_CONTROL_PLANE_FORBIDDEN_ENV_KEYS: &[&str] = &[
     DERIVER_A_PEER_SIGNING_KEY_EPOCH_ENV,
     DERIVER_B_PEER_SIGNING_KEY_BINDING_ENV,
     DERIVER_B_PEER_SIGNING_KEY_EPOCH_ENV,
-    // The role signing key IDs are public ceremony metadata: the issuer names
-    // both roles' expected signers in the creation context it constructs, so it
-    // requires them. Their Secret bindings stay forbidden.
+    // Role signing IDs are selected from the retained public keyset. Direct
+    // role-ID configuration is forbidden here so the issuer cannot diverge
+    // from the active selectors shared by Router and Derivers.
     DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_BINDING_ENV,
+    DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
     DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_BINDING_ENV,
+    DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
     DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF_ENV,
     DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY_ENV,
     DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -1528,10 +1530,10 @@ pub(crate) fn parse_cloudflare_tenant_root_creation_grant_authority_verifying_ke
     )?)
 }
 
-/// Parses the published role verifying keyset.
+/// Parses the published role verifying keyset and its active role selections.
 ///
-/// The control plane holds this to prove the role signing IDs it names in a
-/// ceremony actually exist under their roles.
+/// Retired entries remain available for durable receipt verification. The
+/// explicit active IDs select the identities used for new custody bindings.
 pub(crate) fn parse_cloudflare_tenant_root_creation_role_verifying_keys_v1(
     env: &impl CloudflareEnvReaderV1,
 ) -> RouterAbProtocolResult<TenantRootCreationRoleVerifyingKeysV1> {
@@ -1541,20 +1543,6 @@ pub(crate) fn parse_cloudflare_tenant_root_creation_role_verifying_keys_v1(
     )?)?;
     validate_tenant_root_creation_role_verifying_keys_against_peer_v1(env, &key_set)?;
     Ok(key_set)
-}
-
-/// Reads the public role signing key id the issuer names for one role.
-pub(crate) fn read_cloudflare_tenant_root_creation_role_signing_key_id_v1(
-    env: &impl CloudflareEnvReaderV1,
-    role: TwoPartyDeriverRole,
-) -> RouterAbProtocolResult<String> {
-    let key = match role {
-        TwoPartyDeriverRole::DeriverA => DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
-        TwoPartyDeriverRole::DeriverB => DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID_ENV,
-    };
-    let value = read_required_raw_env_text(env, key)?;
-    validate_tenant_root_identifier("tenant-root creation role signing key ID", &value)?;
-    Ok(value)
 }
 
 /// Parses the published control-plane issuer verifying key set from Env.
@@ -1707,6 +1695,7 @@ pub(crate) fn parse_cloudflare_tenant_root_creation_role_signing_key_selection_v
     let key_set = decode_role_verifying_keys(&key_set_json)?;
     validate_tenant_root_creation_role_verifying_keys_against_peer_v1(env, &key_set)?;
     key_set.reject_ambiguous_role_selection(binding.role(), binding.signing_key_id())?;
+    key_set.require_active_role_selection(binding.role(), binding.signing_key_id())?;
     let verifying_key = key_set.for_role_and_key_id(binding.role(), binding.signing_key_id())?;
     CloudflareTenantRootCreationRoleSigningKeySelectionV1::new(binding, *verifying_key)
 }
@@ -1715,9 +1704,27 @@ pub(crate) fn parse_cloudflare_tenant_root_creation_role_signing_key_selection_v
 pub(crate) struct TenantRootCreationRoleVerifyingKeysV1 {
     deriver_a: BTreeMap<String, [u8; 32]>,
     deriver_b: BTreeMap<String, [u8; 32]>,
+    /// Exact current role IDs used when constructing service custody bindings.
+    active_deriver_a_signing_key_id: String,
+    active_deriver_b_signing_key_id: String,
 }
 
 impl TenantRootCreationRoleVerifyingKeysV1 {
+    pub(crate) fn deriver_identities(
+        &self,
+    ) -> RouterAbProtocolResult<TenantRootDeriverIdentitiesV1> {
+        TenantRootDeriverIdentitiesV1::new(
+            self.active_deriver_a_signing_key_id.clone(),
+            self.active_deriver_b_signing_key_id.clone(),
+        )
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("tenant-root active role identities are invalid: {error}"),
+            )
+        })
+    }
+
     pub(crate) fn for_role_and_key_id(
         &self,
         role: TwoPartyDeriverRole,
@@ -1757,11 +1764,31 @@ impl TenantRootCreationRoleVerifyingKeysV1 {
         }
         Ok(())
     }
+
+    fn require_active_role_selection(
+        &self,
+        role: TwoPartyDeriverRole,
+        signing_key_id: &str,
+    ) -> RouterAbProtocolResult<()> {
+        let active_signing_key_id = match role {
+            TwoPartyDeriverRole::DeriverA => &self.active_deriver_a_signing_key_id,
+            TwoPartyDeriverRole::DeriverB => &self.active_deriver_b_signing_key_id,
+        };
+        if active_signing_key_id != signing_key_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root role signing key ID does not match the published active selector",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TenantRootCreationRoleVerifyingKeySetWireV1 {
+    active_deriver_a_signing_key_id: String,
+    active_deriver_b_signing_key_id: String,
     keys: Vec<TenantRootCreationRoleVerifyingKeyWireV1>,
 }
 
@@ -1797,6 +1824,16 @@ pub(crate) fn decode_role_verifying_keys(
             "tenant-root creation role key set must contain between two and 64 keys",
         ));
     }
+    validate_tenant_root_identifier(
+        "tenant-root active Deriver A signing key ID",
+        &wire.active_deriver_a_signing_key_id,
+    )?;
+    validate_tenant_root_identifier(
+        "tenant-root active Deriver B signing key ID",
+        &wire.active_deriver_b_signing_key_id,
+    )?;
+    let active_deriver_a_signing_key_id = wire.active_deriver_a_signing_key_id;
+    let active_deriver_b_signing_key_id = wire.active_deriver_b_signing_key_id;
     let mut deriver_a = BTreeMap::new();
     let mut deriver_b = BTreeMap::new();
     let mut verifying_keys = BTreeSet::new();
@@ -1838,9 +1875,32 @@ pub(crate) fn decode_role_verifying_keys(
             "tenant-root creation role key set must retain at least one key for each role",
         ));
     }
+    for (role, signing_key_id, role_keys) in [
+        (
+            TwoPartyDeriverRole::DeriverA,
+            active_deriver_a_signing_key_id.as_str(),
+            &deriver_a,
+        ),
+        (
+            TwoPartyDeriverRole::DeriverB,
+            active_deriver_b_signing_key_id.as_str(),
+            &deriver_b,
+        ),
+    ] {
+        if !role_keys.contains_key(signing_key_id) {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!(
+                    "tenant-root active role signing key ID {signing_key_id} is not published for {role:?}"
+                ),
+            ));
+        }
+    }
     Ok(TenantRootCreationRoleVerifyingKeysV1 {
         deriver_a,
         deriver_b,
+        active_deriver_a_signing_key_id,
+        active_deriver_b_signing_key_id,
     })
 }
 
@@ -2422,6 +2482,8 @@ mod tests {
         deriver_b_key: &SigningKey,
     ) -> String {
         serde_json::json!({
+            "active_deriver_a_signing_key_id": deriver_a_key_id,
+            "active_deriver_b_signing_key_id": deriver_b_key_id,
             "keys": [
                 {
                     "role": "deriver_a",
@@ -2575,6 +2637,92 @@ mod tests {
     }
 
     #[test]
+    fn role_signing_selection_requires_the_published_active_id() {
+        let signing_key_a = SigningKey::from_bytes(&[0xa1; 32]);
+        let signing_key_b = SigningKey::from_bytes(&[0xb1; 32]);
+        let env = role_signing_env(
+            "DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY",
+            "tenant-root-a-retired",
+            role_key_set_json(
+                "tenant-root-a-active",
+                &signing_key_a,
+                "tenant-root-b-active",
+                &signing_key_b,
+            ),
+        );
+
+        let error = parse_cloudflare_tenant_root_creation_role_signing_key_selection_v1(
+            CloudflareWorkerRoleV1::DeriverA,
+            &env,
+        )
+        .expect_err("a Deriver cannot select a retired role key");
+        assert_eq!(
+            error.code(),
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+        );
+    }
+
+    #[test]
+    fn public_role_keyset_resolves_active_ids_across_rotation() {
+        let signing_key_a = SigningKey::from_bytes(&[0xa1; 32]);
+        let retired_signing_key_a = SigningKey::from_bytes(&[0xa2; 32]);
+        let signing_key_b = SigningKey::from_bytes(&[0xb1; 32]);
+        let retired_signing_key_b = SigningKey::from_bytes(&[0xb2; 32]);
+        let key_set_json = serde_json::json!({
+            "active_deriver_a_signing_key_id": "tenant-root-a-active",
+            "active_deriver_b_signing_key_id": "tenant-root-b-active",
+            "keys": [
+                {
+                    "role": "deriver_a",
+                    "signing_key_id": "tenant-root-a-retired",
+                    "verifying_key_hex": lower_hex(&retired_signing_key_a.verifying_key().to_bytes()),
+                },
+                {
+                    "role": "deriver_a",
+                    "signing_key_id": "tenant-root-a-active",
+                    "verifying_key_hex": lower_hex(&signing_key_a.verifying_key().to_bytes()),
+                },
+                {
+                    "role": "deriver_b",
+                    "signing_key_id": "tenant-root-b-retired",
+                    "verifying_key_hex": lower_hex(&retired_signing_key_b.verifying_key().to_bytes()),
+                },
+                {
+                    "role": "deriver_b",
+                    "signing_key_id": "tenant-root-b-active",
+                    "verifying_key_hex": lower_hex(&signing_key_b.verifying_key().to_bytes()),
+                },
+            ],
+        })
+        .to_string();
+        let key_set =
+            decode_role_verifying_keys(&key_set_json).expect("rotated public role keyset");
+
+        let identities = key_set
+            .deriver_identities()
+            .expect("active public identities");
+        assert_eq!(identities.deriver_a(), "tenant-root-a-active");
+        assert_eq!(identities.deriver_b(), "tenant-root-b-active");
+        assert_eq!(
+            key_set
+                .for_role_and_key_id(TwoPartyDeriverRole::DeriverA, "tenant-root-a-retired")
+                .expect("retired Deriver A key"),
+            &retired_signing_key_a.verifying_key().to_bytes()
+        );
+        assert_eq!(
+            key_set
+                .for_role_and_key_id(TwoPartyDeriverRole::DeriverB, "tenant-root-b-retired")
+                .expect("retired Deriver B key"),
+            &retired_signing_key_b.verifying_key().to_bytes()
+        );
+        let mut missing_active: serde_json::Value =
+            serde_json::from_str(&key_set_json).expect("role keyset JSON");
+        missing_active["active_deriver_a_signing_key_id"] =
+            serde_json::Value::String("tenant-root-a-missing".to_owned());
+        assert!(decode_role_verifying_keys(&missing_active.to_string()).is_err());
+    }
+
+    #[test]
     fn role_signing_rejects_peer_aliases_and_opposite_role_key() {
         let signing_key_a = SigningKey::from_bytes(&[0xa1; 32]);
         let signing_key_b = SigningKey::from_bytes(&[0xb1; 32]);
@@ -2718,6 +2866,8 @@ mod tests {
     fn router_role_key_set_rejects_cross_role_verifier_aliases() {
         let signing_key = SigningKey::from_bytes(&[0xa1; 32]);
         let key_set = serde_json::json!({
+            "active_deriver_a_signing_key_id": "router-a-key",
+            "active_deriver_b_signing_key_id": "router-b-key",
             "keys": [
                 {
                     "role": "deriver_a",
@@ -2745,6 +2895,8 @@ mod tests {
         let signing_key_a = SigningKey::from_bytes(&[0xa1; 32]);
         let signing_key_b = SigningKey::from_bytes(&[0xb1; 32]);
         let duplicate_id = serde_json::json!({
+            "active_deriver_a_signing_key_id": "same-id",
+            "active_deriver_b_signing_key_id": "same-id",
             "keys": [
                 {
                     "role": "deriver_a",
@@ -2760,6 +2912,8 @@ mod tests {
         })
         .to_string();
         let duplicate_verifier = serde_json::json!({
+            "active_deriver_a_signing_key_id": "a-id",
+            "active_deriver_b_signing_key_id": "b-id",
             "keys": [
                 {
                     "role": "deriver_a",

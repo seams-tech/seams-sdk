@@ -432,15 +432,25 @@ test('deployment key generation provisions role-local Deriver creation signing k
   const keySet = JSON.parse(
     output.variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
   ) as {
+    readonly active_deriver_a_signing_key_id: string;
+    readonly active_deriver_b_signing_key_id: string;
     readonly keys: readonly {
       readonly role: string;
       readonly signing_key_id: string;
       readonly verifying_key_hex: string;
     }[];
   };
-  // Exact wire shape of TenantRootCreationRoleVerifyingKeySetWireV1: one entry per role.
-  expect(Object.keys(keySet)).toEqual(['keys']);
+  // Exact wire shape of TenantRootCreationRoleVerifyingKeySetWireV1: active
+  // selectors plus one retained entry per role.
+  expect(Object.keys(keySet)).toEqual([
+    'active_deriver_a_signing_key_id',
+    'active_deriver_b_signing_key_id',
+    'keys',
+  ]);
   expect(keySet.keys.map((entry) => entry.role)).toEqual(['deriver_a', 'deriver_b']);
+  expect(keySet.active_deriver_a_signing_key_id).toBe(keySet.keys[0].signing_key_id);
+  expect(keySet.active_deriver_b_signing_key_id).toBe(keySet.keys[1].signing_key_id);
+  const retainedKeySet = JSON.stringify({ keys: keySet.keys });
   for (const [entry, role, R] of [
     [keySet.keys[0], 'deriver_a', 'A'],
     [keySet.keys[1], 'deriver_b', 'B'],
@@ -464,7 +474,7 @@ test('deployment key generation provisions role-local Deriver creation signing k
             output.secrets[`DERIVER_${R}_TENANT_ROOT_CREATION_SIGNING_KEY`],
           [`DERIVER_${R}_TENANT_ROOT_CREATION_SIGNING_KEY_ID`]: entry.signing_key_id,
           ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
-            output.variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
+            retainedKeySet,
         },
       ),
     ).not.toThrow();
@@ -505,7 +515,7 @@ test('deployment key generation provisions role-local Deriver creation signing k
           output.secrets.DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY,
         DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID: keySet.keys[0].signing_key_id,
         ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
-          output.variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
+          retainedKeySet,
       },
     ),
   ).toThrow(/does not publish/u);

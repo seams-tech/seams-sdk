@@ -21,7 +21,8 @@ use crate::tenant_root_role_runtime::{
     CloudflareDeriverTenantRootCleanupResponseV1,
     CloudflareDeriverTenantRootRefreshActivationRequestV1,
     CloudflareDeriverTenantRootRefreshActivationResponseV1,
-    CloudflareDeriverTenantRootRefreshRequestV1, CloudflareTenantRootCreateRoleV1,
+    CloudflareDeriverTenantRootRefreshRequestV1, CloudflareDeriverTenantRootRefreshResponseV1,
+    CloudflareTenantRootCreateRoleV1,
 };
 use crate::{
     execute_cloudflare_deriver_tenant_root_cleanup_service_call_v1,
@@ -46,7 +47,7 @@ use crate::{
     CloudflareDeriverTenantRootCleanupRequestV1,
     CloudflareDeriverTenantRootCreateRoleShareRequestV1,
     CloudflareDeriverTenantRootCreateRoleShareResponseV1,
-    CloudflareDeriverTenantRootInitialActivationRequestV1,
+    CloudflareDeriverTenantRootInitialActivationRequestV1, CloudflarePeerBindingV1,
     CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
     CloudflareRouterEcdsaAcceptedCapabilityBindingV1,
     CloudflareRouterEd25519AcceptedAuthorizedOperationV1,
@@ -476,6 +477,20 @@ async fn cleanup_cloudflare_router_retired_tenant_root_role_v1(
 }
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
+async fn execute_cloudflare_deriver_tenant_root_refresh_service_call_with_retry_v1<'a>(
+    env: &'a Env,
+    peer: &'a CloudflarePeerBindingV1,
+    request: &'a CloudflareDeriverTenantRootRefreshRequestV1,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootRefreshResponseV1> {
+    match execute_cloudflare_deriver_tenant_root_refresh_service_call_v1(env, peer, request).await {
+        Ok(response) => Ok(response),
+        Err(_) => {
+            execute_cloudflare_deriver_tenant_root_refresh_service_call_v1(env, peer, request).await
+        }
+    }
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
 async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
     env: &Env,
     runtime: &CloudflareRouterWorkerRuntimeV1,
@@ -493,18 +508,20 @@ async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
         refresh_context_b64u: issued.refresh_context_b64u,
         role_refresh_command_b64u: issued.deriver_b_refresh_command_b64u,
     };
-    let (deriver_a, deriver_b) = futures::try_join!(
-        execute_cloudflare_deriver_tenant_root_refresh_service_call_v1(
+    let (deriver_a, deriver_b) = futures::join!(
+        execute_cloudflare_deriver_tenant_root_refresh_service_call_with_retry_v1(
             env,
             &runtime.bindings().deriver_a,
             &deriver_a_request,
         ),
-        execute_cloudflare_deriver_tenant_root_refresh_service_call_v1(
+        execute_cloudflare_deriver_tenant_root_refresh_service_call_with_retry_v1(
             env,
             &runtime.bindings().deriver_b,
             &deriver_b_request,
         ),
-    )?;
+    );
+    let deriver_a = deriver_a?;
+    let deriver_b = deriver_b?;
     let issued_activation =
         execute_cloudflare_tenant_root_control_plane_refresh_activation_service_call_v1(
             env,

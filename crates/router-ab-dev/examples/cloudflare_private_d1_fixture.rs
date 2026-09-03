@@ -38,6 +38,8 @@ const TENANT_ROOT_ROLE_B_SEED: [u8; 32] = [0xb4; 32];
 #[derive(Serialize)]
 struct RequestFixture {
     gateway_request: RouterEd25519YaoGatewayExecuteTargetV2,
+    application: RouterAbEd25519YaoApplicationBindingFactsV1,
+    participant_ids: [u16; 2],
 }
 
 #[derive(Serialize)]
@@ -50,6 +52,7 @@ struct PrivateD1Fixture {
     tenant_root_creation: TenantRootCreationFixture,
     role_retry: RequestFixture,
     activation: RequestFixture,
+    activation_after_refresh: RequestFixture,
 }
 
 #[derive(Serialize)]
@@ -88,6 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         role_retry: request_fixture(
             "role-private-d1-retry",
             [0x31; 32],
+            "initial",
             deriver_a_public,
             deriver_b_public,
             signing_worker_public,
@@ -95,6 +99,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         activation: request_fixture(
             "signing-worker-d1-activation",
             [0x32; 32],
+            "before-refresh",
+            deriver_a_public,
+            deriver_b_public,
+            signing_worker_public,
+        )?,
+        activation_after_refresh: request_fixture(
+            "signing-worker-d1-activation",
+            [0x32; 32],
+            "after-refresh",
             deriver_a_public,
             deriver_b_public,
             signing_worker_public,
@@ -161,12 +174,13 @@ fn role_env<'a>(
 fn request_fixture(
     label: &str,
     client_root_bytes: [u8; 32],
+    attempt: &str,
     deriver_a_public: [u8; 32],
     deriver_b_public: [u8; 32],
     signing_worker_public: [u8; 32],
 ) -> Result<RequestFixture, Box<dyn std::error::Error>> {
     let application = Ed25519YaoApplicationBindingFactsV1::new(
-        Ed25519YaoApplicationBindingWalletIdV1::parse(&format!("wallet-{label}"))?,
+        Ed25519YaoApplicationBindingWalletIdV1::parse(&format!("{label}-account"))?,
         Ed25519YaoApplicationBindingSigningKeyIdV1::parse(&format!("ed25519ks_{label}"))?,
         Ed25519YaoApplicationBindingSigningRootIdV1::parse("project:local")?,
         Ed25519YaoApplicationBindingKeyCreationSignerSlotV1::new(1)?,
@@ -176,7 +190,7 @@ fn request_fixture(
     let (client_a, client_b) =
         derive_ed25519_yao_client_contributions_v1(&client_root, &context)?.into_parts();
     let application_binding = RouterAbEd25519YaoApplicationBindingFactsV1::new(
-        format!("wallet-{label}"),
+        format!("{label}-account"),
         format!("ed25519ks_{label}"),
         "project:local",
         1,
@@ -184,18 +198,18 @@ fn request_fixture(
     let admission = admit_local_ed25519_yao_registration_v1(
         RouterAbEd25519YaoRegistrationAdmissionRequestV1::new(
             RouterAbEd25519YaoLifecycleScopeV1::new(
-                format!("{label}-session"),
+                format!("{label}-{attempt}-session"),
                 RootShareEpoch::new("local-root-v1")?,
                 format!("{label}-account"),
-                format!("{label}-wallet-session"),
+                format!("{label}-{attempt}-wallet-session"),
                 format!("{label}-signer-set"),
                 "signing-worker-local",
                 MpcMaterialActivationRefV1::new(
-                    format!("activation-{label}"),
-                    format!("capability-{label}"),
+                    format!("activation-{label}-{attempt}"),
+                    format!("capability-{label}-{attempt}"),
                     format!("{label}-account"),
                     format!("key-{label}"),
-                    format!("{label}-session"),
+                    format!("{label}-{attempt}-session"),
                     "signing-worker-local",
                 )?,
             )?,
@@ -224,7 +238,7 @@ fn request_fixture(
     };
     let request_b = LocalEd25519YaoActivationDeriverBRequestV1 {
         binding: admission.binding.clone(),
-        application_binding,
+        application_binding: application_binding.clone(),
         participant_ids: [1, 2],
         client_contribution: LocalEd25519YaoClientContributionV1 {
             y: client_b_y.into_bytes(),
@@ -241,7 +255,11 @@ fn request_fixture(
         input_a,
         input_b,
     )?;
-    Ok(RequestFixture { gateway_request })
+    Ok(RequestFixture {
+        gateway_request,
+        application: application_binding,
+        participant_ids: [1, 2],
+    })
 }
 
 fn cloudflare_router_env(
@@ -355,6 +373,17 @@ fn cloudflare_deriver_env(
             required(
                 router_local,
                 &format!("DERIVER_{suffix}_ED25519_YAO_INPUT_PUBLIC_KEY"),
+            ),
+        ),
+        (
+            format!("{peer_binding}_ENVELOPE_HPKE_KEY_EPOCH"),
+            "epoch-1".into(),
+        ),
+        (
+            format!("{peer_binding}_ENVELOPE_HPKE_PUBLIC_KEY"),
+            required(
+                router_local,
+                &format!("{peer_binding}_ED25519_YAO_INPUT_PUBLIC_KEY"),
             ),
         ),
         (
@@ -490,7 +519,7 @@ fn cloudflare_tenant_root_role_verifying_keys_json() -> String {
     let a = ed25519_dalek::SigningKey::from_bytes(&TENANT_ROOT_ROLE_A_SEED).verifying_key();
     let b = ed25519_dalek::SigningKey::from_bytes(&TENANT_ROOT_ROLE_B_SEED).verifying_key();
     format!(
-        "{{\"keys\":[{{\"role\":\"deriver_a\",\"signing_key_id\":\"{TENANT_ROOT_ROLE_A_KEY_ID}\",\"verifying_key_hex\":\"{}\"}},{{\"role\":\"deriver_b\",\"signing_key_id\":\"{TENANT_ROOT_ROLE_B_KEY_ID}\",\"verifying_key_hex\":\"{}\"}}]}}",
+        "{{\"active_deriver_a_signing_key_id\":\"{TENANT_ROOT_ROLE_A_KEY_ID}\",\"active_deriver_b_signing_key_id\":\"{TENANT_ROOT_ROLE_B_KEY_ID}\",\"keys\":[{{\"role\":\"deriver_a\",\"signing_key_id\":\"{TENANT_ROOT_ROLE_A_KEY_ID}\",\"verifying_key_hex\":\"{}\"}},{{\"role\":\"deriver_b\",\"signing_key_id\":\"{TENANT_ROOT_ROLE_B_KEY_ID}\",\"verifying_key_hex\":\"{}\"}}]}}",
         hex::encode(a.as_bytes()),
         hex::encode(b.as_bytes()),
     )

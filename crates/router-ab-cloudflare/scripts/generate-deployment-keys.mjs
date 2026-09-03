@@ -106,6 +106,8 @@ const variables = {
   ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID: deriverBTenantRootCreationKeyId,
   // Exact wire shape of TenantRootCreationRoleVerifyingKeySetWireV1 (deny_unknown_fields).
   ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON: JSON.stringify({
+    active_deriver_a_signing_key_id: deriverATenantRootCreationKeyId,
+    active_deriver_b_signing_key_id: deriverBTenantRootCreationKeyId,
     keys: [
       {
         role: 'deriver_a',

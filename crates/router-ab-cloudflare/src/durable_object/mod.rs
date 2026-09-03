@@ -226,7 +226,7 @@ pub struct CloudflareSigningWorkerOutputActivationReceiptV1 {
     pub transcript_digest: PublicDigest32,
     /// Active SigningWorker state descriptor for normal signing.
     pub active_signing_worker_state: ActiveSigningWorkerStateV1,
-    /// Whether activation was stored.
+    /// Whether the exact activation is durably stored.
     pub activated: bool,
 }
 

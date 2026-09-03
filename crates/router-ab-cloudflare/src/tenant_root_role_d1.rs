@@ -1,4 +1,4 @@
-use core::fmt;
+use core::{fmt, future::Future, pin::Pin};
 
 #[cfg(debug_assertions)]
 use ed25519_dalek::SigningKey;
@@ -1705,14 +1705,7 @@ impl TenantRootRoleD1CipherV1 {
                 "tenant-root role-private D1 decryption failed: {error}"
             ))
         })?;
-        let record: CloudflareTenantRootRoleShareRecordV1 =
-            serde_json::from_slice::<TenantRootRoleD1RecordWireV1>(&plaintext)
-                .map_err(|error| {
-                    store_error(format!(
-                        "tenant-root role-private record decoding failed: {error}"
-                    ))
-                })?
-                .into_record()?;
+        let record = decode_tenant_root_role_d1_record_v1(plaintext)?;
         record.validate()?;
         validate_record_activation_binding(&record)?;
         let actual = record_metadata(&record)?;
@@ -1762,6 +1755,20 @@ impl TenantRootRoleD1CipherV1 {
         }
         Ok(())
     }
+}
+
+/// Keeps the large authenticated record decoder out of the HPKE open frame.
+#[inline(never)]
+fn decode_tenant_root_role_d1_record_v1(
+    plaintext: Vec<u8>,
+) -> worker::Result<CloudflareTenantRootRoleShareRecordV1> {
+    serde_json::from_slice::<TenantRootRoleD1RecordWireV1>(&plaintext)
+        .map_err(|error| {
+            store_error(format!(
+                "tenant-root role-private record decoding failed: {error}"
+            ))
+        })?
+        .into_record()
 }
 
 fn validate_role_private_d1_kek_key_pair(
@@ -3369,12 +3376,49 @@ pub(crate) enum CloudflareTenantRootManagedRestoreStagingDecisionV1 {
 #[derive(Debug)]
 pub(crate) struct CloudflareTenantRootManagedRestoreForwardRefreshSourceV1 {
     sealed_online_role_share: TenantRootSealedOnlineRoleShareV1,
+    capability_digest: TenantRootLifecycleReceiptDigestV1,
+    backup_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+    installation_receipt_digest: TenantRootLifecycleReceiptDigestV1,
 }
 
 impl CloudflareTenantRootManagedRestoreForwardRefreshSourceV1 {
     /// Consumes this verified source into the provider-openable sealed artifact.
     pub(crate) fn into_online_role_share_artifact(self) -> TenantRootSealedOnlineRoleShareV1 {
         self.sealed_online_role_share
+    }
+
+    pub(crate) const fn capability_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.capability_digest
+    }
+
+    pub(crate) const fn backup_receipt_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.backup_receipt_digest
+    }
+
+    pub(crate) const fn installation_receipt_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.installation_receipt_digest
+    }
+}
+
+/// Exact provenance retained by a managed-restore pending row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CloudflareTenantRootManagedRestoreForwardRefreshProvenanceV1 {
+    capability_digest: TenantRootLifecycleReceiptDigestV1,
+    backup_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+    installation_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+}
+
+impl CloudflareTenantRootManagedRestoreForwardRefreshProvenanceV1 {
+    pub(crate) const fn capability_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.capability_digest
+    }
+
+    pub(crate) const fn backup_receipt_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.backup_receipt_digest
+    }
+
+    pub(crate) const fn installation_receipt_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.installation_receipt_digest
     }
 }
 
@@ -3568,7 +3612,38 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             )?;
         Ok(CloudflareTenantRootManagedRestoreForwardRefreshSourceV1 {
             sealed_online_role_share,
+            capability_digest,
+            backup_receipt_digest,
+            installation_receipt_digest,
         })
+    }
+
+    /// Reads the provenance that was authenticated when managed restore was staged.
+    ///
+    /// The returned digests are copied from the authenticated pending record;
+    /// no caller-provided provenance can replace them at the activation boundary.
+    pub(crate) fn managed_restore_forward_refresh_provenance(
+        &self,
+        stored: &CloudflareStoredTenantRootRoleShareV1,
+    ) -> worker::Result<CloudflareTenantRootManagedRestoreForwardRefreshProvenanceV1> {
+        validate_pending_stored_record(&self.cipher, stored)?;
+        let CloudflareTenantRootRoleShareLifecycleV1::Pending(pending) = &stored.record.lifecycle
+        else {
+            unreachable!("pending lifecycle was checked by validate_pending_stored_record");
+        };
+        let Some((capability_digest, backup_receipt_digest)) = pending.managed_restore_digests()
+        else {
+            return Err(store_error(
+                "tenant-root forward-refresh provenance requires managed-restore material",
+            ));
+        };
+        Ok(
+            CloudflareTenantRootManagedRestoreForwardRefreshProvenanceV1 {
+                capability_digest,
+                backup_receipt_digest,
+                installation_receipt_digest: pending.installation_evidence_digest(),
+            },
+        )
     }
 
     /// Reserves one role-local managed-restore staging insertion.
@@ -4831,7 +4906,8 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         let mut stored = Vec::with_capacity(rows.len());
         for row in rows {
             let opened = self
-                .open_row(Some(row))?
+                .open_row(Some(row))
+                .await?
                 .ok_or_else(|| store_error("tenant-root role-private active row is missing"))?;
             stored.push(opened);
         }
@@ -4891,7 +4967,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             )?
             .first::<TenantRootRoleD1RowV1>(None)
             .await?;
-        self.open_row(row)
+        self.open_row(row).await
     }
 
     pub(crate) async fn load_epoch_by_identity_digest(
@@ -4917,7 +4993,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             )?
             .first::<TenantRootRoleD1RowV1>(None)
             .await?;
-        self.open_row(row)
+        self.open_row(row).await
     }
 
     pub(crate) async fn load_initial_pending_for_activation(
@@ -5235,6 +5311,144 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                 },
             ),
         }
+    }
+
+    /// Applies the mandatory managed-restore forward refresh atomically.
+    ///
+    /// The source pending row is deleted only in the same batch that activates
+    /// its exact next-epoch refresh row and checkpoints command execution.
+    pub(crate) async fn execute_managed_restore_forward_refresh(
+        &self,
+        command: CloudflareTenantRootManagedRestoreForwardRefreshCommandV1,
+        executed_at_ms: u64,
+    ) -> worker::Result<(
+        CloudflareStoredTenantRootRoleShareV1,
+        ExecutedTenantRootCommandV1,
+    )> {
+        let CloudflareTenantRootManagedRestoreForwardRefreshCommandV1 {
+            scope,
+            reservation,
+            restored_pending,
+            refresh_pending,
+            activation,
+            capability_digest,
+            backup_receipt_digest,
+            installation_receipt_digest,
+            updated_at_ms,
+            expected_restored_revision,
+            expected_refresh_revision,
+            operation_payload_digest,
+        } = command;
+        validate_managed_restore_forward_refresh_inputs(
+            &self.cipher,
+            &scope,
+            &restored_pending,
+            &refresh_pending,
+            &activation,
+            capability_digest,
+            backup_receipt_digest,
+            installation_receipt_digest,
+            updated_at_ms,
+        )?;
+        if expected_restored_revision != restored_pending.revision
+            || expected_refresh_revision != refresh_pending.revision
+        {
+            return Err(store_error(
+                "managed-restore forward-refresh command revision changed",
+            ));
+        }
+        let expected_payload_digest = managed_restore_forward_refresh_payload_digest(
+            &scope,
+            &restored_pending,
+            &refresh_pending,
+            &activation,
+            capability_digest,
+            backup_receipt_digest,
+            installation_receipt_digest,
+            updated_at_ms,
+            expected_restored_revision,
+            expected_refresh_revision,
+        )?;
+        if operation_payload_digest != expected_payload_digest {
+            return Err(store_error(
+                "managed-restore forward-refresh command payload does not match its inputs",
+            ));
+        }
+        let operation = TenantRootCommandOperationV1::swap_active_epoch(operation_payload_digest);
+        validate_reserved_command(
+            &scope,
+            &reservation,
+            operation,
+            "managed-restore forward refresh",
+        )?;
+        let activated_revision = next_revision(expected_refresh_revision)?;
+        let activated_record = refresh_pending
+            .record
+            .clone()
+            .into_active(activation, updated_at_ms)?;
+        let activated_metadata = record_metadata(&activated_record)?;
+        let activated_ciphertext_json = self.cipher.seal(&activated_record, activated_revision)?;
+        let restored_metadata = record_metadata(&restored_pending.record)?;
+        if restored_metadata.identity_digest_hex != activated_metadata.identity_digest_hex
+            || restored_metadata.custody_lineage_b64u != activated_metadata.custody_lineage_b64u
+            || restored_metadata.role != activated_metadata.role
+        {
+            return Err(store_error(
+                "managed-restore forward-refresh metadata changed during transition",
+            ));
+        }
+        let restored_epoch = restored_metadata.epoch.to_string();
+        let refresh_epoch = activated_metadata.epoch.to_string();
+        let restored_revision = expected_restored_revision.to_string();
+        let refresh_revision = expected_refresh_revision.to_string();
+        let updated_at_ms = timestamp_i64(updated_at_ms)?.to_string();
+        let delete_statement = self
+            .session
+            .prepare(DELETE_MANAGED_RESTORE_FORWARD_REFRESH_PENDING_SQL)
+            .bind_refs(
+                [
+                    D1Type::Text(restored_metadata.identity_digest_hex.as_str()),
+                    D1Type::Text(restored_metadata.custody_lineage_b64u.as_str()),
+                    D1Type::Text(restored_epoch.as_str()),
+                    D1Type::Text(restored_metadata.role.as_str()),
+                    D1Type::Text(restored_revision.as_str()),
+                ]
+                .iter(),
+            )?;
+        let activate_statement = self
+            .session
+            .prepare(ACTIVATE_MANAGED_RESTORE_FORWARD_REFRESH_PENDING_SQL)
+            .bind_refs(
+                [
+                    D1Type::Text(activated_ciphertext_json.as_str()),
+                    D1Type::Text(updated_at_ms.as_str()),
+                    D1Type::Text(activated_metadata.identity_digest_hex.as_str()),
+                    D1Type::Text(activated_metadata.custody_lineage_b64u.as_str()),
+                    D1Type::Text(refresh_epoch.as_str()),
+                    D1Type::Text(activated_metadata.role.as_str()),
+                    D1Type::Text(refresh_revision.as_str()),
+                    D1Type::Text(restored_epoch.as_str()),
+                ]
+                .iter(),
+            )?;
+        let checkpoint_statement =
+            self.command_execution_checkpoint_statement(&reservation, executed_at_ms)?;
+        let executed = self
+            .run_managed_restore_forward_refresh_checkpoint(
+                delete_statement,
+                activate_statement,
+                checkpoint_statement,
+                reservation,
+                executed_at_ms,
+            )
+            .await?;
+        Ok((
+            CloudflareStoredTenantRootRoleShareV1 {
+                record: activated_record,
+                revision: activated_revision,
+            },
+            executed,
+        ))
     }
 
     /// Reserves a cleanup that a control-plane authorization permits.
@@ -5879,6 +6093,21 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         self.complete_command(executed, receipt).await
     }
 
+    /// Commits a forward-refresh receipt bound to the exact activation receipt.
+    pub(crate) async fn complete_managed_restore_forward_refresh(
+        &self,
+        executed: ExecutedTenantRootCommandV1,
+        activation: &CloudflareTenantRootActivationV1,
+        receipt: VerifiedTenantRootCommandSuccessReceiptV1,
+    ) -> worker::Result<CloudflareTenantRootCommandTerminalCommitV1> {
+        if receipt.payload_bytes() != activation.activation_receipt_bytes() {
+            return Err(store_error(
+                "managed-restore forward-refresh receipt payload does not match its exact activation receipt",
+            ));
+        }
+        self.complete_command(executed, receipt).await
+    }
+
     /// Commits one exact signed public failure receipt for a reserved command.
     async fn fail_command(
         &self,
@@ -6381,11 +6610,94 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             .map_err(|error| store_error(error.message()))
     }
 
+    async fn run_managed_restore_forward_refresh_checkpoint(
+        &self,
+        delete_statement: worker::D1PreparedStatement,
+        activate_statement: worker::D1PreparedStatement,
+        checkpoint_statement: worker::D1PreparedStatement,
+        reservation: ReservedTenantRootCommandV1,
+        executed_at_ms: u64,
+    ) -> worker::Result<ExecutedTenantRootCommandV1> {
+        if executed_at_ms < reservation.reserved_at_ms() {
+            return Err(store_error(
+                "tenant-root command execution checkpoint precedes its reservation",
+            ));
+        }
+        let delete_guard = self.command_cas_count_guard_statement(1)?;
+        let activate_guard = self.command_cas_count_guard_statement(1)?;
+        let checkpoint_guard = self.command_cas_count_guard_statement(1)?;
+        let results = self
+            .session
+            .batch(vec![
+                delete_statement,
+                delete_guard,
+                activate_statement,
+                activate_guard,
+                checkpoint_statement,
+                checkpoint_guard,
+            ])
+            .await?;
+        if results.len() != 6 {
+            return Err(store_error(
+                "managed-restore forward-refresh checkpoint returned an invalid result count",
+            ));
+        }
+        for result in &results {
+            if !result.success() {
+                return Err(store_error(format!(
+                    "managed-restore forward-refresh checkpoint statement failed: {}",
+                    result
+                        .error()
+                        .unwrap_or_else(|| "unknown D1 error".to_owned())
+                )));
+            }
+        }
+        require_one_change(
+            &results[0],
+            "managed-restore forward-refresh source changed concurrently",
+        )?;
+        require_changes(
+            &results[1],
+            0,
+            "managed-restore forward-refresh source count guard returned an invalid change count",
+        )?;
+        require_one_change(
+            &results[2],
+            "managed-restore forward-refresh successor changed concurrently",
+        )?;
+        require_changes(
+            &results[3],
+            0,
+            "managed-restore forward-refresh successor count guard returned an invalid change count",
+        )?;
+        require_one_change(
+            &results[4],
+            "managed-restore forward-refresh execution checkpoint changed concurrently",
+        )?;
+        require_changes(
+            &results[5],
+            0,
+            "managed-restore forward-refresh checkpoint count guard returned an invalid change count",
+        )?;
+        reservation
+            .checkpoint_executed(executed_at_ms)
+            .map_err(|error| store_error(error.message()))
+    }
+
     fn open_row(
         &self,
         row: Option<TenantRootRoleD1RowV1>,
-    ) -> worker::Result<Option<CloudflareStoredTenantRootRoleShareV1>> {
-        row.map(|row| {
+    ) -> Pin<
+        Box<
+            dyn Future<Output = worker::Result<Option<CloudflareStoredTenantRootRoleShareV1>>> + '_,
+        >,
+    > {
+        // Keep authenticated receipt decoding in a heap-backed future; the
+        // Workers WASM stack is too small for the complete encrypted row path.
+        Box::pin(async move {
+            let Some(row) = row else {
+                return Ok(None);
+            };
             if row.revision <= 0 {
                 return Err(store_error(
                     "tenant-root role-private row has an invalid revision",
@@ -6393,9 +6705,11 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             }
             let revision = row.revision;
             let record = self.cipher.open(&row)?;
-            Ok(CloudflareStoredTenantRootRoleShareV1 { record, revision })
+            Ok(Some(CloudflareStoredTenantRootRoleShareV1 {
+                record,
+                revision,
+            }))
         })
-        .transpose()
     }
 
     async fn commit_command_terminal(
@@ -6839,7 +7153,18 @@ impl CloudflareTenantRootRoleShareStoreV1 {
 }
 
 #[cfg(debug_assertions)]
-async fn run_cloudflare_tenant_root_role_d1_lifecycle_integration_v1(
+fn run_cloudflare_tenant_root_role_d1_lifecycle_integration_v1(
+    env: &Env,
+) -> Pin<
+    Box<dyn Future<Output = worker::Result<CloudflareTenantRootRoleD1IntegrationReceiptV1>> + '_>,
+> {
+    // This debug-only probe holds many encrypted rows across awaits. Heap-boxing
+    // the future keeps its large state frame off the Workers stack.
+    Box::pin(run_cloudflare_tenant_root_role_d1_lifecycle_integration_body_v1(env))
+}
+
+#[cfg(debug_assertions)]
+async fn run_cloudflare_tenant_root_role_d1_lifecycle_integration_body_v1(
     env: &Env,
 ) -> worker::Result<CloudflareTenantRootRoleD1IntegrationReceiptV1> {
     let store = CloudflareTenantRootRoleShareStoreV1::from_env(env)?;
@@ -8110,7 +8435,13 @@ fn tenant_root_creation_probe_role_keys(
         )
     };
     crate::env::decode_role_verifying_keys(&format!(
-        "{{\"keys\":[{},{}]}}",
+        "{{\"active_deriver_a_signing_key_id\":\"{}\",\"active_deriver_b_signing_key_id\":\"{}\",\"keys\":[{},{}]}}",
+        tenant_root_role_d1_integration_role_signing_key_id(
+            CloudflareTenantRootDeriverRoleV1::DeriverA,
+        ),
+        tenant_root_role_d1_integration_role_signing_key_id(
+            CloudflareTenantRootDeriverRoleV1::DeriverB,
+        ),
         entry(CloudflareTenantRootDeriverRoleV1::DeriverA, "deriver_a"),
         entry(CloudflareTenantRootDeriverRoleV1::DeriverB, "deriver_b"),
     ))
@@ -12300,6 +12631,91 @@ mod tests {
         );
 
         assert!(record.into_active(activation, 40).is_err());
+    }
+
+    #[test]
+    fn managed_restore_forward_refresh_source_requires_exact_provenance() {
+        let mut managed_record = record(CloudflareTenantRootDeriverRoleV1::DeriverA);
+        let identity_digest = managed_record.identity().digest().expect("identity digest");
+        let custody_lineage = managed_record.custody_lineage();
+        let epoch = managed_record.epoch();
+        let capability_digest = lifecycle_receipt(0xa1).expect("capability digest");
+        let backup_receipt_digest = lifecycle_receipt(0xa2).expect("backup receipt digest");
+        let installation_receipt_digest =
+            record_installation_evidence_digest(&managed_record).expect("installation digest");
+        managed_record.lifecycle = CloudflareTenantRootRoleShareLifecycleV1::Pending(
+            CloudflareTenantRootPendingShareV1::from_managed_restore(
+                installation_receipt_digest,
+                capability_digest,
+                backup_receipt_digest,
+                30,
+            )
+            .expect("managed-restore pending state"),
+        );
+        managed_record.updated_at_ms = 30;
+        let stored = CloudflareStoredTenantRootRoleShareV1 {
+            record: managed_record,
+            revision: 1,
+        };
+        let cipher = test_cipher(CloudflareTenantRootDeriverRoleV1::DeriverA, 0x41);
+
+        validate_managed_restore_forward_refresh_source(
+            &cipher,
+            &stored,
+            identity_digest,
+            custody_lineage,
+            epoch,
+            capability_digest,
+            backup_receipt_digest,
+            installation_receipt_digest,
+        )
+        .expect("exact managed-restore provenance");
+
+        for (capability, backup, installation) in [
+            (
+                lifecycle_receipt(0xa3).expect("replacement capability digest"),
+                backup_receipt_digest,
+                installation_receipt_digest,
+            ),
+            (
+                capability_digest,
+                lifecycle_receipt(0xa4).expect("replacement backup digest"),
+                installation_receipt_digest,
+            ),
+            (
+                capability_digest,
+                backup_receipt_digest,
+                lifecycle_receipt(0xa5).expect("replacement installation digest"),
+            ),
+        ] {
+            assert!(validate_managed_restore_forward_refresh_source(
+                &cipher,
+                &stored,
+                identity_digest,
+                custody_lineage,
+                epoch,
+                capability,
+                backup,
+                installation,
+            )
+            .is_err());
+        }
+
+        let ceremony = CloudflareStoredTenantRootRoleShareV1 {
+            record: record(CloudflareTenantRootDeriverRoleV1::DeriverA),
+            revision: 1,
+        };
+        assert!(validate_managed_restore_forward_refresh_source(
+            &cipher,
+            &ceremony,
+            identity_digest,
+            custody_lineage,
+            epoch,
+            capability_digest,
+            backup_receipt_digest,
+            installation_receipt_digest,
+        )
+        .is_err());
     }
 
     #[test]

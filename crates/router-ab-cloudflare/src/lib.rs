@@ -140,8 +140,7 @@ pub use env::*;
 use env::{
     parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1,
     parse_cloudflare_tenant_root_creation_grant_authority_verifying_keys_v1,
-    parse_cloudflare_tenant_root_creation_role_verifying_keys_v1,
-    read_cloudflare_tenant_root_creation_role_signing_key_id_v1, DERIVER_A_FORBIDDEN_ENV_KEYS,
+    parse_cloudflare_tenant_root_creation_role_verifying_keys_v1, DERIVER_A_FORBIDDEN_ENV_KEYS,
     DERIVER_B_FORBIDDEN_ENV_KEYS, ROUTER_FORBIDDEN_ENV_KEYS, SIGNING_WORKER_FORBIDDEN_ENV_KEYS,
 };
 mod validation;
@@ -8411,19 +8410,21 @@ pub async fn activate_cloudflare_router_ab_ecdsa_derivation_signing_worker_outpu
     );
     private_key_bytes.zeroize();
     let material = material?;
-    let ecdsa_receipt = cloudflare_router_ab_ecdsa_derivation_activation_receipt_from_material_v1(
-        &activation,
-        &material,
-        activated_at_ms,
-    )?;
     let call = runtime.signing_worker_output_activate_request(
         generic_activation,
-        material,
+        material.clone(),
         activated_at_ms,
     )?;
     let response = execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await?;
     let signing_worker_output =
         require_signing_worker_output_activate_response_v1(&call, response)?;
+    let ecdsa_receipt = cloudflare_router_ab_ecdsa_derivation_activation_receipt_from_material_v1(
+        &activation,
+        &material,
+        signing_worker_output
+            .active_signing_worker_state
+            .activated_at_ms,
+    )?;
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1::new(
         ecdsa_receipt,
         signing_worker_output,
@@ -8458,20 +8459,22 @@ pub async fn refresh_cloudflare_router_ab_ecdsa_derivation_signing_worker_output
     );
     private_key_bytes.zeroize();
     let material = material?;
-    let ecdsa_receipt =
-        cloudflare_router_ab_ecdsa_derivation_activation_refresh_receipt_from_material_v1(
-            &activation,
-            &material,
-            activated_at_ms,
-        )?;
     let call = runtime.signing_worker_output_activate_request(
         generic_activation,
-        material,
+        material.clone(),
         activated_at_ms,
     )?;
     let response = execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await?;
     let signing_worker_output =
         require_signing_worker_output_activate_response_v1(&call, response)?;
+    let ecdsa_receipt =
+        cloudflare_router_ab_ecdsa_derivation_activation_refresh_receipt_from_material_v1(
+            &activation,
+            &material,
+            signing_worker_output
+                .active_signing_worker_state
+                .activated_at_ms,
+        )?;
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1::new(
         ecdsa_receipt,
         signing_worker_output,
@@ -8678,16 +8681,7 @@ fn cloudflare_tenant_root_deriver_identities_v1(
     env: &worker::Env,
 ) -> RouterAbProtocolResult<TenantRootDeriverIdentitiesV1> {
     let reader = CloudflareWorkerEnvReaderV1::new(env);
-    parse_cloudflare_tenant_root_creation_role_verifying_keys_v1(&reader)?;
-    let deriver_a = read_cloudflare_tenant_root_creation_role_signing_key_id_v1(
-        &reader,
-        TwoPartyDeriverRole::DeriverA,
-    )?;
-    let deriver_b = read_cloudflare_tenant_root_creation_role_signing_key_id_v1(
-        &reader,
-        TwoPartyDeriverRole::DeriverB,
-    )?;
-    TenantRootDeriverIdentitiesV1::new(deriver_a, deriver_b).map_err(map_root_share_to_protocol)
+    parse_cloudflare_tenant_root_creation_role_verifying_keys_v1(&reader)?.deriver_identities()
 }
 
 #[cfg(feature = "workers-rs")]
@@ -14276,29 +14270,20 @@ pub fn parse_cloudflare_worker_bindings_v1(
 pub fn parse_cloudflare_tenant_root_control_plane_bindings_v1(
     env: &impl CloudflareEnvReaderV1,
 ) -> RouterAbProtocolResult<CloudflareTenantRootControlPlaneBindingsV1> {
-    // Resolve each configured role signing ID against the published role
-    // keyset. This is the step that proves the ID exists under its own role: a
-    // typo or a stale ID fails the Worker at boot rather than minting a
-    // permanently persisted ceremony no Deriver could execute.
+    // The retained public keyset owns active role selection. Its decoder has
+    // already proved each selector resolves under its exact role.
     let role_keys = parse_cloudflare_tenant_root_creation_role_verifying_keys_v1(env)?;
-    let resolve =
-        |role: threshold_prf::TwoPartyDeriverRole| -> RouterAbProtocolResult<(String, [u8; 32])> {
-            let signing_key_id =
-                read_cloudflare_tenant_root_creation_role_signing_key_id_v1(env, role)?;
-            let verifying_key = role_keys
-            .for_role_and_key_id(role, &signing_key_id)
-            .map_err(|_| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                    format!(
-                        "tenant-root role signing key ID {signing_key_id} is not published for {role:?}"
-                    ),
-                )
-            })?;
-            Ok((signing_key_id, *verifying_key))
-        };
-    let deriver_a_role = resolve(threshold_prf::TwoPartyDeriverRole::DeriverA)?;
-    let deriver_b_role = resolve(threshold_prf::TwoPartyDeriverRole::DeriverB)?;
+    let identities = role_keys.deriver_identities()?;
+    let deriver_a_signing_key_id = identities.deriver_a().to_owned();
+    let deriver_b_signing_key_id = identities.deriver_b().to_owned();
+    let deriver_a_verifying_key = *role_keys.for_role_and_key_id(
+        threshold_prf::TwoPartyDeriverRole::DeriverA,
+        &deriver_a_signing_key_id,
+    )?;
+    let deriver_b_verifying_key = *role_keys.for_role_and_key_id(
+        threshold_prf::TwoPartyDeriverRole::DeriverB,
+        &deriver_b_signing_key_id,
+    )?;
     CloudflareTenantRootControlPlaneBindingsV1::new(
         parse_cloudflare_tenant_root_control_plane_issuer_signing_key_binding_v1(
             CloudflareWorkerRoleV1::TenantRootControlPlane,
@@ -14306,10 +14291,10 @@ pub fn parse_cloudflare_tenant_root_control_plane_bindings_v1(
         )?,
         parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(env)?,
         parse_cloudflare_tenant_root_creation_grant_authority_verifying_keys_v1(env)?,
-        deriver_a_role.0,
-        deriver_b_role.0,
-        deriver_a_role.1,
-        deriver_b_role.1,
+        deriver_a_signing_key_id,
+        deriver_b_signing_key_id,
+        deriver_a_verifying_key,
+        deriver_b_verifying_key,
     )
 }
 

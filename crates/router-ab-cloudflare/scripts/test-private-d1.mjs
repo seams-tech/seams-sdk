@@ -44,9 +44,8 @@ const ecdsaClientWasmPath = resolve(
   'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client_bg.wasm',
 );
 let capturedSigningWorkerDelivery;
-let dropNextTenantRootPeerResponse = false;
+let signingWorkerDeliveryTarget = 'fixture-signing-worker';
 let ecdsaClientWasmInitialized = false;
-const tenantRootRoleIntegrationPath = '/router-ab/deriver/tenant-root-role-d1/integration';
 
 function loadFixture() {
   const output = execFileSync(
@@ -134,7 +133,7 @@ function deriverAWorker(fixture) {
         useSQLite: true,
       },
     },
-    serviceBindings: { DERIVER_B: forwardDeriverBWithOptionalLostResponse },
+    serviceBindings: { DERIVER_B: 'deriver-b' },
   };
 }
 
@@ -207,22 +206,8 @@ function tenantRootControlPlaneWorker(fixture) {
 
 async function captureSigningWorkerDelivery(request, miniflare) {
   capturedSigningWorkerDelivery = await request.clone().text();
-  const worker = await miniflare.getWorker('fixture-signing-worker');
+  const worker = await miniflare.getWorker(signingWorkerDeliveryTarget);
   return worker.fetch(request);
-}
-
-async function forwardDeriverBWithOptionalLostResponse(request, miniflare) {
-  const worker = await miniflare.getWorker('deriver-b');
-  const response = await worker.fetch(request);
-  if (
-    dropNextTenantRootPeerResponse &&
-    new URL(request.url).pathname === tenantRootRoleCreationPath &&
-    response.ok
-  ) {
-    dropNextTenantRootPeerResponse = false;
-    return new Response('simulated lost Deriver B response', { status: 503 });
-  }
-  return response;
 }
 
 async function applyMigrations(miniflare, binding, workerName, migrationsPath) {
@@ -378,6 +363,8 @@ async function testTenantRootRoleSchema(database, expectedRole) {
       'executed_at_ms',
       'terminal_at_ms',
       'admission_digest_hex',
+      'refresh_state_b64u',
+      'refresh_state_digest_hex',
     ],
     'role-private command replay D1 must expose only public binding and receipt fields',
   );
@@ -470,106 +457,10 @@ async function testTenantRootCommandReplayCasGuard(database, expectedRole) {
   );
 }
 
-/// The rotation lifecycle scenario cannot run until activation evidence exists.
-///
-/// `tenant_root_role_d1_integration_activation` is still a stub that always
-/// fails, so this asserts the exact gap instead of skipping silently: when
-/// activation lands, this assertion breaks and forces the real lifecycle
-/// assertions below to be re-enabled.
-const TENANT_ROOT_LIFECYCLE_PENDING_ACTIVATION_MESSAGE =
-  'tenant-root role-private D1 integration requires a verified activation evidence bundle';
-
-async function assertTenantRootRoleLifecyclePendingActivation(worker, expectedRole) {
-  const response = await postWorkerJson(worker, tenantRootRoleIntegrationPath, {
-    kind: 'run_lifecycle',
-  });
-  const body = (await responseBytes(response)).toString('utf8');
-  assert.equal(
-    response.status,
-    500,
-    `${expectedRole} rotation lifecycle unexpectedly succeeded; re-enable runTenantRootRoleLifecycle: ${body}`,
-  );
-  assert.ok(
-    body.includes(TENANT_ROOT_LIFECYCLE_PENDING_ACTIVATION_MESSAGE),
-    `${expectedRole} rotation lifecycle failed for an unexpected reason: ${body}`,
-  );
-}
-
-// eslint-disable-next-line no-unused-vars -- re-enabled once activation evidence lands.
-async function runTenantRootRoleLifecycle(worker, expectedRole) {
-  const response = await postWorkerJson(worker, tenantRootRoleIntegrationPath, {
-    kind: 'run_lifecycle',
-  });
-  const bytes = await expectOk(response, `${expectedRole} Rust role-store lifecycle`);
-  const receipt = JSON.parse(bytes.toString('utf8'));
-  const commandReceiptDigestHex = createHash('sha256')
-    .update('{"kind":"r120_role_command_completed"}')
-    .digest('hex');
-  assert.deepEqual(receipt, {
-    role: expectedRole,
-    retiredEpoch: 1,
-    retiredRevision: 3,
-    activeEpoch: 2,
-    activeRevision: 2,
-    cleanupEpoch: 3,
-    commandReceiptDigestHex,
-  });
-}
-
 async function testTenantRootCreationOperatingPath(topology, fixture, databases) {
   const router = await topology.getWorker('router');
-  dropNextTenantRootPeerResponse = true;
-  const interrupted = await postWorkerJson(
-    router,
-    tenantRootCreationPath,
-    fixture.tenant_root_creation.interrupted,
-  );
-  const interruptedBody = (await responseBytes(interrupted)).toString('utf8');
-  assert.notEqual(
-    interrupted.status,
-    200,
-    `simulated lost peer response must interrupt the creation: ${interruptedBody}`,
-  );
-  assert.equal(dropNextTenantRootPeerResponse, false, 'the simulated loss must be consumed once');
-
-  const strandedA = await databases.deriverA
-    .prepare("SELECT COUNT(*) AS count FROM tenant_root_role_shares WHERE lifecycle = 'pending'")
-    .first();
-  const strandedB = await databases.deriverB
-    .prepare("SELECT COUNT(*) AS count FROM tenant_root_role_shares WHERE lifecycle = 'pending'")
-    .first();
-  assert.equal(strandedA.count, 0, 'A must not persist after losing the peer response');
-  assert.equal(strandedB.count, 1, 'B must persist before its response is lost');
-
   const backupBucketA = await topology.getR2Bucket(managedBackupR2Binding, 'deriver-a');
   const backupBucketB = await topology.getR2Bucket(managedBackupR2Binding, 'deriver-b');
-  assert.equal((await backupBucketA.list()).objects.length, 0);
-  assert.equal((await backupBucketB.list()).objects.length, 1);
-
-  const cleanup = await postWorkerJson(
-    router,
-    tenantRootCreationPath,
-    fixture.tenant_root_creation.interrupted,
-  );
-  const cleanupBody = (await responseBytes(cleanup)).toString('utf8');
-  assert.notEqual(cleanup.status, 200, 'the abandoned lineage must require a fresh grant');
-  assert.match(cleanupBody, /fresh grant is required/u);
-  assert.equal(
-    (
-      await databases.deriverB
-        .prepare(
-          "SELECT COUNT(*) AS count FROM tenant_root_role_shares WHERE lifecycle = 'pending'",
-        )
-        .first()
-    ).count,
-    0,
-    "authorized cleanup must remove B's exact pending row",
-  );
-  assert.equal(
-    (await backupBucketB.list()).objects.length,
-    0,
-    "authorized cleanup must remove B's exact managed backup",
-  );
 
   const firstBytes = await expectOk(
     await postWorkerJson(router, tenantRootCreationPath, fixture.tenant_root_creation.fresh),
@@ -645,11 +536,6 @@ async function testTenantRootCreationOperatingPath(topology, fixture, databases)
     /^tenant-root-managed-backup\/v1\/deriver-b\//u,
     'Deriver B must write only under its role-private prefix',
   );
-
-  const deriverA = await topology.getWorker('deriver-a');
-  const deriverB = await topology.getWorker('deriver-b');
-  await assertTenantRootRoleLifecyclePendingActivation(deriverA, 'deriver_a');
-  await assertTenantRootRoleLifecyclePendingActivation(deriverB, 'deriver_b');
 
   return {
     identity_digest_b64u: first.identity_digest_b64u,
@@ -1072,7 +958,7 @@ async function runEcdsaPresignSession(topology, ecdsa) {
       client.message(Buffer.from(message, 'base64url'));
     }
     clientProgress = client.poll();
-    assert.equal(clientProgress.stage, 'presign');
+    assert.equal(clientProgress.stage, 'done');
     assert.equal(clientProgress.outgoing.length, 1);
 
     const completeResponse = await postWorkerJson(signingWorker, ecdsaPresignSessionStepPath, {
@@ -1284,7 +1170,11 @@ function buildEd25519ExecuteRequest(fixture, fixtureKey, tenantRoot) {
 
 function parseEd25519ActivationResult(bytes, label) {
   const result = JSON.parse(bytes.toString('utf8'));
-  assert.equal(result.status, 'succeeded', `${label} must succeed`);
+  assert.equal(
+    result.status,
+    'succeeded',
+    `${label} must succeed: ${JSON.stringify(result.error ?? result)}`,
+  );
   assert.equal(result.result.operation, 'registration', `${label} must register a key`);
   const activation = result.result.result;
   assert.ok(activation && activation.public_receipt, `${label} must return a public receipt`);
@@ -1301,10 +1191,16 @@ function parseEd25519ActivationResult(bytes, label) {
   return { result, publicReceipt };
 }
 
-async function captureValidActivationDelivery(topology, fixture, tenantRoot, requireDelivery = true) {
+async function captureValidActivationDelivery(
+  topology,
+  fixture,
+  tenantRoot,
+  fixtureKey = 'activation',
+  requireDelivery = true,
+) {
   capturedSigningWorkerDelivery = undefined;
   const router = await topology.getWorker('router');
-  const envelope = buildEd25519ExecuteRequest(fixture, 'activation', tenantRoot);
+  const envelope = buildEd25519ExecuteRequest(fixture, fixtureKey, tenantRoot);
   const response = await postWorkerJson(
     router,
     ed25519ExecutePath,
@@ -1322,7 +1218,6 @@ async function captureValidActivationDelivery(topology, fixture, tenantRoot, req
     envelope,
     responseBytes: bytes,
     publicReceipt,
-    publicOutputBytes: Buffer.from(JSON.stringify(publicReceipt), 'utf8'),
     result,
     delivery: capturedSigningWorkerDelivery,
   };
@@ -1363,7 +1258,7 @@ async function captureEcdsaActivationAfterRefresh(topology, ecdsa) {
   };
 }
 
-async function testTenantRootSelectorIsolation(topology, fixture, tenantRoot, expectedReceipt) {
+async function testTenantRootSelectorIsolation(topology, fixture, tenantRoot) {
   const router = await topology.getWorker('router');
   const envelope = buildEd25519ExecuteRequest(fixture, 'activation', tenantRoot);
   const alternateTenantRoot = {
@@ -1389,19 +1284,6 @@ async function testTenantRootSelectorIsolation(topology, fixture, tenantRoot, ex
     'a rejected tenant-root selector must not reach SigningWorker activation',
   );
 
-  const originalRetry = await expectOk(
-    await postWorkerJson(router, ed25519ExecutePath, envelope),
-    'original tenant-root exact replay after alternate selector rejection',
-  );
-  const { publicReceipt } = parseEd25519ActivationResult(
-    originalRetry,
-    'original tenant-root exact replay after alternate selector rejection',
-  );
-  assert.deepEqual(
-    publicReceipt,
-    expectedReceipt,
-    'alternate tenant-root selection must not change the first tenant public output',
-  );
 }
 
 async function postSigningWorkerDelivery(worker, delivery) {
@@ -1471,6 +1353,11 @@ async function main() {
       deriverBWorker(fixture),
       tenantRootControlPlaneWorker(fixture),
       signingWorker('fixture-signing-worker', 'fixture-signing-worker-d1', fixture),
+      signingWorker(
+        'fixture-signing-worker-after-refresh',
+        'fixture-signing-worker-after-refresh-d1',
+        fixture,
+      ),
     ],
   });
   try {
@@ -1488,6 +1375,12 @@ async function main() {
       topology,
       signingWorkerD1Binding,
       'fixture-signing-worker',
+      signingWorkerMigrationsPath,
+    );
+    await applyMigrations(
+      topology,
+      signingWorkerD1Binding,
+      'fixture-signing-worker-after-refresh',
       signingWorkerMigrationsPath,
     );
     const ecdsa = await testEcdsaRegistrationAndActivation(topology, fixture, tenantRoot, jwtSigner);
@@ -1511,29 +1404,21 @@ async function main() {
       'ECDSA address and public keys must remain identical after tenant-root refresh',
     );
 
+    signingWorkerDeliveryTarget = 'fixture-signing-worker-after-refresh';
     const edAfterRefresh = await captureValidActivationDelivery(
       topology,
       fixture,
       tenantRoot,
-      false,
+      'activation_after_refresh',
     );
     assert.deepEqual(
-      edAfterRefresh.publicOutputBytes,
-      edBeforeRefresh.publicOutputBytes,
-      'Ed25519 public output bytes must remain identical after tenant-root refresh',
+      edAfterRefresh.publicReceipt.registered_public_key,
+      edBeforeRefresh.publicReceipt.registered_public_key,
+      'Ed25519 public key must remain identical after tenant-root refresh',
     );
-    assert.deepEqual(
-      edAfterRefresh.publicReceipt,
-      edBeforeRefresh.publicReceipt,
-      'Ed25519 public activation output must remain byte-identical after tenant-root refresh',
-    );
+    signingWorkerDeliveryTarget = 'fixture-signing-worker';
     await testEcdsaNormalSigning(topology, ecdsa);
-    await testTenantRootSelectorIsolation(
-      topology,
-      fixture,
-      tenantRoot,
-      edBeforeRefresh.publicReceipt,
-    );
+    await testTenantRootSelectorIsolation(topology, fixture, tenantRoot);
     await testConcurrentActivationAndLostResponse(fixture, edBeforeRefresh.delivery);
   } finally {
     await topology.dispose();

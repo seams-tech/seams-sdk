@@ -12,9 +12,15 @@ case "$role" in
 esac
 
 worker_build_profile="${ROUTER_AB_WORKER_BUILD_PROFILE:-release}"
+worker_rustflags=""
 case "$worker_build_profile" in
   dev)
     worker_build_flags=(--dev --no-opt)
+    worker_rustflags="${RUSTFLAGS:-}"
+    if [[ -n "$worker_rustflags" ]]; then
+      worker_rustflags+=" "
+    fi
+    worker_rustflags+="-C link-arg=-zstack-size=4194304"
     ;;
   release)
     worker_build_flags=(--release)
@@ -25,7 +31,15 @@ case "$worker_build_profile" in
     ;;
 esac
 
-worker-build \
+run_worker_build() {
+  if [[ "$worker_build_profile" == "dev" ]]; then
+    RUSTFLAGS="$worker_rustflags" worker-build "$@"
+  else
+    worker-build "$@"
+  fi
+}
+
+run_worker_build \
   "${worker_build_flags[@]}" \
   --out-dir "build/$role" \
   --features "strict-worker-$role-entrypoint"

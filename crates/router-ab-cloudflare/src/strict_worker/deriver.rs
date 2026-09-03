@@ -3,6 +3,7 @@ use crate::tenant_root_role_runtime::{
     CloudflareDeriverTenantRootCleanupRequestV1,
     CloudflareDeriverTenantRootCreateRoleShareRequestV1,
     CloudflareDeriverTenantRootInitialActivationRequestV1,
+    CloudflareDeriverTenantRootManagedRestoreForwardRefreshRequestV1,
     CloudflareDeriverTenantRootManagedRestoreRequestV1,
     CloudflareDeriverTenantRootRefreshActivationRequestV1,
     CloudflareDeriverTenantRootRefreshRequestV1,
@@ -16,6 +17,7 @@ use crate::{
     CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_PATH,
+    CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_FORWARD_REFRESH_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_PATH,
@@ -161,7 +163,7 @@ impl StrictDeriverRuntimeV1 {
 
     fn route_error_message(&self) -> String {
         format!(
-            "{} strict Worker route must be served at {}, {}, {}, {}, {}, {}, {}, {}, or {}",
+            "{} strict Worker route must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
             self.label(),
             self.registration_private_path(),
             self.export_private_path(),
@@ -172,6 +174,7 @@ impl StrictDeriverRuntimeV1 {
             CLOUDFLARE_DERIVER_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_PATH,
             CLOUDFLARE_DERIVER_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_PATH,
             CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_PRIVATE_REQUEST_PATH,
+            CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_FORWARD_REFRESH_PRIVATE_REQUEST_PATH,
         )
     }
 }
@@ -294,6 +297,32 @@ async fn handle_strict_deriver_fetch_v1(
                 &env,
                 worker_role,
                 restore_request,
+                now_unix_ms,
+            )
+            .await
+        {
+            Ok(response) => Response::from_json(&response),
+            Err(error) => cloudflare_protocol_error_response_v1(error),
+        };
+    }
+
+    if path == CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_FORWARD_REFRESH_PRIVATE_REQUEST_PATH {
+        let forward_refresh_request:
+            CloudflareDeriverTenantRootManagedRestoreForwardRefreshRequestV1 =
+            match parse_strict_deriver_json_v1(
+                &mut request,
+                format!("Router A/B strict {label} tenant-root managed restore forward refresh"),
+            )
+            .await?
+            {
+                Ok(parsed) => parsed,
+                Err(response) => return Ok(response),
+            };
+        return match crate::tenant_root_role_runtime::
+            handle_cloudflare_deriver_tenant_root_managed_restore_forward_refresh_v1(
+                &env,
+                worker_role,
+                forward_refresh_request,
                 now_unix_ms,
             )
             .await

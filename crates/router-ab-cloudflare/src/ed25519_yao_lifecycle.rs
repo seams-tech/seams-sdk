@@ -1,4 +1,4 @@
-use core::{fmt, future::Future};
+use core::{fmt, future::Future, pin::Pin};
 use std::time::Duration;
 
 #[path = "ed25519_yao_role_d1.rs"]
@@ -1268,7 +1268,16 @@ impl DeriverAYaoSessionD1V1 {
 }
 
 impl DeriverAYaoSessionD1V1 {
-    async fn handle_prepare_pair(
+    fn handle_prepare_pair(
+        &self,
+        command: DeriverAYaoSessionCommandV1,
+    ) -> Pin<Box<dyn Future<Output = worker::Result<Response>> + '_>> {
+        // Keep the encrypted active-row decode and preparation state off the
+        // small Workers WASM stack.
+        Box::pin(self.handle_prepare_pair_body(command))
+    }
+
+    async fn handle_prepare_pair_body(
         &self,
         command: DeriverAYaoSessionCommandV1,
     ) -> worker::Result<Response> {
@@ -2426,7 +2435,16 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_a_prepare_pair_v1(
     json_response(&receipt)
 }
 
-pub async fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1(
+pub fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1(
+    request: Request,
+    env: &Env,
+) -> Pin<Box<dyn Future<Output = RouterAbProtocolResult<Response>> + '_>> {
+    // Keep activation-receipt validation and pair execution off the small
+    // Workers WASM stack.
+    Box::pin(handle_cloudflare_ed25519_yao_deriver_a_execute_pair_body_v1(request, env))
+}
+
+async fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_body_v1(
     mut request: Request,
     env: &Env,
 ) -> RouterAbProtocolResult<Response> {

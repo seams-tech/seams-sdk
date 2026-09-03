@@ -1185,7 +1185,7 @@ mod tests {
     use std::io::Cursor;
 
     use super::{
-        read_http_chunk, read_request_head_with_pair, read_response_head_with_pair,
+        read_http_chunk, read_request_head, read_response_head,
         require_http_eof, LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH,
         LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1, SESSION_HEADER, STREAM_CONTENT_TYPE,
     };
@@ -1227,20 +1227,16 @@ mod tests {
         let duplicate_auth =
             format!("{LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1}: secret\r\n");
         let mut duplicate_auth = Cursor::new(request_head(&duplicate_auth));
-        assert!(read_request_head_with_pair(&mut duplicate_auth, [7_u8; 32], "secret").is_err());
+        assert!(read_request_head(&mut duplicate_auth, [7_u8; 32], "secret").is_err());
 
         let mut transfer_encoding_and_content_length =
             Cursor::new(request_head("content-length: 0\r\n"));
-        assert!(read_request_head_with_pair(
-            &mut transfer_encoding_and_content_length,
-            [7_u8; 32],
-            "secret",
-        )
-        .is_err());
+        assert!(read_request_head(&mut transfer_encoding_and_content_length, [7_u8; 32], "secret")
+            .is_err());
 
         let duplicate_session = format!("{SESSION_HEADER}: {}\r\n", hex::encode([7_u8; 32]));
         let mut duplicate_session = Cursor::new(request_head(&duplicate_session));
-        assert!(read_request_head_with_pair(&mut duplicate_session, [7_u8; 32], "secret").is_err());
+        assert!(read_request_head(&mut duplicate_session, [7_u8; 32], "secret").is_err());
     }
 
     #[test]
@@ -1251,7 +1247,7 @@ mod tests {
             )
             .into_bytes(),
         );
-        assert!(read_response_head_with_pair(&mut duplicate_transfer_encoding).is_err());
+        assert!(read_response_head(&mut duplicate_transfer_encoding).is_err());
 
         let mut transfer_encoding_and_content_length = Cursor::new(
             format!(
@@ -1259,6 +1255,6 @@ mod tests {
             )
             .into_bytes(),
         );
-        assert!(read_response_head_with_pair(&mut transfer_encoding_and_content_length).is_err());
+        assert!(read_response_head(&mut transfer_encoding_and_content_length).is_err());
     }
 }

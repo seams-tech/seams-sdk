@@ -636,6 +636,8 @@ fn coordinator_error(message: &'static str) -> RouterAbProtocolError {
 
 #[cfg(test)]
 mod tests {
+    use crate::LocalTenantRootResolverConfigV1;
+
     use super::*;
     use crate::LocalEd25519YaoSigningWorkerRecoveryPromotionRequestV1;
     use router_ab_core::{
@@ -715,6 +717,7 @@ mod tests {
             router_ab_core::PublicDigest32::new([0xa1; 32]),
             1,
             100,
+            &LocalTenantRootResolverConfigV1::default(),
         )
         .expect_err("malformed request must not reach a role");
         assert_eq!(
@@ -826,6 +829,7 @@ mod tests {
             signing_worker_ed25519_yao_recipient_public_key: "x25519:c".to_owned(),
             signing_worker_id: "local-signing-worker".to_owned(),
             internal_service_auth: "local-test-auth".to_owned(),
+            tenant_root_resolver: LocalTenantRootResolverConfigV1::default(),
         };
         let body = serde_json::to_vec(&request).expect("promotion JSON");
         let promoted = LocalRouterEd25519YaoCoordinatorV1::default()
