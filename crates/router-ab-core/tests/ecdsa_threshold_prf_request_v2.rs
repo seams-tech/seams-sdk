@@ -12,7 +12,9 @@ use router_ab_core::{
     TenantRootOnlineRoleShareSealRequestV1, TenantRootProtocolDigestV1, TenantRootShareEpoch,
     TenantRootSignedShareInstallationEvidenceV1,
 };
-use threshold_prf::{SigningRootShareCommitment, SigningRootShareWire, TwoPartyDeriverRole};
+use threshold_prf::{
+    PrfPurpose, SigningRootShareCommitment, SigningRootShareWire, TwoPartyDeriverRole,
+};
 
 mod support;
 
@@ -273,4 +275,77 @@ fn tenant_root_share_backed_v2_matches_prior_stable_derivation_for_each_purpose(
 
         assert_eq!(share_backed, prior, "purpose {purpose:?} changed");
     }
+}
+
+#[test]
+fn one_verified_share_batch_matches_separate_v2_evaluations() {
+    let (batch_context, batch_custody, batch_active_pair, batch_share) =
+        authenticated_deriver_a_share();
+    let mut batch_rng = support::rng06(0xa4);
+    let (batch_client, batch_server) =
+        MpcPrfStableThresholdSignerInputV2::evaluate_x_client_and_x_server_batch_with_threshold_backend_v2(
+            &batch_context,
+            &batch_custody,
+            &batch_active_pair,
+            batch_share,
+            support::ISSUED_AT_MS,
+            &mut batch_rng,
+        )
+        .unwrap();
+
+    let (client_context, client_custody, client_active_pair, client_share) =
+        authenticated_deriver_a_share();
+    let client_plan = plan_mpc_prf_stable_purpose_binding_v2(
+        &client_context,
+        &client_custody,
+        PrfPurpose::RouterAbXClientBaseV1,
+    )
+    .unwrap();
+    let client_input = MpcPrfStableThresholdSignerInputV2::from_verified_online_role_share(
+        client_plan,
+        &client_custody,
+        &client_active_pair,
+        client_share,
+        support::ISSUED_AT_MS,
+    )
+    .unwrap();
+
+    let (server_context, server_custody, server_active_pair, server_share) =
+        authenticated_deriver_a_share();
+    let server_plan = plan_mpc_prf_stable_purpose_binding_v2(
+        &server_context,
+        &server_custody,
+        PrfPurpose::RouterAbXServerBaseV1,
+    )
+    .unwrap();
+    let server_input = MpcPrfStableThresholdSignerInputV2::from_verified_online_role_share(
+        server_plan,
+        &server_custody,
+        &server_active_pair,
+        server_share,
+        support::ISSUED_AT_MS,
+    )
+    .unwrap();
+    let mut separate_rng = support::rng06(0xa4);
+    let separate_client = evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2(
+        client_input,
+        &mut separate_rng,
+    )
+    .unwrap();
+    let separate_server = evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2(
+        server_input,
+        &mut separate_rng,
+    )
+    .unwrap();
+
+    assert_eq!(batch_client, separate_client);
+    assert_eq!(batch_server, separate_server);
+    assert_eq!(
+        batch_client.purpose_plan.purpose().as_bytes(),
+        b"router-ab/x_client_base/v1"
+    );
+    assert_eq!(
+        batch_server.purpose_plan.purpose().as_bytes(),
+        b"router-ab/x_server_base/v1"
+    );
 }

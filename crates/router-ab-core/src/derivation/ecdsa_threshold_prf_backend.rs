@@ -222,6 +222,59 @@ impl MpcPrfStableThresholdSignerInputV2 {
             now_ms,
         )
     }
+
+    /// Consumes one verified role share to evaluate the fixed client/server
+    /// stable outputs in order. The share wire is reused only inside this
+    /// synchronous core boundary and is redacted and zeroized by its type.
+    pub fn evaluate_x_client_and_x_server_batch_with_threshold_backend_v2<R>(
+        stable_context: &crate::derivation::StableTenantDerivationContextV2,
+        custody_binding: &TenantRootCustodyBindingV1,
+        active_pair: &TenantRootActiveRootPairV1,
+        verified_share: VerifiedTenantRootOnlineRoleShareV1,
+        now_ms: u64,
+        proof_rng: &mut R,
+    ) -> RouterAbDerivationResult<(
+        MpcPrfStablePartialProofBundleV2,
+        MpcPrfStablePartialProofBundleV2,
+    )>
+    where
+        R: RngCore + CryptoRng,
+    {
+        let client_plan = plan_mpc_prf_stable_purpose_binding_v2(
+            stable_context,
+            custody_binding,
+            PrfPurpose::RouterAbXClientBaseV1,
+        )?;
+        let server_plan = plan_mpc_prf_stable_purpose_binding_v2(
+            stable_context,
+            custody_binding,
+            PrfPurpose::RouterAbXServerBaseV1,
+        )?;
+        let client_input = Self::from_verified_online_role_share(
+            client_plan,
+            custody_binding,
+            active_pair,
+            verified_share,
+            now_ms,
+        )?;
+        let server_input = Self::new(
+            server_plan,
+            custody_binding,
+            active_pair,
+            client_input.signer_role,
+            client_input.signing_root_share_wire.clone(),
+            now_ms,
+        )?;
+        let client_output = evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2(
+            client_input,
+            proof_rng,
+        )?;
+        let server_output = evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2(
+            server_input,
+            proof_rng,
+        )?;
+        Ok((client_output, server_output))
+    }
 }
 
 impl fmt::Debug for MpcPrfStableThresholdSignerInputV2 {
