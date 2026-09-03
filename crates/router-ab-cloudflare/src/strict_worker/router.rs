@@ -22,7 +22,7 @@ use crate::tenant_root_role_runtime::{
     CloudflareDeriverTenantRootRefreshRequestV1, CloudflareTenantRootCreateRoleV1,
 };
 use crate::{
-    execute_cloudflare_deriver_tenant_root_cleanup_pending_service_call_v1,
+    execute_cloudflare_deriver_tenant_root_cleanup_service_call_v1,
     execute_cloudflare_deriver_tenant_root_create_role_share_service_call_v1,
     execute_cloudflare_deriver_tenant_root_initial_activation_service_call_v1,
     execute_cloudflare_deriver_tenant_root_refresh_activation_service_call_v1,
@@ -41,7 +41,7 @@ use crate::{
     handle_cloudflare_router_normal_signing_prepare_internal_step_up_request_v2,
     parse_cloudflare_router_authorized_ed25519_prepare_request_v2_json,
     parse_cloudflare_router_authorized_linked_device_ecdsa_finalize_request_v1_json,
-    CloudflareDeriverTenantRootCleanupPendingRequestV1,
+    CloudflareDeriverTenantRootCleanupRequestV1,
     CloudflareDeriverTenantRootCreateRoleShareRequestV1,
     CloudflareDeriverTenantRootCreateRoleShareResponseV1,
     CloudflareDeriverTenantRootInitialActivationRequestV1,
@@ -214,17 +214,17 @@ async fn coordinate_cloudflare_router_tenant_root_creation_v1(
                 CloudflareTenantRootControlPlaneRoleV1::DeriverA => &runtime.bindings().deriver_a,
                 CloudflareTenantRootControlPlaneRoleV1::DeriverB => &runtime.bindings().deriver_b,
             };
-            let cleaned = execute_cloudflare_deriver_tenant_root_cleanup_pending_service_call_v1(
+            let cleaned = execute_cloudflare_deriver_tenant_root_cleanup_service_call_v1(
                 env,
                 deriver,
-                &CloudflareDeriverTenantRootCleanupPendingRequestV1 {
+                &CloudflareDeriverTenantRootCleanupRequestV1 {
                     cleanup_command_b64u: cleanup.cleanup_command_b64u,
                 },
             )
             .await?;
             let cleanup_receipt = crate::decode_base64url_bytes_v1(
                 "tenant-root cleanup terminal receipt",
-                &cleaned.cleanup_receipt_b64u,
+                cleaned.cleanup_receipt_b64u(),
             )?;
             execute_cloudflare_router_tenant_root_creation_cleanup_call_v1(
                 env,

@@ -286,7 +286,7 @@ where
 
 /// Maximum accepted request size for one Deriver creation call.
 pub const DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_REQUEST_MAX_BYTES_V1: usize = 96 * 1024;
-pub const DERIVER_TENANT_ROOT_CLEANUP_PENDING_REQUEST_MAX_BYTES_V1: usize = 24 * 1024;
+pub const DERIVER_TENANT_ROOT_CLEANUP_REQUEST_MAX_BYTES_V1: usize = 24 * 1024;
 
 /// Router -> Deriver: execute this role's part of one creation ceremony.
 ///
@@ -360,21 +360,56 @@ pub enum CloudflareDeriverTenantRootCreateRoleShareResponseV1 {
     },
 }
 
-/// Control plane -> Deriver: remove one exact stranded pending role share.
+/// Control plane -> Deriver: remove one exact pending or retired role share.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CloudflareDeriverTenantRootCleanupPendingRequestV1 {
+pub struct CloudflareDeriverTenantRootCleanupRequestV1 {
     /// Exact issuer-signed cleanup command. Its unverified target may only be
     /// used to locate the row; the Deriver verifies it against that row before deletion.
     pub cleanup_command_b64u: String,
 }
 
-/// Deriver -> Router: exact public receipt proving the role-local cleanup completed.
+/// Destruction evidence available after a retired-share cleanup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudflareTenantRootCryptographicErasureStatusV1 {
+    CryptographicErasureUnverified,
+}
+
+/// Deriver -> Router: exact public result of one role-local cleanup.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CloudflareDeriverTenantRootCleanupPendingResponseV1 {
-    pub role: CloudflareTenantRootCreateRoleV1,
-    pub cleanup_receipt_b64u: String,
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareDeriverTenantRootCleanupResponseV1 {
+    PendingDeleted {
+        role: CloudflareTenantRootCreateRoleV1,
+        cleanup_receipt_b64u: String,
+    },
+    RetiredDeleted {
+        role: CloudflareTenantRootCreateRoleV1,
+        cleanup_receipt_b64u: String,
+        cryptographic_erasure: CloudflareTenantRootCryptographicErasureStatusV1,
+    },
+}
+
+impl CloudflareDeriverTenantRootCleanupResponseV1 {
+    pub const fn role(&self) -> CloudflareTenantRootCreateRoleV1 {
+        match self {
+            Self::PendingDeleted { role, .. } | Self::RetiredDeleted { role, .. } => *role,
+        }
+    }
+
+    pub fn cleanup_receipt_b64u(&self) -> &str {
+        match self {
+            Self::PendingDeleted {
+                cleanup_receipt_b64u,
+                ..
+            }
+            | Self::RetiredDeleted {
+                cleanup_receipt_b64u,
+                ..
+            } => cleanup_receipt_b64u,
+        }
+    }
 }
 
 /// Router -> Deriver: activate the exact pending role share named by the
@@ -2777,12 +2812,12 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_create_role_share_v1(
 
 /// Removes the exact pending row authorized by the control-plane issuer.
 #[cfg(feature = "workers-rs")]
-pub(crate) async fn handle_cloudflare_deriver_tenant_root_cleanup_pending_v1(
+pub(crate) async fn handle_cloudflare_deriver_tenant_root_cleanup_v1(
     env: &worker::Env,
     worker_role: crate::CloudflareWorkerRoleV1,
-    request: CloudflareDeriverTenantRootCleanupPendingRequestV1,
+    request: CloudflareDeriverTenantRootCleanupRequestV1,
     now_ms: u64,
-) -> RouterAbProtocolResult<CloudflareDeriverTenantRootCleanupPendingResponseV1> {
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootCleanupResponseV1> {
     let role = tenant_root_creation_protocol_role_v1(worker_role)?;
     let command_bytes = crate::decode_base64url_bytes_v1(
         "tenant-root cleanup command",
@@ -2791,20 +2826,21 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_cleanup_pending_v1(
     let command = TenantRootRoleCleanupCommandV1::decode_canonical_bytes(&command_bytes)
         .map_err(candidate_derivation_error)?;
     let claimed_target = command.claimed_target();
-    let (claimed_identity_digest, claimed_custody_lineage, claimed_epoch) = match &claimed_target {
-        TenantRootRoleCleanupTargetV1::Pending {
-            identity_digest,
-            custody_lineage,
-            epoch,
-            ..
-        } => (*identity_digest, *custody_lineage, *epoch),
-        TenantRootRoleCleanupTargetV1::Retired { .. } => {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLifecycleState,
-                "tenant-root pending cleanup command names a retired row",
-            ));
-        }
-    };
+    let (claimed_identity_digest, claimed_custody_lineage, claimed_epoch, is_retired) =
+        match &claimed_target {
+            TenantRootRoleCleanupTargetV1::Pending {
+                identity_digest,
+                custody_lineage,
+                epoch,
+                ..
+            } => (*identity_digest, *custody_lineage, *epoch, false),
+            TenantRootRoleCleanupTargetV1::Retired {
+                identity_digest,
+                custody_lineage,
+                retired_epoch,
+                ..
+            } => (*identity_digest, *custody_lineage, *retired_epoch, true),
+        };
     let (authority_id, _) =
         crate::durable_object::tenant_root_creation::derive_tenant_root_creation_authority_object_v1(
             env,
@@ -2858,10 +2894,25 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_cleanup_pending_v1(
         )
         .await
         .map_err(|error| tenant_root_store_error_v1("tenant-root backup cleanup", error))?;
-    Ok(CloudflareDeriverTenantRootCleanupPendingResponseV1 {
-        role: CloudflareTenantRootCreateRoleV1::from_protocol(role),
-        cleanup_receipt_b64u: crate::encode_base64url_bytes_v1(&receipt_bytes),
-    })
+    let role = CloudflareTenantRootCreateRoleV1::from_protocol(role);
+    let cleanup_receipt_b64u = crate::encode_base64url_bytes_v1(&receipt_bytes);
+    if is_retired {
+        Ok(
+            CloudflareDeriverTenantRootCleanupResponseV1::RetiredDeleted {
+                role,
+                cleanup_receipt_b64u,
+                cryptographic_erasure:
+                    CloudflareTenantRootCryptographicErasureStatusV1::CryptographicErasureUnverified,
+            },
+        )
+    } else {
+        Ok(
+            CloudflareDeriverTenantRootCleanupResponseV1::PendingDeleted {
+                role,
+                cleanup_receipt_b64u,
+            },
+        )
+    }
 }
 
 /// Verifies and stages one managed restore at its owning Deriver.
@@ -5396,6 +5447,30 @@ pub(crate) mod live_execution_tests {
         let response_json = serde_json::to_value(&response).expect("response json");
         assert_eq!(response_json["status"], "staged_for_forward_refresh");
         assert!(!response_json.to_string().contains("activation"));
+    }
+
+    #[test]
+    fn cleanup_response_distinguishes_pending_from_retired_erasure() {
+        let pending = CloudflareDeriverTenantRootCleanupResponseV1::PendingDeleted {
+            role: CloudflareTenantRootCreateRoleV1::DeriverA,
+            cleanup_receipt_b64u: "pending-receipt".to_owned(),
+        };
+        let retired = CloudflareDeriverTenantRootCleanupResponseV1::RetiredDeleted {
+            role: CloudflareTenantRootCreateRoleV1::DeriverA,
+            cleanup_receipt_b64u: "retired-receipt".to_owned(),
+            cryptographic_erasure:
+                CloudflareTenantRootCryptographicErasureStatusV1::CryptographicErasureUnverified,
+        };
+
+        let pending_json = serde_json::to_value(pending).expect("pending cleanup response");
+        let retired_json = serde_json::to_value(retired).expect("retired cleanup response");
+        assert_eq!(pending_json["kind"], "pending_deleted");
+        assert!(pending_json.get("cryptographic_erasure").is_none());
+        assert_eq!(retired_json["kind"], "retired_deleted");
+        assert_eq!(
+            retired_json["cryptographic_erasure"],
+            "cryptographic_erasure_unverified"
+        );
     }
 
     /// The scalar-leak proof, extended over the sealed persistence input.

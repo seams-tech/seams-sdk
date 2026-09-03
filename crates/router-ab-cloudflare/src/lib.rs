@@ -108,8 +108,7 @@ mod tenant_root_role_runtime;
 pub use tenant_root_cutover_lifecycle::*;
 #[cfg(feature = "workers-rs")]
 use tenant_root_role_runtime::{
-    CloudflareDeriverTenantRootCleanupPendingRequestV1,
-    CloudflareDeriverTenantRootCleanupPendingResponseV1,
+    CloudflareDeriverTenantRootCleanupRequestV1, CloudflareDeriverTenantRootCleanupResponseV1,
     CloudflareDeriverTenantRootCreateRoleShareRequestV1,
     CloudflareDeriverTenantRootCreateRoleShareResponseV1,
     CloudflareDeriverTenantRootInitialActivationRequestV1,
@@ -208,8 +207,7 @@ pub use paths::*;
 mod trace_context;
 #[cfg(feature = "workers-rs")]
 use paths::{
-    cloudflare_deriver_peer_service_url,
-    cloudflare_deriver_tenant_root_cleanup_pending_service_url,
+    cloudflare_deriver_peer_service_url, cloudflare_deriver_tenant_root_cleanup_service_url,
     cloudflare_deriver_tenant_root_create_role_share_service_url,
     cloudflare_deriver_tenant_root_initial_activation_service_url,
     cloudflare_deriver_tenant_root_refresh_activation_service_url,
@@ -14772,19 +14770,19 @@ pub(crate) async fn execute_cloudflare_deriver_tenant_root_refresh_service_call_
     Ok(response)
 }
 
-/// Sends one authorized pending-share cleanup to its owning Deriver.
+/// Sends one authorized role-share cleanup to its owning Deriver.
 #[cfg(feature = "workers-rs")]
-pub(crate) async fn execute_cloudflare_deriver_tenant_root_cleanup_pending_service_call_v1(
+pub(crate) async fn execute_cloudflare_deriver_tenant_root_cleanup_service_call_v1(
     env: &worker::Env,
     peer: &CloudflarePeerBindingV1,
-    request: &CloudflareDeriverTenantRootCleanupPendingRequestV1,
-) -> RouterAbProtocolResult<CloudflareDeriverTenantRootCleanupPendingResponseV1> {
+    request: &CloudflareDeriverTenantRootCleanupRequestV1,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootCleanupResponseV1> {
     peer.validate()?;
-    let response: CloudflareDeriverTenantRootCleanupPendingResponseV1 = post_service_json(
+    let response: CloudflareDeriverTenantRootCleanupResponseV1 = post_service_json(
         env,
         &peer.binding_name,
-        cloudflare_deriver_tenant_root_cleanup_pending_service_url(peer)?,
-        "tenant-root pending cleanup request",
+        cloudflare_deriver_tenant_root_cleanup_service_url(peer)?,
+        "tenant-root cleanup request",
         request,
     )
     .await?;
@@ -14798,14 +14796,14 @@ pub(crate) async fn execute_cloudflare_deriver_tenant_root_cleanup_pending_servi
         _ => {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "tenant-root pending cleanup can target only a Deriver",
+                "tenant-root cleanup can target only a Deriver",
             ));
         }
     };
-    if response.role != expected_role {
+    if response.role() != expected_role {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "tenant-root pending-cleanup response names the wrong role",
+            "tenant-root cleanup response names the wrong role",
         ));
     }
     Ok(response)

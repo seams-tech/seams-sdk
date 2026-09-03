@@ -34,8 +34,8 @@ pub const CLOUDFLARE_ROUTER_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_PATH: &str =
 /// package and the peer material the ceremony needs.
 pub const CLOUDFLARE_DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/internal/deriver/tenant-root/creation/v1/create-role-share";
-pub const CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PENDING_PRIVATE_REQUEST_PATH: &str =
-    "/router-ab/internal/deriver/tenant-root/creation/v1/cleanup-pending";
+pub const CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/deriver/tenant-root/cleanup/v1/execute";
 pub const CLOUDFLARE_DERIVER_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/internal/deriver/tenant-root/creation/v1/activate";
 pub const CLOUDFLARE_DERIVER_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_PATH: &str =
@@ -282,14 +282,14 @@ const CLOUDFLARE_DERIVER_B_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_URL: &s
     "/router-ab/internal/deriver/tenant-root/creation/v1/create-role-share"
 );
 #[cfg(feature = "workers-rs")]
-const CLOUDFLARE_DERIVER_A_TENANT_ROOT_CLEANUP_PENDING_PRIVATE_REQUEST_URL: &str = concat!(
+const CLOUDFLARE_DERIVER_A_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_URL: &str = concat!(
     "https://router-ab-deriver-a.internal",
-    "/router-ab/internal/deriver/tenant-root/creation/v1/cleanup-pending"
+    "/router-ab/internal/deriver/tenant-root/cleanup/v1/execute"
 );
 #[cfg(feature = "workers-rs")]
-const CLOUDFLARE_DERIVER_B_TENANT_ROOT_CLEANUP_PENDING_PRIVATE_REQUEST_URL: &str = concat!(
+const CLOUDFLARE_DERIVER_B_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_URL: &str = concat!(
     "https://router-ab-deriver-b.internal",
-    "/router-ab/internal/deriver/tenant-root/creation/v1/cleanup-pending"
+    "/router-ab/internal/deriver/tenant-root/cleanup/v1/execute"
 );
 #[cfg(feature = "workers-rs")]
 const CLOUDFLARE_DERIVER_A_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_URL: &str = concat!(
@@ -495,14 +495,14 @@ pub(crate) fn cloudflare_deriver_tenant_root_create_role_share_service_url(
 }
 
 #[cfg(feature = "workers-rs")]
-pub(crate) fn cloudflare_deriver_tenant_root_cleanup_pending_service_url(
+pub(crate) fn cloudflare_deriver_tenant_root_cleanup_service_url(
     peer: &CloudflarePeerBindingV1,
 ) -> RouterAbProtocolResult<&'static str> {
     cloudflare_deriver_peer_url(
         peer,
-        CLOUDFLARE_DERIVER_A_TENANT_ROOT_CLEANUP_PENDING_PRIVATE_REQUEST_URL,
-        CLOUDFLARE_DERIVER_B_TENANT_ROOT_CLEANUP_PENDING_PRIVATE_REQUEST_URL,
-        "tenant-root pending cleanup can target only Deriver A or Deriver B",
+        CLOUDFLARE_DERIVER_A_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_URL,
+        CLOUDFLARE_DERIVER_B_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_URL,
+        "tenant-root cleanup can target only Deriver A or Deriver B",
     )
 }
 

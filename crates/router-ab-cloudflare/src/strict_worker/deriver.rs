@@ -1,6 +1,6 @@
 use super::*;
 use crate::tenant_root_role_runtime::{
-    CloudflareDeriverTenantRootCleanupPendingRequestV1,
+    CloudflareDeriverTenantRootCleanupRequestV1,
     CloudflareDeriverTenantRootCreateRoleShareRequestV1,
     CloudflareDeriverTenantRootInitialActivationRequestV1,
     CloudflareDeriverTenantRootManagedRestoreRequestV1,
@@ -13,7 +13,7 @@ use crate::{
     cloudflare_random_bytes_v1, load_cloudflare_active_tenant_root_role_share_v1,
     CloudflareAuthenticatedSignerPrivateBootstrapRequestV1, CloudflarePeerBindingV1,
     CloudflareRootShareStartupMetadataV1,
-    CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PENDING_PRIVATE_REQUEST_PATH,
+    CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_PRIVATE_REQUEST_PATH,
@@ -167,7 +167,7 @@ impl StrictDeriverRuntimeV1 {
             self.export_private_path(),
             self.refresh_private_path(),
             CLOUDFLARE_DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_PATH,
-            CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PENDING_PRIVATE_REQUEST_PATH,
+            CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_PATH,
             CLOUDFLARE_DERIVER_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_PATH,
             CLOUDFLARE_DERIVER_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_PATH,
             CLOUDFLARE_DERIVER_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_PATH,
@@ -254,8 +254,8 @@ async fn handle_strict_deriver_fetch_v1(
         };
     }
 
-    if path == CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PENDING_PRIVATE_REQUEST_PATH {
-        let cleanup_request: CloudflareDeriverTenantRootCleanupPendingRequestV1 =
+    if path == CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_PATH {
+        let cleanup_request: CloudflareDeriverTenantRootCleanupRequestV1 =
             match parse_strict_deriver_json_v1(
                 &mut request,
                 format!("Router A/B strict {label} tenant-root pending cleanup"),
@@ -265,7 +265,7 @@ async fn handle_strict_deriver_fetch_v1(
                 Ok(parsed) => parsed,
                 Err(response) => return Ok(response),
             };
-        return match crate::tenant_root_role_runtime::handle_cloudflare_deriver_tenant_root_cleanup_pending_v1(
+        return match crate::tenant_root_role_runtime::handle_cloudflare_deriver_tenant_root_cleanup_v1(
             &env,
             worker_role,
             cleanup_request,
