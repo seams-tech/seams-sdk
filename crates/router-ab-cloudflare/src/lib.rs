@@ -351,8 +351,8 @@ use router_ab_core::{
     RouterRequestPolicyClaimsV1, RouterToSignerPayloadV1, SecretMaterial32, ServerIdentityV1,
     SignerEnvelopeHpkePayloadV1, SignerIdentityV1, SignerInputPlaintextV1, SignerKeyStore,
     SignerSetV1, SigningRootShareStore, SigningWorkerActivationContextV1,
-    TenantRootDerivationNonceV1, TenantRootDerivationOperationIdV1,
-    TenantRootDerivationSessionIdV1, TenantRootProtocolDigestV1,
+    TenantRootCustodyLineageId, TenantRootDerivationNonceV1, TenantRootDerivationOperationIdV1,
+    TenantRootDerivationSessionIdV1, TenantRootIdentityDigestV1, TenantRootProtocolDigestV1,
     TenantRootSignedActivationReceiptV1, WireMessageKindV1, WireMessageV1,
     TENANT_ROOT_ACTIVATION_RECEIPT_MAX_BYTES_V1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
 };
@@ -366,9 +366,9 @@ use router_ab_core::{
     MpcPrfStableThresholdSignerInputV2, RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
     RouterAbEcdsaDerivationRegistrationPurposeV1, SignerInputQuorumPolicyV1,
     TenantRootActiveRoleBindingV1, TenantRootActiveRoleResolutionV1, TenantRootActiveRoleRowKeyV1,
-    TenantRootCustodyBindingV1, TenantRootCustodyLineageId, TenantRootDeriverIdentitiesV1,
-    TenantRootIdentityDigestV1, TenantRootManagedRestoreRoleV1, TwoPartyDeriverRole,
-    VerifiedTenantRootOnlineRoleShareV1, VerifiedTenantRootSignedActivationReceiptV1,
+    TenantRootCustodyBindingV1, TenantRootDeriverIdentitiesV1, TenantRootManagedRestoreRoleV1,
+    TwoPartyDeriverRole, VerifiedTenantRootOnlineRoleShareV1,
+    VerifiedTenantRootSignedActivationReceiptV1,
 };
 use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 use serde::{Deserialize, Serialize};
