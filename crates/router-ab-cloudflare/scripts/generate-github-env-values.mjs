@@ -84,8 +84,8 @@ const OBSOLETE_GATEWAY_VARIABLE_NAMES = new Set([
 const GENERATED_IDENTITY_SECRET_MARKERS = new Map([
   ['gateway', 'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK'],
   ['mpc-router', 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET'],
-  ['deriver-a', 'DERIVER_A_ROOT_SHARE_WIRE_SECRET'],
-  ['deriver-b', 'DERIVER_B_ROOT_SHARE_WIRE_SECRET'],
+  ['deriver-a', 'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY'],
+  ['deriver-b', 'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY'],
   ['signing-worker', 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY'],
 ]);
 const ANSI = Object.freeze({
@@ -346,8 +346,6 @@ const deployment = runJsonScript(join(scriptDir, 'generate-deployment-keys.mjs')
   '--show-secrets',
   '--json',
 ]);
-progress.step('Generate matched Deriver root shares');
-const rootShares = runJsonScript(join(scriptDir, 'generate-root-share-keys.mjs'), ['--json']);
 progress.step('Build and validate the GitHub Environment manifest');
 const configuration = buildTargetConfiguration(target, suppliedValues);
 const generatedSecrets = buildGeneratedSecrets(environmentPrefix);
@@ -363,7 +361,6 @@ const output = buildOutput({
   siteId:
     deploymentIdentity.kind === 'site' ? deploymentIdentity.id : deploymentIdentity.lane.site.id,
   deployment,
-  rootShares,
   configuration,
   generatedSecrets,
 });
@@ -426,9 +423,9 @@ Options:
   --json                       Print one machine-readable JSON document.
   --help                       Show this help.
 
-The command generates fresh Router A/B identities, matched root shares, internal
-service authentication, ceremony JWT signing material, Gateway random secrets,
-and signing-session seal material. Values from --values-file and the current
+The command generates fresh Router A/B identities, internal service
+authentication, ceremony JWT signing material, Gateway random secrets, and
+signing-session seal material. Values from --values-file and the current
 shell resolve matching external infrastructure, funded-account, domain, OAuth,
 and Cloudflare placeholders. Prepare mode also discovers the Cloudflare account
 and existing D1 database IDs through Wrangler when possible.
@@ -728,7 +725,6 @@ function buildOutput(input) {
     deploymentComponent: input.deploymentComponent,
     siteLanes: deploymentSiteLanes(deploymentIdentity),
     deployment: input.deployment,
-    rootShares: input.rootShares,
     configuration: input.configuration,
     generatedSecrets: input.generatedSecrets,
     keyset,
@@ -1245,8 +1241,6 @@ function buildDeriverAEnvironment(input) {
     environmentName,
     input.generatedSecrets.internalServiceAuth,
   );
-  secrets.DERIVER_A_ROOT_SHARE_WIRE_SECRET =
-    input.rootShares.secrets.account1DeriverA.DERIVER_A_ROOT_SHARE_WIRE_SECRET;
   secrets.DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY =
     input.deployment.secrets.DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY;
   secrets.DERIVER_A_PEER_SIGNING_KEY = input.deployment.secrets.DERIVER_A_PEER_SIGNING_KEY;
@@ -1306,8 +1300,6 @@ function buildDeriverBEnvironment(input) {
     environmentName,
     input.generatedSecrets.internalServiceAuth,
   );
-  secrets.DERIVER_B_ROOT_SHARE_WIRE_SECRET =
-    input.rootShares.secrets.account2DeriverB.DERIVER_B_ROOT_SHARE_WIRE_SECRET;
   secrets.DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY =
     input.deployment.secrets.DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY;
   secrets.DERIVER_B_PEER_SIGNING_KEY = input.deployment.secrets.DERIVER_B_PEER_SIGNING_KEY;
@@ -2257,22 +2249,18 @@ function validateRoleSecretIsolation(outputDocument) {
   const signingWorker =
     outputDocument.environments[`${outputDocument.environmentPrefix}-signing-worker`].secrets;
   assertAbsent(deriverA, [
-    'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
     'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
     'DERIVER_B_PEER_SIGNING_KEY',
     'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
     'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
   ]);
   assertAbsent(deriverB, [
-    'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
     'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
     'DERIVER_A_PEER_SIGNING_KEY',
     'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
     'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
   ]);
   assertAbsent(signingWorker, [
-    'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
-    'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
     'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
     'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
     'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
@@ -2280,9 +2268,6 @@ function validateRoleSecretIsolation(outputDocument) {
     'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
     'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
   ]);
-  if (deriverA.DERIVER_A_ROOT_SHARE_WIRE_SECRET === deriverB.DERIVER_B_ROOT_SHARE_WIRE_SECRET) {
-    throw new Error('Deriver A and Deriver B root shares must differ');
-  }
   const operationalSecrets = [
     deriverA.DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY,
     deriverA.DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY,

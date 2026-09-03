@@ -170,7 +170,6 @@ export function componentSecretNames(lane, component) {
     case 'deriver-a':
       return [
         'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
-        'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
         'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
         'DERIVER_A_PEER_SIGNING_KEY',
         'DERIVER_A_ROLE_PRIVATE_D1_KEK',
@@ -181,7 +180,6 @@ export function componentSecretNames(lane, component) {
     case 'deriver-b':
       return [
         'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
-        'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
         'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
         'DERIVER_B_PEER_SIGNING_KEY',
         'DERIVER_B_ROLE_PRIVATE_D1_KEK',
