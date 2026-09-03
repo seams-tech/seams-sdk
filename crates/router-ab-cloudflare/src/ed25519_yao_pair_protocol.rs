@@ -2,12 +2,69 @@
 
 use router_ab_core::{
     Ed25519YaoEncryptedInputV1, Ed25519YaoExecutionIdV1, Ed25519YaoInputPairBindingV1,
-    Ed25519YaoLaneJobV1, Ed25519YaoRoleReadinessReceiptV1, Ed25519YaoRoleStartAcceptanceV1,
-    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterEd25519YaoBurnReasonV1,
-    RouterEd25519YaoExecuteFailureCodeV1,
+    Ed25519YaoLaneJobV1, Ed25519YaoOuterBindingV2, Ed25519YaoRoleReadinessReceiptV1,
+    Ed25519YaoRoleStartAcceptanceV1, RouterAbEd25519YaoApplicationBindingFactsV1,
+    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    RouterEd25519YaoBurnReasonV1, RouterEd25519YaoExecuteFailureCodeV1,
 };
-use router_ab_ed25519_yao::Ed25519YaoRoleExecutionV1;
+use router_ab_ed25519_yao::{stable_key_derivation_context_v1, Ed25519YaoRoleExecutionV1};
 use serde::{Deserialize, Serialize};
+
+use crate::CloudflareTenantRootCustodyBindingWireV1;
+
+/// Exact public tenant-root context admitted by Router for both roles.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareEd25519YaoTenantRootContextV2 {
+    pub custody_binding: CloudflareTenantRootCustodyBindingWireV1,
+    pub outer_binding: Ed25519YaoOuterBindingV2,
+    pub application: RouterAbEd25519YaoApplicationBindingFactsV1,
+    pub participant_ids: [u16; 2],
+}
+
+impl CloudflareEd25519YaoTenantRootContextV2 {
+    pub fn validate_for_pair(
+        &self,
+        pair_binding: &Ed25519YaoInputPairBindingV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.custody_binding.validate()?;
+        self.outer_binding.validate()?;
+        pair_binding.validate()?;
+        if self.participant_ids[0] == 0
+            || self.participant_ids[0] >= self.participant_ids[1]
+            || self.outer_binding.pair_session().as_bytes() != &pair_binding.session()
+            || self.outer_binding.stable_context_binding()
+                != pair_binding.binding().stable_key_context_binding
+            || self.application.wallet_id() != pair_binding.binding().lifecycle.account_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Ed25519 Yao tenant-root context does not match the admitted pair",
+            ));
+        }
+        let stable_context =
+            stable_key_derivation_context_v1(&self.application, self.participant_ids).map_err(
+                |error| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        format!("Ed25519 Yao tenant-root stable context is invalid: {error}"),
+                    )
+                },
+            )?;
+        if stable_context.binding_digest()
+            != pair_binding
+                .binding()
+                .stable_key_context_binding
+                .into_bytes()
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Ed25519 Yao tenant-root stable context does not match the pair",
+            ));
+        }
+        Ok(())
+    }
+}
 
 /// Family-specific public context retained by each role for exact input opening.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +81,7 @@ pub enum CloudflareEd25519YaoPairWorkV1 {
 #[serde(deny_unknown_fields)]
 pub struct CloudflareEd25519YaoPairPrepareRequestV1 {
     pub pair_binding: Ed25519YaoInputPairBindingV1,
+    pub tenant_root: CloudflareEd25519YaoTenantRootContextV2,
     pub work: CloudflareEd25519YaoPairWorkV1,
     pub input: Ed25519YaoEncryptedInputV1,
 }
@@ -34,6 +92,7 @@ pub struct CloudflareEd25519YaoPairPrepareRequestV1 {
 #[serde(deny_unknown_fields)]
 pub struct CloudflareEd25519YaoPairExecuteRequestV1 {
     pub pair_binding: Ed25519YaoInputPairBindingV1,
+    pub tenant_root: CloudflareEd25519YaoTenantRootContextV2,
     pub work: CloudflareEd25519YaoPairWorkV1,
     pub input: Ed25519YaoEncryptedInputV1,
     pub local_receipt: Ed25519YaoRoleReadinessReceiptV1,

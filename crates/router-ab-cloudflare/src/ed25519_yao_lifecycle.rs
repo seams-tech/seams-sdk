@@ -472,6 +472,7 @@ impl CloudflareEd25519YaoPairPrepareRequestV1 {
         expected_kind: Ed25519YaoInputKindV1,
     ) -> RouterAbProtocolResult<([u8; 32], [u8; 32])> {
         self.pair_binding.validate()?;
+        self.tenant_root.validate_for_pair(&self.pair_binding)?;
         validate_pair_work_v1(&self.work, &self.pair_binding, &self.input)?;
         validate_deriver_input(&self.input, role, expected_kind)?;
         let input_digest = ed25519_yao_encrypted_input_digest_v1(&self.input)?.bytes;
@@ -501,6 +502,7 @@ impl CloudflareEd25519YaoPairExecuteRequestV1 {
         let expected_kind = input_kind_for_circuit(self.pair_binding.binding().circuit_family());
         let (_, input_digest) = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding: self.pair_binding.clone(),
+            tenant_root: self.tenant_root.clone(),
             work: self.work.clone(),
             input: self.input.clone(),
         }
@@ -593,6 +595,7 @@ impl CloudflareEd25519YaoPairLookupRequestV1 {
 enum DeriverAYaoSessionCommandV1 {
     PreparePair {
         pair_binding: Ed25519YaoInputPairBindingV1,
+        tenant_root: crate::CloudflareEd25519YaoTenantRootContextV2,
         work: crate::CloudflareEd25519YaoPairWorkV1,
         input: Ed25519YaoEncryptedInputV1,
     },
@@ -623,12 +626,14 @@ impl DeriverAYaoSessionCommandV1 {
         match self {
             Self::PreparePair {
                 pair_binding,
+                tenant_root,
                 work,
                 input,
             } => {
                 let expected_kind = input_kind_for_circuit(pair_binding.binding().circuit_family());
                 CloudflareEd25519YaoPairPrepareRequestV1 {
                     pair_binding: pair_binding.clone(),
+                    tenant_root: tenant_root.clone(),
                     work: work.clone(),
                     input: input.clone(),
                 }
@@ -711,6 +716,7 @@ enum DeriverAYaoSessionResponseV1 {
 enum DeriverBYaoSessionCommandV1 {
     PreparePair {
         pair_binding: Box<Ed25519YaoInputPairBindingV1>,
+        tenant_root: Box<crate::CloudflareEd25519YaoTenantRootContextV2>,
         work: crate::CloudflareEd25519YaoPairWorkV1,
         input: Box<Ed25519YaoEncryptedInputV1>,
     },
@@ -762,12 +768,14 @@ impl DeriverBYaoSessionCommandV1 {
         match self {
             Self::PreparePair {
                 pair_binding,
+                tenant_root,
                 work,
                 input,
             } => {
                 let expected_kind = input_kind_for_circuit(pair_binding.binding().circuit_family());
                 CloudflareEd25519YaoPairPrepareRequestV1 {
                     pair_binding: *pair_binding.clone(),
+                    tenant_root: *tenant_root.clone(),
                     work: work.clone(),
                     input: *input.clone(),
                 }
@@ -1262,6 +1270,7 @@ impl DeriverAYaoSessionD1V1 {
     ) -> worker::Result<Response> {
         let DeriverAYaoSessionCommandV1::PreparePair {
             pair_binding,
+            tenant_root,
             work,
             input,
         } = command
@@ -1270,6 +1279,7 @@ impl DeriverAYaoSessionD1V1 {
         };
         let request = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding,
+            tenant_root,
             work,
             input,
         };
@@ -1687,9 +1697,13 @@ impl DeriverBYaoSessionD1V1 {
         match command {
             DeriverBYaoSessionCommandV1::PreparePair {
                 pair_binding,
+                tenant_root,
                 work,
                 input,
-            } => self.handle_prepare_pair(*pair_binding, work, *input).await,
+            } => {
+                self.handle_prepare_pair(*pair_binding, *tenant_root, work, *input)
+                    .await
+            }
             DeriverBYaoSessionCommandV1::BeginPair {
                 session,
                 pair_digest,
@@ -1717,11 +1731,13 @@ impl DeriverBYaoSessionD1V1 {
     async fn handle_prepare_pair(
         &self,
         pair_binding: Ed25519YaoInputPairBindingV1,
+        tenant_root: crate::CloudflareEd25519YaoTenantRootContextV2,
         work: crate::CloudflareEd25519YaoPairWorkV1,
         input: Ed25519YaoEncryptedInputV1,
     ) -> worker::Result<Response> {
         let request = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding,
+            tenant_root,
             work,
             input,
         };
@@ -2808,6 +2824,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_prepare_pair_v1(
         env,
         DeriverBYaoSessionCommandV1::PreparePair {
             pair_binding: Box::new(request.pair_binding),
+            tenant_root: Box::new(request.tenant_root),
             work: request.work,
             input: Box::new(request.input),
         },
@@ -3490,6 +3507,7 @@ async fn execute_deriver_a_pair_prepare(
 ) -> RouterAbProtocolResult<Ed25519YaoRoleReadinessReceiptV1> {
     let command = DeriverAYaoSessionCommandV1::PreparePair {
         pair_binding: request.pair_binding,
+        tenant_root: request.tenant_root,
         work: request.work,
         input: request.input,
     };

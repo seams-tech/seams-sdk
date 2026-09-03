@@ -131,6 +131,7 @@ pub use router_coordinator::{
     handle_cloudflare_router_ed25519_yao_lane_execute_private_fetch_v1,
     handle_cloudflare_router_ed25519_yao_recovery_promote_private_fetch_v1,
     handle_cloudflare_router_ed25519_yao_source_preserving_execute_private_fetch_v1,
+    CloudflareRouterEd25519YaoExecuteRequestV2, CloudflareRouterEd25519YaoLaneExecuteRequestV2,
     CloudflareRouterEd25519YaoSourcePreservingExecuteRequestV1,
 };
 mod signing_worker;
@@ -360,7 +361,8 @@ use router_ab_core::{
 use router_ab_core::{
     evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2,
     plan_mpc_prf_stable_purpose_binding_v2,
-    resolve_authoritative_active_tenant_root_pair_binding_v1, MpcPrfOutputRequestV1,
+    resolve_authoritative_active_tenant_root_pair_binding_v1, Ed25519YaoInputPairBindingV1,
+    Ed25519YaoOuterBindingV2, Ed25519YaoPairSessionIdV2, MpcPrfOutputRequestV1,
     MpcPrfStablePartialProofBundleV2, MpcPrfStableRecipientProofBundlePayloadV2,
     MpcPrfStableThresholdSignerInputV2, RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
     RouterAbEcdsaDerivationRegistrationPurposeV1, SignerInputQuorumPolicyV1,
@@ -4428,7 +4430,7 @@ pub struct CloudflareTenantRootCoordinatesV1 {
 }
 
 impl CloudflareTenantRootCoordinatesV1 {
-    fn resolve(
+    pub(crate) fn resolve(
         &self,
     ) -> RouterAbProtocolResult<(TenantRootIdentityDigestV1, TenantRootCustodyLineageId)> {
         let identity_digest_bytes = decode_base64url_fixed_32_v1(
@@ -9380,6 +9382,97 @@ fn cloudflare_tenant_root_refresh_binding_wire_v1(
         issued_at_ms,
         refresh_request.expires_at_ms,
     )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn cloudflare_tenant_root_ed25519_yao_binding_v2(
+    env: &worker::Env,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+    activation_receipt: &VerifiedTenantRootSignedActivationReceiptV1,
+    issued_at_ms: u64,
+    expires_at_ms: u64,
+) -> RouterAbProtocolResult<(
+    CloudflareTenantRootCustodyBindingWireV1,
+    Ed25519YaoOuterBindingV2,
+)> {
+    pair_binding.validate()?;
+    let pair_digest = pair_binding.pair_digest();
+    let operation_bytes = derive_ed25519_yao_tenant_root_scope_bytes_v2(
+        b"seams/ed25519-yao/tenant-root-operation/v2",
+        pair_digest.as_bytes(),
+    );
+    let session_bytes = derive_ed25519_yao_tenant_root_scope_bytes_v2(
+        b"seams/ed25519-yao/tenant-root-session/v2",
+        pair_digest.as_bytes(),
+    );
+    let nonce_bytes = derive_ed25519_yao_tenant_root_scope_bytes_v2(
+        b"seams/ed25519-yao/tenant-root-nonce/v2",
+        pair_digest.as_bytes(),
+    );
+    let mut operation_id_bytes = [0_u8; 16];
+    operation_id_bytes.copy_from_slice(&operation_bytes[..16]);
+    let operation_id = TenantRootDerivationOperationIdV1::from_bytes(operation_id_bytes)
+        .map_err(map_root_share_to_protocol)?;
+    let mut session_id_bytes = [0_u8; 16];
+    session_id_bytes.copy_from_slice(&session_bytes[..16]);
+    let session_id = TenantRootDerivationSessionIdV1::from_bytes(session_id_bytes)
+        .map_err(map_root_share_to_protocol)?;
+    let nonce =
+        TenantRootDerivationNonceV1::from_bytes(nonce_bytes).map_err(map_root_share_to_protocol)?;
+    let wire = CloudflareTenantRootCustodyBindingWireV1::from_verified_activation_receipt(
+        activation_receipt,
+        operation_id,
+        session_id,
+        nonce,
+        issued_at_ms,
+        expires_at_ms,
+    )?;
+    let custody_binding =
+        TenantRootCustodyBindingV1::from_verified_activation_receipt_with_stable_context_digest(
+            activation_receipt,
+            cloudflare_tenant_root_deriver_identities_v1(env)?,
+            operation_id,
+            session_id,
+            nonce,
+            issued_at_ms,
+            expires_at_ms,
+            TenantRootProtocolDigestV1::from_bytes(
+                pair_binding
+                    .binding()
+                    .stable_key_context_binding
+                    .into_bytes(),
+            )
+            .map_err(map_root_share_to_protocol)?,
+            TenantRootProtocolDigestV1::from_bytes(*pair_digest.as_bytes())
+                .map_err(map_root_share_to_protocol)?,
+        )
+        .map_err(map_root_share_to_protocol)?;
+    let custody_digest = custody_binding
+        .digest()
+        .map_err(map_root_share_to_protocol)?;
+    let outer_nonce_digest = derive_ed25519_yao_tenant_root_scope_bytes_v2(
+        b"seams/ed25519-yao/outer-nonce/v2",
+        custody_digest.as_bytes(),
+    );
+    let mut outer_nonce = [0_u8; 16];
+    outer_nonce.copy_from_slice(&outer_nonce_digest[..16]);
+    let outer_binding = Ed25519YaoOuterBindingV2::new(
+        Ed25519YaoPairSessionIdV2::new(pair_binding.session())?,
+        pair_binding.binding().stable_key_context_binding,
+        PublicDigest32::new(*custody_digest.as_bytes()),
+        outer_nonce,
+        issued_at_ms,
+        expires_at_ms,
+    )?;
+    Ok((wire, outer_binding))
+}
+
+#[cfg(feature = "workers-rs")]
+fn derive_ed25519_yao_tenant_root_scope_bytes_v2(domain: &[u8], transcript: &[u8; 32]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(domain);
+    hasher.update(transcript);
+    hasher.finalize().into()
 }
 
 /// Typed server-only bootstrap after custody-binding comparison.
