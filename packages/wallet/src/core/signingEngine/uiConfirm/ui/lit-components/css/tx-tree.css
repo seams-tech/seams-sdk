@@ -453,6 +453,16 @@ w3a-tx-tree .anim-h {
 w3a-tx-tree .anim-h-active {
   height: var(--w3a-tree__anim-target, auto);
 }
+/* A host that sizes the tree's box from outside (the wallet-iframe confirmer,
+   see confirm-surface-resize.ts) writes the height in frame by frame; a
+   transition here would only trail those writes. */
+w3a-tx-tree .anim-h.anim-h-driven,
+/* The start of a toggle is set without motion (see TxTree.animateOpen):
+   closed <details> content keeps a resolved height, and the transition
+   above would otherwise run from it. */
+w3a-tx-tree .anim-h.anim-h-hold {
+  transition: none;
+}
 
 w3a-tx-tree .folder-children .row .indent::before {
   content: '';

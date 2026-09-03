@@ -161,15 +161,26 @@ const BASE_CSS = `
      auth menu also renders provisionally: hiding its dialog prevents the
      child ResizeObserver from producing the measurement that replaces those
      provisional bounds, leaving the menu invisible until the 4s fallback.
-     Request modals remain hidden until their measured bounds are ready. */
+     Request modals stay invisible until their measured bounds are ready.
+
+     Invisible means opacity, never visibility. Chrome stops rendering a
+     cross-origin iframe whose ancestor is visibility:hidden (no animation
+     frames, no ResizeObserver delivery), so a modal hidden that way could not
+     lay out its confirmer or post the measurement the reveal waits for: the
+     card appeared only when the 4s measurement fallback forced the box
+     visible. Playwright's bundled Chromium keeps rendering such frames, which
+     is why no browser test noticed. An opacity:0 dialog is painted normally
+     (the frame is not throttled), just fully transparent. */
   dialog.${CLASS_DIALOG}.${CLASS_PROVISIONAL}.${CLASS_MODAL}:not(.${CLASS_AUTH_MENU}) {
-    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
   }
   /* Measured geometry is installed one frame before a request modal is
      revealed. This prevents the native dialog's fallback position from ever
-     reaching the screen while its dynamic geometry rule settles. */
+     reaching the screen while its dynamic geometry rule settles. Opacity for
+     the same reason as above: the frame inside must keep rendering. */
   dialog.${CLASS_DIALOG}.${CLASS_REVEAL_PENDING} {
-    visibility: hidden;
+    opacity: 0;
     pointer-events: none;
   }
   iframe.${CLASS_IFRAME} {
@@ -237,6 +248,7 @@ function cssScale(value: number): string {
 
 const drawerGeometryRuleId = (dialogId: string): string => `${dialogId}::drawer`;
 const authMenuGeometryRuleId = (dialogId: string): string => `${dialogId}::auth-menu`;
+const iframeGeometryRuleId = (dialogId: string): string => `${dialogId}::iframe`;
 
 function ensureDialogId(dialog: HTMLDialogElement): string {
   const currentId = dialog.id;
@@ -384,6 +396,35 @@ export function clearDialogGeometry(dialog: HTMLDialogElement): void {
   manager.deleteDynamicRule(id);
   manager.deleteDynamicRule(drawerGeometryRuleId(id));
   manager.deleteDynamicRule(authMenuGeometryRuleId(id));
+  manager.deleteDynamicRule(iframeGeometryRuleId(id));
+}
+
+/**
+ * Hold the iframe at a size of its own, independent of the dialog, for the
+ * instant between writing a request modal's destination geometry and starting
+ * the ease that travels there. Reading the destination rectangle is a layout,
+ * and a cross-origin iframe laid out at the destination is told that size at
+ * once — one frame of the final box before the ease snaps it back to the
+ * origin, which content inside the frame reads as arrival. Pinned to the
+ * origin while the rectangle is read, the frame learns nothing until the ease
+ * itself moves it.
+ */
+export function pinDialogIframe(
+  dialog: HTMLDialogElement,
+  size: { widthCssPx: number; heightCssPx: number },
+): void {
+  ensureOverlayDialog(dialog);
+  const id = ensureDialogId(dialog);
+  getStyleManager().setDynamicDeclarations(
+    iframeGeometryRuleId(id),
+    `#${id}.${CLASS_DIALOG} iframe.${CLASS_IFRAME}`,
+    { width: cssPx(size.widthCssPx), height: cssPx(size.heightCssPx) },
+  );
+}
+
+export function releaseDialogIframe(dialog: HTMLDialogElement): void {
+  const id = ensureDialogId(dialog);
+  getStyleManager().deleteDynamicRule(iframeGeometryRuleId(id));
 }
 
 export const OverlayStyleClasses = {

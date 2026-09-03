@@ -417,10 +417,42 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
     0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
+/* An element held at a driven height while the host box travels to its new
+   size (confirm-surface-resize.ts). Content below the current height is
+   clipped, which is what "revealed by the box" means. The variable is written
+   by the owning component through a constructable stylesheet, because the
+   wallet origin ships style-src-attr 'none'. */
+.w3a-surface-height-driven {
+  overflow: hidden;
+  height: var(--w3a-surface-height-driven-target, auto);
+}
+
 /* The host dialog paints compact modal elevation outside the iframe bounds. */
 w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'][data-w3a-confirm-variant='modal']
   .modal-container-root {
   box-shadow: none;
+}
+
+/* Inside the measured host box the viewport IS the card: the parent sizes the
+   iframe to the content it was told about. A cap in vh therefore chases the
+   box — every ease grows the viewport, which grows the capped block, which
+   posts a larger measurement, which grows the box again — and each round
+   re-lays the interior out instantly while the box trails behind. Content in
+   this surface must have an intrinsic height, so the caps are fixed here. */
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'] w3a-tx-tree .file-content {
+  max-height: 12rem;
+  /* The drag handle resizes content continuously, and the host box eases one
+     step behind every measurement, so the box can never follow the pointer.
+     The block scrolls inside its cap here instead. */
+  resize: none;
+}
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe']
+  w3a-tx-tree
+  .tooltip-tree-root.scrollable-root {
+  max-height: 20rem;
+}
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'] .action-content {
+  max-height: 16rem;
 }
 
 @keyframes fadeIn {

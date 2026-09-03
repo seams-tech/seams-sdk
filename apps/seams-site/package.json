@@ -3,12 +3,12 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "vite": "vite --host localhost --port 4004",
+    "vite": "vite --host 127.0.0.1 --port 4004",
     "caddy": "bash run_caddy.sh",
     "dev": "concurrently --kill-others --names site,caddy \"pnpm run vite\" \"pnpm run caddy\"",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview --host localhost --port 4004"
+    "preview": "vite preview --host 127.0.0.1 --port 4004"
   },
   "dependencies": {
     "@fontsource/hanken-grotesk": "^5.2.8",

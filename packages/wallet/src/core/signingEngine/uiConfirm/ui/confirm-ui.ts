@@ -34,6 +34,11 @@ import {
   type WalletIframeSurfaceMeasurementReporter,
 } from '@/SeamsWeb/walletIframe/host/lit-ui/surface-measurement-reporter';
 import { ensureExternalStyles } from './lit-components/css/css-loader';
+import {
+  attachConfirmSurfaceResizeChoreographer,
+  CONFIRM_SURFACE_MODE_ATTR,
+  type ConfirmSurfaceResizeChoreographer,
+} from './confirm-surface-resize';
 
 export type {
   ConfirmUIHandle,
@@ -94,10 +99,15 @@ type ConfirmUIInternalUpdate = ConfirmUIUpdate & {
   evmExplorerUrl?: string;
 };
 
-const CONFIRM_SURFACE_MODE_ATTR = 'data-w3a-confirm-surface';
 const confirmSurfaceMeasurementReporters = new WeakMap<
   HTMLElement,
   WalletIframeSurfaceMeasurementReporter
+>();
+// Lives exactly as long as the reporter: while the parent hugs this host, tree
+// nodes inside it hand their height motion over so the box grows first.
+const confirmSurfaceResizeChoreographers = new WeakMap<
+  HTMLElement,
+  ConfirmSurfaceResizeChoreographer
 >();
 const confirmSurfaceMeasurementBindings = new WeakMap<
   HTMLElement,
@@ -427,6 +437,8 @@ function sameConfirmSurfaceMeasurementBinding(
 function disconnectConfirmSurfaceMeasurementReporter(element: HTMLElement): void {
   confirmSurfaceMeasurementReporters.get(element)?.disconnect();
   confirmSurfaceMeasurementReporters.delete(element);
+  confirmSurfaceResizeChoreographers.get(element)?.dispose();
+  confirmSurfaceResizeChoreographers.delete(element);
   confirmSurfaceMeasurementBindings.delete(element);
 }
 
@@ -494,7 +506,9 @@ function bindConfirmSurfaceMeasurementReporter(
   disconnectConfirmSurfaceMeasurementReporter(element);
   confirmSurfaceMeasurementBindings.set(element, binding);
   const reporter = createConfirmSurfaceMeasurementReporter(binding, element);
-  if (reporter) confirmSurfaceMeasurementReporters.set(element, reporter);
+  if (!reporter) return;
+  confirmSurfaceMeasurementReporters.set(element, reporter);
+  confirmSurfaceResizeChoreographers.set(element, attachConfirmSurfaceResizeChoreographer(element));
 }
 
 function createHostConfirmHandle(

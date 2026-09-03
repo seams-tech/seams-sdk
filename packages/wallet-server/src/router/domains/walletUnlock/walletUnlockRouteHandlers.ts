@@ -626,13 +626,24 @@ function planWalletUnlockAuthorityEcdsaSession(input: {
   readonly ecdsaSession: WalletUnlockEcdsaSessionContext;
 }): WalletUnlockAuthorityEcdsaSessionPlan {
   switch (input.provenanceKind) {
-    case 'device_link':
-      switch (input.ecdsaSession.kind) {
+    case 'device_link': {
+      const ecdsaSession = input.ecdsaSession;
+      switch (ecdsaSession.kind) {
         case 'no_ecdsa_session':
           return { kind: 'accepted' };
         case 'provision_first_ecdsa_session':
           return { kind: 'reject_device_link_ecdsa_session' };
+        default: {
+          /* A linked device must never reach the accepted arms below by
+             falling out of this switch: a new session kind is a decision
+             nobody has made yet, not an accepted unlock. */
+          const exhaustiveEcdsaSession: never = ecdsaSession;
+          throw new Error(
+            `Unhandled wallet unlock ECDSA session kind: ${String(exhaustiveEcdsaSession)}`,
+          );
+        }
       }
+    }
     case 'wallet_registration':
     case 'wallet_recovery':
       return { kind: 'accepted' };

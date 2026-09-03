@@ -57,13 +57,27 @@ jobs:
   ed25519-yao-constant-time-codegen:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # check_constant_time_codegen.mjs runs three cold --release builds (native,
+    # then both cross-account Worker features) into a throwaway CARGO_TARGET_DIR,
+    # because the codegen it asserts on has to come from a clean compile. That
+    # does not fit in 30 minutes on a hosted runner -- the job was cancelled at
+    # the cap on every dispatch since it was added. A cap is a safety net, not a
+    # budget: billing follows actual minutes, so give it room to finish.
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      # The script's temp target dir defeats artifact caching by design; this
+      # still spares the crates.io index and dependency downloads.
+      - name: Cache Ed25519-Yao Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ed25519-yao-constant-time-${{ runner.os }}
+          cache-targets: 'false'
 
       - name: Add Worker WASM target
         run: rustup target add wasm32-unknown-unknown
@@ -85,7 +99,7 @@ jobs:
   build-and-test:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -163,8 +177,28 @@ jobs:
       - name: Run signer runtime gates
         run: pnpm -C tests exec playwright test ./unit/walletSessionReadiness.gate.unit.test.ts ./unit/thresholdEcdsa.commitQueue.unit.test.ts ./unit/walletIframeHost.signTempoCancel.unit.test.ts --reporter=line
 
+      - name: Run measured-surface motion gates
+        # Refactor 116: the cross-boundary guard is the only place the parent's
+        # ease, the real iframe origin, and the real confirmer meet, and the
+        # defects it catches are invisible to a same-process harness.
+        run: pnpm -C tests exec playwright test ./wallet-iframe/confirmSurface.treeGrowth.integration.test.ts ./lit-components/confirm-surface-resize.test.ts ./unit/overlayController.test.ts --reporter=line
+
       - name: Run signer parity tests
         run: pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/signerParity.rustPlatforms.unit.test.ts ./unit/signingVectors.webWasmReplay.integration.test.ts --workers=1
+
+      # The console harness boots the local Router A/B stack, which refuses to
+      # start without the strict Worker artifacts and their build receipt. The
+      # SDK step above runs only the wallet half of `build:sdk-prod`; the other
+      # half is `pnpm router:build`, so it has to run here. The dev profile
+      # keeps this inside the job budget -- these paths assert behaviour, not
+      # optimized codegen.
+      - name: Install worker-build
+        run: pnpm -C crates/router-ab-cloudflare run worker-build:install
+
+      - name: Build Router A/B Worker artifacts
+        env:
+          ROUTER_AB_WORKER_BUILD_PROFILE: dev
+        run: pnpm router:build
 
       - name: Run Console operating paths
         env:

@@ -29,7 +29,7 @@
     "check:signer-parity": "pnpm -C tests test:signer-parity",
     "check:formal-verification": "cargo yao-fv all",
     "type-check:sdk": "pnpm -C packages/wallet type-check",
-    "type-check:router-server": "pnpm -C packages/wallet run build:types && pnpm -C packages/wallet-server build && pnpm -C packages/console-server-ts run build:types && pnpm -C packages/wallet-console-server-ts type-check && pnpm -C apps/web-server exec tsc --noEmit",
+    "type-check:router-server": "pnpm -C packages/wallet run build:types && pnpm -C packages/wallet-server build && pnpm -C packages/console-server-ts run build:types && pnpm -C packages/wallet-console-server-ts type-check && pnpm -C packages/wallet-console-server-ts run build:types && pnpm -C apps/web-server exec tsc --noEmit",
     "type-check:app": "pnpm -C packages/wallet run build:types && pnpm -C packages/console-shared-ts type-check && pnpm -C packages/wallet-console-shared-ts type-check && pnpm -C apps/seams-site exec tsc --noEmit && pnpm -C apps/seams-console typecheck",
     "type-check:docs": "pnpm -C apps/docs exec tsc --noEmit",
     "type-check:unit": "pnpm -C tests type-check:unit",

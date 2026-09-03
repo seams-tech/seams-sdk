@@ -91,6 +91,24 @@ function measurementForSize(
   }
 }
 
+/**
+ * A surface posts one measurement per change: it announces where its content
+ * is going and the parent eases there once (refactor 116). A burst of them is
+ * the signature of content animating its own height inside a box that is
+ * sized from that height — the parent then chases a moving target and the card
+ * is clipped by a box that never catches up. It is worth one console line,
+ * because no test can enumerate every component that might start doing it.
+ */
+const STREAMING_POSTS_THRESHOLD = 4;
+const STREAMING_WINDOW_MS = 150;
+/**
+ * A confirmation arrives in stages — shell, heading, transaction body, decoded
+ * calldata — and each stage legitimately resizes a surface that has nothing to
+ * hug yet. That opening stream is not the defect, so the check only starts
+ * once the surface has held one size for this long.
+ */
+const STREAMING_SETTLE_GAP_MS = 400;
+
 // Parent-side surface generations can outlive a remounted child root.
 let nextSurfaceMeasurementSequence = 1;
 
@@ -110,6 +128,9 @@ export type WalletIframeSurfaceMeasurementReporter = {
 class SurfaceMeasurementReporter implements WalletIframeSurfaceMeasurementReporter {
   private readonly observer: ResizeObserver | null;
   private latestEntry: ResizeObserverEntry | null = null;
+  private recentPostTimes: number[] = [];
+  private warnedAboutStreaming = false;
+  private surfaceHasSettled = false;
   private animationFrame: number | null = null;
   private lastSize: SurfaceSize | null = null;
   private disconnected = false;
@@ -167,7 +188,34 @@ class SurfaceMeasurementReporter implements WalletIframeSurfaceMeasurementReport
       this.disconnect();
       return;
     }
+    this.noteStreaming();
     this.options.postMeasurement(measurementForSize(this.options, sequence, size));
+  }
+
+  private noteStreaming(): void {
+    if (this.warnedAboutStreaming) return;
+    const now = typeof performance === 'object' ? performance.now() : Date.now();
+    const previous = this.recentPostTimes.at(-1);
+    if (previous !== undefined && now - previous > STREAMING_SETTLE_GAP_MS) {
+      // The surface held one size and has now changed again: it has finished
+      // arriving, so anything bursty from here is a motion, not a stage.
+      this.surfaceHasSettled = true;
+      this.recentPostTimes.length = 0;
+    }
+    this.recentPostTimes.push(now);
+    while (this.recentPostTimes.length && now - this.recentPostTimes[0] > STREAMING_WINDOW_MS) {
+      this.recentPostTimes.shift();
+    }
+    if (!this.surfaceHasSettled) return;
+    if (this.recentPostTimes.length < STREAMING_POSTS_THRESHOLD) return;
+    this.warnedAboutStreaming = true;
+    console.warn(
+      `[W3A] ${this.options.kind} posted ${this.recentPostTimes.length} surface measurements in ` +
+        `${STREAMING_WINDOW_MS}ms after it had settled. Content inside a measured surface must ` +
+        'announce a height change once (announceSurfaceResize) instead of animating its own ' +
+        'height; the host box cannot follow a moving target. See ' +
+        'docs/refactor-116-lit-component-consolidation.md.',
+    );
   }
 
   private sameSize(size: SurfaceSize): boolean {

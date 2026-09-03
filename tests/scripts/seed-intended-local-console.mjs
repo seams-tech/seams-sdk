@@ -145,37 +145,70 @@ function resolveSeedConfig(localEnv) {
   };
 }
 
+/*
+ * The Gateway is already running against this same local D1 file by the time
+ * the seed seeds it, so the two processes contend for one SQLite writer.
+ * SQLITE_BUSY here means "someone else is mid-write", never "this statement is
+ * wrong" -- the lock clears on its own, so wait for it instead of failing the
+ * whole harness.
+ */
+const SEED_BUSY_ATTEMPT_LIMIT = 6;
+const SEED_BUSY_BACKOFF_STEP_MS = 500;
+
+function isSqliteBusyOutput(output) {
+  return /SQLITE_BUSY|database is locked/i.test(output);
+}
+
+function sleepSyncMs(durationMs) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, durationMs);
+}
+
 function runWranglerSeed(config) {
   const sql = buildSeedSql(config);
-  const result = spawnSync(
-    'pnpm',
-    [
-      '-C',
-      'packages/console-server-ts',
-      'exec',
-      'wrangler',
-      'd1',
-      'execute',
-      'seams-console',
-      '--local',
-      '--persist-to',
-      d1LocalPersistPath,
-      '--config',
-      d1LocalWranglerConfig,
-      '--command',
-      sql,
-    ],
-    {
-      cwd: repoRoot,
-      env: process.env,
-      stdio: 'inherit',
-    },
-  );
-  if (result.error) {
-    throw new Error(`wrangler D1 seed failed to start: ${result.error.message}`);
-  }
-  if (result.status !== 0) {
-    throw new Error(`wrangler D1 seed exited with ${String(result.status ?? 'unknown')}`);
+  for (let attempt = 1; ; attempt += 1) {
+    const result = spawnSync(
+      'pnpm',
+      [
+        '-C',
+        'packages/console-server-ts',
+        'exec',
+        'wrangler',
+        'd1',
+        'execute',
+        'seams-console',
+        '--local',
+        '--persist-to',
+        d1LocalPersistPath,
+        '--config',
+        d1LocalWranglerConfig,
+        '--command',
+        sql,
+      ],
+      {
+        cwd: repoRoot,
+        env: process.env,
+        encoding: 'utf8',
+      },
+    );
+    // Captured rather than inherited so the busy case is recognizable; the
+    // output still reaches the harness log either way.
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    if (result.error) {
+      throw new Error(`wrangler D1 seed failed to start: ${result.error.message}`);
+    }
+    if (result.status === 0) return;
+
+    const combinedOutput = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+    if (attempt >= SEED_BUSY_ATTEMPT_LIMIT || !isSqliteBusyOutput(combinedOutput)) {
+      throw new Error(`wrangler D1 seed exited with ${String(result.status ?? 'unknown')}`);
+    }
+    const backoffMs = SEED_BUSY_BACKOFF_STEP_MS * attempt;
+    console.log(
+      `Local D1 is busy; retrying the console seed in ${backoffMs}ms ` +
+        `(attempt ${attempt + 1} of ${SEED_BUSY_ATTEMPT_LIMIT}).`,
+    );
+    sleepSyncMs(backoffMs);
   }
 }
 

@@ -14,6 +14,8 @@ import {
   setDialogPresentation,
   setHidden,
   setVisible,
+  pinDialogIframe,
+  releaseDialogIframe,
 } from './overlay-styles';
 
 export type OverlayRenderMode = WalletIframeSurfaceRenderMode;
@@ -51,7 +53,11 @@ type SurfaceRect = {
   height: number;
 };
 
-const SURFACE_RESIZE_DURATION_MS = 220;
+// The single motion for a measured request modal: the child never animates
+// its own layout height while the box hugs it, it fills whatever box this
+// ease has made (confirm-surface-resize.ts), so this is the duration a user
+// sees for a tree expand or a content swap.
+const SURFACE_RESIZE_DURATION_MS = 180;
 
 function finiteSurfaceRect(rect: DOMRect): SurfaceRect | null {
   if (
@@ -67,10 +73,7 @@ function finiteSurfaceRect(rect: DOMRect): SurfaceRect | null {
   return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
 }
 
-function surfaceResizeKeyframes(
-  origin: SurfaceRect,
-  destination: SurfaceRect,
-): Keyframe[] {
+function surfaceResizeKeyframes(origin: SurfaceRect, destination: SurfaceRect): Keyframe[] {
   return [
     {
       top: `${origin.top}px`,
@@ -302,6 +305,14 @@ export class OverlayController {
     dialog.setAttribute('aria-modal', authMenu ? 'false' : 'true');
     if (geometryChanged || authMenuScaleChanged) {
       if (geometryChanged) this.cancelSurfaceResize();
+      // Keep the iframe at the origin while the destination is written and
+      // read, so the frame never lays out at the final size ahead of the ease.
+      if (requestResizeOrigin) {
+        pinDialogIframe(dialog, {
+          widthCssPx: requestResizeOrigin.width,
+          heightCssPx: requestResizeOrigin.height,
+        });
+      }
       setDialogGeometry(dialog, mode.geometry, authMenu ? this.authMenuVisualScale : 1);
       this.lastAppliedGeometry = mode.geometry;
       this.lastAppliedAuthMenuVisualScale = authMenu ? this.authMenuVisualScale : 1;
@@ -311,6 +322,7 @@ export class OverlayController {
       if (requestResizeOrigin && requestResizeDestination) {
         this.startSurfaceResize(requestResizeOrigin, requestResizeDestination);
       }
+      if (requestResizeOrigin) releaseDialogIframe(dialog);
     }
     iframe.setAttribute('aria-hidden', 'false');
     iframe.removeAttribute('tabindex');

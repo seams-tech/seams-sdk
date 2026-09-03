@@ -297,9 +297,15 @@ as the boundary fallback. All values are CSS pixels.
   starts at its `384px` content width cap and conservative height. Measured
   content may shrink below those seeds, while the cap lets wider content settle
   without being constrained by the provisional rectangle. The controller may
-  gate the dialog with `visibility: hidden` until the first valid measurement
-  to avoid exposing a reflow. It never uses a fullscreen rectangle for this
-  first paint.
+  gate the dialog with `opacity: 0` (plus `pointer-events: none`) until the
+  first valid measurement to avoid exposing a reflow. It must NOT use
+  `visibility: hidden` for this: Chrome stops rendering a cross-origin iframe
+  under a `visibility: hidden` ancestor (no animation frames, no
+  `ResizeObserver` delivery), so the child never lays out its confirmer or
+  posts the measurement, and the surface only appears at the measurement
+  fallback. Playwright's bundled Chromium does not throttle such frames, so
+  only a real Chrome run shows the difference. It never uses a fullscreen
+  rectangle for this first paint.
 - Measurement unavailable: after one `ResizeObserver` callback plus at most two
   animation frames (bounded by a small timeout), use `viewport_fallback` with
   the visual viewport rectangle. A missing `ResizeObserver` gets one
@@ -319,6 +325,44 @@ rectangle by at least `1px`; it ignores a measurement sequence that is not
 newer than the active one. A bounded two-frame settle check covers content
 wrapping after the parent width clamp. No timer or repeated style write may
 keep a closed surface alive.
+
+Content inside a measured modal must not animate its own layout height. The
+controller eases the box to each measured→measured change (`startSurfaceResize`,
+`SURFACE_RESIZE_DURATION_MS`, from the box's current visual rectangle), so a child transition that
+streams one measurement per frame makes the box chase a moving target and
+trail the card, which is clipped at the iframe edge until the ease lands. A
+tree node therefore hands its height motion to the confirmer host first
+(`lit-tree-resize-begin`, `ui/confirm-surface-resize.ts`): the host pins its
+own height to the size the card is heading for — one measurement, one ease —
+and feeds the node's body height back from the iframe viewport frame by frame,
+so the card fills exactly the room the box has made. A box that does not hug
+the host (clamped, full-viewport fallback, standalone surface) leaves the tree
+to its own transition, which cannot be clipped there.
+
+For the same reason, nothing inside a measured modal may size itself in
+viewport units: inside the iframe the viewport _is_ the box the parent just
+sized to the content, so a `max-height: 40vh` block grows on every ease, posts
+a larger measurement, and the box chases it while the interior re-lays out
+instantly (`tx-confirmer.css` pins those caps to rem values under
+`data-w3a-confirm-surface='wallet-iframe'`).
+
+Invariants for anything that changes the height of a measured modal:
+
+1. The parent's ease is the only size motion. Content never animates its own
+   layout height while the box hugs it; it announces the target and then fills
+   the box the parent has made, frame by frame.
+2. One measurement per change. The host pins itself to the target so the
+   reporter posts the destination once; a stream of intermediate sizes makes
+   the box chase a moving target.
+3. Content height is intrinsic. No `vh`/`vw` caps and no viewport media
+   queries inside the surface; the viewport is derived from the content.
+4. Never trust a single frame of the box. The parent lays out the destination
+   before its ease starts and the frame receives that size for one frame;
+   landing requires intermediate sizes or a box that stays put.
+5. Prove it across the real boundary. Same-process harnesses cannot see the
+   destination blip; `wallet-iframe/confirmSurface.treeGrowth.integration.test.ts`
+   samples both sides per frame with the real router, iframe origin, and
+   confirmer.
 
 ## Ownership and lifecycle
 

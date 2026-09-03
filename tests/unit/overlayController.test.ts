@@ -324,6 +324,7 @@ test.describe('OverlayController', () => {
         const provisional = {
           open: dialog.open,
           visibility: getComputedStyle(dialog).visibility,
+          opacity: getComputedStyle(dialog).opacity,
           iframeRect: iframe.getBoundingClientRect().toJSON(),
         };
 
@@ -343,6 +344,7 @@ test.describe('OverlayController', () => {
         const beforeReveal = {
           open: dialog.open,
           visibility: getComputedStyle(dialog).visibility,
+          opacity: getComputedStyle(dialog).opacity,
           pending: dialog.classList.contains('is-reveal-pending'),
         };
 
@@ -358,6 +360,7 @@ test.describe('OverlayController', () => {
         const firstVisibleRect = dialog.getBoundingClientRect().toJSON();
         const revealed = {
           visibility: getComputedStyle(dialog).visibility,
+          opacity: getComputedStyle(dialog).opacity,
           pending: dialog.classList.contains('is-reveal-pending'),
           transitionOrigin: dialog.classList.contains('has-transition-origin'),
           surfaceAnimation: surfaceAnimation !== undefined,
@@ -372,17 +375,30 @@ test.describe('OverlayController', () => {
       { path: IMPORT_PATHS.overlay },
     );
 
+    // The unmeasured and reveal-pending dialog is transparent, never
+    // visibility:hidden: Chrome stops rendering a cross-origin iframe under a
+    // visibility:hidden ancestor, so the child could never post the
+    // measurement this reveal waits for (the card only appeared at the 4s
+    // fallback). Bundled Chromium does not throttle it, so this assertion is
+    // the guard that a browser run cannot be.
     expect(result.provisional).toMatchObject({
       open: true,
-      visibility: 'hidden',
+      visibility: 'visible',
+      opacity: '0',
       iframeRect: {
         width: 560,
         height: 320,
       },
     });
-    expect(result.beforeReveal).toEqual({ open: true, visibility: 'hidden', pending: true });
+    expect(result.beforeReveal).toEqual({
+      open: true,
+      visibility: 'visible',
+      opacity: '0',
+      pending: true,
+    });
     expect(result.revealed).toEqual({
       visibility: 'visible',
+      opacity: '1',
       pending: false,
       transitionOrigin: false,
       surfaceAnimation: false,
@@ -497,6 +513,90 @@ test.describe('OverlayController', () => {
     });
     expect(result.firstKeyframe.transform).toBeUndefined();
     expect(result.firstKeyframe.opacity).toBeUndefined();
+  });
+
+  test('never lays the iframe out at the destination before the ease reaches it', async ({
+    page,
+  }) => {
+    // Reading the destination rectangle is a layout, and a cross-origin iframe
+    // laid out at the destination is told that size at once — one frame of the
+    // final box before the animation snaps it back, which content inside the
+    // frame reads as arrival. Sample the iframe at every layout the controller
+    // forces while applying the new geometry.
+    const result = await page.evaluate(
+      async ({ path }) => {
+        const mod = await import(path);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        const overlay = new OverlayController({
+          ensureIframe: (mountParent?: HTMLElement) => {
+            if (mountParent && iframe.parentElement !== mountParent) {
+              mountParent.appendChild(iframe);
+            }
+            return iframe;
+          },
+        });
+        const identity = {
+          kind: 'request_surface_identity_v1' as const,
+          surfaceId: 'pin-surface',
+          requestId: 'pin-request',
+        };
+        const apply = (heightCssPx: number, topCssPx: number) =>
+          overlay.apply({
+            kind: 'compact_request_modal',
+            presentation: { kind: 'modal', title: 'Review transaction' },
+            geometry: {
+              kind: 'centered_modal',
+              widthCssPx: 460,
+              heightCssPx,
+              topCssPx,
+              leftCssPx: 282,
+            },
+            focusTrap: true,
+            identity,
+          });
+
+        apply(360, 164);
+        const dialog = iframe.closest('dialog.w3a-wallet-overlay-dialog');
+        if (!(dialog instanceof HTMLDialogElement)) throw new Error('overlay dialog missing');
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+        // Record the iframe's height at each layout the controller forces.
+        const iframeHeightsAtLayout: number[] = [];
+        const nativeRect = Element.prototype.getBoundingClientRect;
+        Element.prototype.getBoundingClientRect = function patched(this: Element) {
+          const rect = nativeRect.call(this);
+          if (this === dialog) iframeHeightsAtLayout.push(nativeRect.call(iframe).height);
+          return rect;
+        };
+        try {
+          apply(580, 94);
+        } finally {
+          Element.prototype.getBoundingClientRect = nativeRect;
+        }
+
+        const animation = dialog
+          .getAnimations()
+          .find(
+            (candidate) =>
+              candidate.effect instanceof KeyframeEffect && candidate.effect.target === dialog,
+          );
+        if (!animation) throw new Error('surface morph animation missing');
+        animation.finish();
+        await Promise.resolve();
+        const finalHeight = iframe.getBoundingClientRect().height;
+
+        overlay.dispose();
+        return { iframeHeightsAtLayout, finalHeight };
+      },
+      { path: IMPORT_PATHS.overlay },
+    );
+
+    expect(result.iframeHeightsAtLayout.length).toBeGreaterThan(0);
+    // Every layout taken while the destination was written saw the origin.
+    for (const height of result.iframeHeightsAtLayout) expect(height).toBe(360);
+    // The ease is what finally moves it.
+    expect(result.finalHeight).toBe(580);
   });
 
   test('keeps a provisional drawer visible for the inner slide-in animation', async ({ page }) => {
