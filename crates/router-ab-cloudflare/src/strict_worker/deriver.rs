@@ -525,24 +525,30 @@ async fn handle_strict_deriver_fetch_v1(
                 Ok(parsed) => parsed,
                 Err(response) => return Ok(response),
             };
-        if let Err(err) = export_request.validate_for_worker_role(worker_role) {
-            return cloudflare_protocol_error_response_v1(err);
-        }
-        let preloaded = match preload_strict_deriver_request_v1(
+        let (export_request, authenticated) =
+            match export_request.into_authenticated_parts(&env, worker_role, now_unix_ms) {
+                Ok(parts) => parts,
+                Err(err) => return cloudflare_protocol_error_response_v1(err),
+            };
+        let preloaded = match preload_strict_deriver_request_with_authenticated_binding_v1(
             &env,
             &runtime,
-            &export_request.signer_bootstrap,
+            &authenticated,
         )
         .await
         {
             Ok(loaded) => loaded,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
+        let signer_bootstrap = authenticated.bootstrap;
+        let tenant_root_custody_binding = authenticated.tenant_root_custody_binding;
         return match decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_signer_private_request_v1(
             &env,
             worker_role,
             &preloaded.host,
             export_request,
+            signer_bootstrap,
+            tenant_root_custody_binding,
             runtime.envelope_decrypt_key(),
             &preloaded.root_share_metadata,
             now_unix_ms,
@@ -565,24 +571,30 @@ async fn handle_strict_deriver_fetch_v1(
                 Ok(parsed) => parsed,
                 Err(response) => return Ok(response),
             };
-        if let Err(err) = refresh_request.validate_for_worker_role(worker_role) {
-            return cloudflare_protocol_error_response_v1(err);
-        }
-        let preloaded = match preload_strict_deriver_request_v1(
+        let (refresh_request, authenticated) =
+            match refresh_request.into_authenticated_parts(&env, worker_role, now_unix_ms) {
+                Ok(parts) => parts,
+                Err(err) => return cloudflare_protocol_error_response_v1(err),
+            };
+        let preloaded = match preload_strict_deriver_request_with_authenticated_binding_v1(
             &env,
             &runtime,
-            &refresh_request.signer_bootstrap,
+            &authenticated,
         )
         .await
         {
             Ok(loaded) => loaded,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
+        let signer_bootstrap = authenticated.bootstrap;
+        let tenant_root_custody_binding = authenticated.tenant_root_custody_binding;
         let response = match decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_signer_private_request_v1(
             &env,
             worker_role,
             &preloaded.host,
             refresh_request,
+            signer_bootstrap,
+            tenant_root_custody_binding,
             runtime.envelope_decrypt_key(),
             &preloaded.root_share_metadata,
             now_unix_ms,

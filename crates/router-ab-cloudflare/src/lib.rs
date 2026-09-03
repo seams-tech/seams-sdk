@@ -10096,6 +10096,32 @@ impl CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1 {
             &router_payload,
         )
     }
+
+    /// Consumes the public wire after independently authenticating its signed
+    /// tenant-root receipt and reconstructing the exact role-local binding.
+    #[cfg(feature = "workers-rs")]
+    pub(crate) fn into_authenticated_parts(
+        self,
+        env: &worker::Env,
+        worker_role: CloudflareWorkerRoleV1,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<(
+        RouterAbEcdsaDerivationExplicitExportRequestV1,
+        CloudflareAuthenticatedSignerPrivateBootstrapRequestV1,
+    )> {
+        self.validate_for_worker_role(worker_role)?;
+        let binding = self.tenant_root_custody_binding.authenticate_for_export(
+            env,
+            &self.export_request,
+            now_unix_ms,
+        )?;
+        let authenticated = CloudflareAuthenticatedSignerPrivateBootstrapRequestV1::new(
+            worker_role,
+            self.signer_bootstrap,
+            binding,
+        )?;
+        Ok((self.export_request, authenticated))
+    }
 }
 
 /// Strict private Deriver request for Router A/B ECDSA derivation activation refresh.
@@ -10158,6 +10184,32 @@ impl CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1 {
             &self.refresh_request,
             &router_payload,
         )
+    }
+
+    /// Consumes the public wire after independently authenticating its signed
+    /// tenant-root receipt and reconstructing the exact role-local binding.
+    #[cfg(feature = "workers-rs")]
+    pub(crate) fn into_authenticated_parts(
+        self,
+        env: &worker::Env,
+        worker_role: CloudflareWorkerRoleV1,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<(
+        RouterAbEcdsaDerivationActivationRefreshRequestV1,
+        CloudflareAuthenticatedSignerPrivateBootstrapRequestV1,
+    )> {
+        self.validate_for_worker_role(worker_role)?;
+        let binding = self.tenant_root_custody_binding.authenticate_for_refresh(
+            env,
+            &self.refresh_request,
+            now_unix_ms,
+        )?;
+        let authenticated = CloudflareAuthenticatedSignerPrivateBootstrapRequestV1::new(
+            worker_role,
+            self.signer_bootstrap,
+            binding,
+        )?;
+        Ok((self.refresh_request, authenticated))
     }
 }
 
@@ -11337,19 +11389,15 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_sig
     env: &worker::Env,
     worker_role: CloudflareWorkerRoleV1,
     host: &CloudflarePreloadedSignerHostV1,
-    request: CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1,
+    export_request: RouterAbEcdsaDerivationExplicitExportRequestV1,
+    bootstrap: CloudflareSignerPrivateBootstrapRequestV1,
+    custody_binding: TenantRootCustodyBindingV1,
     envelope_decrypt_keys: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1,
     root_share_metadata: &CloudflareRootShareStartupMetadataV1,
     now_unix_ms: u64,
 ) -> RouterAbProtocolResult<CloudflareSignerClientRecipientProofBundleResponseV1> {
-    request.validate_for_worker_role(worker_role)?;
-    let CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1 {
-        export_request,
-        signer_bootstrap: bootstrap,
-        tenant_root_custody_binding,
-    } = request;
-    let custody_binding =
-        tenant_root_custody_binding.authenticate_for_export(env, &export_request, now_unix_ms)?;
+    export_request.validate_at(now_unix_ms)?;
+    bootstrap.validate_for_worker_role(worker_role)?;
     let expected_plaintext = RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::export_for_request(
         &export_request,
         cloudflare_worker_signer_role_v1(worker_role)?,
@@ -11394,19 +11442,15 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation
     env: &worker::Env,
     worker_role: CloudflareWorkerRoleV1,
     host: &CloudflarePreloadedSignerHostV1,
-    request: CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1,
+    refresh_request: RouterAbEcdsaDerivationActivationRefreshRequestV1,
+    bootstrap: CloudflareSignerPrivateBootstrapRequestV1,
+    custody_binding: TenantRootCustodyBindingV1,
     envelope_decrypt_keys: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1,
     root_share_metadata: &CloudflareRootShareStartupMetadataV1,
     now_unix_ms: u64,
 ) -> RouterAbProtocolResult<CloudflareSignerRecipientProofBundleResponseV1> {
-    request.validate_for_worker_role(worker_role)?;
-    let CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1 {
-        refresh_request,
-        signer_bootstrap: bootstrap,
-        tenant_root_custody_binding,
-    } = request;
-    let custody_binding =
-        tenant_root_custody_binding.authenticate_for_refresh(env, &refresh_request, now_unix_ms)?;
+    refresh_request.validate_at(now_unix_ms)?;
+    bootstrap.validate_for_worker_role(worker_role)?;
     let expected_plaintext =
         RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::refresh_for_request(
             &refresh_request,
