@@ -35,6 +35,7 @@
     "unit/walletSessionFailure.structuredRetry.unit.test.ts",
     "unit/sealedSessionStore.unit.test.ts",
     "unit/signingSessionSeal.shared.unit.test.ts",
+    "unit/tenantRootRefreshConsoleRoute.unit.test.ts",
     "unit/tenantRootIdentityResolution.unit.test.ts",
     "unit/tenantRootEcdsaWalletSessionComposition.unit.test.ts",
     "unit/tenantRootEd25519WalletSessionComposition.unit.test.ts",

@@ -50,7 +50,10 @@ import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.ty
 import type { CloudflareServiceBindingFetcher } from './routerAbServiceBindings';
 import { createD1TenantRootCreationGrantServiceV1 } from '../../tenantRootCreation/d1';
 import { tenantRootIdentityDigestB64uV1 } from '../../tenantRootCreation/grantSigner';
-import { createTenantRootCreationConsoleRouteV1 } from '../../tenantRootCreation/consoleRoute';
+import {
+  createTenantRootCreationConsoleRouteV1,
+  createTenantRootRefreshConsoleRouteV1,
+} from '../../tenantRootCreation/consoleRoute';
 
 interface CloudflareD1ConsoleStagingEnv
   extends CloudflareD1StagingSessionEnv, RouterApiCloudflareConsoleWorkerEnv {
@@ -238,6 +241,15 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
       'TENANT_ROOT_GRANT_AUTHORITY_SIGNING_SEED',
     ),
   });
+  const tenantRootRefreshRoute = createTenantRootRefreshConsoleRouteV1({
+    auth,
+    orgProjectEnv: bundle.orgProjectEnv,
+    grants: tenantRootGrants,
+    router: {
+      fetch: (input, init) => env.MPC_ROUTER.fetch(new Request(input, init)),
+    },
+    internalServiceAuthSecret: requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET'),
+  });
   // Private service-binding target: exactly the five declared Wallet Console
   // operations, served ahead of the console router.
   const opsHandler = createWalletConsoleOpsHandler({
@@ -266,6 +278,8 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
     if (opsResponse) return opsResponse;
     const tenantRootCreationResponse = await tenantRootCreationRoute(request);
     if (tenantRootCreationResponse) return tenantRootCreationResponse;
+    const tenantRootRefreshResponse = await tenantRootRefreshRoute(request);
+    if (tenantRootRefreshResponse) return tenantRootRefreshResponse;
     const relayResponse = await relayHandler(request, ctx);
     if (relayResponse) return relayResponse;
     return await router(request, workerEnv, ctx);

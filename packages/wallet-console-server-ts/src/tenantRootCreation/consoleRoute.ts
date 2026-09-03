@@ -5,13 +5,19 @@ import { createConsoleRouteDefinitions } from '@seams-internal/console-server/ro
 import { authorizeConsoleRouteRequest } from '@seams-internal/console-server/router/consoleRoutePolicy';
 import { headersToRecord } from '@seams/wallet-server/cloud-host';
 import { ROUTER_AB_MPC_ROUTER_ORIGIN } from '../router/cloudflare/routerAbServiceBindings';
-import { randomTenantRootCreationGrantBytesV1, signTenantRootCreationGrantV1 } from './grantSigner';
+import {
+  randomTenantRootCreationGrantBytesV1,
+  signTenantRootCreationGrantV1,
+  tenantRootIdentityDigestB64uV1,
+} from './grantSigner';
 import { isTenantRootCreationGrantStoreError } from './service';
 import type { TenantRootCreationGrantServiceV1 } from './service';
 import type { TenantRootCreationGrantRecordV1, TenantRootIdentityV1 } from './types';
 
 export const TENANT_ROOT_CREATION_CONSOLE_PATH_V1 = '/console/tenant-root/creation';
+export const TENANT_ROOT_REFRESH_CONSOLE_PATH_V1 = '/console/tenant-root/refresh';
 const TENANT_ROOT_CREATION_ROUTER_PATH_V1 = '/router-ab/internal/tenant-root/creation/v1/create';
+const TENANT_ROOT_REFRESH_ROUTER_PATH_V1 = '/router-ab/internal/tenant-root/refresh/v1/execute';
 const INTERNAL_SERVICE_AUTH_HEADER = 'x-router-ab-internal-service-auth';
 
 export interface TenantRootCreationConsoleRouteDependenciesV1 {
@@ -25,6 +31,14 @@ export interface TenantRootCreationConsoleRouteDependenciesV1 {
   readonly now?: () => Date;
 }
 
+export interface TenantRootRefreshConsoleRouteDependenciesV1 {
+  readonly auth: ConsoleAuthAdapter;
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly grants: Pick<TenantRootCreationGrantServiceV1, 'findActiveLineageByIdentity'>;
+  readonly router: { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> };
+  readonly internalServiceAuthSecret: string;
+}
+
 type RouterCreationReadyResponseV1 = {
   readonly identityDigestB64u: string;
   readonly custodyLineageB64u: string;
@@ -33,6 +47,17 @@ type RouterCreationReadyResponseV1 = {
   readonly capabilityDigestB64u: string;
   readonly rootCommitmentB64u: string;
   readonly replayed: boolean;
+};
+
+type RouterTenantRootRefreshResponseV1 = {
+  readonly activationReceiptDigestB64u: string;
+  readonly lifecycleRevision: number;
+};
+
+export type TenantRootRefreshRouterRequestV1 = {
+  readonly refresh_operation_id: string;
+  readonly identity_digest_b64u: string;
+  readonly custody_lineage_b64u: string;
 };
 
 function json(body: unknown, status = 200): Response {
@@ -114,7 +139,7 @@ function parseRouterCreationReadyResponse(value: unknown): RouterCreationReadyRe
 }
 
 async function resolveIdentity(
-  dependencies: TenantRootCreationConsoleRouteDependenciesV1,
+  dependencies: Pick<TenantRootCreationConsoleRouteDependenciesV1, 'orgProjectEnv'>,
   claims: Extract<
     Awaited<ReturnType<typeof authenticateConsoleRequest>>,
     { readonly ok: true }
@@ -143,6 +168,24 @@ async function resolveIdentity(
     envId: environment.key,
     signingRootId: `${projectId}:${environment.key}`,
     signingRootVersion: environment.runtimeVersion,
+  };
+}
+
+function parseRouterTenantRootRefreshResponse(value: unknown): RouterTenantRootRefreshResponseV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Router returned an invalid tenant-root refresh response');
+  }
+  const record = value as Record<string, unknown>;
+  const lifecycleRevision = Number(record.lifecycle_revision);
+  if (!Number.isSafeInteger(lifecycleRevision) || lifecycleRevision <= 0) {
+    throw new Error('Router tenant-root refresh returned an invalid lifecycle revision');
+  }
+  return {
+    activationReceiptDigestB64u: requiredText(
+      record.activation_receipt_digest_b64u,
+      'activation_receipt_digest_b64u',
+    ),
+    lifecycleRevision,
   };
 }
 
@@ -212,6 +255,42 @@ async function createAtRouter(
   return parseRouterCreationReadyResponse(body);
 }
 
+async function refreshAtRouter(
+  dependencies: TenantRootRefreshConsoleRouteDependenciesV1,
+  operationId: string,
+  identityDigestB64u: string,
+  custodyLineageB64u: string,
+): Promise<RouterTenantRootRefreshResponseV1> {
+  const routerRequest: TenantRootRefreshRouterRequestV1 = {
+    refresh_operation_id: operationId,
+    identity_digest_b64u: identityDigestB64u,
+    custody_lineage_b64u: custodyLineageB64u,
+  };
+  const response = await dependencies.router.fetch(
+    `${ROUTER_AB_MPC_ROUTER_ORIGIN}${TENANT_ROOT_REFRESH_ROUTER_PATH_V1}`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        [INTERNAL_SERVICE_AUTH_HEADER]: requiredText(
+          dependencies.internalServiceAuthSecret,
+          'internalServiceAuthSecret',
+        ),
+      },
+      body: JSON.stringify(routerRequest),
+    },
+  );
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      body && typeof body === 'object' && !Array.isArray(body)
+        ? String((body as Record<string, unknown>).message ?? response.statusText)
+        : response.statusText;
+    throw new Error(`Router tenant-root refresh failed (HTTP ${response.status}): ${message}`);
+  }
+  return parseRouterTenantRootRefreshResponse(body);
+}
+
 export function createTenantRootCreationConsoleRouteV1(
   dependencies: TenantRootCreationConsoleRouteDependenciesV1,
 ): (request: Request) => Promise<Response | null> {
@@ -272,6 +351,89 @@ export function createTenantRootCreationConsoleRouteV1(
           ok: false,
           code: 'tenant_root_creation_failed',
           message: error instanceof Error ? error.message : 'Tenant-root creation failed',
+        },
+        502,
+      );
+    }
+  };
+}
+
+export function createTenantRootRefreshConsoleRouteV1(
+  dependencies: TenantRootRefreshConsoleRouteDependenciesV1,
+): (request: Request) => Promise<Response | null> {
+  const definitions = createConsoleRouteDefinitions();
+  return async (request) => {
+    const url = new URL(request.url);
+    if (url.pathname !== TENANT_ROOT_REFRESH_CONSOLE_PATH_V1) return null;
+    if (request.method !== 'POST') {
+      return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405);
+    }
+    const auth = await authenticateConsoleRequest(
+      headersToRecord(request.headers),
+      dependencies.auth,
+    );
+    if (!auth.ok) return json({ ok: false, code: auth.code, message: auth.message }, auth.status);
+    const authorization = authorizeConsoleRouteRequest({
+      claims: auth.claims,
+      definitions,
+      method: request.method,
+      pathname: url.pathname,
+      ...(auth.claims.projectId ? { projectId: auth.claims.projectId } : {}),
+    });
+    if (!authorization.ok) return json(authorization.body, authorization.status);
+
+    let operationId: string;
+    try {
+      operationId = await parseOperationId(request);
+    } catch (error: unknown) {
+      return json(
+        {
+          ok: false,
+          code: 'invalid_request',
+          message: error instanceof Error ? error.message : 'Refresh operationId is invalid',
+        },
+        400,
+      );
+    }
+
+    try {
+      const identity = await resolveIdentity(dependencies, auth.claims);
+      const identityDigestB64u = await tenantRootIdentityDigestB64uV1(identity);
+      const active = await dependencies.grants.findActiveLineageByIdentity({
+        identity,
+        identityDigestB64u,
+      });
+      if (!active || active.status !== 'ACTIVE') {
+        return json(
+          {
+            ok: false,
+            code: 'tenant_root_not_active',
+            message: 'Authenticated Console environment has no active tenant root',
+          },
+          409,
+        );
+      }
+      const refreshed = await refreshAtRouter(
+        dependencies,
+        operationId,
+        identityDigestB64u,
+        active.custodyLineageB64u,
+      );
+      return json({
+        ok: true,
+        status: 'ACTIVE',
+        activationReceiptDigestB64u: refreshed.activationReceiptDigestB64u,
+        lifecycleRevision: refreshed.lifecycleRevision,
+      });
+    } catch (error: unknown) {
+      if (isTenantRootCreationGrantStoreError(error)) {
+        return json({ ok: false, code: error.code, message: error.message }, error.statusCode);
+      }
+      return json(
+        {
+          ok: false,
+          code: 'tenant_root_refresh_failed',
+          message: error instanceof Error ? error.message : 'Tenant-root refresh failed',
         },
         502,
       );
