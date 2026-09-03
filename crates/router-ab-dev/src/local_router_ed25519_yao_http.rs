@@ -3,7 +3,7 @@ use router_ab_core::{
     Ed25519YaoOperationV1, PublicDigest32, RouterAbEd25519YaoExportBindingV1,
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
     RouterAdmittedExecutionAuthorityV1, RouterEd25519YaoExecuteRequestV1,
-    RouterEd25519YaoGatewayExecuteRequestV1,
+    RouterEd25519YaoGatewayExecuteTargetV2,
 };
 
 /// Exact role inputs extracted from one validated Router execution request.
@@ -166,13 +166,13 @@ pub fn decode_local_router_ed25519_yao_execute_request_v1(
     issued_at_ms: u64,
     expires_at_ms: u64,
 ) -> RouterAbProtocolResult<LocalRouterEd25519YaoPairDispatchV1> {
-    let gateway_request = serde_json::from_slice::<RouterEd25519YaoGatewayExecuteRequestV1>(body)
+    let gateway_request = serde_json::from_slice::<RouterEd25519YaoGatewayExecuteTargetV2>(body)
         .map_err(|error| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!("local Router Ed25519 Yao execute request is malformed: {error}"),
-        )
-    })?;
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("local Router Ed25519 Yao execute request is malformed: {error}"),
+            )
+        })?;
     let request =
         gateway_request.into_execute_request(recipient_set_digest, issued_at_ms, expires_at_ms)?;
     let dispatch = LocalRouterEd25519YaoPairDispatchV1::from_request(request);
@@ -194,7 +194,7 @@ mod tests {
         MpcMaterialActivationRefV1, RootShareEpoch,
     };
 
-    fn request_fixture() -> RouterEd25519YaoGatewayExecuteRequestV1 {
+    fn request_fixture() -> RouterEd25519YaoGatewayExecuteTargetV2 {
         let lifecycle = LifecycleScopeV1::new(
             "local-http",
             ExpensiveWorkKindV1::RegistrationPrepare,
@@ -243,7 +243,7 @@ mod tests {
             vec![0x92; 16],
         )
         .expect("B input");
-        RouterEd25519YaoGatewayExecuteRequestV1::registration(binding, input_a, input_b)
+        RouterEd25519YaoGatewayExecuteTargetV2::registration(binding, input_a, input_b)
             .expect("gateway request")
     }
 

@@ -1,7 +1,7 @@
 use router_ab_core::{
-    LocalHttpPathV1, MpcMaterialActivationRefV1, LocalServiceRoleV1, RootShareEpoch,
+    LocalHttpPathV1, LocalServiceRoleV1, MpcMaterialActivationRefV1, RootShareEpoch,
     RouterEd25519YaoExecuteResultV1, RouterEd25519YaoExecuteSuccessV1,
-    RouterEd25519YaoGatewayExecuteRequestV1,
+    RouterEd25519YaoGatewayExecuteTargetV2,
 };
 use router_ab_dev::{
     admit_local_ed25519_yao_registration_v1, generate_local_ed25519_yao_recipient_key_pair_v1,
@@ -446,7 +446,7 @@ fn product_topology_completes_local_ed25519_yao_registration(
 
 fn product_registration_request(
     router_env: &str,
-) -> Result<RouterEd25519YaoGatewayExecuteRequestV1, Box<dyn std::error::Error>> {
+) -> Result<RouterEd25519YaoGatewayExecuteTargetV2, Box<dyn std::error::Error>> {
     let application = Ed25519YaoApplicationBindingFactsV1::new(
         Ed25519YaoApplicationBindingWalletIdV1::parse("wallet-product-benchmark")?,
         Ed25519YaoApplicationBindingSigningKeyIdV1::parse("ed25519ks_product_benchmark")?,
@@ -454,8 +454,7 @@ fn product_registration_request(
         Ed25519YaoApplicationBindingKeyCreationSignerSlotV1::new(1)?,
     );
     let context = Ed25519YaoStableKeyDerivationContextV1::new(application.digest(), 1, 2)?;
-    let client_root =
-        Ed25519YaoClientRootV1::from_secret_bytes(fresh_nonzero_bytes_32()?);
+    let client_root = Ed25519YaoClientRootV1::from_secret_bytes(fresh_nonzero_bytes_32()?);
     let (client_a, client_b) =
         derive_ed25519_yao_client_contributions_v1(&client_root, &context)?.into_parts();
     let application_binding = RouterAbEd25519YaoApplicationBindingFactsV1::new(
@@ -523,7 +522,7 @@ fn product_registration_request(
         &request_b,
         x25519_public_key_from_env(router_env, "DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY")?,
     )?;
-    Ok(RouterEd25519YaoGatewayExecuteRequestV1::registration(
+    Ok(RouterEd25519YaoGatewayExecuteTargetV2::registration(
         admission.binding,
         input_a,
         input_b,

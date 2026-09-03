@@ -4,7 +4,7 @@ use router_ab_cloudflare::{
 };
 use router_ab_core::{
     ed25519_yao_recipient_set_digest_v1, LocalServiceRoleV1, MpcMaterialActivationRefV1,
-    RootShareEpoch, RouterEd25519YaoGatewayExecuteRequestV1, TenantRootCreationGrantNonceV1,
+    RootShareEpoch, RouterEd25519YaoGatewayExecuteTargetV2, TenantRootCreationGrantNonceV1,
     TenantRootCreationGrantV1, TenantRootCustodyLineageId, TenantRootIdentityV1,
 };
 use router_ab_dev::{
@@ -40,7 +40,7 @@ const TENANT_ROOT_ROLE_B_SEED: [u8; 32] = [0xb4; 32];
 
 #[derive(Serialize)]
 struct RequestFixture {
-    gateway_request: RouterEd25519YaoGatewayExecuteRequestV1,
+    gateway_request: RouterEd25519YaoGatewayExecuteTargetV2,
     prepare_a: CloudflareEd25519YaoPairPrepareRequestV1,
     prepare_b: CloudflareEd25519YaoPairPrepareRequestV1,
     conflicting_prepare_a: CloudflareEd25519YaoPairPrepareRequestV1,
@@ -244,12 +244,12 @@ fn request_fixture(
         seal_local_ed25519_yao_activation_deriver_b_input_v1(&request_b, deriver_b_public)?;
     let conflicting_input_a =
         seal_local_ed25519_yao_activation_deriver_a_input_v1(&request_a, deriver_a_public)?;
-    let gateway_request = RouterEd25519YaoGatewayExecuteRequestV1::registration(
+    let gateway_request = RouterEd25519YaoGatewayExecuteTargetV2::registration(
         admission.binding.clone(),
         input_a,
         input_b,
     )?;
-    let conflicting_gateway_request = RouterEd25519YaoGatewayExecuteRequestV1::registration(
+    let conflicting_gateway_request = RouterEd25519YaoGatewayExecuteTargetV2::registration(
         admission.binding,
         conflicting_input_a.clone(),
         gateway_request.inputs().1.clone(),
