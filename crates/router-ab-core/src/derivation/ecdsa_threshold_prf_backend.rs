@@ -7,7 +7,8 @@ use threshold_prf::{
     evaluate_partial_with_dleq_proof, evaluate_partial_with_dleq_proof_bound_to_digest,
     verify_partial_dleq_proof, verify_partial_dleq_proof_bound_to_digest, PrfDleqProof,
     PrfPartialProofBundle as BackendProofBundle, PrfPartialWire as BackendPartialWire,
-    SigningRootShareCommitment, SigningRootShareWire, ThresholdPolicy, ValidatedThresholdSet,
+    SigningRootShareCommitment, SigningRootShareWire, ThresholdPolicy, TwoPartyDeriverRole,
+    ValidatedThresholdSet,
 };
 use threshold_prf::{PrfContext, PrfOutputEncoding, PrfPurpose, SuiteId, ThresholdPrfError};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -15,10 +16,11 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 use crate::derivation::ecdsa_threshold_prf::{
     plan_mpc_prf_combine_v1, plan_mpc_prf_partial_verification_v1,
     plan_mpc_prf_purpose_binding_for_output_v1, plan_mpc_prf_purpose_binding_v1,
-    MpcPrfCombinerInputV1, MpcPrfDleqProofWireV1, MpcPrfOutputPurposeV1, MpcPrfOutputRequestV1,
-    MpcPrfPartialProofBundleV1, MpcPrfPartialVerificationInputV1, MpcPrfPartialWireV1,
-    MpcPrfPurposeBindingPlanV1, MpcPrfShareCommitmentWireV1, MpcPrfSignerPartialInputV1,
-    MpcPrfSignerPartialV1, MpcPrfStablePurposeBindingPlanV2, MpcPrfVerifiedPartialV1,
+    plan_mpc_prf_stable_purpose_binding_v2, MpcPrfCombinerInputV1, MpcPrfDleqProofWireV1,
+    MpcPrfOutputPurposeV1, MpcPrfOutputRequestV1, MpcPrfPartialProofBundleV1,
+    MpcPrfPartialVerificationInputV1, MpcPrfPartialWireV1, MpcPrfPurposeBindingPlanV1,
+    MpcPrfShareCommitmentWireV1, MpcPrfSignerPartialInputV1, MpcPrfSignerPartialV1,
+    MpcPrfStablePurposeBindingPlanV2, MpcPrfVerifiedPartialV1,
 };
 use crate::derivation::error::{
     RouterAbDerivationError, RouterAbDerivationErrorCode, RouterAbDerivationResult,
@@ -27,8 +29,9 @@ use crate::derivation::material::{OpenedShareKind, PublicDigest32, Role, SecretM
 use crate::derivation::transcript::TranscriptBinding;
 use crate::derivation::{
     TenantRootActiveRootPairV1, TenantRootCustodyBindingV1, TenantRootManagedRestoreRoleV1,
-    TenantRootProtocolDigestV1,
+    TenantRootProtocolDigestV1, VerifiedTenantRootOnlineRoleShareV1,
 };
+use crate::protocol::EcdsaThresholdPrfPrivateRequestV2;
 
 /// Router/A/B signing-root share wire length for the threshold-prf backend.
 pub const MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN: usize = 34;
@@ -150,6 +153,74 @@ impl MpcPrfStableThresholdSignerInputV2 {
             signer_role,
             signing_root_share_wire,
         })
+    }
+
+    /// Creates a stable signer input from one validated private request and
+    /// the role-local share opened by the server's authenticated provider.
+    pub fn from_private_request(
+        request: &EcdsaThresholdPrfPrivateRequestV2,
+        custody_binding: &TenantRootCustodyBindingV1,
+        active_pair: &TenantRootActiveRootPairV1,
+        verified_share: VerifiedTenantRootOnlineRoleShareV1,
+        now_ms: u64,
+    ) -> RouterAbDerivationResult<Self> {
+        request
+            .validate_for_custody(custody_binding, now_ms)
+            .map_err(map_protocol_error)?;
+        let purpose_plan = plan_mpc_prf_stable_purpose_binding_v2(
+            request.stable_context(),
+            custody_binding,
+            request.purpose().threshold_prf_purpose(),
+        )?;
+        Self::from_verified_online_role_share(
+            purpose_plan,
+            custody_binding,
+            active_pair,
+            verified_share,
+            now_ms,
+        )
+    }
+
+    /// Creates a stable signer input from one server-authenticated role share.
+    ///
+    /// The verified share supplies the Deriver role and all epoch-bound
+    /// coordinates. Callers provide no role, identity, lineage, or epoch.
+    pub fn from_verified_online_role_share(
+        purpose_plan: MpcPrfStablePurposeBindingPlanV2,
+        custody_binding: &TenantRootCustodyBindingV1,
+        active_pair: &TenantRootActiveRootPairV1,
+        verified_share: VerifiedTenantRootOnlineRoleShareV1,
+        now_ms: u64,
+    ) -> RouterAbDerivationResult<Self> {
+        custody_binding.validate_at(now_ms)?;
+        if verified_share.identity_digest() != custody_binding.identity_digest()
+            || verified_share.custody_lineage() != custody_binding.custody_lineage()
+            || verified_share.epoch() != custody_binding.epoch()
+        {
+            return Err(RouterAbDerivationError::new(
+                RouterAbDerivationErrorCode::MismatchedActiveTenantRootPair,
+                "stable MPC PRF opened share does not match custody binding",
+            ));
+        }
+        let signer_role = role_from_tenant_root_share(verified_share.role());
+        let expected_commitment = stable_share_commitment_for_role(active_pair, signer_role)?;
+        if verified_share.share_commitment() != expected_commitment {
+            return Err(RouterAbDerivationError::new(
+                RouterAbDerivationErrorCode::OutputVerificationFailed,
+                "stable MPC PRF opened share commitment does not match its active pair",
+            ));
+        }
+        let (_, share_wire) = verified_share.into_parts();
+        let signing_root_share_wire =
+            MpcPrfSigningRootShareWireV1::new(share_wire.to_bytes().to_vec())?;
+        Self::new(
+            purpose_plan,
+            custody_binding,
+            active_pair,
+            signer_role,
+            signing_root_share_wire,
+            now_ms,
+        )
     }
 }
 
@@ -763,6 +834,20 @@ fn stable_share_commitment_for_role(
             "stable MPC PRF signer input requires a Deriver role",
         )),
     }
+}
+
+fn role_from_tenant_root_share(role: TwoPartyDeriverRole) -> Role {
+    match role {
+        TwoPartyDeriverRole::DeriverA => Role::SignerA,
+        TwoPartyDeriverRole::DeriverB => Role::SignerB,
+    }
+}
+
+fn map_protocol_error(error: crate::protocol::RouterAbProtocolError) -> RouterAbDerivationError {
+    RouterAbDerivationError::new(
+        RouterAbDerivationErrorCode::MalformedInput,
+        format!("ECDSA threshold-PRF V2 request was rejected: {error}"),
+    )
 }
 
 fn threshold_context_from_stable_plan_v2(

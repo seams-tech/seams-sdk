@@ -5,6 +5,7 @@
 //! inputs and call these typed APIs.
 
 mod ecdsa_threshold_prf_request;
+mod ecdsa_threshold_prf_request_v2;
 mod ed25519_yao;
 mod ed25519_yao_lane;
 mod ed25519_yao_lane_dispatch;
@@ -28,6 +29,12 @@ mod wire;
 pub use self::ecdsa_threshold_prf_request::{
     EcdsaThresholdPrfRequestContextV1, EcdsaThresholdPrfRequestV1,
     EcdsaThresholdPrfRequestVersionV1,
+};
+pub use self::ecdsa_threshold_prf_request_v2::{
+    decode_ecdsa_threshold_prf_outer_request_v2, decode_ecdsa_threshold_prf_private_request_v2,
+    encode_ecdsa_threshold_prf_outer_request_v2, encode_ecdsa_threshold_prf_private_request_v2,
+    EcdsaThresholdPrfOuterRequestV2, EcdsaThresholdPrfPrivateRequestV2, EcdsaThresholdPrfPurposeV2,
+    EcdsaThresholdPrfRequestVersionV2,
 };
 pub use self::ed25519_yao::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoCircuitFamilyV1, Ed25519YaoDeriverRoleV1,
