@@ -160,6 +160,16 @@ test('active tenant-root lineage resolves through the exact private operation', 
   });
 });
 
+test('active tenant-root lineage forwards only the canonical identity through the binding', async () => {
+  const { client } = bindingHarness();
+  await expect(
+    client.tenantRootActiveLineage.resolveActiveLineage({
+      ...TENANT_ROOT_IDENTITY,
+      envId: 'env-selected-by-caller',
+    }),
+  ).resolves.toBeNull();
+});
+
 test('active tenant-root lineage rejects incomplete or extra identity fields at the boundary', async () => {
   const handler = createWalletConsoleOpsHandler({
     apiKeyAuth: {

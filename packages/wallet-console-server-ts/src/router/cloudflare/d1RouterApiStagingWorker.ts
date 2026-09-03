@@ -96,8 +96,6 @@ import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } fro
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
 import type { WarmBootstrapLinkedEd25519AuthorityReaderV1 } from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
-import { createD1TenantRootCreationGrantServiceV1 } from '../../tenantRootCreation/d1';
-import { tenantRootIdentityDigestB64uV1 } from '../../tenantRootCreation/grantSigner';
 import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
@@ -178,6 +176,7 @@ export interface CloudflareD1GatewayBaseEnv
 type CloudflareD1RouterApiStagingEnv = CloudflareD1GatewayBaseEnv &
   RouterApiCloudflareConsoleWorkerEnv & {
     readonly CONSOLE_DB: D1DatabaseLike;
+    readonly WALLET_CONSOLE: WalletConsoleServiceBinding;
     readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
     readonly SPONSORED_EXECUTION_REAL_PRICING_JSON?: string;
     readonly SPONSORED_EXECUTION_STATIC_PRICING_JSON?: string;
@@ -477,20 +476,6 @@ function createStagingLinkedDeviceTenantRootResolver(
   });
 }
 
-function createD1TenantRootCustodyLineageResolver(
-  database: D1DatabaseLike,
-  namespace: string,
-): CloudflareD1RouterApiAuthServiceOptions['tenantRootCustodyLineage'] {
-  const grants = createD1TenantRootCreationGrantServiceV1({ database, namespace });
-  return {
-    async resolveActiveLineage(identity) {
-      const identityDigestB64u = await tenantRootIdentityDigestB64uV1(identity);
-      const record = await grants.findActiveLineageByIdentity({ identity, identityDigestB64u });
-      return record ? { identityDigestB64u, custodyLineageB64u: record.custodyLineageB64u } : null;
-    },
-  };
-}
-
 async function createStagingRouterApiAuthComposition(
   env: CloudflareD1GatewayBaseEnv,
   scope: RouterApiTenantScope,
@@ -739,10 +724,9 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     },
   });
   const session = stagingSessionAdapter(env);
-  const tenantRootCustodyLineage = createD1TenantRootCustodyLineageResolver(
-    env.CONSOLE_DB,
-    scope.namespace,
-  );
+  const tenantRootCustodyLineage = createWalletConsoleOpsClient(
+    env.WALLET_CONSOLE,
+  ).tenantRootActiveLineage;
   const yaoRuntime = createStagingYaoRequestScopedRuntime(
     env,
     createStagingRegistrationTenantRootResolver(scope, tenantRootCustodyLineage),
@@ -1209,7 +1193,7 @@ async function fetch(
       env,
       request,
       operation,
-      createD1TenantRootCustodyLineageResolver(env.CONSOLE_DB, stagingTenantScope(env).namespace),
+      createWalletConsoleOpsClient(env.WALLET_CONSOLE).tenantRootActiveLineage,
     );
     withCors(response.headers, { corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS) }, request);
     return response;
