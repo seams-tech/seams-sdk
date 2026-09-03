@@ -116,7 +116,9 @@ export async function handleRouterAbEd25519YaoRegistrationRequestScopedCloudflar
   }
   try {
     if (parsed.kind === 'admit') {
-      return registrationResultResponse(await runAdmissionRequest(input, parsed.value, trace.value));
+      return registrationResultResponse(
+        await runAdmissionRequest(input, parsed.value, trace.value),
+      );
     }
     const execution = await runExecutionRequest(input, parsed.value, trace.value);
     return registrationResultResponse(execution.result, execution.timing);
@@ -246,7 +248,10 @@ async function runExecutionRequest(
   };
   switch (claim.kind) {
     case 'completed':
-      return timedExecutionResult({ ok: true, status: 200, value: claim.value }, timingBeforeRouter);
+      return timedExecutionResult(
+        { ok: true, status: 200, value: claim.value },
+        timingBeforeRouter,
+      );
     case 'failed':
       return timedExecutionResult(claim.value, timingBeforeRouter);
     case 'rejected':
@@ -257,7 +262,7 @@ async function runExecutionRequest(
   let backend: RouterAbEd25519YaoRegistrationBackendResult;
   const routerExecutionStartedAt = performance.now();
   try {
-    backend = await input.backend.execute(request, trace);
+    backend = await input.backend.execute(request, claim.value.admissionRequest, trace);
   } catch (error: unknown) {
     return timedExecutionResult(
       {

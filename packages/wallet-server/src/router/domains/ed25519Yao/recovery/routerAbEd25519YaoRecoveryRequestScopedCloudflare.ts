@@ -261,7 +261,11 @@ class RecoveryExecutionRequestRun {
     try {
       return {
         kind: 'response',
-        value: await this.context.input.backend.executeRecovery(this.request, this.context.trace),
+        value: await this.context.input.backend.executeRecovery(
+          this.request,
+          _claim.admissionRequest,
+          this.context.trace,
+        ),
       };
     } catch (error: unknown) {
       return {

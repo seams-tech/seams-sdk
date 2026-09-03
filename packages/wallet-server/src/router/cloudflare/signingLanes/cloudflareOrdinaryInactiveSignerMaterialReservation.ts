@@ -28,12 +28,14 @@ import {
 import {
   parseLinkedDeviceEcdsaSourceContributionBindingV1,
   parseLinkedDeviceEcdsaSourcePreservingActivationReceiptV1,
+  type LinkedDeviceEd25519SourceContributionPreparationV1,
   type LinkedDeviceEcdsaSourceDerivationV1,
 } from '@shared/device-linking/sourceContribution';
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import type { DeviceLinkingEd25519SourcePreservingRouterPortV1 } from '../../transport/fetch/routes/deviceLinking';
 import type { OrdinaryInactiveSignerMaterialActivationPortV1 } from '../d1/deviceLinking/d1LinkedDeviceAuthorityInstallService';
+import type { TenantRootActiveLineageV1 } from '../../domains/tenantRoot/tenantRootCustodyLineage';
 import type {
   OrdinaryEcdsaSignerMaterialReservationPreparationV1,
   OrdinaryEd25519SignerMaterialReservationPreparationV1,
@@ -75,24 +77,38 @@ export type CloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1 =
 export function createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1(input: {
   readonly fetch: typeof fetch;
   readonly internalServiceAuthSecret: string;
+  readonly resolveTenantRoot: (
+    context: Pick<
+      LinkedDeviceEd25519SourceContributionPreparationV1,
+      'applicationBinding' | 'targetAdmission' | 'participantIds'
+    >,
+  ) => Promise<TenantRootActiveLineageV1>;
 }): CloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1 {
   return {
-    executeEd25519SourcePreservingV1: async (request) =>
-      await postRouterJsonRequestV1(
+    executeEd25519SourcePreservingV1: async (request) => {
+      const tenantRoot = await input.resolveTenantRoot(request);
+      return await postRouterJsonRequestV1(
         input,
         CLOUDFLARE_ROUTER_ED25519_YAO_SOURCE_PRESERVING_EXECUTE_PATH_V1,
         {
           source_binding: request.sourceBinding,
           target: {
-            operation: 'registration',
-            binding: request.targetRequest.binding,
-            deriver_a_input: request.targetRequest.deriver_a_input,
-            deriver_b_input: request.targetRequest.deriver_b_input,
+            tenant_root: {
+              identity_digest_b64u: tenantRoot.identityDigestB64u,
+              custody_lineage_b64u: tenantRoot.custodyLineageB64u,
+            },
+            application: request.applicationBinding,
+            participant_ids: request.participantIds,
+            target: {
+              binding: request.targetRequest.binding,
+              deriver_a_input: request.targetRequest.deriver_a_input,
+              deriver_b_input: request.targetRequest.deriver_b_input,
+            },
           },
-          participant_ids: request.participantIds,
         },
         'Ed25519 source-preserving Router execution',
-      ),
+      );
+    },
   };
 }
 

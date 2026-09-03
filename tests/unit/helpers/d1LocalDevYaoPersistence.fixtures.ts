@@ -247,27 +247,22 @@ export class LocalYaoRouterBindingFixture implements CloudflareServiceBindingFet
   ):
     | { readonly ok: true; readonly value: Response }
     | { readonly ok: false; readonly value: Response } {
-    switch (body.operation) {
+    const target = executeTarget(body);
+    switch (executeOperation(target.binding)) {
       case 'registration': {
-        const execution = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
-          executeProtocolFields(body),
-        );
+        const execution = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(target);
         if (!execution.ok) return invalidRouterRequest(execution.code);
         this.registrationExecuteCalls += 1;
         return { ok: true, value: this.activationSuccessResponse(execution.value.binding) };
       }
       case 'recovery': {
-        const execution = parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(
-          executeProtocolFields(body),
-        );
+        const execution = parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(target);
         if (!execution.ok) return invalidRouterRequest(execution.code);
         this.recoveryExecuteCalls += 1;
         return { ok: true, value: this.activationSuccessResponse(execution.value.binding) };
       }
       case 'export': {
-        const execution = parseRouterAbEd25519YaoExportExecuteRequestV1(
-          executeProtocolFields(body),
-        );
+        const execution = parseRouterAbEd25519YaoExportExecuteRequestV1(target);
         if (!execution.ok) return invalidRouterRequest(execution.code);
         this.exportExecuteCalls += 1;
         return { ok: true, value: exportSuccessResponse(execution.value) };
@@ -308,12 +303,24 @@ export class LocalYaoRouterBindingFixture implements CloudflareServiceBindingFet
   }
 }
 
-function executeProtocolFields(body: Record<string, unknown>) {
-  return {
-    binding: body.binding,
-    deriver_a_input: body.deriver_a_input,
-    deriver_b_input: body.deriver_b_input,
-  };
+function executeTarget(body: Record<string, unknown>): Record<string, unknown> {
+  return requireRecord(body.target, 'Router execute request target envelope');
+}
+
+function executeOperation(binding: unknown): 'registration' | 'recovery' | 'export' {
+  const record = requireRecord(binding, 'Router execute binding');
+  if ('ceremony' in record) {
+    const ceremony = requireRecord(record.ceremony, 'Router execute ceremony binding');
+    const operation = ceremony.operation;
+    if (operation === 'registration' || operation === 'recovery' || operation === 'export') {
+      return operation;
+    }
+  }
+  const operation = record.operation;
+  if (operation === 'registration' || operation === 'recovery' || operation === 'export') {
+    return operation;
+  }
+  throw new Error('Router execute operation is invalid');
 }
 
 function invalidRouterRequest(code: string): { readonly ok: false; readonly value: Response } {

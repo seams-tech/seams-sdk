@@ -82,7 +82,10 @@ import {
   type RouterAbServiceBindingEnv,
 } from './routerAbServiceBindings';
 import { withCors } from '@seams/wallet-server/cloud-host';
-import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '@seams/wallet-server/cloud-host';
+import {
+  createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
+  type RouterAbEd25519YaoTenantRootResolverV1,
+} from '@seams/wallet-server/cloud-host';
 import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
@@ -1116,26 +1119,22 @@ async function createLocalRouterApiHandler(
       normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_ISSUER) || DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL,
     audience: normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_AUDIENCE) || 'router-ab',
   });
-  let routerApiService: ReturnType<typeof createLocalD1RouterApiAuthService> | null = null;
+  const routerApiServiceState: LocalRouterApiServiceState = { service: null };
   const ed25519YaoComposition = await createLocalEd25519YaoProductComposition(
     env,
     routerFetch,
     orgId,
-    async () => {
-      if (!routerApiService) throw new Error('Local Router API service is not initialized');
-      return {
-        authorizationSessions: routerApiService.authorizationSessions,
-        preparedRecoveryAdmission: routerApiService.passkeyCustody,
-        resolveEd25519MaterialActivation:
-          routerApiService.walletRegistration.resolveEd25519MaterialActivation.bind(
-            routerApiService.walletRegistration,
-          ),
-      };
-    },
-    () => routerApiService?.linkedDeviceEd25519AuthorityReader ?? null,
+    resolveLocalRecoveryAuthorizationServices.bind(undefined, routerApiServiceState),
+    resolveLocalActiveTenantRoot.bind(undefined, routerApiServiceState),
+    readLocalLinkedAuthorities.bind(undefined, routerApiServiceState),
   );
   const ecdsaStrictPorts = localEcdsaStrictPorts(env, orgId);
-  routerApiService = createLocalD1RouterApiAuthService(env, orgId, ed25519YaoComposition);
+  routerApiServiceState.service = createLocalD1RouterApiAuthService(
+    env,
+    orgId,
+    ed25519YaoComposition,
+  );
+  const routerApiService = requireLocalRouterApiService(routerApiServiceState);
   const ed25519Yao =
     ed25519YaoComposition.kind === 'enabled'
       ? {
@@ -1292,6 +1291,7 @@ function localD1RouterApiAuthServiceOptions(
   const relayerPublicKey =
     env.RELAYER_PUBLIC_KEY ||
     (env.RELAYER_PRIVATE_KEY ? undefined : env.SEAMS_LOCAL_RELAYER_PUBLIC_KEY);
+  const tenantRootCustodyLineage = localTenantRootCustodyLineageResolver(env);
   return {
     database: env.SIGNER_DB,
     namespace: localTenantStorageNamespace(env),
@@ -1326,8 +1326,8 @@ function localD1RouterApiAuthServiceOptions(
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env, orgId).registration,
-    tenantRootCustodyLineage: localTenantRootCustodyLineageResolver(env),
-    linkedDevice: localLinkedDeviceSessionComposition(env, orgId),
+    tenantRootCustodyLineage,
+    linkedDevice: localLinkedDeviceSessionComposition(env, orgId, tenantRootCustodyLineage),
     ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
   };
 }
@@ -1348,9 +1348,208 @@ function localTenantRootCustodyLineageResolver(
   };
 }
 
+type LocalTenantRootIdentity = Parameters<
+  CloudflareD1RouterApiAuthServiceOptions['tenantRootCustodyLineage']['resolveActiveLineage']
+>[0];
+
+type LocalTenantRootContext = {
+  readonly env: LocalD1DevEnv;
+  readonly orgId: string;
+  readonly tenantRootCustodyLineage: CloudflareD1RouterApiAuthServiceOptions['tenantRootCustodyLineage'];
+};
+type LocalTenantRootResolutionInput = Parameters<RouterAbEd25519YaoTenantRootResolverV1>[0];
+type LocalLinkedDeviceTenantRootInput = Parameters<
+  Parameters<typeof createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1>[0]['resolveTenantRoot']
+>[0];
+
+type LocalActiveTenantRootResolver = (
+  input: Parameters<
+    ReturnType<
+      typeof createLocalD1RouterApiAuthService
+    >['walletRegistration']['resolveActiveEd25519TenantRoot']
+  >[0],
+) => Promise<Awaited<ReturnType<RouterAbEd25519YaoTenantRootResolverV1>>>;
+
+type LocalRouterApiService = ReturnType<typeof createLocalD1RouterApiAuthService>;
+type LocalRouterApiServiceState = { service: LocalRouterApiService | null };
+type LocalActiveTenantRootInput = Parameters<LocalActiveTenantRootResolver>[0];
+type LocalTenantRootResolutionResult = Awaited<
+  ReturnType<RouterAbEd25519YaoTenantRootResolverV1>
+>;
+type LocalRecoveryAuthorizationServices = Awaited<
+  ReturnType<
+    ConstructorParameters<typeof RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter>[0]
+  >
+>;
+
+function requireLocalRouterApiService(state: LocalRouterApiServiceState): LocalRouterApiService {
+  if (!state.service) throw new Error('Local Router API service is not initialized');
+  return state.service;
+}
+
+async function resolveLocalActiveTenantRoot(
+  state: LocalRouterApiServiceState,
+  input: LocalActiveTenantRootInput,
+): Promise<LocalTenantRootResolutionResult> {
+  const service = requireLocalRouterApiService(state);
+  const resolved = await service.walletRegistration.resolveActiveEd25519TenantRoot(input);
+  if (!resolved.ok) throw new Error(resolved.message);
+  return resolved;
+}
+
+async function resolveLocalRecoveryAuthorizationServices(
+  state: LocalRouterApiServiceState,
+): Promise<LocalRecoveryAuthorizationServices> {
+  const service = requireLocalRouterApiService(state);
+  return {
+    authorizationSessions: service.authorizationSessions,
+    preparedRecoveryAdmission: service.passkeyCustody,
+    resolveEd25519MaterialActivation:
+      service.walletRegistration.resolveEd25519MaterialActivation.bind(
+        service.walletRegistration,
+      ),
+  };
+}
+
+function readLocalLinkedAuthorities(
+  state: LocalRouterApiServiceState,
+): WarmBootstrapLinkedEd25519AuthorityReaderV1 | null {
+  return state.service?.linkedDeviceEd25519AuthorityReader ?? null;
+}
+
+function localTenantRootIdentity(
+  env: LocalD1DevEnv,
+  orgId: string,
+  applicationBinding: { readonly signing_root_id: string },
+  signingRootVersion: string,
+): LocalTenantRootIdentity {
+  return {
+    orgId,
+    projectId: localConsoleProjectId(env),
+    envId: localConsoleEnvironmentId(env),
+    signingRootId: applicationBinding.signing_root_id,
+    signingRootVersion,
+  };
+}
+
+async function resolveLocalDeploymentTenantRoot(
+  env: LocalD1DevEnv,
+  orgId: string,
+  tenantRootCustodyLineage: CloudflareD1RouterApiAuthServiceOptions['tenantRootCustodyLineage'],
+  applicationBinding: { readonly signing_root_id: string },
+  signingRootVersion: string,
+): Promise<Awaited<ReturnType<RouterAbEd25519YaoTenantRootResolverV1>>> {
+  const tenantRoot = await tenantRootCustodyLineage.resolveActiveLineage(
+    localTenantRootIdentity(env, orgId, applicationBinding, signingRootVersion),
+  );
+  if (!tenantRoot) throw new Error('Ed25519 tenant root is not active');
+  return tenantRoot;
+}
+
+async function resolveLocalRegistrationTenantRoot(
+  context: LocalTenantRootContext,
+  input: LocalTenantRootResolutionInput,
+): Promise<LocalTenantRootResolutionResult> {
+  switch (input.operation) {
+    case 'registration':
+      return await resolveLocalDeploymentTenantRoot(
+        context.env,
+        context.orgId,
+        context.tenantRootCustodyLineage,
+        input.admissionRequest.application_binding,
+        input.admissionRequest.scope.root_share_epoch,
+      );
+    case 'recovery':
+    case 'export':
+      throw new Error('Ed25519 active-material tenant-root resolver is unavailable');
+  }
+}
+
+async function resolveLocalTenantRoot(
+  context: LocalTenantRootContext & {
+    readonly resolveActiveTenantRoot: LocalActiveTenantRootResolver;
+  },
+  input: LocalTenantRootResolutionInput,
+): Promise<LocalTenantRootResolutionResult> {
+  switch (input.operation) {
+    case 'registration':
+      return await resolveLocalDeploymentTenantRoot(
+        context.env,
+        context.orgId,
+        context.tenantRootCustodyLineage,
+        input.admissionRequest.application_binding,
+        input.admissionRequest.scope.root_share_epoch,
+      );
+    case 'recovery':
+      return await context.resolveActiveTenantRoot({
+        walletId: input.admissionRequest.application_binding.wallet_id,
+        materialActivation: input.admissionRequest.active_material_activation,
+      });
+    case 'export':
+      return await context.resolveActiveTenantRoot({
+        walletId: input.admissionRequest.application_binding.wallet_id,
+        materialActivation: input.admissionRequest.scope.material_activation,
+      });
+  }
+}
+
+async function resolveLocalLinkedDeviceTenantRoot(
+  context: LocalTenantRootContext,
+  input: LocalLinkedDeviceTenantRootInput,
+): Promise<LocalTenantRootResolutionResult> {
+  return await resolveLocalDeploymentTenantRoot(
+    context.env,
+    context.orgId,
+    context.tenantRootCustodyLineage,
+    input.applicationBinding,
+    input.targetAdmission.binding.lifecycle.root_share_epoch,
+  );
+}
+
+function createLocalRegistrationTenantRootResolver(
+  env: LocalD1DevEnv,
+  orgId: string,
+  tenantRootCustodyLineage: CloudflareD1RouterApiAuthServiceOptions['tenantRootCustodyLineage'],
+): RouterAbEd25519YaoTenantRootResolverV1 {
+  return resolveLocalRegistrationTenantRoot.bind(undefined, {
+    env,
+    orgId,
+    tenantRootCustodyLineage,
+  });
+}
+
+function createLocalTenantRootResolver(
+  env: LocalD1DevEnv,
+  orgId: string,
+  tenantRootCustodyLineage: CloudflareD1RouterApiAuthServiceOptions['tenantRootCustodyLineage'],
+  resolveActiveTenantRoot: LocalActiveTenantRootResolver,
+): RouterAbEd25519YaoTenantRootResolverV1 {
+  return resolveLocalTenantRoot.bind(undefined, {
+    env,
+    orgId,
+    tenantRootCustodyLineage,
+    resolveActiveTenantRoot,
+  });
+}
+
+function createLocalLinkedDeviceTenantRootResolver(
+  env: LocalD1DevEnv,
+  orgId: string,
+  tenantRootCustodyLineage: CloudflareD1RouterApiAuthServiceOptions['tenantRootCustodyLineage'],
+): Parameters<
+  typeof createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1
+>[0]['resolveTenantRoot'] {
+  return resolveLocalLinkedDeviceTenantRoot.bind(undefined, {
+    env,
+    orgId,
+    tenantRootCustodyLineage,
+  });
+}
+
 function localLinkedDeviceSessionComposition(
   env: LocalD1DevEnv,
   orgId: string,
+  tenantRootCustodyLineage: CloudflareD1RouterApiAuthServiceOptions['tenantRootCustodyLineage'],
 ): NonNullable<CloudflareD1RouterApiAuthServiceOptions['linkedDevice']> {
   const scope = {
     namespace: localTenantStorageNamespace(env),
@@ -1424,6 +1623,11 @@ function localLinkedDeviceSessionComposition(
         {
           fetch: serviceFetch,
           internalServiceAuthSecret,
+          resolveTenantRoot: createLocalLinkedDeviceTenantRootResolver(
+            env,
+            orgId,
+            tenantRootCustodyLineage,
+          ),
         },
       ),
     },
@@ -1460,6 +1664,7 @@ async function createLocalEd25519YaoProductComposition(
   resolveAuthorizationServices: ConstructorParameters<
     typeof RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter
   >[0],
+  resolveActiveTenantRoot: LocalActiveTenantRootResolver,
   resolveLinkedAuthorities: () => WarmBootstrapLinkedEd25519AuthorityReaderV1 | null,
 ): Promise<LocalEd25519YaoProductCompositionState> {
   const signingWorkerId =
@@ -1480,6 +1685,7 @@ async function createLocalEd25519YaoProductComposition(
     database: env.SIGNER_DB,
     scope: capabilityScope,
   });
+  const tenantRootCustodyLineage = localTenantRootCustodyLineageResolver(env);
   const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
     env: {
       MPC_ROUTER_URL: ROUTER_AB_MPC_ROUTER_ORIGIN,
@@ -1495,6 +1701,12 @@ async function createLocalEd25519YaoProductComposition(
         env.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
       ),
     },
+    resolveTenantRoot: createLocalTenantRootResolver(
+      env,
+      orgId,
+      tenantRootCustodyLineage,
+      resolveActiveTenantRoot,
+    ),
     fetch: localEd25519YaoRouterFetchV1(env, routerFetch),
   });
   const runtime = createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({

@@ -152,6 +152,7 @@ import {
 import type { TenantRootCustodyLineageResolverV1 } from '../../../domains/tenantRoot/tenantRootCustodyLineage';
 import {
   resolveTenantRootIdentityV1,
+  type ActiveEd25519MaterialActivationV1,
   type TenantRootIdentityV1,
 } from '../../../domains/tenantRoot/tenantRootIdentityResolution';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
@@ -248,6 +249,7 @@ import {
   type WalletEcdsaSignerKey,
   type WalletEcdsaSignerRecord,
   type WalletEcdsaPendingSessionActivationRecord,
+  type WalletEd25519YaoActiveCapabilityRecord,
   type WalletEd25519SignerRecord,
   type WalletSignerRecord,
 } from '../../../../core/WalletStore';
@@ -541,6 +543,46 @@ async function ed25519ExportIdentityFromActiveCapability(
     runtime_policy_binding: await deriveRouterAbEd25519YaoRuntimePolicyBindingV1(
       descriptor.runtimePolicyScope,
     ),
+  };
+}
+
+async function ed25519ExportIdentityFromPersistedCapability(
+  capability: WalletEd25519YaoActiveCapabilityRecord,
+): Promise<RouterAbEd25519YaoExportAuthorizationIdentityV1> {
+  const binding = capability.activationResult.binding;
+  return {
+    scope: {
+      lifecycle_id: binding.lifecycle.lifecycle_id,
+      root_share_epoch: binding.lifecycle.root_share_epoch,
+      account_id: binding.lifecycle.account_id,
+      threshold_session_id: binding.lifecycle.session_id,
+      signer_set_id: binding.lifecycle.signer_set_id,
+      signing_worker_id: binding.lifecycle.selected_server_id,
+      material_activation: binding.material_activation,
+    },
+    application_binding: capability.admissionRequest.application_binding,
+    participant_ids: capability.admissionRequest.participant_ids,
+    registered_public_key: capability.activationResult.public_receipt.registered_public_key,
+    state_epoch: capability.activationResult.public_receipt.state_epoch,
+    runtime_policy_binding: await deriveRouterAbEd25519YaoRuntimePolicyBindingV1(
+      capability.runtimePolicyScope,
+    ),
+  };
+}
+
+async function activeEd25519MaterialFromPersistedSigner(
+  signer: WalletEd25519SignerRecord,
+): Promise<ActiveEd25519MaterialActivationV1> {
+  const capability = signer.activeYaoCapability;
+  return {
+    ok: true,
+    materialActivation: capability.activationResult.binding.material_activation,
+    nearAccountId: capability.nearAccountId,
+    signerSlot: signer.signerSlot,
+    signingWorkerId: signer.signingWorkerId,
+    participantIds: signer.participantIds,
+    runtimePolicyScope: capability.runtimePolicyScope,
+    exportIdentity: await ed25519ExportIdentityFromPersistedCapability(capability),
   };
 }
 
@@ -2168,9 +2210,26 @@ export class CloudflareD1WalletRegistrationService {
         participantIds: signer.participantIds,
       });
       if (!active.ok) {
+        if (active.code === 'unknown_capability') {
+          if (
+            !sameRouterAbMpcMaterialActivationRef(
+              signer.activeYaoCapability.activationResult.binding.material_activation,
+              input.materialActivation,
+            )
+          ) {
+            return {
+              ok: false,
+              code: 'not_found',
+              message: 'Ed25519 material activation does not match the persisted capability',
+            };
+          }
+          // Recovery admission suspends the in-memory capability before its
+          // execute request; the persisted signer remains the admitted source.
+          return await activeEd25519MaterialFromPersistedSigner(signer);
+        }
         return {
           ok: false,
-          code: active.code === 'unknown_capability' ? 'not_found' : 'internal',
+          code: 'internal',
           message: active.message,
         };
       }
