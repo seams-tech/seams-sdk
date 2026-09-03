@@ -77,14 +77,14 @@ fn recipient(
 ) {
     match role {
         TwoPartyDeriverRole::DeriverA => (
-            "deriver-b-hpke-key-8",
-            TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xb1; 32])
+            "deriver-a-hpke-key-7",
+            TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xa1; 32])
                 .expect("recipient HPKE keypair")
                 .public_key(),
         ),
         TwoPartyDeriverRole::DeriverB => (
-            "deriver-a-hpke-key-7",
-            TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xa1; 32])
+            "deriver-b-hpke-key-8",
+            TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xb1; 32])
                 .expect("recipient HPKE keypair")
                 .public_key(),
         ),

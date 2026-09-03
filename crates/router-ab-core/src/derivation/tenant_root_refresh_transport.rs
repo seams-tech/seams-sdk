@@ -780,6 +780,13 @@ impl VerifiedTenantRootRefreshCommitmentPairV1 {
                 "tenant-root refresh commitment pair has mismatched ceremony contexts",
             ));
         }
+        if deriver_a.recipient_key_id() == deriver_b.recipient_key_id()
+            || deriver_a.recipient_public_key() == deriver_b.recipient_public_key()
+        {
+            return Err(malformed(
+                "tenant-root refresh commitment pair recipient keys must be distinct",
+            ));
+        }
         Ok(Self {
             deriver_a,
             deriver_b,

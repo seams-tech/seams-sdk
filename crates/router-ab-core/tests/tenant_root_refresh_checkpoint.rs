@@ -269,8 +269,8 @@ fn signed_commitment(
         RootShareRefreshCoefficient::from_canonical_bytes(role, Scalar::from(scalar).to_bytes())
             .expect("refresh coefficient");
     let (recipient_key_id, recipient_ikm) = match role {
-        TwoPartyDeriverRole::DeriverA => ("deriver-b-hpke-key-8", [0xb1; 32]),
-        TwoPartyDeriverRole::DeriverB => ("deriver-a-hpke-key-7", [0xa1; 32]),
+        TwoPartyDeriverRole::DeriverA => ("deriver-a-hpke-key-7", [0xa1; 32]),
+        TwoPartyDeriverRole::DeriverB => ("deriver-b-hpke-key-8", [0xb1; 32]),
     };
     let recipient_public_key = TenantRootRefreshHpkeKeypairV1::derive_from_ikm(recipient_ikm)
         .expect("recipient HPKE keypair")
