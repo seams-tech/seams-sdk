@@ -8636,25 +8636,6 @@ pub fn decode_and_select_cloudflare_signer_envelope_hpke_decrypt_key_binding_v1<
     Ok((binding, hpke_payload))
 }
 
-/// Server-only bootstrap wire carrying the authenticated custody binding.
-///
-/// The core custody binding intentionally has no deserializer: only an
-/// authenticated Router boundary may construct it. The wire keeps the
-/// binding's serialized form for exact comparison against that boundary value.
-#[cfg(feature = "workers-rs")]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CloudflareSignerPrivateBootstrapWithCustodyBindingWireV1 {
-    /// Router-to-signer private wire message.
-    pub message: WireMessageV1,
-    /// Typed role-envelope AAD used by Router during signer-envelope encryption.
-    pub aad: RoleEnvelopeAadV1,
-    /// Pre-envelope public request-context digest bound inside signer plaintext.
-    pub router_request_digest: PublicDigest32,
-    /// Serialized binding produced by the authenticated Router boundary.
-    pub tenant_root_custody_binding: serde_json::Value,
-}
-
 /// Parses the exact Gateway-to-Router registration envelope.
 ///
 /// The browser request remains the nested `registration_request`; tenant-root
@@ -8982,54 +8963,6 @@ impl CloudflareAuthenticatedSignerPrivateBootstrapRequestV1 {
             bootstrap,
             tenant_root_custody_binding,
         })
-    }
-
-    /// Parses a server-only bootstrap wire and compares its binding exactly
-    /// with the authenticated binding produced by the Router boundary.
-    pub fn from_wire(
-        worker_role: CloudflareWorkerRoleV1,
-        wire: CloudflareSignerPrivateBootstrapWithCustodyBindingWireV1,
-        tenant_root_custody_binding: TenantRootCustodyBindingV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let expected_binding =
-            serde_json::to_value(&tenant_root_custody_binding).map_err(|err| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                    format!("tenant-root custody binding serialization failed: {err}"),
-                )
-            })?;
-        if wire.tenant_root_custody_binding != expected_binding {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "strict signer bootstrap custody binding does not match authenticated server state",
-            ));
-        }
-        let bootstrap = CloudflareSignerPrivateBootstrapRequestV1::new(
-            worker_role,
-            wire.message,
-            wire.aad,
-            wire.router_request_digest,
-        )?;
-        Self::new(worker_role, bootstrap, tenant_root_custody_binding)
-    }
-
-    /// Parses a serialized server-only bootstrap wire.
-    pub fn from_json_bytes(
-        worker_role: CloudflareWorkerRoleV1,
-        bytes: &[u8],
-        tenant_root_custody_binding: TenantRootCustodyBindingV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let wire =
-            serde_json::from_slice::<CloudflareSignerPrivateBootstrapWithCustodyBindingWireV1>(
-                bytes,
-            )
-            .map_err(|err| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::MalformedWirePayload,
-                    format!("strict signer bootstrap custody-binding wire parse failed: {err}"),
-                )
-            })?;
-        Self::from_wire(worker_role, wire, tenant_root_custody_binding)
     }
 
     /// Returns the authenticated binding for the active tenant-root lookup.
