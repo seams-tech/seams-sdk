@@ -1,20 +1,10 @@
-//! Authorized cleanup of one role's pending share.
+//! Issuer-authorized cleanup of one tenant-root role share.
 //!
-//! A pending share can be stranded: the peer role completed its insertion and
-//! the initiating role then lost the response, so a durable pending row exists
-//! for a ceremony that will never finish. Clearing it must be an authorized,
-//! one-use act, not an age heuristic — a row that merely looks old may belong
-//! to a ceremony still in flight.
-//!
-//! This command is the authorization. The control plane issues it against one
-//! exact row: the role that owns it, the tenant and lineage it belongs to, its
-//! epoch, its exact revision, the ceremony that created it, and the digest of
-//! the installation evidence it carries. A command naming any other row, or a
-//! row that has since moved, cannot clean it.
-//!
-//! It is deliberately a distinct type from the creation command. Reusing a
-//! creation command to authorize deletion would let a replayed creation
-//! authorization destroy the share it originally created.
+//! Cleanup is a one-use authorization for one exact row state. Pending cleanup
+//! names the ceremony that produced the stranded row. Retired cleanup names
+//! the retired row and the exact active successor that must still be present.
+//! The operation discriminator is part of the signed canonical wire, so a
+//! command for one lifecycle state cannot authorize the other.
 
 use core::fmt;
 
@@ -32,28 +22,107 @@ use super::{
 const TENANT_ROOT_ROLE_CLEANUP_COMMAND_DOMAIN_V1: &[u8] = b"tenant_root_role_cleanup_command_v1";
 const TENANT_ROOT_ROLE_CLEANUP_COMMAND_AUTH_DOMAIN_V1: &[u8] =
     b"tenant_root_role_cleanup_command_authentication_v1";
-const TENANT_ROOT_ROLE_CLEANUP_OPERATION_V1: &[u8] = b"cleanup_pending_share";
+const TENANT_ROOT_ROLE_CLEANUP_PENDING_OPERATION_V1: &[u8] = b"cleanup_pending_share";
+const TENANT_ROOT_ROLE_CLEANUP_RETIRED_OPERATION_V1: &[u8] = b"cleanup_retired_share";
 const TENANT_ROOT_ROLE_CLEANUP_ISSUER_KEY_ID_MAX_BYTES_V1: usize = 256;
 
-/// Exact operation authenticated by a cleanup command.
+/// Exact pending-cleanup operation authenticated by a cleanup command.
 pub const TENANT_ROOT_ROLE_CLEANUP_COMMAND_OPERATION_V1: &str = "cleanup_pending_share";
+
+/// Exact retired-cleanup operation authenticated by a cleanup command.
+pub const TENANT_ROOT_ROLE_CLEANUP_RETIRED_COMMAND_OPERATION_V1: &str = "cleanup_retired_share";
 
 /// Maximum canonical wire size accepted for one cleanup command.
 pub const TENANT_ROOT_ROLE_CLEANUP_COMMAND_MAX_BYTES_V1: usize = 16 * 1024;
 
+/// Exact row state authorized for cleanup.
+///
+/// The variants deliberately carry different fields. Pending cleanup is tied
+/// to its ceremony evidence; retired cleanup is tied to both sides of the
+/// active/retired row transition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TenantRootRoleCleanupTargetV1 {
+    /// A stranded row that never activated.
+    Pending {
+        identity_digest: TenantRootIdentityDigestV1,
+        custody_lineage: TenantRootCustodyLineageId,
+        role: TwoPartyDeriverRole,
+        epoch: TenantRootShareEpoch,
+        expected_row_revision: i64,
+        session_id: TenantRootCeremonySessionIdV1,
+        ceremony_nonce: TenantRootCeremonyNonceV1,
+        installation_evidence_digest: TenantRootProtocolDigestV1,
+    },
+    /// A retired row whose exact active successor is still expected.
+    Retired {
+        identity_digest: TenantRootIdentityDigestV1,
+        custody_lineage: TenantRootCustodyLineageId,
+        role: TwoPartyDeriverRole,
+        retired_epoch: TenantRootShareEpoch,
+        expected_retired_revision: i64,
+        expected_active_epoch: TenantRootShareEpoch,
+        expected_active_revision: i64,
+    },
+}
+
+impl TenantRootRoleCleanupTargetV1 {
+    /// Returns the role whose row is named by this target.
+    pub const fn role(&self) -> TwoPartyDeriverRole {
+        match self {
+            Self::Pending { role, .. } | Self::Retired { role, .. } => *role,
+        }
+    }
+
+    /// Returns the tenant identity digest named by this target.
+    pub const fn identity_digest(&self) -> TenantRootIdentityDigestV1 {
+        match self {
+            Self::Pending {
+                identity_digest, ..
+            }
+            | Self::Retired {
+                identity_digest, ..
+            } => *identity_digest,
+        }
+    }
+
+    /// Returns the custody lineage named by this target.
+    pub const fn custody_lineage(&self) -> TenantRootCustodyLineageId {
+        match self {
+            Self::Pending {
+                custody_lineage, ..
+            }
+            | Self::Retired {
+                custody_lineage, ..
+            } => *custody_lineage,
+        }
+    }
+
+    /// Returns the row epoch named by this target.
+    pub const fn epoch(&self) -> TenantRootShareEpoch {
+        match self {
+            Self::Pending { epoch, .. } => *epoch,
+            Self::Retired { retired_epoch, .. } => *retired_epoch,
+        }
+    }
+
+    /// Returns the exact revision of the row that may be deleted.
+    pub const fn expected_row_revision(&self) -> i64 {
+        match self {
+            Self::Pending {
+                expected_row_revision,
+                ..
+            } => *expected_row_revision,
+            Self::Retired {
+                expected_retired_revision,
+                ..
+            } => *expected_retired_revision,
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 struct TenantRootRoleCleanupCommandDataV1 {
-    identity_digest: TenantRootIdentityDigestV1,
-    custody_lineage: TenantRootCustodyLineageId,
-    role: TwoPartyDeriverRole,
-    epoch: TenantRootShareEpoch,
-    /// The exact row revision this command may clean. A row that moved on is a
-    /// different row, and this command no longer applies to it.
-    expected_row_revision: i64,
-    session_id: TenantRootCeremonySessionIdV1,
-    ceremony_nonce: TenantRootCeremonyNonceV1,
-    /// Digest of the installation evidence the stranded row carries.
-    installation_evidence_digest: TenantRootProtocolDigestV1,
+    target: TenantRootRoleCleanupTargetV1,
     authority_id: TenantRootControlPlaneAuthorityIdV1,
     nonce: TenantRootCeremonyNonceV1,
     issued_at_ms: u64,
@@ -66,17 +135,7 @@ impl fmt::Debug for TenantRootRoleCleanupCommandDataV1 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("TenantRootRoleCleanupCommandDataV1")
-            .field("identity_digest", &self.identity_digest)
-            .field("custody_lineage", &self.custody_lineage)
-            .field("role", &self.role)
-            .field("epoch", &self.epoch)
-            .field("expected_row_revision", &self.expected_row_revision)
-            .field("session_id", &self.session_id)
-            .field("ceremony_nonce", &self.ceremony_nonce)
-            .field(
-                "installation_evidence_digest",
-                &self.installation_evidence_digest,
-            )
+            .field("target", &self.target)
             .field("authority_id", &self.authority_id)
             .field("nonce", &self.nonce)
             .field("issued_at_ms", &self.issued_at_ms)
@@ -93,29 +152,8 @@ pub struct TenantRootRoleCleanupCommandV1 {
     data: TenantRootRoleCleanupCommandDataV1,
 }
 
-/// Everything the issuer must know to authorize one cleanup.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TenantRootRoleCleanupTargetV1 {
-    /// Tenant whose pending row is stranded.
-    pub identity_digest: TenantRootIdentityDigestV1,
-    /// Custody lineage of the stranded row.
-    pub custody_lineage: TenantRootCustodyLineageId,
-    /// Role that owns the row. Only that role may act on this command.
-    pub role: TwoPartyDeriverRole,
-    /// Epoch of the stranded row.
-    pub epoch: TenantRootShareEpoch,
-    /// Exact row revision at the time of authorization.
-    pub expected_row_revision: i64,
-    /// Session of the ceremony that created the row.
-    pub session_id: TenantRootCeremonySessionIdV1,
-    /// Nonce of that ceremony.
-    pub ceremony_nonce: TenantRootCeremonyNonceV1,
-    /// Digest of the installation evidence the row carries.
-    pub installation_evidence_digest: TenantRootProtocolDigestV1,
-}
-
 impl TenantRootRoleCleanupCommandV1 {
-    /// Signs one exact cleanup authorization.
+    /// Signs one exact pending or retired cleanup authorization.
     pub fn sign(
         target: &TenantRootRoleCleanupTargetV1,
         authority_id: TenantRootControlPlaneAuthorityIdV1,
@@ -126,14 +164,7 @@ impl TenantRootRoleCleanupCommandV1 {
         issuer_signing_key_bytes: &[u8; 32],
     ) -> RouterAbDerivationResult<Self> {
         let mut data = TenantRootRoleCleanupCommandDataV1 {
-            identity_digest: target.identity_digest,
-            custody_lineage: target.custody_lineage,
-            role: target.role,
-            epoch: target.epoch,
-            expected_row_revision: target.expected_row_revision,
-            session_id: target.session_id,
-            ceremony_nonce: target.ceremony_nonce,
-            installation_evidence_digest: target.installation_evidence_digest,
+            target: target.clone(),
             authority_id,
             nonce,
             issued_at_ms,
@@ -161,13 +192,7 @@ impl TenantRootRoleCleanupCommandV1 {
         }
         let mut decoder = CleanupCommandWireDecoderV1::new(bytes);
         decoder.require_field(TENANT_ROOT_ROLE_CLEANUP_COMMAND_DOMAIN_V1)?;
-        if decoder.field("tenant-root role cleanup command operation")?
-            != TENANT_ROOT_ROLE_CLEANUP_OPERATION_V1
-        {
-            return Err(malformed(
-                "tenant-root role cleanup command operation is invalid",
-            ));
-        }
+        let operation = decoder.field("tenant-root role cleanup command operation")?;
         let identity_digest = TenantRootIdentityDigestV1::from_bytes(
             decoder.fixed_field::<32>("tenant-root role cleanup command identity digest")?,
         );
@@ -175,20 +200,61 @@ impl TenantRootRoleCleanupCommandV1 {
             decoder.fixed_field::<16>("tenant-root role cleanup command custody lineage")?,
         )?;
         let role = decoder.role()?;
-        let epoch = TenantRootShareEpoch::new(
-            decoder.u64_field("tenant-root role cleanup command epoch")?,
-        )?;
-        let expected_row_revision =
-            decoder.u64_field("tenant-root role cleanup command row revision")? as i64;
-        let session_id = TenantRootCeremonySessionIdV1::from_bytes(
-            decoder.fixed_field::<16>("tenant-root role cleanup command session id")?,
-        )?;
-        let ceremony_nonce = TenantRootCeremonyNonceV1::from_bytes(
-            decoder.fixed_field::<32>("tenant-root role cleanup command ceremony nonce")?,
-        )?;
-        let installation_evidence_digest = TenantRootProtocolDigestV1::from_bytes(
-            decoder.fixed_field::<32>("tenant-root role cleanup command evidence digest")?,
-        )?;
+        let target = match operation {
+            TENANT_ROOT_ROLE_CLEANUP_PENDING_OPERATION_V1 => {
+                let epoch = TenantRootShareEpoch::new(
+                    decoder.u64_field("tenant-root role cleanup command epoch")?,
+                )?;
+                let expected_row_revision =
+                    decoder.revision_field("tenant-root role cleanup command row revision")?;
+                let session_id = TenantRootCeremonySessionIdV1::from_bytes(
+                    decoder.fixed_field::<16>("tenant-root role cleanup command session id")?,
+                )?;
+                let ceremony_nonce = TenantRootCeremonyNonceV1::from_bytes(
+                    decoder.fixed_field::<32>("tenant-root role cleanup command ceremony nonce")?,
+                )?;
+                let installation_evidence_digest = TenantRootProtocolDigestV1::from_bytes(
+                    decoder
+                        .fixed_field::<32>("tenant-root role cleanup command evidence digest")?,
+                )?;
+                TenantRootRoleCleanupTargetV1::Pending {
+                    identity_digest,
+                    custody_lineage,
+                    role,
+                    epoch,
+                    expected_row_revision,
+                    session_id,
+                    ceremony_nonce,
+                    installation_evidence_digest,
+                }
+            }
+            TENANT_ROOT_ROLE_CLEANUP_RETIRED_OPERATION_V1 => {
+                let retired_epoch = TenantRootShareEpoch::new(
+                    decoder.u64_field("tenant-root role cleanup command retired epoch")?,
+                )?;
+                let expected_retired_revision = decoder
+                    .revision_field("tenant-root role cleanup command retired row revision")?;
+                let expected_active_epoch = TenantRootShareEpoch::new(
+                    decoder.u64_field("tenant-root role cleanup command active successor epoch")?,
+                )?;
+                let expected_active_revision = decoder
+                    .revision_field("tenant-root role cleanup command active successor revision")?;
+                TenantRootRoleCleanupTargetV1::Retired {
+                    identity_digest,
+                    custody_lineage,
+                    role,
+                    retired_epoch,
+                    expected_retired_revision,
+                    expected_active_epoch,
+                    expected_active_revision,
+                }
+            }
+            _ => {
+                return Err(malformed(
+                    "tenant-root role cleanup command operation is invalid",
+                ));
+            }
+        };
         let authority_id = TenantRootControlPlaneAuthorityIdV1::from_bytes(
             decoder.fixed_field::<32>("tenant-root role cleanup command authority id")?,
         );
@@ -204,14 +270,7 @@ impl TenantRootRoleCleanupCommandV1 {
         let signature = decoder.fixed_field::<64>("tenant-root role cleanup command signature")?;
         decoder.finish()?;
         let data = TenantRootRoleCleanupCommandDataV1 {
-            identity_digest,
-            custody_lineage,
-            role,
-            epoch,
-            expected_row_revision,
-            session_id,
-            ceremony_nonce,
-            installation_evidence_digest,
+            target,
             authority_id,
             nonce,
             issued_at_ms,
@@ -229,22 +288,18 @@ impl TenantRootRoleCleanupCommandV1 {
         Ok(command)
     }
 
-    /// Returns the target row coordinates claimed by this command.
+    /// Returns the target row state claimed by this command.
     ///
     /// This projection is untrusted until [`Self::verify`] succeeds. Use it
     /// only to locate the candidate local row before verification; it grants
     /// no authorization to clean that row.
     pub fn claimed_target(&self) -> TenantRootRoleCleanupTargetV1 {
-        TenantRootRoleCleanupTargetV1 {
-            identity_digest: self.data.identity_digest,
-            custody_lineage: self.data.custody_lineage,
-            role: self.data.role,
-            epoch: self.data.epoch,
-            expected_row_revision: self.data.expected_row_revision,
-            session_id: self.data.session_id,
-            ceremony_nonce: self.data.ceremony_nonce,
-            installation_evidence_digest: self.data.installation_evidence_digest,
-        }
+        self.data.target.clone()
+    }
+
+    /// Returns the operation discriminator authenticated by this command.
+    pub fn operation(&self) -> &'static str {
+        operation_for_target(&self.data.target)
     }
 
     /// Returns the issuer key id this command names.
@@ -263,11 +318,11 @@ impl TenantRootRoleCleanupCommandV1 {
         TenantRootProtocolDigestV1::from_bytes(Sha256::digest(self.canonical_bytes()?).into())
     }
 
-    /// Verifies this command against the row a role actually holds.
+    /// Verifies this command against the exact row state a role actually holds.
     ///
-    /// `expected_role` and `expected_authority_id` are the verifier's own, never
-    /// the command's: a role that read its expected role from the command it is
-    /// checking could be made to clean on another role's behalf.
+    /// `expected_role` and `expected_authority_id` are the verifier's own,
+    /// never the command's. The complete discriminated target is compared
+    /// before the issuer signature is accepted as a cleanup capability.
     pub fn verify(
         &self,
         expected_target: &TenantRootRoleCleanupTargetV1,
@@ -281,7 +336,7 @@ impl TenantRootRoleCleanupCommandV1 {
             "tenant-root role cleanup command expected issuer key id",
             expected_issuer_key_id,
         )?;
-        if self.data.role != expected_role || expected_target.role != expected_role {
+        if self.data.target.role() != expected_role {
             return Err(replay_mismatch(
                 "tenant-root role cleanup command names a different role",
             ));
@@ -291,22 +346,9 @@ impl TenantRootRoleCleanupCommandV1 {
                 "tenant-root role cleanup command names a different control-plane authority",
             ));
         }
-        if self.data.identity_digest != expected_target.identity_digest
-            || self.data.custody_lineage != expected_target.custody_lineage
-            || self.data.epoch != expected_target.epoch
-            || self.data.session_id != expected_target.session_id
-            || self.data.ceremony_nonce != expected_target.ceremony_nonce
-            || self.data.installation_evidence_digest
-                != expected_target.installation_evidence_digest
-        {
+        if self.data.target != *expected_target {
             return Err(replay_mismatch(
-                "tenant-root role cleanup command does not name this pending row",
-            ));
-        }
-        // The exact revision is what makes this one-use against one row state.
-        if self.data.expected_row_revision != expected_target.expected_row_revision {
-            return Err(replay_mismatch(
-                "tenant-root role cleanup command was authorized for a different row revision",
+                "tenant-root role cleanup command does not name the expected row state",
             ));
         }
         if self.data.issuer_key_id != expected_issuer_key_id {
@@ -349,29 +391,39 @@ impl fmt::Debug for VerifiedTenantRootRoleCleanupCommandV1 {
 }
 
 impl VerifiedTenantRootRoleCleanupCommandV1 {
+    /// Returns the exact discriminated target authorized for cleanup.
+    pub fn target(&self) -> &TenantRootRoleCleanupTargetV1 {
+        &self.data.target
+    }
+
+    /// Returns the operation discriminator authenticated by this command.
+    pub fn operation(&self) -> &'static str {
+        operation_for_target(&self.data.target)
+    }
+
     /// Returns the role authorized to clean.
     pub const fn role(&self) -> TwoPartyDeriverRole {
-        self.data.role
+        self.data.target.role()
     }
 
     /// Returns the epoch of the row this authorizes cleaning.
     pub const fn epoch(&self) -> TenantRootShareEpoch {
-        self.data.epoch
+        self.data.target.epoch()
     }
 
-    /// Returns the exact row revision this authorizes cleaning.
+    /// Returns the exact revision of the row this authorizes cleaning.
     pub const fn expected_row_revision(&self) -> i64 {
-        self.data.expected_row_revision
+        self.data.target.expected_row_revision()
     }
 
     /// Returns the tenant identity digest.
     pub const fn identity_digest(&self) -> TenantRootIdentityDigestV1 {
-        self.data.identity_digest
+        self.data.target.identity_digest()
     }
 
     /// Returns the custody lineage.
     pub const fn custody_lineage(&self) -> TenantRootCustodyLineageId {
-        self.data.custody_lineage
+        self.data.target.custody_lineage()
     }
 
     /// Returns the one-use nonce.
@@ -379,9 +431,19 @@ impl VerifiedTenantRootRoleCleanupCommandV1 {
         self.data.nonce
     }
 
-    /// Returns the installation-evidence digest of the exact pending row.
-    pub const fn installation_evidence_digest(&self) -> TenantRootProtocolDigestV1 {
-        self.data.installation_evidence_digest
+    /// Returns the pending target's installation-evidence digest.
+    pub fn pending_installation_evidence_digest(
+        &self,
+    ) -> RouterAbDerivationResult<TenantRootProtocolDigestV1> {
+        match &self.data.target {
+            TenantRootRoleCleanupTargetV1::Pending {
+                installation_evidence_digest,
+                ..
+            } => Ok(*installation_evidence_digest),
+            TenantRootRoleCleanupTargetV1::Retired { .. } => Err(replay_mismatch(
+                "retired cleanup authorization has no pending installation evidence",
+            )),
+        }
     }
 
     /// Returns the authenticated issue timestamp.
@@ -411,6 +473,28 @@ impl VerifiedTenantRootRoleCleanupCommandV1 {
     }
 }
 
+fn operation_for_target(target: &TenantRootRoleCleanupTargetV1) -> &'static str {
+    match target {
+        TenantRootRoleCleanupTargetV1::Pending { .. } => {
+            TENANT_ROOT_ROLE_CLEANUP_COMMAND_OPERATION_V1
+        }
+        TenantRootRoleCleanupTargetV1::Retired { .. } => {
+            TENANT_ROOT_ROLE_CLEANUP_RETIRED_COMMAND_OPERATION_V1
+        }
+    }
+}
+
+fn operation_bytes_for_target(target: &TenantRootRoleCleanupTargetV1) -> &'static [u8] {
+    match target {
+        TenantRootRoleCleanupTargetV1::Pending { .. } => {
+            TENANT_ROOT_ROLE_CLEANUP_PENDING_OPERATION_V1
+        }
+        TenantRootRoleCleanupTargetV1::Retired { .. } => {
+            TENANT_ROOT_ROLE_CLEANUP_RETIRED_OPERATION_V1
+        }
+    }
+}
+
 fn validate_data(data: &TenantRootRoleCleanupCommandDataV1) -> RouterAbDerivationResult<()> {
     validate_unsigned_data(data)?;
     if data.signature.iter().all(|byte| *byte == 0) {
@@ -434,10 +518,28 @@ fn validate_unsigned_data(
             "tenant-root role cleanup command lifetime exceeds the frozen maximum window",
         ));
     }
-    if data.expected_row_revision <= 0 {
-        return Err(malformed(
-            "tenant-root role cleanup command row revision must be positive",
-        ));
+    match &data.target {
+        TenantRootRoleCleanupTargetV1::Pending {
+            expected_row_revision,
+            ..
+        } => {
+            require_positive_revision(*expected_row_revision, "pending row revision")?;
+        }
+        TenantRootRoleCleanupTargetV1::Retired {
+            retired_epoch,
+            expected_retired_revision,
+            expected_active_epoch,
+            expected_active_revision,
+            ..
+        } => {
+            require_positive_revision(*expected_retired_revision, "retired row revision")?;
+            require_positive_revision(*expected_active_revision, "active successor revision")?;
+            if retired_epoch.next()? != *expected_active_epoch {
+                return Err(malformed(
+                    "tenant-root role cleanup command retired and active epochs must be adjacent",
+                ));
+            }
+        }
     }
     require_tenant_root_identifier(
         "tenant-root role cleanup command issuer key id",
@@ -451,29 +553,67 @@ fn validate_unsigned_data(
     Ok(())
 }
 
+fn require_positive_revision(
+    revision: i64,
+    row_kind: &'static str,
+) -> RouterAbDerivationResult<()> {
+    if revision <= 0 {
+        return Err(malformed(format!(
+            "tenant-root role cleanup command {row_kind} must be positive",
+        )));
+    }
+    Ok(())
+}
+
 fn unsigned_canonical_bytes(
     data: &TenantRootRoleCleanupCommandDataV1,
 ) -> RouterAbDerivationResult<Vec<u8>> {
     let mut bytes = Vec::new();
     push_field(&mut bytes, TENANT_ROOT_ROLE_CLEANUP_COMMAND_DOMAIN_V1)?;
-    push_field(&mut bytes, TENANT_ROOT_ROLE_CLEANUP_OPERATION_V1)?;
-    push_field(&mut bytes, data.identity_digest.as_bytes())?;
-    push_field(&mut bytes, data.custody_lineage.as_bytes())?;
-    push_role(&mut bytes, data.role)?;
-    push_field(&mut bytes, &data.epoch.get().get().to_be_bytes())?;
-    push_field(
-        &mut bytes,
-        &(data.expected_row_revision as u64).to_be_bytes(),
-    )?;
-    push_field(&mut bytes, data.session_id.as_bytes())?;
-    push_field(&mut bytes, data.ceremony_nonce.as_bytes())?;
-    push_field(&mut bytes, data.installation_evidence_digest.as_bytes())?;
+    push_field(&mut bytes, operation_bytes_for_target(&data.target))?;
+    push_field(&mut bytes, data.target.identity_digest().as_bytes())?;
+    push_field(&mut bytes, data.target.custody_lineage().as_bytes())?;
+    push_role(&mut bytes, data.target.role())?;
+    match &data.target {
+        TenantRootRoleCleanupTargetV1::Pending {
+            epoch,
+            expected_row_revision,
+            session_id,
+            ceremony_nonce,
+            installation_evidence_digest,
+            ..
+        } => {
+            push_field(&mut bytes, &epoch.get().get().to_be_bytes())?;
+            push_revision(&mut bytes, *expected_row_revision)?;
+            push_field(&mut bytes, session_id.as_bytes())?;
+            push_field(&mut bytes, ceremony_nonce.as_bytes())?;
+            push_field(&mut bytes, installation_evidence_digest.as_bytes())?;
+        }
+        TenantRootRoleCleanupTargetV1::Retired {
+            retired_epoch,
+            expected_retired_revision,
+            expected_active_epoch,
+            expected_active_revision,
+            ..
+        } => {
+            push_field(&mut bytes, &retired_epoch.get().get().to_be_bytes())?;
+            push_revision(&mut bytes, *expected_retired_revision)?;
+            push_field(&mut bytes, &expected_active_epoch.get().get().to_be_bytes())?;
+            push_revision(&mut bytes, *expected_active_revision)?;
+        }
+    }
     push_field(&mut bytes, data.authority_id.as_bytes())?;
     push_field(&mut bytes, data.nonce.as_bytes())?;
     push_field(&mut bytes, &data.issued_at_ms.to_be_bytes())?;
     push_field(&mut bytes, &data.expires_at_ms.to_be_bytes())?;
     push_field(&mut bytes, data.issuer_key_id.as_bytes())?;
     Ok(bytes)
+}
+
+fn push_revision(out: &mut Vec<u8>, revision: i64) -> RouterAbDerivationResult<()> {
+    let revision = u64::try_from(revision)
+        .map_err(|_| malformed("tenant-root role cleanup command row revision is invalid"))?;
+    push_field(out, &revision.to_be_bytes())
 }
 
 fn canonical_bytes_from_unsigned(
@@ -605,6 +745,11 @@ impl<'a> CleanupCommandWireDecoderV1<'a> {
 
     fn u64_field(&mut self, name: &'static str) -> RouterAbDerivationResult<u64> {
         Ok(u64::from_be_bytes(self.fixed_field::<8>(name)?))
+    }
+
+    fn revision_field(&mut self, name: &'static str) -> RouterAbDerivationResult<i64> {
+        i64::try_from(self.u64_field(name)?)
+            .map_err(|_| malformed("tenant-root role cleanup command row revision is out of range"))
     }
 
     fn text_field(
