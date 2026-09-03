@@ -88,15 +88,6 @@ impl StrictDeriverRuntimeV1 {
         }
     }
 
-    fn bootstrap_private_path(&self) -> &'static str {
-        match self {
-            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
-            Self::DeriverA(_) => CLOUDFLARE_DERIVER_A_PRIVATE_REQUEST_PATH,
-            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
-            Self::DeriverB(_) => CLOUDFLARE_DERIVER_B_PRIVATE_REQUEST_PATH,
-        }
-    }
-
     fn registration_private_path(&self) -> &'static str {
         match self {
             #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
@@ -148,38 +139,12 @@ impl StrictDeriverRuntimeV1 {
         }
     }
 
-    async fn preload_host(
-        &self,
-        env: &Env,
-        input: CloudflareSignerHostPreloadInputV1,
-    ) -> RouterAbProtocolResult<CloudflarePreloadedSignerHostV1> {
-        match self {
-            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
-            Self::DeriverA(runtime) => {
-                preload_cloudflare_deriver_a_host_v1(env, runtime, input).await
-            }
-            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
-            Self::DeriverB(runtime) => {
-                preload_cloudflare_deriver_b_host_v1(env, runtime, input).await
-            }
-        }
-    }
-
     fn envelope_decrypt_key(&self) -> &CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1 {
         match self {
             #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
             Self::DeriverA(runtime) => runtime.envelope_decrypt_key(),
             #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
             Self::DeriverB(runtime) => runtime.envelope_decrypt_key(),
-        }
-    }
-
-    fn peer_signing_key(&self) -> &CloudflareSignerPeerSigningKeyBindingV1 {
-        match self {
-            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
-            Self::DeriverA(runtime) => runtime.peer_signing_key(),
-            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
-            Self::DeriverB(runtime) => runtime.peer_signing_key(),
         }
     }
 
@@ -194,9 +159,8 @@ impl StrictDeriverRuntimeV1 {
 
     fn route_error_message(&self) -> String {
         format!(
-            "{} strict Worker route must be served at {}, {}, {}, {}, {}, {}, {}, {}, or {}",
+            "{} strict Worker route must be served at {}, {}, {}, {}, {}, {}, {}, or {}",
             self.label(),
-            self.bootstrap_private_path(),
             self.registration_private_path(),
             self.export_private_path(),
             self.refresh_private_path(),
@@ -607,46 +571,6 @@ async fn handle_strict_deriver_fetch_v1(
         return Response::from_json(&response);
     }
 
-    if path == runtime.bootstrap_private_path() {
-        let bootstrap: CloudflareSignerPrivateBootstrapRequestV1 =
-            match parse_strict_deriver_json_v1(
-                &mut request,
-                format!("Router A/B strict {label} bootstrap"),
-            )
-            .await?
-            {
-                Ok(parsed) => parsed,
-                Err(response) => return Ok(response),
-            };
-        if let Err(err) = bootstrap.validate_for_worker_role(worker_role) {
-            return cloudflare_protocol_error_response_v1(err);
-        }
-        let preloaded = match preload_strict_deriver_request_v1(&env, &runtime, &bootstrap).await {
-            Ok(loaded) => loaded,
-            Err(err) => return cloudflare_protocol_error_response_v1(err),
-        };
-        let message = bootstrap.message;
-        let aad = bootstrap.aad;
-        let router_request_digest = bootstrap.router_request_digest;
-        return match decrypt_and_handle_cloudflare_mpc_prf_recipient_proof_bundle_signer_private_request_v1(
-            &env,
-            worker_role,
-            &preloaded.host,
-            message,
-            runtime.envelope_decrypt_key(),
-            runtime.peer_signing_key(),
-            &aad,
-            router_request_digest,
-            &preloaded.root_share_metadata,
-            now_unix_ms,
-        )
-        .await
-        {
-            Ok(response) => Response::from_json(&response),
-            Err(err) => cloudflare_protocol_error_response_v1(err),
-        };
-    }
-
     Response::error(runtime.route_error_message(), 404)
 }
 
@@ -684,47 +608,6 @@ where
             400,
         )?)),
     }
-}
-
-#[cfg(any(
-    feature = "strict-worker-deriver-a-entrypoint",
-    feature = "strict-worker-deriver-b-entrypoint"
-))]
-async fn preload_strict_deriver_request_v1(
-    env: &Env,
-    runtime: &StrictDeriverRuntimeV1,
-    bootstrap: &CloudflareSignerPrivateBootstrapRequestV1,
-) -> RouterAbProtocolResult<StrictDeriverPreloadedRequestV1> {
-    let (preload_plan, host) = preload_strict_deriver_host_v1(env, runtime, bootstrap).await?;
-    let root_share_metadata = host
-        .root_share_startup_metadata(runtime.protocol_role(), &preload_plan.root_share_epoch)?
-        .clone();
-    Ok(StrictDeriverPreloadedRequestV1 {
-        host,
-        root_share_metadata,
-    })
-}
-
-#[cfg(any(
-    feature = "strict-worker-deriver-a-entrypoint",
-    feature = "strict-worker-deriver-b-entrypoint"
-))]
-async fn preload_strict_deriver_host_v1(
-    env: &Env,
-    runtime: &StrictDeriverRuntimeV1,
-    bootstrap: &CloudflareSignerPrivateBootstrapRequestV1,
-) -> RouterAbProtocolResult<(
-    CloudflareSignerHostPreloadPlanV1,
-    CloudflarePreloadedSignerHostV1,
-)> {
-    let preload_plan = CloudflareSignerHostPreloadPlanV1::from_private_bootstrap(
-        runtime.worker_role(),
-        bootstrap,
-    )?;
-    let verifying_keys = runtime.peer_verifying_keys_for_signer_set(&preload_plan.signer_set)?;
-    let preload_input = preload_plan.to_host_preload_input(Vec::new(), verifying_keys, 0)?;
-    let host = runtime.preload_host(env, preload_input).await?;
-    Ok((preload_plan, host))
 }
 
 #[cfg(any(

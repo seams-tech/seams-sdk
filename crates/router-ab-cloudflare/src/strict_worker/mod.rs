@@ -156,7 +156,6 @@ use crate::{
     feature = "strict-worker-deriver-b-entrypoint"
 ))]
 use crate::{
-    decrypt_and_handle_cloudflare_mpc_prf_recipient_proof_bundle_signer_private_request_v1,
     decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_signer_private_request_v1,
     decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_signer_private_request_v1,
     decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_registration_signer_private_request_v1,
@@ -164,22 +163,19 @@ use crate::{
     CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1,
-    CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1, CloudflareSignerHostPreloadInputV1,
-    CloudflareSignerHostPreloadPlanV1, CloudflareSignerPeerSigningKeyBindingV1,
-    CloudflareSignerPrivateBootstrapRequestV1, CloudflareWorkerRoleV1,
+    CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1, CloudflareSignerHostPreloadPlanV1,
+    CloudflareWorkerRoleV1,
 };
 #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
 use crate::{
     handle_cloudflare_ed25519_yao_deriver_a_burn_pair_v1,
     handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1,
     handle_cloudflare_ed25519_yao_deriver_a_prepare_pair_v1,
-    handle_cloudflare_ed25519_yao_deriver_a_read_pair_status_v1,
-    preload_cloudflare_deriver_a_host_v1, CloudflareDeriverAWorkerRuntimeV1,
+    handle_cloudflare_ed25519_yao_deriver_a_read_pair_status_v1, CloudflareDeriverAWorkerRuntimeV1,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
-    CLOUDFLARE_DERIVER_A_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PRIVATE_REQUEST_PATH,
@@ -189,12 +185,10 @@ use crate::{
     handle_cloudflare_ed25519_yao_deriver_b_burn_pair_v1,
     handle_cloudflare_ed25519_yao_deriver_b_prepare_pair_v1,
     handle_cloudflare_ed25519_yao_deriver_b_read_pair_status_v1,
-    handle_cloudflare_ed25519_yao_deriver_b_websocket_v1, preload_cloudflare_deriver_b_host_v1,
-    CloudflareDeriverBWorkerRuntimeV1, CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
-    CLOUDFLARE_DERIVER_B_ED25519_YAO_DUPLEX_PATH,
+    handle_cloudflare_ed25519_yao_deriver_b_websocket_v1, CloudflareDeriverBWorkerRuntimeV1,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH, CLOUDFLARE_DERIVER_B_ED25519_YAO_DUPLEX_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH,
-    CLOUDFLARE_DERIVER_B_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PRIVATE_REQUEST_PATH,

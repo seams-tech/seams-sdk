@@ -23,11 +23,10 @@ use router_ab_cloudflare::{
     cloudflare_signer_private_bootstrap_from_ecdsa_derivation_registration_v1,
     cloudflare_signer_private_bootstrap_from_public_request_v1,
     decode_and_select_cloudflare_signer_envelope_hpke_decrypt_key_binding_v1,
-    decode_and_validate_cloudflare_root_share_wire_secret_v1,
     decode_and_validate_cloudflare_signer_envelope_hpke_payload_v1,
     decode_and_validate_cloudflare_signer_input_plaintext_v1,
     decode_and_verify_cloudflare_ecdsa_threshold_prf_proof_batch_message_v1,
-    decode_cloudflare_peer_verifying_key_hex_v1, decode_cloudflare_root_share_wire_secret_v1,
+    decode_cloudflare_peer_verifying_key_hex_v1,
     decode_cloudflare_server_output_hpke_private_key_secret_v1,
     decode_cloudflare_signer_envelope_hpke_private_key_secret_v1,
     derive_cloudflare_router_trusted_admission_from_provider_v1,
@@ -71,8 +70,7 @@ use router_ab_cloudflare::{
     CloudflareEd25519YaoNormalSigningHandlerV1, CloudflareEnvMapV1, CloudflarePeerBindingV1,
     CloudflarePreloadedSignerHostV1,
     CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1,
-    CloudflareRootShareStartupMetadataV1, CloudflareRootShareWireSecretBindingV1,
-    CloudflareRouterAbEcdsaDerivationActivationCommandV1,
+    CloudflareRootShareStartupMetadataV1, CloudflareRouterAbEcdsaDerivationActivationCommandV1,
     CloudflareRouterAbEcdsaDerivationActivationRefreshAdmissionResponseV1,
     CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1,
@@ -111,10 +109,10 @@ use router_ab_cloudflare::{
     CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1,
     CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1, CloudflareSignerEnvelopeHpkePublicKeySetV1,
     CloudflareSignerEnvelopeHpkePublicKeyV1, CloudflareSignerEnvelopeHpkeRotationPublicKeySetV1,
-    CloudflareSignerHostPeerPreloadInputV1, CloudflareSignerHostPreloadInputV1,
-    CloudflareSignerHostPreloadPlanV1, CloudflareSignerPeerSigningKeyBindingV1,
-    CloudflareSignerPeerVerifyingKeyBytesV1, CloudflareSignerPeerVerifyingKeySetV1,
-    CloudflareSignerPrivateBootstrapRequestV1, CloudflareSignerRecipientProofBundleResponseV1,
+    CloudflareSignerHostPreloadInputV1, CloudflareSignerHostPreloadPlanV1,
+    CloudflareSignerPeerSigningKeyBindingV1, CloudflareSignerPeerVerifyingKeyBytesV1,
+    CloudflareSignerPeerVerifyingKeySetV1, CloudflareSignerPrivateBootstrapRequestV1,
+    CloudflareSignerRecipientProofBundleResponseV1,
     CloudflareSignerRecipientProofBundleWireHandlerV1, CloudflareSignerWireHandlerV1,
     CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2,
     CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2,
@@ -143,7 +141,6 @@ use router_ab_cloudflare::{
     CloudflareSigningWorkerRuntimeV1, CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
     CloudflareTenantRootCustodyBindingWireV1, CloudflareWorkerBindingsV1, CloudflareWorkerRoleV1,
     EcdsaVerifiedClientActivationFactsV1, PoolRecord, TombstoneReason,
-    CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1,
     CLOUDFLARE_SERVER_OUTPUT_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1,
     CLOUDFLARE_SIGNER_ENVELOPE_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1,
     DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV, DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -151,12 +148,12 @@ use router_ab_cloudflare::{
     DERIVER_A_PEER_SIGNING_KEY_BINDING_ENV, DERIVER_A_PEER_SIGNING_KEY_EPOCH_ENV,
     DERIVER_A_PEER_VERIFYING_KEY_HEX_ENV, DERIVER_A_PREVIOUS_ENVELOPE_HPKE_KEY_EPOCH_ENV,
     DERIVER_A_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
-    DERIVER_A_PREVIOUS_ENVELOPE_HPKE_PUBLIC_KEY_ENV, DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
-    DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH_ENV, DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
-    DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY_ENV, DERIVER_B_PEER_BINDING_ENV,
-    DERIVER_B_PEER_SIGNING_KEY_BINDING_ENV, DERIVER_B_PEER_SIGNING_KEY_EPOCH_ENV,
-    DERIVER_B_PEER_VERIFYING_KEY_HEX_ENV, DERIVER_B_PREVIOUS_ENVELOPE_HPKE_KEY_EPOCH_ENV,
-    DERIVER_B_PREVIOUS_ENVELOPE_HPKE_PUBLIC_KEY_ENV, DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
+    DERIVER_A_PREVIOUS_ENVELOPE_HPKE_PUBLIC_KEY_ENV, DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+    DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV, DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
+    DERIVER_B_PEER_BINDING_ENV, DERIVER_B_PEER_SIGNING_KEY_BINDING_ENV,
+    DERIVER_B_PEER_SIGNING_KEY_EPOCH_ENV, DERIVER_B_PEER_VERIFYING_KEY_HEX_ENV,
+    DERIVER_B_PREVIOUS_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+    DERIVER_B_PREVIOUS_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
     ROUTER_AB_PREVIOUS_ENVELOPE_HPKE_RETIRE_AT_MS_ENV, ROUTER_JWT_AUDIENCE_ENV,
     ROUTER_JWT_ISSUER_ENV, ROUTER_JWT_JWKS_JSON_ENV, ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
     SIGNING_WORKER_PEER_BINDING_ENV, SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING_ENV,
@@ -597,14 +594,6 @@ fn hpke_keypair(seed: u8) -> ([u8; 32], String) {
     (private_key_out, public_key)
 }
 
-fn root_share_wire_secret(role: Role) -> String {
-    format!(
-        "{}{}",
-        CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1,
-        lower_hex(root_share_wire(role).as_bytes())
-    )
-}
-
 fn signer_identity(role: Role) -> SignerIdentityV1 {
     match role {
         Role::SignerA => {
@@ -676,16 +665,6 @@ fn presign_session_binding(binding_name: &str) -> CloudflareSigningWorkerPresign
 
 fn peer(peer_role: CloudflareWorkerRoleV1, binding_name: &str) -> CloudflarePeerBindingV1 {
     CloudflarePeerBindingV1::new(peer_role, binding_name).expect("peer binding")
-}
-
-fn deriver_a_root_share_wire_secret_binding() -> CloudflareRootShareWireSecretBindingV1 {
-    CloudflareRootShareWireSecretBindingV1::new(Role::SignerA, "DERIVER_A_ROOT_SHARE_WIRE_SECRET")
-        .expect("signer a root-share wire secret binding")
-}
-
-fn deriver_b_root_share_wire_secret_binding() -> CloudflareRootShareWireSecretBindingV1 {
-    CloudflareRootShareWireSecretBindingV1::new(Role::SignerB, "DERIVER_B_ROOT_SHARE_WIRE_SECRET")
-        .expect("signer b root-share wire secret binding")
 }
 
 fn root_share_metadata(role: Role) -> CloudflareRootShareStartupMetadataV1 {
@@ -2675,10 +2654,6 @@ fn deriver_a_env() -> CloudflareEnvMapV1 {
             ISSUER_VERIFYING_KEYS_JSON.to_string(),
         ),
         (
-            DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
-            "DERIVER_A_ROOT_SHARE_WIRE_SECRET".to_string(),
-        ),
-        (
             DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
             "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY".to_string(),
         ),
@@ -2715,10 +2690,6 @@ fn deriver_b_env() -> CloudflareEnvMapV1 {
         (
             TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
             ISSUER_VERIFYING_KEYS_JSON.to_string(),
-        ),
-        (
-            DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
-            "DERIVER_B_ROOT_SHARE_WIRE_SECRET".to_string(),
         ),
         (
             DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -5041,10 +5012,8 @@ fn router_public_keyset_builds_from_public_env_only() {
         "PRIVATE_KEY",
         "DERIVER_A_PEER_SIGNING_KEY",
         "DERIVER_B_PEER_SIGNING_KEY",
-        "ROOT_SHARE_WIRE_SECRET",
         "hpke-x25519-private-v1",
         "hpke-x25519-server-output-private-v1",
-        "mpc-prf-root-share-wire-v1",
     ] {
         assert!(
             !json.contains(forbidden),
@@ -7740,49 +7709,6 @@ fn signer_peer_handler_returns_transcript_bound_peer_response() {
 }
 
 #[test]
-fn signer_host_peer_preload_input_accepts_peer_requests() {
-    let input = CloudflareSignerHostPeerPreloadInputV1::new(
-        "signer-set-v1",
-        root_epoch(),
-        vec![signer_peer_message(WireMessageKindV1::SignerAToSignerB)],
-        signer_verifying_keys(),
-        32,
-    )
-    .expect("peer preload input");
-
-    assert_eq!(input.peer_requests.len(), 1);
-    assert_eq!(input.random_bytes_len, 32);
-}
-
-#[test]
-fn signer_host_peer_preload_input_rejects_router_private_message() {
-    let err = CloudflareSignerHostPeerPreloadInputV1::new(
-        "signer-set-v1",
-        root_epoch(),
-        vec![signer_private_request(WireMessageKindV1::RouterToSignerA)],
-        signer_verifying_keys(),
-        0,
-    )
-    .expect_err("router message cannot be preloaded as peer request");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLocalRoute);
-}
-
-#[test]
-fn signer_host_peer_preload_input_rejects_missing_sender_verifying_key() {
-    let err = CloudflareSignerHostPeerPreloadInputV1::new(
-        "signer-set-v1",
-        root_epoch(),
-        vec![signer_peer_message(WireMessageKindV1::SignerAToSignerB)],
-        vec![signer_verifying_key(Role::SignerB)],
-        0,
-    )
-    .expect_err("missing sender verifying key must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MissingLocalBinding);
-}
-
-#[test]
 fn signer_host_preload_input_rejects_wrong_sender_verifying_key() {
     let wrong_key = AbPeerMessageVerifyingKeyV1::new(
         signer_identity(Role::SignerA),
@@ -7849,7 +7775,6 @@ fn router_worker_runtime_rejects_expired_public_request() {
 #[test]
 fn deriver_a_bindings_accept_role_private_secrets() {
     let bindings = CloudflareDeriverABindingsV1::new(
-        deriver_a_root_share_wire_secret_binding(),
         deriver_a_envelope_hpke_decrypt_key(),
         deriver_a_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
@@ -7876,24 +7801,8 @@ fn signing_worker_bindings_accept_presign_session_scope() {
 }
 
 #[test]
-fn deriver_a_bindings_reject_b_root_share_wire_secret() {
-    let err = CloudflareDeriverABindingsV1::new(
-        deriver_b_root_share_wire_secret_binding(),
-        deriver_a_envelope_hpke_decrypt_key(),
-        deriver_a_peer_signing_key(),
-        cloudflare_peer_verifying_key_set(),
-        peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
-        issuer_verifying_keys(),
-    )
-    .expect_err("signer a must reject signer b root-share wire secret");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
-}
-
-#[test]
 fn deriver_a_bindings_reject_b_envelope_decrypt_key() {
     let err = CloudflareDeriverABindingsV1::new(
-        deriver_a_root_share_wire_secret_binding(),
         deriver_b_envelope_hpke_decrypt_key(),
         deriver_a_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
@@ -7908,7 +7817,6 @@ fn deriver_a_bindings_reject_b_envelope_decrypt_key() {
 #[test]
 fn deriver_a_bindings_reject_b_peer_signing_key() {
     let err = CloudflareDeriverABindingsV1::new(
-        deriver_a_root_share_wire_secret_binding(),
         deriver_a_envelope_hpke_decrypt_key(),
         deriver_b_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
@@ -7923,7 +7831,6 @@ fn deriver_a_bindings_reject_b_peer_signing_key() {
 #[test]
 fn deriver_b_bindings_accept_role_private_secrets() {
     let bindings = CloudflareDeriverBBindingsV1::new(
-        deriver_b_root_share_wire_secret_binding(),
         deriver_b_envelope_hpke_decrypt_key(),
         deriver_b_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
@@ -7937,24 +7844,8 @@ fn deriver_b_bindings_accept_role_private_secrets() {
 }
 
 #[test]
-fn deriver_b_bindings_reject_a_root_share_wire_secret() {
-    let err = CloudflareDeriverBBindingsV1::new(
-        deriver_a_root_share_wire_secret_binding(),
-        deriver_b_envelope_hpke_decrypt_key(),
-        deriver_b_peer_signing_key(),
-        cloudflare_peer_verifying_key_set(),
-        peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
-        issuer_verifying_keys(),
-    )
-    .expect_err("signer b must reject signer a root-share wire secret");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
-}
-
-#[test]
 fn deriver_b_bindings_reject_a_envelope_decrypt_key() {
     let err = CloudflareDeriverBBindingsV1::new(
-        deriver_b_root_share_wire_secret_binding(),
         deriver_a_envelope_hpke_decrypt_key(),
         deriver_b_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
@@ -7969,7 +7860,6 @@ fn deriver_b_bindings_reject_a_envelope_decrypt_key() {
 #[test]
 fn deriver_b_bindings_reject_a_peer_signing_key() {
     let err = CloudflareDeriverBBindingsV1::new(
-        deriver_b_root_share_wire_secret_binding(),
         deriver_b_envelope_hpke_decrypt_key(),
         deriver_a_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
@@ -8006,7 +7896,6 @@ fn cloudflare_peer_verifying_key_hex_rejects_uppercase() {
 fn deriver_a_runtime_exposes_role_private_secrets_and_peer() {
     let runtime = CloudflareDeriverAWorkerRuntimeV1::new(
         CloudflareDeriverABindingsV1::new(
-            deriver_a_root_share_wire_secret_binding(),
             deriver_a_envelope_hpke_decrypt_key(),
             deriver_a_peer_signing_key(),
             cloudflare_peer_verifying_key_set(),
@@ -8020,7 +7909,6 @@ fn deriver_a_runtime_exposes_role_private_secrets_and_peer() {
         runtime.deriver_b_peer().peer_role,
         CloudflareWorkerRoleV1::DeriverB
     );
-    assert_eq!(runtime.root_share_wire_secret().role, Role::SignerA);
     assert_eq!(runtime.envelope_decrypt_key().current.role, Role::SignerA);
     assert_eq!(runtime.peer_signing_key().role, Role::SignerA);
     assert_eq!(
@@ -8055,7 +7943,6 @@ fn signing_worker_runtime_retains_only_ephemeral_presign_session_do() {
 fn deriver_b_runtime_exposes_role_private_secrets_and_peer() {
     let runtime = CloudflareDeriverBWorkerRuntimeV1::new(
         CloudflareDeriverBBindingsV1::new(
-            deriver_b_root_share_wire_secret_binding(),
             deriver_b_envelope_hpke_decrypt_key(),
             deriver_b_peer_signing_key(),
             cloudflare_peer_verifying_key_set(),
@@ -8069,7 +7956,6 @@ fn deriver_b_runtime_exposes_role_private_secrets_and_peer() {
         runtime.deriver_a_peer().peer_role,
         CloudflareWorkerRoleV1::DeriverA
     );
-    assert_eq!(runtime.root_share_wire_secret().role, Role::SignerB);
     assert_eq!(runtime.envelope_decrypt_key().current.role, Role::SignerB);
     assert_eq!(runtime.peer_signing_key().role, Role::SignerB);
     assert_eq!(
@@ -8858,144 +8744,6 @@ fn preloaded_signer_host_exposes_role_local_root_share_wire() {
 }
 
 #[test]
-fn root_share_wire_secret_decoder_builds_preloaded_record() {
-    let metadata = root_share_metadata(Role::SignerA);
-    let decoded = decode_cloudflare_root_share_wire_secret_v1(
-        &metadata,
-        &root_share_wire_secret(Role::SignerA),
-    )
-    .expect("decoded root-share wire");
-
-    assert_eq!(decoded.signer_role, Role::SignerA);
-    assert_eq!(decoded.root_share_epoch, root_epoch());
-    let actual_share_wire = decoded.signing_root_share_wire();
-    let expected_share_wire = root_share_wire(Role::SignerA);
-    assert_eq!(actual_share_wire.share_id(), expected_share_wire.share_id());
-    assert_eq!(actual_share_wire.as_bytes(), expected_share_wire.as_bytes());
-
-    let host = CloudflarePreloadedSignerHostV1::new_with_root_share_wires(
-        1_000,
-        vec![metadata],
-        vec![decoded],
-        Vec::new(),
-        signer_verifying_keys(),
-        Vec::new(),
-    )
-    .expect("host with decoded root-share wire");
-
-    let actual_share_wire = host
-        .signing_root_share_wire(Role::SignerA, &root_epoch())
-        .expect("root-share wire");
-    let expected_share_wire = root_share_wire(Role::SignerA);
-    assert_eq!(actual_share_wire.share_id(), expected_share_wire.share_id());
-    assert_eq!(actual_share_wire.as_bytes(), expected_share_wire.as_bytes());
-}
-
-#[test]
-fn root_share_wire_secret_decoder_rejects_share_id_for_other_deriver() {
-    let secret = format!(
-        "{}{}",
-        CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1,
-        lower_hex(root_share_wire(Role::SignerB).as_bytes())
-    );
-    let err =
-        decode_cloudflare_root_share_wire_secret_v1(&root_share_metadata(Role::SignerA), &secret)
-            .expect_err("Deriver A must reject the Deriver B share id");
-
-    assert_eq!(
-        err.code(),
-        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
-    );
-}
-
-#[test]
-fn root_share_wire_secret_binding_decoder_accepts_visible_binding() {
-    let decoded = decode_and_validate_cloudflare_root_share_wire_secret_v1(
-        CloudflareWorkerRoleV1::DeriverA,
-        &deriver_a_root_share_wire_secret_binding(),
-        &root_share_metadata(Role::SignerA),
-        &root_share_wire_secret(Role::SignerA),
-    )
-    .expect("binding-aware root-share wire decoder");
-
-    assert_eq!(decoded.signer_role, Role::SignerA);
-    let actual_share_wire = decoded.signing_root_share_wire();
-    let expected_share_wire = root_share_wire(Role::SignerA);
-    assert_eq!(actual_share_wire.share_id(), expected_share_wire.share_id());
-    assert_eq!(actual_share_wire.as_bytes(), expected_share_wire.as_bytes());
-}
-
-#[test]
-fn root_share_wire_secret_binding_decoder_rejects_cross_role_binding() {
-    let err = decode_and_validate_cloudflare_root_share_wire_secret_v1(
-        CloudflareWorkerRoleV1::DeriverA,
-        &deriver_b_root_share_wire_secret_binding(),
-        &root_share_metadata(Role::SignerB),
-        &root_share_wire_secret(Role::SignerB),
-    )
-    .expect_err("signer a cannot decode signer b root-share wire secret");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
-}
-
-#[test]
-fn root_share_wire_secret_binding_decoder_rejects_metadata_role_mismatch() {
-    let err = decode_and_validate_cloudflare_root_share_wire_secret_v1(
-        CloudflareWorkerRoleV1::DeriverA,
-        &deriver_a_root_share_wire_secret_binding(),
-        &root_share_metadata(Role::SignerB),
-        &root_share_wire_secret(Role::SignerA),
-    )
-    .expect_err("binding role must match root-share metadata role");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidRole);
-}
-
-#[test]
-fn root_share_wire_secret_decoder_rejects_wrong_prefix() {
-    let err = decode_cloudflare_root_share_wire_secret_v1(
-        &root_share_metadata(Role::SignerA),
-        "raw:0102",
-    )
-    .expect_err("wrong prefix must fail");
-
-    assert_eq!(
-        err.code(),
-        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
-    );
-}
-
-#[test]
-fn root_share_wire_secret_decoder_rejects_uppercase_hex() {
-    let secret = format!(
-        "{}{}",
-        CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1,
-        lower_hex(root_share_wire(Role::SignerA).as_bytes()).to_uppercase()
-    );
-    let err =
-        decode_cloudflare_root_share_wire_secret_v1(&root_share_metadata(Role::SignerA), &secret)
-            .expect_err("uppercase encoding must fail");
-
-    assert_eq!(
-        err.code(),
-        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
-    );
-}
-
-#[test]
-fn root_share_wire_secret_decoder_rejects_wrong_length() {
-    let secret = format!("{}00", CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1);
-    let err =
-        decode_cloudflare_root_share_wire_secret_v1(&root_share_metadata(Role::SignerA), &secret)
-            .expect_err("short root-share wire must fail");
-
-    assert_eq!(
-        err.code(),
-        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
-    );
-}
-
-#[test]
 fn preloaded_signer_host_rejects_metadata_mismatch() {
     let input = CloudflareSignerHostPreloadInputV1::new(
         "signer-set-v1",
@@ -9156,11 +8904,6 @@ fn env_parser_builds_deriver_a_bindings_from_required_keys() {
     let bindings = parse_cloudflare_deriver_a_bindings_v1(&deriver_a_env()).expect("signer a env");
 
     assert_eq!(
-        bindings.root_share_wire_secret.binding_name,
-        "DERIVER_A_ROOT_SHARE_WIRE_SECRET"
-    );
-    assert_eq!(bindings.root_share_wire_secret.role, Role::SignerA);
-    assert_eq!(
         bindings.envelope_decrypt_key.current.binding_name,
         "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY"
     );
@@ -9215,11 +8958,6 @@ fn env_parser_builds_deriver_b_bindings_from_required_keys() {
         CloudflareWorkerRoleV1::DeriverA
     );
     assert_eq!(
-        bindings.root_share_wire_secret.binding_name,
-        "DERIVER_B_ROOT_SHARE_WIRE_SECRET"
-    );
-    assert_eq!(bindings.root_share_wire_secret.role, Role::SignerB);
-    assert_eq!(
         bindings.envelope_decrypt_key.current.binding_name,
         "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY"
     );
@@ -9272,19 +9010,6 @@ fn env_parser_rejects_router_with_signer_peer_signing_key_binding() {
 }
 
 #[test]
-fn env_parser_rejects_router_with_signer_root_share_wire_secret_binding() {
-    let env = CloudflareEnvMapV1::new(vec![(
-        DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
-        "DERIVER_A_ROOT_SHARE_WIRE_SECRET",
-    )]);
-
-    let err = parse_cloudflare_worker_bindings_v1(CloudflareWorkerRoleV1::Router, &env)
-        .expect_err("router must reject signer root-share wire secret env");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
-}
-
-#[test]
 fn env_parser_rejects_deriver_a_with_deriver_b_envelope_hpke_private_key_binding() {
     let env = CloudflareEnvMapV1::new(vec![(
         DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -9311,19 +9036,6 @@ fn env_parser_rejects_deriver_a_with_deriver_b_peer_signing_key_binding() {
 }
 
 #[test]
-fn env_parser_rejects_deriver_a_with_deriver_b_root_share_wire_secret_binding() {
-    let env = CloudflareEnvMapV1::new(vec![(
-        DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
-        "DERIVER_B_ROOT_SHARE_WIRE_SECRET",
-    )]);
-
-    let err = parse_cloudflare_worker_bindings_v1(CloudflareWorkerRoleV1::DeriverA, &env)
-        .expect_err("signer a must reject signer b root-share wire secret env");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
-}
-
-#[test]
 fn env_parser_rejects_deriver_b_with_deriver_a_envelope_hpke_private_key_binding() {
     let env = CloudflareEnvMapV1::new(vec![(
         DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -9345,19 +9057,6 @@ fn env_parser_rejects_deriver_b_with_deriver_a_peer_signing_key_binding() {
 
     let err = parse_cloudflare_worker_bindings_v1(CloudflareWorkerRoleV1::DeriverB, &env)
         .expect_err("signer b must reject signer a peer signing key env");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
-}
-
-#[test]
-fn env_parser_rejects_deriver_b_with_deriver_a_root_share_wire_secret_binding() {
-    let env = CloudflareEnvMapV1::new(vec![(
-        DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
-        "DERIVER_A_ROOT_SHARE_WIRE_SECRET",
-    )]);
-
-    let err = parse_cloudflare_worker_bindings_v1(CloudflareWorkerRoleV1::DeriverB, &env)
-        .expect_err("signer b must reject signer a root-share wire secret env");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
 }
@@ -9523,14 +9222,6 @@ fn issuer_signing_secret_is_accepted_only_by_the_control_plane_worker() {
 fn control_plane_rejects_every_scalar_and_router_auth_config() {
     for (key, value) in [
         // Deriver scalar and Secret material.
-        (
-            DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
-            "DERIVER_A_ROOT_SHARE_WIRE_SECRET",
-        ),
-        (
-            DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
-            "DERIVER_B_ROOT_SHARE_WIRE_SECRET",
-        ),
         (
             DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
             "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY",
