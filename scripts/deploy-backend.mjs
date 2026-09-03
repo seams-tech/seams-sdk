@@ -1215,7 +1215,6 @@ function deployDeriver(lane, role) {
   const resource = role === 'a' ? lane.resources.deriverA : lane.resources.deriverB;
   const prefix = role === 'a' ? 'DERIVER_A' : 'DERIVER_B';
   putWorkerSecret(resource, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
-  putWorkerSecret(resource, `${prefix}_ROOT_SHARE_WIRE_SECRET`);
   putWorkerSecret(resource, `${prefix}_ENVELOPE_HPKE_PRIVATE_KEY`);
   putWorkerSecret(resource, `${prefix}_PEER_SIGNING_KEY`);
   putWorkerSecret(resource, `${prefix}_ROLE_PRIVATE_D1_KEK`);
