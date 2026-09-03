@@ -32,6 +32,11 @@ pub const ED25519_YAO_OUTER_TARGET_PROOF_MAX_BYTES_V2: usize = 4 * 1024;
 
 const HPKE_ENCAPSULATED_KEY_LEN_V2: usize = 32;
 const HPKE_TAG_LEN_V2: usize = 16;
+const TARGET_PROOF_WIRE_MAGIC_V2: &[u8; 8] = b"R120PRF2";
+const TARGET_PROOF_WIRE_VERSION_V2: u8 = 2;
+const TARGET_PROOF_ROLE_A_V2: u8 = 1;
+const TARGET_PROOF_ROLE_B_V2: u8 = 2;
+const TARGET_PROOF_AAD_LEN_V2: usize = 139;
 
 /// Wire version for the role-targeted Ed25519 outer protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,6 +253,13 @@ pub struct Ed25519YaoDeriverAToBTargetProofPayloadV2 {
 }
 
 impl Ed25519YaoDeriverAToBTargetProofPayloadV2 {
+    /// Encodes the exact A-to-B HPKE associated data.
+    pub fn aad_for_binding(
+        binding: &Ed25519YaoOuterBindingV2,
+    ) -> RouterAbProtocolResult<[u8; TARGET_PROOF_AAD_LEN_V2]> {
+        encode_target_proof_aad_v2(binding, TARGET_PROOF_ROLE_A_V2, TARGET_PROOF_ROLE_B_V2)
+    }
+
     /// Creates a validated encrypted A-to-B target-proof payload.
     pub fn new(
         binding: Ed25519YaoOuterBindingV2,
@@ -317,6 +329,27 @@ impl Ed25519YaoDeriverAToBTargetProofPayloadV2 {
     pub fn ciphertext(&self) -> &[u8] {
         &self.ciphertext
     }
+
+    /// Encodes the fixed binary A-to-B transport frame.
+    pub fn encode_fixed_wire(&self) -> RouterAbProtocolResult<Vec<u8>> {
+        self.validate()?;
+        encode_target_proof_wire_v2(
+            Self::aad_for_binding(&self.binding)?,
+            &self.encapsulated_key,
+            &self.ciphertext,
+        )
+    }
+
+    /// Decodes one exact fixed binary A-to-B transport frame.
+    pub fn decode_fixed_wire(bytes: &[u8]) -> RouterAbProtocolResult<Self> {
+        let (binding, encapsulated_key, ciphertext) = decode_target_proof_wire_v2(
+            bytes,
+            TARGET_PROOF_ROLE_A_V2,
+            TARGET_PROOF_ROLE_B_V2,
+            Ed25519DeriverAToBTargetProofBundleV1::LEN + HPKE_TAG_LEN_V2,
+        )?;
+        Self::new(binding, encapsulated_key, ciphertext)
+    }
 }
 
 #[derive(Deserialize)]
@@ -347,6 +380,13 @@ pub struct Ed25519YaoDeriverBToATargetProofPayloadV2 {
 }
 
 impl Ed25519YaoDeriverBToATargetProofPayloadV2 {
+    /// Encodes the exact B-to-A HPKE associated data.
+    pub fn aad_for_binding(
+        binding: &Ed25519YaoOuterBindingV2,
+    ) -> RouterAbProtocolResult<[u8; TARGET_PROOF_AAD_LEN_V2]> {
+        encode_target_proof_aad_v2(binding, TARGET_PROOF_ROLE_B_V2, TARGET_PROOF_ROLE_A_V2)
+    }
+
     /// Creates a validated encrypted B-to-A target-proof payload.
     pub fn new(
         binding: Ed25519YaoOuterBindingV2,
@@ -415,6 +455,27 @@ impl Ed25519YaoDeriverBToATargetProofPayloadV2 {
     /// Returns the encrypted target proof.
     pub fn ciphertext(&self) -> &[u8] {
         &self.ciphertext
+    }
+
+    /// Encodes the fixed binary B-to-A transport frame.
+    pub fn encode_fixed_wire(&self) -> RouterAbProtocolResult<Vec<u8>> {
+        self.validate()?;
+        encode_target_proof_wire_v2(
+            Self::aad_for_binding(&self.binding)?,
+            &self.encapsulated_key,
+            &self.ciphertext,
+        )
+    }
+
+    /// Decodes one exact fixed binary B-to-A transport frame.
+    pub fn decode_fixed_wire(bytes: &[u8]) -> RouterAbProtocolResult<Self> {
+        let (binding, encapsulated_key, ciphertext) = decode_target_proof_wire_v2(
+            bytes,
+            TARGET_PROOF_ROLE_B_V2,
+            TARGET_PROOF_ROLE_A_V2,
+            Ed25519DeriverBToATargetProofBundleV1::LEN + HPKE_TAG_LEN_V2,
+        )?;
+        Self::new(binding, encapsulated_key, ciphertext)
     }
 }
 
@@ -841,6 +902,134 @@ impl Ed25519YaoPrefaceStateV2 {
             Self::Burned { session, .. } => *session,
         }
     }
+}
+
+fn encode_target_proof_aad_v2(
+    binding: &Ed25519YaoOuterBindingV2,
+    source: u8,
+    target: u8,
+) -> RouterAbProtocolResult<[u8; TARGET_PROOF_AAD_LEN_V2]> {
+    binding.validate()?;
+    if source == target
+        || !matches!(source, TARGET_PROOF_ROLE_A_V2 | TARGET_PROOF_ROLE_B_V2)
+        || !matches!(target, TARGET_PROOF_ROLE_A_V2 | TARGET_PROOF_ROLE_B_V2)
+    {
+        return Err(malformed(
+            "Ed25519 Yao V2 target-proof direction is invalid",
+        ));
+    }
+    let mut aad = [0_u8; TARGET_PROOF_AAD_LEN_V2];
+    aad[..8].copy_from_slice(TARGET_PROOF_WIRE_MAGIC_V2);
+    aad[8] = TARGET_PROOF_WIRE_VERSION_V2;
+    aad[9] = source;
+    aad[10] = target;
+    aad[11..43].copy_from_slice(binding.pair_session().as_bytes());
+    aad[43..75].copy_from_slice(&binding.stable_context_binding().into_bytes());
+    aad[75..107].copy_from_slice(binding.custody_binding_digest().as_bytes());
+    aad[107..123].copy_from_slice(binding.nonce());
+    aad[123..131].copy_from_slice(&binding.issued_at_ms().to_be_bytes());
+    aad[131..139].copy_from_slice(&binding.expires_at_ms().to_be_bytes());
+    Ok(aad)
+}
+
+fn decode_target_proof_aad_v2(
+    aad: &[u8],
+    expected_source: u8,
+    expected_target: u8,
+) -> RouterAbProtocolResult<Ed25519YaoOuterBindingV2> {
+    if aad.len() != TARGET_PROOF_AAD_LEN_V2
+        || &aad[..8] != TARGET_PROOF_WIRE_MAGIC_V2
+        || aad[8] != TARGET_PROOF_WIRE_VERSION_V2
+        || aad[9] != expected_source
+        || aad[10] != expected_target
+    {
+        return Err(malformed("Ed25519 Yao V2 target-proof header is invalid"));
+    }
+    let pair_session = Ed25519YaoPairSessionIdV2::new(
+        aad[11..43]
+            .try_into()
+            .map_err(|_| malformed("Ed25519 Yao V2 target-proof session is invalid"))?,
+    )?;
+    let stable_context_binding = Ed25519YaoStableKeyContextBindingV1::new(
+        aad[43..75]
+            .try_into()
+            .map_err(|_| malformed("Ed25519 Yao V2 target-proof context is invalid"))?,
+    );
+    let custody_binding_digest = PublicDigest32::new(
+        aad[75..107]
+            .try_into()
+            .map_err(|_| malformed("Ed25519 Yao V2 target-proof custody is invalid"))?,
+    );
+    let nonce = aad[107..123]
+        .try_into()
+        .map_err(|_| malformed("Ed25519 Yao V2 target-proof nonce is invalid"))?;
+    let issued_at_ms = u64::from_be_bytes(
+        aad[123..131]
+            .try_into()
+            .map_err(|_| malformed("Ed25519 Yao V2 target-proof issue time is invalid"))?,
+    );
+    let expires_at_ms = u64::from_be_bytes(
+        aad[131..139]
+            .try_into()
+            .map_err(|_| malformed("Ed25519 Yao V2 target-proof expiry is invalid"))?,
+    );
+    Ed25519YaoOuterBindingV2::new(
+        pair_session,
+        stable_context_binding,
+        custody_binding_digest,
+        nonce,
+        issued_at_ms,
+        expires_at_ms,
+    )
+}
+
+fn encode_target_proof_wire_v2(
+    aad: [u8; TARGET_PROOF_AAD_LEN_V2],
+    encapsulated_key: &[u8; HPKE_ENCAPSULATED_KEY_LEN_V2],
+    ciphertext: &[u8],
+) -> RouterAbProtocolResult<Vec<u8>> {
+    if ciphertext.is_empty() || ciphertext.len() > ED25519_YAO_OUTER_TARGET_PROOF_MAX_BYTES_V2 {
+        return Err(malformed(
+            "Ed25519 Yao V2 target-proof ciphertext length is invalid",
+        ));
+    }
+    let mut wire = Vec::with_capacity(aad.len() + encapsulated_key.len() + ciphertext.len());
+    wire.extend_from_slice(&aad);
+    wire.extend_from_slice(encapsulated_key);
+    wire.extend_from_slice(ciphertext);
+    Ok(wire)
+}
+
+fn decode_target_proof_wire_v2(
+    bytes: &[u8],
+    expected_source: u8,
+    expected_target: u8,
+    expected_ciphertext_len: usize,
+) -> RouterAbProtocolResult<(Ed25519YaoOuterBindingV2, [u8; 32], Vec<u8>)> {
+    let expected_len = TARGET_PROOF_AAD_LEN_V2
+        .checked_add(HPKE_ENCAPSULATED_KEY_LEN_V2)
+        .and_then(|length| length.checked_add(expected_ciphertext_len))
+        .ok_or_else(|| malformed("Ed25519 Yao V2 target-proof length overflow"))?;
+    if bytes.len() != expected_len {
+        return Err(malformed(
+            "Ed25519 Yao V2 target-proof wire length is invalid",
+        ));
+    }
+    let binding = decode_target_proof_aad_v2(
+        &bytes[..TARGET_PROOF_AAD_LEN_V2],
+        expected_source,
+        expected_target,
+    )?;
+    let key_start = TARGET_PROOF_AAD_LEN_V2;
+    let ciphertext_start = key_start + HPKE_ENCAPSULATED_KEY_LEN_V2;
+    let encapsulated_key = bytes[key_start..ciphertext_start]
+        .try_into()
+        .map_err(|_| malformed("Ed25519 Yao V2 target-proof key is invalid"))?;
+    Ok((
+        binding,
+        encapsulated_key,
+        bytes[ciphertext_start..].to_vec(),
+    ))
 }
 
 fn validate_yao_input(

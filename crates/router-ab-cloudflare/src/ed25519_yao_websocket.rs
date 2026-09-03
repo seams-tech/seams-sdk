@@ -11,7 +11,9 @@ use zeroize::Zeroizing;
 
 use crate::set_cloudflare_internal_service_auth_header_v1;
 use router_ab_core::{
+    Ed25519YaoDeriverAToBTargetProofPayloadV2, Ed25519YaoDeriverBToATargetProofPayloadV2,
     Ed25519YaoExecutionIdV1, Ed25519YaoRoleReadinessReceiptV1, Ed25519YaoRoleStartAcceptanceV1,
+    ED25519_YAO_OUTER_TARGET_PROOF_MAX_BYTES_V2,
 };
 
 const DERIVER_B_BINDING: &str = "DERIVER_B";
@@ -256,12 +258,20 @@ pub struct CloudflareEd25519YaoWebSocketTransportV1<'socket> {
     encoder: Option<DirectionalWireEncoder>,
     decoder: Option<DirectionalWireDecoder>,
     side: CloudflareEd25519YaoWebSocketSideV1,
+    phase: CloudflareEd25519YaoWebSocketPhaseV1,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CloudflareEd25519YaoWebSocketSideV1 {
     DeriverA,
     DeriverB,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CloudflareEd25519YaoWebSocketPhaseV1 {
+    Initial,
+    PrefaceComplete,
+    YaoStarted,
 }
 
 impl<'socket> CloudflareEd25519YaoWebSocketTransportV1<'socket> {
@@ -321,7 +331,70 @@ impl<'socket> CloudflareEd25519YaoWebSocketTransportV1<'socket> {
                     .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::Envelope)?,
             ),
             side,
+            phase: CloudflareEd25519YaoWebSocketPhaseV1::Initial,
         })
+    }
+
+    /// Sends A's encrypted target proof and receives B's proof before Yao starts.
+    pub async fn exchange_deriver_a_target_proof_preface_v2(
+        &mut self,
+        payload: &Ed25519YaoDeriverAToBTargetProofPayloadV2,
+    ) -> Result<Ed25519YaoDeriverBToATargetProofPayloadV2, CloudflareEd25519YaoWebSocketErrorV1>
+    {
+        if self.side != CloudflareEd25519YaoWebSocketSideV1::DeriverA
+            || self.phase != CloudflareEd25519YaoWebSocketPhaseV1::Initial
+        {
+            return Err(CloudflareEd25519YaoWebSocketErrorV1::InvalidState);
+        }
+        let wire = Zeroizing::new(
+            payload
+                .encode_fixed_wire()
+                .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::Envelope)?,
+        );
+        validate_preface_wire(&wire)?;
+        let peer_wire = self.send_preface_and_receive_peer(&wire).await?;
+        let peer_payload = Ed25519YaoDeriverBToATargetProofPayloadV2::decode_fixed_wire(&peer_wire)
+            .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::Envelope)?;
+        self.phase = CloudflareEd25519YaoWebSocketPhaseV1::PrefaceComplete;
+        Ok(peer_payload)
+    }
+
+    /// Sends B's encrypted target proof and receives A's proof before Yao starts.
+    pub async fn exchange_deriver_b_target_proof_preface_v2(
+        &mut self,
+        payload: &Ed25519YaoDeriverBToATargetProofPayloadV2,
+    ) -> Result<Ed25519YaoDeriverAToBTargetProofPayloadV2, CloudflareEd25519YaoWebSocketErrorV1>
+    {
+        if self.side != CloudflareEd25519YaoWebSocketSideV1::DeriverB
+            || self.phase != CloudflareEd25519YaoWebSocketPhaseV1::Initial
+        {
+            return Err(CloudflareEd25519YaoWebSocketErrorV1::InvalidState);
+        }
+        let wire = Zeroizing::new(
+            payload
+                .encode_fixed_wire()
+                .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::Envelope)?,
+        );
+        validate_preface_wire(&wire)?;
+        let peer_wire = self.send_preface_and_receive_peer(&wire).await?;
+        let peer_payload = Ed25519YaoDeriverAToBTargetProofPayloadV2::decode_fixed_wire(&peer_wire)
+            .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::Envelope)?;
+        self.phase = CloudflareEd25519YaoWebSocketPhaseV1::PrefaceComplete;
+        Ok(peer_payload)
+    }
+
+    async fn send_preface_and_receive_peer(
+        &mut self,
+        wire: &[u8],
+    ) -> Result<Zeroizing<Vec<u8>>, CloudflareEd25519YaoWebSocketErrorV1> {
+        self.socket
+            .send_with_bytes(wire)
+            .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::WebSocketEvent)?;
+        read_preface_wire(&mut self.events).await
+    }
+
+    fn mark_yao_started(&mut self) {
+        self.phase = CloudflareEd25519YaoWebSocketPhaseV1::YaoStarted;
     }
 
     /// Delivers B's durably committed sealed result before closing the socket.
@@ -404,6 +477,7 @@ impl YaoDuplexTransport for CloudflareEd25519YaoWebSocketTransportV1<'_> {
     type Completion = CloudflareEd25519YaoWebSocketCompletionV1;
 
     async fn send(&mut self, message: WireMessage) -> Result<Option<YaoInboundEvent>, Self::Error> {
+        self.mark_yao_started();
         let envelope = Zeroizing::new(
             self.encoder
                 .as_mut()
@@ -418,6 +492,7 @@ impl YaoDuplexTransport for CloudflareEd25519YaoWebSocketTransportV1<'_> {
     }
 
     async fn receive(&mut self) -> Result<YaoInboundEvent, Self::Error> {
+        self.mark_yao_started();
         match self.events.next().await {
             Some(Ok(WebsocketEvent::Message(message))) => {
                 let data = message.as_ref().data();
@@ -442,6 +517,7 @@ impl YaoDuplexTransport for CloudflareEd25519YaoWebSocketTransportV1<'_> {
     async fn close_local_direction(
         &mut self,
     ) -> Result<(DirectionalEofEvidence, Option<YaoInboundEvent>), Self::Error> {
+        self.mark_yao_started();
         let evidence = self
             .encoder
             .take()
@@ -470,6 +546,34 @@ impl YaoDuplexTransport for CloudflareEd25519YaoWebSocketTransportV1<'_> {
             peer_sealed_completion,
         })
     }
+}
+
+fn validate_preface_wire(wire: &[u8]) -> Result<(), CloudflareEd25519YaoWebSocketErrorV1> {
+    if wire.is_empty() || wire.len() > ED25519_YAO_OUTER_TARGET_PROOF_MAX_BYTES_V2 {
+        return Err(CloudflareEd25519YaoWebSocketErrorV1::Envelope);
+    }
+    Ok(())
+}
+
+async fn read_preface_wire(
+    events: &mut EventStream<'_>,
+) -> Result<Zeroizing<Vec<u8>>, CloudflareEd25519YaoWebSocketErrorV1> {
+    let Some(Ok(WebsocketEvent::Message(message))) = events.next().await else {
+        return Err(CloudflareEd25519YaoWebSocketErrorV1::WebSocketEvent);
+    };
+    let data = message.as_ref().data();
+    if !data.is_object() {
+        return Err(CloudflareEd25519YaoWebSocketErrorV1::WebSocketEvent);
+    }
+    let array = worker::js_sys::Uint8Array::new(&data);
+    let frame_len = array.length() as usize;
+    if frame_len == 0 || frame_len > ED25519_YAO_OUTER_TARGET_PROOF_MAX_BYTES_V2 {
+        return Err(CloudflareEd25519YaoWebSocketErrorV1::Envelope);
+    }
+    let mut frame = Zeroizing::new(vec![0_u8; frame_len]);
+    array.copy_to(frame.as_mut_slice());
+    array.fill(0, 0, array.length());
+    Ok(frame)
 }
 
 async fn read_sealed_completion(

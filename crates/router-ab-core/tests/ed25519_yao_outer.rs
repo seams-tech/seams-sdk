@@ -123,6 +123,44 @@ fn outer_binding_is_epoch_bound_and_directional_payloads_are_fixed() {
 }
 
 #[test]
+fn directional_payload_fixed_wires_round_trip_and_reject_role_swaps() {
+    let binding = outer_binding();
+    let a_to_b = Ed25519YaoDeriverAToBTargetProofPayloadV2::new(
+        binding,
+        [5; 32],
+        vec![6; threshold_prf::Ed25519DeriverAToBTargetProofBundleV1::LEN + 16],
+    )
+    .expect("A-to-B payload");
+    let b_to_a = Ed25519YaoDeriverBToATargetProofPayloadV2::new(
+        binding,
+        [7; 32],
+        vec![8; threshold_prf::Ed25519DeriverBToATargetProofBundleV1::LEN + 16],
+    )
+    .expect("B-to-A payload");
+
+    let a_wire = a_to_b.encode_fixed_wire().expect("A-to-B wire");
+    let b_wire = b_to_a.encode_fixed_wire().expect("B-to-A wire");
+    assert_eq!(
+        Ed25519YaoDeriverAToBTargetProofPayloadV2::decode_fixed_wire(&a_wire)
+            .expect("A-to-B decode"),
+        a_to_b
+    );
+    assert_eq!(
+        Ed25519YaoDeriverBToATargetProofPayloadV2::decode_fixed_wire(&b_wire)
+            .expect("B-to-A decode"),
+        b_to_a
+    );
+    assert!(Ed25519YaoDeriverBToATargetProofPayloadV2::decode_fixed_wire(&a_wire).is_err());
+    assert!(Ed25519YaoDeriverAToBTargetProofPayloadV2::decode_fixed_wire(&b_wire).is_err());
+
+    let mut changed_binding = a_wire;
+    changed_binding[0] ^= 1;
+    assert!(
+        Ed25519YaoDeriverAToBTargetProofPayloadV2::decode_fixed_wire(&changed_binding).is_err()
+    );
+}
+
+#[test]
 fn preface_state_completes_only_the_local_target() {
     let mut setup_rng = seeded_rng(1);
     let root = generate_signing_root(&mut setup_rng);
