@@ -35,7 +35,7 @@ use router_ab_core::{
     RouterAbEd25519YaoExportResultV1, RouterAbEd25519YaoLaneDispatchRequestV1,
     RouterAbEd25519YaoLaneDispatchResponseV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
     RouterAbProtocolResult, RouterEd25519YaoExecuteRequestV1, RouterEd25519YaoExecuteResultV1,
-    RouterEd25519YaoExecuteSuccessV1, RouterEd25519YaoGatewayExecuteRequestV1,
+    RouterEd25519YaoExecuteSuccessV1, RouterEd25519YaoGatewayExecuteTargetV2,
 };
 use router_ab_ed25519_yao::{
     commit_ed25519_yao_lane_result_v1, lane_protocol_commit_receipt_v1,
@@ -61,7 +61,7 @@ pub struct CloudflareRouterEd25519YaoExecuteRequestV2 {
     pub tenant_root: CloudflareTenantRootCoordinatesV1,
     pub application: RouterAbEd25519YaoApplicationBindingFactsV1,
     pub participant_ids: [u16; 2],
-    pub target: RouterEd25519YaoGatewayExecuteRequestV1,
+    pub target: RouterEd25519YaoGatewayExecuteTargetV2,
 }
 
 impl CloudflareRouterEd25519YaoExecuteRequestV2 {
@@ -2265,7 +2265,7 @@ mod tests {
 
     fn gateway_registration(
         binding: Ed25519YaoCeremonyBindingV1,
-    ) -> RouterEd25519YaoGatewayExecuteRequestV1 {
+    ) -> RouterEd25519YaoGatewayExecuteTargetV2 {
         let session = binding.session_id.into_bytes();
         let stable = binding.stable_key_context_binding.into_bytes();
         let input_a = Ed25519YaoEncryptedInputV1::new(
@@ -2288,12 +2288,12 @@ mod tests {
             vec![8; 16],
         )
         .expect("deriver B input");
-        RouterEd25519YaoGatewayExecuteRequestV1::registration(binding, input_a, input_b)
+        RouterEd25519YaoGatewayExecuteTargetV2::registration(binding, input_a, input_b)
             .expect("gateway registration")
     }
 
     fn server_envelope(
-        target: RouterEd25519YaoGatewayExecuteRequestV1,
+        target: RouterEd25519YaoGatewayExecuteTargetV2,
         participant_ids: [u16; 2],
     ) -> CloudflareRouterEd25519YaoExecuteRequestV2 {
         CloudflareRouterEd25519YaoExecuteRequestV2 {

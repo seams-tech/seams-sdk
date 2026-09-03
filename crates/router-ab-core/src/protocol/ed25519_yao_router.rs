@@ -762,6 +762,265 @@ impl RouterEd25519YaoGatewayExecuteRequestV1 {
     }
 }
 
+/// Raw Gateway-to-Router execute target carried by the V2 server envelope.
+///
+/// The target owns only the admitted ceremony binding and opaque role
+/// envelopes. The Router derives every digest that commits this target before
+/// it creates the internal execution request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RouterEd25519YaoGatewayExecuteTargetV2 {
+    /// Initial registration activation.
+    Registration {
+        /// Admitted activation ceremony binding.
+        binding: Ed25519YaoCeremonyBindingV1,
+        /// Opaque Deriver A envelope.
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        /// Opaque Deriver B envelope.
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+    /// Recovery activation into staged recipient shares.
+    Recovery {
+        /// Admitted activation ceremony binding.
+        binding: Ed25519YaoCeremonyBindingV1,
+        /// Opaque Deriver A envelope.
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        /// Opaque Deriver B envelope.
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+    /// Explicit client-recipient export.
+    Export {
+        /// Admitted export identity binding.
+        binding: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportBindingV1,
+        /// Opaque Deriver A envelope.
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        /// Opaque Deriver B envelope.
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+enum RawRouterEd25519YaoGatewayExecuteTargetV2 {
+    Registration {
+        binding: Ed25519YaoCeremonyBindingV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+    Recovery {
+        binding: Ed25519YaoCeremonyBindingV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+    Export {
+        binding: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportBindingV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+}
+
+impl<'de> Deserialize<'de> for RouterEd25519YaoGatewayExecuteTargetV2 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawRouterEd25519YaoGatewayExecuteTargetV2::deserialize(deserializer)?;
+        let target = match raw {
+            RawRouterEd25519YaoGatewayExecuteTargetV2::Registration {
+                binding,
+                deriver_a_input,
+                deriver_b_input,
+            } => Self::registration(binding, deriver_a_input, deriver_b_input),
+            RawRouterEd25519YaoGatewayExecuteTargetV2::Recovery {
+                binding,
+                deriver_a_input,
+                deriver_b_input,
+            } => Self::recovery(binding, deriver_a_input, deriver_b_input),
+            RawRouterEd25519YaoGatewayExecuteTargetV2::Export {
+                binding,
+                deriver_a_input,
+                deriver_b_input,
+            } => Self::export(binding, deriver_a_input, deriver_b_input),
+        };
+        target.map_err(D::Error::custom)
+    }
+}
+
+impl RouterEd25519YaoGatewayExecuteTargetV2 {
+    /// Builds a validated registration target.
+    pub fn registration(
+        binding: Ed25519YaoCeremonyBindingV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    ) -> RouterAbProtocolResult<Self> {
+        validate_gateway_inputs(
+            &binding,
+            Ed25519YaoOperationV1::Registration,
+            &deriver_a_input,
+            &deriver_b_input,
+        )?;
+        Ok(Self::Registration {
+            binding,
+            deriver_a_input,
+            deriver_b_input,
+        })
+    }
+
+    /// Builds a validated recovery target.
+    pub fn recovery(
+        binding: Ed25519YaoCeremonyBindingV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    ) -> RouterAbProtocolResult<Self> {
+        validate_gateway_inputs(
+            &binding,
+            Ed25519YaoOperationV1::Recovery,
+            &deriver_a_input,
+            &deriver_b_input,
+        )?;
+        Ok(Self::Recovery {
+            binding,
+            deriver_a_input,
+            deriver_b_input,
+        })
+    }
+
+    /// Builds a validated export target.
+    pub fn export(
+        binding: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportBindingV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    ) -> RouterAbProtocolResult<Self> {
+        validate_gateway_inputs(
+            binding.ceremony(),
+            Ed25519YaoOperationV1::Export,
+            &deriver_a_input,
+            &deriver_b_input,
+        )?;
+        Ok(Self::Export {
+            binding,
+            deriver_a_input,
+            deriver_b_input,
+        })
+    }
+
+    /// Returns the operation branch.
+    pub const fn operation(&self) -> Ed25519YaoOperationV1 {
+        match self {
+            Self::Registration { .. } => Ed25519YaoOperationV1::Registration,
+            Self::Recovery { .. } => Ed25519YaoOperationV1::Recovery,
+            Self::Export { .. } => Ed25519YaoOperationV1::Export,
+        }
+    }
+
+    /// Returns the admitted ceremony binding.
+    pub const fn ceremony_binding(&self) -> &Ed25519YaoCeremonyBindingV1 {
+        match self {
+            Self::Registration { binding, .. } | Self::Recovery { binding, .. } => binding,
+            Self::Export { binding, .. } => binding.ceremony(),
+        }
+    }
+
+    /// Returns the exact role inputs.
+    pub const fn inputs(&self) -> (&Ed25519YaoEncryptedInputV1, &Ed25519YaoEncryptedInputV1) {
+        match self {
+            Self::Registration {
+                deriver_a_input,
+                deriver_b_input,
+                ..
+            }
+            | Self::Recovery {
+                deriver_a_input,
+                deriver_b_input,
+                ..
+            }
+            | Self::Export {
+                deriver_a_input,
+                deriver_b_input,
+                ..
+            } => (deriver_a_input, deriver_b_input),
+        }
+    }
+
+    /// Returns the admission digest committed by the target.
+    pub fn authorization_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
+        match self {
+            Self::Export { binding, .. } => Ok(PublicDigest32::new(binding.authorization_digest())),
+            Self::Registration { .. } | Self::Recovery { .. } => {
+                let canonical = serde_json::to_vec(self).map_err(|error| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        format!("Router Yao authorization preimage serialization failed: {error}"),
+                    )
+                })?;
+                let mut preimage =
+                    Vec::with_capacity(AUTHORIZATION_DIGEST_DOMAIN_V1.len() + canonical.len());
+                preimage.extend_from_slice(AUTHORIZATION_DIGEST_DOMAIN_V1);
+                preimage.extend_from_slice(&canonical);
+                Ok(digest_bytes(&preimage))
+            }
+        }
+    }
+
+    /// Converts the target into the validated internal execute request.
+    pub fn into_execute_request(
+        self,
+        recipient_set_digest: PublicDigest32,
+        issued_at_ms: u64,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<RouterEd25519YaoExecuteRequestV1> {
+        let authorization_digest = self.authorization_digest()?;
+        let (deriver_a_input, deriver_b_input) = self.inputs();
+        let pair_binding = Ed25519YaoInputPairBindingV1::from_ceremony_binding(
+            self.ceremony_binding().clone(),
+            deriver_a_input,
+            deriver_b_input,
+            recipient_set_digest,
+            authorization_digest,
+        )?;
+        let authority = RouterAdmittedExecutionAuthorityV1::new(
+            authorization_digest,
+            issued_at_ms,
+            expires_at_ms,
+        )?;
+        match self {
+            Self::Registration {
+                binding,
+                deriver_a_input,
+                deriver_b_input,
+            } => RouterEd25519YaoExecuteRequestV1::registration(
+                authority,
+                binding,
+                pair_binding,
+                deriver_a_input,
+                deriver_b_input,
+            ),
+            Self::Recovery {
+                binding,
+                deriver_a_input,
+                deriver_b_input,
+            } => RouterEd25519YaoExecuteRequestV1::recovery(
+                authority,
+                binding,
+                pair_binding,
+                deriver_a_input,
+                deriver_b_input,
+            ),
+            Self::Export {
+                binding,
+                deriver_a_input,
+                deriver_b_input,
+            } => RouterEd25519YaoExecuteRequestV1::export(
+                authority,
+                binding,
+                pair_binding,
+                deriver_a_input,
+                deriver_b_input,
+            ),
+        }
+    }
+}
+
 fn validate_gateway_inputs(
     binding: &Ed25519YaoCeremonyBindingV1,
     expected_operation: Ed25519YaoOperationV1,
@@ -2215,6 +2474,30 @@ mod tests {
             ed25519_yao_recipient_set_digest_v1([1; 32], [2; 32], [3; 32])
                 .expect("recipient digest")
         );
+    }
+
+    #[test]
+    fn gateway_target_v2_constructs_pair_only_in_rust() {
+        let target = RouterEd25519YaoGatewayExecuteTargetV2::registration(
+            binding(),
+            input(Ed25519YaoDeriverRoleV1::DeriverA, 4),
+            input(Ed25519YaoDeriverRoleV1::DeriverB, 5),
+        )
+        .expect("gateway target");
+        let authorization_digest = target.authorization_digest().expect("authorization digest");
+        let wire = serde_json::to_vec(&target).expect("gateway target JSON");
+        let decoded = serde_json::from_slice::<RouterEd25519YaoGatewayExecuteTargetV2>(&wire)
+            .expect("gateway target round trip");
+        let execute = decoded
+            .into_execute_request(
+                ed25519_yao_recipient_set_digest_v1([1; 32], [2; 32], [3; 32])
+                    .expect("recipient digest"),
+                1,
+                2,
+            )
+            .expect("internal execute request");
+        assert_eq!(execute.authority().authority_digest(), authorization_digest);
+        assert_eq!(execute.operation(), Ed25519YaoOperationV1::Registration);
     }
 
     #[test]
