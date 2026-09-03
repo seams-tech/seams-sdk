@@ -19,15 +19,17 @@ use router_ab_core::{
     TenantRootRefreshCommitmentCheckpointEvaluationV1,
     TenantRootRefreshCommitmentCheckpointOutcomeV1, TenantRootRefreshCommitmentCheckpointScopeV1,
     TenantRootRefreshCommitmentCheckpointStateV1, TenantRootRefreshCommitmentCheckpointV1,
-    TenantRootRoleCleanupCommandV1, TenantRootRoleCleanupTargetV1, TenantRootRoleCreationCommandV1,
+    TenantRootRefreshContributionAadV1, TenantRootRoleCleanupCommandV1,
+    TenantRootRoleCleanupTargetV1, TenantRootRoleCreationCommandV1,
     TenantRootRoleInstallationReceiptsV1, TenantRootRoleRefreshCommandV1, TenantRootShareEpoch,
     TenantRootSignedActivationReceiptV1, TenantRootSignedCreationCommitmentV1,
-    TenantRootSignedRefreshCommitmentV1, TenantRootSignedShareInstallationEvidenceV1,
-    TwoPartyDeriverRole, VerifiedTenantRootCreationCapabilityV1,
-    VerifiedTenantRootCreationCommitmentPairV1, VerifiedTenantRootCreationCommitmentV1,
-    VerifiedTenantRootRefreshCommitmentPairV1, VerifiedTenantRootRefreshCommitmentV1,
-    VerifiedTenantRootRoleCleanupCommandV1, VerifiedTenantRootRoleCreationCommandV1,
-    VerifiedTenantRootRoleRefreshCommandV1,
+    TenantRootSignedRefreshCommitmentV1, TenantRootSignedRefreshContributionV1,
+    TenantRootSignedShareInstallationEvidenceV1, TwoPartyDeriverRole,
+    VerifiedTenantRootCreationCapabilityV1, VerifiedTenantRootCreationCommitmentPairV1,
+    VerifiedTenantRootCreationCommitmentV1, VerifiedTenantRootRefreshCommitmentPairV1,
+    VerifiedTenantRootRefreshCommitmentV1, VerifiedTenantRootRoleCleanupCommandV1,
+    VerifiedTenantRootRoleCreationCommandV1, VerifiedTenantRootRoleRefreshCommandV1,
+    VerifiedTenantRootSignedRefreshContributionV1,
     VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
     TENANT_ROOT_COMMAND_TERMINAL_RECEIPT_MAX_BYTES_V1,
     TENANT_ROOT_CREATION_CAPABILITY_MAX_BYTES_V1, TENANT_ROOT_CREATION_JOURNAL_MAX_BYTES_V1,
@@ -101,6 +103,9 @@ pub(crate) const CLOUDFLARE_TENANT_ROOT_REFRESH_COMMITMENT_CHECKPOINT_PATH: &str
 pub(crate) const CLOUDFLARE_TENANT_ROOT_REFRESH_INSTALLATION_CHECKPOINT_PATH: &str =
     "/router-ab/internal/tenant-root/refresh/v1/installation-checkpoint";
 #[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
+pub(crate) const CLOUDFLARE_TENANT_ROOT_REFRESH_CONTRIBUTION_RENDEZVOUS_PATH: &str =
+    "/router-ab/internal/tenant-root/refresh/v1/contribution-rendezvous";
+#[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
 pub(crate) const TENANT_ROOT_REFRESH_ACTIVE_STATE_STORAGE_KEY_V1: &str = "refresh/v1/active-state";
 #[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
 pub(crate) const TENANT_ROOT_REFRESH_COMMITMENT_CHECKPOINT_STORAGE_KEY_V1: &str =
@@ -108,6 +113,9 @@ pub(crate) const TENANT_ROOT_REFRESH_COMMITMENT_CHECKPOINT_STORAGE_KEY_V1: &str 
 #[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
 pub(crate) const TENANT_ROOT_REFRESH_INSTALLATION_CHECKPOINT_STORAGE_KEY_V1: &str =
     "refresh/v1/installation-checkpoint";
+#[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
+pub(crate) const TENANT_ROOT_REFRESH_CONTRIBUTION_RENDEZVOUS_STORAGE_KEY_V1: &str =
+    "refresh/v1/contribution-rendezvous";
 
 #[allow(dead_code)]
 const TENANT_ROOT_CREATION_OBJECT_NAME_DOMAIN_V1: &[u8] =
@@ -125,6 +133,9 @@ const TENANT_ROOT_CREATION_COMMITMENT_MAX_BASE64URL_BYTES_V1: usize =
 const TENANT_ROOT_REFRESH_COMMITMENT_MAX_BYTES_V1: usize = 4 * 1024;
 const TENANT_ROOT_REFRESH_COMMITMENT_MAX_BASE64URL_BYTES_V1: usize =
     base64url_len_for_bytes(TENANT_ROOT_REFRESH_COMMITMENT_MAX_BYTES_V1);
+const TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BYTES_V1: usize = 4 * 1024;
+const TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BASE64URL_BYTES_V1: usize =
+    base64url_len_for_bytes(TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BYTES_V1);
 const TENANT_ROOT_REFRESH_CHECKPOINT_MAX_BASE64URL_BYTES_V1: usize =
     base64url_len_for_bytes(TENANT_ROOT_REFRESH_COMMITMENT_CHECKPOINT_MAX_BYTES_V1);
 #[cfg(feature = "workers-rs")]
@@ -195,10 +206,18 @@ const TENANT_ROOT_REFRESH_INSTALLATION_REQUEST_MAX_BYTES_V1: usize =
         + TENANT_ROOT_CREATION_INSTALLATION_EVIDENCE_MAX_BASE64URL_BYTES_V1
         + 128;
 #[cfg(feature = "workers-rs")]
+const TENANT_ROOT_REFRESH_CONTRIBUTION_REQUEST_MAX_BYTES_V1: usize =
+    TENANT_ROOT_ROLE_REFRESH_COMMAND_MAX_BASE64URL_BYTES_V1
+        + TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BASE64URL_BYTES_V1
+        + 128;
+#[cfg(feature = "workers-rs")]
 const TENANT_ROOT_REFRESH_COMMITMENT_RESPONSE_MAX_BYTES_V1: usize =
     TENANT_ROOT_REFRESH_COMMITMENT_MAX_BASE64URL_BYTES_V1 * 2 + 2048;
 #[cfg(feature = "workers-rs")]
 const TENANT_ROOT_REFRESH_INSTALLATION_RESPONSE_MAX_BYTES_V1: usize = 4096;
+#[cfg(feature = "workers-rs")]
+const TENANT_ROOT_REFRESH_CONTRIBUTION_RESPONSE_MAX_BYTES_V1: usize =
+    TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BASE64URL_BYTES_V1 * 2 + 2048;
 
 #[allow(dead_code)]
 pub(crate) fn tenant_root_creation_object_name_v1(
@@ -217,6 +236,17 @@ pub(crate) fn tenant_root_creation_object_name_v1(
 
 #[cfg(feature = "workers-rs")]
 struct LoadedTenantRootRefreshRequestV1 {
+    active: ValidatedTenantRootRefreshActiveStateV1,
+    context: TenantRootCeremonyContextV1,
+    command: VerifiedTenantRootRoleRefreshCommandV1,
+    candidate_bytes: Vec<u8>,
+    role_keys: TenantRootCreationRoleVerifyingKeysV1,
+    issuer_keys: BTreeMap<String, [u8; 32]>,
+    now_ms: u64,
+}
+
+#[cfg(feature = "workers-rs")]
+struct LoadedTenantRootRefreshContributionRequestV1 {
     active: ValidatedTenantRootRefreshActiveStateV1,
     context: TenantRootCeremonyContextV1,
     command: VerifiedTenantRootRoleRefreshCommandV1,
@@ -370,6 +400,25 @@ fn refresh_installation_response(
     outcome: CloudflareTenantRootRefreshInstallationResponseOutcomeV1,
 ) -> RouterAbProtocolResult<CloudflareTenantRootRefreshInstallationResponseV1> {
     Ok(CloudflareTenantRootRefreshInstallationResponseV1 {
+        outcome,
+        command_digest_b64u: scope.command_digest_b64u,
+        identity_digest_b64u: scope.identity_digest_b64u,
+        custody_lineage_b64u: scope.custody_lineage_b64u,
+        authority_id_b64u: scope.authority_id_b64u,
+        ceremony_context_digest_b64u: scope.ceremony_context_digest_b64u,
+        current_epoch: scope.current_epoch,
+        next_epoch: scope.next_epoch,
+        expected_control_plane_revision: scope.expected_control_plane_revision,
+        active_root_commitment_b64u: scope.active_root_commitment_b64u,
+        active_activation_receipt_digest_b64u: scope.active_activation_receipt_digest_b64u,
+    })
+}
+
+fn refresh_contribution_response(
+    scope: RefreshResponseScopeV1,
+    outcome: CloudflareTenantRootRefreshContributionResponseOutcomeV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootRefreshContributionResponseV1> {
+    Ok(CloudflareTenantRootRefreshContributionResponseV1 {
         outcome,
         command_digest_b64u: scope.command_digest_b64u,
         identity_digest_b64u: scope.identity_digest_b64u,
@@ -705,6 +754,13 @@ pub(crate) struct CloudflareTenantRootRefreshInstallationRequestV1 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootRefreshContributionRequestV1 {
+    pub(crate) role_refresh_command_b64u: String,
+    pub(crate) signed_contribution_b64u: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum CloudflareTenantRootRefreshCommitmentResponseOutcomeV1 {
     WaitingForPeer {
@@ -749,6 +805,34 @@ pub(crate) enum CloudflareTenantRootRefreshInstallationResponseOutcomeV1 {
 #[serde(deny_unknown_fields)]
 pub(crate) struct CloudflareTenantRootRefreshInstallationResponseV1 {
     pub(crate) outcome: CloudflareTenantRootRefreshInstallationResponseOutcomeV1,
+    pub(crate) command_digest_b64u: String,
+    pub(crate) identity_digest_b64u: String,
+    pub(crate) custody_lineage_b64u: String,
+    pub(crate) authority_id_b64u: String,
+    pub(crate) ceremony_context_digest_b64u: String,
+    pub(crate) current_epoch: u64,
+    pub(crate) next_epoch: u64,
+    pub(crate) expected_control_plane_revision: u64,
+    pub(crate) active_root_commitment_b64u: String,
+    pub(crate) active_activation_receipt_digest_b64u: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum CloudflareTenantRootRefreshContributionResponseOutcomeV1 {
+    WaitingForPeer {
+        role: CloudflareTenantRootCreationInstallationRoleV1,
+    },
+    BothRolesContributed {
+        deriver_a_signed_contribution_b64u: String,
+        deriver_b_signed_contribution_b64u: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootRefreshContributionResponseV1 {
+    pub(crate) outcome: CloudflareTenantRootRefreshContributionResponseOutcomeV1,
     pub(crate) command_digest_b64u: String,
     pub(crate) identity_digest_b64u: String,
     pub(crate) custody_lineage_b64u: String,
@@ -856,6 +940,29 @@ enum CloudflareTenantRootRefreshInstallationCheckpointStateV1 {
 struct CloudflareTenantRootRefreshInstallationCheckpointRecordV1 {
     scope: CloudflareTenantRootRefreshCheckpointScopeV1,
     state: CloudflareTenantRootRefreshInstallationCheckpointStateV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum CloudflareTenantRootRefreshContributionRendezvousStateV1 {
+    OneRoleContributed {
+        role: CloudflareTenantRootCreationInstallationRoleV1,
+        command_digest_b64u: String,
+        signed_contribution_b64u: String,
+    },
+    BothRolesContributed {
+        deriver_a_command_digest_b64u: String,
+        deriver_b_command_digest_b64u: String,
+        deriver_a_signed_contribution_b64u: String,
+        deriver_b_signed_contribution_b64u: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudflareTenantRootRefreshContributionRendezvousRecordV1 {
+    scope: CloudflareTenantRootRefreshCheckpointScopeV1,
+    state: CloudflareTenantRootRefreshContributionRendezvousStateV1,
 }
 
 #[allow(dead_code)]
@@ -3443,6 +3550,34 @@ impl worker::DurableObject for RouterAbTenantRootCreationDurableObject {
                     Err(error) => tenant_root_creation_do_error_response(error),
                 }
             }
+            CLOUDFLARE_TENANT_ROOT_REFRESH_CONTRIBUTION_RENDEZVOUS_PATH => {
+                if !request_has_json_content_type(&request)? {
+                    return worker::Response::error(
+                        "tenant-root refresh contribution request requires JSON",
+                        415,
+                    );
+                }
+                let parsed = match decode_bounded_json_request::<
+                    CloudflareTenantRootRefreshContributionRequestV1,
+                >(
+                    &mut request,
+                    TENANT_ROOT_REFRESH_CONTRIBUTION_REQUEST_MAX_BYTES_V1,
+                )
+                .await
+                {
+                    Ok(value) => value,
+                    Err(_) => {
+                        return worker::Response::error(
+                            "tenant-root refresh contribution request rejected",
+                            400,
+                        )
+                    }
+                };
+                match self.persist_refresh_contribution_rendezvous(parsed).await {
+                    Ok(response) => worker::Response::from_json(&response),
+                    Err(error) => tenant_root_creation_do_error_response(error),
+                }
+            }
             _ => worker::Response::error("Tenant-root creation private route not found", 404),
         }
     }
@@ -4716,6 +4851,83 @@ impl RouterAbTenantRootCreationDurableObject {
         })
     }
 
+    async fn load_refresh_contribution_request(
+        &self,
+        request: CloudflareTenantRootRefreshContributionRequestV1,
+    ) -> RouterAbProtocolResult<LoadedTenantRootRefreshContributionRequestV1> {
+        let active = self.load_authoritative_active_refresh_state().await?;
+        let issuer_keys_json = read_required_worker_var(
+            &self.env,
+            crate::TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+        )?;
+        let issuer_keys = crate::env::decode_issuer_verifying_keys(&issuer_keys_json)?;
+        let role_keys = read_tenant_root_creation_role_verifying_keys(&self.env)?;
+        let candidate_bytes = decode_canonical_base64url(
+            "tenant-root signed refresh contribution",
+            &request.signed_contribution_b64u,
+            TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BYTES_V1,
+            TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BASE64URL_BYTES_V1,
+        )?;
+        let signed =
+            TenantRootSignedRefreshContributionV1::decode_canonical_bytes(&candidate_bytes)
+                .map_err(candidate_derivation_error)?;
+        let candidate_role = signed.envelope().source();
+        let checkpoint_encoded = storage_get_optional::<String>(
+            &self.storage,
+            TENANT_ROOT_REFRESH_COMMITMENT_CHECKPOINT_STORAGE_KEY_V1,
+        )
+        .await
+        .map_err(durable_storage_protocol_error)?
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MissingPairPreparation,
+                "tenant-root refresh contribution has no commitment checkpoint",
+            )
+        })?;
+        let checkpoint = decode_refresh_commitment_checkpoint(&checkpoint_encoded)
+            .map_err(stored_refresh_record_error)?;
+        let commitment_bytes = checkpoint
+            .state()
+            .deriver_a_signed_commitment()
+            .ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingPairPreparation,
+                    "tenant-root refresh contribution requires both commitments",
+                )
+            })?;
+        let commitment =
+            TenantRootSignedRefreshCommitmentV1::decode_canonical_bytes(commitment_bytes)
+                .map_err(candidate_derivation_error)?;
+        let context = commitment.transcript().context().clone();
+        let commitments =
+            require_complete_refresh_commitment_checkpoint(&checkpoint, &context, &role_keys)
+                .map_err(stored_refresh_record_error)?;
+        let expected_authority_id = authority_id_from_object_id(&self.authority_object_id)?;
+        let command = validate_refresh_role_command(
+            &request.role_refresh_command_b64u,
+            &active,
+            &context,
+            candidate_role,
+            expected_authority_id,
+            &issuer_keys,
+        )?;
+        let expected_scope =
+            refresh_checkpoint_scope(&command, &active, &context, expected_authority_id)?;
+        validate_refresh_commitment_checkpoint_scope(checkpoint.scope(), &expected_scope)
+            .map_err(stored_refresh_record_error)?;
+        verify_refresh_contribution_wire(&candidate_bytes, &context, &commitments, &role_keys)?;
+        let now_ms = crate::cloudflare_now_unix_ms_v1()?;
+        Ok(LoadedTenantRootRefreshContributionRequestV1 {
+            active,
+            context,
+            command,
+            candidate_bytes,
+            role_keys,
+            issuer_keys,
+            now_ms,
+        })
+    }
+
     pub(crate) async fn persist_refresh_commitment_checkpoint(
         &self,
         request: CloudflareTenantRootRefreshCommitmentRequestV1,
@@ -5146,6 +5358,196 @@ impl RouterAbTenantRootCreationDurableObject {
         })??;
         let response = refresh_installation_response(response_scope, evaluation)?;
         Ok(response)
+    }
+
+    pub(crate) async fn persist_refresh_contribution_rendezvous(
+        &self,
+        request: CloudflareTenantRootRefreshContributionRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootRefreshContributionResponseV1> {
+        let loaded = self.load_refresh_contribution_request(request).await?;
+        let response_scope =
+            refresh_response_scope(&loaded.command, &loaded.active, &loaded.context)?;
+        let command_bytes = loaded.command.canonical_bytes().to_vec();
+        let candidate_bytes = loaded.candidate_bytes;
+        let context = loaded.context;
+        let role_keys = loaded.role_keys;
+        let issuer_keys = loaded.issuer_keys;
+        let expected_authority_id = authority_id_from_object_id(&self.authority_object_id)?;
+        let now_ms = loaded.now_ms;
+        let outcome: Rc<
+            RefCell<
+                Option<
+                    RouterAbProtocolResult<
+                        CloudflareTenantRootRefreshContributionResponseOutcomeV1,
+                    >,
+                >,
+            >,
+        > = Rc::new(RefCell::new(None));
+        let outcome_for_transaction = Rc::clone(&outcome);
+        self.storage
+            .transaction(move |transaction| async move {
+                let active_record = match transaction_get_optional::<
+                    CloudflareTenantRootRefreshActiveStateRecordV1,
+                >(
+                    &transaction,
+                    TENANT_ROOT_REFRESH_ACTIVE_STATE_STORAGE_KEY_V1,
+                )
+                .await
+                {
+                    Ok(Some(record)) => record,
+                    Ok(None) => {
+                        outcome_for_transaction.replace(Some(Err(RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                            "tenant-root refresh has no authoritative active public state",
+                        ))));
+                        return Ok(());
+                    }
+                    Err(error) => return Err(error),
+                };
+                let active = match validate_refresh_active_state_record(
+                    active_record,
+                    expected_authority_id,
+                    &issuer_keys,
+                ) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        outcome_for_transaction
+                            .replace(Some(Err(stored_refresh_record_error(error))));
+                        return Ok(());
+                    }
+                };
+                let command = match decode_and_verify_refresh_role_command(
+                    &command_bytes,
+                    &active,
+                    &context,
+                    &issuer_keys,
+                    expected_authority_id,
+                ) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        outcome_for_transaction.replace(Some(Err(error)));
+                        return Ok(());
+                    }
+                };
+                let checkpoint_encoded = match transaction_get_optional::<String>(
+                    &transaction,
+                    TENANT_ROOT_REFRESH_COMMITMENT_CHECKPOINT_STORAGE_KEY_V1,
+                )
+                .await
+                {
+                    Ok(Some(encoded)) => encoded,
+                    Ok(None) => {
+                        outcome_for_transaction.replace(Some(Err(RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::MissingPairPreparation,
+                            "tenant-root refresh contribution has no commitment checkpoint",
+                        ))));
+                        return Ok(());
+                    }
+                    Err(error) => return Err(error),
+                };
+                let checkpoint = match decode_refresh_commitment_checkpoint(&checkpoint_encoded) {
+                    Ok(checkpoint) => checkpoint,
+                    Err(error) => {
+                        outcome_for_transaction
+                            .replace(Some(Err(stored_refresh_record_error(error))));
+                        return Ok(());
+                    }
+                };
+                let scope = match refresh_checkpoint_scope(
+                    &command,
+                    &active,
+                    &context,
+                    expected_authority_id,
+                ) {
+                    Ok(scope) => scope,
+                    Err(error) => {
+                        outcome_for_transaction.replace(Some(Err(error)));
+                        return Ok(());
+                    }
+                };
+                if let Err(error) =
+                    validate_refresh_commitment_checkpoint_scope(checkpoint.scope(), &scope)
+                {
+                    outcome_for_transaction.replace(Some(Err(stored_refresh_record_error(error))));
+                    return Ok(());
+                }
+                let commitments = match require_complete_refresh_commitment_checkpoint(
+                    &checkpoint,
+                    &context,
+                    &role_keys,
+                ) {
+                    Ok(pair) => pair,
+                    Err(error) => {
+                        outcome_for_transaction
+                            .replace(Some(Err(stored_refresh_record_error(error))));
+                        return Ok(());
+                    }
+                };
+                let candidate = match verify_refresh_contribution_wire(
+                    &candidate_bytes,
+                    &context,
+                    &commitments,
+                    &role_keys,
+                ) {
+                    Ok(candidate) => candidate,
+                    Err(error) => {
+                        outcome_for_transaction.replace(Some(Err(error)));
+                        return Ok(());
+                    }
+                };
+                let existing = match transaction_get_optional::<
+                    CloudflareTenantRootRefreshContributionRendezvousRecordV1,
+                >(
+                    &transaction,
+                    TENANT_ROOT_REFRESH_CONTRIBUTION_RENDEZVOUS_STORAGE_KEY_V1,
+                )
+                .await
+                {
+                    Ok(existing) => existing,
+                    Err(error) => return Err(error),
+                };
+                let evaluation = evaluate_refresh_contribution_rendezvous(
+                    existing,
+                    candidate,
+                    &command,
+                    &active,
+                    &context,
+                    &commitments,
+                    &role_keys,
+                    expected_authority_id,
+                    now_ms,
+                );
+                match evaluation {
+                    Ok(TenantRootRefreshContributionRendezvousEvaluationV1::Commit {
+                        record,
+                        outcome,
+                    }) => {
+                        transaction
+                            .put(
+                                TENANT_ROOT_REFRESH_CONTRIBUTION_RENDEZVOUS_STORAGE_KEY_V1,
+                                &record,
+                            )
+                            .await?;
+                        outcome_for_transaction.replace(Some(Ok(outcome)));
+                    }
+                    Ok(TenantRootRefreshContributionRendezvousEvaluationV1::Replay(outcome)) => {
+                        outcome_for_transaction.replace(Some(Ok(outcome)));
+                    }
+                    Err(error) => {
+                        outcome_for_transaction.replace(Some(Err(error)));
+                    }
+                }
+                Ok(())
+            })
+            .await
+            .map_err(durable_storage_protocol_error)?;
+        let evaluation = outcome.borrow_mut().take().ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root refresh contribution transaction did not produce an outcome",
+            )
+        })??;
+        refresh_contribution_response(response_scope, evaluation)
     }
 }
 
@@ -5939,6 +6341,44 @@ fn verify_refresh_commitment_wire(
         .map_err(candidate_authorization_error)
 }
 
+fn verify_refresh_contribution_wire(
+    bytes: &[u8],
+    context: &TenantRootCeremonyContextV1,
+    commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
+    role_keys: &TenantRootCreationRoleVerifyingKeysV1,
+) -> RouterAbProtocolResult<VerifiedTenantRootSignedRefreshContributionV1> {
+    let signed = TenantRootSignedRefreshContributionV1::decode_canonical_bytes(bytes)
+        .map_err(candidate_derivation_error)?;
+    let role = signed.envelope().source();
+    let commitment = match role {
+        TwoPartyDeriverRole::DeriverA => commitments.deriver_a(),
+        TwoPartyDeriverRole::DeriverB => commitments.deriver_b(),
+    };
+    let aad = match role {
+        TwoPartyDeriverRole::DeriverA => TenantRootRefreshContributionAadV1::deriver_a_to_b(
+            commitments,
+            commitment.recipient_key_id(),
+            commitment.recipient_public_key(),
+        ),
+        TwoPartyDeriverRole::DeriverB => TenantRootRefreshContributionAadV1::deriver_b_to_a(
+            commitments,
+            commitment.recipient_key_id(),
+            commitment.recipient_public_key(),
+        ),
+    }
+    .map_err(candidate_derivation_error)?;
+    if aad.context() != context {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root refresh contribution does not match its ceremony context",
+        ));
+    }
+    let verifying_key = role_keys.for_role_and_key_id(role, context.signing_key_id(role))?;
+    signed
+        .verify_signature(&aad, verifying_key)
+        .map_err(candidate_authorization_error)
+}
+
 fn refresh_commitment_checkpoint_pair_digest(
     pair: &VerifiedTenantRootRefreshCommitmentPairV1,
 ) -> RouterAbProtocolResult<TenantRootProtocolDigestV1> {
@@ -6287,6 +6727,281 @@ fn require_fresh_refresh_commitment_command(
     Ok(())
 }
 
+enum ValidatedTenantRootRefreshContributionRendezvousStateV1 {
+    OneRole {
+        role: TwoPartyDeriverRole,
+        command_digest: TenantRootProtocolDigestV1,
+        contribution: VerifiedTenantRootSignedRefreshContributionV1,
+    },
+    BothRoles {
+        deriver_a_command_digest: TenantRootProtocolDigestV1,
+        deriver_b_command_digest: TenantRootProtocolDigestV1,
+        deriver_a: VerifiedTenantRootSignedRefreshContributionV1,
+        deriver_b: VerifiedTenantRootSignedRefreshContributionV1,
+    },
+}
+
+fn validate_refresh_contribution_rendezvous(
+    record: CloudflareTenantRootRefreshContributionRendezvousRecordV1,
+    expected_scope: &CloudflareTenantRootRefreshCheckpointScopeV1,
+    context: &TenantRootCeremonyContextV1,
+    commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
+    role_keys: &TenantRootCreationRoleVerifyingKeysV1,
+) -> RouterAbProtocolResult<ValidatedTenantRootRefreshContributionRendezvousStateV1> {
+    if &record.scope != expected_scope {
+        return Err(malformed_input(
+            "stored tenant-root refresh contribution rendezvous scope is invalid",
+        ));
+    }
+    match record.state {
+        CloudflareTenantRootRefreshContributionRendezvousStateV1::OneRoleContributed {
+            role,
+            command_digest_b64u,
+            signed_contribution_b64u,
+        } => {
+            let command_digest = decode_protocol_digest_b64u(
+                "stored tenant-root refresh contribution command digest",
+                &command_digest_b64u,
+            )?;
+            let contribution_bytes = decode_canonical_base64url(
+                "stored tenant-root signed refresh contribution",
+                &signed_contribution_b64u,
+                TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BYTES_V1,
+                TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BASE64URL_BYTES_V1,
+            )?;
+            let contribution = verify_refresh_contribution_wire(
+                &contribution_bytes,
+                context,
+                commitments,
+                role_keys,
+            )?;
+            if contribution.source() != role.to_protocol() {
+                return Err(malformed_input(
+                    "stored tenant-root refresh contribution role does not match its wire",
+                ));
+            }
+            Ok(
+                ValidatedTenantRootRefreshContributionRendezvousStateV1::OneRole {
+                    role: role.to_protocol(),
+                    command_digest,
+                    contribution,
+                },
+            )
+        }
+        CloudflareTenantRootRefreshContributionRendezvousStateV1::BothRolesContributed {
+            deriver_a_command_digest_b64u,
+            deriver_b_command_digest_b64u,
+            deriver_a_signed_contribution_b64u,
+            deriver_b_signed_contribution_b64u,
+        } => {
+            let deriver_a_command_digest = decode_protocol_digest_b64u(
+                "stored tenant-root refresh Deriver A contribution command digest",
+                &deriver_a_command_digest_b64u,
+            )?;
+            let deriver_b_command_digest = decode_protocol_digest_b64u(
+                "stored tenant-root refresh Deriver B contribution command digest",
+                &deriver_b_command_digest_b64u,
+            )?;
+            let deriver_a_bytes = decode_canonical_base64url(
+                "stored tenant-root refresh Deriver A contribution",
+                &deriver_a_signed_contribution_b64u,
+                TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BYTES_V1,
+                TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BASE64URL_BYTES_V1,
+            )?;
+            let deriver_b_bytes = decode_canonical_base64url(
+                "stored tenant-root refresh Deriver B contribution",
+                &deriver_b_signed_contribution_b64u,
+                TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BYTES_V1,
+                TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BASE64URL_BYTES_V1,
+            )?;
+            let deriver_a = verify_refresh_contribution_wire(
+                &deriver_a_bytes,
+                context,
+                commitments,
+                role_keys,
+            )?;
+            let deriver_b = verify_refresh_contribution_wire(
+                &deriver_b_bytes,
+                context,
+                commitments,
+                role_keys,
+            )?;
+            if deriver_a.source() != TwoPartyDeriverRole::DeriverA
+                || deriver_b.source() != TwoPartyDeriverRole::DeriverB
+            {
+                return Err(malformed_input(
+                    "stored tenant-root refresh contribution pair roles are invalid",
+                ));
+            }
+            Ok(
+                ValidatedTenantRootRefreshContributionRendezvousStateV1::BothRoles {
+                    deriver_a_command_digest,
+                    deriver_b_command_digest,
+                    deriver_a,
+                    deriver_b,
+                },
+            )
+        }
+    }
+}
+
+enum TenantRootRefreshContributionRendezvousEvaluationV1 {
+    Commit {
+        record: CloudflareTenantRootRefreshContributionRendezvousRecordV1,
+        outcome: CloudflareTenantRootRefreshContributionResponseOutcomeV1,
+    },
+    Replay(CloudflareTenantRootRefreshContributionResponseOutcomeV1),
+}
+
+fn refresh_contribution_pair_outcome(
+    deriver_a: &VerifiedTenantRootSignedRefreshContributionV1,
+    deriver_b: &VerifiedTenantRootSignedRefreshContributionV1,
+) -> CloudflareTenantRootRefreshContributionResponseOutcomeV1 {
+    CloudflareTenantRootRefreshContributionResponseOutcomeV1::BothRolesContributed {
+        deriver_a_signed_contribution_b64u: encode_base64url_bytes_v1(deriver_a.canonical_bytes()),
+        deriver_b_signed_contribution_b64u: encode_base64url_bytes_v1(deriver_b.canonical_bytes()),
+    }
+}
+
+fn evaluate_refresh_contribution_rendezvous(
+    existing: Option<CloudflareTenantRootRefreshContributionRendezvousRecordV1>,
+    candidate: VerifiedTenantRootSignedRefreshContributionV1,
+    command: &VerifiedTenantRootRoleRefreshCommandV1,
+    active: &ValidatedTenantRootRefreshActiveStateV1,
+    context: &TenantRootCeremonyContextV1,
+    commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
+    role_keys: &TenantRootCreationRoleVerifyingKeysV1,
+    expected_authority_id: TenantRootControlPlaneAuthorityIdV1,
+    now_ms: u64,
+) -> RouterAbProtocolResult<TenantRootRefreshContributionRendezvousEvaluationV1> {
+    require_refresh_fence_matches_command(&active.record.fence, command)?;
+    let scope = refresh_checkpoint_scope(command, active, context, expected_authority_id)?;
+    let candidate_role = candidate.source();
+    if candidate_role != command.role() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root refresh contribution role does not match its command",
+        ));
+    }
+    let candidate_command_digest = command.digest();
+    let candidate_bytes = candidate.canonical_bytes();
+    let Some(existing) = existing else {
+        require_fresh_refresh_command(command, context, now_ms)?;
+        let record = CloudflareTenantRootRefreshContributionRendezvousRecordV1 {
+            scope,
+            state: CloudflareTenantRootRefreshContributionRendezvousStateV1::OneRoleContributed {
+                role: CloudflareTenantRootCreationInstallationRoleV1::from_protocol(candidate_role),
+                command_digest_b64u: encode_base64url_bytes_v1(candidate_command_digest.as_bytes()),
+                signed_contribution_b64u: encode_base64url_bytes_v1(candidate_bytes),
+            },
+        };
+        return Ok(
+            TenantRootRefreshContributionRendezvousEvaluationV1::Commit {
+                record,
+                outcome: CloudflareTenantRootRefreshContributionResponseOutcomeV1::WaitingForPeer {
+                    role: CloudflareTenantRootCreationInstallationRoleV1::from_protocol(
+                        candidate_role,
+                    ),
+                },
+            },
+        );
+    };
+    let existing =
+        validate_refresh_contribution_rendezvous(existing, &scope, context, commitments, role_keys)
+            .map_err(stored_refresh_record_error)?;
+    match existing {
+        ValidatedTenantRootRefreshContributionRendezvousStateV1::OneRole {
+            role,
+            command_digest,
+            contribution,
+        } => {
+            if role == candidate_role {
+                if command_digest != candidate_command_digest
+                    || contribution.canonical_bytes() != candidate_bytes
+                {
+                    return Err(refresh_replay_conflict(
+                        "tenant-root refresh contribution retry does not match the accepted command and wire",
+                    ));
+                }
+                return Ok(TenantRootRefreshContributionRendezvousEvaluationV1::Replay(
+                    CloudflareTenantRootRefreshContributionResponseOutcomeV1::WaitingForPeer {
+                        role: CloudflareTenantRootCreationInstallationRoleV1::from_protocol(role),
+                    },
+                ));
+            }
+            require_fresh_refresh_command(command, context, now_ms)?;
+            let (deriver_a_command_digest, deriver_b_command_digest, deriver_a, deriver_b) =
+                match candidate_role {
+                    TwoPartyDeriverRole::DeriverA => (
+                        candidate_command_digest,
+                        command_digest,
+                        candidate,
+                        contribution,
+                    ),
+                    TwoPartyDeriverRole::DeriverB => (
+                        command_digest,
+                        candidate_command_digest,
+                        contribution,
+                        candidate,
+                    ),
+                };
+            let outcome = refresh_contribution_pair_outcome(&deriver_a, &deriver_b);
+            let record = CloudflareTenantRootRefreshContributionRendezvousRecordV1 {
+                scope,
+                state:
+                    CloudflareTenantRootRefreshContributionRendezvousStateV1::BothRolesContributed {
+                        deriver_a_command_digest_b64u: encode_base64url_bytes_v1(
+                            deriver_a_command_digest.as_bytes(),
+                        ),
+                        deriver_b_command_digest_b64u: encode_base64url_bytes_v1(
+                            deriver_b_command_digest.as_bytes(),
+                        ),
+                        deriver_a_signed_contribution_b64u: encode_base64url_bytes_v1(
+                            deriver_a.canonical_bytes(),
+                        ),
+                        deriver_b_signed_contribution_b64u: encode_base64url_bytes_v1(
+                            deriver_b.canonical_bytes(),
+                        ),
+                    },
+            };
+            Ok(TenantRootRefreshContributionRendezvousEvaluationV1::Commit { record, outcome })
+        }
+        ValidatedTenantRootRefreshContributionRendezvousStateV1::BothRoles {
+            deriver_a_command_digest,
+            deriver_b_command_digest,
+            deriver_a,
+            deriver_b,
+        } => {
+            let accepted_command_digest = match candidate_role {
+                TwoPartyDeriverRole::DeriverA => deriver_a_command_digest,
+                TwoPartyDeriverRole::DeriverB => deriver_b_command_digest,
+            };
+            let accepted_contribution = match candidate_role {
+                TwoPartyDeriverRole::DeriverA => &deriver_a,
+                TwoPartyDeriverRole::DeriverB => &deriver_b,
+            };
+            if accepted_command_digest != candidate_command_digest
+                || accepted_contribution.canonical_bytes() != candidate_bytes
+            {
+                return Err(refresh_replay_conflict(
+                    "tenant-root refresh contribution pair retry does not match the accepted command and wire",
+                ));
+            }
+            let outcome = match candidate_role {
+                TwoPartyDeriverRole::DeriverA => {
+                    refresh_contribution_pair_outcome(accepted_contribution, &deriver_b)
+                }
+                TwoPartyDeriverRole::DeriverB => {
+                    refresh_contribution_pair_outcome(&deriver_a, accepted_contribution)
+                }
+            };
+            Ok(TenantRootRefreshContributionRendezvousEvaluationV1::Replay(
+                outcome,
+            ))
+        }
+    }
+}
+
 enum TenantRootRefreshInstallationCheckpointEvaluationV1 {
     Commit {
         checkpoint: CloudflareTenantRootRefreshInstallationCheckpointRecordV1,
@@ -6519,6 +7234,55 @@ pub(crate) async fn execute_cloudflare_router_tenant_root_refresh_commitment_cal
     Ok(response)
 }
 
+/// Sends one role-signed, recipient-bound encrypted refresh contribution to the
+/// Router-owned public rendezvous after both commitments have completed.
+#[cfg(feature = "workers-rs")]
+#[allow(dead_code)]
+pub(crate) async fn execute_cloudflare_router_tenant_root_refresh_contribution_call_v1(
+    env: &worker::Env,
+    command: &VerifiedTenantRootRoleRefreshCommandV1,
+    commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
+    contribution: &VerifiedTenantRootSignedRefreshContributionV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootRefreshContributionResponseV1> {
+    let context = commitments.context();
+    let context_digest = context.digest().map_err(candidate_derivation_error)?;
+    if command.refresh_context_digest() != context_digest || command.role() != contribution.source()
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root refresh contribution does not match its command or commitment pair",
+        ));
+    }
+    let role_keys = read_tenant_root_creation_role_verifying_keys(env)?;
+    let contribution_bytes = contribution.canonical_bytes();
+    verify_refresh_contribution_wire(contribution_bytes, context, commitments, &role_keys)?;
+    let request = CloudflareTenantRootRefreshContributionRequestV1 {
+        role_refresh_command_b64u: encode_base64url_bytes_v1(command.canonical_bytes()),
+        signed_contribution_b64u: encode_base64url_bytes_v1(contribution_bytes),
+    };
+    let response = execute_cloudflare_router_tenant_root_creation_private_call_v1(
+        env,
+        command.authority_id(),
+        command.identity_digest(),
+        command.custody_lineage(),
+        CLOUDFLARE_TENANT_ROOT_REFRESH_CONTRIBUTION_RENDEZVOUS_PATH,
+        "tenant-root refresh contribution rendezvous",
+        &request,
+        TENANT_ROOT_REFRESH_CONTRIBUTION_REQUEST_MAX_BYTES_V1,
+        TENANT_ROOT_REFRESH_CONTRIBUTION_RESPONSE_MAX_BYTES_V1,
+    )
+    .await?;
+    validate_refresh_contribution_response(
+        &response,
+        command,
+        commitments,
+        context,
+        contribution_bytes,
+        &role_keys,
+    )?;
+    Ok(response)
+}
+
 #[cfg(feature = "workers-rs")]
 #[allow(dead_code)]
 pub(crate) async fn execute_cloudflare_router_tenant_root_refresh_installation_call_v1(
@@ -6671,6 +7435,65 @@ fn validate_refresh_installation_response(
 }
 
 #[cfg(feature = "workers-rs")]
+fn validate_refresh_contribution_response(
+    response: &CloudflareTenantRootRefreshContributionResponseV1,
+    command: &VerifiedTenantRootRoleRefreshCommandV1,
+    commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
+    context: &TenantRootCeremonyContextV1,
+    candidate_bytes: &[u8],
+    role_keys: &TenantRootCreationRoleVerifyingKeysV1,
+) -> RouterAbProtocolResult<()> {
+    validate_refresh_response_scope(response, command, context)?;
+    match &response.outcome {
+        CloudflareTenantRootRefreshContributionResponseOutcomeV1::WaitingForPeer { role } => {
+            if role.to_protocol() != command.role() {
+                return Err(malformed_input(
+                    "tenant-root refresh contribution response role is invalid",
+                ));
+            }
+        }
+        CloudflareTenantRootRefreshContributionResponseOutcomeV1::BothRolesContributed {
+            deriver_a_signed_contribution_b64u,
+            deriver_b_signed_contribution_b64u,
+        } => {
+            let deriver_a = decode_canonical_base64url(
+                "tenant-root refresh response Deriver A contribution",
+                deriver_a_signed_contribution_b64u,
+                TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BYTES_V1,
+                TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BASE64URL_BYTES_V1,
+            )?;
+            let deriver_b = decode_canonical_base64url(
+                "tenant-root refresh response Deriver B contribution",
+                deriver_b_signed_contribution_b64u,
+                TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BYTES_V1,
+                TENANT_ROOT_REFRESH_CONTRIBUTION_MAX_BASE64URL_BYTES_V1,
+            )?;
+            let verified_a =
+                verify_refresh_contribution_wire(&deriver_a, context, commitments, role_keys)?;
+            let verified_b =
+                verify_refresh_contribution_wire(&deriver_b, context, commitments, role_keys)?;
+            if verified_a.source() != TwoPartyDeriverRole::DeriverA
+                || verified_b.source() != TwoPartyDeriverRole::DeriverB
+            {
+                return Err(malformed_input(
+                    "tenant-root refresh contribution response pair roles are invalid",
+                ));
+            }
+            let expected_candidate = match command.role() {
+                TwoPartyDeriverRole::DeriverA => &deriver_a,
+                TwoPartyDeriverRole::DeriverB => &deriver_b,
+            };
+            if expected_candidate.as_slice() != candidate_bytes {
+                return Err(malformed_input(
+                    "tenant-root refresh contribution response pair omits the submitted wire",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "workers-rs")]
 fn validate_refresh_response_scope<T>(
     response: &T,
     command: &VerifiedTenantRootRoleRefreshCommandV1,
@@ -6809,6 +7632,40 @@ impl RefreshResponseScopeView for CloudflareTenantRootRefreshInstallationRespons
 }
 
 #[cfg(feature = "workers-rs")]
+impl RefreshResponseScopeView for CloudflareTenantRootRefreshContributionResponseV1 {
+    fn command_digest_b64u(&self) -> &str {
+        &self.command_digest_b64u
+    }
+    fn identity_digest_b64u(&self) -> &str {
+        &self.identity_digest_b64u
+    }
+    fn custody_lineage_b64u(&self) -> &str {
+        &self.custody_lineage_b64u
+    }
+    fn authority_id_b64u(&self) -> &str {
+        &self.authority_id_b64u
+    }
+    fn ceremony_context_digest_b64u(&self) -> &str {
+        &self.ceremony_context_digest_b64u
+    }
+    fn current_epoch(&self) -> u64 {
+        self.current_epoch
+    }
+    fn next_epoch(&self) -> u64 {
+        self.next_epoch
+    }
+    fn expected_control_plane_revision(&self) -> u64 {
+        self.expected_control_plane_revision
+    }
+    fn active_root_commitment_b64u(&self) -> &str {
+        &self.active_root_commitment_b64u
+    }
+    fn active_activation_receipt_digest_b64u(&self) -> &str {
+        &self.active_activation_receipt_digest_b64u
+    }
+}
+
+#[cfg(feature = "workers-rs")]
 fn validate_response_fixed_bytes(
     field: &str,
     encoded: &str,
@@ -6865,13 +7722,16 @@ mod tests {
     use curve25519_dalek::scalar::Scalar;
     use ed25519_dalek::SigningKey;
     use rand_chacha::ChaCha20Rng;
+    use rand_core::{CryptoRng, RngCore};
     use rand_core_06::SeedableRng;
     use router_ab_core::{
-        TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1,
-        TenantRootCeremonySessionIdV1, TenantRootCreationCapabilityNonceV1,
-        TenantRootCreationCommitmentTranscriptV1, TenantRootCustodyLineageId,
-        TenantRootRefreshCommitmentTranscriptV1, TenantRootShareInstallationEvidenceV1,
-        TenantRootShareInstallationTranscriptV1,
+        seal_tenant_root_refresh_contribution_v1, TenantRootCeremonyContextV1,
+        TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1, TenantRootCeremonySessionIdV1,
+        TenantRootCreationCapabilityNonceV1, TenantRootCreationCommitmentTranscriptV1,
+        TenantRootCustodyLineageId, TenantRootRefreshCommitmentTranscriptV1,
+        TenantRootRefreshContributionAadV1, TenantRootRefreshHpkeKeypairV1,
+        TenantRootShareInstallationEvidenceV1, TenantRootShareInstallationTranscriptV1,
+        TenantRootSignedRefreshContributionV1,
     };
     use threshold_prf::{
         prove_root_share_knowledge, RootShareRefreshCoefficient, SigningRootShare,
@@ -6882,6 +7742,31 @@ mod tests {
     const SIGNING_KEY_BYTES: [u8; 32] = [0x71; 32];
     const DERIVER_A_SIGNING_KEY_BYTES: [u8; 32] = [0xa1; 32];
     const DERIVER_B_SIGNING_KEY_BYTES: [u8; 32] = [0xb1; 32];
+
+    struct TestRng(u64);
+
+    impl RngCore for TestRng {
+        fn next_u32(&mut self) -> u32 {
+            self.next_u64() as u32
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            self.0 ^= self.0 << 7;
+            self.0 ^= self.0 >> 9;
+            self.0 ^= self.0 << 8;
+            self.0
+        }
+
+        fn fill_bytes(&mut self, destination: &mut [u8]) {
+            for chunk in destination.chunks_mut(8) {
+                let bytes = self.next_u64().to_le_bytes();
+                let length = chunk.len();
+                chunk.copy_from_slice(&bytes[..length]);
+            }
+        }
+    }
+
+    impl CryptoRng for TestRng {}
     const ACTIVE_RECEIPT_B64U: &str = "AAAAJ3NlYW1zL3RlbmFudC1yb290LWFjdGl2YXRpb24tcmVjZWlwdC92MQAAABBpbml0aWFsX2NyZWF0aW9uAAAAIBERERERERERERERERERERERERERERERERERERERERERAAAAECIiIiIiIiIiIiIiIiIiIiIAAAAIAAAAAAAAAAEAAAAgkI_pwUXEA4gcAvabBzqouVV7bYFT9VPpRZ10ciaUPikAAAAIAAAAAAAAAAIAAAAIAAAAAAAAAAMAAAAiAAHkVJ7ha5qgMJnKIIxnra_K-kw_Pk5TA95gJuPKj_hEYAAAACIAAkzxud7ak-uf1RX8yZJirtE2i0jySiev0phNqP57sjQfAAAAIOiCsTEBa1LB0zNwgBh892hCPvzLtRe7SVq4EsQWD_ROAAAAIMQ9g3dCkm7LYr3LZYshGa91a8Z9PLnqT3uf3jTE4aIxAAAAIDakJhm_fPXLIc4wnkXePcNdYGfNUjiEna5UZhH5AFHPAAAAFGN1cnJlbnRfcm9sZV9iYWNrdXBzAAAAIC2mFYLjHTKbc8aMOkEmcTVBYQfG-haBElDQh2WGuka_AAAAID1zStMyGYGvRh9E-TLEGvjbICdBkWWjxV1MO29AkQOMAAAAIIM2B2FzSVsXBnkngfyo5gVXqcVmpiT1tyNwUXER7ef7AAAAIPEpISsVxYb2unONkNRuxtq6LW6rokS_H89t5CwHRn1gAAAACAAAAAAAD0JKAAAAIHFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxAAAACAAAAAAAD0JAAAAACAAAAAAAD7dwAAAAF2NvbnRyb2wtcGxhbmUtaXNzdWVyLXYxAAAAQNj5VPnQhsrHKxUDM1Qj3_FxrfZPpPvjAdqVjvbR_dX9QguP3nfue5x0vHeXlHP1qC41Z2FODFPXTpYJb5GaPwE";
 
     fn authority(marker: u8) -> TenantRootControlPlaneAuthorityIdV1 {
@@ -7307,6 +8192,28 @@ mod tests {
             .expect("verified refresh command")
     }
 
+    fn refresh_recipient(
+        role: TwoPartyDeriverRole,
+    ) -> (
+        &'static str,
+        router_ab_core::TenantRootRefreshHpkePublicKeyV1,
+    ) {
+        match role {
+            TwoPartyDeriverRole::DeriverA => (
+                "deriver-b-refresh-hpke-key-1",
+                TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xb2; 32])
+                    .expect("Deriver B refresh HPKE key")
+                    .public_key(),
+            ),
+            TwoPartyDeriverRole::DeriverB => (
+                "deriver-a-refresh-hpke-key-1",
+                TenantRootRefreshHpkeKeypairV1::derive_from_ikm([0xa2; 32])
+                    .expect("Deriver A refresh HPKE key")
+                    .public_key(),
+            ),
+        }
+    }
+
     fn refresh_commitment(
         context: &TenantRootCeremonyContextV1,
         role: TwoPartyDeriverRole,
@@ -7317,9 +8224,14 @@ mod tests {
             Scalar::from(scalar).to_bytes(),
         )
         .expect("refresh coefficient");
-        let transcript =
-            TenantRootRefreshCommitmentTranscriptV1::new(context.clone(), coefficient.commitment())
-                .expect("refresh commitment transcript");
+        let (recipient_key_id, recipient_public_key) = refresh_recipient(role);
+        let transcript = TenantRootRefreshCommitmentTranscriptV1::new(
+            context.clone(),
+            coefficient.commitment(),
+            recipient_key_id,
+            recipient_public_key,
+        )
+        .expect("refresh commitment transcript");
         let signing_key = role_signing_key(role);
         let signed = TenantRootSignedRefreshCommitmentV1::sign(transcript, &signing_key.to_bytes())
             .expect("signed refresh commitment");
@@ -7346,6 +8258,54 @@ mod tests {
             refresh_commitment(context, TwoPartyDeriverRole::DeriverB, 11),
         )
         .expect("refresh commitment pair")
+    }
+
+    fn refresh_contribution(
+        context: &TenantRootCeremonyContextV1,
+        commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
+        role: TwoPartyDeriverRole,
+        scalar: u64,
+        rng_seed: u64,
+    ) -> VerifiedTenantRootSignedRefreshContributionV1 {
+        let coefficient = RootShareRefreshCoefficient::from_canonical_bytes(
+            role,
+            Scalar::from(scalar).to_bytes(),
+        )
+        .expect("refresh coefficient");
+        let commitment = match role {
+            TwoPartyDeriverRole::DeriverA => commitments.deriver_a(),
+            TwoPartyDeriverRole::DeriverB => commitments.deriver_b(),
+        };
+        let aad = match role {
+            TwoPartyDeriverRole::DeriverA => TenantRootRefreshContributionAadV1::deriver_a_to_b(
+                commitments,
+                commitment.recipient_key_id(),
+                commitment.recipient_public_key(),
+            ),
+            TwoPartyDeriverRole::DeriverB => TenantRootRefreshContributionAadV1::deriver_b_to_a(
+                commitments,
+                commitment.recipient_key_id(),
+                commitment.recipient_public_key(),
+            ),
+        }
+        .expect("refresh contribution AAD");
+        let envelope = seal_tenant_root_refresh_contribution_v1(
+            &aad,
+            &coefficient.contribution_for(role.peer()),
+            &mut TestRng(rng_seed),
+        )
+        .expect("sealed refresh contribution");
+        let signed = TenantRootSignedRefreshContributionV1::sign(
+            &aad,
+            envelope,
+            &role_signing_key(role).to_bytes(),
+        )
+        .expect("signed refresh contribution");
+        let bytes = signed
+            .canonical_bytes()
+            .expect("refresh contribution bytes");
+        verify_refresh_contribution_wire(&bytes, context, commitments, &role_keys())
+            .expect("verified refresh contribution")
     }
 
     fn refresh_installation_wire(
@@ -7508,6 +8468,133 @@ mod tests {
             refresh_commitment_evaluation_error(changed_error, true).code(),
             RouterAbProtocolErrorCode::ConflictingPair
         );
+    }
+
+    #[test]
+    fn refresh_contribution_rendezvous_replays_completed_pair_after_expiry() {
+        let mut active = validated_active_refresh_state();
+        let context = refresh_context(&active);
+        let commitments = refresh_commitment_pair(&context);
+        let command_a = refresh_command(&active, &context, TwoPartyDeriverRole::DeriverA);
+        let command_b = refresh_command(&active, &context, TwoPartyDeriverRole::DeriverB);
+        active.record.fence = refresh_reserved_fence(
+            &active.record.fence,
+            refresh_attempt_from_command(&command_a).expect("refresh attempt"),
+        )
+        .expect("reserved refresh fence");
+
+        let contribution_b = refresh_contribution(
+            &context,
+            &commitments,
+            TwoPartyDeriverRole::DeriverB,
+            11,
+            0x22,
+        );
+        let expected_b = encode_base64url_bytes_v1(contribution_b.canonical_bytes());
+        let first = evaluate_refresh_contribution_rendezvous(
+            None,
+            contribution_b,
+            &command_b,
+            &active,
+            &context,
+            &commitments,
+            &role_keys(),
+            authority(0x71),
+            1_000_100,
+        )
+        .expect("first contribution");
+        let first_record = match first {
+            TenantRootRefreshContributionRendezvousEvaluationV1::Commit {
+                record,
+                outcome:
+                    CloudflareTenantRootRefreshContributionResponseOutcomeV1::WaitingForPeer {
+                        role: CloudflareTenantRootCreationInstallationRoleV1::DeriverB,
+                    },
+            } => record,
+            _ => panic!("unexpected first contribution outcome"),
+        };
+
+        let contribution_a = refresh_contribution(
+            &context,
+            &commitments,
+            TwoPartyDeriverRole::DeriverA,
+            7,
+            0x33,
+        );
+        let expected_a = encode_base64url_bytes_v1(contribution_a.canonical_bytes());
+        let completed = evaluate_refresh_contribution_rendezvous(
+            Some(first_record),
+            contribution_a,
+            &command_a,
+            &active,
+            &context,
+            &commitments,
+            &role_keys(),
+            authority(0x71),
+            1_000_100,
+        )
+        .expect("completed contribution pair");
+        let completed_record = match completed {
+            TenantRootRefreshContributionRendezvousEvaluationV1::Commit {
+                record,
+                outcome:
+                    CloudflareTenantRootRefreshContributionResponseOutcomeV1::BothRolesContributed {
+                        deriver_a_signed_contribution_b64u,
+                        deriver_b_signed_contribution_b64u,
+                    },
+            } => {
+                assert_eq!(deriver_a_signed_contribution_b64u, expected_a);
+                assert_eq!(deriver_b_signed_contribution_b64u, expected_b);
+                record
+            }
+            _ => panic!("unexpected completed contribution outcome"),
+        };
+
+        let replay = evaluate_refresh_contribution_rendezvous(
+            Some(completed_record.clone()),
+            refresh_contribution(
+                &context,
+                &commitments,
+                TwoPartyDeriverRole::DeriverA,
+                7,
+                0x33,
+            ),
+            &command_a,
+            &active,
+            &context,
+            &commitments,
+            &role_keys(),
+            authority(0x71),
+            1_030_001,
+        )
+        .expect("exact completed replay");
+        assert!(matches!(
+            replay,
+            TenantRootRefreshContributionRendezvousEvaluationV1::Replay(
+                CloudflareTenantRootRefreshContributionResponseOutcomeV1::BothRolesContributed { .. }
+            )
+        ));
+
+        let conflict = evaluate_refresh_contribution_rendezvous(
+            Some(completed_record),
+            refresh_contribution(
+                &context,
+                &commitments,
+                TwoPartyDeriverRole::DeriverA,
+                7,
+                0x34,
+            ),
+            &command_a,
+            &active,
+            &context,
+            &commitments,
+            &role_keys(),
+            authority(0x71),
+            1_030_001,
+        )
+        .err()
+        .expect("changed completed contribution conflicts");
+        assert_eq!(conflict.code(), RouterAbProtocolErrorCode::ConflictingPair);
     }
 
     #[test]
