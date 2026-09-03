@@ -2864,7 +2864,7 @@ fn creation_cleanup_target(
         .lifecycle_receipt_digest()
         .map_err(candidate_derivation_error)?;
     Ok((
-        TenantRootRoleCleanupTargetV1 {
+        TenantRootRoleCleanupTargetV1::Pending {
             identity_digest: journal.identity_digest,
             custody_lineage: journal.custody_lineage,
             role: *role,
@@ -2931,7 +2931,7 @@ fn validate_creation_cleanup_checkpoint(
     let authorization = cleanup_command
         .verify(
             &target,
-            target.role,
+            target.role(),
             authority_id,
             issuer_key_id,
             issuer_key,
@@ -2971,10 +2971,10 @@ fn validate_creation_cleanup_checkpoint(
         journal.custody_lineage,
         replay_session,
         cleanup_nonce,
-        target.role,
+        target.role(),
     );
-    let role_signing_key_id = journal.ceremony_context.signing_key_id(target.role);
-    let role_verifying_key = role_keys.for_role_and_key_id(target.role, role_signing_key_id)?;
+    let role_signing_key_id = journal.ceremony_context.signing_key_id(target.role());
+    let role_verifying_key = role_keys.for_role_and_key_id(target.role(), role_signing_key_id)?;
     cleanup_receipt
         .verify_remote_public(
             &replay_key,
@@ -8901,7 +8901,7 @@ mod tests {
             journal.custody_lineage,
             replay_session,
             cleanup_nonce,
-            target.role,
+            target.role(),
         );
         let payload = replacement_payload.unwrap_or(&command_bytes);
         let receipt = TenantRootCommandTerminalReceiptV1::sign_success(
@@ -8909,7 +8909,7 @@ mod tests {
             TenantRootProtocolDigestV1::from_bytes([0xd1; 32]).expect("command digest"),
             payload.to_vec(),
             1_010_000,
-            journal.ceremony_context.signing_key_id(target.role),
+            journal.ceremony_context.signing_key_id(target.role()),
             &role_signing_key(receipt_signer).to_bytes(),
         )
         .expect("cleanup receipt");

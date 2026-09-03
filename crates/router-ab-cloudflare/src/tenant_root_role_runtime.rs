@@ -8,8 +8,9 @@ use router_ab_core::{
     TenantRootEpochCommitmentsV1, TenantRootIdentityV1, TenantRootManagedBackupBindingV1,
     TenantRootManagedRestoreRoleV1, TenantRootOnlineRoleShareBindingV1,
     TenantRootProviderCanaryReceiptBindingV1, TenantRootRoleCleanupCommandV1,
-    TenantRootSignedActivationReceiptV1, TenantRootSignedProviderCanaryReceiptV1,
-    VerifiedTenantRootRoleCreationCommandV1, VerifiedTenantRootSignedActivationReceiptV1,
+    TenantRootRoleCleanupTargetV1, TenantRootSignedActivationReceiptV1,
+    TenantRootSignedProviderCanaryReceiptV1, VerifiedTenantRootRoleCreationCommandV1,
+    VerifiedTenantRootSignedActivationReceiptV1,
 };
 use router_ab_core::{
     PendingTenantRootInitialRoleAttemptV1, PendingTenantRootRefreshRoleAttemptV1,
@@ -2697,11 +2698,25 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_cleanup_pending_v1(
     let command = TenantRootRoleCleanupCommandV1::decode_canonical_bytes(&command_bytes)
         .map_err(candidate_derivation_error)?;
     let claimed_target = command.claimed_target();
+    let (claimed_identity_digest, claimed_custody_lineage, claimed_epoch) = match &claimed_target {
+        TenantRootRoleCleanupTargetV1::Pending {
+            identity_digest,
+            custody_lineage,
+            epoch,
+            ..
+        } => (*identity_digest, *custody_lineage, *epoch),
+        TenantRootRoleCleanupTargetV1::Retired { .. } => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "tenant-root pending cleanup command names a retired row",
+            ));
+        }
+    };
     let (authority_id, _) =
         crate::durable_object::tenant_root_creation::derive_tenant_root_creation_authority_object_v1(
             env,
-            claimed_target.identity_digest,
-            claimed_target.custody_lineage,
+            claimed_identity_digest,
+            claimed_custody_lineage,
         )?;
     let reader = crate::CloudflareWorkerEnvReaderV1::new(env);
     let trusted_issuer_keys =
@@ -2742,10 +2757,10 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_cleanup_pending_v1(
     backup_store
         .delete_coordinates(
             crate::tenant_root_managed_backup_r2::TenantRootManagedBackupObjectCoordinatesV1::new(
-                claimed_target.identity_digest,
-                claimed_target.custody_lineage,
+                claimed_identity_digest,
+                claimed_custody_lineage,
                 backup_role,
-                claimed_target.epoch,
+                claimed_epoch,
             ),
         )
         .await

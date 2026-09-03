@@ -1090,7 +1090,7 @@ mod live {
         let installation_evidence_digest =
             TenantRootProtocolDigestV1::from_bytes(Sha256::digest(&evidence_bytes).into())
                 .map_err(derivation)?;
-        let target = TenantRootRoleCleanupTargetV1 {
+        let target = TenantRootRoleCleanupTargetV1::Pending {
             identity_digest,
             custody_lineage,
             role,
