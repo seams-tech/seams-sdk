@@ -1,9 +1,10 @@
 use router_ab_core::{
     decode_ecdsa_threshold_prf_outer_request_v2, decode_ecdsa_threshold_prf_private_request_v2,
     evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2,
-    EcdsaThresholdPrfOuterRequestV2, EcdsaThresholdPrfPrivateRequestV2, EcdsaThresholdPrfPurposeV2,
-    EncryptedPayloadV1, MpcPrfShareCommitmentWireV1, MpcPrfStableThresholdSignerInputV2, Role,
-    RoleEncryptedEnvelopeV1, StableTenantDerivationContextV2, TenantRootActiveRootPairV1,
+    plan_mpc_prf_stable_purpose_binding_v2, EcdsaThresholdPrfOuterRequestV2,
+    EcdsaThresholdPrfPrivateRequestV2, EcdsaThresholdPrfPurposeV2, EncryptedPayloadV1,
+    MpcPrfShareCommitmentWireV1, MpcPrfSigningRootShareWireV1, MpcPrfStableThresholdSignerInputV2,
+    Role, RoleEncryptedEnvelopeV1, StableTenantDerivationContextV2, TenantRootActiveRootPairV1,
     TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1,
     TenantRootCeremonySessionIdV1, TenantRootCustodyBindingV1, TenantRootDerivationNonceV1,
     TenantRootDerivationOperationIdV1, TenantRootDerivationSessionIdV1,
@@ -215,4 +216,61 @@ fn backend_input_derives_role_from_the_verified_online_share() {
         output.purpose_plan.purpose().as_bytes(),
         b"router-ab/x_client_base/v1"
     );
+}
+
+#[test]
+fn tenant_root_share_backed_v2_matches_prior_stable_derivation_for_each_purpose() {
+    for (purpose, proof_seed) in [
+        (EcdsaThresholdPrfPurposeV2::XClientBase, 0x91),
+        (EcdsaThresholdPrfPurposeV2::XServerBase, 0x92),
+        (EcdsaThresholdPrfPurposeV2::YServer, 0x93),
+    ] {
+        let (stable_context, custody_binding, active_pair, verified_share) =
+            authenticated_deriver_a_share();
+        let purpose_plan = plan_mpc_prf_stable_purpose_binding_v2(
+            &stable_context,
+            &custody_binding,
+            purpose.threshold_prf_purpose(),
+        )
+        .unwrap();
+        let prior_input = MpcPrfStableThresholdSignerInputV2::new(
+            purpose_plan.clone(),
+            &custody_binding,
+            &active_pair,
+            Role::SignerA,
+            MpcPrfSigningRootShareWireV1::new(
+                SigningRootShareWire::from_share(&support::fixed_share(
+                    TwoPartyDeriverRole::DeriverA,
+                    12,
+                ))
+                .to_bytes()
+                .to_vec(),
+            )
+            .unwrap(),
+            support::ISSUED_AT_MS,
+        )
+        .unwrap();
+        let share_backed_input =
+            MpcPrfStableThresholdSignerInputV2::from_verified_online_role_share(
+                purpose_plan,
+                &custody_binding,
+                &active_pair,
+                verified_share,
+                support::ISSUED_AT_MS,
+            )
+            .unwrap();
+
+        let prior = evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2(
+            prior_input,
+            &mut support::rng06(proof_seed),
+        )
+        .unwrap();
+        let share_backed = evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2(
+            share_backed_input,
+            &mut support::rng06(proof_seed),
+        )
+        .unwrap();
+
+        assert_eq!(share_backed, prior, "purpose {purpose:?} changed");
+    }
 }
