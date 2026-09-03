@@ -9,7 +9,9 @@ use router_ab_core::{
     TenantRootManagedRestoreRoleV1, TenantRootOnlineRoleShareBindingV1,
     TenantRootProviderCanaryReceiptBindingV1, TenantRootRoleCleanupCommandV1,
     TenantRootRoleCleanupTargetV1, TenantRootSignedActivationReceiptV1,
-    TenantRootSignedProviderCanaryReceiptV1, VerifiedTenantRootRoleCreationCommandV1,
+    TenantRootSignedManagedRestoreCapabilityV1, TenantRootSignedManagedRestoreRoleUnavailableV1,
+    TenantRootSignedProviderCanaryReceiptV1, VerifiedTenantRootManagedRestoreCapabilityV1,
+    VerifiedTenantRootManagedRestoreRoleUnavailableV1, VerifiedTenantRootRoleCreationCommandV1,
     VerifiedTenantRootSignedActivationReceiptV1,
 };
 use router_ab_core::{
@@ -68,7 +70,9 @@ use crate::tenant_root_role_d1::{
     CloudflareTenantRootInitialCreationInputV1,
     CloudflareTenantRootInitialCreationPersistenceOutcomeV1,
     CloudflareTenantRootInitialCreationPreflightV1,
-    CloudflareTenantRootInitialCreationShareInputV1, CloudflareTenantRootRefreshInputV1,
+    CloudflareTenantRootInitialCreationShareInputV1,
+    CloudflareTenantRootManagedRestoreStagingDecisionV1,
+    CloudflareTenantRootManagedRestoreStagingInputV1, CloudflareTenantRootRefreshInputV1,
     CloudflareTenantRootRefreshPersistenceOutcomeV1, CloudflareTenantRootRefreshShareInputV1,
     CloudflareTenantRootRetirementV1, CloudflareTenantRootRoleShareLifecycleV1,
     CloudflareTenantRootRoleShareStoreV1,
@@ -422,6 +426,36 @@ pub struct CloudflareDeriverTenantRootRefreshResponseV1 {
     pub signed_managed_backup_b64u: String,
     pub provider_canary_receipt_b64u: String,
     pub terminal_receipt_b64u: String,
+}
+
+/// Control plane -> Deriver: stage one issuer-authorized managed restore.
+///
+/// The signed packages carry the identity, lineage, role, epoch, and active
+/// receipt binding. No request field selects storage coordinates or lifecycle
+/// state.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareDeriverTenantRootManagedRestoreRequestV1 {
+    pub public_state_b64u: String,
+    pub restore_capability_b64u: String,
+}
+
+/// Result of one role-local managed restore staging attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudflareDeriverTenantRootManagedRestoreStatusV1 {
+    StagedForForwardRefresh,
+}
+
+/// Deriver -> control plane: restored material is pending the mandatory
+/// forward refresh and has not become active.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareDeriverTenantRootManagedRestoreResponseV1 {
+    pub role: CloudflareTenantRootCreateRoleV1,
+    pub status: CloudflareDeriverTenantRootManagedRestoreStatusV1,
+    pub capability_digest_b64u: String,
+    pub staging_terminal_receipt_b64u: String,
 }
 
 /// Role label on the Deriver creation wire.
@@ -1138,6 +1172,65 @@ fn tenant_root_managed_restore_role_v1(
         TwoPartyDeriverRole::DeriverA => TenantRootManagedRestoreRoleV1::DeriverA,
         TwoPartyDeriverRole::DeriverB => TenantRootManagedRestoreRoleV1::DeriverB,
     }
+}
+
+#[cfg(feature = "workers-rs")]
+const fn tenant_root_protocol_role_for_managed_restore_v1(
+    role: TenantRootManagedRestoreRoleV1,
+) -> TwoPartyDeriverRole {
+    match role {
+        TenantRootManagedRestoreRoleV1::DeriverA => TwoPartyDeriverRole::DeriverA,
+        TenantRootManagedRestoreRoleV1::DeriverB => TwoPartyDeriverRole::DeriverB,
+    }
+}
+
+#[cfg(feature = "workers-rs")]
+fn tenant_root_managed_restore_staging_scope_v1(
+    public_state: &VerifiedTenantRootManagedRestoreRoleUnavailableV1,
+    capability: &VerifiedTenantRootManagedRestoreCapabilityV1,
+) -> RouterAbProtocolResult<TenantRootCommandScopeV1> {
+    const DOMAIN: &[u8] = b"seams/tenant-root/managed-restore-staging-scope/v1";
+
+    let role = tenant_root_protocol_role_for_managed_restore_v1(capability.role());
+    let mut material = Vec::with_capacity(32 + 32 + 32 + 16 + 8 + 8 + 1);
+    material.extend_from_slice(DOMAIN);
+    material.extend_from_slice(public_state.digest().as_bytes());
+    material.extend_from_slice(capability.digest().as_bytes());
+    material.extend_from_slice(capability.identity_digest().as_bytes());
+    material.extend_from_slice(capability.custody_lineage().as_bytes());
+    material.extend_from_slice(&capability.epoch().get().get().to_be_bytes());
+    material.extend_from_slice(&public_state.lifecycle_revision().to_be_bytes());
+    material.push(match role {
+        TwoPartyDeriverRole::DeriverA => 1,
+        TwoPartyDeriverRole::DeriverB => 2,
+    });
+
+    let mut session_material = material.clone();
+    session_material.extend_from_slice(b"/session");
+    let session_id = TenantRootCeremonySessionIdV1::from_bytes(
+        Sha256::digest(&session_material)[..16]
+            .try_into()
+            .map_err(|_| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "tenant-root managed-restore staging session digest has an invalid length",
+                )
+            })?,
+    )
+    .map_err(candidate_derivation_error)?;
+
+    material.extend_from_slice(b"/nonce");
+    let nonce = TenantRootCeremonyNonceV1::from_bytes(Sha256::digest(&material).into())
+        .map_err(candidate_derivation_error)?;
+    let key = TenantRootCommandReplayKeyV1::new(
+        capability.identity_digest(),
+        capability.custody_lineage(),
+        session_id,
+        nonce,
+        role,
+    );
+    TenantRootCommandScopeV1::new(key, capability.epoch(), public_state.lifecycle_revision())
+        .map_err(candidate_derivation_error)
 }
 
 #[cfg(feature = "workers-rs")]
@@ -2768,6 +2861,272 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_cleanup_pending_v1(
     Ok(CloudflareDeriverTenantRootCleanupPendingResponseV1 {
         role: CloudflareTenantRootCreateRoleV1::from_protocol(role),
         cleanup_receipt_b64u: crate::encode_base64url_bytes_v1(&receipt_bytes),
+    })
+}
+
+/// Verifies and stages one managed restore at its owning Deriver.
+///
+/// The public state and capability are independently issuer-authenticated. The
+/// local role derives the only permitted backup coordinates, opens the backup,
+/// and reseals the share into a pending D1 row. This path never calls an
+/// activation transition; forward refresh is the only later activation input.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn handle_cloudflare_deriver_tenant_root_managed_restore_v1(
+    env: &worker::Env,
+    worker_role: crate::CloudflareWorkerRoleV1,
+    request: CloudflareDeriverTenantRootManagedRestoreRequestV1,
+    now_ms: u64,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootManagedRestoreResponseV1> {
+    let role = tenant_root_creation_protocol_role_v1(worker_role)?;
+    let managed_role = tenant_root_managed_restore_role_v1(role);
+    let public_state_bytes = crate::decode_base64url_bytes_v1(
+        "tenant-root managed-restore public state",
+        &request.public_state_b64u,
+    )?;
+    let signed_public_state =
+        TenantRootSignedManagedRestoreRoleUnavailableV1::decode_canonical_bytes(
+            &public_state_bytes,
+        )
+        .map_err(candidate_derivation_error)?;
+    let reader = crate::CloudflareWorkerEnvReaderV1::new(env);
+    let issuer_keys =
+        crate::env::parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(&reader)?;
+    let issuer_key_id = signed_public_state.issuer_key_id().to_owned();
+    let issuer_key = issuer_keys
+        .for_issuer_key_id(&issuer_key_id)
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root managed-restore public-state issuer is not trusted by this Deriver",
+            )
+        })?;
+    let verified_public_state = signed_public_state
+        .verify(&issuer_key_id, issuer_key)
+        .map_err(candidate_derivation_error)?;
+
+    let capability_bytes = crate::decode_base64url_bytes_v1(
+        "tenant-root managed-restore capability",
+        &request.restore_capability_b64u,
+    )?;
+    let signed_capability =
+        TenantRootSignedManagedRestoreCapabilityV1::decode_canonical_bytes(&capability_bytes)
+            .map_err(candidate_derivation_error)?;
+    if signed_capability.issuer_key_id() != verified_public_state.issuer_key_id() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore capability and public state use different issuers",
+        ));
+    }
+    let terminal_receipt_payload = signed_capability
+        .canonical_bytes()
+        .map_err(candidate_derivation_error)?;
+    let capability = signed_capability
+        .verify(
+            verified_public_state.state(),
+            verified_public_state.issuer_key_id(),
+            issuer_key,
+        )
+        .map_err(candidate_derivation_error)?;
+    if verified_public_state.unavailable_role() != managed_role || capability.role() != managed_role
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore authorization does not belong to this Deriver",
+        ));
+    }
+    let capability_digest = capability.capability_digest();
+
+    let identity = verified_public_state.state().active().identity().clone();
+    let expected_commitment = match managed_role {
+        TenantRootManagedRestoreRoleV1::DeriverA => verified_public_state
+            .state()
+            .active()
+            .current()
+            .verified()
+            .commitments()
+            .deriver_a(),
+        TenantRootManagedRestoreRoleV1::DeriverB => verified_public_state
+            .state()
+            .active()
+            .current()
+            .verified()
+            .commitments()
+            .deriver_b(),
+    };
+    let (_, role_signer) =
+        crate::env::load_cloudflare_tenant_root_creation_role_signing_key_v1(env, worker_role)?;
+    if role_signer.role() != role {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore signer does not belong to this Deriver",
+        ));
+    }
+    let provider_config = tenant_root_role_runtime_provider_config_from_env_v1(env, worker_role)?;
+    let backup_store =
+        crate::tenant_root_managed_backup_r2::CloudflareTenantRootManagedBackupStoreV1::from_env(
+            env,
+            managed_role,
+        )
+        .map_err(|error| tenant_root_store_error_v1("tenant-root backup store lookup", error))?;
+    let backup_coordinates =
+        crate::tenant_root_managed_backup_r2::TenantRootManagedBackupObjectCoordinatesV1::new(
+            capability.identity_digest(),
+            capability.custody_lineage(),
+            managed_role,
+            capability.epoch(),
+        );
+    let role_verifying_key = role_signer.verifying_key_bytes();
+    let managed_backup = backup_store
+        .get_verified(backup_coordinates, &role_verifying_key)
+        .await
+        .map_err(|error| tenant_root_store_error_v1("tenant-root managed backup lookup", error))?;
+    let mut provider =
+        crate::env::load_cloudflare_tenant_root_operational_rotation_provider_v1(env, worker_role)?;
+    let restored_share = open_tenant_root_managed_backup_v1(managed_backup, &mut provider)
+        .map_err(candidate_derivation_error)?;
+    if restored_share.share_commitment() != expected_commitment {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed backup does not reproduce the active role commitment",
+        ));
+    }
+
+    let share_wire = SigningRootShareWire::decode_slice(restored_share.share().as_bytes())
+        .map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "tenant-root managed backup share wire is invalid",
+            )
+        })?;
+    let online_binding = TenantRootOnlineRoleShareBindingV1::from_persisted(
+        capability.identity_digest(),
+        capability.custody_lineage(),
+        role,
+        capability.epoch(),
+        restored_share.share_commitment().clone(),
+        provider_config.online_epoch_wrapping_key_ref.clone(),
+        restored_share.installation_receipt_digest(),
+    )
+    .map_err(candidate_derivation_error)?;
+    let online_request = TenantRootOnlineRoleShareSealRequestV1::new(online_binding, share_wire)
+        .map_err(candidate_derivation_error)?;
+    let online_ciphertext = provider
+        .seal_online_role_share(&online_request)
+        .map_err(candidate_derivation_error)?;
+    let sealed_online_share = online_request
+        .complete(online_ciphertext)
+        .map_err(candidate_derivation_error)?;
+    let opened_online =
+        open_tenant_root_online_role_share_v1(sealed_online_share.clone(), &mut provider)
+            .map_err(candidate_derivation_error)?;
+    if opened_online.identity_digest() != capability.identity_digest()
+        || opened_online.custody_lineage() != capability.custody_lineage()
+        || opened_online.role() != role
+        || opened_online.epoch() != capability.epoch()
+        || opened_online.share_commitment() != sealed_online_share.binding().share_commitment()
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore online provider returned the wrong binding",
+        ));
+    }
+    drop(opened_online);
+
+    let scope = tenant_root_managed_restore_staging_scope_v1(&verified_public_state, &capability)?;
+    let staging = CloudflareTenantRootManagedRestoreStagingInputV1::from_verified_material(
+        capability,
+        restored_share,
+        identity,
+        sealed_online_share,
+        scope,
+        now_ms,
+    )
+    .map_err(|error| {
+        tenant_root_store_error_v1("tenant-root managed-restore staging input", error)
+    })?;
+    let store = CloudflareTenantRootRoleShareStoreV1::from_env(env)
+        .map_err(|error| tenant_root_store_error_v1("tenant-root role store lookup", error))?;
+    let decision = store
+        .reserve_managed_restore_staging(staging, now_ms)
+        .await
+        .map_err(|error| {
+            tenant_root_store_error_v1("tenant-root managed-restore staging reservation", error)
+        })?;
+    let terminal_receipt = match decision {
+        CloudflareTenantRootManagedRestoreStagingDecisionV1::Execute { command }
+        | CloudflareTenantRootManagedRestoreStagingDecisionV1::ResumeExecution { command } => {
+            let (_, executed) = store
+                .insert_managed_restore_pending(command, now_ms)
+                .await
+                .map_err(|error| {
+                    tenant_root_store_error_v1("tenant-root managed-restore staging", error)
+                })?;
+            let receipt = role_signer
+                .sign_verified_success_terminal_receipt(
+                    &executed,
+                    &terminal_receipt_payload,
+                    now_ms,
+                )
+                .map_err(candidate_derivation_error)?;
+            store
+                .complete_managed_restore_staging(executed, receipt)
+                .await
+                .map_err(|error| {
+                    tenant_root_store_error_v1(
+                        "tenant-root managed-restore staging terminalization",
+                        error,
+                    )
+                })?
+        }
+        CloudflareTenantRootManagedRestoreStagingDecisionV1::ResumeCompletion { executed } => {
+            let receipt = role_signer
+                .sign_verified_success_terminal_receipt(
+                    &executed,
+                    &terminal_receipt_payload,
+                    now_ms,
+                )
+                .map_err(candidate_derivation_error)?;
+            store
+                .complete_managed_restore_staging(executed, receipt)
+                .await
+                .map_err(|error| {
+                    tenant_root_store_error_v1(
+                        "tenant-root managed-restore staging terminalization",
+                        error,
+                    )
+                })?
+        }
+        CloudflareTenantRootManagedRestoreStagingDecisionV1::ReplayCompleted { receipt_bytes } => {
+            crate::tenant_root_role_d1::CloudflareTenantRootCommandTerminalCommitV1::Replay {
+                receipt_bytes,
+            }
+        }
+        CloudflareTenantRootManagedRestoreStagingDecisionV1::InProgress => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "tenant-root managed-restore staging is already in progress",
+            ));
+        }
+        CloudflareTenantRootManagedRestoreStagingDecisionV1::ReplayFailed { .. } => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "tenant-root managed-restore staging previously failed",
+            ));
+        }
+    };
+    let terminal_receipt_bytes = match terminal_receipt {
+        crate::tenant_root_role_d1::CloudflareTenantRootCommandTerminalCommitV1::Committed {
+            receipt_bytes,
+        }
+        | crate::tenant_root_role_d1::CloudflareTenantRootCommandTerminalCommitV1::Replay {
+            receipt_bytes,
+        } => receipt_bytes,
+    };
+    Ok(CloudflareDeriverTenantRootManagedRestoreResponseV1 {
+        role: CloudflareTenantRootCreateRoleV1::from_protocol(role),
+        status: CloudflareDeriverTenantRootManagedRestoreStatusV1::StagedForForwardRefresh,
+        capability_digest_b64u: crate::encode_base64url_bytes_v1(capability_digest.as_bytes()),
+        staging_terminal_receipt_b64u: crate::encode_base64url_bytes_v1(&terminal_receipt_bytes),
     })
 }
 
@@ -5003,6 +5362,40 @@ pub(crate) mod live_execution_tests {
                 "request must reject {smuggled}"
             );
         }
+    }
+
+    #[test]
+    fn managed_restore_request_and_response_are_strictly_staged() {
+        let request = CloudflareDeriverTenantRootManagedRestoreRequestV1 {
+            public_state_b64u: "state".to_owned(),
+            restore_capability_b64u: "capability".to_owned(),
+        };
+        let request_json = serde_json::to_value(&request).expect("request json");
+        assert_eq!(request_json["public_state_b64u"], "state");
+        assert_eq!(request_json["restore_capability_b64u"], "capability");
+        for smuggled in [
+            r#"{"public_state_b64u":"state","restore_capability_b64u":"capability","role":"deriver_a"}"#,
+            r#"{"public_state_b64u":"state","restore_capability_b64u":"capability","epoch":1}"#,
+            r#"{"public_state_b64u":"state"}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<CloudflareDeriverTenantRootManagedRestoreRequestV1>(
+                    smuggled
+                )
+                .is_err(),
+                "managed-restore request must reject {smuggled}"
+            );
+        }
+
+        let response = CloudflareDeriverTenantRootManagedRestoreResponseV1 {
+            role: CloudflareTenantRootCreateRoleV1::DeriverA,
+            status: CloudflareDeriverTenantRootManagedRestoreStatusV1::StagedForForwardRefresh,
+            capability_digest_b64u: "digest".to_owned(),
+            staging_terminal_receipt_b64u: "receipt".to_owned(),
+        };
+        let response_json = serde_json::to_value(&response).expect("response json");
+        assert_eq!(response_json["status"], "staged_for_forward_refresh");
+        assert!(!response_json.to_string().contains("activation"));
     }
 
     /// The scalar-leak proof, extended over the sealed persistence input.

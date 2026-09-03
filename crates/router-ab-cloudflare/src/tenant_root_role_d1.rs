@@ -3528,6 +3528,16 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         self.insert_pending(command, executed_at_ms).await
     }
 
+    /// Commits one managed-restore staging receipt without changing lifecycle
+    /// state. The pending row remains fenced from every activation path.
+    pub(crate) async fn complete_managed_restore_staging(
+        &self,
+        executed: ExecutedTenantRootCommandV1,
+        receipt: VerifiedTenantRootCommandSuccessReceiptV1,
+    ) -> worker::Result<CloudflareTenantRootCommandTerminalCommitV1> {
+        self.complete_command(executed, receipt).await
+    }
+
     /// Loads the one active role share authorized by the control-plane binding.
     ///
     /// The store's configured role supplies the role selector. Identity, lineage,
