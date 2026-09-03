@@ -785,6 +785,7 @@ function componentRuntimeRequirements(lane, component) {
         'DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
         'DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION',
         'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
+        'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
         'DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF',
@@ -802,6 +803,7 @@ function componentRuntimeRequirements(lane, component) {
         'DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
         'DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION',
         'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
+        'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
         'DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF',
@@ -1226,7 +1228,9 @@ function deployDeriver(lane, role) {
   const args = workerDeployArguments(resource, configPath);
   args.push(
     '--var',
-    `${prefix}_ENVELOPE_HPKE_PUBLIC_KEY:${requireEnvironmentValue(`${prefix}_ENVELOPE_HPKE_PUBLIC_KEY`)}`,
+    `DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:${requireEnvironmentValue('DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY')}`,
+    '--var',
+    `DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:${requireEnvironmentValue('DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY')}`,
     '--var',
     `DERIVER_A_PEER_VERIFYING_KEY_HEX:${requireEnvironmentValue('DERIVER_A_PEER_VERIFYING_KEY_HEX')}`,
     '--var',

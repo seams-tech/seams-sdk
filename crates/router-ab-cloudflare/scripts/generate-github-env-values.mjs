@@ -1269,6 +1269,8 @@ function buildDeriverAEnvironment(input) {
           variables.ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION,
         ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
         ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX:
           variables.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX,
         ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX:
@@ -1328,6 +1330,8 @@ function buildDeriverBEnvironment(input) {
           variables.ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION,
         ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
         ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX:
           variables.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX,
         ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX:
@@ -2303,9 +2307,19 @@ function validateRouterPublicIdentityConsistency(outputDocument) {
     'Deriver A envelope public key',
   );
   assertEqual(
+    deriverA.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
+    router.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
+    'Deriver A peer envelope public key',
+  );
+  assertEqual(
     deriverB.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
     router.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
     'Deriver B envelope public key',
+  );
+  assertEqual(
+    deriverB.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
+    router.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
+    'Deriver B peer envelope public key',
   );
   assertEqual(
     signingWorker.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
