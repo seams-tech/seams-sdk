@@ -18,7 +18,9 @@ use crate::tenant_root_control_plane::{
     CloudflareTenantRootControlPlaneRefreshActivationRequestV1,
 };
 use crate::tenant_root_role_runtime::{
+    CloudflareDeriverTenantRootCleanupResponseV1,
     CloudflareDeriverTenantRootRefreshActivationRequestV1,
+    CloudflareDeriverTenantRootRefreshActivationResponseV1,
     CloudflareDeriverTenantRootRefreshRequestV1, CloudflareTenantRootCreateRoleV1,
 };
 use crate::{
@@ -149,7 +151,7 @@ async fn coordinate_cloudflare_router_tenant_root_creation_v1(
             let cleanup =
                 execute_cloudflare_tenant_root_control_plane_cleanup_command_service_call_v1(
                     env,
-                    &CloudflareTenantRootControlPlaneCleanupCommandRequestV1 {
+                    &CloudflareTenantRootControlPlaneCleanupCommandRequestV1::PendingCreation {
                         identity_digest_b64u: genesis.identity_digest_b64u.clone(),
                         custody_lineage_b64u: genesis.custody_lineage_b64u.clone(),
                     },
@@ -179,8 +181,8 @@ async fn coordinate_cloudflare_router_tenant_root_creation_v1(
             let expected_role = role.to_protocol();
             let (authority_id, _) = derive_tenant_root_creation_authority_object_v1(
                 env,
-                claimed_target.identity_digest,
-                claimed_target.custody_lineage,
+                claimed_target.identity_digest(),
+                claimed_target.custody_lineage(),
             )?;
             let reader = crate::CloudflareWorkerEnvReaderV1::new(env);
             let issuer_keys =
@@ -340,6 +342,140 @@ async fn coordinate_cloudflare_router_tenant_root_creation_v1(
 }
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
+const fn tenant_root_control_plane_role_v1(
+    role: CloudflareTenantRootCreateRoleV1,
+) -> CloudflareTenantRootControlPlaneRoleV1 {
+    match role {
+        CloudflareTenantRootCreateRoleV1::DeriverA => {
+            CloudflareTenantRootControlPlaneRoleV1::DeriverA
+        }
+        CloudflareTenantRootCreateRoleV1::DeriverB => {
+            CloudflareTenantRootControlPlaneRoleV1::DeriverB
+        }
+    }
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn cleanup_cloudflare_router_retired_tenant_root_role_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    identity_digest_b64u: &str,
+    custody_lineage_b64u: &str,
+    activation: &CloudflareDeriverTenantRootRefreshActivationResponseV1,
+) -> RouterAbProtocolResult<()> {
+    let expected_role = tenant_root_control_plane_role_v1(activation.role);
+    let issued = execute_cloudflare_tenant_root_control_plane_cleanup_command_service_call_v1(
+        env,
+        &CloudflareTenantRootControlPlaneCleanupCommandRequestV1::RetiredAfterRefresh {
+            identity_digest_b64u: identity_digest_b64u.to_owned(),
+            custody_lineage_b64u: custody_lineage_b64u.to_owned(),
+            role: expected_role,
+            expected_retired_revision: activation.retired_revision,
+            expected_active_revision: activation.active_revision,
+        },
+    )
+    .await?;
+    if issued.role != expected_role {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root retired cleanup command names a different Deriver",
+        ));
+    }
+    let command_bytes = crate::decode_base64url_bytes_v1(
+        "tenant-root retired cleanup command",
+        &issued.cleanup_command_b64u,
+    )?;
+    let command =
+        router_ab_core::TenantRootRoleCleanupCommandV1::decode_canonical_bytes(&command_bytes)
+            .map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    format!("tenant-root retired cleanup command was malformed: {error}"),
+                )
+            })?;
+    let claimed_target = command.claimed_target();
+    let router_ab_core::TenantRootRoleCleanupTargetV1::Retired {
+        role,
+        retired_epoch,
+        expected_retired_revision,
+        expected_active_epoch,
+        expected_active_revision,
+        ..
+    } = &claimed_target
+    else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root post-refresh cleanup command is not a retired-share command",
+        ));
+    };
+    if *role != activation.role.to_protocol()
+        || retired_epoch.get().get() != activation.retired_epoch
+        || *expected_retired_revision != activation.retired_revision
+        || expected_active_epoch.get().get() != activation.active_epoch
+        || *expected_active_revision != activation.active_revision
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root retired cleanup command does not match the completed role swap",
+        ));
+    }
+    let (authority_id, _) = derive_tenant_root_creation_authority_object_v1(
+        env,
+        claimed_target.identity_digest(),
+        claimed_target.custody_lineage(),
+    )?;
+    let reader = crate::CloudflareWorkerEnvReaderV1::new(env);
+    let issuer_keys =
+        crate::env::parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(&reader)?;
+    let issuer_key_id = command.issuer_key_id().to_owned();
+    let issuer_key = issuer_keys
+        .for_issuer_key_id(&issuer_key_id)
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root retired cleanup issuer is not trusted by the Router",
+            )
+        })?;
+    command
+        .verify(
+            &claimed_target,
+            activation.role.to_protocol(),
+            authority_id,
+            &issuer_key_id,
+            issuer_key,
+        )
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                format!("tenant-root retired cleanup command verification failed: {error}"),
+            )
+        })?;
+    let deriver = match activation.role {
+        CloudflareTenantRootCreateRoleV1::DeriverA => &runtime.bindings().deriver_a,
+        CloudflareTenantRootCreateRoleV1::DeriverB => &runtime.bindings().deriver_b,
+    };
+    let cleaned = execute_cloudflare_deriver_tenant_root_cleanup_service_call_v1(
+        env,
+        deriver,
+        &CloudflareDeriverTenantRootCleanupRequestV1 {
+            cleanup_command_b64u: issued.cleanup_command_b64u,
+        },
+    )
+    .await?;
+    match cleaned {
+        CloudflareDeriverTenantRootCleanupResponseV1::RetiredDeleted { role, .. }
+            if role == activation.role =>
+        {
+            Ok(())
+        }
+        _ => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "tenant-root Deriver did not confirm retired-share deletion",
+        )),
+    }
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
 async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
     env: &Env,
     runtime: &CloudflareRouterWorkerRuntimeV1,
@@ -387,7 +523,7 @@ async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
     let role_activation = CloudflareDeriverTenantRootRefreshActivationRequestV1 {
         activation_receipt_b64u: issued_activation.activation_receipt_b64u.clone(),
     };
-    futures::try_join!(
+    let (deriver_a_activation, deriver_b_activation) = futures::try_join!(
         execute_cloudflare_deriver_tenant_root_refresh_activation_service_call_v1(
             env,
             &runtime.bindings().deriver_a,
@@ -406,6 +542,22 @@ async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
     let activated =
         execute_cloudflare_router_tenant_root_refresh_activation_call_v1(env, &activation_receipt)
             .await?;
+    futures::try_join!(
+        cleanup_cloudflare_router_retired_tenant_root_role_v1(
+            env,
+            runtime,
+            &request.identity_digest_b64u,
+            &request.custody_lineage_b64u,
+            &deriver_a_activation,
+        ),
+        cleanup_cloudflare_router_retired_tenant_root_role_v1(
+            env,
+            runtime,
+            &request.identity_digest_b64u,
+            &request.custody_lineage_b64u,
+            &deriver_b_activation,
+        ),
+    )?;
     Ok(CloudflareRouterTenantRootRefreshResponseV1 {
         activation_receipt_digest_b64u: activated.activation_receipt_digest_b64u,
         lifecycle_revision: activated.lifecycle_revision,

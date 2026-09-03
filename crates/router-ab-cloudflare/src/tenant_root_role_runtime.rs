@@ -442,6 +442,10 @@ pub struct CloudflareDeriverTenantRootRefreshActivationRequestV1 {
 pub struct CloudflareDeriverTenantRootRefreshActivationResponseV1 {
     pub role: CloudflareTenantRootCreateRoleV1,
     pub activation_terminal_receipt_b64u: String,
+    pub retired_epoch: u64,
+    pub retired_revision: i64,
+    pub active_epoch: u64,
+    pub active_revision: i64,
 }
 
 /// Router -> Deriver: execute one issuer-authorized role-local refresh.
@@ -506,6 +510,13 @@ impl CloudflareTenantRootCreateRoleV1 {
         match role {
             TwoPartyDeriverRole::DeriverA => Self::DeriverA,
             TwoPartyDeriverRole::DeriverB => Self::DeriverB,
+        }
+    }
+
+    pub(crate) const fn to_protocol(self) -> TwoPartyDeriverRole {
+        match self {
+            Self::DeriverA => TwoPartyDeriverRole::DeriverA,
+            Self::DeriverB => TwoPartyDeriverRole::DeriverB,
         }
     }
 }
@@ -1900,6 +1911,10 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_activation_v1(
         )
         .await
         .map_err(|error| tenant_root_store_error_v1("tenant-root backup lookup", error))?;
+    let identity_digest = verified.identity_digest();
+    let custody_lineage = verified.custody_lineage();
+    let retired_epoch = refresh_activation_current_epoch_v1(&verified)?;
+    let active_epoch = refresh_activation_next_epoch_v1(&verified)?;
     let activation = CloudflareTenantRootActivationV1::with_current_role_backup(
         pending.record(),
         &managed_backup,
@@ -1931,28 +1946,75 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_activation_v1(
         .map_err(|error| {
             tenant_root_store_error_v1("tenant-root refresh swap reservation", error)
         })?;
-    let executed = match decision {
+    let terminal_bytes = match decision {
         crate::tenant_root_role_d1::CloudflareTenantRootSwapActiveEpochDecisionV1::Execute {
             command,
         }
         | crate::tenant_root_role_d1::CloudflareTenantRootSwapActiveEpochDecisionV1::ResumeExecution {
             command,
-        } => store
-            .swap_active_epoch(command, now_ms)
-            .await
-            .map_err(|error| tenant_root_store_error_v1("tenant-root refresh swap execution", error))?
-            .1,
+        } => {
+            let (_, executed) = store
+                .swap_active_epoch(command, now_ms)
+                .await
+                .map_err(|error| {
+                    tenant_root_store_error_v1("tenant-root refresh swap execution", error)
+                })?;
+            let terminal_receipt = role_signer
+                .sign_verified_success_terminal_receipt(
+                    &executed,
+                    &activation_receipt_bytes,
+                    updated_at_ms,
+                )
+                .map_err(candidate_derivation_error)?;
+            let terminal = store
+                .complete_activation(executed, &activation_for_completion, terminal_receipt)
+                .await
+                .map_err(|error| {
+                    tenant_root_store_error_v1(
+                        "tenant-root refresh activation completion",
+                        error,
+                    )
+                })?;
+            match terminal {
+                crate::tenant_root_role_d1::CloudflareTenantRootCommandTerminalCommitV1::Committed {
+                    receipt_bytes,
+                }
+                | crate::tenant_root_role_d1::CloudflareTenantRootCommandTerminalCommitV1::Replay {
+                    receipt_bytes,
+                } => receipt_bytes,
+            }
+        }
         crate::tenant_root_role_d1::CloudflareTenantRootSwapActiveEpochDecisionV1::ResumeCompletion {
             executed,
-        } => executed,
+        } => {
+            let terminal_receipt = role_signer
+                .sign_verified_success_terminal_receipt(
+                    &executed,
+                    &activation_receipt_bytes,
+                    updated_at_ms,
+                )
+                .map_err(candidate_derivation_error)?;
+            let terminal = store
+                .complete_activation(executed, &activation_for_completion, terminal_receipt)
+                .await
+                .map_err(|error| {
+                    tenant_root_store_error_v1(
+                        "tenant-root refresh activation completion",
+                        error,
+                    )
+                })?;
+            match terminal {
+                crate::tenant_root_role_d1::CloudflareTenantRootCommandTerminalCommitV1::Committed {
+                    receipt_bytes,
+                }
+                | crate::tenant_root_role_d1::CloudflareTenantRootCommandTerminalCommitV1::Replay {
+                    receipt_bytes,
+                } => receipt_bytes,
+            }
+        }
         crate::tenant_root_role_d1::CloudflareTenantRootSwapActiveEpochDecisionV1::ReplayCompleted {
             receipt_bytes,
-        } => {
-            return Ok(CloudflareDeriverTenantRootRefreshActivationResponseV1 {
-                role: CloudflareTenantRootCreateRoleV1::from_protocol(role),
-                activation_terminal_receipt_b64u: crate::encode_base64url_bytes_v1(&receipt_bytes),
-            });
-        }
+        } => receipt_bytes,
         crate::tenant_root_role_d1::CloudflareTenantRootSwapActiveEpochDecisionV1::InProgress => {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ReplayedLocalRequest,
@@ -1968,26 +2030,42 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_activation_v1(
             ));
         }
     };
-    let terminal_receipt = role_signer
-        .sign_verified_success_terminal_receipt(&executed, &activation_receipt_bytes, updated_at_ms)
-        .map_err(candidate_derivation_error)?;
-    let terminal = store
-        .complete_activation(executed, &activation_for_completion, terminal_receipt)
+    let retired = store
+        .load_epoch_by_identity_digest(identity_digest, custody_lineage, retired_epoch)
         .await
-        .map_err(|error| {
-            tenant_root_store_error_v1("tenant-root refresh activation completion", error)
+        .map_err(|error| tenant_root_store_error_v1("tenant-root retired share reload", error))?
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "tenant-root refresh swap did not retain its retired row",
+            )
         })?;
-    let terminal_bytes = match terminal {
-        crate::tenant_root_role_d1::CloudflareTenantRootCommandTerminalCommitV1::Committed {
-            receipt_bytes,
-        }
-        | crate::tenant_root_role_d1::CloudflareTenantRootCommandTerminalCommitV1::Replay {
-            receipt_bytes,
-        } => receipt_bytes,
-    };
+    let active = store
+        .load_epoch_by_identity_digest(identity_digest, custody_lineage, active_epoch)
+        .await
+        .map_err(|error| tenant_root_store_error_v1("tenant-root active share reload", error))?
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "tenant-root refresh swap did not retain its active successor",
+            )
+        })?;
+    if active.active_activation_receipt_bytes().map_err(|error| {
+        tenant_root_store_error_v1("tenant-root active successor receipt", error)
+    })? != receipt_bytes
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root active successor does not retain the refresh activation receipt",
+        ));
+    }
     Ok(CloudflareDeriverTenantRootRefreshActivationResponseV1 {
         role: CloudflareTenantRootCreateRoleV1::from_protocol(role),
         activation_terminal_receipt_b64u: crate::encode_base64url_bytes_v1(&terminal_bytes),
+        retired_epoch: retired_epoch.get().get(),
+        retired_revision: retired.revision(),
+        active_epoch: active_epoch.get().get(),
+        active_revision: active.revision(),
     })
 }
 
