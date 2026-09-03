@@ -121,6 +121,36 @@ impl TenantRootManagedRestoreCapabilityV1 {
     pub const fn role(&self) -> TenantRootManagedRestoreRoleV1 {
         self.role
     }
+
+    /// Returns the logical tenant-root identity bound by the capability.
+    pub const fn identity_digest(&self) -> TenantRootIdentityDigestV1 {
+        self.identity_digest
+    }
+
+    /// Returns the custody lineage bound by the capability.
+    pub const fn custody_lineage(&self) -> TenantRootCustodyLineageId {
+        self.custody_lineage
+    }
+
+    /// Returns the active epoch bound by the capability.
+    pub const fn epoch(&self) -> TenantRootShareEpoch {
+        self.epoch
+    }
+
+    /// Returns the active activation receipt digest bound by the capability.
+    pub const fn activation_receipt_digest(&self) -> TenantRootLifecycleReceiptDigestV1 {
+        self.activation_receipt_digest
+    }
+
+    /// Returns the authenticated issue timestamp.
+    pub const fn issued_at_ms(&self) -> u64 {
+        self.issued_at_ms
+    }
+
+    /// Returns the authenticated expiry timestamp.
+    pub const fn expires_at_ms(&self) -> u64 {
+        self.expires_at_ms
+    }
 }
 
 /// Role-signed evidence that the recovered share was installed.
@@ -469,6 +499,19 @@ impl TenantRootManagedRestoreRoleUnavailableV1 {
     /// Returns the authoritative lifecycle revision.
     pub const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Validates a capability's immutable state binding before signature use.
+    pub fn validate_capability_for_transport(
+        &self,
+        capability: &TenantRootManagedRestoreCapabilityV1,
+    ) -> RouterAbDerivationResult<()> {
+        validate_capability(
+            &self.active,
+            &self.evidence,
+            capability,
+            capability.issued_at_ms(),
+        )
     }
 
     /// Consumes one fresh, current-epoch capability and starts role-local restore.

@@ -32,6 +32,7 @@ mod tenant_root_initial_role_attempt;
 mod tenant_root_lifecycle;
 mod tenant_root_managed_backup;
 mod tenant_root_managed_restore_lifecycle;
+mod tenant_root_managed_restore_transport;
 mod tenant_root_online_sealing;
 mod tenant_root_protocol;
 mod tenant_root_recovery_artifacts;
@@ -115,6 +116,7 @@ pub use self::tenant_root_initial_role_attempt::*;
 pub use self::tenant_root_lifecycle::*;
 pub use self::tenant_root_managed_backup::*;
 pub use self::tenant_root_managed_restore_lifecycle::*;
+pub use self::tenant_root_managed_restore_transport::*;
 pub use self::tenant_root_online_sealing::*;
 pub use self::tenant_root_protocol::{
     verify_tenant_root_creation_evidence_v1, verify_tenant_root_refresh_evidence_v1,
