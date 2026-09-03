@@ -493,16 +493,6 @@ async fn handle_strict_deriver_fetch_v1(
             Ok(loaded) => loaded,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
-        let server_share = match load_cloudflare_active_tenant_root_role_share_v1(
-            &env,
-            worker_role,
-            authenticated.tenant_root_custody_binding(),
-        )
-        .await
-        {
-            Ok(share) => share,
-            Err(err) => return cloudflare_protocol_error_response_v1(err),
-        };
         let signer_bootstrap = authenticated.bootstrap;
         let tenant_root_custody_binding = authenticated.tenant_root_custody_binding;
         timing.mark("preload", preload_started_at_ms);
@@ -517,7 +507,6 @@ async fn handle_strict_deriver_fetch_v1(
                 tenant_root_custody_binding,
                 outer_request,
                 preloaded.tenant_root_share,
-                server_share,
                 runtime.envelope_decrypt_key(),
                 &preloaded.root_share_metadata,
                 now_unix_ms,
@@ -630,16 +619,6 @@ async fn handle_strict_deriver_fetch_v1(
             Ok(loaded) => loaded,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
-        let server_share = match load_cloudflare_active_tenant_root_role_share_v1(
-            &env,
-            worker_role,
-            authenticated.tenant_root_custody_binding(),
-        )
-        .await
-        {
-            Ok(share) => share,
-            Err(err) => return cloudflare_protocol_error_response_v1(err),
-        };
         let signer_bootstrap = authenticated.bootstrap;
         let tenant_root_custody_binding = authenticated.tenant_root_custody_binding;
         let response = match decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_signer_private_request_v1(
@@ -651,7 +630,6 @@ async fn handle_strict_deriver_fetch_v1(
             tenant_root_custody_binding,
             outer_request,
             preloaded.tenant_root_share,
-            server_share,
             runtime.envelope_decrypt_key(),
             &preloaded.root_share_metadata,
             now_unix_ms,
