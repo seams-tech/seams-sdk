@@ -20,7 +20,7 @@ use router_ab_core::{
     TenantRootCommandTerminalReceiptV1, TenantRootCustodyBindingV1, TenantRootCustodyLineageId,
     TenantRootEpochCommitmentsV1, TenantRootIdentityDigestV1, TenantRootIdentityV1,
     TenantRootLifecycleReceiptDigestV1, TenantRootManagedRestoreRoleV1,
-    TenantRootOnlineRoleShareBindingV1, TenantRootProtocolDigestV1,
+    TenantRootOnlineRoleShareBindingV1, TenantRootProtocolDigestV1, TenantRootRoleCleanupTargetV1,
     TenantRootRoleInstallationReceiptsV1, TenantRootSealedOnlineRoleShareV1, TenantRootShareEpoch,
     TenantRootSignedAcceptedPermanentLossAuthorizationV1, TenantRootSignedActivationReceiptV1,
     TwoPartyDeriverRole, VerifiedTenantRootCommandFailureReceiptV1,
@@ -113,6 +113,13 @@ const CLEANUP_PENDING_SQL: &str = "DELETE FROM tenant_root_role_shares \
     WHERE tenant_identity_digest_hex = ?1 AND custody_lineage_b64u = ?2 \
     AND tenant_root_share_epoch = ?3 AND role = ?4 AND lifecycle = 'pending' \
     AND revision = ?5";
+const CLEANUP_RETIRED_SQL: &str = "DELETE FROM tenant_root_role_shares \
+    WHERE tenant_identity_digest_hex = ?1 AND custody_lineage_b64u = ?2 \
+    AND tenant_root_share_epoch = ?3 AND role = ?4 AND lifecycle = 'retired' \
+    AND revision = ?5 AND EXISTS (SELECT 1 FROM tenant_root_role_shares \
+    WHERE tenant_identity_digest_hex = ?1 AND custody_lineage_b64u = ?2 \
+    AND tenant_root_share_epoch = ?6 AND role = ?4 AND lifecycle = 'active' \
+    AND revision = ?7)";
 const LOAD_COMMAND_REPLAY_SQL: &str = "SELECT replay_key_digest_hex, \
     tenant_identity_digest_hex, custody_lineage_b64u, session_id_hex, nonce_hex, role, \
     command_digest_hex, admission_digest_hex, status, receipt_b64u, \
@@ -2343,9 +2350,31 @@ pub struct CloudflareTenantRootCleanupPendingCommandV1 {
     operation_payload_digest: TenantRootProtocolDigestV1,
 }
 
+/// Executable retired-cleanup command issued by the role's control plane.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct CloudflareTenantRootCleanupRetiredCommandV1 {
+    scope: TenantRootCommandScopeV1,
+    reservation: ReservedTenantRootCommandV1,
+    retired: CloudflareStoredTenantRootRoleShareV1,
+    expected_retired_revision: i64,
+    expected_active_epoch: TenantRootShareEpoch,
+    expected_active_revision: i64,
+    operation_payload_digest: TenantRootProtocolDigestV1,
+}
+
 pub(crate) struct CloudflareTenantRootAuthorizedCleanupPendingCommandV1 {
     command: CloudflareTenantRootCleanupPendingCommandV1,
     authorization: VerifiedTenantRootRoleCleanupCommandV1,
+}
+
+pub(crate) struct CloudflareTenantRootAuthorizedCleanupRetiredCommandV1 {
+    command: CloudflareTenantRootCleanupRetiredCommandV1,
+    authorization: VerifiedTenantRootRoleCleanupCommandV1,
+}
+
+pub(crate) enum CloudflareTenantRootAuthorizedCleanupCommandV1 {
+    Pending(CloudflareTenantRootAuthorizedCleanupPendingCommandV1),
+    Retired(CloudflareTenantRootAuthorizedCleanupRetiredCommandV1),
 }
 
 pub(crate) struct CloudflareTenantRootAuthorizedCleanupExecutedCommandV1 {
@@ -2453,13 +2482,34 @@ pub enum CloudflareTenantRootCleanupPendingDecisionV1 {
     ReplayFailed { failure_receipt_bytes: Vec<u8> },
 }
 
-pub(crate) enum CloudflareTenantRootAuthorizedCleanupDecisionV1 {
+/// Durable decision for one retired-cleanup command reservation.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CloudflareTenantRootCleanupRetiredDecisionV1 {
     Execute {
-        command: CloudflareTenantRootAuthorizedCleanupPendingCommandV1,
+        command: CloudflareTenantRootCleanupRetiredCommandV1,
     },
     InProgress,
     ResumeExecution {
-        command: CloudflareTenantRootAuthorizedCleanupPendingCommandV1,
+        command: CloudflareTenantRootCleanupRetiredCommandV1,
+    },
+    ResumeCompletion {
+        executed: ExecutedTenantRootCommandV1,
+    },
+    ReplayCompleted {
+        receipt_bytes: Vec<u8>,
+    },
+    ReplayFailed {
+        failure_receipt_bytes: Vec<u8>,
+    },
+}
+
+pub(crate) enum CloudflareTenantRootAuthorizedCleanupDecisionV1 {
+    Execute {
+        command: CloudflareTenantRootAuthorizedCleanupCommandV1,
+    },
+    InProgress,
+    ResumeExecution {
+        command: CloudflareTenantRootAuthorizedCleanupCommandV1,
     },
     ResumeCompletion {
         executed: CloudflareTenantRootAuthorizedCleanupExecutedCommandV1,
@@ -3840,7 +3890,6 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         }
     }
 
-    /// Reserves one exact pending-cleanup command.
     /// Reserves a cleanup that a control-plane authorization permits.
     ///
     /// This is the authorized path. The raw `reserve_cleanup_pending` below
@@ -3935,66 +3984,189 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                 .map_err(|error| store_error(error.message()))?;
         }
 
-        let pending = self
-            .load_epoch_by_identity_digest(
-                authorization.identity_digest(),
-                authorization.custody_lineage(),
-                authorization.epoch(),
-            )
-            .await?
-            .ok_or_else(|| store_error("tenant-root cleanup pending row does not exist"))?;
-        validate_authorized_cleanup_pending(&self.cipher, &authorization, &pending)?;
-        let operation_payload_digest =
-            authorized_cleanup_pending_payload_digest(&authorization, &pending, pending.revision)?;
-        match self
-            .reserve_cleanup_pending_with_payload_digest(
-                scope,
-                pending,
-                reserved_at_ms,
-                operation_payload_digest,
-                Some(TenantRootCommandAdmissionV1::AuthorizedCleanup(
-                    authorization_digest,
-                )),
-            )
-            .await?
-        {
-            CloudflareTenantRootCleanupPendingDecisionV1::Execute { command } => {
-                Ok(CloudflareTenantRootAuthorizedCleanupDecisionV1::Execute {
-                    command: CloudflareTenantRootAuthorizedCleanupPendingCommandV1 {
-                        command,
-                        authorization,
-                    },
-                })
+        match authorization.target() {
+            TenantRootRoleCleanupTargetV1::Pending { .. } => {
+                let pending = self
+                    .load_epoch_by_identity_digest(
+                        authorization.identity_digest(),
+                        authorization.custody_lineage(),
+                        authorization.epoch(),
+                    )
+                    .await?
+                    .ok_or_else(|| store_error("tenant-root cleanup pending row does not exist"))?;
+                validate_authorized_cleanup_pending(&self.cipher, &authorization, &pending)?;
+                let operation_payload_digest = authorized_cleanup_pending_payload_digest(
+                    &authorization,
+                    &pending,
+                    pending.revision,
+                )?;
+                match self
+                    .reserve_cleanup_pending_with_payload_digest(
+                        scope,
+                        pending,
+                        reserved_at_ms,
+                        operation_payload_digest,
+                        Some(TenantRootCommandAdmissionV1::AuthorizedCleanup(
+                            authorization_digest,
+                        )),
+                    )
+                    .await?
+                {
+                    CloudflareTenantRootCleanupPendingDecisionV1::Execute { command } => {
+                        Ok(CloudflareTenantRootAuthorizedCleanupDecisionV1::Execute {
+                            command: CloudflareTenantRootAuthorizedCleanupCommandV1::Pending(
+                                CloudflareTenantRootAuthorizedCleanupPendingCommandV1 {
+                                    command,
+                                    authorization,
+                                },
+                            ),
+                        })
+                    }
+                    CloudflareTenantRootCleanupPendingDecisionV1::InProgress => {
+                        Ok(CloudflareTenantRootAuthorizedCleanupDecisionV1::InProgress)
+                    }
+                    CloudflareTenantRootCleanupPendingDecisionV1::ResumeExecution { command } => {
+                        Ok(
+                            CloudflareTenantRootAuthorizedCleanupDecisionV1::ResumeExecution {
+                                command: CloudflareTenantRootAuthorizedCleanupCommandV1::Pending(
+                                    CloudflareTenantRootAuthorizedCleanupPendingCommandV1 {
+                                        command,
+                                        authorization,
+                                    },
+                                ),
+                            },
+                        )
+                    }
+                    CloudflareTenantRootCleanupPendingDecisionV1::ResumeCompletion { executed } => {
+                        Ok(
+                            CloudflareTenantRootAuthorizedCleanupDecisionV1::ResumeCompletion {
+                                executed: CloudflareTenantRootAuthorizedCleanupExecutedCommandV1 {
+                                    executed,
+                                    authorization,
+                                },
+                            },
+                        )
+                    }
+                    CloudflareTenantRootCleanupPendingDecisionV1::ReplayCompleted {
+                        receipt_bytes,
+                    } => Ok(
+                        CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayCompleted {
+                            receipt_bytes,
+                        },
+                    ),
+                    CloudflareTenantRootCleanupPendingDecisionV1::ReplayFailed {
+                        failure_receipt_bytes,
+                    } => Ok(
+                        CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayFailed {
+                            failure_receipt_bytes,
+                        },
+                    ),
+                }
             }
-            CloudflareTenantRootCleanupPendingDecisionV1::InProgress => {
-                Ok(CloudflareTenantRootAuthorizedCleanupDecisionV1::InProgress)
+            TenantRootRoleCleanupTargetV1::Retired {
+                retired_epoch,
+                expected_retired_revision,
+                expected_active_epoch,
+                expected_active_revision,
+                ..
+            } => {
+                let retired = self
+                    .load_epoch_by_identity_digest(
+                        authorization.identity_digest(),
+                        authorization.custody_lineage(),
+                        *retired_epoch,
+                    )
+                    .await?
+                    .ok_or_else(|| store_error("tenant-root cleanup retired row does not exist"))?;
+                let active = self
+                    .load_epoch_by_identity_digest(
+                        authorization.identity_digest(),
+                        authorization.custody_lineage(),
+                        *expected_active_epoch,
+                    )
+                    .await?
+                    .ok_or_else(|| {
+                        store_error("tenant-root cleanup active successor row does not exist")
+                    })?;
+                validate_authorized_cleanup_retired(
+                    &self.cipher,
+                    &authorization,
+                    &retired,
+                    &active,
+                )?;
+                let operation_payload_digest = authorized_cleanup_retired_payload_digest(
+                    &authorization,
+                    &retired,
+                    *expected_retired_revision,
+                    *expected_active_epoch,
+                    *expected_active_revision,
+                )?;
+                match self
+                    .reserve_cleanup_retired_with_payload_digest(
+                        scope,
+                        retired,
+                        *expected_retired_revision,
+                        *expected_active_epoch,
+                        *expected_active_revision,
+                        reserved_at_ms,
+                        operation_payload_digest,
+                        Some(TenantRootCommandAdmissionV1::AuthorizedCleanup(
+                            authorization_digest,
+                        )),
+                    )
+                    .await?
+                {
+                    CloudflareTenantRootCleanupRetiredDecisionV1::Execute { command } => {
+                        Ok(CloudflareTenantRootAuthorizedCleanupDecisionV1::Execute {
+                            command: CloudflareTenantRootAuthorizedCleanupCommandV1::Retired(
+                                CloudflareTenantRootAuthorizedCleanupRetiredCommandV1 {
+                                    command,
+                                    authorization,
+                                },
+                            ),
+                        })
+                    }
+                    CloudflareTenantRootCleanupRetiredDecisionV1::InProgress => {
+                        Ok(CloudflareTenantRootAuthorizedCleanupDecisionV1::InProgress)
+                    }
+                    CloudflareTenantRootCleanupRetiredDecisionV1::ResumeExecution { command } => {
+                        Ok(
+                            CloudflareTenantRootAuthorizedCleanupDecisionV1::ResumeExecution {
+                                command: CloudflareTenantRootAuthorizedCleanupCommandV1::Retired(
+                                    CloudflareTenantRootAuthorizedCleanupRetiredCommandV1 {
+                                        command,
+                                        authorization,
+                                    },
+                                ),
+                            },
+                        )
+                    }
+                    CloudflareTenantRootCleanupRetiredDecisionV1::ResumeCompletion { executed } => {
+                        Ok(
+                            CloudflareTenantRootAuthorizedCleanupDecisionV1::ResumeCompletion {
+                                executed: CloudflareTenantRootAuthorizedCleanupExecutedCommandV1 {
+                                    executed,
+                                    authorization,
+                                },
+                            },
+                        )
+                    }
+                    CloudflareTenantRootCleanupRetiredDecisionV1::ReplayCompleted {
+                        receipt_bytes,
+                    } => Ok(
+                        CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayCompleted {
+                            receipt_bytes,
+                        },
+                    ),
+                    CloudflareTenantRootCleanupRetiredDecisionV1::ReplayFailed {
+                        failure_receipt_bytes,
+                    } => Ok(
+                        CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayFailed {
+                            failure_receipt_bytes,
+                        },
+                    ),
+                }
             }
-            CloudflareTenantRootCleanupPendingDecisionV1::ResumeExecution { command } => Ok(
-                CloudflareTenantRootAuthorizedCleanupDecisionV1::ResumeExecution {
-                    command: CloudflareTenantRootAuthorizedCleanupPendingCommandV1 {
-                        command,
-                        authorization,
-                    },
-                },
-            ),
-            CloudflareTenantRootCleanupPendingDecisionV1::ResumeCompletion { executed } => Ok(
-                CloudflareTenantRootAuthorizedCleanupDecisionV1::ResumeCompletion {
-                    executed: CloudflareTenantRootAuthorizedCleanupExecutedCommandV1 {
-                        executed,
-                        authorization,
-                    },
-                },
-            ),
-            CloudflareTenantRootCleanupPendingDecisionV1::ReplayCompleted { receipt_bytes } => Ok(
-                CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayCompleted { receipt_bytes },
-            ),
-            CloudflareTenantRootCleanupPendingDecisionV1::ReplayFailed {
-                failure_receipt_bytes,
-            } => Ok(
-                CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayFailed {
-                    failure_receipt_bytes,
-                },
-            ),
         }
     }
 
@@ -4133,6 +4305,87 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             CloudflareTenantRootCommandReplayDecisionV1::ReplayFailed {
                 failure_receipt_bytes,
             } => Ok(CloudflareTenantRootCleanupPendingDecisionV1::ReplayFailed {
+                failure_receipt_bytes,
+            }),
+        }
+    }
+
+    async fn reserve_cleanup_retired_with_payload_digest(
+        &self,
+        scope: TenantRootCommandScopeV1,
+        retired: CloudflareStoredTenantRootRoleShareV1,
+        expected_retired_revision: i64,
+        expected_active_epoch: TenantRootShareEpoch,
+        expected_active_revision: i64,
+        reserved_at_ms: u64,
+        operation_payload_digest: TenantRootProtocolDigestV1,
+        admission: Option<TenantRootCommandAdmissionV1>,
+    ) -> worker::Result<CloudflareTenantRootCleanupRetiredDecisionV1> {
+        validate_retired_stored_record(&self.cipher, &retired)?;
+        if expected_retired_revision != retired.revision {
+            return Err(store_error(
+                "tenant-root retired-cleanup command revision changed",
+            ));
+        }
+        if expected_active_revision <= 0 {
+            return Err(store_error(
+                "tenant-root retired-cleanup command has an invalid active successor revision",
+            ));
+        }
+        validate_command_scope_for_record(
+            &scope,
+            &retired.record,
+            expected_retired_revision,
+            "tenant-root retired cleanup",
+        )?;
+        let operation = TenantRootCommandOperationV1::cleanup_pending(operation_payload_digest);
+        match self
+            .reserve_scoped_command_with_admission_digest(
+                scope,
+                operation,
+                reserved_at_ms,
+                admission,
+            )
+            .await?
+        {
+            CloudflareTenantRootCommandReplayDecisionV1::Execute { reservation } => {
+                Ok(CloudflareTenantRootCleanupRetiredDecisionV1::Execute {
+                    command: CloudflareTenantRootCleanupRetiredCommandV1 {
+                        scope,
+                        reservation,
+                        retired,
+                        expected_retired_revision,
+                        expected_active_epoch,
+                        expected_active_revision,
+                        operation_payload_digest,
+                    },
+                })
+            }
+            CloudflareTenantRootCommandReplayDecisionV1::InProgress => {
+                Ok(CloudflareTenantRootCleanupRetiredDecisionV1::InProgress)
+            }
+            CloudflareTenantRootCommandReplayDecisionV1::ResumeExecution { reservation } => Ok(
+                CloudflareTenantRootCleanupRetiredDecisionV1::ResumeExecution {
+                    command: CloudflareTenantRootCleanupRetiredCommandV1 {
+                        scope,
+                        reservation,
+                        retired,
+                        expected_retired_revision,
+                        expected_active_epoch,
+                        expected_active_revision,
+                        operation_payload_digest,
+                    },
+                },
+            ),
+            CloudflareTenantRootCommandReplayDecisionV1::ResumeCompletion { executed } => {
+                Ok(CloudflareTenantRootCleanupRetiredDecisionV1::ResumeCompletion { executed })
+            }
+            CloudflareTenantRootCommandReplayDecisionV1::ReplayCompleted { receipt_bytes } => {
+                Ok(CloudflareTenantRootCleanupRetiredDecisionV1::ReplayCompleted { receipt_bytes })
+            }
+            CloudflareTenantRootCommandReplayDecisionV1::ReplayFailed {
+                failure_receipt_bytes,
+            } => Ok(CloudflareTenantRootCleanupRetiredDecisionV1::ReplayFailed {
                 failure_receipt_bytes,
             }),
         }
@@ -4563,16 +4816,102 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         .await
     }
 
+    /// Removes one exact retired revision while its expected active successor
+    /// still exists at the bound revision.
+    pub(crate) async fn cleanup_retired(
+        &self,
+        command: CloudflareTenantRootCleanupRetiredCommandV1,
+        executed_at_ms: u64,
+    ) -> worker::Result<ExecutedTenantRootCommandV1> {
+        let CloudflareTenantRootCleanupRetiredCommandV1 {
+            scope,
+            reservation,
+            retired,
+            expected_retired_revision,
+            expected_active_epoch,
+            expected_active_revision,
+            operation_payload_digest,
+        } = command;
+        validate_retired_stored_record(&self.cipher, &retired)?;
+        if expected_retired_revision != retired.revision {
+            return Err(store_error(
+                "tenant-root retired-cleanup command revision changed",
+            ));
+        }
+        if expected_active_revision <= 0 {
+            return Err(store_error(
+                "tenant-root retired-cleanup command has an invalid active successor revision",
+            ));
+        }
+        validate_command_scope_for_record(
+            &scope,
+            &retired.record,
+            expected_retired_revision,
+            "tenant-root retired cleanup",
+        )?;
+        let operation = TenantRootCommandOperationV1::cleanup_pending(operation_payload_digest);
+        validate_reserved_command(
+            &scope,
+            &reservation,
+            operation,
+            "tenant-root retired cleanup",
+        )?;
+        let metadata = record_metadata(&retired.record)?;
+        let retired_epoch = metadata.epoch.to_string();
+        let retired_revision = expected_retired_revision.to_string();
+        let active_epoch = epoch_i64(expected_active_epoch)?.to_string();
+        let active_revision = expected_active_revision.to_string();
+        let lifecycle_statement = self.session.prepare(CLEANUP_RETIRED_SQL).bind_refs(
+            [
+                D1Type::Text(metadata.identity_digest_hex.as_str()),
+                D1Type::Text(metadata.custody_lineage_b64u.as_str()),
+                D1Type::Text(retired_epoch.as_str()),
+                D1Type::Text(metadata.role.as_str()),
+                D1Type::Text(retired_revision.as_str()),
+                D1Type::Text(active_epoch.as_str()),
+                D1Type::Text(active_revision.as_str()),
+            ]
+            .iter(),
+        )?;
+        let checkpoint_statement =
+            self.command_execution_checkpoint_statement(&reservation, executed_at_ms)?;
+        self.run_lifecycle_checkpoint(
+            lifecycle_statement,
+            1,
+            checkpoint_statement,
+            reservation,
+            executed_at_ms,
+        )
+        .await
+    }
+
     pub(crate) async fn execute_authorized_cleanup(
         &self,
-        command: CloudflareTenantRootAuthorizedCleanupPendingCommandV1,
+        command: CloudflareTenantRootAuthorizedCleanupCommandV1,
         executed_at_ms: u64,
     ) -> worker::Result<CloudflareTenantRootAuthorizedCleanupExecutedCommandV1> {
-        let CloudflareTenantRootAuthorizedCleanupPendingCommandV1 {
-            command,
-            authorization,
-        } = command;
-        let executed = self.cleanup_pending(command, executed_at_ms).await?;
+        let (executed, authorization) = match command {
+            CloudflareTenantRootAuthorizedCleanupCommandV1::Pending(command) => {
+                let CloudflareTenantRootAuthorizedCleanupPendingCommandV1 {
+                    command,
+                    authorization,
+                } = command;
+                (
+                    self.cleanup_pending(command, executed_at_ms).await?,
+                    authorization,
+                )
+            }
+            CloudflareTenantRootAuthorizedCleanupCommandV1::Retired(command) => {
+                let CloudflareTenantRootAuthorizedCleanupRetiredCommandV1 {
+                    command,
+                    authorization,
+                } = command;
+                (
+                    self.cleanup_retired(command, executed_at_ms).await?,
+                    authorization,
+                )
+            }
+        };
         Ok(CloudflareTenantRootAuthorizedCleanupExecutedCommandV1 {
             executed,
             authorization,
@@ -5418,6 +5757,133 @@ async fn run_cloudflare_tenant_root_role_d1_lifecycle_integration_v1(
     if loaded_active != activated {
         return Err(store_error(
             "role-private D1 active load did not return the activated epoch",
+        ));
+    }
+
+    // Retired cleanup binds both sides of the swap and removes only the exact
+    // retired revision while the expected active successor remains current.
+    let retired_epoch = retired.record().epoch();
+    let retired_revision = retired.revision();
+    let active_epoch = activated.record().epoch();
+    let active_revision = activated.revision();
+    let wrong_retired_revision = tenant_root_creation_probe_retired_cleanup_authorization(
+        &retired,
+        tenant_root_creation_probe_protocol_role(role),
+        retired_revision + 1,
+        active_epoch,
+        active_revision,
+        0x31,
+    )?;
+    require_integration_failure(
+        store
+            .reserve_authorized_cleanup(wrong_retired_revision, 72)
+            .await,
+        "role-private D1 accepted an authorization for another retired revision",
+    )?;
+    let wrong_active_revision = tenant_root_creation_probe_retired_cleanup_authorization(
+        &retired,
+        tenant_root_creation_probe_protocol_role(role),
+        retired_revision,
+        active_epoch,
+        active_revision + 1,
+        0x32,
+    )?;
+    require_integration_failure(
+        store
+            .reserve_authorized_cleanup(wrong_active_revision, 72)
+            .await,
+        "role-private D1 accepted an authorization for another active successor revision",
+    )?;
+    let retired_cleanup_authorization = tenant_root_creation_probe_retired_cleanup_authorization(
+        &retired,
+        tenant_root_creation_probe_protocol_role(role),
+        retired_revision,
+        active_epoch,
+        active_revision,
+        0x34,
+    )?;
+    let retired_cleanup_authorization_bytes = retired_cleanup_authorization
+        .canonical_bytes()
+        .map_err(|error| store_error(error.message()))?;
+    let retired_cleanup_command = match store
+        .reserve_authorized_cleanup(retired_cleanup_authorization, 72)
+        .await?
+    {
+        CloudflareTenantRootAuthorizedCleanupDecisionV1::Execute { command } => command,
+        _ => {
+            return Err(store_error(
+                "fresh authorized retired cleanup was not executable",
+            ));
+        }
+    };
+    let retired_cleanup_executed = store
+        .execute_authorized_cleanup(retired_cleanup_command, 72)
+        .await?;
+    let retired_cleanup_receipt = tenant_root_role_d1_integration_success_receipt(
+        role,
+        &retired_cleanup_executed.executed,
+        &retired_cleanup_authorization_bytes,
+        73,
+    )?;
+    let retired_cleanup_receipt_bytes = match store
+        .complete_authorized_cleanup(retired_cleanup_executed, retired_cleanup_receipt)
+        .await?
+    {
+        CloudflareTenantRootCommandTerminalCommitV1::Committed { receipt_bytes } => receipt_bytes,
+        CloudflareTenantRootCommandTerminalCommitV1::Replay { .. } => {
+            return Err(store_error(
+                "fresh authorized retired cleanup reported a replay",
+            ));
+        }
+    };
+    let replay_retired_cleanup_authorization =
+        tenant_root_creation_probe_retired_cleanup_authorization(
+            &retired,
+            tenant_root_creation_probe_protocol_role(role),
+            retired_revision,
+            active_epoch,
+            active_revision,
+            0x34,
+        )?;
+    match store
+        .reserve_authorized_cleanup(
+            replay_retired_cleanup_authorization,
+            TENANT_ROOT_CREATION_PROBE_EXPIRES_AT_MS_V1 + 60_000,
+        )
+        .await?
+    {
+        CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayCompleted { receipt_bytes }
+            if receipt_bytes == retired_cleanup_receipt_bytes => {}
+        _ => {
+            return Err(store_error(
+                "authorized retired cleanup did not replay its exact terminal receipt",
+            ));
+        }
+    }
+    if store
+        .load_epoch(
+            retired.record().identity(),
+            retired.record().custody_lineage(),
+            retired_epoch,
+        )
+        .await?
+        .is_some()
+    {
+        return Err(store_error(
+            "authorized retired cleanup left its retired role share durable",
+        ));
+    }
+    let active_after_cleanup = store
+        .load_epoch(
+            activated.record().identity(),
+            activated.record().custody_lineage(),
+            active_epoch,
+        )
+        .await?
+        .ok_or_else(|| store_error("authorized retired cleanup removed its active successor"))?;
+    if active_after_cleanup != activated {
+        return Err(store_error(
+            "authorized retired cleanup changed its active successor",
         ));
     }
 
@@ -6394,6 +6860,52 @@ fn tenant_root_creation_probe_cleanup_authorization(
         session_id,
         ceremony_nonce,
         installation_evidence_digest,
+    };
+    let cleanup_nonce = TenantRootCeremonyNonceV1::from_bytes([cleanup_nonce_seed; 32])
+        .map_err(|error| store_error(error.message()))?;
+    let issuer_signing_key = SigningKey::from_bytes(&TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_V1);
+    let signed = router_ab_core::TenantRootRoleCleanupCommandV1::sign(
+        &target,
+        router_ab_core::TenantRootControlPlaneAuthorityIdV1::from_bytes([0x56; 32]),
+        cleanup_nonce,
+        TENANT_ROOT_CREATION_PROBE_ISSUED_AT_MS_V1 + 1,
+        TENANT_ROOT_CREATION_PROBE_EXPIRES_AT_MS_V1 - 1,
+        TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_ID_V1,
+        issuer_signing_key.as_bytes(),
+    )
+    .map_err(|error| store_error(error.message()))?;
+    signed
+        .verify(
+            &target,
+            authorized_role,
+            router_ab_core::TenantRootControlPlaneAuthorityIdV1::from_bytes([0x56; 32]),
+            TENANT_ROOT_CREATION_PROBE_ISSUER_KEY_ID_V1,
+            issuer_signing_key.verifying_key().as_bytes(),
+        )
+        .map_err(|error| store_error(error.message()))
+}
+
+#[cfg(debug_assertions)]
+fn tenant_root_creation_probe_retired_cleanup_authorization(
+    retired: &CloudflareStoredTenantRootRoleShareV1,
+    authorized_role: TwoPartyDeriverRole,
+    expected_retired_revision: i64,
+    expected_active_epoch: TenantRootShareEpoch,
+    expected_active_revision: i64,
+    cleanup_nonce_seed: u8,
+) -> worker::Result<VerifiedTenantRootRoleCleanupCommandV1> {
+    let target = router_ab_core::TenantRootRoleCleanupTargetV1::Retired {
+        identity_digest: retired
+            .record()
+            .identity()
+            .digest()
+            .map_err(|error| store_error(error.message()))?,
+        custody_lineage: retired.record().custody_lineage(),
+        role: authorized_role,
+        retired_epoch: retired.record().epoch(),
+        expected_retired_revision,
+        expected_active_epoch,
+        expected_active_revision,
     };
     let cleanup_nonce = TenantRootCeremonyNonceV1::from_bytes([cleanup_nonce_seed; 32])
         .map_err(|error| store_error(error.message()))?;
@@ -7529,6 +8041,43 @@ fn authorized_cleanup_pending_payload_digest(
     finish_command_payload(bytes)
 }
 
+fn cleanup_retired_payload_digest(
+    retired: &CloudflareStoredTenantRootRoleShareV1,
+    expected_retired_revision: i64,
+    expected_active_epoch: TenantRootShareEpoch,
+    expected_active_revision: i64,
+) -> worker::Result<TenantRootProtocolDigestV1> {
+    let mut bytes = command_payload_start("cleanup_retired")?;
+    push_record_public_payload(&mut bytes, &retired.record)?;
+    push_command_i64(&mut bytes, expected_retired_revision)?;
+    push_command_u64(&mut bytes, expected_active_epoch.get().get())?;
+    push_command_i64(&mut bytes, expected_active_revision)?;
+    finish_command_payload(bytes)
+}
+
+fn authorized_cleanup_retired_payload_digest(
+    authorization: &VerifiedTenantRootRoleCleanupCommandV1,
+    retired: &CloudflareStoredTenantRootRoleShareV1,
+    expected_retired_revision: i64,
+    expected_active_epoch: TenantRootShareEpoch,
+    expected_active_revision: i64,
+) -> worker::Result<TenantRootProtocolDigestV1> {
+    let row_payload_digest = cleanup_retired_payload_digest(
+        retired,
+        expected_retired_revision,
+        expected_active_epoch,
+        expected_active_revision,
+    )?;
+    let authorization_digest = authorization
+        .digest()
+        .map_err(|error| store_error(error.message()))?;
+    let mut bytes = Vec::new();
+    push_command_field(&mut bytes, TENANT_ROOT_AUTHORIZED_CLEANUP_PAYLOAD_DOMAIN_V1)?;
+    push_command_field(&mut bytes, authorization_digest.as_bytes())?;
+    push_command_field(&mut bytes, row_payload_digest.as_bytes())?;
+    finish_command_payload(bytes)
+}
+
 fn validate_authorized_cleanup_pending(
     cipher: &TenantRootRoleD1CipherV1,
     authorization: &VerifiedTenantRootRoleCleanupCommandV1,
@@ -7555,6 +8104,64 @@ fn validate_authorized_cleanup_pending(
     {
         return Err(store_error(
             "tenant-root cleanup authorization does not name the authoritative pending row",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_authorized_cleanup_retired(
+    cipher: &TenantRootRoleD1CipherV1,
+    authorization: &VerifiedTenantRootRoleCleanupCommandV1,
+    retired: &CloudflareStoredTenantRootRoleShareV1,
+    active: &CloudflareStoredTenantRootRoleShareV1,
+) -> worker::Result<()> {
+    validate_retired_stored_record(cipher, retired)?;
+    validate_active_stored_record(cipher, active)?;
+    let TenantRootRoleCleanupTargetV1::Retired {
+        identity_digest,
+        custody_lineage,
+        role,
+        retired_epoch,
+        expected_retired_revision,
+        expected_active_epoch,
+        expected_active_revision,
+    } = authorization.target()
+    else {
+        return Err(store_error(
+            "tenant-root retired cleanup requires a retired authorization",
+        ));
+    };
+    let retired_identity = retired
+        .record()
+        .identity()
+        .digest()
+        .map_err(|error| store_error(error.message()))?;
+    let active_identity = active
+        .record()
+        .identity()
+        .digest()
+        .map_err(|error| store_error(error.message()))?;
+    let retired_role = tenant_root_protocol_role_of(retired.record().role());
+    let active_role = tenant_root_protocol_role_of(active.record().role());
+    if retired_identity != *identity_digest
+        || active_identity != *identity_digest
+        || retired.record().custody_lineage() != *custody_lineage
+        || active.record().custody_lineage() != *custody_lineage
+        || retired_role != *role
+        || active_role != *role
+        || retired.record().epoch() != *retired_epoch
+        || retired.revision() != *expected_retired_revision
+        || active.record().epoch() != *expected_active_epoch
+        || active.revision() != *expected_active_revision
+        || retired
+            .record()
+            .epoch()
+            .next()
+            .map_err(|error| store_error(error.message()))?
+            != *expected_active_epoch
+    {
+        return Err(store_error(
+            "tenant-root cleanup authorization does not name the authoritative retired row and active successor",
         ));
     }
     Ok(())
@@ -7949,6 +8556,29 @@ fn validate_pending_stored_record(
             "tenant-root role-private operation requires a pending record",
         ));
     }
+    if stored.revision <= 0 {
+        return Err(store_error(
+            "tenant-root role-private revision must be positive",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_retired_stored_record(
+    cipher: &TenantRootRoleD1CipherV1,
+    stored: &CloudflareStoredTenantRootRoleShareV1,
+) -> worker::Result<()> {
+    stored.record.validate()?;
+    cipher.require_role(stored.record.role)?;
+    if !matches!(
+        stored.record.lifecycle,
+        CloudflareTenantRootRoleShareLifecycleV1::Retired(_)
+    ) {
+        return Err(store_error(
+            "tenant-root role-private operation requires a retired record",
+        ));
+    }
+    validate_record_activation_binding(&stored.record)?;
     if stored.revision <= 0 {
         return Err(store_error(
             "tenant-root role-private revision must be positive",
