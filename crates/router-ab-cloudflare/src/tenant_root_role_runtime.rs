@@ -2459,6 +2459,17 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_v1(
         now_ms,
     )?;
     let evidence_bytes = refresh.installation_evidence_bytes().to_vec();
+    let backup_store =
+        crate::tenant_root_managed_backup_r2::CloudflareTenantRootManagedBackupStoreV1::from_env(
+            env,
+            tenant_root_managed_restore_role_v1(role),
+        )
+        .map_err(|error| tenant_root_store_error_v1("tenant-root backup store lookup", error))?;
+    let signed_managed_backup = managed_backup.canonical_bytes().to_vec();
+    backup_store
+        .put_verified(&managed_backup)
+        .await
+        .map_err(|error| tenant_root_store_error_v1("tenant-root backup persistence", error))?;
     let terminal_receipt = match store
         .persist_refresh(refresh, &role_signer, now_ms, now_ms, now_ms)
         .await
@@ -2512,9 +2523,7 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_refresh_v1(
         signed_installation_evidence_b64u: crate::encode_base64url_bytes_v1(
             evidence.canonical_bytes(),
         ),
-        signed_managed_backup_b64u: crate::encode_base64url_bytes_v1(
-            managed_backup.canonical_bytes(),
-        ),
+        signed_managed_backup_b64u: crate::encode_base64url_bytes_v1(&signed_managed_backup),
         provider_canary_receipt_b64u: crate::encode_base64url_bytes_v1(&provider_canary_receipt),
         terminal_receipt_b64u: crate::encode_base64url_bytes_v1(&terminal_receipt),
     })
