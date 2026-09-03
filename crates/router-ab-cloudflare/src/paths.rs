@@ -35,6 +35,8 @@ pub const CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PENDING_PRIVATE_REQUEST_PATH: &
     "/router-ab/internal/deriver/tenant-root/creation/v1/cleanup-pending";
 pub const CLOUDFLARE_DERIVER_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/internal/deriver/tenant-root/creation/v1/activate";
+pub const CLOUDFLARE_DERIVER_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/deriver/tenant-root/refresh/v1/activate";
 pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_PRIVATE_REQUEST_PATH: &str =
     "/tenant-root-control-plane/creation/v1/create";
 pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_PRIVATE_REQUEST_PATH: &str =
@@ -292,6 +294,16 @@ const CLOUDFLARE_DERIVER_B_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_URL: &
     "/router-ab/internal/deriver/tenant-root/creation/v1/activate"
 );
 #[cfg(feature = "workers-rs")]
+const CLOUDFLARE_DERIVER_A_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-a.internal",
+    "/router-ab/internal/deriver/tenant-root/refresh/v1/activate"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_DERIVER_B_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-b.internal",
+    "/router-ab/internal/deriver/tenant-root/refresh/v1/activate"
+);
+#[cfg(feature = "workers-rs")]
 const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_PRIVATE_REQUEST_URL: &str = concat!(
     "https://router-ab-tenant-root-control-plane.internal",
     "/tenant-root-control-plane/creation/v1/create"
@@ -485,6 +497,18 @@ pub(crate) fn cloudflare_deriver_tenant_root_initial_activation_service_url(
         CLOUDFLARE_DERIVER_A_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_URL,
         CLOUDFLARE_DERIVER_B_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_URL,
         "tenant-root initial activation can target only Deriver A or Deriver B",
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn cloudflare_deriver_tenant_root_refresh_activation_service_url(
+    peer: &CloudflarePeerBindingV1,
+) -> RouterAbProtocolResult<&'static str> {
+    cloudflare_deriver_peer_url(
+        peer,
+        CLOUDFLARE_DERIVER_A_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_URL,
+        CLOUDFLARE_DERIVER_B_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_URL,
+        "tenant-root refresh activation can target only Deriver A or Deriver B",
     )
 }
 

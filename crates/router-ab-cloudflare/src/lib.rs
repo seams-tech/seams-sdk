@@ -114,6 +114,8 @@ use tenant_root_role_runtime::{
     CloudflareDeriverTenantRootCreateRoleShareResponseV1,
     CloudflareDeriverTenantRootInitialActivationRequestV1,
     CloudflareDeriverTenantRootInitialActivationResponseV1,
+    CloudflareDeriverTenantRootRefreshActivationRequestV1,
+    CloudflareDeriverTenantRootRefreshActivationResponseV1,
 };
 mod tenant_root_revision_manifest;
 pub use tenant_root_revision_manifest::*;
@@ -208,6 +210,7 @@ use paths::{
     cloudflare_deriver_tenant_root_cleanup_pending_service_url,
     cloudflare_deriver_tenant_root_create_role_share_service_url,
     cloudflare_deriver_tenant_root_initial_activation_service_url,
+    cloudflare_deriver_tenant_root_refresh_activation_service_url,
     cloudflare_router_ab_ecdsa_derivation_deriver_export_service_url,
     cloudflare_router_ab_ecdsa_derivation_deriver_refresh_service_url,
     cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_url,
@@ -14805,6 +14808,51 @@ pub(crate) async fn execute_cloudflare_deriver_tenant_root_initial_activation_se
     }
     let receipt_bytes = decode_base64url_bytes_v1(
         "tenant-root initial-activation terminal receipt",
+        &response.activation_terminal_receipt_b64u,
+    )?;
+    router_ab_core::TenantRootCommandTerminalReceiptV1::decode_canonical_bytes(&receipt_bytes)
+        .map_err(map_root_share_to_protocol)?;
+    Ok(response)
+}
+
+/// Sends one exact control-plane refresh-swap receipt to its owning Deriver.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn execute_cloudflare_deriver_tenant_root_refresh_activation_service_call_v1(
+    env: &worker::Env,
+    peer: &CloudflarePeerBindingV1,
+    request: &CloudflareDeriverTenantRootRefreshActivationRequestV1,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootRefreshActivationResponseV1> {
+    peer.validate()?;
+    let response: CloudflareDeriverTenantRootRefreshActivationResponseV1 = post_service_json(
+        env,
+        &peer.binding_name,
+        cloudflare_deriver_tenant_root_refresh_activation_service_url(peer)?,
+        "tenant-root refresh activation request",
+        request,
+    )
+    .await?;
+    let expected_role = match peer.peer_role {
+        CloudflareWorkerRoleV1::DeriverA => {
+            tenant_root_role_runtime::CloudflareTenantRootCreateRoleV1::DeriverA
+        }
+        CloudflareWorkerRoleV1::DeriverB => {
+            tenant_root_role_runtime::CloudflareTenantRootCreateRoleV1::DeriverB
+        }
+        _ => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root refresh activation can target only a Deriver",
+            ));
+        }
+    };
+    if response.role != expected_role {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root refresh-activation response names the wrong role",
+        ));
+    }
+    let receipt_bytes = decode_base64url_bytes_v1(
+        "tenant-root refresh-activation terminal receipt",
         &response.activation_terminal_receipt_b64u,
     )?;
     router_ab_core::TenantRootCommandTerminalReceiptV1::decode_canonical_bytes(&receipt_bytes)

@@ -3278,7 +3278,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         self.open_row(row)
     }
 
-    async fn load_epoch_by_identity_digest(
+    pub(crate) async fn load_epoch_by_identity_digest(
         &self,
         identity_digest: TenantRootIdentityDigestV1,
         custody_lineage: TenantRootCustodyLineageId,
@@ -3329,9 +3329,9 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         Ok(stored)
     }
 
-    /// Returns whether one exact initial-activation command already has a
+    /// Returns whether one exact activation command already has a
     /// durable replay row. Freshness is enforced only when this is false.
-    pub(crate) async fn initial_activation_replay_exists(
+    pub(crate) async fn activation_replay_exists(
         &self,
         scope: &TenantRootCommandScopeV1,
     ) -> worker::Result<bool> {
@@ -3938,9 +3938,9 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         self.complete_command(executed, receipt).await
     }
 
-    /// Commits the initial-activation receipt whose payload is the exact
-    /// issuer-signed activation receipt consumed by the lifecycle transition.
-    pub(crate) async fn complete_initial_activation(
+    /// Commits an activation receipt whose payload is the exact issuer-signed
+    /// activation receipt consumed by the lifecycle transition.
+    pub(crate) async fn complete_activation(
         &self,
         executed: ExecutedTenantRootCommandV1,
         activation: &CloudflareTenantRootActivationV1,
@@ -3948,7 +3948,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
     ) -> worker::Result<CloudflareTenantRootCommandTerminalCommitV1> {
         if receipt.payload_bytes() != activation.activation_receipt_bytes() {
             return Err(store_error(
-                "tenant-root initial activation receipt payload does not match its exact activation receipt",
+                "tenant-root activation receipt payload does not match its exact activation receipt",
             ));
         }
         self.complete_command(executed, receipt).await
