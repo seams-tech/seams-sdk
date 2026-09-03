@@ -1,10 +1,7 @@
 use base64::Engine;
-use router_ab_cloudflare::{
-    CloudflareEd25519YaoPairPrepareRequestV1, CloudflareEd25519YaoPairWorkV1,
-};
 use router_ab_core::{
-    ed25519_yao_recipient_set_digest_v1, LocalServiceRoleV1, MpcMaterialActivationRefV1,
-    RootShareEpoch, RouterEd25519YaoGatewayExecuteTargetV2, TenantRootCreationGrantNonceV1,
+    LocalServiceRoleV1, MpcMaterialActivationRefV1, RootShareEpoch,
+    RouterEd25519YaoGatewayExecuteTargetV2, TenantRootCreationGrantNonceV1,
     TenantRootCreationGrantV1, TenantRootCustodyLineageId, TenantRootIdentityV1,
 };
 use router_ab_dev::{
@@ -41,9 +38,6 @@ const TENANT_ROOT_ROLE_B_SEED: [u8; 32] = [0xb4; 32];
 #[derive(Serialize)]
 struct RequestFixture {
     gateway_request: RouterEd25519YaoGatewayExecuteTargetV2,
-    prepare_a: CloudflareEd25519YaoPairPrepareRequestV1,
-    prepare_b: CloudflareEd25519YaoPairPrepareRequestV1,
-    conflicting_prepare_a: CloudflareEd25519YaoPairPrepareRequestV1,
 }
 
 #[derive(Serialize)]
@@ -242,50 +236,12 @@ fn request_fixture(
         seal_local_ed25519_yao_activation_deriver_a_input_v1(&request_a, deriver_a_public)?;
     let input_b =
         seal_local_ed25519_yao_activation_deriver_b_input_v1(&request_b, deriver_b_public)?;
-    let conflicting_input_a =
-        seal_local_ed25519_yao_activation_deriver_a_input_v1(&request_a, deriver_a_public)?;
     let gateway_request = RouterEd25519YaoGatewayExecuteTargetV2::registration(
         admission.binding.clone(),
         input_a,
         input_b,
     )?;
-    let conflicting_gateway_request = RouterEd25519YaoGatewayExecuteTargetV2::registration(
-        admission.binding,
-        conflicting_input_a.clone(),
-        gateway_request.inputs().1.clone(),
-    )?;
-    let recipient_set_digest = ed25519_yao_recipient_set_digest_v1(
-        deriver_a_public,
-        deriver_b_public,
-        signing_worker_public,
-    )?;
-    let execute =
-        gateway_request
-            .clone()
-            .into_execute_request(recipient_set_digest, 1, u64::MAX)?;
-    let conflicting_execute =
-        conflicting_gateway_request.into_execute_request(recipient_set_digest, 1, u64::MAX)?;
-    let (input_a, input_b) = gateway_request.inputs();
-    let input_a = input_a.clone();
-    let input_b = input_b.clone();
-    Ok(RequestFixture {
-        gateway_request,
-        prepare_a: CloudflareEd25519YaoPairPrepareRequestV1 {
-            pair_binding: execute.pair_binding().clone(),
-            work: CloudflareEd25519YaoPairWorkV1::Ceremony,
-            input: input_a,
-        },
-        prepare_b: CloudflareEd25519YaoPairPrepareRequestV1 {
-            pair_binding: execute.pair_binding().clone(),
-            work: CloudflareEd25519YaoPairWorkV1::Ceremony,
-            input: input_b,
-        },
-        conflicting_prepare_a: CloudflareEd25519YaoPairPrepareRequestV1 {
-            pair_binding: conflicting_execute.pair_binding().clone(),
-            work: CloudflareEd25519YaoPairWorkV1::Ceremony,
-            input: conflicting_input_a,
-        },
-    })
+    Ok(RequestFixture { gateway_request })
 }
 
 fn cloudflare_router_env(

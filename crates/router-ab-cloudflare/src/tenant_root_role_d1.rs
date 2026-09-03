@@ -21,15 +21,19 @@ use router_ab_core::{
     TenantRootEpochCommitmentsV1, TenantRootIdentityDigestV1, TenantRootIdentityV1,
     TenantRootLifecycleReceiptDigestV1, TenantRootManagedRestoreRoleV1,
     TenantRootOnlineRoleShareBindingV1, TenantRootProtocolDigestV1, TenantRootRoleCleanupTargetV1,
-    TenantRootRoleInstallationReceiptsV1, TenantRootSealedOnlineRoleShareV1, TenantRootShareEpoch,
+    TenantRootRoleInstallationReceiptsV1, TenantRootRoleRefreshCommandV1,
+    TenantRootSealedOnlineRoleShareV1, TenantRootShareEpoch,
     TenantRootSignedAcceptedPermanentLossAuthorizationV1, TenantRootSignedActivationReceiptV1,
-    TwoPartyDeriverRole, VerifiedTenantRootCommandFailureReceiptV1,
-    VerifiedTenantRootCommandSuccessReceiptV1, VerifiedTenantRootManagedBackupShareV1,
-    VerifiedTenantRootManagedBackupV1, VerifiedTenantRootManagedRestoreCapabilityV1,
-    VerifiedTenantRootRoleCleanupCommandV1, VerifiedTenantRootRoleCreationCommandV1,
-    VerifiedTenantRootRoleRefreshCommandV1, VerifiedTenantRootSignedActivationReceiptV1,
+    TenantRootSignedManagedBackupV1, TenantRootSignedProviderCanaryReceiptV1,
+    TenantRootSignedShareInstallationEvidenceV1, TwoPartyDeriverRole,
+    VerifiedTenantRootCommandFailureReceiptV1, VerifiedTenantRootCommandSuccessReceiptV1,
+    VerifiedTenantRootManagedBackupShareV1, VerifiedTenantRootManagedBackupV1,
+    VerifiedTenantRootManagedRestoreCapabilityV1, VerifiedTenantRootRoleCleanupCommandV1,
+    VerifiedTenantRootRoleCreationCommandV1, VerifiedTenantRootRoleRefreshCommandV1,
+    VerifiedTenantRootSignedActivationReceiptV1,
     VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
     TENANT_ROOT_ACTIVATION_RECEIPT_MAX_BYTES_V1, TENANT_ROOT_COMMAND_TERMINAL_RECEIPT_MAX_BYTES_V1,
+    TENANT_ROOT_ROLE_REFRESH_COMMAND_MAX_BYTES_V1,
 };
 use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
 use sha2::{Digest, Sha256};
@@ -43,6 +47,7 @@ use crate::{
         parse_cloudflare_hpke_x25519_public_key_v1, CloudflareHpkeGetrandomRngV1,
         CloudflareHpkeKemV1, CloudflareHpkeSuiteV1,
     },
+    tenant_root_managed_backup_r2::TenantRootManagedBackupObjectMetadataV1,
 };
 
 const ROLE_PRIVATE_D1_BINDING: &str = "DERIVER_ROLE_PRIVATE_DB";
@@ -56,6 +61,9 @@ const TENANT_ROOT_ROLE_D1_HPKE_INFO: &[u8] = b"seams/tenant-root/role-private-d1
 const TENANT_ROOT_ROLE_D1_SCHEMA: &str = "tenant-root-role-private-d1/v2";
 const TENANT_ROOT_ROLE_D1_PURPOSE: &str = "tenant-root-role-share";
 const MAX_SEALED_ROLE_SHARE_BYTES: usize = 64 * 1024;
+const MAX_REFRESH_DURABLE_STATE_BYTES: usize = 128 * 1024;
+const MAX_REFRESH_PREPARED_MANAGED_BACKUP_BYTES: usize = 72 * 1024;
+const MAX_REFRESH_PREPARED_CANARY_BYTES: usize = 16 * 1024;
 const INTEGRATION_EPOCH_ONE_DERIVER_A_POINT_V1: [u8; 32] = [
     0xe4, 0x54, 0x9e, 0xe1, 0x6b, 0x9a, 0xa0, 0x30, 0x99, 0xca, 0x20, 0x8c, 0x67, 0xad, 0xaf, 0xca,
     0xfa, 0x4c, 0x3f, 0x3e, 0x4e, 0x53, 0x03, 0xde, 0x60, 0x26, 0xe3, 0xca, 0x8f, 0xf8, 0x44, 0x60,
@@ -109,6 +117,20 @@ const SWAP_ACTIVE_EPOCH_SQL: &str = "UPDATE tenant_root_role_shares SET \
     WHERE tenant_identity_digest_hex = ?1 AND custody_lineage_b64u = ?2 \
     AND tenant_root_share_epoch = ?3 AND role = ?4 AND lifecycle = 'active' \
     AND revision = ?5)))";
+const DELETE_MANAGED_RESTORE_FORWARD_REFRESH_PENDING_SQL: &str =
+    "DELETE FROM tenant_root_role_shares \
+    WHERE tenant_identity_digest_hex = ?1 AND custody_lineage_b64u = ?2 \
+    AND tenant_root_share_epoch = ?3 AND role = ?4 AND lifecycle = 'pending' \
+    AND revision = ?5";
+const ACTIVATE_MANAGED_RESTORE_FORWARD_REFRESH_PENDING_SQL: &str =
+    "UPDATE tenant_root_role_shares SET \
+    lifecycle = 'active', ciphertext_json = ?1, revision = revision + 1, updated_at_ms = ?2 \
+    WHERE tenant_identity_digest_hex = ?3 AND custody_lineage_b64u = ?4 \
+    AND tenant_root_share_epoch = ?5 AND role = ?6 AND lifecycle = 'pending' \
+    AND revision = ?7 AND CAST(?5 AS INTEGER) = CAST(?8 AS INTEGER) + 1 \
+    AND NOT EXISTS (SELECT 1 FROM tenant_root_role_shares \
+    WHERE tenant_identity_digest_hex = ?3 AND custody_lineage_b64u = ?4 \
+    AND tenant_root_share_epoch = ?8 AND role = ?6)";
 const CLEANUP_PENDING_SQL: &str = "DELETE FROM tenant_root_role_shares \
     WHERE tenant_identity_digest_hex = ?1 AND custody_lineage_b64u = ?2 \
     AND tenant_root_share_epoch = ?3 AND role = ?4 AND lifecycle = 'pending' \
@@ -123,7 +145,8 @@ const CLEANUP_RETIRED_SQL: &str = "DELETE FROM tenant_root_role_shares \
 const LOAD_COMMAND_REPLAY_SQL: &str = "SELECT replay_key_digest_hex, \
     tenant_identity_digest_hex, custody_lineage_b64u, session_id_hex, nonce_hex, role, \
     command_digest_hex, admission_digest_hex, status, receipt_b64u, \
-    receipt_digest_hex, reserved_at_ms, executed_at_ms, terminal_at_ms \
+    receipt_digest_hex, reserved_at_ms, executed_at_ms, terminal_at_ms, \
+    refresh_state_b64u, refresh_state_digest_hex \
     FROM tenant_root_command_replays WHERE replay_key_digest_hex = ?1 \
     AND role = ?2";
 const INSERT_COMMAND_RESERVATION_SQL: &str = "INSERT INTO tenant_root_command_replays \
@@ -131,6 +154,34 @@ const INSERT_COMMAND_RESERVATION_SQL: &str = "INSERT INTO tenant_root_command_re
     session_id_hex, nonce_hex, role, command_digest_hex, admission_digest_hex, \
     status, reserved_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'reserved', ?9) \
     ON CONFLICT(replay_key_digest_hex) DO NOTHING";
+const INSERT_REFRESH_ADMISSION_SQL: &str = "INSERT INTO tenant_root_command_replays \
+    (replay_key_digest_hex, tenant_identity_digest_hex, custody_lineage_b64u, \
+    session_id_hex, nonce_hex, role, command_digest_hex, admission_digest_hex, \
+    status, reserved_at_ms, refresh_state_b64u, refresh_state_digest_hex) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'reserved', ?9, ?10, ?11) \
+    ON CONFLICT(replay_key_digest_hex) DO NOTHING";
+const MARK_REFRESH_EXECUTED_SQL: &str = "UPDATE tenant_root_command_replays SET \
+    status = 'executed', command_digest_hex = ?7, executed_at_ms = ?8, \
+    refresh_state_b64u = ?9, refresh_state_digest_hex = ?10 \
+    WHERE replay_key_digest_hex = ?1 AND tenant_identity_digest_hex = ?2 \
+    AND custody_lineage_b64u = ?3 AND session_id_hex = ?4 AND nonce_hex = ?5 \
+    AND role = ?6 AND command_digest_hex = ?11 AND admission_digest_hex = ?12 \
+    AND reserved_at_ms = ?13 AND status = 'reserved' \
+    AND refresh_state_b64u = ?14 AND refresh_state_digest_hex = ?15";
+const ATTACH_REFRESH_ARTIFACTS_SQL: &str = "UPDATE tenant_root_command_replays SET \
+    refresh_state_b64u = ?1, refresh_state_digest_hex = ?2 \
+    WHERE replay_key_digest_hex = ?3 AND tenant_identity_digest_hex = ?4 \
+    AND custody_lineage_b64u = ?5 AND session_id_hex = ?6 AND nonce_hex = ?7 \
+    AND role = ?8 AND command_digest_hex = ?9 AND admission_digest_hex = ?10 \
+    AND reserved_at_ms = ?11 AND executed_at_ms = ?12 AND status = 'executed' \
+    AND refresh_state_b64u = ?13 AND refresh_state_digest_hex = ?14";
+const COMMIT_REFRESH_TERMINAL_SQL: &str = "UPDATE tenant_root_command_replays SET \
+    status = 'completed', receipt_b64u = ?1, receipt_digest_hex = ?2, terminal_at_ms = ?3 \
+    WHERE replay_key_digest_hex = ?4 AND tenant_identity_digest_hex = ?5 \
+    AND custody_lineage_b64u = ?6 AND session_id_hex = ?7 AND nonce_hex = ?8 \
+    AND role = ?9 AND command_digest_hex = ?10 AND admission_digest_hex = ?11 \
+    AND reserved_at_ms = ?12 AND executed_at_ms = ?13 AND status = 'executed' \
+    AND refresh_state_b64u = ?14 AND refresh_state_digest_hex = ?15";
 const MARK_COMMAND_EXECUTED_SQL: &str = "UPDATE tenant_root_command_replays SET \
     status = 'executed', executed_at_ms = ?9 \
     WHERE replay_key_digest_hex = ?1 AND tenant_identity_digest_hex = ?2 \
@@ -919,6 +970,15 @@ impl CloudflareTenantRootRoleShareRecordV1 {
         };
         self.validate()?;
         validate_record_activation_binding(&self)?;
+        self.into_online_role_share_artifact_with_installation_evidence_digest(
+            installation_evidence_digest,
+        )
+    }
+
+    fn into_online_role_share_artifact_with_installation_evidence_digest(
+        self,
+        installation_evidence_digest: TenantRootLifecycleReceiptDigestV1,
+    ) -> worker::Result<TenantRootSealedOnlineRoleShareV1> {
         let identity_digest = self
             .identity
             .digest()
@@ -1796,14 +1856,462 @@ struct TenantRootCommandReplayD1RowV1 {
     reserved_at_ms: i64,
     executed_at_ms: Option<i64>,
     terminal_at_ms: Option<i64>,
+    refresh_state_b64u: Option<String>,
+    refresh_state_digest_hex: Option<String>,
 }
 
 struct StoredTenantRootCommandReplayV1 {
     record: TenantRootCommandReplayRecordV1,
     admission_digest: Option<TenantRootProtocolDigestV1>,
+    refresh_state: Option<CloudflareTenantRootRefreshDurableStateV1>,
     receipt_bytes: Option<Vec<u8>>,
     reserved_at_ms: u64,
     executed_at_ms: Option<u64>,
+}
+
+/// Durable refresh state retained beside the generic command replay row.
+///
+/// The command and evidence bytes are retained as canonical wire bytes. They
+/// let a restarted worker recover the exact provider inputs that preceded any
+/// R2 operation without regenerating role material.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    content = "state",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub(crate) enum CloudflareTenantRootRefreshDurableStateV1 {
+    Admitted {
+        command_b64u: String,
+    },
+    Executed {
+        command_b64u: String,
+        evidence_b64u: String,
+        prepared_artifacts: CloudflareTenantRootRefreshPreparedArtifactsV1,
+    },
+    Artifacts {
+        command_b64u: String,
+        evidence_b64u: String,
+        prepared_artifacts: CloudflareTenantRootRefreshPreparedArtifactsV1,
+        artifacts: CloudflareTenantRootRefreshArtifactMetadataV1,
+    },
+}
+
+/// Exact canonical artifacts prepared before the pending role row is written.
+///
+/// These bytes are the replay source after a crash. R2 writes therefore never
+/// require rerunning provider randomness or re-signing an artifact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootRefreshPreparedArtifactsV1 {
+    managed_backup_b64u: String,
+    provider_canary_receipt_b64u: String,
+}
+
+impl CloudflareTenantRootRefreshPreparedArtifactsV1 {
+    pub(crate) fn new(
+        managed_backup: &VerifiedTenantRootManagedBackupV1,
+        provider_canary: &TenantRootSignedProviderCanaryReceiptV1,
+    ) -> worker::Result<Self> {
+        let managed_backup_bytes = managed_backup.canonical_bytes();
+        let provider_canary_bytes = provider_canary
+            .canonical_bytes()
+            .map_err(|error| store_error(error.message()))?;
+        let prepared = Self {
+            managed_backup_b64u: encode_base64url_bytes_v1(managed_backup_bytes),
+            provider_canary_receipt_b64u: encode_base64url_bytes_v1(&provider_canary_bytes),
+        };
+        prepared.validate()?;
+        Ok(prepared)
+    }
+
+    pub(crate) fn managed_backup_bytes(&self) -> worker::Result<Vec<u8>> {
+        decode_prepared_refresh_artifact(
+            "tenant-root refresh managed-backup artifact",
+            &self.managed_backup_b64u,
+            MAX_REFRESH_PREPARED_MANAGED_BACKUP_BYTES,
+        )
+    }
+
+    pub(crate) fn provider_canary_receipt_bytes(&self) -> worker::Result<Vec<u8>> {
+        decode_prepared_refresh_artifact(
+            "tenant-root refresh provider-canary artifact",
+            &self.provider_canary_receipt_b64u,
+            MAX_REFRESH_PREPARED_CANARY_BYTES,
+        )
+    }
+
+    fn validate(&self) -> worker::Result<()> {
+        let managed_backup_bytes = self.managed_backup_bytes()?;
+        let managed_backup =
+            TenantRootSignedManagedBackupV1::decode_canonical_bytes(&managed_backup_bytes)
+                .map_err(|error| store_error(error.message()))?;
+        if managed_backup
+            .canonical_bytes()
+            .map_err(|error| store_error(error.message()))?
+            != managed_backup_bytes
+        {
+            return Err(store_error(
+                "tenant-root refresh managed-backup artifact is not canonical",
+            ));
+        }
+        let provider_canary_bytes = self.provider_canary_receipt_bytes()?;
+        let provider_canary =
+            TenantRootSignedProviderCanaryReceiptV1::decode_canonical_bytes(&provider_canary_bytes)
+                .map_err(|error| store_error(error.message()))?;
+        if provider_canary
+            .canonical_bytes()
+            .map_err(|error| store_error(error.message()))?
+            != provider_canary_bytes
+        {
+            return Err(store_error(
+                "tenant-root refresh provider-canary artifact is not canonical",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Exact immutable artifacts bound to a terminal refresh replay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootRefreshArtifactMetadataV1 {
+    backup_object_key: String,
+    backup_artifact_digest_hex: String,
+    backup_object_generation: String,
+    backup_key_generation_ref: String,
+    canary_object_key: String,
+    canary_artifact_digest_hex: String,
+    canary_object_generation: String,
+    canary_key_generation_ref: String,
+    online_epoch_wrapping_key_ref: String,
+    role_signing_key_id: String,
+}
+
+impl CloudflareTenantRootRefreshDurableStateV1 {
+    pub(crate) fn admitted(
+        command: &VerifiedTenantRootRoleRefreshCommandV1,
+    ) -> worker::Result<Self> {
+        let command_b64u = encode_base64url_bytes_v1(command.canonical_bytes());
+        let state = Self::Admitted { command_b64u };
+        state.validate()?;
+        Ok(state)
+    }
+
+    fn validate(&self) -> worker::Result<()> {
+        let (command_b64u, evidence_b64u) = match self {
+            Self::Admitted { command_b64u } => (command_b64u, None),
+            Self::Executed {
+                command_b64u,
+                evidence_b64u,
+                ..
+            }
+            | Self::Artifacts {
+                command_b64u,
+                evidence_b64u,
+                ..
+            } => (command_b64u, Some(evidence_b64u)),
+        };
+        validate_refresh_state_bytes(
+            "tenant-root refresh durable command",
+            command_b64u,
+            TENANT_ROOT_ROLE_REFRESH_COMMAND_MAX_BYTES_V1,
+        )?;
+        if let Some(evidence_b64u) = evidence_b64u {
+            validate_refresh_state_bytes(
+                "tenant-root refresh durable evidence",
+                evidence_b64u,
+                TENANT_ROOT_ROLE_REFRESH_COMMAND_MAX_BYTES_V1,
+            )?;
+        }
+        match self {
+            Self::Admitted { .. } => {}
+            Self::Executed {
+                prepared_artifacts, ..
+            }
+            | Self::Artifacts {
+                prepared_artifacts, ..
+            } => {
+                prepared_artifacts.validate()?;
+            }
+        }
+        if let Self::Artifacts { artifacts, .. } = self {
+            artifacts.validate()?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn command_bytes(&self) -> worker::Result<Vec<u8>> {
+        let encoded = match self {
+            Self::Admitted { command_b64u }
+            | Self::Executed { command_b64u, .. }
+            | Self::Artifacts { command_b64u, .. } => command_b64u,
+        };
+        decode_refresh_state_bytes("tenant-root refresh durable command", encoded)
+    }
+
+    pub(crate) fn evidence_bytes(&self) -> worker::Result<Vec<u8>> {
+        let encoded = match self {
+            Self::Admitted { .. } => {
+                return Err(store_error(
+                    "tenant-root refresh admission has no installation evidence",
+                ));
+            }
+            Self::Executed { evidence_b64u, .. } | Self::Artifacts { evidence_b64u, .. } => {
+                evidence_b64u
+            }
+        };
+        decode_refresh_state_bytes("tenant-root refresh durable evidence", encoded)
+    }
+
+    pub(crate) fn prepared_artifacts(
+        &self,
+    ) -> worker::Result<&CloudflareTenantRootRefreshPreparedArtifactsV1> {
+        match self {
+            Self::Executed {
+                prepared_artifacts, ..
+            }
+            | Self::Artifacts {
+                prepared_artifacts, ..
+            } => Ok(prepared_artifacts),
+            Self::Admitted { .. } => Err(store_error(
+                "tenant-root refresh admission has no prepared artifacts",
+            )),
+        }
+    }
+
+    pub(crate) fn artifacts(
+        &self,
+    ) -> worker::Result<&CloudflareTenantRootRefreshArtifactMetadataV1> {
+        match self {
+            Self::Artifacts { artifacts, .. } => Ok(artifacts),
+            Self::Admitted { .. } | Self::Executed { .. } => Err(store_error(
+                "tenant-root refresh durable state has no persisted artifact metadata",
+            )),
+        }
+    }
+
+    fn encode(&self) -> worker::Result<(String, String)> {
+        self.validate()?;
+        let bytes = serde_json::to_vec(self).map_err(|error| {
+            store_error(format!(
+                "tenant-root refresh durable state encode failed: {error}"
+            ))
+        })?;
+        if bytes.is_empty() || bytes.len() > MAX_REFRESH_DURABLE_STATE_BYTES {
+            return Err(store_error(
+                "tenant-root refresh durable state exceeds its size limit",
+            ));
+        }
+        let digest: [u8; 32] = Sha256::digest(&bytes).into();
+        Ok((encode_base64url_bytes_v1(&bytes), encode_hex(&digest)))
+    }
+
+    fn kind_matches_status(&self, status: &str) -> bool {
+        match (status, self) {
+            ("reserved", Self::Admitted { .. })
+            | ("executed", Self::Executed { .. })
+            | ("executed", Self::Artifacts { .. })
+            | ("completed", Self::Artifacts { .. }) => true,
+            _ => false,
+        }
+    }
+}
+
+impl CloudflareTenantRootRefreshArtifactMetadataV1 {
+    pub(crate) fn new(
+        backup: &TenantRootManagedBackupObjectMetadataV1,
+        canary: &TenantRootManagedBackupObjectMetadataV1,
+        online_epoch_wrapping_key_ref: impl Into<String>,
+        role_signing_key_id: impl Into<String>,
+    ) -> worker::Result<Self> {
+        let metadata = Self {
+            backup_object_key: backup.object_key().to_owned(),
+            backup_artifact_digest_hex: encode_hex(backup.canonical_digest()),
+            backup_object_generation: backup.object_generation().to_owned(),
+            backup_key_generation_ref: backup.wrapping_key_generation_ref().to_owned(),
+            canary_object_key: canary.object_key().to_owned(),
+            canary_artifact_digest_hex: encode_hex(canary.canonical_digest()),
+            canary_object_generation: canary.object_generation().to_owned(),
+            canary_key_generation_ref: canary.wrapping_key_generation_ref().to_owned(),
+            online_epoch_wrapping_key_ref: online_epoch_wrapping_key_ref.into(),
+            role_signing_key_id: role_signing_key_id.into(),
+        };
+        metadata.validate()?;
+        Ok(metadata)
+    }
+
+    pub(crate) fn backup_object_key(&self) -> &str {
+        &self.backup_object_key
+    }
+
+    pub(crate) fn backup_artifact_digest(&self) -> worker::Result<[u8; 32]> {
+        decode_lower_hex_fixed(
+            "tenant-root refresh backup artifact digest",
+            &self.backup_artifact_digest_hex,
+        )
+    }
+
+    pub(crate) fn backup_object_generation(&self) -> &str {
+        &self.backup_object_generation
+    }
+
+    pub(crate) fn backup_key_generation_ref(&self) -> &str {
+        &self.backup_key_generation_ref
+    }
+
+    pub(crate) fn canary_object_key(&self) -> &str {
+        &self.canary_object_key
+    }
+
+    pub(crate) fn canary_artifact_digest(&self) -> worker::Result<[u8; 32]> {
+        decode_lower_hex_fixed(
+            "tenant-root refresh canary artifact digest",
+            &self.canary_artifact_digest_hex,
+        )
+    }
+
+    pub(crate) fn canary_object_generation(&self) -> &str {
+        &self.canary_object_generation
+    }
+
+    pub(crate) fn canary_key_generation_ref(&self) -> &str {
+        &self.canary_key_generation_ref
+    }
+
+    pub(crate) fn online_epoch_wrapping_key_ref(&self) -> &str {
+        &self.online_epoch_wrapping_key_ref
+    }
+
+    pub(crate) fn role_signing_key_id(&self) -> &str {
+        &self.role_signing_key_id
+    }
+
+    fn validate(&self) -> worker::Result<()> {
+        require_identifier(
+            "tenant-root refresh backup object key",
+            &self.backup_object_key,
+        )?;
+        require_digest_hex(
+            "tenant-root refresh backup artifact digest",
+            &self.backup_artifact_digest_hex,
+        )?;
+        require_identifier(
+            "tenant-root refresh backup object generation",
+            &self.backup_object_generation,
+        )?;
+        require_identifier(
+            "tenant-root refresh backup key generation",
+            &self.backup_key_generation_ref,
+        )?;
+        require_identifier(
+            "tenant-root refresh canary object key",
+            &self.canary_object_key,
+        )?;
+        require_digest_hex(
+            "tenant-root refresh canary artifact digest",
+            &self.canary_artifact_digest_hex,
+        )?;
+        require_identifier(
+            "tenant-root refresh canary object generation",
+            &self.canary_object_generation,
+        )?;
+        require_identifier(
+            "tenant-root refresh canary key generation",
+            &self.canary_key_generation_ref,
+        )?;
+        require_identifier(
+            "tenant-root refresh online wrapping-key generation",
+            &self.online_epoch_wrapping_key_ref,
+        )?;
+        require_identifier(
+            "tenant-root refresh role signing key",
+            &self.role_signing_key_id,
+        )
+    }
+}
+
+fn validate_refresh_state_bytes(
+    field: &str,
+    encoded: &str,
+    max_bytes: usize,
+) -> worker::Result<()> {
+    let bytes = decode_refresh_state_bytes(field, encoded)?;
+    if bytes.is_empty() || bytes.len() > max_bytes || encode_base64url_bytes_v1(&bytes) != encoded {
+        return Err(store_error(format!("{field} is not canonical")));
+    }
+    Ok(())
+}
+
+fn decode_refresh_state_bytes(field: &str, encoded: &str) -> worker::Result<Vec<u8>> {
+    decode_base64url_bytes_v1(field, encoded).map_err(|error| store_error(error.message()))
+}
+
+fn decode_prepared_refresh_artifact(
+    field: &str,
+    encoded: &str,
+    max_bytes: usize,
+) -> worker::Result<Vec<u8>> {
+    let bytes = decode_refresh_state_bytes(field, encoded)?;
+    if bytes.is_empty() || bytes.len() > max_bytes || encode_base64url_bytes_v1(&bytes) != encoded {
+        return Err(store_error(format!("{field} is not canonical")));
+    }
+    Ok(bytes)
+}
+
+fn decode_refresh_durable_state(
+    state_b64u: &str,
+    state_digest_hex: &str,
+) -> worker::Result<CloudflareTenantRootRefreshDurableStateV1> {
+    let bytes = decode_refresh_state_bytes("tenant-root refresh durable state", state_b64u)?;
+    if bytes.is_empty()
+        || bytes.len() > MAX_REFRESH_DURABLE_STATE_BYTES
+        || encode_base64url_bytes_v1(&bytes) != state_b64u
+    {
+        return Err(store_error(
+            "tenant-root refresh durable state is not canonical",
+        ));
+    }
+    require_digest_hex("tenant-root refresh durable state digest", state_digest_hex)?;
+    if encode_hex(Sha256::digest(&bytes).as_ref()) != state_digest_hex {
+        return Err(store_error(
+            "tenant-root refresh durable state digest does not match its bytes",
+        ));
+    }
+    let state: CloudflareTenantRootRefreshDurableStateV1 =
+        serde_json::from_slice(&bytes).map_err(|error| {
+            store_error(format!(
+                "tenant-root refresh durable state decode failed: {error}"
+            ))
+        })?;
+    state.validate()?;
+    let canonical = serde_json::to_vec(&state).map_err(|error| {
+        store_error(format!(
+            "tenant-root refresh durable state re-encode failed: {error}"
+        ))
+    })?;
+    if canonical != bytes {
+        return Err(store_error(
+            "tenant-root refresh durable state is not canonical JSON",
+        ));
+    }
+    Ok(state)
+}
+
+fn refresh_replay_state_for_command(
+    stored: &StoredTenantRootCommandReplayV1,
+    command_bytes: &[u8],
+) -> worker::Result<CloudflareTenantRootRefreshDurableStateV1> {
+    let state = stored.refresh_state.clone().ok_or_else(|| {
+        store_error("tenant-root refresh replay row omitted durable refresh state")
+    })?;
+    if state.command_bytes()? != command_bytes {
+        return Err(store_error(
+            "tenant-root refresh durable command bytes do not match the retry",
+        ));
+    }
+    Ok(state)
 }
 
 #[derive(Clone, Copy)]
@@ -2181,23 +2689,6 @@ fn validate_refresh_record_sealed_binding(
     Ok(())
 }
 
-/// Executable refresh pending-row insertion retaining its exact evidence token.
-#[allow(dead_code)]
-pub(crate) struct CloudflareTenantRootRefreshPendingCommandV1 {
-    command: CloudflareTenantRootInsertPendingCommandV1,
-    evidence: VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
-}
-
-impl fmt::Debug for CloudflareTenantRootRefreshPendingCommandV1 {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("CloudflareTenantRootRefreshPendingCommandV1")
-            .field("command", &self.command)
-            .field("evidence", &self.evidence)
-            .finish()
-    }
-}
-
 /// Executed refresh insertion retaining the exact evidence needed to produce
 /// its successful terminal receipt payload.
 #[allow(dead_code)]
@@ -2228,28 +2719,49 @@ impl fmt::Debug for CloudflareTenantRootRefreshExecutedCommandV1 {
     }
 }
 
-/// Durable decision for one refresh-only pending-row reservation.
-#[allow(dead_code)]
-#[derive(Debug)]
-pub(crate) enum CloudflareTenantRootRefreshDecisionV1 {
-    /// The caller owns the newly reserved command and may execute it once.
+/// Exact durable admission token for a verified refresh command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CloudflareTenantRootRefreshAdmissionV1 {
+    key: TenantRootCommandReplayKeyV1,
+    command_digest: TenantRootProtocolDigestV1,
+    reserved_at_ms: u64,
+}
+
+impl CloudflareTenantRootRefreshAdmissionV1 {
+    pub(crate) const fn key(&self) -> &TenantRootCommandReplayKeyV1 {
+        &self.key
+    }
+
+    pub(crate) const fn command_digest(&self) -> TenantRootProtocolDigestV1 {
+        self.command_digest
+    }
+
+    pub(crate) const fn reserved_at_ms(&self) -> u64 {
+        self.reserved_at_ms
+    }
+}
+
+/// Admission result returned before refresh randomness or provider writes.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CloudflareTenantRootRefreshAdmissionDecisionV1 {
     Execute {
-        command: CloudflareTenantRootRefreshPendingCommandV1,
+        admission: CloudflareTenantRootRefreshAdmissionV1,
     },
-    /// An identical command already owns this role-local session.
-    InProgress,
-    /// The reservation is durable and execution may be resumed.
     ResumeExecution {
-        command: CloudflareTenantRootRefreshPendingCommandV1,
+        admission: CloudflareTenantRootRefreshAdmissionV1,
+        durable_state: CloudflareTenantRootRefreshDurableStateV1,
     },
-    /// The lifecycle mutation is durably checkpointed and may be terminalized.
     ResumeCompletion {
-        executed: CloudflareTenantRootRefreshExecutedCommandV1,
+        admission: CloudflareTenantRootRefreshAdmissionV1,
+        durable_state: CloudflareTenantRootRefreshDurableStateV1,
     },
-    /// Return the exact prior successful receipt bytes.
-    ReplayCompleted { receipt_bytes: Vec<u8> },
-    /// Return the exact prior failure receipt bytes.
-    ReplayFailed { failure_receipt_bytes: Vec<u8> },
+    ReplayCompleted {
+        receipt_bytes: Vec<u8>,
+        durable_state: CloudflareTenantRootRefreshDurableStateV1,
+    },
+    ReplayFailed {
+        failure_receipt_bytes: Vec<u8>,
+    },
 }
 
 /// Durable decision for one creation-only pending-row reservation.
@@ -2292,19 +2804,6 @@ pub(crate) enum CloudflareTenantRootInitialCreationPreflightV1 {
 /// Result of one role-local initial-creation persistence attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CloudflareTenantRootInitialCreationPersistenceOutcomeV1 {
-    /// This call persisted the successful terminal receipt.
-    Committed { receipt_bytes: Vec<u8> },
-    /// A reservation or execution checkpoint already owns this command.
-    InProgress,
-    /// An identical command already committed the exact successful receipt.
-    ReplayCompleted { receipt_bytes: Vec<u8> },
-    /// An identical command already committed the exact failure receipt.
-    ReplayFailed { failure_receipt_bytes: Vec<u8> },
-}
-
-/// Result of persisting one refresh-only tenant-root share.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum CloudflareTenantRootRefreshPersistenceOutcomeV1 {
     /// This call persisted the successful terminal receipt.
     Committed { receipt_bytes: Vec<u8> },
     /// A reservation or execution checkpoint already owns this command.
@@ -2863,6 +3362,62 @@ pub(crate) enum CloudflareTenantRootManagedRestoreStagingDecisionV1 {
     ReplayFailed { failure_receipt_bytes: Vec<u8> },
 }
 
+/// The only role-local artifact a managed-restore forward refresh may open.
+///
+/// The source row remains pending and is consumed by the forward-refresh CAS;
+/// callers never receive a generic stored row that could be activated.
+#[derive(Debug)]
+pub(crate) struct CloudflareTenantRootManagedRestoreForwardRefreshSourceV1 {
+    sealed_online_role_share: TenantRootSealedOnlineRoleShareV1,
+}
+
+impl CloudflareTenantRootManagedRestoreForwardRefreshSourceV1 {
+    /// Consumes this verified source into the provider-openable sealed artifact.
+    pub(crate) fn into_online_role_share_artifact(self) -> TenantRootSealedOnlineRoleShareV1 {
+        self.sealed_online_role_share
+    }
+}
+
+/// Executable managed-restore forward-refresh command.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct CloudflareTenantRootManagedRestoreForwardRefreshCommandV1 {
+    scope: TenantRootCommandScopeV1,
+    reservation: ReservedTenantRootCommandV1,
+    restored_pending: CloudflareStoredTenantRootRoleShareV1,
+    refresh_pending: CloudflareStoredTenantRootRoleShareV1,
+    activation: CloudflareTenantRootActivationV1,
+    capability_digest: TenantRootLifecycleReceiptDigestV1,
+    backup_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+    installation_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+    updated_at_ms: u64,
+    expected_restored_revision: i64,
+    expected_refresh_revision: i64,
+    operation_payload_digest: TenantRootProtocolDigestV1,
+}
+
+/// Durable decision for one managed-restore forward-refresh reservation.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1 {
+    /// The caller owns the newly reserved command and may execute it once.
+    Execute {
+        command: CloudflareTenantRootManagedRestoreForwardRefreshCommandV1,
+    },
+    /// An identical command already owns this role-local session.
+    InProgress,
+    /// The reservation is durable and execution may be resumed.
+    ResumeExecution {
+        command: CloudflareTenantRootManagedRestoreForwardRefreshCommandV1,
+    },
+    /// Both lifecycle mutations are durably checkpointed and may be terminalized.
+    ResumeCompletion {
+        executed: ExecutedTenantRootCommandV1,
+    },
+    /// Return the exact prior successful receipt.
+    ReplayCompleted { receipt_bytes: Vec<u8> },
+    /// Return the exact prior failure receipt.
+    ReplayFailed { failure_receipt_bytes: Vec<u8> },
+}
+
 impl CloudflareTenantRootRoleShareStoreV1 {
     /// Resolves the private D1 binding and role-local record cipher per request.
     pub fn from_env(env: &Env) -> worker::Result<Self> {
@@ -2908,7 +3463,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         record: CloudflareTenantRootRoleShareRecordV1,
         reserved_at_ms: u64,
         operation_payload_digest: TenantRootProtocolDigestV1,
-        creation_admission_digest: Option<TenantRootProtocolDigestV1>,
+        admission: Option<TenantRootCommandAdmissionV1>,
     ) -> worker::Result<CloudflareTenantRootInsertPendingDecisionV1> {
         record.validate()?;
         self.cipher.require_role(record.role)?;
@@ -2933,7 +3488,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                 scope,
                 operation,
                 reserved_at_ms,
-                creation_admission_digest.map(TenantRootCommandAdmissionV1::InitialCreation),
+                admission,
             )
             .await?
         {
@@ -2974,6 +3529,46 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                 failure_receipt_bytes,
             }),
         }
+    }
+
+    /// Loads the only sealed role artifact allowed as a managed-restore
+    /// forward-refresh source. The source row must remain pending and retain
+    /// all three receipt digests supplied by the verified restore flow.
+    pub(crate) async fn load_managed_restore_forward_refresh_source(
+        &self,
+        identity_digest: TenantRootIdentityDigestV1,
+        custody_lineage: TenantRootCustodyLineageId,
+        current_epoch: TenantRootShareEpoch,
+        capability_digest: TenantRootLifecycleReceiptDigestV1,
+        backup_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+        installation_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+    ) -> worker::Result<CloudflareTenantRootManagedRestoreForwardRefreshSourceV1> {
+        let stored = self
+            .load_epoch_by_identity_digest(identity_digest, custody_lineage, current_epoch)
+            .await?
+            .ok_or_else(|| {
+                store_error(
+                    "tenant-root managed-restore forward-refresh source pending row does not exist",
+                )
+            })?;
+        validate_managed_restore_forward_refresh_source(
+            &self.cipher,
+            &stored,
+            identity_digest,
+            custody_lineage,
+            current_epoch,
+            capability_digest,
+            backup_receipt_digest,
+            installation_receipt_digest,
+        )?;
+        let sealed_online_role_share = stored
+            .record
+            .into_online_role_share_artifact_with_installation_evidence_digest(
+                installation_receipt_digest,
+            )?;
+        Ok(CloudflareTenantRootManagedRestoreForwardRefreshSourceV1 {
+            sealed_online_role_share,
+        })
     }
 
     /// Reserves one role-local managed-restore staging insertion.
@@ -3047,152 +3642,786 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         }
     }
 
-    /// Reserves one refresh-only pending-row insertion with exact evidence.
+    /// Durably admits one verified refresh before any randomness or provider
+    /// material is produced. The replay row stores the exact issuer command
+    /// bytes so a later worker can distinguish regeneration from resumption.
     ///
-    /// Freshness is required only for the first durable reservation. Once the
-    /// replay row exists, reconciliation may resume or replay it after expiry.
-    #[allow(dead_code)]
-    pub(crate) async fn reserve_refresh_pending(
+    /// This lookup must run before resolving the active row. A refresh retry
+    /// can arrive after the lifecycle swap retired that row, while its replay
+    /// record still authoritatively owns the exact command.
+    pub(crate) async fn preflight_refresh_replay(
         &self,
+        raw_command: &TenantRootRoleRefreshCommandV1,
+    ) -> worker::Result<Option<CloudflareTenantRootRefreshAdmissionDecisionV1>> {
+        let key = TenantRootCommandReplayKeyV1::new(
+            raw_command.identity_digest(),
+            raw_command.custody_lineage(),
+            raw_command.session_id(),
+            raw_command.nonce(),
+            raw_command.role(),
+        );
+        self.require_command_role(&key)?;
+        let command_bytes = raw_command
+            .canonical_bytes()
+            .map_err(|error| store_error(error.message()))?;
+        let command_digest = raw_command
+            .digest()
+            .map_err(|error| store_error(error.message()))?;
+        let Some(stored) = self.load_command_replay(&key).await? else {
+            return Ok(None);
+        };
+        Self::reconcile_refresh_admission(&stored, key, command_digest, &command_bytes).map(Some)
+    }
+
+    /// Durably admits one verified refresh before any randomness or provider
+    /// material is produced. The replay row stores the exact issuer command
+    /// bytes so a later worker can distinguish regeneration from resumption.
+    pub(crate) async fn admit_refresh(
+        &self,
+        command: &VerifiedTenantRootRoleRefreshCommandV1,
+        now_ms: u64,
+    ) -> worker::Result<CloudflareTenantRootRefreshAdmissionDecisionV1> {
+        let scope = command.scope();
+        let key = *scope.key();
+        self.require_command_role(&key)?;
+        let command_digest = command.digest();
+        let command_bytes = command.canonical_bytes();
+        if let Some(stored) = self.load_command_replay(&key).await? {
+            return Self::reconcile_refresh_admission(&stored, key, command_digest, command_bytes);
+        }
+        command
+            .require_fresh(now_ms)
+            .map_err(|error| store_error(error.message()))?;
+        let operation_digest = refresh_admission_operation_digest(&scope, command_digest)?;
+        let state = CloudflareTenantRootRefreshDurableStateV1::admitted(command)?;
+        let (state_b64u, state_digest_hex) = state.encode()?;
+        let replay_key_digest_hex = encode_hex(
+            key.storage_key_digest()
+                .map_err(|error| store_error(error.message()))?
+                .as_bytes(),
+        );
+        let identity_digest_hex = encode_hex(key.identity_digest().as_bytes());
+        let custody_lineage_b64u = key.custody_lineage().to_base64url();
+        let session_id_hex = encode_hex(key.session_id().as_bytes());
+        let nonce_hex = encode_hex(key.nonce().as_bytes());
+        let role = self.cipher.role.as_str();
+        let operation_digest_hex = encode_hex(operation_digest.as_bytes());
+        let admission_digest_hex = encode_hex(command_digest.as_bytes());
+        let reserved_at_ms_text = timestamp_i64(now_ms)?.to_string();
+        let result = self
+            .session
+            .prepare(INSERT_REFRESH_ADMISSION_SQL)
+            .bind_refs(
+                [
+                    D1Type::Text(replay_key_digest_hex.as_str()),
+                    D1Type::Text(identity_digest_hex.as_str()),
+                    D1Type::Text(custody_lineage_b64u.as_str()),
+                    D1Type::Text(session_id_hex.as_str()),
+                    D1Type::Text(nonce_hex.as_str()),
+                    D1Type::Text(role),
+                    D1Type::Text(operation_digest_hex.as_str()),
+                    D1Type::Text(admission_digest_hex.as_str()),
+                    D1Type::Text(reserved_at_ms_text.as_str()),
+                    D1Type::Text(state_b64u.as_str()),
+                    D1Type::Text(state_digest_hex.as_str()),
+                ]
+                .iter(),
+            )?
+            .run()
+            .await?;
+        match result_changes(&result)? {
+            1 => Ok(CloudflareTenantRootRefreshAdmissionDecisionV1::Execute {
+                admission: CloudflareTenantRootRefreshAdmissionV1 {
+                    key,
+                    command_digest,
+                    reserved_at_ms: now_ms,
+                },
+            }),
+            0 => {
+                let stored = self.load_command_replay(&key).await?.ok_or_else(|| {
+                    store_error(
+                        "tenant-root refresh admission conflict disappeared before reconciliation",
+                    )
+                })?;
+                Self::reconcile_refresh_admission(&stored, key, command_digest, command_bytes)
+            }
+            _ => Err(store_error(
+                "tenant-root refresh admission returned an invalid change count",
+            )),
+        }
+    }
+
+    fn reconcile_refresh_admission(
+        stored: &StoredTenantRootCommandReplayV1,
+        key: TenantRootCommandReplayKeyV1,
+        command_digest: TenantRootProtocolDigestV1,
+        command_bytes: &[u8],
+    ) -> worker::Result<CloudflareTenantRootRefreshAdmissionDecisionV1> {
+        if stored.record.key() != &key || stored.admission_digest != Some(command_digest) {
+            return Err(store_error(
+                "tenant-root refresh session was reused with different issuer-authorized bytes",
+            ));
+        }
+        let admission = CloudflareTenantRootRefreshAdmissionV1 {
+            key,
+            command_digest,
+            reserved_at_ms: stored.reserved_at_ms,
+        };
+        match &stored.record {
+            TenantRootCommandReplayRecordV1::Reserved(_) => {
+                let durable_state = refresh_replay_state_for_command(stored, command_bytes)?;
+                Ok(
+                    CloudflareTenantRootRefreshAdmissionDecisionV1::ResumeExecution {
+                        admission,
+                        durable_state,
+                    },
+                )
+            }
+            TenantRootCommandReplayRecordV1::Executed(_) => {
+                let durable_state = refresh_replay_state_for_command(stored, command_bytes)?;
+                Ok(
+                    CloudflareTenantRootRefreshAdmissionDecisionV1::ResumeCompletion {
+                        admission,
+                        durable_state,
+                    },
+                )
+            }
+            TenantRootCommandReplayRecordV1::Completed(_) => {
+                let durable_state = refresh_replay_state_for_command(stored, command_bytes)?;
+                Ok(
+                    CloudflareTenantRootRefreshAdmissionDecisionV1::ReplayCompleted {
+                        receipt_bytes: stored.receipt_bytes.clone().ok_or_else(|| {
+                            store_error("completed tenant-root refresh omitted prior receipt bytes")
+                        })?,
+                        durable_state,
+                    },
+                )
+            }
+            TenantRootCommandReplayRecordV1::Failed(_) => {
+                if stored.refresh_state.is_some() {
+                    return Err(store_error(
+                        "failed tenant-root refresh replay row has durable refresh state",
+                    ));
+                }
+                Ok(
+                    CloudflareTenantRootRefreshAdmissionDecisionV1::ReplayFailed {
+                        failure_receipt_bytes: stored.receipt_bytes.clone().ok_or_else(|| {
+                            store_error("failed tenant-root refresh omitted prior receipt bytes")
+                        })?,
+                    },
+                )
+            }
+        }
+    }
+
+    /// Persists the generated sealed role-share record and checkpoints the
+    /// replay row in one D1 batch. The replay command digest is replaced with
+    /// the exact role-private operation digest only in this atomic step.
+    pub(crate) async fn persist_refresh_pending(
+        &self,
+        admission: CloudflareTenantRootRefreshAdmissionV1,
         refresh: CloudflareTenantRootRefreshInputV1,
-        reserved_at_ms: u64,
-    ) -> worker::Result<CloudflareTenantRootRefreshDecisionV1> {
+        prepared_artifacts: CloudflareTenantRootRefreshPreparedArtifactsV1,
+        executed_at_ms: u64,
+    ) -> worker::Result<(
+        CloudflareStoredTenantRootRoleShareV1,
+        CloudflareTenantRootRefreshExecutedCommandV1,
+    )> {
         let CloudflareTenantRootRefreshInputV1 {
             command,
             evidence,
             record,
         } = refresh;
+        prepared_artifacts.validate()?;
+        let scope = command.scope();
+        if scope.key() != admission.key()
+            || command.digest() != admission.command_digest()
+            || scope.key().role() != protocol_role_for_cloudflare(self.cipher.role)
+        {
+            return Err(store_error(
+                "tenant-root refresh admission does not match its verified command",
+            ));
+        }
+        if executed_at_ms < admission.reserved_at_ms() {
+            return Err(store_error(
+                "tenant-root refresh execution checkpoint precedes its admission",
+            ));
+        }
+        require_timestamp("tenant-root refresh execution checkpoint", executed_at_ms)?;
         validate_refresh_command_evidence(&command, &evidence)?;
         validate_refresh_record_binding(&command, &evidence, &record)?;
-        let scope = command.scope();
         validate_command_scope_for_record(
             &scope,
             &record,
             1,
             "tenant-root refresh pending insertion",
         )?;
+        record.validate()?;
+        self.cipher.require_role(record.role)?;
         let operation_payload_digest = refresh_insert_pending_payload_digest(&command, &record, 1)?;
-        // Freshness applies only before the first durable reservation. An exact
-        // retry must still reconcile after the issuer command has expired.
-        if self.load_command_replay(scope.key()).await?.is_none() {
-            command
-                .require_fresh(reserved_at_ms)
-                .map_err(|error| store_error(error.message()))?;
-        }
-        match self
-            .reserve_insert_pending_with_payload_digest(
-                scope,
-                record,
-                reserved_at_ms,
+        let operation_digest = scope
+            .command_digest(TenantRootCommandOperationV1::insert_pending(
                 operation_payload_digest,
-                None,
-            )
+            ))
+            .map_err(|error| store_error(error.message()))?;
+        let stored_replay = self
+            .load_command_replay(admission.key())
             .await?
+            .ok_or_else(|| store_error("tenant-root refresh admission row does not exist"))?;
+        if stored_replay.admission_digest != Some(admission.command_digest())
+            || stored_replay.reserved_at_ms != admission.reserved_at_ms()
         {
-            CloudflareTenantRootInsertPendingDecisionV1::Execute { command } => {
-                Ok(CloudflareTenantRootRefreshDecisionV1::Execute {
-                    command: CloudflareTenantRootRefreshPendingCommandV1 { command, evidence },
-                })
-            }
-            CloudflareTenantRootInsertPendingDecisionV1::InProgress => {
-                Ok(CloudflareTenantRootRefreshDecisionV1::InProgress)
-            }
-            CloudflareTenantRootInsertPendingDecisionV1::ResumeExecution { command } => {
-                Ok(CloudflareTenantRootRefreshDecisionV1::ResumeExecution {
-                    command: CloudflareTenantRootRefreshPendingCommandV1 { command, evidence },
-                })
-            }
-            CloudflareTenantRootInsertPendingDecisionV1::ResumeCompletion { executed } => {
-                Ok(CloudflareTenantRootRefreshDecisionV1::ResumeCompletion {
-                    executed: CloudflareTenantRootRefreshExecutedCommandV1 { executed, evidence },
-                })
-            }
-            CloudflareTenantRootInsertPendingDecisionV1::ReplayCompleted { receipt_bytes } => {
-                Ok(CloudflareTenantRootRefreshDecisionV1::ReplayCompleted { receipt_bytes })
-            }
-            CloudflareTenantRootInsertPendingDecisionV1::ReplayFailed {
-                failure_receipt_bytes,
-            } => Ok(CloudflareTenantRootRefreshDecisionV1::ReplayFailed {
-                failure_receipt_bytes,
-            }),
+            return Err(store_error(
+                "tenant-root refresh admission row does not match its token",
+            ));
         }
-    }
-
-    /// Inserts one refresh-only pending row and retains evidence for
-    /// successful terminalization.
-    #[allow(dead_code)]
-    pub(crate) async fn insert_refresh_pending(
-        &self,
-        command: CloudflareTenantRootRefreshPendingCommandV1,
-        executed_at_ms: u64,
-    ) -> worker::Result<(
-        CloudflareStoredTenantRootRoleShareV1,
-        CloudflareTenantRootRefreshExecutedCommandV1,
-    )> {
-        let CloudflareTenantRootRefreshPendingCommandV1 { command, evidence } = command;
-        let (stored, executed) = self.insert_pending(command, executed_at_ms).await?;
+        let old_state = stored_replay.refresh_state.clone().ok_or_else(|| {
+            store_error("tenant-root refresh admission row omitted durable state")
+        })?;
+        if !matches!(
+            stored_replay.record,
+            TenantRootCommandReplayRecordV1::Reserved(_)
+        ) || !matches!(
+            old_state,
+            CloudflareTenantRootRefreshDurableStateV1::Admitted { .. }
+        ) {
+            return Err(store_error(
+                "tenant-root refresh pending insertion requires a reserved admission",
+            ));
+        }
+        let expected_admission_digest =
+            refresh_admission_operation_digest(&scope, admission.command_digest())?;
+        if stored_replay.record.command_digest() != expected_admission_digest {
+            return Err(store_error(
+                "tenant-root refresh admission row has an unexpected operation digest",
+            ));
+        }
+        let admitted_state = CloudflareTenantRootRefreshDurableStateV1::admitted(&command)?;
+        if old_state != admitted_state {
+            return Err(store_error(
+                "tenant-root refresh admission row has different command bytes",
+            ));
+        }
+        let (old_state_b64u, old_state_digest_hex) = old_state.encode()?;
+        let next_state = CloudflareTenantRootRefreshDurableStateV1::Executed {
+            command_b64u: encode_base64url_bytes_v1(command.canonical_bytes()),
+            evidence_b64u: encode_base64url_bytes_v1(evidence.canonical_bytes()),
+            prepared_artifacts,
+        };
+        let (next_state_b64u, next_state_digest_hex) = next_state.encode()?;
+        let metadata = record_metadata(&record)?;
+        let ciphertext_json = self.cipher.seal(&record, 1)?;
+        let epoch = metadata.epoch.to_string();
+        let created_at_ms = record.created_at_ms.to_string();
+        let updated_at_ms = record.updated_at_ms.to_string();
+        let lifecycle_statement = self.session.prepare(INSERT_SQL).bind_refs(
+            [
+                D1Type::Text(metadata.identity_digest_hex.as_str()),
+                D1Type::Text(metadata.custody_lineage_b64u.as_str()),
+                D1Type::Text(epoch.as_str()),
+                D1Type::Text(metadata.role.as_str()),
+                D1Type::Text(metadata.lifecycle.as_str()),
+                D1Type::Text(ciphertext_json.as_str()),
+                D1Type::Text(created_at_ms.as_str()),
+                D1Type::Text(updated_at_ms.as_str()),
+            ]
+            .iter(),
+        )?;
+        let replay_key_digest_hex = encode_hex(
+            admission
+                .key()
+                .storage_key_digest()
+                .map_err(|error| store_error(error.message()))?
+                .as_bytes(),
+        );
+        let identity_digest_hex = encode_hex(admission.key().identity_digest().as_bytes());
+        let custody_lineage_b64u = admission.key().custody_lineage().to_base64url();
+        let session_id_hex = encode_hex(admission.key().session_id().as_bytes());
+        let nonce_hex = encode_hex(admission.key().nonce().as_bytes());
+        let old_operation_digest_hex = encode_hex(expected_admission_digest.as_bytes());
+        let operation_digest_hex = encode_hex(operation_digest.as_bytes());
+        let admission_digest_hex = encode_hex(admission.command_digest().as_bytes());
+        let reserved_at_ms = timestamp_i64(admission.reserved_at_ms())?.to_string();
+        let executed_at_ms_text = timestamp_i64(executed_at_ms)?.to_string();
+        let replay_statement = self.session.prepare(MARK_REFRESH_EXECUTED_SQL).bind_refs(
+            [
+                D1Type::Text(replay_key_digest_hex.as_str()),
+                D1Type::Text(identity_digest_hex.as_str()),
+                D1Type::Text(custody_lineage_b64u.as_str()),
+                D1Type::Text(session_id_hex.as_str()),
+                D1Type::Text(nonce_hex.as_str()),
+                D1Type::Text(self.cipher.role.as_str()),
+                D1Type::Text(operation_digest_hex.as_str()),
+                D1Type::Text(executed_at_ms_text.as_str()),
+                D1Type::Text(next_state_b64u.as_str()),
+                D1Type::Text(next_state_digest_hex.as_str()),
+                D1Type::Text(old_operation_digest_hex.as_str()),
+                D1Type::Text(admission_digest_hex.as_str()),
+                D1Type::Text(reserved_at_ms.as_str()),
+                D1Type::Text(old_state_b64u.as_str()),
+                D1Type::Text(old_state_digest_hex.as_str()),
+            ]
+            .iter(),
+        )?;
+        self.run_refresh_pending_checkpoint(lifecycle_statement, replay_statement)
+            .await?;
+        let reservation = match reserve_tenant_root_command_v1(
+            None,
+            *admission.key(),
+            operation_digest,
+            admission.reserved_at_ms(),
+        )
+        .map_err(|error| store_error(error.message()))?
+        {
+            TenantRootCommandReplayDecisionV1::Execute(reservation) => reservation,
+            _ => {
+                return Err(store_error(
+                    "tenant-root refresh operation could not reconstruct its execution token",
+                ));
+            }
+        };
+        let executed = reservation
+            .checkpoint_executed(executed_at_ms)
+            .map_err(|error| store_error(error.message()))?;
         Ok((
-            stored,
+            CloudflareStoredTenantRootRoleShareV1 {
+                record,
+                revision: 1,
+            },
             CloudflareTenantRootRefreshExecutedCommandV1 { executed, evidence },
         ))
     }
 
-    /// Persists one refresh-only tenant-root share through its complete
-    /// reserve, execution-checkpoint, and successful terminal-receipt path.
-    pub(crate) async fn persist_refresh(
+    /// Reconstructs the exact executed token after a refresh interruption.
+    /// Private operation digests and replay fields remain inside this adapter;
+    /// the caller supplies only the verified command, durable state, and the
+    /// pending row recovered from D1.
+    pub(crate) async fn recover_refresh_executed(
         &self,
-        refresh: CloudflareTenantRootRefreshInputV1,
-        role_signer: &CloudflareTenantRootCreationRoleSignerV1,
-        reserved_at_ms: u64,
-        executed_at_ms: u64,
-        terminal_at_ms: u64,
-    ) -> worker::Result<CloudflareTenantRootRefreshPersistenceOutcomeV1> {
-        validate_refresh_role_signer(&refresh, role_signer)?;
-        let reservation = self
-            .reserve_refresh_pending(refresh, reserved_at_ms)
-            .await?;
-        let executed = match reservation {
-            CloudflareTenantRootRefreshDecisionV1::Execute { command }
-            | CloudflareTenantRootRefreshDecisionV1::ResumeExecution { command } => {
-                let (_, executed) = self.insert_refresh_pending(command, executed_at_ms).await?;
-                executed
-            }
-            CloudflareTenantRootRefreshDecisionV1::ResumeCompletion { executed } => executed,
-            CloudflareTenantRootRefreshDecisionV1::InProgress => {
-                return Ok(CloudflareTenantRootRefreshPersistenceOutcomeV1::InProgress);
-            }
-            CloudflareTenantRootRefreshDecisionV1::ReplayCompleted { receipt_bytes } => {
-                return Ok(
-                    CloudflareTenantRootRefreshPersistenceOutcomeV1::ReplayCompleted {
-                        receipt_bytes,
-                    },
-                );
-            }
-            CloudflareTenantRootRefreshDecisionV1::ReplayFailed {
-                failure_receipt_bytes,
-            } => {
-                return Ok(
-                    CloudflareTenantRootRefreshPersistenceOutcomeV1::ReplayFailed {
-                        failure_receipt_bytes,
-                    },
-                );
-            }
-        };
-        let receipt = role_signer
-            .sign_verified_success_terminal_receipt(
-                executed.executed(),
-                executed.evidence_bytes(),
-                terminal_at_ms,
+        command: &VerifiedTenantRootRoleRefreshCommandV1,
+        admission: CloudflareTenantRootRefreshAdmissionV1,
+        durable_state: &CloudflareTenantRootRefreshDurableStateV1,
+        pending: CloudflareStoredTenantRootRoleShareV1,
+        role_verifying_key: &[u8; 32],
+    ) -> worker::Result<CloudflareTenantRootRefreshExecutedCommandV1> {
+        let scope = command.scope();
+        if scope.key() != admission.key()
+            || command.digest() != admission.command_digest()
+            || scope.key().role() != protocol_role_for_cloudflare(self.cipher.role)
+        {
+            return Err(store_error(
+                "tenant-root refresh recovery command does not match its admission",
+            ));
+        }
+        if !matches!(
+            durable_state,
+            CloudflareTenantRootRefreshDurableStateV1::Executed { .. }
+                | CloudflareTenantRootRefreshDurableStateV1::Artifacts { .. }
+        ) {
+            return Err(store_error(
+                "tenant-root refresh recovery requires an executed durable state",
+            ));
+        }
+        if durable_state.command_bytes()? != command.canonical_bytes() {
+            return Err(store_error(
+                "tenant-root refresh recovery command bytes do not match admission",
+            ));
+        }
+        let evidence_bytes = durable_state.evidence_bytes()?;
+        let evidence =
+            TenantRootSignedShareInstallationEvidenceV1::decode_and_verify_canonical_bytes(
+                &evidence_bytes,
+                role_verifying_key,
             )
             .map_err(|error| store_error(error.message()))?;
-        match self.complete_refresh(executed, receipt).await? {
-            CloudflareTenantRootCommandTerminalCommitV1::Committed { receipt_bytes } => {
-                Ok(CloudflareTenantRootRefreshPersistenceOutcomeV1::Committed { receipt_bytes })
-            }
-            CloudflareTenantRootCommandTerminalCommitV1::Replay { receipt_bytes } => Ok(
-                CloudflareTenantRootRefreshPersistenceOutcomeV1::ReplayCompleted { receipt_bytes },
-            ),
+        validate_refresh_command_evidence(command, &evidence)?;
+        validate_refresh_record_binding(command, &evidence, pending.record())?;
+        let operation_payload_digest =
+            refresh_insert_pending_payload_digest(command, pending.record(), 1)?;
+        let operation_digest = scope
+            .command_digest(TenantRootCommandOperationV1::insert_pending(
+                operation_payload_digest,
+            ))
+            .map_err(|error| store_error(error.message()))?;
+        let stored = self
+            .load_command_replay(admission.key())
+            .await?
+            .ok_or_else(|| store_error("tenant-root refresh recovery replay row is missing"))?;
+        if stored.admission_digest != Some(admission.command_digest())
+            || stored.reserved_at_ms != admission.reserved_at_ms()
+            || stored.record.command_digest() != operation_digest
+            || stored.refresh_state.as_ref() != Some(durable_state)
+            || !matches!(stored.record, TenantRootCommandReplayRecordV1::Executed(_))
+        {
+            return Err(store_error(
+                "tenant-root refresh recovery state does not match D1",
+            ));
         }
+        let executed_at_ms = stored.executed_at_ms.ok_or_else(|| {
+            store_error("tenant-root refresh recovery omitted execution timestamp")
+        })?;
+        let reservation = match reserve_tenant_root_command_v1(
+            None,
+            *admission.key(),
+            operation_digest,
+            admission.reserved_at_ms(),
+        )
+        .map_err(|error| store_error(error.message()))?
+        {
+            TenantRootCommandReplayDecisionV1::Execute(reservation) => reservation,
+            _ => {
+                return Err(store_error(
+                    "tenant-root refresh recovery could not reconstruct its reservation",
+                ));
+            }
+        };
+        let executed = reservation
+            .checkpoint_executed(executed_at_ms)
+            .map_err(|error| store_error(error.message()))?;
+        Ok(CloudflareTenantRootRefreshExecutedCommandV1 { executed, evidence })
+    }
+
+    async fn run_refresh_pending_checkpoint(
+        &self,
+        lifecycle_statement: worker::D1PreparedStatement,
+        replay_statement: worker::D1PreparedStatement,
+    ) -> worker::Result<()> {
+        let lifecycle_guard = self.command_cas_count_guard_statement(1)?;
+        let replay_guard = self.command_cas_count_guard_statement(1)?;
+        let results = self
+            .session
+            .batch(vec![
+                lifecycle_statement,
+                lifecycle_guard,
+                replay_statement,
+                replay_guard,
+            ])
+            .await?;
+        if results.len() != 4 {
+            return Err(store_error(
+                "tenant-root refresh pending checkpoint returned an invalid result count",
+            ));
+        }
+        for result in &results {
+            if !result.success() {
+                return Err(store_error(format!(
+                    "tenant-root refresh pending checkpoint statement failed: {}",
+                    result
+                        .error()
+                        .unwrap_or_else(|| "unknown D1 error".to_owned())
+                )));
+            }
+        }
+        require_changes(
+            &results[0],
+            1,
+            "tenant-root refresh pending row changed concurrently",
+        )?;
+        require_changes(
+            &results[1],
+            0,
+            "tenant-root refresh pending row count guard returned an invalid change count",
+        )?;
+        require_changes(
+            &results[2],
+            1,
+            "tenant-root refresh replay checkpoint changed concurrently",
+        )?;
+        require_changes(
+            &results[3],
+            0,
+            "tenant-root refresh replay count guard returned an invalid change count",
+        )
+    }
+
+    /// Attaches the exact immutable R2 object metadata after both artifacts
+    /// have been written. The CAS is fenced by the executed replay state.
+    pub(crate) async fn attach_refresh_artifacts(
+        &self,
+        command: &VerifiedTenantRootRoleRefreshCommandV1,
+        executed: &CloudflareTenantRootRefreshExecutedCommandV1,
+        artifacts: CloudflareTenantRootRefreshArtifactMetadataV1,
+    ) -> worker::Result<()> {
+        artifacts.validate()?;
+        let scope = command.scope();
+        if scope.key() != executed.executed().key()
+            || scope.key().role() != protocol_role_for_cloudflare(self.cipher.role)
+        {
+            return Err(store_error(
+                "tenant-root refresh artifact attachment command does not match execution",
+            ));
+        }
+        let stored = self
+            .load_command_replay(executed.executed().key())
+            .await?
+            .ok_or_else(|| store_error("tenant-root refresh execution replay row is missing"))?;
+        let stored_state = stored.refresh_state.clone().ok_or_else(|| {
+            store_error("tenant-root refresh execution replay row omitted durable state")
+        })?;
+        let prepared_artifacts = match &stored_state {
+            CloudflareTenantRootRefreshDurableStateV1::Executed {
+                prepared_artifacts, ..
+            } => prepared_artifacts.clone(),
+            CloudflareTenantRootRefreshDurableStateV1::Admitted { .. }
+            | CloudflareTenantRootRefreshDurableStateV1::Artifacts { .. } => {
+                return Err(store_error(
+                    "tenant-root refresh artifact attachment requires prepared execution state",
+                ));
+            }
+        };
+        let expected_state = CloudflareTenantRootRefreshDurableStateV1::Executed {
+            command_b64u: encode_base64url_bytes_v1(command.canonical_bytes()),
+            evidence_b64u: encode_base64url_bytes_v1(executed.evidence_bytes()),
+            prepared_artifacts: prepared_artifacts.clone(),
+        };
+        let next_state = CloudflareTenantRootRefreshDurableStateV1::Artifacts {
+            command_b64u: encode_base64url_bytes_v1(command.canonical_bytes()),
+            evidence_b64u: encode_base64url_bytes_v1(executed.evidence_bytes()),
+            prepared_artifacts,
+            artifacts,
+        };
+        let (expected_state_b64u, expected_state_digest_hex) = expected_state.encode()?;
+        let (next_state_b64u, next_state_digest_hex) = next_state.encode()?;
+        if stored.record.command_digest() != executed.executed().command_digest()
+            || stored.admission_digest != Some(command.digest())
+            || stored.refresh_state != Some(expected_state.clone())
+        {
+            return Err(store_error(
+                "tenant-root refresh execution state does not match artifact attachment",
+            ));
+        }
+        let key = executed.executed().key();
+        let replay_key_digest_hex = encode_hex(
+            key.storage_key_digest()
+                .map_err(|error| store_error(error.message()))?
+                .as_bytes(),
+        );
+        let identity_digest_hex = encode_hex(key.identity_digest().as_bytes());
+        let custody_lineage_b64u = key.custody_lineage().to_base64url();
+        let session_id_hex = encode_hex(key.session_id().as_bytes());
+        let nonce_hex = encode_hex(key.nonce().as_bytes());
+        let command_digest_hex = encode_hex(executed.executed().command_digest().as_bytes());
+        let admission_digest_hex = encode_hex(command.digest().as_bytes());
+        let reserved_at_ms = timestamp_i64(executed.executed().reserved_at_ms())?.to_string();
+        let executed_at_ms = timestamp_i64(executed.executed().executed_at_ms())?.to_string();
+        let statement = self
+            .session
+            .prepare(ATTACH_REFRESH_ARTIFACTS_SQL)
+            .bind_refs(
+                [
+                    D1Type::Text(next_state_b64u.as_str()),
+                    D1Type::Text(next_state_digest_hex.as_str()),
+                    D1Type::Text(replay_key_digest_hex.as_str()),
+                    D1Type::Text(identity_digest_hex.as_str()),
+                    D1Type::Text(custody_lineage_b64u.as_str()),
+                    D1Type::Text(session_id_hex.as_str()),
+                    D1Type::Text(nonce_hex.as_str()),
+                    D1Type::Text(self.cipher.role.as_str()),
+                    D1Type::Text(command_digest_hex.as_str()),
+                    D1Type::Text(admission_digest_hex.as_str()),
+                    D1Type::Text(reserved_at_ms.as_str()),
+                    D1Type::Text(executed_at_ms.as_str()),
+                    D1Type::Text(expected_state_b64u.as_str()),
+                    D1Type::Text(expected_state_digest_hex.as_str()),
+                ]
+                .iter(),
+            )?;
+        self.run_refresh_state_update(statement, "artifact attachment")
+            .await
+    }
+
+    /// Terminalizes a refresh only when D1 already contains the exact R2
+    /// object digests, generations, and key-generation references.
+    pub(crate) async fn complete_refresh_with_artifacts(
+        &self,
+        command: &VerifiedTenantRootRoleRefreshCommandV1,
+        executed: CloudflareTenantRootRefreshExecutedCommandV1,
+        artifacts: &CloudflareTenantRootRefreshArtifactMetadataV1,
+        receipt: VerifiedTenantRootCommandSuccessReceiptV1,
+    ) -> worker::Result<CloudflareTenantRootCommandTerminalCommitV1> {
+        artifacts.validate()?;
+        if command.scope().key() != executed.executed().key()
+            || receipt.key() != executed.executed().key()
+            || receipt.command_digest() != executed.executed().command_digest()
+        {
+            return Err(store_error(
+                "tenant-root refresh terminal inputs do not match their command",
+            ));
+        }
+        let evidence_bytes = executed.evidence_bytes().to_vec();
+        validate_refresh_success_receipt_payload(&executed.evidence, &receipt)?;
+        self.commit_refresh_terminal(
+            executed,
+            receipt,
+            command.canonical_bytes().to_vec(),
+            evidence_bytes,
+            artifacts.clone(),
+        )
+        .await
+    }
+
+    async fn commit_refresh_terminal(
+        &self,
+        executed: CloudflareTenantRootRefreshExecutedCommandV1,
+        receipt: VerifiedTenantRootCommandSuccessReceiptV1,
+        command_bytes: Vec<u8>,
+        evidence_bytes: Vec<u8>,
+        artifacts: CloudflareTenantRootRefreshArtifactMetadataV1,
+    ) -> worker::Result<CloudflareTenantRootCommandTerminalCommitV1> {
+        let CloudflareTenantRootRefreshExecutedCommandV1 { executed, .. } = executed;
+        let key = *executed.key();
+        let command_digest = executed.command_digest();
+        let stored_before = self
+            .load_command_replay(&key)
+            .await?
+            .ok_or_else(|| store_error("tenant-root refresh terminal replay row is missing"))?;
+        let expected_state = stored_before.refresh_state.clone().ok_or_else(|| {
+            store_error("tenant-root refresh terminal replay row omitted durable state")
+        })?;
+        if !matches!(
+            &expected_state,
+            CloudflareTenantRootRefreshDurableStateV1::Artifacts { .. }
+        ) || expected_state.command_bytes()? != command_bytes
+            || expected_state.evidence_bytes()? != evidence_bytes
+            || expected_state.artifacts()? != &artifacts
+            || stored_before.record.command_digest() != command_digest
+            || !matches!(
+                stored_before.record,
+                TenantRootCommandReplayRecordV1::Executed(_)
+            )
+        {
+            return Err(store_error(
+                "tenant-root refresh terminal state is not the attached artifact state",
+            ));
+        }
+        let (state_b64u, state_digest_hex) = expected_state.encode()?;
+        let receipt_digest = receipt.digest();
+        let terminal_at_ms_value = receipt.terminal_at_ms();
+        let receipt_bytes = receipt.into_canonical_bytes();
+        let receipt_b64u = encode_base64url_bytes_v1(&receipt_bytes);
+        let receipt_digest_hex = encode_hex(receipt_digest.as_bytes());
+        let terminal_at_ms = timestamp_i64(terminal_at_ms_value)?.to_string();
+        let expected_state = decode_refresh_durable_state(&state_b64u, &state_digest_hex)?;
+        let replay_key_digest_hex = encode_hex(
+            key.storage_key_digest()
+                .map_err(|error| store_error(error.message()))?
+                .as_bytes(),
+        );
+        let identity_digest_hex = encode_hex(key.identity_digest().as_bytes());
+        let custody_lineage_b64u = key.custody_lineage().to_base64url();
+        let session_id_hex = encode_hex(key.session_id().as_bytes());
+        let nonce_hex = encode_hex(key.nonce().as_bytes());
+        let command_digest_hex = encode_hex(command_digest.as_bytes());
+        let admission_digest_hex = encode_hex(
+            stored_before
+                .admission_digest
+                .ok_or_else(|| {
+                    store_error("tenant-root refresh terminal admission digest is missing")
+                })?
+                .as_bytes(),
+        );
+        let reserved_at_ms = timestamp_i64(executed.reserved_at_ms())?.to_string();
+        let executed_at_ms = timestamp_i64(executed.executed_at_ms())?.to_string();
+        let statement = self
+            .session
+            .prepare(COMMIT_REFRESH_TERMINAL_SQL)
+            .bind_refs(
+                [
+                    D1Type::Text(receipt_b64u.as_str()),
+                    D1Type::Text(receipt_digest_hex.as_str()),
+                    D1Type::Text(terminal_at_ms.as_str()),
+                    D1Type::Text(replay_key_digest_hex.as_str()),
+                    D1Type::Text(identity_digest_hex.as_str()),
+                    D1Type::Text(custody_lineage_b64u.as_str()),
+                    D1Type::Text(session_id_hex.as_str()),
+                    D1Type::Text(nonce_hex.as_str()),
+                    D1Type::Text(self.cipher.role.as_str()),
+                    D1Type::Text(command_digest_hex.as_str()),
+                    D1Type::Text(admission_digest_hex.as_str()),
+                    D1Type::Text(reserved_at_ms.as_str()),
+                    D1Type::Text(executed_at_ms.as_str()),
+                    D1Type::Text(state_b64u.as_str()),
+                    D1Type::Text(state_digest_hex.as_str()),
+                ]
+                .iter(),
+            )?;
+        let guard = self.command_cas_count_guard_statement(1)?;
+        let results = self.session.batch(vec![statement, guard]).await?;
+        if results.len() != 2 {
+            return Err(store_error(
+                "tenant-root refresh terminal commit returned an invalid result count",
+            ));
+        }
+        for result in &results {
+            if !result.success() {
+                return Err(store_error(format!(
+                    "tenant-root refresh terminal commit statement failed: {}",
+                    result
+                        .error()
+                        .unwrap_or_else(|| "unknown D1 error".to_owned())
+                )));
+            }
+        }
+        if result_changes(&results[0])? == 1 {
+            require_changes(
+                &results[1],
+                0,
+                "tenant-root refresh terminal count guard returned an invalid change count",
+            )?;
+            return Ok(CloudflareTenantRootCommandTerminalCommitV1::Committed { receipt_bytes });
+        }
+        if result_changes(&results[0])? != 0 {
+            return Err(store_error(
+                "tenant-root refresh terminal commit returned an invalid change count",
+            ));
+        }
+        let stored = self
+            .load_command_replay(&key)
+            .await?
+            .ok_or_else(|| store_error("tenant-root refresh terminal replay row disappeared"))?;
+        if !matches!(stored.record, TenantRootCommandReplayRecordV1::Completed(_))
+            || stored.refresh_state != Some(expected_state)
+            || stored.receipt_bytes.as_deref() != Some(receipt_bytes.as_slice())
+        {
+            return Err(store_error(
+                "tenant-root refresh terminal replay conflicts with durable artifacts",
+            ));
+        }
+        Ok(CloudflareTenantRootCommandTerminalCommitV1::Replay { receipt_bytes })
+    }
+
+    async fn run_refresh_state_update(
+        &self,
+        statement: worker::D1PreparedStatement,
+        operation: &str,
+    ) -> worker::Result<()> {
+        let guard = self.command_cas_count_guard_statement(1)?;
+        let results = self.session.batch(vec![statement, guard]).await?;
+        if results.len() != 2 {
+            return Err(store_error(format!(
+                "tenant-root refresh {operation} returned an invalid result count"
+            )));
+        }
+        for result in &results {
+            if !result.success() {
+                return Err(store_error(format!(
+                    "tenant-root refresh {operation} statement failed: {}",
+                    result
+                        .error()
+                        .unwrap_or_else(|| "unknown D1 error".to_owned())
+                )));
+            }
+        }
+        require_changes(
+            &results[0],
+            1,
+            "tenant-root refresh state changed concurrently",
+        )?;
+        require_changes(
+            &results[1],
+            0,
+            "tenant-root refresh state count guard returned an invalid change count",
+        )
     }
 
     /// Reserves initial creation with one exact verified evidence wire.
@@ -3351,7 +4580,9 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                 record,
                 reserved_at_ms,
                 operation_payload_digest,
-                Some(creation_admission_digest),
+                Some(TenantRootCommandAdmissionV1::InitialCreation(
+                    creation_admission_digest,
+                )),
             )
             .await?
         {
@@ -3894,6 +5125,112 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                 failure_receipt_bytes,
             } => Ok(
                 CloudflareTenantRootSwapActiveEpochDecisionV1::ReplayFailed {
+                    failure_receipt_bytes,
+                },
+            ),
+        }
+    }
+
+    /// Reserves the mandatory forward refresh for a managed-restore source.
+    ///
+    /// The restored row is deliberately kept pending. Execution consumes that
+    /// row and activates only the exact next refresh row in one D1 batch.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn reserve_managed_restore_forward_refresh(
+        &self,
+        scope: TenantRootCommandScopeV1,
+        restored_pending: CloudflareStoredTenantRootRoleShareV1,
+        refresh_pending: CloudflareStoredTenantRootRoleShareV1,
+        activation: CloudflareTenantRootActivationV1,
+        capability_digest: TenantRootLifecycleReceiptDigestV1,
+        backup_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+        installation_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+        updated_at_ms: u64,
+        reserved_at_ms: u64,
+    ) -> worker::Result<CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1> {
+        validate_managed_restore_forward_refresh_inputs(
+            &self.cipher,
+            &scope,
+            &restored_pending,
+            &refresh_pending,
+            &activation,
+            capability_digest,
+            backup_receipt_digest,
+            installation_receipt_digest,
+            updated_at_ms,
+        )?;
+        let expected_restored_revision = restored_pending.revision;
+        let expected_refresh_revision = refresh_pending.revision;
+        let operation_payload_digest = managed_restore_forward_refresh_payload_digest(
+            &scope,
+            &restored_pending,
+            &refresh_pending,
+            &activation,
+            capability_digest,
+            backup_receipt_digest,
+            installation_receipt_digest,
+            updated_at_ms,
+            expected_restored_revision,
+            expected_refresh_revision,
+        )?;
+        let operation = TenantRootCommandOperationV1::swap_active_epoch(operation_payload_digest);
+        match self
+            .reserve_scoped_command(scope, operation, reserved_at_ms)
+            .await?
+        {
+            CloudflareTenantRootCommandReplayDecisionV1::Execute { reservation } => Ok(
+                CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1::Execute {
+                    command: CloudflareTenantRootManagedRestoreForwardRefreshCommandV1 {
+                        scope,
+                        reservation,
+                        restored_pending,
+                        refresh_pending,
+                        activation,
+                        capability_digest,
+                        backup_receipt_digest,
+                        installation_receipt_digest,
+                        updated_at_ms,
+                        expected_restored_revision,
+                        expected_refresh_revision,
+                        operation_payload_digest,
+                    },
+                },
+            ),
+            CloudflareTenantRootCommandReplayDecisionV1::InProgress => {
+                Ok(CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1::InProgress)
+            }
+            CloudflareTenantRootCommandReplayDecisionV1::ResumeExecution { reservation } => Ok(
+                CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1::ResumeExecution {
+                    command: CloudflareTenantRootManagedRestoreForwardRefreshCommandV1 {
+                        scope,
+                        reservation,
+                        restored_pending,
+                        refresh_pending,
+                        activation,
+                        capability_digest,
+                        backup_receipt_digest,
+                        installation_receipt_digest,
+                        updated_at_ms,
+                        expected_restored_revision,
+                        expected_refresh_revision,
+                        operation_payload_digest,
+                    },
+                },
+            ),
+            CloudflareTenantRootCommandReplayDecisionV1::ResumeCompletion { executed } => Ok(
+                CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1::ResumeCompletion {
+                    executed,
+                },
+            ),
+            CloudflareTenantRootCommandReplayDecisionV1::ReplayCompleted { receipt_bytes } => Ok(
+                CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1::ReplayCompleted {
+                    receipt_bytes,
+                },
+            ),
+            CloudflareTenantRootCommandReplayDecisionV1::ReplayFailed {
+                failure_receipt_bytes,
+            } => Ok(
+                CloudflareTenantRootManagedRestoreForwardRefreshDecisionV1::ReplayFailed {
                     failure_receipt_bytes,
                 },
             ),
@@ -4539,18 +5876,6 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                 "tenant-root activation receipt payload does not match its exact activation receipt",
             ));
         }
-        self.complete_command(executed, receipt).await
-    }
-
-    /// Commits the refresh receipt whose payload is the exact evidence wire.
-    #[allow(dead_code)]
-    pub(crate) async fn complete_refresh(
-        &self,
-        executed: CloudflareTenantRootRefreshExecutedCommandV1,
-        receipt: VerifiedTenantRootCommandSuccessReceiptV1,
-    ) -> worker::Result<CloudflareTenantRootCommandTerminalCommitV1> {
-        let CloudflareTenantRootRefreshExecutedCommandV1 { executed, evidence } = executed;
-        validate_refresh_success_receipt_payload(&evidence, &receipt)?;
         self.complete_command(executed, receipt).await
     }
 
@@ -5260,6 +6585,43 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                 .map_err(|error| store_error(error.message()))
             })
             .transpose()?;
+        let refresh_state = match (
+            row.refresh_state_b64u.as_deref(),
+            row.refresh_state_digest_hex.as_deref(),
+        ) {
+            (None, None) => None,
+            (Some(state_b64u), Some(state_digest_hex)) => {
+                let state = decode_refresh_durable_state(state_b64u, state_digest_hex)?;
+                if admission_digest.is_none() {
+                    return Err(store_error(
+                        "tenant-root refresh durable state omitted its admission digest",
+                    ));
+                }
+                let command_bytes = state.command_bytes()?;
+                let command_digest: [u8; 32] = Sha256::digest(&command_bytes).into();
+                if admission_digest
+                    != Some(
+                        TenantRootProtocolDigestV1::from_bytes(command_digest)
+                            .map_err(|error| store_error(error.message()))?,
+                    )
+                {
+                    return Err(store_error(
+                        "tenant-root refresh durable command does not match its admission digest",
+                    ));
+                }
+                if !state.kind_matches_status(&row.status) {
+                    return Err(store_error(
+                        "tenant-root refresh durable state does not match replay status",
+                    ));
+                }
+                Some(state)
+            }
+            _ => {
+                return Err(store_error(
+                    "tenant-root refresh durable state columns must be written together",
+                ));
+            }
+        };
         let reserved_at_ms = positive_u64_from_i64(
             "tenant-root command reservation timestamp",
             row.reserved_at_ms,
@@ -5364,6 +6726,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         Ok(StoredTenantRootCommandReplayV1 {
             record,
             admission_digest,
+            refresh_state,
             receipt_bytes,
             reserved_at_ms,
             executed_at_ms,
@@ -7619,31 +8982,6 @@ fn validate_initial_creation_role_signer(
     Ok(())
 }
 
-fn validate_refresh_role_signer(
-    refresh: &CloudflareTenantRootRefreshInputV1,
-    role_signer: &CloudflareTenantRootCreationRoleSignerV1,
-) -> worker::Result<()> {
-    let role = refresh.command.role();
-    if role_signer.role() != role {
-        return Err(store_error(
-            "tenant-root refresh receipt signer role does not match its command",
-        ));
-    }
-    if role_signer.signing_key_id()
-        != refresh
-            .evidence
-            .evidence()
-            .transcript()
-            .context()
-            .signing_key_id(role)
-    {
-        return Err(store_error(
-            "tenant-root refresh receipt signer key does not match its evidence",
-        ));
-    }
-    Ok(())
-}
-
 #[allow(dead_code)]
 fn validate_initial_creation_binding(
     command: &VerifiedTenantRootRoleCreationCommandV1,
@@ -7990,6 +9328,15 @@ fn refresh_insert_pending_payload_digest(
     finish_command_payload(bytes)
 }
 
+fn refresh_admission_operation_digest(
+    scope: &TenantRootCommandScopeV1,
+    command_digest: TenantRootProtocolDigestV1,
+) -> worker::Result<TenantRootProtocolDigestV1> {
+    scope
+        .command_digest(TenantRootCommandOperationV1::insert_pending(command_digest))
+        .map_err(|error| store_error(error.message()))
+}
+
 fn activate_initial_payload_digest(
     pending: &CloudflareStoredTenantRootRoleShareV1,
     activation: &CloudflareTenantRootActivationV1,
@@ -8000,6 +9347,40 @@ fn activate_initial_payload_digest(
     push_record_public_payload(&mut bytes, &pending.record)?;
     push_command_i64(&mut bytes, expected_revision)?;
     push_activation_payload(&mut bytes, activation)?;
+    push_command_u64(&mut bytes, updated_at_ms)?;
+    finish_command_payload(bytes)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn managed_restore_forward_refresh_payload_digest(
+    scope: &TenantRootCommandScopeV1,
+    restored_pending: &CloudflareStoredTenantRootRoleShareV1,
+    refresh_pending: &CloudflareStoredTenantRootRoleShareV1,
+    activation: &CloudflareTenantRootActivationV1,
+    capability_digest: TenantRootLifecycleReceiptDigestV1,
+    backup_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+    installation_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+    updated_at_ms: u64,
+    expected_restored_revision: i64,
+    expected_refresh_revision: i64,
+) -> worker::Result<TenantRootProtocolDigestV1> {
+    let mut bytes = command_payload_start("managed_restore_forward_refresh")?;
+    let key = scope.key();
+    push_command_field(&mut bytes, key.identity_digest().as_bytes())?;
+    push_command_field(&mut bytes, key.custody_lineage().as_bytes())?;
+    push_command_field(&mut bytes, key.session_id().as_bytes())?;
+    push_command_field(&mut bytes, key.nonce().as_bytes())?;
+    push_command_field(&mut bytes, key.role().as_str().as_bytes())?;
+    push_command_u64(&mut bytes, scope.epoch().get().get())?;
+    push_command_u64(&mut bytes, scope.expected_control_plane_revision())?;
+    push_record_public_payload(&mut bytes, &restored_pending.record)?;
+    push_command_i64(&mut bytes, expected_restored_revision)?;
+    push_record_public_payload(&mut bytes, &refresh_pending.record)?;
+    push_command_i64(&mut bytes, expected_refresh_revision)?;
+    push_activation_payload(&mut bytes, activation)?;
+    push_command_field(&mut bytes, capability_digest.as_bytes())?;
+    push_command_field(&mut bytes, backup_receipt_digest.as_bytes())?;
+    push_command_field(&mut bytes, installation_receipt_digest.as_bytes())?;
     push_command_u64(&mut bytes, updated_at_ms)?;
     finish_command_payload(bytes)
 }
@@ -8571,6 +9952,117 @@ fn validate_pending_stored_record(
             "tenant-root role-private revision must be positive",
         ));
     }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_managed_restore_forward_refresh_source(
+    cipher: &TenantRootRoleD1CipherV1,
+    stored: &CloudflareStoredTenantRootRoleShareV1,
+    identity_digest: TenantRootIdentityDigestV1,
+    custody_lineage: TenantRootCustodyLineageId,
+    current_epoch: TenantRootShareEpoch,
+    capability_digest: TenantRootLifecycleReceiptDigestV1,
+    backup_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+    installation_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+) -> worker::Result<()> {
+    validate_pending_stored_record(cipher, stored)?;
+    let record_identity_digest = stored
+        .record
+        .identity
+        .digest()
+        .map_err(|error| store_error(error.message()))?;
+    if record_identity_digest != identity_digest
+        || stored.record.custody_lineage != custody_lineage
+        || stored.record.epoch != current_epoch
+    {
+        return Err(store_error(
+            "managed-restore forward-refresh source coordinates do not match its request",
+        ));
+    }
+    let CloudflareTenantRootRoleShareLifecycleV1::Pending(pending) = &stored.record.lifecycle
+    else {
+        unreachable!("pending lifecycle was checked by validate_pending_stored_record");
+    };
+    let Some((stored_capability_digest, stored_backup_receipt_digest)) =
+        pending.managed_restore_digests()
+    else {
+        return Err(store_error(
+            "managed-restore forward-refresh source is not restored material",
+        ));
+    };
+    if stored_capability_digest != capability_digest
+        || stored_backup_receipt_digest != backup_receipt_digest
+    {
+        return Err(store_error(
+            "managed-restore forward-refresh source provenance does not match its request",
+        ));
+    }
+    if pending.installation_evidence_digest() != installation_receipt_digest {
+        return Err(store_error(
+            "managed-restore forward-refresh source installation evidence does not match its request",
+        ));
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_managed_restore_forward_refresh_inputs(
+    cipher: &TenantRootRoleD1CipherV1,
+    scope: &TenantRootCommandScopeV1,
+    restored_pending: &CloudflareStoredTenantRootRoleShareV1,
+    refresh_pending: &CloudflareStoredTenantRootRoleShareV1,
+    activation: &CloudflareTenantRootActivationV1,
+    capability_digest: TenantRootLifecycleReceiptDigestV1,
+    backup_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+    installation_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+    updated_at_ms: u64,
+) -> worker::Result<()> {
+    validate_pending_stored_record(cipher, restored_pending)?;
+    validate_pending_stored_record(cipher, refresh_pending)?;
+
+    let restored_identity_digest = restored_pending
+        .record
+        .identity
+        .digest()
+        .map_err(|error| store_error(error.message()))?;
+    validate_managed_restore_forward_refresh_source(
+        cipher,
+        restored_pending,
+        restored_identity_digest,
+        restored_pending.record.custody_lineage,
+        restored_pending.record.epoch,
+        capability_digest,
+        backup_receipt_digest,
+        installation_receipt_digest,
+    )?;
+
+    validate_epoch_swap_inputs(restored_pending, refresh_pending)?;
+    let refresh_identity_digest = refresh_pending
+        .record
+        .identity
+        .digest()
+        .map_err(|error| store_error(error.message()))?;
+    if refresh_identity_digest != restored_identity_digest {
+        return Err(store_error(
+            "managed-restore forward refresh requires one tenant-root identity",
+        ));
+    }
+    validate_command_scope_for_record(
+        scope,
+        &refresh_pending.record,
+        refresh_pending.revision,
+        "managed-restore forward refresh",
+    )?;
+    validate_activation_receipt_against_swap_records(
+        activation,
+        restored_pending,
+        refresh_pending,
+    )?;
+    refresh_pending
+        .record
+        .clone()
+        .into_active(activation.clone(), updated_at_ms)?;
     Ok(())
 }
 
@@ -11459,6 +12951,7 @@ mod tests {
             record: TenantRootCommandReplayRecordV1::Executed(executed),
             receipt_bytes: None,
             admission_digest: None,
+            refresh_state: None,
             reserved_at_ms: 40,
             executed_at_ms: Some(41),
         };
@@ -12370,87 +13863,96 @@ mod tests {
     }
 
     #[test]
-    fn refresh_executed_retry_retains_checkpoint_time_and_terminal_bytes() {
-        let identity = test_identity().digest().expect("identity digest");
-        let lineage = TenantRootCustodyLineageId::from_bytes([0x44; 16]).expect("lineage");
-        let key = TenantRootCommandReplayKeyV1::deriver_a(
-            identity,
-            lineage,
-            TenantRootCeremonySessionIdV1::from_bytes([0x71; 16]).expect("session"),
-            TenantRootCeremonyNonceV1::from_bytes([0x72; 32]).expect("nonce"),
-        );
-        let command_digest = TenantRootProtocolDigestV1::from_bytes([0x73; 32]).expect("digest");
-        let reservation = match reserve_tenant_root_command_v1(None, key, command_digest, 40)
-            .expect("reservation")
-        {
-            TenantRootCommandReplayDecisionV1::Execute(reservation) => reservation,
-            _ => panic!("fresh reservation must be executable"),
-        };
-        let executed = reservation.checkpoint_executed(41).expect("checkpoint");
-        let stored = StoredTenantRootCommandReplayV1 {
-            record: TenantRootCommandReplayRecordV1::Executed(executed),
-            receipt_bytes: None,
-            admission_digest: None,
-            reserved_at_ms: 40,
-            executed_at_ms: Some(41),
-        };
-        let resumed = replay_executed_from_stored(&stored).expect("resume token");
-        assert_eq!(resumed.executed_at_ms(), 41);
-        assert_eq!(resumed.reserved_at_ms(), 40);
-
+    fn refresh_durable_state_retains_exact_prepared_artifact_bytes() {
         let context = test_refresh_context();
         let evidence = test_refresh_evidence(&context, TwoPartyDeriverRole::DeriverA);
-        let evidence_bytes = evidence.canonical_bytes().to_vec();
-        let decision = CloudflareTenantRootRefreshDecisionV1::ResumeCompletion {
-            executed: CloudflareTenantRootRefreshExecutedCommandV1 {
-                executed: resumed,
-                evidence,
-            },
-        };
-        let CloudflareTenantRootRefreshDecisionV1::ResumeCompletion { executed } = decision else {
-            panic!("executed refresh retry must resume completion");
-        };
-        assert_eq!(executed.executed.executed_at_ms(), 41);
-        assert_eq!(
-            executed.evidence.canonical_bytes(),
-            evidence_bytes.as_slice()
+        let command = test_verified_refresh_command(TwoPartyDeriverRole::DeriverA, 4);
+        let managed_backup = test_verified_managed_backup(
+            &context,
+            TwoPartyDeriverRole::DeriverA,
+            17,
+            0x88,
+            &evidence,
         );
+        let commitments = TenantRootEpochCommitmentsV1::new(
+            pair_commitment(CloudflareTenantRootDeriverRoleV1::DeriverA, 17),
+            pair_commitment(CloudflareTenantRootDeriverRoleV1::DeriverB, 29),
+        )
+        .expect("refresh commitments");
+        let provider_canary = test_verified_provider_canary(
+            &context,
+            TenantRootActivationReceiptTransitionV1::RefreshSwap,
+            epoch(2),
+            &commitments,
+            TenantRootCanaryCurveFamilyV1::Ecdsa,
+            0x89,
+        );
+        let provider_canary = TenantRootSignedProviderCanaryReceiptV1::decode_canonical_bytes(
+            provider_canary.canonical_bytes(),
+        )
+        .expect("signed provider canary");
+        let prepared =
+            CloudflareTenantRootRefreshPreparedArtifactsV1::new(&managed_backup, &provider_canary)
+                .expect("prepared artifacts");
+        let state = CloudflareTenantRootRefreshDurableStateV1::Executed {
+            command_b64u: encode_base64url_bytes_v1(command.canonical_bytes()),
+            evidence_b64u: encode_base64url_bytes_v1(evidence.canonical_bytes()),
+            prepared_artifacts: prepared,
+        };
+        let (state_b64u, state_digest_hex) = state.encode().expect("encoded durable state");
+        let decoded = decode_refresh_durable_state(&state_b64u, &state_digest_hex)
+            .expect("decoded durable state");
+        let prepared = decoded
+            .prepared_artifacts()
+            .expect("prepared artifacts accessor");
+        assert_eq!(
+            prepared.managed_backup_bytes().expect("backup bytes"),
+            managed_backup.canonical_bytes()
+        );
+        assert_eq!(
+            prepared
+                .provider_canary_receipt_bytes()
+                .expect("canary bytes"),
+            provider_canary.canonical_bytes().expect("canary bytes")
+        );
+    }
 
-        let signing_key = SigningKey::from_bytes(&[0x74; 32]);
-        let committed_receipt = TenantRootCommandTerminalReceiptV1::sign_success(
-            key,
-            command_digest,
-            b"exact terminal payload".to_vec(),
-            50,
-            "r120-refresh-command-key-v1",
-            signing_key.as_bytes(),
+    #[test]
+    fn refresh_replay_state_requires_exact_command_bytes_and_rejects_failed_state() {
+        let command = test_verified_refresh_command(TwoPartyDeriverRole::DeriverA, 4);
+        let state = CloudflareTenantRootRefreshDurableStateV1::admitted(&command)
+            .expect("refresh admission state");
+        let operation_digest =
+            refresh_admission_operation_digest(&command.scope(), command.digest())
+                .expect("refresh operation digest");
+        let reservation = match reserve_tenant_root_command_v1(
+            None,
+            *command.scope().key(),
+            operation_digest,
+            20,
         )
-        .expect("committed receipt");
-        let committed_bytes = committed_receipt
-            .canonical_bytes()
-            .expect("committed receipt bytes");
-        let changed_receipt = TenantRootCommandTerminalReceiptV1::sign_success(
-            key,
-            command_digest,
-            b"changed arrival payload".to_vec(),
-            50,
-            "r120-refresh-command-key-v1",
-            signing_key.as_bytes(),
-        )
-        .expect("changed receipt");
-        let changed_bytes = changed_receipt
-            .canonical_bytes()
-            .expect("changed receipt bytes");
-        assert_ne!(committed_bytes, changed_bytes);
-        let replay = CloudflareTenantRootRefreshDecisionV1::ReplayCompleted {
-            receipt_bytes: committed_bytes.clone(),
+        .expect("refresh reservation")
+        {
+            TenantRootCommandReplayDecisionV1::Execute(reservation) => reservation,
+            _ => panic!("fresh refresh replay must reserve"),
         };
-        let CloudflareTenantRootRefreshDecisionV1::ReplayCompleted { receipt_bytes } = replay
-        else {
-            panic!("terminal retry must replay completion");
+        let stored = StoredTenantRootCommandReplayV1 {
+            record: TenantRootCommandReplayRecordV1::Reserved(reservation),
+            admission_digest: Some(command.digest()),
+            refresh_state: Some(state.clone()),
+            receipt_bytes: None,
+            reserved_at_ms: 20,
+            executed_at_ms: None,
         };
-        assert_eq!(receipt_bytes, committed_bytes);
-        assert_ne!(receipt_bytes, changed_bytes);
+        assert_eq!(
+            refresh_replay_state_for_command(&stored, command.canonical_bytes())
+                .expect("exact refresh replay state"),
+            state
+        );
+        let mut changed_command_bytes = command.canonical_bytes().to_vec();
+        changed_command_bytes[0] ^= 1;
+        assert!(refresh_replay_state_for_command(&stored, &changed_command_bytes).is_err());
+        assert!(!state.kind_matches_status("failed"));
     }
 
     #[test]

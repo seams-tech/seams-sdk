@@ -130,7 +130,7 @@ pub use router_coordinator::{
     handle_cloudflare_router_ed25519_yao_lane_execute_private_fetch_v1,
     handle_cloudflare_router_ed25519_yao_recovery_promote_private_fetch_v1,
     handle_cloudflare_router_ed25519_yao_source_preserving_execute_private_fetch_v1,
-    CloudflareRouterEd25519YaoExecuteRequestV2, CloudflareRouterEd25519YaoLaneExecuteRequestV2,
+    CloudflareRouterEd25519YaoLaneExecuteRequestV2,
     CloudflareRouterEd25519YaoSourcePreservingExecuteRequestV1,
 };
 mod signing_worker;
@@ -345,8 +345,9 @@ use router_ab_core::{
     SignerSetV1, SigningRootShareStore, SigningWorkerActivationContextV1,
     TenantRootCustodyLineageId, TenantRootDerivationNonceV1, TenantRootDerivationOperationIdV1,
     TenantRootDerivationSessionIdV1, TenantRootIdentityDigestV1, TenantRootProtocolDigestV1,
-    TenantRootSignedActivationReceiptV1, WireMessageKindV1, WireMessageV1,
-    TENANT_ROOT_ACTIVATION_RECEIPT_MAX_BYTES_V1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
+    TenantRootSignedActivationReceiptV1, VerifiedTenantRootSignedActivationReceiptV1,
+    WireMessageKindV1, WireMessageV1, TENANT_ROOT_ACTIVATION_RECEIPT_MAX_BYTES_V1,
+    TENANT_ROOT_MAX_LIFETIME_MS_V1,
 };
 #[cfg(feature = "workers-rs")]
 use router_ab_core::{
@@ -359,7 +360,6 @@ use router_ab_core::{
     TenantRootActiveRoleBindingV1, TenantRootActiveRoleResolutionV1, TenantRootActiveRoleRowKeyV1,
     TenantRootCustodyBindingV1, TenantRootDeriverIdentitiesV1, TenantRootManagedRestoreRoleV1,
     TwoPartyDeriverRole, VerifiedTenantRootOnlineRoleShareV1,
-    VerifiedTenantRootSignedActivationReceiptV1,
 };
 use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 use serde::{Deserialize, Serialize};
@@ -4041,7 +4041,7 @@ pub struct CloudflareTenantRootCoordinatesV1 {
 }
 
 impl CloudflareTenantRootCoordinatesV1 {
-    pub(crate) fn resolve(
+    pub fn resolve(
         &self,
     ) -> RouterAbProtocolResult<(TenantRootIdentityDigestV1, TenantRootCustodyLineageId)> {
         let identity_digest_bytes = decode_base64url_fixed_32_v1(
@@ -9078,7 +9078,6 @@ pub struct CloudflareTenantRootCustodyBindingWireV1 {
 
 impl CloudflareTenantRootCustodyBindingWireV1 {
     /// Builds the exact wire from the Router's issuer-verified active receipt.
-    #[cfg(feature = "workers-rs")]
     pub fn from_verified_activation_receipt(
         activation_receipt: &VerifiedTenantRootSignedActivationReceiptV1,
         operation_id: TenantRootDerivationOperationIdV1,
@@ -9133,7 +9132,8 @@ impl CloudflareTenantRootCustodyBindingWireV1 {
         Ok(())
     }
 
-    fn activation_receipt_bytes(&self) -> RouterAbProtocolResult<Vec<u8>> {
+    /// Returns the canonical activation receipt bytes after validating the wire.
+    pub fn activation_receipt_bytes(&self) -> RouterAbProtocolResult<Vec<u8>> {
         let bytes = decode_base64url_bytes_v1(
             "tenant-root activation receipt",
             &self.activation_receipt_b64u,

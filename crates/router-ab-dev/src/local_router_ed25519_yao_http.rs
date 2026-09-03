@@ -1,9 +1,11 @@
+use router_ab_cloudflare::{
+    CloudflareEd25519YaoTenantRootContextV2, CloudflareRouterEd25519YaoExecuteRequestV2,
+};
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoEncryptedInputV1, Ed25519YaoInputPairBindingV1,
     Ed25519YaoOperationV1, PublicDigest32, RouterAbEd25519YaoExportBindingV1,
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
     RouterAdmittedExecutionAuthorityV1, RouterEd25519YaoExecuteRequestV1,
-    RouterEd25519YaoGatewayExecuteTargetV2,
 };
 
 /// Exact role inputs extracted from one validated Router execution request.
@@ -20,11 +22,15 @@ pub struct LocalRouterEd25519YaoPairDispatchV1 {
     pub pair_binding: Ed25519YaoInputPairBindingV1,
     pub deriver_a_input: Ed25519YaoEncryptedInputV1,
     pub deriver_b_input: Ed25519YaoEncryptedInputV1,
+    pub tenant_root: CloudflareEd25519YaoTenantRootContextV2,
 }
 
 impl LocalRouterEd25519YaoPairDispatchV1 {
     /// Converts the canonical core request into role-specific dispatch data.
-    pub fn from_request(request: RouterEd25519YaoExecuteRequestV1) -> Self {
+    pub fn from_request(
+        request: RouterEd25519YaoExecuteRequestV1,
+        tenant_root: CloudflareEd25519YaoTenantRootContextV2,
+    ) -> Self {
         match request {
             RouterEd25519YaoExecuteRequestV1::Registration {
                 authority,
@@ -48,6 +54,7 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
                 pair_binding,
                 deriver_a_input,
                 deriver_b_input,
+                tenant_root,
             },
             RouterEd25519YaoExecuteRequestV1::Export {
                 authority,
@@ -64,6 +71,7 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
                 pair_binding,
                 deriver_a_input,
                 deriver_b_input,
+                tenant_root,
             },
             RouterEd25519YaoExecuteRequestV1::LaneProvisioning {
                 authority,
@@ -89,6 +97,7 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
                 pair_binding,
                 deriver_a_input,
                 deriver_b_input,
+                tenant_root,
             },
         }
     }
@@ -132,6 +141,7 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
             }
         }
         self.pair_binding.validate()?;
+        self.tenant_root.validate_for_pair(&self.pair_binding)?;
         if self.pair_binding.ceremony().binding() != &self.binding
             || self.pair_binding.ceremony().binding().operation != self.operation
         {
@@ -165,17 +175,29 @@ pub fn decode_local_router_ed25519_yao_execute_request_v1(
     recipient_set_digest: PublicDigest32,
     issued_at_ms: u64,
     expires_at_ms: u64,
+    resolver: &super::LocalTenantRootResolverConfigV1,
 ) -> RouterAbProtocolResult<LocalRouterEd25519YaoPairDispatchV1> {
-    let gateway_request = serde_json::from_slice::<RouterEd25519YaoGatewayExecuteTargetV2>(body)
+    let envelope = serde_json::from_slice::<CloudflareRouterEd25519YaoExecuteRequestV2>(body)
         .map_err(|error| {
             RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::MalformedWirePayload,
                 format!("local Router Ed25519 Yao execute request is malformed: {error}"),
             )
         })?;
+    envelope.validate()?;
     let request =
-        gateway_request.into_execute_request(recipient_set_digest, issued_at_ms, expires_at_ms)?;
-    let dispatch = LocalRouterEd25519YaoPairDispatchV1::from_request(request);
+        envelope
+            .target
+            .into_execute_request(recipient_set_digest, issued_at_ms, expires_at_ms)?;
+    let tenant_root = resolver.resolve_context(
+        &envelope.tenant_root,
+        &envelope.application,
+        envelope.participant_ids,
+        request.pair_binding(),
+        issued_at_ms,
+        expires_at_ms,
+    )?;
+    let dispatch = LocalRouterEd25519YaoPairDispatchV1::from_request(request, tenant_root);
     dispatch.validate()?;
     Ok(dispatch)
 }

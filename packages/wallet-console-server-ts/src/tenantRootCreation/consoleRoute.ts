@@ -55,7 +55,6 @@ type RouterTenantRootRefreshResponseV1 = {
 };
 
 export type TenantRootRefreshRouterRequestV1 = {
-  readonly refresh_operation_id: string;
   readonly identity_digest_b64u: string;
   readonly custody_lineage_b64u: string;
 };
@@ -257,12 +256,10 @@ async function createAtRouter(
 
 async function refreshAtRouter(
   dependencies: TenantRootRefreshConsoleRouteDependenciesV1,
-  operationId: string,
   identityDigestB64u: string,
   custodyLineageB64u: string,
 ): Promise<RouterTenantRootRefreshResponseV1> {
   const routerRequest: TenantRootRefreshRouterRequestV1 = {
-    refresh_operation_id: operationId,
     identity_digest_b64u: identityDigestB64u,
     custody_lineage_b64u: custodyLineageB64u,
   };
@@ -382,9 +379,8 @@ export function createTenantRootRefreshConsoleRouteV1(
     });
     if (!authorization.ok) return json(authorization.body, authorization.status);
 
-    let operationId: string;
     try {
-      operationId = await parseOperationId(request);
+      await parseOperationId(request);
     } catch (error: unknown) {
       return json(
         {
@@ -415,7 +411,6 @@ export function createTenantRootRefreshConsoleRouteV1(
       }
       const refreshed = await refreshAtRouter(
         dependencies,
-        operationId,
         identityDigestB64u,
         active.custodyLineageB64u,
       );

@@ -40,4 +40,5 @@ signer-core = { path = "../signer-core", features = [
     "secp256k1",
 ] }
 subtle = "2.6"
+threshold-prf = { path = "../threshold-prf" }
 zeroize = { version = "1.8", features = ["zeroize_derive"] }

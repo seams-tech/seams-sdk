@@ -66,16 +66,19 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
             local_recipient_set_digest_v1(config)?,
             now_ms,
             now_ms.saturating_add(ROUTER_AUTHORITY_TTL_MS),
+            &config.tenant_root_resolver,
         )?;
         request.authority.validate_at(now_ms)?;
         let pair = request.pair_binding.clone();
         let prepare_a = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding: pair.clone(),
+            tenant_root: request.tenant_root.clone(),
             work: request.work.clone(),
             input: request.deriver_a_input.clone(),
         };
         let prepare_b = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding: pair.clone(),
+            tenant_root: request.tenant_root.clone(),
             work: request.work.clone(),
             input: request.deriver_b_input.clone(),
         };
@@ -116,6 +119,7 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
                 &config.internal_service_auth,
                 &CloudflareEd25519YaoPairExecuteRequestV1 {
                     pair_binding: pair.clone(),
+                    tenant_root: request.tenant_root.clone(),
                     work: request.work.clone(),
                     input: request.deriver_a_input.clone(),
                     local_receipt: receipt_a,

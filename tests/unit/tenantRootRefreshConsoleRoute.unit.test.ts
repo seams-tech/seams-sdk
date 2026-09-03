@@ -154,7 +154,6 @@ test('refresh route resolves active lineage and forwards only the bounded Router
     'router-internal-refresh-test',
   );
   await expect(forwarded[0]?.json()).resolves.toEqual({
-    refresh_operation_id: 'refresh-operation-test',
     identity_digest_b64u: identityDigestB64u,
     custody_lineage_b64u: CUSTODY_LINEAGE_B64U,
   });
@@ -199,7 +198,6 @@ test('refresh route rejects missing or smuggled request selectors', async () => 
 });
 
 const boundedRefreshRequest: TenantRootRefreshRouterRequestV1 = {
-  refresh_operation_id: 'refresh-operation-type-test',
   identity_digest_b64u: 'identity-digest-type-test',
   custody_lineage_b64u: 'custody-lineage-type-test',
 };

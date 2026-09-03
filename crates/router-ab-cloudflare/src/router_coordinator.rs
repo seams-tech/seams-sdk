@@ -13,9 +13,10 @@ use crate::{
     CloudflareEd25519YaoPairLookupRequestV1, CloudflareEd25519YaoPairPrepareRequestV1,
     CloudflareEd25519YaoPairStatusResponseV1, CloudflareEd25519YaoRoleFailureResponseV1,
     CloudflareEd25519YaoSourcePreservingInactiveReservationRequestV1,
-    CloudflareEd25519YaoTenantRootContextV2, CloudflareRouterProjectPolicyV1,
-    CloudflareRouterWorkerRuntimeV1, CloudflareTenantRootCoordinatesV1,
-    CloudflareWorkerEnvReaderV1, CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
+    CloudflareEd25519YaoTenantRootContextV2, CloudflareRouterEd25519YaoExecuteRequestV2,
+    CloudflareRouterProjectPolicyV1, CloudflareRouterWorkerRuntimeV1,
+    CloudflareTenantRootCoordinatesV1, CloudflareWorkerEnvReaderV1,
+    CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
@@ -35,7 +36,7 @@ use router_ab_core::{
     RouterAbEd25519YaoExportResultV1, RouterAbEd25519YaoLaneDispatchRequestV1,
     RouterAbEd25519YaoLaneDispatchResponseV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
     RouterAbProtocolResult, RouterEd25519YaoExecuteRequestV1, RouterEd25519YaoExecuteResultV1,
-    RouterEd25519YaoExecuteSuccessV1, RouterEd25519YaoGatewayExecuteTargetV2,
+    RouterEd25519YaoExecuteSuccessV1,
 };
 use router_ab_ed25519_yao::{
     commit_ed25519_yao_lane_result_v1, lane_protocol_commit_receipt_v1,
@@ -52,45 +53,6 @@ const SIGNING_WORKER_SERVICE_URL: &str = "https://router-ab-signing-worker.inter
 const ROUTER_SPAN_EVENT: &str = "router_ab_yao_coordinator_span_v1";
 const ROUTER_REPLAY_HEADER: &str = "x-seams-yao-replay";
 const ROUTER_AUTHORITY_TTL_MS: u64 = 60_000;
-
-/// Server-admitted execution envelope. Tenant-root selectors and stable-context
-/// facts are supplied by the authenticated wallet server, never by the browser.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CloudflareRouterEd25519YaoExecuteRequestV2 {
-    pub tenant_root: CloudflareTenantRootCoordinatesV1,
-    pub application: RouterAbEd25519YaoApplicationBindingFactsV1,
-    pub participant_ids: [u16; 2],
-    pub target: RouterEd25519YaoGatewayExecuteTargetV2,
-}
-
-impl CloudflareRouterEd25519YaoExecuteRequestV2 {
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.tenant_root.resolve()?;
-        validate_source_preserving_participant_ids_v1(self.participant_ids)?;
-        if self.application.wallet_id() != self.target.ceremony_binding().lifecycle.account_id {
-            return Err(invalid_coordinator(
-                "server-resolved Ed25519 application wallet does not match the ceremony",
-            ));
-        }
-        let stable_context =
-            stable_key_derivation_context_v1(&self.application, self.participant_ids).map_err(
-                |_| invalid_coordinator("server-resolved Ed25519 stable context is invalid"),
-            )?;
-        if stable_context.binding_digest()
-            != self
-                .target
-                .ceremony_binding()
-                .stable_key_context_binding
-                .into_bytes()
-        {
-            return Err(invalid_coordinator(
-                "server-resolved Ed25519 facts do not match the ceremony stable context",
-            ));
-        }
-        Ok(())
-    }
-}
 
 /// Server-admitted lane envelope with the same tenant-root binding as ceremonies.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2217,7 +2179,8 @@ mod tests {
     use router_ab_core::{
         Ed25519YaoEncryptedInputV1, Ed25519YaoInputKindV1, Ed25519YaoSessionIdV1,
         Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1,
-        MpcMaterialActivationRefV1, RootShareEpoch, TenantRootCustodyLineageId,
+        MpcMaterialActivationRefV1, RootShareEpoch, RouterEd25519YaoGatewayExecuteTargetV2,
+        TenantRootCustodyLineageId,
     };
 
     fn application() -> RouterAbEd25519YaoApplicationBindingFactsV1 {

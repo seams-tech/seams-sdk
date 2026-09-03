@@ -204,6 +204,7 @@ const TENANT_ROOT_REFRESH_COMMITMENT_REQUEST_MAX_BYTES_V1: usize =
 const TENANT_ROOT_REFRESH_INSTALLATION_REQUEST_MAX_BYTES_V1: usize =
     TENANT_ROOT_ROLE_REFRESH_COMMAND_MAX_BASE64URL_BYTES_V1
         + TENANT_ROOT_CREATION_INSTALLATION_EVIDENCE_MAX_BASE64URL_BYTES_V1
+        + TENANT_ROOT_COMMAND_TERMINAL_RECEIPT_MAX_BASE64URL_BYTES_V1
         + 128;
 #[cfg(feature = "workers-rs")]
 const TENANT_ROOT_REFRESH_CONTRIBUTION_REQUEST_MAX_BYTES_V1: usize =
@@ -751,6 +752,7 @@ pub(crate) struct CloudflareTenantRootRefreshCommitmentRequestV1 {
 pub(crate) struct CloudflareTenantRootRefreshInstallationRequestV1 {
     pub(crate) role_refresh_command_b64u: String,
     pub(crate) signed_evidence_b64u: String,
+    pub(crate) terminal_receipt_b64u: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -4839,6 +4841,45 @@ impl RouterAbTenantRootCreationDurableObject {
                 "tenant-root refresh installation role does not match its command",
             ));
         }
+        let terminal_receipt_bytes = decode_canonical_base64url(
+            "tenant-root refresh terminal receipt",
+            &request.terminal_receipt_b64u,
+            TENANT_ROOT_COMMAND_TERMINAL_RECEIPT_MAX_BYTES_V1,
+            TENANT_ROOT_COMMAND_TERMINAL_RECEIPT_MAX_BASE64URL_BYTES_V1,
+        )?;
+        let terminal_receipt =
+            TenantRootCommandTerminalReceiptV1::decode_canonical_bytes(&terminal_receipt_bytes)
+                .map_err(candidate_derivation_error)?;
+        if terminal_receipt
+            .canonical_bytes()
+            .map_err(candidate_derivation_error)?
+            != terminal_receipt_bytes
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root refresh terminal receipt is not canonical",
+            ));
+        }
+        let success = match &terminal_receipt {
+            TenantRootCommandTerminalReceiptV1::Success(receipt) => receipt,
+            TenantRootCommandTerminalReceiptV1::Failure(_) => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                    "tenant-root refresh installation requires a successful terminal receipt",
+                ));
+            }
+        };
+        let trusted_role_key = role_keys
+            .for_role_and_key_id(command.role(), context.signing_key_id(command.role()))?;
+        success
+            .verify_remote_public(
+                command.scope().key(),
+                &candidate_bytes,
+                command.issued_at_ms(),
+                context.signing_key_id(command.role()),
+                trusted_role_key,
+            )
+            .map_err(candidate_derivation_error)?;
         let now_ms = crate::cloudflare_now_unix_ms_v1()?;
         Ok(LoadedTenantRootRefreshRequestV1 {
             active,
@@ -7012,7 +7053,7 @@ fn evaluate_refresh_installation_checkpoint(
     role_keys: &TenantRootCreationRoleVerifyingKeysV1,
     commitments: &VerifiedTenantRootRefreshCommitmentPairV1,
     expected_authority_id: TenantRootControlPlaneAuthorityIdV1,
-    now_ms: u64,
+    _now_ms: u64,
 ) -> RouterAbProtocolResult<TenantRootRefreshInstallationCheckpointEvaluationV1> {
     require_refresh_fence_matches_command(&active.record.fence, command)?;
     let scope = refresh_checkpoint_scope(command, active, context, expected_authority_id)?;
@@ -7029,7 +7070,6 @@ fn evaluate_refresh_installation_checkpoint(
     let candidate_command_digest = command.digest();
     let attempt = refresh_attempt_from_command(command)?;
     let Some(existing) = existing else {
-        require_fresh_refresh_command(command, context, now_ms)?;
         let checkpoint = refresh_installation_checkpoint_record(
             scope,
             CloudflareTenantRootRefreshInstallationCheckpointStateV1::OneRoleReady {
@@ -7080,7 +7120,6 @@ fn evaluate_refresh_installation_checkpoint(
                     },
                 ));
             }
-            require_fresh_refresh_command(command, context, now_ms)?;
             let (deriver_a, deriver_b) = match candidate_role {
                 TwoPartyDeriverRole::DeriverA => (candidate, *evidence),
                 TwoPartyDeriverRole::DeriverB => (*evidence, candidate),
@@ -7281,6 +7320,7 @@ pub(crate) async fn execute_cloudflare_router_tenant_root_refresh_installation_c
     env: &worker::Env,
     command: &VerifiedTenantRootRoleRefreshCommandV1,
     evidence: &VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
+    terminal_receipt_bytes: &[u8],
 ) -> RouterAbProtocolResult<CloudflareTenantRootRefreshInstallationResponseV1> {
     let context = evidence.evidence().transcript().context();
     let context_digest = context.digest().map_err(candidate_derivation_error)?;
@@ -7295,6 +7335,7 @@ pub(crate) async fn execute_cloudflare_router_tenant_root_refresh_installation_c
     let request = CloudflareTenantRootRefreshInstallationRequestV1 {
         role_refresh_command_b64u: encode_base64url_bytes_v1(command.canonical_bytes()),
         signed_evidence_b64u: encode_base64url_bytes_v1(evidence.canonical_bytes()),
+        terminal_receipt_b64u: encode_base64url_bytes_v1(terminal_receipt_bytes),
     };
     let response = execute_cloudflare_router_tenant_root_creation_private_call_v1(
         env,
