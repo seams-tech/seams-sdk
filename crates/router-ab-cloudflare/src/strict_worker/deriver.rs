@@ -7,18 +7,18 @@ use crate::tenant_root_role_runtime::{
     CloudflareDeriverTenantRootRefreshRequestV1,
 };
 use crate::{
-    build_cloudflare_preloaded_signer_host_with_root_share_wire_v1, cloudflare_now_unix_ms_v1,
+    build_cloudflare_ecdsa_threshold_prf_outer_request_v2,
+    build_cloudflare_preloaded_signer_host_v1, cloudflare_now_unix_ms_v1,
     cloudflare_random_bytes_v1, load_cloudflare_active_tenant_root_role_share_v1,
-    map_root_share_to_protocol, CloudflareAuthenticatedSignerPrivateBootstrapRequestV1,
-    CloudflarePeerBindingV1, CloudflareRootShareStartupMetadataV1,
+    CloudflareAuthenticatedSignerPrivateBootstrapRequestV1, CloudflarePeerBindingV1,
+    CloudflareRootShareStartupMetadataV1,
     CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PENDING_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_PATH,
 };
-use router_ab_core::MpcPrfSigningRootShareWireV1;
-use zeroize::Zeroizing;
+use router_ab_core::VerifiedTenantRootOnlineRoleShareV1;
 
 #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
 pub(super) async fn handle_strict_deriver_a_fetch_v1(
@@ -177,9 +177,10 @@ impl StrictDeriverRuntimeV1 {
     feature = "strict-worker-deriver-a-entrypoint",
     feature = "strict-worker-deriver-b-entrypoint"
 ))]
-struct StrictDeriverPreloadedRequestV1 {
+struct StrictDeriverPreloadedRequestV2 {
     host: CloudflarePreloadedSignerHostV1,
     root_share_metadata: CloudflareRootShareStartupMetadataV1,
+    tenant_root_share: VerifiedTenantRootOnlineRoleShareV1,
 }
 
 #[cfg(any(
@@ -437,12 +438,24 @@ async fn handle_strict_deriver_fetch_v1(
             };
         timing.mark("parse", total_started_at_ms);
         let preload_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
-        let (registration_request, authenticated) =
+        let (registration_request, authenticated, custody_wire) =
             match private_request.into_authenticated_parts(&env, worker_role, now_unix_ms) {
                 Ok(parts) => parts,
                 Err(err) => return cloudflare_protocol_error_response_v1(err),
             };
-        let preloaded = match preload_strict_deriver_request_with_authenticated_binding_v1(
+        let public_request = match registration_request.to_threshold_prf_request() {
+            Ok(request) => request,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let outer_request = match build_cloudflare_ecdsa_threshold_prf_outer_request_v2(
+            &public_request,
+            authenticated.tenant_root_custody_binding(),
+            &custody_wire,
+        ) {
+            Ok(request) => request,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let preloaded = match preload_strict_deriver_request_with_authenticated_binding_v2(
             &env,
             &runtime,
             &authenticated,
@@ -450,6 +463,16 @@ async fn handle_strict_deriver_fetch_v1(
         .await
         {
             Ok(loaded) => loaded,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let server_share = match load_cloudflare_active_tenant_root_role_share_v1(
+            &env,
+            worker_role,
+            authenticated.tenant_root_custody_binding(),
+        )
+        .await
+        {
+            Ok(share) => share,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
         let signer_bootstrap = authenticated.bootstrap;
@@ -464,6 +487,9 @@ async fn handle_strict_deriver_fetch_v1(
                 registration_request,
                 signer_bootstrap,
                 tenant_root_custody_binding,
+                outer_request,
+                preloaded.tenant_root_share,
+                server_share,
                 runtime.envelope_decrypt_key(),
                 &preloaded.root_share_metadata,
                 now_unix_ms,
@@ -489,12 +515,24 @@ async fn handle_strict_deriver_fetch_v1(
                 Ok(parsed) => parsed,
                 Err(response) => return Ok(response),
             };
-        let (export_request, authenticated) =
+        let (export_request, authenticated, custody_wire) =
             match export_request.into_authenticated_parts(&env, worker_role, now_unix_ms) {
                 Ok(parts) => parts,
                 Err(err) => return cloudflare_protocol_error_response_v1(err),
             };
-        let preloaded = match preload_strict_deriver_request_with_authenticated_binding_v1(
+        let public_request = match export_request.to_threshold_prf_request() {
+            Ok(request) => request,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let outer_request = match build_cloudflare_ecdsa_threshold_prf_outer_request_v2(
+            &public_request,
+            authenticated.tenant_root_custody_binding(),
+            &custody_wire,
+        ) {
+            Ok(request) => request,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let preloaded = match preload_strict_deriver_request_with_authenticated_binding_v2(
             &env,
             &runtime,
             &authenticated,
@@ -513,6 +551,8 @@ async fn handle_strict_deriver_fetch_v1(
             export_request,
             signer_bootstrap,
             tenant_root_custody_binding,
+            outer_request,
+            preloaded.tenant_root_share,
             runtime.envelope_decrypt_key(),
             &preloaded.root_share_metadata,
             now_unix_ms,
@@ -535,12 +575,24 @@ async fn handle_strict_deriver_fetch_v1(
                 Ok(parsed) => parsed,
                 Err(response) => return Ok(response),
             };
-        let (refresh_request, authenticated) =
+        let (refresh_request, authenticated, custody_wire) =
             match refresh_request.into_authenticated_parts(&env, worker_role, now_unix_ms) {
                 Ok(parts) => parts,
                 Err(err) => return cloudflare_protocol_error_response_v1(err),
             };
-        let preloaded = match preload_strict_deriver_request_with_authenticated_binding_v1(
+        let public_request = match refresh_request.to_threshold_prf_request() {
+            Ok(request) => request,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let outer_request = match build_cloudflare_ecdsa_threshold_prf_outer_request_v2(
+            &public_request,
+            authenticated.tenant_root_custody_binding(),
+            &custody_wire,
+        ) {
+            Ok(request) => request,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let preloaded = match preload_strict_deriver_request_with_authenticated_binding_v2(
             &env,
             &runtime,
             &authenticated,
@@ -548,6 +600,16 @@ async fn handle_strict_deriver_fetch_v1(
         .await
         {
             Ok(loaded) => loaded,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let server_share = match load_cloudflare_active_tenant_root_role_share_v1(
+            &env,
+            worker_role,
+            authenticated.tenant_root_custody_binding(),
+        )
+        .await
+        {
+            Ok(share) => share,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
         let signer_bootstrap = authenticated.bootstrap;
@@ -559,6 +621,9 @@ async fn handle_strict_deriver_fetch_v1(
             refresh_request,
             signer_bootstrap,
             tenant_root_custody_binding,
+            outer_request,
+            preloaded.tenant_root_share,
+            server_share,
             runtime.envelope_decrypt_key(),
             &preloaded.root_share_metadata,
             now_unix_ms,
@@ -614,23 +679,27 @@ where
     feature = "strict-worker-deriver-a-entrypoint",
     feature = "strict-worker-deriver-b-entrypoint"
 ))]
-async fn preload_strict_deriver_request_with_authenticated_binding_v1(
+async fn preload_strict_deriver_request_with_authenticated_binding_v2(
     env: &Env,
     runtime: &StrictDeriverRuntimeV1,
     authenticated_request: &CloudflareAuthenticatedSignerPrivateBootstrapRequestV1,
-) -> RouterAbProtocolResult<StrictDeriverPreloadedRequestV1> {
-    let (preload_plan, host) = preload_strict_deriver_host_with_authenticated_binding_v1(
-        env,
-        runtime,
-        authenticated_request,
-    )
-    .await?;
+) -> RouterAbProtocolResult<StrictDeriverPreloadedRequestV2> {
+    let (preload_plan, host) =
+        preload_strict_deriver_host_with_authenticated_binding_v1(runtime, authenticated_request)
+            .await?;
     let root_share_metadata = host
         .root_share_startup_metadata(runtime.protocol_role(), &preload_plan.root_share_epoch)?
         .clone();
-    Ok(StrictDeriverPreloadedRequestV1 {
+    let tenant_root_share = load_cloudflare_active_tenant_root_role_share_v1(
+        env,
+        runtime.worker_role(),
+        authenticated_request.tenant_root_custody_binding(),
+    )
+    .await?;
+    Ok(StrictDeriverPreloadedRequestV2 {
         host,
         root_share_metadata,
+        tenant_root_share,
     })
 }
 
@@ -639,7 +708,6 @@ async fn preload_strict_deriver_request_with_authenticated_binding_v1(
     feature = "strict-worker-deriver-b-entrypoint"
 ))]
 async fn preload_strict_deriver_host_with_authenticated_binding_v1(
-    env: &Env,
     runtime: &StrictDeriverRuntimeV1,
     authenticated_request: &CloudflareAuthenticatedSignerPrivateBootstrapRequestV1,
 ) -> RouterAbProtocolResult<(
@@ -653,16 +721,6 @@ async fn preload_strict_deriver_host_with_authenticated_binding_v1(
     )?;
     let verifying_keys = runtime.peer_verifying_keys_for_signer_set(&preload_plan.signer_set)?;
     let preload_input = preload_plan.to_host_preload_input(Vec::new(), verifying_keys, 0)?;
-    let tenant_root_share = load_cloudflare_active_tenant_root_role_share_v1(
-        env,
-        runtime.worker_role(),
-        authenticated_request.tenant_root_custody_binding(),
-    )
-    .await?;
-    let (_, share_wire) = tenant_root_share.into_parts();
-    let signing_root_share_wire =
-        MpcPrfSigningRootShareWireV1::new(Zeroizing::new(share_wire.to_bytes()).to_vec())
-            .map_err(map_root_share_to_protocol)?;
     let root_share_metadata = CloudflareRootShareStartupMetadataV1::new(
         preload_plan.signer_set_id.clone(),
         runtime.protocol_role(),
@@ -674,12 +732,11 @@ async fn preload_strict_deriver_host_with_authenticated_binding_v1(
             runtime.worker_role().as_str()
         ),
     )?;
-    let host = build_cloudflare_preloaded_signer_host_with_root_share_wire_v1(
+    let host = build_cloudflare_preloaded_signer_host_v1(
         cloudflare_now_unix_ms_v1()?,
         runtime.protocol_role(),
         preload_input,
         root_share_metadata,
-        signing_root_share_wire,
         cloudflare_random_bytes_v1(0)?,
     )?;
     Ok((preload_plan, host))

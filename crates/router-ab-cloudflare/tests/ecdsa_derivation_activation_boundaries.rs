@@ -322,6 +322,64 @@ fn router_ab_ecdsa_derivation_registration_and_export_have_separate_activation_b
 }
 
 #[test]
+fn strict_deriver_ecdsa_stable_path_uses_server_loaded_v2_share_input() {
+    let lib_rs = read_src_file("lib.rs");
+    let deriver_rs = read_src_file("strict_worker/deriver.rs");
+    let evaluator = extract_function_body(
+        &lib_rs,
+        "evaluate_cloudflare_authenticated_stable_mpc_prf_outputs_v2",
+    );
+    let share_evaluator =
+        extract_function_body(&lib_rs, "evaluate_cloudflare_stable_mpc_prf_output_v2");
+    let evaluator_declaration_start = lib_rs
+        .find("fn evaluate_cloudflare_authenticated_stable_mpc_prf_outputs_v2")
+        .expect("V2 stable evaluator declaration should exist");
+    let evaluator_declaration_end = lib_rs[evaluator_declaration_start..]
+        .find('{')
+        .map(|offset| evaluator_declaration_start + offset)
+        .expect("V2 stable evaluator declaration should have a body");
+    let evaluator_declaration = &lib_rs[evaluator_declaration_start..evaluator_declaration_end];
+    for required in [
+        "EcdsaThresholdPrfOuterRequestV2",
+        "VerifiedTenantRootOnlineRoleShareV1",
+    ] {
+        assert!(
+            evaluator_declaration.contains(required),
+            "stable ECDSA Deriver evaluation must use `{required}`"
+        );
+    }
+    for required in [
+        "MpcPrfStableThresholdSignerInputV2::from_private_request",
+        "evaluate_mpc_prf_stable_signer_partial_with_threshold_backend_v2",
+    ] {
+        assert!(
+            share_evaluator.contains(required),
+            "stable ECDSA Deriver evaluation must use `{required}`"
+        );
+    }
+    for forbidden in [
+        "EcdsaThresholdPrfRequestV1",
+        "signing_root_share_wire",
+        "plan_mpc_prf_stable_purpose_binding_v2",
+    ] {
+        assert!(
+            !evaluator.contains(forbidden) && !share_evaluator.contains(forbidden),
+            "stable ECDSA Deriver evaluation must not use `{forbidden}`"
+        );
+    }
+    assert!(
+        deriver_rs.contains("load_cloudflare_active_tenant_root_role_share_v1")
+            && deriver_rs.contains("StrictDeriverPreloadedRequestV2")
+            && deriver_rs.contains("build_cloudflare_preloaded_signer_host_v1"),
+        "strict Deriver stable path must preload the server-authenticated V2 share"
+    );
+    assert!(
+        !deriver_rs.contains("build_cloudflare_preloaded_signer_host_with_root_share_wire_v1"),
+        "strict Deriver stable path must not preload the legacy root-share wire"
+    );
+}
+
+#[test]
 fn router_ab_ecdsa_derivation_cloudflare_boundaries_do_not_reconstruct_canonical_export_keys() {
     let lib_rs = read_src_file("lib.rs");
     let strict_worker_rs = read_src_file("strict_worker.rs");
