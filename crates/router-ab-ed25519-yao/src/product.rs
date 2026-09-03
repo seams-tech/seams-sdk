@@ -129,6 +129,25 @@ where
         &request.application_binding,
         request.participant_ids,
     )?;
+    build_product_lane_deriver_a_with_server_v1(request, server, rng)
+}
+
+/// Builds the selected lane-materialization Deriver A from prepared effective state.
+pub fn build_product_lane_deriver_a_with_server_v1<R>(
+    request: LocalEd25519YaoLaneDeriverARequestV1,
+    server: Ed25519YaoDeriverAServerContributionV1,
+    rng: &mut R,
+) -> Result<
+    (
+        Ed25519YaoCeremonyBindingV1,
+        Ed25519YaoLaneJobV1,
+        LaneMaterializationDeriverA,
+    ),
+    AdapterError,
+>
+where
+    R: CryptoRng + RngCore,
+{
     let recipients = request.recipients;
     let job = request.job;
     let (binding, _context, client) = validate_a_request(
@@ -175,6 +194,25 @@ where
         &request.application_binding,
         request.participant_ids,
     )?;
+    build_product_lane_deriver_b_with_server_v1(request, server, rng)
+}
+
+/// Builds the selected lane-materialization Deriver B from prepared effective state.
+pub fn build_product_lane_deriver_b_with_server_v1<R>(
+    request: LocalEd25519YaoLaneDeriverBRequestV1,
+    server: Ed25519YaoDeriverBServerContributionV1,
+    rng: &mut R,
+) -> Result<
+    (
+        Ed25519YaoCeremonyBindingV1,
+        Ed25519YaoLaneJobV1,
+        LaneMaterializationDeriverB,
+    ),
+    AdapterError,
+>
+where
+    R: CryptoRng + RngCore,
+{
     let recipients = request.recipients;
     let job = request.job;
     let (binding, _context, client) = validate_b_request(

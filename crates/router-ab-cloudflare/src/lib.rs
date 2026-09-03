@@ -9726,6 +9726,65 @@ impl CloudflareTenantRootCustodyBindingWireV1 {
     }
 
     #[cfg(feature = "workers-rs")]
+    fn authenticate_for_ed25519_yao(
+        &self,
+        env: &worker::Env,
+        pair_binding: &router_ab_core::Ed25519YaoInputPairBindingV1,
+        application: &router_ab_core::RouterAbEd25519YaoApplicationBindingFactsV1,
+        participant_ids: [u16; 2],
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<TenantRootCustodyBindingV1> {
+        self.validate()?;
+        pair_binding.validate()?;
+        let stable_context =
+            router_ab_ed25519_yao::stable_key_derivation_context_v1(application, participant_ids)
+                .map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    format!("Ed25519 Yao stable context is invalid: {error}"),
+                )
+            })?;
+        if stable_context.binding_digest()
+            != pair_binding
+                .binding()
+                .stable_key_context_binding
+                .into_bytes()
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Ed25519 Yao stable context does not match the admitted pair",
+            ));
+        }
+        let reader = CloudflareWorkerEnvReaderV1::new(env);
+        let issuer_keys =
+            parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(&reader)?;
+        let activation_receipt = self.verify_activation_receipt(&issuer_keys)?;
+        let stable_context_digest =
+            TenantRootProtocolDigestV1::from_bytes(stable_context.binding_digest())
+                .map_err(map_root_share_to_protocol)?;
+        let outer_transcript_digest =
+            TenantRootProtocolDigestV1::from_bytes(pair_binding.pair_digest().bytes)
+                .map_err(map_root_share_to_protocol)?;
+        let binding =
+            TenantRootCustodyBindingV1::from_verified_activation_receipt_with_stable_context_digest(
+                &activation_receipt,
+                cloudflare_tenant_root_deriver_identities_v1(env)?,
+                self.operation_id,
+                self.session_id,
+                self.nonce,
+                self.issued_at_ms,
+                self.expires_at_ms,
+                stable_context_digest,
+                outer_transcript_digest,
+            )
+            .map_err(map_root_share_to_protocol)?;
+        binding
+            .validate_at(now_unix_ms)
+            .map_err(map_root_share_to_protocol)?;
+        Ok(binding)
+    }
+
+    #[cfg(feature = "workers-rs")]
     fn authenticate_for_stable_request(
         &self,
         env: &worker::Env,

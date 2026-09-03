@@ -243,6 +243,32 @@ impl TenantRootCustodyBindingV1 {
         stable_context: &StableTenantDerivationContextV2,
         outer_transcript_digest: TenantRootProtocolDigestV1,
     ) -> RouterAbDerivationResult<Self> {
+        Self::from_verified_activation_receipt_with_stable_context_digest(
+            activation_receipt,
+            derivers,
+            operation_id,
+            session_id,
+            nonce,
+            issued_at_ms,
+            expires_at_ms,
+            stable_context.digest()?,
+            outer_transcript_digest,
+        )
+    }
+
+    /// Binds an active epoch to a protocol-specific stable-context digest.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_verified_activation_receipt_with_stable_context_digest(
+        activation_receipt: &VerifiedTenantRootSignedActivationReceiptV1,
+        derivers: TenantRootDeriverIdentitiesV1,
+        operation_id: TenantRootDerivationOperationIdV1,
+        session_id: TenantRootDerivationSessionIdV1,
+        nonce: TenantRootDerivationNonceV1,
+        issued_at_ms: u64,
+        expires_at_ms: u64,
+        stable_context_digest: TenantRootProtocolDigestV1,
+        outer_transcript_digest: TenantRootProtocolDigestV1,
+    ) -> RouterAbDerivationResult<Self> {
         let (identity_digest, custody_lineage, epoch, commitments) =
             match activation_receipt.binding() {
                 super::TenantRootActivationReceiptBindingV1::InitialCreation(binding) => (
@@ -270,7 +296,7 @@ impl TenantRootCustodyBindingV1 {
             nonce,
             issued_at_ms,
             expires_at_ms,
-            stable_context_digest: stable_context.digest()?,
+            stable_context_digest,
             outer_transcript_digest,
         };
         binding.validate()?;
