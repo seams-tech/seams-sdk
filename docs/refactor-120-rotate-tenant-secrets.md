@@ -2193,21 +2193,24 @@ ECDSA/Ed25519 continuity path or count toward its completion.
 
 ### Milestone 4: release and remove the old path
 
-- [ ] Run the deployed same-account and cross-account Ed25519 benchmark once;
-      require no new connection or client round trip and at most 10 ms warm p95
-      overhead before enabling the new profile.
+- [ ] Run the deployed same-account Ed25519 benchmark once on the exact release
+      tree; require no new connection or client round trip and at most 10 ms
+      warm p95 overhead before enabling the new profile. Run the cross-account
+      profile when the second Cloudflare account is available; it does not
+      block R120.
 - [ ] Exercise creation, refresh, interruption cleanup, one-role restore,
-      retirement, and deletion in staging with independently provisioned A/B
-      stores and keys.
-- [ ] Run the authoritative Rust, WASM, TypeScript boundary, and intended-
-      behaviour suites on the exact release tree.
+      and retirement in staging with independently provisioned A/B stores and
+      keys. Whole-root deletion is R121 scope because R120 has no deployed
+      deletion route or provider-erasure operation.
+- [ ] Run the targeted authoritative Rust, WASM, TypeScript boundary, and
+      intended-behaviour release gates on the exact release tree.
 - [ ] Fence new ceremonies, drain pre-cutover operations, activate one revision,
       and confirm wallets and clients require no migration or local mutation.
 - [ ] Remove obsolete deployment-root code, bindings, Secrets, migrations that
       were never deployed, temporary allowances, dead exports, and superseded
       tests. Preserve applied migration history and immutable evidence.
-- [ ] Update the architecture and operations documentation and mark R120
-      complete.
+- [ ] Update the active architecture and operations documentation, leave the
+      historical ledger unchanged, and mark R120 complete.
 
 ### Execution rules
 
