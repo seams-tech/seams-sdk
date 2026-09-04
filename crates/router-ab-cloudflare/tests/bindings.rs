@@ -544,6 +544,14 @@ fn lower_hex(bytes: &[u8]) -> String {
     out
 }
 
+fn control_plane_verifying_key_hex(seed: u8) -> String {
+    lower_hex(
+        &SigningKey::from_bytes(&[seed; 32])
+            .verifying_key()
+            .to_bytes(),
+    )
+}
+
 fn x25519_public_key(byte: u8) -> String {
     let mut out = String::from("x25519:");
     for _ in 0..32 {
@@ -8418,6 +8426,18 @@ fn tenant_root_control_plane_env() -> CloudflareEnvMapV1 {
             GRANT_AUTHORITY_VERIFYING_KEYS_JSON.to_string(),
         ),
         (
+            router_ab_cloudflare::OPERATIONS_INCIDENT_VERIFYING_KEY_HEX_ENV,
+            control_plane_verifying_key_hex(0x61),
+        ),
+        (
+            router_ab_cloudflare::DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV,
+            control_plane_verifying_key_hex(0x62),
+        ),
+        (
+            router_ab_cloudflare::DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV,
+            control_plane_verifying_key_hex(0x63),
+        ),
+        (
             router_ab_cloudflare::ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON_ENV,
             ROLE_VERIFYING_KEYS_JSON.to_string(),
         ),
@@ -8665,6 +8685,18 @@ fn control_plane_requires_its_active_issuer_key_id_to_be_published() {
         (
             router_ab_cloudflare::TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON_ENV,
             GRANT_AUTHORITY_VERIFYING_KEYS_JSON.to_string(),
+        ),
+        (
+            router_ab_cloudflare::OPERATIONS_INCIDENT_VERIFYING_KEY_HEX_ENV,
+            control_plane_verifying_key_hex(0x61),
+        ),
+        (
+            router_ab_cloudflare::DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV,
+            control_plane_verifying_key_hex(0x62),
+        ),
+        (
+            router_ab_cloudflare::DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV,
+            control_plane_verifying_key_hex(0x63),
         ),
         (
             router_ab_cloudflare::ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON_ENV,
