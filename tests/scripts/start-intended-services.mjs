@@ -27,7 +27,6 @@ const walletOrigin = process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localh
 const consoleOrigin = 'http://localhost:4005';
 const consoleStaticUrl = `${consoleOrigin}/dashboard-static/`;
 const projectEnvironmentId = process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID || 'local-env';
-const projectEnvironmentKey = process.env.SEAMS_INTENDED_ENVIRONMENT_KEY || 'dev';
 const publishableKey = process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local';
 const docsOrigin = process.env.SEAMS_INTENDED_DOCS_ORIGIN || 'https://docs.localhost:4003';
 const siteViteUrl = 'http://127.0.0.1:4004';
@@ -457,7 +456,7 @@ function routerEnv() {
     SEAMS_D1_LOCAL_SKIP_ENV_FILE: '1',
     SEAMS_LOCAL_CONSOLE_ORG_ID: requireLocalConsoleOrganizationId(),
     SEAMS_LOCAL_CONSOLE_PROJECT_ID: 'local-smoke-project',
-    SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID: projectEnvironmentKey,
+    SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID: projectEnvironmentId,
   };
 }
 
@@ -467,7 +466,7 @@ function prepareD1LocalWranglerRuntimeConfig() {
     localEnvRoot: routerAbLocalRoot,
     outputConfigPath: d1LocalWranglerConfigPath,
     localConsoleProjectId: 'local-smoke-project',
-    localConsoleEnvironmentId: projectEnvironmentKey,
+    localConsoleEnvironmentId: projectEnvironmentId,
   });
   d1LocalRuntimeConfig = runtime;
   localConsoleOrganizationId = runtime.localConsoleOrganizationId;

@@ -12,7 +12,7 @@ use router_ab_core::{
     TenantRootRefreshHpkeKeypairV1, TenantRootRoleRefreshCommandV1, TenantRootShareEpoch,
     TenantRootSignedRefreshCommitmentV1, TwoPartyDeriverRole,
     VerifiedTenantRootRefreshCommitmentPairV1, VerifiedTenantRootRefreshCommitmentV1,
-    VerifiedTenantRootRoleRefreshCommandV1,
+    VerifiedTenantRootRoleRefreshCommandV1, TENANT_ROOT_MAX_CLOCK_SKEW_MS_V1,
 };
 use threshold_prf::{
     derive_two_party_root_share_refresh_commitments, RootShareRefreshCoefficient,
@@ -355,7 +355,7 @@ fn constructor_rejects_freshness_context_binding_share_and_key_substitution() {
         &verifying_key,
         recipient_key_id,
         recipient_public_key,
-        ISSUED_AT_MS,
+        ISSUED_AT_MS - TENANT_ROOT_MAX_CLOCK_SKEW_MS_V1,
         &mut rng(0xe1),
     )
     .is_err());

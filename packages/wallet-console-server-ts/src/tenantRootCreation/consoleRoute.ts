@@ -164,7 +164,7 @@ async function resolveIdentity(
   return {
     orgId: claims.orgId,
     projectId,
-    envId: environment.key,
+    envId: environment.id,
     signingRootId: `${projectId}:${environment.key}`,
     signingRootVersion: environment.runtimeVersion,
   };
