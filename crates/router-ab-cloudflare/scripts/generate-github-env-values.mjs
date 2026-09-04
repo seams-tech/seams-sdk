@@ -827,6 +827,7 @@ function deploymentComponentEnvironmentNames(environmentPrefix, component) {
         `${environmentPrefix}-deriver-a`,
         `${environmentPrefix}-deriver-b`,
         `${environmentPrefix}-signing-worker`,
+        `${environmentPrefix}-tenant-root-control-plane`,
       ];
     case 'product':
       return [environmentPrefix];
@@ -1353,8 +1354,7 @@ function buildDeriverBEnvironment(input) {
 
 function buildTenantRootControlPlaneEnvironment(input) {
   // Sole holder of the R120 issuer private signing key. Provisioned as its own
-  // GitHub Environment so it can carry a separate deployment token/pipeline;
-  // no shared backend workflow job references it.
+  // GitHub Environment so it can carry a separate deployment token and pipeline.
   const environmentName = `${input.environmentPrefix}-tenant-root-control-plane`;
   const variables = input.deployment.variables;
   const secrets = buildWorkerDeploymentSecrets(
@@ -2090,6 +2090,7 @@ function validateOutput(outputDocument) {
     `${outputDocument.environmentPrefix}-deriver-a`,
     `${outputDocument.environmentPrefix}-deriver-b`,
     `${outputDocument.environmentPrefix}-signing-worker`,
+    `${outputDocument.environmentPrefix}-tenant-root-control-plane`,
   ];
   assertEqual(
     Object.keys(outputDocument.environments),
@@ -2112,6 +2113,10 @@ function validateOutput(outputDocument) {
 function validateWorkflowCoverage(outputDocument) {
   const environmentPrefix = outputDocument.environmentPrefix;
   const backendWorkflow = readDeploymentWorkflow(outputDocument.lane, 'backend');
+  const tenantRootControlPlaneWorkflow = readDeploymentWorkflow(
+    outputDocument.lane,
+    'tenant-root-control-plane',
+  );
   const frontendWorkflow = readDeploymentWorkflow(outputDocument.site, 'frontend');
   const requirements = new Map([
     [environmentPrefix, collectWorkflowRequirements(frontendWorkflow)],
@@ -2134,6 +2139,10 @@ function validateWorkflowCoverage(outputDocument) {
     [
       `${environmentPrefix}-signing-worker`,
       collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_signing_worker')),
+    ],
+    [
+      `${environmentPrefix}-tenant-root-control-plane`,
+      collectWorkflowRequirements(extractWorkflowJob(tenantRootControlPlaneWorkflow, 'deploy')),
     ],
   ]);
 
@@ -2221,6 +2230,7 @@ function validateCloudflareServiceBindingAccount(outputDocument) {
     `${outputDocument.environmentPrefix}-deriver-a`,
     `${outputDocument.environmentPrefix}-deriver-b`,
     `${outputDocument.environmentPrefix}-signing-worker`,
+    `${outputDocument.environmentPrefix}-tenant-root-control-plane`,
   ];
   const accountIds = names.map(
     (name) => outputDocument.environments[name].secrets.CLOUDFLARE_ACCOUNT_ID,
@@ -2237,6 +2247,7 @@ function validateSharedInternalServiceAuth(outputDocument) {
     `${outputDocument.environmentPrefix}-deriver-a`,
     `${outputDocument.environmentPrefix}-deriver-b`,
     `${outputDocument.environmentPrefix}-signing-worker`,
+    `${outputDocument.environmentPrefix}-tenant-root-control-plane`,
   ];
   const values = names.map(
     (name) => outputDocument.environments[name].secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
@@ -2253,6 +2264,10 @@ function validateRoleSecretIsolation(outputDocument) {
     outputDocument.environments[`${outputDocument.environmentPrefix}-deriver-b`].secrets;
   const signingWorker =
     outputDocument.environments[`${outputDocument.environmentPrefix}-signing-worker`].secrets;
+  const tenantRootControlPlane =
+    outputDocument.environments[
+      `${outputDocument.environmentPrefix}-tenant-root-control-plane`
+    ].secrets;
   assertAbsent(deriverA, [
     'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
     'DERIVER_B_PEER_SIGNING_KEY',
@@ -2272,7 +2287,20 @@ function validateRoleSecretIsolation(outputDocument) {
     'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
     'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
     'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+    'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY',
   ]);
+  assertAbsent(tenantRootControlPlane, [
+    'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
+    'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
+    'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+    'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+    'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+    'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+    'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
+    'SIGNING_WORKER_PRIVATE_D1_KEK',
+  ]);
+  assertAbsent(deriverA, ['TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY']);
+  assertAbsent(deriverB, ['TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY']);
   const operationalSecrets = [
     deriverA.DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY,
     deriverA.DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY,
@@ -2811,6 +2839,7 @@ function deploymentEnvironmentNames(environmentPrefix) {
     `${environmentPrefix}-deriver-a`,
     `${environmentPrefix}-deriver-b`,
     `${environmentPrefix}-signing-worker`,
+    `${environmentPrefix}-tenant-root-control-plane`,
   ];
 }
 
