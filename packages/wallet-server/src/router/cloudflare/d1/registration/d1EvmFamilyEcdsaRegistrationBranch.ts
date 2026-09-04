@@ -19,6 +19,7 @@ import { deriveEvmFamilySigningKeySlotId } from './d1RegistrationCeremonyRecords
 import type { RouterAbEcdsaStrictRegistrationPort } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
 
 const REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES = 3;
+const ROUTER_AB_ECDSA_REGISTRATION_REQUEST_TTL_MS = 5 * 60_000;
 
 function requireRegistrationRootShareEpoch(value: unknown) {
   const parsed = parseRootShareEpoch(value);
@@ -155,7 +156,7 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
         router_id: topology.routerId,
         client_id: String(input.walletId),
         replay_nonce: secureRandomBase64Url(24),
-        expires_at_ms: Date.now() + ttlMs,
+        expires_at_ms: Date.now() + ROUTER_AB_ECDSA_REGISTRATION_REQUEST_TTL_MS,
         deriver_recipient_keys: topology.deriverRecipientKeys,
       },
     },

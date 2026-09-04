@@ -39,6 +39,12 @@ const productionWorkerEndpoints = Object.freeze([
   { role: 'deriver-a', port: 4103, url: 'http://127.0.0.1:4103' },
   { role: 'deriver-b', port: 4104, url: 'http://127.0.0.1:4104' },
   { role: 'signing-worker', port: 4105, url: 'http://127.0.0.1:4105' },
+  {
+    role: 'tenant-root-control-plane',
+    label: 'tenant-root-control-plane',
+    port: 4106,
+    url: 'http://127.0.0.1:4106',
+  },
 ]);
 
 const localEnvRoles = [
@@ -151,7 +157,9 @@ const ecdsaDerivationClientSdkWasmPaths = [
 ];
 let strictRuntime;
 const displayMode = options.mode === 'multiplex' && process.stdout.isTTY ? 'multiplex' : 'logs';
-const labelWidth = 'signing-worker'.length;
+const labelWidth = Math.max(
+  ...productionWorkerEndpoints.map((endpoint) => (endpoint.label ?? endpoint.role).length),
+);
 const gatewayPane = {
   title: 'Gateway',
   role: 'gateway',
@@ -171,6 +179,11 @@ const workerPanes = [
     title: 'SigningWorker',
     role: 'signing-worker',
     logLabel: 'signing-worker',
+  },
+  {
+    title: 'TenantRootControlPlane',
+    role: 'tenant-root-control-plane',
+    logLabel: 'tenant-root-control-plane',
   },
 ].map((role) => ({
   ...role,
@@ -200,6 +213,7 @@ const labelColors = {
   'deriver-a': '\x1b[32m',
   'deriver-b': '\x1b[33m',
   'signing-worker': '\x1b[35m',
+  'tenant-root-control-plane': '\x1b[95m',
 };
 const resetColor = '\x1b[0m';
 const boldColor = '\x1b[1m';
@@ -334,7 +348,8 @@ function buildProductionWorkerBinaries() {
     ROUTER_AB_WORKER_BUILD_PROFILE: strictWorkerBuildProfile,
   };
   const strictWorkerRoot = join(repoRoot, 'crates', 'router-ab-cloudflare');
-  for (const role of ['router', 'deriver-a', 'deriver-b', 'signing-worker']) {
+  const roles = productionWorkerEndpoints.map((endpoint) => endpoint.role);
+  for (const role of roles) {
     run('bash', ['scripts/build-strict-worker.sh', role], buildEnvironment, strictWorkerRoot);
   }
   const missingArtifacts = missingProductionWorkerArtifactPaths();
@@ -350,7 +365,7 @@ function buildProductionWorkerBinaries() {
       {
         schema_version: STRICT_BUILD_RECEIPT_SCHEMA_VERSION,
         worker_build_profile: strictWorkerBuildProfile,
-        roles: ['router', 'deriver-a', 'deriver-b', 'signing-worker'],
+        roles,
         source_digest: strictWorkerSourceDigest(),
       },
       null,
@@ -444,7 +459,7 @@ function assertProductionWorkerBinariesReady() {
       'Router A/B Worker build receipt is invalid. Run pnpm build:sdk before pnpm router.',
     );
   }
-  const expectedRoles = ['router', 'deriver-a', 'deriver-b', 'signing-worker'];
+  const expectedRoles = productionWorkerEndpoints.map((endpoint) => endpoint.role);
   const rolesMatch =
     Array.isArray(receipt.roles) &&
     receipt.roles.length === expectedRoles.length &&
@@ -504,7 +519,7 @@ function staleBrowserEcdsaClientError(detail) {
 
 function productionWorkerArtifactPaths() {
   const paths = [];
-  for (const role of ['router', 'deriver-a', 'deriver-b', 'signing-worker']) {
+  for (const { role } of productionWorkerEndpoints) {
     paths.push(join(strictWorkerBuildRoot, role, 'worker', 'shim.mjs'));
     paths.push(join(strictWorkerBuildRoot, role, 'index_bg.wasm'));
   }
@@ -690,7 +705,7 @@ function matchingProductionWorkerProcessSpec(command, specs) {
 
 function matchingGeneratedProductionWorkerProcessSpec(command) {
   const configMatch = command.match(
-    /(?:^|\s)--config\s+(\S+\/\.runtime\/router-ab-strict\/wrangler\.(router|deriver-a|deriver-b|signing-worker)\.toml)(?:\s|$)/,
+    /(?:^|\s)--config\s+(\S+\/\.runtime\/router-ab-strict\/wrangler\.(router|deriver-a|deriver-b|signing-worker|tenant-root-control-plane)\.toml)(?:\s|$)/,
   );
   if (!configMatch) return null;
 

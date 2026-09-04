@@ -28,6 +28,7 @@ import { collectDeployedBenchmark } from './run_deployed_benchmark.mjs';
 import {
   bindPrebuiltArtifact,
   buildDeploymentPlan,
+  deploymentFeature,
   parseWhoamiAccountIds,
   renderDeploymentConfigs,
 } from './plan_cloudflare_benchmark.mjs';
@@ -1097,6 +1098,10 @@ function testDeploymentPlan() {
 
   const one = parseDeploymentEnvironment(oneAccountEnvironment());
   const oneConfigs = renderDeploymentConfigs(one);
+  assert.equal(deploymentFeature(one, 'a'), 'deriver-a-same-account-websocket');
+  assert.equal(deploymentFeature(one, 'b'), 'deriver-b-same-account-websocket');
+  assert.equal(deploymentFeature(two, 'a'), 'deriver-a-cross-account');
+  assert.equal(deploymentFeature(two, 'b'), 'deriver-b-cross-account');
   assert.equal(oneConfigs.a.services[0].service, one.b.scriptName);
   assert.equal(oneConfigs.b.routes, undefined);
 

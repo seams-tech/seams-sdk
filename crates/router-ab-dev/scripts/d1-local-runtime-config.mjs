@@ -16,6 +16,7 @@ import path from 'node:path';
 
 import { resolveLocalConsoleOrganizationId } from './local-console-identity.mjs';
 import { localPeerVerifyingKeyHex } from './router-ab-local-key-material.mjs';
+import { resolveLocalTenantRootKeyMaterial } from './strict-local-runtime-config.mjs';
 
 const X25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b656e04220420', 'hex');
 const X25519_SPKI_PREFIX = Buffer.from('302a300506032b656e032100', 'hex');
@@ -55,6 +56,7 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
 
   assertEqualEnv(routerEnv, 'SIGNING_WORKER_ID', signingWorkerEnv, 'SIGNING_WORKER_ID');
   assertRuntimeHpkeKeysAgree(routerEnv, deriverAEnv, deriverBEnv, signingWorkerEnv);
+  const tenantRootKeys = resolveLocalTenantRootKeyMaterial({ repoRoot, localEnvRoot });
 
   mkdirSync(path.dirname(outputConfigPath), { recursive: true });
   let runtimeConfig = applyRuntimePaths(
@@ -129,6 +131,11 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
     'SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID',
     input.localConsoleEnvironmentId ?? 'local',
   );
+  runtimeConfig = insertTomlVars(runtimeConfig, {
+    TENANT_ROOT_GRANT_AUTHORITY_SIGNING_KEY_ID: tenantRootKeys.grantAuthority.keyId,
+    TENANT_ROOT_GRANT_AUTHORITY_SIGNING_SEED:
+      tenantRootKeys.grantAuthority.signingSeedB64u,
+  });
 
   writeFileSync(outputConfigPath, runtimeConfig, { mode: 0o600 });
   chmodSync(outputConfigPath, 0o600);
@@ -147,6 +154,17 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
       'SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS',
     ),
   });
+}
+
+function insertTomlVars(source, assignments) {
+  const marker = '[vars]\n';
+  if (source.split(marker).length !== 2) {
+    throw new Error('D1 local Wrangler config must define exactly one [vars] section');
+  }
+  const rendered = Object.entries(assignments)
+    .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
+    .join('\n');
+  return source.replace(marker, `${marker}${rendered}\n`);
 }
 
 function createLocalCeremonyPublicJwksJson(privateJwkJson) {

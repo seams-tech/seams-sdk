@@ -394,16 +394,19 @@ function activeReceiptMatchesRecoveryActivation(
 
 type RouterExecuteTargetBoundary =
   | {
+      operation: 'registration';
       binding: RouterAbEd25519YaoRegistrationExecuteRequestV1['binding'];
       deriver_a_input: RouterAbEd25519YaoRegistrationExecuteRequestV1['deriver_a_input'];
       deriver_b_input: RouterAbEd25519YaoRegistrationExecuteRequestV1['deriver_b_input'];
     }
   | {
+      operation: 'recovery';
       binding: RouterAbEd25519YaoRecoveryExecuteRequestV1['binding'];
       deriver_a_input: RouterAbEd25519YaoRecoveryExecuteRequestV1['deriver_a_input'];
       deriver_b_input: RouterAbEd25519YaoRecoveryExecuteRequestV1['deriver_b_input'];
     }
   | {
+      operation: 'export';
       binding: RouterAbEd25519YaoExportExecuteRequestV1['binding'];
       deriver_a_input: RouterAbEd25519YaoExportExecuteRequestV1['deriver_a_input'];
       deriver_b_input: RouterAbEd25519YaoExportExecuteRequestV1['deriver_b_input'];
@@ -462,6 +465,7 @@ async function routerExecuteRequest(
         application: input.admissionRequest.application_binding,
         participant_ids: input.admissionRequest.participant_ids,
         target: {
+          operation: 'registration',
           binding: input.request.binding,
           deriver_a_input: input.request.deriver_a_input,
           deriver_b_input: input.request.deriver_b_input,
@@ -480,6 +484,7 @@ async function routerExecuteRequest(
         application: input.admissionRequest.application_binding,
         participant_ids: input.admissionRequest.participant_ids,
         target: {
+          operation: 'recovery',
           binding: input.request.binding,
           deriver_a_input: input.request.deriver_a_input,
           deriver_b_input: input.request.deriver_b_input,
@@ -495,6 +500,7 @@ async function routerExecuteRequest(
         application: input.admissionRequest.application_binding,
         participant_ids: input.admissionRequest.participant_ids,
         target: {
+          operation: 'export',
           binding: input.request.binding,
           deriver_a_input: input.request.deriver_a_input,
           deriver_b_input: input.request.deriver_b_input,

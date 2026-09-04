@@ -37,6 +37,7 @@ const STRICT_WORKER_ROLES = Object.freeze([
       localDatabaseId: '00000000-0000-0000-0000-0000000094c1',
     },
   },
+  { role: 'tenant-root-control-plane', port: 4106 },
 ]);
 const X25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b656e04220420', 'hex');
 const X25519_SPKI_PREFIX = Buffer.from('302a300506032b656e032100', 'hex');
@@ -55,12 +56,10 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
   const signingWorkerEnv = readEnvMap(
     path.join(localEnvRoot, '.env.router-ab.signing-worker.local'),
   );
-  const tenantRootControlPlaneEnv = readEnvMap(
-    path.join(repoRoot, 'crates', 'router-ab-dev', 'env', 'tenant-root-control-plane.local.example'),
-  );
-  const tenantRootIssuerVerifyingKeysJson = localTenantRootIssuerVerifyingKeysJson(
-    tenantRootControlPlaneEnv,
-  );
+  const tenantRootKeys = resolveLocalTenantRootKeyMaterial({
+    repoRoot,
+    localEnvRoot,
+  });
   const localConsoleOrganizationId = resolveLocalConsoleOrganizationId({ localEnvRoot });
   const privateD1Keys = Object.freeze({
     deriverA: deriveLocalPrivateD1KeyPair(
@@ -109,7 +108,7 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
       localConsoleOrganizationId,
       ceremonyJwksJson,
       privateD1Keys,
-      tenantRootIssuerVerifyingKeysJson,
+      tenantRootKeys,
     });
     if (privateD1) {
       config = setPrivateD1MigrationsDirectory(config, repoRoot, privateD1.migrationsDirectory);
@@ -125,6 +124,7 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
         deriverBEnv,
         signingWorkerEnv,
         privateD1Keys,
+        tenantRootKeys,
       }),
       { mode: 0o600 },
     );
@@ -211,7 +211,7 @@ function applyRoleVars(source, role, env) {
         'ROUTER_JWT_JWKS_JSON',
         env.ceremonyJwksJson,
       );
-      return setTenantRootIssuerVerifyingKeys(replaceTopologyPublicVars(config, env), env);
+      return setTenantRootPublicKeys(replaceTopologyPublicVars(config, env), env);
     case 'deriver-a':
       config = setTomlSectionAssignment(
         config,
@@ -219,23 +219,6 @@ function applyRoleVars(source, role, env) {
         'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
         requiredEnv(env.routerEnv, 'DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY'),
       );
-      config = setTomlSectionAssignment(
-        config,
-        'vars',
-        'DERIVER_A_PEER_VERIFYING_KEY_HEX',
-        localPeerVerifyingKeyHex(requiredEnv(env.deriverAEnv, 'DERIVER_A_PEER_SIGNING_KEY')),
-      );
-      config = setTomlSectionAssignment(
-        config,
-        'vars',
-        'DERIVER_B_PEER_VERIFYING_KEY_HEX',
-        localPeerVerifyingKeyHex(requiredEnv(env.deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY')),
-      );
-      return setTenantRootIssuerVerifyingKeys(
-        setPrivateD1Vars(config, 'DERIVER_ROLE_PRIVATE_D1', env.privateD1Keys.deriverA),
-        env,
-      );
-    case 'deriver-b':
       config = setTomlSectionAssignment(
         config,
         'vars',
@@ -254,8 +237,39 @@ function applyRoleVars(source, role, env) {
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
         localPeerVerifyingKeyHex(requiredEnv(env.deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY')),
       );
-      return setTenantRootIssuerVerifyingKeys(
+      return setTenantRootDeriverVars(
+        setPrivateD1Vars(config, 'DERIVER_ROLE_PRIVATE_D1', env.privateD1Keys.deriverA),
+        'A',
+        env,
+      );
+    case 'deriver-b':
+      config = setTomlSectionAssignment(
+        config,
+        'vars',
+        'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
+        requiredEnv(env.routerEnv, 'DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY'),
+      );
+      config = setTomlSectionAssignment(
+        config,
+        'vars',
+        'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
+        requiredEnv(env.routerEnv, 'DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY'),
+      );
+      config = setTomlSectionAssignment(
+        config,
+        'vars',
+        'DERIVER_A_PEER_VERIFYING_KEY_HEX',
+        localPeerVerifyingKeyHex(requiredEnv(env.deriverAEnv, 'DERIVER_A_PEER_SIGNING_KEY')),
+      );
+      config = setTomlSectionAssignment(
+        config,
+        'vars',
+        'DERIVER_B_PEER_VERIFYING_KEY_HEX',
+        localPeerVerifyingKeyHex(requiredEnv(env.deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY')),
+      );
+      return setTenantRootDeriverVars(
         setPrivateD1Vars(config, 'DERIVER_ROLE_PRIVATE_D1', env.privateD1Keys.deriverB),
+        'B',
         env,
       );
     case 'signing-worker':
@@ -266,43 +280,127 @@ function applyRoleVars(source, role, env) {
         requiredEnv(env.signingWorkerEnv, 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY'),
       );
       return setPrivateD1Vars(config, 'SIGNING_WORKER_PRIVATE_D1', env.privateD1Keys.signingWorker);
+    case 'tenant-root-control-plane':
+      config = setTomlSectionAssignment(
+        config,
+        'vars',
+        'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID',
+        env.tenantRootKeys.issuer.keyId,
+      );
+      config = setTomlSectionAssignment(
+        config,
+        'vars',
+        'TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON',
+        env.tenantRootKeys.grantAuthority.verifyingKeysJson,
+      );
+      config = setTomlSectionAssignment(
+        config,
+        'vars',
+        'OPERATIONS_INCIDENT_VERIFYING_KEY_HEX',
+        env.tenantRootKeys.operationsIncidentVerifyingKeyHex,
+      );
+      config = setTomlSectionAssignment(
+        config,
+        'vars',
+        'DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX',
+        env.tenantRootKeys.deriverACustodyAuthorityVerifyingKeyHex,
+      );
+      config = setTomlSectionAssignment(
+        config,
+        'vars',
+        'DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX',
+        env.tenantRootKeys.deriverBCustodyAuthorityVerifyingKeyHex,
+      );
+      config = setTomlSectionAssignment(
+        config,
+        'vars',
+        'DERIVER_A_PEER_VERIFYING_KEY_HEX',
+        localPeerVerifyingKeyHex(requiredEnv(env.deriverAEnv, 'DERIVER_A_PEER_SIGNING_KEY')),
+      );
+      config = setTomlSectionAssignment(
+        config,
+        'vars',
+        'DERIVER_B_PEER_VERIFYING_KEY_HEX',
+        localPeerVerifyingKeyHex(requiredEnv(env.deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY')),
+      );
+      return setTenantRootPublicKeys(config, env);
     default:
       throw new Error(`unsupported strict local worker role ${role}`);
   }
 }
 
-function setTenantRootIssuerVerifyingKeys(source, env) {
-  return setTomlSectionAssignment(
+function setTenantRootPublicKeys(source, env) {
+  let config = setTomlSectionAssignment(
     source,
     'vars',
     'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
-    env.tenantRootIssuerVerifyingKeysJson,
+    env.tenantRootKeys.issuer.verifyingKeysJson,
+  );
+  return setTomlSectionAssignment(
+    config,
+    'vars',
+    'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
+    env.tenantRootKeys.roleVerifyingKeysJson,
   );
 }
 
-function localTenantRootIssuerVerifyingKeysJson(env) {
-  const issuerKeyId = requiredEnv(env, 'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID');
-  const seedHex = requiredEnv(env, 'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY');
-  if (!/^[0-9a-f]{64}$/.test(seedHex)) {
-    throw new Error('local tenant-root control-plane issuer seed must be 32 lowercase hexadecimal bytes');
-  }
-  const privateKey = createPrivateKey({
-    key: Buffer.concat([ED25519_PKCS8_PREFIX, Buffer.from(seedHex, 'hex')]),
-    format: 'der',
-    type: 'pkcs8',
-  });
-  const publicKeyDer = createPublicKey(privateKey).export({ format: 'der', type: 'spki' });
-  if (!publicKeyDer.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)) {
-    throw new Error('local tenant-root control-plane issuer public key encoding is invalid');
-  }
-  return JSON.stringify({
-    keys: [
-      {
-        issuer_key_id: issuerKeyId,
-        verifying_key_hex: publicKeyDer.subarray(ED25519_SPKI_PREFIX.length).toString('hex'),
-      },
-    ],
-  });
+function setTenantRootDeriverVars(source, suffix, env) {
+  const role = suffix === 'A' ? env.tenantRootKeys.deriverA : env.tenantRootKeys.deriverB;
+  let config = setTenantRootPublicKeys(source, env);
+  config = setTomlSectionAssignment(
+    config,
+    'vars',
+    `DERIVER_${suffix}_TENANT_ROOT_CREATION_SIGNING_KEY_BINDING`,
+    `DERIVER_${suffix}_TENANT_ROOT_CREATION_SIGNING_KEY`,
+  );
+  config = setTomlSectionAssignment(
+    config,
+    'vars',
+    `DERIVER_${suffix}_TENANT_ROOT_CREATION_SIGNING_KEY_ID`,
+    role.creationSigningKeyId,
+  );
+  config = setTomlSectionAssignment(
+    config,
+    'vars',
+    `DERIVER_${suffix}_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF`,
+    role.onlineEpochWrappingKeyRef,
+  );
+  config = setTomlSectionAssignment(
+    config,
+    'vars',
+    `DERIVER_${suffix}_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY`,
+    role.onlineKey.publicKey,
+  );
+  config = setTomlSectionAssignment(
+    config,
+    'vars',
+    `DERIVER_${suffix}_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING`,
+    `DERIVER_${suffix}_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY`,
+  );
+  config = setTomlSectionAssignment(
+    config,
+    'vars',
+    `DERIVER_${suffix}_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID`,
+    role.managedBackupProviderId,
+  );
+  config = setTomlSectionAssignment(
+    config,
+    'vars',
+    `DERIVER_${suffix}_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION`,
+    role.managedBackupKeyVersion,
+  );
+  config = setTomlSectionAssignment(
+    config,
+    'vars',
+    `DERIVER_${suffix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY`,
+    role.managedBackupKey.publicKey,
+  );
+  return setTomlSectionAssignment(
+    config,
+    'vars',
+    `DERIVER_${suffix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING`,
+    `DERIVER_${suffix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY`,
+  );
 }
 
 function replaceTopologyPublicVars(source, env) {
@@ -358,6 +456,9 @@ function strictRoleSecretFile(role, env) {
           requiredEnv(env.deriverAEnv, 'DERIVER_A_PEER_SIGNING_KEY'),
         )}`,
         `DERIVER_A_ROLE_PRIVATE_D1_KEK=hpke-x25519-role-private-d1-private-v1:${env.privateD1Keys.deriverA.privateKeyHex}`,
+        `DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY=${env.tenantRootKeys.deriverA.creationSigningSeedB64u}`,
+        `DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY=hpke-x25519-private-v1:${env.tenantRootKeys.deriverA.onlineKey.privateKeyHex}`,
+        `DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY=hpke-x25519-private-v1:${env.tenantRootKeys.deriverA.managedBackupKey.privateKeyHex}`,
         '',
       ].join('\n');
     case 'deriver-b':
@@ -372,6 +473,9 @@ function strictRoleSecretFile(role, env) {
           requiredEnv(env.deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY'),
         )}`,
         `DERIVER_B_ROLE_PRIVATE_D1_KEK=hpke-x25519-role-private-d1-private-v1:${env.privateD1Keys.deriverB.privateKeyHex}`,
+        `DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY=${env.tenantRootKeys.deriverB.creationSigningSeedB64u}`,
+        `DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY=hpke-x25519-private-v1:${env.tenantRootKeys.deriverB.onlineKey.privateKeyHex}`,
+        `DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY=hpke-x25519-private-v1:${env.tenantRootKeys.deriverB.managedBackupKey.privateKeyHex}`,
         '',
       ].join('\n');
     case 'signing-worker':
@@ -383,6 +487,12 @@ function strictRoleSecretFile(role, env) {
           'SigningWorker server-output HPKE private key',
         )}`,
         `SIGNING_WORKER_PRIVATE_D1_KEK=hpke-x25519-server-output-private-v1:${env.privateD1Keys.signingWorker.privateKeyHex}`,
+        '',
+      ].join('\n');
+    case 'tenant-root-control-plane':
+      return [
+        internalAuthSecret,
+        `TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY=${env.tenantRootKeys.issuer.signingSeedB64u}`,
         '',
       ].join('\n');
     default:
@@ -402,11 +512,23 @@ function setPrivateD1Vars(source, prefix, keyPair) {
 }
 
 function deriveLocalPrivateD1KeyPair(seedHex, role) {
+  return deriveLocalX25519KeyPair(
+    seedHex,
+    `private-d1/${role}`,
+    `seams/router-ab/private-d1/local/v1/${role}\0`,
+  );
+}
+
+function deriveLocalX25519KeyPair(
+  seedHex,
+  purpose,
+  derivationDomain = `seams/router-ab/local/v1/${purpose}\0`,
+) {
   if (!/^[0-9a-f]{64}$/.test(seedHex)) {
-    throw new Error(`${role} local private-D1 key seed must be 32 lowercase hexadecimal bytes`);
+    throw new Error(`${purpose} local key seed must be 32 lowercase hexadecimal bytes`);
   }
   const privateKey = createHash('sha256')
-    .update(`seams/router-ab/private-d1/local/v1/${role}\0`, 'utf8')
+    .update(derivationDomain, 'utf8')
     .update(Buffer.from(seedHex, 'hex'))
     .digest();
   const privateKeyDer = Buffer.concat([X25519_PKCS8_PREFIX, privateKey]);
@@ -414,11 +536,151 @@ function deriveLocalPrivateD1KeyPair(seedHex, role) {
     createPrivateKey({ key: privateKeyDer, format: 'der', type: 'pkcs8' }),
   ).export({ format: 'der', type: 'spki' });
   if (!publicKeyDer.subarray(0, X25519_SPKI_PREFIX.length).equals(X25519_SPKI_PREFIX)) {
-    throw new Error(`${role} local private-D1 public key encoding is invalid`);
+    throw new Error(`${purpose} local X25519 public key encoding is invalid`);
   }
   return Object.freeze({
     privateKeyHex: privateKey.toString('hex'),
     publicKey: `x25519:${publicKeyDer.subarray(X25519_SPKI_PREFIX.length).toString('hex')}`,
+  });
+}
+
+function deriveLocalEd25519KeyPair(seedInput, purpose, derive = true) {
+  const sourceSeed = localSeedBytes(seedInput, purpose);
+  const seed = derive
+    ? createHash('sha256')
+        .update(`seams/router-ab/local/v1/${purpose}\0`, 'utf8')
+        .update(sourceSeed)
+        .digest()
+    : sourceSeed;
+  const privateKey = createPrivateKey({
+    key: Buffer.concat([ED25519_PKCS8_PREFIX, seed]),
+    format: 'der',
+    type: 'pkcs8',
+  });
+  const publicKeyDer = createPublicKey(privateKey).export({ format: 'der', type: 'spki' });
+  if (!publicKeyDer.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)) {
+    throw new Error(`${purpose} local Ed25519 public key encoding is invalid`);
+  }
+  return Object.freeze({
+    signingSeedB64u: seed.toString('base64url'),
+    verifyingKeyHex: publicKeyDer.subarray(ED25519_SPKI_PREFIX.length).toString('hex'),
+  });
+}
+
+export function resolveLocalTenantRootKeyMaterial(input) {
+  const repoRoot = path.resolve(input.repoRoot);
+  const localEnvRoot = path.resolve(input.localEnvRoot ?? repoRoot);
+  const controlPlaneEnv = readEnvMap(
+    path.join(repoRoot, 'crates', 'router-ab-dev', 'env', 'tenant-root-control-plane.local.example'),
+  );
+  const deriverAEnv = readEnvMap(path.join(localEnvRoot, '.env.router-ab.deriver-a.local'));
+  const deriverBEnv = readEnvMap(path.join(localEnvRoot, '.env.router-ab.deriver-b.local'));
+  const issuerKeyId = requiredEnv(
+    controlPlaneEnv,
+    'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID',
+  );
+  const issuerSeedHex = requiredEnv(
+    controlPlaneEnv,
+    'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY',
+  );
+  const issuer = deriveLocalEd25519KeyPair(issuerSeedHex, 'tenant-root/issuer', false);
+  const grantAuthority = deriveLocalEd25519KeyPair(
+    issuerSeedHex,
+    'tenant-root/grant-authority',
+  );
+  const operationsIncident = deriveLocalEd25519KeyPair(
+    issuerSeedHex,
+    'tenant-root/operations-incident',
+  );
+  const deriverACustodyAuthority = deriveLocalEd25519KeyPair(
+    issuerSeedHex,
+    'tenant-root/deriver-a-custody-authority',
+  );
+  const deriverBCustodyAuthority = deriveLocalEd25519KeyPair(
+    issuerSeedHex,
+    'tenant-root/deriver-b-custody-authority',
+  );
+  const deriverA = localTenantRootDeriverKeyMaterial(
+    'A',
+    requiredEnv(deriverAEnv, 'DERIVER_A_PEER_SIGNING_KEY'),
+    requiredEnv(deriverAEnv, 'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY'),
+  );
+  const deriverB = localTenantRootDeriverKeyMaterial(
+    'B',
+    requiredEnv(deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY'),
+    requiredEnv(deriverBEnv, 'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY'),
+  );
+  return Object.freeze({
+    issuer: Object.freeze({
+      keyId: issuerKeyId,
+      signingSeedB64u: issuer.signingSeedB64u,
+      verifyingKeysJson: issuerVerifyingKeysJson(issuerKeyId, issuer.verifyingKeyHex),
+    }),
+    grantAuthority: Object.freeze({
+      keyId: 'local-tenant-root-grant-authority-v1',
+      signingSeedB64u: grantAuthority.signingSeedB64u,
+      verifyingKeysJson: issuerVerifyingKeysJson(
+        'local-tenant-root-grant-authority-v1',
+        grantAuthority.verifyingKeyHex,
+      ),
+    }),
+    deriverA,
+    deriverB,
+    roleVerifyingKeysJson: JSON.stringify({
+      active_deriver_a_signing_key_id: deriverA.creationSigningKeyId,
+      active_deriver_b_signing_key_id: deriverB.creationSigningKeyId,
+      keys: [
+        {
+          role: 'deriver_a',
+          signing_key_id: deriverA.creationSigningKeyId,
+          verifying_key_hex: deriverA.creationVerifyingKeyHex,
+        },
+        {
+          role: 'deriver_b',
+          signing_key_id: deriverB.creationSigningKeyId,
+          verifying_key_hex: deriverB.creationVerifyingKeyHex,
+        },
+      ],
+    }),
+    operationsIncidentVerifyingKeyHex: operationsIncident.verifyingKeyHex,
+    deriverACustodyAuthorityVerifyingKeyHex: deriverACustodyAuthority.verifyingKeyHex,
+    deriverBCustodyAuthorityVerifyingKeyHex: deriverBCustodyAuthority.verifyingKeyHex,
+  });
+}
+
+function localTenantRootDeriverKeyMaterial(suffix, signingSeed, hpkeSeedHex) {
+  const lower = suffix.toLowerCase();
+  const creation = deriveLocalEd25519KeyPair(
+    signingSeed,
+    `tenant-root/${lower}/creation-signing`,
+  );
+  return Object.freeze({
+    creationSigningKeyId: `local-deriver-${lower}-tenant-root-creation-v1`,
+    creationSigningSeedB64u: creation.signingSeedB64u,
+    creationVerifyingKeyHex: creation.verifyingKeyHex,
+    onlineEpochWrappingKeyRef: `local-deriver-${lower}-tenant-root-online-epoch-v1`,
+    onlineKey: deriveLocalX25519KeyPair(hpkeSeedHex, `tenant-root/${lower}/online`),
+    managedBackupProviderId: `local-deriver-${lower}-tenant-root-managed-backup`,
+    managedBackupKeyVersion: `local-deriver-${lower}-tenant-root-backup-v1`,
+    managedBackupKey: deriveLocalX25519KeyPair(
+      hpkeSeedHex,
+      `tenant-root/${lower}/managed-backup`,
+    ),
+  });
+}
+
+function localSeedBytes(value, purpose) {
+  if (/^[0-9a-f]{64}$/.test(value)) return Buffer.from(value, 'hex');
+  if (/^[A-Za-z0-9_-]{43}$/.test(value)) {
+    const decoded = Buffer.from(value, 'base64url');
+    if (decoded.length === 32) return decoded;
+  }
+  throw new Error(`${purpose} local key seed must encode exactly 32 bytes`);
+}
+
+function issuerVerifyingKeysJson(keyId, verifyingKeyHex) {
+  return JSON.stringify({
+    keys: [{ issuer_key_id: keyId, verifying_key_hex: verifyingKeyHex }],
   });
 }
 

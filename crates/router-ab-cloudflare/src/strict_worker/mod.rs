@@ -281,6 +281,7 @@ pub(super) fn cloudflare_prewarm_response_v1(request: &Request) -> worker::Resul
 pub(super) fn cloudflare_role_failure_response_v1(
     err: RouterAbProtocolError,
 ) -> worker::Result<Response> {
+    worker::console_error!("{:?}: {}", err.code(), err.message());
     let failure = CloudflareEd25519YaoRoleFailureResponseV1::from_protocol_error(&err);
     let status = match &failure {
         CloudflareEd25519YaoRoleFailureResponseV1::RecoverableFailure { code, .. }

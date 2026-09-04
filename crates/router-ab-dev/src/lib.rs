@@ -191,7 +191,8 @@ pub use router_ab_core::{
 
 const LOCAL_NORMAL_SIGNING_ACTIVATION_MS_V1: u64 = 1_700_000_000_000;
 const LOCAL_DEV_ACCOUNT_ID_V1: &str = "alice.testnet";
-const LOCAL_DEV_ACCOUNT_PUBLIC_KEY_V1: &str = "ed25519:11111111111111111111111111111111";
+const LOCAL_DEV_APPLICATION_BINDING_DIGEST_B64U_V1: &str =
+    "ERERERERERERERERERERERERERERERERERERERERERE";
 
 /// Local worker role env key used by the private-worker development harness.
 pub const LOCAL_WORKER_ROLE_ENV_V1: &str = "ROUTER_AB_LOCAL_WORKER_ROLE";
@@ -2712,7 +2713,7 @@ fn sealed_share_record(role: Role) -> RouterAbProtocolResult<LocalSealedRootShar
 }
 
 fn local_ecdsa_threshold_prf_request_v1() -> RouterAbProtocolResult<EcdsaThresholdPrfRequestV1> {
-    let account_public_key = LOCAL_DEV_ACCOUNT_PUBLIC_KEY_V1.to_owned();
+    let account_public_key = LOCAL_DEV_APPLICATION_BINDING_DIGEST_B64U_V1.to_owned();
     let lifecycle = local_lifecycle_scope_v1(LOCAL_DEV_ACCOUNT_ID_V1)?;
     let signer_set = signer_set_v1()?;
     let metadata = RouterTranscriptMetadataV1::new(

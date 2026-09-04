@@ -251,6 +251,7 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
     { role: 'deriver-a', port: 4103 },
     { role: 'deriver-b', port: 4104 },
     { role: 'signing-worker', port: 4105 },
+    { role: 'tenant-root-control-plane', port: 4106 },
   ]);
 
   const routerConfig = readFileSync(runtime.configs[0].configPath, 'utf8');
@@ -362,7 +363,14 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
     '00000000-0000-0000-0000-0000000094a1',
     '00000000-0000-0000-0000-0000000094b1',
     '00000000-0000-0000-0000-0000000094c1',
+    undefined,
   ]);
+  expect(runtime.configs[4]).toMatchObject({
+    role: 'tenant-root-control-plane',
+    port: 4106,
+    url: 'http://127.0.0.1:4106',
+    privateD1: null,
+  });
   expect(runtime.configs[3].privateD1).toEqual({
     databaseName: 'router-ab-signing-worker-private',
     migrationsDirectory: 'signing-worker',

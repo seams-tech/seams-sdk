@@ -237,7 +237,8 @@ test('strict ECDSA activation forwards the exact Rust wire envelope', async () =
     materialActivation,
     pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1({
       kind: 'router_ab_ecdsa_pending_activation_v1',
-      canonicalPayloadJson: '{"activation":{},"activation_context":{},"registration":{}}',
+      canonicalPayloadJson:
+        '{"activation":{},"activation_context":{},"registration":{},"tenant_root_custody_binding_digest":{}}',
     }),
     clientActivation: fixtureRouterAbEcdsaActivationFacts(),
     requestPolicy: REQUEST_POLICY,
@@ -255,6 +256,7 @@ test('strict ECDSA activation forwards the exact Rust wire envelope', async () =
       activation: {},
       activation_context: {},
       registration: {},
+      tenant_root_custody_binding_digest: {},
     },
     client_activation: fixtureRouterAbEcdsaActivationFacts(),
     material_activation: materialActivation,

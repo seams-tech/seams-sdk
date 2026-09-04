@@ -393,9 +393,11 @@ function writeRenderedConfig(directory, role, config) {
   return path;
 }
 
-function deploymentFeature(configuration, role) {
+export function deploymentFeature(configuration, role) {
   if (configuration.topology === 'one-account') {
-    return role === 'a' ? 'deriver-a' : 'deriver-b';
+    return role === 'a'
+      ? 'deriver-a-same-account-websocket'
+      : 'deriver-b-same-account-websocket';
   }
   return role === 'a' ? 'deriver-a-cross-account' : 'deriver-b-cross-account';
 }

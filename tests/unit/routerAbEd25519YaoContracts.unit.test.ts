@@ -1051,6 +1051,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
       application: parsedAdmissionRequest().application_binding,
       participant_ids: parsedAdmissionRequest().participant_ids,
       target: {
+        operation: 'registration',
         binding: parsedExecution.value.binding,
         deriver_a_input: parsedExecution.value.deriver_a_input,
         deriver_b_input: parsedExecution.value.deriver_b_input,

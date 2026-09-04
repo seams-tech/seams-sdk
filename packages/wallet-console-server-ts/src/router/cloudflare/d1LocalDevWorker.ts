@@ -107,6 +107,7 @@ import {
 import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@seams/wallet-server/cloud-host';
 import { createD1TenantRootCreationGrantServiceV1 } from '../../tenantRootCreation/d1';
 import { tenantRootIdentityDigestB64uV1 } from '../../tenantRootCreation/grantSigner';
+import { createTenantRootCreationConsoleRouteV1 } from '../../tenantRootCreation/consoleRoute';
 
 interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly CONSOLE_DB: D1DatabaseLike;
@@ -138,6 +139,8 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK?: string;
   readonly ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON?: string;
   readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
+  readonly TENANT_ROOT_GRANT_AUTHORITY_SIGNING_KEY_ID: string;
+  readonly TENANT_ROOT_GRANT_AUTHORITY_SIGNING_SEED: string;
   readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
   readonly RELAY_SESSION_HMAC_SECRET?: string;
   readonly SESSION_COOKIE_NAME?: string;
@@ -1055,6 +1058,7 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     defaultProjectId: scope.projectId,
     defaultEnvironmentId: scope.envId,
   });
+  const auth = new LocalD1DevConsoleAuthAdapter(env, sessionAuth);
   const handler = createHostedWalletConsoleRouter({
     core: consoleCoreServicesFromBundle(bundle),
     walletConsole: walletConsoleServicesFromBundle(bundle),
@@ -1063,13 +1067,35 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
       namespace: bundle.tenantStorageNamespace,
     },
     corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
-    auth: new LocalD1DevConsoleAuthAdapter(env, sessionAuth),
+    auth,
     session,
     readyCheck: createLocalReadyCheck(env),
     billingStripeWebhookSigningSecret: String(env.STRIPE_WEBHOOK_SECRET || '').trim() || undefined,
   });
-  const consoleAuthHandler = new HostedConsoleAuthHandler({
+  const tenantRootCreationRoute = createTenantRootCreationConsoleRouteV1({
+    auth,
+    orgProjectEnv: bundle.orgProjectEnv,
+    grants: createD1TenantRootCreationGrantServiceV1({
+      database: env.CONSOLE_DB,
+      namespace: localTenantStorageNamespace(env),
+    }),
+    router: env.MPC_ROUTER,
+    internalServiceAuthSecret: localRouterAbInternalServiceAuthSecret(env),
+    grantAuthorityKeyId: requireLocalEnvString(
+      env.TENANT_ROOT_GRANT_AUTHORITY_SIGNING_KEY_ID,
+      'TENANT_ROOT_GRANT_AUTHORITY_SIGNING_KEY_ID',
+    ),
+    grantAuthoritySigningSeedB64u: requireLocalEnvString(
+      env.TENANT_ROOT_GRANT_AUTHORITY_SIGNING_SEED,
+      'TENANT_ROOT_GRANT_AUTHORITY_SIGNING_SEED',
+    ),
+  });
+  const handlerWithTenantRootCreation = createLocalConsoleTenantRootCreationHandler({
     handler,
+    tenantRootCreationRoute,
+  });
+  const consoleAuthHandler = new HostedConsoleAuthHandler({
+    handler: handlerWithTenantRootCreation,
     identity: createLocalD1RouterApiAuthService(env, scope.orgId).identity,
     session,
     organizationAccess: bundle.organizationAccess,
@@ -1079,6 +1105,28 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
   });
   return consoleAuthHandler.fetch.bind(consoleAuthHandler);
+}
+
+type LocalConsoleTenantRootCreationHandlerInput = {
+  readonly handler: FetchHandler;
+  readonly tenantRootCreationRoute: (request: Request) => Promise<Response | null>;
+};
+
+function createLocalConsoleTenantRootCreationHandler(
+  input: LocalConsoleTenantRootCreationHandlerInput,
+): FetchHandler {
+  return handleLocalConsoleTenantRootCreation.bind(undefined, input);
+}
+
+async function handleLocalConsoleTenantRootCreation(
+  input: LocalConsoleTenantRootCreationHandlerInput,
+  request: Request,
+  workerEnv: CfEnv | undefined,
+  ctx: CfExecutionContext | undefined,
+): Promise<Response> {
+  const response = await input.tenantRootCreationRoute(request);
+  if (response) return response;
+  return await input.handler(request, workerEnv, ctx);
 }
 
 function localConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandler> {

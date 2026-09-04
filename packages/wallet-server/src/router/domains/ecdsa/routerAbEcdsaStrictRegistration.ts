@@ -739,7 +739,12 @@ function assertNeverStrictForwardBody(value: never): never {
 }
 
 function canonicalPendingActivationJson(value: unknown): RouterAbEcdsaPendingActivationJsonV1 {
-  const record = exactObject(value, ['registration', 'activation_context', 'activation']);
+  const record = exactObject(value, [
+    'registration',
+    'tenant_root_custody_binding_digest',
+    'activation_context',
+    'activation',
+  ]);
   if (!record) {
     throw new Error('MPCRouter pending activation has an invalid envelope');
   }

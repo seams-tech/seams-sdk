@@ -31,6 +31,14 @@ const SENDER_ACCEPT_SYMBOLS = Object.freeze([
     pattern: /SenderAwaitExtension.*27LaneMaterializationOtFamily.*6accept/,
   }),
 ]);
+const OPTIMIZED_SENDER_FAMILY_SYMBOLS = Object.freeze([
+  Object.freeze({ family: 'activation', pattern: /derive_label_pad.*ActivationOtFamily/ }),
+  Object.freeze({ family: 'export', pattern: /derive_label_pad.*ExportOtFamily/ }),
+  Object.freeze({
+    family: 'lane-materialization',
+    pattern: /derive_label_pad.*LaneMaterializationOtFamily/,
+  }),
+]);
 const SECRET_BIT_PREFIX =
   String.raw`i32\.load8_u[\s\S]{0,500}?i32\.shr_u[\s\S]{0,200}?` +
   String.raw`i32\.const\s+1[\s\S]{0,100}?i32\.and`;
@@ -364,15 +372,30 @@ function symbolNames(symbolTable, pattern) {
 
 function senderAcceptSymbols(symbolTable, feature, requireSender) {
   const matches = [];
+  const counts = [];
   for (const specification of SENDER_ACCEPT_SYMBOLS) {
     const familyMatches = symbolNames(symbolTable, specification.pattern);
-    const expected = requireSender ? 1 : 0;
-    if (familyMatches.length !== expected) {
+    counts.push(familyMatches.length);
+    if (!requireSender && familyMatches.length !== 0) {
       fail(
-        `${feature} Worker WASM must contain exactly ${String(expected)} ${specification.family} IKNP sender accept symbol(s), found ${String(familyMatches.length)}`,
+        `${feature} Worker WASM must contain exactly 0 ${specification.family} IKNP sender accept symbol(s), found ${String(familyMatches.length)}`,
       );
     }
     matches.push(...familyMatches);
+  }
+  if (!requireSender || counts.every((count) => count === 1)) {
+    return matches;
+  }
+  if (!counts.every((count) => count === 0)) {
+    fail(`${feature} Worker WASM contains a partial IKNP sender symbol set`);
+  }
+  for (const specification of OPTIMIZED_SENDER_FAMILY_SYMBOLS) {
+    const familyMatches = symbolNames(symbolTable, specification.pattern);
+    if (familyMatches.length !== 1) {
+      fail(
+        `${feature} optimized Worker WASM must retain exactly 1 ${specification.family} sender family marker, found ${String(familyMatches.length)}`,
+      );
+    }
   }
   return matches;
 }
@@ -428,6 +451,14 @@ function inspectWorkerWasm(llvmObjdump, wasm, feature, requireSender) {
   assertNoSecretBitBranch(disassembly, `${feature} Worker WASM`);
 
   const senderSymbols = senderAcceptSymbols(symbolTable, feature, requireSender);
+  if (requireSender && senderSymbols.length === 0) {
+    const maskCount = countMatches(disassembly, SECRET_BIT_MASK);
+    if (maskCount < OPTIMIZED_SENDER_FAMILY_SYMBOLS.length) {
+      fail(
+        `${feature} optimized Worker WASM must retain at least ${String(OPTIMIZED_SENDER_FAMILY_SYMBOLS.length)} secret-bit mask sequences, found ${String(maskCount)}`,
+      );
+    }
+  }
   for (const senderSymbol of senderSymbols) {
     const sender = runCaptured(llvmObjdump, [`--disassemble-symbols=${senderSymbol}`, wasm]);
     assertNoSecretBitBranch(sender, `${feature} IKNP sender`);

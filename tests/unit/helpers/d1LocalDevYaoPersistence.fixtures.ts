@@ -248,21 +248,28 @@ export class LocalYaoRouterBindingFixture implements CloudflareServiceBindingFet
     | { readonly ok: true; readonly value: Response }
     | { readonly ok: false; readonly value: Response } {
     const target = executeTarget(body);
-    switch (executeOperation(target.binding)) {
+    const executeRequest = {
+      binding: target.binding,
+      deriver_a_input: target.deriver_a_input,
+      deriver_b_input: target.deriver_b_input,
+    };
+    switch (executeOperation(target)) {
       case 'registration': {
-        const execution = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(target);
+        const execution =
+          parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(executeRequest);
         if (!execution.ok) return invalidRouterRequest(execution.code);
         this.registrationExecuteCalls += 1;
         return { ok: true, value: this.activationSuccessResponse(execution.value.binding) };
       }
       case 'recovery': {
-        const execution = parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(target);
+        const execution =
+          parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(executeRequest);
         if (!execution.ok) return invalidRouterRequest(execution.code);
         this.recoveryExecuteCalls += 1;
         return { ok: true, value: this.activationSuccessResponse(execution.value.binding) };
       }
       case 'export': {
-        const execution = parseRouterAbEd25519YaoExportExecuteRequestV1(target);
+        const execution = parseRouterAbEd25519YaoExportExecuteRequestV1(executeRequest);
         if (!execution.ok) return invalidRouterRequest(execution.code);
         this.exportExecuteCalls += 1;
         return { ok: true, value: exportSuccessResponse(execution.value) };
@@ -307,16 +314,8 @@ function executeTarget(body: Record<string, unknown>): Record<string, unknown> {
   return requireRecord(body.target, 'Router execute request target envelope');
 }
 
-function executeOperation(binding: unknown): 'registration' | 'recovery' | 'export' {
-  const record = requireRecord(binding, 'Router execute binding');
-  if ('ceremony' in record) {
-    const ceremony = requireRecord(record.ceremony, 'Router execute ceremony binding');
-    const operation = ceremony.operation;
-    if (operation === 'registration' || operation === 'recovery' || operation === 'export') {
-      return operation;
-    }
-  }
-  const operation = record.operation;
+function executeOperation(target: Record<string, unknown>): 'registration' | 'recovery' | 'export' {
+  const operation = target.operation;
   if (operation === 'registration' || operation === 'recovery' || operation === 'export') {
     return operation;
   }
@@ -347,6 +346,8 @@ export function createLocalYaoWorkerEnv(input: {
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID: SIGNING_WORKER_ID,
     SIGNING_WORKER_ID,
     ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'local-yao-internal-auth',
+    TENANT_ROOT_GRANT_AUTHORITY_SIGNING_KEY_ID: 'local-yao-grant-authority-v1',
+    TENANT_ROOT_GRANT_AUTHORITY_SIGNING_SEED: 'ERERERERERERERERERERERERERERERERERERERERERE',
     ROUTER_AB_CEREMONY_JWT_ISSUER: LOCAL_CEREMONY_ISSUER,
     ROUTER_AB_CEREMONY_JWT_AUDIENCE: LOCAL_CEREMONY_AUDIENCE,
     ROUTER_AB_CEREMONY_JWT_KEY_ID: LOCAL_CEREMONY_KEY_ID,
